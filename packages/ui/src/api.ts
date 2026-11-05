@@ -421,10 +421,32 @@ export interface PageSummary {
   title: string;
   path: string;
   updatedAt: number;
+  /** An HTML page the agent wrote, or an older widget spec. */
+  kind: "html" | "spec";
+  /** The figure an HTML page offers its project's card, when it declares one. */
+  headline?: { label: string; value: unknown };
 }
+
+/** One kept write of a page, newest last. */
+export interface PageVersion {
+  version: number;
+  at: number;
+  title: string;
+  kind: "html" | "spec";
+}
+
+/** An HTML page, loaded to render in its frame. */
+export interface HtmlPagePayload {
+  record: PageSummary;
+  kind: "html";
+  page: import("@kos/shared").HtmlPage;
+}
+
+export type AnyPagePayload = HtmlPagePayload | PagePayload;
 
 export interface PagePayload {
   record: PageSummary;
+  kind?: "spec";
   spec: import("@kos/shared").PageSpec;
   data: Record<number, Record<string, unknown>[]>;
   /** Per-widget display-query failures, keyed by widget index. */
@@ -1077,6 +1099,12 @@ export const api = {
       project ? `/api/pages?project=${encodeURIComponent(project)}` : "/api/pages",
     ),
   page: (id: string) => get<PagePayload>(`/api/pages/${encodeURIComponent(id)}`),
+  /** A page of either kind, to show it. */
+  anyPage: (id: string) => get<AnyPagePayload>(`/api/pages/${encodeURIComponent(id)}`),
+  /** An HTML page's window.kos calls, checked by the server against its declarations. */
+  pageCall: (id: string, verb: "query" | "write" | "file", args: Record<string, unknown>) => post<unknown>(`/api/pages/${encodeURIComponent(id)}/${verb}`, args),
+  pageHistory: (id: string) => get<PageVersion[]>(`/api/pages/${encodeURIComponent(id)}/history`),
+  pageRollback: (id: string, version: number) => post<PageSummary>(`/api/pages/${encodeURIComponent(id)}/rollback`, { version }),
   mutate: (req: MutateRequest) => post<MutateResult>("/api/mutate", req),
   conversations: (includeArchived = false) =>
     get<Conversation[]>(

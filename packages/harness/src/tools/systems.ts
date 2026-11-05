@@ -6,10 +6,33 @@ import { deleteProject } from "../systems/remove.js";
 import type { CreateProjectInput } from "../systems/manifest.js";
 
 /**
- * Systems tools: project creation, guarded migrate, and page-spec write/list.
- * These are the primitives the agent uses to build structured projects instead
- * of inventing raw DDL or React.
+ * Systems tools: project creation, guarded migrate, and pages. These are the
+ * primitives the agent uses to build structured projects instead of inventing
+ * raw DDL; a page is HTML it writes, reaching data only through window.kos.
  */
+
+/**
+ * How to write a page, as the agent reads it in pages.write: the way a Claude
+ * artifact is written, against what KOS gives a page and nothing else.
+ */
+const PAGE_GUIDE = [
+  "Save a page for a project: one self-contained HTML document, like a Claude artifact. It shows on the dashboard in a sandboxed frame, live, and every save keeps the old one as a version (pages.history, pages.rollback).",
+  "project is the project whose data the page shows. If nothing existing covers it, call systems.project_create first; never file a page under an unrelated project because it exists.",
+  "Looks like KOS for free, light and dark: the frame sets KOS's tokens as CSS variables (--bg --panel --panel-2 --line --text --muted --faint --accent --ok --warn --danger, --r-sm --r-md, --text-sm --text-md --text-lg --text-xl --text-2xl, --mono) and styles plain markup: h1-h3, tables, inputs, buttons. Classes: .card (with .card-head .card-title), .grid (tiles that wrap), .row, .stack, .stat (.stat-value .stat-label), .btn (.btn--primary .btn--ghost .btn--danger), .pill (.pill--ok .pill--warn .pill--danger .pill--accent), .tag, .label, .hint, .empty, .table-wrap. Use the variables for any colour you add, so the page follows the theme.",
+  "Data, through window.kos (every call is a promise):",
+  "- kos.query(sql, params?) -> { rows, truncated }: a read-only SELECT over this project's own tables, at most 500 rows and 2 s. Use ? placeholders for values. Name the PHYSICAL tables systems.migrate reported.",
+  "- kos.write(table, op, values, key?): op is insert, update or delete; key is { column, value } for update and delete. Only tables and columns declared in capabilities.writes.",
+  "- kos.files.read(path) -> { text }: a text file inside the project's folder, when capabilities.files is true.",
+  "- kos.ask(text): offer a message to the project's chat; the owner confirms it. Needs capabilities.ask.",
+  "- kos.theme is 'light' or 'dark'; kos.onTheme(fn) hears a change. kos.refresh(fn) registers what to run again after the page's own writes.",
+  "Query at load and after each write, so the page shows what is in the tables now; never paste the data in. If the owner puts data in (a log, a tracker), give the page a form or buttons that call kos.write, and declare that table in capabilities.writes.",
+  "The page stays where it is: no <form> (Chrome never submits one in this frame; use inputs and a button whose click calls kos.write), no <link>, <meta http-equiv>, <iframe>, <object> or <base>, no link targets, downloads or links off the page (link within it with #id), no location, open(), setting a link's href or target, submit() or WebRTC. pages.write refuses a page that has any of these, and the frame stops them at run time.",
+  "No network: no fetch, no CDN, no external image, font or stylesheet; they are blocked. Draw with SVG, canvas or CSS. libraries: ['react'] gives window.React, window.ReactDOM (createRoot) and h = React.createElement (no JSX, there is no build step); ['charts'] gives KosCharts.bar(el, { labels, values }), KosCharts.line(el, { labels, values }) and KosCharts.pie(el, { labels, values }), drawn in the theme.",
+  "It must work from 390 px wide: let things wrap (.grid, .row, flex-wrap), no fixed widths, wide tables inside .table-wrap. The page fills the view and scrolls itself. If it reads the keyboard, call preventDefault on the keys it uses. Write a closing script tag plainly as </script>.",
+  "headline: { label, query } gives the project's card on Home a figure: a SELECT returning one value.",
+  "A page that throws shows the error with a button that asks you to fix it; read it back with pages.get first.",
+  "spec: the older JSON widget page, still accepted for pages already written that way. Prefer html.",
+].join("\n");
 
 function str(input: Record<string, unknown>, key: string): string {
   const v = input[key];
@@ -151,31 +174,40 @@ function defineSystemsTools(ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "pages.write",
-      description:
-        "Validate and save a page-spec JSON for a project. The page becomes renderable on the dashboard. Spec needs id, title, and widgets.\n" +
-        "project is the project this page belongs to: the one whose data it shows. If nothing existing covers it, call systems.project_create first. Filing a page under an unrelated project because that project happens to exist is how a snake game ends up inside a budget tracker.\n" +
-        "Widgets: stat, table, chart (line/bar/area/pie), list, markdown, card, form, custom_html.\n" +
-        "Data widgets take a read-only `query`; form/list/card take a `mutate` target ({table, columns, allow?}). allow is any of insert, update, delete.\n" +
-        "Both `query` and `mutate.table` name the PHYSICAL table, the namespaced one systems.migrate reported, not the logical name you asked it to create.\n" +
-        "If the owner has to put data in (a log, a tracker, a list they add to), the page needs a way to add a row: pair the read-only view with a form widget, or use a list or card widget with a mutate target. A page built only from queries is read-only, and the owner has no way to fill it.\n" +
-        "custom_html takes `html` and an optional `height`, and renders in a sandboxed frame WITH scripts enabled: use it for anything the fixed widgets cannot express, including interactive pages and small games.\n" +
-        "Write a closing script tag plainly as </script>; do not escape the slash, that is a JavaScript-string convention and in HTML it fails to close the tag.\n" +
-        "If the page reads the keyboard, call preventDefault on the keys it uses. The frame does not scroll, so an unhandled arrow key scrolls the dashboard behind it instead.\n" +
-        "The frame has NO network access and cannot reach the workspace. Never link an external image, font, script or stylesheet: they will fail and can break your script. Draw with canvas or CSS, and inline any asset as a data URI. Put any data the page needs directly into the html.\n" +
-        "Every widget accepts an optional `span` of quarter, third, half or full.",
+      description: PAGE_GUIDE,
       inputSchema: {
         type: "object",
         properties: {
-          project: { type: "string", description: "project slug" },
-          spec: { type: "object" },
+          project: { type: "string", description: "project slug: the project whose data the page shows" },
+          id: { type: "string", description: "page id: letters, digits, _ or -; writing an existing id replaces that page and keeps the old one as a version" },
+          title: { type: "string" },
+          html: { type: "string", description: "the whole page: an HTML document or just its body" },
+          capabilities: {
+            type: "object",
+            description: "what the page may reach through window.kos",
+            properties: {
+              query: { type: "boolean", description: "read-only queries of this project's tables; on unless false" },
+              writes: {
+                type: "array",
+                description: "tables the page may change: each { table, columns, allow? } with the PHYSICAL table name; allow is any of insert, update, delete (default insert, update)",
+                items: { type: "object" },
+              },
+              files: { type: "boolean", description: "read text files inside the project's folder" },
+              ask: { type: "boolean", description: "offer a message to the project's chat; the owner confirms each one" },
+            },
+          },
+          libraries: { type: "array", items: { type: "string", enum: ["react", "charts"] } },
+          headline: { type: "object", description: "the figure for the project's card on Home: { label, query } with a single read-only SELECT returning one value" },
+          spec: { type: "object", description: "the older JSON widget spec, kept for pages written that way; prefer html" },
         },
-        required: ["project", "spec"],
+        required: ["project"],
       },
     },
     (input) => {
       const project = str(input, "project");
-      const record = pages.write(project, input.spec);
-      return JSON.stringify(record);
+      if (input.spec !== undefined && input.html === undefined) return JSON.stringify(pages.write(project, input.spec));
+      const { project: _project, spec: _spec, ...page } = input;
+      return JSON.stringify(pages.writeHtml(project, page));
     },
     { floor: "safe" },
     { tags: ["systems"] },
@@ -184,7 +216,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "pages.list",
-      description: "List registered page specs, optionally for one project.",
+      description: "List the dashboard pages, optionally for one project: each with its kind (html, or an older spec).",
       inputSchema: {
         type: "object",
         properties: {
@@ -206,7 +238,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "pages.get",
-      description: "Load one page spec by id.",
+      description: "Load one page by id: an HTML page with its declarations, or an older spec. Read a page before changing it.",
       inputSchema: {
         type: "object",
         properties: {
@@ -218,8 +250,30 @@ function defineSystemsTools(ctx: ModuleContext): void {
     (input) => {
       const got = pages.get(str(input, "id"));
       if (!got) throw new Error(`page not found: ${input.id}`);
-      return JSON.stringify({ record: got.record, spec: got.spec });
+      return JSON.stringify(got.kind === "html" ? { record: got.record, page: got.page } : { record: got.record, spec: got.spec });
     },
+    { floor: "safe" },
+    { tags: ["systems"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "pages.history",
+      description: "List the kept versions of a page, oldest first; the last is what shows now.",
+      inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    },
+    (input) => JSON.stringify(pages.history(str(input, "id"))),
+    { floor: "safe" },
+    { tags: ["systems"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "pages.rollback",
+      description: "Put a page back as it was at one of its versions (pages.history). The rollback is itself kept as a version, so it can be undone.",
+      inputSchema: { type: "object", properties: { id: { type: "string" }, version: { type: "number" } }, required: ["id", "version"] },
+    },
+    (input) => JSON.stringify(pages.rollback(str(input, "id"), Number(input.version))),
     { floor: "safe" },
     { tags: ["systems"] },
   );
@@ -237,6 +291,8 @@ export const systemsModule: KosModule = {
       { kind: "tool", name: "pages.write", version: "1.0.0" },
       { kind: "tool", name: "pages.list", version: "1.0.0" },
       { kind: "tool", name: "pages.get", version: "1.0.0" },
+      { kind: "tool", name: "pages.history", version: "1.0.0" },
+      { kind: "tool", name: "pages.rollback", version: "1.0.0" },
     ],
     riskTier: "risky",
   },

@@ -137,4 +137,20 @@ describe("systems.migrate risk", () => {
     expect(res.isError).toBe(true);
     expect(res.content).toMatch(/op/);
   });
+
+  it("writes an HTML page through pages.write, keeps the older spec form, and rolls back", async () => {
+    const created = await registry.execute("systems.project_create", { name: "Budget", type: "tracker" });
+    const { slug } = JSON.parse(created.content) as { slug: string };
+    const html = await registry.execute("pages.write", { project: slug, id: "home", title: "Home", html: "<h1>Hi</h1>" });
+    expect(html.isError).toBe(false);
+    expect(JSON.parse(html.content)).toMatchObject({ kind: "html" });
+    const spec = await registry.execute("pages.write", { project: slug, spec: { id: "old", title: "Old", widgets: [{ type: "markdown", content: "x" }] } });
+    expect(JSON.parse(spec.content)).toMatchObject({ kind: "spec" });
+    await registry.execute("pages.write", { project: slug, id: "home", title: "Home", html: "<h1>Two</h1>" });
+    const history = JSON.parse((await registry.execute("pages.history", { id: "home" })).content) as { version: number }[];
+    expect(history.map((v) => v.version)).toEqual([1, 2]);
+    await registry.execute("pages.rollback", { id: "home", version: 1 });
+    const got = JSON.parse((await registry.execute("pages.get", { id: "home" })).content) as { page: { html: string } };
+    expect(got.page.html).toBe("<h1>Hi</h1>");
+  });
 });

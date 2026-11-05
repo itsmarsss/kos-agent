@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { isValidPageSpec, validatePageSpec, type PageSpec } from "@kos/shared";
+import { isValidPageSpec, validateHtmlPage, validatePageSpec, type HtmlPage, type PageSpec } from "@kos/shared";
 
 import type { CronStore } from "../cron/store.js";
 import type { CreateCronInput, CronCondition, CronType, ToolCall } from "../cron/types.js";
@@ -44,39 +44,53 @@ export interface BlueprintJob {
   task?: "reasoning" | "cheap";
 }
 
+/** A page a blueprint carries: a spec, or an HTML page marked as one. */
+export type BlueprintPage = PageSpec | (HtmlPage & { kind: "html" });
+
+const isHtml = (page: BlueprintPage): page is HtmlPage & { kind: "html" } => (page as { kind?: unknown }).kind === "html";
+
+/** An HTML page as written, without the blueprint's marker. */
+const htmlOf = ({ kind: _kind, ...page }: HtmlPage & { kind: "html" }): HtmlPage => page;
+
 export interface Blueprint {
   /** The project type an instance is made with: tracker, notes, budget. */
   type: string;
   instancing: Instancing;
   /** The migrator's change specs, in order. Table names are logical. */
   schema: ChangeSpec[];
-  /** Page specs with the slug tokenized. */
-  pages: PageSpec[];
+  /** Pages with the slug tokenized. */
+  pages: BlueprintPage[];
   /** Jobs with the slug tokenized, made switched off. */
   jobs: BlueprintJob[];
 }
 
-/** Replace every mention of a project's slug with the token, deep. */
+const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Replace a project's table names with the token, deep: `<slug>_` only where
+ * it starts a word and a name follows, so `preschool_x`, "high school" and a
+ * page's own code are left as they are.
+ */
 export function tokenize<T>(value: T, slug: string): T {
-  return swap(value, `${slug}_`, `${INSTANCE_TOKEN}_`, slug);
+  const re = new RegExp(`(?<![A-Za-z0-9_$])${escape(slug)}_(?=[a-z0-9_])`, "g");
+  return swap(value, (s) => s.replace(re, `${INSTANCE_TOKEN}_`));
 }
 
-/** The reverse: a blueprint's strings for one instance. */
+/**
+ * The reverse: a blueprint's strings for one instance. A bare token (a
+ * hand-written blueprint's job may name the instance) is the slug, except in
+ * a page's HTML, where only table names were ever tokenized.
+ */
 export function untokenize<T>(value: T, slug: string): T {
-  return swap(value, `${INSTANCE_TOKEN}_`, `${slug}_`, INSTANCE_TOKEN, slug);
+  const named = (s: string): string => s.split(`${INSTANCE_TOKEN}_`).join(`${slug}_`);
+  return swap(value, (s, key) => (key === "html" ? named(s) : named(s).split(INSTANCE_TOKEN).join(slug)));
 }
 
-function swap<T>(value: T, from: string, to: string, bareFrom: string, bareTo?: string): T {
-  if (typeof value === "string") {
-    let out = value.split(from).join(to);
-    if (bareTo !== undefined) out = out.split(bareFrom).join(bareTo);
-    return out as T;
-  }
-  if (Array.isArray(value)) return value.map((v) => swap(v, from, to, bareFrom, bareTo)) as T;
+function swap<T>(value: T, change: (s: string, key?: string) => string, key?: string): T {
+  if (typeof value === "string") return change(value, key) as T;
+  if (Array.isArray(value)) return value.map((v) => swap(v, change)) as T;
   if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, swap(v, from, to, bareFrom, bareTo)]),
-    ) as T;
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, swap(v, change, k)])) as T;
   }
   return value;
 }
@@ -88,7 +102,7 @@ export function parseBlueprint(raw: unknown): Blueprint {
   if (!type) throw new Error("blueprint.type is required");
   const instancing: Instancing = b["instancing"] === "single" ? "single" : "multi";
   const schema = Array.isArray(b["schema"]) ? b["schema"].map((s) => parseChangeSpec(s)) : [];
-  const pages = Array.isArray(b["pages"]) ? (b["pages"] as PageSpec[]) : [];
+  const pages = Array.isArray(b["pages"]) ? (b["pages"] as BlueprintPage[]) : [];
   for (const p of pages) {
     if (typeof p !== "object" || p === null || typeof p.id !== "string") throw new Error("blueprint.pages entries need an id");
   }
@@ -173,8 +187,12 @@ export function extractBlueprint(src: BlueprintSources, slug: string): Extracted
 
   const pages = src.pages
     .list(slug)
-    .map((r) => src.pages.get(r.id)?.spec)
-    .filter((s): s is PageSpec => s !== undefined)
+    .map((r): BlueprintPage | undefined => {
+      const got = src.pages.get(r.id);
+      if (!got) return undefined;
+      return got.kind === "spec" ? got.spec : { kind: "html", ...got.page };
+    })
+    .filter((s): s is BlueprintPage => s !== undefined)
     .map((s) => tokenize(s, slug));
 
   const jobs: BlueprintJob[] = (src.crons?.list() ?? [])
@@ -216,6 +234,11 @@ export function checkBlueprint(bp: Blueprint): string[] {
   }
   for (const page of bp.pages) {
     const concrete = untokenize(page, probe);
+    if (isHtml(concrete)) {
+      const problems = validateHtmlPage(htmlOf(concrete));
+      if (problems.length) errors.push(`page ${page.id}: ${problems.join("; ")}`);
+      continue;
+    }
     const problems = validatePageSpec(concrete);
     if (problems.length || !isValidPageSpec(concrete)) errors.push(`page ${page.id}: ${problems.join("; ") || "failed validation"}`);
   }
@@ -287,8 +310,11 @@ export function instantiateBlueprint(
     for (const spec of bp.schema) dst.migrator.migrate(project.slug, spec);
     for (const page of bp.pages) {
       const concrete = untokenize(page, project.slug);
-      // A page id is global, so each instance's pages carry its slug.
-      dst.pages.write(project.slug, { ...concrete, id: `${project.slug}_${page.id}` });
+      // A page id is global, so each instance's pages carry its slug, once: an id
+      // that already named the project (school_dashboard) has it from the token.
+      const id = concrete.id.startsWith(`${project.slug}_`) ? concrete.id : `${project.slug}_${concrete.id}`;
+      if (isHtml(concrete)) dst.pages.writeHtml(project.slug, { ...htmlOf(concrete), id });
+      else dst.pages.write(project.slug, { ...concrete, id });
     }
     if (dst.crons) {
       for (const job of bp.jobs) {

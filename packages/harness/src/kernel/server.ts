@@ -11,6 +11,8 @@ import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
 import { DREAM_JOB, MEMORY_JOB, OBSERVE_JOB } from "../memory/job.js";
 import { runDisplayQuery } from "../systems/display.js";
+import type { Headline } from "../systems/headlines.js";
+import { BridgeRefusal, pageFile, pageQuery, pageWrite } from "../systems/pagebridge.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
@@ -1404,15 +1406,56 @@ export async function handleApiRequest(
         : undefined;
     // Query string project= is not in body for GET; parse from url if present.
     const qsProject = projectFromUrl(req.url);
-    return ok(kernel.pages.list(qsProject ?? project));
+    const records = kernel.pages.list(qsProject ?? project);
+    // The list does not wait on its figures: whatever is not in by then is left off this time.
+    const headlines: (Headline | undefined)[] = [];
+    const all = Promise.all(records.map((record, i) => (record.kind === "html" ? kernel.headlines.of(record).then((h) => (headlines[i] = h)) : undefined)));
+    await Promise.race([all, new Promise((r) => setTimeout(r, HEADLINES_WAIT_MS).unref())]);
+    return ok(records.map((record, i) => ({ ...record, ...(headlines[i] ? { headline: headlines[i] } : {}) })));
+  }
+
+  /*
+   * An HTML page's window.kos, relayed by the dashboard. Each call is checked
+   * against the page's own declarations and project (systems/pagebridge.ts);
+   * a refusal is answered plainly and logged.
+   */
+  const bridgeCall = /^\/api\/pages\/([^/]+)\/(query|write|file|history|rollback)$/.exec(path);
+  if (bridgeCall) {
+    const id = decodeURIComponent(bridgeCall[1]!);
+    const verb = bridgeCall[2]!;
+    const got = kernel.pages.get(id);
+    if (!got) return { status: 404, body: { error: "page not found" } };
+    if (verb === "history" && method === "GET") return ok(kernel.pages.history(id));
+    if (verb === "rollback" && method === "POST") {
+      try {
+        return ok(kernel.pages.rollback(id, Number(body.version)));
+      } catch (err) {
+        return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+      }
+    }
+    const bridge = kernel.bridgeFor(id);
+    if (method !== "POST" || !bridge) return { status: 404, body: { error: "not found" } };
+    try {
+      if (verb === "query") return ok(await pageQuery(kernel.workspace.reader, kernel.pageQueries, bridge, body.sql, body.params, { key: id }));
+      if (verb === "write") return ok(pageWrite(kernel.workspace.db, bridge, body));
+      return ok(pageFile(kernel.workspace, bridge, body.path));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (err instanceof BridgeRefusal) {
+        kernel.audit.record({ tool: `page.${verb}`, args: { page: id, ...(verb === "query" ? { sql: body.sql } : verb === "write" ? { table: body.table, op: body.op } : { path: body.path }) }, result: message, isError: true });
+        return { status: 403, body: { error: message } };
+      }
+      return { status: 400, body: { error: message } };
+    }
   }
 
   if (method === "GET" && path.startsWith("/api/pages/")) {
     const id = decodeURIComponent(path.slice("/api/pages/".length));
     const got = kernel.pages.get(id);
     if (!got) return { status: 404, body: { error: "page not found" } };
+    if (got.kind === "html") return ok({ record: got.record, kind: "html", page: got.page });
     const { data, errors } = await loadPageData(kernel, got.spec);
-    return ok({ record: got.record, spec: got.spec, data, errors });
+    return ok({ record: got.record, kind: "spec", spec: got.spec, data, errors });
   }
 
   if (method === "POST" && path === "/api/query") {
@@ -1440,7 +1483,7 @@ export async function handleApiRequest(
       };
     }
     const page = kernel.pages.get(pageId);
-    if (!page) return { status: 404, body: { error: "page not found" } };
+    if (!page || page.kind !== "spec") return { status: 404, body: { error: "page not found" } };
     const widget = page.spec.widgets[widgetIndex];
     if (!widget) return { status: 404, body: { error: "widget not found" } };
     if (!WRITE_CAPABLE.has(widget.type)) {
@@ -3250,6 +3293,9 @@ function parseCronInput(body: Record<string, unknown>): CreateCronInput | string
   return input;
 }
 
+/** Longest the page list waits on its headlines, each of which has its own deadline too. */
+const HEADLINES_WAIT_MS = 1200;
+
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -3277,6 +3323,13 @@ function tryStatic(
     return false;
   }
   if (!existsSync(file) || statSync(file).isDirectory()) {
+    // A page library is a script a page's frame runs; the app in its place
+    // would run as one, so a missing one is missing.
+    if (rel.split(/[/\\]/)[0] === "page-lib") {
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      res.end("not found");
+      return true;
+    }
     file = join(root, "index.html");
     if (!existsSync(file)) return false;
   }

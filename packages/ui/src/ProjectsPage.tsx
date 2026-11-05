@@ -177,6 +177,16 @@ export function ProjectsPage({
                   {p.description && (
                     <p className="project-desc">{p.description}</p>
                   )}
+                  {/* The figure a page offers, so the card answers a question before it is opened. */}
+                  {pages
+                    .filter((pg) => pg.headline)
+                    .slice(0, 1)
+                    .map((pg) => (
+                      <a key={pg.id} className="project-headline" href={hrefFor({ name: "page", id: pg.id })}>
+                        <span className="project-headline-value">{String(pg.headline!.value)}</span>
+                        <span className="project-headline-label">{pg.headline!.label}</span>
+                      </a>
+                    ))}
 
                   {pages.length > 0 ? (
                     <div className="project-pages">

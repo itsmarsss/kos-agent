@@ -43,6 +43,16 @@ export {
   isValidPageSpec,
   validatePageSpec,
 } from "./pagespec-validate.js";
+export {
+  HTML_PAGE_MAX,
+  PAGE_LIBRARIES,
+  exitsIn,
+  validateHtmlPage,
+  type HtmlPage,
+  type PageCapabilities,
+  type PageHeadline,
+  type PageLibrary,
+} from "./htmlpage.js";
 
 export {
   detailLines,

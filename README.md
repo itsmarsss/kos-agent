@@ -50,6 +50,8 @@ and KOS for Mac share one look, written down in
 [docs/design.md](docs/design.md), and one set of components, listed in
 [docs/components.md](docs/components.md). How screen work and long documents
 were made fast, and how that was measured, is in [docs/speed.md](docs/speed.md).
+How KOS writes a project's pages, as HTML in a sandboxed frame, is in
+[docs/pages.md](docs/pages.md).
 
 ---
 

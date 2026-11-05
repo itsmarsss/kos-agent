@@ -39,6 +39,15 @@ describe("ProjectManifest", () => {
     expect(b.slug).toBe("budget_2");
   });
 
+  it("refuses a slug that is, or prefixes, a table that exists", () => {
+    ws.db.exec(`CREATE TABLE IF NOT EXISTS permission_rules (id INTEGER PRIMARY KEY); CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY)`);
+    expect(manifest.createProject({ name: "Permission", type: "notes" }).slug).toBe("permission_2");
+    expect(manifest.createProject({ name: "Audit", type: "notes" }).slug).toBe("audit_2");
+    // A slug that only shares a start with a table is fine: pantry is not pan_.
+    ws.db.exec(`CREATE TABLE IF NOT EXISTS pantry_items (id INTEGER PRIMARY KEY)`);
+    expect(manifest.createProject({ name: "Pan", type: "notes" }).slug).toBe("pan");
+  });
+
   it("touch and setStatus update freshness and lifecycle", () => {
     manifest.createProject({ name: "Plan", type: "study" });
     clock = 5000;

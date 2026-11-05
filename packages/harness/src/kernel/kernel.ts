@@ -88,7 +88,7 @@ import { WorkQueue } from "../ops/queue.js";
 import { WorkspaceBackup } from "../ops/backup.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { SkillPromoter, type PromoteInput, type PromoteOutcome } from "../skills/promote.js";
-import { Workspace } from "../store/workspace.js";
+import { DB_FILENAME, Workspace } from "../store/workspace.js";
 import { InstanceConfig } from "../systems/config.js";
 import { ProjectManifest } from "../systems/manifest.js";
 import { describeActive, describeProject, type ProjectSchema } from "../systems/schema.js";
@@ -98,7 +98,11 @@ import {
   type DeleteProjectResult,
 } from "../systems/remove.js";
 import { Migrator } from "../systems/migrate.js";
+import { Headlines, type Headline } from "../systems/headlines.js";
+import { pageQuery, type BridgePage } from "../systems/pagebridge.js";
+import { PageQueries } from "../systems/pagequeries.js";
 import { PageStore } from "../systems/pages.js";
+import { registeredTables } from "../systems/registered.js";
 import { PermissionStore, actsInYourChrome } from "../ops/permissions.js";
 import { offeredSkills, readSkills } from "../skills/manifest.js";
 import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
@@ -3454,6 +3458,31 @@ export class Kernel {
     return this.browser.status();
   }
 
+  private pageQueryRunner?: PageQueries;
+
+  /** Where HTML pages' queries run, apart from this thread; started on first use. */
+  get pageQueries(): PageQueries {
+    this.pageQueryRunner ??= new PageQueries(this.workspace.resolve(DB_FILENAME));
+    return this.pageQueryRunner;
+  }
+
+  /** What an HTML page may reach, for the bridge: its project and the tables that project made. */
+  bridgeFor(id: string): BridgePage | undefined {
+    const got = this.pages.get(id);
+    if (got?.kind !== "html") return undefined;
+    return { page: got.page, projectSlug: got.record.projectSlug, tables: registeredTables(this.workspace.db, got.record.projectSlug) };
+  }
+
+  /** Each HTML page's figure for Home, computed apart from the server and kept a while. */
+  readonly headlines = new Headlines(async (id): Promise<Headline | undefined> => {
+    const bridge = this.bridgeFor(id);
+    const headline = bridge?.page.headline;
+    if (!bridge || !headline) return undefined;
+    const row = (await pageQuery(this.workspace.reader, this.pageQueries, bridge, headline.query, [], { rowCap: 1, timeoutMs: 1000, key: `headline:${id}` })).rows[0];
+    const value = row ? Object.values(row)[0] : undefined;
+    return value === undefined ? undefined : { label: headline.label, value };
+  });
+
   /** KOS stopping: the browser's sign-ins kept and Chrome closed properly. */
   async closeBrowser(): Promise<void> {
     await this.browser.shutdown();
@@ -3848,7 +3877,9 @@ export class Kernel {
         const page = this.pages.get(ref.id);
         parts.push(
           page
-            ? `Page ${ref.id} in project ${page.record.projectSlug}:\n${JSON.stringify(page.spec, null, 2)}`
+            ? page.kind === "html"
+              ? `Page ${ref.id} in project ${page.record.projectSlug}, an HTML page:\n${JSON.stringify({ title: page.page.title, capabilities: page.page.capabilities ?? {} }, null, 2)}\n${page.page.html}`
+              : `Page ${ref.id} in project ${page.record.projectSlug}:\n${JSON.stringify(page.spec, null, 2)}`
             : `Page ${ref.id}: not found.`,
         );
         continue;
@@ -4221,6 +4252,7 @@ export class Kernel {
     void this.supervisor.stopAll();
     // What modules opened, stdio MCP servers among them, must not outlive the host.
     void this.loader.unload();
+    this.pageQueryRunner?.close();
     this.workspace.close();
   }
 }
