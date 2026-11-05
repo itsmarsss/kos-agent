@@ -64,27 +64,33 @@ export interface Blueprint {
   jobs: BlueprintJob[];
 }
 
-/** Replace every mention of a project's slug with the token, deep. */
+const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Replace a project's table names with the token, deep: `<slug>_` only where
+ * it starts a word and a name follows, so `preschool_x`, "high school" and a
+ * page's own code are left as they are.
+ */
 export function tokenize<T>(value: T, slug: string): T {
-  return swap(value, `${slug}_`, `${INSTANCE_TOKEN}_`, slug);
+  const re = new RegExp(`(?<![A-Za-z0-9_$])${escape(slug)}_(?=[a-z0-9_])`, "g");
+  return swap(value, (s) => s.replace(re, `${INSTANCE_TOKEN}_`));
 }
 
-/** The reverse: a blueprint's strings for one instance. */
+/**
+ * The reverse: a blueprint's strings for one instance. A bare token (a
+ * hand-written blueprint's job may name the instance) is the slug, except in
+ * a page's HTML, where only table names were ever tokenized.
+ */
 export function untokenize<T>(value: T, slug: string): T {
-  return swap(value, `${INSTANCE_TOKEN}_`, `${slug}_`, INSTANCE_TOKEN, slug);
+  const named = (s: string): string => s.split(`${INSTANCE_TOKEN}_`).join(`${slug}_`);
+  return swap(value, (s, key) => (key === "html" ? named(s) : named(s).split(INSTANCE_TOKEN).join(slug)));
 }
 
-function swap<T>(value: T, from: string, to: string, bareFrom: string, bareTo?: string): T {
-  if (typeof value === "string") {
-    let out = value.split(from).join(to);
-    if (bareTo !== undefined) out = out.split(bareFrom).join(bareTo);
-    return out as T;
-  }
-  if (Array.isArray(value)) return value.map((v) => swap(v, from, to, bareFrom, bareTo)) as T;
+function swap<T>(value: T, change: (s: string, key?: string) => string, key?: string): T {
+  if (typeof value === "string") return change(value, key) as T;
+  if (Array.isArray(value)) return value.map((v) => swap(v, change)) as T;
   if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, swap(v, from, to, bareFrom, bareTo)]),
-    ) as T;
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, swap(v, change, k)])) as T;
   }
   return value;
 }
@@ -304,8 +310,9 @@ export function instantiateBlueprint(
     for (const spec of bp.schema) dst.migrator.migrate(project.slug, spec);
     for (const page of bp.pages) {
       const concrete = untokenize(page, project.slug);
-      // A page id is global, so each instance's pages carry its slug.
-      const id = `${project.slug}_${page.id}`;
+      // A page id is global, so each instance's pages carry its slug, once: an id
+      // that already named the project (school_dashboard) has it from the token.
+      const id = concrete.id.startsWith(`${project.slug}_`) ? concrete.id : `${project.slug}_${concrete.id}`;
       if (isHtml(concrete)) dst.pages.writeHtml(project.slug, { ...htmlOf(concrete), id });
       else dst.pages.write(project.slug, { ...concrete, id });
     }

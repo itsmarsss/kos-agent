@@ -162,6 +162,31 @@ describe("a blueprint", () => {
     expect(got.page.headline?.query).toBe("SELECT SUM(amount) FROM side_biz_tx");
   });
 
+  /*
+   * The slug swap ran on every string a page holds, its code and its words
+   * among them, and the instance's page ids were built from the token.
+   */
+  it("swaps only table names, leaving a page's code and words, and keeps ids valid", () => {
+    for (const [name, table, id] of [
+      ["School", "grades", "school_dashboard"],
+      ["Tasks bu354", "items", "tasks_bu354_midterm_checklist"],
+      ["Resume", "jobs", "resume_board"],
+    ] as const) {
+      const p = manifest.createProject({ name, type: "notes" });
+      migrator.migrate(p.slug, { op: "create_table", table, columns: [{ name: "id", type: "INTEGER", primaryKey: true }] });
+      const html = `<p>For high school and preschool_x.</p><script>audioCtx.resume(); kos.query('SELECT id FROM ${p.slug}_${table}'); const ${p.slug}Total = 1;</script>`;
+      pages.writeHtml(p.slug, { id, title: "T", html });
+      const { blueprint } = extractBlueprint({ db: ws.db, manifest, migrator, pages, crons }, p.slug);
+      expect(checkBlueprint(blueprint)).toEqual([]);
+      const made = instantiateBlueprint({ db: ws.db, manifest, migrator, pages, crons }, "b", blueprint, `${name} copy`);
+      const got = pages.list(made.slug)[0];
+      expect(got?.id).toMatch(/^[a-z][a-z0-9_-]*$/);
+      expect(got?.id).toBe(id.replace(p.slug, made.slug));
+      const page = pages.get(got!.id);
+      expect(page?.kind === "html" && page.page.html).toBe(html.replace(`${p.slug}_${table}`, `${made.slug}_${table}`));
+    }
+  });
+
   it("refuses a blueprint that would not apply", () => {
     expect(checkBlueprint({ type: "x", instancing: "multi", schema: [], pages: [{ id: "p", title: "P", widgets: [{ type: "stat", title: "T", query: "DROP TABLE {{instance}}_tx" } as never] }], jobs: [] })).not.toEqual([]);
   });
