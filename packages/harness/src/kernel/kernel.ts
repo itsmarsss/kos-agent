@@ -3463,16 +3463,19 @@ export class Kernel {
 
   /**
    * After a step that looked, its picture, kept with the call's id so the
-   * thread can show what the agent saw under the step that saw it. A browser
-   * step gets a small picture of its tab, taken in the background: the step
-   * has run, and the reply should not wait on a screenshot. Any other tool
-   * that answered with a picture (a computer's screen) keeps that one, since
-   * the stored history keeps none.
+   * thread can show what the agent saw under the step that saw it: the one
+   * the step answered with, since the stored history keeps none. A browser
+   * step that answered without one gets a small picture of its tab, taken in
+   * the background: the step has run, and the reply should not wait on it.
    */
   private keepFrame(tool: string, conversationId?: string, picture?: string): void {
     if (!conversationId) return;
     const toolUseId = toolUse.getStore();
-    if (!this.browserContext(tool, conversationId)) {
+    // A step that answered with a picture is kept by that one. A browser step
+    // took a second, smaller capture as well, on the same line to the tab as
+    // the next step, which waited behind it, most of all on the owner's
+    // Chrome, where every capture crosses to the extension and back.
+    if (picture || !this.browserContext(tool, conversationId)) {
       if (picture) this.frames.add({ conversationId, ...(toolUseId ? { toolUseId } : {}), tool, picture });
       return;
     }
