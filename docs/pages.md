@@ -49,8 +49,8 @@ also runs the old flat frame as a control and sees it leak):
 | The sandbox: scripts only | `window.open` and `target=_blank` (no popups), forms (no `allow-forms`), navigating the dashboard or any frame but the page's own (`top.location`, `parent.location`, `target=_top`) |
 | The page's policy, first in its head: no network | fetch, beacons, sockets, event streams, workers' fetches, external images, fonts, styles, scripts, objects and frames |
 | The wrapper's policy: its frame may hold `about:` documents and nothing else | the page sending itself anywhere: `location.href`, `assign`, `replace`, a meta refresh, a link it clicks, a download link, `data:` and `blob:` documents. A frame's navigation is checked against its parent's policy, and a `srcdoc` frame inherits its parent's policy, so the page can narrow it but never widen it |
-| Trusted Types and the guard script, run before the page's own | the elements no policy governs: `<link rel=prerender>` (which sends a real request whatever the policy says), other prefetch links, speculation rules, `<meta>`, `<iframe>` (a fresh realm), `<form>`, `<object>`, `<base>`, `<script>`. Every string the page turns into HTML (`innerHTML`, `insertAdjacentHTML`, `document.write`, `DOMParser`, ranges, shadow roots, templates) goes through one policy that refuses them; `createElement` and `createElementNS` refuse them and are frozen; XSLT is taken away |
-| `pages.write` | the same constructs in the page as written: `<link>`, `<meta http-equiv>`, frames, objects, `<base>`, `<form>`, speculation rules, link or form targets, download links, and in its code `location`, `window.open`, `submit()`, `navigation.navigate`. The page is refused with what it held, because a page that tries one only breaks (it has no network to reach), and because of the one leak below |
+| Trusted Types and the guard script, run before the page's own | the elements no policy governs: `<link rel=prerender>` (which sends a real request whatever the policy says), other prefetch links, speculation rules, `<meta>`, `<iframe>` (a fresh realm), `<form>`, `<object>`, `<base>`, `<script>`, in any namespace and under any prefix. Every string the page turns into HTML (`innerHTML`, `insertAdjacentHTML`, `document.write`, `DOMParser`, ranges, shadow roots, templates) goes through one policy that refuses their markup; `createElement`, `createElementNS` and `createDocument` refuse them; and since a parser can still make one (an XML entity, another document), no node holding one may be adopted, imported or placed by any insertion method (`appendChild`, `insertBefore`, `replaceChild`, `append`, `prepend`, `replaceChildren`, `replaceWith`, `before`, `after`, `insertAdjacentElement`, `moveBefore`, a range's `insertNode` and `surroundContents`). A `<link>` takes no `rel` or `href`. WebRTC (STUN goes out over UDP beside every policy) and XSLT are taken away. All of it is fixed in place, and it checks with built-ins held from before the page runs, so a page that replaces `Function.prototype.call` or `RegExp.prototype.exec` changes nothing |
+| `pages.write` | the same in the page as written: `<link>` (prefixed too), `<meta http-equiv>`, frames, objects, `<base>`, `<form>`, speculation rules, link or form targets, download links, links off the page; in its code `location`, `open()`, setting a link's `href` or `target`, `submit()`, `navigation.navigate`, WebRTC. Code is read with its strings and comments blanked, so "Pick a location" or `row.location` pass. The page is refused with what it held, because a page that tries one only breaks (it has no network to reach), and because of the one leak below. This is a best reading of the code, not a parser |
 
 **What still leaves.** When a page starts a navigation, Chrome opens a
 connection to the host it names (a DNS lookup and a TCP connect) before the
@@ -69,7 +69,8 @@ Before the page's own markup the frame gets:
   classes read as KOS;
 - the `window.kos` bridge, which talks to the dashboard as `top`;
 - the libraries the page named, inlined from the dashboard's own build
-  (`dist/page-lib/`).
+  (`dist/page-lib/`). A library missing from the build is a 404, never the
+  dashboard's own page, and the frame takes only a script.
 
 ## window.kos
 
@@ -86,17 +87,30 @@ The dashboard only relays these, for its own frame. The server decides each
 one (`packages/harness/src/systems/pagebridge.ts`) against the page's stored
 declarations:
 
+- A project's tables are the ones its own migrations made (`systems.migrate`,
+  followed through renames), never a name that starts with its slug: a
+  project called Permission does not own `permission_rules`. A new project
+  never gets a slug that is, or prefixes, a table that already exists.
 - A query is asked of SQLite's own plan, not read from its text. Every table
-  it opens, through a join, a subquery, a CTE or a view, must belong to the
-  page's project. The schema, KOS's own tables, other databases and virtual
-  tables (pragmas, full-text indexes) are refused. It runs on the read-only
-  connection, capped in rows and time.
+  it opens, through a join, a subquery, a CTE or a view, must be one of the
+  project's. The schema, KOS's own tables, other databases and virtual
+  tables (pragmas, full-text indexes) are refused.
+- A query runs in a child process with its own read-only connection, capped
+  at 500 rows, and is killed at 2 s: SQLite cannot be interrupted from Node,
+  so a recursive CTE that never ends would otherwise hold the server.
+  Headlines run the same way, with 1 s, and are kept for 30 s or until the
+  page changes, so listing pages never waits on one.
 - A write must name a table the page declared, with only its declared
-  columns and operations, and that table must belong to the project.
-- A file must be inside the project's folder, and not its page history.
+  columns and operations, and that table must be the project's. Values are
+  text, numbers, null, or true and false (as 1 and 0).
+- A file must be inside the project's folder, and not in `pages/` (the
+  project's pages and their history) or any `.history` folder. Only its first
+  256 KB are read.
 
 A refusal is answered with a sentence the page can show, and recorded in the
-audit log as `page.query`, `page.write` or `page.file`.
+audit log as `page.query`, `page.write` or `page.file`. It is the same
+sentence whether a table is missing, another project's or KOS's own, so a
+page cannot use refusals to learn what else the workspace holds.
 
 ## When a page goes wrong
 
@@ -106,6 +120,7 @@ audit log as `page.query`, `page.write` or `page.file`.
   nothing that would try to leave its frame. A bad page is refused with the
   reason, before anyone sees it.
 - An error the page throws is shown above it with **Fix with KOS**, which
-  sends the error to the project's chat.
+  asks the project's chat to fix the page by its id. The error is the page's
+  own text, so it goes along only as a fenced, capped quote marked untrusted.
 - A page whose frame loads anything a second time (it tried to leave and was
   refused) is removed, with the same button.
