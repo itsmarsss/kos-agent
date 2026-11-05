@@ -885,7 +885,7 @@ export function App(): React.ReactElement {
             {pageError}
           </p>
         )}
-        {activePage && <PageHistory record={activePage.record} onRolledBack={() => void api.anyPage(activePage.record.id).then(setActivePage)} />}
+        {activePage && <PageHistory record={activePage.record} onRolledBack={() => api.anyPage(activePage.record.id).then(setActivePage)} />}
         {activePage?.kind === "html" && <ArtifactPage record={activePage.record} page={activePage.page} />}
         {activePage && activePage.kind !== "html" && (
           <PageRenderer spec={activePage.spec} data={activePage.data} />

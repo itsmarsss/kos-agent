@@ -10,9 +10,11 @@ import { Select } from "./Select.js";
  * is kept, so a page it broke is one choice away from how it was; the
  * rollback is itself kept, so it can be undone too.
  */
-export function PageHistory({ record, onRolledBack }: { record: PageSummary; onRolledBack: () => void }): ReactElement | null {
+export function PageHistory({ record, onRolledBack }: { record: PageSummary; onRolledBack: () => Promise<unknown> }): ReactElement | null {
   const [versions, setVersions] = useState<PageVersion[]>([]);
   const [chosen, setChosen] = useState<string>("");
+  const [error, setError] = useState<string>();
+  const failed = (err: unknown): void => setError(err instanceof Error ? err.message : String(err));
 
   useEffect(() => {
     let stale = false;
@@ -20,17 +22,23 @@ export function PageHistory({ record, onRolledBack }: { record: PageSummary; onR
       .pageHistory(record.id)
       .then((list) => {
         if (stale) return;
+        setError(undefined);
         setVersions(list);
         setChosen(String(list.at(-2)?.version ?? ""));
       })
-      .catch(() => undefined);
+      .catch((err: unknown) => !stale && failed(err));
     return () => {
       stale = true;
     };
   }, [record.id, record.updatedAt]);
 
+  const alert = error ? (
+    <p className="ops-alert ops-alert--err" role="alert">
+      Page history: {error}
+    </p>
+  ) : null;
   // One version is the page as it is: nothing to go back to.
-  if (versions.length < 2) return null;
+  if (versions.length < 2) return alert;
   const current = versions.at(-1)!.version;
   const options = versions
     .slice(0, -1)
@@ -45,8 +53,14 @@ export function PageHistory({ record, onRolledBack }: { record: PageSummary; onR
         text={`Show version ${chosen} again? The page as it is now stays in its history.`}
         className="btn btn--sm"
         disabled={!chosen}
-        onConfirm={() => void api.pageRollback(record.id, Number(chosen)).then(onRolledBack)}
+        onConfirm={() =>
+          void api
+            .pageRollback(record.id, Number(chosen))
+            .then(onRolledBack)
+            .then(() => setError(undefined), failed)
+        }
       />
+      {alert}
     </div>
   );
 }
