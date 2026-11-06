@@ -201,6 +201,17 @@ class ProgressStore {
     if (this.map[conversationId]?.ended) this.clear(conversationId);
   }
 
+  /**
+   * Mark a turn over that the server reports idle but whose turn-end never
+   * came, so it stops saying it is working and hands over like any other.
+   */
+  ended(conversationId: string): void {
+    const live = this.map[conversationId];
+    if (!live || live.ended) return;
+    this.map = { ...this.map, [conversationId]: { ...live, ended: true } };
+    this.emit();
+  }
+
   /** Drop a conversation the server no longer reports as working. */
   clear(conversationId: string): void {
     if (!this.map[conversationId]) return;
@@ -298,6 +309,11 @@ export function seedProgress(working: string[]): void {
 
 export function clearProgress(conversationId: string): void {
   store.clear(conversationId);
+}
+
+/** A turn the server says is idle, though no turn-end arrived for it. */
+export function endProgress(conversationId: string): void {
+  store.ended(conversationId);
 }
 
 /** Hand a finished turn over to the transcript that now holds it. */

@@ -2,7 +2,9 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { congregationHead, formatElapsed, LiveTurn } from "./LiveTurn.js";
+import { formatElapsed } from "@kos/kit";
+
+import { congregationHead, LiveTurn } from "./LiveTurn.js";
 import type { CongregationMember, Live } from "./progress.js";
 
 const base: Live = { steps: [], text: "", since: Date.now() };
@@ -36,14 +38,54 @@ describe("LiveTurn states", () => {
     expect(screen.queryByText("Thinking")).toBeNull();
   });
 
-  it("drops the thinking box once the reply is arriving", () => {
+  it("stops saying thinking once the reply is arriving", () => {
     // Streaming prose under a "thinking" label says something untrue about
     // what the model is doing.
     const { container } = render(
       <LiveTurn live={{ ...base, text: "Here is the answer" }} />,
     );
-    expect(container.querySelector(".live-head")).toBeNull();
+    expect(screen.queryByText("Thinking")).toBeNull();
     expect(container.textContent).toContain("Here is the answer");
+  });
+
+  /*
+   * Words after steps, the turn still going: "Building page 1 now." and then
+   * minutes of work. With the foot dropped once text arrived, the turn looked
+   * finished for all of them.
+   */
+  it("keeps working at the foot after text, until the turn ends", () => {
+    const live: Live = {
+      ...base,
+      steps: [
+        { kind: "tool", tool: "shell.run", summary: "count books", done: true, isError: false },
+        { kind: "tool", tool: "sql", summary: "SELECT 17", done: true, isError: false },
+      ],
+      text: "Data check first: 17 books. Building page 1 now.",
+    };
+    const { container, rerender } = render(<LiveTurn live={live} />);
+    const children = [...container.children];
+    const foot = children.at(-1);
+    expect(foot?.querySelector(".live-dots")).toBeTruthy();
+    expect(foot?.querySelector(".live-what")?.textContent).toBe("Working");
+    expect(foot?.querySelector(".live-elapsed")).toBeTruthy();
+    expect(children.at(-2)?.textContent).toContain("Building page 1 now.");
+
+    rerender(
+      <LiveTurn
+        live={{
+          ...live,
+          steps: [
+            ...live.steps,
+            { kind: "tool", tool: "pages.write", summary: "page 1", done: false, isError: false },
+          ],
+        }}
+      />,
+    );
+    expect(container.lastElementChild?.querySelector(".live-what")?.textContent).toBe("Running page 1");
+
+    rerender(<LiveTurn live={{ ...live, ended: true }} />);
+    expect(container.querySelector(".live-dots")).toBeNull();
+    expect(container.textContent).toContain("Building page 1 now.");
   });
 
   it("keeps finished tool calls visible while it thinks about the result", () => {

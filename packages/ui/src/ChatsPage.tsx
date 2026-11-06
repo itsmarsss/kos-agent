@@ -56,6 +56,7 @@ import { MessageActions, MessageEditor } from "./MessageActions.js";
 
 import {
   clearProgress,
+  endProgress,
   settleProgress,
   seedProgress,
   useProgress,
@@ -297,6 +298,10 @@ export function ChatsPage({
       // to be swapped into.
       if ((stale && live.steps.length === 0) || (live.ended && c.id !== activeId)) {
         clearProgress(c.id);
+      } else if (stale && !live.ended) {
+        // Idle with steps still on screen: the turn-end was missed. Ended,
+        // it stops saying it is working and the transcript takes over.
+        endProgress(c.id);
       }
     }
   }, [conversations, progress, activeId]);

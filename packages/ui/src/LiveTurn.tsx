@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactElement } from "react";
+import type { ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 
-import { listItem, Markdown, Pill, WorkingDots } from "@kos/kit";
+import { Elapsed, listItem, Markdown, Pill, WorkingDots } from "@kos/kit";
 import { hrefFor } from "./routes.js";
 import { Thinking } from "./Thinking.js";
 import { ToolCall } from "./ToolCall.js";
@@ -14,26 +14,6 @@ import type { CongregationMember, Live, LiveStep } from "./progress.js";
  * finished transcript uses, so the turn does not rearrange itself when it
  * lands. The reply streams in underneath.
  */
-
-/** 45s, 3m 20s, 1h 4m. A count that only ever grows in seconds stops reading. */
-export function formatElapsed(ms: number): string {
-  const total = Math.max(0, Math.round(ms / 1000));
-  if (total < 60) return `${total}s`;
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  if (minutes < 60) return `${minutes}m ${seconds}s`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ${minutes % 60}m`;
-}
-
-function Elapsed({ since }: { since: number }): ReactElement {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  return <span className="live-elapsed">{formatElapsed(now - since)}</span>;
-}
 
 /** The one-line account of a roster: who is done, who is still at it. */
 export function congregationHead(members: CongregationMember[]): string {
@@ -72,19 +52,20 @@ export function LiveTurn({ live }: { live: Live }): ReactElement {
   );
 
   /*
-   * Three states, and only one of them is thinking.
-   *
-   * Once the reply starts arriving the model is writing, not deliberating, and
-   * a "thinking" box above streaming prose says something untrue about what is
-   * happening. While a tool runs it is the tool that matters, not the wait.
+   * The reply streams in under the steps, and the foot stays under all of it
+   * until the turn ends. Taken away as soon as words arrived, a turn that said
+   * "checking now" and went on working looked finished for as long as the
+   * work took. The label only says thinking before anything has been shown:
+   * under streaming prose it would say something untrue.
    */
   const answering = live.text !== "" && !live.resumed;
-
-  /*
-   * A turn that has ended is still on screen, holding its steps until the
-   * transcript that contains them arrives. What it must not do is keep
-   * saying it is thinking: the work is over, only the handover is not.
-   */
+  const what = running
+    ? `Running ${running.summary}`
+    : answering
+      ? "Working"
+      : live.resumed
+        ? "Still working"
+        : "Thinking";
 
   return (
     <>
@@ -130,22 +111,21 @@ export function LiveTurn({ live }: { live: Live }): ReactElement {
           written from these, so the reader can see what it was made of. */}
       {live.congregation && <Congregation members={live.congregation.members} />}
 
-      {answering ? (
+      {answering && (
         // The reply as it is written, in the shape it will keep once it lands.
         <div className="bubble bubble--kos">
           <Markdown text={live.text} />
         </div>
-      ) : live.ended ? null : (
+      )}
+
+      {/* A turn that has ended stays on screen, holding its steps until the
+          transcript that contains them arrives. It must not keep saying it is
+          working: the work is over, only the handover is not. */}
+      {!live.ended && (
         <div className="bubble bubble--kos live">
           <div className="live-head">
             <WorkingDots />
-            <span className="live-what">
-              {running
-                ? `Running ${running.summary}`
-                : live.resumed
-                  ? "Still working"
-                  : "Thinking"}
-            </span>
+            <span className="live-what">{what}</span>
             <Elapsed since={live.since} />
           </div>
         </div>
