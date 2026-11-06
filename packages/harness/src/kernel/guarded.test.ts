@@ -10,8 +10,8 @@ import { PermissionStore, actsInYourChrome } from "../ops/permissions.js";
 import { RISKY } from "../risk/tiers.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { caller, isAttended } from "./caller.js";
-import { GuardedTools, type GuardedToolsDeps } from "./guarded.js";
+import { caller, isAttended, turnStop } from "./caller.js";
+import { GuardedTools, STOPPED_RESULT, type GuardedToolsDeps } from "./guarded.js";
 
 describe("GuardedTools", () => {
   let root: string;
@@ -262,6 +262,65 @@ describe("GuardedTools", () => {
     expect(approvals.pending()).toHaveLength(0);
   });
 
+
+  describe("when the owner presses Stop", () => {
+    it("answers a running call at once, and tells the tool so it can end what it started", async () => {
+      let told: AbortSignal | undefined;
+      registry.register({ name: "slow", description: "s", inputSchema: { type: "object" } }, () => {
+        told = turnStop.getStore();
+        return new Promise<string>(() => undefined);
+      });
+      const stop = new AbortController();
+      const call = guarded({ signal: stop.signal }).execute("slow", {});
+      await vi.waitFor(() => expect(told).toBeDefined());
+      stop.abort();
+      expect(await call).toEqual({ content: STOPPED_RESULT, isError: true });
+      expect(told?.aborted).toBe(true);
+    });
+
+    it("lapses the ask a call is waiting on, and nothing runs", async () => {
+      let ran = false;
+      registry.register({ name: "danger", description: "d", inputSchema: { type: "object" } }, () => {
+        ran = true;
+        return "ran";
+      }, RISKY);
+      const stop = new AbortController();
+      const call = guarded({ signal: stop.signal }).execute("danger", {});
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      const id = approvals.pending()[0]!.id;
+      stop.abort();
+      expect((await call).content).toBe(STOPPED_RESULT);
+      // Settled, not left in the inbox for a yes that would run it for nobody.
+      expect(approvals.get(id)).toMatchObject({ status: "expired", decidedBy: "stopped" });
+      expect(approvals.pending()).toHaveLength(0);
+      expect(ran).toBe(false);
+    });
+
+    it("starts no call after the stop", async () => {
+      let ran = false;
+      registry.register({ name: "probe", description: "p", inputSchema: { type: "object" } }, () => {
+        ran = true;
+        return "ran";
+      });
+      const stop = new AbortController();
+      stop.abort();
+      expect((await guarded({ signal: stop.signal }).execute("probe", {})).content).toBe(STOPPED_RESULT);
+      expect(ran).toBe(false);
+    });
+
+    it("leaves what the owner said meanwhile for a turn of its own", async () => {
+      let finish: ((v: string) => void) | undefined;
+      registry.register({ name: "slow", description: "s", inputSchema: { type: "object" } }, () => new Promise<string>((r) => (finish = r)));
+      const heard = vi.fn(() => "\nOwner: and then this");
+      const stop = new AbortController();
+      const call = guarded({ signal: stop.signal, heard }).execute("slow", {});
+      await vi.waitFor(() => expect(finish).toBeDefined());
+      stop.abort();
+      finish!("done");
+      expect((await call).content).toBe(STOPPED_RESULT);
+      expect(heard).not.toHaveBeenCalled();
+    });
+  });
 
   it("offers a project's tools only inside that project", async () => {
     // A module for the pantry project: its tool exists in pantry's

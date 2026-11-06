@@ -253,6 +253,11 @@ export class ApprovalQueue {
     return this.decide(id, "denied", decidedBy);
   }
 
+  /** An ask nothing will act on any more, settled as lapsed: the turn waiting on it was stopped. */
+  lapse(id: number, decidedBy: string): PendingAction | undefined {
+    return this.decide(id, "expired", decidedBy);
+  }
+
   /**
    * Asks nobody has answered in a long while lapse. An unattended run queues
    * its ask and moves on, and a turn cut by a restart leaves its ask behind;

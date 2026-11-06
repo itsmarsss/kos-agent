@@ -5,7 +5,7 @@ import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
 import { injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
-import { attendance, caller, turn } from "./caller.js";
+import { attendance, caller, turn, turnStop } from "./caller.js";
 
 export interface GuardedToolsDeps {
   /** A big result set aside as it comes back: whole with its handle, or its start and an outline when huge (in an SDK query). */
@@ -41,6 +41,13 @@ export interface GuardedToolsDeps {
   turnId?: string;
   /** False when the owner did not start this turn (a schedule, a guest); see `attendance`. */
   attended?: boolean;
+  /**
+   * The turn's stop. Once it aborts, a call that is running answers at once
+   * (what it started is told through `turnStop`, and its own end is still
+   * audited when it comes), an ask it is waiting on lapses, and no new call
+   * starts.
+   */
+  signal?: AbortSignal;
   /** Decisions the owner has made before. A match runs without asking. */
   permissions?: {
     allows(tool: string, input: Record<string, unknown>, project?: string, context?: PermissionContext): boolean;
@@ -95,6 +102,19 @@ export const QUEUED_PREFIX = "queued for approval (pending #";
 
 /** The other end of the same decision, so a reader can tell them apart. */
 export const DENIED_PREFIX = "not approved (pending #";
+
+/** What a call answers when the owner stopped the turn under it. */
+export const STOPPED_RESULT = "Stopped: the owner pressed Stop before this finished.";
+
+/** The work's own end, or undefined the moment the signal aborts; its listener goes with it. */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return resolve(undefined);
+    const onAbort = (): void => resolve(undefined);
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
 
 /**
  * How long a turn will hold, waiting on the owner, before treating silence as
@@ -216,9 +236,22 @@ export class GuardedTools implements ToolBox {
    * engine, so it is where words said mid-turn are heard.
    */
   async execute(name: string, input: Record<string, unknown>): Promise<ToolExecution> {
-    const called = await this.call(name, input);
+    const { signal } = this.deps;
+    if (signal?.aborted) return { content: STOPPED_RESULT, isError: true };
+    const calling = this.call(name, input);
+    /*
+     * A stop answers now rather than when the call ends.
+     *
+     * The turn waited for whatever was running: a minute of python, a device
+     * that had not answered. The call goes on to its own end (a program is
+     * killed through turnStop, and what it did is audited when it ends), but
+     * the turn is not held for it. Words the owner said meanwhile are not
+     * taken: nothing will read this result, so they run as a turn of their own.
+     */
+    const called = signal ? await untilAborted(calling, signal) : await calling;
+    if (!called) return { content: STOPPED_RESULT, isError: true };
     const result = this.deps.shelve && !called.isError ? { ...called, content: await this.deps.shelve(name, input, called.content, this.cutHuge) } : called;
-    const said = this.deps.heard?.();
+    const said = signal?.aborted ? undefined : this.deps.heard?.();
     return said ? { ...result, content: `${result.content}${said}` } : result;
   }
 
@@ -232,9 +265,11 @@ export class GuardedTools implements ToolBox {
     // Every handler runs inside the caller store, so a tool that asks which
     // conversation is calling gets this one, not whichever turn started last.
     const attended = this.deps.attended !== false;
-    const { turnId } = this.deps;
+    const { turnId, signal } = this.deps;
+    const stoppable = (n: string, i: Record<string, unknown>): Promise<ToolExecution> =>
+      signal ? turnStop.run(signal, () => registry.execute(n, i)) : registry.execute(n, i);
     const inTurn = (n: string, i: Record<string, unknown>): Promise<ToolExecution> =>
-      turnId ? turn.run(turnId, () => registry.execute(n, i)) : registry.execute(n, i);
+      turnId ? turn.run(turnId, () => stoppable(n, i)) : stoppable(n, i);
     const run = (n: string, i: Record<string, unknown>): Promise<ToolExecution> =>
       attendance.run(attended, () => (conversationId ? caller.run(conversationId, () => inTurn(n, i)) : inTurn(n, i)));
 
@@ -337,10 +372,19 @@ export class GuardedTools implements ToolBox {
        * turn, one bubble, and one result: the owner's decision arrives and the
        * call carries on from where it was.
        */
+      /*
+       * A stop while waiting lapses the ask, as the wait running out does: a
+       * turn that has gone has nothing to carry on with, and a yes given
+       * later would run the call for nobody.
+       */
+      const lapse = (): void => void approvals.lapse(action.id, "stopped");
+      signal?.addEventListener("abort", lapse, { once: true });
+      if (signal?.aborted) lapse();
       const decision = await approvals.waitFor(
         action.id,
         this.deps.approvalTimeoutMs ?? DEFAULT_APPROVAL_WAIT_MS,
       );
+      signal?.removeEventListener("abort", lapse);
       this.deps.onDecided?.(action, decision);
 
       if (decision !== "approved") {
