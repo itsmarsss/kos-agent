@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { launchChrome } from "./lib/chrome.mjs";
 import { fakeMac } from "./lib/desktop.mjs";
 import { Host, copyWorkspace, portFree, sql as host_sql, template } from "./lib/host.mjs";
-import { makeJudge } from "./lib/judge.mjs";
+import { makeJudge, makeLookJudge } from "./lib/judge.mjs";
 import { Kos, sdkCalls } from "./lib/kos.mjs";
 import { chromePanel } from "./lib/panel.mjs";
 import { compare, markdown } from "./lib/report.mjs";
@@ -62,6 +62,7 @@ const ENGINE = { engine: behaviour.engine ?? "api", cheap: models.cheap ?? null,
 if (ENGINE.engine !== "sdk" && !args["any-engine"]) throw new Error(`the template runs on the ${ENGINE.engine} engine; the evals run on the SDK engine (pass --settings-from a workspace set to it, or --any-engine)`);
 const sites = await startSites();
 const judge = makeJudge(ROOT);
+const look = makeLookJudge(ROOT);
 const results = existsSync(join(OUT, `${LABEL}.json`)) && args.resume ? JSON.parse(readFileSync(join(OUT, `${LABEL}.json`), "utf8")).runs : [];
 const save = () => {
   writeFileSync(join(OUT, `${LABEL}.json`), JSON.stringify({ label: LABEL, root: ROOT, engine: ENGINE, at: new Date().toISOString(), runs: results }, null, 1));
@@ -87,7 +88,7 @@ for (const task of TASKS) {
       kos.policy = task.policy ?? "approve";
       const needs = task.needs ?? [];
       if (needs.length || task.setup?.toString().includes("ctx.pdf")) chrome = await launchChrome();
-      const ctx = makeCtx({ host, kos, sites, chrome, judge });
+      const ctx = makeCtx({ host, kos, sites, chrome, judge, look, dir });
       if (needs.includes("mac")) {
         const q = task.mac?.query ? `?${task.mac.query}` : "";
         mac = await fakeMac({ root: ROOT, kos, chrome, deskUrl: `${sites.url}/desktop${q}`, setup: task.mac?.setup ?? {} });
@@ -151,9 +152,12 @@ log("wrote", join(OUT, `${LABEL}.json`), "and", `${LABEL}.md`);
 process.exit(0);
 
 /** What a task sees: the owner's moves, and the workspace to check. */
-function makeCtx({ host, kos, sites, chrome, judge }) {
+function makeCtx({ host, kos, sites, chrome, judge, look, dir }) {
   const ctx = {
     host,
+    look,
+    /** This run's folder, kept after the run (its workspace is not, without --keep). */
+    dir,
     kos,
     sites,
     chrome,
