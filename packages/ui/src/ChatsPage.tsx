@@ -23,12 +23,15 @@ import { Gutter } from "./Gutter.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { ProjectPanel } from "./ProjectPanel.js";
+import { ArtifactRail, ArtifactStrip } from "./ArtifactRail.js";
+import { ArtifactViewer } from "./ArtifactsPage.js";
 import { RailGroup, useRailFolds } from "./RailGroup.js";
 import {
   api,
   type CronJob,
   type ChatEvent,
   type Conversation,
+  type PageSummary,
   type BrowserTabInfo,
   type BuildRecord,
   type PendingAction,
@@ -672,6 +675,38 @@ export function ChatsPage({
     () => (agent ? conversations.filter((c) => c.kind === "chat" && c.role === agent.name && !c.archived).sort(byAttention) : []),
     [agent, conversations],
   );
+  /*
+   * What the project or the blob has made, beside its chat, and the one open
+   * in place of the thread. A blob owns no artifacts itself: it has those of
+   * the projects it works in, each saying whose it is.
+   */
+  const [owned, setOwned] = useState<PageSummary[]>([]);
+  const [inline, setInline] = useState<string>();
+  const homes = useMemo(
+    () => (project ? [project.slug] : [...new Set(agentInstances.flatMap((c) => (c.projectSlug ? [c.projectSlug] : [])))]),
+    [project, agentInstances],
+  );
+  const homesKey = homes.join(",");
+  useEffect(() => {
+    if (!project && !agent) return;
+    let stale = false;
+    const wanted = new Set(homesKey ? homesKey.split(",") : []);
+    void api
+      .artifacts()
+      .then((list) => !stale && setOwned(list.filter((a) => a.projectSlug !== null && wanted.has(a.projectSlug)).sort((a, b) => b.updatedAt - a.updatedAt)))
+      .catch(() => undefined);
+    return () => {
+      stale = true;
+    };
+  }, [project, agent, homesKey, inline]);
+  useEffect(() => setInline(undefined), [project?.slug, agent?.name]);
+  const openOwned = (a: PageSummary): void => {
+    // An older widget page has no viewer of its own here; it opens on its page.
+    if (a.kind !== "html") project?.onOpenPage(a.id);
+    else setInline(a.id);
+  };
+  const railProps = { items: owned, ...(project ? { home: project.slug } : {}), projects, ...(inline ? { open: inline } : {}), onOpen: openOwned };
+
   const q = query.trim().toLowerCase();
   const matches = (c: Conversation): boolean => !q || c.title.toLowerCase().includes(q);
   const filtered = useMemo(() => tree.roots.filter(matches), [tree, q]);
@@ -1863,7 +1898,24 @@ export function ChatsPage({
         </aside>
       )}
 
-      <section className="chats-view">
+      <section className={`chats-view${inline ? " has-inline" : ""}`}>
+        {inline && (
+          <div className="chats-inline">
+            <ArtifactViewer
+              key={inline}
+              id={inline}
+              projects={projects}
+              backLabel="← Back to the chat"
+              onBack={() => setInline(undefined)}
+              onOpenChat={(slug) => {
+                if (project && slug === project.slug) setInline(undefined);
+                else if (slug) onOpenProject(slug);
+                else onOpen("primary:owner");
+              }}
+              {...(agent ? { onOpenProject } : {})}
+            />
+          </div>
+        )}
         {undo && (
           <div className="chats-undo" role="status">
             <span>Archived “{undo.title}”.</span>
@@ -2584,6 +2636,7 @@ export function ChatsPage({
             </div>
           </>
         )}
+        {(project || agent) && <ArtifactStrip {...railProps} />}
       </section>
 
       {project && (
@@ -2591,7 +2644,7 @@ export function ChatsPage({
            than the panel vanishing; it polls nothing until it is back. */
         <ProjectPanel
           slug={project.slug}
-          onOpenPage={project.onOpenPage}
+          rail={<ArtifactRail {...railProps} />}
           onOpenFile={project.onOpenFile}
           onChanged={onChanged}
           onError={project.onError}
@@ -2607,6 +2660,7 @@ export function ChatsPage({
           onNotice={onNotice}
           onRemoved={agent.onRemoved}
           hidden={!panelOpen}
+          rail={<ArtifactRail {...railProps} />}
         />
       )}
 

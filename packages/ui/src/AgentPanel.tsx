@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties, type ReactElement } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { Card, Face, lookOf, moodOf, Pill, Tag, type Tone } from "@kos/kit";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
@@ -25,6 +25,8 @@ export interface AgentPanelProps {
   /** The agent was removed; the page it sat on has nothing left to show. */
   onRemoved: () => void;
   hidden?: boolean;
+  /** The artifacts of the projects it works in, listed under its folder. */
+  rail?: ReactNode;
 }
 
 const POLL_MS = 5000;
@@ -50,7 +52,7 @@ export function stateOf(a: AgentInfo, paused: boolean): { tone: "working" | "nee
 /** What each blob's panel last showed, so opening it again does not pass through "Loading…". */
 const remembered = new Map<string, AgentInfo | null>();
 
-export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onRemoved, hidden = false }: AgentPanelProps): ReactElement {
+export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onRemoved, hidden = false, rail }: AgentPanelProps): ReactElement {
   const [agent, setAgent] = useState<AgentInfo | null | undefined>(remembered.get(name));
   const [invalidReason, setInvalidReason] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -206,6 +208,8 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
       {/* Its folder, browsed in place as a project's is: agent.md says what
           it is, and the rest is what it has made. */}
       <ProjectExplorer label={agent.name} root={agent.folder} upload={(file, dir) => api.uploadFile(dir ? `${agent.folder}/${dir}` : agent.folder, file)} onOpenInFiles={onOpenFile} onChanged={onChanged} onError={onError} paused={hidden} />
+
+      {rail}
 
       <footer className="agent-foot">
         <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setEditing(true)}>
