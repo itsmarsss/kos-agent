@@ -46,8 +46,9 @@ const ago = (at: number): string => relativeWords(Math.round(at / 1000));
 /** The versions as a choice and a button, in a row above the page. */
 export function PageHistory({ record, onRolledBack }: { record: PageSummary; onRolledBack: () => Promise<unknown> }): ReactElement | null {
   const { versions, error, rollBack } = useVersions(record);
-  const [chosen, setChosen] = useState<string>("");
-  useEffect(() => setChosen(String(versions.at(-2)?.version ?? "")), [versions]);
+  const [picked, setChosen] = useState<string>("");
+  // The one before the current, until the owner picks another.
+  const chosen = picked || String(versions.at(-2)?.version ?? "");
 
   const alert = error ? (
     <p className="ops-alert ops-alert--err" role="alert">

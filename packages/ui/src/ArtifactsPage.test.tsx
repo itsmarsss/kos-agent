@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { api, type ArtifactSummary, type Project } from "./api.js";
-import { ArtifactViewer, ArtifactsPage, chatOf, convertRequest, editRequest } from "./ArtifactsPage.js";
+import { ArtifactViewer, ArtifactsPage, NEW_ARTIFACT_WORDS, chatOf, convertRequest, editRequest } from "./ArtifactsPage.js";
 import { hrefFor, NAV, parseRoute } from "./routes.js";
 
 beforeAll(() => {
@@ -44,13 +44,50 @@ describe("the Artifacts page", () => {
     expect(within(card).getByText("Household budget")).toBeTruthy();
     expect(within(screen.getByText("Q4 brief").closest("button")!).getByText("Workspace")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Decks" }));
+    // Each kind says how many it holds.
+    expect(screen.getByRole("button", { name: "All4" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Decks1" }));
     expect(titles()).toEqual(["Garden pitch"]);
-    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    fireEvent.click(screen.getByRole("button", { name: "All4" }));
     fireEvent.change(screen.getByLabelText("Search artifacts"), { target: { value: "totals by category" } });
     expect(titles()).toEqual(["Ledger"]);
     fireEvent.change(screen.getByLabelText("Search artifacts"), { target: { value: "nothing like this" } });
     expect(screen.getByText("No artifact matches these filters.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Decks0" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(titles()).toHaveLength(4);
+  });
+
+  it("draws cards in their shape while it loads, then groups them by project on asking", async () => {
+    let answer: (list: ArtifactSummary[]) => void = () => undefined;
+    vi.spyOn(api, "artifacts").mockReturnValue(new Promise((r) => (answer = r)));
+    vi.spyOn(api, "checkArtifact").mockResolvedValue({ findings: [], capturedAt: Date.now() });
+    const { container } = render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
+    expect(screen.getByRole("list", { name: "Loading artifacts" }).getAttribute("aria-busy")).toBe("true");
+    expect(container.querySelectorAll(".skeleton").length).toBeGreaterThan(0);
+    answer(ART);
+    await waitFor(() => expect(titles()).toHaveLength(4));
+    expect(screen.queryByRole("list", { name: "Loading artifacts" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "By project" }));
+    const inGroup = (name: string): string[] => within(screen.getByRole("list", { name })).getAllByRole("button").map((b) => b.querySelector(".artifact-card-title")?.textContent ?? "");
+    expect(inGroup("Household budget")).toEqual(["Spending board", "Ledger"]);
+    // The workspace's own come last.
+    expect(inGroup("Workspace")).toEqual(["Q4 brief", "Garden pitch"]);
+    const heads = [...container.querySelectorAll(".artifact-group > .label")].map((h) => h.textContent);
+    expect(heads).toEqual(["Household budget2", "Workspace2"]);
+  });
+
+  it("starts a new artifact in KOS's root chat, with the words to finish", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([]);
+    const started = vi.fn();
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} onNew={started} />);
+    await screen.findByText("Nothing made yet");
+    // In the head, and beside the empty gallery.
+    const buttons = screen.getAllByRole("button", { name: "New artifact" });
+    expect(buttons).toHaveLength(2);
+    fireEvent.click(buttons[0]!);
+    expect(started).toHaveBeenCalledWith(NEW_ARTIFACT_WORDS);
+    expect(NEW_ARTIFACT_WORDS).toBe("Make a ");
   });
 
   it("shows a capture when there is a fresh one and redraws a missing or stale one, one at a time", async () => {
@@ -136,6 +173,29 @@ describe("one artifact, full size", () => {
     expect(chatOf(null)).toEqual({ name: "chats", id: "primary:owner" });
     expect(hrefFor(chatOf(null))).toBe(hrefFor({ name: "chats", id: "primary:owner" }));
     expect(chatOf("budget")).toEqual({ name: "project", slug: "budget" });
+  });
+
+  it("keeps its versions in a drawer, each older one with a way back, and opens its project", async () => {
+    vi.spyOn(api, "anyPage").mockResolvedValue({ ...deck, record: ART[3]!, page: { ...deck.page, id: "ledger", kind: "sheet" as const } } as never);
+    vi.spyOn(api, "pageHistory").mockResolvedValue([
+      { version: 1, at: at(90), title: "Ledger", kind: "html" },
+      { version: 2, at: at(40), title: "Ledger", kind: "html" },
+    ]);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
+    const rollback = vi.spyOn(api, "pageRollback").mockResolvedValue(ART[3]!);
+    const toProject = vi.fn();
+    render(<ArtifactViewer id="ledger" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} onOpenProject={toProject} />);
+    fireEvent.click(await screen.findByRole("button", { name: "History" }));
+    const drawer = await screen.findByRole("dialog", { name: "History" });
+    const rows = within(within(drawer).getByRole("list", { name: "Versions" })).getAllByRole("listitem");
+    expect(rows.map((r) => r.querySelector("strong")?.textContent)).toEqual(["Version 2", "Version 1"]);
+    expect(within(rows[0]!).getByText("Current")).toBeTruthy();
+    fireEvent.click(within(rows[1]!).getByRole("button", { name: "Roll back" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Roll back" })).getByRole("button", { name: "Roll back" }));
+    await waitFor(() => expect(rollback).toHaveBeenCalledWith("ledger", 1));
+    fireEvent.click(screen.getByRole("button", { name: "Open in project" }));
+    expect(toProject).toHaveBeenCalledWith("budget");
+    expect(screen.queryByRole("button", { name: "Present" })).toBeNull();
   });
 
   it("does not offer presenting for a doc, and sends a project's request to its own chat", async () => {
