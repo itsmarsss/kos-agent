@@ -233,6 +233,20 @@ export function credentials(
 }
 
 /**
+ * No MCP server but the ones handed over.
+ *
+ * Signed in as the owner, Claude Code also connects the MCP connectors of
+ * their claude.ai account (Claude Docs, Gmail, Drive) and offers their tools
+ * beside KOS's. A chat turn named Claude Docs as the place for an artifact.
+ * KOS exposes its own tools and nothing else: no configured server outside
+ * the query's own, and none fetched from the account.
+ */
+export const ONLY_OWN_MCP = {
+  strictMcpConfig: true,
+  settings: { disableClaudeAiConnectors: true },
+} as const;
+
+/**
  * Prepare the folder a build runs in.
  *
  * Through the jail, so a directory argument that tries to point at the
@@ -451,6 +465,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
          * which is right: a build takes its instructions from the task.
          */
         settingSources: [],
+        ...ONLY_OWN_MCP,
         /*
          * Force every shell command through the gate.
          *

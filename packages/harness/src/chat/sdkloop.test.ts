@@ -83,6 +83,16 @@ describe("a turn on the SDK", () => {
     expect(run.queries[1]!.prompt).toContain("[image]");
   });
 
+  it("offers KOS's tools alone, not the owner's claude.ai connectors", async () => {
+    run.queries = [];
+    run.script = steps(1, "notify");
+    await runSdkChat({ prompt: "go", system: "s", tools: box(["notify"], () => ({ content: "ok" })), cwd: process.cwd() });
+    const options = run.queries[0]!.options;
+    expect(options["strictMcpConfig"]).toBe(true);
+    expect(options["settings"]).toEqual({ disableClaudeAiConnectors: true });
+    expect(Object.keys(options["mcpServers"] as object)).toEqual(["kos"]);
+  });
+
   it("holds the turn to its step limit across every fresh query", async () => {
     run.queries = [];
     run.script = steps(50);
