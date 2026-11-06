@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { attendance, openDatabase, type ModuleContext, type ToolRisk } from "@kos/harness";
+import { attendance, openDatabase, turnStop, type ModuleContext, type ToolRisk } from "@kos/harness";
 
 import { FakeDevice } from "./device.fixture.js";
 import { OwnerChrome } from "./chrome.js";
@@ -233,6 +233,25 @@ describe("the computer tools", () => {
     const touches = fake.calls.slice(before).filter((c) => c.method === "screen.capture");
     expect(touches.length).toBeGreaterThan(0);
     expect(touches.every((c) => (c.params.region as { width: number }).width === 1)).toBe(true);
+  });
+
+  it("take no further action in a run once the turn is stopped, nor wait", async () => {
+    const stop = new AbortController();
+    // The pause between actions is where Stop lands.
+    const { call, pair } = setup({ sleep: async () => stop.abort() });
+    const fake = pair();
+    await call("computer.start", { task: "t" });
+    const before = fake.calls.length;
+    const ran = turnStop.run(stop.signal, () =>
+      call("computer.act", { actions: [{ action: "left_click", coordinate: [10, 20] }, { action: "type", text: "milk" }, { action: "key", text: "Return" }] }),
+    );
+    await expect(ran).rejects.toThrow(/^Done: Clicked at \(10, 20\)\. Stopped by the owner before action 2\.$/);
+    expect(fake.calls.slice(before).map((c) => c.method)).toEqual(["pointer.click"]);
+    // A wait under a turn already stopped ends at once.
+    const never = setup({ sleep: () => new Promise<void>(() => undefined) });
+    never.pair();
+    await never.call("computer.start", { task: "t" });
+    await expect(turnStop.run(stop.signal, () => never.call("computer.act", { action: "wait", duration: 60 }))).rejects.toThrow(/pressed Stop/);
   });
 
   it("end a wait at once on Stop, the kill switch or the session ending", async () => {
