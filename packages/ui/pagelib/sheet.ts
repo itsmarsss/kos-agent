@@ -136,30 +136,41 @@ class Sheet {
     return typeof kos()?.save === "function";
   }
 
+  /** Draw the tab. A tab that cannot be drawn says why, under its tabs, rather than leave the sheet blank. */
   private render(): void {
+    try {
+      this.draw();
+    } catch (e) {
+      this.root.replaceChildren(...this.tabBar(), el("p", { class: "sheet-error", role: "alert" }, `This tab could not be drawn: ${reason(e)}`));
+    }
+  }
+
+  /** The tabs to switch between, when there is more than one. */
+  private tabBar(): Node[] {
     const tabs = this.book.sheets;
+    if (tabs.length < 2) return [];
+    const list = el("div", { class: "sheet-tabs", role: "tablist" });
+    tabs.forEach((s, i) => {
+      const b = el("button", { type: "button", role: "tab", "aria-selected": String(i === this.tab) }, s.name);
+      b.addEventListener("click", () => {
+        this.tab = i;
+        this.sort = undefined;
+        this.filter = { text: "", column: -1 };
+        this.focus = { row: 1, col: 0 };
+        this.render();
+      });
+      list.append(b);
+    });
+    return [list];
+  }
+
+  private draw(): void {
     const t = this.tab;
-    const tab = tabs[t]!;
+    const tab = this.book.sheets[t]!;
     const columns = this.wb.columns(t);
     const values = this.wb.values(t);
     const rows = viewRows(values, columns, this.filter, this.sort);
-    const parts: Node[] = [];
-
-    if (tabs.length > 1) {
-      const list = el("div", { class: "sheet-tabs", role: "tablist" });
-      tabs.forEach((s, i) => {
-        const b = el("button", { type: "button", role: "tab", "aria-selected": String(i === t) }, s.name);
-        b.addEventListener("click", () => {
-          this.tab = i;
-          this.sort = undefined;
-          this.filter = { text: "", column: -1 };
-          this.focus = { row: 1, col: 0 };
-          this.render();
-        });
-        list.append(b);
-      });
-      parts.push(list);
-    }
+    const parts: Node[] = [...this.tabBar()];
 
     const search = el("input", { type: "search", placeholder: "Filter rows", "aria-label": "Filter rows", value: this.filter.text });
     search.value = this.filter.text;

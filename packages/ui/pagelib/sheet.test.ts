@@ -191,4 +191,14 @@ describe("kos-sheet in a page", () => {
     startSheets();
     expect(document.querySelector(".sheet-error")!.textContent).toMatch(/at least one tab/);
   });
+
+  it("says why a tab cannot be drawn, keeping its tabs, instead of leaving the sheet blank", () => {
+    const book = structuredClone(BOOK);
+    book.sheets.unshift({ name: "Broken", columns: [], pivot: { from: "Expenses", by: "Category", values: "Amount" as never } });
+    book.charts = [];
+    const root = mount(book);
+    expect(root.querySelector(".sheet-error")!.textContent).toMatch(/^This tab could not be drawn: /);
+    tab(root, "Expenses");
+    expect(cells(root)).toHaveLength(4);
+  });
 });

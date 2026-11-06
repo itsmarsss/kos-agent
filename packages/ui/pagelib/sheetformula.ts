@@ -365,9 +365,24 @@ type Arg = Value | Value[];
 
 const flat = (args: Arg[]): Value[] => args.flatMap((a) => (Array.isArray(a) ? a : [a]));
 
+/** A cell of a tab, by row (from 1) and column (from 0). */
+interface Cell {
+  t: number;
+  row: number;
+  col: number;
+}
+
+const keyOf = (c: Cell): string => `${c.t}:${c.row}:${c.col}`;
+const isFormula = (cell: SheetCell | undefined): cell is string => typeof cell === "string" && cell.startsWith("=");
+
 /**
  * A workbook's values. Cells are worked out when first asked for and kept,
  * pivots when first read; a formula that comes back to itself is #CYCLE!.
+ *
+ * A formula's references are worked out first, deepest first, from a stack
+ * of its own (`settle`), so a column where each row reads the one above
+ * (a running balance) is a loop over its rows, not a call per row, which
+ * ran out of stack at a couple of thousand.
  */
 export class Workbook {
   private readonly memo = new Map<string, Value>();
@@ -408,23 +423,100 @@ export class Workbook {
     const rows = tab.rows ?? [];
     if (row < 1 || col < 0 || col >= tab.columns.length) return err("#REF!", `${columnLetter(col)}${row} is outside the sheet`);
     if (row > rows.length) return null;
-    const key = `${t}:${row}:${col}`;
+    const key = keyOf({ t, row, col });
     const got = this.memo.get(key);
     if (got !== undefined) return got;
     if (this.busy.has(key)) return err("#CYCLE!", `${columnLetter(col)}${row} depends on itself`);
     const cell = rows[row - 1]![col];
-    let v: Value;
-    if (typeof cell === "string" && cell.startsWith("=")) {
-      this.busy.add(key);
-      let node = this.parsed.get(cell);
-      if (!node) {
-        node = parseFormula(cell);
-        this.parsed.set(cell, node);
+    if (!isFormula(cell)) {
+      const v = literalOf(cell, tab.columns[col]);
+      this.memo.set(key, v);
+      return v;
+    }
+    this.settle({ t, row, col });
+    return this.memo.has(key) ? (this.memo.get(key) as Value) : this.compute({ t, row, col }, cell);
+  }
+
+  /** The formula cell a cell is, when it is one not yet worked out and not being worked out now. */
+  private pending(c: Cell): string | undefined {
+    const tab = this.book.sheets[c.t];
+    if (!tab || tab.pivot || c.col < 0 || c.col >= tab.columns.length) return undefined;
+    const cell = tab.rows?.[c.row - 1]?.[c.col];
+    if (!isFormula(cell)) return undefined;
+    const key = keyOf(c);
+    return this.memo.has(key) || this.busy.has(key) ? undefined : cell;
+  }
+
+  private node(cell: string): Node {
+    let node = this.parsed.get(cell);
+    if (!node) {
+      node = parseFormula(cell);
+      this.parsed.set(cell, node);
+    }
+    return node;
+  }
+
+  /** The formula cells a formula reads, which are worked out before it. */
+  private references(formula: string, t: number): Cell[] {
+    const out: Cell[] = [];
+    const walk = [this.node(formula)];
+    for (let n = walk.pop(); n; n = walk.pop()) {
+      if (n.k === "neg") walk.push(n.x);
+      else if (n.k === "bin") walk.push(n.a, n.b);
+      else if (n.k === "call") walk.push(...n.args);
+      else if (n.k === "ref" || n.k === "range") {
+        const tt = n.sheet === undefined ? t : this.tabIndex(n.sheet);
+        const tab = this.book.sheets[tt];
+        const [row2, col2] = n.k === "range" ? [Math.min(n.row2, tab?.rows?.length ?? 0), Math.min(n.col2, (tab?.columns.length ?? 0) - 1)] : [n.row, n.col];
+        for (let row = n.row; row <= row2; row++) for (let col = n.col; col <= col2; col++) if (this.pending({ t: tt, row, col }) !== undefined) out.push({ t: tt, row, col });
       }
-      v = this.scalar(this.evaluate(node, t));
+    }
+    return out;
+  }
+
+  /**
+   * Work out a formula cell's references before it, deepest first, without
+   * recursion. A reference already on the stack is left to the formula to
+   * reach (a branch IF never takes, or a real cycle, which `busy` names).
+   */
+  private settle(start: Cell): void {
+    const stack: { cell: Cell; opened: boolean }[] = [{ cell: start, opened: false }];
+    const onStack = new Set([keyOf(start)]);
+    while (stack.length) {
+      const top = stack[stack.length - 1]!;
+      const formula = this.pending(top.cell);
+      if (formula === undefined) {
+        stack.pop();
+        onStack.delete(keyOf(top.cell));
+        continue;
+      }
+      if (!top.opened) {
+        top.opened = true;
+        for (const ref of this.references(formula, top.cell.t)) {
+          const key = keyOf(ref);
+          if (onStack.has(key)) continue;
+          onStack.add(key);
+          stack.push({ cell: ref, opened: false });
+        }
+        continue;
+      }
+      stack.pop();
+      onStack.delete(keyOf(top.cell));
+      this.compute(top.cell, formula);
+    }
+  }
+
+  /** Evaluate one formula cell and keep its value. Whatever goes wrong is the cell's error, and never leaves it marked busy. */
+  private compute(c: Cell, formula: string): Value {
+    const key = keyOf(c);
+    this.busy.add(key);
+    let v: Value;
+    try {
+      v = this.scalar(this.evaluate(this.node(formula), c.t));
+    } catch (e) {
+      v = err("#VALUE!", e instanceof Error ? e.message : String(e));
+    } finally {
       this.busy.delete(key);
-    } else {
-      v = literalOf(cell, tab.columns[col]);
     }
     this.memo.set(key, v);
     return v;

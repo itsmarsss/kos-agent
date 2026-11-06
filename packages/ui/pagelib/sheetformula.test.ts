@@ -1,5 +1,5 @@
-import type { SheetBook } from "@kos/shared";
-import { describe, expect, it } from "vitest";
+import { SHEET_ROWS_MAX, type SheetBook } from "@kos/shared";
+import { describe, expect, it, vi } from "vitest";
 
 import { Workbook, aggregate, columnIndex, columnLetter, findColumn, formatValue, isError, literalOf, meets, parseFormula, sortValue, totalsRow, type Value } from "./sheetformula.js";
 
@@ -109,6 +109,39 @@ describe("references", () => {
     expect(wb.value(0, 1, 0)).toMatchObject({ error: "#CYCLE!" });
     expect(wb.value(0, 2, 0)).toMatchObject({ error: "#CYCLE!" });
     expect(wb.value(0, 2, 1)).toBe(1);
+  });
+
+  it("works out a chain as long as a sheet may be, each row reading the one above", () => {
+    const rows = Array.from({ length: SHEET_ROWS_MAX }, (_, i) => (i === 0 ? [1, "=A1"] : [`=A${i}+1`, `=B${i}+A${i + 1}`]));
+    const wb = book(rows);
+    expect(wb.value(0, SHEET_ROWS_MAX, 0)).toBe(SHEET_ROWS_MAX);
+    expect(wb.value(0, SHEET_ROWS_MAX, 1)).toBe((SHEET_ROWS_MAX * (SHEET_ROWS_MAX + 1)) / 2);
+    expect(wb.values(0)).toHaveLength(SHEET_ROWS_MAX);
+    // Read from the top down, too, as the grid draws it.
+    expect(book(rows).values(0).at(-1)).toEqual([SHEET_ROWS_MAX, (SHEET_ROWS_MAX * (SHEET_ROWS_MAX + 1)) / 2]);
+  });
+
+  it("names a cycle as long as a sheet may be without running out of stack", () => {
+    const rows = Array.from({ length: SHEET_ROWS_MAX }, (_, i) => [i === 0 ? `=A${SHEET_ROWS_MAX}` : `=A${i}+1`]);
+    const wb = book(rows);
+    expect(wb.value(0, SHEET_ROWS_MAX, 0)).toMatchObject({ error: "#CYCLE!" });
+    expect(wb.value(0, 1, 0)).toMatchObject({ error: "#CYCLE!" });
+  });
+
+  it("makes a formula that fails as it is worked out that cell's error, and frees the cell", () => {
+    const wb = book([[2, "=A1*3", "=B1+1"]]);
+    const call = vi.spyOn(Workbook.prototype as unknown as { binary: () => Value }, "binary").mockImplementationOnce(() => {
+      throw new Error("the engine broke");
+    });
+    expect(wb.value(0, 1, 2)).toMatchObject({ error: "#VALUE!" });
+    call.mockRestore();
+    expect((wb as unknown as { busy: Set<string> }).busy.size).toBe(0);
+  });
+
+  it("is not a cycle when the branch that would close it is never taken", () => {
+    const wb = book([["=IF(TRUE, 1, B1)", "=A1+1"]]);
+    expect(wb.value(0, 1, 0)).toBe(1);
+    expect(wb.value(0, 1, 1)).toBe(2);
   });
 
   it("gives #REF! outside the sheet and for a missing tab", () => {
