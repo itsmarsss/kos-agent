@@ -1,4 +1,6 @@
 import { mkdtempSync, mkdirSync, readFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { createServer as createHttpServer, type Server } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -159,6 +161,10 @@ export class ArtifactChecker {
   private profile: string | undefined;
   private idle: ReturnType<typeof setTimeout> | undefined;
   private queue: Promise<unknown> = Promise.resolve();
+  /** Serves each render's top document once, on loopback: Chrome loads it as a page loads the dashboard. */
+  private server: Server | undefined;
+  private serverUrl: string | undefined;
+  private readonly documents = new Map<string, string>();
 
   constructor(private readonly options: CheckerOptions) {}
 
@@ -182,8 +188,13 @@ export class ArtifactChecker {
   close(): void {
     if (this.idle) clearTimeout(this.idle);
     this.cdp?.close();
-    this.chrome?.stop();
-    if (this.profile) rmSync(this.profile, { recursive: true, force: true });
+    this.server?.close();
+    this.server = undefined;
+    this.serverUrl = undefined;
+    const { chrome, profile } = this;
+    chrome?.stop();
+    // Its throwaway profile goes once Chrome has stopped writing to it.
+    if (chrome && profile) void chrome.waitExit().then(() => rmSync(profile, { recursive: true, force: true, maxRetries: 3 })).catch(() => undefined);
     this.cdp = undefined;
     this.chrome = undefined;
     this.profile = undefined;
@@ -205,6 +216,26 @@ export class ArtifactChecker {
     });
     this.cdp = cdp;
     return cdp;
+  }
+
+  /** A URL that answers with this document, once. */
+  private async serve(html: string): Promise<string> {
+    if (!this.serverUrl) {
+      const server = createHttpServer((req, res) => {
+        const key = (req.url ?? "").slice(1);
+        const body = this.documents.get(key);
+        this.documents.delete(key);
+        res.writeHead(body === undefined ? 404 : 200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+        res.end(body ?? "");
+      });
+      await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
+      server.unref();
+      this.server = server;
+      this.serverUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}/`;
+    }
+    const key = randomUUID();
+    this.documents.set(key, html);
+    return this.serverUrl + key;
   }
 
   private async run(id: string): Promise<CheckReport> {
@@ -292,7 +323,7 @@ export class ArtifactChecker {
       await cdp.send("Emulation.setDeviceMetricsOverride", { width: size.width, height: size.height, deviceScaleFactor: 1, mobile: size.mobile }, sessionId);
       // The OS says the other theme: an artifact must follow KOS's toggle, not the machine's setting.
       await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme === "light" ? "dark" : "light" }] }, sessionId);
-      await cdp.send("Runtime.evaluate", { expression: `document.open();document.write(${JSON.stringify(hostDocument(frame))});document.close();` }, sessionId);
+      await cdp.send("Page.navigate", { url: await this.serve(hostDocument(frame)) }, sessionId);
       const start = Date.now();
       await sleep(400);
       while (Date.now() - start < SETTLE_MS && (inFlight > 0 || Date.now() - lastCall < QUIET_MS)) await sleep(100);
