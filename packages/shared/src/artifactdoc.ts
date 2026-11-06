@@ -126,7 +126,9 @@ export function tokenRule(tokens: Record<string, string>, mode: "light" | "dark"
 
 /**
  * The page's side of window.kos. Calls go to the shell as messages and come
- * back as promises; the shell answers only this frame, and the server checks
+ * back as promises; a link to a place on the page (#id) scrolls there,
+ * since in a srcdoc frame it would resolve against the dashboard's address
+ * and send the frame away; the shell answers only this frame, and the server checks
  * each call against what the page declared. Errors the page throws are told
  * to the shell, which shows them with a way to ask KOS to fix the page.
  */
@@ -137,8 +139,10 @@ function report(message){try{top.postMessage({__kos:"error",message:String(messa
 addEventListener("message",function(e){
 if(e.source!==top)return;var m=e.data||{};
 if(m.__kos==="reply"){var w=waiting[m.id];if(!w)return;delete waiting[m.id];if(m.error)w.reject(new Error(m.error));else w.resolve(m.result);}
-else if(m.__kos==="theme"){mode=m.mode;document.documentElement.dataset.mode=m.mode;var s=document.getElementById("kos-tokens");if(s)s.textContent=m.rule;themeFns.forEach(function(f){try{f(m.mode)}catch(err){report(err&&err.message||err)}});}
+else if(m.__kos==="theme"){mode=m.mode;document.documentElement.dataset.mode=m.mode;document.documentElement.dataset.theme=m.mode;var s=document.getElementById("kos-tokens");if(s)s.textContent=m.rule;themeFns.forEach(function(f){try{f(m.mode)}catch(err){report(err&&err.message||err)}});}
+else if(m.__kos==="present"){var on=m.on===true;if(on)document.documentElement.dataset.present="on";else delete document.documentElement.dataset.present;dispatchEvent(new CustomEvent("kos:present",{detail:{on:on}}));}
 });
+document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href^='#']"):null;if(!a||e.defaultPrevented)return;e.preventDefault();var id=decodeURIComponent(a.getAttribute("href").slice(1)),t=id?document.getElementById(id):null,b=matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth";if(t)t.scrollIntoView({behavior:b,block:"start"});else if(!id)scrollTo({top:0,behavior:b})});
 addEventListener("error",function(e){report(e.message||"The page hit an error")});
 addEventListener("unhandledrejection",function(e){var r=e.reason;report(r&&r.message?r.message:String(r))});
 var kos={
@@ -146,6 +150,8 @@ query:function(sql,params){return call("query",{sql:sql,params:params})},
 write:function(table,op,values,key){return call("write",{table:table,op:op,values:values,key:key}).then(function(r){refreshFns.forEach(function(f){try{f()}catch(err){report(err&&err.message||err)}});return r})},
 files:Object.freeze({read:function(path){return call("file",{path:path})}}),
 ask:function(text){return call("ask",{text:String(text)})},
+save:function(edit){var u=navigator.userActivation;if(u&&!u.isActive)return Promise.reject(new Error("a save comes from the owner: press Save, or edit a cell"));return call("save",{edit:edit})},
+present:function(){top.postMessage({__kos:"present"},"*")},
 onTheme:function(f){themeFns.push(f)},
 refresh:function(f){refreshFns.push(f)}
 };
@@ -160,16 +166,19 @@ export interface PageDocumentInput {
   html: string;
   tokens: Record<string, string>;
   mode: "light" | "dark";
+  /** The kit's stylesheets, then the fonts' faces and stacks: plain CSS, no markup. */
   css: string;
-  /** The text of each library the page named, already fetched. */
+  /** The text of each library the page named, and its kind's runtime, already fetched. */
   libraries: string[];
+  /** The artifact's kind, which its runtime and its own CSS can key on. */
+  kind?: string;
 }
 
-export function pageDocument({ html, tokens, mode, css, libraries }: PageDocumentInput): string {
+export function pageDocument({ html, tokens, mode, css, libraries, kind = "page" }: PageDocumentInput): string {
   const { head, body } = splitHtml(html);
   return [
     "<!doctype html>",
-    `<html data-mode="${mode}"><head>`,
+    `<html data-mode="${mode}" data-theme="${mode}" data-kind="${kind.replace(/[^a-z]/g, "")}"><head>`,
     `<meta http-equiv="Content-Security-Policy" content="${PAGE_GUARD_CSP}">`,
     '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
     `<script>${GUARD_SCRIPT}</script>`,

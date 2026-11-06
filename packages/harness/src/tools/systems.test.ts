@@ -45,6 +45,7 @@ describe("systems.migrate risk", () => {
       callerConversation: () => caller,
       callerProject: () => callerProject,
       turnMade: { note: (slug) => made.add(slug), made: () => [...made] },
+      checkArtifact: (id) => Promise.resolve({ text: `checked ${id}` }),
     });
     caller = "c1";
     callerProject = undefined;
@@ -169,19 +170,78 @@ describe("systems.migrate risk", () => {
     expect(res.content).toMatch(/op/);
   });
 
-  it("writes an HTML page through pages.write, keeps the older spec form, and rolls back", async () => {
+  it("writes an HTML page through artifacts.write, keeps the older spec form, and rolls back", async () => {
     const created = await registry.execute("systems.project_create", { name: "Budget", type: "tracker" });
     const { slug } = JSON.parse(created.content) as { slug: string };
-    const html = await registry.execute("pages.write", { project: slug, id: "home", title: "Home", html: "<h1>Hi</h1>" });
+    const html = await registry.execute("artifacts.write", { project: slug, id: "home", title: "Home", html: "<h1>Hi</h1>" });
     expect(html.isError).toBe(false);
     expect(JSON.parse(html.content)).toMatchObject({ kind: "html" });
-    const spec = await registry.execute("pages.write", { project: slug, spec: { id: "old", title: "Old", widgets: [{ type: "markdown", content: "x" }] } });
+    const spec = await registry.execute("artifacts.write", { project: slug, spec: { id: "old", title: "Old", widgets: [{ type: "markdown", content: "x" }] } });
     expect(JSON.parse(spec.content)).toMatchObject({ kind: "spec" });
-    await registry.execute("pages.write", { project: slug, id: "home", title: "Home", html: "<h1>Two</h1>" });
-    const history = JSON.parse((await registry.execute("pages.history", { id: "home" })).content) as { version: number }[];
+    await registry.execute("artifacts.write", { project: slug, id: "home", title: "Home", html: "<h1>Two</h1>" });
+    const history = JSON.parse((await registry.execute("artifacts.history", { id: "home" })).content) as { version: number }[];
     expect(history.map((v) => v.version)).toEqual([1, 2]);
-    await registry.execute("pages.rollback", { id: "home", version: 1 });
-    const got = JSON.parse((await registry.execute("pages.get", { id: "home" })).content) as { page: { html: string } };
+    await registry.execute("artifacts.rollback", { id: "home", version: 1 });
+    const got = JSON.parse((await registry.execute("artifacts.get", { id: "home" })).content) as { page: { html: string } };
     expect(got.page.html).toBe("<h1>Hi</h1>");
+  });
+
+  it("keeps a project's artifacts to its own chats, and a root chat to the workspace's", async () => {
+    const a = JSON.parse((await registry.execute("systems.project_create", { name: "Garden", type: "tracker" })).content) as { slug: string };
+    const b = JSON.parse((await registry.execute("systems.project_create", { name: "Pantry", type: "tracker" })).content) as { slug: string };
+    expect((await registry.execute("artifacts.write", { project: b.slug, id: "shelf", title: "Shelf", html: "<h1>Shelf</h1>" })).isError).toBe(false);
+    expect((await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1>" })).isError).toBe(false);
+    made = new Set();
+
+    // A project-A chat neither checks nor reads project B's.
+    callerProject = a.slug;
+    for (const tool of ["artifacts.check", "artifacts.get", "artifacts.history"]) {
+      const got = await registry.execute(tool, { id: "shelf" });
+      expect(got.isError).toBe(true);
+      expect(got.content).toMatch(/This chat is Garden's, so Pantry's artifacts are not its to read.*@project:pantry/);
+    }
+    expect((await registry.execute("artifacts.check", { id: "memo" })).content).toBe("checked memo");
+
+    // The root chat: a project's artifact is the project's, to read or to write.
+    callerProject = undefined;
+    const check = await registry.execute("artifacts.check", { id: "shelf" });
+    expect(check.isError).toBe(true);
+    expect(check.content).toMatch(/This chat belongs to no project, so Pantry's artifacts are not its to read.*chats.handoff to @project:pantry/);
+    const write = await registry.execute("artifacts.write", { project: a.slug, id: "beds", title: "Beds", html: "<h1>Beds</h1>" });
+    expect(write.isError).toBe(true);
+    expect(write.content).toMatch(/This chat belongs to no project, so Garden's artifacts are not its to change.*@project:garden/);
+    expect((await registry.execute("artifacts.get", { id: "memo" })).isError).toBe(false);
+    expect((await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Two</h1>" })).isError).toBe(false);
+
+    // Its own chat reaches it.
+    callerProject = b.slug;
+    expect((await registry.execute("artifacts.check", { id: "shelf" })).content).toBe("checked shelf");
+  });
+
+  it("keeps a rewritten artifact in its project unless told to move it", async () => {
+    const { slug } = JSON.parse((await registry.execute("systems.project_create", { name: "Garden", type: "tracker" })).content) as { slug: string };
+    await registry.execute("artifacts.write", { project: slug, id: "beds", title: "Beds", html: "<h1>Beds</h1>" });
+    const rewrite = await registry.execute("artifacts.write", { id: "beds", title: "Beds", html: "<h1>Beds two</h1>" });
+    expect(JSON.parse(rewrite.content)).toMatchObject({ projectSlug: slug, path: "projects/garden/pages/beds.html" });
+    expect(JSON.parse((await registry.execute("artifacts.history", { id: "beds" })).content)).toHaveLength(2);
+    const ids = async (project: string): Promise<string[]> => (JSON.parse((await registry.execute("artifacts.list", { project })).content) as { id: string }[]).map((r) => r.id);
+    expect(await ids("@workspace")).toEqual([]);
+    const moved = await registry.execute("artifacts.write", { project: "@workspace", id: "beds", title: "Beds", html: "<h1>Beds three</h1>" });
+    expect(JSON.parse(moved.content)).toMatchObject({ projectSlug: null, path: "artifacts/beds.html" });
+    expect(await ids("@workspace")).toEqual(["beds"]);
+    expect(JSON.parse((await registry.execute("artifacts.history", { id: "beds" })).content)).toHaveLength(3);
+  });
+
+  it("tells the model the check is not available where KOS has no Chrome", async () => {
+    const bare = new ToolRegistry();
+    const manifest = new ProjectManifest(ws.db);
+    const ctx = toolRegistryContext(bare, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), manifest, migrator: new Migrator(ws.db, manifest), pages: new PageStore(ws.db, ws, manifest) });
+    await new ModuleLoader(ctx).load([systemsModule]);
+    const told = (name: string): string => bare.defs().find((d) => d.name === name)?.description ?? "";
+    expect(told("artifacts.write")).toMatch(/artifacts.check is not available/);
+    expect(told("artifacts.write")).not.toMatch(/check once with artifacts.check/);
+    expect(told("artifacts.check")).toMatch(/^Not available on this KOS/);
+    expect((await bare.execute("artifacts.guide", { kind: "doc" })).content).toMatch(/artifacts.check is not available here/);
+    expect(registry.defs().find((d) => d.name === "artifacts.write")?.description).toMatch(/check once with artifacts.check/);
   });
 });

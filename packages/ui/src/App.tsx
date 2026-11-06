@@ -39,6 +39,7 @@ import { AgentsPage } from "./AgentsPage.js";
 import { BuildsPage } from "./BuildsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
 import { ProjectsPage } from "./ProjectsPage.js";
+import { ArtifactViewer, ArtifactsPage, chatOf } from "./ArtifactsPage.js";
 import { placeOf } from "./chattree.js";
 import { MemoryPage } from "./MemoryPage.js";
 import { InboxPage } from "./InboxPage.js";
@@ -339,6 +340,7 @@ export function App(): React.ReactElement {
   const pagesByProject = useMemo(() => {
     const map = new Map<string, PageSummary[]>();
     for (const pg of pages) {
+      if (pg.projectSlug === null) continue;
       const list = map.get(pg.projectSlug) ?? [];
       list.push(pg);
       map.set(pg.projectSlug, list);
@@ -886,7 +888,14 @@ export function App(): React.ReactElement {
           </p>
         )}
         {activePage && <PageHistory record={activePage.record} onRolledBack={() => api.anyPage(activePage.record.id).then(setActivePage)} />}
-        {activePage?.kind === "html" && <ArtifactPage record={activePage.record} page={activePage.page} />}
+        {activePage?.kind === "html" && (
+          <ArtifactPage
+            record={activePage.record}
+            page={activePage.page}
+            onSaved={(record) => setActivePage((p) => (p ? { ...p, record } : p))}
+            onReload={() => void api.anyPage(activePage.record.id).then(setActivePage)}
+          />
+        )}
         {activePage && activePage.kind !== "html" && (
           <PageRenderer spec={activePage.spec} data={activePage.data} />
         )}
@@ -960,6 +969,22 @@ export function App(): React.ReactElement {
         onDecide={decideByPendingId}
         {...(seed ? { seed } : {})}
       />,
+    );
+  }
+
+  if (route.name === "artifacts") {
+    return shell(
+      route.id ? (
+        <ArtifactViewer
+          key={route.id}
+          id={route.id}
+          projects={projects}
+          onBack={() => go({ name: "artifacts" })}
+          onOpenChat={(slug) => go(chatOf(slug))}
+        />
+      ) : (
+        <ArtifactsPage projects={projects} onOpen={(id) => go({ name: "artifacts", id })} />
+      ),
     );
   }
 

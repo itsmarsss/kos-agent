@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { GUARD_SCRIPT, pageDocument, wrapperDocument } from "./artifactdoc.js";
+import { GUARD_SCRIPT, pageDocument, wrapperDocument } from "@kos/shared";
 
 /**
  * Every way out of a page's frame, tried in a real Chrome. Each attempt aims

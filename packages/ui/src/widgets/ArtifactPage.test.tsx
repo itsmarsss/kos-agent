@@ -2,9 +2,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { api, type PageSummary } from "../api.js";
+import { SaveConflict, api, type PageSummary } from "../api.js";
 import { ArtifactPage, fixRequest } from "./ArtifactPage.js";
-import { GUARD_SCRIPT, PAGE_CSP, PAGE_GUARD_CSP, WRAPPER_CSP, pageDocument, splitHtml, wrapperDocument } from "./artifactdoc.js";
+import { GUARD_SCRIPT, PAGE_CSP, PAGE_GUARD_CSP, WRAPPER_CSP, pageDocument, splitHtml, wrapperDocument } from "@kos/shared";
 
 beforeAll(() => {
   // jsdom has no media queries; the frame only listens for the theme changing.
@@ -16,7 +16,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const record: PageSummary = { id: "budget", projectSlug: "budget", title: "Budget", path: "x", updatedAt: 1, kind: "html" };
+const record: PageSummary = { id: "budget", projectSlug: "budget", title: "Budget", path: "x", updatedAt: 1, kind: "html", artifactKind: "page" };
 
 describe("an HTML page's document", () => {
   it("puts the no-network policy first, before anything the page wrote", () => {
@@ -62,8 +62,8 @@ describe("the page's frame", () => {
   const page = { id: "budget", title: "Budget", html: "<p>hi</p>", capabilities: { ask: true } };
 
   /** The wrapper, and the page's own window inside it, which jsdom does not load from srcdoc: a real window stands in. */
-  async function frame(): Promise<{ el: HTMLIFrameElement; pageWin: Window }> {
-    render(<ArtifactPage record={record} page={page} />);
+  async function frame(onReload?: () => void): Promise<{ el: HTMLIFrameElement; pageWin: Window }> {
+    render(<ArtifactPage record={record} page={page} {...(onReload ? { onReload } : {})} />);
     const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
     const stand = document.body.appendChild(document.createElement("iframe"));
     const pageWin = stand.contentWindow!;
@@ -93,6 +93,51 @@ describe("the page's frame", () => {
     expect(call).toHaveBeenCalledWith("budget", "query", { sql: "SELECT 1" });
   });
 
+  /** Whether the owner's hand is on the dashboard now, as the browser says. */
+  const hand = (isActive: boolean): void => {
+    Object.defineProperty(navigator, "userActivation", { value: { isActive, hasBeenActive: isActive }, configurable: true });
+  };
+
+  it("relays a save only while the owner's hand is on it, made on the version opened", async () => {
+    const save = vi.spyOn(api, "savePage").mockResolvedValue({ ...record, updatedAt: 2 });
+    const { pageWin } = await frame();
+    const replies = vi.spyOn(pageWin, "postMessage");
+    const edit = { doc: "<p>mine</p>" };
+    hand(false);
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "call", id: 4, method: "save", args: { edit } } }));
+    });
+    expect(save).not.toHaveBeenCalled();
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ __kos: "reply", id: 4, error: expect.stringMatching(/comes from the owner/) as unknown }), "*");
+    hand(true);
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "call", id: 5, method: "save", args: { edit } } }));
+      await Promise.resolve();
+    });
+    expect(save).toHaveBeenCalledWith("budget", edit, 1);
+    // The next edit is made on the version just saved.
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "call", id: 6, method: "save", args: { edit } } }));
+      await Promise.resolve();
+    });
+    expect(save).toHaveBeenLastCalledWith("budget", edit, 2);
+  });
+
+  it("says when a save lost to a newer version, and offers to reload", async () => {
+    vi.spyOn(api, "savePage").mockRejectedValue(new SaveConflict("This artifact changed after it was opened."));
+    const reload = vi.fn();
+    const { pageWin } = await frame(reload);
+    hand(true);
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "call", id: 7, method: "save", args: { edit: { doc: "x" } } } }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("alert").textContent).toMatch(/Not saved\. This artifact changed after it was opened/);
+    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+    expect(reload).toHaveBeenCalled();
+  });
+
   it("asks the owner before a page sends anything to the chat", async () => {
     const sent = vi.spyOn(api, "message").mockResolvedValue({ reply: "" } as never);
     const { pageWin } = await frame();
@@ -113,7 +158,7 @@ describe("the page's frame", () => {
     });
     expect(screen.getByRole("alert").textContent).toContain("x is not defined");
     fireEvent.click(screen.getByRole("button", { name: "Fix with KOS" }));
-    expect(sent.mock.calls[0]?.[0]).toMatch(/budget.*pages\.get[\s\S]*x is not defined/);
+    expect(sent.mock.calls[0]?.[0]).toMatch(/budget.*artifacts\.get[\s\S]*x is not defined/);
     expect(sent.mock.calls[0]?.[1]).toBe("project:budget");
   });
 
@@ -157,5 +202,65 @@ describe("the page's frame", () => {
     fireEvent.load(el);
     fireEvent.load(el);
     expect(screen.queryByTitle("Budget")).toBeNull();
+  });
+
+  it("relays an owner's saved edit and says a new version exists, without reloading the frame", async () => {
+    const saved = { ...record, updatedAt: 9 };
+    const call = vi.spyOn(api, "savePage").mockResolvedValue(saved);
+    hand(true);
+    const onSaved = vi.fn();
+    render(<ArtifactPage record={record} page={page} onSaved={onSaved} />);
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const before = el.getAttribute("srcdoc");
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "call", id: 4, method: "save", args: { edit: { doc: "<p>new</p>" } } } }));
+    });
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved));
+    expect(call).toHaveBeenCalledWith("budget", { doc: "<p>new</p>" }, 1);
+    expect(screen.getByTitle("Budget").getAttribute("srcdoc")).toBe(before);
+  });
+
+  it("goes full screen when the artifact asks, which only the dashboard can do", async () => {
+    const full = vi.fn().mockResolvedValue(undefined);
+    HTMLElement.prototype.requestFullscreen = full;
+    const { pageWin } = await frame();
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "present" } }));
+    });
+    expect(full).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("an artifact's kind", () => {
+  it("inlines its kind's runtime and its fonts, and marks the kind on the document", async () => {
+    const asked: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      asked.push(String(url));
+      return String(url).endsWith(".woff2")
+        ? new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "font/woff2" } })
+        : new Response("window.kosDoc=1;", { status: 200, headers: { "content-type": "text/javascript" } });
+    });
+    const doc = { id: "brief", title: "Brief", kind: "doc" as const, fonts: ["literata"], html: "<article data-doc><h1>Brief</h1></article>" };
+    render(<ArtifactPage record={{ ...record, id: "brief", artifactKind: "doc" }} page={doc} />);
+    const el = await waitFor(() => screen.getByTitle("Brief"));
+    const src = el.getAttribute("srcdoc") ?? "";
+    expect(asked).toContain("/page-lib/kos-doc.js");
+    expect(asked).toEqual(expect.arrayContaining(["/page-lib/fonts/literata-normal.woff2", "/page-lib/fonts/literata-italic.woff2"]));
+    expect(asked.some((u) => u.includes("newsreader"))).toBe(false);
+    expect(src).toContain("window.kosDoc=1;");
+    expect(src).toContain('font-family:&quot;Literata&quot;');
+    expect(src).toContain("data:font/woff2;base64,AQID");
+    expect(src).toContain('data-kind=&quot;doc&quot;');
+    // The policy is the same for every kind.
+    expect(src).toContain(PAGE_GUARD_CSP.replace(/'/g, "'"));
+  });
+
+  it("keeps the bridge to what it was, plus save and present", () => {
+    const doc = pageDocument({ html: "<p>", tokens: {}, mode: "light", css: "", libraries: [] });
+    const api = /var kos=\{([\s\S]*?)\n\};/.exec(doc)?.[1] ?? "";
+    expect([...api.matchAll(/^(\w+):/gm)].map((m) => m[1])).toEqual(["query", "write", "files", "ask", "save", "present", "onTheme", "refresh"]);
+    expect(doc).toContain('data-theme="light"');
   });
 });

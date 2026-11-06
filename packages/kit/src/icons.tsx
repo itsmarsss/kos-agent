@@ -405,6 +405,12 @@ export function NavIcon({ name }: { name: string }): ReactElement {
     case "browser": return p("c12,12,9|M3 12h18|M12 3a14 14 0 0 1 0 18|M12 3a14 14 0 0 0 0 18");
     case "ask": return p("M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.6 8.6 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.4 8.4 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z|M10.2 9.4a2.3 2.3 0 1 1 3.2 2.1c-.6.3-.9.8-.9 1.4|M12.5 16h.01");
     case "more": return p("c5,12,1|c12,12,1|c19,12,1");
+    // The artifacts, and each of their four kinds.
+    case "artifacts": return p("M7 3h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z|M9 21h8a2 2 0 0 0 2-2|M9 8h6|M9 12h6");
+    case "page": return p("M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z|M3 9h18|M9 9v11");
+    case "doc": return p("M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6|M8 13h8|M8 17h5");
+    case "deck": return p("M3 4h18v12H3z|M12 16v4|M8 20h8|M7 9h6");
+    case "sheet": return p("M4 4h16v16H4z|M4 10h16|M4 15h16|M10 4v16");
     default: return p("c12,12,9");
   }
 }

@@ -1,3 +1,4 @@
+import { findChrome } from "@kos/browser";
 import { PressRoutes } from "../channels/presses.js";
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
@@ -250,6 +251,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     manifest,
     migrator,
     pages,
+    // Only where there is a Chrome to render in; without one the tool says so.
+    ...(findChrome(undefined) ? { checkArtifact: (id: string) => (kernelRef ? kernelRef.checker.tool(id) : Promise.reject(new Error("KOS is still starting"))) } : {}),
     crons,
     // Which project is asking, for a tool whose reach depends on it: the sql
     // tool opens KOS's own tables to Maintenance and to nobody else.

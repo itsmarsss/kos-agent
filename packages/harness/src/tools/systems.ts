@@ -4,37 +4,34 @@ import { migrationEscalation } from "../risk/rules.js";
 import { parseChangeSpec } from "../systems/migrate.js";
 import { deleteProject } from "../systems/remove.js";
 import type { CreateProjectInput } from "../systems/manifest.js";
+import { artifactGuide } from "../systems/artifactguide.js";
+import { ARTIFACT_KINDS, WORKSPACE_SCOPE, isArtifactKind } from "@kos/shared";
 import { MAINTENANCE_SLUG, reachable, type Reach } from "./fence.js";
 import { reachOf } from "./sql.js";
 
 /**
- * Systems tools: project creation, guarded migrate, and pages. These are the
- * primitives the agent uses to build structured projects instead of inventing
- * raw DDL; a page is HTML it writes, reaching data only through window.kos.
+ * Systems tools: project creation, guarded migrate, and artifacts. These are
+ * the primitives the agent uses to build structured projects instead of
+ * inventing raw DDL; an artifact is HTML it writes, reaching data only
+ * through window.kos.
  */
 
 /**
- * How to write a page, as the agent reads it in pages.write: the way a Claude
- * artifact is written, against what KOS gives a page and nothing else.
+ * The write tool's description: what it takes, and where the guide is. The
+ * guide itself (artifactguide.ts) is long and read on demand, so it is not
+ * in every prompt. Where KOS has no Chrome there is no check to ask for, and
+ * the model is told so rather than sent to a tool that cannot run.
  */
-const PAGE_GUIDE = [
-  "Save a page for a project: one self-contained HTML document, like a Claude artifact. It shows on the dashboard in a sandboxed frame, live, and every save keeps the old one as a version (pages.history, pages.rollback).",
-  "project is the project whose data the page shows. If nothing existing covers it, call systems.project_create first; never file a page under an unrelated project because it exists.",
-  "Looks like KOS for free, light and dark: the frame sets KOS's tokens as CSS variables (--bg --panel --panel-2 --line --text --muted --faint --accent --ok --warn --danger, --r-sm --r-md, --text-sm --text-md --text-lg --text-xl --text-2xl, --mono) and styles plain markup: h1-h3, tables, inputs, buttons. Classes: .card (with .card-head .card-title), .grid (tiles that wrap), .row, .stack, .stat (.stat-value .stat-label), .btn (.btn--primary .btn--ghost .btn--danger), .pill (.pill--ok .pill--warn .pill--danger .pill--accent), .tag, .label, .hint, .empty, .table-wrap. Use the variables for any colour you add, so the page follows the theme.",
-  "Data, through window.kos (every call is a promise):",
-  "- kos.query(sql, params?) -> { rows, truncated }: a read-only SELECT over this project's own tables, at most 500 rows and 2 s. Use ? placeholders for values. Name the PHYSICAL tables systems.migrate reported.",
-  "- kos.write(table, op, values, key?): op is insert, update or delete; key is { column, value } for update and delete. Only tables and columns declared in capabilities.writes.",
-  "- kos.files.read(path) -> { text }: a text file inside the project's folder, when capabilities.files is true.",
-  "- kos.ask(text): offer a message to the project's chat; the owner confirms it. Needs capabilities.ask.",
-  "- kos.theme is 'light' or 'dark'; kos.onTheme(fn) hears a change. kos.refresh(fn) registers what to run again after the page's own writes.",
-  "Query at load and after each write, so the page shows what is in the tables now; never paste the data in. If the owner puts data in (a log, a tracker), give the page a form or buttons that call kos.write, and declare that table in capabilities.writes.",
-  "The page stays where it is: no <form> (Chrome never submits one in this frame; use inputs and a button whose click calls kos.write), no <link>, <meta http-equiv>, <iframe>, <object> or <base>, no link targets, downloads or links off the page (link within it with #id), no location, open(), setting a link's href or target, submit() or WebRTC. pages.write refuses a page that has any of these, and the frame stops them at run time.",
-  "No network: no fetch, no CDN, no external image, font or stylesheet; they are blocked. Draw with SVG, canvas or CSS. libraries: ['react'] gives window.React, window.ReactDOM (createRoot) and h = React.createElement (no JSX, there is no build step); ['charts'] gives KosCharts.bar(el, { labels, values }), KosCharts.line(el, { labels, values }) and KosCharts.pie(el, { labels, values }), drawn in the theme.",
-  "It must work from 390 px wide: let things wrap (.grid, .row, flex-wrap), no fixed widths, wide tables inside .table-wrap. The page fills the view and scrolls itself. If it reads the keyboard, call preventDefault on the keys it uses. Write a closing script tag plainly as </script>.",
-  "headline: { label, query } gives the project's card on Home a figure: a SELECT returning one value.",
-  "A page that throws shows the error with a button that asks you to fix it; read it back with pages.get first.",
-  "spec: the older JSON widget page, still accepted for pages already written that way. Prefer html.",
-].join("\n");
+function writeDescription(canCheck: boolean): string {
+  return [
+    "Save an artifact: one self-contained HTML document of a kind (page: an app, dashboard or tool; doc: a designed document; deck: slides; sheet: a spreadsheet). It shows on the dashboard in a sandboxed frame with no network, reaching data only through window.kos, and every save keeps the old one as a version (artifacts.history, artifacts.rollback).",
+    canCheck
+      ? "Read artifacts.guide({ kind }) first, every time: it says how KOS artifacts are designed, the structure each kind's runtime reads, the fonts, and what the frame refuses. Then write, check once with artifacts.check, fix what it reports in one pass, and finish."
+      : "Read artifacts.guide({ kind }) first, every time: it says how KOS artifacts are designed, the structure each kind's runtime reads, the fonts, and what the frame refuses. This KOS has no Chrome, so artifacts.check is not available: write once, carefully, and finish.",
+    `project is the project whose data it shows. Omit it for a new workspace artifact that belongs to no project (a memo, a deck from notes); it then has no tables or files to read. Rewriting an existing id without project keeps it where it is; name a project, or "${WORKSPACE_SCOPE}", only to move it. If a project fits but does not exist, call systems.project_create first; never file an artifact under an unrelated project because it exists.`,
+    "title is a short specific name, not a caption; description is one sentence saying what it is for.",
+  ].join("\n");
+}
 
 function str(input: Record<string, unknown>, key: string): string {
   const v = input[key];
@@ -54,23 +51,25 @@ function refuseOutsideReach(project: string, reach: Reach): void {
   throw new Error(`${here}, so ${name}'s tables are not its to change. Hand the work to ${name}'s own chat with chats.handoff to @project:${project}, saying what to build and load.`);
 }
 
-/** The page tools: a project's orchestrator is granted them for its own project's pages. */
-export const PAGE_TOOLS = ["pages.write", "pages.list", "pages.get", "pages.history", "pages.rollback"] as const;
+/** The artifact tools: a project's orchestrator is granted them for its own project's artifacts. */
+export const ARTIFACT_TOOLS = ["artifacts.write", "artifacts.list", "artifacts.get", "artifacts.history", "artifacts.rollback", "artifacts.guide", "artifacts.check"] as const;
 
 /**
- * A chat in a project changes that project's pages and no other's, as its
- * brief says it cannot reach other projects. A chat at the root keeps the
- * reach it had: it is where a page with no project yet is made.
+ * A project's artifacts are its own chats' to read and change, as its tables
+ * are: those chats, the turn that made the project, and Maintenance. A chat
+ * at the root has no project, so it reaches workspace artifacts only, which
+ * belong to no project and so to any chat, and hands a project's to it.
  */
-function refuseOtherProjectsPage(project: string, reach: Reach): void {
-  if (!reach.project || reach.project === MAINTENANCE_SLUG || reachable(reach).includes(project)) return;
+function refuseOtherProjectsPage(project: string | null, reach: Reach, what: "change" | "read" = "change"): void {
+  if (project === null || reach.project === MAINTENANCE_SLUG || reachable(reach).includes(project)) return;
   const name = (slug: string): string => reach.projects.find((p) => p.slug === slug)?.name ?? slug;
-  throw new Error(`This chat is ${name(reach.project)}'s, so ${name(project)}'s pages are not its to change. Hand the work to ${name(project)}'s own chat with chats.handoff to @project:${project}.`);
+  const here = reach.project ? `This chat is ${name(reach.project)}'s` : "This chat belongs to no project";
+  throw new Error(`${here}, so ${name(project)}'s artifacts are not its to ${what}. Hand the work to ${name(project)}'s own chat with chats.handoff to @project:${project}.`);
 }
 
 function defineSystemsTools(ctx: ModuleContext): void {
   const services = requireServices(ctx);
-  const { manifest, migrator, pages } = services;
+  const { manifest, migrator, pages, checkArtifact } = services;
   if (!manifest || !migrator || !pages) {
     throw new Error("systems module requires manifest, migrator, and pages services");
   }
@@ -207,23 +206,40 @@ function defineSystemsTools(ctx: ModuleContext): void {
 
   ctx.registerTool(
     {
-      name: "pages.write",
-      description: PAGE_GUIDE,
+      name: "artifacts.guide",
+      description: "KOS's design guide for artifacts: how to decide the treatment, plan tokens for both themes, set type, lay out, and write copy, plus the structure the kind's runtime reads and the fonts KOS bundles. Read it before every artifacts.write.",
+      inputSchema: {
+        type: "object",
+        properties: { kind: { type: "string", enum: [...ARTIFACT_KINDS], description: "the kind about to be written: page, doc, deck or sheet" } },
+      },
+    },
+    (input) => artifactGuide(isArtifactKind(input.kind) ? input.kind : undefined, checkArtifact !== undefined),
+    { floor: "safe" },
+    { tags: ["systems"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "artifacts.write",
+      description: writeDescription(checkArtifact !== undefined),
       inputSchema: {
         type: "object",
         properties: {
-          project: { type: "string", description: "project slug: the project whose data the page shows" },
-          id: { type: "string", description: "page id: letters, digits, _ or -; writing an existing id replaces that page and keeps the old one as a version" },
-          title: { type: "string" },
-          html: { type: "string", description: "the whole page: an HTML document or just its body" },
+          project: { type: "string", description: `project slug whose data it shows; omit for a new workspace artifact, or to keep an existing one where it is; "${WORKSPACE_SCOPE}" moves one to the workspace` },
+          id: { type: "string", description: "letters, digits, _ or -; writing an existing id replaces it and keeps the old one as a version" },
+          kind: { type: "string", enum: [...ARTIFACT_KINDS], description: "page (default), doc, deck or sheet" },
+          title: { type: "string", description: "a short specific name" },
+          description: { type: "string", description: "one sentence: what it is for" },
+          html: { type: "string", description: "the whole document, in the kind's structure (artifacts.guide)" },
+          fonts: { type: "array", items: { type: "string" }, description: "bundled font ids (artifacts.guide lists them); the kind's defaults when omitted" },
           capabilities: {
             type: "object",
-            description: "what the page may reach through window.kos",
+            description: "what it may reach through window.kos",
             properties: {
               query: { type: "boolean", description: "read-only queries of this project's tables; on unless false" },
               writes: {
                 type: "array",
-                description: "tables the page may change: each { table, columns, allow? } with the PHYSICAL table name; allow is any of insert, update, delete (default insert, update)",
+                description: "tables it may change: each { table, columns, allow? } with the PHYSICAL table name; allow is any of insert, update, delete (default insert, update)",
                 items: { type: "object" },
               },
               files: { type: "boolean", description: "read text files inside the project's folder" },
@@ -234,22 +250,28 @@ function defineSystemsTools(ctx: ModuleContext): void {
           headline: { type: "object", description: "the figure for the project's card on Home: { label, query } with a single read-only SELECT returning one value" },
           spec: { type: "object", description: "the older JSON widget spec, kept for pages written that way; prefer html" },
         },
-        required: ["project"],
+        required: ["id", "title"],
       },
     },
     (input) => {
-      const project = str(input, "project");
       const reach = reachOf(ctx);
-      refuseOtherProjectsPage(project, reach);
-      // Page ids are shared across projects, and a write upserts by id: the page it would replace is checked too,
-      // or one project could take another's page by naming it as its own.
+      // Ids are shared across projects, and a write upserts by id: the artifact it would replace is checked too,
+      // or one project could take another's by naming it as its own.
       const spec = input.spec as { id?: unknown } | undefined;
       const id = typeof input.id === "string" ? input.id : typeof spec?.id === "string" ? spec.id : undefined;
       const replaced = id ? pages.get(id) : undefined;
       if (replaced) refuseOtherProjectsPage(replaced.record.projectSlug, reach);
-      if (input.spec !== undefined && input.html === undefined) return JSON.stringify(pages.write(project, input.spec));
+      // A rewrite stays where it is unless told to move: a model leaves project out when it means "the same one".
+      const named = typeof input.project === "string" && input.project !== "" ? input.project : input.project === null ? WORKSPACE_SCOPE : undefined;
+      const project = named === undefined ? (replaced?.record.projectSlug ?? null) : named === WORKSPACE_SCOPE ? null : named;
+      refuseOtherProjectsPage(project, reach);
+      if (input.spec !== undefined && input.html === undefined) {
+        if (project === null) throw new Error("a widget spec page needs a project; write html instead");
+        return JSON.stringify(pages.write(project, input.spec));
+      }
       const { project: _project, spec: _spec, ...page } = input;
-      return JSON.stringify(pages.writeHtml(project, page));
+      const record = pages.writeHtml(project, page);
+      return JSON.stringify({ ...record, next: checkArtifact ? `Check it once: artifacts.check({ id: "${record.id}" }).` : undefined });
     },
     { floor: "safe" },
     { tags: ["systems"] },
@@ -257,8 +279,27 @@ function defineSystemsTools(ctx: ModuleContext): void {
 
   ctx.registerTool(
     {
-      name: "pages.list",
-      description: "List the dashboard pages, optionally for one project: each with its kind (html, or an older spec).",
+      name: "artifacts.check",
+      description: !checkArtifact
+        ? "Not available on this KOS: it has no Chrome to render artifacts in. Do not call it; write to artifacts.guide and finish."
+        : "Render an artifact in KOS's own headless Chrome at desktop (1280 px) and phone (390 px) widths, light and dark, and report what is wrong: sideways overflow and the element causing it, text cut off by a box that hides its overflow, text drawn over other text, colours that stay the same in both themes, text below AA contrast, console errors, failed window.kos calls, regions empty at rest, formula errors, a missing visible title; with small screenshots. Check once after writing, fix everything it reports in one pass, write again, and finish: no check loops.",
+      inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    },
+    async (input) => {
+      if (!checkArtifact) throw new Error("this KOS cannot check artifacts: it has no Chrome to render them in");
+      const id = str(input, "id");
+      const page = pages.get(id);
+      if (page) refuseOtherProjectsPage(page.record.projectSlug, reachOf(ctx), "read");
+      return checkArtifact(id);
+    },
+    { floor: "safe" },
+    { tags: ["systems"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "artifacts.list",
+      description: `List artifacts: every one, one project's, or the workspace's own (project: "${WORKSPACE_SCOPE}"), each with its kind (page, doc, deck, sheet), title and description.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -267,11 +308,8 @@ function defineSystemsTools(ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const project =
-        typeof input.project === "string" && input.project
-          ? input.project
-          : undefined;
-      return JSON.stringify(pages.list(project));
+      const project = typeof input.project === "string" && input.project ? input.project : undefined;
+      return JSON.stringify(pages.list(project === WORKSPACE_SCOPE ? null : project));
     },
     { floor: "safe" },
     { tags: ["systems"] },
@@ -279,8 +317,8 @@ function defineSystemsTools(ctx: ModuleContext): void {
 
   ctx.registerTool(
     {
-      name: "pages.get",
-      description: "Load one page by id: an HTML page with its declarations, or an older spec. Read a page before changing it.",
+      name: "artifacts.get",
+      description: "Load one artifact by id: its HTML with its kind and declarations, or an older widget spec. Read one before changing it.",
       inputSchema: {
         type: "object",
         properties: {
@@ -291,7 +329,8 @@ function defineSystemsTools(ctx: ModuleContext): void {
     },
     (input) => {
       const got = pages.get(str(input, "id"));
-      if (!got) throw new Error(`page not found: ${input.id}`);
+      if (!got) throw new Error(`artifact not found: ${input.id}`);
+      refuseOtherProjectsPage(got.record.projectSlug, reachOf(ctx), "read");
       return JSON.stringify(got.kind === "html" ? { record: got.record, page: got.page } : { record: got.record, spec: got.spec });
     },
     { floor: "safe" },
@@ -300,19 +339,24 @@ function defineSystemsTools(ctx: ModuleContext): void {
 
   ctx.registerTool(
     {
-      name: "pages.history",
-      description: "List the kept versions of a page, oldest first; the last is what shows now.",
+      name: "artifacts.history",
+      description: "List the kept versions of an artifact, oldest first; the last is what shows now. The owner's own edits to a doc or sheet are versions too.",
       inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
     },
-    (input) => JSON.stringify(pages.history(str(input, "id"))),
+    (input) => {
+      const id = str(input, "id");
+      const page = pages.get(id);
+      if (page) refuseOtherProjectsPage(page.record.projectSlug, reachOf(ctx), "read");
+      return JSON.stringify(pages.history(id));
+    },
     { floor: "safe" },
     { tags: ["systems"] },
   );
 
   ctx.registerTool(
     {
-      name: "pages.rollback",
-      description: "Put a page back as it was at one of its versions (pages.history). The rollback is itself kept as a version, so it can be undone.",
+      name: "artifacts.rollback",
+      description: "Put an artifact back as it was at one of its versions (artifacts.history). The rollback is itself kept as a version, so it can be undone.",
       inputSchema: { type: "object", properties: { id: { type: "string" }, version: { type: "number" } }, required: ["id", "version"] },
     },
     (input) => {
@@ -335,7 +379,7 @@ export const systemsModule: KosModule = {
       { kind: "tool", name: "systems.project_delete", version: "1.0.0" },
       { kind: "tool", name: "systems.project_list", version: "1.0.0" },
       { kind: "tool", name: "systems.migrate", version: "1.0.0" },
-      ...PAGE_TOOLS.map((name) => ({ kind: "tool" as const, name, version: "1.0.0" })),
+      ...ARTIFACT_TOOLS.map((name) => ({ kind: "tool" as const, name, version: "1.0.0" })),
     ],
     riskTier: "risky",
   },

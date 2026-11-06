@@ -417,14 +417,24 @@ export interface AuditRecord {
 
 export interface PageSummary {
   id: string;
-  projectSlug: string;
+  /** Null for a workspace artifact, which belongs to no project. */
+  projectSlug: string | null;
   title: string;
   path: string;
   updatedAt: number;
-  /** An HTML page the agent wrote, or an older widget spec. */
+  /** An HTML artifact the agent wrote, or an older widget spec. */
   kind: "html" | "spec";
+  /** What it is: page, doc, deck or sheet. */
+  artifactKind: import("@kos/shared").ArtifactKind;
+  description?: string;
   /** The figure an HTML page offers its project's card, when it declares one. */
   headline?: { label: string; value: unknown };
+}
+
+/** An artifact as the gallery lists it. */
+export interface ArtifactSummary extends PageSummary {
+  /** When artifacts.check last drew it, in ms; absent before its first check. */
+  capturedAt?: number;
 }
 
 /** One kept write of a page, newest last. */
@@ -924,6 +934,9 @@ async function readError(res: Response, path: string): Promise<string> {
   return text.trim() || `${path} failed (${res.status})`;
 }
 
+/** An owner's edit refused because the artifact was saved since it was opened: reloading shows the newer one. */
+export class SaveConflict extends Error {}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error(await readError(res, path));
@@ -1103,6 +1116,18 @@ export const api = {
   anyPage: (id: string) => get<AnyPagePayload>(`/api/pages/${encodeURIComponent(id)}`),
   /** An HTML page's window.kos calls, checked by the server against its declarations. */
   pageCall: (id: string, verb: "query" | "write" | "file", args: Record<string, unknown>) => post<unknown>(`/api/pages/${encodeURIComponent(id)}/${verb}`, args),
+  /** The owner's edit to a doc or a sheet, made on the version `base` (its record's updatedAt). */
+  savePage: async (id: string, edit: unknown, base: number): Promise<PageSummary> => {
+    const path = `/api/pages/${encodeURIComponent(id)}/save`;
+    const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ edit, base }) });
+    if (res.status === 409) throw new SaveConflict(await readError(res, path));
+    if (!res.ok) throw new Error(await readError(res, path));
+    return (await res.json()) as PageSummary;
+  },
+  /** Every artifact, across projects and the workspace, with when it was last captured. */
+  artifacts: () => get<ArtifactSummary[]>("/api/artifacts"),
+  /** Render an artifact and keep its captures: the gallery's thumbnail. */
+  checkArtifact: (id: string) => post<{ findings: { kind: string; text: string }[]; capturedAt?: number }>(`/api/artifacts/${encodeURIComponent(id)}/check`),
   pageHistory: (id: string) => get<PageVersion[]>(`/api/pages/${encodeURIComponent(id)}/history`),
   pageRollback: (id: string, version: number) => post<PageSummary>(`/api/pages/${encodeURIComponent(id)}/rollback`, { version }),
   mutate: (req: MutateRequest) => post<MutateResult>("/api/mutate", req),

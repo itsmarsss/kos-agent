@@ -31,7 +31,8 @@ export class BridgeRefusal extends Error {}
 /** A page, its project, and the tables that project made (registered.ts), which are all it may reach. */
 export interface BridgePage {
   page: HtmlPage;
-  projectSlug: string;
+  /** Null for a workspace artifact: no project, so no tables and no files. */
+  projectSlug: string | null;
   tables: Set<string>;
 }
 
@@ -160,6 +161,7 @@ export function pageWrite(db: Db, bridge: BridgePage, req: { table?: unknown; op
 export function pageFile(workspace: Workspace, bridge: BridgePage, path: unknown): { path: string; text: string; truncated: boolean } {
   if (!bridge.page.capabilities?.files) throw new BridgeRefusal("this page does not declare file reads");
   if (typeof path !== "string" || !path.trim()) throw new BridgeRefusal("path is required");
+  if (bridge.projectSlug === null) throw new BridgeRefusal("a page reads files only inside its own project");
   const base = workspace.resolve(join("projects", bridge.projectSlug));
   // Through the jail first, then held to the project's own folder.
   const abs = workspace.resolve(join("projects", bridge.projectSlug, path));

@@ -23,7 +23,7 @@ function detail(over: Partial<ProjectDetail> = {}): ProjectDetail {
       createdAt: 1_700_000_000_000,
     },
     tables: [{ name: "items", rows: 5, columns: 4 }],
-    pages: [{ id: "tasks_kitchen_redo", projectSlug: slug, title: "Kitchen board", path: "x", updatedAt: 0, kind: "spec" }],
+    pages: [{ id: "tasks_kitchen_redo", projectSlug: slug, title: "Kitchen board", path: "x", updatedAt: 0, kind: "spec", artifactKind: "page" }],
     crons: [],
     sites: [],
     sitesBase: null,

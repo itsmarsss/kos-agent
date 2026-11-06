@@ -45,7 +45,7 @@ export interface Mention {
 
 export interface MentionSources {
   projects: { slug: string; name: string; type: string }[];
-  pages: { id: string; title: string; projectSlug: string }[];
+  pages: { id: string; title: string; projectSlug: string | null }[];
   crons: { id: number; name: string; schedule: string }[];
   workspace: Workspace;
   /** Conversations, so the palette can jump straight to one. */
@@ -209,8 +209,7 @@ export function findMentions(
       kind: "page" as const,
       id: p.id,
       label: p.title,
-      hint: p.projectSlug,
-      of: p.projectSlug,
+      ...(p.projectSlug ? { hint: p.projectSlug, of: p.projectSlug } : { hint: "workspace" }),
     })),
     // By id, so a reference outlives a rename; the name is the label.
     ...sources.crons.map((c) => ({
