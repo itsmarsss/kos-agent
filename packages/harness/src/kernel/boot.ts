@@ -260,6 +260,12 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       const id = kernelRef?.callerConversationId;
       return (id && conversations.get(id)?.projectSlug) || undefined;
     },
+    // A blob's own turn: its thread, or a chat of its with no project. Inside a project it works for the project.
+    callerBlob: () => {
+      const id = kernelRef?.callerConversationId;
+      const c = id ? conversations.get(id) : undefined;
+      return (c && !c.projectSlug && c.role) || undefined;
+    },
     callerConversation: () => kernelRef?.callerConversationId ?? undefined,
     turnMade,
     // Always wired. Without a channel this used to be absent, so `notify`

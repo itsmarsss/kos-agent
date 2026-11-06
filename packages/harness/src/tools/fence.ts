@@ -116,6 +116,8 @@ export function ownerOf(table: string, projects: readonly Owner[]): Owner | unde
 /** Who is asking: the project the chat belongs to, none at the root, and every project so an owner can be named. */
 export interface Reach {
   project: string | undefined;
+  /** The blob whose own turn this is; it reaches no tables, and only its own artifacts. */
+  blob?: string | undefined;
   projects: readonly Owner[];
   /**
    * Projects this turn made, which it may build as their own chats do. A chat

@@ -99,6 +99,7 @@ function runSql(db: Db, input: Record<string, unknown>, reach: Reach): string {
 export function reachOf(ctx: ModuleContext): Reach {
   return {
     project: ctx.services?.callerProject?.(),
+    blob: ctx.services?.callerBlob?.(),
     projects: (ctx.services?.manifest?.list() ?? []).map((p) => ({ slug: p.slug, name: p.name })),
     made: ctx.services?.turnMade?.made() ?? [],
   };

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { RoleStore } from "../agents/roles.js";
 import { Workspace } from "../store/workspace.js";
 import { ProjectManifest } from "./manifest.js";
 import { Migrator } from "./migrate.js";
@@ -324,6 +325,49 @@ describe("PageStore HTML pages", () => {
     expect(got?.kind === "html" && got.page.html).toBe("<p>one</p>");
     expect(pages.history("b").map((v) => v.version)).toEqual([1, 2, 3]);
     expect(() => pages.rollback("b", 9)).toThrow(/no version 9/);
+  });
+
+  it("adds the blob column to a pages table from before blobs owned artifacts, keeping every row's owner", () => {
+    const old = mkdtempSync(join(tmpdir(), "kos-pages-old-"));
+    try {
+      const w = Workspace.open(old);
+      w.db.exec(`CREATE TABLE pages (id TEXT PRIMARY KEY, project_slug TEXT NOT NULL, title TEXT NOT NULL, path TEXT NOT NULL, updated_at INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT 'spec', meta TEXT)`);
+      w.db.prepare(`INSERT INTO pages VALUES ('a', 'budget', 'A', 'projects/budget/pages/a.html', 1, 'html', '{}'), ('m', '', 'M', 'artifacts/m.html', 2, 'html', '{}')`).run();
+      const store = new PageStore(w.db, w, new ProjectManifest(w.db));
+      const cols = (w.db.prepare(`PRAGMA table_info(pages)`).all() as { name: string }[]).map((c) => c.name);
+      expect(cols).toContain("blob");
+      expect(store.list().map((r) => [r.id, r.projectSlug, r.blob])).toEqual([["m", null, undefined], ["a", "budget", undefined]]);
+      // Opening it again changes nothing.
+      new PageStore(w.db, w, new ProjectManifest(w.db));
+      expect(store.list(null).map((r) => r.id)).toEqual(["m"]);
+      w.close();
+    } finally {
+      rmSync(old, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a blob's artifacts in its folder, apart from the workspace's, and with its folder when the blob goes", () => {
+    const rec = pages.writeHtml({ blob: "noter" }, { id: "n", kind: "doc", title: "Notes", html: "<article data-doc><h1>N</h1><p>x</p></article>" });
+    expect(rec).toMatchObject({ projectSlug: null, blob: "noter", path: "blobs/noter/artifacts/n.html" });
+    pages.writeHtml(null, { id: "w", title: "W", html: "<p>w</p>" });
+    expect(pages.list({ blob: "noter" }).map((r) => r.id)).toEqual(["n"]);
+    expect(pages.list(null).map((r) => r.id)).toEqual(["w"]);
+    // Its history lives beside it, and an edit or a restore keeps it the blob's.
+    expect(existsSync(join(root, "blobs/noter/artifacts/.history/n/1.json"))).toBe(true);
+    expect(pages.applyEdit("n", { doc: "<h1>N</h1><p>y</p>" }, rec.updatedAt).blob).toBe("noter");
+    expect(pages.rollback("n", 1).blob).toBe("noter");
+    expect(() => pages.writeHtml({ blob: "../x" }, { id: "z", title: "Z", html: "<p>" })).toThrow(/not a blob's name/);
+    // The blob is removed: its file goes, its folder stays with the work in it, artifacts and all, as its files do.
+    const roles = new RoleStore(ws);
+    roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+    expect(roles.remove("noter")).toBe(true);
+    expect(existsSync(join(root, "blobs/noter/blob.md"))).toBe(false);
+    expect(existsSync(join(root, "blobs/noter/artifacts/n.html"))).toBe(true);
+    expect(pages.list({ blob: "noter" }).map((r) => r.id)).toEqual(["n"]);
+    // Moved to the workspace, it takes its history.
+    pages.writeHtml(null, { id: "n", title: "Notes", html: "<p>moved</p>" });
+    expect(existsSync(join(root, "artifacts/.history/n/1.json"))).toBe(true);
+    expect(pages.get("n")?.record.blob).toBeUndefined();
   });
 
   it("refuses the owner's restore made on an older version, as an edit is refused", () => {
