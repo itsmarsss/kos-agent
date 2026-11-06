@@ -50,7 +50,8 @@ those to this table by hand.
 | `DrawerRow` | A row that opens what is under it (`.drawer-row`) | kit, not yet used | kit | `DrawerRow` (`DrawerRow.swift`) |
 | `RefChip` | A link to one of the owner's things (a project, a page, a site, a chat), in its kind's mark and colour, as a reference in a message is | kit; the Markdown's references are drawn with it | kit (through Markdown) | the violet reference chips of `chatInline` (`ChatMarkdown.swift`) |
 | `Collapse` | What a drawer opens to | kit, not yet used | kit | the `HomeView.inPlace` transition |
-| `WorkingDots` | KOS at work before it has a step to show | kit | kit | `Thinking` (`ChatView.swift`) |
+| `WorkingDots` | KOS at work: the foot of a running turn, under whatever it showed last, until the turn ends | kit | kit | `Working` (`ChatView.swift`) |
+| `Elapsed` | How long a turn has run, ticking: `formatElapsed` says it (45s, 3m 20s, 1h 4m) | kit | kit | `elapsedWords` (Controls) |
 | `Face` | KOS's face, or a blob's; `KosLook`/`useKosLook` and `AgentFaces` give the looks, `lookOf`, `moodOf`, `faceLookOf`, `faceDataUrl` read them | kit | kit (`drawing`, as a KOS sends it) | `KOSFace` (`KOSFace.swift`) with `FaceLook` |
 | `Field` | A label, the control, then a hint or an error; `badge`, `meta`; `Req` marks it required | kit; a setting in a list is `FieldRow` (`ui/src/kit.tsx`), whose words open on a click | kit (the popup's pairing); a setting row is `Setting`/`Toggle` in `popup.tsx` | `KOSField`, and `SwitchRow` for a setting (Controls) |
 | `ConfirmButton` | A delete that asks once, beside itself | `ui/src/kit.tsx` | | |
@@ -78,7 +79,7 @@ tool rows to one chip.
 | KOS's words | kit `Markdown`; `MentionNames` names references, `RefLinks` (given by `ui/src/refs.tsx`) routes them, `KindMark` marks their kind, `Tex` sets maths | kit `Markdown` (references as plain chips) | `ChatMarkdown` and `chatInline` (`ChatMarkdown.swift`) |
 | The owner's bubble | `.bubble--you` in `ChatsPage.tsx` | `.msg--you` in `panel.tsx` | `Bubble` (`ChatView.swift`) |
 | Steps | `ToolCall.tsx`, a row per call | `Steps` in `panel.tsx`, one chip | `Steps` (`ChatView.swift`), one `Chip(..., opens:)` |
-| Live turn | `LiveTurn.tsx` with `WorkingDots` | `Story` and `WorkingDots` in `panel.tsx` | `Thinking`, live `Steps` |
+| Live turn | `LiveTurn.tsx`, its foot `WorkingDots` and `Elapsed` | `Story`, its foot `Working` in `panel.tsx` | live `Steps`, its foot `Working` |
 | Composer | `.composer-box` in `ChatsPage.tsx`, `HighlightedInput.tsx`, `Autocomplete.tsx` | `Composer` in `panel.tsx` | the composer in `ChatView.swift` |
 | Model and mode chips | `ModelPicker.tsx`, `.composer-engine` | `ModelChoice`, `AutoChoice` in `panel.tsx`, on the one capsule rule | `Chip(..., opens:)` menus in `ChatView.swift` |
 | Send | `.send` with kit `SendIcon`, Stop while a turn runs | `.send` with kit `SendIcon` | `KOSButtonStyle(..., round: 30)` with `arrow.right` (Controls) |

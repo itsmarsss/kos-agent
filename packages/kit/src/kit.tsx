@@ -1,5 +1,5 @@
 import { AnimatePresence, m, type HTMLMotionProps } from "motion/react";
-import type { HTMLAttributes, ReactElement, ReactNode } from "react";
+import { useEffect, useState, type HTMLAttributes, type ReactElement, type ReactNode } from "react";
 
 import { ChevronDown, CloseIcon } from "./icons.js";
 import { ease, listItem, spring } from "./motion.js";
@@ -167,6 +167,27 @@ export function WorkingDots(): ReactElement {
       <i />
     </span>
   );
+}
+
+/** 45s, 3m 20s, 1h 4m. A count that only ever grows in seconds stops reading. */
+export function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (minutes < 60) return `${minutes}m ${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+/** How long KOS has been at it, since a moment in ms, ticking each second. */
+export function Elapsed({ since }: { since: number }): ReactElement {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return <span className="live-elapsed">{formatElapsed(now - since)}</span>;
 }
 
 /** A small uppercase head over what it labels, with an action at its right. */
