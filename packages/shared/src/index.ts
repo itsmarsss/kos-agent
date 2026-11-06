@@ -155,6 +155,7 @@ export {
   WORKSPACE_SCOPE,
   artifactAssets,
   isArtifactKind,
+  DOC_EDIT_MAX,
   sheetErrors,
   sheetTables,
   type ArtifactEdit,

@@ -1441,9 +1441,9 @@ export async function handleApiRequest(
     if (verb === "history" && method === "GET") return ok(kernel.pages.history(id));
     if (verb === "rollback" && method === "POST") {
       try {
-        return ok(kernel.pages.rollback(id, Number(body.version)));
+        return ok(kernel.pages.rollback(id, Number(body.version), body.base));
       } catch (err) {
-        return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+        return { status: err instanceof EditConflict ? 409 : 400, body: { error: err instanceof Error ? err.message : String(err) } };
       }
     }
     if (method !== "POST" || got.kind !== "html" || (verb !== "query" && verb !== "write" && verb !== "file" && verb !== "save")) return { status: 404, body: { error: "not found" } };

@@ -29,6 +29,9 @@ export const isArtifactKind = (v: unknown): v is ArtifactKind => (ARTIFACT_KINDS
  * gallery's filter. A slug is lowercase letters, digits and _, so this can
  * never be one; "workspace" could.
  */
+/** The longest doc text an owner's edit may save (the inside of its article); the page as a whole has HTML_PAGE_MAX. */
+export const DOC_EDIT_MAX = 300_000;
+
 export const WORKSPACE_SCOPE = "@workspace";
 
 /** The runtime KOS inlines for a kind, served beside the libraries as /page-lib/<name>.js. */

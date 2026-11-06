@@ -9,8 +9,7 @@
  * every check a write does (PageStore.writeHtml).
  */
 
-/** Longest edited text taken; the document as a whole has its own cap. */
-const DOC_EDIT_MAX = 300_000;
+import { DOC_EDIT_MAX } from "@kos/shared";
 
 const OPEN = /<article\b[^>]*\sdata-doc\b[^>]*>/i;
 const TAG = /<(\/?)article\b[^>]*>/gi;
@@ -34,9 +33,10 @@ const CODE: [RegExp, string][] = [
   [/<script\b/i, "a script"],
   [/<style\b/i, "a stylesheet"],
   [/<\/?article\b/i, "an article tag"],
-  // A slash separates attributes as whitespace does: <img/onerror=...>.
-  [/[\s/]on[a-z]+\s*=/i, "an event handler"],
-  [/javascript\s*:/i, "a javascript: URL"],
+  // Inside a tag only, so prose about "onload = fast" or "javascript: the language" is text.
+  // A slash or a quote separates attributes as whitespace does: <img/onerror=...>, <a href=""onclick=...>.
+  [/<[a-z][^>]*[\s/"']on[a-z]+\s*=/i, "an event handler"],
+  [/<[a-z][^>]*javascript\s*:/i, "a javascript: URL"],
 ];
 
 /** The document with its doc's text replaced by the owner's edit. */

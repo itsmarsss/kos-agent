@@ -467,11 +467,16 @@ export class PageStore {
   /**
    * Put a page back as it was at a version. It goes through the same checks as
    * any write, against the tables as they are now, and is itself kept as a
-   * version, so a rollback can be undone.
+   * version, so a rollback can be undone. The owner's restore names the
+   * version it was made on (`base`), as an edit does: one made on an older
+   * version is an EditConflict rather than a silent overwrite.
    */
-  rollback(id: string, version: number): PageRecord {
+  rollback(id: string, version: number, base?: unknown): PageRecord {
     const row = this.row(id);
     if (!row) throw new Error(`page not found: ${id}`);
+    if (base !== undefined && base !== row.updated_at) {
+      throw new EditConflict("This artifact changed after it was opened: KOS or another window saved a newer version. Reload it, then restore again.");
+    }
     const projectSlug = recordOf(row).projectSlug;
     const file = join(this.historyDir(projectSlug, id), `${version}.json`);
     if (!Number.isInteger(version) || !existsSync(file)) throw new Error(`page ${id} has no version ${version}`);

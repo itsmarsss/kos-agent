@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Workspace } from "../store/workspace.js";
 import { ProjectManifest } from "./manifest.js";
 import { Migrator } from "./migrate.js";
-import type { ArtifactEdit } from "@kos/shared";
+import { DOC_EDIT_MAX, type ArtifactEdit } from "@kos/shared";
 
 import { EDIT_GAP_MS, EditConflict, PageStore } from "./pages.js";
 import { runDisplayQuery } from "./display.js";
@@ -326,6 +326,16 @@ describe("PageStore HTML pages", () => {
     expect(() => pages.rollback("b", 9)).toThrow(/no version 9/);
   });
 
+  it("refuses the owner's restore made on an older version, as an edit is refused", () => {
+    let clock = 1_000;
+    const timed = new PageStore(ws.db, ws, new ProjectManifest(ws.db), () => clock);
+    const opened = timed.writeHtml("budget", { id: "r", title: "One", html: "<p>one</p>" }).updatedAt;
+    clock += 5_000;
+    const now = timed.writeHtml("budget", { id: "r", title: "Two", html: "<p>two</p>" }).updatedAt;
+    expect(() => timed.rollback("r", 1, opened)).toThrow(EditConflict);
+    expect(timed.rollback("r", 1, now).title).toBe("One");
+  });
+
   it("shows an older version to look at, writing nothing", () => {
     pages.writeHtml("budget", { id: "v", title: "One", description: "first", html: "<p>one</p>" });
     pages.writeHtml("budget", { id: "v", title: "Two", html: "<p>two</p>" });
@@ -458,6 +468,29 @@ describe("PageStore HTML pages", () => {
       pages.writeHtml(null, { id: "memo", kind: "doc", title: "Memo", html: doc("<p>Note</p>") });
       expect(edit("memo", { doc: "<p>Changed</p>" }).projectSlug).toBeNull();
       expect(pages.list("budget").some((r) => r.id === "memo")).toBe(false);
+    });
+
+    it("reads handlers and javascript: inside tags only, refuses links and images that leave the page however written, and caps an edit", () => {
+      pages.writeHtml("budget", { id: "brief", kind: "doc", title: "Brief", html: doc("<p>x</p>") });
+      // Prose that only mentions them is text.
+      edit("brief", { doc: "<p>Set onload = fast, and javascript: the language, in the notes.</p>" });
+      for (const bad of ['<a href=""onclick="x()">a</a>', '<p title="x"/onmouseover=x()>a</p>', '<a href="javascript:x()">a</a>']) {
+        expect(() => edit("brief", { doc: bad }), bad).toThrow(/may not hold/);
+      }
+      for (const leaves of [
+        '<a/href="https://x.example">x</a>',
+        '<a title="t"href="https://x.example">x</a>',
+        '<svg><a xlink:href="https://x.example"><text>x</text></a></svg>',
+        '<img src="https://x.example/p.png" alt="">',
+        "<img src=//x.example/p.png>",
+        '<img srcset="https://x.example/p.png 2x" src="data:image/png;base64,AAAA">',
+        '<svg><image href="http://x.example/p.png"/></svg>',
+      ]) {
+        expect(() => edit("brief", { doc: leaves }), leaves).toThrow(/cannot leave its frame/);
+        expect(() => pages.writeHtml("budget", { id: "w", title: "W", html: leaves }), leaves).toThrow(/cannot leave its frame/);
+      }
+      pages.writeHtml("budget", { id: "pic", title: "Pic", html: '<img src="data:image/png;base64,AAAA" alt="">' });
+      expect(() => edit("brief", { doc: `<p>${"x".repeat(DOC_EDIT_MAX)}</p>` })).toThrow(/the most is 300000/);
     });
 
     it("keeps the owner's edit to a sheet's data as a version, escaped so data cannot end its script", () => {
