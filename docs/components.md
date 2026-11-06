@@ -60,7 +60,10 @@ those to this table by hand.
 | `useDismiss` | Closes what floats on a press away, a scroll, a resize or Escape; a menu hears Escape first, a dialog last | kit; `useAnchoredPop` (`ui/src/kit.tsx`) for small popovers | kit (the side panel's chat switcher) | |
 | `StatusDot` | A state as a dot alone: working, needs you, error, unread, read, on, off | kit; `ActivityDot` and `buildDot` (`ui/src/StatusDot.tsx`) choose it for a thread and a build | kit (the session's head) | `Dot` (Controls) |
 | Page head | A page's title, its line, search and actions | `PageHead.tsx` | | |
-| HTML page | A page the agent wrote, in its sandboxed frame, with `window.kos` and the page history | `widgets/ArtifactPage.tsx`, `widgets/artifactdoc.ts`, `PageHistory.tsx`; its look is `@kos/kit/page.css` with `kit.css` ([pages.md](pages.md)) | | |
+| Artifact frame | An artifact the agent wrote (page, doc, deck or sheet), in its sandboxed frame, with `window.kos`, its kind's runtime and fonts, and the version history | `widgets/ArtifactPage.tsx` (the frame; `ArtifactHandle.present()`), `@kos/shared` `artifactdoc.ts` (its documents), `PageHistory.tsx`; its look is `@kos/kit/page.css` with `kit.css`, and the kinds' runtimes in `ui/pagelib` ([artifacts.md](artifacts.md)) | | |
+| Artifact card | One artifact in the gallery: its capture or its kind's mark, title, description, kind `Tag`, owner and time | `.artifact-card` in `ArtifactsPage.tsx` | | |
+| Artifact viewer | One artifact full size: history, Edit with KOS, Present for a deck | `ArtifactViewer` in `ArtifactsPage.tsx` | | |
+| Kind marks | page, doc, deck and sheet, and the Artifacts nav entry | kit `NavIcon` (`page`, `doc`, `deck`, `sheet`, `artifacts`) | | |
 | Link | Words in the accent that go somewhere | `a` in `styles.css` | `a` | `KOSLink` (Controls); `.pointingHand()` for the cursor |
 | Time words | Minutes as a person says them | `SchedulePicker.tsx` and `schedulewords.ts` for schedules | `minutesWords` (`pages.ts`) | `minutesWords` (Controls) |
 | Buttons | primary, ghost, danger, small | `.btn` classes | `.btn` classes | `KOSButtonStyle` (Controls); `round: 30` is the round send |
