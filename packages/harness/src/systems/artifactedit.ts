@@ -34,7 +34,8 @@ const CODE: [RegExp, string][] = [
   [/<script\b/i, "a script"],
   [/<style\b/i, "a stylesheet"],
   [/<\/?article\b/i, "an article tag"],
-  [/\son[a-z]+\s*=/i, "an event handler"],
+  // A slash separates attributes as whitespace does: <img/onerror=...>.
+  [/[\s/]on[a-z]+\s*=/i, "an event handler"],
   [/javascript\s*:/i, "a javascript: URL"],
 ];
 

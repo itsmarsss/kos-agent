@@ -406,7 +406,7 @@ describe("PageStore HTML pages", () => {
 
     it("refuses an edit that carries code, or that does not fit the kind", () => {
       pages.writeHtml("budget", { id: "brief", kind: "doc", title: "Brief", html: doc("<p>x</p>") });
-      for (const bad of ["<script>x()</script>", '<img src=x onerror="x()">', '<a href="javascript:x()">a</a>', "</article><script>", "<style>body{}</style>"]) {
+      for (const bad of ["<script>x()</script>", '<img src=x onerror="x()">', "<img/onerror=x() src=x>", '<svg/onload="x()">', '<a href="javascript:x()">a</a>', "</article><script>", "<style>body{}</style>"]) {
         expect(() => pages.applyEdit("brief", { doc: bad })).toThrow(/may not hold/);
       }
       expect(() => pages.applyEdit("brief", { doc: "<iframe></iframe>" })).toThrow(/cannot leave its frame/);
