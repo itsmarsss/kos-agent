@@ -1,3 +1,4 @@
+import { Empty, Pill } from "@kos/kit";
 import { relativeWords } from "@kos/shared";
 import { useEffect, useState, type ReactElement } from "react";
 
@@ -10,9 +11,10 @@ import { Select } from "./Select.js";
  * is kept, so a page it broke is one choice away from how it was; the
  * rollback is itself kept, so it can be undone too.
  */
-export function PageHistory({ record, onRolledBack }: { record: PageSummary; onRolledBack: () => Promise<unknown> }): ReactElement | null {
+
+/** The versions, newest last, fetched again whenever the page changes. */
+function useVersions(record: PageSummary): { versions: PageVersion[]; error?: string; rollBack: (version: number, then: () => Promise<unknown>) => void } {
   const [versions, setVersions] = useState<PageVersion[]>([]);
-  const [chosen, setChosen] = useState<string>("");
   const [error, setError] = useState<string>();
   const failed = (err: unknown): void => setError(err instanceof Error ? err.message : String(err));
 
@@ -24,13 +26,28 @@ export function PageHistory({ record, onRolledBack }: { record: PageSummary; onR
         if (stale) return;
         setError(undefined);
         setVersions(list);
-        setChosen(String(list.at(-2)?.version ?? ""));
       })
       .catch((err: unknown) => !stale && failed(err));
     return () => {
       stale = true;
     };
   }, [record.id, record.updatedAt]);
+
+  const rollBack = (version: number, then: () => Promise<unknown>): void =>
+    void api
+      .pageRollback(record.id, version)
+      .then(then)
+      .then(() => setError(undefined), failed);
+  return { versions, ...(error ? { error } : {}), rollBack };
+}
+
+const ago = (at: number): string => relativeWords(Math.round(at / 1000));
+
+/** The versions as a choice and a button, in a row above the page. */
+export function PageHistory({ record, onRolledBack }: { record: PageSummary; onRolledBack: () => Promise<unknown> }): ReactElement | null {
+  const { versions, error, rollBack } = useVersions(record);
+  const [chosen, setChosen] = useState<string>("");
+  useEffect(() => setChosen(String(versions.at(-2)?.version ?? "")), [versions]);
 
   const alert = error ? (
     <p className="ops-alert ops-alert--err" role="alert">
@@ -43,7 +60,7 @@ export function PageHistory({ record, onRolledBack }: { record: PageSummary; onR
   const options = versions
     .slice(0, -1)
     .reverse()
-    .map((v) => ({ value: String(v.version), label: `Version ${v.version}, ${relativeWords(Math.round(v.at / 1000))}` }));
+    .map((v) => ({ value: String(v.version), label: `Version ${v.version}, ${ago(v.at)}` }));
   return (
     <div className="page-history">
       <span className="hint">Version {current} of {versions.length}</span>
@@ -53,14 +70,50 @@ export function PageHistory({ record, onRolledBack }: { record: PageSummary; onR
         text={`Show version ${chosen} again? The page as it is now stays in its history.`}
         className="btn btn--sm"
         disabled={!chosen}
-        onConfirm={() =>
-          void api
-            .pageRollback(record.id, Number(chosen))
-            .then(onRolledBack)
-            .then(() => setError(undefined), failed)
-        }
+        onConfirm={() => rollBack(Number(chosen), onRolledBack)}
       />
       {alert}
+    </div>
+  );
+}
+
+/** The versions as a list, newest first, each older one with its own way back: for a drawer. */
+export function VersionList({ record, onRolledBack }: { record: PageSummary; onRolledBack: () => Promise<unknown> }): ReactElement {
+  const { versions, error, rollBack } = useVersions(record);
+  const current = versions.at(-1)?.version;
+  return (
+    <div className="versions">
+      {error && (
+        <p className="ops-alert ops-alert--err" role="alert">
+          Page history: {error}
+        </p>
+      )}
+      {versions.length < 2 && !error && <Empty inline>One version so far. Each change KOS makes is kept here, with a way back.</Empty>}
+      {versions.length > 0 && (
+        <ol className="versions-list" aria-label="Versions">
+          {[...versions].reverse().map((v) => (
+            <li key={v.version} className="versions-row">
+              <span className="line-text">
+                <strong>Version {v.version}</strong>
+                <span>
+                  {ago(v.at)}
+                  {v.title !== record.title ? `, titled "${v.title}"` : ""}
+                </span>
+              </span>
+              {v.version === current ? (
+                <Pill tone="ok">Current</Pill>
+              ) : (
+                <ConfirmButton
+                  label="Roll back"
+                  text={`Show version ${v.version} again? The artifact as it is now stays in its history.`}
+                  className="btn btn--sm"
+                  onConfirm={() => rollBack(v.version, onRolledBack)}
+                />
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }

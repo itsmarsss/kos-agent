@@ -107,6 +107,15 @@ export function Empty({ title, inline = false, className, children }: { title?: 
   );
 }
 
+/**
+ * Where something will be while it loads: a quiet block in its shape, with a
+ * slow sheen (none for those who asked for less motion). A list draws a few
+ * in the shape of its rows or cards, so nothing jumps when they arrive.
+ */
+export function Skeleton({ width, height, radius, className }: { width?: number | string; height?: number | string; radius?: number | string; className?: string }): ReactElement {
+  return <span className={`skeleton${className ? ` ${className}` : ""}`} aria-hidden="true" style={{ width, height, borderRadius: radius }} />;
+}
+
 /** On or off, said by its label and drawn as a knob that slides. */
 export function Switch({ on, onChange, label, disabled }: { on: boolean; onChange: (on: boolean) => void; label: string; disabled?: boolean }): ReactElement {
   return (
@@ -124,9 +133,24 @@ export type ChipOption<V> = readonly [value: V, label: ReactNode, title?: string
  * kind, tabs over a list: every such choice is drawn this way. With nothing
  * selected, the chips are a row of things to pick, none of them on.
  */
-export function Chips<V extends string | number>({ options, selected, onChoose, label, small = false }: { options: readonly ChipOption<V>[]; selected?: V | null; onChoose: (v: V) => void; label?: string; small?: boolean }): ReactElement {
+export function Chips<V extends string | number>({
+  options,
+  selected,
+  onChoose,
+  label,
+  small = false,
+  scroll = false,
+}: {
+  options: readonly ChipOption<V>[];
+  selected?: V | null;
+  onChoose: (v: V) => void;
+  label?: string;
+  small?: boolean;
+  /** One row that scrolls sideways on its own when it runs out of room, rather than wrapping or widening the page. */
+  scroll?: boolean;
+}): ReactElement {
   return (
-    <div className={`chips${small ? " chips--sm" : ""}`} role={label ? "group" : undefined} aria-label={label}>
+    <div className={`chips${small ? " chips--sm" : ""}${scroll ? " chips--scroll" : ""}`} role={label ? "group" : undefined} aria-label={label}>
       {options.map(([value, text, title]) => (
         <button key={String(value)} type="button" aria-pressed={value === selected} title={title} onClick={() => onChoose(value)}>
           {text}

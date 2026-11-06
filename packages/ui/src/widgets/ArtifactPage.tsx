@@ -1,7 +1,7 @@
 import { COLOURS, RADII, TYPE, artifactAssets, fontById, fontFaceCss, fontStackVars, type HtmlPage } from "@kos/shared";
 import kitCss from "@kos/kit/kit.css?raw";
 import pageCss from "@kos/kit/page.css?raw";
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
 
 import { SaveConflict, api, type PageSummary } from "../api.js";
 import { fitsContent, pageDocument, tokenRule, wrapperDocument } from "@kos/shared";
@@ -257,6 +257,16 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
     window.addEventListener("message", heard);
     return () => window.removeEventListener("message", heard);
   }, [layout, left, onSaved, page.capabilities?.ask, pageWindow, present, record.id, reply]);
+
+  // A deck or a sheet fills the view below where it starts on the page, so that is measured, not guessed.
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el || layout === "fit") return;
+    const place = (): void => el.style.setProperty("--artifact-top", `${Math.max(0, Math.round(el.getBoundingClientRect().top + window.scrollY))}px`);
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [layout, doc]);
 
   // Full screen, and back: the frame is told either way, so a deck presents and stops presenting with it.
   useEffect(() => {

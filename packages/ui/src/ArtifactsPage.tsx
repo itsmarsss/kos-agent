@@ -1,10 +1,12 @@
-import { Chips, Empty, NavIcon, Tag, type ChipOption } from "@kos/kit";
+import { Chips, Count, Empty, NavIcon, PlusIcon, Skeleton, Tag, type ChipOption } from "@kos/kit";
 import { WORKSPACE_SCOPE, relativeWords, type ArtifactKind, type HtmlPage } from "@kos/shared";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 
 import { api, type ArtifactSummary, type PageSummary, type Project } from "./api.js";
 import { PageHead } from "./PageHead.js";
-import { PageHistory } from "./PageHistory.js";
+import { Drawer } from "./Drawer.js";
+import { ProjectMark } from "./ProjectMark.js";
+import { VersionList } from "./PageHistory.js";
 import type { Route } from "./routes.js";
 import { Select } from "./Select.js";
 import { ArtifactPage, type ArtifactHandle } from "./widgets/ArtifactPage.js";
@@ -60,15 +62,67 @@ function useDashboardTheme(): "light" | "dark" {
   return theme;
 }
 
-export function ArtifactsPage({ projects, onOpen }: { projects: Project[]; onOpen: (id: string) => void }): ReactElement {
+/** How the gallery is laid out: one grid, newest first, or a section per project. */
+type Grouping = "recent" | "project";
+const GROUPINGS: readonly ChipOption<Grouping>[] = [
+  ["recent", "Recent"],
+  ["project", "By project"],
+];
+
+/** What New artifact starts the root chat with, for the owner to finish. */
+export const NEW_ARTIFACT_WORDS = "Make a ";
+
+/** How many cards the loading gallery draws in their place. */
+const SKELETONS = 6;
+
+function ArtifactCard({ a, owner, theme, onOpen }: { a: ArtifactSummary; owner: Project | undefined; theme: "light" | "dark"; onOpen: () => void }): ReactElement {
+  return (
+    <button type="button" className="artifact-card" onClick={onOpen}>
+      <span className="artifact-thumb" data-kind={a.artifactKind}>
+        {a.capturedAt ? (
+          <img src={`/api/artifacts/${encodeURIComponent(a.id)}/thumb?theme=${theme}&v=${Math.round(a.capturedAt)}`} alt="" loading="lazy" />
+        ) : (
+          <span className="artifact-thumb-mark">
+            <NavIcon name={a.artifactKind} />
+          </span>
+        )}
+      </span>
+      <span className="artifact-card-body">
+        <span className="artifact-card-title">{a.title}</span>
+        <span className="artifact-card-desc">{a.description || "\u00a0"}</span>
+        <span className="artifact-card-meta">
+          {isWidgetPage(a) ? <Tag title="Made before artifacts; KOS can convert it">Older widget page</Tag> : <Tag>{KIND_WORD[a.artifactKind]}</Tag>}
+          <span className="artifact-card-owner">
+            {owner && <ProjectMark slug={owner.slug} name={owner.name} colour={owner.colour} />}
+            <span>{owner ? owner.name : a.projectSlug ?? "Workspace"}</span>
+          </span>
+          <span className="artifact-card-time">{relativeWords(Math.round(a.updatedAt / 1000))}</span>
+        </span>
+      </span>
+    </button>
+  );
+}
+
+function CardGrid({ items, label, children }: { items: ArtifactSummary[]; label: string; children: (a: ArtifactSummary) => ReactElement }): ReactElement {
+  return (
+    <ul className="artifact-grid" aria-label={label}>
+      {items.map((a) => (
+        <li key={a.id}>{children(a)}</li>
+      ))}
+    </ul>
+  );
+}
+
+export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]; onOpen: (id: string) => void; onNew?: (words: string) => void }): ReactElement {
   const theme = useDashboardTheme();
   const [list, setList] = useState<ArtifactSummary[]>();
   const [error, setError] = useState<string>();
   const [kind, setKind] = useState<ArtifactKind | "all">("all");
   const [project, setProject] = useState(ALL_PROJECTS);
   const [query, setQuery] = useState("");
-  const projectName = useMemo(() => new Map(projects.map((p) => [p.slug, p.name])), [projects]);
-  const nameOf = (a: ArtifactSummary): string => (a.projectSlug ? projectName.get(a.projectSlug) ?? a.projectSlug : "Workspace");
+  const [grouping, setGrouping] = useState<Grouping>("recent");
+  const bySlug = useMemo(() => new Map(projects.map((p) => [p.slug, p])), [projects]);
+  const projectName = (slug: string): string => bySlug.get(slug)?.name ?? slug;
 
   useEffect(() => {
     let stale = false;
@@ -102,82 +156,140 @@ export function ArtifactsPage({ projects, onOpen }: { projects: Project[]; onOpe
     };
   }, [list]);
 
-  const shown = useMemo(() => {
+  // Every filter but the kind's, so each kind chip can say how many it would show.
+  const matching = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (list ?? []).filter(
       (a) =>
-        (kind === "all" || a.artifactKind === kind) &&
         (project === ALL_PROJECTS || (project === WORKSPACE_SCOPE ? a.projectSlug === null : a.projectSlug === project)) &&
-        (!q || haystack(a, a.projectSlug ? projectName.get(a.projectSlug) ?? a.projectSlug : "workspace").includes(q)),
+        (!q || haystack(a, a.projectSlug ? bySlug.get(a.projectSlug)?.name ?? a.projectSlug : "workspace").includes(q)),
     );
-  }, [kind, list, project, projectName, query]);
+  }, [list, project, bySlug, query]);
+  const shown = useMemo(() => matching.filter((a) => kind === "all" || a.artifactKind === kind), [kind, matching]);
+  const kinds = useMemo(
+    () => KINDS.map(([value, word]): ChipOption<ArtifactKind | "all"> => [value, <>{word}<Count n={value === "all" ? matching.length : matching.filter((a) => a.artifactKind === value).length} /></>]),
+    [matching],
+  );
 
   const owners = useMemo(() => {
     const slugs = [...new Set((list ?? []).flatMap((a) => (a.projectSlug ? [a.projectSlug] : [])))];
     return [
       { value: ALL_PROJECTS, label: "All projects" },
       ...((list ?? []).some((a) => a.projectSlug === null) ? [{ value: WORKSPACE_SCOPE, label: "Workspace" }] : []),
-      ...slugs.map((s) => ({ value: s, label: projectName.get(s) ?? s })).sort((a, b) => a.label.localeCompare(b.label)),
+      ...slugs.map((s) => ({ value: s, label: bySlug.get(s)?.name ?? s })).sort((a, b) => a.label.localeCompare(b.label)),
     ];
-  }, [list, projectName]);
+  }, [list, bySlug]);
+
+  // A section per project, the one touched most recently first, and the workspace's own last.
+  const groups = useMemo(() => {
+    const by = new Map<string | null, ArtifactSummary[]>();
+    for (const a of shown) by.set(a.projectSlug, [...(by.get(a.projectSlug) ?? []), a]);
+    return [...by.entries()].sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : 0));
+  }, [shown]);
+
+  const filtered = kind !== "all" || project !== ALL_PROJECTS || query.trim() !== "";
+  const card = (a: ArtifactSummary): ReactElement => <ArtifactCard a={a} owner={a.projectSlug ? bySlug.get(a.projectSlug) : undefined} theme={theme} onOpen={() => onOpen(a.id)} />;
+  const newArtifact = onNew ? (
+    <button type="button" className="btn btn--primary btn--sm artifacts-new" onClick={() => onNew(NEW_ARTIFACT_WORDS)}>
+      <PlusIcon size={13} title="" />
+      New artifact
+    </button>
+  ) : null;
 
   return (
     <div className="list-page artifacts">
       <PageHead
         title="Artifacts"
+        {...(list ? { count: list.length } : {})}
         subtitle="The pages, docs, decks and sheets KOS has made, across projects and the workspace."
         search={
           <input
             className="list-search"
             type="search"
-            placeholder="Search titles and descriptions"
+            placeholder="Search artifacts"
             aria-label="Search artifacts"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         }
+        actions={newArtifact}
       />
-      <div className="list-filters">
-        <Chips options={KINDS} selected={kind} onChoose={setKind} label="Kind" small />
-        {owners.length > 2 && <Select value={project} options={owners} onChange={setProject} label="Project" />}
-      </div>
+      {list && list.length > 0 && (
+        <div className="artifacts-bar">
+          <Chips options={kinds} selected={kind} onChoose={setKind} label="Kind" small scroll />
+          <div className="artifacts-bar-end">
+            {owners.length > 2 && <Select value={project} options={owners} onChange={setProject} label="Project" />}
+            <Chips options={GROUPINGS} selected={grouping} onChoose={setGrouping} label="Group" small />
+          </div>
+        </div>
+      )}
       {error && (
         <p className="ops-alert ops-alert--err" role="alert">
           {error}
         </p>
       )}
-      {list && list.length === 0 && (
-        <Empty title="Nothing made yet">Ask KOS for a doc, a deck, a sheet or a page, and it shows up here.</Empty>
-      )}
-      {list && list.length > 0 && shown.length === 0 && <Empty inline>No artifact matches these filters.</Empty>}
-      {!list && !error && <p className="hint">Loading…</p>}
-      {shown.length > 0 && (
-        <ul className="artifact-grid" aria-label="Artifacts">
-          {shown.map((a) => (
-            <li key={a.id}>
-              <button type="button" className="artifact-card" onClick={() => onOpen(a.id)}>
-                <span className="artifact-thumb" data-kind={a.artifactKind}>
-                  {a.capturedAt ? (
-                    <img src={`/api/artifacts/${encodeURIComponent(a.id)}/thumb?theme=${theme}&v=${Math.round(a.capturedAt)}`} alt="" loading="lazy" />
-                  ) : (
-                    <span className="artifact-thumb-mark">
-                      <NavIcon name={a.artifactKind} />
-                    </span>
-                  )}
-                </span>
+      {!list && !error && (
+        <ul className="artifact-grid" aria-label="Loading artifacts" aria-busy="true">
+          {Array.from({ length: SKELETONS }, (_, i) => (
+            <li key={i}>
+              <span className="artifact-card artifact-card--loading">
+                <Skeleton className="artifact-thumb" radius={0} height="auto" />
                 <span className="artifact-card-body">
-                  <span className="artifact-card-title">{a.title}</span>
-                  {a.description && <span className="artifact-card-desc">{a.description}</span>}
-                  <span className="artifact-card-meta">
-                    {isWidgetPage(a) ? <Tag title="Made before artifacts; KOS can convert it">Older widget page</Tag> : <Tag>{KIND_WORD[a.artifactKind]}</Tag>}
-                    <span className="artifact-card-owner">{nameOf(a)}</span>
-                    <span className="artifact-card-time">{relativeWords(Math.round(a.updatedAt / 1000))}</span>
-                  </span>
+                  <Skeleton width="60%" height={14} />
+                  <Skeleton width="85%" height={12} />
+                  <Skeleton width="40%" height={12} />
                 </span>
-              </button>
+              </span>
             </li>
           ))}
         </ul>
+      )}
+      {list && list.length === 0 && (
+        <div className="artifacts-empty">
+          <Empty title="Nothing made yet">Ask KOS for a doc, a deck, a sheet or a page, and it shows up here.</Empty>
+          {newArtifact}
+        </div>
+      )}
+      {list && list.length > 0 && shown.length === 0 && (
+        <div className="artifacts-none">
+          <Empty inline>No artifact matches these filters.</Empty>
+          {filtered && (
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => {
+                setKind("all");
+                setProject(ALL_PROJECTS);
+                setQuery("");
+              }}
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
+      {shown.length > 0 && grouping === "recent" && (
+        <section className="artifact-group">
+          <h2 className="label">Recently updated</h2>
+          <CardGrid items={shown} label="Artifacts">
+            {card}
+          </CardGrid>
+        </section>
+      )}
+      {shown.length > 0 && grouping === "project" && (
+        <div className="artifact-groups" role="list" aria-label="Artifacts">
+          {groups.map(([slug, items]) => (
+            <section key={slug ?? WORKSPACE_SCOPE} className="artifact-group" role="listitem">
+              <h2 className="label">
+                {slug ? projectName(slug) : "Workspace"}
+                <Count n={items.length} />
+              </h2>
+              <CardGrid items={items} label={slug ? projectName(slug) : "Workspace"}>
+                {card}
+              </CardGrid>
+            </section>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -202,27 +314,32 @@ export function convertRequest(record: PageSummary): string {
 }
 
 /**
- * One artifact, filling the page: its frame, its versions with a way back,
- * a way to ask KOS for a change in the chat that owns it, and presenting
- * for a deck.
+ * One artifact, filling the page: a head that says what it is and holds what
+ * can be done with it (ask KOS for a change in the chat that owns it, its
+ * versions in a drawer with a way back, presenting for a deck, its project),
+ * then the artifact itself, drawn as part of the page.
  */
 export function ArtifactViewer({
   id,
   projects,
   onBack,
   onOpenChat,
+  onOpenProject,
 }: {
   id: string;
   projects: Project[];
   onBack: () => void;
   /** Go to the chat the request went to: the project's, or KOS at the root. */
   onOpenChat: (projectSlug: string | null) => void;
+  /** Go to the project that owns it. */
+  onOpenProject?: (projectSlug: string) => void;
 }): ReactElement {
   const [record, setRecord] = useState<PageSummary>();
   const [page, setPage] = useState<HtmlPage>();
   const [error, setError] = useState<string>();
   const [older, setOlder] = useState(false);
   const [asking, setAsking] = useState(false);
+  const [history, setHistory] = useState(false);
   const [words, setWords] = useState("");
   const frame = useRef<ArtifactHandle>(null);
 
@@ -232,13 +349,15 @@ export function ArtifactViewer({
       setOlder(got.kind !== "html");
       if (got.kind === "html") setPage(got.page);
     });
+  const failed = (err: unknown): void => setError(err instanceof Error ? err.message : String(err));
 
   useEffect(() => {
     setError(undefined);
-    load().catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+    load().catch(failed);
   }, [id]);
 
-  const owner = record?.projectSlug ? projects.find((p) => p.slug === record.projectSlug)?.name ?? record.projectSlug : "Workspace";
+  const project = record?.projectSlug ? projects.find((p) => p.slug === record.projectSlug) : undefined;
+  const owner = record?.projectSlug ? project?.name ?? record.projectSlug : "Workspace";
 
   const convert = (): void => {
     if (!record?.projectSlug) return;
@@ -256,24 +375,33 @@ export function ArtifactViewer({
 
   return (
     <div className="artifact-view">
-      <header className="artifact-view-head">
-        <button type="button" className="btn btn--ghost btn--sm" onClick={onBack}>
-          ← Artifacts
-        </button>
-        {record && (
+      <button type="button" className="ops-back artifact-view-back" onClick={onBack}>
+        ← Artifacts
+      </button>
+      {record && (
+        <header className="artifact-view-head">
           <div className="artifact-view-titles">
             <h1 className="artifact-view-title">{record.title}</h1>
             <span className="artifact-view-meta">
               <Tag>{older ? "Older widget page" : KIND_WORD[record.artifactKind]}</Tag>
-              <span>{owner}</span>
-              <span>{relativeWords(Math.round(record.updatedAt / 1000))}</span>
+              <span className="artifact-view-owner">
+                {project && <ProjectMark slug={project.slug} name={project.name} colour={project.colour} />}
+                {owner}
+              </span>
+              <span>Updated {relativeWords(Math.round(record.updatedAt / 1000))}</span>
             </span>
+            {record.description && <p className="artifact-view-desc">{record.description}</p>}
           </div>
-        )}
-        {record && (
           <div className="artifact-view-acts">
-            <PageHistory record={record} onRolledBack={load} />
-            {record.artifactKind === "deck" && (
+            <button type="button" className="btn btn--ghost btn--sm" aria-expanded={history} onClick={() => setHistory(true)}>
+              History
+            </button>
+            {record.projectSlug && onOpenProject && (
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => onOpenProject(record.projectSlug!)}>
+                Open in project
+              </button>
+            )}
+            {record.artifactKind === "deck" && !older && (
               <button type="button" className="btn btn--sm" onClick={() => frame.current?.present()}>
                 Present
               </button>
@@ -284,8 +412,8 @@ export function ArtifactViewer({
               </button>
             )}
           </div>
-        )}
-      </header>
+        </header>
+      )}
       {asking && record && (
         <form
           className="artifact-ask-edit"
@@ -303,7 +431,6 @@ export function ArtifactViewer({
           </div>
         </form>
       )}
-      {record?.description && <p className="artifact-view-desc">{record.description}</p>}
       {older && record && (
         <div className="ops-alert artifact-older" role="status">
           <span>{WIDGET_PAGE_WORDS}</span>
@@ -319,8 +446,19 @@ export function ArtifactViewer({
           {error}
         </p>
       )}
-      {record && page && <ArtifactPage ref={frame} record={record} page={page} onSaved={setRecord} onReload={() => void load().catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))} />}
-      {!record && !error && <p className="hint">Loading…</p>}
+      {record && page && <ArtifactPage ref={frame} record={record} page={page} onSaved={setRecord} onReload={() => void load().catch(failed)} />}
+      {!record && !error && (
+        <div className="artifact-view-loading" aria-busy="true" aria-label="Loading the artifact">
+          <Skeleton width="40%" height={26} />
+          <Skeleton width="25%" height={14} />
+          <Skeleton height="60vh" radius="var(--r-md)" />
+        </div>
+      )}
+      {record && (
+        <Drawer open={history} title="History" subtitle={record.title} onClose={() => setHistory(false)}>
+          <VersionList record={record} onRolledBack={() => load().then(() => setHistory(false))} />
+        </Drawer>
+      )}
     </div>
   );
 }
