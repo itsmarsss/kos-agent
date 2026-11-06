@@ -11,7 +11,7 @@ import { RISKY } from "../risk/tiers.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { caller, isAttended, turnStop } from "./caller.js";
-import { GuardedTools, STOPPED_RESULT, type GuardedToolsDeps } from "./guarded.js";
+import { GuardedTools, STOPPED_RESULT, finishedAfterStop, type GuardedToolsDeps } from "./guarded.js";
 
 describe("GuardedTools", () => {
   let root: string;
@@ -294,6 +294,28 @@ describe("GuardedTools", () => {
       expect(approvals.get(id)).toMatchObject({ status: "expired", decidedBy: "stopped" });
       expect(approvals.pending()).toHaveLength(0);
       expect(ran).toBe(false);
+    });
+
+    it("tells what a stopped call did once it ends, and nothing for an ask that lapsed", async () => {
+      let finish: ((v: string) => void) | undefined;
+      registry.register({ name: "slow", description: "s", inputSchema: { type: "object" } }, () => new Promise<string>((r) => (finish = r)));
+      registry.register({ name: "danger", description: "d", inputSchema: { type: "object" } }, () => "ran", RISKY);
+      const finished = vi.fn();
+      const stop = new AbortController();
+      const tools = guarded({ signal: stop.signal, onFinishedAfterStop: finished });
+      const call = tools.execute("slow", {});
+      const ask = tools.execute("danger", {});
+      await vi.waitFor(() => expect(finish).toBeDefined());
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      stop.abort();
+      expect((await call).content).toBe(STOPPED_RESULT);
+      expect((await ask).content).toBe(STOPPED_RESULT);
+      expect(finished).not.toHaveBeenCalled();
+      finish!("sent");
+      await vi.waitFor(() => expect(finished).toHaveBeenCalledWith("slow", expect.objectContaining({ content: "sent" })));
+      expect(finished).toHaveBeenCalledTimes(1);
+      expect(finishedAfterStop("slow", { content: "sent", isError: false })).toBe("After Stop, slow finished and succeeded: sent");
+      expect(STOPPED_RESULT).toMatch(/may still have run/);
     });
 
     it("starts no call after the stop", async () => {

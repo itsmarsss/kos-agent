@@ -15,6 +15,7 @@ import { fenced, isShelved } from "../context/shelf.js";
 import { splitOwnerWords } from "../kernel/transcript.js";
 import type { Effort } from "../models/provider.js";
 import { toolUse } from "../kernel/caller.js";
+import { STOPPED_RESULT } from "../kernel/guarded.js";
 import { ONLY_OWN_MCP, credentials } from "../builds/runner.js";
 import { toZodShape } from "./schema.js";
 
@@ -325,9 +326,6 @@ function serverFor(tools: ToolBox, record: (call: SdkToolCall, images: { data: s
   return { server: createSdkMcpServer({ name: SERVER, tools: defined }), defined, running };
 }
 
-/** What a call still running when the owner pressed Stop is kept as. */
-export const STOPPED_CALL = "Stopped: the owner pressed Stop before this finished.";
-
 /**
  * A query's messages until the stop, and not one moment after it.
  *
@@ -585,7 +583,7 @@ export async function runSdkChat(
       // What was said, and what was under way: the half a reply the owner
       // watched arrive, and each call still running, as stopped.
       text = joinSaid(text, streamed);
-      for (const [id, call] of running) calls.push({ id, ...call, result: STOPPED_CALL, isError: true });
+      for (const [id, call] of running) calls.push({ id, ...call, result: STOPPED_RESULT, isError: true });
       break;
     }
     // The steps are the turn's, not each query's: a turn carried on in fresh queries stops where one query would have.

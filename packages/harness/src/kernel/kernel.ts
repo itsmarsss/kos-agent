@@ -121,7 +121,7 @@ import { AfterTurn, EMBED_MS } from "./afterturn.js";
 import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF } from "./caretaker.js";
 import { Decisions, type DecisionResult } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
-import { GuardedTools } from "./guarded.js";
+import { GuardedTools, finishedAfterStop } from "./guarded.js";
 import { ProgressBus } from "./progress.js";
 import { BEHAVIOUR_KEY, parseBehaviour, type Behaviour } from "./behaviour.js";
 import { parseMentions } from "./mentions.js";
@@ -3083,6 +3083,9 @@ export class Kernel {
               : {}),
           });
         }
+      },
+      onFinishedAfterStop: (tool, result) => {
+        if (opts.conversationId) this.noteIn(opts.conversationId, finishedAfterStop(tool, result));
       },
       approvalTimeoutMs: this.behaviour().approvalMinutes * 60_000,
       whyFor: (id) => (id ? this.saidSince.get(id) : undefined),

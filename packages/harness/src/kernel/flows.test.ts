@@ -486,6 +486,26 @@ describe("KOS end-to-end flows", () => {
     expect(kept).toContain("pressed Stop");
   });
 
+  it("writes what a stopped call did into the chat once it ends", async () => {
+    let finish: ((v: string) => void) | undefined;
+    const slow: KosModule = {
+      manifest: { name: "slow", version: "1.0.0", provides: [{ kind: "tool", name: "test.slow", version: "1.0.0" }], riskTier: "safe" },
+      activate(ctx) {
+        ctx.registerTool({ name: "test.slow", description: "slow", inputSchema: { type: "object" } }, () => new Promise<string>((r) => (finish = r)), { floor: "safe" });
+      },
+    };
+    const model = scripted([toolCall("c1", "test.slow", {}), text("never")]);
+    root = mkdtempSync(join(tmpdir(), "kos-flow-"));
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: model.inference, profileOverrides: { name: "Kenny", timezone: "UTC" }, extraModules: [slow] });
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mail" });
+    const turn = kernel.handleMessage("run the slow thing", { sessionId: chat.id });
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    expect(kernel.stop(chat.id)).toBe(true);
+    await turn;
+    finish!("sent 3 emails");
+    await vi.waitFor(() => expect(JSON.stringify(kernel.sessions.get(chat.id).at(-1))).toContain("After Stop, test.slow finished and succeeded: sent 3 emails"));
+  });
+
   it("does not hold a stopped turn for the memory pass", async () => {
     const inference: Inference = {
       async generate(task: Task, req: GenerateRequest): Promise<ModelResponse> {

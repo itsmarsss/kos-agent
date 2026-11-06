@@ -75,6 +75,11 @@ export interface GuardedToolsDeps {
    * outside the database, and it has to hear about it.
    */
   onExecuted?: (tool: string, result: ToolExecution) => void;
+  /**
+   * A call that ran on after its turn was stopped, and has now ended: its
+   * real outcome, so the chat's next turn knows what the stopped one left.
+   */
+  onFinishedAfterStop?: (tool: string, result: ToolExecution) => void;
   /** Called as a call begins, so a reader can see the step it is on. */
   onStarted?: (tool: string, input: Record<string, unknown>) => void;
   /** Called once the owner has decided about a queued call. */
@@ -103,8 +108,18 @@ export const QUEUED_PREFIX = "queued for approval (pending #";
 /** The other end of the same decision, so a reader can tell them apart. */
 export const DENIED_PREFIX = "not approved (pending #";
 
-/** What a call answers when the owner stopped the turn under it. */
-export const STOPPED_RESULT = "Stopped: the owner pressed Stop before this finished.";
+/**
+ * What a call answers when the owner stopped the turn under it. Stop only
+ * stops the waiting: the call may have done its work, or still be doing it.
+ */
+export const STOPPED_RESULT = "Stopped: the owner pressed Stop before this answered. It may still have run, so check before doing it again.";
+
+/** The chat's line for a call that ended after its turn was stopped: what finished, and how. */
+export function finishedAfterStop(tool: string, result: ToolExecution): string {
+  const said = result.content.replace(/\s+/g, " ").trim();
+  const gist = said.length > 300 ? `${said.slice(0, 300)}...` : said;
+  return `After Stop, ${tool} finished ${result.isError ? "with an error" : "and succeeded"}${gist ? `: ${gist}` : "."}`;
+}
 
 /** The work's own end, or undefined the moment the signal aborts; its listener goes with it. */
 function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
@@ -238,7 +253,8 @@ export class GuardedTools implements ToolBox {
   async execute(name: string, input: Record<string, unknown>): Promise<ToolExecution> {
     const { signal } = this.deps;
     if (signal?.aborted) return { content: STOPPED_RESULT, isError: true };
-    const calling = this.call(name, input);
+    const started = { ran: false };
+    const calling = this.call(name, input, started);
     /*
      * A stop answers now rather than when the call ends.
      *
@@ -249,7 +265,14 @@ export class GuardedTools implements ToolBox {
      * taken: nothing will read this result, so they run as a turn of their own.
      */
     const called = signal ? await untilAborted(calling, signal) : await calling;
-    if (!called) return { content: STOPPED_RESULT, isError: true };
+    if (!called) {
+      // Only a call that reached its tool has an outcome worth telling; an ask that lapsed did nothing.
+      const tell = (result: ToolExecution): void => {
+        if (started.ran) this.deps.onFinishedAfterStop?.(name, result);
+      };
+      calling.then(tell, (err: unknown) => tell({ content: err instanceof Error ? err.message : String(err), isError: true }));
+      return { content: STOPPED_RESULT, isError: true };
+    }
     const result = this.deps.shelve && !called.isError ? { ...called, content: await this.deps.shelve(name, input, called.content, this.cutHuge) } : called;
     const said = signal?.aborted ? undefined : this.deps.heard?.();
     return said ? { ...result, content: `${result.content}${said}` } : result;
@@ -258,6 +281,7 @@ export class GuardedTools implements ToolBox {
   private async call(
     name: string,
     called: Record<string, unknown>,
+    started: { ran: boolean },
   ): Promise<ToolExecution> {
     const { registry, secrets, audit, approvals, userId, conversationId } =
       this.deps;
@@ -270,8 +294,10 @@ export class GuardedTools implements ToolBox {
       signal ? turnStop.run(signal, () => registry.execute(n, i)) : registry.execute(n, i);
     const inTurn = (n: string, i: Record<string, unknown>): Promise<ToolExecution> =>
       turnId ? turn.run(turnId, () => stoppable(n, i)) : stoppable(n, i);
-    const run = (n: string, i: Record<string, unknown>): Promise<ToolExecution> =>
-      attendance.run(attended, () => (conversationId ? caller.run(conversationId, () => inTurn(n, i)) : inTurn(n, i)));
+    const run = (n: string, i: Record<string, unknown>): Promise<ToolExecution> => {
+      started.ran = true;
+      return attendance.run(attended, () => (conversationId ? caller.run(conversationId, () => inTurn(n, i)) : inTurn(n, i)));
+    };
 
     const repeated = this.repeatGuard(name, called);
     if (repeated) return { content: repeated, isError: true };

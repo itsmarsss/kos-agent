@@ -40,7 +40,8 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   },
 }));
 
-const { runSdkChat, STOPPED_CALL } = await import("./sdkchat.js");
+const { runSdkChat } = await import("./sdkchat.js");
+const { STOPPED_RESULT } = await import("../kernel/guarded.js");
 
 /** Never settles: the SDK's stream as it is for the two seconds after an abort, or a tool still running. */
 const hang = (): Promise<never> => new Promise<never>(() => undefined);
@@ -178,7 +179,7 @@ describe("a turn on the SDK the owner stops", () => {
       },
     };
     const r = await within(1_000, runSdkChat({ prompt: "sleep", system: "s", tools, cwd: process.cwd(), signal: stop.signal }));
-    expect(r.calls).toEqual([expect.objectContaining({ name: "python.run", result: STOPPED_CALL, isError: true })]);
+    expect(r.calls).toEqual([expect.objectContaining({ name: "python.run", result: STOPPED_RESULT, isError: true })]);
   });
 
   it("starts no fresh query once stopped", async () => {
