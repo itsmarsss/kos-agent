@@ -388,6 +388,13 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(await call("chat.settled", { approval: "a1" })).toMatchObject({ ok: true });
     for (let i = 0; i < 50 && !(await devtools.evaluate(panel, `!!${foot}?.querySelector('.live-dots')`)); i++) await until(() => false, 100);
     expect(await devtools.evaluate(panel, `${foot}?.innerText ?? ''`)).toMatch(/^Working\s*\d+s$/);
+    // Words queued behind it, taken once it is done: the next turn counts from its own start.
+    const elapsed = async (): Promise<number> => Number(/(\d+)s$/.exec(String(await devtools.evaluate(panel, `${foot}?.innerText ?? ''`)))?.[1] ?? -1);
+    for (let i = 0; i < 50 && (await elapsed()) < 2; i++) await until(() => false, 100);
+    expect(await elapsed()).toBeGreaterThanOrEqual(2);
+    expect(await call("chat.status", { conversation: "chrome:owner", taken: true, said: "And the shipping?" })).toMatchObject({ ok: true });
+    await until(() => false, 200);
+    expect(await elapsed()).toBeLessThan(2);
     expect(await call("chat.status", { conversation: "chrome:owner" })).toMatchObject({ ok: true });
     for (let i = 0; i < 50 && (await devtools.evaluate(panel, `!!${foot}`)); i++) await until(() => false, 100);
     expect(await devtools.evaluate(panel, `!!${foot}`)).toBe(false);

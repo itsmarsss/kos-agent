@@ -55,6 +55,8 @@ interface Chat {
   /** The story of each turn on the go, under the words it is about: one running, and one said meanwhile. */
   stories: Extra[];
   working: boolean;
+  /** The words of the turn KOS last took, and when: a turn queued behind another starts its own clock. */
+  taken?: { said: string; at: number };
   extras: Extra[];
   asks: Approval[];
   consent?: ConsentRequest;
@@ -321,7 +323,8 @@ function took(c: Chat, message: Record<string, unknown>): Chat {
   const said = typeof message["said"] === "string" ? message["said"] : undefined;
   if (!said || message["conversation"] !== c.conversation) return c;
   const shown = c.sending.includes(said) || awaiting(c.lines, said);
-  return { ...c, sending: shown ? c.sending : [...c.sending, said], working: true };
+  const taken = c.taken?.said === said ? c.taken : { said, at: Date.now() };
+  return { ...c, sending: shown ? c.sending : [...c.sending, said], working: true, taken };
 }
 
 /** The owner's words are the chat's latest and not yet answered: the turn on them is in the chat already. */
@@ -702,7 +705,7 @@ function Thread({
       {/* At the foot for as long as the turn runs, whatever came last: words
           after the steps are not the end of the work. Gone the moment it ends,
           as the dashboard's is, not faded out over the answer. */}
-      {chat.working && <Working stories={chat.stories} waiting={chat.asks.length > 0 || chat.consent !== undefined || reads.length > 0} />}
+      {chat.working && <Working stories={chat.stories} since={chat.taken?.at} waiting={chat.asks.length > 0 || chat.consent !== undefined || reads.length > 0} />}
       <AnimatePresence>
         {chat.asks.map((a) => (
           <AskCard key={`ask${a.id}`} approval={a} decide={(approved, remember) => answer({ type: "decide", approval: a.id, approved, ...(remember ? { remember: true } : {}) })} />
@@ -795,10 +798,12 @@ function workingWhat(stories: Extra[]): string {
 
 /**
  * The running turn's foot, the dashboard's: the dots, what it is at, and for how long.
+ * Counted from when its words were taken, or from when the foot came if that is later:
+ * a take from a turn before this one is not when this one began.
  * Held on the owner, it says so, with no dots and no clock: the wait is theirs.
  */
-function Working({ stories, waiting }: { stories: Extra[]; waiting: boolean }): ReactElement {
-  const [since] = useState(() => Date.now());
+function Working({ stories, since, waiting }: { stories: Extra[]; since: number | undefined; waiting: boolean }): ReactElement {
+  const [shown] = useState(() => Date.now());
   return (
     <m.div className="working" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={ease}>
       {waiting ? (
@@ -807,7 +812,7 @@ function Working({ stories, waiting }: { stories: Extra[]; waiting: boolean }): 
         <>
           <WorkingDots />
           <span className="working-what">{workingWhat(stories)}</span>
-          <Elapsed since={since} />
+          <Elapsed since={Math.max(since ?? 0, shown)} />
         </>
       )}
     </m.div>
