@@ -361,7 +361,9 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       const el = frame.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      const bar = box.current?.querySelector<HTMLElement>(".artifact-edit-bar")?.offsetHeight ?? 0;
+      // The view starts below whatever sticks over it: the edit bar, where it sticks.
+      const stuck = box.current?.querySelector<HTMLElement>(".artifact-edit-bar");
+      const bar = stuck ? stuck.offsetHeight + (parseFloat(getComputedStyle(stuck).top) || 0) : 0;
       pageWindow()?.postMessage({ __kos: "view", top: Math.max(0, Math.round(bar - r.top)), height: Math.round(window.innerHeight - Math.max(0, r.top, bar)) }, "*");
     };
     const soon = (): void => {

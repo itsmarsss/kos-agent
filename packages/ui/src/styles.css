@@ -7282,3 +7282,8 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 }
 .artifact-edit-status { margin-right: auto; color: var(--muted); font-size: var(--text-sm); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artifact-edit-status.is-bad { color: var(--danger); }
+/* Below the phone bar, which sticks at the top of a narrow window. */
+@media (max-width: 860px) {
+  .artifact-edit-bar { top: 3.25rem; }
+}
+.chats-inline .artifact-edit-bar { top: 0; }
