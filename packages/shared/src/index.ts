@@ -125,3 +125,34 @@ export { MATH, displayMathAt, mathOf, type MathSource } from "./math.js";
 export { desaturateHex, hexOfHsv, hsvOfHex, type Hsv } from "./colour.js";
 export { COLOURS, EASE, FLOAT_SHADOW, RADII, SPRING, TYPE, type ColourToken } from "./design.js";
 export { listAt, startsList, type MdList, type MdListItem } from "./lists.js";
+export {
+  BRIDGE_SCRIPT,
+  GUARD_SCRIPT,
+  PAGE_CSP,
+  PAGE_GUARD_CSP,
+  WRAPPER_CSP,
+  pageDocument,
+  splitHtml,
+  tokenRule,
+  wrapperDocument,
+  type PageDocumentInput,
+} from "./artifactdoc.js";
+export {
+  ARTIFACT_KINDS,
+  DECK_REGION,
+  DOC_REGION,
+  KIND_FONTS,
+  KIND_RUNTIME,
+  SHEET_DATA,
+  isArtifactKind,
+  type ArtifactEdit,
+  type ArtifactKind,
+  type SheetAggregate,
+  type SheetBook,
+  type SheetCell,
+  type SheetChart,
+  type SheetColumn,
+  type SheetColumnType,
+  type SheetTab,
+} from "./artifacts.js";
+export { ARTIFACT_FONTS, fontById, fontFaceCss, fontStackVars, type ArtifactFont, type FontFile, type FontRole } from "./artifactfonts.js";

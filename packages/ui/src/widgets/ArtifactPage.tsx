@@ -4,7 +4,7 @@ import pageCss from "@kos/kit/page.css?raw";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 
 import { api, type PageSummary } from "../api.js";
-import { pageDocument, tokenRule, wrapperDocument } from "./artifactdoc.js";
+import { pageDocument, tokenRule, wrapperDocument } from "@kos/shared";
 
 /**
  * An HTML page, the way a Claude artifact is shown: the agent's document in a

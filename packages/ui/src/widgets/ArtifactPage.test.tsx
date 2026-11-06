@@ -4,7 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { api, type PageSummary } from "../api.js";
 import { ArtifactPage, fixRequest } from "./ArtifactPage.js";
-import { GUARD_SCRIPT, PAGE_CSP, PAGE_GUARD_CSP, WRAPPER_CSP, pageDocument, splitHtml, wrapperDocument } from "./artifactdoc.js";
+import { GUARD_SCRIPT, PAGE_CSP, PAGE_GUARD_CSP, WRAPPER_CSP, pageDocument, splitHtml, wrapperDocument } from "@kos/shared";
 
 beforeAll(() => {
   // jsdom has no media queries; the frame only listens for the theme changing.
