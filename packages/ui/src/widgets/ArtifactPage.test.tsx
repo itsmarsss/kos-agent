@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { SaveConflict, api, type PageSummary } from "../api.js";
-import { ArtifactPage, fixRequest } from "./ArtifactPage.js";
+import { ArtifactPage, fixRequest, type ArtifactHandle } from "./ArtifactPage.js";
 import { FRAME_HEIGHT_MIN, heightGate } from "./frameheight.js";
 import { FRAME_HEIGHT_MAX, GUARD_SCRIPT, PAGE_CSP, PAGE_GUARD_CSP, WRAPPER_CSP, pageDocument, splitHtml, wrapperDocument } from "@kos/shared";
 
@@ -304,13 +304,71 @@ describe("a frame as tall as its page", () => {
     hand(false);
     say({ __kos: "height", height: 3000, reveal: { top: 1500, bottom: 1540, block: "start" } });
     expect(scrolled).not.toHaveBeenCalled();
+    // Nor does a gesture made elsewhere on the dashboard: the hand must be in this frame.
     hand(true);
+    say({ __kos: "height", height: 3000, reveal: { top: 1500, bottom: 1540, block: "start" } });
+    expect(scrolled).not.toHaveBeenCalled();
+    const focus = vi.spyOn(document, "activeElement", "get").mockReturnValue(el);
     say({ __kos: "height", height: 3000, reveal: { top: 1500, bottom: 1540, block: "start" } });
     // Where the frame sits, plus where the place sits on it, less a little room.
     expect(scrolled).toHaveBeenLastCalledWith({ top: 40 + 120 + 1500 - 16, behavior: "smooth" });
     // A place past the frame's end is held to it.
     say({ __kos: "height", height: 3000, reveal: { top: 1e9, block: "start" } });
     expect(scrolled).toHaveBeenLastCalledWith({ top: 40 + 120 + 3000 - 16, behavior: "smooth" });
+    focus.mockRestore();
+  });
+
+  it("shows an older version to look at only: no save, write or ask from it", async () => {
+    const sent = vi.spyOn(api, "pageCall");
+    render(<ArtifactPage record={record} page={{ ...page, capabilities: { ask: true } }} locked />);
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    expect(el.getAttribute("srcdoc")).toContain("data-locked");
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const replies = vi.spyOn(pageWin, "postMessage");
+    hand(true);
+    for (const [id, method] of [[1, "save"], [2, "write"], [3, "ask"]] as const) {
+      act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "call", id, method, args: { text: "x", edit: { doc: "x" } } } })));
+      expect(replies).toHaveBeenLastCalledWith(expect.objectContaining({ __kos: "reply", id, error: expect.stringMatching(/older version/) as unknown }), "*");
+    }
+    expect(sent).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("draws a doc's editing controls above its frame, as the doc says, and sends what the owner presses", async () => {
+    const { pageWin, say } = await frame();
+    const told = vi.spyOn(pageWin, "postMessage");
+    say({ __kos: "edit", editing: false, pending: false, status: "", bad: false });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(told).toHaveBeenCalledWith({ __kos: "edit-do", action: "edit" }, "*");
+    say({ __kos: "edit", editing: true, pending: true, status: "Saving…", bad: false });
+    const bar = screen.getByRole("toolbar", { name: "Editing" });
+    expect(bar.textContent).toContain("Saving…");
+    for (const [name, action] of [["Undo", "undo"], ["Redo", "redo"], ["Discard", "discard"], ["Done", "done"]] as const) {
+      fireEvent.click(screen.getByRole("button", { name }));
+      expect(told).toHaveBeenLastCalledWith({ __kos: "edit-do", action }, "*");
+    }
+  });
+
+  it("finishes a doc's editing before the frame goes, saving what waits", async () => {
+    const handle: { current: ArtifactHandle | null } = { current: null };
+    render(<ArtifactPage ref={handle} record={record} page={page} />);
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
+    // Nothing being edited: it goes at once.
+    await handle.current!.settle();
+    say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
+    const told = vi.spyOn(pageWin, "postMessage");
+    let done = false;
+    const settling = handle.current!.settle().then(() => (done = true));
+    expect(told).toHaveBeenCalledWith({ __kos: "edit-do", action: "done" }, "*");
+    await Promise.resolve();
+    expect(done).toBe(false);
+    say({ __kos: "edit", editing: false, pending: false, status: "Saved", bad: false });
+    await settling;
+    expect(done).toBe(true);
   });
 });
 
@@ -343,7 +401,7 @@ describe("the height a page reports", () => {
     expect(gate.accept(500)).toBe(500);
   });
 
-  it("freezes a page that grows with every report, so the dashboard cannot loop", () => {
+  it("freezes a page that grows with every report, so the dashboard cannot loop, and takes it again once it is quiet", () => {
     const c = clock();
     const gate = heightGate(c.now);
     const taken: number[] = [];
@@ -353,8 +411,23 @@ describe("the height a page reports", () => {
       if (h !== undefined) taken.push(h);
     }
     expect(taken.length).toBeLessThanOrEqual(12);
-    c.at(60_000);
+    // Still looping: still held.
+    c.at(100 * 70);
     expect(gate.accept(5000)).toBeUndefined();
+    // Quiet for two seconds: the next height is taken.
+    c.at(100 * 70 + 2100);
+    expect(gate.accept(5000)).toBe(5000);
+  });
+
+  it("never counts the owner's own typing towards a loop", () => {
+    const c = clock();
+    const gate = heightGate(c.now);
+    let last: number | undefined;
+    for (let i = 0; i < 40; i++) {
+      c.at(i * 60);
+      last = gate.accept(600 + i * 24, true) ?? last;
+    }
+    expect(last).toBe(600 + 39 * 24);
   });
 });
 

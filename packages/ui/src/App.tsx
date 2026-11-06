@@ -878,6 +878,7 @@ export function App(): React.ReactElement {
         <ArtifactViewer
           key={route.id}
           id={route.id}
+          initial={activePage}
           projects={projects}
           backLabel={owner ? "← Projects" : "← Home"}
           onBack={() => go(back)}
@@ -1050,6 +1051,7 @@ export function App(): React.ReactElement {
         agent={{
           name,
           onBack: () => go({ name: "blobs" }),
+          onOpenPage: openPage,
           onOpenFile: (path) => go({ name: "files", path }),
           onError: (text) => flash("err", text),
           onRemoved: () => {

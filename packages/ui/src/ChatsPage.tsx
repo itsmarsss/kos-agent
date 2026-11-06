@@ -97,6 +97,8 @@ export interface AgentMode {
   name: string;
   /** Out of the agent, back to the list. */
   onBack: () => void;
+  /** An older widget page from its list, which opens on its own page. */
+  onOpenPage: (id: string) => void;
   onOpenFile: (path: string) => void;
   onError: (message: string) => void;
   /** The agent was removed from its panel: nothing is left to show here. */
@@ -162,6 +164,9 @@ export interface ChatsPageProps {
   prefill?: { id: string; text: string };
   onPrefilled?: () => void;
 }
+
+/** How often the artifacts beside a project's or a blob's chat are read again. */
+const OWNED_POLL_MS = 15_000;
 
 /** A tool's arguments as the owner can read them: the JSON laid out, or the string as it came. */
 function prettyArgs(args: string): string {
@@ -687,22 +692,30 @@ export function ChatsPage({
     [project, agentInstances],
   );
   const homesKey = homes.join(",");
+  const projectSlug = project?.slug;
+  const agentName = agent?.name;
+  // Read when the page opens, when what is open in place changes, and every so often, so one KOS makes shows up.
   useEffect(() => {
-    if (!project && !agent) return;
+    if (!projectSlug && !agentName) return;
     let stale = false;
     const wanted = new Set(homesKey ? homesKey.split(",") : []);
-    void api
-      .artifacts()
-      .then((list) => !stale && setOwned(list.filter((a) => a.projectSlug !== null && wanted.has(a.projectSlug)).sort((a, b) => b.updatedAt - a.updatedAt)))
-      .catch(() => undefined);
+    const read = (): void =>
+      void api
+        .artifacts()
+        .then((list) => !stale && setOwned(list.filter((a) => a.projectSlug !== null && wanted.has(a.projectSlug)).sort((a, b) => b.updatedAt - a.updatedAt)))
+        .catch(() => undefined);
+    read();
+    const every = setInterval(() => document.visibilityState === "visible" && read(), OWNED_POLL_MS);
     return () => {
       stale = true;
+      clearInterval(every);
     };
-  }, [project, agent, homesKey, inline]);
-  useEffect(() => setInline(undefined), [project?.slug, agent?.name]);
+  }, [projectSlug, agentName, homesKey, inline]);
+  // Another project, blob or thread: the thread is what shows, not the artifact open before.
+  useEffect(() => setInline(undefined), [projectSlug, agentName, activeId]);
   const openOwned = (a: PageSummary): void => {
     // An older widget page has no viewer of its own here; it opens on its page.
-    if (a.kind !== "html") project?.onOpenPage(a.id);
+    if (a.kind !== "html") (project ?? agent)?.onOpenPage(a.id);
     else setInline(a.id);
   };
   const railProps = { items: owned, ...(project ? { home: project.slug } : {}), projects, ...(inline ? { open: inline } : {}), onOpen: openOwned };
@@ -1902,7 +1915,6 @@ export function ChatsPage({
         {inline && (
           <div className="chats-inline">
             <ArtifactViewer
-              key={inline}
               id={inline}
               projects={projects}
               backLabel="← Back to the chat"

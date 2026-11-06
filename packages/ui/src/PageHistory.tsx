@@ -35,7 +35,7 @@ function useVersions(record: PageSummary): { versions: PageVersion[]; error?: st
 
   const rollBack = (version: number, then: () => Promise<unknown>): void =>
     void api
-      .pageRollback(record.id, version)
+      .pageRollback(record.id, version, record.updatedAt)
       .then(then)
       .then(() => setError(undefined), failed);
   return { versions, ...(error ? { error } : {}), rollBack };
@@ -84,6 +84,7 @@ export function VersionList({
   onRolledBack,
   onPreview,
   previewing,
+  onRestore,
 }: {
   record: PageSummary;
   onRolledBack: () => Promise<unknown>;
@@ -91,6 +92,8 @@ export function VersionList({
   onPreview?: (version: PageVersion) => void;
   /** The version being looked at now, if any. */
   previewing?: number;
+  /** Restore it some other way than straight away (the viewer saves a doc's editing first); errors are the caller's. */
+  onRestore?: (version: number) => Promise<void>;
 }): ReactElement {
   const { versions, error, rollBack } = useVersions(record);
   const current = versions.at(-1)?.version;
@@ -126,7 +129,7 @@ export function VersionList({
                     label="Restore"
                     text={`Restore version ${v.version}? The artifact as it is now stays in its history.`}
                     className="btn btn--sm"
-                    onConfirm={() => rollBack(v.version, onRolledBack)}
+                    onConfirm={() => (onRestore ? void onRestore(v.version) : rollBack(v.version, onRolledBack))}
                   />
                 </span>
               )}

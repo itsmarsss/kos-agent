@@ -7263,3 +7263,20 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 }
 .chats-view.has-inline > :not(.chats-inline) { display: none; }
 .chats-inline { flex: 1; min-height: 0; overflow-y: auto; padding: 0.25rem 0.75rem 3rem; }
+/* A doc's editing controls: above its frame, kept in view while the doc scrolls by. */
+.artifact-edit-bar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  padding: 0.45rem 0;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--line);
+}
+.artifact-edit-status { margin-right: auto; color: var(--muted); font-size: var(--text-sm); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-edit-status.is-bad { color: var(--danger); }

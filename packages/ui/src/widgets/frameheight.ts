@@ -9,8 +9,12 @@ import { FRAME_HEIGHT_MAX } from "@kos/shared";
  * whose layout flips with its frame's height settles on the one it has), and
  * a page that keeps changing its height faster than a person could make it
  * (content sized to its own frame, which grows with every report) is frozen
- * at the height it had. The bridge debounces, so a page that is only
- * animating reports once it rests; a burst is a loop.
+ * at the height it had, until it has been quiet for QUIET_MS. The bridge
+ * debounces, so a page that is only animating reports once it rests; a
+ * burst is a loop. A change the owner is making (typing in the frame) is
+ * never counted towards one, so a run of Enters keeps the frame growing.
+ * The bridge sends a height again while the frame is not that height, so
+ * one set aside here is taken once the page has settled.
  */
 
 /** Shorter than this is a frame that has not drawn yet. */
@@ -22,10 +26,12 @@ const BURST = 12;
 const WINDOW_MS = 1500;
 /** A return to the height before last sooner than this is the page flipping, not the owner. */
 const FLIP_MS = 400;
+/** A frozen page heard nothing from for this long is taken again. */
+const QUIET_MS = 2000;
 
 export interface HeightGate {
-  /** The frame's new height for a reported one, or undefined to leave it as it is. */
-  accept(reported: unknown): number | undefined;
+  /** The frame's new height for a reported one, or undefined to leave it as it is; `owner` when the owner's hand is in the frame. */
+  accept(reported: unknown, owner?: boolean): number | undefined;
 }
 
 export function heightGate(now: () => number = () => performance.now()): HeightGate {
@@ -34,20 +40,28 @@ export function heightGate(now: () => number = () => performance.now()): HeightG
   const changes: number[] = [];
   let frozen = false;
   let changedAt = -Infinity;
+  let heardAt = -Infinity;
   return {
-    accept(reported) {
-      if (frozen || typeof reported !== "number" || !Number.isFinite(reported) || reported <= 0) return undefined;
+    accept(reported, owner = false) {
+      if (typeof reported !== "number" || !Number.isFinite(reported) || reported <= 0) return undefined;
+      const t = now();
+      const quiet = t - heardAt >= QUIET_MS;
+      heardAt = t;
+      if (frozen && !quiet) return undefined;
+      if (frozen) {
+        frozen = false;
+        changes.length = 0;
+      }
       const next = Math.round(Math.min(FRAME_HEIGHT_MAX, Math.max(FRAME_HEIGHT_MIN, reported)));
       if (current !== undefined && Math.abs(next - current) < JITTER) return undefined;
-      const t = now();
       while (changes.length && t - changes[0]! > WINDOW_MS) changes.shift();
       // Back to the height before last, at once: the page flips between two, so it keeps the one it has.
-      if (previous !== undefined && Math.abs(next - previous) < JITTER && t - changedAt < FLIP_MS) return undefined;
-      if (changes.length >= BURST) {
+      if (!owner && previous !== undefined && Math.abs(next - previous) < JITTER && t - changedAt < FLIP_MS) return undefined;
+      if (!owner && changes.length >= BURST) {
         frozen = true;
         return undefined;
       }
-      changes.push(t);
+      if (!owner) changes.push(t);
       changedAt = t;
       previous = current;
       current = next;
@@ -73,6 +87,14 @@ function scrollerOf(el: Element): HTMLElement | undefined {
 }
 
 const clamp = (v: unknown, lo: number, hi: number): number => (typeof v === "number" && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo);
+
+/**
+ * Whether the owner's hand is in this frame: the dashboard's focus is on it
+ * (a press or a key inside a frame focuses it, as the browser reports to the
+ * page holding it) and the browser counts a gesture as active now. A page
+ * cannot fake either; a press elsewhere on the dashboard moves the focus off.
+ */
+export const ownerIn = (frame: Element): boolean => document.activeElement === frame && navigator.userActivation?.isActive === true;
 
 /**
  * Scroll the dashboard to a place on a frame's page. A frame as tall as its

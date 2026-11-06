@@ -292,11 +292,14 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   });
 
   /*
-   * A page as tall as its content: the dashboard's side sizes the frame from
-   * the bridge's report, so the page has no scrollbar of its own, and a link
-   * to a place on it, pressed by a real pointer, scrolls the dashboard.
+   * The bridge's side of a page as tall as its content, against a stand-in
+   * for the dashboard that applies each report as it comes (the dashboard's
+   * own hold on the height, heightGate, is tested in ArtifactPage.test): the
+   * report is the content's height, the page then has no scrollbar of its
+   * own, and a link to a place on it, pressed by a real pointer, reports
+   * where the place is.
    */
-  it("sizes a page's frame to its content, with no scroll inside, and a #link scrolls the dashboard", async () => {
+  it("reports a page's content height, which leaves no scroll inside once applied, and a #link reports its place", async () => {
     const html = `<style>body{margin:0}</style><a id="go" href="#end" style="display:block;height:40px">jump</a><div style="height:2600px"></div><h2 id="end" style="margin:0;height:60px">end</h2><script>
       addEventListener("message", (e) => { if (e.data === "probe") top.postMessage({ probe: { scroll: document.scrollingElement.scrollHeight, client: document.scrollingElement.clientHeight, wide: document.scrollingElement.scrollWidth > innerWidth, view: innerHeight } }, "*"); });
     </script>`;
@@ -345,13 +348,18 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     const { build } = await import("esbuild");
     const bundled = await build({ entryPoints: [join(import.meta.dirname, "../../pagelib/doc.ts")], bundle: true, write: false, format: "iife", target: "chrome120", charset: "ascii", logLevel: "silent" });
     const runtime = bundled.outputFiles[0]!.text;
-    const html = `<style>.doc-tools{left:0;top:0;right:auto}</style><article data-doc><p><br></p><h2>Next</h2></article>`;
+    const html = `<article data-doc><p><br></p><h2>Next</h2></article>`;
     const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [runtime], kind: "doc" }));
     pages.set("/doc", `<!doctype html><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:800px;height:600px" srcdoc="${frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe><script>
       const f = document.getElementById("f");
       addEventListener("message", (e) => {
         const page = f.contentWindow.frames[0], m = e.data || {};
-        if (e.source !== page || m.__kos !== "call" || m.method !== "save") return;
+        if (e.source !== page) return;
+        // The dashboard's edit bar: Edit once the doc says it can be edited.
+        if (m.__kos === "edit" && !m.editing && !document.body.dataset.asked) { document.body.dataset.asked = "1"; page.postMessage({ __kos: "edit-do", action: "edit" }, "*"); }
+        if (m.__kos !== "call" || m.method !== "save") return;
+        // What the dashboard checks before it relays a save: the owner's hand, as the browser reports it here.
+        document.body.dataset.active = String(navigator.userActivation.isActive);
         document.body.dataset.saves = String(Number(document.body.dataset.saves || 0) + 1);
         document.body.dataset.saved = m.args.edit.doc;
         page.postMessage({ __kos: "reply", id: m.id, result: {} }, "*");
@@ -369,8 +377,8 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     const type = async (text: string): Promise<void> => {
       for (const k of text) await key(k);
     };
-    // Edit, at the top left of the frame.
-    for (const t of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type: t, x: 22, y: 14, button: "left", clickCount: 1 });
+    // Into the first line, as the owner would.
+    for (const t of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type: t, x: 200, y: 40, button: "left", clickCount: 1 });
     await new Promise((r) => setTimeout(r, 200));
     await type("## Water");
     await key("Enter");
@@ -386,8 +394,9 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     expect(saved).toContain("<hr>");
     expect(saved).not.toContain("/div");
     expect(saved).not.toContain("contenteditable");
-    // One save for the run of typing, not one a key.
+    // One save for the run of typing, not one a key; and the owner's hand was still counted when it went, here and in the frame (whose bridge refuses one without it).
     expect(Number(await value("document.body.dataset.saves"))).toBe(1);
+    expect(await value("document.body.dataset.active")).toBe("true");
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 

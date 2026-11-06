@@ -2,7 +2,7 @@ import { Chips, Count, Empty, NavIcon, PlusIcon, Skeleton, Tag, type ChipOption 
 import { WORKSPACE_SCOPE, relativeWords, type ArtifactKind, type HtmlPage } from "@kos/shared";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 
-import { api, type ArtifactSummary, type PageSummary, type PageVersion, type Project } from "./api.js";
+import { api, type AnyPagePayload, type ArtifactSummary, type PageSummary, type PageVersion, type Project } from "./api.js";
 import { PageHead } from "./PageHead.js";
 import { Drawer } from "./Drawer.js";
 import { ProjectMark } from "./ProjectMark.js";
@@ -31,7 +31,8 @@ const KINDS: readonly ChipOption<ArtifactKind | "all">[] = [
   ["sheet", "Sheets"],
 ];
 
-const KIND_WORD: Record<ArtifactKind, string> = { page: "Page", doc: "Doc", deck: "Deck", sheet: "Sheet" };
+/** An artifact's kind as a word, wherever one is named. */
+export const KIND_WORD: Record<ArtifactKind, string> = { page: "Page", doc: "Doc", deck: "Deck", sheet: "Sheet" };
 
 /** The project filter's "every project": like WORKSPACE_SCOPE, never a slug. */
 const ALL_PROJECTS = "@all";
@@ -326,9 +327,12 @@ export function ArtifactViewer({
   backLabel = "← Artifacts",
   onOpenChat,
   onOpenProject,
+  initial,
 }: {
   id: string;
   projects: Project[];
+  /** The artifact already loaded by whoever shows this, so it is not fetched twice. */
+  initial?: AnyPagePayload;
   onBack: () => void;
   /** What going back says: where it goes. */
   backLabel?: string;
@@ -348,18 +352,31 @@ export function ArtifactViewer({
   const [preview, setPreview] = useState<{ version: PageVersion; page: HtmlPage }>();
   const frame = useRef<ArtifactHandle>(null);
 
-  const load = (): Promise<void> =>
-    api.anyPage(id).then((got) => {
-      setPreview(undefined);
-      setRecord(got.record);
-      setOlder(got.kind !== "html");
-      if (got.kind === "html") setPage(got.page);
-    });
+  const show = (got: AnyPagePayload): void => {
+    setPreview(undefined);
+    setRecord(got.record);
+    setOlder(got.kind !== "html");
+    if (got.kind === "html") setPage(got.page);
+  };
+  const load = (): Promise<void> => api.anyPage(id).then(show);
   const failed = (err: unknown): void => setError(err instanceof Error ? err.message : String(err));
+  /** Whatever the doc has not saved is saved before the frame goes. */
+  const settle = (): Promise<void> => frame.current?.settle() ?? Promise.resolve();
+  const restore = (version: number): Promise<void> =>
+    settle()
+      .then(() => api.pageRollback(id, version, record?.updatedAt))
+      .then(load);
 
+  // A new artifact in the same viewer (another one picked beside a chat): the one open finishes its editing first.
   useEffect(() => {
     setError(undefined);
-    load().catch(failed);
+    if (initial?.record.id === id && !record) {
+      show(initial);
+      return;
+    }
+    void settle()
+      .then(load)
+      .catch(failed);
   }, [id]);
 
   const project = record?.projectSlug ? projects.find((p) => p.slug === record.projectSlug) : undefined;
@@ -381,7 +398,7 @@ export function ArtifactViewer({
 
   return (
     <div className="artifact-view">
-      <button type="button" className="ops-back artifact-view-back" onClick={onBack}>
+      <button type="button" className="ops-back artifact-view-back" onClick={() => void settle().then(onBack)}>
         {backLabel}
       </button>
       {record && (
@@ -458,18 +475,13 @@ export function ArtifactViewer({
             Looking at version {preview.version.version}, from {relativeWords(Math.round(preview.version.at / 1000))}. Nothing here is saved.
           </span>
           <span className="artifact-preview-acts">
-            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setPreview(undefined)}>
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => void load().catch(failed)}>
               Back to current
             </button>
             <button
               type="button"
               className="btn btn--primary btn--sm"
-              onClick={() =>
-                void api
-                  .pageRollback(record.id, preview.version.version)
-                  .then(load)
-                  .catch(failed)
-              }
+              onClick={() => void restore(preview.version.version).catch(failed)}
             >
               Restore this version
             </button>
@@ -491,11 +503,16 @@ export function ArtifactViewer({
             record={record}
             {...(preview ? { previewing: preview.version.version } : {})}
             onRolledBack={() => load().then(() => setHistory(false))}
+            onRestore={(version) =>
+              restore(version)
+                .then(() => setHistory(false))
+                .catch(failed)
+            }
             {...(!older
               ? {
                   onPreview: (version: PageVersion) =>
-                    void api
-                      .pageVersion(record.id, version.version)
+                    void settle()
+                      .then(() => api.pageVersion(record.id, version.version))
                       .then((got) => {
                         setPreview({ version, page: got });
                         setHistory(false);

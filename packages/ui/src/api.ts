@@ -1,5 +1,7 @@
 /** Typed client for the KOS dashboard API. */
 
+import type { HtmlPage } from "@kos/shared";
+
 /** Whether a restart is wanted, and what it is waiting on. */
 export interface RestartState {
   /** Something would start the host again; without it a restart is a stop. */
@@ -449,7 +451,7 @@ export interface PageVersion {
 export interface HtmlPagePayload {
   record: PageSummary;
   kind: "html";
-  page: import("@kos/shared").HtmlPage;
+  page: HtmlPage;
 }
 
 export type AnyPagePayload = HtmlPagePayload | PagePayload;
@@ -1130,8 +1132,9 @@ export const api = {
   checkArtifact: (id: string) => post<{ findings: { kind: string; text: string }[]; capturedAt?: number }>(`/api/artifacts/${encodeURIComponent(id)}/check`),
   pageHistory: (id: string) => get<PageVersion[]>(`/api/pages/${encodeURIComponent(id)}/history`),
   /** One kept version of an HTML artifact, to look at before restoring it. */
-  pageVersion: (id: string, version: number) => get<import("@kos/shared").HtmlPage>(`/api/pages/${encodeURIComponent(id)}/versions/${version}`),
-  pageRollback: (id: string, version: number) => post<PageSummary>(`/api/pages/${encodeURIComponent(id)}/rollback`, { version }),
+  pageVersion: (id: string, version: number) => get<HtmlPage>(`/api/pages/${encodeURIComponent(id)}/versions/${version}`),
+  /** Put a page back as it was at a version; `base`, the version it was opened at, refuses one made on a page changed since (409). */
+  pageRollback: (id: string, version: number, base?: number) => post<PageSummary>(`/api/pages/${encodeURIComponent(id)}/rollback`, { version, ...(base !== undefined ? { base } : {}) }),
   mutate: (req: MutateRequest) => post<MutateResult>("/api/mutate", req),
   conversations: (includeArchived = false) =>
     get<Conversation[]>(

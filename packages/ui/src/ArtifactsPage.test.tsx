@@ -197,7 +197,8 @@ describe("one artifact, full size", () => {
     expect(older).toHaveBeenCalledWith("ledger", 1);
     await waitFor(() => expect(document.querySelector("iframe.artifact-frame")?.getAttribute("srcdoc")).toContain("data-locked"));
     fireEvent.click(screen.getByRole("button", { name: "Restore this version" }));
-    await waitFor(() => expect(rollback).toHaveBeenCalledWith("ledger", 1));
+    // Restored on the version it was opened at, so one saved since is a conflict, not an overwrite.
+    await waitFor(() => expect(rollback).toHaveBeenCalledWith("ledger", 1, ART[3]!.updatedAt));
     await waitFor(() => expect(screen.queryByText(/Looking at version 1/)).toBeNull());
     // Or restored from the drawer itself.
     fireEvent.click(screen.getByRole("button", { name: "History" }));
@@ -205,6 +206,13 @@ describe("one artifact, full size", () => {
     fireEvent.click(within(again[1]!).getByRole("button", { name: "Restore" }));
     fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Restore" })).getByRole("button", { name: "Restore" }));
     await waitFor(() => expect(rollback).toHaveBeenCalledTimes(2));
+    // A restore refused as a conflict says so.
+    rollback.mockRejectedValueOnce(new Error("This artifact changed after it was opened"));
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    const third = within(await screen.findByRole("dialog", { name: "History" })).getAllByRole("listitem");
+    fireEvent.click(within(third[1]!).getByRole("button", { name: "Restore" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Restore" })).getByRole("button", { name: "Restore" }));
+    expect((await screen.findByText(/changed after it was opened/)).textContent).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open in project" }));
     expect(toProject).toHaveBeenCalledWith("budget");
     expect(screen.queryByRole("button", { name: "Present" })).toBeNull();

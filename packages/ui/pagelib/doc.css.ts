@@ -15,6 +15,8 @@ export const DOC_CSS = String.raw`
   --doc-gutter: clamp(16px, 4vw, 40px);
 }
 :where(html[data-kind="doc"]) body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font: 400 var(--doc-size) / 1.6 var(--font-body); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+/* Light type on a dark ground thins under grayscale smoothing; the platform's own keeps its weight. */
+:where(html[data-kind="doc"][data-mode="dark"]) body { -webkit-font-smoothing: auto; -moz-osx-font-smoothing: auto; }
 
 .doc-frame { display: grid; grid-template-columns: minmax(0, 1fr); padding-block: clamp(24px, 6vw, 72px) 96px; }
 .doc-frame.has-toc { row-gap: 8px; }
@@ -99,7 +101,7 @@ export const DOC_CSS = String.raw`
 /* Footnotes: the inline text hides, a number stands in, the note goes to the end. */
 :where([data-doc]) .fn { display: none; }
 .fn-ref { all: unset; cursor: pointer; font: 600 0.68em / 0 var(--font-ui); color: var(--accent); vertical-align: super; padding: 0 0.12em; border-radius: 3px; }
-.fn-ref:focus-visible, .fn-back:focus-visible, .doc-toc button:focus-visible, .doc-tools button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fn-ref:focus-visible, .fn-back:focus-visible, .doc-toc button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .doc-notes { margin-top: 56px; font: 400 0.875rem / 1.55 var(--font-ui); color: var(--muted); }
 .doc-notes > h2 { font: 600 0.75rem / 1.2 var(--font-ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); padding-top: 20px; border-top: 1px solid var(--line); margin: 0 0 12px; }
 .doc-notes > ol { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 8px; }
@@ -126,12 +128,6 @@ export const DOC_CSS = String.raw`
 }
 
 /* Editing in place. */
-.doc-tools { position: fixed; top: 12px; right: 12px; z-index: 5; display: flex; gap: 6px; align-items: center; font: 500 0.8125rem / 1 var(--font-ui); }
-.doc-tools button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 999px; padding: 6px 12px; cursor: pointer; }
-.doc-tools button:hover { color: var(--text); border-color: var(--line-strong, var(--line)); }
-.doc-tools button.primary { background: var(--accent); border-color: transparent; color: var(--on-accent, #fff); }
-.doc-tools .doc-status { color: var(--muted); padding-inline: 6px; max-width: 40ch; }
-.doc-tools .doc-status.bad { color: var(--danger); }
 [data-doc][contenteditable="true"] { outline: none; caret-color: var(--accent); }
 [data-doc][contenteditable="true"] > * { box-shadow: -14px 0 0 -12px transparent; }
 [data-doc][contenteditable="true"] > :focus-within { box-shadow: -14px 0 0 -12px var(--line-strong, var(--line)); }
@@ -161,7 +157,6 @@ export const DOC_CSS = String.raw`
 :where([data-doc]) ul.checklist > li[data-checked="true"] { color: var(--muted); text-decoration: line-through; }
 :where([data-doc]) ul.checklist > li[data-checked="true"]::before { background: var(--accent); border-color: var(--accent); }
 [data-editing] [data-doc] ul.checklist > li::before { cursor: pointer; }
-[data-editing] .doc-tools .doc-status:empty { display: none; }
-@media print { .doc-tools, .doc-toc { display: none; } }
+@media print { .doc-toc { display: none; } }
 @media (prefers-reduced-motion: reduce) { .flash { animation: none; } html { scroll-behavior: auto; } }
 `;

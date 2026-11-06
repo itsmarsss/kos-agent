@@ -16,6 +16,8 @@
  * the frame's policy and its guard hold as they were.
  */
 
+import { DOC_EDIT_MAX } from "@kos/shared/artifacts";
+
 import { el, reason } from "./runtime.js";
 
 /** A block a line can become. */
@@ -63,7 +65,12 @@ export const slashMatches = (query: string): SlashItem[] => {
 };
 
 /** The biggest image the doc takes inline: it has no network, so the picture is part of its text. */
-export const IMAGE_MAX = 300_000;
+/**
+ * The biggest image file a doc takes inline. Base64 makes it about 4/3 its
+ * size, and the edit as a whole saves at most DOC_EDIT_MAX characters, so a
+ * picture is kept to well under that, leaving room for the words.
+ */
+export const IMAGE_MAX = Math.floor((DOC_EDIT_MAX * 3) / 4 / 2);
 
 /** How long after the last keystroke the doc saves, and the least time between two saves (PageStore takes one edit every 2 s). */
 export const AUTOSAVE_MS = 1200;
@@ -91,11 +98,15 @@ export interface EditorOptions {
   save: () => Promise<unknown>;
   /** What the editor says to the owner: saving, saved, why not. */
   say: (text: string, bad?: boolean) => void;
+  /** Whether an edit is waiting to be saved, each time that changes. */
+  onPending?: (pending: boolean) => void;
 }
 
 export interface Editor {
   /** Save now if anything is waiting, then stop editing; false, and still editing, when the save was refused. */
   stop(): Promise<boolean>;
+  /** Stop editing and save nothing more: what was not yet saved is the caller's to put back. */
+  discard(): void;
 }
 
 /** The block element holding the caret, inside the article. */
@@ -148,41 +159,53 @@ function headings(article: HTMLElement): { id: string; text: string }[] {
   });
 }
 
-export function startEditor(article: HTMLElement, { save, say }: EditorOptions): Editor {
+export function startEditor(article: HTMLElement, { save, say, onPending }: EditorOptions): Editor {
   // A new line is a paragraph, as the doc's own are, not a div.
   run("defaultParagraphSeparator", "p");
   run("styleWithCSS", "false");
   let timer: ReturnType<typeof setTimeout> | undefined;
   let savedAt = -Infinity;
   let pending = false;
-  let saving: Promise<boolean> | undefined;
   let stopped = false;
-
-  const flush = async (): Promise<boolean> => {
-    if (!pending || stopped) return true;
-    pending = false;
-    say("Saving…");
-    saving = save().then(
-      () => {
-        say("Saved");
-        return true;
-      },
-      (e: unknown) => {
-        // Kept as waiting, so the next keystroke or Done tries again; a newer version elsewhere is the dashboard's to explain (it offers Reload).
-        pending = true;
-        say(`Not saved: ${reason(e)}`, true);
-        return false;
-      },
-    );
-    const ok = await saving;
-    savedAt = Date.now();
-    return ok;
+  const setPending = (on: boolean): void => {
+    if (on !== pending) onPending?.(on);
+    pending = on;
   };
+
+  /*
+   * Saves run one after another, never two at once (the second would be made
+   * on the version before the first), and each waits out the server's gap
+   * since the last, so Done right after an autosave is never "saved a moment
+   * ago".
+   */
+  let chain: Promise<boolean> = Promise.resolve(true);
+  const flush = (): Promise<boolean> =>
+    (chain = chain.then(async () => {
+      if (!pending || stopped) return true;
+      const gap = savedAt + AUTOSAVE_GAP_MS - Date.now();
+      if (gap > 0) await new Promise((r) => setTimeout(r, gap));
+      if (!pending || stopped) return true;
+      setPending(false);
+      say("Saving…");
+      const ok = await save().then(
+        () => {
+          say("Saved");
+          return true;
+        },
+        (e: unknown) => {
+          // Kept as waiting, so the next keystroke or Done tries again; a newer version elsewhere is the dashboard's to explain (it offers Reload).
+          setPending(true);
+          say(`Not saved: ${reason(e)}`, true);
+          return false;
+        },
+      );
+      savedAt = Date.now();
+      return ok;
+    }));
   const changed = (): void => {
-    pending = true;
+    setPending(true);
     clearTimeout(timer);
-    const wait = Math.max(AUTOSAVE_MS, savedAt + AUTOSAVE_GAP_MS - Date.now());
-    timer = setTimeout(() => void flush(), wait);
+    timer = setTimeout(() => void flush(), AUTOSAVE_MS);
   };
 
   // —— the bar of formats over a selection ——
@@ -318,6 +341,7 @@ export function startEditor(article: HTMLElement, { save, say }: EditorOptions):
     reader.onload = () => {
       const data = String(reader.result ?? "");
       if (!/^data:image\/(png|jpe?g|gif|webp|svg\+xml);base64,/.test(data)) return say("That file is not an image a doc can hold.", true);
+      if (article.innerHTML.length + data.length > DOC_EDIT_MAX) return say("That image would make the doc longer than an edit can save; use a smaller one.", true);
       article.focus();
       const sel = getSelection();
       if (caretSaved.range && sel) {
@@ -414,6 +438,19 @@ export function startEditor(article: HTMLElement, { save, say }: EditorOptions):
     e.preventDefault();
     run("insertText", e.clipboardData?.getData("text/plain") ?? "");
   };
+  // A drop is text, as a paste is: never a file or markup from elsewhere.
+  const dragover = (e: DragEvent): void => e.preventDefault();
+  const drop = (e: DragEvent): void => {
+    e.preventDefault();
+    const text = e.dataTransfer?.getData("text/plain") ?? "";
+    const at = document.caretRangeFromPoint?.(e.clientX, e.clientY);
+    const sel = getSelection();
+    if (at && sel && article.contains(at.startContainer)) {
+      sel.removeAllRanges();
+      sel.addRange(at);
+    }
+    if (text) run("insertText", text);
+  };
   const moved = (): void => placeBar();
   const left = (): void => void setTimeout(closeMenu, 150);
 
@@ -421,25 +458,37 @@ export function startEditor(article: HTMLElement, { save, say }: EditorOptions):
   article.addEventListener("input", input);
   article.addEventListener("click", click);
   article.addEventListener("paste", paste);
+  article.addEventListener("dragover", dragover);
+  article.addEventListener("drop", drop);
   article.addEventListener("blur", left);
   document.addEventListener("selectionchange", moved);
+
+  const teardown = (): void => {
+    stopped = true;
+    clearTimeout(timer);
+    article.removeEventListener("keydown", keydown);
+    article.removeEventListener("input", input);
+    article.removeEventListener("click", click);
+    article.removeEventListener("paste", paste);
+    article.removeEventListener("dragover", dragover);
+    article.removeEventListener("drop", drop);
+    article.removeEventListener("blur", left);
+    document.removeEventListener("selectionchange", moved);
+    bar.remove();
+    menu.remove();
+    picker.remove();
+  };
 
   return {
     async stop() {
       clearTimeout(timer);
-      await saving;
       if (!(await flush())) return false;
-      stopped = true;
-      article.removeEventListener("keydown", keydown);
-      article.removeEventListener("input", input);
-      article.removeEventListener("click", click);
-      article.removeEventListener("paste", paste);
-      article.removeEventListener("blur", left);
-      document.removeEventListener("selectionchange", moved);
-      bar.remove();
-      menu.remove();
-      picker.remove();
+      teardown();
       return true;
+    },
+    discard() {
+      setPending(false);
+      teardown();
     },
   };
 }

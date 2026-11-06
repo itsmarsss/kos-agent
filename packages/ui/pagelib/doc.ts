@@ -9,6 +9,8 @@
  */
 
 import { DOC_CSS } from "./doc.css.js";
+import { DOC_EDIT_MAX } from "@kos/shared/artifacts";
+
 import { startEditor, type Editor } from "./docedit.js";
 import { addStyle, editable, el, kos, ready, reducedMotion } from "./runtime.js";
 
@@ -172,10 +174,27 @@ export function enhance(article: HTMLElement): Enhanced {
   };
 }
 
+/** What the doc tells the dashboard about its editing, which draws the controls (ArtifactPage's edit bar). */
+export interface EditState {
+  __kos: "edit";
+  editing: boolean;
+  /** An edit waiting to be saved. */
+  pending: boolean;
+  status: string;
+  bad: boolean;
+}
+
+/** What the dashboard's edit bar asks of the doc. */
+export type EditAction = "edit" | "done" | "discard" | "undo" | "redo";
+
 /**
- * Edit, and editing: the doc becomes editable where it is (docedit.ts holds
- * the formats, the "/" menu and the markdown), each pause in typing saved as
- * a new version through kos.save, with undo and redo beside Done.
+ * Editing: the doc becomes editable where it is (docedit.ts holds the
+ * formats, the "/" menu and the markdown), each pause in typing saved as a
+ * new version through kos.save. Its controls (Edit, Done, Discard, Undo,
+ * Redo and the save's state) are the dashboard's, kept in view above the
+ * frame while the doc scrolls by: the doc says how its editing stands and
+ * the dashboard says what the owner pressed. Cmd+S and Escape finish here
+ * too.
  */
 function editing(article: HTMLElement, start: () => Enhanced): void {
   const bridge = kos();
@@ -183,75 +202,109 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
   const save = bridge.save.bind(bridge);
   let enhanced = start();
   let editor: Editor | undefined;
+  /** The article as last saved (or as editing began), to put back on Discard; and its clean HTML, to skip a save that changes nothing. */
+  let savedInner = "";
   let last = "";
-  const status = el("span", { class: "doc-status", role: "status", "aria-live": "polite" });
-  const editBtn = el("button", { type: "button", title: "Edit the text in place" }, "Edit");
-  const undoBtn = el("button", { type: "button", title: "Undo (Cmd+Z)", "aria-label": "Undo", hidden: true }, "↶");
-  const redoBtn = el("button", { type: "button", title: "Redo (Shift+Cmd+Z)", "aria-label": "Redo", hidden: true }, "↷");
-  const doneBtn = el("button", { type: "button", class: "primary", hidden: true }, "Done");
-  const tools = el("div", { class: "doc-tools" }, status, undoBtn, redoBtn, doneBtn, editBtn);
-  document.body.append(tools);
-  const say = (text: string, bad = false): void => {
-    status.textContent = text;
-    status.classList.toggle("bad", bad);
+  const state: EditState = { __kos: "edit", editing: false, pending: false, status: "", bad: false };
+  const tell = (change: Partial<EditState>): void => {
+    Object.assign(state, change);
+    top?.postMessage({ ...state }, "*");
   };
-  const setEditing = (on: boolean): void => {
-    editBtn.hidden = on;
-    undoBtn.hidden = redoBtn.hidden = doneBtn.hidden = !on;
-    document.documentElement.toggleAttribute("data-editing", on);
-    if (on) {
-      article.setAttribute("contenteditable", "true");
-      article.setAttribute("spellcheck", "true");
-      article.focus();
-    } else {
-      article.removeAttribute("contenteditable");
-      article.removeAttribute("spellcheck");
-    }
-  };
+  const say = (status: string, bad = false): void => tell({ status, bad });
+
   const begin = (): void => {
+    if (editor) return;
     enhanced.undo();
+    savedInner = article.innerHTML;
     last = cleanDocHtml(article);
-    say("");
-    setEditing(true);
+    article.setAttribute("contenteditable", "true");
+    article.setAttribute("spellcheck", "true");
+    document.documentElement.setAttribute("data-editing", "");
+    article.focus();
     editor = startEditor(article, {
       say,
-      // An edit that changes nothing is no version; the server refuses one anyway.
+      onPending: (pending) => tell({ pending }),
+      // An edit that changes nothing is no version; the server refuses one anyway. One too long would only be refused.
       save: async () => {
         const html = cleanDocHtml(article);
         if (html === last) return;
+        if (html.length > DOC_EDIT_MAX) throw new Error(`the doc is ${html.length} characters; an edit saves at most ${DOC_EDIT_MAX}. Take something out, or Discard`);
+        const inner = article.innerHTML;
         await save({ doc: html });
         last = html;
+        savedInner = inner;
       },
     });
+    tell({ editing: true, status: "", bad: false });
+  };
+  const leave = (): void => {
+    editor = undefined;
+    article.removeAttribute("contenteditable");
+    article.removeAttribute("spellcheck");
+    document.documentElement.removeAttribute("data-editing");
+    enhanced = start();
+    tell({ editing: false, pending: false });
   };
   const finish = async (): Promise<void> => {
-    doneBtn.disabled = true;
-    const stopped = (await editor?.stop()) ?? true;
-    doneBtn.disabled = false;
-    if (!stopped) return;
-    editor = undefined;
-    setEditing(false);
-    enhanced = start();
+    if (!editor) return;
+    if (await editor.stop()) leave();
   };
-  editBtn.addEventListener("click", begin);
-  doneBtn.addEventListener("click", () => void finish());
-  for (const [btn, command] of [[undoBtn, "undo"], [redoBtn, "redo"]] as const) {
-    btn.addEventListener("mousedown", (e) => e.preventDefault());
-    btn.addEventListener("click", () => {
-      document.execCommand(command);
-      article.dispatchEvent(new InputEvent("input", { inputType: command === "undo" ? "historyUndo" : "historyRedo" }));
-    });
-  }
+  const discard = (): void => {
+    if (!editor) return;
+    editor.discard();
+    article.innerHTML = savedInner;
+    leave();
+    say("Changes since the last save were put back");
+  };
+  const act = (action: EditAction): void => {
+    if (action === "edit") begin();
+    else if (action === "done") void finish();
+    else if (action === "discard") discard();
+    else if (editor) {
+      article.focus();
+      document.execCommand(action);
+      article.dispatchEvent(new InputEvent("input", { inputType: action === "undo" ? "historyUndo" : "historyRedo" }));
+    }
+  };
+  addEventListener("message", (e) => {
+    const m = (e.data ?? {}) as { __kos?: string; action?: EditAction };
+    if (e.source === top && m.__kos === "edit-do" && m.action && article.isConnected) act(m.action);
+  });
   document.addEventListener("keydown", (e) => {
     // The "/" menu takes its own Escape first.
     if (!editor || e.defaultPrevented) return;
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
-      e.preventDefault();
-      void finish();
-    } else if (e.key === "Escape") {
+    if (((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") || e.key === "Escape") {
       e.preventDefault();
       void finish();
     }
+  });
+  tell({});
+}
+
+/**
+ * The contents beside the text stay in view as the dashboard scrolls the doc
+ * past: a frame as tall as its doc never scrolls itself, so `sticky` has
+ * nothing to stick to. The dashboard tells the doc where its view is (how far
+ * down the frame the view's top is, and how tall the view is), and the
+ * contents are moved to match, within the text beside them.
+ */
+function followView(): void {
+  addEventListener("message", (e) => {
+    const m = (e.data ?? {}) as { __kos?: string; top?: unknown; height?: unknown };
+    if (e.source !== top || m.__kos !== "view" || typeof m.top !== "number" || typeof m.height !== "number") return;
+    const toc = document.querySelector<HTMLElement>(".doc-toc");
+    if (!toc) return;
+    if (!matchMedia("(min-width: 1100px)").matches) {
+      toc.style.transform = "";
+      toc.style.maxHeight = "";
+      return;
+    }
+    const shift = new DOMMatrixReadOnly(getComputedStyle(toc).transform === "none" ? undefined : getComputedStyle(toc).transform).m42;
+    const natural = toc.getBoundingClientRect().top + scrollY - shift;
+    const room = (toc.parentElement?.getBoundingClientRect().bottom ?? 0) + scrollY - natural - toc.offsetHeight;
+    const y = Math.max(0, Math.min(m.top + 24 - natural, room));
+    toc.style.transform = y > 0 ? `translateY(${Math.round(y)}px)` : "";
+    toc.style.maxHeight = `${Math.max(160, Math.round(m.height - 48))}px`;
   });
 }
 
@@ -259,6 +312,7 @@ export function startDoc(): void {
   const article = document.querySelector<HTMLElement>("article[data-doc]");
   if (!article) return;
   const start = (): Enhanced => enhance(article);
+  followView();
   if (article.hasAttribute("data-locked") || !editable()) start();
   else editing(article, start);
 }

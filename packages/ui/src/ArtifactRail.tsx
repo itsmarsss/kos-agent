@@ -1,8 +1,9 @@
 import { Card, Collapse, DrawerRow, Empty, NavIcon } from "@kos/kit";
-import { relativeWords, type ArtifactKind } from "@kos/shared";
+import { relativeWords } from "@kos/shared";
 import { useState, type ReactElement } from "react";
 
 import type { PageSummary, Project } from "./api.js";
+import { KIND_WORD } from "./ArtifactsPage.js";
 import { ProjectMark } from "./ProjectMark.js";
 
 /**
@@ -13,7 +14,6 @@ import { ProjectMark } from "./ProjectMark.js";
  * opens to the same list.
  */
 
-const KIND_WORD: Record<ArtifactKind, string> = { page: "Page", doc: "Doc", deck: "Deck", sheet: "Sheet" };
 
 export interface ArtifactRailProps {
   items: PageSummary[];
