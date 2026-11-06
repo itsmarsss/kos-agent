@@ -150,9 +150,15 @@ the artifact's `.captures/<id>/`.
 ## The Artifacts page
 
 Artifacts on the dashboard's nav is a gallery of every artifact across
-projects and the workspace, newest first, filtered by kind and project and
-searched by title and description. A card shows a thumbnail, the title, the
-description, the kind, the project and when it changed.
+projects and the workspace, newest first. Its head holds the count, a search
+over titles, descriptions and projects, and New artifact, which opens KOS's
+root chat with "Make a " in the composer for the owner to finish. Under it,
+the kinds as chips with how many each holds (one row that scrolls sideways
+on a phone), the project, and Recent or By project: one grid, or a section
+per project with the workspace's own last. A card is a 16:10 capture cropped
+from the top, the title, one line of description, the kind, the project's
+mark and name, and when it changed. While the list loads the grid is drawn
+as skeleton cards; with nothing made it says so, beside New artifact.
 
 The thumbnail is the capture `artifacts.check` keeps, in the dashboard's
 theme, not a live render: a gallery of live frames would start every
@@ -165,10 +171,43 @@ still waiting. An older widget-spec page is listed too, marked as one; it
 has no capture, and its viewer offers Convert with KOS, which asks its
 project's chat to rewrite it as an HTML artifact under the same id.
 
-Opening one shows it full size with its version history and Roll back,
-Edit with KOS (the owner says what should change, and it goes to the chat
-that owns the artifact: the project's, or KOS at the root), and Present for
-a deck, which takes the frame full screen and tells the deck to present.
+Opening one shows it full size under a head with its title, kind, project
+and when it changed, and its actions: History (a drawer of every version,
+newest first, each older one with Roll back), Open in project, Present for a
+deck (the frame goes full screen and tells the deck to present), and Edit
+with KOS (the owner says what should change, and it goes to the chat that
+owns the artifact: the project's, or KOS at the root).
+
+### Drawn as part of the page
+
+An artifact is drawn on the dashboard's own ground, with no border and no
+scroll of its own: a frame with a fixed height and its own scrollbar is what
+made a page feel like an iframe rather than part of KOS. Wherever one is
+shown (its project, the viewer, full screen):
+
+- A page or a doc is as tall as its content. The bridge watches the page
+  (a ResizeObserver on its `<html>` and `<body>`, debounced 60 ms) and posts
+  `{__kos: "height", height}`; the dashboard sets the frame to it, so the
+  dashboard scrolls as one page. The page keeps its own scrollbar only while
+  its frame is shorter than it (the check's fixed view, or past the cap),
+  and its sideways overflow is hidden.
+- The height is the page's to say, so the dashboard holds it
+  (`widgets/frameheight.ts`): within 80 px and 50,000 px, a change under
+  2 px ignored, a return to the height before last within 400 ms ignored,
+  and more than twelve changes in 1.5 s freezes the frame where it is, so a
+  page sized to its own frame cannot make the dashboard jump or loop. The
+  message is heard only from the page's own frame, like every other.
+- With no scroll of its own, a jump to a place on the page (a `#id` link,
+  `scrollIntoView`, a doc's contents and notes) is posted as the same
+  message with `reveal: {top, bottom, block}`, and the dashboard scrolls
+  whatever holds the frame to it, held within the frame, and only while the
+  owner's hand is on the page (user activation), so a page cannot move the
+  dashboard by itself. A doc's contents beside the text no longer stick as
+  the page scrolls, since the frame itself does not.
+- A deck is a 16:9 stage as wide as the room, under its bar, never taller
+  than the view; a sheet fills the view below where its frame starts, and
+  its runtime gives the grid what is left under its head and tools, so only
+  the grid scrolls.
 
 ## What an artifact runs in
 
@@ -211,9 +250,10 @@ Before the page's own markup the frame gets:
   classes read as KOS, whatever the kind;
 - the fonts it names, as `@font-face` rules with the files inlined, and
   `--font-<id>` stacks for every bundled family;
-- the `window.kos` bridge, which talks to the dashboard as `top`, and makes
-  a link to a place on the page (`#id`) scroll there: in a `srcdoc` frame it
-  would resolve against the dashboard's address and send the frame away;
+- the `window.kos` bridge, which talks to the dashboard as `top`, reports
+  a page's or a doc's height (above), and makes a link to a place on the
+  page (`#id`) scroll there: in a `srcdoc` frame it would resolve against
+  the dashboard's address and send the frame away;
 - the libraries it named and its kind's runtime, inlined from the
   dashboard's own build (`dist/page-lib/`). A library missing from the build
   is a 404, never the dashboard's own page, and the frame takes only a
