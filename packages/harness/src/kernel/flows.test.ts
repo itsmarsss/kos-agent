@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { EMBED_MS } from "./afterturn.js";
+
 import { bodyHexOf, isValidPageSpec, type PageSpec } from "@kos/shared";
 
 import type { Inference } from "../agent/loop.js";
@@ -2200,6 +2202,24 @@ describe("KOS end-to-end flows", () => {
       const said = kernel.events.search({ userId: "owner", query: "vegetarian peanuts" }).filter((e) => e.role === "owner");
       expect(said).toHaveLength(1);
       expect(kernel.facts.trace(kernel.facts.get("owner", "diet")!.id)?.evidence).toEqual([said[0]!.id]);
+    });
+
+    it("still stands, and the turn ends, when the embedder never answers", async () => {
+      const model = scripted([remember("m1", "diet", "The owner is vegetarian"), text("Noted.")]);
+      kernel = await boot(model.inference);
+      // A provider that hangs, as one did for 17 minutes in an eval.
+      kernel.embedder.embed = () => new Promise<number[][]>(() => undefined);
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const c = kernel.conversations.create({ userId: "owner", title: "Diet" });
+        const done = kernel.handleMessage("I'm vegetarian", { sessionId: c.id });
+        await vi.advanceTimersByTimeAsync(EMBED_MS * 3);
+        await done;
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(kernel.facts.get("owner", "diet")?.trust).toBe("owner");
+      expect(standing()).toContain("diet");
     });
 
     it("stays the agent's when only a file said it", async () => {

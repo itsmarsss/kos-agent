@@ -2,6 +2,7 @@ import type { Inference } from "../agent/loop.js";
 import type { NewEvent } from "../memory/events.js";
 import { isFixed, titleFromText } from "./conversations.js";
 import { looksAutoTitled, nameConversation } from "./naming.js";
+import { deadline } from "../context/shelf.js";
 
 /**
  * What happens after a turn has answered.
@@ -37,6 +38,9 @@ export interface AfterTurnDeps {
   inference: Inference;
 }
 
+/** How long the exchange waits for its embeddings before it is logged without them. */
+export const EMBED_MS = 10_000;
+
 export class AfterTurn {
   constructor(private readonly deps: AfterTurnDeps) {}
 
@@ -67,7 +71,8 @@ export class AfterTurn {
     await record("memory.events", async () => {
       const words = text.trim();
       const answered = reply.trim().slice(0, 2000);
-      const [a, b] = await this.deps.embedder.embed([words, answered]);
+      // Bounded: a slow embedder must not hold the turn; the exchange is logged without one.
+      const [a, b] = (await Promise.race([this.deps.embedder.embed([words, answered]).catch(() => undefined), deadline(EMBED_MS)])) ?? [undefined, undefined];
       const place = { conversationId: conversationId ?? null, projectSlug: where?.projectSlug ?? null };
       saidId ??= this.deps.events.append({ userId, role: "owner", text: words, ...place }, a);
       if (answered) this.deps.events.append({ userId, role: "agent", text: answered, ...place }, b);

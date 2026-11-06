@@ -55,7 +55,7 @@ import type { PageLog } from "../memory/pages.js";
 import { GLOBAL_SCOPE, projectScope } from "../memory/facts.js";
 import { MATCHED_LIMIT, STANDING_LIMIT, withStanding } from "../memory/retriever.js";
 import { SCREEN_SUGGESTION, type Route, type Task } from "../models/router.js";
-import { shelveHistory, type ResultShelf } from "../context/shelf.js";
+import { deadline, shelveHistory, type ResultShelf } from "../context/shelf.js";
 import type { Effort, Provider } from "../models/provider.js";
 import { CUSTOM_PROVIDER, OpenAICompatibleProvider } from "../models/providers/compat.js";
 import { CLASSIFIER_KEY, CUSTOM_ENDPOINT_KEY, parseClassifierEndpoint, parseCustomEndpoint, type CustomEndpoint } from "../models/settings.js";
@@ -116,7 +116,7 @@ import { type NotifyPayload, parseTarget } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
 import type { SuggestionStore } from "../improve/store.js";
-import { AfterTurn } from "./afterturn.js";
+import { AfterTurn, EMBED_MS } from "./afterturn.js";
 import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF } from "./caretaker.js";
 import { Decisions, type DecisionResult } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
@@ -415,7 +415,8 @@ export class Kernel {
       text: said.text,
       cite: async () => {
         if (said.eventId !== undefined) return said.eventId;
-        const [embedding] = await this.embedder.embed([said.text.trim()]);
+        // Bounded like recall's: a slow embedder must not hold the turn (it once held it 17 minutes); the words are logged without one.
+        const [embedding] = (await Promise.race([this.embedder.embed([said.text.trim()]).catch(() => undefined), deadline(EMBED_MS)])) ?? [undefined];
         const projectSlug = this.conversations.get(conversationId)?.projectSlug ?? null;
         said.eventId = this.events.append({ userId: said.userId, role: "owner", text: said.text.trim(), conversationId, projectSlug }, embedding);
         return said.eventId;
