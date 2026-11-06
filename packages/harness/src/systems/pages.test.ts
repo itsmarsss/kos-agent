@@ -434,6 +434,32 @@ describe("PageStore HTML pages", () => {
       expect(pages.history("brief")).toHaveLength(1);
     });
 
+    /*
+     * The dashboard's doc editor saves through this one path, wherever the
+     * doc is shown (its project, the Artifacts page, a blob's rail), so the
+     * fence is this: the blocks the editor makes are taken, a link off the
+     * page is refused, and an edit never moves an artifact or widens what it
+     * may reach.
+     */
+    it("takes the editor's blocks, and keeps an edit to the artifact's own project and declarations", () => {
+      pages.writeHtml("budget", { id: "brief", kind: "doc", title: "Brief", html: doc("<p>x</p>") });
+      const made =
+        '<h2 id="water">Water</h2><p>it is <strong>wet</strong> <code>now</code> <a href="#water">up</a></p><ul class="checklist"><li data-checked="true">Tanks</li></ul>' +
+        '<hr><table><thead><tr><th>A</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table><aside class="callout"><p>Note</p></aside>' +
+        '<figure><img src="data:image/png;base64,iVBORw0KGgo=" alt="plot"><figcaption>plot</figcaption></figure><blockquote>q</blockquote>';
+      const saved = edit("brief", { doc: made });
+      expect(saved.projectSlug).toBe("budget");
+      const got = pages.get("brief");
+      expect(got?.kind === "html" && got.page.html).toContain(made);
+      expect(got?.kind === "html" && got.page.capabilities).toBeUndefined();
+      // A link off the page has nowhere to go in the frame, so an edit cannot hold one.
+      expect(() => edit("brief", { doc: '<p><a href="https://x.example">x</a></p>' })).toThrow(/cannot leave its frame/);
+      // A workspace doc stays the workspace's: an edit reaches no project.
+      pages.writeHtml(null, { id: "memo", kind: "doc", title: "Memo", html: doc("<p>Note</p>") });
+      expect(edit("memo", { doc: "<p>Changed</p>" }).projectSlug).toBeNull();
+      expect(pages.list("budget").some((r) => r.id === "memo")).toBe(false);
+    });
+
     it("keeps the owner's edit to a sheet's data as a version, escaped so data cannot end its script", () => {
       pages.writeHtml("budget", { id: "spend", kind: "sheet", title: "Spend", html: sheet(book) });
       const edited = { ...book, sheets: [{ ...book.sheets[0]!, rows: [["Rent", 1250], ["</script><script>alert(1)</script>", 1]] }] };
