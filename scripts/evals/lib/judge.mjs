@@ -56,7 +56,14 @@ export function makeLookJudge(root, model = process.env.KOS_EVAL_JUDGE ?? "claud
       } finally {
         clearTimeout(timer);
       }
-      const v = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
+      // The verdict, even when the reason's quotes break the JSON around it.
+      const body = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
+      let v;
+      try {
+        v = JSON.parse(body);
+      } catch {
+        v = { score: /"score"\s*:\s*(\d)/.exec(body)?.[1], reason: /"reason"\s*:\s*"([\s\S]*)"\s*}?\s*$/.exec(body)?.[1] ?? body };
+      }
       const score = Number(v.score) || 0;
       return { pass: score >= 4, score, reason: String(v.reason ?? ""), model: `${model} (sdk)` };
     } catch (err) {

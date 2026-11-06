@@ -40,7 +40,7 @@ export const SHEET_CSS = String.raw`
 .sheet-grid thead th { position: sticky; top: 0; z-index: 2; background: var(--panel-2); vertical-align: bottom; padding: 6px 0 0; font-weight: 600; }
 .sheet-grid thead button { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 0 12px 7px; cursor: pointer; }
 .sheet-grid thead button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.sheet-grid thead .letter { font: 500 10px / 1 var(--font-mono); color: var(--faint, var(--muted)); letter-spacing: 0.04em; }
+.sheet-grid thead .letter { font: 500 10px / 1 var(--font-mono); color: var(--muted); letter-spacing: 0.04em; }
 .sheet-grid thead .name { font: 600 12px / 1.2 var(--font-ui); color: var(--text); letter-spacing: 0.01em; display: flex; gap: 4px; align-items: center; }
 .sheet-grid thead .name::after { content: ""; color: var(--accent); font-size: 10px; }
 .sheet-grid thead th[aria-sort="ascending"] .name::after { content: "▲"; }

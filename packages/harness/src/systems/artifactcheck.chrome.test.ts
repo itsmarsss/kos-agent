@@ -45,6 +45,8 @@ const PLANTED: Record<string, { html: string; expect: Finding["kind"] }> = {
   wide: { html: `<h1>Wide</h1><div class="strip" style="width:1800px;height:40px;background:var(--panel)">a strip</div>`, expect: "overflow" },
   // Too wide only for a phone: caught only if the phone render is laid out at the phone's width.
   narrow: { html: `<h1>Narrow</h1><div class="strip" style="width:600px;height:40px;background:var(--panel)">a strip</div>`, expect: "overflow" },
+  // Tiles too narrow for their words, which a hidden overflow cuts off: the page does not scroll, it just loses text.
+  cramped: { html: `<h1>Cramped</h1><div style="display:flex;gap:8px"><div class="tile" style="width:40px;overflow:hidden;white-space:nowrap;border:1px solid var(--line)">Total spent this month</div></div>`, expect: "clipped" },
   literal: { html: `<style>body{background:#ffffff;color:#222222}</style><h1>Literal</h1><p>One</p><p>Two</p><p>Three</p><p>Four</p><p>Five</p><p>Six</p>`, expect: "theme" },
   faint: { html: `<h1>Faint</h1><p class="faint" style="color:#8a8a8a;background:#9a9a9a">hard to read</p>`, expect: "contrast" },
   noisy: { html: `<h1>Noisy</h1><script>console.error("the chart had no data"); null.x;</script>`, expect: "console" },
@@ -99,10 +101,39 @@ describe.skipIf(!chrome)("artifacts.check in Chrome", () => {
     const kinds = report.findings.map((f) => f.kind);
     expect(kinds).toContain(planted.expect);
     if (planted.expect === "overflow") expect(report.findings.find((f) => f.kind === "overflow")?.text).toMatch(id === "narrow" ? /^At 390 px.*div\.strip/ : /div\.strip/);
+    if (planted.expect === "clipped") expect(report.findings.find((f) => f.kind === "clipped")?.text).toMatch(/cut off by div\.tile/);
     if (planted.expect === "contrast") expect(report.findings.find((f) => f.kind === "contrast")?.text).toMatch(/p\.faint/);
     if (planted.expect === "bridge") expect(report.findings.find((f) => f.kind === "bridge")?.text).toMatch(/kos\.query: the query cannot run here/);
     if (planted.expect === "console") expect(report.findings.some((f) => /the chart had no data/.test(f.text))).toBe(true);
     if (planted.expect === "empty") expect(report.findings.find((f) => f.kind === "empty")?.text).toMatch(/div\.chart/);
     expect(reportWords(report)).toMatch(/one pass.*Do not check again/s);
+  }, 45_000);
+});
+
+/** The dashboard's own build, when there is one: the runtimes and fonts as KOS serves them. */
+const BUILT = resolve(here, "../../../ui/dist/page-lib");
+
+/** One small artifact of each runtime kind, written the plain way the guide shows. */
+const KINDS: Record<string, HtmlPage> = {
+  doc: { id: "doc", kind: "doc", title: "Brief", html: `<article data-doc><header><p class="kicker">Brief</p><h1>Garden water plan</h1><p class="lede">Four rain tanks cover a third of summer watering.</p></header><h2>Why</h2><p>The tap at the gate cannot serve 42 plots<span class="fn">Plot count, October 2026.</span>.</p><table><tr><th>Item</th><th class="num">Cost</th></tr><tr><td>Tanks</td><td class="num">$4,800</td></tr></table></article>` },
+  deck: { id: "deck", kind: "deck", title: "Pitch", html: `<main data-deck><section class="title"><h1>Westside garden, 2027</h1><p>General meeting, 19 November</p><aside class="notes">Open with the harvest.</aside></section><section><h2>Harvest rose a third</h2><p class="big">2,860 kg</p></section><section class="closing"><h2>Approve the water plan</h2></section></main>` },
+  sheet: { id: "sheet", kind: "sheet", title: "Spend", html: `<h1>October spending</h1><script type="application/json" data-sheet>{"sheets":[{"name":"Expenses","freeze":1,"columns":[{"label":"Date","type":"date"},{"label":"Category"},{"label":"Amount","type":"currency","currency":"CAD"}],"rows":[["2026-10-01","Housing",1650],["2026-10-02","Food",56.37],["2026-10-04","Food",=SUM(C1:C1)]],"totals":{"Amount":"sum"}},{"name":"By category","columns":[{"label":"Category"},{"label":"Amount","type":"currency","currency":"CAD"}],"pivot":{"from":"Expenses","by":"Category","values":[{"column":"Amount","fn":"sum"}]}}]}</script>`.replace("=SUM(C1:C1)", '"=C2*2"') },
+};
+
+describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-sheet.js")))("each runtime through artifacts.check", () => {
+  let captures: string;
+  let checker: ArtifactChecker;
+  beforeAll(() => {
+    captures = mkdtempSync(join(tmpdir(), "kos-captures-"));
+    checker = new ArtifactChecker({ load: (id) => (KINDS[id] ? { page: KINDS[id]!, title: KINDS[id]!.title } : undefined), call: async () => ({ rows: [] }), captures: (id) => join(captures, id), pageLib: () => BUILT });
+  });
+  afterAll(() => {
+    checker?.close();
+    rmSync(captures, { recursive: true, force: true });
+  });
+
+  it.each(Object.keys(KINDS))("the %s runtime's own chrome passes, in both themes and widths", async (id) => {
+    const report = await checker.check(id);
+    expect(report.findings).toEqual([]);
   }, 45_000);
 });

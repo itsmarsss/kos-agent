@@ -37,6 +37,8 @@ export interface ProbeResult {
   title: string | undefined;
   /** Cells or text showing a formula error. */
   formulaErrors: string[];
+  /** Text cut off by a box that hides what overflows it, and that box. */
+  clipped: { name: string; by: string }[];
 }
 
 /** The function serialised into the frame; it must not close over anything. */
@@ -98,6 +100,7 @@ export function probe(): ProbeResult {
   const elements: ProbedElement[] = [];
   const empty: ProbeResult["empty"] = [];
   const wide = new Set<Element>();
+  const clipped: ProbeResult["clipped"] = [];
   const clips = (el: Element): boolean => {
     for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) {
       const o = getComputedStyle(n).overflowX;
@@ -115,6 +118,19 @@ export function probe(): ProbeResult {
     const fg = rgba(s.color);
     const bg = rgba(s.backgroundColor);
     const painted = !!bg && bg[3] > 0;
+    if (ownText && clipped.length < 6 && s.textOverflow !== "ellipsis") {
+      // Where the words really are, against every box above that cuts off what spills out of it.
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const t = range.getBoundingClientRect();
+      for (let n = el.parentElement ?? null, self: Element = el; n && n !== document.documentElement; self = n, n = n.parentElement) {
+        const box = [self, n].find((b) => /hidden|clip/.test(getComputedStyle(b).overflowX));
+        if (!box) continue;
+        const b = box.getBoundingClientRect();
+        if (t.width > 0 && (t.left < b.left - 2 || t.right > b.right + 2)) clipped.push({ name: named(el), by: named(box).split(" ")[0]! });
+        break;
+      }
+    }
     if (!ownText && !painted && s.borderTopStyle === "none") return;
     const behind = behindOf(el);
     let contrast: number | undefined;
@@ -156,5 +172,6 @@ export function probe(): ProbeResult {
     empty: outer.slice(0, 6),
     title: heading ? (heading.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 80) : undefined,
     formulaErrors,
+    clipped,
   };
 }

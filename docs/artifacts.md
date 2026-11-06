@@ -121,6 +121,7 @@ server-side checks; it never writes. It then measures the frame
 (`artifactprobe.ts` in `@kos/browser`) and reports, as sentences:
 
 - sideways overflow, and the element that causes it;
+- text cut off by a box that hides what overflows it (a tile too narrow for its words);
 - colours that stay the same in both themes (the body's background, or most
   text), the sign of a literal colour or a token with one value;
 - text below AA contrast against what is behind it;

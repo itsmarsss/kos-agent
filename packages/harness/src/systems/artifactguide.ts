@@ -24,7 +24,7 @@ An artifact is one HTML document KOS writes for the owner: a page (an app, dashb
 1. Read this guide for the kind you are making: artifacts.guide({ kind }).
 2. Decide the treatment, the subject and the token plan (below) before writing markup.
 3. Write it with artifacts.write: project (omit it for a workspace artifact, which then has no tables or files to read), id, kind, title, description, html, and fonts, capabilities, libraries or headline when needed.
-4. Check it once with artifacts.check({ id }). It renders the artifact in KOS's own headless Chrome at 1280 px and 390 px wide, light and dark, and reports sideways overflow and the element causing it, colours that stay the same in both themes, text below AA contrast, console errors, failed bridge calls, regions empty at rest, a missing visible title, and a small screenshot.
+4. Check it once with artifacts.check({ id }). It renders the artifact in KOS's own headless Chrome at 1280 px and 390 px wide, light and dark, and reports sideways overflow and the element causing it, text cut off by a box that hides its overflow, colours that stay the same in both themes, text below AA contrast, console errors, failed bridge calls, regions empty at rest, a missing visible title, and a small screenshot.
 5. Fix everything the check reports in one pass, write again, then finish. Do not check again in a loop; one check, one round of fixes.
 
 ## Decide the treatment first
@@ -98,6 +98,7 @@ Pair deliberately: a serif body with a grotesque for labels, or one sans family 
 - One column at about 400 px. Every artifact must work at 390 px wide: let grids wrap (repeat(auto-fit, minmax(min(240px, 100%), 1fr))), no fixed widths.
 - Give text children of flex and grid items min-width: 0 so long words and numbers do not push the layout.
 - overflow-x: auto only on tables, code and diagrams, inside their own wrapper. The body never scrolls sideways.
+- Never hide overflow to make something fit: overflow: hidden on a tile or a card cuts off its label the moment the tile is narrower than its words, as it is on a phone. A row of figure tiles goes to two columns, then one, before any tile is narrower than its longest label.
 - Repeated elements share edges, baselines and padding: every card in a row the same padding, every label the same distance from its value.
 - Card styling (a surface, a border, a radius) only where something must be set apart. Not every section is a card.
 - Big-number tiles only when the numbers are the point. A row of four tiles above a table that already shows them is noise.
