@@ -50,15 +50,16 @@ function refuseOutsideReach(project: string, reach: Reach): void {
 export const ARTIFACT_TOOLS = ["artifacts.write", "artifacts.list", "artifacts.get", "artifacts.history", "artifacts.rollback", "artifacts.guide", "artifacts.check"] as const;
 
 /**
- * A chat in a project changes that project's artifacts and no other's, as
- * its brief says it cannot reach other projects. A chat at the root keeps
- * the reach it had: it is where an artifact with no project yet is made. A
- * workspace artifact belongs to no project, so any chat may make one.
+ * A project's artifacts are its own chats' to read and change, as its tables
+ * are: those chats, the turn that made the project, and Maintenance. A chat
+ * at the root has no project, so it reaches workspace artifacts only, which
+ * belong to no project and so to any chat, and hands a project's to it.
  */
-function refuseOtherProjectsPage(project: string | null, reach: Reach): void {
-  if (project === null || !reach.project || reach.project === MAINTENANCE_SLUG || reachable(reach).includes(project)) return;
+function refuseOtherProjectsPage(project: string | null, reach: Reach, what: "change" | "read" = "change"): void {
+  if (project === null || reach.project === MAINTENANCE_SLUG || reachable(reach).includes(project)) return;
   const name = (slug: string): string => reach.projects.find((p) => p.slug === slug)?.name ?? slug;
-  throw new Error(`This chat is ${name(reach.project)}'s, so ${name(project)}'s artifacts are not its to change. Hand the work to ${name(project)}'s own chat with chats.handoff to @project:${project}.`);
+  const here = reach.project ? `This chat is ${name(reach.project)}'s` : "This chat belongs to no project";
+  throw new Error(`${here}, so ${name(project)}'s artifacts are not its to ${what}. Hand the work to ${name(project)}'s own chat with chats.handoff to @project:${project}.`);
 }
 
 function defineSystemsTools(ctx: ModuleContext): void {
@@ -278,7 +279,10 @@ function defineSystemsTools(ctx: ModuleContext): void {
     },
     async (input) => {
       if (!checkArtifact) throw new Error("this KOS cannot check artifacts: it has no Chrome to render them in");
-      return checkArtifact(str(input, "id"));
+      const id = str(input, "id");
+      const page = pages.get(id);
+      if (page) refuseOtherProjectsPage(page.record.projectSlug, reachOf(ctx), "read");
+      return checkArtifact(id);
     },
     { floor: "safe" },
     { tags: ["systems"] },
@@ -318,6 +322,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
     (input) => {
       const got = pages.get(str(input, "id"));
       if (!got) throw new Error(`artifact not found: ${input.id}`);
+      refuseOtherProjectsPage(got.record.projectSlug, reachOf(ctx), "read");
       return JSON.stringify(got.kind === "html" ? { record: got.record, page: got.page } : { record: got.record, spec: got.spec });
     },
     { floor: "safe" },
@@ -330,7 +335,12 @@ function defineSystemsTools(ctx: ModuleContext): void {
       description: "List the kept versions of an artifact, oldest first; the last is what shows now. The owner's own edits to a doc or sheet are versions too.",
       inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
     },
-    (input) => JSON.stringify(pages.history(str(input, "id"))),
+    (input) => {
+      const id = str(input, "id");
+      const page = pages.get(id);
+      if (page) refuseOtherProjectsPage(page.record.projectSlug, reachOf(ctx), "read");
+      return JSON.stringify(pages.history(id));
+    },
     { floor: "safe" },
     { tags: ["systems"] },
   );
