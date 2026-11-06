@@ -1681,6 +1681,44 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.manifest.list().map((p) => p.name).sort()).toEqual(["Maintenance", "Pantry"]);
   });
 
+  it("a project orchestrator reads and writes its own project's pages, and no other's", async () => {
+    // Asked to turn its pages into artifacts, it had no page tool at all.
+    const model = scripted([
+      toolCall("c1", "pages.get", { id: "shelf" }),
+      toolCall("c2", "pages.write", { project: "books", id: "shelf", title: "Shelf", html: "<h1>Shelf</h1>" }),
+      toolCall("c3", "pages.write", { project: "notes", id: "jot", title: "Jot", html: "<h1>Jot</h1>" }),
+      // Naming another project's page as its own: page ids are shared, so this would take Notes' memo over.
+      toolCall("c4", "pages.write", { project: "books", id: "memo", title: "Memo", html: "<h1>Taken</h1>" }),
+      text("Replaced."),
+    ]);
+    kernel = await boot(model.inference);
+    const books = kernel.standUpProject({ name: "Books", type: "tracker" });
+    const notes = kernel.standUpProject({ name: "Notes", type: "notes" });
+    kernel.pages.writeHtml(books.slug, { id: "shelf", title: "Shelf", html: "<p>old</p>" });
+    kernel.pages.writeHtml(notes.slug, { id: "memo", title: "Memo", html: "<p>notes' own</p>" });
+
+    await kernel.handleProjectTurn(books.slug, "replace this page with an artifact");
+    const offered = (model.calls[0]!.request.tools ?? []).map((t) => t.name);
+    for (const name of ["pages.get", "pages.write", "pages.history"]) expect(offered).toContain(name);
+
+    const results = kernel.sessions
+      .get(`project:${books.slug}`)
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === "tool_result") as { isError?: boolean; content: unknown }[];
+    expect(results.map((r) => r.isError === true)).toEqual([false, false, true, true]);
+    expect(String(results[0]!.content)).toContain("<p>old</p>");
+    expect(String(results[2]!.content)).toContain("not its to change");
+    const shelf = kernel.pages.get("shelf");
+    expect(shelf?.kind === "html" && shelf.page.html).toContain("<h1>Shelf</h1>");
+    expect(kernel.pages.get("jot")).toBeUndefined();
+    expect(String(results[3]!.content)).toContain("not its to change");
+    const memo = kernel.pages.get("memo");
+    expect(memo?.record.projectSlug).toBe(notes.slug);
+    expect(memo?.kind === "html" && memo.page.html).toContain("notes' own");
+    // "Artifact" is the owner's word for a page.
+    expect(model.systems[0]).toContain("In KOS an artifact is a page");
+  });
+
   it("KOS gets a router brief so the hierarchy is a behaviour", async () => {
     const model = scripted([text("hi")]);
     kernel = await boot(model.inference);

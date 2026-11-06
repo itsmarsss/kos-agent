@@ -54,6 +54,20 @@ function refuseOutsideReach(project: string, reach: Reach): void {
   throw new Error(`${here}, so ${name}'s tables are not its to change. Hand the work to ${name}'s own chat with chats.handoff to @project:${project}, saying what to build and load.`);
 }
 
+/** The page tools: a project's orchestrator is granted them for its own project's pages. */
+export const PAGE_TOOLS = ["pages.write", "pages.list", "pages.get", "pages.history", "pages.rollback"] as const;
+
+/**
+ * A chat in a project changes that project's pages and no other's, as its
+ * brief says it cannot reach other projects. A chat at the root keeps the
+ * reach it had: it is where a page with no project yet is made.
+ */
+function refuseOtherProjectsPage(project: string, reach: Reach): void {
+  if (!reach.project || reach.project === MAINTENANCE_SLUG || reachable(reach).includes(project)) return;
+  const name = (slug: string): string => reach.projects.find((p) => p.slug === slug)?.name ?? slug;
+  throw new Error(`This chat is ${name(reach.project)}'s, so ${name(project)}'s pages are not its to change. Hand the work to ${name(project)}'s own chat with chats.handoff to @project:${project}.`);
+}
+
 function defineSystemsTools(ctx: ModuleContext): void {
   const services = requireServices(ctx);
   const { manifest, migrator, pages } = services;
@@ -225,6 +239,14 @@ function defineSystemsTools(ctx: ModuleContext): void {
     },
     (input) => {
       const project = str(input, "project");
+      const reach = reachOf(ctx);
+      refuseOtherProjectsPage(project, reach);
+      // Page ids are shared across projects, and a write upserts by id: the page it would replace is checked too,
+      // or one project could take another's page by naming it as its own.
+      const spec = input.spec as { id?: unknown } | undefined;
+      const id = typeof input.id === "string" ? input.id : typeof spec?.id === "string" ? spec.id : undefined;
+      const replaced = id ? pages.get(id) : undefined;
+      if (replaced) refuseOtherProjectsPage(replaced.record.projectSlug, reach);
       if (input.spec !== undefined && input.html === undefined) return JSON.stringify(pages.write(project, input.spec));
       const { project: _project, spec: _spec, ...page } = input;
       return JSON.stringify(pages.writeHtml(project, page));
@@ -293,7 +315,12 @@ function defineSystemsTools(ctx: ModuleContext): void {
       description: "Put a page back as it was at one of its versions (pages.history). The rollback is itself kept as a version, so it can be undone.",
       inputSchema: { type: "object", properties: { id: { type: "string" }, version: { type: "number" } }, required: ["id", "version"] },
     },
-    (input) => JSON.stringify(pages.rollback(str(input, "id"), Number(input.version))),
+    (input) => {
+      const id = str(input, "id");
+      const page = pages.get(id);
+      if (page) refuseOtherProjectsPage(page.record.projectSlug, reachOf(ctx));
+      return JSON.stringify(pages.rollback(id, Number(input.version)));
+    },
     { floor: "safe" },
     { tags: ["systems"] },
   );
@@ -308,11 +335,7 @@ export const systemsModule: KosModule = {
       { kind: "tool", name: "systems.project_delete", version: "1.0.0" },
       { kind: "tool", name: "systems.project_list", version: "1.0.0" },
       { kind: "tool", name: "systems.migrate", version: "1.0.0" },
-      { kind: "tool", name: "pages.write", version: "1.0.0" },
-      { kind: "tool", name: "pages.list", version: "1.0.0" },
-      { kind: "tool", name: "pages.get", version: "1.0.0" },
-      { kind: "tool", name: "pages.history", version: "1.0.0" },
-      { kind: "tool", name: "pages.rollback", version: "1.0.0" },
+      ...PAGE_TOOLS.map((name) => ({ kind: "tool" as const, name, version: "1.0.0" })),
     ],
     riskTier: "risky",
   },
