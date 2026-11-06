@@ -108,7 +108,10 @@ struct RenderTests {
     _ = try render("chat-window-thinking", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
     model.session = .working
     model.status(taken: false, story: .some("› Use Studio MacBook: Keynote\n› Look at the screen\nThe title runs over two lines."), error: nil)
-    let size = try render("chat-window-step", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    _ = try render("chat-window-step", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    // Words after the steps, the turn still going: the foot under them still says it works.
+    #expect(model.foot == "Working")
+    let size = try render("chat-window-words-then-working", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
     #expect(size.height == ChatView.size.height)
   }
 

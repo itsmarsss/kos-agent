@@ -626,6 +626,15 @@ public func minutesWords(_ minutes: Int) -> String {
   return rest == 0 ? "\(hours) h" : "\(hours) h \(rest)"
 }
 
+/// How long KOS has been at it, as the web kit's formatElapsed says it: "45s", "3m 20s", "1h 4m".
+public func elapsedWords(_ seconds: TimeInterval) -> String {
+  let total = max(0, Int(seconds.rounded()))
+  if total < 60 { return "\(total)s" }
+  let minutes = total / 60
+  if minutes < 60 { return "\(minutes)m \(total % 60)s" }
+  return "\(minutes / 60)h \(minutes % 60)m"
+}
+
 /// A text field on a dark well, with its label above it when it has one.
 public struct KOSField: View {
   private let label: String?

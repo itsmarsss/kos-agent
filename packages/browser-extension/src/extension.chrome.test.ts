@@ -375,6 +375,31 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     const listed = (await call("tabs.list", { session: "p1" }))["result"] as { tabs: { url: string; focus?: boolean; handed?: boolean }[] };
     expect(listed.tabs).toEqual([expect.objectContaining({ url: `${base}/beside`, focus: true, handed: true })]);
     expect(await call("session.end", { session: "p1" })).toMatchObject({ ok: true });
+    // Words after the steps, the turn still going: the foot still says it works, until the turn ends.
+    const foot = "document.querySelector('.working')";
+    expect(await call("chat.status", { conversation: "chrome:owner", said: "Summarize this page", story: "› Read the page\nChecking the prices now." })).toMatchObject({ ok: true });
+    for (let i = 0; i < 50 && !(await devtools.evaluate(panel, `!!${foot}?.querySelector('.live-dots')`)); i++) await until(() => false, 100);
+    expect(await devtools.evaluate(panel, `${foot}?.innerText ?? ''`)).toMatch(/^Working\s*\d+s$/);
+    expect(await text()).toContain("Checking the prices now.");
+    // Held on an approval, the turn is the owner's to move: it says so, with no dots and no clock.
+    expect(await call("chat.ask", { approval: { id: "a1", tool: "shell.run" } })).toMatchObject({ ok: true });
+    for (let i = 0; i < 50 && (await devtools.evaluate(panel, `!!${foot}?.querySelector('.live-dots')`)); i++) await until(() => false, 100);
+    expect(await devtools.evaluate(panel, `${foot}?.innerText ?? ''`)).toBe("Waiting on you");
+    expect(await call("chat.settled", { approval: "a1" })).toMatchObject({ ok: true });
+    for (let i = 0; i < 50 && !(await devtools.evaluate(panel, `!!${foot}?.querySelector('.live-dots')`)); i++) await until(() => false, 100);
+    expect(await devtools.evaluate(panel, `${foot}?.innerText ?? ''`)).toMatch(/^Working\s*\d+s$/);
+    // Words queued behind it, taken once it is done: the next turn counts from its own start.
+    const elapsed = async (): Promise<number> => Number(/(\d+)s$/.exec(String(await devtools.evaluate(panel, `${foot}?.innerText ?? ''`)))?.[1] ?? -1);
+    for (let i = 0; i < 50 && (await elapsed()) < 2; i++) await until(() => false, 100);
+    expect(await elapsed()).toBeGreaterThanOrEqual(2);
+    expect(await call("chat.status", { conversation: "chrome:owner", taken: true, said: "And the shipping?" })).toMatchObject({ ok: true });
+    await until(() => false, 200);
+    expect(await elapsed()).toBeLessThan(2);
+    expect(await call("chat.status", { conversation: "chrome:owner" })).toMatchObject({ ok: true });
+    for (let i = 0; i < 50 && (await devtools.evaluate(panel, `!!${foot}`)); i++) await until(() => false, 100);
+    expect(await devtools.evaluate(panel, `!!${foot}`)).toBe(false);
+    // The queued words answered, so none is left on its way for the next test.
+    expect(await call("chat.show", { conversation: "chrome:owner", title: "Chrome", messages: [{ role: "you", text: "Summarize this page" }, { role: "kos", text: "It is a **shop**." }, { role: "you", text: "And the shipping?" }, { role: "kos", text: "Free." }] })).toMatchObject({ ok: true });
   }, 40_000);
 
   it("never waits forever: words KOS does not take come back, and a KOS that never shows the chat is said to", async () => {

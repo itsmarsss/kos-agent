@@ -114,13 +114,11 @@ public struct ChatView: View {
           }
           if model.working {
             let running = model.running
-            if running.steps.isEmpty && running.words.isEmpty {
-              Thinking()
-            } else {
-              if !running.steps.isEmpty { Steps(steps: running.steps, live: true) }
-              if !running.words.isEmpty { ChatMarkdown(running.words).foregroundStyle(Theme.muted) }
-            }
+            if !running.steps.isEmpty { Steps(steps: running.steps, live: true) }
+            if !running.words.isEmpty { ChatMarkdown(running.words).foregroundStyle(Theme.muted) }
           }
+          // At the foot for as long as the turn runs: words after the steps are not the end of the work.
+          if let foot = model.foot { Working(what: foot, since: model.workingSince ?? Date(), live: !model.waitingOnOwner) }
           ForEach(model.asks) { ask in AskCard(ask: ask, answer: model.answer) }
           Color.clear.frame(height: 1).id("end")
         }
@@ -415,21 +413,39 @@ private struct Steps: View {
   }
 }
 
-/// The dashboard's live head while a turn has taken no step: three dots of the accent pulsing in turn, and that it is thinking.
-private struct Thinking: View {
+/// The dashboard's live head, at the foot of a running turn: three dots of the accent pulsing in turn, what it is at, and for how long.
+/// Not live, held on the owner, it is the words alone: no dots, no clock counting the owner's time.
+private struct Working: View {
+  let what: String
+  let since: Date
+  let live: Bool
+
   var body: some View {
     HStack(spacing: 8) {
-      TimelineView(.animation) { context in
-        let now = context.date.timeIntervalSinceReferenceDate
-        HStack(spacing: 3) {
-          ForEach(0..<3, id: \.self) { i in
-            Dot(Theme.accent, size: 4).opacity(Self.pulse(at: now - Double(i) * 0.15))
-          }
-        }
-      }
-      Text("Thinking").font(.kos(.detail)).foregroundStyle(Theme.muted)
+      if live { dots }
+      Text(what).font(.kos(.detail)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.tail)
+      if live { elapsed }
     }
     .padding(.vertical, 4)
+  }
+
+  private var dots: some View {
+    TimelineView(.animation) { context in
+      let now = context.date.timeIntervalSinceReferenceDate
+      HStack(spacing: 3) {
+        ForEach(0..<3, id: \.self) { i in
+          Dot(Theme.accent, size: 4).opacity(Self.pulse(at: now - Double(i) * 0.15))
+        }
+      }
+    }
+  }
+
+  private var elapsed: some View {
+    TimelineView(.periodic(from: since, by: 1)) { context in
+      Text(elapsedWords(context.date.timeIntervalSince(since)))
+        .font(.kos(.detail).monospacedDigit())
+        .foregroundStyle(Theme.faint)
+    }
   }
 
   /// The dashboard's live-pulse: a quarter lit, up to full at 30% of each 1.1 s, and back by 60%.

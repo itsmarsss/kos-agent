@@ -2021,7 +2021,6 @@ select {
   color: var(--muted);
 }
 .live-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.live-elapsed { color: var(--faint); font-variant-numeric: tabular-nums; }
 
 /* Who a turn is waiting on, when it asked several chats at once. The same
    gutter a thought gets: it is context for the answer, not the answer. */

@@ -219,7 +219,8 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .steps-list li[data-failed] { color: var(--danger); }
 
 /* At work before there is a step to show: the dashboard's dots and the word, as its live line has them. */
-.working { align-self: flex-start; display: flex; align-items: center; gap: 8px; padding: 4px 2px; color: var(--muted); font-size: var(--text-base); }
+.working { align-self: flex-start; display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 4px 2px; color: var(--muted); font-size: var(--text-base); }
+.working-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* What waits on the owner: an approval, an ask to work in this tab. */
 .ask-card { align-self: stretch; border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
