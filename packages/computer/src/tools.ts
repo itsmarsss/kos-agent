@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { isAttended, type KosModule, type ModuleContext, type ToolRisk } from "@kos/harness";
+import { isAttended, turnStop, type KosModule, type ModuleContext, type ToolRisk } from "@kos/harness";
 
 import type { OwnerChrome } from "./chrome.js";
 import type { DeviceHub, Session } from "./hub.js";
@@ -540,10 +540,13 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
     // request to look at the end rather than refused: a model that ended a
     // run with one got an error and had to send the whole run again.
     const looks = raw.some((item) => typeof item === "object" && item !== null && (item as Record<string, unknown>).action === "screenshot");
+    // The turn's stop: once the owner presses it, no further action is taken.
+    const signal = turnStop.getStore();
     for (const [i, item] of raw.entries()) {
       const step = (typeof item === "object" && item !== null ? item : {}) as Record<string, unknown>;
       const action = step.action as Action;
       if (action === "screenshot") continue;
+      if (signal?.aborted) throw new Error(`${done.length ? `Done: ${done.join(" ")} ` : ""}Stopped by the owner before action ${i + 1}.`);
       if (!ACTIONS.includes(action) || action === "zoom") throw new Error(`${done.length ? `Done: ${done.join(" ")} ` : ""}Action ${i + 1}: each is one of ${ACTIONS.filter((a) => a !== "zoom").join(", ")}`);
       try {
         done.push(await perform(chat, session, action, step, budget));
@@ -574,6 +577,10 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
       if (ended()) wake(new DeviceError("no_session", "the session ended"));
     });
     stops.add(onStop);
+    const signal = turnStop.getStore();
+    const onAbort = (): void => onStop(chat);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
     try {
       let left = seconds * 1000;
       while (left > 0) {
@@ -587,6 +594,7 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
     } finally {
       offChange();
       stops.delete(onStop);
+      signal?.removeEventListener("abort", onAbort);
     }
   };
 

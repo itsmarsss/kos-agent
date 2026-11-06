@@ -121,7 +121,7 @@ import { AfterTurn, EMBED_MS } from "./afterturn.js";
 import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF } from "./caretaker.js";
 import { Decisions, type DecisionResult } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
-import { GuardedTools } from "./guarded.js";
+import { GuardedTools, finishedAfterStop } from "./guarded.js";
 import { ProgressBus } from "./progress.js";
 import { BEHAVIOUR_KEY, parseBehaviour, type Behaviour } from "./behaviour.js";
 import { parseMentions } from "./mentions.js";
@@ -452,8 +452,15 @@ export class Kernel {
   /** Conversations whose last turn threw, with the error, until the next turn. */
   private readonly failed = new Map<string, string>();
 
-  /** Conversations the owner has asked to stop, cleared when the turn ends. */
-  private readonly stopping = new Set<string>();
+  /**
+   * Each live turn's stop, by conversation and then by turn.
+   *
+   * A chat can have two turns alive (one suspended on an approval, one
+   * answering the next message), and keyed by conversation alone the second
+   * replaced the first's: the turn waiting on the owner could no longer be
+   * stopped at all.
+   */
+  private readonly stops = new Map<string, Map<string, AbortController>>();
 
   /** Turn progress, for readers watching a conversation as it runs. */
   readonly progress = new ProgressBus();
@@ -898,6 +905,7 @@ export class Kernel {
     {
       const runId = this.runs.start("chat");
       const turnId = String(runId);
+      const stop = this.stopFor(sessionId, turnId);
       const previousConversation = this.currentConversationId;
       this.currentConversationId = sessionId;
       this.working.add(sessionId);
@@ -957,6 +965,7 @@ export class Kernel {
           userId,
           conversationId: sessionId,
           turnId,
+          signal: stop.signal,
           // A schedule's prompt, a blob's own timer, a guest: the owner did not start this one.
           attended: opts.origin !== "system",
           heard: () => this.hear(sessionId, mark),
@@ -1141,13 +1150,9 @@ export class Kernel {
            * KOS's own transcript stays the source of truth, which is what
            * keeps retention, /compact and rewind meaning something here.
            */
-          // Register an abort controller so kernel.stop() can cancel this SDK
-          // turn. Without it the Stop button was a silent no-op on this engine:
-          // abortFor() was only ever called on the non-SDK path.
-          const controller = this.abortFor(sessionId);
           tools.cutHuge = true;
           const sdkRun = runSdkChat({
-            signal: controller.signal,
+            signal: stop.signal,
             // An aside reads the context chat's history (plus its own earlier
             // asides) rather than its empty session, same as the API path.
             // The turn's own context (the clock, what was recalled, what
@@ -1191,7 +1196,7 @@ export class Kernel {
           });
 
           const settleSdk = (sdk: SdkChatResult, resumed = false): string => {
-            const reply = sdk.text ? inHouseVoice(sdk.text) : "I do not have anything to add to that.";
+            const reply = sdk.text ? inHouseVoice(sdk.text) : stop.signal.aborted ? "Stopped." : "I do not have anything to add to that.";
             if (useSession) {
               /*
                * The calls, then the reply.
@@ -1276,7 +1281,7 @@ export class Kernel {
           // Same bargain as the other engine: the call stays suspended inside
           // the turn, and the caller is answered rather than held for as long
           // as the owner takes to decide.
-          const outcome = await this.raceWithApproval(sdkRun, waiting, (r, resumed) => settleSdk(r, resumed), { sessionId, runId });
+          const outcome = await this.raceWithApproval(sdkRun, waiting, (r, resumed) => settleSdk(r, resumed), { sessionId, runId, signal: stop.signal });
           suspended = outcome.suspended;
           return { reply: outcome.reply, halted: false, sessionId, ...(outcome.suspended ? { suspended: true } : {}) };
         }
@@ -1289,10 +1294,10 @@ export class Kernel {
           // Watched turns stream. A reader was shown one static word for the
           // whole of a turn, and with a reasoning model most of that time is
           // the model working rather than any tool running.
-          shouldStop: () => this.stopping.has(sessionId),
+          shouldStop: () => stop.signal.aborted,
           // So a stop lands while the turn is waiting on the model, rather
           // than at the next round trip it may never reach.
-          signal: this.abortFor(sessionId).signal,
+          signal: stop.signal,
           onDelta: (delta) =>
             this.progress.emit({
               kind: "delta",
@@ -1328,7 +1333,7 @@ export class Kernel {
               useSession,
               before,
             }),
-          { sessionId, runId },
+          { sessionId, runId, signal: stop.signal },
         );
         suspended = outcome.suspended;
         return { reply: outcome.reply, halted: false, sessionId, ...(outcome.suspended ? { suspended: true } : {}) };
@@ -1336,7 +1341,7 @@ export class Kernel {
         const why = err instanceof Error ? err.message : String(err);
         this.runs.finish(runId, "error", why);
         // A turn the owner stopped did not fail; it was told to.
-        if (!this.stopping.has(sessionId)) this.failed.set(sessionId, why);
+        if (!stop.signal.aborted) this.failed.set(sessionId, why);
         throw err;
       } finally {
         // Restored rather than cleared: a dispatched turn runs inside another,
@@ -1377,7 +1382,7 @@ export class Kernel {
     run: Promise<T>,
     waiting: Promise<PendingAction>,
     settle: (result: T, resumed: boolean) => Promise<string> | string,
-    ctx: { sessionId: string; runId: number },
+    ctx: { sessionId: string; runId: number; signal: AbortSignal },
   ): Promise<{ reply: string; suspended: boolean }> {
     const first = await Promise.race([
       run.then((result) => ({ kind: "done" as const, result })),
@@ -1406,7 +1411,7 @@ export class Kernel {
           if (this.closed) return;
           const why = err instanceof Error ? err.message : String(err);
           this.runs.finish(ctx.runId, "error", why);
-          if (!this.stopping.has(ctx.sessionId)) this.failed.set(ctx.sessionId, why);
+          if (!ctx.signal.aborted) this.failed.set(ctx.sessionId, why);
         })
         .finally(() => this.endTurn(ctx.sessionId, String(ctx.runId)));
       return {
@@ -1624,8 +1629,11 @@ export class Kernel {
     // Words the turn never reached a step to hear run as a turn of their own.
     for (const w of this.steered.get(sessionId) ?? []) w.taken(false);
     this.steered.delete(sessionId);
-    this.stopping.delete(sessionId);
-    this.aborts.delete(sessionId);
+    if (turnId) {
+      const stops = this.stops.get(sessionId);
+      stops?.delete(turnId);
+      if (stops?.size === 0) this.stops.delete(sessionId);
+    }
     this.trails.delete(sessionId);
     this.ownerSaid.delete(sessionId);
     this.progress.emit({ kind: "turn-end", conversationId: sessionId });
@@ -3011,6 +3019,8 @@ export class Kernel {
     attended?: boolean;
     /** The owner's words said since the last call, for the model with this call's result. */
     heard?: () => string | undefined;
+    /** The turn's stop. */
+    signal?: AbortSignal;
   } = {}): GuardedTools {
     const shelf = this.shelf && this.behaviour().smartContext ? this.shelf : undefined;
     return new GuardedTools({
@@ -3034,6 +3044,7 @@ export class Kernel {
       // so. Scoping is for the many-modules case it was written for.
       ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
       ...(opts.turnId ? { turnId: opts.turnId } : {}),
+      ...(opts.signal ? { signal: opts.signal } : {}),
       permissions: this.permissions,
       permissionContext: (tool) => this.browserContext(tool, opts.conversationId),
       ...(opts.heard ? { heard: opts.heard } : {}),
@@ -3056,7 +3067,9 @@ export class Kernel {
         this.afterToolRan(tool);
         this.keepFrame(tool, opts.conversationId, result.images?.[0]?.data);
         this.bus.emit({ kind: "tool:end", tool, isError: result.isError === true, conversationId: opts.conversationId ?? null });
-        if (opts.conversationId) {
+        // A call that ends after its turn was stopped has no live view left to
+        // end; told now, it would land in whatever turn the chat runs next.
+        if (opts.conversationId && !opts.signal?.aborted) {
           this.progress.emit({
             kind: "tool-end",
             conversationId: opts.conversationId,
@@ -3070,6 +3083,9 @@ export class Kernel {
               : {}),
           });
         }
+      },
+      onFinishedAfterStop: (tool, result) => {
+        if (opts.conversationId) this.noteIn(opts.conversationId, finishedAfterStop(tool, result));
       },
       approvalTimeoutMs: this.behaviour().approvalMinutes * 60_000,
       whyFor: (id) => (id ? this.saidSince.get(id) : undefined),
@@ -3201,9 +3217,12 @@ export class Kernel {
     // Only owner turns are remembered; harness-generated ones are plumbing.
     // Awaited so a write cannot be lost when the process exits right after a
     // reply, and so failures surface in the runs log instead of vanishing.
+    // A stopped turn is not held for it: the memory pass embeds and may ask
+    // a model, and the owner pressed Stop to have the chat back now.
     if (origin !== "system") {
-      await this.afterTurn.remember(userId, text, reply, sessionId, this.ownerSaid.get(sessionId)?.eventId);
-      this.maybeExtract();
+      const remembering = this.afterTurn.remember(userId, text, reply, sessionId, this.ownerSaid.get(sessionId)?.eventId).then(() => this.maybeExtract());
+      if (result.stopped) remembering.catch(() => undefined);
+      else await remembering;
     }
 
     if (useSession) this.said(sessionId, text, reply, origin ?? "owner", ctx.channel, ctx.kept ?? [], ctx.resumed ?? false, ctx.from);
@@ -3867,13 +3886,6 @@ export class Kernel {
       .sort();
   }
 
-  /**
-   * Ask a running turn to stop at its next round trip.
-   *
-   * Between round trips rather than mid-call: a tool that is already running
-   * has to finish or its result is lost, and the model's own reply arrives in
-   * one piece.
-   */
   /** Whether a turn is running in a chat now; one waiting on the owner is not. */
   isWorking(sessionId: string): boolean {
     return this.working.has(sessionId);
@@ -3884,24 +3896,28 @@ export class Kernel {
     return this.queue.depthOf(sessionId);
   }
 
+  /**
+   * Stop every live turn in a chat, now: the model call is dropped, a running
+   * tool answers at once and what it started is ended, an ask it waits on
+   * lapses, and the turn ends with what it had. One waiting on the owner is
+   * live too: it is the turn the owner most often wants gone.
+   */
   stop(sessionId: string): boolean {
-    if (!this.working.has(sessionId)) return false;
-    this.stopping.add(sessionId);
-    // Marked first, so the loop reads the flag rather than the abort and
-    // reports a stop instead of a broken turn.
-    this.aborts.get(sessionId)?.abort();
+    const stops = this.stops.get(sessionId);
+    if (!stops?.size) return false;
+    for (const stop of stops.values()) stop.abort();
     // A tool mid-call (a long wait on a computer) hears it too, and ends now.
     this.bus.emit({ kind: "turn:stop", conversationId: sessionId });
     return true;
   }
 
-  /** One controller per running turn, replaced when a new turn starts. */
-  private readonly aborts = new Map<string, AbortController>();
-
-  private abortFor(sessionId: string): AbortController {
-    const fresh = new AbortController();
-    this.aborts.set(sessionId, fresh);
-    return fresh;
+  /** A turn's own stop, kept until the turn ends. */
+  private stopFor(sessionId: string, turnId: string): AbortController {
+    const stop = new AbortController();
+    const stops = this.stops.get(sessionId) ?? new Map<string, AbortController>();
+    stops.set(turnId, stop);
+    this.stops.set(sessionId, stops);
+    return stop;
   }
 
 

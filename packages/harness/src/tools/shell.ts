@@ -1,11 +1,12 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { turnStop } from "../kernel/caller.js";
 import { MAINTENANCE } from "../kernel/caretaker.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { isReadOnlyCommand } from "../risk/readonly.js";
-import { runCaptured, type CapturedRun } from "../sandbox/capture.js";
+import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv } from "../sandbox/env.js";
 import { jailedCommand } from "../sandbox/jail.js";
 
@@ -45,7 +46,7 @@ export type ShellResult = CapturedRun;
 
 export function runShell(
   command: string,
-  opts: { workspaceRoot: string; cwd: string; timeoutMs: number; maxOutput: number },
+  opts: { workspaceRoot: string; cwd: string; timeoutMs: number; maxOutput: number; signal?: AbortSignal },
 ): Promise<ShellResult> {
   const tmp = join(opts.workspaceRoot, ".kos", "tmp");
   mkdirSync(tmp, { recursive: true });
@@ -54,6 +55,7 @@ export function runShell(
     env: childEnv({ home: opts.workspaceRoot, tmp }),
     timeoutMs: opts.timeoutMs,
     maxOutput: opts.maxOutput,
+    ...stopOf(opts.signal),
   });
 }
 
@@ -92,7 +94,7 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           const cwdRel = typeof input["cwd"] === "string" && input["cwd"].trim() ? input["cwd"].trim() : ".";
           const cwd = ws.resolve(cwdRel);
           const seconds = typeof input["timeout"] === "number" && input["timeout"] > 0 ? Math.min(input["timeout"], 3600) : timeoutSeconds;
-          const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput: maxOutput });
+          const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput: maxOutput, ...stopOf(turnStop.getStore()) });
           return JSON.stringify(result);
         },
         // Risky by floor, as the spec says; a line that provably only reads

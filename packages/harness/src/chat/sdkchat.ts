@@ -15,6 +15,7 @@ import { fenced, isShelved } from "../context/shelf.js";
 import { splitOwnerWords } from "../kernel/transcript.js";
 import type { Effort } from "../models/provider.js";
 import { toolUse } from "../kernel/caller.js";
+import { STOPPED_RESULT } from "../kernel/guarded.js";
 import { ONLY_OWN_MCP, credentials } from "../builds/runner.js";
 import { toZodShape } from "./schema.js";
 
@@ -88,7 +89,7 @@ export interface SdkChatResult {
   models: SdkModelUsage[];
   /** The SDK's own estimate for the whole call, in USD. */
   costUSD: number;
-  /** True when the SDK stopped for its own reasons rather than answering. */
+  /** True when the turn ended short of an answer: the owner's stop, an error, or the turn limit. */
   stopped: boolean;
 }
 
@@ -289,6 +290,8 @@ function serverFor(tools: ToolBox, record: (call: SdkToolCall, images: { data: s
   // history, and what keeps the picture a step took with that step's card.
   const turn = randomUUID().slice(0, 8);
   let n = 0;
+  /** Calls started and not yet answered, so a stopped turn still holds them. */
+  const running = new Map<string, Pick<SdkToolCall, "name" | "input">>();
   const defined = tools.defs().map((spec) =>
     tool(
       spec.name.replace(/\./g, "_"),
@@ -296,7 +299,13 @@ function serverFor(tools: ToolBox, record: (call: SdkToolCall, images: { data: s
       toZodShape(spec.inputSchema),
       async (args: Record<string, unknown>) => {
         const id = `sdk-${turn}-${++n}`;
-        const result = await toolUse.run(id, () => tools.execute(spec.name, args ?? {}));
+        running.set(id, { name: spec.name, input: args ?? {} });
+        const result = await toolUse.run(id, () => tools.execute(spec.name, args ?? {})).catch((err: unknown) => {
+          running.delete(id);
+          throw err;
+        });
+        // Recorded and let go in one step, so a stop never finds it in neither.
+        running.delete(id);
         record({
           id,
           name: spec.name,
@@ -314,7 +323,80 @@ function serverFor(tools: ToolBox, record: (call: SdkToolCall, images: { data: s
       },
     ),
   );
-  return { server: createSdkMcpServer({ name: SERVER, tools: defined }), defined };
+  return { server: createSdkMcpServer({ name: SERVER, tools: defined }), defined, running };
+}
+
+/**
+ * A query's messages until the stop, and not one moment after it.
+ *
+ * Aborting a query does not end its stream at once: the SDK gives the Claude
+ * Code process two seconds to exit before it is killed, and only then does
+ * the stream end. A stopped turn read the whole of that grace. Here the
+ * stream is left as soon as the stop lands; it settles on its own behind.
+ */
+export async function* untilStopped<T>(source: AsyncIterable<T>, signal?: AbortSignal): AsyncGenerator<T> {
+  if (!signal) {
+    yield* source;
+    return;
+  }
+  const stopped = new Promise<"stopped">((resolve) => {
+    if (signal.aborted) resolve("stopped");
+    else signal.addEventListener("abort", () => resolve("stopped"), { once: true });
+  });
+  const messages = source[Symbol.asyncIterator]();
+  let ended: "done" | "stopped" | undefined;
+  try {
+    for (;;) {
+      const next = messages.next();
+      // Left behind on a stop, where it rejects with the abort and nobody reads it.
+      next.catch(() => undefined);
+      const got = await Promise.race([next, stopped]);
+      if (got === "stopped" || got.done) {
+        ended = got === "stopped" ? "stopped" : "done";
+        return;
+      }
+      yield got.value;
+    }
+  } finally {
+    /*
+     * Left early, the source is closed as for-await closes it: a query left
+     * open keeps KOS's tool server connected to it, and the fresh query a
+     * turn carries on in then has no tools. Waited for only until a stop,
+     * which is the wait this is here to skip.
+     */
+    if (ended !== "done") {
+      const closing = messages.return?.();
+      closing?.catch(() => undefined);
+      if (ended !== "stopped") await Promise.race([closing, stopped]);
+    }
+  }
+}
+
+/**
+ * How long a stopped query is given to report what it spent. Interrupted, the
+ * SDK answers with a result carrying the query's usage and cost; past this,
+ * the turn ends on what it has seen, since Stop has to feel instant.
+ */
+const STOP_ACCOUNT_MS = 1_000;
+
+/** A model message's usage as the stream reports it: the start's counts, then the end's output. */
+interface SeenUsage {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+}
+
+function seenUsage(model: string, raw: Record<string, unknown> | undefined, before?: SeenUsage): SeenUsage {
+  const n = (key: string, was = 0): number => (typeof raw?.[key] === "number" ? (raw[key] as number) : was);
+  return {
+    model,
+    inputTokens: n("input_tokens", before?.inputTokens),
+    outputTokens: n("output_tokens", before?.outputTokens),
+    cacheReadInputTokens: n("cache_read_input_tokens", before?.cacheReadInputTokens),
+    cacheCreationInputTokens: n("cache_creation_input_tokens", before?.cacheCreationInputTokens),
+  };
 }
 
 export async function runSdkChat(
@@ -331,7 +413,7 @@ export async function runSdkChat(
    * the turn's query under it would lose the subagent's report.
    */
   const cap = split.agent ? undefined : options.picturesPerQuery;
-  const { server } = serverFor(options.tools, (call, images) => {
+  const { server, running } = serverFor(options.tools, (call, images) => {
     calls.push(call);
     // A screen's picture, not a plot python drew or one an MCP tool returned.
     if (images.length && isScreenTool(call.name)) {
@@ -343,6 +425,8 @@ export async function runSdkChat(
   const { env, home } = credentials(options.cwd, options.env ?? process.env);
 
   let text = "";
+  /** What the reply in progress has said so far: kept if the turn is stopped before it is whole. */
+  let streamed = "";
   const usage = { inputTokens: 0, outputTokens: 0 };
   const models: SdkModelUsage[] = [];
   let costUSD = 0;
@@ -378,14 +462,12 @@ export async function runSdkChat(
   const budget = options.maxTurns ?? 24;
   let used = 0;
   for (;;) {
-    // The SDK cancels a query through an AbortController, so bridge the caller's
-    // signal (from kernel.stop()) to one. An already-aborted signal aborts it at
-    // once, so a stop requested before the query starts still takes.
-    const ac = new AbortController();
-    if (options.signal) {
-      if (options.signal.aborted) ac.abort();
-      else options.signal.addEventListener("abort", () => ac.abort(), { once: true });
+    // A stop that landed before this query, or between two, starts no new one.
+    if (options.signal?.aborted) {
+      stopped = true;
+      break;
     }
+    const ac = new AbortController();
     pictured = 0;
     /** This query has taken its share of pictures: it ends once the last one is back, and the turn goes on in a new one. */
     let full = false;
@@ -437,10 +519,44 @@ export async function runSdkChat(
         systemPrompt: { type: "preset", preset: "claude_code", append: split.agent ? `${options.system}\n\n${SCREEN_HANDOFF}` : options.system },
       },
     });
+    /*
+     * The caller's stop reaches the query: interrupted at once, so the model
+     * stops, then read for at most a moment more, for the result that says
+     * what the query spent, then left and aborted, so the Claude Code process
+     * goes.
+     */
+    const leave = new AbortController();
+    let grace: ReturnType<typeof setTimeout> | undefined;
+    const onStop = (): void => {
+      void stream.interrupt().catch(() => undefined);
+      grace = setTimeout(() => leave.abort(), STOP_ACCOUNT_MS);
+    };
+    if (options.signal?.aborted) onStop();
+    else options.signal?.addEventListener("abort", onStop, { once: true });
+    /** Each model message's usage as it streams, by message id: what is known if no result comes. */
+    const seen = new Map<string, SeenUsage>();
+    let streaming: string | undefined;
+    let accounted = false;
 
     try {
-      for await (const message of stream as AsyncIterable<SDKMessage>) {
+      for await (const message of untilStopped(stream as AsyncIterable<SDKMessage>, leave.signal)) {
         const m = message as unknown as Record<string, unknown>;
+
+        // Usage as it streams, a subagent's included: the start's counts, the end's output, then the whole message's.
+        if (m["type"] === "stream_event") {
+          const event = m["event"] as { type?: string; message?: { id?: string; model?: string; usage?: Record<string, unknown> }; usage?: Record<string, unknown> };
+          if (event?.type === "message_start" && event.message?.id) {
+            streaming = event.message.id;
+            seen.set(streaming, seenUsage(event.message.model ?? "", event.message.usage));
+          } else if (event?.type === "message_delta" && streaming && seen.has(streaming)) {
+            seen.set(streaming, seenUsage(seen.get(streaming)!.model, event.usage, seen.get(streaming)));
+          }
+        }
+        const said = m["type"] === "assistant" ? (m["message"] as { id?: string; model?: string; usage?: Record<string, unknown>; content?: unknown[] } | undefined) : undefined;
+        if (said?.id) seen.set(said.id, seenUsage(said.model ?? "", said.usage, seen.get(said.id)));
+
+        // Stopped: only the query's account is still wanted, and nothing more is said or shown.
+        if (options.signal?.aborted && m["type"] !== "result") continue;
 
         // A subagent's frames carry the call that started it. Its words are its
         // report to the turn, not the turn's reply; its thinking still shows.
@@ -457,7 +573,10 @@ export async function runSdkChat(
         if (m["type"] === "stream_event") {
           const event = m["event"] as { delta?: { type?: string; text?: string; thinking?: string } };
           const delta = event?.delta;
-          if (delta?.text && !inSubagent) options.onDelta?.({ kind: "text", text: delta.text });
+          if (delta?.text && !inSubagent) {
+            streamed += delta.text;
+            options.onDelta?.({ kind: "text", text: delta.text });
+          }
           if (delta?.thinking) {
             options.onDelta?.({ kind: "reasoning", text: delta.thinking });
           }
@@ -466,7 +585,8 @@ export async function runSdkChat(
 
         if (m["type"] === "assistant") {
           if (inSubagent) continue;
-          const content = (m["message"] as { content?: unknown[] })?.content ?? [];
+          streamed = "";
+          const content = said?.content ?? [];
           for (const block of content) {
             const b = block as { type?: string; text?: string };
             if (b.type === "text" && b.text) text = joinSaid(text, b.text);
@@ -475,11 +595,12 @@ export async function runSdkChat(
         }
 
         if (m["type"] === "result") {
+          accounted = true;
           // A result with no text of its own is the SDK stopping rather than
           // answering: an error, or the turn limit.
           if (m["subtype"] !== "success" && !full) stopped = true;
           used += typeof m["num_turns"] === "number" ? m["num_turns"] : 1;
-          if (typeof m["result"] === "string" && !text) text = m["result"];
+          if (typeof m["result"] === "string" && !text && !options.signal?.aborted) text = m["result"];
           /*
            * Accounting comes from here, not from adding up the assistant
            * messages. The result carries a running total for every model the
@@ -505,12 +626,26 @@ export async function runSdkChat(
         }
       }
     } catch (err) {
-      // Aborting the SDK query rejects the stream; that is the owner pressing
-      // Stop, a clean stop rather than a failure. Anything else still throws.
-      if (ac.signal.aborted) stopped = true;
-      else throw err;
+      // An interrupted or aborted query can reject its stream; that is the
+      // owner pressing Stop, a clean stop rather than a failure. Anything
+      // else still throws.
+      if (!options.signal?.aborted && !ac.signal.aborted) throw err;
+    } finally {
+      options.signal?.removeEventListener("abort", onStop);
+      clearTimeout(grace);
+      if (options.signal?.aborted) ac.abort();
     }
 
+    if (options.signal?.aborted) {
+      stopped = true;
+      // No result came in the moment allowed: what the stream showed is what is known, its cost not among it.
+      if (!accounted) for (const u of seen.values()) if (u.model) models.push({ ...u, costUSD: 0 });
+      // What was said, and what was under way: the half a reply the owner
+      // watched arrive, and each call still running, as stopped.
+      text = joinSaid(text, streamed);
+      for (const [id, call] of running) calls.push({ id, ...call, result: STOPPED_RESULT, isError: true });
+      break;
+    }
     // The steps are the turn's, not each query's: a turn carried on in fresh queries stops where one query would have.
     if (!full || stopped) break;
     if (used >= budget) {
@@ -533,5 +668,6 @@ export async function runSdkChat(
     usage.outputTokens += m.outputTokens;
   }
 
-  return { text: text.trim(), calls, usage, models, costUSD, stopped };
+  // A copy: a call stopped under the turn still records itself when it ends, after this has gone.
+  return { text: text.trim(), calls: [...calls], usage, models, costUSD, stopped };
 }

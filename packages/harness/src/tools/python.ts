@@ -5,10 +5,11 @@ import { homedir } from "node:os";
 import { extname, join } from "node:path";
 
 import type { ToolImage } from "../models/types.js";
+import { turnStop } from "../kernel/caller.js";
 import { RESERVED } from "../kernel/files.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
-import { runCaptured, type CapturedRun } from "../sandbox/capture.js";
+import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv, findProgram } from "../sandbox/env.js";
 import { isContained, jailedProgram } from "../sandbox/jail.js";
 
@@ -174,6 +175,7 @@ export function createPythonModule(options: PythonModuleOptions = {}): KosModule
               },
               timeoutMs: seconds * 1000,
               maxOutput,
+              ...stopOf(turnStop.getStore()),
             });
             const left = filesUnder(out);
             if (left.length === 0) rmSync(out, { recursive: true, force: true });

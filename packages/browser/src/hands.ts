@@ -140,8 +140,13 @@ export function stepsOf(raw: unknown): Step[] {
   return steps.map((s, i) => parseStep(s, i));
 }
 
-/** Steps in order, then the page as `then` says. A step that fails stops the run, and says where it is. */
-export async function act(tab: Tab, steps: Step[], then: Then): Promise<Seen> {
+/**
+ * Steps in order, then the page as `then` says. A step that fails stops the
+ * run, and says where it is. Once `signal` aborts (the owner pressed Stop) no
+ * further step starts: the turn has already answered, and a click made after
+ * that would be made for nobody.
+ */
+export async function act(tab: Tab, steps: Step[], then: Then, signal?: AbortSignal): Promise<Seen> {
   const page = tab.page;
   return page.run(async () => {
     await page.ready();
@@ -150,6 +155,7 @@ export async function act(tab: Tab, steps: Step[], then: Then): Promise<Seen> {
     const done: string[] = [];
     try {
       for (const [i, step] of steps.entries()) {
+        if (signal?.aborted) throw new Error(`${done.length ? `Done: ${done.join("; ")}. ` : ""}Stopped by the owner before step ${i + 1}.`);
         if (Date.now() - start > RUN_MS) throw new Error(`ran out of time after ${done.length} steps`);
         try {
           done.push(await page.step(step));
