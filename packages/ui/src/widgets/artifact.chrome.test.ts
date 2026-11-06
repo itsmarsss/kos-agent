@@ -335,6 +335,62 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await send("Emulation.clearDeviceMetricsOverride");
   }, 20_000);
 
+  /*
+   * The doc editor, on the doc's runtime as the dashboard inlines it, typed
+   * into by a real keyboard: markdown at a line's start, bold around words,
+   * a block from the "/" menu, then a save of its own through kos.save once
+   * the typing stops, which the bridge sends only at the owner's hand.
+   */
+  it("edits a doc in place, markdown and the slash menu, and saves on its own through the bridge", async () => {
+    const { build } = await import("esbuild");
+    const bundled = await build({ entryPoints: [join(import.meta.dirname, "../../pagelib/doc.ts")], bundle: true, write: false, format: "iife", target: "chrome120", charset: "ascii", logLevel: "silent" });
+    const runtime = bundled.outputFiles[0]!.text;
+    const html = `<style>.doc-tools{left:0;top:0;right:auto}</style><article data-doc><p><br></p><h2>Next</h2></article>`;
+    const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [runtime], kind: "doc" }));
+    pages.set("/doc", `<!doctype html><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:800px;height:600px" srcdoc="${frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe><script>
+      const f = document.getElementById("f");
+      addEventListener("message", (e) => {
+        const page = f.contentWindow.frames[0], m = e.data || {};
+        if (e.source !== page || m.__kos !== "call" || m.method !== "save") return;
+        document.body.dataset.saves = String(Number(document.body.dataset.saves || 0) + 1);
+        document.body.dataset.saved = m.args.edit.doc;
+        page.postMessage({ __kos: "reply", id: m.id, result: {} }, "*");
+      });
+    </script></body>`);
+    await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
+    await send("Page.navigate", { url: `${base}/doc` });
+    await new Promise((r) => setTimeout(r, 1200));
+    const value = async (expression: string): Promise<unknown> => ((await send("Runtime.evaluate", { expression, returnByValue: true })).result as { value?: unknown } | undefined)?.value;
+    const key = async (k: string): Promise<void> => {
+      const enter = k === "Enter";
+      await send("Input.dispatchKeyEvent", { type: "keyDown", key: k, text: enter ? "\r" : k, ...(enter ? { code: "Enter", windowsVirtualKeyCode: 13 } : {}) });
+      await send("Input.dispatchKeyEvent", { type: "keyUp", key: k, ...(enter ? { code: "Enter", windowsVirtualKeyCode: 13 } : {}) });
+    };
+    const type = async (text: string): Promise<void> => {
+      for (const k of text) await key(k);
+    };
+    // Edit, at the top left of the frame.
+    for (const t of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type: t, x: 22, y: 14, button: "left", clickCount: 1 });
+    await new Promise((r) => setTimeout(r, 200));
+    await type("## Water");
+    await key("Enter");
+    await type("it is **wet** now");
+    await key("Enter");
+    await type("/div");
+    await new Promise((r) => setTimeout(r, 100));
+    await key("Enter");
+    await new Promise((r) => setTimeout(r, 2000));
+    const saved = String(await value("document.body.dataset.saved || ''"));
+    expect(saved).toContain("<h2>Water</h2>");
+    expect(saved).toMatch(/<p>it is(&nbsp;| )<strong>wet<\/strong>(&nbsp;| )now<\/p><hr><h2>Next<\/h2>/);
+    expect(saved).toContain("<hr>");
+    expect(saved).not.toContain("/div");
+    expect(saved).not.toContain("contenteditable");
+    // One save for the run of typing, not one a key.
+    expect(Number(await value("document.body.dataset.saves"))).toBe(1);
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
   it("lets no way out send a single request, with the page running each time", async () => {
     const results: Record<string, Run> = {};
     for (const [name, code] of Object.entries(attempts(E))) results[name] = await run(name, wrapperDocument(page(code)));

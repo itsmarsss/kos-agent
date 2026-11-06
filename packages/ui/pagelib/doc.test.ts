@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TOC_MIN, cleanDocHtml, enhance, slugOf, startDoc } from "./doc.js";
+import { AUTOSAVE_GAP_MS, AUTOSAVE_MS, inlineMark, shortcutOf, slashMatches } from "./docedit.js";
 
 const ARTICLE = `<header><p class="kicker">Plan</p><h1>Garden plan</h1><p class="lede">What goes where.</p></header>
 <h2>Beds</h2><p>Three beds<span class="fn">Each 1.2 m by 3 m.</span> along the fence.</p>
@@ -87,7 +88,7 @@ describe("kos-doc", () => {
     expect(document.querySelector(".doc-tools")).toBeNull();
   });
 
-  it("saves an edit as the article's clean HTML, and Cancel puts it back", async () => {
+  it("saves an edit as the article's clean HTML when the owner is done, then draws the doc again", async () => {
     const save = vi.fn().mockResolvedValue({ version: 2 });
     (window as { kos?: unknown }).kos = { save };
     document.execCommand = vi.fn() as typeof document.execCommand;
@@ -98,22 +99,52 @@ describe("kos-doc", () => {
     button("Edit").click();
     expect(article.getAttribute("contenteditable")).toBe("true");
     expect(article.querySelector(".fn-ref")).toBeNull();
+    // Done with nothing changed saves nothing.
+    button("Done").click();
+    await vi.waitFor(() => expect(article.hasAttribute("contenteditable")).toBe(false));
+    expect(save).not.toHaveBeenCalled();
+
+    button("Edit").click();
     article.querySelector("h1")!.textContent = "Garden plan, revised";
-    button("Save").click();
+    article.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: "d" }));
+    button("Done").click();
     await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     const sent = save.mock.calls[0]![0] as { doc: string };
     expect(sent.doc).toContain("<h1>Garden plan, revised</h1>");
     expect(sent.doc).toContain('<span class="fn">Each 1.2 m by 3 m.</span>');
     expect(sent.doc).not.toContain("data-kos-gen");
-    await vi.waitFor(() => expect(document.querySelector(".doc-tools .doc-status")!.textContent).toBe("Saved as a new version"));
-    expect(article.hasAttribute("contenteditable")).toBe(false);
+    await vi.waitFor(() => expect(article.hasAttribute("contenteditable")).toBe(false));
+    expect(document.querySelector(".doc-tools .doc-status")!.textContent).toBe("Saved");
     expect(article.querySelectorAll(".fn-ref")).toHaveLength(2);
+  });
 
-    button("Edit").click();
-    article.querySelector("h1")!.textContent = "Scrapped";
-    button("Cancel").click();
-    expect(article.querySelector("h1")!.textContent).toBe("Garden plan, revised");
-    expect(save).toHaveBeenCalledTimes(1);
+  it("saves on its own a moment after the owner stops typing, one save for a run of keys", async () => {
+    vi.useFakeTimers();
+    try {
+      const save = vi.fn().mockResolvedValue({ version: 2 });
+      (window as { kos?: unknown }).kos = { save };
+      const article = mount(ARTICLE);
+      startDoc();
+      [...document.querySelectorAll<HTMLButtonElement>(".doc-tools button")].find((b) => b.textContent === "Edit")!.click();
+      for (const word of [" one", " two", " three"]) {
+        article.querySelector("p")!.append(word);
+        article.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: "e" }));
+        await vi.advanceTimersByTimeAsync(300);
+      }
+      expect(save).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_MS);
+      expect(save).toHaveBeenCalledTimes(1);
+      expect((save.mock.calls[0]![0] as { doc: string }).doc).toContain("one two three");
+      // The next is held to the gap between saves, as the server takes one edit every 2 s.
+      article.querySelector("p")!.append(" four");
+      article.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: "r" }));
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_MS);
+      expect(save).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_GAP_MS);
+      expect(save).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("says why a save was refused and stays in editing", async () => {
@@ -123,8 +154,37 @@ describe("kos-doc", () => {
     const buttons = [...document.querySelectorAll<HTMLButtonElement>(".doc-tools button")];
     buttons.find((b) => b.textContent === "Edit")!.click();
     article.querySelector("p")!.append(" more");
-    buttons.find((b) => b.textContent === "Save")!.click();
+    article.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: "e" }));
+    buttons.find((b) => b.textContent === "Done")!.click();
     await vi.waitFor(() => expect(document.querySelector(".doc-tools .doc-status")!.textContent).toBe("Not saved: the edit holds a script"));
     expect(article.getAttribute("contenteditable")).toBe("true");
+  });
+});
+
+describe("what the doc editor reads as markdown", () => {
+  it("turns a line's start into a block, and nothing else", () => {
+    expect(shortcutOf("#")).toBe("h1");
+    expect(shortcutOf("###")).toBe("h3");
+    expect(shortcutOf("-")).toBe("ul");
+    expect(shortcutOf("1.")).toBe("ol");
+    expect(shortcutOf(">")).toBe("quote");
+    expect(shortcutOf("[]")).toBe("check");
+    expect(shortcutOf("####")).toBeUndefined();
+    expect(shortcutOf("a")).toBeUndefined();
+  });
+
+  it("closes bold and code around words just typed", () => {
+    expect(inlineMark("it is **very**")).toEqual({ tag: "strong", words: "very", length: 8 });
+    expect(inlineMark("run `kos`")).toEqual({ tag: "code", words: "kos", length: 5 });
+    expect(inlineMark("a * b")).toBeUndefined();
+    expect(inlineMark("****")).toBeUndefined();
+  });
+
+  it("finds a block in the slash menu by the start of its words", () => {
+    expect(slashMatches("").length).toBeGreaterThan(8);
+    expect(slashMatches("head 2").map((i) => i.id)).toEqual(["h2"]);
+    expect(slashMatches("list").map((i) => i.id)).toEqual(["ul", "ol"]);
+    expect(slashMatches("img")).toEqual([]);
+    expect(slashMatches("image").map((i) => i.id)).toEqual(["image"]);
   });
 });

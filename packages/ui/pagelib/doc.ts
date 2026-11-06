@@ -2,14 +2,15 @@
  * kos-doc: a designed document from plain markup. The agent writes one
  * `<article data-doc>`; this numbers its footnotes and figures, wraps its
  * tables so they scroll on their own, builds a table of contents for a long
- * one, and lets the owner edit the text in place, each save kept as a
- * version through kos.save. What it adds is marked data-kos-gen and taken
+ * one, and lets the owner edit it in place as in a document editor
+ * (docedit.ts), each pause in typing kept as a version through kos.save. What it adds is marked data-kos-gen and taken
  * out again before a save, so an edit stores only what the agent wrote and
  * the owner changed.
  */
 
 import { DOC_CSS } from "./doc.css.js";
-import { addStyle, editable, el, kos, ready, reason, reducedMotion } from "./runtime.js";
+import { startEditor, type Editor } from "./docedit.js";
+import { addStyle, editable, el, kos, ready, reducedMotion } from "./runtime.js";
 
 /** How many h2s make a document long enough for a table of contents. */
 export const TOC_MIN = 4;
@@ -24,7 +25,7 @@ export function slugOf(text: string, taken: Set<string>): string {
     text
       .toLowerCase()
       .normalize("NFKD")
-      .replace(/[̀-ͯ]/g, "")
+      .replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 48) || "section";
@@ -171,18 +172,24 @@ export function enhance(article: HTMLElement): Enhanced {
   };
 }
 
-/** The Edit, Save and Cancel controls, and what they do. */
+/**
+ * Edit, and editing: the doc becomes editable where it is (docedit.ts holds
+ * the formats, the "/" menu and the markdown), each pause in typing saved as
+ * a new version through kos.save, with undo and redo beside Done.
+ */
 function editing(article: HTMLElement, start: () => Enhanced): void {
   const bridge = kos();
   if (article.hasAttribute("data-locked") || !editable() || !bridge?.save) return;
   const save = bridge.save.bind(bridge);
   let enhanced = start();
-  let before = "";
+  let editor: Editor | undefined;
+  let last = "";
   const status = el("span", { class: "doc-status", role: "status", "aria-live": "polite" });
   const editBtn = el("button", { type: "button", title: "Edit the text in place" }, "Edit");
-  const saveBtn = el("button", { type: "button", class: "primary", hidden: true }, "Save");
-  const cancelBtn = el("button", { type: "button", hidden: true }, "Cancel");
-  const tools = el("div", { class: "doc-tools" }, status, cancelBtn, saveBtn, editBtn);
+  const undoBtn = el("button", { type: "button", title: "Undo (Cmd+Z)", "aria-label": "Undo", hidden: true }, "↶");
+  const redoBtn = el("button", { type: "button", title: "Redo (Shift+Cmd+Z)", "aria-label": "Redo", hidden: true }, "↷");
+  const doneBtn = el("button", { type: "button", class: "primary", hidden: true }, "Done");
+  const tools = el("div", { class: "doc-tools" }, status, undoBtn, redoBtn, doneBtn, editBtn);
   document.body.append(tools);
   const say = (text: string, bad = false): void => {
     status.textContent = text;
@@ -190,8 +197,8 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
   };
   const setEditing = (on: boolean): void => {
     editBtn.hidden = on;
-    saveBtn.hidden = !on;
-    cancelBtn.hidden = !on;
+    undoBtn.hidden = redoBtn.hidden = doneBtn.hidden = !on;
+    document.documentElement.toggleAttribute("data-editing", on);
     if (on) {
       article.setAttribute("contenteditable", "true");
       article.setAttribute("spellcheck", "true");
@@ -203,54 +210,47 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
   };
   const begin = (): void => {
     enhanced.undo();
-    before = article.innerHTML;
+    last = cleanDocHtml(article);
     say("");
     setEditing(true);
+    editor = startEditor(article, {
+      say,
+      // An edit that changes nothing is no version; the server refuses one anyway.
+      save: async () => {
+        const html = cleanDocHtml(article);
+        if (html === last) return;
+        await save({ doc: html });
+        last = html;
+      },
+    });
   };
-  const finish = (): void => {
+  const finish = async (): Promise<void> => {
+    doneBtn.disabled = true;
+    const stopped = (await editor?.stop()) ?? true;
+    doneBtn.disabled = false;
+    if (!stopped) return;
+    editor = undefined;
     setEditing(false);
     enhanced = start();
   };
-  const cancel = (): void => {
-    article.innerHTML = before;
-    finish();
-    say("");
-  };
-  const commit = async (): Promise<void> => {
-    const html = cleanDocHtml(article);
-    if (html === before.trim()) {
-      finish();
-      return;
-    }
-    saveBtn.disabled = true;
-    say("Saving…");
-    try {
-      await save({ doc: html });
-      finish();
-      say("Saved as a new version");
-    } catch (e) {
-      say(`Not saved: ${reason(e)}`, true);
-    } finally {
-      saveBtn.disabled = false;
-    }
-  };
   editBtn.addEventListener("click", begin);
-  cancelBtn.addEventListener("click", cancel);
-  saveBtn.addEventListener("click", () => void commit());
-  article.addEventListener("paste", (e) => {
-    if (article.getAttribute("contenteditable") !== "true") return;
-    e.preventDefault();
-    const text = e.clipboardData?.getData("text/plain") ?? "";
-    document.execCommand("insertText", false, text);
-  });
+  doneBtn.addEventListener("click", () => void finish());
+  for (const [btn, command] of [[undoBtn, "undo"], [redoBtn, "redo"]] as const) {
+    btn.addEventListener("mousedown", (e) => e.preventDefault());
+    btn.addEventListener("click", () => {
+      document.execCommand(command);
+      article.dispatchEvent(new InputEvent("input", { inputType: command === "undo" ? "historyUndo" : "historyRedo" }));
+    });
+  }
   document.addEventListener("keydown", (e) => {
-    if (article.getAttribute("contenteditable") !== "true") return;
+    // The "/" menu takes its own Escape first.
+    if (!editor || e.defaultPrevented) return;
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
       e.preventDefault();
-      void commit();
+      void finish();
     } else if (e.key === "Escape") {
       e.preventDefault();
-      cancel();
+      void finish();
     }
   });
 }
