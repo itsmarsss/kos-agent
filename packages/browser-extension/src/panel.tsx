@@ -702,7 +702,7 @@ function Thread({
       {/* At the foot for as long as the turn runs, whatever came last: words
           after the steps are not the end of the work. Gone the moment it ends,
           as the dashboard's is, not faded out over the answer. */}
-      {chat.working && <Working stories={chat.stories} />}
+      {chat.working && <Working stories={chat.stories} waiting={chat.asks.length > 0 || chat.consent !== undefined || reads.length > 0} />}
       <AnimatePresence>
         {chat.asks.map((a) => (
           <AskCard key={`ask${a.id}`} approval={a} decide={(approved, remember) => answer({ type: "decide", approval: a.id, approved, ...(remember ? { remember: true } : {}) })} />
@@ -793,14 +793,23 @@ function workingWhat(stories: Extra[]): string {
   return last.startsWith(STEP) && !last.endsWith(" (failed)") ? last.slice(STEP.length) : "Working";
 }
 
-/** The running turn's foot, the dashboard's: the dots, what it is at, and for how long. */
-function Working({ stories }: { stories: Extra[] }): ReactElement {
+/**
+ * The running turn's foot, the dashboard's: the dots, what it is at, and for how long.
+ * Held on the owner, it says so, with no dots and no clock: the wait is theirs.
+ */
+function Working({ stories, waiting }: { stories: Extra[]; waiting: boolean }): ReactElement {
   const [since] = useState(() => Date.now());
   return (
     <m.div className="working" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={ease}>
-      <WorkingDots />
-      <span className="working-what">{workingWhat(stories)}</span>
-      <Elapsed since={since} />
+      {waiting ? (
+        <span className="working-what">Waiting on you</span>
+      ) : (
+        <>
+          <WorkingDots />
+          <span className="working-what">{workingWhat(stories)}</span>
+          <Elapsed since={since} />
+        </>
+      )}
     </m.div>
   );
 }

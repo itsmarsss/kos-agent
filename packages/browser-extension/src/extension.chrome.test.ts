@@ -381,6 +381,13 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     for (let i = 0; i < 50 && !(await devtools.evaluate(panel, `!!${foot}?.querySelector('.live-dots')`)); i++) await until(() => false, 100);
     expect(await devtools.evaluate(panel, `${foot}?.innerText ?? ''`)).toMatch(/^Working\s*\d+s$/);
     expect(await text()).toContain("Checking the prices now.");
+    // Held on an approval, the turn is the owner's to move: it says so, with no dots and no clock.
+    expect(await call("chat.ask", { approval: { id: "a1", tool: "shell.run" } })).toMatchObject({ ok: true });
+    for (let i = 0; i < 50 && (await devtools.evaluate(panel, `!!${foot}?.querySelector('.live-dots')`)); i++) await until(() => false, 100);
+    expect(await devtools.evaluate(panel, `${foot}?.innerText ?? ''`)).toBe("Waiting on you");
+    expect(await call("chat.settled", { approval: "a1" })).toMatchObject({ ok: true });
+    for (let i = 0; i < 50 && !(await devtools.evaluate(panel, `!!${foot}?.querySelector('.live-dots')`)); i++) await until(() => false, 100);
+    expect(await devtools.evaluate(panel, `${foot}?.innerText ?? ''`)).toMatch(/^Working\s*\d+s$/);
     expect(await call("chat.status", { conversation: "chrome:owner" })).toMatchObject({ ok: true });
     for (let i = 0; i < 50 && (await devtools.evaluate(panel, `!!${foot}`)); i++) await until(() => false, 100);
     expect(await devtools.evaluate(panel, `!!${foot}`)).toBe(false);
