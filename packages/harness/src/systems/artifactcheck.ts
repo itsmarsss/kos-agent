@@ -102,7 +102,7 @@ export function artifactFrame(page: HtmlPage, mode: Theme, assets: FrameAssets):
 export function hostDocument(frame: string): string {
   const attr = frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
   return [
-    "<!doctype html><html><head><style>html,body{margin:0;height:100%}iframe{display:block;border:0;width:100%;height:100%}</style></head><body>",
+    "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><style>html,body{margin:0;height:100%}iframe{display:block;border:0;width:100%;height:100%}</style></head><body>",
     `<iframe sandbox="allow-scripts" srcdoc="${attr}"></iframe>`,
     "<script>",
     'addEventListener("message",function(e){var m=e.data||{};if(m.__kos==="call")kosRelay(JSON.stringify({id:m.id,method:m.method,args:m.args}));else if(m.__kos==="error")kosRelay(JSON.stringify({error:String(m.message)}));else if(m.__kos==="left")kosRelay(JSON.stringify({left:true}))});',
