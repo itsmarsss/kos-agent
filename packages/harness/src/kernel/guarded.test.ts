@@ -318,6 +318,19 @@ describe("GuardedTools", () => {
       expect(STOPPED_RESULT).toMatch(/may still have run/);
     });
 
+    it("posts no ask when the stop lands while its picture is taken", async () => {
+      registry.register({ name: "danger", description: "d", inputSchema: { type: "object" } }, () => "ran", RISKY);
+      const stop = new AbortController();
+      const queued = vi.fn();
+      const pictureFor = async (): Promise<string> => {
+        stop.abort();
+        return "SU1H";
+      };
+      expect((await guarded({ signal: stop.signal, pictureFor, onQueued: queued }).execute("danger", {})).content).toBe(STOPPED_RESULT);
+      expect(approvals.pending()).toHaveLength(0);
+      expect(queued).not.toHaveBeenCalled();
+    });
+
     it("starts no call after the stop", async () => {
       let ran = false;
       registry.register({ name: "probe", description: "p", inputSchema: { type: "object" } }, () => {

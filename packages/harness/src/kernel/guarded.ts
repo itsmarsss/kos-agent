@@ -354,6 +354,8 @@ export class GuardedTools implements ToolBox {
       const picture = await this.deps.pictureFor?.(name, input).catch(() => undefined);
       const site = context?.browser?.site;
       const why = this.deps.whyFor?.(conversationId)?.trim();
+      // The picture takes a moment; a stop in it leaves nobody to show a card to.
+      if (signal?.aborted) return { content: STOPPED_RESULT, isError: true };
       const action = approvals.enqueue({
         tool: name,
         args: input,
