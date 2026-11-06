@@ -291,6 +291,50 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     }, 20_000);
   });
 
+  /*
+   * A page as tall as its content: the dashboard's side sizes the frame from
+   * the bridge's report, so the page has no scrollbar of its own, and a link
+   * to a place on it, pressed by a real pointer, scrolls the dashboard.
+   */
+  it("sizes a page's frame to its content, with no scroll inside, and a #link scrolls the dashboard", async () => {
+    const html = `<style>body{margin:0}</style><a id="go" href="#end" style="display:block;height:40px">jump</a><div style="height:2600px"></div><h2 id="end" style="margin:0;height:60px">end</h2><script>
+      addEventListener("message", (e) => { if (e.data === "probe") top.postMessage({ probe: { scroll: document.scrollingElement.scrollHeight, client: document.scrollingElement.clientHeight, wide: document.scrollingElement.scrollWidth > innerWidth, view: innerHeight } }, "*"); });
+    </script>`;
+    const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [], kind: "page" }));
+    pages.set("/fit", `<!doctype html><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:600px;height:300px" srcdoc="${frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe><div style="height:2000px"></div><script>
+      const f = document.getElementById("f");
+      addEventListener("message", (e) => {
+        const page = f.contentWindow.frames[0], m = e.data || {};
+        if (e.source !== page) return;
+        if (m.__kos === "height") {
+          f.style.height = Math.min(m.height, 50000) + "px";
+          document.body.dataset.heights = String(Number(document.body.dataset.heights || 0) + 1);
+          if (m.reveal && navigator.userActivation.isActive) scrollTo({ top: f.getBoundingClientRect().top + scrollY + m.reveal.top });
+        }
+        if (m.probe) document.body.dataset.probe = JSON.stringify(m.probe);
+      });
+    </script></body>`);
+    await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
+    await send("Page.navigate", { url: `${base}/fit` });
+    await new Promise((r) => setTimeout(r, 1200));
+    const value = async (expression: string): Promise<unknown> => ((await send("Runtime.evaluate", { expression, returnByValue: true })).result as { value?: unknown } | undefined)?.value;
+    await value(`document.getElementById("f").contentWindow.frames[0].postMessage("probe", "*")`);
+    await new Promise((r) => setTimeout(r, 300));
+    const probe = JSON.parse(String(await value("document.body.dataset.probe || '{}'"))) as { scroll?: number; client?: number; wide?: boolean };
+    expect(await value(`document.getElementById("f").getBoundingClientRect().height`)).toBe(2700);
+    // No scroll inside: the page's document is exactly as tall as its frame.
+    expect(probe.scroll).toBe(probe.client);
+    expect(probe.client).toBe(2700);
+    expect(probe.wide).toBe(false);
+    // It settles: a report or two, not a loop.
+    expect(Number(await value("document.body.dataset.heights"))).toBeLessThanOrEqual(3);
+    expect(await value("scrollY")).toBe(0);
+    for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: 20, y: 20, button: "left", clickCount: 1 });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(await value("scrollY")).toBe(2640);
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 20_000);
+
   it("lets no way out send a single request, with the page running each time", async () => {
     const results: Record<string, Run> = {};
     for (const [name, code] of Object.entries(attempts(E))) results[name] = await run(name, wrapperDocument(page(code)));

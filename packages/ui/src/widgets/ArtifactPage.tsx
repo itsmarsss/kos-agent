@@ -4,7 +4,8 @@ import pageCss from "@kos/kit/page.css?raw";
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
 
 import { SaveConflict, api, type PageSummary } from "../api.js";
-import { pageDocument, tokenRule, wrapperDocument } from "@kos/shared";
+import { fitsContent, pageDocument, tokenRule, wrapperDocument } from "@kos/shared";
+import { heightGate, revealInDashboard, type Reveal } from "./frameheight.js";
 
 /**
  * An HTML page, the way a Claude artifact is shown: the agent's document in a
@@ -15,6 +16,12 @@ import { pageDocument, tokenRule, wrapperDocument } from "@kos/shared";
  * where each call is checked against what the page declared. This side only
  * answers the page's own frame, asks the owner before a page speaks to the
  * chat, and removes a page that tried to leave.
+ *
+ * The frame is drawn as part of the dashboard, not as a box with a scroll of
+ * its own: a page or a doc is as tall as its content (the bridge reports its
+ * height, frameheight.ts holds what is taken), so the dashboard scrolls as
+ * one; a deck is a 16:9 stage as wide as the room; a sheet fills the view so
+ * only its grid scrolls.
  */
 
 const CSS = `${kitCss}\n${pageCss}`;
@@ -139,6 +146,9 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
   const [asked, setAsked] = useState<Asked>();
   const [told, setTold] = useState<string>();
   const [conflict, setConflict] = useState<string>();
+  const [height, setHeight] = useState<number>();
+  const gate = useRef(heightGate());
+  const layout = fitsContent(page.kind) ? "fit" : page.kind === "deck" ? "deck" : "sheet";
   // The version an edit is made on: the one opened, then each one the owner saves.
   const base = useRef(record.updatedAt);
   useEffect(() => {
@@ -151,6 +161,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
   useEffect(() => {
     let stale = false;
     loads.current = 0;
+    gate.current = heightGate();
+    setHeight(undefined);
     setLeft(false);
     setError(undefined);
     setConflict(undefined);
@@ -192,6 +204,15 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
       }
       // Otherwise the page's own frame only, while it is still the page KOS gave it.
       if (!e.source || e.source !== pageWindow()) return;
+      // How tall the page is, and where a jump on it lands: the dashboard scrolls there, only at the owner's hand.
+      if (m.__kos === "height") {
+        if (layout !== "fit") return;
+        const next = gate.current.accept((m as { height?: unknown }).height);
+        if (next !== undefined) setHeight(next);
+        const reveal = (m as { reveal?: Reveal }).reveal;
+        if (reveal && typeof reveal === "object" && navigator.userActivation?.isActive) revealInDashboard(frame.current, reveal);
+        return;
+      }
       if (m.__kos === "error") {
         setError((current) => current ?? String(m.message ?? "The page hit an error"));
         return;
@@ -235,7 +256,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
     };
     window.addEventListener("message", heard);
     return () => window.removeEventListener("message", heard);
-  }, [left, onSaved, page.capabilities?.ask, pageWindow, present, record.id, reply]);
+  }, [layout, left, onSaved, page.capabilities?.ask, pageWindow, present, record.id, reply]);
 
   // Full screen, and back: the frame is told either way, so a deck presents and stops presenting with it.
   useEffect(() => {
@@ -276,7 +297,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
   const frameTitle = useMemo(() => page.title || record.title, [page.title, record.title]);
 
   return (
-    <div className="artifact" ref={box}>
+    <div className="artifact" data-layout={layout} ref={box}>
       {asked && (
         <div className="artifact-ask" role="dialog" aria-label="The page asks to message the chat">
           <p>
@@ -335,6 +356,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
         <iframe
           ref={frame}
           className="artifact-frame"
+          data-layout={layout}
+          {...(layout === "fit" && height !== undefined ? { style: { height } } : {})}
           title={frameTitle}
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"

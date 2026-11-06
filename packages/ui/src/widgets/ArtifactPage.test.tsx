@@ -4,7 +4,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { SaveConflict, api, type PageSummary } from "../api.js";
 import { ArtifactPage, fixRequest } from "./ArtifactPage.js";
-import { GUARD_SCRIPT, PAGE_CSP, PAGE_GUARD_CSP, WRAPPER_CSP, pageDocument, splitHtml, wrapperDocument } from "@kos/shared";
+import { FRAME_HEIGHT_MIN, heightGate } from "./frameheight.js";
+import { FRAME_HEIGHT_MAX, GUARD_SCRIPT, PAGE_CSP, PAGE_GUARD_CSP, WRAPPER_CSP, pageDocument, splitHtml, wrapperDocument } from "@kos/shared";
 
 beforeAll(() => {
   // jsdom has no media queries; the frame only listens for the theme changing.
@@ -230,6 +231,130 @@ describe("the page's frame", () => {
       window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "present" } }));
     });
     expect(full).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("a frame as tall as its page", () => {
+  const page = { id: "budget", title: "Budget", html: "<p>hi</p>" };
+  const hand = (isActive: boolean): void => {
+    Object.defineProperty(navigator, "userActivation", { value: { isActive, hasBeenActive: isActive }, configurable: true });
+  };
+
+  async function frame(kind?: "deck" | "sheet"): Promise<{ el: HTMLIFrameElement; pageWin: Window; say: (data: unknown, from?: unknown) => void }> {
+    render(<ArtifactPage record={record} page={kind ? { ...page, kind } : page} />);
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const say = (data: unknown, from: unknown = pageWin): void =>
+      act(() => {
+        window.dispatchEvent(new MessageEvent("message", { source: from as Window, data }));
+      });
+    return { el, pageWin, say };
+  }
+
+  it("takes the height its page reports, so the dashboard scrolls and the frame does not", async () => {
+    const { el, say } = await frame();
+    expect(el.dataset.layout).toBe("fit");
+    say({ __kos: "height", height: 1834.4 });
+    expect(el.style.height).toBe("1834px");
+  });
+
+  it("caps the height, since it is the page's to say", async () => {
+    const { el, say } = await frame();
+    say({ __kos: "height", height: 10_000_000 });
+    expect(el.style.height).toBe(`${FRAME_HEIGHT_MAX}px`);
+    say({ __kos: "height", height: "900" });
+    say({ __kos: "height", height: Number.NaN });
+    expect(el.style.height).toBe(`${FRAME_HEIGHT_MAX}px`);
+  });
+
+  it("hears a height from its own page only, not the wrapper, the dashboard or another frame", async () => {
+    const { el, say } = await frame();
+    const other = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    say({ __kos: "height", height: 700 }, el.contentWindow);
+    say({ __kos: "height", height: 700 }, window);
+    say({ __kos: "height", height: 700 }, other);
+    expect(el.style.height).toBe("");
+    say({ __kos: "height", height: 700 });
+    expect(el.style.height).toBe("700px");
+  });
+
+  it("keeps a deck's stage and a sheet's view, whatever their page says", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) =>
+      String(url).endsWith(".js") ? new Response("", { status: 200, headers: { "content-type": "text/javascript" } }) : new Response(new Uint8Array([1]), { status: 200, headers: { "content-type": "font/woff2" } }),
+    );
+    const { el, say } = await frame("deck");
+    say({ __kos: "height", height: 4000 });
+    expect(el.dataset.layout).toBe("deck");
+    expect(el.style.height).toBe("");
+    cleanup();
+    const sheet = await frame("sheet");
+    sheet.say({ __kos: "height", height: 4000 });
+    expect(sheet.el.dataset.layout).toBe("sheet");
+    expect(sheet.el.style.height).toBe("");
+  });
+
+  it("scrolls the dashboard to a place on the page when the owner follows a link to it", async () => {
+    const { el, say } = await frame();
+    say({ __kos: "height", height: 3000 });
+    vi.spyOn(el, "getBoundingClientRect").mockReturnValue({ top: 120, bottom: 3120, height: 3000, left: 0, right: 800, width: 800, x: 0, y: 120, toJSON: () => ({}) });
+    Object.defineProperty(window, "scrollY", { value: 40, configurable: true });
+    const scrolled = vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+    // A page jumping on its own, with no hand on the dashboard, moves nothing.
+    hand(false);
+    say({ __kos: "height", height: 3000, reveal: { top: 1500, bottom: 1540, block: "start" } });
+    expect(scrolled).not.toHaveBeenCalled();
+    hand(true);
+    say({ __kos: "height", height: 3000, reveal: { top: 1500, bottom: 1540, block: "start" } });
+    // Where the frame sits, plus where the place sits on it, less a little room.
+    expect(scrolled).toHaveBeenLastCalledWith({ top: 40 + 120 + 1500 - 16, behavior: "smooth" });
+    // A place past the frame's end is held to it.
+    say({ __kos: "height", height: 3000, reveal: { top: 1e9, block: "start" } });
+    expect(scrolled).toHaveBeenLastCalledWith({ top: 40 + 120 + 3000 - 16, behavior: "smooth" });
+  });
+});
+
+describe("the height a page reports", () => {
+  const clock = (): { now: () => number; at: (t: number) => void } => {
+    let t = 0;
+    return { now: () => t, at: (n) => (t = n) };
+  };
+
+  it("ignores rounding, and keeps to the floor and the cap", () => {
+    const gate = heightGate(clock().now);
+    expect(gate.accept(500)).toBe(500);
+    expect(gate.accept(501)).toBeUndefined();
+    expect(gate.accept(0)).toBeUndefined();
+    expect(gate.accept(-4)).toBeUndefined();
+    expect(gate.accept(10)).toBe(FRAME_HEIGHT_MIN);
+    expect(gate.accept(1e12)).toBe(FRAME_HEIGHT_MAX);
+  });
+
+  it("does not flip between two heights for a page whose layout follows its frame", () => {
+    const c = clock();
+    const gate = heightGate(c.now);
+    expect(gate.accept(500)).toBe(500);
+    c.at(80);
+    expect(gate.accept(900)).toBe(900);
+    c.at(160);
+    expect(gate.accept(500)).toBeUndefined();
+    // The owner closing what they opened, a moment later, is taken.
+    c.at(2000);
+    expect(gate.accept(500)).toBe(500);
+  });
+
+  it("freezes a page that grows with every report, so the dashboard cannot loop", () => {
+    const c = clock();
+    const gate = heightGate(c.now);
+    const taken: number[] = [];
+    for (let i = 0; i < 100; i++) {
+      c.at(i * 70);
+      const h = gate.accept(600 + i * 16);
+      if (h !== undefined) taken.push(h);
+    }
+    expect(taken.length).toBeLessThanOrEqual(12);
+    c.at(60_000);
+    expect(gate.accept(5000)).toBeUndefined();
   });
 });
 
