@@ -25,3 +25,4 @@ export {
 export { Page, type Look, type PageLimits, type PageOptions, type Session } from "./page.js";
 export { INDEX_MAX, Refs, TREE_MAX, indexOf, treeOf, type AxNode, type PageIndex } from "./snapshot.js";
 export { STEP_KEYS, WAIT_MAX_MS, parseStep, touchesPage, type Step } from "./steps.js";
+export { probe as probeArtifact, type ProbeResult, type ProbedElement } from "./artifactprobe.js";

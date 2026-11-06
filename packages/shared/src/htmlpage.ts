@@ -1,3 +1,5 @@
+import { fontById } from "./artifactfonts.js";
+import { ARTIFACT_KINDS, isArtifactKind, sheetErrors, type ArtifactKind } from "./artifacts.js";
 import type { MutationTarget } from "./pagespec.js";
 
 /**
@@ -34,6 +36,12 @@ export interface HtmlPage {
   id: string;
   title: string;
   html: string;
+  /** What it is: page (the default), doc, deck or sheet. */
+  kind?: ArtifactKind;
+  /** One sentence saying what it is for, shown under the title. */
+  description?: string;
+  /** Bundled font ids (artifactfonts.ts) the frame inlines; the kind's own when absent. */
+  fonts?: string[];
   capabilities?: PageCapabilities;
   libraries?: PageLibrary[];
   headline?: PageHeadline;
@@ -41,6 +49,11 @@ export interface HtmlPage {
 
 /** Large enough for a rich page with inlined data, small enough to keep the frame quick. */
 export const HTML_PAGE_MAX = 400_000;
+
+/** A description is a sentence, not a page. */
+export const DESCRIPTION_MAX = 300;
+/** More faces than this is a type specimen, not a design. */
+export const FONTS_MAX = 4;
 
 const ID_RE = /^[a-z][a-z0-9_-]*$/i;
 
@@ -244,6 +257,15 @@ export function validateHtmlPage(page: unknown): string[] {
     const exits = exitsIn(p.html);
     if (exits.length) errors.push(`a page cannot leave its frame, so it may not hold ${exits.join("; ")}; keep everything on the page and reach data through window.kos`);
   }
+  if (p.kind !== undefined && !isArtifactKind(p.kind)) errors.push(`kind is one of ${ARTIFACT_KINDS.join(", ")}`);
+  if (p.description !== undefined && (typeof p.description !== "string" || p.description.length > DESCRIPTION_MAX)) {
+    errors.push(`description is one sentence of at most ${DESCRIPTION_MAX} characters`);
+  }
+  if (p.fonts !== undefined) {
+    if (!Array.isArray(p.fonts) || p.fonts.length > FONTS_MAX) errors.push(`fonts is a list of at most ${FONTS_MAX} font ids`);
+    else for (const f of p.fonts) if (typeof f !== "string" || !fontById(f)) errors.push(`font "${String(f)}" is not one KOS bundles; artifacts.guide lists them`);
+  }
+  if (typeof p.html === "string" && isArtifactKind(p.kind)) errors.push(...structureErrors(p.kind, p.html));
   if (p.libraries !== undefined) {
     if (!Array.isArray(p.libraries)) errors.push("libraries must be a list");
     else for (const lib of p.libraries) if (!(PAGE_LIBRARIES as readonly unknown[]).includes(lib)) errors.push(`library "${String(lib)}" is not one KOS serves (${PAGE_LIBRARIES.join(", ")})`);
@@ -281,4 +303,38 @@ export function validateHtmlPage(page: unknown): string[] {
     }
   }
   return errors;
+}
+
+/** What a kind's runtime needs to find in the HTML, as sentences; empty when it is there. */
+function structureErrors(kind: ArtifactKind, html: string): string[] {
+  if (kind === "doc" && !/<article\b[^>]*\sdata-doc\b/i.test(html)) return ["a doc holds its text in one <article data-doc>"];
+  if (kind === "deck") {
+    if (!/<main\b[^>]*\sdata-deck\b/i.test(html)) return ["a deck holds its slides in one <main data-deck>"];
+    if (!/<section\b/i.test(html)) return ["a deck needs a <section> per slide"];
+  }
+  if (kind === "sheet") {
+    const data = sheetDataOf(html);
+    if (data === undefined) return ['a sheet keeps its workbook in one <script type="application/json" data-sheet>'];
+    let book: unknown;
+    try {
+      book = JSON.parse(data);
+    } catch (err) {
+      return [`the sheet's data is not JSON: ${err instanceof Error ? err.message : String(err)}`];
+    }
+    return sheetErrors(book);
+  }
+  return [];
+}
+
+const SHEET_SCRIPT = /(<script\b(?=[^>]*\stype\s*=\s*["']?application\/json)(?=[^>]*\sdata-sheet\b)[^>]*>)([\s\S]*?)(<\/script>)/i;
+
+/** The JSON text of a sheet's data script, or undefined when it has none. */
+export function sheetDataOf(html: string): string | undefined {
+  return SHEET_SCRIPT.exec(html)?.[2];
+}
+
+/** The HTML with its sheet's data replaced; `<` is escaped so the data can never close its script. */
+export function withSheetData(html: string, book: unknown): string {
+  const json = JSON.stringify(book).replace(/</g, "\\u003c");
+  return html.replace(SHEET_SCRIPT, (_m, open: string, _old: string, close: string) => `${open}${json}${close}`);
 }

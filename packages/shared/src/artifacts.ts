@@ -111,3 +111,72 @@ export interface SheetBook {
 
 /** An owner's edit made in a runtime, which becomes the artifact's next version. */
 export type ArtifactEdit = { doc: string } | { sheet: SheetBook };
+
+const COLUMN_TYPES: readonly SheetColumnType[] = ["text", "number", "currency", "percent", "date", "bool"];
+const AGGREGATES: readonly SheetAggregate[] = ["sum", "average", "min", "max", "count"];
+/** Enough for a real ledger; a bigger one belongs in a project table. */
+export const SHEET_ROWS_MAX = 5000;
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** What is wrong with a sheet's workbook, as sentences the agent can act on; empty when it is fine. */
+export function sheetErrors(book: unknown): string[] {
+  if (!isObject(book) || !Array.isArray(book.sheets) || book.sheets.length === 0) return ["the sheet's data needs sheets: a list of at least one tab"];
+  const errors: string[] = [];
+  const names = new Set<string>();
+  book.sheets.forEach((raw: unknown, i: number) => {
+    const at = `sheets[${i}]`;
+    if (!isObject(raw)) return void errors.push(`${at} must be an object`);
+    if (typeof raw.name !== "string" || !raw.name.trim()) errors.push(`${at} needs a name`);
+    else if (names.has(raw.name)) errors.push(`${at}: two tabs are called "${raw.name}"`);
+    else names.add(raw.name);
+    if (!Array.isArray(raw.columns) || raw.columns.length === 0) errors.push(`${at} needs columns`);
+    else
+      raw.columns.forEach((c: unknown, j: number) => {
+        if (!isObject(c) || typeof c.label !== "string" || !c.label) errors.push(`${at}.columns[${j}] needs a label`);
+        else if (c.type !== undefined && !COLUMN_TYPES.includes(c.type as SheetColumnType)) errors.push(`${at}.columns[${j}].type is one of ${COLUMN_TYPES.join(", ")}`);
+      });
+    const sources = ["rows", "source", "pivot"].filter((k) => raw[k] !== undefined);
+    if (sources.length !== 1) errors.push(`${at} takes exactly one of rows, source or pivot`);
+    if (raw.rows !== undefined) {
+      if (!Array.isArray(raw.rows) || raw.rows.some((r) => !Array.isArray(r))) errors.push(`${at}.rows is a list of rows, each a list of cells`);
+      else if (raw.rows.length > SHEET_ROWS_MAX) errors.push(`${at} has ${raw.rows.length} rows; keep more than ${SHEET_ROWS_MAX} in a project table and use source`);
+    }
+    if (raw.source !== undefined && (!isObject(raw.source) || typeof raw.source.table !== "string" || typeof raw.source.key !== "string")) {
+      errors.push(`${at}.source needs a table and its key column`);
+    }
+    if (raw.pivot !== undefined && (!isObject(raw.pivot) || typeof raw.pivot.from !== "string" || typeof raw.pivot.by !== "string" || !Array.isArray(raw.pivot.values))) {
+      errors.push(`${at}.pivot needs from, by and values`);
+    }
+    if (raw.totals !== undefined && (!isObject(raw.totals) || Object.values(raw.totals).some((fn) => !AGGREGATES.includes(fn as SheetAggregate)))) {
+      errors.push(`${at}.totals maps columns to one of ${AGGREGATES.join(", ")}`);
+    }
+  });
+  if (book.charts !== undefined) {
+    if (!Array.isArray(book.charts)) errors.push("charts must be a list");
+    else
+      book.charts.forEach((c: unknown, i: number) => {
+        if (!isObject(c) || !["bar", "line", "pie"].includes(c.type as string) || typeof c.labels !== "string" || typeof c.values !== "string") {
+          errors.push(`charts[${i}] needs a type (bar, line or pie), labels and values ranges`);
+        }
+      });
+  }
+  return errors;
+}
+
+/** The project tables a workbook reads live. */
+export const sheetTables = (book: SheetBook): string[] => book.sheets.flatMap((s) => (s.source ? [s.source.table] : []));
+
+/**
+ * What an artifact's frame needs fetched before it can be drawn: the
+ * libraries it named and its kind's runtime (each /page-lib/<name>.js), and
+ * the bundled fonts it named, or its kind's own when it named none.
+ */
+export function artifactAssets(page: { kind?: ArtifactKind; libraries?: readonly string[]; fonts?: readonly string[] }): { scripts: string[]; fonts: string[] } {
+  const kind = page.kind ?? "page";
+  const runtime = KIND_RUNTIME[kind];
+  return {
+    scripts: [...(page.libraries ?? []), ...(runtime ? [runtime] : [])],
+    fonts: [...(page.fonts?.length ? page.fonts : KIND_FONTS[kind])],
+  };
+}

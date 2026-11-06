@@ -151,7 +151,7 @@ describe("a blueprint", () => {
     });
     const { blueprint } = extractBlueprint({ db: ws.db, manifest, migrator, pages, crons }, slug);
     const html = blueprint.pages.find((p) => p.id === "board");
-    expect(html).toMatchObject({ kind: "html", capabilities: { writes: [{ table: "{{instance}}_tx" }] } });
+    expect(html).toMatchObject({ html: expect.any(String), capabilities: { writes: [{ table: "{{instance}}_tx" }] } });
     expect(checkBlueprint(blueprint)).toEqual([]);
     instantiateBlueprint({ db: ws.db, manifest, migrator, pages, crons }, "b", blueprint, "Side biz");
     const got = pages.get("side_biz_board");

@@ -1,28 +1,39 @@
-import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, rmSync, readdirSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, rmSync, readdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import {
   isReadOnlyQuery,
   isValidPageSpec,
+  sheetDataOf,
+  sheetErrors,
+  sheetTables,
   validateHtmlPage,
   validatePageSpec,
+  withSheetData,
+  type ArtifactEdit,
+  type ArtifactKind,
   type HtmlPage,
   type PageSpec,
+  type SheetBook,
 } from "@kos/shared";
 
 import type { Db } from "../store/db.js";
 import type { Workspace } from "../store/workspace.js";
 import { projectTable } from "./identifiers.js";
 import type { ProjectManifest } from "./manifest.js";
+import { withDocText } from "./artifactedit.js";
 import { BridgeRefusal, tablesRead } from "./pagebridge.js";
 import { registeredTables } from "./registered.js";
 
 /**
- * Agent-authored pages, stored under the project folder and indexed in SQLite
- * so the dashboard can list and render them. A page is an HTML document the
- * agent writes, the way a Claude artifact is (`writeHtml`), or, from before
- * that, a JSON spec over the widget library (`write`), which still renders.
- * Every write is kept as a version, so the owner can go back to one.
+ * Artifacts: what KOS writes for the owner to read and use, indexed in SQLite
+ * so the dashboard can list and render them. An artifact is an HTML document
+ * of one kind (page, doc, deck or sheet; artifacts.ts in @kos/shared), the
+ * way a Claude artifact is (`writeHtml`), or, from before that, a JSON spec
+ * over the widget library (`write`), which still renders as a page. It
+ * belongs to a project, under the project's folder, or to no project, under
+ * the workspace's `artifacts/`. Every write is kept as a version, so the
+ * owner can go back to one, and so is every edit the owner makes in place.
  */
 
 const SCHEMA = `
@@ -42,11 +53,16 @@ export type PageKind = "spec" | "html";
 
 export interface PageRecord {
   id: string;
-  projectSlug: string;
+  /** The project it belongs to; null for a workspace artifact, which belongs to none. */
+  projectSlug: string | null;
   title: string;
   path: string;
   updatedAt: number;
+  /** How it is stored: an HTML document, or an older widget spec. */
   kind: PageKind;
+  /** What it is. A widget spec is a page. */
+  artifactKind: ArtifactKind;
+  description?: string;
 }
 
 /** A page as stored: a spec for the widget library, or an HTML page. */
@@ -73,14 +89,27 @@ interface Row {
 /** What an HTML page declares besides its markup, kept on its row. */
 type HtmlMeta = Omit<HtmlPage, "id" | "title" | "html">;
 
-const recordOf = (r: Row): PageRecord => ({
-  id: r.id,
-  projectSlug: r.project_slug,
-  title: r.title,
-  path: r.path,
-  updatedAt: r.updated_at,
-  kind: r.kind === "html" ? "html" : "spec",
-});
+/** The row's project_slug for a workspace artifact, which has no project. */
+const WORKSPACE = "";
+
+const metaOf = (r: Row): HtmlMeta => (r.kind === "html" && r.meta ? (JSON.parse(r.meta) as HtmlMeta) : {});
+
+const recordOf = (r: Row): PageRecord => {
+  const meta = metaOf(r);
+  return {
+    id: r.id,
+    projectSlug: r.project_slug === WORKSPACE ? null : r.project_slug,
+    title: r.title,
+    path: r.path,
+    updatedAt: r.updated_at,
+    kind: r.kind === "html" ? "html" : "spec",
+    artifactKind: meta.kind ?? "page",
+    ...(meta.description ? { description: meta.description } : {}),
+  };
+};
+
+/** Where an artifact's file lives: its project's pages folder, or the workspace's artifacts folder. */
+const folderOf = (projectSlug: string | null): string => (projectSlug ? join("projects", projectSlug, "pages") : "artifacts");
 
 /**
  * Models write `<\/script>` because that is how a closing tag is escaped inside
@@ -116,11 +145,12 @@ export class PageStore {
     return this.db.prepare(`SELECT id, project_slug, title, path, updated_at, kind, meta FROM pages WHERE id = ?`).get(id) as Row | undefined;
   }
 
-  list(projectSlug?: string): PageRecord[] {
+  /** Every artifact, or one project's; null lists the workspace's own. */
+  list(projectSlug?: string | null): PageRecord[] {
     const cols = `id, project_slug, title, path, updated_at, kind, meta`;
     const rows = (
-      projectSlug
-        ? this.db.prepare(`SELECT ${cols} FROM pages WHERE project_slug = ? ORDER BY title`).all(projectSlug)
+      projectSlug !== undefined
+        ? this.db.prepare(`SELECT ${cols} FROM pages WHERE project_slug = ? ORDER BY title`).all(projectSlug ?? WORKSPACE)
         : this.db.prepare(`SELECT ${cols} FROM pages ORDER BY project_slug, title`).all()
     ) as Row[];
     return rows.map(recordOf);
@@ -133,8 +163,7 @@ export class PageStore {
     if (!existsSync(abs)) return undefined;
     const record = recordOf(row);
     if (record.kind === "html") {
-      const meta = (row.meta ? JSON.parse(row.meta) : {}) as HtmlMeta;
-      return { record, kind: "html", page: { id: row.id, title: row.title, html: readFileSync(abs, "utf8"), ...meta } };
+      return { record, kind: "html", page: { id: row.id, title: row.title, html: readFileSync(abs, "utf8"), ...metaOf(row) } };
     }
     return { record, kind: "spec", spec: JSON.parse(readFileSync(abs, "utf8")) as PageSpec };
   }
@@ -243,47 +272,82 @@ export class PageStore {
   }
 
   /**
-   * Validate and write an HTML page. What it may reach is checked here as well
-   * as on every call: a table it says it writes, or its headline reads, must be
-   * one its project made (registered.ts), so the mistake is named now rather
-   * than on the owner's first save.
+   * Validate and write an HTML artifact. What it may reach is checked here as
+   * well as on every call: a table it says it writes, its headline reads, or
+   * its sheet shows live, must be one its project made (registered.ts), so
+   * the mistake is named now rather than on the owner's first save. A
+   * workspace artifact (no project) has no tables or files to reach.
    */
-  writeHtml(projectSlug: string, input: unknown): PageRecord {
-    if (!this.manifest.get(projectSlug)) {
+  writeHtml(projectSlug: string | null, input: unknown): PageRecord {
+    if (projectSlug !== null && !this.manifest.get(projectSlug)) {
       throw new Error(`unknown project: ${projectSlug}`);
     }
     const errors = validateHtmlPage(input);
-    if (errors.length > 0) throw new Error(`invalid page: ${errors.join("; ")}`);
+    if (errors.length > 0) throw new Error(`invalid artifact: ${errors.join("; ")}`);
     const page = input as HtmlPage;
-    const tables = registeredTables(this.db, projectSlug);
+    if (projectSlug === null) {
+      const reaches = [page.capabilities?.writes?.length ? "capabilities.writes" : "", page.capabilities?.files ? "capabilities.files" : "", page.headline ? "a headline" : ""].filter(Boolean);
+      if (reaches.length) throw new Error(`a workspace artifact belongs to no project, so it has no tables or files; drop ${reaches.join(", ")}, or write it under the project whose data it shows`);
+    }
+    const tables = projectSlug === null ? new Set<string>() : registeredTables(this.db, projectSlug);
+    const owner = projectSlug ?? "the workspace";
     for (const [i, target] of (page.capabilities?.writes ?? []).entries()) {
       if (tables.has(target.table)) continue;
-      const namespaced = projectTable(projectSlug, target.table);
+      const namespaced = projectTable(projectSlug ?? "", target.table);
       const hint = tables.has(namespaced) ? `use "${namespaced}"` : "create it with systems.migrate first";
-      throw new Error(`capabilities.writes[${i}]: "${target.table}" is not a table of project "${projectSlug}"; ${hint}`);
+      throw new Error(`capabilities.writes[${i}]: "${target.table}" is not a table of project "${owner}"; ${hint}`);
+    }
+    if (page.kind === "sheet") {
+      const book = JSON.parse(sheetDataOf(page.html) ?? "{}") as SheetBook;
+      for (const table of sheetTables(book)) {
+        if (!tables.has(table)) throw new Error(`the sheet reads "${table}", which is not a table of ${projectSlug ? `project "${projectSlug}"` : "this artifact: a workspace artifact has none"}`);
+      }
     }
     if (page.headline) {
       if (!isReadOnlyQuery(page.headline.query)) throw new Error("headline.query must be a single read-only SELECT");
       try {
         for (const table of tablesRead(this.db, page.headline.query, [])) {
-          if (!tables.has(table)) throw new BridgeRefusal(`it reads "${table}", which is not a table of project "${projectSlug}"`);
+          if (!tables.has(table)) throw new BridgeRefusal(`it reads "${table}", which is not a table of project "${owner}"`);
         }
       } catch (err) {
         throw new Error(`headline.query: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    const meta: HtmlMeta = {
-      ...(page.capabilities ? { capabilities: page.capabilities } : {}),
-      ...(page.libraries ? { libraries: page.libraries } : {}),
-      ...(page.headline ? { headline: page.headline } : {}),
-    };
+    const { id: _id, title: _title, html: _html, ...declared } = page;
+    const meta: HtmlMeta = Object.fromEntries(Object.entries(declared).filter(([, v]) => v !== undefined && v !== "")) as HtmlMeta;
     return this.save(projectSlug, page.id, page.title, "html", repairClosingTags(page.html), meta);
   }
 
+  /**
+   * The owner's edit, made in place in a doc or a sheet, kept as the
+   * artifact's next version. Only the kind's own region changes (a doc's
+   * article, a sheet's data), and the result goes through every check a
+   * write does, so an edit can reach nothing a write could not.
+   */
+  applyEdit(id: string, edit: ArtifactEdit): PageRecord {
+    const got = this.get(id);
+    if (!got || got.kind !== "html") throw new Error(`artifact not found: ${id}`);
+    const page = got.page;
+    let html: string;
+    if ("doc" in edit && page.kind === "doc" && typeof edit.doc === "string") {
+      html = withDocText(page.html, edit.doc);
+    } else if ("sheet" in edit && page.kind === "sheet") {
+      const errors = sheetErrors(edit.sheet);
+      if (errors.length) throw new Error(`the sheet cannot be saved: ${errors.join("; ")}`);
+      const before = JSON.parse(sheetDataOf(page.html) ?? "{}") as SheetBook;
+      // The owner edits the data, not where it comes from: a tab's live source stays as written.
+      if (JSON.stringify(sheetTables(before)) !== JSON.stringify(sheetTables(edit.sheet))) throw new Error("an edit cannot change which tables the sheet reads");
+      html = withSheetData(page.html, edit.sheet);
+    } else {
+      throw new Error(page.kind === "doc" || page.kind === "sheet" ? "that edit does not fit this artifact" : "only a doc or a sheet is edited in place");
+    }
+    return this.writeHtml(got.record.projectSlug, { ...page, html });
+  }
+
   /** Write a page's file and row, and keep the write as a version. */
-  private save(projectSlug: string, id: string, title: string, kind: PageKind, body: string, meta: HtmlMeta | null): PageRecord {
+  private save(projectSlug: string | null, id: string, title: string, kind: PageKind, body: string, meta: HtmlMeta | null): PageRecord {
     const previous = this.row(id);
-    const rel = join("projects", projectSlug, "pages", `${id}.${kind === "html" ? "html" : "json"}`);
+    const rel = join(folderOf(projectSlug), `${id}.${kind === "html" ? "html" : "json"}`);
     const abs = this.workspace.resolve(rel);
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, body);
@@ -306,17 +370,34 @@ export class PageStore {
            kind = excluded.kind,
            meta = excluded.meta`,
       )
-      .run({ id, projectSlug, title, path: rel, ts, kind, meta: metaText });
+      .run({ id, projectSlug: projectSlug ?? WORKSPACE, title, path: rel, ts, kind, meta: metaText });
+    // An artifact moved between projects, or to the workspace, takes its history and captures with it.
+    const was = previous ? (previous.project_slug === WORKSPACE ? null : previous.project_slug) : undefined;
+    if (was !== undefined && was !== projectSlug) {
+      for (const sub of [".history", ".captures"]) {
+        const from = this.workspace.resolve(join(folderOf(was), sub, id));
+        const to = this.workspace.resolve(join(folderOf(projectSlug), sub, id));
+        if (!existsSync(from)) continue;
+        mkdirSync(dirname(to), { recursive: true });
+        renameSync(from, to);
+      }
+    }
     this.keepVersion(projectSlug, id, { at: ts, title, kind, body, meta });
-    this.manifest.touchProject(projectSlug);
-    return { id, projectSlug, title, path: rel, updatedAt: ts, kind };
+    if (projectSlug) this.manifest.touchProject(projectSlug);
+    return recordOf({ id, project_slug: projectSlug ?? WORKSPACE, title, path: rel, updated_at: ts, kind, meta: metaText });
   }
 
-  private historyDir(projectSlug: string, id: string): string {
-    return this.workspace.resolve(join("projects", projectSlug, "pages", ".history", id));
+  /** Where artifacts.check keeps an artifact's renders, which the gallery shows as its thumbnail. */
+  capturesDir(id: string): string {
+    const row = this.row(id);
+    return this.workspace.resolve(join(folderOf(row ? recordOf(row).projectSlug : null), ".captures", id));
   }
 
-  private keepVersion(projectSlug: string, id: string, snapshot: { at: number; title: string; kind: PageKind; body: string; meta: HtmlMeta | null }): void {
+  private historyDir(projectSlug: string | null, id: string): string {
+    return this.workspace.resolve(join(folderOf(projectSlug), ".history", id));
+  }
+
+  private keepVersion(projectSlug: string | null, id: string, snapshot: { at: number; title: string; kind: PageKind; body: string; meta: HtmlMeta | null }): void {
     const dir = this.historyDir(projectSlug, id);
     mkdirSync(dir, { recursive: true });
     const numbers = this.versionNumbers(dir);
@@ -338,7 +419,7 @@ export class PageStore {
   history(id: string): PageVersion[] {
     const row = this.row(id);
     if (!row) return [];
-    const dir = this.historyDir(row.project_slug, id);
+    const dir = this.historyDir(recordOf(row).projectSlug, id);
     return this.versionNumbers(dir).map((version) => {
       const v = JSON.parse(readFileSync(join(dir, `${version}.json`), "utf8")) as { at: number; title: string; kind: PageKind };
       return { version, at: v.at, title: v.title, kind: v.kind };
@@ -353,11 +434,13 @@ export class PageStore {
   rollback(id: string, version: number): PageRecord {
     const row = this.row(id);
     if (!row) throw new Error(`page not found: ${id}`);
-    const file = join(this.historyDir(row.project_slug, id), `${version}.json`);
+    const projectSlug = recordOf(row).projectSlug;
+    const file = join(this.historyDir(projectSlug, id), `${version}.json`);
     if (!Number.isInteger(version) || !existsSync(file)) throw new Error(`page ${id} has no version ${version}`);
     const v = JSON.parse(readFileSync(file, "utf8")) as { title: string; kind: PageKind; body: string; meta: HtmlMeta | null };
-    if (v.kind === "html") return this.writeHtml(row.project_slug, { id, title: v.title, html: v.body, ...(v.meta ?? {}) });
-    return this.write(row.project_slug, JSON.parse(v.body));
+    if (v.kind === "html") return this.writeHtml(projectSlug, { id, title: v.title, html: v.body, ...(v.meta ?? {}) });
+    if (projectSlug === null) throw new Error(`page ${id} version ${version} is a widget spec, which needs a project`);
+    return this.write(projectSlug, JSON.parse(v.body));
   }
 
   remove(id: string): boolean {
@@ -366,6 +449,7 @@ export class PageStore {
     const abs = this.workspace.resolve(got.record.path);
     if (existsSync(abs)) unlinkSync(abs);
     rmSync(this.historyDir(got.record.projectSlug, id), { recursive: true, force: true });
+    rmSync(this.capturesDir(id), { recursive: true, force: true });
     this.db.prepare(`DELETE FROM pages WHERE id = ?`).run(id);
     return true;
   }

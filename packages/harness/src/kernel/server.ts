@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
 
@@ -12,7 +12,7 @@ import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 import { DREAM_JOB, MEMORY_JOB, OBSERVE_JOB } from "../memory/job.js";
 import { runDisplayQuery } from "../systems/display.js";
 import type { Headline } from "../systems/headlines.js";
-import { BridgeRefusal, pageFile, pageQuery, pageWrite } from "../systems/pagebridge.js";
+import { BridgeRefusal } from "../systems/pagebridge.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
@@ -1420,11 +1420,12 @@ export async function handleApiRequest(
   }
 
   /*
-   * An HTML page's window.kos, relayed by the dashboard. Each call is checked
-   * against the page's own declarations and project (systems/pagebridge.ts);
-   * a refusal is answered plainly and logged.
+   * An artifact's window.kos, relayed by the dashboard. Each call is checked
+   * against the artifact's own declarations and project (systems/pagebridge.ts);
+   * a refusal is answered plainly and logged. `save` is the owner's edit to a
+   * doc or a sheet, kept as its next version.
    */
-  const bridgeCall = /^\/api\/pages\/([^/]+)\/(query|write|file|history|rollback)$/.exec(path);
+  const bridgeCall = /^\/api\/pages\/([^/]+)\/(query|write|file|save|history|rollback)$/.exec(path);
   if (bridgeCall) {
     const id = decodeURIComponent(bridgeCall[1]!);
     const verb = bridgeCall[2]!;
@@ -1438,20 +1439,49 @@ export async function handleApiRequest(
         return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
       }
     }
-    const bridge = kernel.bridgeFor(id);
-    if (method !== "POST" || !bridge) return { status: 404, body: { error: "not found" } };
+    if (method !== "POST" || got.kind !== "html" || (verb !== "query" && verb !== "write" && verb !== "file" && verb !== "save")) return { status: 404, body: { error: "not found" } };
     try {
-      if (verb === "query") return ok(await pageQuery(kernel.workspace.reader, kernel.pageQueries, bridge, body.sql, body.params, { key: id }));
-      if (verb === "write") return ok(pageWrite(kernel.workspace.db, bridge, body));
-      return ok(pageFile(kernel.workspace, bridge, body.path));
+      return ok(await kernel.artifactCall(id, verb, body));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (err instanceof BridgeRefusal) {
-        kernel.audit.record({ tool: `page.${verb}`, args: { page: id, ...(verb === "query" ? { sql: body.sql } : verb === "write" ? { table: body.table, op: body.op } : { path: body.path }) }, result: message, isError: true });
-        return { status: 403, body: { error: message } };
-      }
-      return { status: 400, body: { error: message } };
+      return { status: err instanceof BridgeRefusal ? 403 : 400, body: { error: message } };
     }
+  }
+
+  /*
+   * The Artifacts page: every artifact, each with whether a capture of it
+   * exists and whether it is older than the artifact, so the gallery can
+   * show the capture or ask for a fresh one.
+   */
+  if (method === "GET" && path === "/api/artifacts") {
+    return ok(
+      kernel.pages.list().map((record) => {
+        const at = captureTime(kernel.pages.capturesDir(record.id));
+        return { ...record, ...(at ? { capturedAt: at } : {}) };
+      }),
+    );
+  }
+  const artifactRoute = /^\/api\/artifacts\/([^/]+)\/(thumb|check)$/.exec(path);
+  if (artifactRoute) {
+    const id = decodeURIComponent(artifactRoute[1]!);
+    const got = kernel.pages.get(id);
+    if (!got || got.kind !== "html") return { status: 404, body: { error: "artifact not found" } };
+    if (artifactRoute[2] === "thumb" && method === "GET") {
+      const theme = new URL(req.url ?? "/", "http://x").searchParams.get("theme") === "dark" ? "dark" : "light";
+      const file = join(kernel.pages.capturesDir(id), `desktop-${theme}.small.jpg`);
+      if (!existsSync(file)) return { status: 404, body: { error: "no capture yet" } };
+      const bytes = readFileSync(file);
+      return { status: 200, body: bytes, headers: { "content-type": "image/jpeg", "content-length": String(bytes.byteLength), "cache-control": "no-cache", "x-content-type-options": "nosniff" } };
+    }
+    if (artifactRoute[2] === "check" && method === "POST") {
+      try {
+        const report = await kernel.checker.check(id);
+        return ok({ findings: report.findings, capturedAt: captureTime(kernel.pages.capturesDir(id)) });
+      } catch (err) {
+        return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+      }
+    }
+    return { status: 404, body: { error: "not found" } };
   }
 
   if (method === "GET" && path.startsWith("/api/pages/")) {
@@ -3296,6 +3326,12 @@ function parseCronInput(body: Record<string, unknown>): CreateCronInput | string
   }
   input.actions = actions;
   return input;
+}
+
+/** When an artifact was last captured by artifacts.check, in ms; undefined before its first check. */
+function captureTime(dir: string): number | undefined {
+  const file = join(dir, "desktop-light.small.jpg");
+  return existsSync(file) ? statSync(file).mtimeMs : undefined;
 }
 
 /** Longest the page list waits on its headlines, each of which has its own deadline too. */

@@ -145,7 +145,7 @@ describe("KOS end-to-end flows", () => {
           ],
         },
       }),
-      toolCall("c3", "pages.write", {
+      toolCall("c3", "artifacts.write", {
         project: "budget_2026",
         spec: {
           id: "budget",
@@ -1597,7 +1597,7 @@ describe("KOS end-to-end flows", () => {
     for (const withheld of [
       "systems.project_create",
       "systems.migrate",
-      "pages.write",
+      "artifacts.write",
       "files.write",
       "sql",
       "cron.schedule",
@@ -1608,7 +1608,7 @@ describe("KOS end-to-end flows", () => {
 
   it("refuses to build inline even when the orchestrator names the tool", async () => {
     const model = scripted([
-      toolCall("c1", "pages.write", { project: "x", spec: {} }),
+      toolCall("c1", "artifacts.write", { project: "x", spec: {} }),
       text("I will route that instead."),
     ]);
     kernel = await boot(model.inference);
@@ -1626,7 +1626,7 @@ describe("KOS end-to-end flows", () => {
     const c = kernel.conversations.create({ userId: "owner", title: "Work" });
     await kernel.handleMessage("build a workout log", { sessionId: c.id });
     const offered = (model.calls[0]!.request.tools ?? []).map((t) => t.name);
-    expect(offered).toContain("pages.write");
+    expect(offered).toContain("artifacts.write");
     expect(offered).toContain("systems.migrate");
   });
 
@@ -1684,11 +1684,11 @@ describe("KOS end-to-end flows", () => {
   it("a project orchestrator reads and writes its own project's pages, and no other's", async () => {
     // Asked to turn its pages into artifacts, it had no page tool at all.
     const model = scripted([
-      toolCall("c1", "pages.get", { id: "shelf" }),
-      toolCall("c2", "pages.write", { project: "books", id: "shelf", title: "Shelf", html: "<h1>Shelf</h1>" }),
-      toolCall("c3", "pages.write", { project: "notes", id: "jot", title: "Jot", html: "<h1>Jot</h1>" }),
+      toolCall("c1", "artifacts.get", { id: "shelf" }),
+      toolCall("c2", "artifacts.write", { project: "books", id: "shelf", title: "Shelf", html: "<h1>Shelf</h1>" }),
+      toolCall("c3", "artifacts.write", { project: "notes", id: "jot", title: "Jot", html: "<h1>Jot</h1>" }),
       // Naming another project's page as its own: page ids are shared, so this would take Notes' memo over.
-      toolCall("c4", "pages.write", { project: "books", id: "memo", title: "Memo", html: "<h1>Taken</h1>" }),
+      toolCall("c4", "artifacts.write", { project: "books", id: "memo", title: "Memo", html: "<h1>Taken</h1>" }),
       text("Replaced."),
     ]);
     kernel = await boot(model.inference);
@@ -1699,7 +1699,7 @@ describe("KOS end-to-end flows", () => {
 
     await kernel.handleProjectTurn(books.slug, "replace this page with an artifact");
     const offered = (model.calls[0]!.request.tools ?? []).map((t) => t.name);
-    for (const name of ["pages.get", "pages.write", "pages.history"]) expect(offered).toContain(name);
+    for (const name of ["artifacts.get", "artifacts.write", "artifacts.history"]) expect(offered).toContain(name);
 
     const results = kernel.sessions
       .get(`project:${books.slug}`)

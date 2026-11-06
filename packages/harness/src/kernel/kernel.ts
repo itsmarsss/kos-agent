@@ -101,7 +101,8 @@ import {
 } from "../systems/remove.js";
 import { Migrator } from "../systems/migrate.js";
 import { Headlines, type Headline } from "../systems/headlines.js";
-import { pageQuery, type BridgePage } from "../systems/pagebridge.js";
+import { ArtifactChecker } from "../systems/artifactcheck.js";
+import { BridgeRefusal, pageFile, pageQuery, pageWrite, type BridgePage } from "../systems/pagebridge.js";
 import { PageQueries } from "../systems/pagequeries.js";
 import { PageStore } from "../systems/pages.js";
 import { registeredTables } from "../systems/registered.js";
@@ -109,7 +110,7 @@ import { PermissionStore, actsInYourChrome } from "../ops/permissions.js";
 import { offeredSkills, readSkills } from "../skills/manifest.js";
 import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { CHAT_TOOLS } from "../tools/chats.js";
-import { PAGE_TOOLS } from "../tools/systems.js";
+import { ARTIFACT_TOOLS } from "../tools/systems.js";
 import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
 import { DISCORD_TOOLS, type Audience, type BoundThread, type DiscordServices, type Listen, type ServerPlace } from "../tools/discord.js";
 import { agentConversationId, agentScope, KOS_FACE_KEY, parseFaceLook, type FaceLook, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
@@ -129,7 +130,7 @@ import { originOf } from "./origin.js";
 import { ownerWords } from "./transcript.js";
 import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
-import { bodyHexOf, channelNamesIn, drawingOf, faceSvg, KOS_SEED, lookOf, summarizeAction, type FaceDrawing, type FaceSpec } from "@kos/shared";
+import { bodyHexOf, channelNamesIn, drawingOf, faceSvg, KOS_SEED, lookOf, summarizeAction, type ArtifactEdit, type FaceDrawing, type FaceSpec } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -269,7 +270,7 @@ const ORCHESTRATOR_SCOPE = ["memory"];
  * Discord tools, and its project's pages. Asked to turn its pages into
  * artifacts, it had no page tool to read or write one with, and said so.
  */
-const PROJECT_ORCHESTRATOR_GRANT = [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS, ...PAGE_TOOLS];
+const PROJECT_ORCHESTRATOR_GRANT = [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS, ...ARTIFACT_TOOLS];
 
 /**
  * What a turn may reach when a guest is speaking: the chat's own data, the
@@ -3537,7 +3538,46 @@ export class Kernel {
   bridgeFor(id: string): BridgePage | undefined {
     const got = this.pages.get(id);
     if (got?.kind !== "html") return undefined;
-    return { page: got.page, projectSlug: got.record.projectSlug, tables: registeredTables(this.workspace.db, got.record.projectSlug) };
+    const slug = got.record.projectSlug;
+    return { page: got.page, projectSlug: slug, tables: slug === null ? new Set() : registeredTables(this.workspace.db, slug) };
+  }
+
+  /**
+   * One window.kos call from an artifact's frame, decided against its stored
+   * declarations and project (systems/pagebridge.ts). A refusal is logged and
+   * thrown as a BridgeRefusal; the owner's edit to a doc or sheet becomes the
+   * artifact's next version. The dashboard relays these, and artifacts.check
+   * asks the reads the same way.
+   */
+  async artifactCall(id: string, verb: "query" | "write" | "file" | "save", body: Record<string, unknown>): Promise<unknown> {
+    const bridge = this.bridgeFor(id);
+    if (!bridge) throw new BridgeRefusal("no such artifact");
+    try {
+      if (verb === "query") return await pageQuery(this.workspace.reader, this.pageQueries, bridge, body.sql, body.params, { key: id });
+      if (verb === "write") return pageWrite(this.workspace.db, bridge, body);
+      if (verb === "file") return pageFile(this.workspace, bridge, body.path);
+      return this.pages.applyEdit(id, body.edit as ArtifactEdit);
+    } catch (err) {
+      if (err instanceof BridgeRefusal) {
+        const what = verb === "query" ? { sql: body.sql } : verb === "write" ? { table: body.table, op: body.op } : verb === "file" ? { path: body.path } : {};
+        this.audit.record({ tool: `page.${verb}`, args: { page: id, ...what }, result: err.message, isError: true });
+      }
+      throw err;
+    }
+  }
+
+  private artifactChecker?: ArtifactChecker;
+  /** artifacts.check's renderer: a headless Chrome of its own, started on first use and closed when idle. */
+  get checker(): ArtifactChecker {
+    this.artifactChecker ??= new ArtifactChecker({
+      load: (id) => {
+        const got = this.pages.get(id);
+        return got?.kind === "html" ? { page: got.page, title: got.record.title } : undefined;
+      },
+      call: (id, verb, args) => this.artifactCall(id, verb, args),
+      captures: (id) => this.pages.capturesDir(id),
+    });
+    return this.artifactChecker;
   }
 
   /** Each HTML page's figure for Home, computed apart from the server and kept a while. */
@@ -4325,6 +4365,7 @@ export class Kernel {
     // What modules opened, stdio MCP servers among them, must not outlive the host.
     void this.loader.unload();
     this.pageQueryRunner?.close();
+    this.artifactChecker?.close();
     this.workspace.close();
   }
 }

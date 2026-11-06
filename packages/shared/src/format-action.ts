@@ -176,8 +176,12 @@ export function summarizeAction(
       return `HTTP fetch ${fmtVal(a.url)}`;
     case "cron.schedule":
       return `Schedule cron “${fmtVal(a.name)}” [${fmtVal(a.schedule)}]`;
-    case "pages.write":
-      return `Write page for project ${fmtVal(a.project)}`;
+    case "artifacts.write":
+      return `Write ${fmtVal(a.kind ?? "page")} “${fmtVal(a.title)}”${a.project ? ` for project ${fmtVal(a.project)}` : ""}`;
+    case "artifacts.check":
+      return `Check artifact ${fmtVal(a.id)}`;
+    case "artifacts.guide":
+      return `Read the ${a.kind ? `${fmtVal(a.kind)} ` : ""}artifact guide`;
     case "search.grep":
       return `Search for “${fmtVal(a.pattern)}”`;
     case "search.semantic":
@@ -222,10 +226,10 @@ export function summarizeAction(
     }
     case "chats.congregate":
       return `Gather from ${Array.isArray(a.targets) ? a.targets.length : "several"} conversations`;
-    case "pages.get":
-      return `Read page ${fmtVal(a.id)}`;
-    case "pages.list":
-      return "List pages";
+    case "artifacts.get":
+      return `Read artifact ${fmtVal(a.id)}`;
+    case "artifacts.list":
+      return "List artifacts";
     case "systems.project_list":
       return "List projects";
     case "memory.remember":

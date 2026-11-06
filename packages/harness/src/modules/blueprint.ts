@@ -44,13 +44,20 @@ export interface BlueprintJob {
   task?: "reasoning" | "cheap";
 }
 
-/** A page a blueprint carries: a spec, or an HTML page marked as one. */
-export type BlueprintPage = PageSpec | (HtmlPage & { kind: "html" });
+/** A page a blueprint carries: a widget spec, or an HTML artifact, which is the one with html. */
+export type BlueprintPage = PageSpec | HtmlPage;
 
-const isHtml = (page: BlueprintPage): page is HtmlPage & { kind: "html" } => (page as { kind?: unknown }).kind === "html";
+const isHtml = (page: BlueprintPage): page is HtmlPage => typeof (page as { html?: unknown }).html === "string";
 
-/** An HTML page as written, without the blueprint's marker. */
-const htmlOf = ({ kind: _kind, ...page }: HtmlPage & { kind: "html" }): HtmlPage => page;
+/**
+ * An HTML artifact as written. Blueprints from before artifact kinds marked
+ * one with kind "html", which is no kind; that marker is dropped.
+ */
+const htmlOf = (page: HtmlPage): HtmlPage => {
+  if ((page.kind as string) !== "html") return page;
+  const { kind: _marker, ...rest } = page;
+  return rest;
+};
 
 export interface Blueprint {
   /** The project type an instance is made with: tracker, notes, budget. */
@@ -190,7 +197,7 @@ export function extractBlueprint(src: BlueprintSources, slug: string): Extracted
     .map((r): BlueprintPage | undefined => {
       const got = src.pages.get(r.id);
       if (!got) return undefined;
-      return got.kind === "spec" ? got.spec : { kind: "html", ...got.page };
+      return got.kind === "spec" ? got.spec : got.page;
     })
     .filter((s): s is BlueprintPage => s !== undefined)
     .map((s) => tokenize(s, slug));
