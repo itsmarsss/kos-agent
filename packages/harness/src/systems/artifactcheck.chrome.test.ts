@@ -47,6 +47,8 @@ const PLANTED: Record<string, { html: string; expect: Finding["kind"] }> = {
   narrow: { html: `<h1>Narrow</h1><div class="strip" style="width:600px;height:40px;background:var(--panel)">a strip</div>`, expect: "overflow" },
   // Tiles too narrow for their words, which a hidden overflow cuts off: the page does not scroll, it just loses text.
   cramped: { html: `<h1>Cramped</h1><div style="display:flex;gap:8px"><div class="tile" style="width:40px;overflow:hidden;white-space:nowrap;border:1px solid var(--line)">Total spent this month</div></div>`, expect: "clipped" },
+  // Rows scrolled out of a box are not drawn over what follows it: no overlap there.
+  scrolled: { html: `<h1>Scrolled</h1><div style="max-height:60px;overflow:auto"><p>one</p><p>two</p><p>three</p><p>four</p><p>five</p></div><p>After the box</p><p>And more after it</p>`, expect: "none" as never },
   stacked: { html: `<h1>Stacked</h1><div style="position:relative;height:60px"><p class="label" style="position:absolute;top:0;left:0;margin:0">Total spent</p><p class="value" style="position:absolute;top:4px;left:10px;margin:0">$3,340.87</p></div>`, expect: "overlap" },
   literal: { html: `<style>body{background:#ffffff;color:#222222}</style><h1>Literal</h1><p>One</p><p>Two</p><p>Three</p><p>Four</p><p>Five</p><p>Six</p>`, expect: "theme" },
   faint: { html: `<h1>Faint</h1><p class="faint" style="color:#8a8a8a;background:#9a9a9a">hard to read</p>`, expect: "contrast" },
@@ -100,6 +102,7 @@ describe.skipIf(!chrome)("artifacts.check in Chrome", () => {
   it.each(Object.entries(PLANTED))("reports the planted problem in %s", async (id, planted) => {
     const report = await checker.check(id);
     const kinds = report.findings.map((f) => f.kind);
+    if ((planted.expect as string) === "none") return void expect(report.findings).toEqual([]);
     expect(kinds).toContain(planted.expect);
     if (planted.expect === "overflow") expect(report.findings.find((f) => f.kind === "overflow")?.text).toMatch(id === "narrow" ? /^At 390 px.*div\.strip/ : /div\.strip/);
     if (planted.expect === "clipped") expect(report.findings.find((f) => f.kind === "clipped")?.text).toMatch(/cut off by div\.tile/);

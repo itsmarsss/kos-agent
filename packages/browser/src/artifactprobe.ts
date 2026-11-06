@@ -98,6 +98,17 @@ export function probe(): ProbeResult {
     return base;
   };
 
+  // The part of a box left in view by every ancestor that clips or scrolls: rows scrolled out of a grid are not on screen.
+  const shown = (el: Element, r: DOMRect): DOMRect | undefined => {
+    let [l, t, rt, b] = [r.left, r.top, r.right, r.bottom];
+    for (let n = el.parentElement; n && n !== document.documentElement; n = n.parentElement) {
+      const o = getComputedStyle(n);
+      if (o.overflowX === "visible" && o.overflowY === "visible") continue;
+      const c = n.getBoundingClientRect();
+      [l, t, rt, b] = [Math.max(l, c.left), Math.max(t, c.top), Math.min(rt, c.right), Math.min(b, c.bottom)];
+    }
+    return rt - l > 0 && b - t > 0 ? new DOMRect(l, t, rt - l, b - t) : undefined;
+  };
   const all = Array.from(document.body.querySelectorAll("*"));
   const elements: ProbedElement[] = [];
   const empty: ProbeResult["empty"] = [];
@@ -127,7 +138,10 @@ export function probe(): ProbeResult {
       for (const c of Array.from(el.childNodes)) {
         if (c.nodeType !== 3 || !(c.textContent ?? "").trim()) continue;
         range.selectNodeContents(c);
-        for (const r of Array.from(range.getClientRects())) if (r.width > 0 && r.height > 0) texts.push({ el, r });
+        for (const r of Array.from(range.getClientRects())) {
+          const seen = shown(el, r);
+          if (seen) texts.push({ el, r: seen });
+        }
       }
     }
     if (ownText && clipped.length < 6 && s.textOverflow !== "ellipsis") {
