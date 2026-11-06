@@ -5,7 +5,7 @@ import { parseChangeSpec } from "../systems/migrate.js";
 import { deleteProject } from "../systems/remove.js";
 import type { CreateProjectInput } from "../systems/manifest.js";
 import { artifactGuide } from "../systems/artifactguide.js";
-import { ARTIFACT_KINDS, isArtifactKind } from "@kos/shared";
+import { ARTIFACT_KINDS, WORKSPACE_SCOPE, isArtifactKind } from "@kos/shared";
 import { MAINTENANCE_SLUG, reachable, type Reach } from "./fence.js";
 import { reachOf } from "./sql.js";
 
@@ -24,7 +24,7 @@ import { reachOf } from "./sql.js";
 const WRITE_DESCRIPTION = [
   "Save an artifact: one self-contained HTML document of a kind (page: an app, dashboard or tool; doc: a designed document; deck: slides; sheet: a spreadsheet). It shows on the dashboard in a sandboxed frame with no network, reaching data only through window.kos, and every save keeps the old one as a version (artifacts.history, artifacts.rollback).",
   "Read artifacts.guide({ kind }) first, every time: it says how KOS artifacts are designed, the structure each kind's runtime reads, the fonts, and what the frame refuses. Then write, check once with artifacts.check, fix what it reports in one pass, and finish.",
-  "project is the project whose data it shows. Omit it for a workspace artifact that belongs to no project (a memo, a deck from notes); it then has no tables or files to read. If a project fits but does not exist, call systems.project_create first; never file an artifact under an unrelated project because it exists.",
+  `project is the project whose data it shows. Omit it for a new workspace artifact that belongs to no project (a memo, a deck from notes); it then has no tables or files to read. Rewriting an existing id without project keeps it where it is; name a project, or "${WORKSPACE_SCOPE}", only to move it. If a project fits but does not exist, call systems.project_create first; never file an artifact under an unrelated project because it exists.`,
   "title is a short specific name, not a caption; description is one sentence saying what it is for.",
 ].join("\n");
 
@@ -220,7 +220,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
       inputSchema: {
         type: "object",
         properties: {
-          project: { type: "string", description: "project slug whose data it shows; omit for a workspace artifact" },
+          project: { type: "string", description: `project slug whose data it shows; omit for a new workspace artifact, or to keep an existing one where it is; "${WORKSPACE_SCOPE}" moves one to the workspace` },
           id: { type: "string", description: "letters, digits, _ or -; writing an existing id replaces it and keeps the old one as a version" },
           kind: { type: "string", enum: [...ARTIFACT_KINDS], description: "page (default), doc, deck or sheet" },
           title: { type: "string", description: "a short specific name" },
@@ -249,15 +249,17 @@ function defineSystemsTools(ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const project = typeof input.project === "string" && input.project ? input.project : null;
       const reach = reachOf(ctx);
-      refuseOtherProjectsPage(project, reach);
       // Ids are shared across projects, and a write upserts by id: the artifact it would replace is checked too,
       // or one project could take another's by naming it as its own.
       const spec = input.spec as { id?: unknown } | undefined;
       const id = typeof input.id === "string" ? input.id : typeof spec?.id === "string" ? spec.id : undefined;
       const replaced = id ? pages.get(id) : undefined;
       if (replaced) refuseOtherProjectsPage(replaced.record.projectSlug, reach);
+      // A rewrite stays where it is unless told to move: a model leaves project out when it means "the same one".
+      const named = typeof input.project === "string" && input.project !== "" ? input.project : input.project === null ? WORKSPACE_SCOPE : undefined;
+      const project = named === undefined ? (replaced?.record.projectSlug ?? null) : named === WORKSPACE_SCOPE ? null : named;
+      refuseOtherProjectsPage(project, reach);
       if (input.spec !== undefined && input.html === undefined) {
         if (project === null) throw new Error("a widget spec page needs a project; write html instead");
         return JSON.stringify(pages.write(project, input.spec));
@@ -291,7 +293,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "artifacts.list",
-      description: "List artifacts: every one, one project's, or the workspace's own (project: \"workspace\"), each with its kind (page, doc, deck, sheet), title and description.",
+      description: `List artifacts: every one, one project's, or the workspace's own (project: "${WORKSPACE_SCOPE}"), each with its kind (page, doc, deck, sheet), title and description.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -301,7 +303,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
     },
     (input) => {
       const project = typeof input.project === "string" && input.project ? input.project : undefined;
-      return JSON.stringify(pages.list(project === "workspace" ? null : project));
+      return JSON.stringify(pages.list(project === WORKSPACE_SCOPE ? null : project));
     },
     { floor: "safe" },
     { tags: ["systems"] },

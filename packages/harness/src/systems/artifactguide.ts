@@ -23,7 +23,7 @@ An artifact is one HTML document KOS writes for the owner: a page (an app, dashb
 
 1. Read this guide for the kind you are making: artifacts.guide({ kind }).
 2. Decide the treatment, the subject and the token plan (below) before writing markup.
-3. Write it with artifacts.write: project (omit it for a workspace artifact, which then has no tables or files to read), id, kind, title, description, html, and fonts, capabilities, libraries or headline when needed.
+3. Write it with artifacts.write: project (omit it for a new workspace artifact, which then has no tables or files to read; rewriting an existing id without it keeps the artifact where it is), id, kind, title, description, html, and fonts, capabilities, libraries or headline when needed.
 4. Check it once with artifacts.check({ id }). It renders the artifact in KOS's own headless Chrome at 1280 px and 390 px wide, light and dark, and reports sideways overflow and the element causing it, text cut off by a box that hides its overflow, text drawn over other text, colours that stay the same in both themes, text below AA contrast, console errors, failed bridge calls, regions empty at rest, a missing visible title, and a small screenshot.
 5. Fix everything the check reports in one pass, write again, then finish. Do not check again in a loop; one check, one round of fixes.
 

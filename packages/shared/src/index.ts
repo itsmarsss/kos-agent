@@ -149,6 +149,7 @@ export {
   KIND_RUNTIME,
   SHEET_DATA,
   SHEET_ROWS_MAX,
+  WORKSPACE_SCOPE,
   artifactAssets,
   isArtifactKind,
   sheetErrors,

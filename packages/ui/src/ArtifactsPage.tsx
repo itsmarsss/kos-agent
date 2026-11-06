@@ -173,7 +173,7 @@ export function ArtifactsPage({ projects, onOpen }: { projects: Project[]; onOpe
 
 /** What "Edit with KOS" sends: the owner's words, then which artifact they are about. */
 export function editRequest(words: string, record: PageSummary): string {
-  return `${words.trim()}\n\nThis is about @page:${record.id}, the ${KIND_WORD[record.artifactKind].toLowerCase()} "${record.title}". Read it with artifacts.get, change it, check it once with artifacts.check, and save it with artifacts.write.`;
+  return `${words.trim()}\n\nThis is about @page:${record.id}, the ${KIND_WORD[record.artifactKind].toLowerCase()} "${record.title}". Read it with artifacts.get, change it, check it once with artifacts.check, and save it with artifacts.write under the same id, leaving project out so it stays where it is.`;
 }
 
 /**

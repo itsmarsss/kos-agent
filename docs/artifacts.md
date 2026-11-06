@@ -56,8 +56,9 @@ artifact's `:root`, both themes at the token level, type, layout, charts,
 being complete at rest, avoiding the generated look, copy, naming and
 building cleanly, then the kind's structure and conventions.
 
-`artifacts.write` takes the project (omitted for a workspace artifact), an
-id, the kind, a title (a short name), a description (one sentence), the
+`artifacts.write` takes the project (omitted for a new workspace artifact;
+omitted on a rewrite, the artifact stays where it is, and `"@workspace"`
+moves it out of its project), an id, the kind, a title (a short name), a description (one sentence), the
 HTML, and what it declares:
 
 - `capabilities.query`: read-only queries of the project's own tables, on

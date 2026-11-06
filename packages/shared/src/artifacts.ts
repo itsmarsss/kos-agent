@@ -23,6 +23,14 @@ export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 export const isArtifactKind = (v: unknown): v is ArtifactKind => (ARTIFACT_KINDS as readonly unknown[]).includes(v);
 
+/**
+ * The workspace where a project is named: in artifacts.list's filter, in
+ * artifacts.write to move an artifact out of its project, and in the
+ * gallery's filter. A slug is lowercase letters, digits and _, so this can
+ * never be one; "workspace" could.
+ */
+export const WORKSPACE_SCOPE = "@workspace";
+
 /** The runtime KOS inlines for a kind, served beside the libraries as /page-lib/<name>.js. */
 export const KIND_RUNTIME: Record<ArtifactKind, string | undefined> = {
   page: undefined,

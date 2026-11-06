@@ -217,4 +217,18 @@ describe("systems.migrate risk", () => {
     callerProject = b.slug;
     expect((await registry.execute("artifacts.check", { id: "shelf" })).content).toBe("checked shelf");
   });
+
+  it("keeps a rewritten artifact in its project unless told to move it", async () => {
+    const { slug } = JSON.parse((await registry.execute("systems.project_create", { name: "Garden", type: "tracker" })).content) as { slug: string };
+    await registry.execute("artifacts.write", { project: slug, id: "beds", title: "Beds", html: "<h1>Beds</h1>" });
+    const rewrite = await registry.execute("artifacts.write", { id: "beds", title: "Beds", html: "<h1>Beds two</h1>" });
+    expect(JSON.parse(rewrite.content)).toMatchObject({ projectSlug: slug, path: "projects/garden/pages/beds.html" });
+    expect(JSON.parse((await registry.execute("artifacts.history", { id: "beds" })).content)).toHaveLength(2);
+    const ids = async (project: string): Promise<string[]> => (JSON.parse((await registry.execute("artifacts.list", { project })).content) as { id: string }[]).map((r) => r.id);
+    expect(await ids("@workspace")).toEqual([]);
+    const moved = await registry.execute("artifacts.write", { project: "@workspace", id: "beds", title: "Beds", html: "<h1>Beds three</h1>" });
+    expect(JSON.parse(moved.content)).toMatchObject({ projectSlug: null, path: "artifacts/beds.html" });
+    expect(await ids("@workspace")).toEqual(["beds"]);
+    expect(JSON.parse((await registry.execute("artifacts.history", { id: "beds" })).content)).toHaveLength(3);
+  });
 });
