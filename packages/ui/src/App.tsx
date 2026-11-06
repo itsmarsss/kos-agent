@@ -888,7 +888,14 @@ export function App(): React.ReactElement {
           </p>
         )}
         {activePage && <PageHistory record={activePage.record} onRolledBack={() => api.anyPage(activePage.record.id).then(setActivePage)} />}
-        {activePage?.kind === "html" && <ArtifactPage record={activePage.record} page={activePage.page} />}
+        {activePage?.kind === "html" && (
+          <ArtifactPage
+            record={activePage.record}
+            page={activePage.page}
+            onSaved={(record) => setActivePage((p) => (p ? { ...p, record } : p))}
+            onReload={() => void api.anyPage(activePage.record.id).then(setActivePage)}
+          />
+        )}
         {activePage && activePage.kind !== "html" && (
           <PageRenderer spec={activePage.spec} data={activePage.data} />
         )}

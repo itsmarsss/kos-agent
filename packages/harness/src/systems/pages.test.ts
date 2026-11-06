@@ -6,9 +6,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Workspace } from "../store/workspace.js";
 import { ProjectManifest } from "./manifest.js";
 import { Migrator } from "./migrate.js";
-import { PageStore } from "./pages.js";
+import type { ArtifactEdit } from "@kos/shared";
+
+import { EDIT_GAP_MS, EditConflict, PageStore } from "./pages.js";
 import { runDisplayQuery } from "./display.js";
-import type { LoadedPage } from "./pages.js";
+import type { LoadedPage, PageRecord } from "./pages.js";
 
 /** A spec page as loaded, or nothing when the page is not one. */
 const specOf = (got: LoadedPage | undefined) => (got?.kind === "spec" ? got.spec : undefined);
@@ -345,6 +347,8 @@ describe("PageStore HTML pages", () => {
     const doc = (body: string): string => `<style>h1{color:var(--text)}</style><article data-doc><h1>Plan</h1>${body}</article><script>kos.theme</script>`;
     const book = { sheets: [{ name: "Spend", columns: [{ label: "Item" }, { label: "Amount", type: "currency", currency: "CAD" }], rows: [["Rent", 1200], ["Food", 300]], totals: { Amount: "sum" } }] };
     const sheet = (b: unknown): string => `<h1>Spend</h1><script type="application/json" data-sheet>${JSON.stringify(b)}</script>`;
+    /** The owner's edit, made on the newest version. */
+    const edit = (id: string, change: ArtifactEdit): PageRecord => pages.applyEdit(id, change, pages.get(id)?.record.updatedAt);
 
     it("keeps a kind, a description and fonts; an older page reads as a page", () => {
       pages.writeHtml("budget", { id: "old", title: "Old", html: "<p>x</p>" });
@@ -399,7 +403,7 @@ describe("PageStore HTML pages", () => {
 
     it("keeps the owner's edit to a doc as a version, changing only the article's text", () => {
       pages.writeHtml("budget", { id: "brief", kind: "doc", title: "Brief", html: doc("<p>Before</p><aside class=\"callout\"><article>nested</article></aside>") });
-      pages.applyEdit("brief", { doc: "<h1>Plan</h1><p>After, <em>edited</em></p>" });
+      edit("brief", { doc: "<h1>Plan</h1><p>After, <em>edited</em></p>" });
       const got = pages.get("brief");
       expect(got?.kind === "html" && got.page.html).toBe("<style>h1{color:var(--text)}</style><article data-doc><h1>Plan</h1><p>After, <em>edited</em></p></article><script>kos.theme</script>");
       expect(pages.history("brief")).toHaveLength(2);
@@ -410,27 +414,48 @@ describe("PageStore HTML pages", () => {
     it("refuses an edit that carries code, or that does not fit the kind", () => {
       pages.writeHtml("budget", { id: "brief", kind: "doc", title: "Brief", html: doc("<p>x</p>") });
       for (const bad of ["<script>x()</script>", '<img src=x onerror="x()">', "<img/onerror=x() src=x>", '<svg/onload="x()">', '<a href="javascript:x()">a</a>', "</article><script>", "<style>body{}</style>"]) {
-        expect(() => pages.applyEdit("brief", { doc: bad })).toThrow(/may not hold/);
+        expect(() => edit("brief", { doc: bad })).toThrow(/may not hold/);
       }
-      expect(() => pages.applyEdit("brief", { doc: "<iframe></iframe>" })).toThrow(/cannot leave its frame/);
+      expect(() => edit("brief", { doc: "<iframe></iframe>" })).toThrow(/cannot leave its frame/);
       pages.writeHtml("budget", { id: "app", title: "App", html: "<p>x</p>" });
-      expect(() => pages.applyEdit("app", { doc: "<p>y</p>" })).toThrow(/only a doc or a sheet/);
-      expect(() => pages.applyEdit("brief", { sheet: book as never })).toThrow(/does not fit/);
+      expect(() => edit("app", { doc: "<p>y</p>" })).toThrow(/only a doc or a sheet/);
+      expect(() => edit("brief", { sheet: book as never })).toThrow(/does not fit/);
       expect(pages.history("brief")).toHaveLength(1);
     });
 
     it("keeps the owner's edit to a sheet's data as a version, escaped so data cannot end its script", () => {
       pages.writeHtml("budget", { id: "spend", kind: "sheet", title: "Spend", html: sheet(book) });
       const edited = { ...book, sheets: [{ ...book.sheets[0]!, rows: [["Rent", 1250], ["</script><script>alert(1)</script>", 1]] }] };
-      pages.applyEdit("spend", { sheet: edited as never });
+      edit("spend", { sheet: edited as never });
       const got = pages.get("spend");
       const html = got?.kind === "html" ? got.page.html : "";
       expect(html).not.toContain("</script><script>");
       expect(html.match(/<\/script>/g)).toHaveLength(1);
       expect(JSON.parse(/data-sheet>([\s\S]*)<\/script>/.exec(html)![1]!).sheets[0].rows[1][0]).toBe("</script><script>alert(1)</script>");
-      expect(() => pages.applyEdit("spend", { sheet: { sheets: [] } as never })).toThrow(/cannot be saved/);
+      expect(() => edit("spend", { sheet: { sheets: [] } as never })).toThrow(/cannot be saved/);
       const moved = { sheets: [{ name: "T", columns: [{ label: "A", column: "amount" }], source: { table: "budget_tx", key: "id" } }] };
-      expect(() => pages.applyEdit("spend", { sheet: moved as never })).toThrow(/which tables/);
+      expect(() => edit("spend", { sheet: moved as never })).toThrow(/which tables/);
+    });
+
+    it("refuses an edit made on an older version, an edit that changes nothing, and a second save too soon", () => {
+      let clock = 10_000;
+      const timed = new PageStore(ws.db, ws, new ProjectManifest(ws.db), () => clock);
+      timed.writeHtml("budget", { id: "brief", kind: "doc", title: "Brief", html: doc("<p>One</p>") });
+      const opened = timed.get("brief")!.record.updatedAt;
+      // KOS rewrites it while the owner has it open.
+      clock += 5000;
+      timed.writeHtml("budget", { id: "brief", kind: "doc", title: "Brief", html: doc("<p>KOS</p>") });
+      clock += 5000;
+      expect(() => timed.applyEdit("brief", { doc: "<p>Mine</p>" }, opened)).toThrow(EditConflict);
+      expect(() => timed.applyEdit("brief", { doc: "<p>Mine</p>" }, undefined)).toThrow(/which version/);
+      const now = timed.get("brief")!.record.updatedAt;
+      expect(() => timed.applyEdit("brief", { doc: "<h1>Plan</h1><p>KOS</p>" }, now)).toThrow(/nothing changed/);
+      const saved = timed.applyEdit("brief", { doc: "<p>Mine</p>" }, now);
+      clock += EDIT_GAP_MS - 1;
+      expect(() => timed.applyEdit("brief", { doc: "<p>Again</p>" }, saved.updatedAt)).toThrow(/a moment ago/);
+      clock += 1;
+      expect(timed.applyEdit("brief", { doc: "<p>Again</p>" }, saved.updatedAt).updatedAt).toBe(clock);
+      expect(timed.history("brief")).toHaveLength(4);
     });
 
     it("removes an artifact with its history and its captures", () => {

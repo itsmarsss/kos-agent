@@ -934,6 +934,9 @@ async function readError(res: Response, path: string): Promise<string> {
   return text.trim() || `${path} failed (${res.status})`;
 }
 
+/** An owner's edit refused because the artifact was saved since it was opened: reloading shows the newer one. */
+export class SaveConflict extends Error {}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error(await readError(res, path));
@@ -1112,7 +1115,15 @@ export const api = {
   /** A page of either kind, to show it. */
   anyPage: (id: string) => get<AnyPagePayload>(`/api/pages/${encodeURIComponent(id)}`),
   /** An HTML page's window.kos calls, checked by the server against its declarations. */
-  pageCall: (id: string, verb: "query" | "write" | "file" | "save", args: Record<string, unknown>) => post<unknown>(`/api/pages/${encodeURIComponent(id)}/${verb}`, args),
+  pageCall: (id: string, verb: "query" | "write" | "file", args: Record<string, unknown>) => post<unknown>(`/api/pages/${encodeURIComponent(id)}/${verb}`, args),
+  /** The owner's edit to a doc or a sheet, made on the version `base` (its record's updatedAt). */
+  savePage: async (id: string, edit: unknown, base: number): Promise<PageSummary> => {
+    const path = `/api/pages/${encodeURIComponent(id)}/save`;
+    const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ edit, base }) });
+    if (res.status === 409) throw new SaveConflict(await readError(res, path));
+    if (!res.ok) throw new Error(await readError(res, path));
+    return (await res.json()) as PageSummary;
+  },
   /** Every artifact, across projects and the workspace, with when it was last captured. */
   artifacts: () => get<ArtifactSummary[]>("/api/artifacts"),
   /** Render an artifact and keep its captures: the gallery's thumbnail. */

@@ -3,7 +3,7 @@ import kitCss from "@kos/kit/kit.css?raw";
 import pageCss from "@kos/kit/page.css?raw";
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
 
-import { api, type PageSummary } from "../api.js";
+import { SaveConflict, api, type PageSummary } from "../api.js";
 import { pageDocument, tokenRule, wrapperDocument } from "@kos/shared";
 
 /**
@@ -124,10 +124,12 @@ export interface ArtifactPageProps {
   page: HtmlPage;
   /** The owner saved an edit made in the frame (a doc's text, a sheet's cells): it is the newest version now. */
   onSaved?: (record: PageSummary) => void;
+  /** Load the newest version: offered when an edit was refused because one was saved after this was opened. */
+  onReload?: () => void;
   ref?: Ref<ArtifactHandle>;
 }
 
-export function ArtifactPage({ record, page, onSaved, ref }: ArtifactPageProps): ReactElement {
+export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactPageProps): ReactElement {
   const box = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const loads = useRef(0);
@@ -136,6 +138,12 @@ export function ArtifactPage({ record, page, onSaved, ref }: ArtifactPageProps):
   const [left, setLeft] = useState(false);
   const [asked, setAsked] = useState<Asked>();
   const [told, setTold] = useState<string>();
+  const [conflict, setConflict] = useState<string>();
+  // The version an edit is made on: the one opened, then each one the owner saves.
+  const base = useRef(record.updatedAt);
+  useEffect(() => {
+    base.current = record.updatedAt;
+  }, [record.updatedAt]);
   // A workspace artifact has no project, so its words go to KOS at the root.
   const chat = record.projectSlug ? `project:${record.projectSlug}` : undefined;
 
@@ -145,6 +153,7 @@ export function ArtifactPage({ record, page, onSaved, ref }: ArtifactPageProps):
     loads.current = 0;
     setLeft(false);
     setError(undefined);
+    setConflict(undefined);
     setDoc(undefined);
     const { scripts, fonts } = artifactAssets(page);
     void Promise.all([Promise.all(scripts.map(library)), fontCss(fonts)])
@@ -200,13 +209,27 @@ export function ArtifactPage({ record, page, onSaved, ref }: ArtifactPageProps):
         setAsked({ text, answer: (sent) => reply(m.id, sent ? { result: { sent: true } } : { error: "the owner did not send it" }) });
         return;
       }
-      const verb = m.method === "query" ? "query" : m.method === "write" ? "write" : m.method === "file" ? "file" : m.method === "save" ? "save" : undefined;
+      if (m.method === "save") {
+        // A save is the owner's edit, so it comes with the owner's hand: a page saving on its own is refused here.
+        if (!navigator.userActivation?.isActive) return reply(m.id, { error: "a save comes from the owner: press Save, or edit a cell" });
+        api.savePage(record.id, args.edit, base.current).then(
+          (saved) => {
+            base.current = saved.updatedAt;
+            reply(m.id, { result: saved });
+            onSaved?.(saved);
+          },
+          (err: unknown) => {
+            const message = err instanceof Error ? err.message : String(err);
+            if (err instanceof SaveConflict) setConflict(message);
+            reply(m.id, { error: message });
+          },
+        );
+        return;
+      }
+      const verb = m.method === "query" ? "query" : m.method === "write" ? "write" : m.method === "file" ? "file" : undefined;
       if (!verb) return reply(m.id, { error: `kos has no ${String(m.method)}` });
       api.pageCall(record.id, verb, args).then(
-        (result) => {
-          reply(m.id, { result });
-          if (verb === "save") onSaved?.(result as PageSummary);
-        },
+        (result) => reply(m.id, { result }),
         (err: unknown) => reply(m.id, { error: err instanceof Error ? err.message : String(err) }),
       );
     };
@@ -295,6 +318,16 @@ export function ArtifactPage({ record, page, onSaved, ref }: ArtifactPageProps):
           >
             Fix with KOS
           </button>
+        </div>
+      )}
+      {conflict && (
+        <div className="ops-alert ops-alert--err artifact-error" role="alert">
+          <span>Not saved. {conflict}</span>
+          {onReload && (
+            <button type="button" className="btn btn--sm" onClick={onReload}>
+              Reload
+            </button>
+          )}
         </div>
       )}
       {told && <p className="hint">{told}</p>}

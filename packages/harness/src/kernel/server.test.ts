@@ -1255,6 +1255,18 @@ describe("handleApiRequest", () => {
       expect((read.body as { rows: unknown[] }).rows).toEqual([{ title: "Dune" }, { title: "Emma" }]);
     });
 
+    it("answers an owner's edit made on an older version with a conflict", async () => {
+      kernel.pages.writeHtml("shelf", { id: "note", kind: "doc", title: "Note", html: "<article data-doc><h1>Note</h1><p>one</p></article>" });
+      const opened = kernel.pages.get("note")!.record.updatedAt;
+      kernel.pages.writeHtml("shelf", { id: "note", kind: "doc", title: "Note", html: "<article data-doc><h1>Note</h1><p>two</p></article>" });
+      const late = await handleApiRequest(kernel, { method: "POST", path: "/api/pages/note/save", body: { edit: { doc: "<h1>Note</h1><p>mine</p>" }, base: opened - 1 } });
+      expect(late.status).toBe(409);
+      expect(JSON.stringify(late.body)).toMatch(/changed after it was opened.*Reload/);
+      const base = kernel.pages.get("note")!.record.updatedAt;
+      const saved = await handleApiRequest(kernel, { method: "POST", path: "/api/pages/note/save", body: { edit: { doc: "<h1>Note</h1><p>mine</p>" }, base } });
+      expect(saved.status).toBe(200);
+    });
+
     /*
      * A page query and a headline are the agent's SQL, run whenever the owner
      * looks. One that never ends held the server's only thread, and with it

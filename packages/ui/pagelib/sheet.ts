@@ -19,6 +19,8 @@ import { addStyle, el, kos, ready, reason } from "./runtime.js";
 
 /** How long after an edit the workbook is saved, so a run of edits is one version. */
 export const SAVE_DELAY_MS = 600;
+/** The least time between two saves: KOS takes one of the owner's edits to an artifact every 2 s (PageStore's EDIT_GAP_MS). */
+export const SAVE_GAP_MS = 2100;
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const quote = (name: string): string => `"${name.replace(/"/g, '""')}"`;
@@ -70,6 +72,7 @@ class Sheet {
   private loaded = new Map<number, Loaded>();
   private wb: Workbook;
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  private savedAt = -Infinity;
   private readonly root = el("div", { class: "sheet" });
   private readonly status = el("span", { class: "sheet-status", role: "status", "aria-live": "polite" });
   private resizeWatch: ResizeObserver | undefined;
@@ -426,11 +429,12 @@ class Sheet {
     this.say("Unsaved changes");
     this.saveTimer = setTimeout(() => {
       this.say("Saving…");
+      this.savedAt = Date.now();
       save({ sheet: this.book }).then(
         () => this.say("Saved"),
         (e: unknown) => this.say(`Not saved: ${reason(e)}`, true),
       );
-    }, SAVE_DELAY_MS);
+    }, Math.max(SAVE_DELAY_MS, this.savedAt + SAVE_GAP_MS - Date.now()));
   }
 
   private drawCharts(): void {

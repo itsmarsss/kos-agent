@@ -90,6 +90,15 @@ and may not change which tables the sheet reads. Then the whole document
 goes through every check a write does. A page or a deck is not edited in
 place; "Edit with KOS" asks for the change instead.
 
+A save is the owner's: the dashboard relays `kos.save` only while the
+browser reports a user gesture (`navigator.userActivation.isActive`), so a
+page cannot save on its own. The dashboard sends the version the edit was
+made on (the record's `updatedAt`); if KOS or another window saved since,
+the server answers 409 and the dashboard says so and offers a reload rather
+than overwrite the newer version. An edit that changes nothing is refused,
+and an artifact takes one edit every 2 s (`EDIT_GAP_MS`); the sheet runtime
+spaces its saves to match.
+
 ## Fonts
 
 The frame has no network, so KOS bundles a small set of open-licensed (SIL

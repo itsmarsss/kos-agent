@@ -150,7 +150,7 @@ query:function(sql,params){return call("query",{sql:sql,params:params})},
 write:function(table,op,values,key){return call("write",{table:table,op:op,values:values,key:key}).then(function(r){refreshFns.forEach(function(f){try{f()}catch(err){report(err&&err.message||err)}});return r})},
 files:Object.freeze({read:function(path){return call("file",{path:path})}}),
 ask:function(text){return call("ask",{text:String(text)})},
-save:function(edit){return call("save",{edit:edit})},
+save:function(edit){var u=navigator.userActivation;if(u&&!u.isActive)return Promise.reject(new Error("a save comes from the owner: press Save, or edit a cell"));return call("save",{edit:edit})},
 present:function(){top.postMessage({__kos:"present"},"*")},
 onTheme:function(f){themeFns.push(f)},
 refresh:function(f){refreshFns.push(f)}

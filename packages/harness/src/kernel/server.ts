@@ -13,6 +13,7 @@ import { DREAM_JOB, MEMORY_JOB, OBSERVE_JOB } from "../memory/job.js";
 import { runDisplayQuery } from "../systems/display.js";
 import type { Headline } from "../systems/headlines.js";
 import { BridgeRefusal } from "../systems/pagebridge.js";
+import { EditConflict } from "../systems/pages.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
@@ -1444,7 +1445,7 @@ export async function handleApiRequest(
       return ok(await kernel.artifactCall(id, verb, body));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return { status: err instanceof BridgeRefusal ? 403 : 400, body: { error: message } };
+      return { status: err instanceof BridgeRefusal ? 403 : err instanceof EditConflict ? 409 : 400, body: { error: message } };
     }
   }
 

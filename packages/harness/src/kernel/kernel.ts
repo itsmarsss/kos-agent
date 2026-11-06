@@ -3556,7 +3556,7 @@ export class Kernel {
       if (verb === "query") return await pageQuery(this.workspace.reader, this.pageQueries, bridge, body.sql, body.params, { key: id });
       if (verb === "write") return pageWrite(this.workspace.db, bridge, body);
       if (verb === "file") return pageFile(this.workspace, bridge, body.path);
-      return this.pages.applyEdit(id, body.edit as ArtifactEdit);
+      return this.pages.applyEdit(id, body.edit as ArtifactEdit, body.base);
     } catch (err) {
       if (err instanceof BridgeRefusal) {
         const what = verb === "query" ? { sql: body.sql } : verb === "write" ? { table: body.table, op: body.op } : verb === "file" ? { path: body.path } : {};

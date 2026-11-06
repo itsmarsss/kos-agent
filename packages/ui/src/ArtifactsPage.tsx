@@ -278,7 +278,7 @@ export function ArtifactViewer({
           {error}
         </p>
       )}
-      {record && page && <ArtifactPage ref={frame} record={record} page={page} onSaved={setRecord} />}
+      {record && page && <ArtifactPage ref={frame} record={record} page={page} onSaved={setRecord} onReload={() => void load().catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))} />}
       {!record && !error && <p className="hint">Loading…</p>}
     </div>
   );

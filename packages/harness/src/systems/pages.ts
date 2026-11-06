@@ -49,6 +49,16 @@ CREATE TABLE IF NOT EXISTS pages (
 /** How many versions of one page are kept; older ones go. */
 const VERSIONS_KEPT = 30;
 
+/** The least time between two of the owner's saves to one artifact: an edit is a person typing, not a loop. */
+export const EDIT_GAP_MS = 2000;
+
+/**
+ * An edit made on a version that is no longer the newest: KOS, or the owner
+ * in another window, saved the artifact since. Taking it would silently
+ * undo that save, so it is refused and the owner reloads.
+ */
+export class EditConflict extends Error {}
+
 export type PageKind = "spec" | "html";
 
 export interface PageRecord {
@@ -128,6 +138,9 @@ export function ownerOf(table: string, slugs: string[]): string | undefined {
 }
 
 export class PageStore {
+  /** When each artifact last took one of the owner's edits. */
+  private readonly lastEdit = new Map<string, number>();
+
   constructor(
     private readonly db: Db,
     private readonly workspace: Workspace,
@@ -323,10 +336,19 @@ export class PageStore {
    * artifact's next version. Only the kind's own region changes (a doc's
    * article, a sheet's data), and the result goes through every check a
    * write does, so an edit can reach nothing a write could not.
+   *
+   * `base` is the version the edit was made on (its record's updatedAt): an
+   * edit on an older one is an EditConflict. An edit that changes nothing is
+   * refused, and an artifact takes one edit every EDIT_GAP_MS, so a page that
+   * calls kos.save in a loop cannot fill its history.
    */
-  applyEdit(id: string, edit: ArtifactEdit): PageRecord {
+  applyEdit(id: string, edit: ArtifactEdit, base: unknown): PageRecord {
     const got = this.get(id);
     if (!got || got.kind !== "html") throw new Error(`artifact not found: ${id}`);
+    if (typeof base !== "number") throw new Error("an edit says which version it was made on");
+    if (base !== got.record.updatedAt) {
+      throw new EditConflict("This artifact changed after it was opened: KOS or another window saved a newer version. Reload it to see that one, then make the edit again.");
+    }
     const page = got.page;
     let html: string;
     if ("doc" in edit && page.kind === "doc" && typeof edit.doc === "string") {
@@ -341,7 +363,13 @@ export class PageStore {
     } else {
       throw new Error(page.kind === "doc" || page.kind === "sheet" ? "that edit does not fit this artifact" : "only a doc or a sheet is edited in place");
     }
-    return this.writeHtml(got.record.projectSlug, { ...page, html });
+    if (html === page.html) throw new Error("nothing changed: the edit leaves the artifact as it is");
+    const now = this.now();
+    const last = this.lastEdit.get(id);
+    if (last !== undefined && now - last < EDIT_GAP_MS) throw new Error("saved a moment ago; wait a second and save again");
+    const record = this.writeHtml(got.record.projectSlug, { ...page, html });
+    this.lastEdit.set(id, now);
+    return record;
   }
 
   /** Write a page's file and row, and keep the write as a version. */

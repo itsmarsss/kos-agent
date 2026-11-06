@@ -2,7 +2,7 @@
 import type { SheetBook } from "@kos/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { SAVE_DELAY_MS, cellFromInput, readBook, sourceQuery, startSheets, viewRows } from "./sheet.js";
+import { SAVE_DELAY_MS, SAVE_GAP_MS, cellFromInput, readBook, sourceQuery, startSheets, viewRows } from "./sheet.js";
 
 const BOOK: SheetBook = {
   sheets: [
@@ -141,6 +141,31 @@ describe("kos-sheet in a page", () => {
     expect(sent.sheet.sheets[0]!.rows![1]![2]).toBe(60);
     expect(sent.sheet.sheets[0]!.rows![3]![2]).toBe("=C2*10");
     expect(root.querySelector(".sheet-status")!.textContent).toBe("Saved");
+  });
+
+  it("spaces its saves as far apart as KOS takes them", async () => {
+    vi.useFakeTimers();
+    const save = vi.fn().mockResolvedValue({});
+    (window as { kos?: unknown }).kos = { save };
+    const root = mount();
+    const edit = (text: string): void => {
+      const td = root.querySelector<HTMLTableCellElement>('td[data-row="1"][data-col="2"]')!;
+      td.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      const input = td.querySelector("input")!;
+      input.value = text;
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    };
+    edit("1");
+    await vi.advanceTimersByTimeAsync(SAVE_DELAY_MS);
+    expect(save).toHaveBeenCalledTimes(1);
+    edit("2");
+    await vi.advanceTimersByTimeAsync(SAVE_DELAY_MS + 10);
+    expect(save).toHaveBeenCalledTimes(1);
+    // The second is due a full gap after the first went.
+    await vi.advanceTimersByTimeAsync(SAVE_GAP_MS - SAVE_DELAY_MS - 20);
+    expect(save).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(save).toHaveBeenCalledTimes(2);
   });
 
   it("adds a row and moves with the arrow keys", () => {
