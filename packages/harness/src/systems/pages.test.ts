@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -339,5 +339,104 @@ describe("PageStore HTML pages", () => {
     pages.writeHtml("budget", { id: "gone", title: "Gone", html: "<p>" });
     expect(pages.remove("gone")).toBe(true);
     expect(existsSync(join(root, "projects/budget/pages/.history/gone"))).toBe(false);
+  });
+
+  describe("artifact kinds", () => {
+    const doc = (body: string): string => `<style>h1{color:var(--text)}</style><article data-doc><h1>Plan</h1>${body}</article><script>kos.theme</script>`;
+    const book = { sheets: [{ name: "Spend", columns: [{ label: "Item" }, { label: "Amount", type: "currency", currency: "CAD" }], rows: [["Rent", 1200], ["Food", 300]], totals: { Amount: "sum" } }] };
+    const sheet = (b: unknown): string => `<h1>Spend</h1><script type="application/json" data-sheet>${JSON.stringify(b)}</script>`;
+
+    it("keeps a kind, a description and fonts; an older page reads as a page", () => {
+      pages.writeHtml("budget", { id: "old", title: "Old", html: "<p>x</p>" });
+      const rec = pages.writeHtml("budget", { id: "brief", kind: "doc", title: "Q3 brief", description: "What changed and why.", fonts: ["newsreader", "public-sans"], html: doc("<p>Hi</p>") });
+      expect(rec).toMatchObject({ artifactKind: "doc", description: "What changed and why.", projectSlug: "budget" });
+      expect(pages.list("budget").find((r) => r.id === "old")?.artifactKind).toBe("page");
+      const got = pages.get("brief");
+      expect(got?.kind === "html" && got.page).toMatchObject({ kind: "doc", fonts: ["newsreader", "public-sans"] });
+    });
+
+    it("refuses a kind without its structure, an unknown font, and a bad workbook, saying how to fix it", () => {
+      expect(() => pages.writeHtml("budget", { id: "d", kind: "doc", title: "D", html: "<p>x</p>" })).toThrow(/<article data-doc>/);
+      expect(() => pages.writeHtml("budget", { id: "k", kind: "deck", title: "K", html: "<main data-deck></main>" })).toThrow(/<section> per slide/);
+      expect(() => pages.writeHtml("budget", { id: "s", kind: "sheet", title: "S", html: "<h1>S</h1>" })).toThrow(/data-sheet/);
+      expect(() => pages.writeHtml("budget", { id: "s", kind: "sheet", title: "S", html: sheet({ sheets: [{ name: "A", columns: [] , rows: [] }] }) })).toThrow(/needs columns/);
+      expect(() => pages.writeHtml("budget", { id: "s", kind: "sheet", title: "S", html: '<script type="application/json" data-sheet>{oops</script>' })).toThrow(/not JSON/);
+      expect(() => pages.writeHtml("budget", { id: "f", kind: "doc", title: "F", fonts: ["comic-sans"], html: doc("") })).toThrow(/not one KOS bundles/);
+      expect(() => pages.writeHtml("budget", { id: "w", kind: "slides", title: "W", html: "<p>" })).toThrow(/kind is one of/);
+    });
+
+    it("holds a sheet over a table to its own project's tables", () => {
+      const live = { sheets: [{ name: "Tx", columns: [{ label: "Amount", column: "amount", type: "number" }], source: { table: "budget_tx", key: "id" } }] };
+      expect(pages.writeHtml("budget", { id: "ledger", kind: "sheet", title: "Ledger", html: sheet(live) }).artifactKind).toBe("sheet");
+      const theirs = { sheets: [{ name: "E", columns: [{ label: "Body", column: "body" }], source: { table: "diary_entries", key: "id" } }] };
+      expect(() => pages.writeHtml("budget", { id: "peek", kind: "sheet", title: "Peek", html: sheet(theirs) })).toThrow(/diary_entries.*not a table of project "budget"/);
+    });
+
+    it("keeps a workspace artifact under artifacts/, with no tables, files or headline to reach", () => {
+      const rec = pages.writeHtml(null, { id: "memo", kind: "doc", title: "Memo", html: doc("<p>Note</p>") });
+      expect(rec).toMatchObject({ projectSlug: null, path: "artifacts/memo.html" });
+      expect(pages.list(null).map((r) => r.id)).toEqual(["memo"]);
+      expect(pages.list("budget").some((r) => r.id === "memo")).toBe(false);
+      expect(pages.list().some((r) => r.id === "memo")).toBe(true);
+      expect(existsSync(join(root, "artifacts/.history/memo/1.json"))).toBe(true);
+      expect(() => pages.writeHtml(null, { id: "w", title: "W", html: "<p>", capabilities: { writes: [{ table: "budget_tx", columns: ["amount"] }] } })).toThrow(/belongs to no project/);
+      expect(() => pages.writeHtml(null, { id: "w", title: "W", html: "<p>", headline: { label: "N", query: "SELECT 1" } })).toThrow(/belongs to no project/);
+      expect(() => pages.writeHtml(null, { id: "w", title: "W", html: "<p>", capabilities: { files: true } })).toThrow(/belongs to no project/);
+    });
+
+    it("moves an artifact between a project and the workspace with its history", () => {
+      pages.writeHtml("budget", { id: "move", title: "Move", html: "<p>1</p>" });
+      pages.writeHtml(null, { id: "move", title: "Move", html: "<p>2</p>" });
+      expect(existsSync(join(root, "projects/budget/pages/move.html"))).toBe(false);
+      expect(pages.history("move").map((v) => v.version)).toEqual([1, 2]);
+      pages.rollback("move", 1);
+      const got = pages.get("move");
+      expect(got?.kind === "html" && got.page.html).toBe("<p>1</p>");
+    });
+
+    it("keeps the owner's edit to a doc as a version, changing only the article's text", () => {
+      pages.writeHtml("budget", { id: "brief", kind: "doc", title: "Brief", html: doc("<p>Before</p><aside class=\"callout\"><article>nested</article></aside>") });
+      pages.applyEdit("brief", { doc: "<h1>Plan</h1><p>After, <em>edited</em></p>" });
+      const got = pages.get("brief");
+      expect(got?.kind === "html" && got.page.html).toBe("<style>h1{color:var(--text)}</style><article data-doc><h1>Plan</h1><p>After, <em>edited</em></p></article><script>kos.theme</script>");
+      expect(pages.history("brief")).toHaveLength(2);
+      pages.rollback("brief", 1);
+      expect(pages.get("brief")?.kind === "html" && (pages.get("brief") as { page: { html: string } }).page.html).toContain("Before");
+    });
+
+    it("refuses an edit that carries code, or that does not fit the kind", () => {
+      pages.writeHtml("budget", { id: "brief", kind: "doc", title: "Brief", html: doc("<p>x</p>") });
+      for (const bad of ["<script>x()</script>", '<img src=x onerror="x()">', '<a href="javascript:x()">a</a>', "</article><script>", "<style>body{}</style>"]) {
+        expect(() => pages.applyEdit("brief", { doc: bad })).toThrow(/may not hold/);
+      }
+      expect(() => pages.applyEdit("brief", { doc: "<iframe></iframe>" })).toThrow(/cannot leave its frame/);
+      pages.writeHtml("budget", { id: "app", title: "App", html: "<p>x</p>" });
+      expect(() => pages.applyEdit("app", { doc: "<p>y</p>" })).toThrow(/only a doc or a sheet/);
+      expect(() => pages.applyEdit("brief", { sheet: book as never })).toThrow(/does not fit/);
+      expect(pages.history("brief")).toHaveLength(1);
+    });
+
+    it("keeps the owner's edit to a sheet's data as a version, escaped so data cannot end its script", () => {
+      pages.writeHtml("budget", { id: "spend", kind: "sheet", title: "Spend", html: sheet(book) });
+      const edited = { ...book, sheets: [{ ...book.sheets[0]!, rows: [["Rent", 1250], ["</script><script>alert(1)</script>", 1]] }] };
+      pages.applyEdit("spend", { sheet: edited as never });
+      const got = pages.get("spend");
+      const html = got?.kind === "html" ? got.page.html : "";
+      expect(html).not.toContain("</script><script>");
+      expect(html.match(/<\/script>/g)).toHaveLength(1);
+      expect(JSON.parse(/data-sheet>([\s\S]*)<\/script>/.exec(html)![1]!).sheets[0].rows[1][0]).toBe("</script><script>alert(1)</script>");
+      expect(() => pages.applyEdit("spend", { sheet: { sheets: [] } as never })).toThrow(/cannot be saved/);
+      const moved = { sheets: [{ name: "T", columns: [{ label: "A", column: "amount" }], source: { table: "budget_tx", key: "id" } }] };
+      expect(() => pages.applyEdit("spend", { sheet: moved as never })).toThrow(/which tables/);
+    });
+
+    it("removes an artifact with its history and its captures", () => {
+      pages.writeHtml(null, { id: "gone", title: "Gone", html: "<p>" });
+      const captures = pages.capturesDir("gone");
+      mkdirSync(captures, { recursive: true });
+      expect(pages.remove("gone")).toBe(true);
+      expect(existsSync(captures)).toBe(false);
+      expect(existsSync(join(root, "artifacts/.history/gone"))).toBe(false);
+    });
   });
 });
