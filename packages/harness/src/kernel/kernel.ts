@@ -109,6 +109,7 @@ import { PermissionStore, actsInYourChrome } from "../ops/permissions.js";
 import { offeredSkills, readSkills } from "../skills/manifest.js";
 import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { CHAT_TOOLS } from "../tools/chats.js";
+import { PAGE_TOOLS } from "../tools/systems.js";
 import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
 import { DISCORD_TOOLS, type Audience, type BoundThread, type DiscordServices, type Listen, type ServerPlace } from "../tools/discord.js";
 import { agentConversationId, agentScope, KOS_FACE_KEY, parseFaceLook, type FaceLook, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
@@ -262,6 +263,13 @@ const SURFACE_BRIEF = [
  * it. The chats.* tools are restricted and arrive separately as a grant.
  */
 const ORCHESTRATOR_SCOPE = ["memory"];
+
+/**
+ * What a project's own orchestrator is granted: the root's chats, blobs and
+ * Discord tools, and its project's pages. Asked to turn its pages into
+ * artifacts, it had no page tool to read or write one with, and said so.
+ */
+const PROJECT_ORCHESTRATOR_GRANT = [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS, ...PAGE_TOOLS];
 
 /**
  * What a turn may reach when a guest is speaking: the chat's own data, the
@@ -2259,7 +2267,7 @@ export class Kernel {
     const res = await this.handleMessage(text, {
       sessionId: id,
       userId: this.profile.ownerId,
-      grant: [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS],
+      grant: PROJECT_ORCHESTRATOR_GRANT,
       allow: [...ORCHESTRATOR_SCOPE],
       ...(opts.channel ? { channel: opts.channel } : {}),
       ...(opts.attachments ? { attachments: opts.attachments } : {}),
@@ -2307,13 +2315,14 @@ export class Kernel {
     // own orchestrator is the exception: handed its goal by KOS it is still
     // the orchestrator, and ran without its tools it could not stand the
     // project up, which it was dispatched to do.
-    const orchestrates = conversation.id.startsWith("project:") || conversation.id === orchestratorId(this.profile.ownerId);
+    const projectChat = conversation.id.startsWith("project:");
+    const orchestrates = projectChat || conversation.id === orchestratorId(this.profile.ownerId);
     const turn = (): Promise<HandleResult> =>
       this.runTurn(text, conversation.userId, conversation.id, {
         channel: "dispatch",
         ...(from ? { from } : {}),
         ...(trail.length ? { trail } : {}),
-        ...(orchestrates ? { grant: [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS], allow: [...ORCHESTRATOR_SCOPE] } : {}),
+        ...(orchestrates ? { grant: projectChat ? PROJECT_ORCHESTRATOR_GRANT : [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS], allow: [...ORCHESTRATOR_SCOPE] } : {}),
       });
     /*
      * In the target's own lane, behind anything already running there.
