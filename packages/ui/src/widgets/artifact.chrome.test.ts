@@ -207,7 +207,15 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     if (chrome && chrome.exitCode === null) await new Promise((r) => (chrome.once("exit", r), chrome.kill()));
     evil?.close();
     host?.close();
-    if (profile) rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+    // Chrome's helpers can still be writing the profile after the browser exits; a temp
+    // folder left behind must not fail the run, so the delete retries and then lets go.
+    if (profile) {
+      try {
+        rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      } catch {
+        // The OS clears tmp; the test's verdict stands.
+      }
+    }
   });
 
   /** The dashboard's side: the frame as ArtifactPage draws it, around one page. */
