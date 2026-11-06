@@ -10,7 +10,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const record: PageSummary = { id: "budget", projectSlug: "budget", title: "Budget", path: "x", updatedAt: 1, kind: "html" };
+const record: PageSummary = { id: "budget", projectSlug: "budget", title: "Budget", path: "x", updatedAt: 1, kind: "html", artifactKind: "page" };
 const versions = [
   { version: 1, title: "Budget", kind: "html" as const, at: 1000 },
   { version: 2, title: "Budget", kind: "html" as const, at: 2000 },

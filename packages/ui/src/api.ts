@@ -417,14 +417,24 @@ export interface AuditRecord {
 
 export interface PageSummary {
   id: string;
-  projectSlug: string;
+  /** Null for a workspace artifact, which belongs to no project. */
+  projectSlug: string | null;
   title: string;
   path: string;
   updatedAt: number;
-  /** An HTML page the agent wrote, or an older widget spec. */
+  /** An HTML artifact the agent wrote, or an older widget spec. */
   kind: "html" | "spec";
+  /** What it is: page, doc, deck or sheet. */
+  artifactKind: import("@kos/shared").ArtifactKind;
+  description?: string;
   /** The figure an HTML page offers its project's card, when it declares one. */
   headline?: { label: string; value: unknown };
+}
+
+/** An artifact as the gallery lists it. */
+export interface ArtifactSummary extends PageSummary {
+  /** When artifacts.check last drew it, in ms; absent before its first check. */
+  capturedAt?: number;
 }
 
 /** One kept write of a page, newest last. */
@@ -1102,7 +1112,11 @@ export const api = {
   /** A page of either kind, to show it. */
   anyPage: (id: string) => get<AnyPagePayload>(`/api/pages/${encodeURIComponent(id)}`),
   /** An HTML page's window.kos calls, checked by the server against its declarations. */
-  pageCall: (id: string, verb: "query" | "write" | "file", args: Record<string, unknown>) => post<unknown>(`/api/pages/${encodeURIComponent(id)}/${verb}`, args),
+  pageCall: (id: string, verb: "query" | "write" | "file" | "save", args: Record<string, unknown>) => post<unknown>(`/api/pages/${encodeURIComponent(id)}/${verb}`, args),
+  /** Every artifact, across projects and the workspace, with when it was last captured. */
+  artifacts: () => get<ArtifactSummary[]>("/api/artifacts"),
+  /** Render an artifact and keep its captures: the gallery's thumbnail. */
+  checkArtifact: (id: string) => post<{ findings: { kind: string; text: string }[]; capturedAt?: number }>(`/api/artifacts/${encodeURIComponent(id)}/check`),
   pageHistory: (id: string) => get<PageVersion[]>(`/api/pages/${encodeURIComponent(id)}/history`),
   pageRollback: (id: string, version: number) => post<PageSummary>(`/api/pages/${encodeURIComponent(id)}/rollback`, { version }),
   mutate: (req: MutateRequest) => post<MutateResult>("/api/mutate", req),

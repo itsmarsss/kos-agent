@@ -339,6 +339,7 @@ export function App(): React.ReactElement {
   const pagesByProject = useMemo(() => {
     const map = new Map<string, PageSummary[]>();
     for (const pg of pages) {
+      if (pg.projectSlug === null) continue;
       const list = map.get(pg.projectSlug) ?? [];
       list.push(pg);
       map.set(pg.projectSlug, list);
