@@ -159,7 +159,11 @@ theme, not a live render: a gallery of live frames would start every
 artifact's runtime and queries at once just to draw stamps, while a capture
 costs nothing to show. A missing capture, or one older than the artifact,
 is redrawn when the gallery opens, one at a time in the background
-(`POST /api/artifacts/<id>/check`); until then the card shows its kind.
+(`POST /api/artifacts/<id>/check`), at most eight in a visit; until then the
+card shows its kind. An agent's `artifacts.check` goes ahead of any redraws
+still waiting. An older widget-spec page is listed too, marked as one; it
+has no capture, and its viewer offers Convert with KOS, which asks its
+project's chat to rewrite it as an HTML artifact under the same id.
 
 Opening one shows it full size with its version history and Roll back,
 Edit with KOS (the owner says what should change, and it goes to the chat
