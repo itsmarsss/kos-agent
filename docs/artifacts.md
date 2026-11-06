@@ -99,6 +99,42 @@ than overwrite the newer version. An edit that changes nothing is refused,
 and an artifact takes one edit every 2 s (`EDIT_GAP_MS`); the sheet runtime
 spaces its saves to match.
 
+### Editing a doc
+
+Edit makes the doc editable where it is drawn, as a document editor does
+(`ui/pagelib/docedit.ts`): a bar of formats over a selection (bold, italic,
+code, a link to one of the doc's headings, H1 to H3, lists, quote), a "/"
+menu of blocks at the start of an empty line (headings, lists, a
+checklist, a quote, a divider, a table, a callout, an image from a file),
+markdown typed at a line's start (`# `, `## `, `- `, `1. `, `> `, `[] `)
+and around words (`**bold**`, `` `code` ``), and undo and redo beside Done.
+It saves on its own 1.2 s after the owner stops typing, no sooner than
+2.1 s after the last save, through the same `kos.save`, so the gesture,
+conflict and rate rules above all hold; Done (or Cmd+S, or Escape) saves
+what is waiting and draws the doc again, and stays in editing if the save
+was refused.
+
+It runs inside the doc's frame, on the browser's own editing
+(contenteditable and its commands), not on an editor library's model: a
+schema would drop what the agent wrote and it did not know (a callout, a
+pull quote, a footnote, a class), and undo is the browser's. Nothing new
+leaves the frame, so the frame's policy, Trusted Types and the guard are as
+they were; the markup it makes is the doc's own (no forms, frames or links
+off the page; a link goes to a heading, since a frame has nowhere else to
+go). An image is read from a file the owner picks and kept inline as data,
+up to 300 KB.
+
+### Editing from anywhere, written in one place
+
+The owner can edit an artifact wherever it shows: on the Artifacts page, in
+its project, opened from a blob's list. Every such edit goes through the
+same `kos.save` to `PageStore.applyEdit` for that artifact, which changes it
+where it lives: an edit never moves an artifact, gives it a capability, or
+reaches another project's tables. KOS's own writes keep their fence as
+before (`artifacts.write` writes the calling project's, or the workspace's);
+there is no new path for one project to write another's artifact.
+
+
 ## Fonts
 
 The frame has no network, so KOS bundles a small set of open-licensed (SIL
@@ -173,10 +209,17 @@ project's chat to rewrite it as an HTML artifact under the same id.
 
 Opening one shows it full size under a head with its title, kind, project
 and when it changed, and its actions: History (a drawer of every version,
-newest first, each older one with Roll back), Open in project, Present for a
-deck (the frame goes full screen and tells the deck to present), and Edit
+newest first, each older one with Preview, which shows that version in place
+with nothing in it saved or written, and Restore), Open in project, Present
+for a deck (the frame goes full screen and tells the deck to present), and Edit
 with KOS (the owner says what should change, and it goes to the chat that
 owns the artifact: the project's, or KOS at the root).
+
+The same viewer shows an artifact opened from its project (`#/page/<id>`),
+and in place of the chat when one is picked from the Artifacts list beside a
+project's or a blob's chat (`ArtifactRail.tsx`): each artifact's kind, title
+and when it changed, and for a blob, which works in several projects, whose
+each one is. On a narrow window the list folds into one row under the chat.
 
 ### Drawn as part of the page
 
