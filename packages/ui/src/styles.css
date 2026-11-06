@@ -7106,6 +7106,8 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .artifact-ask p { margin: 0 0 0.4rem; }
 .artifact-ask blockquote { margin: 0 0 0.6rem; padding: 0.4rem 0.7rem; border-left: 2px solid var(--accent); color: var(--text); white-space: pre-wrap; }
 .artifact-error { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; }
+/* An older widget page in the Artifacts viewer: what it is, and a way to have KOS convert it. */
+.artifact-older { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; border: 1px solid var(--line); background: var(--panel); }
 .artifact-ask-acts { display: flex; gap: 0.5rem; }
 .page-history { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; margin-bottom: 0.4rem; }
 /* Full screen (presenting a deck): the frame takes the whole screen, nothing around it. */

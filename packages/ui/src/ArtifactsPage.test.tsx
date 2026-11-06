@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { api, type ArtifactSummary, type Project } from "./api.js";
-import { ArtifactViewer, ArtifactsPage, chatOf, editRequest } from "./ArtifactsPage.js";
+import { ArtifactViewer, ArtifactsPage, chatOf, convertRequest, editRequest } from "./ArtifactsPage.js";
 import { hrefFor, NAV, parseRoute } from "./routes.js";
 
 beforeAll(() => {
@@ -75,6 +75,17 @@ describe("the Artifacts page", () => {
     expect(check.mock.calls.map((c) => c[0])).toEqual(stale.slice(0, 8).map((a) => a.id));
   });
 
+  it("lists an older widget page, marked as one, and never redraws it", async () => {
+    const widget = { id: "old", projectSlug: "budget", title: "Old board", path: "", updatedAt: at(1), kind: "spec", artifactKind: "page" } as ArtifactSummary;
+    vi.spyOn(api, "artifacts").mockResolvedValue([widget, ...ART]);
+    const check = vi.spyOn(api, "checkArtifact").mockResolvedValue({ findings: [], capturedAt: Date.now() });
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
+    await waitFor(() => expect(titles()).toContain("Old board"));
+    expect(within(screen.getByText("Old board").closest("button")!).getByText("Older widget page")).toBeTruthy();
+    await waitFor(() => expect(check).toHaveBeenCalledTimes(2));
+    expect(check.mock.calls.map((c) => c[0])).not.toContain("old");
+  });
+
   it("tells the workspace from a project whose slug is workspace", async () => {
     const mine = { id: "plan", projectSlug: "workspace", title: "Office plan", path: "", updatedAt: at(2), kind: "html", artifactKind: "page", capturedAt: at(1) } as ArtifactSummary;
     vi.spyOn(api, "artifacts").mockResolvedValue([mine, ...ART]);
@@ -140,5 +151,20 @@ describe("one artifact, full size", () => {
     fireEvent.change(screen.getByLabelText(/What should change/), { target: { value: "Shorter" } });
     fireEvent.click(screen.getByRole("button", { name: "Ask KOS" }));
     expect(sent.mock.calls[0]?.[1]).toBe("project:budget");
+  });
+
+  it("says a widget page is an older one, and asks its project's chat to convert it", async () => {
+    const record = { id: "old", projectSlug: "budget", title: "Old board", path: "", updatedAt: at(1), kind: "spec" as const, artifactKind: "page" as const };
+    vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "spec", spec: { id: "old", title: "Old board", widgets: [] }, data: {}, errors: {} } as never);
+    vi.spyOn(api, "pageHistory").mockResolvedValue([]);
+    const sent = vi.spyOn(api, "message").mockResolvedValue({ reply: "" } as never);
+    const opened = vi.fn();
+    render(<ArtifactViewer id="old" projects={projects} onBack={() => undefined} onOpenChat={opened} />);
+    expect(await screen.findByText("This is an older widget page; open it from its project.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Edit with KOS" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Convert with KOS" }));
+    expect(sent).toHaveBeenCalledWith(convertRequest(record), "project:budget");
+    expect(sent.mock.calls[0]?.[0]).toMatch(/@page:old.*artifacts\.get.*artifacts\.write as HTML under the same id/);
+    expect(opened).toHaveBeenCalledWith("budget");
   });
 });

@@ -37,7 +37,13 @@ const ALL_PROJECTS = "@all";
 /** How many missing or stale captures one visit redraws: each is a few seconds of Chrome. */
 const REDRAW_MAX = 8;
 
-const isStale = (a: ArtifactSummary): boolean => !a.capturedAt || a.capturedAt < a.updatedAt;
+/** An older widget-spec page: listed with the rest, but never drawn by artifacts.check, so never redrawn. */
+const isWidgetPage = (a: { kind: string }): boolean => a.kind !== "html";
+
+const isStale = (a: ArtifactSummary): boolean => !isWidgetPage(a) && (!a.capturedAt || a.capturedAt < a.updatedAt);
+
+/** What the viewer says of an older widget page. */
+const WIDGET_PAGE_WORDS = "This is an older widget page; open it from its project.";
 
 /** The words the gallery's search looks in. */
 const haystack = (a: ArtifactSummary, project: string): string => `${a.title} ${a.description ?? ""} ${project}`.toLowerCase();
@@ -68,7 +74,7 @@ export function ArtifactsPage({ projects, onOpen }: { projects: Project[]; onOpe
     let stale = false;
     api
       .artifacts()
-      .then((got) => !stale && setList(got.filter((a) => a.kind === "html").sort((a, b) => b.updatedAt - a.updatedAt)))
+      .then((got) => !stale && setList([...got].sort((a, b) => b.updatedAt - a.updatedAt)))
       .catch((err: unknown) => !stale && setError(err instanceof Error ? err.message : String(err)));
     return () => {
       stale = true;
@@ -163,7 +169,7 @@ export function ArtifactsPage({ projects, onOpen }: { projects: Project[]; onOpe
                   <span className="artifact-card-title">{a.title}</span>
                   {a.description && <span className="artifact-card-desc">{a.description}</span>}
                   <span className="artifact-card-meta">
-                    <Tag>{KIND_WORD[a.artifactKind]}</Tag>
+                    {isWidgetPage(a) ? <Tag title="Made before artifacts; KOS can convert it">Older widget page</Tag> : <Tag>{KIND_WORD[a.artifactKind]}</Tag>}
                     <span className="artifact-card-owner">{nameOf(a)}</span>
                     <span className="artifact-card-time">{relativeWords(Math.round(a.updatedAt / 1000))}</span>
                   </span>
@@ -190,6 +196,11 @@ export function editRequest(words: string, record: PageSummary): string {
   return `${words.trim()}\n\nThis is about @page:${record.id}, the ${KIND_WORD[record.artifactKind].toLowerCase()} "${record.title}". Read it with artifacts.get, change it, check it once with artifacts.check, and save it with artifacts.write under the same id, leaving project out so it stays where it is.`;
 }
 
+/** What "Convert with KOS" sends to the owning chat: rewrite the widget page as an artifact under the same id. */
+export function convertRequest(record: PageSummary): string {
+  return `Convert the older widget page @page:${record.id} ("${record.title}") into an artifact. Read it with artifacts.get, read artifacts.guide for the kind that fits (usually a page), and write it with artifacts.write as HTML under the same id, leaving project out so it stays in its project and keeps its versions. Keep what it shows and what it lets the owner change. Check it once with artifacts.check.`;
+}
+
 /**
  * One artifact, filling the page: its frame, its versions with a way back,
  * a way to ask KOS for a change in the chat that owns it, and presenting
@@ -210,6 +221,7 @@ export function ArtifactViewer({
   const [record, setRecord] = useState<PageSummary>();
   const [page, setPage] = useState<HtmlPage>();
   const [error, setError] = useState<string>();
+  const [older, setOlder] = useState(false);
   const [asking, setAsking] = useState(false);
   const [words, setWords] = useState("");
   const frame = useRef<ArtifactHandle>(null);
@@ -217,8 +229,8 @@ export function ArtifactViewer({
   const load = (): Promise<void> =>
     api.anyPage(id).then((got) => {
       setRecord(got.record);
+      setOlder(got.kind !== "html");
       if (got.kind === "html") setPage(got.page);
-      else setError("This is an older widget page; open it from its project.");
     });
 
   useEffect(() => {
@@ -227,6 +239,12 @@ export function ArtifactViewer({
   }, [id]);
 
   const owner = record?.projectSlug ? projects.find((p) => p.slug === record.projectSlug)?.name ?? record.projectSlug : "Workspace";
+
+  const convert = (): void => {
+    if (!record?.projectSlug) return;
+    void api.message(convertRequest(record), `project:${record.projectSlug}`).catch(() => undefined);
+    onOpenChat(record.projectSlug);
+  };
 
   const ask = (): void => {
     if (!record || !words.trim()) return;
@@ -246,7 +264,7 @@ export function ArtifactViewer({
           <div className="artifact-view-titles">
             <h1 className="artifact-view-title">{record.title}</h1>
             <span className="artifact-view-meta">
-              <Tag>{KIND_WORD[record.artifactKind]}</Tag>
+              <Tag>{older ? "Older widget page" : KIND_WORD[record.artifactKind]}</Tag>
               <span>{owner}</span>
               <span>{relativeWords(Math.round(record.updatedAt / 1000))}</span>
             </span>
@@ -260,9 +278,11 @@ export function ArtifactViewer({
                 Present
               </button>
             )}
-            <button type="button" className="btn btn--primary btn--sm" aria-expanded={asking} onClick={() => setAsking((v) => !v)}>
-              Edit with KOS
-            </button>
+            {!older && (
+              <button type="button" className="btn btn--primary btn--sm" aria-expanded={asking} onClick={() => setAsking((v) => !v)}>
+                Edit with KOS
+              </button>
+            )}
           </div>
         )}
       </header>
@@ -284,6 +304,16 @@ export function ArtifactViewer({
         </form>
       )}
       {record?.description && <p className="artifact-view-desc">{record.description}</p>}
+      {older && record && (
+        <div className="ops-alert artifact-older" role="status">
+          <span>{WIDGET_PAGE_WORDS}</span>
+          {record.projectSlug && (
+            <button type="button" className="btn btn--sm" onClick={convert}>
+              Convert with KOS
+            </button>
+          )}
+        </div>
+      )}
       {error && (
         <p className="ops-alert ops-alert--err" role="alert">
           {error}
