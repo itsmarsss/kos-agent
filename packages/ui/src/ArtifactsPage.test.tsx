@@ -64,6 +64,22 @@ describe("the Artifacts page", () => {
     expect(container.querySelector(".artifact-thumb img")?.getAttribute("src")).toMatch(/^\/api\/artifacts\/spend\/thumb\?theme=dark&v=\d+$/);
   });
 
+  it("tells the workspace from a project whose slug is workspace", async () => {
+    const mine = { id: "plan", projectSlug: "workspace", title: "Office plan", path: "", updatedAt: at(2), kind: "html", artifactKind: "page", capturedAt: at(1) } as ArtifactSummary;
+    vi.spyOn(api, "artifacts").mockResolvedValue([mine, ...ART]);
+    vi.spyOn(api, "checkArtifact").mockResolvedValue({ findings: [], capturedAt: Date.now() });
+    render(<ArtifactsPage projects={[...projects, { slug: "workspace", name: "Office" } as Project]} onOpen={() => undefined} />);
+    await waitFor(() => expect(titles()).toHaveLength(5));
+    const choose = (label: string): void => {
+      fireEvent.click(screen.getByRole("button", { name: "Project" }));
+      fireEvent.click(screen.getByRole("option", { name: label }));
+    };
+    choose("Office");
+    expect(titles()).toEqual(["Office plan"]);
+    choose("Workspace");
+    expect(titles()).toEqual(["Q4 brief", "Garden pitch"]);
+  });
+
   it("opens an artifact from its card, and says plainly when there are none", async () => {
     vi.spyOn(api, "artifacts").mockResolvedValue(ART.slice(0, 1));
     const open = vi.fn();

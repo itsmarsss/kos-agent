@@ -1,5 +1,5 @@
 import { Chips, Empty, NavIcon, Tag, type ChipOption } from "@kos/kit";
-import { relativeWords, type ArtifactKind, type HtmlPage } from "@kos/shared";
+import { WORKSPACE_SCOPE, relativeWords, type ArtifactKind, type HtmlPage } from "@kos/shared";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 
 import { api, type ArtifactSummary, type PageSummary, type Project } from "./api.js";
@@ -30,6 +30,9 @@ const KINDS: readonly ChipOption<ArtifactKind | "all">[] = [
 
 const KIND_WORD: Record<ArtifactKind, string> = { page: "Page", doc: "Doc", deck: "Deck", sheet: "Sheet" };
 
+/** The project filter's "every project": like WORKSPACE_SCOPE, never a slug. */
+const ALL_PROJECTS = "@all";
+
 /** How many missing or stale captures one visit redraws: each is a few seconds of Chrome. */
 const REDRAW_MAX = 8;
 
@@ -55,7 +58,7 @@ export function ArtifactsPage({ projects, onOpen }: { projects: Project[]; onOpe
   const [list, setList] = useState<ArtifactSummary[]>();
   const [error, setError] = useState<string>();
   const [kind, setKind] = useState<ArtifactKind | "all">("all");
-  const [project, setProject] = useState("all");
+  const [project, setProject] = useState(ALL_PROJECTS);
   const [query, setQuery] = useState("");
   const projectName = useMemo(() => new Map(projects.map((p) => [p.slug, p.name])), [projects]);
   const nameOf = (a: ArtifactSummary): string => (a.projectSlug ? projectName.get(a.projectSlug) ?? a.projectSlug : "Workspace");
@@ -95,7 +98,7 @@ export function ArtifactsPage({ projects, onOpen }: { projects: Project[]; onOpe
     return (list ?? []).filter(
       (a) =>
         (kind === "all" || a.artifactKind === kind) &&
-        (project === "all" || (project === "workspace" ? a.projectSlug === null : a.projectSlug === project)) &&
+        (project === ALL_PROJECTS || (project === WORKSPACE_SCOPE ? a.projectSlug === null : a.projectSlug === project)) &&
         (!q || haystack(a, a.projectSlug ? projectName.get(a.projectSlug) ?? a.projectSlug : "workspace").includes(q)),
     );
   }, [kind, list, project, projectName, query]);
@@ -103,8 +106,8 @@ export function ArtifactsPage({ projects, onOpen }: { projects: Project[]; onOpe
   const owners = useMemo(() => {
     const slugs = [...new Set((list ?? []).flatMap((a) => (a.projectSlug ? [a.projectSlug] : [])))];
     return [
-      { value: "all", label: "All projects" },
-      ...((list ?? []).some((a) => a.projectSlug === null) ? [{ value: "workspace", label: "Workspace" }] : []),
+      { value: ALL_PROJECTS, label: "All projects" },
+      ...((list ?? []).some((a) => a.projectSlug === null) ? [{ value: WORKSPACE_SCOPE, label: "Workspace" }] : []),
       ...slugs.map((s) => ({ value: s, label: projectName.get(s) ?? s })).sort((a, b) => a.label.localeCompare(b.label)),
     ];
   }, [list, projectName]);
