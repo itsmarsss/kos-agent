@@ -2206,7 +2206,10 @@ export function ChatsPage({
                 </div>
               )}
               {live ? (
-                <LiveTurn live={live} />
+                <LiveTurn
+                  live={live}
+                  waiting={activeId !== undefined && (waitingOn.has(activeId) || active?.activity === "needs-you")}
+                />
               ) : (
                 sendingIn === activeId && (
                   // The same markup a running turn uses, not a lookalike:

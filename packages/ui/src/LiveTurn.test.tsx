@@ -88,6 +88,25 @@ describe("LiveTurn states", () => {
     expect(container.textContent).toContain("Building page 1 now.");
   });
 
+  it("says it waits on the owner, with no dots or clock, while held on them", () => {
+    // Suspended on an approval the turn is not running: a counting clock
+    // under "Running ..." says KOS is busy when it is the owner's move.
+    const live: Live = {
+      ...base,
+      steps: [{ kind: "tool", tool: "shell.run", summary: "rm build", done: false, isError: false }],
+    };
+    const { container, rerender } = render(<LiveTurn live={live} waiting />);
+    const foot = container.lastElementChild;
+    expect(foot?.querySelector(".live-what")?.textContent).toBe("Waiting on you");
+    expect(foot?.querySelector(".live-dots")).toBeNull();
+    expect(foot?.querySelector(".live-elapsed")).toBeNull();
+    expect(container.textContent).not.toContain("Running");
+
+    rerender(<LiveTurn live={live} />);
+    expect(container.lastElementChild?.querySelector(".live-what")?.textContent).toBe("Running rm build");
+    expect(container.querySelector(".live-dots")).toBeTruthy();
+  });
+
   it("keeps finished tool calls visible while it thinks about the result", () => {
     const { container } = render(
       <LiveTurn

@@ -46,7 +46,14 @@ function Congregation({ members }: { members: CongregationMember[] }): ReactElem
   );
 }
 
-export function LiveTurn({ live }: { live: Live }): ReactElement {
+export function LiveTurn({
+  live,
+  waiting = false,
+}: {
+  live: Live;
+  /** The turn is held on the owner: an approval or a question is up. */
+  waiting?: boolean;
+}): ReactElement {
   const running = live.steps.find(
     (s): s is Extract<LiveStep, { kind: "tool" }> => s.kind === "tool" && !s.done,
   );
@@ -123,11 +130,19 @@ export function LiveTurn({ live }: { live: Live }): ReactElement {
           working: the work is over, only the handover is not. */}
       {!live.ended && (
         <div className="bubble bubble--kos live">
-          <div className="live-head">
-            <WorkingDots />
-            <span className="live-what">{what}</span>
-            <Elapsed since={live.since} />
-          </div>
+          {/* Held on the owner, it is not running: no dots, no clock counting
+              time that is the owner's, not KOS's. */}
+          {waiting ? (
+            <div className="live-head">
+              <span className="live-what">Waiting on you</span>
+            </div>
+          ) : (
+            <div className="live-head">
+              <WorkingDots />
+              <span className="live-what">{what}</span>
+              <Elapsed since={live.since} />
+            </div>
+          )}
         </div>
       )}
     </>
