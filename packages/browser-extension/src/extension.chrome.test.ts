@@ -398,6 +398,8 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(await call("chat.status", { conversation: "chrome:owner" })).toMatchObject({ ok: true });
     for (let i = 0; i < 50 && (await devtools.evaluate(panel, `!!${foot}`)); i++) await until(() => false, 100);
     expect(await devtools.evaluate(panel, `!!${foot}`)).toBe(false);
+    // The queued words answered, so none is left on its way for the next test.
+    expect(await call("chat.show", { conversation: "chrome:owner", title: "Chrome", messages: [{ role: "you", text: "Summarize this page" }, { role: "kos", text: "It is a **shop**." }, { role: "you", text: "And the shipping?" }, { role: "kos", text: "Free." }] })).toMatchObject({ ok: true });
   }, 40_000);
 
   it("never waits forever: words KOS does not take come back, and a KOS that never shows the chat is said to", async () => {
