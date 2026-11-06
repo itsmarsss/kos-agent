@@ -15,6 +15,8 @@ interface Fake {
   options: Record<string, unknown>;
   prompt: string;
   interrupted: boolean;
+  /** The stream was closed: left by its reader, or run to its end. */
+  closed: boolean;
 }
 
 const run = vi.hoisted(() => ({ script: undefined as Script | undefined, queries: [] as Fake[] }));
@@ -23,18 +25,28 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   tool: (name: string, _d: string, _s: unknown, handler: Handler) => ({ name, handler }),
   createSdkMcpServer: ({ tools }: { tools: { name: string; handler: Handler }[] }) => ({ tools: new Map(tools.map((t) => [t.name, t.handler])) }),
   query: ({ prompt, options }: { prompt: AsyncIterable<{ message: { content: { type: string; text?: string }[] } }>; options: Record<string, unknown> }) => {
-    const q: Fake = { options, prompt: "", interrupted: false };
+    const q: Fake = { options, prompt: "", interrupted: false, closed: false };
     run.queries.push(q);
     const tools = (options["mcpServers"] as Record<string, { tools: Map<string, Handler> }>)["kos"]!.tools;
     const stream = (async function* () {
-      for await (const m of prompt) q.prompt = m.message.content.map((b) => b.text ?? `[${b.type}]`).join("\n");
-      yield* run.script!(q, tools);
+      try {
+        for await (const m of prompt) q.prompt = m.message.content.map((b) => b.text ?? `[${b.type}]`).join("\n");
+        yield* run.script!(q, tools);
+      } finally {
+        q.closed = true;
+      }
     })();
     return Object.assign(stream, { interrupt: async () => void (q.interrupted = true) });
   },
 }));
 
-const { runSdkChat } = await import("./sdkchat.js");
+const { runSdkChat, STOPPED_CALL } = await import("./sdkchat.js");
+
+/** Never settles: the SDK's stream as it is for the two seconds after an abort, or a tool still running. */
+const hang = (): Promise<never> => new Promise<never>(() => undefined);
+/** Settles within `ms`, or says the turn was held. */
+const within = <T>(ms: number, p: Promise<T>): Promise<T> =>
+  Promise.race([p, new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`held past ${ms}ms`)), ms))]);
 
 const picture = { data: "SU1H", mediaType: "image/jpeg" };
 const box = (names: string[], answer: (name: string) => { content: string; images?: typeof picture[] }): ToolBox => ({
@@ -133,5 +145,56 @@ describe("a turn on the SDK", () => {
       { kind: "reasoning", text: "subagent thinks" },
       { kind: "text", text: "The price is $16." },
     ]);
+  });
+});
+
+describe("a turn on the SDK the owner stops", () => {
+  it("ends at once while the model is answering, interrupted and aborted, with what it had said", async () => {
+    run.queries = [];
+    run.script = async function* () {
+      yield { type: "stream_event", parent_tool_use_id: null, event: { delta: { text: "The press began in Mainz" } } };
+      await hang();
+    };
+    const stop = new AbortController();
+    const r = await within(1_000, runSdkChat({ prompt: "essay", system: "s", tools: box([], () => ({ content: "" })), cwd: process.cwd(), signal: stop.signal, onDelta: () => stop.abort() }));
+    expect(r.stopped).toBe(true);
+    expect(r.text).toBe("The press began in Mainz");
+    expect(run.queries[0]!.interrupted).toBe(true);
+    expect((run.queries[0]!.options["abortController"] as AbortController).signal.aborted).toBe(true);
+  });
+
+  it("does not wait for a call under way, and keeps it, as stopped", async () => {
+    run.queries = [];
+    run.script = async function* (_q, tools) {
+      await tools.get("python_run")!({});
+      yield result(1);
+    };
+    const stop = new AbortController();
+    const tools: ToolBox = {
+      defs: () => [{ name: "python.run", description: "p", inputSchema: { type: "object", properties: {} } }],
+      execute: () => {
+        setTimeout(() => stop.abort(), 10);
+        return hang();
+      },
+    };
+    const r = await within(1_000, runSdkChat({ prompt: "sleep", system: "s", tools, cwd: process.cwd(), signal: stop.signal }));
+    expect(r.calls).toEqual([expect.objectContaining({ name: "python.run", result: STOPPED_CALL, isError: true })]);
+  });
+
+  it("starts no fresh query once stopped", async () => {
+    run.queries = [];
+    run.script = steps(5);
+    const stop = new AbortController();
+    const r = await runSdkChat({ prompt: "go", system: "s", tools: box(["computer.act"], () => ({ content: "Clicked.", images: [picture] })), cwd: process.cwd(), picturesPerQuery: 1, maxTurns: 20, signal: stop.signal, onFreshQuery: () => stop.abort() });
+    expect(run.queries).toHaveLength(1);
+    expect(r.stopped).toBe(true);
+  });
+
+  it("closes each query it leaves, so the next one can have the tools", async () => {
+    run.queries = [];
+    run.script = steps(3);
+    await runSdkChat({ prompt: "go", system: "s", tools: box(["computer.act"], () => ({ content: "Clicked.", images: [picture] })), cwd: process.cwd(), picturesPerQuery: 1, maxTurns: 20, signal: new AbortController().signal });
+    expect(run.queries.length).toBeGreaterThan(1);
+    expect(run.queries.every((q) => q.closed)).toBe(true);
   });
 });
