@@ -1,13 +1,25 @@
+import { execFileSync, spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 import { runCaptured } from "./capture.js";
 
-const alive = (pid: number): boolean => {
+/**
+ * Not running: reaped, or dead and waiting to be. A zombie still answers
+ * signal 0, and whether it is reaped is up to whoever inherited it (PID 1
+ * in a container), which is not what this checks.
+ */
+const ended = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
-    return true;
   } catch {
-    return false;
+    return true;
+  }
+  try {
+    return execFileSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).trim().startsWith("Z");
+  } catch {
+    // ps exits non-zero when the process is gone by the time it looks.
+    return true;
   }
 };
 
@@ -26,8 +38,19 @@ describe.runIf(process.platform !== "win32")("a program stopped under its turn",
     expect(result).toMatchObject({ stopped: true, timedOut: false });
     const sleeper = Number(result.stdout.trim());
     expect(sleeper).toBeGreaterThan(0);
-    // Reaped by whoever inherited it, a moment after it dies.
-    await vi.waitFor(() => expect(alive(sleeper)).toBe(false), { timeout: 2_000 });
+    await vi.waitFor(() => expect(ended(sleeper)).toBe(true), { timeout: 2_000 });
+  });
+
+  it("counts a zombie as ended, as a container without an init leaves one", async () => {
+    // The shell becomes a sleep that never reaps the child it started, so that child stays a zombie.
+    const parent = spawn("/bin/sh", ["-c", "sleep 0 & echo $!; exec sleep 5"], { stdio: ["ignore", "pipe", "ignore"] });
+    try {
+      const zombie = await new Promise<number>((resolve) => parent.stdout.once("data", (d: Buffer) => resolve(Number(d.toString().trim()))));
+      await vi.waitFor(() => expect(execFileSync("ps", ["-o", "stat=", "-p", String(zombie)], { encoding: "utf8" })).toMatch(/^Z/), { timeout: 2_000 });
+      expect(ended(zombie)).toBe(true);
+    } finally {
+      parent.kill("SIGKILL");
+    }
   });
 
   it("ends at once when the turn was already stopped", async () => {
@@ -38,5 +61,12 @@ describe.runIf(process.platform !== "win32")("a program stopped under its turn",
       { cwd: process.cwd(), env: { PATH: process.env.PATH ?? "" }, timeoutMs: 60_000, maxOutput: 1000, signal: stop.signal },
     );
     expect(result.stopped).toBe(true);
+  });
+});
+
+describe("the container", () => {
+  it("runs under an init that reaps what a killed program left behind", () => {
+    const dockerfile = readFileSync(new URL("../../../../Dockerfile", import.meta.url), "utf8");
+    expect(dockerfile).toMatch(/^ENTRYPOINT \["\/usr\/bin\/tini", "--"\]$/m);
   });
 });
