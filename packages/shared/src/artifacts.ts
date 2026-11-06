@@ -88,6 +88,7 @@ export type SheetAggregate = "sum" | "average" | "min" | "max" | "count";
 
 export interface SheetTab {
   name: string;
+  /** The tab's columns; a pivot tab may leave them out, or declare some to name and format them. */
   columns: SheetColumn[];
   /** Data kept with the artifact. One of rows, source or pivot. */
   rows?: SheetCell[][];
@@ -138,8 +139,10 @@ export function sheetErrors(book: unknown): string[] {
     if (typeof raw.name !== "string" || !raw.name.trim()) errors.push(`${at} needs a name`);
     else if (names.has(raw.name)) errors.push(`${at}: two tabs are called "${raw.name}"`);
     else names.add(raw.name);
-    if (!Array.isArray(raw.columns) || raw.columns.length === 0) errors.push(`${at} needs columns`);
-    else
+    // A pivot works its columns out from what it groups; declared ones only name and format them.
+    const derived = raw.pivot !== undefined && (raw.columns === undefined || (Array.isArray(raw.columns) && raw.columns.length === 0));
+    if (!derived && (!Array.isArray(raw.columns) || raw.columns.length === 0)) errors.push(`${at} needs columns`);
+    else if (Array.isArray(raw.columns))
       raw.columns.forEach((c: unknown, j: number) => {
         if (!isObject(c) || typeof c.label !== "string" || !c.label) errors.push(`${at}.columns[${j}] needs a label`);
         else if (c.type !== undefined && !COLUMN_TYPES.includes(c.type as SheetColumnType)) errors.push(`${at}.columns[${j}].type is one of ${COLUMN_TYPES.join(", ")}`);

@@ -360,6 +360,9 @@ describe("PageStore HTML pages", () => {
       expect(() => pages.writeHtml("budget", { id: "k", kind: "deck", title: "K", html: "<main data-deck></main>" })).toThrow(/<section> per slide/);
       expect(() => pages.writeHtml("budget", { id: "s", kind: "sheet", title: "S", html: "<h1>S</h1>" })).toThrow(/data-sheet/);
       expect(() => pages.writeHtml("budget", { id: "s", kind: "sheet", title: "S", html: sheet({ sheets: [{ name: "A", columns: [] , rows: [] }] }) })).toThrow(/needs columns/);
+      // A pivot tab's columns are worked out, as the guide says, so it may leave them out.
+      const pivoted = { sheets: [book.sheets[0], { name: "By item", pivot: { from: "Spend", by: "Item", values: [{ column: "Amount", fn: "sum" }] } }] };
+      expect(pages.writeHtml("budget", { id: "p", kind: "sheet", title: "P", html: sheet(pivoted) }).artifactKind).toBe("sheet");
       expect(() => pages.writeHtml("budget", { id: "s", kind: "sheet", title: "S", html: '<script type="application/json" data-sheet>{oops</script>' })).toThrow(/not JSON/);
       expect(() => pages.writeHtml("budget", { id: "f", kind: "doc", title: "F", fonts: ["comic-sans"], html: doc("") })).toThrow(/not one KOS bundles/);
       expect(() => pages.writeHtml("budget", { id: "w", kind: "slides", title: "W", html: "<p>" })).toThrow(/kind is one of/);
