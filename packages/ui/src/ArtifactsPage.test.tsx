@@ -64,6 +64,17 @@ describe("the Artifacts page", () => {
     expect(container.querySelector(".artifact-thumb img")?.getAttribute("src")).toMatch(/^\/api\/artifacts\/spend\/thumb\?theme=dark&v=\d+$/);
   });
 
+  it("redraws no more than eight captures in a visit, however many are stale", async () => {
+    const stale = Array.from({ length: 12 }, (_, i) => ({ id: `a${i}`, projectSlug: null, title: `A${i}`, path: "", updatedAt: at(i), kind: "html", artifactKind: "doc" }) as ArtifactSummary);
+    vi.spyOn(api, "artifacts").mockResolvedValue(stale);
+    const check = vi.spyOn(api, "checkArtifact").mockResolvedValue({ findings: [], capturedAt: Date.now() });
+    const { container } = render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
+    await waitFor(() => expect(container.querySelectorAll(".artifact-thumb img")).toHaveLength(8));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(check).toHaveBeenCalledTimes(8);
+    expect(check.mock.calls.map((c) => c[0])).toEqual(stale.slice(0, 8).map((a) => a.id));
+  });
+
   it("tells the workspace from a project whose slug is workspace", async () => {
     const mine = { id: "plan", projectSlug: "workspace", title: "Office plan", path: "", updatedAt: at(2), kind: "html", artifactKind: "page", capturedAt: at(1) } as ArtifactSummary;
     vi.spyOn(api, "artifacts").mockResolvedValue([mine, ...ART]);

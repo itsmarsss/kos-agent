@@ -159,6 +159,13 @@ export interface CheckerOptions {
   chrome?: () => string | undefined;
 }
 
+/** A check waiting its turn. */
+interface Waiting {
+  id: string;
+  resolve: (report: CheckReport) => void;
+  reject: (err: unknown) => void;
+}
+
 /** How long a render may take to settle: its runtime drawn and its queries answered. */
 const SETTLE_MS = 6000;
 /** Quiet time after the last bridge call before measuring. */
@@ -183,7 +190,9 @@ export class ArtifactChecker {
   private cdp: CdpClient | undefined;
   private profile: string | undefined;
   private idle: ReturnType<typeof setTimeout> | undefined;
-  private queue: Promise<unknown> = Promise.resolve();
+  /** Checks waiting their turn: the agent's first, then the gallery's redraws. */
+  private readonly waiting: Record<"agent" | "gallery", Waiting[]> = { agent: [], gallery: [] };
+  private draining = false;
   /** Serves each render's top document once, on loopback: Chrome loads it as a page loads the dashboard. */
   private server: Server | undefined;
   private serverUrl: string | undefined;
@@ -191,16 +200,33 @@ export class ArtifactChecker {
 
   constructor(private readonly options: CheckerOptions) {}
 
-  /** Check one artifact, one at a time: renders share the one Chrome. */
-  check(id: string): Promise<CheckReport> {
-    const run = this.queue.then(() => this.run(id));
-    this.queue = run.catch(() => undefined);
-    return run;
+  /**
+   * Check one artifact, one at a time: renders share the one Chrome. The
+   * agent's check waits only for the one running, never behind a gallery
+   * full of redraws, which can be eight checks of a few seconds each.
+   */
+  check(id: string, from: "agent" | "gallery" = "gallery"): Promise<CheckReport> {
+    return new Promise((resolve, reject) => {
+      this.waiting[from].push({ id, resolve, reject });
+      void this.drain();
+    });
+  }
+
+  private async drain(): Promise<void> {
+    if (this.draining) return;
+    this.draining = true;
+    try {
+      for (let job = this.waiting.agent.shift() ?? this.waiting.gallery.shift(); job; job = this.waiting.agent.shift() ?? this.waiting.gallery.shift()) {
+        await this.run(job.id).then(job.resolve, job.reject);
+      }
+    } finally {
+      this.draining = false;
+    }
   }
 
   /** The tool's answer: the findings in words, and two small pictures to look at. */
   async tool(id: string): Promise<ToolOutput> {
-    const report = await this.check(id);
+    const report = await this.check(id, "agent");
     const images = (["desktop-light", "phone-dark"] as const).flatMap((k) => {
       const file = report.captures[k];
       return existsSync(file) ? [{ mediaType: "image/jpeg", data: readFileSync(file.replace(/\.jpg$/, ".small.jpg")).toString("base64") }] : [];

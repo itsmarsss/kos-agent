@@ -1476,7 +1476,7 @@ export async function handleApiRequest(
     }
     if (artifactRoute[2] === "check" && method === "POST") {
       try {
-        const report = await kernel.checker.check(id);
+        const report = await kernel.checker.check(id, "gallery");
         return ok({ findings: report.findings, capturedAt: captureTime(kernel.pages.capturesDir(id)) });
       } catch (err) {
         return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };

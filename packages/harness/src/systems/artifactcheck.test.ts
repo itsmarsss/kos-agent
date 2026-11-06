@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { hostDocument, parseRelay, reportWords, type CheckReport } from "./artifactcheck.js";
+import { ArtifactChecker, hostDocument, parseRelay, reportWords, type CheckReport } from "./artifactcheck.js";
 
 /**
  * The check's words and its host page, apart from Chrome: what the page
@@ -71,5 +71,28 @@ describe("the check's host page", () => {
     expect(parseRelay("[1]")).toBeUndefined();
     expect(parseRelay("null")).toBeUndefined();
     expect(parseRelay('{"id":2,"method":"file"}')).toEqual({ id: 2, method: "file" });
+  });
+});
+
+describe("the check's queue", () => {
+  it("runs one check at a time, the agent's before the gallery's waiting redraws", async () => {
+    const checker = new ArtifactChecker({ load: () => undefined, call: () => Promise.resolve(undefined), captures: () => "" });
+    const order: string[] = [];
+    let open: () => void = () => undefined;
+    vi.spyOn(checker as unknown as { run: (id: string) => Promise<CheckReport> }, "run").mockImplementation(async (id) => {
+      order.push(id);
+      if (id === "g1") await new Promise<void>((r) => (open = r));
+      if (id === "g3") throw new Error("broken");
+      return report([]);
+    });
+    const gallery = ["g1", "g2", "g3"].map((id) => checker.check(id, "gallery").catch((e: Error) => e.message));
+    const agent = checker.check("mine", "agent");
+    await Promise.resolve();
+    expect(order).toEqual(["g1"]);
+    open();
+    await agent;
+    expect(order).toEqual(["g1", "mine"]);
+    expect(await Promise.all(gallery)).toEqual([report([]), report([]), "broken"]);
+    expect(order).toEqual(["g1", "mine", "g2", "g3"]);
   });
 });

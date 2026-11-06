@@ -74,15 +74,17 @@ export function ArtifactsPage({ projects, onOpen }: { projects: Project[]; onOpe
     };
   }, []);
 
-  // Redraw what has no capture, or an old one, one at a time, newest first.
+  // Redraw what has no capture, or an old one, one at a time, newest first,
+  // and no more than REDRAW_MAX in a visit: each redraw updates the list,
+  // which runs this again, so the count is kept across runs, not per run.
   const redrawn = useRef(new Set<string>());
   useEffect(() => {
     if (!list) return;
     let stopped = false;
-    const todo = list.filter((a) => isStale(a) && !redrawn.current.has(a.id)).slice(0, REDRAW_MAX);
+    const todo = list.filter((a) => isStale(a) && !redrawn.current.has(a.id));
     void (async () => {
       for (const a of todo) {
-        if (stopped) return;
+        if (stopped || redrawn.current.size >= REDRAW_MAX) return;
         redrawn.current.add(a.id);
         const got = await api.checkArtifact(a.id).catch(() => undefined);
         if (!stopped && got?.capturedAt) setList((l) => l?.map((x) => (x.id === a.id ? { ...x, capturedAt: got.capturedAt } : x)));
