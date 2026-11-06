@@ -2,10 +2,11 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, extname, join, relative } from "node:path";
 
+import { turnStop } from "../kernel/caller.js";
 import { RESERVED } from "../kernel/files.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
-import { runCaptured } from "../sandbox/capture.js";
+import { runCaptured, stopOf } from "../sandbox/capture.js";
 import { childEnv, findProgram } from "../sandbox/env.js";
 import { isContained, jailedProgram } from "../sandbox/jail.js";
 
@@ -112,7 +113,7 @@ export function createTexModule(options: TexModuleOptions = {}): KosModule {
               contained,
               ...(options.platform ? { platform: options.platform } : {}),
             });
-            const run = await runCaptured(command, { cwd: dirname(source), env, timeoutMs: seconds * 1000, maxOutput: MAX_LOG });
+            const run = await runCaptured(command, { cwd: dirname(source), env, timeoutMs: seconds * 1000, maxOutput: MAX_LOG, ...stopOf(turnStop.getStore()) });
             const said = `${run.stdout}\n${run.stderr}`;
             const warnings = said.split("\n").filter((l) => l.startsWith("warning:")).slice(0, MAX_WARNINGS);
             const stem = basename(source, extname(source));

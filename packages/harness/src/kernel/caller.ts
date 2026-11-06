@@ -43,3 +43,10 @@ export function isAttended(): boolean {
  * the next message), and what a turn may reach can belong to that turn alone.
  */
 export const turn = new AsyncLocalStorage<string>();
+
+/**
+ * The stop of the turn making the current call. A tool that runs something
+ * which outlives a promise (a child process) ends it when this aborts, so
+ * pressing Stop leaves nothing running behind the turn.
+ */
+export const turnStop = new AsyncLocalStorage<AbortSignal>();
