@@ -18,9 +18,11 @@ ENV KOS_HOST=0.0.0.0
 ENV KOS_PORT=4317
 
 # ripgrep backs the search.grep tool; without it search is dead inside the jail.
+# tini runs as PID 1 and reaps orphans: a stopped program's group is killed,
+# and what it left behind is reparented to PID 1, which node never reaps.
 RUN corepack enable \
   && apt-get update \
-  && apt-get install -y --no-install-recommends ripgrep \
+  && apt-get install -y --no-install-recommends ripgrep tini \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --system --create-home --uid 10001 kos \
   && mkdir -p /workspace \
@@ -34,5 +36,6 @@ WORKDIR /app
 VOLUME ["/workspace"]
 EXPOSE 4317
 
+ENTRYPOINT ["/usr/bin/tini", "--"]
 # Default: dashboard (API + static UI). Override for chat/discord.
 CMD ["node", "packages/cli/dist/main.js", "serve", "--host", "0.0.0.0", "--port", "4317"]

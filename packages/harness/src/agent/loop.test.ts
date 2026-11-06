@@ -290,6 +290,23 @@ describe("stopping a turn", () => {
     expect(result.finalText).toBe("");
   });
 
+  it("keeps the half an answer the owner already watched arrive", async () => {
+    let stopped = false;
+    const inference: Inference = {
+      generate: async (_task, req: GenerateRequest) => {
+        req.onDelta?.({ kind: "reasoning", text: "planning the essay" });
+        req.onDelta?.({ kind: "text", text: "The press began " });
+        req.onDelta?.({ kind: "text", text: "in Mainz" });
+        stopped = true;
+        throw Object.assign(new Error("aborted"), { name: "AbortError" });
+      },
+    };
+    const result = await runAgent(inference, addRegistry(), "write an essay", { shouldStop: () => stopped, onDelta: () => undefined });
+    expect(result.stopped).toBe(true);
+    expect(result.finalText).toBe("The press began in Mainz");
+    expect(result.messages.at(-1)).toEqual({ role: "assistant", content: [{ type: "text", text: "The press began in Mainz" }] });
+  });
+
   it("still raises when the call failed for its own reasons", async () => {
     const inference: Inference = {
       generate: async () => {

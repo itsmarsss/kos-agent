@@ -2,6 +2,7 @@ import type { Route, Task } from "../models/router.js";
 import { toolUse } from "../kernel/caller.js";
 import type {
   ContentBlock,
+  GenerateDelta,
   GenerateRequest,
   ModelMessage,
   ModelResponse,
@@ -129,13 +130,23 @@ export async function runAgent(
       };
     }
     iterations += 1;
+    /** What this call has said so far, kept if the turn is stopped before it is done. */
+    let streamed = "";
+    const onDelta = options.onDelta;
     let response;
     try {
       response = await inference.generate(options.screen && onScreen ? "screen" : task, {
         system: options.system,
         messages: keepRecentPictures(messages),
         ...(tools.length ? { tools } : {}),
-        ...(options.onDelta ? { onDelta: options.onDelta } : {}),
+        ...(onDelta
+          ? {
+              onDelta: (delta: GenerateDelta) => {
+                if (delta.kind === "text") streamed += delta.text;
+                onDelta(delta);
+              },
+            }
+          : {}),
         ...(options.signal ? { signal: options.signal } : {}),
       });
     } catch (err) {
@@ -147,6 +158,8 @@ export async function runAgent(
        * their turn broke when what happened is the thing they asked for.
        */
       if (options.shouldStop?.()) {
+        // The half an answer the owner already watched arrive stays said.
+        if (streamed.trim()) messages.push({ role: "assistant", content: [{ type: "text", text: streamed }] });
         return {
           messages,
           finalText: saidThisTurn(),

@@ -1,5 +1,5 @@
 export { GuardedTools, type GuardedToolsDeps } from "./guarded.js";
-export { attendance, isAttended } from "./caller.js";
+export { attendance, isAttended, turnStop } from "./caller.js";
 export {
   ensureProfile,
   loadProfile,
