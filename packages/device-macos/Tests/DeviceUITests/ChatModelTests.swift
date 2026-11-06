@@ -59,6 +59,20 @@ struct ChatModelTests {
     #expect(model.foot == "Run rm build")
   }
 
+  /// Words queued behind a turn, taken once it is done: the next turn counts from its own start.
+  @Test func aQueuedTurnStartsItsOwnClock() async throws {
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [])
+    model.say("count the books")
+    model.status(taken: true, story: nil, error: nil, said: "count the books", conversation: "mac:owner")
+    let first = try #require(model.workingSince)
+    try await Task.sleep(for: .milliseconds(20))
+    model.status(taken: true, story: nil, error: nil, said: "count the books", conversation: "mac:owner")
+    #expect(model.workingSince == first)
+    model.status(taken: true, story: nil, error: nil, said: "and the shelves", conversation: "mac:owner")
+    #expect(try #require(model.workingSince) > first)
+  }
+
   @Test func aTurnTakenElsewhereShowsAsItGoes() {
     let model = ChatModel()
     model.show(conversation: "mac:owner", title: "Mac", lines: [])

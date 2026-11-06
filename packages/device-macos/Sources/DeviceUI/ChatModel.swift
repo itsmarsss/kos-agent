@@ -105,6 +105,8 @@ public final class ChatModel: ObservableObject {
   }
   /// When the running turn began, as this window saw it: what the foot counts from.
   @Published public private(set) var workingSince: Date?
+  /// The words of the turn KOS last took: a turn queued behind another starts its own clock.
+  private var takenWords: String?
   /// The running turn's steps, "› " before each.
   @Published public private(set) var story: String?
   @Published public private(set) var asks: [Ask] = []
@@ -211,6 +213,10 @@ public final class ChatModel: ObservableObject {
       guard let said, conversation == self.conversation else { return }
       if !sending.contains(said) && !awaiting(said) { sending.append(said) }
       working = true
+      if said != takenWords {
+        takenWords = said
+        workingSince = Date()
+      }
       return
     }
     switch story {
