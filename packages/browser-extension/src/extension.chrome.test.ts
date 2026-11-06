@@ -375,6 +375,15 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     const listed = (await call("tabs.list", { session: "p1" }))["result"] as { tabs: { url: string; focus?: boolean; handed?: boolean }[] };
     expect(listed.tabs).toEqual([expect.objectContaining({ url: `${base}/beside`, focus: true, handed: true })]);
     expect(await call("session.end", { session: "p1" })).toMatchObject({ ok: true });
+    // Words after the steps, the turn still going: the foot still says it works, until the turn ends.
+    const foot = "document.querySelector('.working')";
+    expect(await call("chat.status", { conversation: "chrome:owner", said: "Summarize this page", story: "› Read the page\nChecking the prices now." })).toMatchObject({ ok: true });
+    for (let i = 0; i < 50 && !(await devtools.evaluate(panel, `!!${foot}?.querySelector('.live-dots')`)); i++) await until(() => false, 100);
+    expect(await devtools.evaluate(panel, `${foot}?.innerText ?? ''`)).toMatch(/^Working\s*\d+s$/);
+    expect(await text()).toContain("Checking the prices now.");
+    expect(await call("chat.status", { conversation: "chrome:owner" })).toMatchObject({ ok: true });
+    for (let i = 0; i < 50 && (await devtools.evaluate(panel, `!!${foot}`)); i++) await until(() => false, 100);
+    expect(await devtools.evaluate(panel, `!!${foot}`)).toBe(false);
   }, 40_000);
 
   it("never waits forever: words KOS does not take come back, and a KOS that never shows the chat is said to", async () => {

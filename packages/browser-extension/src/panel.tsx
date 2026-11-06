@@ -1,6 +1,6 @@
 import { CHAT_COMMANDS, KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { BoltIcon, ChevronDown, Chips, CloseIcon, Collapse, ComposeIcon, ease, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, SendIcon, spring, StepsIcon, type Tone, useDismiss, WorkingDots } from "@kos/kit";
+import { BoltIcon, ChevronDown, Chips, CloseIcon, Collapse, ComposeIcon, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, SendIcon, spring, StepsIcon, type Tone, useDismiss, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
@@ -699,14 +699,11 @@ function Thread({
       ) : (
         <AnimatePresence initial={false}>{items}</AnimatePresence>
       )}
+      {/* At the foot for as long as the turn runs, whatever came last: words
+          after the steps are not the end of the work. Gone the moment it ends,
+          as the dashboard's is, not faded out over the answer. */}
+      {chat.working && <Working stories={chat.stories} />}
       <AnimatePresence>
-        {chat.working && !chat.stories.length && (
-          // At work with no step to show yet: the dashboard's dots, and the word for it.
-          <m.div key="working" className="working" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={ease}>
-            <WorkingDots />
-            <span>Thinking</span>
-          </m.div>
-        )}
         {chat.asks.map((a) => (
           <AskCard key={`ask${a.id}`} approval={a} decide={(approved, remember) => answer({ type: "decide", approval: a.id, approved, ...(remember ? { remember: true } : {}) })} />
         ))}
@@ -784,6 +781,26 @@ function Steps({ steps, live }: { steps: { summary: string; failed?: true }[]; l
           ))}
         </ol>
       </Collapse>
+    </m.div>
+  );
+}
+
+/** What KOS is at, from the running story: its latest step while that is the last thing told, else working. */
+function workingWhat(stories: Extra[]): string {
+  const story = stories.at(-1);
+  if (!story) return "Thinking";
+  const last = story.text.split("\n").filter((l) => l.trim()).at(-1) ?? "";
+  return last.startsWith(STEP) && !last.endsWith(" (failed)") ? last.slice(STEP.length) : "Working";
+}
+
+/** The running turn's foot, the dashboard's: the dots, what it is at, and for how long. */
+function Working({ stories }: { stories: Extra[] }): ReactElement {
+  const [since] = useState(() => Date.now());
+  return (
+    <m.div className="working" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={ease}>
+      <WorkingDots />
+      <span className="working-what">{workingWhat(stories)}</span>
+      <Elapsed since={since} />
     </m.div>
   );
 }
