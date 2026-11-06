@@ -17,6 +17,7 @@ import type { NotifyPayload } from "../tools/notify.js";
 import { withoutTurnContext } from "./context.js";
 import { Kernel } from "./kernel.js";
 import { SKILLS_KEY } from "../skills/settings.js";
+import { turnStop } from "./caller.js";
 import { primarySessionId } from "./session.js";
 
 /**
@@ -434,6 +435,73 @@ describe("KOS end-to-end flows", () => {
     expect(seen).toEqual(["turn-start", "turn-end"]);
     expect(saids).toEqual([true]);
     off();
+  });
+
+  it("stops a turn waiting on the owner, and lapses the ask", async () => {
+    const model = scripted([
+      toolCall("c1", "shell", { command: "rm -rf build" }),
+      text("Removed the build directory."),
+    ]);
+    kernel = await boot(model.inference);
+    const ended = new Promise<void>((resolve) => {
+      const off = kernel.progress.subscribe((e) => {
+        if (e.kind !== "turn-end") return;
+        off();
+        resolve();
+      });
+    });
+    const first = await kernel.handleMessage("delete the build directory");
+    expect(first.suspended).toBe(true);
+    const ask = kernel.approvals.pending()[0]!;
+
+    // Waiting on the owner is not working, and Stop used to find nothing to stop.
+    expect(kernel.stop("chat:owner")).toBe(true);
+    await ended;
+    expect(kernel.approvals.get(ask.id)).toMatchObject({ status: "expired", decidedBy: "stopped" });
+    expect(kernel.isWorking("chat:owner")).toBe(false);
+    expect(kernel.stop("chat:owner")).toBe(false);
+  });
+
+  it("ends a stopped turn without waiting on the call it is running, and keeps the call", async () => {
+    let told: AbortSignal | undefined;
+    const slow: KosModule = {
+      manifest: { name: "slow", version: "1.0.0", provides: [{ kind: "tool", name: "test.slow", version: "1.0.0" }], riskTier: "safe" },
+      activate(ctx) {
+        ctx.registerTool({ name: "test.slow", description: "slow", inputSchema: { type: "object" } }, () => {
+          told = turnStop.getStore();
+          return new Promise<string>(() => undefined);
+        }, { floor: "safe" });
+      },
+    };
+    const model = scripted([toolCall("c1", "test.slow", {}), text("never")]);
+    root = mkdtempSync(join(tmpdir(), "kos-flow-"));
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: model.inference, profileOverrides: { name: "Kenny", timezone: "UTC" }, extraModules: [slow] });
+    const turn = kernel.handleMessage("run the slow thing");
+    await vi.waitFor(() => expect(told).toBeDefined());
+    expect(kernel.stop("chat:owner")).toBe(true);
+    expect((await turn).reply).toBe("Stopped.");
+    expect(told?.aborted).toBe(true);
+    const kept = JSON.stringify(kernel.sessions.get("chat:owner"));
+    expect(kept).toContain("test.slow");
+    expect(kept).toContain("pressed Stop");
+  });
+
+  it("does not hold a stopped turn for the memory pass", async () => {
+    const inference: Inference = {
+      async generate(task: Task, req: GenerateRequest): Promise<ModelResponse> {
+        if (task === "cheap") return text('{"facts":[]}');
+        req.onDelta?.({ kind: "text", text: "Half an essay" });
+        // From here on, after the turn's own recall: the memory pass is what would wait on it.
+        kernel.embedder.embed = () => new Promise<number[][]>(() => undefined);
+        kernel.stop("chat:owner");
+        throw Object.assign(new Error("aborted"), { name: "AbortError" });
+      },
+    };
+    kernel = await boot(inference);
+    const turn = kernel.handleMessage("write an essay");
+    const held = await Promise.race([turn.then(() => false), new Promise<boolean>((r) => setTimeout(() => r(true), 1_000))]);
+    expect(held).toBe(false);
+    expect((await turn).reply).toBe("Half an essay");
   });
 
   it("continues in the conversation that asked, and only there", async () => {
