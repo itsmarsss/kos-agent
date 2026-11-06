@@ -1715,8 +1715,9 @@ describe("KOS end-to-end flows", () => {
     const memo = kernel.pages.get("memo");
     expect(memo?.record.projectSlug).toBe(notes.slug);
     expect(memo?.kind === "html" && memo.page.html).toContain("notes' own");
-    // "Artifact" is the owner's word for a page.
-    expect(model.systems[0]).toContain("In KOS an artifact is a page");
+    // The prompt names the four kinds and the guide, write, check order.
+    expect(model.systems[0]).toContain("An artifact is one of four kinds");
+    expect(model.systems[0]).toMatch(/Read artifacts\.guide.*artifacts\.write.*artifacts\.check/);
   });
 
   it("KOS gets a router brief so the hierarchy is a behaviour", async () => {
