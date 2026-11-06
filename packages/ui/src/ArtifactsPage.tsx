@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { api, type ArtifactSummary, type PageSummary, type Project } from "./api.js";
 import { PageHead } from "./PageHead.js";
 import { PageHistory } from "./PageHistory.js";
+import type { Route } from "./routes.js";
 import { Select } from "./Select.js";
 import { ArtifactPage, type ArtifactHandle } from "./widgets/ArtifactPage.js";
 
@@ -174,6 +175,14 @@ export function ArtifactsPage({ projects, onOpen }: { projects: Project[]; onOpe
       )}
     </div>
   );
+}
+
+/** KOS's own chat at the root, where a message with no chat named goes: the profile's owner id is fixed. */
+const ROOT_CHAT = "primary:owner";
+
+/** Where "Edit with KOS" takes the owner after asking: the project's chat, or the root chat the request went to. */
+export function chatOf(projectSlug: string | null): Route {
+  return projectSlug ? { name: "project", slug: projectSlug } : { name: "chats", id: ROOT_CHAT };
 }
 
 /** What "Edit with KOS" sends: the owner's words, then which artifact they are about. */

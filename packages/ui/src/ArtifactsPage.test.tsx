@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { api, type ArtifactSummary, type Project } from "./api.js";
-import { ArtifactViewer, ArtifactsPage, editRequest } from "./ArtifactsPage.js";
+import { ArtifactViewer, ArtifactsPage, chatOf, editRequest } from "./ArtifactsPage.js";
 import { hrefFor, NAV, parseRoute } from "./routes.js";
 
 beforeAll(() => {
@@ -121,6 +121,10 @@ describe("one artifact, full size", () => {
     expect(sent).toHaveBeenCalledWith(editRequest("Add a slide on cost", ART[2]!), undefined);
     expect(sent.mock.calls[0]?.[0]).toMatch(/^Add a slide on cost\n\nThis is about @page:pitch, the deck "Garden pitch"/);
     expect(opened).toHaveBeenCalledWith(null);
+    // The request went to KOS at the root, so that is the chat opened, not the chat list.
+    expect(chatOf(null)).toEqual({ name: "chats", id: "primary:owner" });
+    expect(hrefFor(chatOf(null))).toBe(hrefFor({ name: "chats", id: "primary:owner" }));
+    expect(chatOf("budget")).toEqual({ name: "project", slug: "budget" });
   });
 
   it("does not offer presenting for a doc, and sends a project's request to its own chat", async () => {
