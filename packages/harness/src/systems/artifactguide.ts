@@ -211,11 +211,11 @@ Write one <article data-doc> holding the whole document. Do not nest another <ar
 
 What the runtime does:
 - h2 starts a section and h3 a subsection; at 4 or more h2 it builds a table of contents beside the text on wide screens and above it on narrow ones.
-- <span class="fn">text</span> inline becomes a numbered note marker, and the notes are collected as endnotes with links back.
-- Each <figure> with a <figcaption> is numbered automatically ("Figure 2."). Add class doc-wide to a figure that should run wider than the text.
-- blockquote.pull is a pull quote; aside.callout is a set-apart note, warning or decision.
-- Tables are wrapped so they scroll sideways on their own when wide.
-- --doc-measure sets the column width (default about 66ch). Override it in your token plan rather than setting widths on paragraphs.
+- <span class="fn">text</span> inline becomes a numbered note marker, and the notes are collected under Notes after the article, each with a way back.
+- Each <figure> with a <figcaption> is numbered automatically ("Figure 2."); figure.unnumbered skips the number. Add class doc-wide to a figure that should run wider than the text, doc-full for the full width.
+- blockquote.pull is a pull quote (a <cite> inside names the speaker); aside.callout is a set-apart note, with .warn and .ok for a risk and a settled decision.
+- Tables are wrapped so they scroll sideways on their own when wide; give numeric cells class num (td.num, th.num) to align them on the right in tabular figures.
+- --doc-measure sets the column width (default 66ch) and --doc-size the body size (default 1.125rem). Override them in your token plan rather than setting widths on paragraphs.
 
 ## Editing
 
@@ -262,8 +262,9 @@ A deck is a presentation. The kos-deck runtime fits each slide to the frame at 1
 
 - One <section> per slide, in order. Presenter notes go in <aside class="notes"> inside the slide; they never show on the slide itself.
 - Slide classes: .title (the opening slide), .statement (one large sentence or number), .split (two halves: text and a visual), .closing (the ask or summary), .bleed (a visual edge to edge).
-- Helpers: .cols lays children in equal columns that stack on a phone; .big sets a key number very large.
-- Sizes come from the runtime's container units: --deck-title, --deck-heading, --deck-body, --deck-small and --deck-pad. Use them, or calc() of them, for every font size and padding inside slides. Never px or rem font sizes in a slide: they do not scale with the slide.
+- Helpers: .cols lays children in equal columns that stack on a phone; .big sets a key number very large; .kicker is a small label above a title; small or .muted is secondary text; td.num aligns figures.
+- The runtime wraps each section in its own slide frame, so style slides with section or .deck-slide > section, never main > section, which no longer matches.
+- Sizes come from the runtime's container units: --deck-title, --deck-heading, --deck-body, --deck-small, --deck-pad and --deck-gap. Use them, or calc() of them, for every font size and padding inside slides. Never px or rem font sizes in a slide: they do not scale with the slide.
 - --slide-bg and --slide-ink colour the slides; set them in your token plan for both themes.
 
 ## Principles
@@ -305,7 +306,8 @@ Put a short header (an h1 and one line of context) before the data, then one scr
 
 - sheets: one or more tabs. Each has a name, its columns, and exactly one of rows (data kept with the artifact), source (a project table, live) or pivot (grouped from another tab).
 - columns: label, type (text, number, currency, percent, date, bool), decimals, currency (an ISO code such as CAD), width in characters, and for a source tab the table column it shows.
-- totals: a totals row under the grid, keyed by column label or letter, with sum, average, min, max or count.
+- totals: a totals row under the grid, keyed by column label or letter, with sum, average, min, max or count. It totals the rows shown, so a filter narrows it.
+- pivot: columns are referred to by label or letter. Declare the pivot tab's own columns (the group, then one per value) to name and format them; otherwise a sum keeps the column's name and the others say what they are ("Average Amount", "Count of Amount").
 - freeze: how many columns from the left stay in view when scrolling sideways. The header row is always frozen.
 - charts: bar, line or pie, each with a title, the tab, and A1-style ranges of one column each for labels and values.
 
