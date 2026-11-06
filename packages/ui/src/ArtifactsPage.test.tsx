@@ -196,6 +196,14 @@ describe("one artifact, full size", () => {
     expect(await screen.findByText(/Looking at version 1/)).toBeTruthy();
     expect(older).toHaveBeenCalledWith("ledger", 1);
     await waitFor(() => expect(document.querySelector("iframe.artifact-frame")?.getAttribute("srcdoc")).toContain("data-locked"));
+    // Back to current reads the artifact again, so what was saved before the preview is what comes back, never the version first opened.
+    const reads = (api.anyPage as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Back to current" }));
+    await waitFor(() => expect((api.anyPage as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(reads + 1));
+    await waitFor(() => expect(screen.queryByText(/Looking at version 1/)).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    fireEvent.click(within(within(await screen.findByRole("dialog", { name: "History" })).getAllByRole("listitem")[1]!).getByRole("button", { name: "Preview" }));
+    expect(await screen.findByText(/Looking at version 1/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Restore this version" }));
     // Restored on the version it was opened at, so one saved since is a conflict, not an overwrite.
     await waitFor(() => expect(rollback).toHaveBeenCalledWith("ledger", 1, ART[3]!.updatedAt));
