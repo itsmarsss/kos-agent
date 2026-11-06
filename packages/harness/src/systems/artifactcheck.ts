@@ -111,6 +111,9 @@ export function hostDocument(frame: string): string {
   ].join("");
 }
 
+/** The measurement of a frame that left: nothing in it to find fault with but the leaving. */
+const GONE: ProbeResult = { viewport: { width: 0, height: 0 }, scrollWidth: 0, overflow: [], elements: [], bodyBackground: "", empty: [], title: "(left)", formulaErrors: [] };
+
 /** What one render saw, besides the measurement. */
 interface Render {
   width: Width;
@@ -329,7 +332,11 @@ export class ArtifactChecker {
       while (Date.now() - start < SETTLE_MS && (inFlight > 0 || Date.now() - lastCall < QUIET_MS)) await sleep(100);
       // Fonts and a frame of layout after the last answer.
       await sleep(250);
-      const measured = await this.measure(cdp, contexts);
+      // A page that sent its frame away has no document left to measure; leaving is the finding.
+      const measured = await this.measure(cdp, contexts).catch((err: unknown) => {
+        if (left) return { ...GONE, viewport: { width: size.width, height: size.height } };
+        throw err;
+      });
       const shot = (await cdp.send("Page.captureScreenshot", { format: "jpeg", quality: 72 }, sessionId)) as { data: string };
       const small = (await cdp.send("Page.captureScreenshot", { format: "jpeg", quality: 60, clip: { x: 0, y: 0, width: size.width, height: size.height, scale: 0.5 } }, sessionId)) as { data: string };
       return {
@@ -405,7 +412,7 @@ export function findingsOf(renders: Render[]): Finding[] {
     const light = renders.find((r) => r.width === width && r.theme === "light")?.probe;
     const dark = renders.find((r) => r.width === width && r.theme === "dark")?.probe;
     if (!light || !dark) continue;
-    if (light.bodyBackground === dark.bodyBackground) {
+    if (light.bodyBackground && light.bodyBackground === dark.bodyBackground) {
       add("theme", "body", `The body's background is ${light.bodyBackground} in both light and dark. Set it from a token that has a dark value (under prefers-color-scheme dark guarded by :root:not([data-theme=light]), and under :root[data-theme=dark]).`);
     }
     const darkByKey = new Map(dark.elements.map((e) => [e.key, e]));

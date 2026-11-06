@@ -126,7 +126,9 @@ export function tokenRule(tokens: Record<string, string>, mode: "light" | "dark"
 
 /**
  * The page's side of window.kos. Calls go to the shell as messages and come
- * back as promises; the shell answers only this frame, and the server checks
+ * back as promises; a link to a place on the page (#id) scrolls there,
+ * since in a srcdoc frame it would resolve against the dashboard's address
+ * and send the frame away; the shell answers only this frame, and the server checks
  * each call against what the page declared. Errors the page throws are told
  * to the shell, which shows them with a way to ask KOS to fix the page.
  */
@@ -140,6 +142,7 @@ if(m.__kos==="reply"){var w=waiting[m.id];if(!w)return;delete waiting[m.id];if(m
 else if(m.__kos==="theme"){mode=m.mode;document.documentElement.dataset.mode=m.mode;document.documentElement.dataset.theme=m.mode;var s=document.getElementById("kos-tokens");if(s)s.textContent=m.rule;themeFns.forEach(function(f){try{f(m.mode)}catch(err){report(err&&err.message||err)}});}
 else if(m.__kos==="present"){var on=m.on===true;if(on)document.documentElement.dataset.present="on";else delete document.documentElement.dataset.present;dispatchEvent(new CustomEvent("kos:present",{detail:{on:on}}));}
 });
+document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href^='#']"):null;if(!a||e.defaultPrevented)return;e.preventDefault();var id=decodeURIComponent(a.getAttribute("href").slice(1)),t=id?document.getElementById(id):null,b=matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth";if(t)t.scrollIntoView({behavior:b,block:"start"});else if(!id)scrollTo({top:0,behavior:b})});
 addEventListener("error",function(e){report(e.message||"The page hit an error")});
 addEventListener("unhandledrejection",function(e){var r=e.reason;report(r&&r.message?r.message:String(r))});
 var kos={

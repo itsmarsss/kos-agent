@@ -38,8 +38,8 @@ const GOOD = `<style>
 body{background:var(--paper);color:var(--ink);padding:24px 16px;margin:0}
 main{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
 p{color:var(--quiet)} .tile{border:1px solid var(--rule);padding:12px;color:var(--ink)}
-</style><main><h1>Garden log</h1><p>Watering, week of 3 November.</p><div class="tile">Tomatoes: 2 L on Monday</div><table><tr><th>Day</th><th>Litres</th></tr><tr><td>Mon</td><td>2</td></tr></table></main>
-<script>kos.query("SELECT 1 AS n").then(function(r){document.querySelector("p").textContent += " " + r.rows.length + " row."})</script>`;
+</style><main><h1>Garden log</h1><a id="jump" href="#days">Jump to the days</a><p>Watering, week of 3 November.</p><div class="tile">Tomatoes: 2 L on Monday</div><table id="days"><tr><th>Day</th><th>Litres</th></tr><tr><td>Mon</td><td>2</td></tr></table></main>
+<script>jump.click();kos.query("SELECT 1 AS n").then(function(r){document.querySelector("p").textContent += " " + r.rows.length + " row."})</script>`;
 
 const PLANTED: Record<string, { html: string; expect: Finding["kind"] }> = {
   wide: { html: `<h1>Wide</h1><div class="strip" style="width:1800px;height:40px;background:var(--panel)">a strip</div>`, expect: "overflow" },
@@ -50,6 +50,7 @@ const PLANTED: Record<string, { html: string; expect: Finding["kind"] }> = {
   hollow: { html: `<h1>Hollow</h1><div class="chart" style="width:320px;height:180px;border:1px solid var(--line)"></div>`, expect: "empty" },
   untitled: { html: `<p>Just a line of text, no heading.</p>`, expect: "title" },
   formula: { html: `<h1>Sheet</h1><table><tr><td>#REF!</td></tr></table>`, expect: "formula" },
+  leaving: { html: `<h1>Leaving</h1><script>setTimeout(function(){ var a = document.createElement("a"); a.href = "https://example.com/x"; document.body.append(a); a.click(); }, 50)</script>`, expect: "left" },
 };
 
 const chrome = findChrome(undefined);
@@ -82,7 +83,7 @@ describe.skipIf(!chrome)("artifacts.check in Chrome", () => {
     rmSync(captures, { recursive: true, force: true });
   });
 
-  it("finds nothing wrong with a page written to the guide, and keeps its four captures", async () => {
+  it("finds nothing wrong with a page written to the guide (whose #id link scrolls, not leaves), and keeps its four captures", async () => {
     const report = await checker.check("good");
     expect(report.findings).toEqual([]);
     for (const k of ["desktop-light", "desktop-dark", "phone-light", "phone-dark"] as const) expect(existsSync(report.captures[k])).toBe(true);
