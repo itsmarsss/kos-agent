@@ -317,10 +317,15 @@ public final class ChatModel: ObservableObject {
     return (steps, lines.filter { !$0.hasPrefix(Self.stepMark) }.joined(separator: "\n"))
   }
 
+  /// An ask is up: the running turn is held on the owner, and its foot says so with no dots and no clock.
+  public var waitingOnOwner: Bool { !asks.isEmpty }
+
   /// What the running turn's foot says it is at, for as long as it runs, whatever came last; nil once it ends.
-  /// Thinking before it has shown anything, its latest step while that is the last thing told, else working.
+  /// Waiting on you while an ask is up, thinking before it has shown anything, its latest step while that is
+  /// the last thing told, else working.
   public var foot: String? {
     guard working else { return nil }
+    if waitingOnOwner { return "Waiting on you" }
     guard let story else { return "Thinking" }
     let last = story.components(separatedBy: "\n").last { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
     if last.hasPrefix(Self.stepMark) && !last.hasSuffix(" (failed)") { return String(last.dropFirst(Self.stepMark.count)) }

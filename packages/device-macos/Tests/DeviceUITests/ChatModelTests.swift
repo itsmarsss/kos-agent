@@ -45,6 +45,20 @@ struct ChatModelTests {
     #expect(model.workingSince == nil)
   }
 
+  /// Held on an ask, the turn is the owner's to move: its foot says so, and goes back to working once answered.
+  @Test func aTurnHeldOnAnAskWaitsOnTheOwner() {
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [])
+    model.say("clear the build")
+    model.status(taken: false, story: .some("› Run rm build"), error: nil)
+    model.ask(ChatModel.Ask(id: "a1", tool: "shell.run"))
+    #expect(model.waitingOnOwner)
+    #expect(model.foot == "Waiting on you")
+    model.answer("a1", approved: true)
+    #expect(!model.waitingOnOwner)
+    #expect(model.foot == "Run rm build")
+  }
+
   @Test func aTurnTakenElsewhereShowsAsItGoes() {
     let model = ChatModel()
     model.show(conversation: "mac:owner", title: "Mac", lines: [])
