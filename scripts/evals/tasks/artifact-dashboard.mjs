@@ -22,10 +22,12 @@ export default {
   title: "A budget dashboard page over the project's table, in both themes and on a phone",
   limitMs: 900_000,
   async setup(ctx) {
+    // Made as systems.migrate would make it, ledger row included: a page reaches only the tables its project's migrations made.
     ctx.slug = await ctx.project("Household budget");
     const values = rows().map(([d, c, i, a]) => `('${d}', '${c}', '${i.replace(/'/g, "''")}', ${a})`).join(",");
     ctx.sql(`create table ${ctx.slug}_tx (id integer primary key, date text not null, category text not null, merchant text, amount real not null);
-      insert into ${ctx.slug}_tx (date, category, merchant, amount) values ${values};`);
+      insert into ${ctx.slug}_tx (date, category, merchant, amount) values ${values};
+      insert into schema_migrations (project_slug, version, op, spec_json, sql, applied_at) values ('${ctx.slug}', 1, 'create_table', '{"op":"create_table","table":"tx"}', 'seeded by the eval', ${Date.now()});`);
   },
   async run(ctx) {
     const chat = await ctx.chat("Budget dashboard", ctx.slug);
