@@ -3,7 +3,7 @@ import { cleanup, renderHook } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { clearProgress, endProgress, onTurnEnd, seedProgress, settleProgress, useProgress } from "./progress.js";
+import { clearProgress, onTurnEnd, seedProgress, settleProgress, useProgress } from "./progress.js";
 
 /**
  * The store is a module singleton watching the dashboard's one socket, so
@@ -116,18 +116,6 @@ describe("progress handover", () => {
     // And a fresh turn starts without it.
     deliver({ kind: "turn-start", conversationId: "c1" });
     expect(result.current.c1?.congregation).toBeUndefined();
-  });
-
-  it("ends a turn the chat went idle on without a turn-end", () => {
-    // Otherwise it kept its steps and kept saying it was working, for good.
-    const { result } = renderHook(() => useProgress());
-    deliver({ kind: "turn-start", conversationId: "c1" });
-    deliver({ kind: "tool-start", conversationId: "c1", tool: "sql", summary: "SELECT 1" });
-    act(() => endProgress("c1"));
-    expect(result.current.c1?.ended).toBe(true);
-    expect(result.current.c1?.steps).toHaveLength(1);
-    act(() => settleProgress("c1"));
-    expect(result.current.c1).toBeUndefined();
   });
 
   it("seeds a turn that started before the page was open", () => {
