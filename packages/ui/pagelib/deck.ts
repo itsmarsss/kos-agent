@@ -1,0 +1,220 @@
+/**
+ * kos-deck: slides from plain sections. The agent writes one
+ * `<main data-deck>` with a `<section>` per slide (and an `<aside
+ * class="notes">` in a slide for what to say); this shows one slide at a
+ * time fitted to the frame, and gives keys, buttons, taps and swipes to move,
+ * a counter, a grid of every slide, the notes, and presenting. Sizes are in
+ * slide units (deck.css.ts), so nothing is scaled by script.
+ *
+ * Where the deck is (which slide, which view) is a small state machine,
+ * kept pure below so it is tested apart from the page.
+ */
+
+import { DECK_CSS } from "./deck.css.js";
+import { addStyle, el, interactive, kos, ready } from "./runtime.js";
+
+export interface DeckState {
+  index: number;
+  count: number;
+  grid: boolean;
+  notes: boolean;
+  presenting: boolean;
+}
+
+export type DeckAction =
+  | { type: "next" | "prev" | "first" | "last" | "grid" | "notes" | "escape" }
+  | { type: "go"; index: number }
+  | { type: "present"; on?: boolean };
+
+export const initialDeck = (count: number): DeckState => ({ index: 0, count, grid: false, notes: false, presenting: false });
+
+const clamp = (i: number, count: number): number => Math.max(0, Math.min(count - 1, i));
+
+/** Where an action takes the deck. Moving stops at either end; Escape leaves the grid first, then presenting. */
+export function step(s: DeckState, a: DeckAction): DeckState {
+  switch (a.type) {
+    case "next":
+      return { ...s, index: clamp(s.index + 1, s.count) };
+    case "prev":
+      return { ...s, index: clamp(s.index - 1, s.count) };
+    case "first":
+      return { ...s, index: 0 };
+    case "last":
+      return { ...s, index: clamp(s.count - 1, s.count) };
+    case "go":
+      return { ...s, index: clamp(a.index, s.count), grid: false };
+    case "grid":
+      return { ...s, grid: !s.grid, presenting: false };
+    case "notes":
+      return { ...s, notes: !s.notes };
+    case "present": {
+      const on = a.on ?? !s.presenting;
+      return { ...s, presenting: on, grid: on ? false : s.grid };
+    }
+    case "escape":
+      if (s.grid) return { ...s, grid: false };
+      if (s.presenting) return { ...s, presenting: false };
+      return s;
+  }
+}
+
+/** The action a key stands for, or none. */
+export function keyAction(key: string, shift = false): DeckAction | undefined {
+  switch (key) {
+    case "ArrowRight":
+    case "ArrowDown":
+    case "PageDown":
+      return { type: "next" };
+    case " ":
+    case "Spacebar":
+      return { type: shift ? "prev" : "next" };
+    case "ArrowLeft":
+    case "ArrowUp":
+    case "PageUp":
+      return { type: "prev" };
+    case "Home":
+      return { type: "first" };
+    case "End":
+      return { type: "last" };
+    case "Escape":
+      return { type: "escape" };
+    case "g":
+    case "G":
+      return { type: "grid" };
+    case "n":
+    case "N":
+      return { type: "notes" };
+    case "p":
+    case "P":
+    case "f":
+    case "F":
+      return { type: "present" };
+    default:
+      return undefined;
+  }
+}
+
+/** A tap at x across a slide of this width: the left third goes back, the rest forward. */
+export const tapAction = (x: number, width: number): DeckAction => ({ type: x < width / 3 ? "prev" : "next" });
+
+/** Whether the frame is a phone held upright, where slides stack to be read. */
+const READ_QUERY = "(max-width: 640px) and (orientation: portrait)";
+
+export function startDeck(): void {
+  const deck = document.querySelector<HTMLElement>("main[data-deck]");
+  if (!deck) return;
+  const slides = [...deck.children].filter((c): c is HTMLElement => c.tagName === "SECTION");
+  if (!slides.length) return;
+  let state = initialDeck(slides.length);
+  let reading = typeof matchMedia === "function" && matchMedia(READ_QUERY).matches;
+
+  deck.setAttribute("aria-roledescription", "slide deck");
+  slides.forEach((s, i) => {
+    s.setAttribute("aria-roledescription", "slide");
+    s.setAttribute("aria-label", `${i + 1} of ${slides.length}`);
+    s.dataset.number = String(i + 1);
+  });
+
+  const prev = el("button", { type: "button", "aria-label": "Previous slide" }, "←");
+  const next = el("button", { type: "button", "aria-label": "Next slide" }, "→");
+  const count = el("span", { class: "count", role: "status", "aria-live": "polite" });
+  const gridBtn = el("button", { type: "button", "aria-pressed": "false", title: "All slides (G)" }, "Grid");
+  const notesBtn = el("button", { type: "button", "aria-pressed": "false", title: "Presenter notes (N)" }, "Notes");
+  const presentBtn = el("button", { type: "button", title: "Present (P)" }, "Present");
+  const bar = el("nav", { class: "deck-bar", "aria-label": "Slides" }, prev, count, next, el("span", { class: "gap" }), notesBtn, gridBtn, presentBtn);
+  const notes = el("aside", { class: "deck-notes", "aria-label": "Presenter notes" });
+  document.body.append(notes, bar);
+
+  const render = (): void => {
+    const b = document.body.classList;
+    b.toggle("deck-read", reading);
+    b.toggle("deck-grid", state.grid && !reading);
+    b.toggle("deck-present", state.presenting && !reading);
+    b.toggle("deck-notes-on", state.notes && !state.grid && !reading);
+    slides.forEach((s, i) => {
+      s.classList.toggle("current", i === state.index);
+      if (state.grid) s.setAttribute("tabindex", "0");
+      else s.removeAttribute("tabindex");
+      s.setAttribute("aria-hidden", String(!state.grid && !reading && i !== state.index));
+    });
+    count.textContent = `${state.index + 1} / ${state.count}`;
+    prev.disabled = state.index === 0;
+    next.disabled = state.index === state.count - 1;
+    gridBtn.setAttribute("aria-pressed", String(state.grid));
+    notesBtn.setAttribute("aria-pressed", String(state.notes));
+    const said = slides[state.index]!.querySelector("aside.notes");
+    notes.replaceChildren(el("span", { class: "label" }, `Notes, slide ${state.index + 1}`), ...(said ? [...said.childNodes].map((n) => n.cloneNode(true)) : [el("span", { class: "empty" }, "No notes for this slide.")]));
+    if (state.grid) slides[state.index]!.scrollIntoView?.({ block: "nearest" });
+  };
+  const apply = (a: DeckAction): void => {
+    const was = state.presenting;
+    state = step(state, a);
+    // Asking the dashboard for the whole screen; it tells the deck back through kos:present.
+    if (a.type === "present" && state.presenting && !was) kos()?.present?.();
+    render();
+  };
+
+  prev.addEventListener("click", () => apply({ type: "prev" }));
+  next.addEventListener("click", () => apply({ type: "next" }));
+  gridBtn.addEventListener("click", () => apply({ type: "grid" }));
+  notesBtn.addEventListener("click", () => apply({ type: "notes" }));
+  presentBtn.addEventListener("click", () => apply({ type: "present", on: true }));
+
+  document.addEventListener("keydown", (e) => {
+    if (reading || e.metaKey || e.ctrlKey || e.altKey || interactive(e.target)) return;
+    if (state.grid && e.key === "Enter") {
+      e.preventDefault();
+      apply({ type: "go", index: state.index });
+      return;
+    }
+    const a = keyAction(e.key, e.shiftKey);
+    if (!a) return;
+    e.preventDefault();
+    apply(a);
+  });
+
+  deck.addEventListener("click", (e) => {
+    if (reading) return;
+    const slide = (e.target as Element).closest?.("section");
+    if (!slide || slide.parentElement !== deck) return;
+    if (state.grid) {
+      apply({ type: "go", index: slides.indexOf(slide as HTMLElement) });
+      return;
+    }
+    if (interactive(e.target) || (getSelection()?.toString() ?? "") !== "") return;
+    const r = slide.getBoundingClientRect();
+    apply(tapAction(e.clientX - r.left, r.width));
+  });
+
+  let touch: { x: number; y: number } | undefined;
+  deck.addEventListener("touchstart", (e) => {
+    const t = e.touches[0];
+    touch = t ? { x: t.clientX, y: t.clientY } : undefined;
+  }, { passive: true });
+  deck.addEventListener("touchend", (e) => {
+    const t = e.changedTouches[0];
+    if (!touch || !t || reading || state.grid) return;
+    const dx = t.clientX - touch.x;
+    if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(t.clientY - touch.y) * 1.5) {
+      e.preventDefault();
+      apply({ type: dx < 0 ? "next" : "prev" });
+    }
+    touch = undefined;
+  });
+
+  addEventListener("kos:present", (e) => apply({ type: "present", on: (e as CustomEvent<{ on?: boolean }>).detail?.on === true }));
+  if (typeof matchMedia === "function") {
+    matchMedia(READ_QUERY).addEventListener?.("change", (m) => {
+      reading = m.matches;
+      render();
+    });
+  }
+  if (document.documentElement.dataset.present === "on") state = step(state, { type: "present", on: true });
+  render();
+}
+
+// Inlined in a frame it runs as a script; imported by a test it waits to be called.
+if (typeof document !== "undefined" && document.currentScript) {
+  addStyle(DECK_CSS, "kos-deck-css");
+  ready(startDeck);
+}
