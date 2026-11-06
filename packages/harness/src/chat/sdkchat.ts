@@ -15,7 +15,7 @@ import { fenced, isShelved } from "../context/shelf.js";
 import { splitOwnerWords } from "../kernel/transcript.js";
 import type { Effort } from "../models/provider.js";
 import { toolUse } from "../kernel/caller.js";
-import { credentials } from "../builds/runner.js";
+import { ONLY_OWN_MCP, credentials } from "../builds/runner.js";
 import { toZodShape } from "./schema.js";
 
 /**
@@ -401,6 +401,8 @@ export async function runSdkChat(
         // for the same reason. A permissions.allow rule written months ago must
         // not widen what a chat turn can do.
         settingSources: [],
+        // Nor the owner's claude.ai connectors: KOS's tools are the only ones.
+        ...ONLY_OWN_MCP,
         // Only KOS's tools exist. The built-ins are named individually as well
         // as excluded by the allow list, because an allow list that grows a
         // hole is a jail that quietly opens.
