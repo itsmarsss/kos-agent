@@ -326,6 +326,17 @@ describe("PageStore HTML pages", () => {
     expect(() => pages.rollback("b", 9)).toThrow(/no version 9/);
   });
 
+  it("shows an older version to look at, writing nothing", () => {
+    pages.writeHtml("budget", { id: "v", title: "One", description: "first", html: "<p>one</p>" });
+    pages.writeHtml("budget", { id: "v", title: "Two", html: "<p>two</p>" });
+    expect(pages.version("v", 1)).toEqual({ id: "v", title: "One", description: "first", html: "<p>one</p>" });
+    expect(pages.version("v", 3)).toBeUndefined();
+    expect(pages.version("nope", 1)).toBeUndefined();
+    expect(pages.history("v")).toHaveLength(2);
+    const got = pages.get("v");
+    expect(got?.kind === "html" && got.page.html).toBe("<p>two</p>");
+  });
+
   it("still writes, versions and renders a spec page, and lets a spec page become HTML", () => {
     pages.write("budget", { id: "old", title: "Old", widgets: [{ type: "stat", label: "N", query: "SELECT 1 AS n" }] });
     expect(pages.get("old")?.kind).toBe("spec");

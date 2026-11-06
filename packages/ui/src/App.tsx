@@ -48,7 +48,6 @@ import { Sidebar } from "./Sidebar.js";
 import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageHistory } from "./PageHistory.js";
-import { ArtifactPage } from "./widgets/ArtifactPage.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
@@ -873,6 +872,20 @@ export function App(): React.ReactElement {
       list.some((pg) => pg.id === route.id),
     );
     const back: Route = owner ? { name: "projects" } : { name: "home" };
+    // An HTML artifact is shown as the Artifacts viewer shows it: one head, its versions in a drawer, drawn as part of the page.
+    if (activePage?.kind === "html") {
+      return shell(
+        <ArtifactViewer
+          key={route.id}
+          id={route.id}
+          projects={projects}
+          backLabel={owner ? "← Projects" : "← Home"}
+          onBack={() => go(back)}
+          onOpenChat={(slug) => go(chatOf(slug))}
+          onOpenProject={(slug) => go({ name: "project", slug })}
+        />,
+      );
+    }
     return shell(
       <>
         <a
@@ -891,15 +904,7 @@ export function App(): React.ReactElement {
           </p>
         )}
         {activePage && <PageHistory record={activePage.record} onRolledBack={() => api.anyPage(activePage.record.id).then(setActivePage)} />}
-        {activePage?.kind === "html" && (
-          <ArtifactPage
-            record={activePage.record}
-            page={activePage.page}
-            onSaved={(record) => setActivePage((p) => (p ? { ...p, record } : p))}
-            onReload={() => void api.anyPage(activePage.record.id).then(setActivePage)}
-          />
-        )}
-        {activePage && activePage.kind !== "html" && (
+        {activePage && (
           <PageRenderer spec={activePage.spec} data={activePage.data} />
         )}
         {!activePage && !pageError && <p className="ops-muted">Loading…</p>}

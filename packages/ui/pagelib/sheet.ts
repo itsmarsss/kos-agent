@@ -15,7 +15,7 @@ import type { SheetBook, SheetCell, SheetColumn, SheetTab } from "@kos/shared";
 import { bar, line, pie } from "./chartdraw.js";
 import { SHEET_CSS } from "./sheet.css.js";
 import { Workbook, columnLetter, formatValue, isError, isNumeric, literalOf, sortValue, totalsRow, type Value } from "./sheetformula.js";
-import { addStyle, el, kos, ready, reason } from "./runtime.js";
+import { addStyle, editable, el, kos, ready, reason } from "./runtime.js";
 
 /** How long after an edit the workbook is saved, so a run of edits is one version. */
 export const SAVE_DELAY_MS = 600;
@@ -154,7 +154,7 @@ class Sheet {
     const tab = this.book.sheets[t]!;
     if (tab.pivot) return false;
     if (tab.source) return typeof kos()?.write === "function" && !this.loaded.get(t)?.error;
-    return typeof kos()?.save === "function";
+    return editable();
   }
 
   /** Draw the tab. A tab that cannot be drawn says why, under its tabs, rather than leave the sheet blank. */

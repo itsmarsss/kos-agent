@@ -1129,6 +1129,8 @@ export const api = {
   /** Render an artifact and keep its captures: the gallery's thumbnail. */
   checkArtifact: (id: string) => post<{ findings: { kind: string; text: string }[]; capturedAt?: number }>(`/api/artifacts/${encodeURIComponent(id)}/check`),
   pageHistory: (id: string) => get<PageVersion[]>(`/api/pages/${encodeURIComponent(id)}/history`),
+  /** One kept version of an HTML artifact, to look at before restoring it. */
+  pageVersion: (id: string, version: number) => get<import("@kos/shared").HtmlPage>(`/api/pages/${encodeURIComponent(id)}/versions/${version}`),
   pageRollback: (id: string, version: number) => post<PageSummary>(`/api/pages/${encodeURIComponent(id)}/rollback`, { version }),
   mutate: (req: MutateRequest) => post<MutateResult>("/api/mutate", req),
   conversations: (includeArchived = false) =>

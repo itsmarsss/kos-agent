@@ -22,6 +22,9 @@ export interface KosBridge {
 
 export const kos = (): KosBridge | undefined => (window as unknown as { kos?: KosBridge }).kos;
 
+/** Whether the owner may edit the artifact here: the bridge can save, and the frame is not showing an older version. */
+export const editable = (): boolean => typeof kos()?.save === "function" && !document.documentElement.hasAttribute("data-locked");
+
 /** Add the runtime's stylesheet right after its own script, so it precedes anything the agent wrote. */
 export function addStyle(css: string, id: string): void {
   if (document.getElementById(id)) return;

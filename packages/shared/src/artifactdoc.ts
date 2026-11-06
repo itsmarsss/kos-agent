@@ -200,13 +200,15 @@ export interface PageDocumentInput {
   libraries: string[];
   /** The artifact's kind, which its runtime and its own CSS can key on. */
   kind?: string;
+  /** An older version shown to look at: the runtimes offer no editing. */
+  locked?: boolean;
 }
 
-export function pageDocument({ html, tokens, mode, css, libraries, kind = "page" }: PageDocumentInput): string {
+export function pageDocument({ html, tokens, mode, css, libraries, kind = "page", locked = false }: PageDocumentInput): string {
   const { head, body } = splitHtml(html);
   return [
     "<!doctype html>",
-    `<html data-mode="${mode}" data-theme="${mode}" data-kind="${kind.replace(/[^a-z]/g, "")}"><head>`,
+    `<html data-mode="${mode}" data-theme="${mode}" data-kind="${kind.replace(/[^a-z]/g, "")}"${locked ? " data-locked" : ""}><head>`,
     `<meta http-equiv="Content-Security-Policy" content="${PAGE_GUARD_CSP}">`,
     '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
     `<script>${GUARD_SCRIPT}</script>`,

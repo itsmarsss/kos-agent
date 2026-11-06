@@ -9,7 +9,7 @@
  */
 
 import { DOC_CSS } from "./doc.css.js";
-import { addStyle, el, kos, ready, reason, reducedMotion } from "./runtime.js";
+import { addStyle, editable, el, kos, ready, reason, reducedMotion } from "./runtime.js";
 
 /** How many h2s make a document long enough for a table of contents. */
 export const TOC_MIN = 4;
@@ -174,7 +174,7 @@ export function enhance(article: HTMLElement): Enhanced {
 /** The Edit, Save and Cancel controls, and what they do. */
 function editing(article: HTMLElement, start: () => Enhanced): void {
   const bridge = kos();
-  if (article.hasAttribute("data-locked") || typeof bridge?.save !== "function") return;
+  if (article.hasAttribute("data-locked") || !editable() || !bridge?.save) return;
   const save = bridge.save.bind(bridge);
   let enhanced = start();
   let before = "";
@@ -259,7 +259,7 @@ export function startDoc(): void {
   const article = document.querySelector<HTMLElement>("article[data-doc]");
   if (!article) return;
   const start = (): Enhanced => enhance(article);
-  if (article.hasAttribute("data-locked") || typeof kos()?.save !== "function") start();
+  if (article.hasAttribute("data-locked") || !editable()) start();
   else editing(article, start);
 }
 

@@ -1426,6 +1426,12 @@ export async function handleApiRequest(
    * a refusal is answered plainly and logged. `save` is the owner's edit to a
    * doc or a sheet, kept as its next version.
    */
+  // One kept version of an HTML artifact, to preview before restoring it.
+  const versionGet = method === "GET" ? /^\/api\/pages\/([^/]+)\/versions\/(\d+)$/.exec(path) : null;
+  if (versionGet) {
+    const page = kernel.pages.version(decodeURIComponent(versionGet[1]!), Number(versionGet[2]));
+    return page ? ok(page) : { status: 404, body: { error: "no such version" } };
+  }
   const bridgeCall = /^\/api\/pages\/([^/]+)\/(query|write|file|save|history|rollback)$/.exec(path);
   if (bridgeCall) {
     const id = decodeURIComponent(bridgeCall[1]!);

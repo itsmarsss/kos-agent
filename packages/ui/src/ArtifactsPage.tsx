@@ -2,7 +2,7 @@ import { Chips, Count, Empty, NavIcon, PlusIcon, Skeleton, Tag, type ChipOption 
 import { WORKSPACE_SCOPE, relativeWords, type ArtifactKind, type HtmlPage } from "@kos/shared";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 
-import { api, type ArtifactSummary, type PageSummary, type Project } from "./api.js";
+import { api, type ArtifactSummary, type PageSummary, type PageVersion, type Project } from "./api.js";
 import { PageHead } from "./PageHead.js";
 import { Drawer } from "./Drawer.js";
 import { ProjectMark } from "./ProjectMark.js";
@@ -323,12 +323,15 @@ export function ArtifactViewer({
   id,
   projects,
   onBack,
+  backLabel = "← Artifacts",
   onOpenChat,
   onOpenProject,
 }: {
   id: string;
   projects: Project[];
   onBack: () => void;
+  /** What going back says: where it goes. */
+  backLabel?: string;
   /** Go to the chat the request went to: the project's, or KOS at the root. */
   onOpenChat: (projectSlug: string | null) => void;
   /** Go to the project that owns it. */
@@ -341,10 +344,13 @@ export function ArtifactViewer({
   const [asking, setAsking] = useState(false);
   const [history, setHistory] = useState(false);
   const [words, setWords] = useState("");
+  /** An older version shown in place of the current one, to look at before restoring it. */
+  const [preview, setPreview] = useState<{ version: PageVersion; page: HtmlPage }>();
   const frame = useRef<ArtifactHandle>(null);
 
   const load = (): Promise<void> =>
     api.anyPage(id).then((got) => {
+      setPreview(undefined);
       setRecord(got.record);
       setOlder(got.kind !== "html");
       if (got.kind === "html") setPage(got.page);
@@ -376,7 +382,7 @@ export function ArtifactViewer({
   return (
     <div className="artifact-view">
       <button type="button" className="ops-back artifact-view-back" onClick={onBack}>
-        ← Artifacts
+        {backLabel}
       </button>
       {record && (
         <header className="artifact-view-head">
@@ -446,7 +452,32 @@ export function ArtifactViewer({
           {error}
         </p>
       )}
-      {record && page && <ArtifactPage ref={frame} record={record} page={page} onSaved={setRecord} onReload={() => void load().catch(failed)} />}
+      {preview && record && (
+        <div className="ops-alert artifact-preview" role="status">
+          <span>
+            Looking at version {preview.version.version}, from {relativeWords(Math.round(preview.version.at / 1000))}. Nothing here is saved.
+          </span>
+          <span className="artifact-preview-acts">
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setPreview(undefined)}>
+              Back to current
+            </button>
+            <button
+              type="button"
+              className="btn btn--primary btn--sm"
+              onClick={() =>
+                void api
+                  .pageRollback(record.id, preview.version.version)
+                  .then(load)
+                  .catch(failed)
+              }
+            >
+              Restore this version
+            </button>
+          </span>
+        </div>
+      )}
+      {record && preview && <ArtifactPage key={`v${preview.version.version}`} record={record} page={preview.page} locked />}
+      {record && page && !preview && <ArtifactPage ref={frame} record={record} page={page} onSaved={setRecord} onReload={() => void load().catch(failed)} />}
       {!record && !error && (
         <div className="artifact-view-loading" aria-busy="true" aria-label="Loading the artifact">
           <Skeleton width="40%" height={26} />
@@ -456,7 +487,23 @@ export function ArtifactViewer({
       )}
       {record && (
         <Drawer open={history} title="History" subtitle={record.title} onClose={() => setHistory(false)}>
-          <VersionList record={record} onRolledBack={() => load().then(() => setHistory(false))} />
+          <VersionList
+            record={record}
+            {...(preview ? { previewing: preview.version.version } : {})}
+            onRolledBack={() => load().then(() => setHistory(false))}
+            {...(!older
+              ? {
+                  onPreview: (version: PageVersion) =>
+                    void api
+                      .pageVersion(record.id, version.version)
+                      .then((got) => {
+                        setPreview({ version, page: got });
+                        setHistory(false);
+                      })
+                      .catch(failed),
+                }
+              : {})}
+          />
         </Drawer>
       )}
     </div>

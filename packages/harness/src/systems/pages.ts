@@ -454,6 +454,16 @@ export class PageStore {
     });
   }
 
+  /** An HTML artifact as it was at a version, to look at: nothing is written. */
+  version(id: string, version: number): HtmlPage | undefined {
+    const row = this.row(id);
+    if (!row || !Number.isInteger(version)) return undefined;
+    const file = join(this.historyDir(recordOf(row).projectSlug, id), `${version}.json`);
+    if (!existsSync(file)) return undefined;
+    const v = JSON.parse(readFileSync(file, "utf8")) as { title: string; kind: PageKind; body: string; meta: HtmlMeta | null };
+    return v.kind === "html" ? { id, title: v.title, html: v.body, ...(v.meta ?? {}) } : undefined;
+  }
+
   /**
    * Put a page back as it was at a version. It goes through the same checks as
    * any write, against the tables as they are now, and is itself kept as a

@@ -78,8 +78,20 @@ export function PageHistory({ record, onRolledBack }: { record: PageSummary; onR
   );
 }
 
-/** The versions as a list, newest first, each older one with its own way back: for a drawer. */
-export function VersionList({ record, onRolledBack }: { record: PageSummary; onRolledBack: () => Promise<unknown> }): ReactElement {
+/** The versions as a list, newest first, each older one with a preview and a way back: for a drawer. */
+export function VersionList({
+  record,
+  onRolledBack,
+  onPreview,
+  previewing,
+}: {
+  record: PageSummary;
+  onRolledBack: () => Promise<unknown>;
+  /** Show this version in place of the current one, to look at; absent for a page that cannot be previewed. */
+  onPreview?: (version: PageVersion) => void;
+  /** The version being looked at now, if any. */
+  previewing?: number;
+}): ReactElement {
   const { versions, error, rollBack } = useVersions(record);
   const current = versions.at(-1)?.version;
   return (
@@ -89,11 +101,11 @@ export function VersionList({ record, onRolledBack }: { record: PageSummary; onR
           Page history: {error}
         </p>
       )}
-      {versions.length < 2 && !error && <Empty inline>One version so far. Each change KOS makes is kept here, with a way back.</Empty>}
+      {versions.length < 2 && !error && <Empty inline>One version so far. Each change is kept here, with a way back.</Empty>}
       {versions.length > 0 && (
         <ol className="versions-list" aria-label="Versions">
           {[...versions].reverse().map((v) => (
-            <li key={v.version} className="versions-row">
+            <li key={v.version} className={`versions-row${v.version === previewing ? " is-on" : ""}`}>
               <span className="line-text">
                 <strong>Version {v.version}</strong>
                 <span>
@@ -104,12 +116,19 @@ export function VersionList({ record, onRolledBack }: { record: PageSummary; onR
               {v.version === current ? (
                 <Pill tone="ok">Current</Pill>
               ) : (
-                <ConfirmButton
-                  label="Roll back"
-                  text={`Show version ${v.version} again? The artifact as it is now stays in its history.`}
-                  className="btn btn--sm"
-                  onConfirm={() => rollBack(v.version, onRolledBack)}
-                />
+                <span className="versions-acts">
+                  {onPreview && v.kind === "html" && (
+                    <button type="button" className="btn btn--ghost btn--sm" aria-pressed={v.version === previewing} onClick={() => onPreview(v)}>
+                      Preview
+                    </button>
+                  )}
+                  <ConfirmButton
+                    label="Restore"
+                    text={`Restore version ${v.version}? The artifact as it is now stays in its history.`}
+                    className="btn btn--sm"
+                    onConfirm={() => rollBack(v.version, onRolledBack)}
+                  />
+                </span>
               )}
             </li>
           ))}

@@ -190,9 +190,21 @@ describe("one artifact, full size", () => {
     const rows = within(within(drawer).getByRole("list", { name: "Versions" })).getAllByRole("listitem");
     expect(rows.map((r) => r.querySelector("strong")?.textContent)).toEqual(["Version 2", "Version 1"]);
     expect(within(rows[0]!).getByText("Current")).toBeTruthy();
-    fireEvent.click(within(rows[1]!).getByRole("button", { name: "Roll back" }));
-    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Roll back" })).getByRole("button", { name: "Roll back" }));
+    // An older version can be looked at first, with nothing in it saved, then restored from there.
+    const older = vi.spyOn(api, "pageVersion").mockResolvedValue({ id: "ledger", title: "Ledger", kind: "sheet", html: "<p>old</p>" });
+    fireEvent.click(within(rows[1]!).getByRole("button", { name: "Preview" }));
+    expect(await screen.findByText(/Looking at version 1/)).toBeTruthy();
+    expect(older).toHaveBeenCalledWith("ledger", 1);
+    await waitFor(() => expect(document.querySelector("iframe.artifact-frame")?.getAttribute("srcdoc")).toContain("data-locked"));
+    fireEvent.click(screen.getByRole("button", { name: "Restore this version" }));
     await waitFor(() => expect(rollback).toHaveBeenCalledWith("ledger", 1));
+    await waitFor(() => expect(screen.queryByText(/Looking at version 1/)).toBeNull());
+    // Or restored from the drawer itself.
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    const again = within(await screen.findByRole("dialog", { name: "History" })).getAllByRole("listitem");
+    fireEvent.click(within(again[1]!).getByRole("button", { name: "Restore" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Restore" })).getByRole("button", { name: "Restore" }));
+    await waitFor(() => expect(rollback).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole("button", { name: "Open in project" }));
     expect(toProject).toHaveBeenCalledWith("budget");
     expect(screen.queryByRole("button", { name: "Present" })).toBeNull();

@@ -133,10 +133,12 @@ export interface ArtifactPageProps {
   onSaved?: (record: PageSummary) => void;
   /** Load the newest version: offered when an edit was refused because one was saved after this was opened. */
   onReload?: () => void;
+  /** An older version, shown to look at: nothing in it is saved or written. */
+  locked?: boolean;
   ref?: Ref<ArtifactHandle>;
 }
 
-export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactPageProps): ReactElement {
+export function ArtifactPage({ record, page, onSaved, onReload, locked = false, ref }: ArtifactPageProps): ReactElement {
   const box = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const loads = useRef(0);
@@ -170,13 +172,13 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
     const { scripts, fonts } = artifactAssets(page);
     void Promise.all([Promise.all(scripts.map(library)), fontCss(fonts)])
       .then(([libraries, faces]) => {
-        if (!stale) setDoc(wrapperDocument(pageDocument({ html: page.html, css: `${CSS}\n${faces}`, libraries, kind: page.kind ?? "page", ...currentTokens() })));
+        if (!stale) setDoc(wrapperDocument(pageDocument({ html: page.html, css: `${CSS}\n${faces}`, libraries, kind: page.kind ?? "page", locked, ...currentTokens() })));
       })
       .catch((err: unknown) => !stale && setError(err instanceof Error ? err.message : String(err)));
     return () => {
       stale = true;
     };
-  }, [page]);
+  }, [page, locked]);
 
   // The page's own window: the frame inside the wrapper. A cross-origin frame's frames can be named, not read.
   const pageWindow = useCallback((): Window | undefined => frame.current?.contentWindow?.frames[0] ?? undefined, []);
@@ -230,6 +232,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
         setAsked({ text, answer: (sent) => reply(m.id, sent ? { result: { sent: true } } : { error: "the owner did not send it" }) });
         return;
       }
+      if (locked && (m.method === "save" || m.method === "write")) return reply(m.id, { error: "this is an older version, shown to look at: restore it to change it" });
       if (m.method === "save") {
         // A save is the owner's edit, so it comes with the owner's hand: a page saving on its own is refused here.
         if (!navigator.userActivation?.isActive) return reply(m.id, { error: "a save comes from the owner: press Save, or edit a cell" });
@@ -256,7 +259,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
     };
     window.addEventListener("message", heard);
     return () => window.removeEventListener("message", heard);
-  }, [layout, left, onSaved, page.capabilities?.ask, pageWindow, present, record.id, reply]);
+  }, [layout, left, locked, onSaved, page.capabilities?.ask, pageWindow, present, record.id, reply]);
 
   // A deck or a sheet fills the view below where it starts on the page, so that is measured, not guessed.
   useLayoutEffect(() => {
