@@ -56,4 +56,11 @@ describe("artifactGuide", () => {
       expect(n, name).toBeLessThan(name === "general" ? 2200 : 900);
     }
   });
+
+  it("says the check is not available where KOS has no Chrome, instead of asking for one", () => {
+    const text = artifactGuide("doc", false);
+    expect(text).not.toMatch(/Check it once with artifacts.check/);
+    expect(text).toMatch(/artifacts.check is not available here; do not call it/);
+    expect(artifactGuide("doc")).toMatch(/Check it once with artifacts.check/);
+  });
 });

@@ -19,14 +19,19 @@ import { reachOf } from "./sql.js";
 /**
  * The write tool's description: what it takes, and where the guide is. The
  * guide itself (artifactguide.ts) is long and read on demand, so it is not
- * in every prompt.
+ * in every prompt. Where KOS has no Chrome there is no check to ask for, and
+ * the model is told so rather than sent to a tool that cannot run.
  */
-const WRITE_DESCRIPTION = [
-  "Save an artifact: one self-contained HTML document of a kind (page: an app, dashboard or tool; doc: a designed document; deck: slides; sheet: a spreadsheet). It shows on the dashboard in a sandboxed frame with no network, reaching data only through window.kos, and every save keeps the old one as a version (artifacts.history, artifacts.rollback).",
-  "Read artifacts.guide({ kind }) first, every time: it says how KOS artifacts are designed, the structure each kind's runtime reads, the fonts, and what the frame refuses. Then write, check once with artifacts.check, fix what it reports in one pass, and finish.",
-  `project is the project whose data it shows. Omit it for a new workspace artifact that belongs to no project (a memo, a deck from notes); it then has no tables or files to read. Rewriting an existing id without project keeps it where it is; name a project, or "${WORKSPACE_SCOPE}", only to move it. If a project fits but does not exist, call systems.project_create first; never file an artifact under an unrelated project because it exists.`,
-  "title is a short specific name, not a caption; description is one sentence saying what it is for.",
-].join("\n");
+function writeDescription(canCheck: boolean): string {
+  return [
+    "Save an artifact: one self-contained HTML document of a kind (page: an app, dashboard or tool; doc: a designed document; deck: slides; sheet: a spreadsheet). It shows on the dashboard in a sandboxed frame with no network, reaching data only through window.kos, and every save keeps the old one as a version (artifacts.history, artifacts.rollback).",
+    canCheck
+      ? "Read artifacts.guide({ kind }) first, every time: it says how KOS artifacts are designed, the structure each kind's runtime reads, the fonts, and what the frame refuses. Then write, check once with artifacts.check, fix what it reports in one pass, and finish."
+      : "Read artifacts.guide({ kind }) first, every time: it says how KOS artifacts are designed, the structure each kind's runtime reads, the fonts, and what the frame refuses. This KOS has no Chrome, so artifacts.check is not available: write once, carefully, and finish.",
+    `project is the project whose data it shows. Omit it for a new workspace artifact that belongs to no project (a memo, a deck from notes); it then has no tables or files to read. Rewriting an existing id without project keeps it where it is; name a project, or "${WORKSPACE_SCOPE}", only to move it. If a project fits but does not exist, call systems.project_create first; never file an artifact under an unrelated project because it exists.`,
+    "title is a short specific name, not a caption; description is one sentence saying what it is for.",
+  ].join("\n");
+}
 
 function str(input: Record<string, unknown>, key: string): string {
   const v = input[key];
@@ -208,7 +213,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
         properties: { kind: { type: "string", enum: [...ARTIFACT_KINDS], description: "the kind about to be written: page, doc, deck or sheet" } },
       },
     },
-    (input) => artifactGuide(isArtifactKind(input.kind) ? input.kind : undefined),
+    (input) => artifactGuide(isArtifactKind(input.kind) ? input.kind : undefined, checkArtifact !== undefined),
     { floor: "safe" },
     { tags: ["systems"] },
   );
@@ -216,7 +221,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "artifacts.write",
-      description: WRITE_DESCRIPTION,
+      description: writeDescription(checkArtifact !== undefined),
       inputSchema: {
         type: "object",
         properties: {
@@ -275,8 +280,9 @@ function defineSystemsTools(ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "artifacts.check",
-      description:
-        "Render an artifact in KOS's own headless Chrome at desktop (1280 px) and phone (390 px) widths, light and dark, and report what is wrong: sideways overflow and the element causing it, text cut off by a box that hides its overflow, text drawn over other text, colours that stay the same in both themes, text below AA contrast, console errors, failed window.kos calls, regions empty at rest, formula errors, a missing visible title; with small screenshots. Check once after writing, fix everything it reports in one pass, write again, and finish: no check loops.",
+      description: !checkArtifact
+        ? "Not available on this KOS: it has no Chrome to render artifacts in. Do not call it; write to artifacts.guide and finish."
+        : "Render an artifact in KOS's own headless Chrome at desktop (1280 px) and phone (390 px) widths, light and dark, and report what is wrong: sideways overflow and the element causing it, text cut off by a box that hides its overflow, text drawn over other text, colours that stay the same in both themes, text below AA contrast, console errors, failed window.kos calls, regions empty at rest, formula errors, a missing visible title; with small screenshots. Check once after writing, fix everything it reports in one pass, write again, and finish: no check loops.",
       inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
     },
     async (input) => {

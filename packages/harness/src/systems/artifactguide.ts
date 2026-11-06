@@ -15,6 +15,11 @@ const kindDefaults = (kind: ArtifactKind): string => {
   return ids.length ? `Without fonts, a ${kind} gets ${ids.join(", ")}.` : `Without fonts, a ${kind} uses the system face KOS itself is set in.`;
 };
 
+/** The workflow's last steps where KOS has a Chrome to check in, and where it has none. */
+const CHECK_STEPS = `4. Check it once with artifacts.check({ id }). It renders the artifact in KOS's own headless Chrome at 1280 px and 390 px wide, light and dark, and reports sideways overflow and the element causing it, text cut off by a box that hides its overflow, text drawn over other text, colours that stay the same in both themes, text below AA contrast, console errors, failed bridge calls, regions empty at rest, a missing visible title, and a small screenshot.
+5. Fix everything the check reports in one pass, write again, then finish. Do not check again in a loop; one check, one round of fixes.`;
+const NO_CHECK_STEPS = `4. This KOS has no Chrome to render artifacts in, so artifacts.check is not available here; do not call it. Before writing, read the HTML over once against this guide (tokens for both themes, nothing wider than a 390 px phone, no empty regions at rest, a visible title), then write once and finish.`;
+
 const GENERAL = `# How KOS makes an artifact
 
 An artifact is one HTML document KOS writes for the owner: a page (an app, dashboard or tool), a doc, a deck or a sheet. All four run in the same sandboxed frame, take KOS's tokens and look by default, and reach data only through window.kos. The kind decides which runtime KOS adds beside the document and which defaults it starts from.
@@ -24,8 +29,7 @@ An artifact is one HTML document KOS writes for the owner: a page (an app, dashb
 1. Read this guide for the kind you are making: artifacts.guide({ kind }).
 2. Decide the treatment, the subject and the token plan (below) before writing markup.
 3. Write it with artifacts.write: project (omit it for a new workspace artifact, which then has no tables or files to read; rewriting an existing id without it keeps the artifact where it is), id, kind, title, description, html, and fonts, capabilities, libraries or headline when needed.
-4. Check it once with artifacts.check({ id }). It renders the artifact in KOS's own headless Chrome at 1280 px and 390 px wide, light and dark, and reports sideways overflow and the element causing it, text cut off by a box that hides its overflow, text drawn over other text, colours that stay the same in both themes, text below AA contrast, console errors, failed bridge calls, regions empty at rest, a missing visible title, and a small screenshot.
-5. Fix everything the check reports in one pass, write again, then finish. Do not check again in a loop; one check, one round of fixes.
+${CHECK_STEPS}
 
 ## Decide the treatment first
 
@@ -344,9 +348,9 @@ const POINTERS = [
   "- sheet: a spreadsheet with typed columns, formulas, totals and charts.",
 ].join("\n");
 
-/** The general guide plus the part for one kind; with no kind, a pointer to each. */
-export function artifactGuide(kind?: ArtifactKind): string {
-  return [GENERAL, kind ? PARTS[kind] : POINTERS].join("\n\n");
+/** The general guide plus the part for one kind; with no kind, a pointer to each. Without a checker, the workflow says so. */
+export function artifactGuide(kind?: ArtifactKind, canCheck = true): string {
+  return [canCheck ? GENERAL : GENERAL.replace(CHECK_STEPS, NO_CHECK_STEPS), kind ? PARTS[kind] : POINTERS].join("\n\n");
 }
 
 /** The parts by name, for tests and for measuring them. */

@@ -231,4 +231,17 @@ describe("systems.migrate risk", () => {
     expect(await ids("@workspace")).toEqual(["beds"]);
     expect(JSON.parse((await registry.execute("artifacts.history", { id: "beds" })).content)).toHaveLength(3);
   });
+
+  it("tells the model the check is not available where KOS has no Chrome", async () => {
+    const bare = new ToolRegistry();
+    const manifest = new ProjectManifest(ws.db);
+    const ctx = toolRegistryContext(bare, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), manifest, migrator: new Migrator(ws.db, manifest), pages: new PageStore(ws.db, ws, manifest) });
+    await new ModuleLoader(ctx).load([systemsModule]);
+    const told = (name: string): string => bare.defs().find((d) => d.name === name)?.description ?? "";
+    expect(told("artifacts.write")).toMatch(/artifacts.check is not available/);
+    expect(told("artifacts.write")).not.toMatch(/check once with artifacts.check/);
+    expect(told("artifacts.check")).toMatch(/^Not available on this KOS/);
+    expect((await bare.execute("artifacts.guide", { kind: "doc" })).content).toMatch(/artifacts.check is not available here/);
+    expect(registry.defs().find((d) => d.name === "artifacts.write")?.description).toMatch(/check once with artifacts.check/);
+  });
 });
