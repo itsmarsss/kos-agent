@@ -27,6 +27,24 @@ struct ChatModelTests {
     #expect(model.story == nil)
   }
 
+  /// Words after the steps are not the end of the turn: its foot says it works until the turn ends.
+  @Test func aRunningTurnKeepsItsFootAfterWords() {
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [])
+    #expect(model.foot == nil)
+    model.say("count the books")
+    #expect(model.foot == "Thinking")
+    #expect(model.workingSince != nil)
+    model.status(taken: false, story: .some("› Run a query"), error: nil)
+    #expect(model.foot == "Run a query")
+    model.status(taken: false, story: .some("› Run a query\nData check first: 17 books. Building page 1 now."), error: nil)
+    #expect(model.working)
+    #expect(model.foot == "Working")
+    model.status(taken: false, story: .some(nil), error: nil)
+    #expect(model.foot == nil)
+    #expect(model.workingSince == nil)
+  }
+
   @Test func aTurnTakenElsewhereShowsAsItGoes() {
     let model = ChatModel()
     model.show(conversation: "mac:owner", title: "Mac", lines: [])

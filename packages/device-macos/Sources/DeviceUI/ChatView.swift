@@ -114,13 +114,11 @@ public struct ChatView: View {
           }
           if model.working {
             let running = model.running
-            if running.steps.isEmpty && running.words.isEmpty {
-              Thinking()
-            } else {
-              if !running.steps.isEmpty { Steps(steps: running.steps, live: true) }
-              if !running.words.isEmpty { ChatMarkdown(running.words).foregroundStyle(Theme.muted) }
-            }
+            if !running.steps.isEmpty { Steps(steps: running.steps, live: true) }
+            if !running.words.isEmpty { ChatMarkdown(running.words).foregroundStyle(Theme.muted) }
           }
+          // At the foot for as long as the turn runs: words after the steps are not the end of the work.
+          if let foot = model.foot { Working(what: foot, since: model.workingSince ?? Date()) }
           ForEach(model.asks) { ask in AskCard(ask: ask, answer: model.answer) }
           Color.clear.frame(height: 1).id("end")
         }
@@ -415,8 +413,11 @@ private struct Steps: View {
   }
 }
 
-/// The dashboard's live head while a turn has taken no step: three dots of the accent pulsing in turn, and that it is thinking.
-private struct Thinking: View {
+/// The dashboard's live head, at the foot of a running turn: three dots of the accent pulsing in turn, what it is at, and for how long.
+private struct Working: View {
+  let what: String
+  let since: Date
+
   var body: some View {
     HStack(spacing: 8) {
       TimelineView(.animation) { context in
@@ -427,7 +428,12 @@ private struct Thinking: View {
           }
         }
       }
-      Text("Thinking").font(.kos(.detail)).foregroundStyle(Theme.muted)
+      Text(what).font(.kos(.detail)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.tail)
+      TimelineView(.periodic(from: since, by: 1)) { context in
+        Text(elapsedWords(context.date.timeIntervalSince(since)))
+          .font(.kos(.detail).monospacedDigit())
+          .foregroundStyle(Theme.faint)
+      }
     }
     .padding(.vertical, 4)
   }

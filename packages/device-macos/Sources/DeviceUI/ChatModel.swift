@@ -100,7 +100,11 @@ public final class ChatModel: ObservableObject {
   /// The owner's words sent, and not yet in the chat.
   @Published public private(set) var sending: [String] = []
   @Published public private(set) var notices: [Notice] = []
-  @Published public private(set) var working = false
+  @Published public private(set) var working = false {
+    didSet { if working != oldValue { workingSince = working ? Date() : nil } }
+  }
+  /// When the running turn began, as this window saw it: what the foot counts from.
+  @Published public private(set) var workingSince: Date?
   /// The running turn's steps, "› " before each.
   @Published public private(set) var story: String?
   @Published public private(set) var asks: [Ask] = []
@@ -311,6 +315,16 @@ public final class ChatModel: ObservableObject {
       return Step(summary: failed ? String(summary.dropLast(" (failed)".count)) : summary, failed: failed)
     }
     return (steps, lines.filter { !$0.hasPrefix(Self.stepMark) }.joined(separator: "\n"))
+  }
+
+  /// What the running turn's foot says it is at, for as long as it runs, whatever came last; nil once it ends.
+  /// Thinking before it has shown anything, its latest step while that is the last thing told, else working.
+  public var foot: String? {
+    guard working else { return nil }
+    guard let story else { return "Thinking" }
+    let last = story.components(separatedBy: "\n").last { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
+    if last.hasPrefix(Self.stepMark) && !last.hasSuffix(" (failed)") { return String(last.dropFirst(Self.stepMark.count)) }
+    return last.isEmpty ? "Thinking" : "Working"
   }
 
   /// What marks a step in a story (TurnNarrator's STEP_MARK).
