@@ -210,7 +210,6 @@ export function ArtifactViewer({
   useEffect(() => {
     setError(undefined);
     load().catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const owner = record?.projectSlug ? projects.find((p) => p.slug === record.projectSlug)?.name ?? record.projectSlug : "Workspace";
