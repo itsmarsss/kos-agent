@@ -33,7 +33,7 @@ export const WIDTHS = { desktop: { width: 1280, height: 800, mobile: false }, ph
 export type Width = keyof typeof WIDTHS;
 
 export interface Finding {
-  kind: "overflow" | "clipped" | "theme" | "contrast" | "console" | "bridge" | "empty" | "title" | "formula" | "left";
+  kind: "overflow" | "clipped" | "overlap" | "theme" | "contrast" | "console" | "bridge" | "empty" | "title" | "formula" | "left";
   text: string;
 }
 
@@ -112,7 +112,7 @@ export function hostDocument(frame: string): string {
 }
 
 /** The measurement of a frame that left: nothing in it to find fault with but the leaving. */
-const GONE: ProbeResult = { viewport: { width: 0, height: 0 }, scrollWidth: 0, overflow: [], elements: [], bodyBackground: "", empty: [], title: "(left)", formulaErrors: [], clipped: [] };
+const GONE: ProbeResult = { viewport: { width: 0, height: 0 }, scrollWidth: 0, overflow: [], elements: [], bodyBackground: "", empty: [], title: "(left)", formulaErrors: [], clipped: [], overlaps: [] };
 
 /** What one render saw, besides the measurement. */
 interface Render {
@@ -402,6 +402,7 @@ export function findingsOf(renders: Render[]): Finding[] {
       if (e.contrast < need) add("contrast", e.name, `${e.name} has ${e.contrast}:1 contrast against ${e.behind} at ${where(r)}; AA needs ${need}:1. Take its colour from a token with enough contrast in this theme.`);
     }
     for (const e of p.empty) add("empty", e.name, `${e.name} is an empty ${e.width}x${e.height} box at rest (${where(r)}). Fill it when the artifact opens, or show what belongs there (an empty state that says how to add the first one).`);
+    for (const o of p.overlaps) add("overlap", `${o.a}|${o.b}`, `${o.a} and ${o.b} are drawn over each other at ${where(r)}. Give each its own space: stack them (flex-direction: column), let the row wrap, or drop absolute positioning.`);
     for (const c of p.clipped) add("clipped", c.name, `${c.name} is cut off by ${c.by} at ${where(r)}: its text runs past the box, which hides the rest. Let the box grow (min-width: 0 on it and minmax(0, 1fr) on its grid, flex-wrap, a smaller size at this width) rather than hide what overflows.`);
     for (const f of p.formulaErrors) add("formula", f, `${f} shows a formula error. Fix the formula's references or the values it reads.`);
     if (!p.title) add("title", "title", "No visible title: open with an h1 that names the artifact (a deck's first slide, a sheet's header).");

@@ -74,7 +74,13 @@ export const SHEET_CSS = String.raw`
 .sheet-charts .kos-chart text { fill: var(--muted); font: 11px var(--font-ui); font-variant-numeric: tabular-nums; }
 .sheet-charts .kos-chart .axis { stroke: var(--line); }
 @media (max-width: 560px) {
-  .sheet-grid :where(th, td) { padding: 0 9px; max-width: 24ch; }
+  /* A phone holds four columns, not two: tighter cells, and only the row numbers stay put. */
+  .sheet { font-size: 13px; }
+  .sheet-grid :where(th, td) { padding: 0 7px; max-width: 16ch; font-size: 13px; }
+  .sheet-grid thead button { padding: 0 7px 6px; }
+  .sheet-grid .rownum { padding: 0 6px; min-width: 2.5ch; }
+  .sheet-grid .frozen:not(.rownum) { position: static; }
+  .sheet-grid .frozen-edge { box-shadow: none; }
   .sheet-tools input { max-width: none; }
 }
 `;

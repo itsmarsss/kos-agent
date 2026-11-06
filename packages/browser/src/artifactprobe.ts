@@ -39,6 +39,8 @@ export interface ProbeResult {
   formulaErrors: string[];
   /** Text cut off by a box that hides what overflows it, and that box. */
   clipped: { name: string; by: string }[];
+  /** Two runs of text drawn over each other. */
+  overlaps: { a: string; b: string }[];
 }
 
 /** The function serialised into the frame; it must not close over anything. */
@@ -101,6 +103,7 @@ export function probe(): ProbeResult {
   const empty: ProbeResult["empty"] = [];
   const wide = new Set<Element>();
   const clipped: ProbeResult["clipped"] = [];
+  const texts: { el: Element; r: DOMRect }[] = [];
   const clips = (el: Element): boolean => {
     for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) {
       const o = getComputedStyle(n).overflowX;
@@ -118,6 +121,15 @@ export function probe(): ProbeResult {
     const fg = rgba(s.color);
     const bg = rgba(s.backgroundColor);
     const painted = !!bg && bg[3] > 0;
+    if (ownText && s.position !== "fixed" && s.position !== "sticky" && texts.length < 600) {
+      // Each line of its own words, not its children's: a line box per rect.
+      const range = document.createRange();
+      for (const c of Array.from(el.childNodes)) {
+        if (c.nodeType !== 3 || !(c.textContent ?? "").trim()) continue;
+        range.selectNodeContents(c);
+        for (const r of Array.from(range.getClientRects())) if (r.width > 0 && r.height > 0) texts.push({ el, r });
+      }
+    }
     if (ownText && clipped.length < 6 && s.textOverflow !== "ellipsis") {
       // Where the words really are, against every box above that cuts off what spills out of it.
       const range = document.createRange();
@@ -157,6 +169,18 @@ export function probe(): ProbeResult {
       empty.push({ name: named(el), width: Math.round(r.width), height: Math.round(r.height) });
     }
   });
+  // Words drawn over other words: two text boxes, neither inside the other, crossing by more than a hair.
+  const overlaps: ProbeResult["overlaps"] = [];
+  for (let i = 0; i < texts.length && overlaps.length < 4; i++) {
+    for (let j = i + 1; j < texts.length && overlaps.length < 4; j++) {
+      const a = texts[i]!;
+      const b = texts[j]!;
+      if (a.el === b.el || a.el.contains(b.el) || b.el.contains(a.el)) continue;
+      const w = Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left);
+      const h = Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top);
+      if (w > 4 && h > 4 && a.r.width > 0 && b.r.width > 0) overlaps.push({ a: named(a.el), b: named(b.el) });
+    }
+  }
   // The element that pushes past the edge, not every child it carries along.
   const overflow = [...wide].filter((el) => !el.parentElement || !wide.has(el.parentElement)).map((el) => ({ name: named(el), right: Math.round(el.getBoundingClientRect().right) }));
   // Report the outermost of each nest: an empty card's empty body is the same finding.
@@ -173,5 +197,6 @@ export function probe(): ProbeResult {
     title: heading ? (heading.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 80) : undefined,
     formulaErrors,
     clipped,
+    overlaps,
   };
 }

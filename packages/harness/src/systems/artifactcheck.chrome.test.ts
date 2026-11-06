@@ -37,8 +37,8 @@ const GOOD = `<style>
 :root[data-theme=dark]{--paper:#11141b;--ink:#e6e9f0;--quiet:#9aa3b5;--rule:#2a303c;--mark:#86a4ff}
 body{background:var(--paper);color:var(--ink);padding:24px 16px;margin:0}
 main{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
-p{color:var(--quiet)} .tile{border:1px solid var(--rule);padding:12px;color:var(--ink)}
-</style><main><h1>Garden log</h1><a id="jump" href="#days">Jump to the days</a><p>Watering, week of 3 November.</p><div class="tile">Tomatoes: 2 L on Monday</div><table id="days"><tr><th>Day</th><th>Litres</th></tr><tr><td>Mon</td><td>2</td></tr></table></main>
+p{color:var(--quiet)} .entry{border:1px solid var(--rule);padding:12px;color:var(--ink)}
+</style><main><h1>Garden log</h1><a id="jump" href="#days">Jump to the days</a><p>Watering, week of 3 November.</p><div class="entry">Tomatoes: 2 L on Monday</div><table id="days"><tr><th>Day</th><th>Litres</th></tr><tr><td>Mon</td><td>2</td></tr></table></main>
 <script>jump.click();kos.query("SELECT 1 AS n").then(function(r){document.querySelector("p").textContent += " " + r.rows.length + " row."})</script>`;
 
 const PLANTED: Record<string, { html: string; expect: Finding["kind"] }> = {
@@ -47,6 +47,7 @@ const PLANTED: Record<string, { html: string; expect: Finding["kind"] }> = {
   narrow: { html: `<h1>Narrow</h1><div class="strip" style="width:600px;height:40px;background:var(--panel)">a strip</div>`, expect: "overflow" },
   // Tiles too narrow for their words, which a hidden overflow cuts off: the page does not scroll, it just loses text.
   cramped: { html: `<h1>Cramped</h1><div style="display:flex;gap:8px"><div class="tile" style="width:40px;overflow:hidden;white-space:nowrap;border:1px solid var(--line)">Total spent this month</div></div>`, expect: "clipped" },
+  stacked: { html: `<h1>Stacked</h1><div style="position:relative;height:60px"><p class="label" style="position:absolute;top:0;left:0;margin:0">Total spent</p><p class="value" style="position:absolute;top:4px;left:10px;margin:0">$3,340.87</p></div>`, expect: "overlap" },
   literal: { html: `<style>body{background:#ffffff;color:#222222}</style><h1>Literal</h1><p>One</p><p>Two</p><p>Three</p><p>Four</p><p>Five</p><p>Six</p>`, expect: "theme" },
   faint: { html: `<h1>Faint</h1><p class="faint" style="color:#8a8a8a;background:#9a9a9a">hard to read</p>`, expect: "contrast" },
   noisy: { html: `<h1>Noisy</h1><script>console.error("the chart had no data"); null.x;</script>`, expect: "console" },

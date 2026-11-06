@@ -273,7 +273,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
     {
       name: "artifacts.check",
       description:
-        "Render an artifact in KOS's own headless Chrome at desktop (1280 px) and phone (390 px) widths, light and dark, and report what is wrong: sideways overflow and the element causing it, text cut off by a box that hides its overflow, colours that stay the same in both themes, text below AA contrast, console errors, failed window.kos calls, regions empty at rest, formula errors, a missing visible title; with small screenshots. Check once after writing, fix everything it reports in one pass, write again, and finish: no check loops.",
+        "Render an artifact in KOS's own headless Chrome at desktop (1280 px) and phone (390 px) widths, light and dark, and report what is wrong: sideways overflow and the element causing it, text cut off by a box that hides its overflow, text drawn over other text, colours that stay the same in both themes, text below AA contrast, console errors, failed window.kos calls, regions empty at rest, formula errors, a missing visible title; with small screenshots. Check once after writing, fix everything it reports in one pass, write again, and finish: no check loops.",
       inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
     },
     async (input) => {

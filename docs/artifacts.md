@@ -122,6 +122,7 @@ server-side checks; it never writes. It then measures the frame
 
 - sideways overflow, and the element that causes it;
 - text cut off by a box that hides what overflows it (a tile too narrow for its words);
+- text drawn over other text;
 - colours that stay the same in both themes (the body's background, or most
   text), the sign of a literal colour or a token with one value;
 - text below AA contrast against what is behind it;

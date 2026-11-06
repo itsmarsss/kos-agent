@@ -24,7 +24,7 @@ An artifact is one HTML document KOS writes for the owner: a page (an app, dashb
 1. Read this guide for the kind you are making: artifacts.guide({ kind }).
 2. Decide the treatment, the subject and the token plan (below) before writing markup.
 3. Write it with artifacts.write: project (omit it for a workspace artifact, which then has no tables or files to read), id, kind, title, description, html, and fonts, capabilities, libraries or headline when needed.
-4. Check it once with artifacts.check({ id }). It renders the artifact in KOS's own headless Chrome at 1280 px and 390 px wide, light and dark, and reports sideways overflow and the element causing it, text cut off by a box that hides its overflow, colours that stay the same in both themes, text below AA contrast, console errors, failed bridge calls, regions empty at rest, a missing visible title, and a small screenshot.
+4. Check it once with artifacts.check({ id }). It renders the artifact in KOS's own headless Chrome at 1280 px and 390 px wide, light and dark, and reports sideways overflow and the element causing it, text cut off by a box that hides its overflow, text drawn over other text, colours that stay the same in both themes, text below AA contrast, console errors, failed bridge calls, regions empty at rest, a missing visible title, and a small screenshot.
 5. Fix everything the check reports in one pass, write again, then finish. Do not check again in a loop; one check, one round of fixes.
 
 ## Decide the treatment first
@@ -148,7 +148,7 @@ The title is a short specific noun phrase, a name and not a caption: "Halifax Re
 - Visible focus on everything that takes it (:focus-visible with an outline from a token).
 - @media (prefers-reduced-motion: reduce) turns motion off.
 - No overlapping elements at any width; no absolutely positioned text over content.
-- No cascade fights: low specificity, no !important, one rule per thing. The frame already styles plain markup and the kit classes (.card .grid .row .stack .stat .btn .pill .tag .label .hint .empty .table-wrap); use them as a fallback or restyle them from your tokens, not both at once.
+- No cascade fights: low specificity, no !important, one rule per thing. The frame already styles plain markup and the kit classes (.card .grid .row .stack .stat .btn .pill .tag .label .hint .empty .table-wrap, and .tile, which is a small fixed square); use them as a fallback or restyle them from your tokens, not both at once, and never take one of those names for something else of your own.
 
 ## What the frame refuses
 
