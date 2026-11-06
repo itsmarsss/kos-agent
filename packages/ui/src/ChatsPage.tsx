@@ -681,28 +681,23 @@ export function ChatsPage({
     [agent, conversations],
   );
   /*
-   * What the project or the blob has made, beside its chat, and the one open
-   * in place of the thread. A blob owns no artifacts itself: it has those of
-   * the projects it works in, each saying whose it is.
+   * What the project or the blob owns, beside its chat, and the one open in
+   * place of the thread. A blob owns what its own thread makes, as it owns
+   * its folder; a project, what its chats make.
    */
   const [owned, setOwned] = useState<PageSummary[]>([]);
   const [inline, setInline] = useState<string>();
-  const homes = useMemo(
-    () => (project ? [project.slug] : [...new Set(agentInstances.flatMap((c) => (c.projectSlug ? [c.projectSlug] : [])))]),
-    [project, agentInstances],
-  );
-  const homesKey = homes.join(",");
   const projectSlug = project?.slug;
   const agentName = agent?.name;
   // Read when the page opens, when what is open in place changes, and every so often, so one KOS makes shows up.
   useEffect(() => {
     if (!projectSlug && !agentName) return;
     let stale = false;
-    const wanted = new Set(homesKey ? homesKey.split(",") : []);
+    const mine = (a: PageSummary): boolean => (agentName ? a.blob === agentName : a.projectSlug === projectSlug && !a.blob);
     const read = (): void =>
       void api
         .artifacts()
-        .then((list) => !stale && setOwned(list.filter((a) => a.projectSlug !== null && wanted.has(a.projectSlug)).sort((a, b) => b.updatedAt - a.updatedAt)))
+        .then((list) => !stale && setOwned(list.filter(mine).sort((a, b) => b.updatedAt - a.updatedAt)))
         .catch(() => undefined);
     read();
     const every = setInterval(() => document.visibilityState === "visible" && read(), OWNED_POLL_MS);
@@ -710,7 +705,7 @@ export function ChatsPage({
       stale = true;
       clearInterval(every);
     };
-  }, [projectSlug, agentName, homesKey, inline]);
+  }, [projectSlug, agentName, inline]);
   // Another project, blob or thread: the thread is what shows, not the artifact open before.
   useEffect(() => setInline(undefined), [projectSlug, agentName, activeId]);
   const openOwned = (a: PageSummary): void => {
@@ -1919,12 +1914,12 @@ export function ChatsPage({
               projects={projects}
               backLabel="← Back to the chat"
               onBack={() => setInline(undefined)}
-              onOpenChat={(slug) => {
-                if (project && slug === project.slug) setInline(undefined);
-                else if (slug) onOpenProject(slug);
-                else onOpen("primary:owner");
+              onOpenChat={(owner) => {
+                // The chat it went to is this one: back to it. Otherwise that chat.
+                if (owner && (("project" in owner && owner.project === projectSlug) || ("blob" in owner && owner.blob === agentName))) setInline(undefined);
+                else if (owner && "project" in owner) onOpenProject(owner.project);
+                else onOpen(owner ? `agent:${owner.blob}` : "primary:owner");
               }}
-              {...(agent ? { onOpenProject } : {})}
             />
           </div>
         )}

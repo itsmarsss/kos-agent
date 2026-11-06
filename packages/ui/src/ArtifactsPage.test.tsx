@@ -139,6 +139,22 @@ describe("the Artifacts page", () => {
     expect(titles()).toEqual(["Q4 brief", "Garden pitch"]);
   });
 
+  it("names a blob as the owner of what it made, and filters by it", async () => {
+    const notes = { id: "notes", projectSlug: null, blob: "noter", title: "Noter's notes", path: "", updatedAt: at(1), kind: "html", artifactKind: "doc", capturedAt: at(0) } as ArtifactSummary;
+    vi.spyOn(api, "artifacts").mockResolvedValue([notes, ...ART]);
+    vi.spyOn(api, "checkArtifact").mockResolvedValue({ findings: [], capturedAt: Date.now() });
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
+    await waitFor(() => expect(titles()).toHaveLength(5));
+    expect(within(screen.getByText("Noter's notes").closest("button")!).getByText("noter")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Project" }));
+    fireEvent.click(screen.getByRole("option", { name: "noter" }));
+    expect(titles()).toEqual(["Noter's notes"]);
+    // The workspace's own are not a blob's.
+    fireEvent.click(screen.getByRole("button", { name: "Project" }));
+    fireEvent.click(screen.getByRole("option", { name: "Workspace" }));
+    expect(titles()).toEqual(["Q4 brief", "Garden pitch"]);
+  });
+
   it("opens an artifact from its card, and says plainly when there are none", async () => {
     vi.spyOn(api, "artifacts").mockResolvedValue(ART.slice(0, 1));
     const open = vi.fn();
@@ -172,7 +188,8 @@ describe("one artifact, full size", () => {
     // The request went to KOS at the root, so that is the chat opened, not the chat list.
     expect(chatOf(null)).toEqual({ name: "chats", id: "primary:owner" });
     expect(hrefFor(chatOf(null))).toBe(hrefFor({ name: "chats", id: "primary:owner" }));
-    expect(chatOf("budget")).toEqual({ name: "project", slug: "budget" });
+    expect(chatOf({ project: "budget" })).toEqual({ name: "project", slug: "budget" });
+    expect(chatOf({ blob: "noter" })).toEqual({ name: "blobs", blob: "noter" });
   });
 
   it("keeps its versions in a drawer, each older one with a way back, and opens its project", async () => {
@@ -184,7 +201,7 @@ describe("one artifact, full size", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
     const rollback = vi.spyOn(api, "pageRollback").mockResolvedValue(ART[3]!);
     const toProject = vi.fn();
-    render(<ArtifactViewer id="ledger" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} onOpenProject={toProject} />);
+    render(<ArtifactViewer id="ledger" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} onOpenOwner={toProject} />);
     fireEvent.click(await screen.findByRole("button", { name: "History" }));
     const drawer = await screen.findByRole("dialog", { name: "History" });
     const rows = within(within(drawer).getByRole("list", { name: "Versions" })).getAllByRole("listitem");
@@ -222,8 +239,26 @@ describe("one artifact, full size", () => {
     fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Restore" })).getByRole("button", { name: "Restore" }));
     expect((await screen.findByText(/changed after it was opened/)).textContent).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open in project" }));
-    expect(toProject).toHaveBeenCalledWith("budget");
+    await waitFor(() => expect(toProject).toHaveBeenCalledWith({ project: "budget" }));
     expect(screen.queryByRole("button", { name: "Present" })).toBeNull();
+  });
+
+  it("sends a blob's artifact's request to the blob's thread, and opens the blob", async () => {
+    const record = { id: "notes", projectSlug: null, blob: "noter", title: "Notes", path: "", updatedAt: at(1), kind: "html" as const, artifactKind: "doc" as const };
+    vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "notes", title: "Notes", kind: "doc", html: "<article data-doc></article>" } } as never);
+    vi.spyOn(api, "pageHistory").mockResolvedValue([]);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
+    const sent = vi.spyOn(api, "message").mockResolvedValue({ reply: "" } as never);
+    const opened = vi.fn();
+    const toOwner = vi.fn();
+    render(<ArtifactViewer id="notes" projects={projects} onBack={() => undefined} onOpenChat={opened} onOpenOwner={toOwner} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open noter" }));
+    await waitFor(() => expect(toOwner).toHaveBeenCalledWith({ blob: "noter" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit with KOS" }));
+    fireEvent.change(screen.getByLabelText(/What should change/), { target: { value: "Shorter" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask KOS" }));
+    expect(sent.mock.calls[0]?.[1]).toBe("agent:noter");
+    expect(opened).toHaveBeenCalledWith({ blob: "noter" });
   });
 
   it("does not offer presenting for a doc, and sends a project's request to its own chat", async () => {
@@ -253,6 +288,6 @@ describe("one artifact, full size", () => {
     fireEvent.click(screen.getByRole("button", { name: "Convert with KOS" }));
     expect(sent).toHaveBeenCalledWith(convertRequest(record), "project:budget");
     expect(sent.mock.calls[0]?.[0]).toMatch(/@page:old.*artifacts\.get.*artifacts\.write as HTML under the same id/);
-    expect(opened).toHaveBeenCalledWith("budget");
+    expect(opened).toHaveBeenCalledWith({ project: "budget" });
   });
 });

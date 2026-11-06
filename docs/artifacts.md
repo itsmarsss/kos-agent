@@ -32,12 +32,36 @@ libraries, and each is small: about 17 KB for the doc, 15 KB for the deck,
 
 ## Where artifacts live
 
-An artifact belongs to a project, under `projects/<slug>/pages/`, or to no
-project, as a workspace artifact under `artifacts/` (a memo, a deck from
-notes). A workspace artifact has no tables or files to reach, so it may not
-declare writes, file reads or a headline. Both are rows of the one
-`pages` table (`PageStore`, `systems/pages.ts`); the kind, description and
-fonts are kept with the declarations.
+An artifact has one owner, as a file has one folder:
+
+| Owner | Where it lives | Made by | Reaches |
+| --- | --- | --- | --- |
+| A project | `projects/<slug>/pages/` | the project's chats | the project's tables and files, as declared |
+| A blob | `blobs/<name>/artifacts/`, beside the blob's file and whatever else it makes | the blob's own thread (and a chat of its outside any project) | nothing: a blob's turn reaches no tables, so neither does its artifact |
+| The workspace | `artifacts/` | anywhere else (a memo, a deck from notes) | nothing |
+
+All three are rows of the one `pages` table (`PageStore`, `systems/pages.ts`):
+`project_slug` names a project's, the `blob` column a blob's, and a row with
+neither is the workspace's. The column was added to the table as it was, so
+every older row kept its project or the workspace. An artifact that moves
+owner takes its versions and captures with it. The kind, description and
+fonts are kept with the declarations. A blob's or a workspace artifact may
+not declare writes, file reads or a headline.
+
+Who may reach whose, for every artifacts tool (write, list, get, check,
+history, rollback; `refuseOtherOwnersPage` in `tools/systems.ts`):
+
+- a project's: its own chats, the turn that made the project, and
+  Maintenance; never a blob's turn;
+- a blob's: its own turns, and KOS at the root and Maintenance, as they reach
+  a blob's files; never a project's chat or another blob's;
+- the workspace's: any chat.
+
+`artifacts.list` leaves out what the chat may not read. A blob inside a
+project (one of its chats there) works for the project, so what it makes
+there is the project's. When a blob is removed its file goes and its folder
+stays with the work in it, as its files do, so its artifacts stay too, under
+its name; a blob made again with that name has them back.
 
 ## How an artifact is written
 
@@ -107,12 +131,24 @@ code, a link to one of the doc's headings, H1 to H3, lists, quote), a "/"
 menu of blocks at the start of an empty line (headings, lists, a
 checklist, a quote, a divider, a table, a callout, an image from a file),
 markdown typed at a line's start (`# `, `## `, `- `, `1. `, `> `, `[] `)
-and around words (`**bold**`, `` `code` ``), and undo and redo beside Done.
-It saves on its own 1.2 s after the owner stops typing, no sooner than
-2.1 s after the last save, through the same `kos.save`, so the gesture,
-conflict and rate rules above all hold; Done (or Cmd+S, or Escape) saves
+and around words (`**bold**`, `` `code` ``). A drop is taken as plain text,
+as a paste is. Its controls are the dashboard's, in a bar above the frame
+that stays in view as the doc scrolls by (Edit, then Undo, Redo, Discard,
+Done and how the save stands): the doc says how its editing stands
+(`{__kos: "edit", editing, pending, status}`) and the dashboard sends what
+the owner pressed (`{__kos: "edit-do", action}`). The selection's format bar
+stays in the frame.
+
+It saves on its own 1.2 s after the owner stops typing, through the same
+`kos.save`, so the gesture, conflict and rate rules above all hold. Saves run
+one after another, and each waits out the 2.1 s since the last, so Done (or
+Cmd+S, or Escape) just after one is never refused as too soon; Done saves
 what is waiting and draws the doc again, and stays in editing if the save
-was refused.
+was refused. Discard puts back what was not yet saved and leaves editing.
+An edit longer than the server takes (`DOC_EDIT_MAX`, 300,000 characters) is
+not sent, and an image is kept to well under it, counting base64's growth.
+Before the frame goes (another version, another artifact, back), the viewer
+asks the doc to finish, so nothing typed is lost.
 
 It runs inside the doc's frame, on the browser's own editing
 (contenteditable and its commands), not on an editor library's model: a
@@ -210,16 +246,17 @@ project's chat to rewrite it as an HTML artifact under the same id.
 Opening one shows it full size under a head with its title, kind, project
 and when it changed, and its actions: History (a drawer of every version,
 newest first, each older one with Preview, which shows that version in place
-with nothing in it saved or written, and Restore), Open in project, Present
+with nothing in it saved, written or asked, and Restore, which like an edit
+names the version it was made on and is refused with a 409 when one was
+saved since), Open in project, Present
 for a deck (the frame goes full screen and tells the deck to present), and Edit
 with KOS (the owner says what should change, and it goes to the chat that
 owns the artifact: the project's, or KOS at the root).
 
 The same viewer shows an artifact opened from its project (`#/page/<id>`),
 and in place of the chat when one is picked from the Artifacts list beside a
-project's or a blob's chat (`ArtifactRail.tsx`): each artifact's kind, title
-and when it changed, and for a blob, which works in several projects, whose
-each one is. On a narrow window the list folds into one row under the chat.
+project's or a blob's chat (`ArtifactRail.tsx`): what that project or blob
+owns, each one's kind, title and when it changed. On a narrow window the list folds into one row under the chat.
 
 ### Drawn as part of the page
 
@@ -237,16 +274,25 @@ shown (its project, the viewer, full screen):
 - The height is the page's to say, so the dashboard holds it
   (`widgets/frameheight.ts`): within 80 px and 50,000 px, a change under
   2 px ignored, a return to the height before last within 400 ms ignored,
-  and more than twelve changes in 1.5 s freezes the frame where it is, so a
-  page sized to its own frame cannot make the dashboard jump or loop. The
-  message is heard only from the page's own frame, like every other.
+  and more than twelve changes in 1.5 s freezes the frame where it is until
+  the page has been quiet for 2 s, so a page sized to its own frame cannot
+  make the dashboard jump or loop. Changes while the owner's hand is in the
+  frame (typing a run of new lines) never count towards a freeze. While the
+  frame is not the height it reported, the bridge sends it again, backing
+  off, so a height set aside is taken once the page settles. The message is
+  heard only from the page's own frame, like every other.
 - With no scroll of its own, a jump to a place on the page (a `#id` link,
   `scrollIntoView`, a doc's contents and notes) is posted as the same
   message with `reveal: {top, bottom, block}`, and the dashboard scrolls
   whatever holds the frame to it, held within the frame, and only while the
-  owner's hand is on the page (user activation), so a page cannot move the
-  dashboard by itself. A doc's contents beside the text no longer stick as
-  the page scrolls, since the frame itself does not.
+  owner's hand is in that frame: the dashboard's focus is on it and the
+  browser counts a gesture as active, so a page cannot move the dashboard by
+  itself and a press elsewhere does not count. While the frame has a scroll
+  of its own (past the cap, frozen, or the check's fixed view), a jump scrolls
+  inside it too.
+- A doc's contents beside the text stay in view: the dashboard tells the doc
+  where its view is over the frame (`{__kos: "view", top, height}`, numbers
+  only, once a frame), and the doc moves its contents to match.
 - A deck is a 16:9 stage as wide as the room, under its bar, never taller
   than the view; a sheet fills the view below where its frame starts, and
   its runtime gives the grid what is left under its head and tools, so only

@@ -419,8 +419,10 @@ export interface AuditRecord {
 
 export interface PageSummary {
   id: string;
-  /** Null for a workspace artifact, which belongs to no project. */
+  /** Null for a blob's or a workspace artifact, which belong to no project. */
   projectSlug: string | null;
+  /** The blob that owns it, when a blob made it. */
+  blob?: string;
   title: string;
   path: string;
   updatedAt: number;

@@ -2346,6 +2346,8 @@ a.turn-via:hover { text-decoration: underline; color: var(--muted); }
 /* —— select —— */
 .sel { position: relative; display: inline-flex; }
 .sel-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-icon { display: inline-flex; vertical-align: -3px; margin-right: 6px; }
+.sel-icon .project-mark { width: 16px; height: 16px; font-size: 9.5px; border-radius: 4px; }
 .sel-caret { display: inline-flex; color: var(--faint); flex: none; }
 
 .sel-menu {

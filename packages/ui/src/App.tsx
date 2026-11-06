@@ -882,8 +882,8 @@ export function App(): React.ReactElement {
           projects={projects}
           backLabel={owner ? "← Projects" : "← Home"}
           onBack={() => go(back)}
-          onOpenChat={(slug) => go(chatOf(slug))}
-          onOpenProject={(slug) => go({ name: "project", slug })}
+          onOpenChat={(owner) => go(chatOf(owner))}
+          onOpenOwner={(owner) => go(chatOf(owner))}
         />,
       );
     }
@@ -990,8 +990,8 @@ export function App(): React.ReactElement {
           id={route.id}
           projects={projects}
           onBack={() => go({ name: "artifacts" })}
-          onOpenChat={(slug) => go(chatOf(slug))}
-          onOpenProject={(slug) => go({ name: "project", slug })}
+          onOpenChat={(owner) => go(chatOf(owner))}
+          onOpenOwner={(owner) => go(chatOf(owner))}
         />
       ) : (
         <ArtifactsPage
