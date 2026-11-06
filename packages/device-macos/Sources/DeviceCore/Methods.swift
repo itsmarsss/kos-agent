@@ -44,6 +44,8 @@ public struct SessionRef: Decodable, Sendable {
 public struct CaptureParams: Decodable, Sendable {
   public let session: String
   public let region: Rect?
+  /// After an action: wait, up to this many milliseconds, for the screen to stop changing before the picture.
+  public let settle: Int?
 }
 
 public struct MoveParams: Decodable, Sendable {
@@ -143,14 +145,17 @@ public struct CaptureResult: Encodable, Sendable {
   public let height: Int
   public let cursor: Point
   public let app: FrontApp?
+  /// Set when the picture waited for the screen to settle, as asked: KOS then need not wait itself.
+  public let settled: Bool?
 
-  public init(image: String, mediaType: String, width: Int, height: Int, cursor: Point, app: FrontApp?) {
+  public init(image: String, mediaType: String, width: Int, height: Int, cursor: Point, app: FrontApp?, settled: Bool? = nil) {
     self.image = image
     self.mediaType = mediaType
     self.width = width
     self.height = height
     self.cursor = cursor
     self.app = app
+    self.settled = settled
   }
 }
 

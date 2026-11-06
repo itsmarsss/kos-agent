@@ -335,6 +335,23 @@ export class FactsStore {
     return this.all(userId, scopes).filter((f) => f.pinned);
   }
 
+  /**
+   * What every conversation should know before the owner says a word that
+   * matches it: the pinned entries, and the owner's standing preferences in
+   * the scopes in play, the most recently stated first. A preference only
+   * found when the message happened to name it was no preference at all: told
+   * "I'm vegetarian" in one chat, a new one asked to plan dinner matched none
+   * of its words and planned chicken. Only the owner's own preferences
+   * stand, those whose evidence is the owner's words: one an agent wrote down
+   * or a tool produced would otherwise go into every prompt unasked, and
+   * waits to be matched like any other claim. `limit` bounds the whole list.
+   */
+  standing(userId: string, scopes: ClaimScope[], limit = 8): Fact[] {
+    const pinned = this.pinned(userId);
+    const prefs = this.all(userId, scopes).filter((f) => f.kind === "preference" && !f.pinned && f.trust === "owner");
+    return [...pinned, ...prefs].slice(0, limit);
+  }
+
   setPinned(userId: string, key: string, pinned: boolean, scope?: ClaimScope): Fact | undefined {
     const claim = this.get(userId, key, scope);
     if (!claim) return undefined;

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { isAttended, type KosModule, type ModuleContext, type ToolRisk } from "@kos/harness";
 
 import type { OwnerChrome } from "./chrome.js";
@@ -35,6 +37,10 @@ export interface ComputerToolsDeps {
   panelChrome?(conversation: string): string | undefined;
   /** Subscribe to the kill switch; the handler is told when it is thrown. */
   onHalt?(handler: () => void): () => void;
+  /** Subscribe to the owner pressing Stop in a chat; the handler is told which. */
+  onStop?(handler: (conversation: string) => void): () => void;
+  /** Subscribe to a chat starting afresh (a turn, or a fresh query of one), which has not seen the last picture. */
+  onFresh?(handler: (conversation: string) => void): () => void;
   /** How long the screen is given to settle after an action before the picture. */
   settleMs?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -75,7 +81,16 @@ const SCREEN_EDGE = 1024;
 /** The most actions one call does, and the pause that lets each land before the next. */
 const RUN_MAX = 10;
 const BETWEEN_MS = 120;
-const MAX_WAIT_S = 10;
+/** The most one computer.act call waits, in all its waits together. */
+const MAX_WAIT_S = 60;
+/**
+ * How often a wait shows the computer it is still in use. The device ends a
+ * session idle for three minutes; a wait of a minute, or a few in a row,
+ * would otherwise run into that.
+ */
+const KEEPALIVE_MS = 30_000;
+/** A look at one pixel: the cheapest call the device counts as activity. */
+const TOUCH = { region: { x: 0, y: 0, width: 1, height: 1 } };
 
 const COMPUTER_TOOLS = ["computer.devices", "computer.start", "computer.act", "computer.end"];
 const CHROME_TOOLS = ["chrome.start", "chrome.end", "chrome.page"];
@@ -180,13 +195,42 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
     return id;
   };
 
+  /**
+   * The last whole screen each chat was shown, by its digest. Watching a slow
+   * job sent the same picture again and again, each one read whole by the
+   * model; a screen that has not changed is said in words instead.
+   */
+  const shown = new Map<string, string>();
+
+  /** Waits in progress, each told when the owner presses Stop in a chat. */
+  const stops = new Set<(conversation: string) => void>();
+
   /** A picture of the session's screen, or a part of it, as a tool result. */
-  const look = async (chat: string, prefix: string, region?: { x: number; y: number; width: number; height: number }) => {
-    const capture = readCapture(await hub.act(chat, "screen.capture", region ? { region } : {}));
-    return {
-      text: `${prefix}${prefix ? " " : ""}${describe(capture, region !== undefined)}`.trim(),
-      images: [{ mediaType: capture.mediaType, data: capture.image }],
-    };
+  /**
+   * Chats whose computer settles its own pictures. After an action KOS used
+   * to wait a fixed 450 ms before asking for the picture; a computer that
+   * says it waited for the screen to stop changing is asked to do so, and
+   * answers as soon as the screen is still. One that does not say so (an
+   * older KOS for Mac) keeps the fixed wait.
+   */
+  const settling = new Set<string>();
+
+  const look = async (chat: string, prefix: string, region?: { x: number; y: number; width: number; height: number }, settle = false, always = false) => {
+    const result = await hub.act(chat, "screen.capture", { ...(region ? { region } : {}), ...(settle && !region ? { settle: deps.settleMs ?? SETTLE_MS } : {}) });
+    if (result.settled === true) settling.add(chat);
+    const capture = readCapture(result);
+    const text = `${prefix}${prefix ? " " : ""}${describe(capture, region !== undefined)}`.trim();
+    if (region) return { text, images: [{ mediaType: capture.mediaType, data: capture.image }] };
+    const digest = createHash("sha1").update(capture.image).digest("hex");
+    if (!always && shown.get(chat) === digest) return `${prefix}${prefix ? " " : ""}The screen has not changed since your last picture.`.trim();
+    shown.set(chat, digest);
+    return { text, images: [{ mediaType: capture.mediaType, data: capture.image }] };
+  };
+
+  /** The picture once an action has landed: settled by the computer where it can, after the fixed wait where it cannot. */
+  const afterAction = async (chat: string, said: string) => {
+    if (!settling.has(chat)) await sleep(deps.settleMs ?? SETTLE_MS);
+    return look(chat, said, undefined, true);
   };
 
   const inSpace = (session: Session, p: Point, name: string): Point => {
@@ -291,6 +335,9 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         let session: Session;
         try {
           const app = str(input.app);
+          // A new session's first picture is always sent, and its computer says again whether it settles.
+          shown.delete(chat);
+          settling.delete(chat);
           session = await hub.begin({ conversation: chat, device, task, requester: deps.titleOf(chat), minutes, maxEdge: SCREEN_EDGE, ...(app ? { app } : {}) });
         } catch (err) {
           throw new Error(refusalText(err));
@@ -312,7 +359,8 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
           "Actions: screenshot; zoom (a closer look at region [x1, y1, x2, y2]); left_click, right_click, middle_click, double_click, triple_click " +
           "(at coordinate; `text` may name keys to hold, like \"cmd\"); mouse_move; left_click_drag (start_coordinate to coordinate); " +
           "scroll (scroll_direction up, down, left or right, scroll_amount in lines, at coordinate); type (text); key (one combination in text, like \"cmd+s\" or \"Return\"); " +
-          "wait (duration in seconds, at most 10). `then` \"none\" skips the picture. The picture after an action is taken once the screen " +
+          "wait (duration in seconds, at most 60): for something slow, such as a build or a test run, wait once for about as long as it " +
+          "should take, not a few seconds at a time; a screen that has not changed since your last picture is said in words instead. `then` \"none\" skips the picture. The picture after an action is taken once the screen " +
           "settles, so do not add waits after clicks; wait only for something you know is slow. `actions` does several in one call, in " +
           `order, each {action, coordinate, text, ...}, with one picture at the end (at most ${RUN_MAX}): click a field, type, press Return. ` +
           "Their coordinates are in the picture you last saw, so chain only what you can already see. " +
@@ -342,7 +390,8 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         if (!session) throw new Error(refusalText(new DeviceError("no_session", "no session"), hub.takeEnding(chat)));
         const lookAfter = input.then !== "none";
         try {
-          if (action === "screenshot") return await look(chat, "");
+          // Asked for outright, the picture is sent: the model may not have the last one any more.
+          if (action === "screenshot") return await look(chat, "", undefined, false, true);
           if (action === "zoom") {
             const r = input.region;
             if (!Array.isArray(r) || r.length !== 4 || !r.every((n) => typeof n === "number")) throw new Error("zoom needs region [x1, y1, x2, y2]");
@@ -352,10 +401,9 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
             inSpace(session, { x: x2 - 1, y: y2 - 1 }, "region");
             return await look(chat, "", { x: x1, y: y1, width: x2 - x1, height: y2 - y1 });
           }
-          const said = await perform(chat, session, action, input);
+          const said = await perform(chat, session, action, input, { waitLeftS: MAX_WAIT_S });
           if (!lookAfter) return said;
-          await sleep(deps.settleMs ?? SETTLE_MS);
-          return await look(chat, said);
+          return await afterAction(chat, said);
         } catch (err) {
           if (err instanceof DeviceError) throw new Error(refusalText(err, hub.takeEnding(chat)));
           throw err;
@@ -370,7 +418,12 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         description: "Give the computer back: end this chat's session. Do it as soon as the work on it is done.",
         inputSchema: { type: "object", properties: {} },
       },
-      () => (hub.end(conversation()) ? "Ended. The owner has the computer back." : "There was no session to end."),
+      () => {
+        const chat = conversation();
+        shown.delete(chat);
+        settling.delete(chat);
+        return hub.end(chat) ? "Ended. The owner has the computer back." : "There was no session to end.";
+      },
       { floor: "safe" },
     );
   };
@@ -481,12 +534,19 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
     const session = hub.sessionOf(chat);
     if (!session) throw new Error(refusalText(new DeviceError("no_session", "no session"), hub.takeEnding(chat)));
     const done: string[] = [];
+    const budget = { waitLeftS: MAX_WAIT_S };
+    // A run answers with one picture, taken after its last action. A
+    // screenshot asked for inside it is that picture, so it is taken as a
+    // request to look at the end rather than refused: a model that ended a
+    // run with one got an error and had to send the whole run again.
+    const looks = raw.some((item) => typeof item === "object" && item !== null && (item as Record<string, unknown>).action === "screenshot");
     for (const [i, item] of raw.entries()) {
       const step = (typeof item === "object" && item !== null ? item : {}) as Record<string, unknown>;
       const action = step.action as Action;
-      if (!ACTIONS.includes(action) || action === "screenshot" || action === "zoom") throw new Error(`${done.length ? `Done: ${done.join(" ")} ` : ""}Action ${i + 1}: each is one of ${ACTIONS.filter((a) => a !== "screenshot" && a !== "zoom").join(", ")}`);
+      if (action === "screenshot") continue;
+      if (!ACTIONS.includes(action) || action === "zoom") throw new Error(`${done.length ? `Done: ${done.join(" ")} ` : ""}Action ${i + 1}: each is one of ${ACTIONS.filter((a) => a !== "zoom").join(", ")}`);
       try {
-        done.push(await perform(chat, session, action, step));
+        done.push(await perform(chat, session, action, step, budget));
       } catch (err) {
         const why = err instanceof DeviceError ? refusalText(err, hub.takeEnding(chat)) : err instanceof Error ? err.message : String(err);
         throw new Error(`${done.length ? `Done: ${done.join(" ")} ` : ""}Action ${i + 1} (${action}) failed: ${why}`);
@@ -494,13 +554,44 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
       if (i < raw.length - 1) await sleep(BETWEEN_MS);
     }
     const said = done.join(" ");
-    if (!lookAfter) return said;
-    await sleep(deps.settleMs ?? SETTLE_MS);
-    return look(chat, said);
+    if (!lookAfter && !looks) return said;
+    return afterAction(chat, said);
   };
 
-  /** One action that is not a look, done; what was done, in words. */
-  const perform = async (chat: string, session: Session, action: Action, input: Record<string, unknown>): Promise<string> => {
+  /**
+   * Hold for `seconds`, showing the computer it is still in use, and end at
+   * once when the owner presses Stop, KOS halts or the session ends.
+   */
+  const hold = async (chat: string, session: Session, seconds: number): Promise<void> => {
+    let wake: (why: Error) => void = () => undefined;
+    const woken = new Promise<Error>((resolve) => (wake = resolve));
+    const ended = (): boolean => hub.sessionOf(chat)?.id !== session.id;
+    const onStop = (conversation: string): void => {
+      if (conversation === chat) wake(new Error(`The owner pressed Stop; the wait ended.`));
+    };
+    // The kill switch ends every session, so it is heard here too.
+    const offChange = hub.onChange(() => {
+      if (ended()) wake(new DeviceError("no_session", "the session ended"));
+    });
+    stops.add(onStop);
+    try {
+      let left = seconds * 1000;
+      while (left > 0) {
+        if (ended()) throw new DeviceError("no_session", "the session ended");
+        const slice = Math.min(left, KEEPALIVE_MS);
+        const why = await Promise.race([sleep(slice).then(() => undefined), woken]);
+        if (why) throw why;
+        left -= slice;
+        if (left > 0) await hub.act(chat, "screen.capture", TOUCH);
+      }
+    } finally {
+      offChange();
+      stops.delete(onStop);
+    }
+  };
+
+  /** One action that is not a look, done; what was done, in words. A run's waits share one budget. */
+  const perform = async (chat: string, session: Session, action: Action, input: Record<string, unknown>, budget: { waitLeftS: number }): Promise<string> => {
     const at = pair(input.coordinate, "coordinate");
     const click = CLICKS[action];
     if (click) {
@@ -545,9 +636,11 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         return `Pressed ${keys}.`;
       }
       case "wait": {
-        const seconds = Math.max(0, Math.min(MAX_WAIT_S, typeof input.duration === "number" ? input.duration : 1));
-        await sleep(seconds * 1000);
-        return `Waited ${seconds}s.`;
+        const asked = Math.max(0, typeof input.duration === "number" ? input.duration : 1);
+        const seconds = Math.min(asked, budget.waitLeftS);
+        budget.waitLeftS -= seconds;
+        await hold(chat, session, seconds);
+        return asked > seconds ? `Waited ${seconds}s (one call waits at most ${MAX_WAIT_S}s in all).` : `Waited ${seconds}s.`;
       }
       default:
         throw new Error(`action is one of: ${ACTIONS.join(", ")}`);
@@ -572,7 +665,13 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         }
       };
       sync();
-      unsubscribe = [hub.onChange(sync), ...(deps.onHalt ? [deps.onHalt(() => hub.endAll("host"))] : [])];
+      unsubscribe = [
+        hub.onChange(sync),
+        ...(deps.onHalt ? [deps.onHalt(() => hub.endAll("host"))] : []),
+        ...(deps.onStop ? [deps.onStop((chat) => { for (const stop of [...stops]) stop(chat); })] : []),
+        // A new turn or query has not seen the last picture, so the next one is sent whole.
+        ...(deps.onFresh ? [deps.onFresh((chat) => shown.delete(chat))] : []),
+      ];
     },
     deactivate() {
       for (const off of unsubscribe) off();

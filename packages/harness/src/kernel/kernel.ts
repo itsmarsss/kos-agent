@@ -52,8 +52,10 @@ import { MEMORY_JOB } from "../memory/job.js";
 import type { ReviewQueue } from "../memory/review.js";
 import type { CallerStore } from "../memory/callers.js";
 import type { PageLog } from "../memory/pages.js";
+import { GLOBAL_SCOPE, projectScope } from "../memory/facts.js";
+import { MATCHED_LIMIT, STANDING_LIMIT, withStanding } from "../memory/retriever.js";
 import { SCREEN_SUGGESTION, type Route, type Task } from "../models/router.js";
-import { shelveHistory, type ResultShelf } from "../context/shelf.js";
+import { deadline, shelveHistory, type ResultShelf } from "../context/shelf.js";
 import type { Effort, Provider } from "../models/provider.js";
 import { CUSTOM_PROVIDER, OpenAICompatibleProvider } from "../models/providers/compat.js";
 import { CLASSIFIER_KEY, CUSTOM_ENDPOINT_KEY, parseClassifierEndpoint, parseCustomEndpoint, type CustomEndpoint } from "../models/settings.js";
@@ -114,7 +116,7 @@ import { type NotifyPayload, parseTarget } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
 import type { SuggestionStore } from "../improve/store.js";
-import { AfterTurn } from "./afterturn.js";
+import { AfterTurn, EMBED_MS } from "./afterturn.js";
 import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF } from "./caretaker.js";
 import { Decisions, type DecisionResult } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
@@ -130,8 +132,9 @@ import { bodyHexOf, channelNamesIn, drawingOf, faceSvg, KOS_SEED, lookOf, summar
 import { facePng } from "../files/facepng.js";
 import { attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
-import { SessionStore, cronSessionId } from "./session.js";
-import { ConversationStore, type Conversation, projectConversationId } from "./conversations.js";
+import { SessionStore, cronSessionId, primarySessionId } from "./session.js";
+import type { TurnMade } from "./turnmade.js";
+import { ConversationStore, type Conversation, conversationKind, projectConversationId } from "./conversations.js";
 import {
   needsKernel,
   parseChatCommand,
@@ -370,6 +373,8 @@ export class Kernel {
 
   private readonly inference: Inference;
   private readonly shelf: ResultShelf | undefined;
+  /** Projects a running turn made, which that turn alone may build. */
+  private readonly turnMade: TurnMade;
   private readonly system: string;
   private readonly onApprovalRequested?: (action: PendingAction) => void;
   private readonly sessionless: boolean;
@@ -398,6 +403,28 @@ export class Kernel {
   }
 
   /**
+   * The owner's words that started the calling conversation's turn, when it
+   * is theirs. Citing logs them as the turn's owner event, once; the turn's
+   * own record of the exchange then reuses it rather than logging it twice.
+   */
+  ownerTurn(): { text: string; cite: () => Promise<number> } | undefined {
+    const conversationId = this.callerConversationId;
+    const said = conversationId ? this.ownerSaid.get(conversationId) : undefined;
+    if (!conversationId || !said) return undefined;
+    return {
+      text: said.text,
+      cite: async () => {
+        if (said.eventId !== undefined) return said.eventId;
+        // Bounded like recall's: a slow embedder must not hold the turn (it once held it 17 minutes); the words are logged without one.
+        const [embedding] = (await Promise.race([this.embedder.embed([said.text.trim()]).catch(() => undefined), deadline(EMBED_MS)])) ?? [undefined];
+        const projectSlug = this.conversations.get(conversationId)?.projectSlug ?? null;
+        said.eventId = this.events.append({ userId: said.userId, role: "owner", text: said.text.trim(), conversationId, projectSlug }, embedding);
+        return said.eventId;
+      },
+    };
+  }
+
+  /**
    * Conversations with a turn in flight right now.
    *
    * A set rather than a single id: a dispatched turn runs inside the
@@ -409,6 +436,11 @@ export class Kernel {
   private readonly heldNotes = new Map<string, string[]>();
   /** What the owner said to a chat while its turn ran, waiting for that turn's next step. */
   private readonly steered = new Map<string, { text: string; taken: (took: boolean) => void }[]>();
+  /**
+   * What the owner said to start each running turn of theirs, and the event
+   * those words were logged as once a claim has cited them.
+   */
+  private readonly ownerSaid = new Map<string, { text: string; userId: string; eventId?: number }>();
   /** Conversations whose last turn threw, with the error, until the next turn. */
   private readonly failed = new Map<string, string>();
 
@@ -442,6 +474,7 @@ export class Kernel {
 
   /** Called by bootKernel, which assembles the args; not meant for anyone else. */
   constructor(args: {
+    turnMade: TurnMade;
     workspace: Workspace;
     secrets: SecretsRegistry;
     registry: ToolRegistry;
@@ -645,6 +678,7 @@ export class Kernel {
     this.memoryRetriever = args.memoryRetriever;
     this.inference = args.inference;
     this.shelf = args.shelf;
+    this.turnMade = args.turnMade;
     this.system = args.system;
     this.sessionless = args.sessionless;
     this.features = args.features;
@@ -855,14 +889,20 @@ export class Kernel {
   ): Promise<HandleResult> {
     {
       const runId = this.runs.start("chat");
+      const turnId = String(runId);
       const previousConversation = this.currentConversationId;
       this.currentConversationId = sessionId;
       this.working.add(sessionId);
+      if (this.buildsWhatItMakes(sessionId, opts.guest !== undefined)) this.turnMade.begin(sessionId, turnId);
       this.failed.delete(sessionId);
       // Where this work has been, for as long as the turn runs: a handoff
       // made from inside it extends the trail rather than starting one.
       if (opts.trail?.length) this.trails.set(sessionId, opts.trail);
       else this.trails.delete(sessionId);
+      // The owner's own words, for a claim made this turn to cite. Not a
+      // guest's (run as system), a schedule's or one passed on by a chat.
+      if (opts.origin !== "system" && !opts.from && !opts.contextFrom && text.trim()) this.ownerSaid.set(sessionId, { text, userId });
+      else this.ownerSaid.delete(sessionId);
       // Where the words came from rides on the message, sent and stored
       // alike: the loop hands its own list back to be kept, so a label
       // only on the stored copy was gone by the end of the turn.
@@ -908,6 +948,7 @@ export class Kernel {
         const tools = this.guardedTools({
           userId,
           conversationId: sessionId,
+          turnId,
           // A schedule's prompt, a blob's own timer, a guest: the owner did not start this one.
           attended: opts.origin !== "system",
           heard: () => this.hear(sessionId, mark),
@@ -927,7 +968,7 @@ export class Kernel {
         // An agent with memory of its own reads that beside the global claims.
         const own = this.roleScope(conversation);
         const recall = await this.memoryRetriever.recall(userId, text, {
-          factLimit: 10,
+          factLimit: MATCHED_LIMIT,
           eventLimit: 4,
           projectSlug: conversation?.projectSlug ?? null,
           ...(own ? { scopes: [own] } : {}),
@@ -935,13 +976,11 @@ export class Kernel {
           // a phrase, or two words in the value before a claim is injected.
           minScore: 2,
         });
-        // Pinned entries are the handful of things every conversation should
-        // know without having to match them, so they bypass retrieval.
-        const pinnedFacts = this.facts.pinned(userId);
-        recall.facts = [
-          ...pinnedFacts,
-          ...recall.facts.filter((f) => !pinnedFacts.some((p) => p.key === f.key)),
-        ];
+        // Pinned entries and the owner's standing preferences are what every
+        // conversation should know without having to match them, so they
+        // bypass retrieval.
+        const standing = this.facts.standing(userId, [GLOBAL_SCOPE, ...(conversation?.projectSlug ? [projectScope(conversation.projectSlug)] : []), ...(own ? [own] : [])], STANDING_LIMIT);
+        recall.facts = withStanding(standing, recall.facts);
         this.noteRecall(sessionId, conversation?.projectSlug ?? null, recall);
         // A mention is a promise that the thing named is to hand. Resolved
         // here so the agent gets the file's contents or the page's spec
@@ -1129,6 +1168,7 @@ export class Kernel {
             cwd: this.workspace.root,
             maxTurns: this.behaviour().maxSteps,
             picturesPerQuery: PICTURES_PER_QUERY,
+            onFreshQuery: () => this.bus.emit({ kind: "query:fresh", conversationId: sessionId }),
             ...(this.sdkScreen() ? { screen: this.sdkScreen()! } : {}),
             onDelta: (delta) =>
               this.progress.emit({
@@ -1304,7 +1344,7 @@ export class Kernel {
          * settle above ends the turn instead, once the decision has actually
          * been made and the rest of it has run.
          */
-        if (!suspended) this.endTurn(sessionId);
+        if (!suspended) this.endTurn(sessionId, turnId);
       }
     }
   }
@@ -1360,7 +1400,7 @@ export class Kernel {
           this.runs.finish(ctx.runId, "error", why);
           if (!this.stopping.has(ctx.sessionId)) this.failed.set(ctx.sessionId, why);
         })
-        .finally(() => this.endTurn(ctx.sessionId));
+        .finally(() => this.endTurn(ctx.sessionId, String(ctx.runId)));
       return {
         reply: `Waiting on you: ${first.action.tool} needs approval (@approval:${first.action.id}). I will carry on as soon as you decide.`,
         suspended: true,
@@ -1557,7 +1597,21 @@ export class Kernel {
     return ownerWords(mark, waiting.map((w) => w.text));
   }
 
-  private endTurn(sessionId: string): void {
+  /**
+   * Whether a turn here may build the projects it makes, for that turn. Not
+   * a guest's, not the Main chat's, not an orchestrator's (KOS's or a
+   * project's) and not a schedule's: each of those hands a new project's
+   * building to that project's own chat.
+   */
+  private buildsWhatItMakes(sessionId: string, guest: boolean): boolean {
+    if (guest || sessionId === primarySessionId(this.profile.ownerId)) return false;
+    const channel = this.conversations.get(sessionId)?.channel ?? null;
+    const kind = conversationKind({ id: sessionId, channel }, this.profile.ownerId);
+    return kind !== "orchestrator" && kind !== "project" && kind !== "schedule";
+  }
+
+  private endTurn(sessionId: string, turnId?: string): void {
+    if (turnId) this.turnMade.end(sessionId, turnId);
     this.working.delete(sessionId);
     // Words the turn never reached a step to hear run as a turn of their own.
     for (const w of this.steered.get(sessionId) ?? []) w.taken(false);
@@ -1565,6 +1619,7 @@ export class Kernel {
     this.stopping.delete(sessionId);
     this.aborts.delete(sessionId);
     this.trails.delete(sessionId);
+    this.ownerSaid.delete(sessionId);
     this.progress.emit({ kind: "turn-end", conversationId: sessionId });
     this.bus.emit({ kind: "turn:end", conversationId: sessionId, projectSlug: this.projectOf(sessionId) });
     // News that arrived while the transcript was being written goes in now.
@@ -2933,6 +2988,8 @@ export class Kernel {
     userId?: string;
     /** The conversation this turn belongs to, for approval routing. */
     conversationId?: string;
+    /** The turn making the calls. */
+    turnId?: string;
     /** Hard allow-list from the conversation, when it is a scoped agent. */
     allow?: string[];
     /** Restricted tools granted for this turn. */
@@ -2967,6 +3024,7 @@ export class Kernel {
       // set changed shape with the wording of each message and nothing said
       // so. Scoping is for the many-modules case it was written for.
       ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
+      ...(opts.turnId ? { turnId: opts.turnId } : {}),
       permissions: this.permissions,
       permissionContext: (tool) => this.browserContext(tool, opts.conversationId),
       ...(opts.heard ? { heard: opts.heard } : {}),
@@ -3135,7 +3193,7 @@ export class Kernel {
     // Awaited so a write cannot be lost when the process exits right after a
     // reply, and so failures surface in the runs log instead of vanishing.
     if (origin !== "system") {
-      await this.afterTurn.remember(userId, text, reply, sessionId);
+      await this.afterTurn.remember(userId, text, reply, sessionId, this.ownerSaid.get(sessionId)?.eventId);
       this.maybeExtract();
     }
 
@@ -3490,16 +3548,19 @@ export class Kernel {
 
   /**
    * After a step that looked, its picture, kept with the call's id so the
-   * thread can show what the agent saw under the step that saw it. A browser
-   * step gets a small picture of its tab, taken in the background: the step
-   * has run, and the reply should not wait on a screenshot. Any other tool
-   * that answered with a picture (a computer's screen) keeps that one, since
-   * the stored history keeps none.
+   * thread can show what the agent saw under the step that saw it: the one
+   * the step answered with, since the stored history keeps none. A browser
+   * step that answered without one gets a small picture of its tab, taken in
+   * the background: the step has run, and the reply should not wait on it.
    */
   private keepFrame(tool: string, conversationId?: string, picture?: string): void {
     if (!conversationId) return;
     const toolUseId = toolUse.getStore();
-    if (!this.browserContext(tool, conversationId)) {
+    // A step that answered with a picture is kept by that one. A browser step
+    // took a second, smaller capture as well, on the same line to the tab as
+    // the next step, which waited behind it, most of all on the owner's
+    // Chrome, where every capture crosses to the extension and back.
+    if (picture || !this.browserContext(tool, conversationId)) {
       if (picture) this.frames.add({ conversationId, ...(toolUseId ? { toolUseId } : {}), tool, picture });
       return;
     }
@@ -3820,6 +3881,8 @@ export class Kernel {
     // Marked first, so the loop reads the flag rather than the abort and
     // reports a stop instead of a broken turn.
     this.aborts.get(sessionId)?.abort();
+    // A tool mid-call (a long wait on a computer) hears it too, and ends now.
+    this.bus.emit({ kind: "turn:stop", conversationId: sessionId });
     return true;
   }
 

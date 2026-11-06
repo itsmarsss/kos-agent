@@ -17,6 +17,10 @@ import type { MessageFrom } from "../models/types.js";
 export type KernelEvent =
   | { kind: "turn:start"; conversationId: string; projectSlug: string | null }
   | { kind: "turn:end"; conversationId: string; projectSlug: string | null }
+  /** The owner pressed Stop on a chat's running turn: whatever that turn waits on stops waiting. */
+  | { kind: "turn:stop"; conversationId: string }
+  /** A turn carried on in a fresh query, which sees only the newest picture, not what came before. */
+  | { kind: "query:fresh"; conversationId: string }
   /**
    * A turn that ended with words: what was said to the chat and what it
    * answered, with where the words came from, so a surface that shows the

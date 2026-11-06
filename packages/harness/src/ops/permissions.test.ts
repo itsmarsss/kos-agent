@@ -77,6 +77,15 @@ describe("remembered decisions", () => {
     expect(s.allows("files.write", { path: "projects/books/old.md" })).toBe(false);
   });
 
+  it("asks about every skills.commit, after an always as before it", () => {
+    const s = store();
+    expect(s.ruleFor("skills.commit", { name: "tidy" }, null)).toBeUndefined();
+    // A rule an older build kept for it covers nothing.
+    s.add({ tool: "skills.commit", scope: null, project: null });
+    expect(s.allows("skills.commit", { name: "tidy" })).toBe(false);
+    expect(s.allows("skills.commit", { name: "other" })).toBe(false);
+  });
+
   it("keeps a project's rule inside that project", () => {
     const s = store();
     s.add({ tool: "sql", scope: "table:books_items", project: "books" });

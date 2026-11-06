@@ -69,8 +69,11 @@ describe("a turn on the SDK", () => {
   it("ends a query once it has taken its pictures, and carries on in a fresh one from where it was", async () => {
     run.queries = [];
     run.script = steps(5);
-    const r = await runSdkChat({ prompt: "Owner: finish the wizard", system: "s", tools: box(["computer.act"], () => ({ content: "Clicked.", images: [picture] })), cwd: process.cwd(), picturesPerQuery: 2, maxTurns: 20 });
+    let fresh = 0;
+    const r = await runSdkChat({ prompt: "Owner: finish the wizard", system: "s", tools: box(["computer.act"], () => ({ content: "Clicked.", images: [picture] })), cwd: process.cwd(), picturesPerQuery: 2, maxTurns: 20, onFreshQuery: () => void (fresh += 1) });
     expect(r.calls).toHaveLength(5);
+    // Told of each fresh query, so a tool that remembers what this query saw can forget it.
+    expect(fresh).toBe(2);
     expect(r.text).toBe("All done.");
     expect(r.stopped).toBe(false);
     expect(run.queries.length).toBe(3);

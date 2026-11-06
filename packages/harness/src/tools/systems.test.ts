@@ -22,6 +22,11 @@ describe("systems.migrate risk", () => {
   let root: string;
   let ws: Workspace;
   let registry: ToolRegistry;
+  // The chat calling, and the project it belongs to: the chat that makes a project may build it.
+  let caller = "c1";
+  let callerProject: string | undefined;
+  // What the running turn made: the kernel opens it per turn and drops it at the end.
+  let made = new Set<string>();
 
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "kos-systems-"));
@@ -37,7 +42,13 @@ describe("systems.migrate risk", () => {
       manifest,
       migrator,
       pages,
+      callerConversation: () => caller,
+      callerProject: () => callerProject,
+      turnMade: { note: (slug) => made.add(slug), made: () => [...made] },
     });
+    caller = "c1";
+    callerProject = undefined;
+    made = new Set();
     await new ModuleLoader(ctx).load([systemsModule]);
   });
 
@@ -127,6 +138,26 @@ describe("systems.migrate risk", () => {
 
     const cols = ws.db.prepare(`SELECT * FROM budget_tx`).all();
     expect(cols).toEqual([]);
+  });
+
+  it("lets a project's schema be changed by the turn that made it, its own chats and Maintenance, and no one else", async () => {
+    const created = await registry.execute("systems.project_create", { name: "Garden", type: "tracker" });
+    const { slug } = JSON.parse(created.content) as { slug: string };
+    const args = { project: slug, spec: { op: "create_table", table: "beds", columns: [{ name: "id", type: "INTEGER", primaryKey: true }] } };
+    expect((await registry.execute("systems.migrate", args)).isError).toBe(false);
+    // The turn is over: the same chat, a turn later, has no reach left.
+    made = new Set();
+    expect((await registry.execute("systems.migrate", { ...args, spec: { ...args.spec, table: "rows" } })).content).toMatch(/@project:garden/);
+    caller = "c2";
+    const loose = await registry.execute("systems.migrate", args);
+    expect(loose.isError).toBe(true);
+    expect(loose.content).toMatch(/This chat belongs to no project, so Garden's tables are not its to change.*@project:garden/);
+    callerProject = "pantry";
+    expect((await registry.execute("systems.migrate", args)).content).toMatch(/This chat is pantry's, so Garden's tables/);
+    callerProject = slug;
+    expect((await registry.execute("systems.migrate", { ...args, spec: { ...args.spec, table: "plots" } })).isError).toBe(false);
+    callerProject = "maintenance";
+    expect((await registry.execute("systems.migrate", { ...args, spec: { op: "add_column", table: "beds", column: { name: "note", type: "TEXT" } } })).isError).toBe(false);
   });
 
   it("still rejects a malformed spec at execution", async () => {

@@ -36,3 +36,10 @@ export const attendance = new AsyncLocalStorage<boolean>();
 export function isAttended(): boolean {
   return attendance.getStore() ?? true;
 }
+
+/**
+ * Which turn is making the current call, beside its conversation. A chat can
+ * have two turns alive at once (one suspended on an approval, one answering
+ * the next message), and what a turn may reach can belong to that turn alone.
+ */
+export const turn = new AsyncLocalStorage<string>();

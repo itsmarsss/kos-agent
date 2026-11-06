@@ -2,7 +2,7 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { isSqlDestructive } from "../risk/rules.js";
 import type { Db } from "../store/db.js";
-import { fence, isKernelTable, MAINTENANCE_SLUG, ownedBy, ownerOf, tableNames, type Reach } from "./fence.js";
+import { fence, isKernelTable, MAINTENANCE_SLUG, ownedBy, ownerOf, reachable, tableNames, type Reach } from "./fence.js";
 
 /**
  * The `sql` tool module: run DML against the workspace SQLite. SELECT and
@@ -56,7 +56,8 @@ function explainMissingTable(db: Db, message: string, reach: Reach): string {
   const all = tableNames(db);
   const maintenance = reach.project === MAINTENANCE_SLUG;
   const siblings = reach.projects.map((p) => p.slug);
-  const tables = maintenance ? all : reach.project ? all.filter((t) => !isKernelTable(t) && ownedBy(t, reach.project!, siblings)) : [];
+  const mine = reachable(reach);
+  const tables = maintenance ? all : all.filter((t) => !isKernelTable(t) && mine.some((slug) => ownedBy(t, slug, siblings)));
   // A dotted or logical name usually differs from the physical one only in the
   // separator, so the physical table is findable by normalising both.
   const key = named.replace(/[^a-z0-9]/gi, "").toLowerCase();
@@ -69,7 +70,7 @@ function explainMissingTable(db: Db, message: string, reach: Reach): string {
     const elsewhere = all.find((t) => !isKernelTable(t) && (t.replace(/[^a-z0-9]/gi, "").toLowerCase() === key || t.toLowerCase().endsWith(`_${named.toLowerCase()}`)));
     const owner = elsewhere ? ownerOf(elsewhere, reach.projects) : undefined;
     if (owner) return `${message}. That is the ${owner.name} project's table, not this chat's: hand the question there (chats.handoff to @project:${owner.slug}). ${HAND_TO_MAINTENANCE}`;
-    if (!reach.project) return `${message}. This chat belongs to no project, so no table is its to read: ask KOS at the root, which routes a question to the project that owns the data. ${HAND_TO_MAINTENANCE}`;
+    if (!mine.length) return `${message}. This chat belongs to no project, so no table is its to read: ask KOS at the root, which routes a question to the project that owns the data. ${HAND_TO_MAINTENANCE}`;
     return tables.length
       ? `${message}. This project's tables: ${tables.join(", ")}. ${HAND_TO_MAINTENANCE}`
       : `${message}. This project has no tables yet; create one with systems.migrate. ${HAND_TO_MAINTENANCE}`;
@@ -99,6 +100,7 @@ export function reachOf(ctx: ModuleContext): Reach {
   return {
     project: ctx.services?.callerProject?.(),
     projects: (ctx.services?.manifest?.list() ?? []).map((p) => ({ slug: p.slug, name: p.name })),
+    made: ctx.services?.turnMade?.made() ?? [],
   };
 }
 

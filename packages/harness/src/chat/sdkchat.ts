@@ -131,6 +131,8 @@ export interface SdkChatOptions {
    * screen as it is now. Unset, one query runs the whole turn.
    */
   picturesPerQuery?: number;
+  /** Told as the turn carries on in a fresh query, before it starts. */
+  onFreshQuery?: () => void;
   /**
    * The model the screen steps run on, as a subagent the turn hands them to.
    * Unset, the turn does its screen work itself, as before.
@@ -513,6 +515,7 @@ export async function runSdkChat(
       stopped = true;
       break;
     }
+    options.onFreshQuery?.();
     prompt = asMessage(carryOn(options.prompt, calls), lastPicture ? [lastPicture] : []);
   }
   /*

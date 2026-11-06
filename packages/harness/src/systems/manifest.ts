@@ -34,6 +34,8 @@ export interface CreateProjectInput {
   module?: string;
   /** Enforced when `module` is set; defaults to "multi". */
   instancing?: Instancing;
+  /** The chat that made it, kept as history only: it gives no reach. */
+  madeIn?: string;
 }
 
 const SCHEMA = `
@@ -92,6 +94,7 @@ export class ProjectManifest {
     // A column from after the table: added in place on an older workspace.
     const columns = (this.db.prepare(`PRAGMA table_info(manifest)`).all() as { name: string }[]).map((c) => c.name);
     if (!columns.includes("colour")) this.db.exec(`ALTER TABLE manifest ADD COLUMN colour TEXT`);
+    if (!columns.includes("made_in")) this.db.exec(`ALTER TABLE manifest ADD COLUMN made_in TEXT`);
   }
 
   createProject(input: CreateProjectInput): Project {
@@ -109,8 +112,8 @@ export class ProjectManifest {
     const status: ProjectStatus = input.status ?? "active";
     const info = this.db
       .prepare(
-        `INSERT INTO manifest (name, slug, type, status, description, module, created_at, last_touched_at)
-         VALUES (@name, @slug, @type, @status, @description, @module, @ts, @ts)`,
+        `INSERT INTO manifest (name, slug, type, status, description, module, made_in, created_at, last_touched_at)
+         VALUES (@name, @slug, @type, @status, @description, @module, @madeIn, @ts, @ts)`,
       )
       .run({
         name: input.name,
@@ -119,6 +122,7 @@ export class ProjectManifest {
         status,
         description: input.description ?? null,
         module: input.module ?? null,
+        madeIn: input.madeIn ?? null,
         ts,
       });
     return this.get(slug) ?? this.byId(Number(info.lastInsertRowid));

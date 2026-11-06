@@ -44,6 +44,16 @@ describe("the fence around the tables", () => {
     expect(readsSchema("SELECT * FROM books_items")).toBe(false);
   });
 
+  it("lets a chat build the project it made, rows and all, and nothing else", () => {
+    const loose = { ...reach(undefined), made: ["books"] };
+    expect(fence("INSERT INTO books_items (title) VALUES ('x')", existing, loose)).toEqual({ ok: true });
+    const theirs = fence("SELECT * FROM pantry_items", existing, loose);
+    expect(theirs.ok).toBe(false);
+    expect(theirs.reason).toMatch(/reaches only the tables of Books/);
+    // A project chat that made another reaches both.
+    expect(fence("SELECT * FROM books_items JOIN pantry_items USING (id)", existing, { ...reach("pantry"), made: ["books"] })).toEqual({ ok: true });
+  });
+
   it("lets a project read and write its own tables, and nothing it does not own", () => {
     expect(fence("SELECT * FROM books_items JOIN books_notes USING (id)", existing, reach("books"))).toEqual({ ok: true });
     expect(fence("INSERT INTO books_items (title) VALUES ('x')", existing, reach("books"))).toEqual({ ok: true });

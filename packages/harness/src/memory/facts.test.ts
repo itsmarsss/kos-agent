@@ -24,6 +24,26 @@ describe("FactsStore", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it("keeps the owner's standing preferences in every turn, matched or not, and pinned entries before them", () => {
+    facts.upsert("u1", { key: "diet", value: "The owner is vegetarian.", kind: "preference", trust: "owner" });
+    clock = 2000;
+    facts.upsert("u1", { key: "units", value: "Metric for everything.", kind: "preference", trust: "owner" });
+    facts.upsert("u1", { key: "allergy", value: "Peanuts.", kind: "fact", pinned: true });
+    facts.upsert("u1", { key: "city", value: "Toronto.", kind: "fact" });
+    facts.upsert("u1", { key: "tone", value: "Says it was told so.", kind: "preference", trust: "external" });
+    // An agent's note with no owner's words as evidence is not the owner's preference: it waits to be matched.
+    facts.upsert("u1", { key: "style", value: "Likes long answers.", kind: "preference", trust: "agent" });
+    facts.upsert("u1", { key: "output", value: "Wants JSON.", kind: "preference", trust: "tool" });
+    facts.upsert("u1", { key: "theme", value: "Dark pages.", kind: "preference", scope: "project:site", trust: "owner" });
+    const keys = (scopes: string[]): string[] => facts.standing("u1", scopes).map((f) => f.key);
+    // Pinned first; the owner's preferences newest first.
+    expect(keys(["global"])).toEqual(["allergy", "units", "diet"]);
+    // A project's own preferences come in that project only.
+    expect(keys(["global", "project:site"])).toContain("theme");
+    // The limit bounds pinned and preferences together.
+    expect(facts.standing("u1", ["global"], 2).map((f) => f.key)).toEqual(["allergy", "units"]);
+  });
+
   it("inserts and reads a fact", () => {
     facts.upsert("u1", { key: "timezone", value: "UTC", kind: "fact" });
     expect(facts.get("u1", "timezone")).toMatchObject({

@@ -2,6 +2,7 @@ import type { Inference } from "../agent/loop.js";
 import type { NewEvent } from "../memory/events.js";
 import { isFixed, titleFromText } from "./conversations.js";
 import { looksAutoTitled, nameConversation } from "./naming.js";
+import { deadline } from "../context/shelf.js";
 
 /**
  * What happens after a turn has answered.
@@ -37,6 +38,9 @@ export interface AfterTurnDeps {
   inference: Inference;
 }
 
+/** How long the exchange waits for its embeddings before it is logged without them. */
+export const EMBED_MS = 10_000;
+
 export class AfterTurn {
   constructor(private readonly deps: AfterTurnDeps) {}
 
@@ -46,7 +50,11 @@ export class AfterTurn {
    * Best effort: a failed write must never fail the owner's turn, but it
    * must not be invisible either, so each failure is logged as its own run.
    */
-  async remember(userId: string, text: string, reply: string, conversationId?: string): Promise<void> {
+  /**
+   * `said` is the owner's words' event when a claim this turn already logged
+   * them, so they are not logged twice.
+   */
+  async remember(userId: string, text: string, reply: string, conversationId?: string, said?: number): Promise<void> {
     const where = conversationId ? this.deps.conversations.get(conversationId) : undefined;
     const record = async (label: string, write: () => Promise<unknown>): Promise<void> => {
       try {
@@ -59,13 +67,14 @@ export class AfterTurn {
     // Both sides of the exchange, each its own event, so what the owner said
     // and what KOS answered are found and trusted separately. The log goes
     // first: a fact drawn from the owner's words points at the event.
-    let saidId: number | undefined;
+    let saidId = said;
     await record("memory.events", async () => {
-      const said = text.trim();
+      const words = text.trim();
       const answered = reply.trim().slice(0, 2000);
-      const [a, b] = await this.deps.embedder.embed([said, answered]);
+      // Bounded: a slow embedder must not hold the turn; the exchange is logged without one.
+      const [a, b] = (await Promise.race([this.deps.embedder.embed([words, answered]).catch(() => undefined), deadline(EMBED_MS)])) ?? [undefined, undefined];
       const place = { conversationId: conversationId ?? null, projectSlug: where?.projectSlug ?? null };
-      saidId = this.deps.events.append({ userId, role: "owner", text: said, ...place }, a);
+      saidId ??= this.deps.events.append({ userId, role: "owner", text: words, ...place }, a);
       if (answered) this.deps.events.append({ userId, role: "agent", text: answered, ...place }, b);
     });
     const scope = conversationId ? this.deps.scopeOf?.(conversationId) : undefined;

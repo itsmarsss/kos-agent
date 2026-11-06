@@ -1,13 +1,16 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
 import { toolRegistryContext } from "../modules/loader.js";
+import { GuardedTools } from "../kernel/guarded.js";
 import { ApprovalQueue } from "../ops/approvals.js";
+import { AuditLog } from "../ops/audit.js";
 import { WorkspaceBackup } from "../ops/backup.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
+import { readSkills, skillHash } from "../skills/manifest.js";
 import { SkillPromoter } from "../skills/promote.js";
 import { Workspace } from "../store/workspace.js";
 import { createSkillsModule } from "./skills.js";
@@ -18,7 +21,7 @@ describe("skills tools", () => {
   let registry: ToolRegistry;
   let approvals: ApprovalQueue;
   let disabled: string[];
-  let promoted: string[];
+  let promoted: Record<string, string>;
 
   /** A skill on disk, the way skills.create would leave it. */
   function skill(name: string, kind: "script" | "prompt", body: string, extra: Record<string, unknown> = {}): void {
@@ -47,12 +50,12 @@ describe("skills tools", () => {
     root = mkdtempSync(join(tmpdir(), "kos-skills-"));
     ws = Workspace.open(root);
     approvals = new ApprovalQueue(ws.db, new SecretsRegistry());
-    const promoter = new SkillPromoter({ workspaceRoot: ws.root, backup: new WorkspaceBackup(ws.root), approvals });
+    const promoter = new SkillPromoter({ workspaceRoot: ws.root, backup: new WorkspaceBackup(ws.root) });
     registry = new ToolRegistry();
     disabled = [];
-    promoted = [];
+    promoted = {};
     const ctx = toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() });
-    await createSkillsModule({ promoter, disabled: () => disabled, promoted: () => promoted, markPromoted: (name) => promoted.push(name) }).activate(ctx);
+    await createSkillsModule({ promoter, disabled: () => disabled, promoted: () => promoted, markPromoted: (name, hash) => (promoted[name] = hash) }).activate(ctx);
   });
 
   afterEach(() => {
@@ -110,9 +113,13 @@ describe("skills tools", () => {
     expect((await call("skills.use", { name: "../x" })).content).toMatch(/not a skill name/);
   });
 
+  /** What a skill's files hash to now. */
+  const hashOf = (name: string): string => skillHash(ws, readSkills(ws).skills.find((s) => s.manifest.name === name)!);
+
   it("runs a promoted skill without asking, and asks for one that is not", () => {
+    skill("daily", "script", "console.log('hi')");
     expect(registry.classify("skills.run", { name: "daily" })).toMatchObject({ tier: "risky", reason: "runs a skill that was not promoted" });
-    promoted.push("daily");
+    promoted["daily"] = hashOf("daily");
     expect(registry.classify("skills.run", { name: "daily" }).tier).toBe("safe");
     expect(registry.classify("skills.run", { name: "other" }).tier).toBe("risky");
     // Switched off, it asks again rather than running on the strength of an old yes.
@@ -149,11 +156,54 @@ describe("skills tools", () => {
     expect(json!["status"]).toBe("promoted");
   });
 
-  it("queues a risky script for approval even though the sandbox passed", async () => {
+  it("asks through skills.commit for a risky script even though the sandbox passed", async () => {
     skill("danger", "script", "import fs from 'node:fs'; fs.rmSync('x', { force: true })");
     const { json } = await call("skills.promote", { name: "danger" });
-    expect(json!["status"]).toBe("pending_approval");
-    expect(approvals.pending()).toHaveLength(1);
+    expect(json!["status"]).toBe("needs_approval");
+    expect(String(json!["next"])).toContain('skills.commit with name "danger"');
+    // Nothing queued outside the guarded path, where an ask has no chat and approving it could not run.
+    expect(approvals.pending()).toHaveLength(0);
+    const { json: committed } = await call("skills.commit", registry.stamp("skills.commit", { name: "danger" }));
+    expect(committed).toMatchObject({ status: "promoted", name: "danger" });
+  });
+
+  /** skills.commit asked through the guarded path, as a chat asks it: the promise settles once the owner decides. */
+  async function ask(name: string) {
+    const tools = new GuardedTools({ registry, secrets: new SecretsRegistry(), audit: new AuditLog(ws.db), approvals, conversationId: "c1" });
+    const done = tools.execute("skills.commit", { name });
+    await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+    return { done, asked: approvals.pending()[0]! };
+  }
+
+  it("ties the owner's yes to the script as it was when asked", async () => {
+    skill("danger", "script", "import fs from 'node:fs'; fs.rmSync('x', { force: true })");
+    const { done, asked } = await ask("danger");
+    // The card says what the script does, and the ask carries the hash of what was shown.
+    expect(asked.reason).toBe("keeps danger to run, which uses filesystem writes");
+    expect(JSON.parse(asked.args)).toEqual({ name: "danger", hash: hashOf("danger") });
+    writeFileSync(join(ws.root, "skills", "danger", "run.mjs"), "import fs from 'node:fs'; fs.rmSync('/', { recursive: true })", "utf8");
+    approvals.approve(asked.id, "owner");
+    const result = await done;
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/changed after the owner was asked/);
+    expect(promoted).toEqual({});
+    // A hash the model supplies is not the ask's: the harness sets its own.
+    expect((await call("skills.commit", { name: "danger", hash: "made-up" })).content).toMatch(/changed after the owner was asked/);
+  });
+
+  it("asks again to run a committed skill once its files change", async () => {
+    skill("danger", "script", "import fs from 'node:fs'; fs.rmSync('x', { force: true })");
+    const { done, asked } = await ask("danger");
+    approvals.approve(asked.id, "owner");
+    expect((await done).isError).toBe(false);
+    expect(registry.classify("skills.run", { name: "danger" }).tier).toBe("safe");
+    writeFileSync(join(ws.root, "skills", "danger", "run.mjs"), "import fs from 'node:fs'; fs.rmSync('y', { force: true })", "utf8");
+    expect(registry.classify("skills.run", { name: "danger" }).tier).toBe("risky");
+    // The manifest is part of what was approved too.
+    writeFileSync(join(ws.root, "skills", "danger", "run.mjs"), "import fs from 'node:fs'; fs.rmSync('x', { force: true })", "utf8");
+    expect(registry.classify("skills.run", { name: "danger" }).tier).toBe("safe");
+    writeFileSync(join(ws.root, "skills", "danger", "skill.json"), JSON.stringify({ name: "danger", description: "now different", kind: "script", entry: "run.mjs" }), "utf8");
+    expect(registry.classify("skills.run", { name: "danger" }).tier).toBe("risky");
   });
 
   it("classifies create, use, test, promote and list as safe; run and commit as risky", () => {

@@ -2,7 +2,7 @@ import type { ModelMessage } from "../models/types.js";
 import type { Project } from "../systems/manifest.js";
 import { renderSchemas, type ProjectSchema } from "../systems/schema.js";
 import { renderSkillsSection, type SkillRecord } from "../skills/manifest.js";
-import type { Recall } from "../memory/retriever.js";
+import { MATCHED_LIMIT, STANDING_LIMIT, type Recall } from "../memory/retriever.js";
 import type { Profile } from "./profile.js";
 import { clockLine } from "./when.js";
 import { ACTING, VOICE } from "./voice.js";
@@ -128,7 +128,7 @@ export function assembleSystemPrompt(parts: ContextParts): AssembledPrompt {
   const { facts, events } = parts.recall;
   if (facts.length > 0 || events.length > 0) {
     const mem: string[] = ["## Salient memory"];
-    for (const f of facts.slice(0, 12)) {
+    for (const f of facts.slice(0, STANDING_LIMIT + MATCHED_LIMIT)) {
       const marks = [f.kind, ...(f.pinned ? ["pinned"] : []), ...(f.trust === "external" ? ["from outside"] : []), ...f.tags];
       mem.push(`- (${marks.join(", ")}) ${f.key}: ${f.value}`);
     }

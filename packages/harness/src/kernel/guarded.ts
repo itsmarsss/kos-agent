@@ -5,7 +5,7 @@ import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
 import { injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
-import { attendance, caller } from "./caller.js";
+import { attendance, caller, turn } from "./caller.js";
 
 export interface GuardedToolsDeps {
   /** A big result set aside as it comes back: whole with its handle, or its start and an outline when huge (in an SDK query). */
@@ -37,6 +37,8 @@ export interface GuardedToolsDeps {
   onQueued?: (action: PendingAction) => void;
   /** The conversation making the call, so approving resumes the right agent. */
   conversationId?: string;
+  /** The turn making the call, so what one turn may reach stays that turn's. */
+  turnId?: string;
   /** False when the owner did not start this turn (a schedule, a guest); see `attendance`. */
   attended?: boolean;
   /** Decisions the owner has made before. A match runs without asking. */
@@ -222,7 +224,7 @@ export class GuardedTools implements ToolBox {
 
   private async call(
     name: string,
-    input: Record<string, unknown>,
+    called: Record<string, unknown>,
   ): Promise<ToolExecution> {
     const { registry, secrets, audit, approvals, userId, conversationId } =
       this.deps;
@@ -230,13 +232,16 @@ export class GuardedTools implements ToolBox {
     // Every handler runs inside the caller store, so a tool that asks which
     // conversation is calling gets this one, not whichever turn started last.
     const attended = this.deps.attended !== false;
+    const { turnId } = this.deps;
+    const inTurn = (n: string, i: Record<string, unknown>): Promise<ToolExecution> =>
+      turnId ? turn.run(turnId, () => registry.execute(n, i)) : registry.execute(n, i);
     const run = (n: string, i: Record<string, unknown>): Promise<ToolExecution> =>
-      attendance.run(attended, () => (conversationId ? caller.run(conversationId, () => registry.execute(n, i)) : registry.execute(n, i)));
+      attendance.run(attended, () => (conversationId ? caller.run(conversationId, () => inTurn(n, i)) : inTurn(n, i)));
 
-    const repeated = this.repeatGuard(name, input);
+    const repeated = this.repeatGuard(name, called);
     if (repeated) return { content: repeated, isError: true };
 
-    this.deps.onStarted?.(name, input);
+    this.deps.onStarted?.(name, called);
 
     // Enforced here too, not only in defs(): a model can name any tool it
     // likes, and an offered-but-not-executable list would be a fiction.
@@ -249,8 +254,12 @@ export class GuardedTools implements ToolBox {
 
     // Refused before it is judged: a rule that refuses is the fence, and an
     // ask would only invite the owner to open a gate the harness keeps shut.
-    const refused = registry.refusal(name, input);
+    const refused = registry.refusal(name, called);
     if (refused) return { content: refused, isError: true };
+
+    // Judged, asked about and run as stamped: what the owner says yes to is
+    // what runs, and the call can check it still holds.
+    const input = registry.stamp(name, called);
 
     const assessment = registry.classify(name, input);
 
