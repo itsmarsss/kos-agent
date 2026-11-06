@@ -372,6 +372,33 @@ export async function* untilStopped<T>(source: AsyncIterable<T>, signal?: AbortS
   }
 }
 
+/**
+ * How long a stopped query is given to report what it spent. Interrupted, the
+ * SDK answers with a result carrying the query's usage and cost; past this,
+ * the turn ends on what it has seen, since Stop has to feel instant.
+ */
+const STOP_ACCOUNT_MS = 1_000;
+
+/** A model message's usage as the stream reports it: the start's counts, then the end's output. */
+interface SeenUsage {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+}
+
+function seenUsage(model: string, raw: Record<string, unknown> | undefined, before?: SeenUsage): SeenUsage {
+  const n = (key: string, was = 0): number => (typeof raw?.[key] === "number" ? (raw[key] as number) : was);
+  return {
+    model,
+    inputTokens: n("input_tokens", before?.inputTokens),
+    outputTokens: n("output_tokens", before?.outputTokens),
+    cacheReadInputTokens: n("cache_read_input_tokens", before?.cacheReadInputTokens),
+    cacheCreationInputTokens: n("cache_creation_input_tokens", before?.cacheCreationInputTokens),
+  };
+}
+
 export async function runSdkChat(
   options: SdkChatOptions,
 ): Promise<SdkChatResult> {
@@ -492,17 +519,44 @@ export async function runSdkChat(
         systemPrompt: { type: "preset", preset: "claude_code", append: split.agent ? `${options.system}\n\n${SCREEN_HANDOFF}` : options.system },
       },
     });
-    // The caller's stop reaches the query: interrupted first, so the model stops
-    // at once, then aborted, so the Claude Code process goes.
+    /*
+     * The caller's stop reaches the query: interrupted at once, so the model
+     * stops, then read for at most a moment more, for the result that says
+     * what the query spent, then left and aborted, so the Claude Code process
+     * goes.
+     */
+    const leave = new AbortController();
+    let grace: ReturnType<typeof setTimeout> | undefined;
     const onStop = (): void => {
       void stream.interrupt().catch(() => undefined);
-      ac.abort();
+      grace = setTimeout(() => leave.abort(), STOP_ACCOUNT_MS);
     };
-    options.signal?.addEventListener("abort", onStop, { once: true });
+    if (options.signal?.aborted) onStop();
+    else options.signal?.addEventListener("abort", onStop, { once: true });
+    /** Each model message's usage as it streams, by message id: what is known if no result comes. */
+    const seen = new Map<string, SeenUsage>();
+    let streaming: string | undefined;
+    let accounted = false;
 
     try {
-      for await (const message of untilStopped(stream as AsyncIterable<SDKMessage>, options.signal)) {
+      for await (const message of untilStopped(stream as AsyncIterable<SDKMessage>, leave.signal)) {
         const m = message as unknown as Record<string, unknown>;
+
+        // Usage as it streams, a subagent's included: the start's counts, the end's output, then the whole message's.
+        if (m["type"] === "stream_event") {
+          const event = m["event"] as { type?: string; message?: { id?: string; model?: string; usage?: Record<string, unknown> }; usage?: Record<string, unknown> };
+          if (event?.type === "message_start" && event.message?.id) {
+            streaming = event.message.id;
+            seen.set(streaming, seenUsage(event.message.model ?? "", event.message.usage));
+          } else if (event?.type === "message_delta" && streaming && seen.has(streaming)) {
+            seen.set(streaming, seenUsage(seen.get(streaming)!.model, event.usage, seen.get(streaming)));
+          }
+        }
+        const said = m["type"] === "assistant" ? (m["message"] as { id?: string; model?: string; usage?: Record<string, unknown>; content?: unknown[] } | undefined) : undefined;
+        if (said?.id) seen.set(said.id, seenUsage(said.model ?? "", said.usage, seen.get(said.id)));
+
+        // Stopped: only the query's account is still wanted, and nothing more is said or shown.
+        if (options.signal?.aborted && m["type"] !== "result") continue;
 
         // A subagent's frames carry the call that started it. Its words are its
         // report to the turn, not the turn's reply; its thinking still shows.
@@ -532,7 +586,7 @@ export async function runSdkChat(
         if (m["type"] === "assistant") {
           if (inSubagent) continue;
           streamed = "";
-          const content = (m["message"] as { content?: unknown[] })?.content ?? [];
+          const content = said?.content ?? [];
           for (const block of content) {
             const b = block as { type?: string; text?: string };
             if (b.type === "text" && b.text) text = joinSaid(text, b.text);
@@ -541,11 +595,12 @@ export async function runSdkChat(
         }
 
         if (m["type"] === "result") {
+          accounted = true;
           // A result with no text of its own is the SDK stopping rather than
           // answering: an error, or the turn limit.
           if (m["subtype"] !== "success" && !full) stopped = true;
           used += typeof m["num_turns"] === "number" ? m["num_turns"] : 1;
-          if (typeof m["result"] === "string" && !text) text = m["result"];
+          if (typeof m["result"] === "string" && !text && !options.signal?.aborted) text = m["result"];
           /*
            * Accounting comes from here, not from adding up the assistant
            * messages. The result carries a running total for every model the
@@ -571,15 +626,20 @@ export async function runSdkChat(
         }
       }
     } catch (err) {
-      // Aborting the SDK query rejects the stream; that is the owner pressing
-      // Stop, a clean stop rather than a failure. Anything else still throws.
-      if (!ac.signal.aborted) throw err;
+      // An interrupted or aborted query can reject its stream; that is the
+      // owner pressing Stop, a clean stop rather than a failure. Anything
+      // else still throws.
+      if (!options.signal?.aborted && !ac.signal.aborted) throw err;
     } finally {
       options.signal?.removeEventListener("abort", onStop);
+      clearTimeout(grace);
+      if (options.signal?.aborted) ac.abort();
     }
 
     if (options.signal?.aborted) {
       stopped = true;
+      // No result came in the moment allowed: what the stream showed is what is known, its cost not among it.
+      if (!accounted) for (const u of seen.values()) if (u.model) models.push({ ...u, costUSD: 0 });
       // What was said, and what was under way: the half a reply the owner
       // watched arrive, and each call still running, as stopped.
       text = joinSaid(text, streamed);

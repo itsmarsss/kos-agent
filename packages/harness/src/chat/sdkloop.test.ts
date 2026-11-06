@@ -157,7 +157,7 @@ describe("a turn on the SDK the owner stops", () => {
       await hang();
     };
     const stop = new AbortController();
-    const r = await within(1_000, runSdkChat({ prompt: "essay", system: "s", tools: box([], () => ({ content: "" })), cwd: process.cwd(), signal: stop.signal, onDelta: () => stop.abort() }));
+    const r = await within(1_500, runSdkChat({ prompt: "essay", system: "s", tools: box([], () => ({ content: "" })), cwd: process.cwd(), signal: stop.signal, onDelta: () => stop.abort() }));
     expect(r.stopped).toBe(true);
     expect(r.text).toBe("The press began in Mainz");
     expect(run.queries[0]!.interrupted).toBe(true);
@@ -178,8 +178,41 @@ describe("a turn on the SDK the owner stops", () => {
         return hang();
       },
     };
-    const r = await within(1_000, runSdkChat({ prompt: "sleep", system: "s", tools, cwd: process.cwd(), signal: stop.signal }));
+    const r = await within(1_500, runSdkChat({ prompt: "sleep", system: "s", tools, cwd: process.cwd(), signal: stop.signal }));
     expect(r.calls).toEqual([expect.objectContaining({ name: "python.run", result: STOPPED_RESULT, isError: true })]);
+  });
+
+  it("waits a moment for the stopped query's account, and keeps its cost", async () => {
+    run.queries = [];
+    run.script = async function* (q) {
+      yield { type: "stream_event", parent_tool_use_id: null, event: { delta: { text: "Mainz" } } };
+      while (!q.interrupted) await new Promise((r) => setTimeout(r, 5));
+      yield { type: "stream_event", parent_tool_use_id: null, event: { delta: { text: " and then" } } };
+      yield { ...result(1, "error_during_execution"), total_cost_usd: 0.25, modelUsage: { "claude-x": { inputTokens: 900, outputTokens: 40, costUSD: 0.25 } } };
+      await hang();
+    };
+    const stop = new AbortController();
+    const started = Date.now();
+    const r = await runSdkChat({ prompt: "essay", system: "s", tools: box([], () => ({ content: "" })), cwd: process.cwd(), signal: stop.signal, onDelta: () => stop.abort() });
+    expect(Date.now() - started).toBeLessThan(500);
+    expect(r).toMatchObject({ stopped: true, text: "Mainz", costUSD: 0.25, usage: { inputTokens: 900, outputTokens: 40 } });
+    expect((run.queries[0]!.options["abortController"] as AbortController).signal.aborted).toBe(true);
+  });
+
+  it("waits no more than a moment for it, and keeps what the stream showed", async () => {
+    run.queries = [];
+    run.script = async function* () {
+      yield { type: "stream_event", parent_tool_use_id: null, event: { type: "message_start", message: { id: "m1", model: "claude-x", usage: { input_tokens: 700, output_tokens: 1 } } } };
+      yield { type: "stream_event", parent_tool_use_id: null, event: { delta: { text: "Mainz" } } };
+      await hang();
+    };
+    const stop = new AbortController();
+    const started = Date.now();
+    const r = await runSdkChat({ prompt: "essay", system: "s", tools: box([], () => ({ content: "" })), cwd: process.cwd(), signal: stop.signal, onDelta: () => stop.abort() });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(900);
+    expect(Date.now() - started).toBeLessThan(1_500);
+    expect(r).toMatchObject({ stopped: true, text: "Mainz", costUSD: 0, usage: { inputTokens: 700, outputTokens: 1 } });
+    expect(r.models).toEqual([expect.objectContaining({ model: "claude-x", inputTokens: 700 })]);
   });
 
   it("starts no fresh query once stopped", async () => {
