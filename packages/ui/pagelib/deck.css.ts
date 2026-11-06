@@ -23,13 +23,26 @@ export const DECK_CSS = String.raw`
 }
 :where(html[data-kind="deck"]) body { margin: 0; padding: 0; background: var(--panel-2, var(--bg)); color: var(--text); font-family: var(--font-body); overflow: hidden; height: 100dvh; }
 
-/* The stage: the current slide, centred, as large as the frame allows. */
+/* The stage: the current slide, centred, as large as the frame allows. Each slide sits in a
+   frame of KOS's (.deck-slide) that is its size container, so the slide's own padding and
+   type are in units of its own width too. */
 :where([data-deck]) { height: calc(100dvh - var(--deck-bar) - var(--deck-notes-h)); display: grid; place-items: center; padding: 12px; box-sizing: border-box; min-width: 0; }
-:where([data-deck]) > section {
+.deck-slide {
   container-type: inline-size;
+  position: relative;
   box-sizing: border-box;
   width: min(100%, calc((100dvh - var(--deck-bar) - var(--deck-notes-h) - 24px) * 16 / 9));
   aspect-ratio: 16 / 9;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line), 0 18px 48px rgba(0, 0, 0, 0.16);
+}
+/* Only the current slide shows, whatever display the artifact gives its slides. */
+body:not(.deck-grid):not(.deck-read) .deck-slide:not(.current) { display: none !important; }
+:where(.deck-slide) > section {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   position: relative;
   display: flex;
@@ -39,14 +52,10 @@ export const DECK_CSS = String.raw`
   padding: var(--deck-pad);
   background: var(--slide-bg, var(--bg));
   color: var(--slide-ink, var(--text));
-  border-radius: 6px;
-  box-shadow: 0 1px 0 var(--line), 0 18px 48px rgba(0, 0, 0, 0.18);
   font-size: var(--deck-body);
   line-height: 1.35;
 }
-/* Only the current slide shows, whatever display the artifact gives its slides. */
-body:not(.deck-grid):not(.deck-read) [data-deck] > section:not(.current) { display: none !important; }
-:where([data-deck]) > section > * { margin: 0; min-width: 0; }
+:where(.deck-slide) > section > * { margin: 0; min-width: 0; }
 
 /* Type, all in slide units. */
 :where([data-deck]) h1 { font: 650 var(--deck-title) / 1.02 var(--font-display); letter-spacing: -0.02em; text-wrap: balance; }
@@ -66,15 +75,15 @@ body:not(.deck-grid):not(.deck-read) [data-deck] > section:not(.current) { displ
 :where([data-deck]) figure { margin: 0; display: flex; flex-direction: column; gap: 1cqw; min-height: 0; }
 
 /* The slide shapes. */
-:where([data-deck]) > section.title { justify-content: flex-end; gap: calc(var(--deck-gap) * 0.8); }
-:where([data-deck]) > section.title h1 { max-width: 18ch; }
-:where([data-deck]) > section.title :where(p) { font-size: calc(var(--deck-body) * 1.15); color: var(--muted); max-width: 46ch; }
-:where([data-deck]) > section.statement { justify-content: center; }
-:where([data-deck]) > section.statement :where(p, h2, blockquote) { font: 560 calc(var(--deck-heading) * 1.18) / 1.15 var(--font-display); letter-spacing: -0.015em; max-width: 24ch; text-wrap: balance; margin: 0; }
-:where([data-deck]) > section.split { display: grid; grid-template-columns: 1fr 1fr; align-items: center; column-gap: calc(var(--deck-pad) * 0.75); }
-:where([data-deck]) > section.closing { justify-content: center; align-items: flex-start; }
-:where([data-deck]) > section.closing h2 { font-size: calc(var(--deck-title) * 0.85); }
-:where([data-deck]) > section.bleed { padding: 0; }
+:where(.deck-slide) > section.title { justify-content: flex-end; gap: calc(var(--deck-gap) * 0.8); }
+:where(.deck-slide) > section.title h1 { max-width: 18ch; }
+:where(.deck-slide) > section.title :where(p:not(.kicker)) { font-size: calc(var(--deck-body) * 1.15); color: var(--muted); max-width: 46ch; }
+:where(.deck-slide) > section.statement { justify-content: center; }
+:where(.deck-slide) > section.statement :where(p, h2, blockquote) { font: 560 calc(var(--deck-heading) * 1.18) / 1.15 var(--font-display); letter-spacing: -0.015em; max-width: 24ch; text-wrap: balance; margin: 0; }
+:where(.deck-slide) > section.split { display: grid; grid-template-columns: 1fr 1fr; align-items: center; column-gap: calc(var(--deck-pad) * 0.75); }
+:where(.deck-slide) > section.closing { justify-content: center; align-items: flex-start; }
+:where(.deck-slide) > section.closing h2 { font-size: calc(var(--deck-title) * 0.85); }
+:where(.deck-slide) > section.bleed { padding: 0; }
 :where([data-deck]) .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); grid-auto-flow: column; gap: calc(var(--deck-gap) * 1.2); align-items: start; }
 :where([data-deck]) .big { font: 680 calc(var(--deck-title) * 1.6) / 0.95 var(--font-display); letter-spacing: -0.03em; font-variant-numeric: tabular-nums lining-nums; }
 :where([data-deck]) aside.notes { display: none !important; }
@@ -85,49 +94,51 @@ body:not(.deck-grid):not(.deck-read) [data-deck] > section:not(.current) { displ
 .deck-bar button:hover { border-color: var(--line-strong, var(--line)); background: var(--panel-2); }
 .deck-bar button[aria-pressed="true"] { background: var(--panel-2); border-color: var(--line-strong, var(--line)); }
 .deck-bar button:disabled { opacity: 0.4; cursor: default; }
-.deck-bar button:focus-visible, [data-deck] > section:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.deck-bar .count { font-variant-numeric: tabular-nums; min-width: 6ch; text-align: center; color: var(--text); }
-.deck-bar .gap { flex: 1; }
+.deck-bar button:focus-visible, .deck-slide:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.deck-bar .deck-count { font-variant-numeric: tabular-nums; min-width: 6ch; text-align: center; color: var(--text); }
+.deck-bar .deck-spacer { flex: 1; }
 .deck-notes { position: fixed; inset: auto 0 var(--deck-bar) 0; height: var(--deck-notes-h); overflow-y: auto; box-sizing: border-box; padding: 12px 20px; border-top: 1px solid var(--line); background: var(--panel); font: 400 15px / 1.5 var(--font-ui); color: var(--text); z-index: 2; }
-.deck-notes .label { display: block; font: 600 11px / 1 var(--font-ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
-.deck-notes .empty { color: var(--muted); }
+.deck-notes .deck-notes-label { display: block; font: 600 11px / 1 var(--font-ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.deck-notes .deck-notes-none { color: var(--muted); }
 body.deck-notes-on { --deck-notes-h: min(30dvh, 200px); }
 body:not(.deck-notes-on) .deck-notes { display: none; }
 
 /* The grid of every slide: the same slides, smaller, since their sizes are relative. */
 body.deck-grid { overflow-y: auto; }
 body.deck-grid :where([data-deck]) { height: auto; min-height: calc(100dvh - var(--deck-bar)); display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 18px; align-content: start; place-items: stretch; padding: 20px 20px calc(var(--deck-bar) + 20px); }
-body.deck-grid :where([data-deck]) > section { width: 100%; cursor: pointer; box-shadow: 0 0 0 1px var(--line); }
-body.deck-grid :where([data-deck]) > section * { pointer-events: none; }
-body.deck-grid :where([data-deck]) > section.current { box-shadow: 0 0 0 2px var(--accent); }
-body.deck-grid :where([data-deck]) > section::after { content: attr(data-number); position: absolute; left: 8px; bottom: 6px; font: 600 11px / 1 var(--font-ui); color: var(--muted); font-variant-numeric: tabular-nums; }
+body.deck-grid .deck-slide { width: 100%; cursor: pointer; }
+body.deck-grid .deck-slide * { pointer-events: none; }
+body.deck-grid .deck-slide.current { box-shadow: 0 0 0 2px var(--accent); }
+body.deck-grid .deck-slide::after { content: attr(data-number); position: absolute; left: 8px; bottom: 6px; font: 600 11px / 1 var(--font-ui); color: var(--muted); font-variant-numeric: tabular-nums; }
 body.deck-grid .deck-notes { display: none; }
 
 /* Presenting: the slide alone, on black, edge to edge. */
 body.deck-present { --deck-bar: 0px; --deck-notes-h: 0px; background: #000; cursor: none; }
 body.deck-present .deck-bar, body.deck-present .deck-notes { display: none; }
 body.deck-present :where([data-deck]) { padding: 0; height: 100dvh; }
-body.deck-present :where([data-deck]) > section { width: min(100vw, calc(100dvh * 16 / 9)); border-radius: 0; box-shadow: none; }
+body.deck-present .deck-slide { width: min(100vw, calc(100dvh * 16 / 9)); border-radius: 0; box-shadow: none; }
 
 /* A phone held upright: slides stack as cards and the type keeps a floor. */
 body.deck-read { overflow-y: auto; height: auto; --deck-bar: 0px; }
 body.deck-read .deck-bar, body.deck-read .deck-notes { display: none; }
 body.deck-read :where([data-deck]) { height: auto; display: flex; flex-direction: column; gap: 14px; padding: 16px; }
-body.deck-read :where([data-deck]) > section, body.deck-read :where([data-deck]) > section.split {
-  display: flex; flex-direction: column; width: 100%; aspect-ratio: auto; min-height: 56vw; padding: max(var(--deck-pad), 20px);
+body.deck-read .deck-slide { width: 100%; aspect-ratio: auto; }
+body.deck-read :where(.deck-slide) > section {
+  height: auto; min-height: 56cqw; padding: max(var(--deck-pad), 20px);
   --deck-title: max(6.4cqw, 30px); --deck-heading: max(3.9cqw, 23px); --deck-body: max(2.25cqw, 16px); --deck-small: max(1.55cqw, 13px); --deck-gap: max(2.4cqw, 12px);
 }
+body.deck-read :where(.deck-slide) > section.split { display: flex; }
 body.deck-read :where([data-deck]) .cols { grid-auto-flow: row; grid-template-columns: minmax(0, 1fr); }
-body.deck-read :where([data-deck]) > section.bleed { padding: 0; }
+body.deck-read :where(.deck-slide) > section.bleed { padding: 0; }
 
 @media (prefers-reduced-motion: no-preference) {
-  body:not(.deck-grid):not(.deck-read) :where([data-deck]) > section.current { animation: kos-slide-in 180ms ease-out; }
+  body:not(.deck-grid):not(.deck-read) .deck-slide.current { animation: kos-slide-in 180ms ease-out; }
 }
 @keyframes kos-slide-in { from { opacity: 0.4; } to { opacity: 1; } }
 @media print {
   .deck-bar, .deck-notes { display: none; }
   body { height: auto; overflow: visible; }
   :where([data-deck]) { height: auto; display: block; }
-  :where([data-deck]) > section { display: flex; width: 100%; break-after: page; box-shadow: none; }
+  .deck-slide { display: block !important; width: 100%; break-after: page; box-shadow: none; }
 }
 `;

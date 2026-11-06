@@ -1,0 +1,510 @@
+/**
+ * kos-sheet: a spreadsheet from a workbook. The agent writes one
+ * `<script type="application/json" data-sheet>` holding a SheetBook; this
+ * draws it after the script: tabs, a filter, a typed grid with formulas,
+ * totals, sorting, frozen header and columns, and charts from ranges.
+ *
+ * A tab's rows are kept with the artifact (`rows`, saved through kos.save
+ * after an edit, as a new version), read live from a project table
+ * (`source`, edited through the declared kos.write), or grouped from another
+ * tab (`pivot`, read only). The arithmetic is sheetformula.ts.
+ */
+
+import type { SheetBook, SheetCell, SheetColumn, SheetTab } from "@kos/shared";
+
+import { bar, line, pie } from "./chartdraw.js";
+import { SHEET_CSS } from "./sheet.css.js";
+import { Workbook, columnLetter, formatValue, isError, isNumeric, literalOf, sortValue, totalsRow, type Value } from "./sheetformula.js";
+import { addStyle, el, kos, ready, reason } from "./runtime.js";
+
+/** How long after an edit the workbook is saved, so a run of edits is one version. */
+export const SAVE_DELAY_MS = 600;
+
+const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const quote = (name: string): string => `"${name.replace(/"/g, '""')}"`;
+
+/** The query that reads a source tab's rows: its key, then each column's table column. */
+export function sourceQuery(tab: SheetTab): string | undefined {
+  const src = tab.source;
+  if (!src || !IDENT.test(src.table) || !IDENT.test(src.key)) return undefined;
+  const cols = tab.columns.map((c) => quote(c.column ?? c.label));
+  const order = /^([A-Za-z_][A-Za-z0-9_]*)(\s+(asc|desc))?$/i.exec(src.orderBy?.trim() ?? "");
+  return `SELECT ${quote(src.key)} AS __key, ${cols.join(", ")} FROM ${quote(src.table)}${order ? ` ORDER BY ${quote(order[1]!)}${order[3] ? ` ${order[3].toUpperCase()}` : ""}` : ""}`;
+}
+
+/** What an owner typed, as a cell to store: a formula stays text, a number in a numeric column becomes one. */
+export function cellFromInput(text: string, column: SheetColumn | undefined): SheetCell {
+  const t = text.trim();
+  if (t === "") return null;
+  if (t.startsWith("=")) return t;
+  const v = literalOf(t, column);
+  return isError(v) ? t : v;
+}
+
+/** The rows of a view: filtered by text in one column or any, then sorted, as data row numbers (from 1). */
+export function viewRows(values: Value[][], columns: readonly SheetColumn[], filter: { text: string; column: number }, sort: { column: number; dir: 1 | -1 } | undefined): number[] {
+  const needle = filter.text.trim().toLowerCase();
+  let rows = values.map((_, i) => i + 1);
+  if (needle) {
+    rows = rows.filter((r) => {
+      const row = values[r - 1]!;
+      const cells = filter.column >= 0 ? [filter.column] : row.map((_, c) => c);
+      return cells.some((c) => formatValue(row[c] ?? null, columns[c]).toLowerCase().includes(needle));
+    });
+  }
+  if (sort) rows.sort((a, b) => sort.dir * sortValue(values[a - 1]![sort.column] ?? null, values[b - 1]![sort.column] ?? null) || a - b);
+  return rows;
+}
+
+interface Loaded {
+  keys: unknown[];
+  rows: SheetCell[][];
+  error?: string;
+}
+
+class Sheet {
+  private tab = 0;
+  private sort: { column: number; dir: 1 | -1 } | undefined;
+  private filter = { text: "", column: -1 };
+  private focus = { row: 1, col: 0 };
+  private loaded = new Map<number, Loaded>();
+  private wb: Workbook;
+  private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly root = el("div", { class: "sheet" });
+  private readonly status = el("span", { class: "sheet-status", role: "status", "aria-live": "polite" });
+  private resizeWatch: ResizeObserver | undefined;
+
+  constructor(
+    private readonly book: SheetBook,
+    anchor: Element,
+  ) {
+    anchor.after(this.root);
+    this.wb = this.workbook();
+    this.book.sheets.forEach((t, i) => {
+      if (t.source) void this.load(i);
+    });
+    if (typeof ResizeObserver === "function") {
+      let width = 0;
+      this.resizeWatch = new ResizeObserver(([e]) => {
+        const w = Math.round(e?.contentRect.width ?? 0);
+        if (w !== width && width !== 0) this.drawCharts();
+        width = w;
+      });
+      this.resizeWatch.observe(this.root);
+    }
+    this.render();
+  }
+
+  /** The workbook as it is evaluated: source tabs carry the rows read for them. */
+  private workbook(): Workbook {
+    return new Workbook({ ...this.book, sheets: this.book.sheets.map((t, i) => (t.source ? { ...t, rows: this.loaded.get(i)?.rows ?? [] } : t)) });
+  }
+
+  private async load(i: number): Promise<void> {
+    const tab = this.book.sheets[i]!;
+    const sql = sourceQuery(tab);
+    const bridge = kos();
+    if (!sql || !bridge) {
+      this.loaded.set(i, { keys: [], rows: [], error: sql ? "This sheet reads a table through KOS, which is not here." : "The tab's source needs a plain table and key name." });
+    } else {
+      try {
+        const res = await bridge.query(sql);
+        this.loaded.set(i, {
+          keys: res.rows.map((r) => r.__key),
+          rows: res.rows.map((r) => tab.columns.map((c) => {
+            const v = r[c.column ?? c.label];
+            return v === undefined ? null : (v as SheetCell);
+          })),
+        });
+      } catch (e) {
+        this.loaded.set(i, { keys: [], rows: [], error: reason(e) });
+      }
+    }
+    this.wb = this.workbook();
+    this.render();
+  }
+
+  private say(text: string, bad = false): void {
+    this.status.textContent = text;
+    this.status.classList.toggle("bad", bad);
+  }
+
+  private editable(t: number): boolean {
+    const tab = this.book.sheets[t]!;
+    if (tab.pivot) return false;
+    if (tab.source) return typeof kos()?.write === "function" && !this.loaded.get(t)?.error;
+    return typeof kos()?.save === "function";
+  }
+
+  private render(): void {
+    const tabs = this.book.sheets;
+    const t = this.tab;
+    const tab = tabs[t]!;
+    const columns = this.wb.columns(t);
+    const values = this.wb.values(t);
+    const rows = viewRows(values, columns, this.filter, this.sort);
+    const parts: Node[] = [];
+
+    if (tabs.length > 1) {
+      const list = el("div", { class: "sheet-tabs", role: "tablist" });
+      tabs.forEach((s, i) => {
+        const b = el("button", { type: "button", role: "tab", "aria-selected": String(i === t) }, s.name);
+        b.addEventListener("click", () => {
+          this.tab = i;
+          this.sort = undefined;
+          this.filter = { text: "", column: -1 };
+          this.focus = { row: 1, col: 0 };
+          this.render();
+        });
+        list.append(b);
+      });
+      parts.push(list);
+    }
+
+    const search = el("input", { type: "search", placeholder: "Filter rows", "aria-label": "Filter rows", value: this.filter.text });
+    search.value = this.filter.text;
+    search.addEventListener("input", () => {
+      this.filter.text = search.value;
+      this.renderGrid();
+    });
+    const which = el("select", { "aria-label": "Filter in" }, el("option", { value: "-1" }, "All columns"), ...columns.map((c, i) => el("option", { value: String(i) }, c.label)));
+    which.value = String(this.filter.column);
+    which.addEventListener("change", () => {
+      this.filter.column = Number(which.value);
+      this.renderGrid();
+    });
+    const tools = el("div", { class: "sheet-tools" }, search, which, el("span", { class: "sheet-rows" }), el("span", { class: "sheet-spacer" }), this.status);
+    if (tab.rows && !tab.pivot && this.editable(t)) {
+      const add = el("button", { type: "button" }, "Add row");
+      add.addEventListener("click", () => this.addRow());
+      tools.append(add);
+    }
+    parts.push(tools);
+    const err = this.loaded.get(t)?.error;
+    if (err) parts.push(el("p", { class: "sheet-error", role: "alert" }, `The rows could not be read: ${err}`));
+    parts.push(el("div", { class: "sheet-scroll" }));
+    if (this.book.charts?.length) parts.push(el("div", { class: "sheet-charts" }));
+    this.root.replaceChildren(...parts);
+    this.renderGrid(rows);
+    this.drawCharts();
+  }
+
+  private renderGrid(given?: number[]): void {
+    const t = this.tab;
+    const tab = this.book.sheets[t]!;
+    const columns = this.wb.columns(t);
+    const values = this.wb.values(t);
+    const rows = given ?? viewRows(values, columns, this.filter, this.sort);
+    const freeze = Math.max(0, Math.min(tab.freeze ?? 0, columns.length));
+    const count = this.root.querySelector(".sheet-rows");
+    if (count) count.textContent = rows.length === values.length ? `${values.length} rows` : `${rows.length} of ${values.length} rows`;
+
+    const headRow = el("tr", {}, el("th", { class: "rownum", scope: "col", "aria-label": "Row" }, ""));
+    columns.forEach((c, i) => {
+      const dir = this.sort?.column === i ? (this.sort.dir === 1 ? "ascending" : "descending") : "none";
+      const b = el("button", { type: "button", title: `Sort by ${c.label}` }, el("span", { class: "letter" }, columnLetter(i)), el("span", { class: "name" }, c.label));
+      b.addEventListener("click", () => {
+        this.sort = this.sort?.column !== i ? { column: i, dir: 1 } : this.sort.dir === 1 ? { column: i, dir: -1 } : undefined;
+        this.renderGrid();
+      });
+      const th = el("th", { scope: "col", "aria-sort": dir, class: cls(isNumeric(c) && "num", i < freeze && "frozen", i === freeze - 1 && "frozen-edge") }, b);
+      if (c.width) th.style.minWidth = `${c.width}ch`;
+      headRow.append(th);
+    });
+
+    const body = el("tbody");
+    for (const r of rows) {
+      const tr = el("tr", {}, el("th", { class: "rownum", scope: "row" }, String(r)));
+      columns.forEach((c, i) => tr.append(this.cell(t, r, i, values[r - 1]![i] ?? null, c, freeze)));
+      body.append(tr);
+    }
+    const table = el("table", { class: "sheet-grid", role: "grid", "aria-label": tab.name, "aria-rowcount": String(rows.length + 1) }, el("thead", {}, headRow), body);
+    if (!rows.length) {
+      const span = String(columns.length + 1);
+      body.append(el("tr", {}, el("td", { class: "sheet-empty", colspan: span }, values.length ? "No rows match the filter." : this.loaded.has(t) || !tab.source ? "No rows yet." : "Reading the rows…")));
+    }
+    if (tab.totals && Object.keys(tab.totals).length && rows.length) {
+      const shown = rows.map((r) => values[r - 1]!);
+      const sums = totalsRow(columns, tab.totals, shown);
+      const label = rows.length === values.length ? "Total" : "Shown";
+      const tr = el("tr", {}, el("th", { class: "rownum", scope: "row" }, label));
+      columns.forEach((c, i) => {
+        const v = sums[i];
+        tr.append(el("td", { class: cls(isNumeric(c) && "num", i < freeze && "frozen", i === freeze - 1 && "frozen-edge", v !== undefined && isError(v) && "err") }, v === undefined ? "" : formatValue(v, c)));
+      });
+      table.append(el("tfoot", {}, tr));
+    }
+    table.addEventListener("keydown", (e) => this.key(e));
+    const scroll = this.root.querySelector(".sheet-scroll")!;
+    scroll.replaceChildren(table);
+    if (freeze) (globalThis.requestAnimationFrame ?? setTimeout)(() => pinColumns(table, freeze));
+  }
+
+  private cell(t: number, row: number, col: number, v: Value, column: SheetColumn, freeze: number): HTMLTableCellElement {
+    const raw = this.rawCell(t, row, col);
+    const formula = typeof raw === "string" && raw.startsWith("=");
+    const isFocus = this.focus.row === row && this.focus.col === col;
+    const td = el(
+      "td",
+      {
+        class: cls(isNumeric(column) && "num", isError(v) && "err", typeof v === "boolean" && "bool", formula && "formula", col < freeze && "frozen", col === freeze - 1 && "frozen-edge", isFocus && "focus"),
+        tabindex: isFocus ? "0" : "-1",
+        "data-row": String(row),
+        "data-col": String(col),
+        title: isError(v) ? `${v.error} ${v.why}` : formula ? raw : undefined,
+      },
+      typeof v === "boolean" ? (v ? "✓" : "") : formatValue(v, column),
+    );
+    if (typeof v === "boolean") td.setAttribute("aria-label", v ? "Yes" : "No");
+    td.addEventListener("click", () => this.moveTo(row, col));
+    td.addEventListener("dblclick", () => this.edit(td));
+    return td;
+  }
+
+  private rawCell(t: number, row: number, col: number): SheetCell {
+    const tab = this.book.sheets[t]!;
+    const rows = tab.source ? this.loaded.get(t)?.rows : tab.rows;
+    return rows?.[row - 1]?.[col] ?? null;
+  }
+
+  private cellAt(row: number, col: number): HTMLTableCellElement | null {
+    return this.root.querySelector<HTMLTableCellElement>(`td[data-row="${row}"][data-col="${col}"]`);
+  }
+
+  private moveTo(row: number, col: number): void {
+    const next = this.cellAt(row, col);
+    if (!next) return;
+    this.root.querySelectorAll("td.focus").forEach((n) => {
+      n.classList.remove("focus");
+      n.setAttribute("tabindex", "-1");
+    });
+    next.classList.add("focus");
+    next.setAttribute("tabindex", "0");
+    next.focus({ preventScroll: false });
+    this.focus = { row, col };
+  }
+
+  private key(e: KeyboardEvent): void {
+    const td = (e.target as Element).closest?.("td[data-row]") as HTMLTableCellElement | null;
+    if (!td || td.classList.contains("editing")) return;
+    const row = Number(td.dataset.row);
+    const col = Number(td.dataset.col);
+    const visible = [...this.root.querySelectorAll<HTMLTableCellElement>(`td[data-col="${col}"]`)].map((n) => Number(n.dataset.row));
+    const at = visible.indexOf(row);
+    const move = (r: number | undefined, c: number): void => {
+      if (r === undefined) return;
+      e.preventDefault();
+      this.moveTo(r, Math.max(0, Math.min(this.wb.columns(this.tab).length - 1, c)));
+    };
+    switch (e.key) {
+      case "ArrowDown":
+        return move(visible[Math.min(at + 1, visible.length - 1)], col);
+      case "ArrowUp":
+        return move(visible[Math.max(at - 1, 0)], col);
+      case "ArrowRight":
+        return move(row, col + 1);
+      case "ArrowLeft":
+        return move(row, col - 1);
+      case "Enter":
+      case "F2":
+        e.preventDefault();
+        return this.edit(td);
+      case "Delete":
+      case "Backspace":
+        if (!this.editable(this.tab)) return;
+        e.preventDefault();
+        return void this.commit(row, col, "");
+      default:
+        if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && this.editable(this.tab)) {
+          e.preventDefault();
+          this.edit(td, e.key);
+        }
+    }
+  }
+
+  private edit(td: HTMLTableCellElement, typed?: string): void {
+    if (!this.editable(this.tab) || td.classList.contains("editing")) return;
+    const row = Number(td.dataset.row);
+    const col = Number(td.dataset.col);
+    const raw = this.rawCell(this.tab, row, col);
+    const input = el("input", { type: "text", "aria-label": `${columnLetter(col)}${row}` });
+    input.value = typed ?? (raw === null ? "" : String(raw));
+    if (input.value.startsWith("=")) input.classList.add("formula");
+    td.classList.add("editing");
+    td.replaceChildren(input);
+    input.focus();
+    if (typed === undefined) input.select();
+    let done = false;
+    const finish = (save: boolean, then?: { row: number; col: number }): void => {
+      if (done) return;
+      done = true;
+      if (save) void this.commit(row, col, input.value, then);
+      else {
+        this.renderGrid();
+        this.moveTo(row, col);
+      }
+    };
+    input.addEventListener("input", () => input.classList.toggle("formula", input.value.startsWith("=")));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finish(true, { row: row + 1, col });
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        finish(true, { row, col: col + (e.shiftKey ? -1 : 1) });
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        finish(false);
+      }
+      e.stopPropagation();
+    });
+    input.addEventListener("blur", () => finish(true));
+  }
+
+  private async commit(row: number, col: number, text: string, then?: { row: number; col: number }): Promise<void> {
+    const t = this.tab;
+    const tab = this.book.sheets[t]!;
+    const column = tab.columns[col];
+    const cell = cellFromInput(text, column);
+    const before = this.rawCell(t, row, col);
+    const after = (): void => {
+      this.wb = this.workbook();
+      this.render();
+      const target = then && this.cellAt(then.row, then.col) ? then : { row, col };
+      this.moveTo(target.row, target.col);
+    };
+    if (cell === before) return after();
+    if (tab.source) {
+      const loaded = this.loaded.get(t)!;
+      const name = column?.column ?? column?.label ?? "";
+      try {
+        this.say("Saving…");
+        await kos()!.write(tab.source.table, "update", { [name]: cell }, { column: tab.source.key, value: loaded.keys[row - 1] });
+        loaded.rows[row - 1]![col] = cell;
+        this.say("Saved");
+        await this.load(t);
+      } catch (e) {
+        this.say(`Not saved: ${reason(e)}`, true);
+      }
+      return after();
+    }
+    const rows = tab.rows!;
+    while (rows.length < row) rows.push(tab.columns.map(() => null));
+    const r = rows[row - 1]!;
+    while (r.length < tab.columns.length) r.push(null);
+    r[col] = cell;
+    this.scheduleSave();
+    after();
+  }
+
+  private addRow(): void {
+    const tab = this.book.sheets[this.tab]!;
+    tab.rows!.push(tab.columns.map(() => null));
+    this.filter.text = "";
+    this.sort = undefined;
+    this.wb = this.workbook();
+    this.render();
+    this.moveTo(tab.rows!.length, 0);
+    this.scheduleSave();
+  }
+
+  private scheduleSave(): void {
+    const save = kos()?.save;
+    if (!save) return;
+    clearTimeout(this.saveTimer);
+    this.say("Unsaved changes");
+    this.saveTimer = setTimeout(() => {
+      this.say("Saving…");
+      save({ sheet: this.book }).then(
+        () => this.say("Saved"),
+        (e: unknown) => this.say(`Not saved: ${reason(e)}`, true),
+      );
+    }, SAVE_DELAY_MS);
+  }
+
+  private drawCharts(): void {
+    const box = this.root.querySelector(".sheet-charts");
+    if (!box) return;
+    box.replaceChildren();
+    for (const chart of this.book.charts ?? []) {
+      const t = this.wb.tabIndex(chart.sheet);
+      const labels = this.wb.range(chart.sheet, chart.labels);
+      const values = this.wb.range(chart.sheet, chart.values);
+      const area = el("div", { role: "img", "aria-label": chart.title });
+      const fig = el("figure", {}, el("figcaption", {}, chart.title), area);
+      box.append(fig);
+      if (isError(labels) || isError(values) || t < 0) {
+        area.append(el("p", { class: "sheet-error" }, `This chart's ranges do not read: ${isError(labels) ? labels.why : isError(values) ? values.why : "no such tab"}`));
+        continue;
+      }
+      const labelCol = this.wb.columns(t)[Number.isNaN(colOf(chart.labels)) ? 0 : colOf(chart.labels)];
+      const data = {
+        labels: labels.map((v) => formatValue(v, labelCol)),
+        values: values.map((v) => (typeof v === "number" ? v : 0)),
+      };
+      const draw = chart.type === "line" ? line : chart.type === "pie" ? pie : bar;
+      draw(area, data);
+    }
+  }
+}
+
+/** The first column a range names: "C2:C9" -> 2. */
+function colOf(range: string): number {
+  const m = /([A-Za-z]{1,3})\$?\d/.exec(range.replace(/^.*!/, "").replace(/\$/g, ""));
+  if (!m) return NaN;
+  let n = 0;
+  for (const ch of m[1]!.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n - 1;
+}
+
+const cls = (...names: (string | false | undefined)[]): string | undefined => names.filter(Boolean).join(" ") || undefined;
+
+/** Keep the first columns in view: each frozen cell sits at the width of what is left of it. */
+function pinColumns(table: HTMLTableElement, freeze: number): void {
+  const head = table.tHead?.rows[0];
+  if (!head) return;
+  let left = head.cells[0]?.offsetWidth ?? 0;
+  const lefts: number[] = [];
+  for (let i = 1; i <= freeze; i++) {
+    lefts.push(left);
+    left += head.cells[i]?.offsetWidth ?? 0;
+  }
+  for (const row of table.rows) {
+    for (let i = 1; i <= freeze; i++) {
+      const cell = row.cells[i];
+      if (cell && cell.colSpan === 1) cell.style.left = `${lefts[i - 1]}px`;
+    }
+  }
+}
+
+/** The workbook in a data script, or why it cannot be read. */
+export function readBook(text: string): SheetBook | string {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    return `The sheet's data is not valid JSON: ${reason(e)}`;
+  }
+  const book = raw as Partial<SheetBook> | null;
+  if (!book || !Array.isArray(book.sheets) || !book.sheets.length) return "The sheet's data needs sheets: a list of at least one tab.";
+  for (const t of book.sheets) {
+    if (!t || typeof t.name !== "string" || (!Array.isArray(t.columns) && !t.pivot)) return "Every tab needs a name and its columns.";
+    t.columns ??= [];
+    if (!t.rows && !t.source && !t.pivot) t.rows = [];
+  }
+  return book as SheetBook;
+}
+
+export function startSheets(): void {
+  for (const script of document.querySelectorAll<HTMLScriptElement>('script[type="application/json"][data-sheet]')) {
+    const book = readBook(script.textContent ?? "");
+    if (typeof book === "string") script.after(el("p", { class: "sheet-error", role: "alert" }, book));
+    else new Sheet(book, script);
+  }
+}
+
+// Inlined in a frame it runs as a script; imported by a test it waits to be called.
+if (typeof document !== "undefined" && document.currentScript) {
+  addStyle(SHEET_CSS, "kos-sheet-css");
+  ready(startSheets);
+}

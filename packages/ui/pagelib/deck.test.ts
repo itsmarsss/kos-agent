@@ -65,7 +65,7 @@ describe("kos-deck in a page", () => {
       <section class="closing"><h2>Thanks</h2></section>
     </main>`;
     startDeck();
-    return [...document.querySelectorAll<HTMLElement>("main > section")];
+    return [...document.querySelectorAll<HTMLElement>("main section")];
   };
   const key = (k: string, shift = false): void => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: k, shiftKey: shift, bubbles: true, cancelable: true }));
@@ -75,11 +75,11 @@ describe("kos-deck in a page", () => {
   it("shows one slide, counts, and moves by keys and buttons", () => {
     const slides = mount();
     expect(slides.map((s) => s.classList.contains("current"))).toEqual([true, false, false]);
-    expect(document.querySelector(".count")!.textContent).toBe("1 / 3");
+    expect(document.querySelector(".deck-count")!.textContent).toBe("1 / 3");
     expect(button("←").disabled).toBe(true);
     key("ArrowRight");
     expect(slides[1]!.classList.contains("current")).toBe(true);
-    expect(document.querySelector(".count")!.textContent).toBe("2 / 3");
+    expect(document.querySelector(".deck-count")!.textContent).toBe("2 / 3");
     button("→").click();
     expect(button("→").disabled).toBe(true);
     key("Home");
@@ -117,6 +117,17 @@ describe("kos-deck in a page", () => {
     expect(document.body.classList.contains("deck-present")).toBe(true);
     key("Escape");
     expect(document.body.classList.contains("deck-present")).toBe(false);
+  });
+
+  it("puts each slide in a frame of its own and takes Enter in the grid to open one", () => {
+    const slides = mount();
+    expect(slides.every((s) => s.parentElement!.classList.contains("deck-slide"))).toBe(true);
+    expect(slides[0]!.parentElement!.classList.contains("current")).toBe(true);
+    key("g");
+    key("ArrowRight");
+    key("Enter");
+    expect(document.body.classList.contains("deck-grid")).toBe(false);
+    expect(slides[1]!.classList.contains("current")).toBe(true);
   });
 
   it("leaves keys alone when they are typed into a control", () => {

@@ -59,6 +59,7 @@ export const DOC_CSS = String.raw`
 :where([data-doc]) .byline { font: 400 0.8125rem / 1.4 var(--font-ui); color: var(--muted); margin: 0; font-variant-numeric: tabular-nums; }
 
 :where([data-doc]) h2 { font: 600 1.6rem / 1.2 var(--font-display); letter-spacing: -0.01em; text-wrap: balance; margin-top: 2.2em; scroll-margin-top: 24px; }
+:where([data-doc]) > header + h2 { margin-top: 1.3em; }
 :where([data-doc]) h3 { font: 650 1.0625rem / 1.3 var(--font-ui); text-wrap: balance; margin-top: 1.8em; scroll-margin-top: 24px; }
 :where([data-doc]) h4 { font: 600 0.75rem / 1.3 var(--font-ui); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 1.6em; }
 :where([data-doc]) :where(h2, h3, h4) + * { margin-top: 0.6em; }
@@ -129,8 +130,8 @@ export const DOC_CSS = String.raw`
 .doc-tools button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 999px; padding: 6px 12px; cursor: pointer; }
 .doc-tools button:hover { color: var(--text); border-color: var(--line-strong, var(--line)); }
 .doc-tools button.primary { background: var(--accent); border-color: transparent; color: var(--on-accent, #fff); }
-.doc-tools .status { color: var(--muted); padding-inline: 6px; max-width: 40ch; }
-.doc-tools .status.bad { color: var(--danger); }
+.doc-tools .doc-status { color: var(--muted); padding-inline: 6px; max-width: 40ch; }
+.doc-tools .doc-status.bad { color: var(--danger); }
 [data-doc][contenteditable="true"] { outline: none; caret-color: var(--accent); }
 [data-doc][contenteditable="true"] > * { box-shadow: -14px 0 0 -12px transparent; }
 [data-doc][contenteditable="true"] > :focus-within { box-shadow: -14px 0 0 -12px var(--line-strong, var(--line)); }

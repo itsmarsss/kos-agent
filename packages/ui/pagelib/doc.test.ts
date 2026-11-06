@@ -105,7 +105,7 @@ describe("kos-doc", () => {
     expect(sent.doc).toContain("<h1>Garden plan, revised</h1>");
     expect(sent.doc).toContain('<span class="fn">Each 1.2 m by 3 m.</span>');
     expect(sent.doc).not.toContain("data-kos-gen");
-    await vi.waitFor(() => expect(document.querySelector(".doc-tools .status")!.textContent).toBe("Saved as a new version"));
+    await vi.waitFor(() => expect(document.querySelector(".doc-tools .doc-status")!.textContent).toBe("Saved as a new version"));
     expect(article.hasAttribute("contenteditable")).toBe(false);
     expect(article.querySelectorAll(".fn-ref")).toHaveLength(2);
 
@@ -124,7 +124,7 @@ describe("kos-doc", () => {
     buttons.find((b) => b.textContent === "Edit")!.click();
     article.querySelector("p")!.append(" more");
     buttons.find((b) => b.textContent === "Save")!.click();
-    await vi.waitFor(() => expect(document.querySelector(".doc-tools .status")!.textContent).toBe("Not saved: the edit holds a script"));
+    await vi.waitFor(() => expect(document.querySelector(".doc-tools .doc-status")!.textContent).toBe("Not saved: the edit holds a script"));
     expect(article.getAttribute("contenteditable")).toBe("true");
   });
 });

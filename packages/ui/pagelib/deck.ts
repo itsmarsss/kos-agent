@@ -109,19 +109,23 @@ export function startDeck(): void {
   let reading = typeof matchMedia === "function" && matchMedia(READ_QUERY).matches;
 
   deck.setAttribute("aria-roledescription", "slide deck");
-  slides.forEach((s, i) => {
+  // Each slide in a frame that is its size container, so its own padding and type scale with it.
+  const frames = slides.map((s, i) => {
     s.setAttribute("aria-roledescription", "slide");
     s.setAttribute("aria-label", `${i + 1} of ${slides.length}`);
-    s.dataset.number = String(i + 1);
+    const frame = el("div", { class: "deck-slide", "data-number": String(i + 1) });
+    s.replaceWith(frame);
+    frame.append(s);
+    return frame;
   });
 
   const prev = el("button", { type: "button", "aria-label": "Previous slide" }, "←");
   const next = el("button", { type: "button", "aria-label": "Next slide" }, "→");
-  const count = el("span", { class: "count", role: "status", "aria-live": "polite" });
+  const count = el("span", { class: "deck-count", role: "status", "aria-live": "polite" });
   const gridBtn = el("button", { type: "button", "aria-pressed": "false", title: "All slides (G)" }, "Grid");
   const notesBtn = el("button", { type: "button", "aria-pressed": "false", title: "Presenter notes (N)" }, "Notes");
   const presentBtn = el("button", { type: "button", title: "Present (P)" }, "Present");
-  const bar = el("nav", { class: "deck-bar", "aria-label": "Slides" }, prev, count, next, el("span", { class: "gap" }), notesBtn, gridBtn, presentBtn);
+  const bar = el("nav", { class: "deck-bar", "aria-label": "Slides" }, prev, count, next, el("span", { class: "deck-spacer" }), notesBtn, gridBtn, presentBtn);
   const notes = el("aside", { class: "deck-notes", "aria-label": "Presenter notes" });
   document.body.append(notes, bar);
 
@@ -132,10 +136,12 @@ export function startDeck(): void {
     b.toggle("deck-present", state.presenting && !reading);
     b.toggle("deck-notes-on", state.notes && !state.grid && !reading);
     slides.forEach((s, i) => {
+      const frame = frames[i]!;
       s.classList.toggle("current", i === state.index);
-      if (state.grid) s.setAttribute("tabindex", "0");
-      else s.removeAttribute("tabindex");
-      s.setAttribute("aria-hidden", String(!state.grid && !reading && i !== state.index));
+      frame.classList.toggle("current", i === state.index);
+      if (state.grid) frame.setAttribute("tabindex", "0");
+      else frame.removeAttribute("tabindex");
+      frame.setAttribute("aria-hidden", String(!state.grid && !reading && i !== state.index));
     });
     count.textContent = `${state.index + 1} / ${state.count}`;
     prev.disabled = state.index === 0;
@@ -143,8 +149,8 @@ export function startDeck(): void {
     gridBtn.setAttribute("aria-pressed", String(state.grid));
     notesBtn.setAttribute("aria-pressed", String(state.notes));
     const said = slides[state.index]!.querySelector("aside.notes");
-    notes.replaceChildren(el("span", { class: "label" }, `Notes, slide ${state.index + 1}`), ...(said ? [...said.childNodes].map((n) => n.cloneNode(true)) : [el("span", { class: "empty" }, "No notes for this slide.")]));
-    if (state.grid) slides[state.index]!.scrollIntoView?.({ block: "nearest" });
+    notes.replaceChildren(el("span", { class: "deck-notes-label" }, `Notes, slide ${state.index + 1}`), ...(said ? [...said.childNodes].map((n) => n.cloneNode(true)) : [el("span", { class: "deck-notes-none" }, "No notes for this slide.")]));
+    if (state.grid) frames[state.index]!.scrollIntoView?.({ block: "nearest" });
   };
   const apply = (a: DeckAction): void => {
     const was = state.presenting;
@@ -175,10 +181,10 @@ export function startDeck(): void {
 
   deck.addEventListener("click", (e) => {
     if (reading) return;
-    const slide = (e.target as Element).closest?.("section");
+    const slide = (e.target as Element).closest?.(".deck-slide");
     if (!slide || slide.parentElement !== deck) return;
     if (state.grid) {
-      apply({ type: "go", index: slides.indexOf(slide as HTMLElement) });
+      apply({ type: "go", index: frames.indexOf(slide as HTMLDivElement) });
       return;
     }
     if (interactive(e.target) || (getSelection()?.toString() ?? "") !== "") return;
