@@ -20,7 +20,9 @@ export type Route =
   | { name: "blobs"; blob?: string }
   /** Coding sub-agents, the builds; `id` opens one's log. */
   | { name: "builds"; id?: number }
-  | { name: "page"; id: string };
+  | { name: "page"; id: string }
+  /** Every artifact; `id` opens one full size. */
+  | { name: "artifacts"; id?: string };
 
 /**
  * What the page transition is keyed on: the page that is open, not only
@@ -36,6 +38,8 @@ export function pageKeyOf(route: Route): string {
       return route.blob && route.blob !== "new" ? `blobs:${route.blob}` : "blobs";
     case "project":
       return `project:${route.slug}`;
+    case "artifacts":
+      return route.id ? `artifacts:${route.id}` : "artifacts";
     default:
       return route.name;
   }
@@ -97,6 +101,9 @@ export function parseRoute(hash: string): Route {
   ) {
     return { name: "history" };
   }
+  if (path === "/artifacts") return { name: "artifacts" };
+  const artifact = path.match(/^\/artifacts\/([^/]+)$/);
+  if (artifact?.[1]) return { name: "artifacts", id: decodeURIComponent(artifact[1]) };
   const page = path.match(/^\/page\/([^/]+)$/);
   if (page?.[1]) return { name: "page", id: decodeURIComponent(page[1]) };
   return { name: "home" };
@@ -108,6 +115,8 @@ export function hrefFor(route: Route): string {
       return "#/home";
     case "page":
       return `#/page/${encodeURIComponent(route.id)}`;
+    case "artifacts":
+      return route.id ? `#/artifacts/${encodeURIComponent(route.id)}` : "#/artifacts";
     case "project":
       return route.id
         ? `#/project/${encodeURIComponent(route.slug)}/${encodeURIComponent(route.id)}`
@@ -150,6 +159,7 @@ export const NAV: Array<{ route: Route; label: string }> = [
   { route: { name: "chats" }, label: "Chats" },
   { route: { name: "inbox" }, label: "Inbox" },
   { route: { name: "projects" }, label: "Projects" },
+  { route: { name: "artifacts" }, label: "Artifacts" },
   { route: { name: "blobs" }, label: "Blobs" },
   { route: { name: "files" }, label: "Files" },
   { route: { name: "memory" }, label: "Memory" },

@@ -39,6 +39,7 @@ import { AgentsPage } from "./AgentsPage.js";
 import { BuildsPage } from "./BuildsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
 import { ProjectsPage } from "./ProjectsPage.js";
+import { ArtifactViewer, ArtifactsPage } from "./ArtifactsPage.js";
 import { placeOf } from "./chattree.js";
 import { MemoryPage } from "./MemoryPage.js";
 import { InboxPage } from "./InboxPage.js";
@@ -961,6 +962,22 @@ export function App(): React.ReactElement {
         onDecide={decideByPendingId}
         {...(seed ? { seed } : {})}
       />,
+    );
+  }
+
+  if (route.name === "artifacts") {
+    return shell(
+      route.id ? (
+        <ArtifactViewer
+          key={route.id}
+          id={route.id}
+          projects={projects}
+          onBack={() => go({ name: "artifacts" })}
+          onOpenChat={(slug) => go(slug ? { name: "project", slug } : { name: "chats" })}
+        />
+      ) : (
+        <ArtifactsPage projects={projects} onOpen={(id) => go({ name: "artifacts", id })} />
+      ),
     );
   }
 

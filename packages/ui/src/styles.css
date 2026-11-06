@@ -7108,3 +7108,78 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .artifact-error { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; }
 .artifact-ask-acts { display: flex; gap: 0.5rem; }
 .page-history { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; margin-bottom: 0.4rem; }
+/* Full screen (presenting a deck): the frame takes the whole screen, nothing around it. */
+.artifact:fullscreen { background: var(--bg); padding: 0; gap: 0; }
+.artifact:fullscreen .artifact-frame { height: 100vh; min-height: 0; border: 0; border-radius: 0; }
+
+/* —— the Artifacts page (ArtifactsPage.tsx) —— */
+.artifact-grid {
+  list-style: none;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr));
+}
+.artifact-grid > li { min-width: 0; display: flex; }
+.artifact-card {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 140ms ease;
+}
+.artifact-card:hover { border-color: var(--line-strong); }
+.artifact-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.artifact-card:active { transform: scale(0.99); }
+.artifact-thumb {
+  display: block;
+  aspect-ratio: 16 / 10;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  position: relative;
+}
+.artifact-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+.artifact-thumb-mark { position: absolute; inset: 0; display: grid; place-items: center; color: var(--faint); }
+.artifact-thumb-mark svg { width: 34px; height: 34px; }
+.artifact-card-body { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px 12px; min-width: 0; }
+.artifact-card-title { font-size: var(--text-lg); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-card-desc {
+  color: var(--muted);
+  font-size: var(--text-base);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.artifact-card-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; color: var(--faint); font-size: var(--text-sm); min-width: 0; }
+.artifact-card-owner { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.artifact-card-time { margin-left: auto; white-space: nowrap; }
+
+/* One artifact, full size. */
+.artifact-view { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
+.artifact-view-head { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.artifact-view-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 14rem; }
+.artifact-view-title { margin: 0; font-size: var(--text-xl); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.artifact-view-meta { display: flex; gap: 8px; align-items: center; color: var(--faint); font-size: var(--text-sm); flex-wrap: wrap; }
+.artifact-view-acts { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.artifact-view-acts .page-history { margin: 0; }
+.artifact-view-desc { margin: 0; color: var(--muted); max-width: 46rem; }
+.artifact-view .artifact-frame { height: calc(100vh - 10rem); }
+.artifact-ask-edit { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); }
+.artifact-ask-edit label { color: var(--muted); font-size: var(--text-base); }
+.artifact-ask-edit-row { display: flex; gap: 8px; }
+.artifact-ask-edit-row .kos-input { flex: 1; min-width: 0; }
+@media (max-width: 560px) {
+  .artifact-view-acts { width: 100%; }
+  .artifact-view .artifact-frame { height: calc(100vh - 13rem); min-height: 22rem; }
+}
