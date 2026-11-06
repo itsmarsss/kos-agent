@@ -239,7 +239,14 @@ function defineSystemsTools(ctx: ModuleContext): void {
     },
     (input) => {
       const project = str(input, "project");
-      refuseOtherProjectsPage(project, reachOf(ctx));
+      const reach = reachOf(ctx);
+      refuseOtherProjectsPage(project, reach);
+      // Page ids are shared across projects, and a write upserts by id: the page it would replace is checked too,
+      // or one project could take another's page by naming it as its own.
+      const spec = input.spec as { id?: unknown } | undefined;
+      const id = typeof input.id === "string" ? input.id : typeof spec?.id === "string" ? spec.id : undefined;
+      const replaced = id ? pages.get(id) : undefined;
+      if (replaced) refuseOtherProjectsPage(replaced.record.projectSlug, reach);
       if (input.spec !== undefined && input.html === undefined) return JSON.stringify(pages.write(project, input.spec));
       const { project: _project, spec: _spec, ...page } = input;
       return JSON.stringify(pages.writeHtml(project, page));
