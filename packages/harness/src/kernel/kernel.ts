@@ -3,7 +3,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
-import type { Asker, ConversationSeed, Guest, OutboundMessage, Sender } from "../channels/types.js";
+import { OWNER_THREAD_PREFIX, type Asker, type ConversationSeed, type Guest, type OutboundMessage, type Sender } from "../channels/types.js";
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry, type ToolExecution } from "../agent/registry.js";
@@ -2783,14 +2783,56 @@ export class Kernel {
       return this.ensureAgentConversation(name);
     }
     const existing = this.conversations.get(id);
-    if (existing) return existing;
-    return this.conversations.create({
+    // The owner's own thread is the chat's thread: bound, so the layout and
+    // the mirror use it and never make a second one beside it. One bound to
+    // a thread KOS made before is left for rebindOwnerThreads.
+    const bindOwn = (): void => {
+      if (seed.threadId && !Object.values(this.threadBindings()).includes(id)) this.bindThread(seed.threadId, id);
+    };
+    if (existing) {
+      bindOwn();
+      return existing;
+    }
+    const made = this.conversations.create({
       id,
       userId,
       title: seed.title?.trim() || "Thread",
       channel,
       ...(seed.projectSlug ? { projectSlug: seed.projectSlug } : {}),
     });
+    bindOwn();
+    return made;
+  }
+
+  /**
+   * Chats made from a thread the owner started that are also bound to a
+   * thread KOS made for them: the duplicate the layout made before the
+   * owner's thread was bound. A dry run; rebindOwnerThreads fixes them.
+   */
+  ownerThreadDuplicates(): { conversationId: string; title: string; ownerThread: string; madeThreads: string[] }[] {
+    const bindings = Object.entries(this.threadBindings());
+    return this.conversations
+      .list(this.profile.ownerId, { includeArchived: true })
+      .filter((c) => c.id.startsWith(OWNER_THREAD_PREFIX))
+      .flatMap((c) => {
+        const ownerThread = c.id.slice(OWNER_THREAD_PREFIX.length);
+        const madeThreads = bindings.filter(([thread, bound]) => bound === c.id && thread !== ownerThread).map(([thread]) => thread);
+        return madeThreads.length ? [{ conversationId: c.id, title: c.title, ownerThread, madeThreads }] : [];
+      });
+  }
+
+  /**
+   * Bind each such chat to the owner's thread alone. The threads KOS made
+   * are only let go here, never deleted: they stay on Discord until the
+   * owner removes them.
+   */
+  rebindOwnerThreads(): ReturnType<Kernel["ownerThreadDuplicates"]> {
+    const found = this.ownerThreadDuplicates();
+    for (const d of found) {
+      for (const thread of d.madeThreads) this.unbindThread(thread);
+      this.bindThread(d.ownerThread, d.conversationId);
+    }
+    return found;
   }
 
   /**

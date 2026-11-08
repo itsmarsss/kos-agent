@@ -810,7 +810,7 @@ describe("DiscordAdapter authorization", () => {
     expect(boundKeyOf("kos:project:garden · Garden")).toBe("project:garden");
     expect(boundKeyOf("Garden")).toBeUndefined();
     expect(bindingOf({ id: "c", topic: "kos:orchestrator:owner · KOS" })).toEqual({ conversationId: "orchestrator:owner" });
-    expect(bindingOf({ id: "t", name: "Ideas", isThread: () => true, parent: { topic: "kos:orchestrator:owner · KOS" } })).toEqual({ conversationId: "discord:thread:t", newIn: { title: "Ideas" } });
+    expect(bindingOf({ id: "t", name: "Ideas", isThread: () => true, parent: { topic: "kos:orchestrator:owner · KOS" } })).toEqual({ conversationId: "discord:thread:t", newIn: { title: "Ideas", threadId: "t" } });
     expect(bindingOf({ id: "t", isThread: () => true, parent: { topic: "kos:needs-you · Approvals" } })).toBeUndefined();
     expect(bindingOf({ id: "t", isThread: () => true, parent: null })).toBeUndefined();
   });

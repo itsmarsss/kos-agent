@@ -2684,6 +2684,18 @@ export async function handleApiRequest(
     return ok({ folders: walkFolders(kernel.workspace) });
   }
 
+  /**
+   * Chats made from a thread the owner started that are also bound to a
+   * thread KOS made: a dry run, and the rebind. Bindings only; no thread on
+   * Discord is deleted.
+   */
+  if (method === "GET" && path === "/api/discord/thread-duplicates") {
+    return ok({ duplicates: kernel.ownerThreadDuplicates() });
+  }
+  if (method === "POST" && path === "/api/discord/thread-duplicates/rebind") {
+    return ok({ rebound: kernel.rebindOwnerThreads(), note: "the threads KOS made are let go, not deleted; remove them on Discord by hand" });
+  }
+
   /** The Discord server's text channels as KOS last saw them, so a "#name" in a chat can be the channel. */
   if (method === "GET" && path === "/api/discord/channels") {
     return ok({ channels: knownChannels(kernel) });

@@ -323,7 +323,7 @@ describe("Kernel", () => {
     expect(inProject).toMatchObject({ conversationId: `project:${garden.slug}`, reply: "In the garden." });
     expect(JSON.stringify(kernel.sessions.get(`project:${garden.slug}`))).toContain("what's growing");
     // A thread under it is a new chat of the project, titled as the thread, kept for the next message.
-    const inThread = await kernel.handleChannelTurn({ text: "seeds?", userId: "owner", channel: "discord", conversationId: "discord:thread:t9", newIn: { projectSlug: garden.slug, title: "Seeds" } });
+    const inThread = await kernel.handleChannelTurn({ text: "seeds?", userId: "owner", channel: "discord", conversationId: "discord:thread:t9", newIn: { projectSlug: garden.slug, title: "Seeds", threadId: "t9" } });
     expect(inThread.conversationId).toBe("discord:thread:t9");
     expect(kernel.conversations.get("discord:thread:t9")).toMatchObject({ title: "Seeds", projectSlug: garden.slug, channel: "discord" });
     // A blob's channel runs the blob's own thread, and the answer is tagged as its own.
@@ -347,9 +347,11 @@ describe("Kernel", () => {
     const gardenPlan = plan.find((c) => c.key === `project:${garden.slug}`)!;
     expect(gardenPlan).toMatchObject({ name: "my-garden", topic: `kos:project:${garden.slug} · My Garden`, category: "Projects", audience: "owner" });
     expect(gardenPlan.threads).toEqual([{ conversationId: "discord:thread:t9", title: "Seeds" }]);
+    // The owner's own thread is bound to the chat made from it, so no second thread is made for it.
+    expect(kernel.threadBindings()).toEqual({ t9: "discord:thread:t9" });
     // A thread KOS made is remembered as its chat.
-    kernel.bindThread("t42", "discord:thread:t9");
-    expect(kernel.threadBindings()).toEqual({ t42: "discord:thread:t9" });
+    kernel.bindThread("t42", "agent:recap");
+    expect(kernel.threadBindings()).toEqual({ t9: "discord:thread:t9", t42: "agent:recap" });
     expect(plan.every((c) => /^[a-z0-9-]+$/.test(c.name))).toBe(true);
     // Everything is the owner's alone until they say otherwise, one channel at a time; KOS's own and the approvals always.
     expect(plan.every((c) => c.audience === "owner")).toBe(true);
@@ -359,6 +361,25 @@ describe("Kernel", () => {
     expect(kernel.surfaceChannels().find((c) => c.key === `project:${garden.slug}`)?.audience).toBe("everyone");
     kernel.setChannelAudience(`project:${garden.slug}`, "owner");
     expect(kernel.channelAudiences()).toEqual({});
+  });
+
+  it("finds a chat bound to a thread KOS made beside the owner's own, and rebinds it to the owner's without deleting either", async () => {
+    kernel = await boot(stubInference([]));
+    const garden = kernel.standUpProject({ name: "Garden", type: "tracker" });
+    // Before the owner's thread was bound: a chat from it, and a second thread the layout made for that chat.
+    kernel.conversations.create({ id: "discord:thread:t1", userId: "owner", title: "Seeds", channel: "discord", projectSlug: garden.slug });
+    kernel.bindThread("k9", "discord:thread:t1");
+    // One that is right already, and an ordinary chat with KOS's thread, are left alone.
+    kernel.conversations.create({ id: "discord:thread:t2", userId: "owner", title: "Soil", channel: "discord" });
+    kernel.bindThread("t2", "discord:thread:t2");
+    kernel.bindThread("k8", "ordinary");
+    // A message there now does not add a second binding: that is the helper's to fix.
+    kernel.boundConversation("discord:thread:t1", "owner", "discord", { title: "Seeds", threadId: "t1" });
+    expect(kernel.ownerThreadDuplicates()).toEqual([{ conversationId: "discord:thread:t1", title: "Seeds", ownerThread: "t1", madeThreads: ["k9"] }]);
+    expect(kernel.threadBindings()).toEqual({ k9: "discord:thread:t1", t2: "discord:thread:t2", k8: "ordinary" });
+    expect(kernel.rebindOwnerThreads()).toHaveLength(1);
+    expect(kernel.threadBindings()).toEqual({ t2: "discord:thread:t2", k8: "ordinary", t1: "discord:thread:t1" });
+    expect(kernel.ownerThreadDuplicates()).toEqual([]);
   });
 
   it("tells the bus what each turn said, and where the words came in", async () => {

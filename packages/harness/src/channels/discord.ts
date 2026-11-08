@@ -27,7 +27,7 @@ import { CHANNEL_TOKEN, detailLines, stepActions, summarizeAction, withUnixTimes
 import { isReadable, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
-import { OWNER_ONLY, type Guest } from "./types.js";
+import { OWNER_ONLY, OWNER_THREAD_PREFIX, type Guest } from "./types.js";
 import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
 import { linkMentions, linkPaths, literal, literalWords, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
 import { tablesToCode } from "./tables.js";
@@ -627,8 +627,9 @@ export function bindingOf(
     const seed: ConversationSeed = {
       ...(parentKey.startsWith("project:") ? { projectSlug: parentKey.slice("project:".length) } : {}),
       ...(channel.name ? { title: channel.name } : {}),
+      threadId: channel.id,
     };
-    return { conversationId: `discord:thread:${channel.id}`, newIn: seed };
+    return { conversationId: `${OWNER_THREAD_PREFIX}${channel.id}`, newIn: seed };
   }
   const key = boundKeyOf(channel.topic);
   if (!key || key === "needs-you") return undefined;

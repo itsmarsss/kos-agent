@@ -12,7 +12,12 @@ import type { MessageRoom } from "../models/types.js";
 export interface ConversationSeed {
   projectSlug?: string;
   title?: string;
+  /** The surface's thread the owner started, which the chat stands for from then on: bound, so none is made beside it. */
+  threadId?: string;
 }
+
+/** A chat made from a thread the owner started on Discord is this and the thread's id. */
+export const OWNER_THREAD_PREFIX = "discord:thread:";
 
 export interface InboundMessage {
   /** Adapter name that received the message, e.g. "discord". */
