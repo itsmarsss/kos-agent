@@ -437,6 +437,25 @@ describe("PageStore HTML pages", () => {
     expect(pages.list({ blob: "noter", id: again })).toEqual([]);
   });
 
+  it("retires a blob's id as soon as its folder is found gone, and not for its file alone", () => {
+    const roles = new RoleStore(ws, pages.blobIds);
+    roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+    roles.write({ name: "keeper", description: "Keeps", brief: "Keep.", memory: "own" });
+    const gone = roles.identity("noter")!;
+    const kept = roles.identity("keeper")!;
+    pages.writeHtml({ blob: "noter", id: gone }, { id: "n", title: "Notes", html: "<p>n</p>" });
+    // blob.md moved aside: the folder is there, so the blob is.
+    rmSync(join(root, "blobs/keeper/blob.md"));
+    expect(roles.retireDeleted()).toEqual([]);
+    expect(pages.blobIds.removed(kept)).toBe(false);
+    // The folder deleted by hand: retired on the next look, no boot needed.
+    rmSync(join(root, "blobs/noter"), { recursive: true });
+    expect(roles.identity("noter")).toBeUndefined();
+    expect(pages.blobIds.removed(gone)).toBe(true);
+    expect(pages.record("n")).toMatchObject({ blob: "noter", blobRemoved: true });
+    expect(roles.retireDeleted()).toEqual([]);
+  });
+
   it("retires at boot, once, the id of a blob whose folder went while KOS was away", () => {
     const roles = new RoleStore(ws, pages.blobIds);
     roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });

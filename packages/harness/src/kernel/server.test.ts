@@ -1304,6 +1304,23 @@ describe("handleApiRequest", () => {
       expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(404);
     });
 
+    it("lets the owner delete what a blob made once its folder was deleted by hand, without a reboot", async () => {
+      kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+      kernel.pages.writeHtml({ blob: "noter", id: kernel.roles.identity("noter")! }, { id: "notes", title: "Notes", html: "<p>n</p>" });
+      // Its file moved aside for a moment is still a living blob's.
+      const file = join(root, "blobs/noter/blob.md");
+      const text = readFileSync(file, "utf8");
+      rmSync(file);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(403);
+      writeFileSync(file, text);
+      // The whole folder gone is the blob deleted: the list says so, and Delete works.
+      rmSync(join(root, "blobs/noter"), { recursive: true });
+      const list = (await handleApiRequest(kernel, { method: "GET", path: "/api/artifacts", body: {} })).body as { id: string; blobRemoved?: boolean }[];
+      expect(list.find((p) => p.id === "notes")).toMatchObject({ blobRemoved: true });
+      expect(await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).toMatchObject({ status: 200, body: { deleted: true } });
+      expect(kernel.pages.record("notes")).toBeUndefined();
+    });
+
     it("shows a mentioned artifact or its file only where the chat's tools could read it, and nothing to a guest", () => {
       kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
       kernel.pages.writeHtml({ blob: "noter", id: kernel.roles.identity("noter")! }, { id: "notes", title: "Notes", html: "<p>NOTE-BODY</p>" });

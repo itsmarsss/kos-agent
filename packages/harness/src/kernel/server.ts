@@ -1439,6 +1439,8 @@ export async function handleApiRequest(
     const verb = bridgeCall[2]!;
     // What a removed blob made is the owner's to keep or let go; nothing else is deleted from here. By its row, so one whose file went is let go too.
     if (verb === "delete" && method === "POST") {
+      // A blob whose folder was deleted by hand is removed now, not at the next boot.
+      kernel.roles.retireDeleted();
       const record = kernel.pages.record(id);
       if (!record) return { status: 404, body: { error: "page not found" } };
       if (!record.blobRemoved) return { status: 403, body: { error: "only what a removed blob made is deleted here" } };
@@ -1469,6 +1471,8 @@ export async function handleApiRequest(
    * show the capture or ask for a fresh one.
    */
   if (method === "GET" && path === "/api/artifacts") {
+    // So what a hand-deleted blob made reads as a removed blob's, with its Delete, without a reboot.
+    kernel.roles.retireDeleted();
     return ok(
       kernel.pages.list().map((record) => {
         const at = captureTime(kernel.pages.capturesDir(record.id));

@@ -289,11 +289,24 @@ export class RoleStore {
   /**
    * The id of the blob living under this name, or undefined while its file
    * is not there. A file missing for a moment (an editor saving by rename)
-   * retires nothing: an id is retired by remove(), by a write that makes the
-   * blob again, or at boot by reconcile().
+   * retires nothing; its whole folder missing is the blob deleted by hand,
+   * and retires the id now rather than at the next boot. Otherwise an id is
+   * retired by remove(), by a write that makes the blob again, or at boot by
+   * reconcile().
    */
   identity(name: string): string | undefined {
-    return this.exists(name) ? this.ids.ensure(name) : undefined;
+    if (this.exists(name)) return this.ids.ensure(name);
+    if (this.ids.live(name) !== undefined && !this.folderThere(name)) this.ids.retire(name);
+    return undefined;
+  }
+
+  /** Every living id whose blob's folder is gone, retired now: the names, for a log line. */
+  retireDeleted(): string[] {
+    return this.ids.living().filter((name) => this.identity(name) === undefined && this.ids.live(name) === undefined);
+  }
+
+  private folderThere(name: string): boolean {
+    return ROLE_NAME.test(name) && existsSync(this.workspace.resolve(this.folderOf(name)));
   }
 
   /**
