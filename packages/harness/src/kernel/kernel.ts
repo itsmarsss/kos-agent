@@ -18,6 +18,9 @@ import { toolUse } from "./caller.js";
 const BROWSER_PREFIX = "browser.";
 /** Of those, never trusted by site: a script in the page, and the ask for the owner's hands. */
 const BROWSER_STRICT = ["browser.eval", "browser.handoff"];
+/** How recent the agent's last picture of its page must be to stand for it in an approval. */
+const SEEN_FRESH_MS = 30_000;
+const SEEN_KEPT = 16;
 /** A tab nobody has used this long is closed; checked this often. */
 const IDLE_TAB_MS = 20 * 60_000;
 const IDLE_SWEEP_MS = 5 * 60_000;
@@ -498,6 +501,8 @@ export class Kernel {
   readonly discord: DiscordServices | undefined;
   /** What the browser showed after each step, for the thread. */
   readonly frames: FrameStore;
+  /** Each conversation's last picture of its page, and when it came. */
+  private readonly lastSeen = new Map<string, { picture: string; at: number }>();
   /** Pages watched for change, and what each said last time. */
   readonly watches: PageWatchStore;
   private idleSweep: ReturnType<typeof setInterval> | null = null;
@@ -3712,8 +3717,11 @@ export class Kernel {
     // Chrome, where every capture crosses to the extension and back.
     if (picture || !this.browserContext(tool, conversationId)) {
       if (picture) this.frames.add({ conversationId, ...(toolUseId ? { toolUseId } : {}), tool, picture });
+      if (picture && this.browserContext(tool, conversationId)) this.sawPage(conversationId, picture);
       return;
     }
+    // A browser call that answered without a picture may have changed the page: the last one no longer stands for it.
+    this.lastSeen.delete(conversationId);
     const away = this.away(conversationId);
     const tab = this.browser.tabOf(conversationId);
     if (!away && !tab) return;
@@ -3724,9 +3732,22 @@ export class Kernel {
       .catch(() => undefined);
   }
 
-  /** The page a browser action is aimed at, pictured for the approval. */
+  /** The agent's newest picture of its page, kept for a few conversations at most. */
+  private sawPage(conversationId: string, picture: string): void {
+    this.lastSeen.delete(conversationId);
+    this.lastSeen.set(conversationId, { picture, at: Date.now() });
+    if (this.lastSeen.size > SEEN_KEPT) this.lastSeen.delete(this.lastSeen.keys().next().value!);
+  }
+
+  /**
+   * The page a browser action is aimed at, pictured for the approval: the
+   * picture the agent just saw it by, when it is that recent, rather than
+   * another taken on the same line to the tab.
+   */
   private async browserPicture(tool: string, conversationId?: string): Promise<string | undefined> {
     if (!conversationId || !this.browserContext(tool, conversationId)) return undefined;
+    const seen = this.lastSeen.get(conversationId);
+    if (seen && Date.now() - seen.at < SEEN_FRESH_MS) return seen.picture;
     const away = this.away(conversationId);
     if (away) return away.picture(conversationId, 900);
     const tab = this.browser.tabOf(conversationId);
