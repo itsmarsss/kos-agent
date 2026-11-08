@@ -67,6 +67,22 @@ describe("KOS's own world in a page", () => {
   });
 });
 
+describe("a wait for the page", () => {
+  it("bounds each look for it by what is left of its grant", async () => {
+    const asked: number[] = [];
+    const session: Session = {
+      send: async (method, _params, timeoutMs) => {
+        if (method === "Runtime.evaluate") asked.push(timeoutMs ?? Infinity);
+        return { result: { value: false } };
+      },
+    };
+    const page = new Page(session);
+    await expect(page.step({ wait: { text: "never", ms: 500 } })).rejects.toThrow(/waited 0.5s/);
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.every((ms) => ms > 0 && ms <= 500)).toBe(true);
+  });
+});
+
 describe("a Stop while the owner has the tab", () => {
   it("ends a step waiting for them to let go, and a call waiting its turn gives it up", async () => {
     // Held for the first two asks; let go by the third.

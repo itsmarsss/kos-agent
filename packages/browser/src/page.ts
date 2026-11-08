@@ -88,6 +88,8 @@ const SETTLE_BUSY_MS = 2_500;
  * after the last of them.
  */
 const TYPED_MS = 400;
+/** The most one look for what a wait waits for may take. */
+const PROBE_MS = 3_000;
 /**
  * Steps that pay that floor: one of these next, the floor is left to it. A
  * pick or a tick between pays none, so the typing before it pays its own.
@@ -833,7 +835,8 @@ export class Page {
     const limit = what.ms ?? WAIT_FOR_MS;
     const end = this.now() + limit;
     while (this.now() < end) {
-      if (await this.value<boolean>(check, 3_000).catch(() => false)) return kind === "gone" ? `"${value}" went` : `"${value}" appeared`;
+      // Each probe bounded by what is left, so a page slow to answer does not carry the wait past its grant.
+      if (await this.value<boolean>(check, Math.max(1, Math.min(PROBE_MS, end - this.now()))).catch(() => false)) return kind === "gone" ? `"${value}" went` : `"${value}" appeared`;
       await this.pause(200);
     }
     throw new Error(`waited ${limit / 1000}s and ${JSON.stringify(value)} ${kind === "gone" ? "is still there" : "never appeared"}`);
