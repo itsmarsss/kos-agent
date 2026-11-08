@@ -82,8 +82,14 @@ const ANSWERED_MS = ANSWER_MS + DOM_QUIET_MS;
 const SETTLE_MAX_MS = 800;
 /** The most it waits while a request the action started is still open. */
 const SETTLE_BUSY_MS = 2_500;
-/** At least this long after typing or a key: a field that searches as one types waits a moment first. */
+/**
+ * At least this long after typing or a key: a field that searches as one
+ * types waits a moment first. Paid once for a run of fields filled in turn,
+ * after the last of them.
+ */
 const TYPED_MS = 400;
+/** Steps that only fill in a form: one of these next, the floor is left to it. */
+const FILLING = ["type", "fill", "select", "check", "uncheck"];
 /** A request the action started, open longer than this, is a long poll or a stream, and does not hold the quiet. */
 const STALE_REQUEST_MS = 3_000;
 /** One open from before the action holds it only this long from its start. */
@@ -483,18 +489,20 @@ export class Page {
   /**
    * One step on the page; what was done, in words. Once `signal` aborts, the
    * step ends where it is: a wait is woken, a command still out is no longer
-   * waited for, and no further one is sent. It throws Stopped.
+   * waited for, and no further one is sent. It throws Stopped. `next` is
+   * the step to come in the same run, none at its end.
    */
-  async step(step: Step, signal?: AbortSignal): Promise<string> {
+  async step(step: Step, signal?: AbortSignal, next?: Step): Promise<string> {
     this.stop = signal;
     try {
-      return await this.perform(step);
+      return await this.perform(step, next && FILLING.some((k) => k in next) ? 0 : TYPED_MS);
     } finally {
       this.stop = undefined;
     }
   }
 
-  private async perform(step: Step): Promise<string> {
+  /** `typed` is the least time given the page after typing or a key. */
+  private async perform(step: Step, typed: number): Promise<string> {
     await this.waitForOwner();
     if ("open" in step) {
       const went = await this.goto(step.open);
@@ -525,16 +533,16 @@ export class Page {
       return `hovered over ${step.hover}`;
     }
     if ("fill" in step) {
-      await this.acting(async () => this.write(await this.element(step.fill.target), step.fill.target, step.fill.text, true), TYPED_MS);
+      await this.acting(async () => this.write(await this.element(step.fill.target), step.fill.target, step.fill.text, true), typed);
       return `filled ${step.fill.target}`;
     }
     if ("type" in step) {
-      await this.acting(async () => this.write(await this.element(step.type.target), step.type.target, step.type.text, false), TYPED_MS);
+      await this.acting(async () => this.write(await this.element(step.type.target), step.type.target, step.type.text, false), typed);
       return `typed into ${step.type.target}`;
     }
     if ("press" in step) {
       const press = parseKeys(step.press);
-      await this.acting(() => this.key(press), TYPED_MS);
+      await this.acting(() => this.key(press), typed);
       return `pressed ${step.press}`;
     }
     if ("select" in step) {

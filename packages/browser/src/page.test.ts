@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { act, stepsOf } from "./hands.js";
+import * as inpage from "./inpage.js";
 import { BrowserClock, Page, Stopped, type Session } from "./page.js";
 
 type Handler = (params: Record<string, unknown>) => Promise<Record<string, unknown>> | Record<string, unknown>;
@@ -109,6 +111,31 @@ describe("a Stop part way through a step", () => {
     answer({ result: { objectId: "late" } });
     await new Promise((r) => setTimeout(r, 0));
     expect(calls.filter((c) => c.method === "Runtime.releaseObject")).toEqual([{ method: "Runtime.releaseObject", params: { objectId: "late" } }]);
+  });
+});
+
+describe("the time a page is given after typing", () => {
+  it("is paid once for a run of fields filled in turn, after the last", async () => {
+    // Each wait for the page to go still, with the least time it was given.
+    const graces: number[] = [];
+    const quiet = `(${inpage.domQuiet.toString()})(`;
+    const { session } = tab({
+      "Page.getFrameTree": () => FRAME,
+      "Page.createIsolatedWorld": () => ({ executionContextId: 9 }),
+      "Runtime.evaluate": (p) => {
+        const expression = String(p["expression"]);
+        if (!expression.startsWith(quiet)) return { result: { objectId: "el", value: "complete" } };
+        graces.push(Number(expression.slice(quiet.length).split(",")[1]));
+        return { result: { value: true } };
+      },
+      "DOM.describeNode": () => ({ node: { backendNodeId: 10 } }),
+      "DOM.resolveNode": () => ({ object: { objectId: "el" } }),
+      "Runtime.callFunctionOn": (p) => ({ result: p["returnByValue"] ? { value: "x" } : {} }),
+    });
+    const page = new Page(session);
+    const fills = Array.from({ length: 5 }, (_, i) => ({ fill: { target: `#f${i}`, text: "x" } }));
+    await act({ page, capture: async () => undefined }, stepsOf(fills), "none");
+    expect(graces).toEqual([150, 150, 150, 150, 400]);
   });
 });
 

@@ -168,7 +168,7 @@ export async function act(tab: Tab, steps: Step[], then: Then, signal?: AbortSig
         if (signal?.aborted) throw new Error(`${done.length ? `Done: ${done.join("; ")}. ` : ""}Stopped by the owner before step ${i + 1}.`);
         if (Date.now() - start > RUN_MS) throw new Error(`ran out of time after ${done.length} steps`);
         try {
-          done.push(await page.step(step, signal));
+          done.push(await page.step(step, signal, steps[i + 1]));
         } catch (err) {
           if (signal?.aborted) throw new Error(`${done.length ? `Done: ${done.join("; ")}. ` : ""}Stopped by the owner during step ${i + 1}.`);
           const why = err instanceof Error ? err.message : String(err);
