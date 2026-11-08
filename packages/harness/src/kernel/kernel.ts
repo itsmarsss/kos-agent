@@ -133,7 +133,7 @@ import { originOf } from "./origin.js";
 import { ownerWords } from "./transcript.js";
 import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
-import { bodyHexOf, channelNamesIn, drawingOf, faceSvg, KOS_SEED, lookOf, summarizeAction, type ArtifactEdit, type FaceDrawing, type FaceSpec } from "@kos/shared";
+import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, KOS_SEED, lookOf, summarizeAction, type ArtifactEdit, type FaceDrawing, type FaceSpec } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -1230,6 +1230,8 @@ export class Kernel {
             maxTurns: this.behaviour().maxSteps,
             picturesPerQuery: PICTURES_PER_QUERY,
             onFreshQuery: () => this.bus.emit({ kind: "query:fresh", conversationId: sessionId }),
+            // A screen agent's context has seen no picture yet: the chat's last one is forgotten, so its first look is sent whole.
+            onScreenAgent: () => this.bus.emit({ kind: "query:fresh", conversationId: sessionId }),
             ...(this.sdkScreen() ? { screen: this.sdkScreen()! } : {}),
             onDelta: (delta) =>
               this.progress.emit({
@@ -3154,7 +3156,7 @@ export class Kernel {
       },
       onExecuted: (tool, result) => {
         this.afterToolRan(tool);
-        this.keepFrame(tool, opts.conversationId, result.images?.[0]?.data);
+        this.keepFrame(tool, opts.conversationId, result.images?.[0]?.data, result.content.includes(UNCHANGED));
         this.bus.emit({ kind: "tool:end", tool, isError: result.isError === true, conversationId: opts.conversationId ?? null });
         // A call that ends after its turn was stopped has no live view left to
         // end; told now, it would land in whatever turn the chat runs next.
@@ -3731,7 +3733,7 @@ export class Kernel {
    * step that answered without one gets a small picture of its tab, taken in
    * the background: the step has run, and the reply should not wait on it.
    */
-  private keepFrame(tool: string, conversationId?: string, picture?: string): void {
+  private keepFrame(tool: string, conversationId?: string, picture?: string, unchanged = false): void {
     if (!conversationId) return;
     const toolUseId = toolUse.getStore();
     const browser = this.browserContext(tool, conversationId) !== undefined;
@@ -3742,6 +3744,12 @@ export class Kernel {
       const frame = this.frames.add({ conversationId, ...(toolUseId ? { toolUseId } : {}), tool, picture, ...(site ? { site } : {}) });
       this.progress.emit({ kind: "frame", conversationId, tool, frameId: frame.id, ...(toolUseId ? { toolUseId } : {}), ...(site ? { site } : {}) });
     };
+    // A step whose screen had not changed since the last picture shows that one again, with no capture taken.
+    const last = !picture && unchanged ? this.frames.lastPicture(conversationId) : undefined;
+    if (last) {
+      keep(last);
+      return;
+    }
     // A step that answered with a picture is kept by that one. A browser step
     // took a second, smaller capture as well, on the same line to the tab as
     // the next step, which waited behind it, most of all on the owner's

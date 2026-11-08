@@ -232,3 +232,16 @@ describe("a turn on the SDK the owner stops", () => {
     expect(run.queries.every((q) => q.closed)).toBe(true);
   });
 });
+
+describe("screen work handed to a subagent", () => {
+  it("is told before the subagent starts, so its first look is sent whole", async () => {
+    let handed = 0;
+    run.script = async function* () {
+      yield { type: "assistant", parent_tool_use_id: null, message: { id: "m1", content: [{ type: "tool_use", id: "t1", name: "Task", input: { subagent_type: "screen" } }] } };
+      yield { type: "assistant", parent_tool_use_id: "t1", message: { id: "m2", content: [{ type: "tool_use", id: "t2", name: "Task", input: {} }] } };
+      yield result(1);
+    };
+    await runSdkChat({ prompt: "go", system: "s", tools: box(["computer.act"], () => ({ content: "ok" })), cwd: process.cwd(), maxTurns: 5, onScreenAgent: () => void (handed += 1) });
+    expect(handed).toBe(1);
+  });
+});

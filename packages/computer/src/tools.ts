@@ -237,8 +237,13 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     return id;
   };
 
-  /** The last whole screen each chat was shown: one that has not changed is said in words, as on every surface. */
-  const shown = new ScreenMemory();
+  /**
+   * The last whole screen each chat was shown: one that has not changed is
+   * said in words, as on every surface. The kernel's one memory for every
+   * screen surface once active, so a look here is told from the chat's last
+   * picture of any of them.
+   */
+  let shown = new ScreenMemory();
 
   /** Waits in progress, each told when the owner presses Stop in a chat. */
   const stops = new Set<(conversation: string) => void>();
@@ -909,6 +914,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       hub.end(chat);
     },
     activate(ctx) {
+      shown = ctx.services?.screens ?? shown;
       // Offered only while a device of their kind is paired; pairing the
       // first or unpairing the last adds or takes back the tools at once.
       const sync = (): void => {

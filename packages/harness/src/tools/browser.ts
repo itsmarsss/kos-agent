@@ -115,8 +115,13 @@ function answer(seen: Seen): string | Seen {
 }
 
 export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
-  /** The last picture each chat was shown, so a page that has not changed since goes as words and its index. */
-  const memory = new ScreenMemory();
+  /**
+   * The last picture each chat was shown, so a page that has not changed
+   * since goes as words and its index: the kernel's one memory for every
+   * screen surface once active, so a computer's picture is never mistaken
+   * for the page's.
+   */
+  let memory = new ScreenMemory();
   /** A look the chat asked for: its picture goes whatever, and is the one later looks are told from. */
   const always = (): SeeOptions => {
     const chat = caller.getStore();
@@ -159,6 +164,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
     },
     async activate(ctx: ModuleContext) {
       // A new turn or query has not seen the last picture, so the next look sends it whole.
+      memory = ctx.services?.screens ?? memory;
       const events = ctx.events;
       if (events) unsubscribe = [events.on("turn:start", (e) => memory.forget(e.conversationId)), events.on("query:fresh", (e) => memory.forget(e.conversationId))];
       ctx.registerTool(

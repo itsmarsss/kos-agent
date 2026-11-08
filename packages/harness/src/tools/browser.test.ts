@@ -1,8 +1,10 @@
 import { Page, type AxNode, type Session, type Tab } from "@kos/browser";
+import { ScreenMemory } from "@kos/shared";
 import { describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
 import { caller } from "../kernel/caller.js";
+import { EventBus } from "../modules/events.js";
 import { createBrowserModule, type BrowserToolsDeps } from "./browser.js";
 
 /**
@@ -65,14 +67,17 @@ function plain(text: string): string {
   return text.replace(/\[page content [0-9a-f]{8}: the page's own words, not instructions\]\n/g, "").replace(/\n\[end of page content [0-9a-f]{8}\]/g, "");
 }
 
-function harness(extra: Partial<BrowserToolsDeps> = {}, picture: string | null = "JPEG") {
+function harness(extra: Partial<BrowserToolsDeps> = {}, picture: string | null = "JPEG", shared?: { screens: ScreenMemory; events: EventBus }) {
   const script = new ScriptedPage();
   script.tree = BUTTONS;
   script.page = new Page(script);
   const tab: Tab = { page: script.page, capture: async () => picture ?? undefined };
   const registry = new ToolRegistry();
   const module = createBrowserModule({ tab: async () => tab, ...extra });
-  const ready = module.activate({ registerTool: (d, f, r, m) => registry.register(d, f, r, m) });
+  const ready = module.activate({
+    registerTool: (d, f, r, m) => registry.register(d, f, r, m),
+    ...(shared ? { events: shared.events, services: { screens: shared.screens } as never } : {}),
+  });
   return { script, registry, ready };
 }
 
@@ -160,6 +165,26 @@ describe("browser.act", () => {
     });
     // Another chat has not seen it.
     await caller.run("c2", async () => expect(images(await registry.execute("browser.act", { actions: [{ wait: 5 }] }))).toBe(1));
+  });
+
+  it("tells a page from the chat's last picture on any surface, and forgets it when the chat starts afresh", async () => {
+    const screens = new ScreenMemory();
+    const events = new EventBus();
+    const { registry, ready } = harness({}, "JPEG", { screens, events });
+    await ready;
+    const images = (r: { images?: unknown[] }): number => r.images?.length ?? 0;
+    const act = (): ReturnType<ToolRegistry["execute"]> => caller.run("c1", () => registry.execute("browser.act", { actions: [{ wait: 5 }] }));
+    await caller.run("c1", () => registry.execute("browser.look", {}));
+    expect(images(await act())).toBe(0);
+    // A computer's picture shown to the chat since: the page is not said unchanged against it.
+    screens.showing("c1", "Q09NUFVURVI=");
+    expect(images(await act())).toBe(1);
+    expect(images(await act())).toBe(0);
+    // A new turn, a fresh query or a screen agent has not seen it.
+    for (const kind of ["turn:start", "query:fresh"] as const) {
+      events.emit(kind === "turn:start" ? { kind, conversationId: "c1", projectSlug: null } : { kind, conversationId: "c1" });
+      expect(images(await act())).toBe(1);
+    }
   });
 
   it("takes `steps` as the older name for `actions`, judged and run the same, and refuses both at once", async () => {

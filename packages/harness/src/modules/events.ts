@@ -19,7 +19,7 @@ export type KernelEvent =
   | { kind: "turn:end"; conversationId: string; projectSlug: string | null }
   /** The owner pressed Stop on a chat's running turn: whatever that turn waits on stops waiting. */
   | { kind: "turn:stop"; conversationId: string }
-  /** A turn carried on in a fresh query, which sees only the newest picture, not what came before. */
+  /** A context that has seen no picture of the chat's screen: a turn carried on in a fresh query, or a screen subagent starting. */
   | { kind: "query:fresh"; conversationId: string }
   /**
    * A turn that ended with words: what was said to the chat and what it

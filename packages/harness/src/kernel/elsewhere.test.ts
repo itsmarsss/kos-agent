@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { UNCHANGED } from "@kos/shared";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { Inference } from "../agent/loop.js";
@@ -153,5 +154,35 @@ describe("a session started unasked on the owner's device", () => {
     expect(heard[0]).toBe("what is on this tab?");
     expect(heard.slice(1)).toEqual(heard.slice(1).map(() => undefined));
     expect(heard.length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe("a step whose screen had not changed", () => {
+  let root: string;
+  let kernel: Kernel;
+
+  afterEach(() => {
+    kernel?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("shows the chat's last kept picture again, and takes no second capture", async () => {
+    const { inference } = oneCall("browser.tabs", {});
+    root = mkdtempSync(join(tmpdir(), "kos-frames-"));
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference, profileOverrides: { name: "Kenny", timezone: "UTC" } });
+    let captures = 0;
+    const chrome = ownerChrome({ starts: true });
+    kernel.setBrowserElsewhere({ ...chrome, picture: async () => (captures++, "TEFURVNU") });
+    // The tab's look said in words: nothing changed since the last picture.
+    kernel.registry.unregister("browser.tabs");
+    kernel.registry.register({ name: "browser.tabs", description: "t", inputSchema: { type: "object" } }, () => `In the owner's Chrome.\n${UNCHANGED}`);
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Shop" }).id;
+    kernel.frames.add({ conversationId: chat, tool: "browser.look", picture: "RkFSTElFUg==" });
+    await kernel.handleMessage("is it still there?", { sessionId: chat, owner: true });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(captures).toBe(0);
+    const frames = kernel.frames.listFor(chat);
+    expect(frames).toHaveLength(2);
+    expect(kernel.frames.pictureOf(frames[1]!.id)).toBe("RkFSTElFUg==");
   });
 });

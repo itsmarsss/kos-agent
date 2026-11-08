@@ -95,6 +95,12 @@ export class FrameStore {
     return row ? { image: row.picture, ...(row.site ? { site: row.site } : {}) } : undefined;
   }
 
+  /** A conversation's newest picture: what a step whose screen had not changed shows again. */
+  lastPicture(conversationId: string): string | undefined {
+    const row = this.db.prepare(`SELECT picture FROM browser_frames WHERE conversation_id = ? ORDER BY id DESC LIMIT 1`).get(conversationId) as { picture: string } | undefined;
+    return row?.picture;
+  }
+
   /** A conversation's frames, oldest first, without their pictures. */
   listFor(conversationId: string): BrowserFrameRecord[] {
     const rows = this.db.prepare(`SELECT ${COLUMNS} FROM browser_frames WHERE conversation_id = ? ORDER BY id`).all(conversationId) as Row[];
