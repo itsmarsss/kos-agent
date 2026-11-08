@@ -226,9 +226,16 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     requests.length = 0;
     await send("Page.navigate", { url: `${base}${path}` });
     await new Promise((r) => setTimeout(r, 1300));
-    const title = (await send("Runtime.evaluate", { expression: "document.title", returnByValue: true })).result as { value?: string } | undefined;
-    const said = (await send("Runtime.evaluate", { expression: "document.body.dataset.said || ''", returnByValue: true })).result as { value?: string } | undefined;
-    return { alive: title?.value === "alive", requests: [...requests], ...(said?.value ? { said: said.value } : {}) };
+    const read = async (expression: string): Promise<string | undefined> =>
+      ((await send("Runtime.evaluate", { expression, returnByValue: true })).result as { value?: string } | undefined)?.value;
+    // A census is slow on a busy machine: wait for it, up to a bound, rather than guess how long it takes.
+    const counting = frame.includes("const TAGS =");
+    for (let waited = 0; counting && !(await read("document.body.dataset.said || ''")) && waited < 10_000; waited += 200) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    const title = await read("document.title");
+    const said = await read("document.body.dataset.said || ''");
+    return { alive: title === "alive", requests: [...requests], ...(said ? { said } : {}) };
   }
 
   const page = (code: string): string => pageDocument({ html: attempt(`const XHTML = "${XHTML}"; ${code}`), tokens: {}, mode: "dark", css: "", libraries: [] });
