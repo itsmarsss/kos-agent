@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { shapeWordOf } from "@kos/shared";
 
 import type { Workspace } from "../store/workspace.js";
+import { BlobIds } from "../systems/blobids.js";
 
 /**
  * A role: a blob, the standing helper KOS makes from a sentence.
@@ -279,7 +280,46 @@ export const ROLE_FILE = "blob.md";
  * when met.
  */
 export class RoleStore {
-  constructor(private readonly workspace: Workspace) {}
+  constructor(
+    private readonly workspace: Workspace,
+    /** Each blob's id, which a later blob of the same name never inherits. */
+    readonly ids: BlobIds = new BlobIds(workspace.db),
+  ) {}
+
+  /**
+   * The id of the blob living under this name, or undefined while its file
+   * is not there. A file missing for a moment (an editor saving by rename)
+   * retires nothing; its whole folder missing is the blob deleted by hand,
+   * and retires the id now rather than at the next boot. Otherwise an id is
+   * retired by remove(), by a write that makes the blob again, or at boot by
+   * reconcile().
+   */
+  identity(name: string): string | undefined {
+    if (this.exists(name)) return this.ids.ensure(name);
+    if (this.ids.live(name) !== undefined && !this.folderThere(name)) this.ids.retire(name);
+    return undefined;
+  }
+
+  /** Every living id whose blob's folder is gone, retired now: the names, for a log line. */
+  retireDeleted(): string[] {
+    return this.ids.living().filter((name) => this.identity(name) === undefined && this.ids.live(name) === undefined);
+  }
+
+  private folderThere(name: string): boolean {
+    return ROLE_NAME.test(name) && existsSync(this.workspace.resolve(this.folderOf(name)));
+  }
+
+  /**
+   * Once, at boot: a living id whose blob's file is not there was removed
+   * out of band (its folder deleted by hand while KOS was away), so it is
+   * retired now, and a blob made under the name later is a new one. The
+   * names retired, for a log line.
+   */
+  reconcile(): string[] {
+    const gone = this.ids.living().filter((name) => !this.exists(name));
+    for (const name of gone) this.ids.retire(name);
+    return gone;
+  }
 
   private dir(): string {
     return this.workspace.resolve(AGENTS_DIR);
@@ -422,7 +462,12 @@ export class RoleStore {
     mkdirSync(this.workspace.resolve(this.folderOf(role.name)), { recursive: true });
     const path = this.pathOf(role.name);
     const abs = this.workspace.resolve(path);
+    // A blob made, not edited: whatever id still lives under the name was a
+    // blob removed out of band, and what it made is not this one's.
+    const made = !existsSync(abs);
     writeFileSync(abs, text, "utf8");
+    if (made) this.ids.retire(role.name);
+    this.ids.ensure(role.name);
     return { ...parseRole(text, role.name), path, folder: this.folderOf(role.name), updatedAt: statSync(abs).mtimeMs };
   }
 
@@ -434,6 +479,7 @@ export class RoleStore {
     if (!this.exists(name)) return false;
     this.adopt(name);
     rmSync(this.workspace.resolve(this.pathOf(name)));
+    this.ids.retire(name);
     const folder = this.workspace.resolve(this.folderOf(name));
     if (existsSync(folder) && readdirSync(folder).length === 0) rmSync(folder, { recursive: true });
     return true;

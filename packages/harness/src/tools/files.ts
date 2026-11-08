@@ -8,7 +8,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, relative, sep } from "node:path";
+import { dirname, relative } from "node:path";
 
 import { isOffice, officeNote, officeText } from "../files/office.js";
 import { isPdf, pdfText } from "../files/pdftext.js";
@@ -16,7 +16,9 @@ import { isPdf, pdfText } from "../files/pdftext.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { SAFE, type ToolRisk } from "../risk/tiers.js";
-import type { Workspace } from "../store/workspace.js";
+import { foldedPath, type Workspace } from "../store/workspace.js";
+import { reachOf } from "./sql.js";
+import { artifactFileRefusal, artifactFolderRefusal } from "./systems.js";
 
 /**
  * The `files` tool module: primitive, path-gated filesystem operations the agent
@@ -49,6 +51,11 @@ const rmRisk: ToolRisk = {
   escalate: (input) => (outsideScratch(optStr(input, "path") ?? "") ? "outside the scratch folder" : false),
 };
 
+/** A path under KOS's own state, .kos/, in any case: `.KOS` is the same folder on a case-insensitive disk. */
+export function isKosState(ws: Workspace, path: string): boolean {
+  return foldedPath(ws.root, path).split("/")[0] === ".kos";
+}
+
 /**
  * A path the file tools may use: anything in the jail but KOS's own state
  * under .kos/, which holds results set aside from other chats and other
@@ -56,12 +63,23 @@ const rmRisk: ToolRisk = {
  */
 function usable(ws: Workspace, path: string): string {
   const abs = ws.resolve(path);
-  const rel = relative(ws.root, abs).split(sep);
-  if (rel[0] === ".kos") throw new Error(".kos is KOS's own state and is not read or changed with files.*; a result set aside in this chat comes back with context.recall");
+  if (isKosState(ws, relative(ws.root, abs))) throw new Error(".kos is KOS's own state and is not read or changed with files.*; a result set aside in this chat comes back with context.recall");
   return abs;
 }
 
 function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
+  /** An artifact's file, version or capture is reached as the artifacts tools reach it: by its owner's chats. */
+  const fenced = (path: string, what: "read" | "change", whole = false): string => {
+    const abs = usable(ws, path);
+    const pages = ctx.services?.pages;
+    if (!pages) return abs;
+    const rel = relative(ws.root, abs);
+    const reach = reachOf(ctx);
+    // A folder taken whole (rm, mv, cp) takes every artifact under it, so each one's owner must be this chat's to reach.
+    const why = artifactFileRefusal(pages, rel, reach, what) ?? (whole ? artifactFolderRefusal(pages, rel, reach, what) : undefined);
+    if (why) throw new Error(why);
+    return abs;
+  };
   ctx.registerTool(
     {
       name: "files.read",
@@ -73,7 +91,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     async (input) => {
-      const abs = usable(ws, str(input, "path"));
+      const abs = fenced(str(input, "path"), "read");
       const bytes = readFileSync(abs);
       if (isPdf(bytes)) {
         const read = await pdfText(new Uint8Array(bytes));
@@ -99,7 +117,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const abs = ws.resolve(str(input, "path"));
+      const abs = fenced(str(input, "path"), "change");
       mkdirSync(dirname(abs), { recursive: true });
       writeFileSync(abs, str(input, "content"));
       return "ok";
@@ -122,7 +140,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const abs = ws.resolve(str(input, "path"));
+      const abs = fenced(str(input, "path"), "change");
       const before = readFileSync(abs, "utf8");
       const find = str(input, "find");
       if (!before.includes(find)) throw new Error("find string not present");
@@ -181,9 +199,9 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const to = usable(ws, str(input, "to"));
+      const to = fenced(str(input, "to"), "change");
       mkdirSync(dirname(to), { recursive: true });
-      copyFileSync(usable(ws, str(input, "from")), to);
+      copyFileSync(fenced(str(input, "from"), "read", true), to);
       return "ok";
     },
     SAFE,
@@ -200,9 +218,9 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const to = usable(ws, str(input, "to"));
+      const to = fenced(str(input, "to"), "change");
       mkdirSync(dirname(to), { recursive: true });
-      renameSync(usable(ws, str(input, "from")), to);
+      renameSync(fenced(str(input, "from"), "change", true), to);
       return "ok";
     },
     { floor: "safe", escalate: (input) => (outsideScratch(optStr(input, "from") ?? "") ? "outside the scratch folder" : false) },
@@ -219,7 +237,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      rmSync(ws.resolve(str(input, "path")), { recursive: true, force: true });
+      rmSync(fenced(str(input, "path"), "change", true), { recursive: true, force: true });
       return "ok";
     },
     rmRisk,

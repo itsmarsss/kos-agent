@@ -15,6 +15,8 @@ export const DOC_CSS = String.raw`
   --doc-gutter: clamp(16px, 4vw, 40px);
 }
 :where(html[data-kind="doc"]) body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font: 400 var(--doc-size) / 1.6 var(--font-body); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+/* Light type on a dark ground thins under grayscale smoothing; the platform's own keeps its weight. */
+:where(html[data-kind="doc"][data-mode="dark"]) body { -webkit-font-smoothing: auto; -moz-osx-font-smoothing: auto; }
 
 .doc-frame { display: grid; grid-template-columns: minmax(0, 1fr); padding-block: clamp(24px, 6vw, 72px) 96px; }
 .doc-frame.has-toc { row-gap: 8px; }
@@ -99,7 +101,7 @@ export const DOC_CSS = String.raw`
 /* Footnotes: the inline text hides, a number stands in, the note goes to the end. */
 :where([data-doc]) .fn { display: none; }
 .fn-ref { all: unset; cursor: pointer; font: 600 0.68em / 0 var(--font-ui); color: var(--accent); vertical-align: super; padding: 0 0.12em; border-radius: 3px; }
-.fn-ref:focus-visible, .fn-back:focus-visible, .doc-toc button:focus-visible, .doc-tools button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fn-ref:focus-visible, .fn-back:focus-visible, .doc-toc button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .doc-notes { margin-top: 56px; font: 400 0.875rem / 1.55 var(--font-ui); color: var(--muted); }
 .doc-notes > h2 { font: 600 0.75rem / 1.2 var(--font-ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); padding-top: 20px; border-top: 1px solid var(--line); margin: 0 0 12px; }
 .doc-notes > ol { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 8px; }
@@ -126,17 +128,35 @@ export const DOC_CSS = String.raw`
 }
 
 /* Editing in place. */
-.doc-tools { position: fixed; top: 12px; right: 12px; z-index: 5; display: flex; gap: 6px; align-items: center; font: 500 0.8125rem / 1 var(--font-ui); }
-.doc-tools button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 999px; padding: 6px 12px; cursor: pointer; }
-.doc-tools button:hover { color: var(--text); border-color: var(--line-strong, var(--line)); }
-.doc-tools button.primary { background: var(--accent); border-color: transparent; color: var(--on-accent, #fff); }
-.doc-tools .doc-status { color: var(--muted); padding-inline: 6px; max-width: 40ch; }
-.doc-tools .doc-status.bad { color: var(--danger); }
 [data-doc][contenteditable="true"] { outline: none; caret-color: var(--accent); }
 [data-doc][contenteditable="true"] > * { box-shadow: -14px 0 0 -12px transparent; }
 [data-doc][contenteditable="true"] > :focus-within { box-shadow: -14px 0 0 -12px var(--line-strong, var(--line)); }
 [data-doc][contenteditable="true"] .fn { display: inline; font: 400 0.8em var(--font-ui); color: var(--muted); background: var(--panel-2); border-radius: 4px; padding: 0 0.3em; }
 [data-doc][contenteditable="true"] .fn::before { content: "note: "; }
-@media print { .doc-tools, .doc-toc { display: none; } }
+/* The editor's own: the bar of formats over a selection, the "/" menu, checklists. They float, so they cast the one shadow. */
+.doc-format, .doc-slash { position: absolute; z-index: 6; background: var(--panel); border: 1px solid var(--line-strong, var(--line)); border-radius: var(--r-md, 10px); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22); font: 500 0.8125rem / 1 var(--font-ui); color: var(--text); }
+.doc-format { display: flex; flex-wrap: wrap; gap: 2px; padding: 4px; max-width: min(420px, calc(100vw - 16px)); }
+.doc-format[hidden], .doc-slash[hidden], .doc-format-links[hidden] { display: none; }
+.doc-format > button { all: unset; cursor: pointer; min-width: 28px; height: 28px; padding: 0 6px; box-sizing: border-box; display: inline-grid; place-items: center; border-radius: 6px; color: var(--muted); }
+.doc-format > button:hover { background: var(--panel-2); color: var(--text); }
+.doc-format > button[data-format="bold"] { font-weight: 700; }
+.doc-format > button[data-format="italic"] { font-style: italic; font-family: var(--font-body); }
+.doc-format > button[data-format="code"] { font-family: var(--font-mono); font-size: 0.75rem; }
+.doc-format-links { flex-basis: 100%; display: flex; flex-direction: column; gap: 1px; padding: 4px 0 0; margin-top: 2px; border-top: 1px solid var(--line); max-height: 200px; overflow-y: auto; }
+.doc-format-links button { all: unset; cursor: pointer; padding: 6px 8px; border-radius: 6px; color: var(--text); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-format-links button:hover { background: var(--panel-2); }
+.doc-format-links span { padding: 6px 8px; color: var(--muted); font-weight: 400; }
+.doc-slash { width: 240px; max-height: 320px; overflow-y: auto; padding: 4px; display: flex; flex-direction: column; gap: 1px; }
+.doc-slash button { all: unset; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; font-weight: 400; }
+.doc-slash button[aria-selected="true"], .doc-slash button:hover { background: var(--panel-2); }
+.doc-slash kbd { font: 400 0.75rem / 1 var(--font-mono); color: var(--muted); }
+.doc-slash-none { margin: 0; padding: 8px 10px; color: var(--muted); font-weight: 400; }
+:where([data-doc]) ul.checklist { list-style: none; padding-left: 0; }
+:where([data-doc]) ul.checklist > li { position: relative; padding-left: 28px; }
+:where([data-doc]) ul.checklist > li::before { content: ""; position: absolute; left: 2px; top: 0.3em; width: 15px; height: 15px; box-sizing: border-box; border: 1.5px solid var(--line-strong, var(--muted)); border-radius: 4px; }
+:where([data-doc]) ul.checklist > li[data-checked="true"] { color: var(--muted); text-decoration: line-through; }
+:where([data-doc]) ul.checklist > li[data-checked="true"]::before { background: var(--accent); border-color: var(--accent); }
+[data-editing] [data-doc] ul.checklist > li::before { cursor: pointer; }
+@media print { .doc-toc { display: none; } }
 @media (prefers-reduced-motion: reduce) { .flash { animation: none; } html { scroll-behavior: auto; } }
 `;

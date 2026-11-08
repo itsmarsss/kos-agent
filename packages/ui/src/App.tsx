@@ -39,7 +39,7 @@ import { AgentsPage } from "./AgentsPage.js";
 import { BuildsPage } from "./BuildsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
 import { ProjectsPage } from "./ProjectsPage.js";
-import { ArtifactViewer, ArtifactsPage, chatOf } from "./ArtifactsPage.js";
+import { ArtifactViewer, ArtifactsPage, chatOf, settleOpenViewers } from "./ArtifactsPage.js";
 import { placeOf } from "./chattree.js";
 import { MemoryPage } from "./MemoryPage.js";
 import { InboxPage } from "./InboxPage.js";
@@ -48,7 +48,6 @@ import { Sidebar } from "./Sidebar.js";
 import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageHistory } from "./PageHistory.js";
-import { ArtifactPage } from "./widgets/ArtifactPage.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
@@ -89,6 +88,9 @@ export function App(): React.ReactElement {
   const [firing, setFiring] = useState<number | null>(null);
   /** A message the harness sent, until the transcript has it. */
   const [seed, setSeed] = useState<{ id: string; text: string } | null>(null);
+  /** Words to start a chat's composer with, as the Artifacts page's New artifact does. */
+  const [prefill, setPrefill] = useState<{ id: string; text: string } | null>(null);
+  const prefilled = useCallback(() => setPrefill(null), []);
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [pages, setPages] = useState<PageSummary[]>([]);
   const [activity, setActivity] = useState<AuditRecord[]>([]);
@@ -318,8 +320,15 @@ export function App(): React.ReactElement {
   }, []);
 
   useEffect(() => {
+    // An open artifact finishes its editing before the route moves on, however the move was made (a link, Back, a button): each viewer is capped as settle is.
+    let moves = 0;
     const sync = (): void => {
-      const next = parseRoute(window.location.hash);
+      const move = ++moves;
+      void settleOpenViewers().then(() => {
+        if (move === moves) show(parseRoute(window.location.hash));
+      });
+    };
+    const show = (next: Route): void => {
       setRoute(next);
       if (next.name === "page") {
         setPageError(null);
@@ -332,7 +341,7 @@ export function App(): React.ReactElement {
           });
       }
     };
-    sync();
+    show(parseRoute(window.location.hash));
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
   }, []);
@@ -870,6 +879,21 @@ export function App(): React.ReactElement {
       list.some((pg) => pg.id === route.id),
     );
     const back: Route = owner ? { name: "projects" } : { name: "home" };
+    // An HTML artifact is shown as the Artifacts viewer shows it: one head, its versions in a drawer, drawn as part of the page.
+    if (activePage?.kind === "html") {
+      return shell(
+        <ArtifactViewer
+          key={route.id}
+          id={route.id}
+          initial={activePage}
+          projects={projects}
+          backLabel={owner ? "← Projects" : "← Home"}
+          onBack={() => go(back)}
+          onOpenChat={(owner) => void chatOf(owner).then(go)}
+          onOpenOwner={(owner) => void chatOf(owner).then(go)}
+        />,
+      );
+    }
     return shell(
       <>
         <a
@@ -888,15 +912,7 @@ export function App(): React.ReactElement {
           </p>
         )}
         {activePage && <PageHistory record={activePage.record} onRolledBack={() => api.anyPage(activePage.record.id).then(setActivePage)} />}
-        {activePage?.kind === "html" && (
-          <ArtifactPage
-            record={activePage.record}
-            page={activePage.page}
-            onSaved={(record) => setActivePage((p) => (p ? { ...p, record } : p))}
-            onReload={() => void api.anyPage(activePage.record.id).then(setActivePage)}
-          />
-        )}
-        {activePage && activePage.kind !== "html" && (
+        {activePage && (
           <PageRenderer spec={activePage.spec} data={activePage.data} />
         )}
         {!activePage && !pageError && <p className="ops-muted">Loading…</p>}
@@ -928,6 +944,7 @@ export function App(): React.ReactElement {
         onChanged={() => void refresh()}
         onDecide={decideByPendingId}
         {...(seed ? { seed } : {})}
+        {...(prefill ? { prefill, onPrefilled: prefilled } : {})}
       />,
     );
   }
@@ -980,10 +997,20 @@ export function App(): React.ReactElement {
           id={route.id}
           projects={projects}
           onBack={() => go({ name: "artifacts" })}
-          onOpenChat={(slug) => go(chatOf(slug))}
+          onOpenChat={(owner) => void chatOf(owner).then(go)}
+          onOpenOwner={(owner) => void chatOf(owner).then(go)}
         />
       ) : (
-        <ArtifactsPage projects={projects} onOpen={(id) => go({ name: "artifacts", id })} />
+        <ArtifactsPage
+          projects={projects}
+          onOpen={(id) => go({ name: "artifacts", id })}
+          onNew={(text) => {
+            void chatOf(null).then((chat) => {
+              if (chat.name === "chats" && chat.id) setPrefill({ id: chat.id, text });
+              go(chat);
+            });
+          }}
+        />
       ),
     );
   }
@@ -1032,6 +1059,7 @@ export function App(): React.ReactElement {
         agent={{
           name,
           onBack: () => go({ name: "blobs" }),
+          onOpenPage: openPage,
           onOpenFile: (path) => go({ name: "files", path }),
           onError: (text) => flash("err", text),
           onRemoved: () => {

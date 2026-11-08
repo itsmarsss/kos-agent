@@ -23,6 +23,9 @@ export interface EnqueueInput {
   picture?: string;
   /** What the agent said just before it asked: the reason, in its own words. */
   why?: string;
+  /** Whether the turn that asked was the owner's own, and attended: what an orphaned approval runs as. */
+  owner?: boolean;
+  attended?: boolean;
 }
 
 export interface PendingAction {
@@ -43,6 +46,13 @@ export interface PendingAction {
   picture: boolean;
   /** The agent's words before the ask, so the ask reads as a sentence and not a command. */
   why: string | null;
+  /**
+   * Who the asking turn was to the fences. An approval nobody is waiting on
+   * any more runs as that turn would have, no more: the owner's reach only
+   * if it was the owner's own turn. False for a row from before these were kept.
+   */
+  owner: boolean;
+  attended: boolean;
 }
 
 const SCHEMA = `
@@ -76,6 +86,8 @@ interface Row {
   rule: string | null;
   has_picture: number;
   why: string | null;
+  owner: number;
+  attended: number;
 }
 
 function toAction(row: Row): PendingAction {
@@ -92,6 +104,8 @@ function toAction(row: Row): PendingAction {
     rule: row.rule ? (JSON.parse(row.rule) as PendingAction["rule"]) : null,
     picture: row.has_picture === 1,
     why: row.why ?? null,
+    owner: row.owner === 1,
+    attended: row.attended === 1,
     decidedAt: row.decided_at,
     decidedBy: row.decided_by,
   };
@@ -143,6 +157,13 @@ export class ApprovalQueue {
     if (!columns.some((c) => c.name === "why")) {
       this.db.exec(`ALTER TABLE pending_actions ADD COLUMN why TEXT`);
     }
+    // A row from before is nobody's turn in particular: neither the owner's nor attended.
+    if (!columns.some((c) => c.name === "owner")) {
+      this.db.exec(`ALTER TABLE pending_actions ADD COLUMN owner INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!columns.some((c) => c.name === "attended")) {
+      this.db.exec(`ALTER TABLE pending_actions ADD COLUMN attended INTEGER NOT NULL DEFAULT 0`);
+    }
   }
 
   /** The picture queued with an action, if one was: base64 JPEG. */
@@ -156,8 +177,8 @@ export class ApprovalQueue {
     const args = this.secrets ? this.secrets.redact(argsJson) : argsJson;
     const info = this.db
       .prepare(
-        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why, owner, attended)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.tool,
@@ -170,6 +191,8 @@ export class ApprovalQueue {
         input.rule ? JSON.stringify(input.rule) : null,
         input.picture ?? null,
         input.why?.trim() ? input.why.trim() : null,
+        input.owner === true ? 1 : 0,
+        input.attended === true ? 1 : 0,
       );
     return this.get(Number(info.lastInsertRowid))!;
   }

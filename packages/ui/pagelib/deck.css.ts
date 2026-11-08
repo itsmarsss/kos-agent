@@ -97,6 +97,13 @@ body:not(.deck-grid):not(.deck-read) .deck-slide:not(.current) { display: none !
 .deck-bar button:focus-visible, .deck-slide:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .deck-bar .deck-count { font-variant-numeric: tabular-nums; min-width: 6ch; text-align: center; color: var(--text); }
 .deck-bar .deck-spacer { flex: 1; }
+/* A narrow frame (a phone's column): the bar's buttons tighten so Present stays in reach, and the bar scrolls sideways before anything is cut. */
+@media (max-width: 480px) {
+  .deck-bar { gap: 4px; padding: 0 8px; overflow-x: auto; scrollbar-width: none; }
+  .deck-bar::-webkit-scrollbar { display: none; }
+  .deck-bar button { padding: 0 9px; min-height: 30px; flex: none; }
+  .deck-bar .deck-count { min-width: 4ch; }
+}
 .deck-notes { position: fixed; inset: auto 0 var(--deck-bar) 0; height: var(--deck-notes-h); overflow-y: auto; box-sizing: border-box; padding: 12px 20px; border-top: 1px solid var(--line); background: var(--panel); font: 400 15px / 1.5 var(--font-ui); color: var(--text); z-index: 2; }
 .deck-notes .deck-notes-label { display: block; font: 600 11px / 1 var(--font-ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
 .deck-notes .deck-notes-none { color: var(--muted); }

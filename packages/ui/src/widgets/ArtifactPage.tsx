@@ -1,10 +1,11 @@
 import { COLOURS, RADII, TYPE, artifactAssets, fontById, fontFaceCss, fontStackVars, type HtmlPage } from "@kos/shared";
 import kitCss from "@kos/kit/kit.css?raw";
 import pageCss from "@kos/kit/page.css?raw";
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
 
 import { SaveConflict, api, type PageSummary } from "../api.js";
-import { pageDocument, tokenRule, wrapperDocument } from "@kos/shared";
+import { fitsContent, pageDocument, tokenRule, wrapperDocument } from "@kos/shared";
+import { heightGate, ownerIn, revealAllowed, revealInDashboard, saveAllowed, type EditTold, type HeightGate, type Reveal } from "./frameheight.js";
 
 /**
  * An HTML page, the way a Claude artifact is shown: the agent's document in a
@@ -15,6 +16,12 @@ import { pageDocument, tokenRule, wrapperDocument } from "@kos/shared";
  * where each call is checked against what the page declared. This side only
  * answers the page's own frame, asks the owner before a page speaks to the
  * chat, and removes a page that tried to leave.
+ *
+ * The frame is drawn as part of the dashboard, not as a box with a scroll of
+ * its own: a page or a doc is as tall as its content (the bridge reports its
+ * height, frameheight.ts holds what is taken), so the dashboard scrolls as
+ * one; a deck is a 16:9 stage as wide as the room; a sheet fills the view so
+ * only its grid scrolls.
  */
 
 const CSS = `${kitCss}\n${pageCss}`;
@@ -117,7 +124,24 @@ interface Asked {
 export interface ArtifactHandle {
   /** Show the artifact full screen, and tell it so (a deck presents). */
   present(): void;
+  /**
+   * Finish any editing before the frame goes (another version, another
+   * artifact, away): the doc saves what is waiting and leaves editing.
+   * Resolves once it has, or after a few seconds whatever happened.
+   */
+  settle(): Promise<void>;
 }
+
+/** How a doc's editing stands, as the doc says (pagelib/doc.ts EditState). */
+interface EditState {
+  editing: boolean;
+  pending: boolean;
+  status: string;
+  bad: boolean;
+}
+
+/** How long settle waits on a doc to save before letting the frame go anyway: a page saying it is editing cannot hold the dashboard. */
+export const SETTLE_MS = 2500;
 
 export interface ArtifactPageProps {
   record: PageSummary;
@@ -126,10 +150,12 @@ export interface ArtifactPageProps {
   onSaved?: (record: PageSummary) => void;
   /** Load the newest version: offered when an edit was refused because one was saved after this was opened. */
   onReload?: () => void;
+  /** An older version, shown to look at: nothing in it is saved or written. */
+  locked?: boolean;
   ref?: Ref<ArtifactHandle>;
 }
 
-export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactPageProps): ReactElement {
+export function ArtifactPage({ record, page, onSaved, onReload, locked = false, ref }: ArtifactPageProps): ReactElement {
   const box = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const loads = useRef(0);
@@ -139,6 +165,27 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
   const [asked, setAsked] = useState<Asked>();
   const [told, setTold] = useState<string>();
   const [conflict, setConflict] = useState<string>();
+  const [height, setHeight] = useState<number>();
+  const [edit, setEdit] = useState<EditState>();
+  const editRef = useRef<EditState | undefined>(undefined);
+  useEffect(() => {
+    editRef.current = edit;
+  }, [edit]);
+  const settled = useRef<(() => void)[]>([]);
+  // What the dashboard last told the doc's editing to do: a save just after its own Done is the owner's.
+  const sent = useRef<EditTold | undefined>(undefined);
+  /*
+   * When the owner last pressed or typed in the frame, as the frame's own
+   * capture says over a channel the page never holds; when they last saved
+   * (or the document loaded), so a Done finishes only what their hand began;
+   * and the frame of the document before, whose page is still running until
+   * it goes and whose channel is never taken for the new one's.
+   */
+  const gestures = useRef<{ port?: MessagePort; at: number; since: number; stale?: HTMLIFrameElement | null }>({ at: Number.NEGATIVE_INFINITY, since: 0 });
+  // Made once, lazily, then again for each new document.
+  const gate = useRef<HeightGate>(null);
+  if (gate.current === null) gate.current = heightGate();
+  const layout = fitsContent(page.kind) ? "fit" : page.kind === "deck" ? "deck" : "sheet";
   // The version an edit is made on: the one opened, then each one the owner saves.
   const base = useRef(record.updatedAt);
   useEffect(() => {
@@ -151,20 +198,27 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
   useEffect(() => {
     let stale = false;
     loads.current = 0;
+    gate.current = heightGate();
+    setHeight(undefined);
+    setEdit(undefined);
     setLeft(false);
     setError(undefined);
     setConflict(undefined);
     setDoc(undefined);
+    // A new document hands over a new channel: the old one is closed, and the first the new one sends is taken.
+    gestures.current.port?.close();
+    gestures.current = { at: Number.NEGATIVE_INFINITY, since: performance.now(), stale: frame.current };
+    sent.current = undefined;
     const { scripts, fonts } = artifactAssets(page);
     void Promise.all([Promise.all(scripts.map(library)), fontCss(fonts)])
       .then(([libraries, faces]) => {
-        if (!stale) setDoc(wrapperDocument(pageDocument({ html: page.html, css: `${CSS}\n${faces}`, libraries, kind: page.kind ?? "page", ...currentTokens() })));
+        if (!stale) setDoc(wrapperDocument(pageDocument({ html: page.html, css: `${CSS}\n${faces}`, libraries, kind: page.kind ?? "page", locked, ...currentTokens() })));
       })
       .catch((err: unknown) => !stale && setError(err instanceof Error ? err.message : String(err)));
     return () => {
       stale = true;
     };
-  }, [page]);
+  }, [page, locked]);
 
   // The page's own window: the frame inside the wrapper. A cross-origin frame's frames can be named, not read.
   const pageWindow = useCallback((): Window | undefined => frame.current?.contentWindow?.frames[0] ?? undefined, []);
@@ -192,6 +246,35 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
       }
       // Otherwise the page's own frame only, while it is still the page KOS gave it.
       if (!e.source || e.source !== pageWindow()) return;
+      // How tall the page is, and where a jump on it lands: the dashboard scrolls there, only at the owner's hand.
+      if (m.__kos === "height") {
+        if (layout !== "fit") return;
+        const owner = ownerIn(frame.current);
+        const next = gate.current?.accept((m as { height?: unknown }).height, owner);
+        if (next !== undefined) setHeight(next);
+        const reveal = (m as { reveal?: Reveal }).reveal;
+        if (reveal && typeof reveal === "object" && revealAllowed(frame.current, gestures.current.at)) revealInDashboard(frame.current, reveal);
+        return;
+      }
+      // The bridge's channel for the owner's presses and keys, sent before any of the page's own code runs: the first is the one.
+      // Only from the frame now holding this document: the one before it, still running until it goes, claims nothing.
+      if (m.__kos === "gestures") {
+        const port = e.ports[0];
+        if (gestures.current.port || !port || frame.current === gestures.current.stale) return;
+        gestures.current.port = port;
+        port.onmessage = () => {
+          gestures.current.at = performance.now();
+        };
+        return;
+      }
+      // A doc's editing, for the edit bar above the frame.
+      if (m.__kos === "edit") {
+        const d = m as Partial<EditState>;
+        const next: EditState = { editing: d.editing === true, pending: d.pending === true, status: String(d.status ?? "").slice(0, 300), bad: d.bad === true };
+        setEdit(next);
+        if (!next.editing && !next.pending) settled.current.splice(0).forEach((f) => f());
+        return;
+      }
       if (m.__kos === "error") {
         setError((current) => current ?? String(m.message ?? "The page hit an error"));
         return;
@@ -203,6 +286,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
       }
       if (m.__kos !== "call") return;
       const args = m.args ?? {};
+      if (locked && (m.method === "save" || m.method === "write" || m.method === "ask")) return reply(m.id, { error: "this is an older version, shown to look at: restore it to change it" });
       if (m.method === "ask") {
         if (!page.capabilities?.ask) return reply(m.id, { error: "this page does not declare ask" });
         const text = String(args.text ?? "").slice(0, 4000);
@@ -210,8 +294,10 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
         return;
       }
       if (m.method === "save") {
-        // A save is the owner's edit, so it comes with the owner's hand: a page saving on its own is refused here.
-        if (!navigator.userActivation?.isActive) return reply(m.id, { error: "a save comes from the owner: press Save, or edit a cell" });
+        // A save is the owner's edit, so it comes with the owner's hand in this frame, or just after the dashboard's own Done: once.
+        if (!saveAllowed(frame.current, sent.current)) return reply(m.id, { error: "a save comes from the owner: press Save, or edit a cell" });
+        sent.current = undefined;
+        gestures.current.since = performance.now();
         api.savePage(record.id, args.edit, base.current).then(
           (saved) => {
             base.current = saved.updatedAt;
@@ -235,7 +321,17 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
     };
     window.addEventListener("message", heard);
     return () => window.removeEventListener("message", heard);
-  }, [left, onSaved, page.capabilities?.ask, pageWindow, present, record.id, reply]);
+  }, [layout, left, locked, onSaved, page.capabilities?.ask, pageWindow, present, record.id, reply]);
+
+  // A deck or a sheet fills the view below where it starts on the page, so that is measured, not guessed.
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el || layout === "fit") return;
+    const place = (): void => el.style.setProperty("--artifact-top", `${Math.max(0, Math.round(el.getBoundingClientRect().top + window.scrollY))}px`);
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [layout, doc]);
 
   // Full screen, and back: the frame is told either way, so a deck presents and stops presenting with it.
   useEffect(() => {
@@ -271,12 +367,64 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
     [chat],
   );
 
-  useImperativeHandle(ref, () => ({ present }), [present]);
+  const editDo = useCallback(
+    (action: EditTold["action"]) => {
+      // A Done opens a save only for what the owner's hand did in this document since it loaded or last saved.
+      const touched = gestures.current.at > gestures.current.since;
+      sent.current = { action, at: performance.now(), ...(action === "done" && touched ? { touched } : {}) };
+      pageWindow()?.postMessage({ __kos: "edit-do", action }, "*");
+    },
+    [pageWindow],
+  );
+  const settle = useCallback((): Promise<void> => {
+    const now = editRef.current;
+    if (!now || (!now.editing && !now.pending)) return Promise.resolve();
+    editDo("done");
+    return new Promise((resolve) => {
+      const timer = setTimeout(finish, SETTLE_MS);
+      function finish(): void {
+        clearTimeout(timer);
+        settled.current = settled.current.filter((f) => f !== finish);
+        resolve();
+      }
+      settled.current.push(finish);
+    });
+  }, [editDo]);
+  // The channel goes with the frame.
+  useEffect(() => () => gestures.current.port?.close(), []);
+  useImperativeHandle(ref, () => ({ present, settle }), [present, settle]);
+
+  // Where the dashboard's view is over a page as tall as its content, for a doc's contents to follow: numbers only, once a frame.
+  useEffect(() => {
+    if (layout !== "fit" || page.kind !== "doc") return;
+    let queued = 0;
+    const tell = (): void => {
+      queued = 0;
+      const el = frame.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      // The view starts below whatever sticks over it: the edit bar, where it sticks.
+      const stuck = box.current?.querySelector<HTMLElement>(".artifact-edit-bar");
+      const bar = stuck ? stuck.offsetHeight + (parseFloat(getComputedStyle(stuck).top) || 0) : 0;
+      pageWindow()?.postMessage({ __kos: "view", top: Math.max(0, Math.round(bar - r.top)), height: Math.round(window.innerHeight - Math.max(0, r.top, bar)) }, "*");
+    };
+    const soon = (): void => {
+      if (!queued) queued = requestAnimationFrame(tell);
+    };
+    window.addEventListener("scroll", soon, { capture: true, passive: true });
+    window.addEventListener("resize", soon);
+    soon();
+    return () => {
+      cancelAnimationFrame(queued);
+      window.removeEventListener("scroll", soon, { capture: true });
+      window.removeEventListener("resize", soon);
+    };
+  }, [layout, page.kind, pageWindow, height]);
 
   const frameTitle = useMemo(() => page.title || record.title, [page.title, record.title]);
 
   return (
-    <div className="artifact" ref={box}>
+    <div className="artifact" data-layout={layout} ref={box}>
       {asked && (
         <div className="artifact-ask" role="dialog" aria-label="The page asks to message the chat">
           <p>
@@ -331,10 +479,39 @@ export function ArtifactPage({ record, page, onSaved, onReload, ref }: ArtifactP
         </div>
       )}
       {told && <p className="hint">{told}</p>}
+      {edit && !locked && (
+        <div className="artifact-edit-bar" role="toolbar" aria-label="Editing">
+          <span className={`artifact-edit-status${edit.bad ? " is-bad" : ""}`} role="status" aria-live="polite">
+            {edit.status || (edit.editing ? (edit.pending ? "Editing" : "Editing, all saved") : "")}
+          </span>
+          {edit.editing ? (
+            <>
+              <button type="button" className="btn btn--ghost btn--sm" title="Undo (Cmd+Z)" onClick={() => editDo("undo")}>
+                Undo
+              </button>
+              <button type="button" className="btn btn--ghost btn--sm" title="Redo (Shift+Cmd+Z)" onClick={() => editDo("redo")}>
+                Redo
+              </button>
+              <button type="button" className="btn btn--ghost btn--sm" title="Put back what is not yet saved, and stop editing" onClick={() => editDo("discard")}>
+                Discard
+              </button>
+              <button type="button" className="btn btn--primary btn--sm" title="Save and stop editing (Cmd+S)" onClick={() => editDo("done")}>
+                Done
+              </button>
+            </>
+          ) : (
+            <button type="button" className="btn btn--sm" title="Edit the text in place" onClick={() => editDo("edit")}>
+              Edit
+            </button>
+          )}
+        </div>
+      )}
       {doc !== undefined && !left && (
         <iframe
           ref={frame}
           className="artifact-frame"
+          data-layout={layout}
+          {...(layout === "fit" && height !== undefined ? { style: { height } } : {})}
           title={frameTitle}
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"

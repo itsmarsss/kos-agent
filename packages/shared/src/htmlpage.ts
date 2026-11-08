@@ -75,7 +75,9 @@ const MARKUP_EXITS: [RegExp, string][] = [
   [/<script\b[^>]*speculationrules/i, "speculation rules"],
   [/<(a|area|form|button|input)\b[^>]*\s(target|formaction|ping)\s*=/i, "a link or form target"],
   [/<a\b[^>]*\bdownload\b/i, "a download link"],
-  [/<(a|area)\b[^>]*\shref\s*=\s*["']?\s*(?!javascript:)([a-z][a-z0-9+.-]*:|\/\/)/i, "a link off the page (link within it with #id)"],
+  // Any separator before the attribute (a space, a slash, a quote), and SVG's xlink:href too.
+  [/<(a|area)\b[^>]*[\s/"'](xlink:)?href\s*=\s*["']?\s*(?!javascript:)([a-z][a-z0-9+.-]*:|\/\/)/i, "a link off the page (link within it with #id)"],
+  [/<(img|image|source|video|audio)\b[^>]*[\s/"'](src|srcset|poster|(xlink:)?href)\s*=\s*["']?\s*(https?:)?\/\//i, "an image or media from the network (inline it as data:)"],
 ];
 
 /**

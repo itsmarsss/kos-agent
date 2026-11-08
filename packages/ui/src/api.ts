@@ -1,5 +1,7 @@
 /** Typed client for the KOS dashboard API. */
 
+import type { HtmlPage } from "@kos/shared";
+
 /** Whether a restart is wanted, and what it is waiting on. */
 export interface RestartState {
   /** Something would start the host again; without it a restart is a stop. */
@@ -417,8 +419,14 @@ export interface AuditRecord {
 
 export interface PageSummary {
   id: string;
-  /** Null for a workspace artifact, which belongs to no project. */
+  /** Null for a blob's or a workspace artifact, which belong to no project. */
   projectSlug: string | null;
+  /** The blob that owns it, by name, when a blob made it. */
+  blob?: string;
+  /** That blob's id, which tells it from a later blob of the same name. */
+  blobId?: string;
+  /** The blob that made it was removed: kept for the owner to look at, restore or delete. */
+  blobRemoved?: true;
   title: string;
   path: string;
   updatedAt: number;
@@ -449,7 +457,7 @@ export interface PageVersion {
 export interface HtmlPagePayload {
   record: PageSummary;
   kind: "html";
-  page: import("@kos/shared").HtmlPage;
+  page: HtmlPage;
 }
 
 export type AnyPagePayload = HtmlPagePayload | PagePayload;
@@ -1124,12 +1132,17 @@ export const api = {
     if (!res.ok) throw new Error(await readError(res, path));
     return (await res.json()) as PageSummary;
   },
-  /** Every artifact, across projects and the workspace, with when it was last captured. */
+  /** Every artifact, across projects, blobs and the workspace, with when it was last captured. */
   artifacts: () => get<ArtifactSummary[]>("/api/artifacts"),
   /** Render an artifact and keep its captures: the gallery's thumbnail. */
   checkArtifact: (id: string) => post<{ findings: { kind: string; text: string }[]; capturedAt?: number }>(`/api/artifacts/${encodeURIComponent(id)}/check`),
   pageHistory: (id: string) => get<PageVersion[]>(`/api/pages/${encodeURIComponent(id)}/history`),
-  pageRollback: (id: string, version: number) => post<PageSummary>(`/api/pages/${encodeURIComponent(id)}/rollback`, { version }),
+  /** One kept version of an HTML artifact, to look at before restoring it. */
+  pageVersion: (id: string, version: number) => get<HtmlPage>(`/api/pages/${encodeURIComponent(id)}/versions/${version}`),
+  /** Put a page back as it was at a version; `base`, the version it was opened at, refuses one made on a page changed since (409). */
+  /** Delete what a removed blob made, which is the owner's alone to let go. */
+  deletePage: (id: string) => post<{ deleted: boolean }>(`/api/pages/${encodeURIComponent(id)}/delete`, {}),
+  pageRollback: (id: string, version: number, base?: number) => post<PageSummary>(`/api/pages/${encodeURIComponent(id)}/rollback`, { version, ...(base !== undefined ? { base } : {}) }),
   mutate: (req: MutateRequest) => post<MutateResult>("/api/mutate", req),
   conversations: (includeArchived = false) =>
     get<Conversation[]>(

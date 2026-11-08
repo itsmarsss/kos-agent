@@ -4,13 +4,15 @@
  * Only the inside of the doc's `<article data-doc>` changes; everything
  * around it (the agent's styles, scripts, declarations) stays as written.
  * The edit is text the owner typed, so it may carry markup but never code:
- * a script, a handler or a javascript: URL in it is refused, as is anything
- * that would end the article early. The whole document then goes through
+ * it is parsed as the browser parses it, held to the elements and
+ * attributes a doc is made of, and saved as written back out from the
+ * parse, so nothing in it can end the article early. The whole document then goes through
  * every check a write does (PageStore.writeHtml).
  */
 
-/** Longest edited text taken; the document as a whole has its own cap. */
-const DOC_EDIT_MAX = 300_000;
+import { DOC_EDIT_MAX } from "@kos/shared";
+
+import { docEditOf, EditRefusal } from "./markup.js";
 
 const OPEN = /<article\b[^>]*\sdata-doc\b[^>]*>/i;
 const TAG = /<(\/?)article\b[^>]*>/gi;
@@ -29,22 +31,29 @@ function docRegion(html: string): { start: number; end: number } | undefined {
   return undefined;
 }
 
-/** What makes edited text more than text, named for the refusal. */
-const CODE: [RegExp, string][] = [
-  [/<script\b/i, "a script"],
-  [/<style\b/i, "a stylesheet"],
-  [/<\/?article\b/i, "an article tag"],
-  // A slash separates attributes as whitespace does: <img/onerror=...>.
-  [/[\s/]on[a-z]+\s*=/i, "an event handler"],
-  [/javascript\s*:/i, "a javascript: URL"],
-];
+/**
+ * Why the owner could not save this doc's text back once edited, or
+ * undefined when they could: the agent's write is held to what an edit is,
+ * so a doc it writes is one the editor can save. A locked article
+ * (data-locked) is not edited in place, so it is not held to it.
+ */
+export function unsavableDocText(html: string): string | undefined {
+  const region = docRegion(html);
+  if (!region || /\sdata-locked\b/i.test(OPEN.exec(html)?.[0] ?? "")) return undefined;
+  try {
+    docEditOf(html.slice(region.start, region.end));
+    return undefined;
+  } catch (err) {
+    if (err instanceof EditRefusal) return err.message;
+    throw err;
+  }
+}
 
-/** The document with its doc's text replaced by the owner's edit. */
+/** The document with its doc's text replaced by the owner's edit, as parsed and checked (markup.ts). */
 export function withDocText(html: string, text: string): string {
   if (text.length > DOC_EDIT_MAX) throw new Error(`the edited text is ${text.length} characters; the most is ${DOC_EDIT_MAX}`);
-  const found = CODE.filter(([re]) => re.test(text)).map(([, what]) => what);
-  if (found.length) throw new Error(`an edit is text, so it may not hold ${found.join(", ")}`);
+  const edit = docEditOf(text);
   const region = docRegion(html);
   if (!region) throw new Error("this doc has no <article data-doc> to edit");
-  return html.slice(0, region.start) + text + html.slice(region.end);
+  return html.slice(0, region.start) + edit + html.slice(region.end);
 }
