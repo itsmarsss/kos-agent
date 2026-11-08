@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Inference } from "../agent/loop.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
-import { Kernel, orchestratorId } from "./kernel.js";
+import { GUEST_TOOLS, Kernel, orchestratorId } from "./kernel.js";
 import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { RATES_KEY } from "../ops/spend.js";
 import { cronSessionId } from "./session.js";
@@ -1319,6 +1319,10 @@ describe("handleApiRequest", () => {
       expect(guest).not.toContain("<p>books</p>");
       expect(guest).not.toContain("NOTE-BODY");
       expect(guest).toMatch(/Not shown, since a guest named them/);
+    });
+
+    it("gives a guest's turn no artifact or file tool, so a guest never reaches the root's reach over a blob's artifacts", () => {
+      expect(GUEST_TOOLS.filter((t) => t.startsWith("artifacts.") || t.startsWith("files.") || t === "pages.write")).toEqual([]);
     });
 
     it("knows a blob's own thread by its id, not by its having no project", async () => {

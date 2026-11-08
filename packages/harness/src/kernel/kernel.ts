@@ -283,7 +283,7 @@ const PROJECT_ORCHESTRATOR_GRANT = [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOO
 /** How many chats a piece of work may be passed through before the next handoff is refused. */
 export const HANDOFF_HOPS = 3;
 
-const GUEST_TOOLS = ["sql", "discord.react", "discord.reactions", "discord.messages", "discord.member", "notify", "chats.handoff"];
+export const GUEST_TOOLS = ["sql", "discord.react", "discord.reactions", "discord.messages", "discord.member", "notify", "chats.handoff"];
 
 /** The same message said twice: the words of two stored copies agree, whatever else rides on them. */
 /**
