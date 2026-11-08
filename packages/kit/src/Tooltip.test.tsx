@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { timeCard } from "@kos/shared";
 
@@ -14,12 +14,14 @@ function chip(): HTMLElement {
   return document.querySelector<HTMLElement>(".md-time")!;
 }
 
+const rect = (left: number, top: number, width: number, height: number): DOMRect =>
+  ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
 const card = (): HTMLElement | null => document.querySelector<HTMLElement>('[role="tooltip"]');
 const spaced = (s: string | null | undefined): string => (s ?? "").replace(/\s/g, " ");
 
 describe("the time's hover card", () => {
   afterEach(() => {
-    document.body.innerHTML = "";
+    cleanup();
     vi.restoreAllMocks();
   });
 
@@ -104,11 +106,9 @@ describe("the time's hover card", () => {
   });
 
   it("sits above the chip, below it near the top, and inside the window side to side", () => {
-    const box = (left: number, top: number, width: number, height: number): DOMRect =>
-      ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
-    let chipAt = box(500, 300, 60, 20);
+    let chipAt = rect(500, 300, 60, 20);
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-      return this.classList.contains("kos-tip") ? box(0, 0, 200, 50) : chipAt;
+      return this.classList.contains("kos-tip") ? rect(0, 0, 200, 50) : chipAt;
     });
     const open = (): HTMLElement => {
       const time = document.querySelector<HTMLElement>(".md-time")!;
@@ -125,10 +125,48 @@ describe("the time's hover card", () => {
     expect(tip.classList.contains("kos-tip--below")).toBe(false);
     close();
 
-    chipAt = box(4, 10, 60, 20);
+    chipAt = rect(4, 10, 60, 20);
     tip = open();
     // At the top left: under the chip, held 8px in, the arrow still on the chip.
     expect([tip.style.left, tip.style.top, tip.style.getPropertyValue("--tip-arrow")]).toEqual(["8px", "38px", "26px"]);
     expect(tip.classList.contains("kos-tip--below")).toBe(true);
+  });
+
+  it("follows its chip on a scroll, and closes only when the chip leaves the window", () => {
+    let chipAt = rect(500, 300, 60, 20);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("kos-tip") ? rect(0, 0, 200, 50) : chipAt;
+    });
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((run) => frames.push(run));
+    const flush = (): void => act(() => frames.splice(0).forEach((run) => run(0)));
+    const time = chip();
+    fireEvent.pointerEnter(time, { pointerType: "mouse" });
+
+    // A streaming chat scrolls itself under the pointer: the card moves with the chip, once a frame.
+    chipAt = rect(500, 200, 60, 20);
+    fireEvent.scroll(window);
+    fireEvent.scroll(window);
+    expect(frames).toHaveLength(1);
+    flush();
+    expect(card()?.style.top).toBe("142px");
+    window.dispatchEvent(new Event("resize"));
+    flush();
+    expect(card()).not.toBeNull();
+
+    chipAt = rect(500, -40, 60, 20);
+    fireEvent.scroll(window);
+    flush();
+    expect(card()).toBeNull();
+  });
+
+  it("is the one card open at a time", () => {
+    render(<Markdown text={`From <t:${SECONDS}:t> to <t:${SECONDS + 3600}:t>.`} />);
+    const [first, second] = [...document.querySelectorAll<HTMLElement>(".md-time")];
+    fireEvent.pointerEnter(first!, { pointerType: "mouse" });
+    act(() => second!.focus());
+    expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(1);
+    expect(second!.getAttribute("aria-describedby")).toBe(card()?.id);
+    expect(first!.hasAttribute("aria-describedby")).toBe(false);
   });
 });
