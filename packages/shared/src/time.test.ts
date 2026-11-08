@@ -66,5 +66,12 @@ describe("a time token", () => {
     expect(card("en-US")).toEqual(["Friday, November 20, 2026", "at 11:59 PM"]);
     // A locale on a 24-hour clock keeps its own.
     expect(card("en-GB")).toEqual(["Friday, 20 November 2026", "at 23:59"]);
+    // Each locale joins the two in its own words.
+    expect(card("fr")).toEqual(["vendredi 20 novembre 2026", "à 23:59"]);
+    expect(card("de")).toEqual(["Freitag, 20. November 2026", "um 23:59"]);
+    expect(card("ru")).toEqual(["пятница, 20 ноября 2026 г.", "в 23:59"]);
+    // One that joins them with a comma or a space has no word to lead with.
+    expect(card("es")).toEqual(["viernes, 20 de noviembre de 2026", "23:59"]);
+    expect(card("ja")).toEqual(["2026年11月20日金曜日", "23:59"]);
   });
 });

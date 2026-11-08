@@ -160,17 +160,32 @@ export function formatTime(seconds: number, style: TimeStyle = "f", timeZone?: s
   }
 }
 
+/** The parts of a formatted moment that belong to its date. */
+const DATE_PARTS = new Set<string>(["weekday", "era", "year", "relatedYear", "yearName", "month", "day"]);
+
 /**
  * A moment as the hover card over a time says it, in the reader's own
- * locale and zone: the date in full, then "at" and the time on the locale's
- * own 12- or 24-hour clock. ["Friday, November 20, 2026", "at 11:59 PM"].
+ * locale and zone: the date in full, then the time on the locale's own 12- or
+ * 24-hour clock, led by the word the locale joins them with ("at", "à",
+ * "um"). ["Friday, November 20, 2026", "at 11:59 PM"]. A locale that joins
+ * them with only a comma or a space gets the time alone.
  */
 export function timeCard(seconds: number, locale?: string, timeZone?: string): [string, string] {
   const at = new Date(seconds * 1000);
   const zone = timeZone ? { timeZone } : {};
-  const date = new Intl.DateTimeFormat(locale, { ...zone, weekday: "long", year: "numeric", month: "long", day: "numeric" });
-  const clock = new Intl.DateTimeFormat(locale, { ...zone, timeStyle: "short" });
-  return [date.format(at), `at ${clock.format(at)}`];
+  const date = new Intl.DateTimeFormat(locale, { ...zone, dateStyle: "full" }).format(at);
+  const parts = new Intl.DateTimeFormat(locale, { ...zone, dateStyle: "full", timeStyle: "short" }).formatToParts(at);
+  const last = parts.reduce((found, p, i) => (DATE_PARTS.has(p.type) ? i : found), -1);
+  let first = last + 1;
+  while (parts[first]?.type === "literal") first += 1;
+  let joiner = parts.slice(last + 1, first).map((p) => p.value).join("");
+  // What the date alone ends with past its last field ("2026 г."), the joiner begins with.
+  // Spaces may differ between the two, a narrow one in one and a plain one in the other.
+  const tail = date.slice(parts.slice(0, last + 1).map((p) => p.value).join("").length).trim();
+  if (tail && joiner.trimStart().startsWith(tail)) joiner = joiner.trimStart().slice(tail.length);
+  const time = parts.slice(first).map((p) => p.value).join("");
+  const word = joiner.trim();
+  return [date, /^[\p{P}\s]*$/u.test(word) ? time : `${word} ${time}`];
 }
 
 /** The style a token asked for, or the default. */

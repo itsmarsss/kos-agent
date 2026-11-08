@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { timeCard } from "@kos/shared";
 
 import { Markdown } from "./Markdown.js";
 
@@ -33,11 +34,7 @@ describe("the time's hover card", () => {
     expect(tip).not.toBeNull();
     expect(time.getAttribute("aria-describedby")).toBe(tip?.id);
     const lines = [...(tip?.querySelectorAll(".md-time-card > span") ?? [])].map((l) => spaced(l.textContent));
-    const at = new Date(SECONDS * 1000);
-    expect(lines).toEqual([
-      at.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" }).replace(/\s/g, " "),
-      `at ${at.toLocaleTimeString(undefined, { timeStyle: "short" }).replace(/\s/g, " ")}`,
-    ]);
+    expect(lines).toEqual(timeCard(SECONDS).map(spaced));
 
     fireEvent.pointerLeave(time, { pointerType: "mouse" });
     expect(card()).toBeNull();
