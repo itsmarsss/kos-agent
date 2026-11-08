@@ -68,19 +68,27 @@ public enum ChatTime {
     return formatter.string(from: date)
   }
 
-  /// The hover card's two lines, in the reader's locale and on its own 12- or 24-hour clock:
-  /// "Friday, November 20, 2026" over "at 11:59 PM".
+  /// The hover card's two lines, in the reader's locale and on its own 12- or 24-hour clock: the date in full over
+  /// the time, led by the word the locale joins them with ("at", "à", "um"), as the dashboard's `timeCard` says it:
+  /// "Friday, November 20, 2026" over "at 11:59 PM". A locale that joins them with only a comma or a space gets the time alone.
   public static func card(_ date: Date, locale: Locale = .current, zone: TimeZone = .current) -> (date: String, time: String) {
-    let day = DateFormatter()
-    day.locale = locale
-    day.timeZone = zone
-    day.setLocalizedDateFormatFromTemplate("EEEEMMMMdy")
-    let clock = DateFormatter()
-    clock.locale = locale
-    clock.timeZone = zone
-    clock.dateStyle = .none
-    clock.timeStyle = .short
-    return (day.string(from: date), "at \(clock.string(from: date))")
+    let say = { (template: String) -> String in
+      let formatter = DateFormatter()
+      formatter.locale = locale
+      formatter.timeZone = zone
+      formatter.setLocalizedDateFormatFromTemplate(template)
+      return formatter.string(from: date)
+    }
+    let (day, clock, both) = (say("EEEEMMMMdy"), say("jmm"), say("EEEEMMMMdyjmm"))
+    // Spaces may differ between the three, a narrow one in one and a plain one in another.
+    let plain = { (text: String) in text.replacingOccurrences(of: #"\s"#, with: " ", options: .regularExpression) }
+    let (dayPlain, clockPlain, bothPlain) = (plain(day), plain(clock), plain(both))
+    guard bothPlain.hasPrefix(dayPlain), bothPlain.hasSuffix(clockPlain), bothPlain.count >= dayPlain.count + clockPlain.count else {
+      return (day, clock)
+    }
+    let word = bothPlain.dropFirst(dayPlain.count).dropLast(clockPlain.count).trimmingCharacters(in: .whitespaces)
+    let joinsByMarkAlone = word.allSatisfy { $0.isPunctuation || $0.isWhitespace }
+    return (day, joinsByMarkAlone ? clock : "\(word) \(clock)")
   }
 
   /// Every token in a line, in order, with what it reads as; one that does not parse is left out.
@@ -103,7 +111,7 @@ public enum ChatTime {
     return out
   }
 
-    /// The hover text for a line's times, a card each, or nothing when it has none.
+  /// The hover text for a line's times, a card each, or nothing when it has none.
   public static func help(for text: String) -> String? {
     let cards = tokens(in: text).map { card($0.date) }.map { "\($0.date)\n\($0.time)" }
     return cards.isEmpty ? nil : cards.joined(separator: "\n\n")

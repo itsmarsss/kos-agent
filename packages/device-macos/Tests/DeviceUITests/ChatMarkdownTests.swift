@@ -68,7 +68,13 @@ struct ChatMarkdownTests {
     let us = ChatTime.card(late, locale: Locale(identifier: "en_US"), zone: toronto)
     #expect(us.date == "Friday, November 20, 2026")
     #expect(us.time.replacingOccurrences(of: "\u{202F}", with: " ") == "at 11:59 PM")
-    #expect(ChatTime.card(late, locale: Locale(identifier: "en_GB"), zone: toronto).time == "at 23:59")
+    let card = { (locale: String) in ChatTime.card(late, locale: Locale(identifier: locale), zone: toronto) }
+    #expect(card("en_GB") == (date: "Friday, 20 November 2026", time: "at 23:59"))
+    // Each locale joins the two in its own words.
+    #expect(card("fr") == (date: "vendredi 20 novembre 2026", time: "à 23:59"))
+    #expect(card("de") == (date: "Freitag, 20. November 2026", time: "um 23:59"))
+    // One that joins them with a comma has no word to lead with.
+    #expect(card("es") == (date: "viernes, 20 de noviembre de 2026", time: "23:59"))
   }
 
   @Test func readsCodeSpansAsCommonMarkDoes() {
