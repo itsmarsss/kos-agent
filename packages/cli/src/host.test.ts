@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { SurfaceDownError, type ChannelAdapter } from "@kos/harness";
 
-import { roomCursorsIn, surfaceUp, waitForPortFree } from "./host.js";
+import { dashboardUrlFor, roomCursorsIn, surfaceUp, waitForPortFree } from "./host.js";
 
 describe("waitForPortFree", () => {
   let server: Server | undefined;
@@ -62,5 +62,20 @@ describe("roomCursorsIn", () => {
     cursors.advance("t1", "5");
     expect(cursors.get("dm1")).toBe("1000000000000000002");
     expect(cursors.rooms()).toEqual(["dm1", "t1"]);
+  });
+});
+
+describe("dashboardUrlFor", () => {
+  it("links to the public URL when there is one, and to this host otherwise", () => {
+    const was = process.env.KOS_PUBLIC_URL;
+    try {
+      process.env.KOS_PUBLIC_URL = "https://kos.example";
+      expect(dashboardUrlFor("127.0.0.1", 4317)).toBe("https://kos.example");
+      delete process.env.KOS_PUBLIC_URL;
+      expect(dashboardUrlFor("0.0.0.0", 4317)).toBe("http://localhost:4317");
+    } finally {
+      if (was === undefined) delete process.env.KOS_PUBLIC_URL;
+      else process.env.KOS_PUBLIC_URL = was;
+    }
   });
 });

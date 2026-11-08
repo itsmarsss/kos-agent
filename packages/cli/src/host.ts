@@ -165,6 +165,11 @@ export function surfaceUp(surfaces: Map<string, () => ChannelAdapter | undefined
   return send;
 }
 
+/** The dashboard as Discord links to it: KOS_PUBLIC_URL when set, this host otherwise. */
+export function dashboardUrlFor(host: string, port: number): string {
+  return process.env.KOS_PUBLIC_URL?.trim() || `http://${host === "0.0.0.0" ? "localhost" : host}:${port}`;
+}
+
 /** The key the open asks' Discord cards are kept under, by approval id. */
 const KEPT_PROMPTS_KEY = "discord.prompts";
 /** An ask lapses well within this; a record older is let go. */
@@ -603,12 +608,14 @@ export async function runHost(options: HostOptions): Promise<void> {
   else console.log("ui: not built (pnpm -C packages/ui build); API only");
 
   if (wantDiscord && creds) {
+    // Where a reference in a reply, or a chat a slash command names, links
+    // to: the public URL when there is one; otherwise this host, which is
+    // right on the machine it runs on.
+    const dashboardUrl = dashboardUrlFor(options.host, options.port);
     adapter = new DiscordAdapter({
       token: creds.token,
       ownerId: creds.ownerId,
-      // Where a reference in a reply links to. The public URL when there is
-      // one; otherwise this host, which is right on the machine it runs on.
-      dashboardUrl: process.env.KOS_PUBLIC_URL?.trim() || `http://${options.host === "0.0.0.0" ? "localhost" : options.host}:${options.port}`,
+      dashboardUrl,
       ...(creds.guildId ? { guildId: creds.guildId } : {}),
       // Which thread stands for which chat: the kernel keeps it, the adapter asks.
       threadOf: (threadId) => kernel.threadBindings()[threadId],
@@ -711,10 +718,8 @@ export async function runHost(options: HostOptions): Promise<void> {
         kernel.conversations.setActive(adapter!.name, kernel.profile.ownerId, id),
       home: () => surfaceSessionId(adapter!.name, kernel.profile.ownerId),
       stop: (id) => kernel.stop(id),
-      // Where to read a thread. The dashboard is on this machine, so this is
-      // a link the owner can actually follow from Discord on the same one.
-      link: (id) =>
-        `http://${options.host}:${options.port}/#/chats/${encodeURIComponent(id)}`,
+      // Where to read a thread: the same dashboard the replies link to.
+      link: (id) => `${dashboardUrl.replace(/\/+$/, "")}/#/chats/${encodeURIComponent(id)}`,
       create: (title) => {
         const made = kernel.conversations.create({
           userId: kernel.profile.ownerId,
