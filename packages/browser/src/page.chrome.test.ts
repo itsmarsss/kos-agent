@@ -206,7 +206,7 @@ document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<but
   });
 
   it("reads open shadow roots and the frames it can reach, says which it could not, and acts in them", async () => {
-    const seen = await visit(tab, [`${base}/framed`], { then: "look" });
+    const seen = await visit(tab, [`${base}/framed`], { then: "look", until: "load" });
     expect(seen.text).toMatch(/button "Top" @e1\nbutton "In shadow" @e2\nbutton "Inner button" @e3\nbutton "Inner button" @e4/);
     expect(seen.text).toMatch(/Not read: an embedded frame from localhost:\d+/);
     await act(tab, stepsOf([{ click: "@e2" }]), "none");
