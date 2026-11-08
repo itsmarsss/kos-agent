@@ -3706,20 +3706,27 @@ export class Kernel {
   private keepFrame(tool: string, conversationId?: string, picture?: string): void {
     if (!conversationId) return;
     const toolUseId = toolUse.getStore();
+    const browser = this.browserContext(tool, conversationId) !== undefined;
+    const away = this.away(conversationId);
+    // A browser frame says which site it shows, read as it is kept: a surface leaves out one the owner hid.
+    const keep = (picture: string): void => {
+      const site = browser ? (away ? away.siteOf(conversationId) : this.browser.siteOf(conversationId)) : undefined;
+      const frame = this.frames.add({ conversationId, ...(toolUseId ? { toolUseId } : {}), tool, picture, ...(site ? { site } : {}) });
+      this.progress.emit({ kind: "frame", conversationId, tool, frameId: frame.id, ...(toolUseId ? { toolUseId } : {}), ...(site ? { site } : {}) });
+    };
     // A step that answered with a picture is kept by that one. A browser step
     // took a second, smaller capture as well, on the same line to the tab as
     // the next step, which waited behind it, most of all on the owner's
     // Chrome, where every capture crosses to the extension and back.
-    if (picture || !this.browserContext(tool, conversationId)) {
-      if (picture) this.frames.add({ conversationId, ...(toolUseId ? { toolUseId } : {}), tool, picture });
+    if (picture || !browser) {
+      if (picture) keep(picture);
       return;
     }
-    const away = this.away(conversationId);
     const tab = this.browser.tabOf(conversationId);
     if (!away && !tab) return;
     void (away ? away.picture(conversationId, 640) : this.browser.capture(tab!, 640))
       .then((picture) => {
-        if (picture) this.frames.add({ conversationId, ...(toolUseId ? { toolUseId } : {}), tool, picture });
+        if (picture) keep(picture);
       })
       .catch(() => undefined);
   }

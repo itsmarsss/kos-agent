@@ -525,6 +525,23 @@ describe("handleApiRequest", () => {
     expect(card?.frameId).toBe(frame.id);
   });
 
+  it("keeps a step's picture as a frame and tells the turn's surfaces of it", async () => {
+    const conv = kernel.conversations.create({ userId: "owner", title: "Screen", channel: "dashboard" });
+    kernel.registry.register({ name: "computer.act", description: "c", inputSchema: { type: "object" } }, () => ({ text: "Clicked.", images: [{ mediaType: "image/jpeg", data: "SCREEN" }] }));
+    const told: unknown[] = [];
+    const off = kernel.progress.subscribe((e) => {
+      if (e.kind === "frame") told.push(e);
+    });
+    const tools = (kernel as unknown as { guardedTools(o: { conversationId: string }): { execute(n: string, i: Record<string, unknown>): Promise<unknown> } }).guardedTools({ conversationId: conv.id });
+    await tools.execute("computer.act", { action: "left_click" });
+    off();
+    const [frame] = kernel.frames.listFor(conv.id);
+    expect(frame).toMatchObject({ tool: "computer.act", site: null });
+    expect(kernel.frames.pictureOf(frame!.id)).toBe("SCREEN");
+    // A screen's frame names no site.
+    expect(told).toEqual([{ kind: "frame", conversationId: conv.id, tool: "computer.act", frameId: frame!.id }]);
+  });
+
   it("matches frames without a call id to browser steps in order, skipping steps that never ran", () => {
     const events = [
       { kind: "tool" as const, name: "browser.visit", summary: "", args: {}, result: "Opened" },
