@@ -64,7 +64,9 @@ export function Tooltip({ tip, children }: TooltipProps): ReactElement {
   // A tap focuses before it clicks; the click alone decides, so the focus is not taken as a keyboard's.
   const tapping = useRef(false);
 
-  useDismiss(open, () => setOpen(false), { inside: [anchor, card] });
+  // Escape is heard last and passed on: a card the pointer merely rests on must not
+  // swallow the Escape meant for the preview, drawer or dialog it sits in.
+  useDismiss(open, () => setOpen(false), { inside: [anchor, card], escape: "dialog" });
 
   useLayoutEffect(() => {
     if (!open) {

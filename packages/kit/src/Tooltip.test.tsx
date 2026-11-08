@@ -56,6 +56,21 @@ describe("the time's hover card", () => {
     expect(card()).toBeNull();
   });
 
+  it("closes on Escape without keeping it from what the chip sits in", () => {
+    const time = chip();
+    const parent = vi.fn();
+    window.addEventListener("keydown", parent);
+    try {
+      fireEvent.pointerEnter(time, { pointerType: "mouse" });
+      expect(card()).not.toBeNull();
+      fireEvent.keyDown(time, { key: "Escape" });
+      expect(card()).toBeNull();
+      expect(parent).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("keydown", parent);
+    }
+  });
+
   it("toggles on a tap and closes on a tap away", () => {
     const time = chip();
     const tap = (): void => {
