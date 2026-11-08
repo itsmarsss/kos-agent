@@ -621,8 +621,10 @@ describe("a prompt with a picture", () => {
     expect(files).toHaveLength(1);
     expect(files[0]?.name).toBe("page.jpg");
     expect(files[0]?.attachment.toString("utf8")).toBe("PIC");
-    expect(String(payloads[0]?.content)).toMatch(/Click[^]*@e5/);
-    expect(String(payloads[0]?.content)).toContain("on shop.example");
+    // The step as it reads, and the step as given, under it.
+    const lines = String(payloads[0]?.content).split("\n");
+    expect(lines.slice(0, 4)).toEqual(["**Needs your OK** · Click", "```", 'steps: [{"click":"@e5"}]', "```"]);
+    expect(lines[4]).toBe("-# browser.act · #7 · on shop.example");
   });
 });
 
