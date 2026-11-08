@@ -209,6 +209,18 @@ export class ConversationStore {
     this.removedListeners.push(listener);
   }
 
+  /** Told when a chat's title changes, however it changed, so what stands for it elsewhere is named the same. */
+  private readonly renamedListeners: ((id: string, title: string) => void)[] = [];
+
+  onRenamed(listener: (id: string, title: string) => void): void {
+    this.renamedListeners.push(listener);
+  }
+
+  private renamed(id: string, was: string | undefined, now: string | undefined): void {
+    if (now === undefined || was === now) return;
+    for (const listener of this.renamedListeners) listener(id, now);
+  }
+
   constructor(
     private readonly db: Db,
     private readonly now: () => number = Date.now,
@@ -304,10 +316,13 @@ export class ConversationStore {
   rename(id: string, title: string): Conversation | undefined {
     const clean = title.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE);
     if (clean === "") return this.get(id);
+    const was = this.get(id)?.title;
     this.db
       .prepare(`UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?`)
       .run(clean, this.now(), id);
-    return this.get(id);
+    const now = this.get(id);
+    this.renamed(id, was, now?.title);
+    return now;
   }
 
   /** Bump ordering, and adopt a title if the conversation is still unnamed. */
@@ -326,6 +341,7 @@ export class ConversationStore {
     this.db
       .prepare(`UPDATE conversations SET updated_at = ?, title = ? WHERE id = ?`)
       .run(this.now(), title, id);
+    this.renamed(id, current.title, title);
   }
 
   /** Change what this conversation is for, or what it may reach. */

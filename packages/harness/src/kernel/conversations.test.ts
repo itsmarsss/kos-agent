@@ -38,6 +38,17 @@ describe("ConversationStore", () => {
     store = new ConversationStore(ws.db, () => clock);
   });
 
+  it("says when a chat's title changes, however it changes, and not when it does not", () => {
+    const told: [string, string][] = [];
+    store.onRenamed((id, title) => void told.push([id, title]));
+    const c = store.create({ userId: "owner" });
+    store.touch(c.id, "plan the garden");
+    store.touch(c.id, "another message");
+    store.rename(c.id, "Garden");
+    store.rename(c.id, "Garden");
+    expect(told).toEqual([[c.id, "plan the garden"], [c.id, "Garden"]]);
+  });
+
   afterEach(() => {
     ws.close();
     rmSync(root, { recursive: true, force: true });

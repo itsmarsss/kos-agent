@@ -69,7 +69,11 @@ orchestrator, "Garden orchestrator", and in a thread as that agent, by
 its title, both wearing KOS's face through one webhook; a blob in a
 project answers as itself. Each channel is bound to its conversation by the
 `kos:…` line in its topic, so the binding is readable and a channel you
-rename stays bound; a thread KOS made is bound by id, since threads have
+rename stays bound. A project or blob renamed in KOS renames its channel
+and topic at the next layout, but leaves a name you gave the channel
+yourself, and Discord's limit of two renames in ten minutes is waited out
+rather than fought; a chat renamed anywhere renames its thread, and a
+thread you rename on Discord retitles its chat; a thread KOS made is bound by id, since threads have
 no topic. A thread you start yourself under a project's channel is a new
 chat in that project, titled as the thread, and that thread is bound to it
 by id the same way, so the layout never makes a second thread for it; one

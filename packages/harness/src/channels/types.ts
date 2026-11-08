@@ -16,6 +16,11 @@ export interface ConversationSeed {
   threadId?: string;
 }
 
+/** A channel's name for a title, the way the layout names one: "My Garden" is my-garden. */
+export function channelName(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 90) || "channel";
+}
+
 /** Said on a turn's story, and in its chat, when a restart cut the turn short. */
 export const INTERRUPTED_LINE = "-# interrupted by a restart";
 

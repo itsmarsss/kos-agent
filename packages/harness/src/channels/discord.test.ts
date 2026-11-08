@@ -34,7 +34,7 @@ import {
   type KeptStories,
   type PromptRef,
 } from "./discord.js";
-import { OWNER_ONLY, type ApprovalDecision, type ButtonPress, type InboundMessage } from "./types.js";
+import { OWNER_ONLY, channelName, type ApprovalDecision, type ButtonPress, type InboundMessage } from "./types.js";
 
 describe("discord approval customId codec", () => {
   it("encodes approve and deny ids for a pending action", () => {
@@ -2213,5 +2213,75 @@ describe("a slash command in a room", () => {
     await adapter.receiveInteraction(stop("g1", { id: "c1", topic: "kos:agent:recap · Recap" }));
     await adapter.receiveInteraction(stop(null, { id: "dm" }));
     expect(stopped).toEqual(["chat-5", "agent:recap", "dm-chat"]);
+  });
+});
+
+describe("renames", () => {
+  function server(channels: Record<string, unknown>[]): { adapter: DiscordAdapter; edits: { id: string; edit: Record<string, unknown> }[] } {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1" });
+    const edits: { id: string; edit: Record<string, unknown> }[] = [];
+    const existing = new Map<string, unknown>([
+      ["cat", { id: "cat", type: ChannelType.GuildCategory, name: "Projects" }],
+      ...channels.map((c) => {
+        const live = { type: ChannelType.GuildText, parentId: "cat", ...c } as Record<string, unknown>;
+        live.edit = async (e: Record<string, unknown>) => {
+          edits.push({ id: String(live.id), edit: e });
+          Object.assign(live, e);
+        };
+        return [String(c.id), live] as [string, unknown];
+      }),
+    ]);
+    (adapter as unknown as { client: unknown }).client = { guilds: { fetch: async () => ({ id: "g1", channels: { fetch: async () => existing } }) } };
+    return { adapter, edits };
+  }
+  const plan = (title: string) => ({ key: "project:garden", name: channelName(title), topic: `kos:project:garden · ${title}`, category: "Projects" });
+
+  it("renames a project's channel and its topic when the project is renamed, but not a name the owner gave it", async () => {
+    const ours = server([{ id: "c1", name: "garden", topic: "kos:project:garden · Garden" }]);
+    await ours.adapter.sync([plan("Veg Patch")]);
+    expect(ours.edits).toEqual([{ id: "c1", edit: { name: "veg-patch", topic: "kos:project:garden · Veg Patch" } }]);
+    // In step now: nothing more to do.
+    await ours.adapter.sync([plan("Veg Patch")]);
+    expect(ours.edits).toHaveLength(1);
+    const theirs = server([{ id: "c2", name: "my-plot", topic: "kos:project:garden · Garden" }]);
+    await theirs.adapter.sync([plan("Veg Patch")]);
+    expect(theirs.edits).toEqual([{ id: "c2", edit: { topic: "kos:project:garden · Veg Patch" } }]);
+  });
+
+  it("renames a channel at most twice in ten minutes, and catches up after", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      const { adapter, edits } = server([{ id: "c1", name: "garden", topic: "kos:project:garden · Garden" }]);
+      for (const title of ["A", "B", "C"]) await adapter.sync([plan(title)]);
+      expect(edits.map((e) => e.edit.name)).toEqual(["a", "b"]);
+      vi.setSystemTime(11 * 60_000);
+      await adapter.sync([plan("C")]);
+      expect(edits.map((e) => e.edit.name)).toEqual(["a", "b", "c"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("names a chat's thread as the chat, leaving one already so named alone", async () => {
+    const names: string[] = [];
+    const thread = { name: "Seeds", isThread: () => true, setName: async (n: string) => void (names.push(n), (thread.name = n)) };
+    const adapter = new DiscordAdapter({ token: "t" });
+    (adapter as unknown as { client: unknown }).client = { channels: { fetch: async () => thread } };
+    await adapter.renameThread("t1", "Seeds");
+    await adapter.renameThread("t1", "Seed order");
+    await adapter.renameThread("t1", "Seed order");
+    expect(names).toEqual(["Seed order"]);
+  });
+
+  it("tells the host when the owner renames a thread on Discord", async () => {
+    const renamed: [string, string][] = [];
+    const adapter = new DiscordAdapter({ token: "t", onThreadRenamed: (id, name) => void renamed.push([id, name]) });
+    const client = (adapter as unknown as { client: { login: () => Promise<string>; emit: (e: string, ...a: unknown[]) => boolean } }).client;
+    client.login = async () => "";
+    await adapter.start();
+    client.emit("threadUpdate", { name: "Seeds" }, { id: "t1", name: "Seed order" });
+    client.emit("threadUpdate", { name: "Same" }, { id: "t1", name: "Same" });
+    expect(renamed).toEqual([["t1", "Seed order"]]);
   });
 });

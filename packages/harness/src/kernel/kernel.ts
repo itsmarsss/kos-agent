@@ -3,7 +3,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
-import { INTERRUPTED_LINE, OWNER_THREAD_PREFIX, type Asker, type ConversationSeed, type Guest, type OutboundMessage, type Sender } from "../channels/types.js";
+import { INTERRUPTED_LINE, OWNER_THREAD_PREFIX, channelName, type Asker, type ConversationSeed, type Guest, type OutboundMessage, type Sender } from "../channels/types.js";
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry, type ToolExecution } from "../agent/registry.js";
@@ -2960,7 +2960,7 @@ export class Kernel {
    * (threadBindings), since threads carry no topic.
    */
   surfaceChannels(): SurfaceChannel[] {
-    const slug = (text: string): string => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 90) || "channel";
+    const slug = channelName;
     const audiences = this.channelAudiences();
     const of = (key: string): Audience => audiences[key] ?? "owner";
     const chats = this.conversations.list(this.profile.ownerId);

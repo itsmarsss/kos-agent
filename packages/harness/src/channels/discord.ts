@@ -27,7 +27,7 @@ import { CHANNEL_TOKEN, detailLines, stepActions, summarizeAction, withUnixTimes
 import { isReadable, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
-import { INTERRUPTED_LINE, OWNER_ONLY, OWNER_THREAD_PREFIX, type Guest } from "./types.js";
+import { INTERRUPTED_LINE, OWNER_ONLY, OWNER_THREAD_PREFIX, channelName, type Guest } from "./types.js";
 import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
 import { linkMentions, linkPaths, literal, literalWords, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
 import { tablesToCode } from "./tables.js";
@@ -92,6 +92,9 @@ const SEEN_MAX = 2000;
 /** At most this many messages per room are caught up after a drop, and none older than the window. */
 const CATCH_UP_MAX = 50;
 const CATCH_UP_WINDOW_MS = 6 * 3_600_000;
+/** Discord lets a channel's name or topic change this many times in the window. */
+const RENAMES_PER_WINDOW = 2;
+const RENAME_WINDOW_MS = 10 * 60_000;
 /** How many sends may wait for a dropped gateway; past it the oldest goes. */
 const OUTBOX_MAX = 100;
 /** Subtext lines may not be longer than this and still read as a glance. */
@@ -402,6 +405,8 @@ export interface DiscordAdapterOptions {
   cursors?: RoomCursors;
   /** Where each running turn's story line is, so one a restart cut short can say so. */
   keptStories?: KeptStories;
+  /** Told when a thread is renamed on Discord, so its chat can take the name. */
+  onThreadRenamed?: (threadId: string, name: string) => void;
 }
 
 /** The story lines of turns still running, by message, kept across restarts. */
@@ -565,6 +570,7 @@ interface OverwritableChannel {
     set: (overwrites: Overwrite[]) => Promise<unknown>;
   };
   setParent?: (parent: string, options?: { lockPermissions?: boolean }) => Promise<unknown>;
+  edit?: (options: { name?: string; topic?: string }) => Promise<unknown>;
   threads?: { create: (options: { name: string; autoArchiveDuration: number; reason?: string }) => Promise<{ id: string }> };
 }
 
@@ -608,6 +614,12 @@ const TOPIC = /^kos:(\S+)/;
 export function boundKeyOf(topic: string | null | undefined): string | undefined {
   const m = TOPIC.exec(topic ?? "");
   return m?.[1];
+}
+
+/** The title a `kos:` topic gives its chat: "kos:project:garden · Garden · https://…" is Garden. */
+export function topicTitle(topic: string | null | undefined): string | undefined {
+  const m = /^kos:\S+\s*·\s*(.*?)(?:\s*·\s*https?:\/\/\S+)?\s*$/.exec(topic ?? "");
+  return m?.[1] || undefined;
 }
 
 /**
@@ -870,6 +882,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly onConnected?: () => Promise<void> | void;
   private readonly cursors?: RoomCursors;
   private readonly keptStories?: KeptStories;
+  private readonly onThreadRenamed?: (threadId: string, name: string) => void;
   /** Messages already taken, newest last, so none runs twice. */
   private readonly seen = new Set<string>();
   private readonly threadBindings?: () => Record<string, string>;
@@ -913,6 +926,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.onConnected) this.onConnected = options.onConnected;
     if (options.cursors) this.cursors = options.cursors;
     if (options.keptStories) this.keptStories = options.keptStories;
+    if (options.onThreadRenamed) this.onThreadRenamed = options.onThreadRenamed;
     if (options.threadBindings) this.threadBindings = options.threadBindings;
     if (options.keptPrompts) this.keptPrompts = options.keptPrompts;
     if (options.timezone) this.timezone = options.timezone;
@@ -1000,6 +1014,11 @@ export class DiscordAdapter implements ChannelAdapter {
 
     this.client.on(Events.InteractionCreate, (interaction: Interaction) => {
       void this.receiveInteraction(interaction);
+    });
+
+    // A thread the owner renamed on Discord retitles its chat.
+    this.client.on(Events.ThreadUpdate, (before: { name: string }, after: { id: string; name: string }) => {
+      if (before.name !== after.name) this.onThreadRenamed?.(after.id, after.name);
     });
 
     this.started = true;
@@ -1323,6 +1342,11 @@ export class DiscordAdapter implements ChannelAdapter {
    */
   async sync(plans: ChannelPlan[]): Promise<{ created: string[]; kept: string[]; threads: ThreadMade[]; audiences: Record<string, Audience> }> {
     if (!this.guildId) return { created: [], kept: [], threads: [], audiences: {} };
+    // Thread renames that had to wait for Discord's limit, tried again.
+    for (const [threadId, title] of [...this.waitingRenames]) {
+      this.waitingRenames.delete(threadId);
+      await this.renameThread(threadId, title).catch(() => undefined);
+    }
     const guild = await this.client.guilds.fetch(this.guildId);
     const { bound, categories, loose } = await this.boundChannels(guild);
     const created: string[] = [];
@@ -1362,9 +1386,20 @@ export class DiscordAdapter implements ChannelAdapter {
         kept.push(letGo.name);
       } else if (have) {
         kept.push(have.name);
-        // The link to the chat, added once to a channel from before it was in the topic.
         const wanted = this.topicWithLink(plan.topic, plan.key);
-        if (wanted !== plan.topic && have.channel.setTopic && boundKeyOf(have.channel.topic) === plan.key && !(have.channel.topic ?? "").includes("/#/chats/")) {
+        const was = topicTitle(have.channel.topic);
+        const now = topicTitle(plan.topic);
+        if (boundKeyOf(have.channel.topic) === plan.key && was !== undefined && now !== undefined && was !== now) {
+          // Renamed in KOS: the topic follows, and the name too unless the
+          // owner gave the channel one of their own. Discord allows two such
+          // edits in ten minutes; one past that waits for a later layout.
+          if (have.channel.edit && this.mayRename(have.id)) {
+            const name = have.name === channelName(was) ? { name: plan.name } : {};
+            await have.channel.edit({ ...name, topic: wanted });
+            if ("name" in name) have.name = plan.name;
+          }
+        } else if (wanted !== plan.topic && have.channel.setTopic && boundKeyOf(have.channel.topic) === plan.key && !(have.channel.topic ?? "").includes("/#/chats/")) {
+          // The link to the chat, added once to a channel from before it was in the topic.
           await have.channel.setTopic(wanted);
         }
         if (have.parentId !== parent && (!have.parentId || own.has(have.parentId))) await have.channel.setParent?.(parent, { lockPermissions: false });
@@ -1395,6 +1430,37 @@ export class DiscordAdapter implements ChannelAdapter {
       }
     }
     return { created, kept, threads, audiences };
+  }
+
+  /** When each channel or thread was last renamed by KOS, for Discord's limit of two in ten minutes. */
+  private readonly renamedAt = new Map<string, number[]>();
+  /** Thread renames held back by that limit, for the next layout. */
+  private readonly waitingRenames = new Map<string, string>();
+
+  /** Whether a channel or thread may be renamed now; counted when it may. */
+  private mayRename(id: string): boolean {
+    const at = Date.now();
+    const recent = (this.renamedAt.get(id) ?? []).filter((t) => at - t < RENAME_WINDOW_MS);
+    const may = recent.length < RENAMES_PER_WINDOW;
+    if (may) recent.push(at);
+    this.renamedAt.set(id, recent);
+    return may;
+  }
+
+  /**
+   * A chat renamed in KOS names its thread the same. A thread already so
+   * named is left alone, which is what ends the round trip when the owner
+   * renamed the thread and the chat followed.
+   */
+  async renameThread(threadId: string, title: string): Promise<void> {
+    const name = title.trim().slice(0, 100) || "Chat";
+    const thread = (await this.client.channels.fetch(threadId).catch(() => null)) as { name?: string; isThread?: () => boolean; setName?: (n: string) => Promise<unknown> } | null;
+    if (!thread?.isThread?.() || !thread.setName || thread.name === name) return;
+    if (!this.mayRename(threadId)) {
+      this.waitingRenames.set(threadId, title);
+      return;
+    }
+    await thread.setName(name);
   }
 
   /** Whether some thread already stands for a conversation; the kernel's bindings say. */

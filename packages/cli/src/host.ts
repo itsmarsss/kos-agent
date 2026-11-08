@@ -618,6 +618,12 @@ export async function runHost(options: HostOptions): Promise<void> {
       cursors: roomCursorsIn(kernel.settings),
       // Each running turn's story line, so one a restart cut short says so.
       keptStories: keptStoriesIn(kernel.settings),
+      // The owner renamed a chat's thread on Discord: the chat takes the name.
+      onThreadRenamed: (threadId, name) => {
+        const id = kernel.threadBindings()[threadId];
+        const chat = id ? kernel.conversations.get(id) : undefined;
+        if (chat && chat.title !== name) kernel.conversations.rename(chat.id, name);
+      },
       threadBindings: () => kernel.threadBindings(),
       timezone: kernel.profile.timezone,
       labelOf: (kind, id) => kernel.labelFor(kind, id),
@@ -854,6 +860,12 @@ export async function runHost(options: HostOptions): Promise<void> {
         if (!target) return;
         const answer = ran.reply.trim().split("\n")[0] ?? "";
         await adapter.postIn(target, { text: `-# \`${ran.text.replace(/`/g, "'")}\` · you, on the dashboard${answer ? `\n-# ${answer.slice(0, 300)}` : ""}` });
+      });
+      // A chat renamed anywhere names its thread the same.
+      kernel.bus.on("chat:renamed", async ({ conversationId, title }) => {
+        const threadId = Object.entries(kernel.threadBindings()).find(([, id]) => id === conversationId)?.[0];
+        if (!threadId || !adapter) return;
+        await adapter.renameThread(threadId, title).catch((err: unknown) => console.warn(`[discord] thread ${threadId} not renamed: ${err instanceof Error ? err.message : String(err)}`));
       });
       // A chat deleted on the dashboard takes its thread with it.
       kernel.bus.on("chat:deleted", async ({ conversationId }) => {
