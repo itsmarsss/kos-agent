@@ -142,6 +142,8 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
           // One code per pairing this server plays: the first KOS, the second it is by another name, and two for pairing again.
           const codes: Record<string, string> = { "TEST-CODE": "dev_test", "TEST-TWO": "dev_two", "TEST-THREE": "dev_three", "TEST-AGAIN": "dev_again" };
           const id = codes[pair.code];
+          // A KOS that already holds this key, as the real one answers it.
+          if (pair.code === "TEST-TAKEN") return void res.writeHead(409, { "content-type": "application/json" }).end(JSON.stringify({ error: "this device is already paired" }));
           if (!id || pair.platform !== "chrome") return void res.writeHead(403).end("{}");
           keys.set(id, rawKey(Buffer.from(pair.publicKey, "base64")));
           if (id === "dev_test") deviceKey = keys.get(id);
@@ -466,4 +468,57 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     for (let i = 0; i < 50 && (await kos())[0]?.link !== "online"; i++) await until(() => false, 100);
     expect((await kos()).map((k) => [k.id, k.link])).toEqual([["dev_again", "online"]]);
   }, 40_000);
+
+  /** The extension's worker stopped, as Chrome stops an idle one or a restart does: the next message starts it afresh from storage. */
+  const restartWorker = async (): Promise<void> => {
+    const { targetInfos } = (await devtools.send("Target.getTargets")) as { targetInfos: { targetId: string; type: string; url: string }[] };
+    const worker = targetInfos.find((t) => t.type === "service_worker" && t.url.endsWith("/worker.js"));
+    if (worker) await devtools.send("Target.closeTarget", { targetId: worker.targetId });
+    await until(() => false, 300);
+  };
+  type Shown = { id: string; link: string; detail?: string };
+  const shownKos = async (): Promise<Shown[]> => ((await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "state" })`)) as { value: { kos: Shown[] } }).value.kos;
+  const settled = async (want: (k: Shown[]) => boolean): Promise<Shown[]> => {
+    for (let i = 0; i < 100 && !want(await shownKos().catch(() => [])); i++) await until(() => false, 100);
+    return shownKos();
+  };
+  const storedKeys = (): Promise<unknown> =>
+    devtools.evaluate(popup, `new Promise((res) => { const r = indexedDB.open("kos", 1); r.onsuccess = () => { const q = r.result.transaction("keys").objectStore("keys").getAllKeys(); q.onsuccess = () => res(q.result); }; })`);
+
+  it("keeps the key for an id a KOS gives again, and says a KOS that refuses the pairing in its words", async () => {
+    await devtools.send("Page.reload", {}, popup);
+    await devtools.loaded(popup);
+    const again = `kos-device://pair?url=${encodeURIComponent(base)}&code=test-again`;
+    expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "pair", link: ${JSON.stringify(again)}, name: "Test Chrome" })`)).toMatchObject({ ok: true });
+    expect(await storedKeys()).toContain("device:dev_again");
+    await restartWorker();
+    expect(await settled((k) => k[0]?.link === "online")).toMatchObject([{ id: "dev_again", link: "online" }]);
+    const taken = `kos-device://pair?url=${encodeURIComponent(base)}&code=test-taken`;
+    expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "pair", link: ${JSON.stringify(taken)}, name: "Test Chrome" })`)).toEqual({ ok: false, error: "this device is already paired" });
+    expect((await shownKos()).map((k) => k.id)).toEqual(["dev_again"]);
+  }, 30_000);
+
+  it("moves an older version's one pairing and the key it shared, and says when that key is gone rather than making another", async () => {
+    // As an older version left it: one pairing under "paired", and one key under "device" for every KOS.
+    const raw = (await devtools.evaluate(
+      popup,
+      `crypto.subtle.generateKey({ name: "Ed25519" }, false, ["sign", "verify"]).then(async (pair) => {
+        await new Promise((res) => { const r = indexedDB.open("kos", 1); r.onsuccess = () => { const t = r.result.transaction("keys", "readwrite"); t.objectStore("keys").clear(); t.objectStore("keys").put(pair, "device"); t.oncomplete = res; }; });
+        return btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey))));
+      })`,
+    )) as string;
+    keys.set("dev_legacy", rawKey(Buffer.from(raw, "base64")));
+    const paired = { url: base, device: "dev_legacy", hostKey: hostRaw.toString("base64"), name: "Test Chrome" };
+    await devtools.evaluate(popup, `chrome.storage.local.remove("pairings").then(() => chrome.storage.local.set({ paired: ${JSON.stringify(paired)} }))`);
+    await restartWorker();
+    expect(await settled((k) => k[0]?.link === "online")).toMatchObject([{ id: "dev_legacy", link: "online" }]);
+    expect(await devtools.evaluate(popup, `chrome.storage.local.get(["pairings", "paired"]).then((r) => [r.pairings.map((p) => p.device), r.paired ?? null])`)).toEqual([["dev_legacy"], null]);
+    expect(lines.has("dev_legacy")).toBe(true);
+
+    // The key gone, as when the extension's storage is cleared under it: no new key in its place, which KOS would refuse as a bad signature.
+    await devtools.evaluate(popup, `new Promise((res) => { const r = indexedDB.open("kos", 1); r.onsuccess = () => { const t = r.result.transaction("keys", "readwrite"); t.objectStore("keys").clear(); t.oncomplete = res; }; })`);
+    await restartWorker();
+    expect(await settled((k) => k[0]?.link === "unpaired")).toEqual([expect.objectContaining({ id: "dev_legacy", link: "unpaired", detail: "This Chrome no longer has the key it paired with. Pair again." })]);
+    expect(await storedKeys()).toEqual([]);
+  }, 30_000);
 });

@@ -10,10 +10,10 @@ import { CallError, PROTOCOL, deviceProof, hostProof, readFrame } from "./protoc
  * a dropped connection is dialled again, later each time. A line KOS turned
  * away is said with KOS's own reason: "unpaired" when KOS does not take this
  * Chrome's pairing (an id it does not know, a key it did not pair), else
- * "refused".
+ * "refused". "error" is a line this Chrome could not open on its side.
  */
 
-export type LinkState = "connecting" | "online" | "offline" | "unpaired" | "refused";
+export type LinkState = "connecting" | "online" | "offline" | "unpaired" | "refused" | "error";
 
 /** Who allows a session: the owner here, or that KOS's approval queue. */
 export type Consent = "device" | "kos";
@@ -40,9 +40,10 @@ export interface LinkOptions {
 /** How often the extension says it is still there, which also keeps its worker awake. */
 const PING_MS = 20_000;
 const RETRY_MAX_MS = 30_000;
-/** KOS's close codes: a bad device or signature, and a newer connection of the same device. */
+/** KOS's close codes: a bad device or signature, a newer connection of the same device, another protocol version. */
 const UNAUTHORIZED = 4003;
 const REPLACED = 4009;
+const VERSION = 4010;
 
 /** KOS's reason for closing, as a sentence ("unknown device: ..." reads "Unknown device: ..."), or `otherwise` when it gave none. */
 export function said(reason: string, otherwise: string): string {
@@ -118,10 +119,13 @@ export class Link {
       this.ws = null;
       this.welcomed = false;
       clearInterval(this.ping);
+      // Turned away for good: only pairing again, or another version, puts these right, so they are not dialled again at once.
       if (event.code === UNAUTHORIZED) return this.options.onState("unpaired", said(event.reason, "KOS does not take this Chrome's pairing any more. Pair again."));
+      if (event.code === VERSION) return this.options.onState("refused", said(event.reason, "KOS speaks another version of the protocol. Update this extension."));
+      // Another copy of this pairing in its place: dialling again would only put that one out in turn.
       if (event.code === REPLACED) return this.options.onState("refused", "Another copy of this extension connected to KOS in its place.");
-      if (event.code >= 4000 && event.reason) return this.options.onState("refused", said(event.reason, ""));
-      this.options.onState("offline");
+      // Any other close, KOS's own reason said, is dialled again, later each time.
+      this.options.onState("offline", event.code >= 4000 && event.reason ? `${said(event.reason, "")} Trying again.` : undefined);
       if (this.stopped) return;
       const wait = Math.min(RETRY_MAX_MS, 1_000 * 2 ** this.retry++);
       this.redial = setTimeout(() => {
