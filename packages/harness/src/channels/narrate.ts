@@ -37,7 +37,7 @@ export class TurnNarrator {
       case "tool-end": {
         if (!event.isError) return false;
         const last = this.lines.length - 1;
-        if (last >= 0 && this.lines[last]!.startsWith(STEP_MARK)) this.lines[last] = `${this.lines[last]} (failed)`;
+        if (last >= 0 && this.lines[last]!.startsWith(STEP_MARK)) this.lines[last] = `${this.lines[last]!.trimEnd()} (failed)`;
         return true;
       }
       case "turn-end":
@@ -81,4 +81,34 @@ function tail(text: string, max: number): string {
   const cut = text.slice(-max);
   const atLine = cut.indexOf("\n");
   return `…${atLine > 0 && atLine < 120 ? cut.slice(atLine + 1) : cut}`;
+}
+
+/** How many step lines a short story keeps; the ones before are counted. */
+const KEEP_STEPS = 8;
+/** A step line longer than this is cut, so eight of them stay well inside a message. */
+const STEP_LINE_MAX = 160;
+
+/**
+ * A story short enough to read at a glance, for a surface that redraws one
+ * message: a run of the same step is one line with "×N", a step that runs
+ * long is cut, and only the last few steps are kept under a line counting
+ * the rest. A story that came already cut ("…") counts its earlier steps
+ * as at least so many.
+ */
+export function shortStory(story: string, keep = KEEP_STEPS): string {
+  const cut = story.startsWith("…");
+  const lines: { text: string; times: number }[] = [];
+  for (const raw of (cut ? story.slice(1) : story).split("\n")) {
+    const line = raw.startsWith(STEP_MARK) && raw.length > STEP_LINE_MAX ? `${raw.slice(0, STEP_LINE_MAX - 1)}…` : raw;
+    const last = lines[lines.length - 1];
+    if (last && line.startsWith(STEP_MARK) && last.text === line) last.times += 1;
+    else lines.push({ text: line, times: 1 });
+  }
+  const steps = lines.filter((l) => l.text.startsWith(STEP_MARK));
+  const first = steps.length > keep ? lines.indexOf(steps[steps.length - keep]!) : 0;
+  const earlier = lines.slice(0, first).reduce((n, l) => n + (l.text.startsWith(STEP_MARK) ? l.times : 0), 0);
+  const shown = lines.slice(first).map((l) => (l.times > 1 ? `${l.text} ×${l.times}` : l.text));
+  if (!earlier && !cut) return shown.join("\n");
+  const count = earlier ? `${earlier}${cut ? "+" : ""} earlier step${earlier === 1 && !cut ? "" : "s"}` : "Earlier steps";
+  return [`${STEP_MARK}${count}`, ...shown].join("\n");
 }

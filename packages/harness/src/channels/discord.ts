@@ -30,7 +30,7 @@ import type { Guest } from "./types.js";
 import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
 import { linkMentions, linkPaths, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
 import { tablesToCode } from "./tables.js";
-import { STEP_MARK } from "./narrate.js";
+import { shortStory, STEP_MARK } from "./narrate.js";
 import { MESSAGE_LIMITS } from "./types.js";
 import type {
   ApprovalHandler,
@@ -111,11 +111,11 @@ function withTimes(text: string, timezone?: string): string {
   return outsideCode(text, (part) => withUnixTimes(part, timezone));
 }
 
-/** A turn's story as Discord shows it: the agent's words plain, its steps small, the files a step names linked. */
+/** A turn's story as Discord shows it: its last steps small under a count of the rest, the agent's words plain, the files a step names linked. */
 export function storyText(status: string, dashboardUrl?: string, timezone?: string, labelOf?: LabelOf): string {
   // References in the story link where they link in the answer, or the
   // same name reads as a token in one place and a link in the other.
-  return noPreviews(linkMentions(withTimes(status, timezone), dashboardUrl, labelOf))
+  return noPreviews(linkMentions(withTimes(shortStory(status), timezone), dashboardUrl, labelOf))
     .split("\n")
     .map((line) => (line.startsWith(STEP_MARK) ? `-# ${linkPaths(line, dashboardUrl)}` : line))
     .join("\n")

@@ -248,6 +248,10 @@ describe("the answer a turn shaped", () => {
     expect(edits[4]).toEqual({ content: "Cleared two stale builds." });
     expect(edits).toHaveLength(5);
     expect(storyText("x".repeat(3000)).length).toBe(1900);
+    // A long run reads as its last steps, repeats folded, under a count of the rest.
+    const run = ["› Look at the screen", "› Look at the screen", ...Array.from({ length: 20 }, (_, i) => `› Step ${i + 1}`)].join("\n");
+    expect(storyText(run)).toBe(["-# › 14 earlier steps", ...Array.from({ length: 8 }, (_, i) => `-# › Step ${i + 13}`)].join("\n"));
+    expect(storyText("› Look at the screen\n› Look at the screen")).toBe("-# › Look at the screen ×2");
     // A reference in the story links as it does in the answer, so the same
     // name is not a token in one message and a link in the next.
     expect(storyText("Reading it.\n› Read @page:home", "https://kos.example")).toBe("Reading it.\n-# › Read [home](<https://kos.example/#/page/home>)");
@@ -590,7 +594,7 @@ describe("a prompt with a picture", () => {
     expect(files).toHaveLength(1);
     expect(files[0]?.name).toBe("page.jpg");
     expect(files[0]?.attachment.toString("utf8")).toBe("PIC");
-    expect(String(payloads[0]?.content)).toContain("click @e5");
+    expect(String(payloads[0]?.content)).toMatch(/Click[^]*@e5/);
     expect(String(payloads[0]?.content)).toContain("on shop.example");
   });
 });
