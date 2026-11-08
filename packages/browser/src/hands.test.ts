@@ -1,19 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { act, type Tab } from "./hands.js";
 import type { Page } from "./page.js";
 
 /** A page that counts its round trips: where it is, and what a look asks of it. */
-function fakeTab(urls: string[], onStep: (signal?: AbortSignal) => void = () => undefined) {
+function fakeTab(urls: string[], onStep: (signal?: AbortSignal, step?: unknown) => void = () => undefined) {
   const asked = { whereAmI: 0, index: 0, capture: 0, steps: 0 };
   let at = 0;
   const page = {
     run: <T>(work: () => Promise<T>) => work(),
     ready: async () => undefined,
     release: async () => undefined,
-    step: async (_step: unknown, signal?: AbortSignal) => {
+    step: async (step: unknown, signal?: AbortSignal) => {
       asked.steps++;
-      onStep(signal);
+      onStep(signal, step);
       at = Math.min(at + 1, urls.length - 1);
       return "Clicked Next";
     },
@@ -70,5 +70,30 @@ describe("a run of steps", () => {
     const { tab } = fakeTab(["http://shop.test/1"], (signal) => given.push(signal));
     await act(tab, [{ click: "@e1" }] as never[], "none", stop.signal);
     expect(given).toEqual([stop.signal]);
+  });
+
+  describe("waits", () => {
+    afterEach(() => void vi.useRealTimers());
+
+    it("draws a wait for the page from the call's one budget, and stops when it is spent", async () => {
+      vi.useFakeTimers();
+      const limits: number[] = [];
+      // Each wait for the page takes as long as it was allowed.
+      const { tab } = fakeTab(["http://shop.test/1"], (_signal, step) => {
+        const ms = (step as { wait: { ms: number } }).wait.ms;
+        limits.push(ms);
+        vi.advanceTimersByTime(ms);
+      });
+      const waits = Array.from({ length: 5 }, () => ({ wait: { text: "Done" } })) as never[];
+      await expect(act(tab, waits, "none")).rejects.toThrow(/Step 5 \(wait\) failed: no time was left to wait \(one call waits at most 60s in all\)/);
+      expect(limits).toEqual([15_000, 15_000, 15_000, 15_000]);
+    });
+
+    it("gives back what a wait for the page did not use", async () => {
+      const limits: number[] = [];
+      const { tab } = fakeTab(["http://shop.test/1"], (_signal, step) => void limits.push((step as { wait: { ms: number } }).wait.ms));
+      await act(tab, Array.from({ length: 6 }, () => ({ wait: { text: "Done" } })) as never[], "none");
+      expect(limits.every((ms) => ms >= 14_900)).toBe(true);
+    });
   });
 });

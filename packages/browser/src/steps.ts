@@ -21,8 +21,18 @@ export type Step =
   | { check: string }
   | { uncheck: string }
   | { scroll: string }
-  | { wait: number | { text: string } | { selector: string } | { gone: string } }
+  | { wait: number | WaitFor }
   | { dialog: { accept: boolean; text?: string } };
+
+/**
+ * A wait for something on the page: words to appear, an element, or words to
+ * go. `ms` is the most it may take, handed down from the call's one budget;
+ * the page's own limit when absent. Never read from the model's input.
+ */
+export type WaitFor = ({ text: string } | { selector: string } | { gone: string }) & { ms?: number };
+
+/** The longest one wait for something on the page takes. */
+export const WAIT_FOR_MS = 15_000;
 
 export const STEP_KEYS = ["open", "go", "click", "dblclick", "rightclick", "drag", "hover", "fill", "type", "press", "select", "check", "uncheck", "scroll", "wait", "dialog"] as const;
 

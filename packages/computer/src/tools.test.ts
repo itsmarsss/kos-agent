@@ -317,6 +317,18 @@ describe("the computer tools", () => {
     expect(fake.calls.map((c) => c.method)).toContain("session.end");
   });
 
+  it("count the settle before the picture against the call's one wait budget", async () => {
+    const { call, pair } = setup({ settleMs: 450 });
+    const fake = pair();
+    await call("computer.start", { task: "t" });
+    await call("computer.act", { action: "left_click", coordinate: [10, 20] });
+    expect(fake.calls.at(-1)).toMatchObject({ method: "screen.capture", params: { settle: 450 } });
+    // A wait of the whole budget leaves nothing to settle in: the picture is taken at once.
+    await call("computer.act", { action: "wait", duration: 60 });
+    expect(fake.calls.at(-1)?.method).toBe("screen.capture");
+    expect(fake.calls.at(-1)?.params).not.toHaveProperty("settle");
+  });
+
   it("claim no more than that a device call Stop answered may have finished", async () => {
     const stop = new AbortController();
     const { call, pair } = setup();

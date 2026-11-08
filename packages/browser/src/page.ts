@@ -2,7 +2,7 @@ import type { CdpEvent } from "./cdp.js";
 import * as inpage from "./inpage.js";
 import { parseKeys, type KeyPress } from "./keys.js";
 import { indexOf, Refs, treeOf, type AxNode, type PageIndex } from "./snapshot.js";
-import type { Step } from "./steps.js";
+import { WAIT_FOR_MS, type Step } from "./steps.js";
 
 /**
  * One tab's hands.
@@ -55,8 +55,6 @@ const EVAL_MS = 10_000;
 const DRAG_STEPS = 8;
 const AX_MS = 20_000;
 const INPUT_MS = 10_000;
-/** How long a wait for text or an element may take. */
-const WAIT_FOR_MS = 15_000;
 /** How much of a page's text, or of a script's answer, is handed back. */
 const READ_MAX = 24_000;
 /** Embedded frames read into a look, at most. */
@@ -515,12 +513,13 @@ export class Page {
     }
     const [kind, value] = "text" in what ? (["text", what.text] as const) : "selector" in what ? (["selector", what.selector] as const) : (["gone", what.gone] as const);
     const check = `(${inpage.present.toString()})(${JSON.stringify(kind)}, ${JSON.stringify(value)})`;
-    const end = this.now() + WAIT_FOR_MS;
+    const limit = what.ms ?? WAIT_FOR_MS;
+    const end = this.now() + limit;
     while (this.now() < end) {
       if (await this.value<boolean>(check, 3_000).catch(() => false)) return kind === "gone" ? `"${value}" went` : `"${value}" appeared`;
       await sleep(200);
     }
-    throw new Error(`waited ${WAIT_FOR_MS / 1000}s and ${JSON.stringify(value)} ${kind === "gone" ? "is still there" : "never appeared"}`);
+    throw new Error(`waited ${limit / 1000}s and ${JSON.stringify(value)} ${kind === "gone" ? "is still there" : "never appeared"}`);
   }
 
   // The parts.

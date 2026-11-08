@@ -19,15 +19,28 @@ export const WAIT_BUDGET_MS = 60_000;
 /** What a run may come back with after it: a picture, the page as text (web), or nothing. */
 export type ActThen = "look" | "snapshot" | "read" | "none";
 
-/** The waits of one call, shared by every action in it. */
+/**
+ * The waits of one call, shared by every wait in it: a pause, a wait for
+ * words to appear, the screen's settle. None runs past the run's deadline
+ * either, so a long wait ends with the run rather than overrunning it.
+ */
 export class WaitBudget {
-  constructor(private leftMs = WAIT_BUDGET_MS) {}
+  constructor(
+    private leftMs = WAIT_BUDGET_MS,
+    private readonly endsAt = Number.POSITIVE_INFINITY,
+    private readonly now: () => number = Date.now,
+  ) {}
 
-  /** As much of `ms` as is left, taken. */
+  /** As much of `ms` as is left, and as there is time for before the deadline, taken. */
   take(ms: number): number {
-    const granted = Math.max(0, Math.min(ms, this.leftMs));
+    const granted = Math.max(0, Math.min(ms, this.leftMs, this.endsAt - this.now()));
     this.leftMs -= granted;
     return granted;
+  }
+
+  /** What a wait was granted and did not use, given back: one that ended early left the rest for the next. */
+  refund(ms: number): void {
+    this.leftMs += Math.max(0, ms);
   }
 }
 
@@ -62,6 +75,8 @@ export interface RunAdapter<A> {
 
 export interface RunOptions {
   signal?: AbortSignal;
+  /** The call's wait budget, when it waits outside the run too (a settle after it); made for the run when absent. */
+  waits?: WaitBudget;
   /** The longest the whole run may take. */
   deadlineMs?: number;
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
@@ -140,7 +155,7 @@ export async function runActions<A>(adapter: RunAdapter<A>, raw: unknown[], opti
   const sleep = options.sleep ?? pause;
   const now = options.now ?? Date.now;
   const start = now();
-  const waits = new WaitBudget();
+  const waits = options.waits ?? new WaitBudget(WAIT_BUDGET_MS, options.deadlineMs === undefined ? Number.POSITIVE_INFINITY : start + options.deadlineMs, now);
   const done: string[] = [];
   for (const [index, action] of actions.entries()) {
     if (signal?.aborted) throw new RunError(done, stoppedAt(index));

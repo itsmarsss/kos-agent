@@ -1,6 +1,6 @@
 import { fenced } from "@kos/browser";
 import { isAttended, isOwnerTurn, ownWordsOn, turnStop, type AuditEntry, type KosModule, type ModuleContext, type ToolRisk } from "@kos/harness";
-import { ScreenMemory, UNCHANGED, WAIT_BUDGET_MS, abortable, actionsOf, doneText, hasActions, runActions, type RunAdapter, type WaitBudget } from "@kos/shared";
+import { ScreenMemory, UNCHANGED, WAIT_BUDGET_MS, WaitBudget, abortable, actionsOf, doneText, hasActions, runActions, type RunAdapter } from "@kos/shared";
 
 import type { OwnerChrome } from "./chrome.js";
 import type { DeviceHub, Session } from "./hub.js";
@@ -299,8 +299,8 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
   };
 
   /** A picture of the session's screen, or a part of it, as a tool result. */
-  const look = async (chat: string, prefix: string, region?: { x: number; y: number; width: number; height: number }, settle = false, always = false): Promise<Look> => {
-    const result = await hub.act(chat, "screen.capture", { ...(region ? { region } : {}), ...(settle && !region ? { settle: deps.settleMs ?? SETTLE_MS } : {}) });
+  const look = async (chat: string, prefix: string, region?: { x: number; y: number; width: number; height: number }, settleMs = 0, always = false): Promise<Look> => {
+    const result = await hub.act(chat, "screen.capture", { ...(region ? { region } : {}), ...(settleMs > 0 && !region ? { settle: settleMs } : {}) });
     if (result.settled === true) settling.add(chat);
     const capture = readCapture(result);
     const text = `${prefix}${prefix ? " " : ""}${describe(capture, region !== undefined)}`.trim();
@@ -310,10 +310,15 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     return { text, images: [{ mediaType: capture.mediaType, data: capture.image }] };
   };
 
-  /** The picture once an action has landed: settled by the computer where it can, after the fixed wait where it cannot. */
-  const afterAction = async (chat: string, said: string): Promise<Look> => {
-    if (!settling.has(chat)) await sleep(deps.settleMs ?? SETTLE_MS);
-    return look(chat, said, undefined, true);
+  /**
+   * The picture once an action has landed: settled by the computer where it
+   * can, after the fixed wait where it cannot. The settle is a wait like any
+   * other, drawn from the call's budget.
+   */
+  const afterAction = async (chat: string, said: string, waits: WaitBudget): Promise<Look> => {
+    const settle = waits.take(deps.settleMs ?? SETTLE_MS);
+    if (!settling.has(chat) && settle > 0) await sleep(settle);
+    return look(chat, said, undefined, settle);
   };
 
   const inSpace = (session: Session, p: Point, name: string): Point => {
@@ -436,7 +441,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       ? `the ${session.target.app ?? "app"} window${session.target.title ? ` "${session.target.title}"` : ""} on ${device.name}, and only it`
       : device.name;
     const until = untilText(session, lasting, "computer.end");
-    return look(chat, `Using ${shared} ${until}. Coordinates are pixels of this picture.`, undefined, false, true);
+    return look(chat, `Using ${shared} ${until}. Coordinates are pixels of this picture.`, undefined, 0, true);
   };
 
   /**
@@ -538,10 +543,12 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     const looks = raw.some(isLook);
     const actions = raw.filter((item) => !isLook(item));
     const signal = turnStop.getStore();
-    const done = actions.length ? await runActions(deviceActions(chat, session), actions, signal ? { signal, sleep } : { sleep }) : [];
+    // One budget for the call: its waits, and the settle before its picture.
+    const waits = new WaitBudget();
+    const done = actions.length ? await runActions(deviceActions(chat, session), actions, { sleep, waits, ...(signal ? { signal } : {}) }) : [];
     const said = doneText(done);
     if (!lookAfter && !looks) return said;
-    return afterAction(chat, said);
+    return afterAction(chat, said, waits);
   };
 
   const registerComputer = (ctx: ModuleContext): void => {
@@ -657,7 +664,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
           const lookAfter = input.then !== "none";
           if (raw) return await run(chat, session, raw, lookAfter);
           // Asked for outright, the picture is sent: the model may not have the last one any more.
-          if (action === "screenshot") return await look(chat, "", undefined, false, true);
+          if (action === "screenshot") return await look(chat, "", undefined, 0, true);
           if (action === "zoom") {
             const r = input.region;
             if (!Array.isArray(r) || r.length !== 4 || !r.every((n) => typeof n === "number")) throw new Error("zoom needs region [x1, y1, x2, y2]");

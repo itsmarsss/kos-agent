@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { UNCHANGED, WAIT_BUDGET_MS, doneText, pause, runActions, type ActThen, type RunAdapter } from "@kos/shared";
 
 import type { Page } from "./page.js";
-import { parseStep, type Step } from "./steps.js";
+import { WAIT_FOR_MS, parseStep, type Step } from "./steps.js";
 
 /**
  * The browser in few calls.
@@ -164,6 +164,17 @@ function webSteps(page: Page): RunAdapter<Step> {
         const ms = waits.take(step.wait);
         await pause(ms, signal);
         return ms < step.wait ? `waited ${ms}ms (one call waits at most ${WAIT_BUDGET_MS / 1000}s in all)` : `waited ${ms}ms`;
+      }
+      // A wait for the page draws on the same budget, and gives back what it did not use.
+      if ("wait" in step && typeof step.wait === "object") {
+        const ms = waits.take(WAIT_FOR_MS);
+        if (ms === 0) throw new Error(`no time was left to wait (one call waits at most ${WAIT_BUDGET_MS / 1000}s in all)`);
+        const from = Date.now();
+        try {
+          return await page.step({ wait: { ...step.wait, ms } }, signal);
+        } finally {
+          waits.refund(ms - (Date.now() - from));
+        }
       }
       return page.step(step, signal);
     },

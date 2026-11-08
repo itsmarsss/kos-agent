@@ -78,6 +78,21 @@ describe("the shared runner", () => {
     expect([budget.take(60), budget.take(60), budget.take(1)]).toEqual([60, 40, 0]);
   });
 
+  it("gives back what a wait did not use, and runs no wait past the run's deadline", async () => {
+    const budget = new WaitBudget(100);
+    budget.take(100);
+    budget.refund(30);
+    expect(budget.take(50)).toBe(30);
+    let t = 0;
+    const clocked = new WaitBudget(60_000, 1_000, () => t);
+    t = 400;
+    expect(clocked.take(10_000)).toBe(600);
+    // Inside the runner, a long wait is cut at the deadline too.
+    const clock = [0, 0, 0, 9_000];
+    const now = (): number => clock.shift() ?? 9_000;
+    expect(await runActions(surface(), ["wait:50000"], { deadlineMs: 10_000, now })).toEqual(["waited 10000ms"]);
+  });
+
   it("runs out of time at its deadline", async () => {
     const clock = [0, 5, 30];
     const run = runActions(surface(), ["a", "b"], { deadlineMs: 10, now: () => clock.shift() ?? 30 });
