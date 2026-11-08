@@ -1,10 +1,11 @@
 import { CHAT_COMMANDS, KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { AskSteps, BoltIcon, ChevronDown, Chips, CloseIcon, Collapse, ComposeIcon, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, SendIcon, spring, StepsIcon, type Tone, useDismiss, WorkingDots } from "@kos/kit";
+import { AskSteps, BoltIcon, ChevronDown, Chips, CloseIcon, Collapse, ComposeIcon, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, SendIcon, spring, StepsIcon, type Tone, useDismiss, useOverlayScroll, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
 
+import { linkWords } from "./linkwords.js";
 import { isHidden } from "./settings.js";
 import { ask, minutesLeft, minutesWords } from "./pages.js";
 import type { ConsentRequest, KosState, PopupState } from "./worker.js";
@@ -459,7 +460,9 @@ function Panel(): ReactElement {
               </m.span>
             </button>
           ) : (
-            <span className="sub">{state?.kos.length ? (silent ? "This KOS cannot talk here yet" : "Not connected") : "Not paired yet"}</span>
+            <span className="sub" title={k ? linkWords(k).detail : undefined}>
+              {!state?.kos.length ? "Not paired yet" : silent ? "This KOS cannot talk here yet" : k ? linkWords(k).word : "Connecting"}
+            </span>
           )}
         </div>
         {state && state.kos.length > 1 && <KosPicker all={state.kos} chosen={kos} choose={(id) => say({ type: "kos", id })} />}
@@ -651,6 +654,7 @@ function Thread({
   quotes: Map<string, string>;
 }): ReactElement {
   const scroller = useRef<HTMLDivElement>(null);
+  const scroll = useOverlayScroll(scroller);
   const pinned = useRef(true);
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -682,7 +686,7 @@ function Thread({
   return (
     <div
       className="thread"
-      ref={scroller}
+      ref={scroll}
       onScroll={(e) => {
         const el = e.currentTarget;
         pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
@@ -1041,7 +1045,7 @@ function Composer({
         ref={box}
         rows={1}
         value={text}
-        placeholder={online ? (quoting ? "Ask about the selection" : "Message KOS, / for commands, @ to name things") : k?.held ? "Disconnected. Connect it from the KOS icon." : "KOS is not connected"}
+        placeholder={online ? (quoting ? "Ask about the selection" : "Message KOS, / for commands, @ to name things") : k?.held ? "Paused. Connect it from the KOS icon." : k ? `${linkWords(k).word}. See the KOS icon.` : "KOS is not connected"}
         disabled={!online}
         onChange={(e) => {
           setText(e.target.value);

@@ -10,7 +10,7 @@ import {
 
 import { AnimatePresence, m } from "motion/react";
 import { stepMechanics, summarizeAction } from "@kos/shared";
-import { ArchiveIcon, AskSteps, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, WorkingDots, WrenchIcon } from "@kos/kit";
+import { ArchiveIcon, AskSteps, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { Decision } from "./Decision.js";
 import { VoiceInput } from "./VoiceInput.js";
@@ -500,6 +500,9 @@ export function ChatsPage({
     });
   };
   const boxRef = useRef<HTMLDivElement>(null);
+  const threadScroll = useOverlayScroll(boxRef);
+  const railScroll = useOverlayScroll<HTMLDivElement>();
+  const inlineScroll = useOverlayScroll<HTMLDivElement>();
 
   const active = conversations.find((c) => c.id === activeId);
   /*
@@ -1663,7 +1666,7 @@ export function ChatsPage({
           {/* One scroll for the whole rail. The projects used to stand still
               while only the chats under them scrolled, so with ten projects
               the chats had a strip at the bottom of the screen. */}
-          <div className="chats-scroll">
+          <div className="chats-scroll" ref={railScroll}>
             {showArchived ? (
               <section className="rail-group is-open">
                 <div className="rail-group-head">
@@ -1929,7 +1932,7 @@ export function ChatsPage({
 
       <section className={`chats-view${inline ? " has-inline" : ""}`}>
         {inline && (
-          <div className="chats-inline">
+          <div className="chats-inline" ref={inlineScroll}>
             <ArtifactViewer
               ref={viewer}
               id={inline}
@@ -2282,7 +2285,7 @@ export function ChatsPage({
             {/* The thread knows the chats and agents by name, so a chip can
                 read "Lane A" rather than the id it is addressed by. */}
             <MentionNames resolve={nameFor} hrefOf={channelHref}>
-            <div className="chats-thread" ref={boxRef}>
+            <div className="chats-thread" ref={threadScroll}>
               {visible.length === 0 && <Empty inline>Nothing said yet.</Empty>}
               {(() => {
                 // Owner turns are numbered in order, because rewind addresses

@@ -1,8 +1,9 @@
 import { KOS_SEED, drawingOf, eyeAt, lookOf, outline, smoothPath, type FaceDrawing } from "@kos/shared";
 
 import { kosAddress, parsePairing, type Pairing } from "./address.js";
-import { deviceKeys, forgetKeys, publicKey } from "./keys.js";
+import { forgetKeys, keepKeys, keysFor, newKeys, publicKey } from "./keys.js";
 import { Link, type Hello, type LinkState } from "./link.js";
+import { Lines } from "./lines.js";
 import { note, recent } from "./log.js";
 import { iconPixels } from "./icon.js";
 import { installOverlay, type OverlayState } from "./overlay.js";
@@ -113,7 +114,6 @@ let pairings: Paired[] = [];
 let settings: ExtensionSettings = DEFAULTS;
 /** KOS the owner disconnected, kept across the worker's sleeps. */
 let held = new Set<string>();
-const links = new Map<string, Link>();
 const linkStates = new Map<string, { state: LinkState; detail?: string }>();
 let session: Session | undefined;
 /** The KOS whose session it is, or which is asking the owner for one. */
@@ -191,41 +191,44 @@ async function showFace(id: string, face: FaceDrawing): Promise<void> {
   if (owner === id) await paint();
 }
 
-/** Every KOS's line, up unless the owner held it. */
-async function connectAll(): Promise<void> {
-  for (const p of pairings) if (!held.has(p.device)) await connect(p);
+/** Every KOS's line, up unless the owner held it; with `unpairedToo`, one KOS no longer takes is tried again too. */
+const connectAll = (unpairedToo = false): Promise<void> => lines.connectAll(pairings, unpairedToo);
+const connect = (p: Paired): Promise<void> => lines.connect(p);
+
+function lineState(p: Paired, state: LinkState, detail?: string): void {
+  const id = p.device;
+  const was = linkStates.get(id);
+  linkStates.set(id, { state, ...(detail ? { detail } : {}) });
+  if (state !== was?.state || detail !== was?.detail) note(`${hostOf(p)}: ${state}${detail ? ` (${detail})` : ""}`);
+  if (state === was?.state) return;
+  void badge();
+  // A panel open on this KOS is shown its chat as soon as there is a line to show it on.
+  if (state === "online") for (const panel of panels) if (panel.kos === id) links.get(id)?.event("chat.open", {});
+  // A session lives on its connection: its KOS gone, KOS's hands gone; an ask it made is withdrawn.
+  if (state !== "online" && state !== "connecting" && owner === id) {
+    if (session) void end("host");
+    for (const asked of consents.values()) if (asked.origin === id) asked.answer({ allowed: false, minutes: 0 });
+  }
 }
 
-async function connect(p: Paired): Promise<void> {
-  const id = p.device;
-  const kept = links.get(id);
-  if (kept) return kept.start();
-  const keys = await deviceKeys();
-  const link = new Link({
-    url: p.url,
-    device: id,
-    hostKey: p.hostKey,
-    keys,
-    hello: () => hello(id),
-    onCall: (method, params) => answer(method, params, id),
-    onFace: (face) => void showFace(id, face),
-    onState: (state, detail) => {
-      const was = linkStates.get(id)?.state;
-      linkStates.set(id, { state, ...(detail ? { detail } : {}) });
-      if (state !== was) note(`${hostOf(p)}: ${state}${detail ? ` (${detail})` : ""}`);
-      if (state !== was) void badge();
-      // A panel open on this KOS is shown its chat as soon as there is a line to show it on.
-      if (state === "online" && state !== was) for (const panel of panels) if (panel.kos === id) links.get(id)?.event("chat.open", {});
-      // A session lives on its connection: its KOS gone, KOS's hands gone; an ask it made is withdrawn.
-      if (state !== "online" && state !== "connecting" && owner === id) {
-        if (session) void end("host");
-        for (const asked of consents.values()) if (asked.origin === id) asked.answer({ allowed: false, minutes: 0 });
-      }
-    },
-  });
-  links.set(id, link);
-  link.start();
-}
+const lines = new Lines<Link>({
+  keysFor,
+  link: (p, keys) =>
+    new Link({
+      url: p.url,
+      device: p.device,
+      hostKey: p.hostKey,
+      keys,
+      hello: () => hello(p.device),
+      onCall: (method, params) => answer(method, params, p.device),
+      onFace: (face) => void showFace(p.device, face),
+      onState: (state, detail) => lineState(p, state, detail),
+    }),
+  wanted: (id) => !!pairingOf(id) && !held.has(id),
+  stateOf: (id) => linkStates.get(id)?.state,
+  setState: lineState,
+});
+const links = lines.links;
 
 /** The KOS icon says a session is on, the owner has it, or how long it has left. */
 function badgeText(): string {
@@ -674,7 +677,8 @@ function popupState(): PopupState {
   const { askFirst: _perKos, ...shown } = settings;
   return {
     kos: pairings.map((p) => {
-      const line = linkStates.get(p.device) ?? { state: "offline" as const };
+      // A line not dialled yet is about to be, unless the owner held it.
+      const line = linkStates.get(p.device) ?? { state: held.has(p.device) ? ("offline" as const) : ("connecting" as const) };
       return {
         id: p.device,
         url: p.url,
@@ -703,10 +707,12 @@ function popupState(): PopupState {
   };
 }
 
-/** Paired with a KOS: another line beside the rest, or in place of the one to the same KOS, which keeps its rule about asking first. */
-/** Pair with a KOS: by its address and code, as the popup asks, or by the link the dashboard gives. */
+/**
+ * Pair with a KOS, by its address and code as the popup asks, or by the link the dashboard gives: another line beside the
+ * rest, or in place of the one to the same KOS, which keeps its rule about asking first.
+ */
 async function pair({ url, code }: Pairing, name: string): Promise<void> {
-  const keys = await deviceKeys();
+  const keys = await newKeys();
   // Sent as plain text, a request a page may make without asking first; KOS reads it as JSON, and lets any origin read its answer.
   const res = await fetch(`${url}/api/devices/pair`, {
     method: "POST",
@@ -719,8 +725,13 @@ async function pair({ url, code }: Pairing, name: string): Promise<void> {
   const next: Paired = { url, device: body["device"], hostKey: body["hostKey"], name };
   const replaced = replacedBy(next, pairings);
   const keep = replaced[0] ? asksFirst(settings, replaced[0].device) : true;
-  // That KOS made a new device for this pairing; the old one goes from its list.
-  for (const old of replaced) await forgetLine(old.device, true);
+  // That KOS made a new device for this pairing; the old one goes from its list, and its key with it, before the new key is kept:
+  // a KOS that gave the same id again must not lose the key just kept for it.
+  for (const old of replaced) {
+    await forgetLine(old.device, old.device !== next.device);
+    if (old.device !== next.device) await forgetKeys(old.device, false);
+  }
+  await keepKeys(next.device, keys);
   pairings = adding(next, pairings);
   settings.askFirst[next.device] = keep;
   await Promise.all([savePairings(), saveSettings(), saveHeld()]);
@@ -745,8 +756,8 @@ async function unpair(id: string): Promise<void> {
   await forgetLine(id, true);
   pairings = removing(id, pairings);
   await Promise.all([savePairings(), saveSettings(), saveHeld()]);
-  // One key answers every KOS; with none left, the next pairing makes a new one.
-  if (!pairings.length) await forgetKeys();
+  // Its key goes with it; the one key an older version shared goes once no pairing is left to use it.
+  await forgetKeys(id, !pairings.length);
   note(`unpaired from ${p ? hostOf(p) : id}`);
 }
 
@@ -770,6 +781,8 @@ async function setAskFirst(id: string, on: boolean): Promise<void> {
   settings.askFirst[id] = on;
   await saveSettings();
   links.get(id)?.consent(on ? "device" : "kos");
+  // A changed rule is the owner at the popup: a KOS that turned this Chrome away is tried again.
+  void connectAll(true);
   note(`${hostOf(pairingOf(id) ?? { url: id })}: ${on ? "asks here first" : "its approvals decide"}`);
 }
 
@@ -777,6 +790,7 @@ async function changeSettings(patch: Record<string, unknown>): Promise<void> {
   settings = readSettings({ ...settings, ...patch, askFirst: settings.askFirst });
   await saveSettings();
   await badge();
+  void connectAll(true);
 }
 
 async function hide(text: string): Promise<void> {
@@ -1131,5 +1145,5 @@ chrome.runtime.onStartup.addListener(() => {
 
 // Awake: connected if paired, and checked every minute in case the worker slept.
 chrome.alarms.create("kos", { periodInMinutes: 1 });
-chrome.alarms.onAlarm.addListener(() => void ready.then(connectAll));
-void ready.then(connectAll);
+chrome.alarms.onAlarm.addListener(() => void ready.then(() => connectAll()));
+void ready.then(() => connectAll());

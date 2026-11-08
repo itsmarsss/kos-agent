@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { FakeDevice } from "./device.fixture.js";
 import { DeviceHub, PairError } from "./hub.js";
 import { rawPublicKey } from "./keys.js";
-import { DeviceError } from "./link.js";
+import { DeviceError, REFUSED_REASON } from "./link.js";
 import { PairingCodes } from "./pairing.js";
 import { CLOSE } from "./protocol.js";
 import { DeviceStore } from "./store.js";
@@ -17,7 +17,7 @@ const hostKey = { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) 
 
 function setup(over: { halted?: () => boolean; face?: () => FaceDrawing } = {}) {
   const store = new DeviceStore(openDatabase(":memory:"));
-  const hub = new DeviceHub({ store, hostKey, halted: over.halted ?? (() => false), beginTimeoutMs: 200, callTimeoutMs: 200, ...(over.face ? { face: over.face } : {}) });
+  const hub = new DeviceHub({ store, hostKey, halted: over.halted ?? (() => false), log: () => undefined, beginTimeoutMs: 200, callTimeoutMs: 200, ...(over.face ? { face: over.face } : {}) });
   return { store, hub };
 }
 
@@ -140,6 +140,72 @@ describe("a device connecting", () => {
     stranger.hello();
     expect(stranger.closed?.code).toBe(CLOSE.unauthorized);
     expect(hub.list()[0]?.online).toBe(true);
+  });
+
+  it("names the check a refused hello failed, in the close and once a minute per id in the log, with no key or signature", async () => {
+    let now = 1_000_000;
+    const lines: string[] = [];
+    const store = new DeviceStore(openDatabase(":memory:"));
+    const hub = new DeviceHub({ store, hostKey, halted: () => false, now: () => now, log: (l) => lines.push(l) });
+    const paired = await online(hub);
+    const refuse = (fake: FakeDevice, over: Record<string, unknown> = {}): FakeDevice => {
+      hub.accept(fake.socket);
+      fake.hello(over);
+      return fake;
+    };
+
+    const impostor = refuse(new FakeDevice(paired.id));
+    expect(impostor.closed).toEqual({ code: CLOSE.unauthorized, reason: REFUSED_REASON["bad signature"] });
+    const stranger = refuse(new FakeDevice("dev_nobody"));
+    expect(stranger.closed).toEqual({ code: CLOSE.unauthorized, reason: REFUSED_REASON["unknown device"] });
+    const old = refuse(new FakeDevice(paired.id), { protocol: 99 });
+    expect(old.closed).toEqual({ code: CLOSE.version, reason: REFUSED_REASON["protocol version"] });
+    expect(REFUSED_REASON["unknown device"]).toMatch(/^unknown device: .*pair again$/);
+
+    // Each check its own line, the same id too: a key that fails and then a version that does are two things to know.
+    expect(lines).toEqual([
+      `devices: refused ${paired.id} (macos 0.1.0 on 26.4.1): bad signature`,
+      "devices: refused dev_nobody (macos 0.1.0 on 26.4.1): unknown device",
+      `devices: refused ${paired.id} (macos 0.1.0 on 26.4.1): protocol version`,
+    ]);
+    for (const line of lines) {
+      expect(line).not.toContain(impostor.publicKey);
+      expect(line).not.toContain(paired.publicKey);
+    }
+    // The same id refused again within the minute says nothing more; after it, once again.
+    refuse(new FakeDevice("dev_nobody"));
+    expect(lines).toHaveLength(3);
+    now += 60_000;
+    refuse(new FakeDevice("dev_nobody"));
+    expect(lines.at(-1)).toBe("devices: refused dev_nobody (macos 0.1.0 on 26.4.1): unknown device");
+    // What a device claims is written as one printable line: no line breaks, no terminal escapes.
+    refuse(new FakeDevice("dev_\nfake log line"));
+    expect(lines.at(-1)).toMatch(/^devices: refused dev_\?fake log line \(/);
+    refuse(new FakeDevice("dev_\u001b[31mred"), { app: { version: "\u001b]0;title\u0007", platform: "chrome", os: "x" } });
+    expect(lines.at(-1)).toBe("devices: refused dev_?[31mred (chrome ?]0;title? on x): unknown device");
+    expect(lines.join("")).not.toMatch(/[\u0000-\u001f\u007f]/);
+    // A signature is never written, whatever the check.
+    refuse(new FakeDevice(paired.id), { signature: "c2lnbmF0dXJlLW1hcmtlcg==" });
+    expect(lines.join("\n")).not.toContain("c2lnbmF0dXJlLW1hcmtlcg==");
+    expect(hub.list()[0]?.online).toBe(true);
+  });
+
+  it("logs a flood of refused ids only so far, then again once their minute is up", () => {
+    let now = 1_000_000;
+    const lines: string[] = [];
+    const hub = new DeviceHub({ store: new DeviceStore(openDatabase(":memory:")), hostKey, halted: () => false, now: () => now, log: (l) => lines.push(l) });
+    const refuse = (id: string): void => {
+      const fake = new FakeDevice(id);
+      hub.accept(fake.socket);
+      fake.hello();
+    };
+    for (let i = 0; i < 150; i++) refuse(`dev_flood${i}`);
+    expect(lines).toHaveLength(100);
+    refuse("dev_late");
+    expect(lines).toHaveLength(100);
+    now += 60_000;
+    refuse("dev_late");
+    expect(lines.at(-1)).toBe("devices: refused dev_late (macos 0.1.0 on 26.4.1): unknown device");
   });
 
   it("is closed for another protocol, a frame before hello, or no hello at all", () => {

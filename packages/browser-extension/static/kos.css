@@ -46,7 +46,8 @@
 [hidden] { display: none !important; }
 body {
   margin: 0;
-  width: 340px;
+  /* Room for a KOS's address, its state and why in one card; Chrome allows a popup up to 800. */
+  width: 392px;
   padding: var(--gutter);
   background: var(--bg);
   color: var(--text);
@@ -57,11 +58,14 @@ p { margin: 0; }
 strong { font-weight: 600; }
 
 /* —— the head: KOS's face, the name, where it stands —— */
-.head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .head-actions { display: flex; gap: 2px; margin-right: -4px; }
-.head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.head-text strong { font-size: 15px; }
+.head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.head-text strong { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sub { color: var(--muted); font-size: 12px; }
+/* The state on a line of its own under the name: the pill, then which KOS it is. */
+.head-status { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.head-status .sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; }
 
 /* —— sections and cards —— */
 .stack { display: flex; flex-direction: column; gap: 14px; }
@@ -133,10 +137,16 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
 .foot svg { flex: none; margin-top: 1px; color: var(--faint); }
 .error { color: var(--danger); font-size: 12px; }
 
+/* —— why a KOS is not connected, under its row: two lines, the rest on hover —— */
+.kos-reason { display: flex; flex-direction: column; gap: 8px; padding: 9px 10px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--panel-2) 70%, transparent); }
+.kos-reason p { color: var(--muted); font-size: 12px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+
 /* —— pairing, as KOS for Mac asks for it —— */
+.pair-form { display: flex; flex-direction: column; gap: 10px; }
+.pair-form--again { padding-top: 2px; }
 .hint-row { display: flex; align-items: baseline; gap: 6px; }
 .hint-row .link { flex: none; margin-left: auto; }
-.pair-fields { display: grid; grid-template-columns: 112px 1fr; align-items: end; gap: 10px; }
+.pair-fields { display: grid; grid-template-columns: 128px 1fr; align-items: end; gap: 10px; }
 .pair-note { flex: 1; min-width: 0; color: var(--muted); font-size: 11.5px; }
 
 @media (prefers-reduced-motion: reduce) {

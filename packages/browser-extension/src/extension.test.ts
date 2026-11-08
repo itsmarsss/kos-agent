@@ -1,10 +1,13 @@
 import { KOS_SEED, drawingOf, lookOf } from "@kos/shared";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { isPrivatePath, kosAddress, parsePairing, socketUrl } from "./address.js";
 import { CallError, deviceProof, fromBase64, hostProof, readFrame, toBase64 } from "./protocol.js";
+import { Link, said, type Hello, type LinkState } from "./link.js";
+import { Lines } from "./lines.js";
+import { linkWords, needsPairing, type LineOf } from "./linkwords.js";
 import { installOverlay } from "./overlay.js";
-import { adding, readPairings, removing, replacedBy } from "./pairings.js";
+import { adding, readPairings, removing, replacedBy, type Paired } from "./pairings.js";
 import { checkCommand, forwards, isWebUrl } from "./relay.js";
 import { Session } from "./session.js";
 import { DEFAULTS, DEFAULT_HIDDEN, asksFirst, isHidden, readSettings, siteOf } from "./settings.js";
@@ -159,5 +162,138 @@ describe("the KOS this Chrome is paired with", () => {
     expect(adding(again, [home, work])).toEqual([again, work]);
     expect(adding({ ...work, url: home.url }, [home, work])).toEqual([{ ...work, url: home.url }]);
     expect(removing("d1", [home, work])).toEqual([work]);
+  });
+});
+
+describe("a KOS's line in words", () => {
+  const line = (over: Partial<LineOf>): LineOf => ({ host: "127.0.0.1:4317", name: "Chrome on macOS", link: "online", held: false, askFirst: true, ...over });
+
+  it("says KOS's own reason for turning this Chrome away, as a sentence, and a fallback when it gave none", () => {
+    expect(said("unknown device: KOS has no device by this id; pair again", "x")).toBe("Unknown device: KOS has no device by this id; pair again.");
+    expect(said("removed from KOS", "x")).toBe("Removed from KOS.");
+    expect(said("Already a sentence.", "x")).toBe("Already a sentence.");
+    expect(said("  ", "KOS gave no reason.")).toBe("KOS gave no reason.");
+  });
+
+  it("names each state precisely, and offers pairing again only where that is the fix", () => {
+    expect(linkWords(line({}))).toEqual({ word: "Connected", tone: "ok", detail: "As Chrome on macOS · asks here first" });
+    expect(linkWords(line({ link: "connecting" })).word).toBe("Connecting");
+    expect(linkWords(line({ link: "offline" }))).toMatchObject({ word: "Can't reach KOS", detail: "No answer from 127.0.0.1:4317. Trying again." });
+    const unpaired = line({ link: "unpaired", detail: "Bad signature: not signed by the key this device paired with; pair again." });
+    expect(linkWords(unpaired)).toMatchObject({ word: "Not paired", tone: "danger", detail: unpaired.detail });
+    expect(needsPairing(unpaired)).toBe(true);
+    expect(linkWords(line({ link: "refused", detail: "Another copy of this extension connected to KOS in its place." })).word).toBe("Refused");
+    expect(needsPairing(line({ link: "refused" }))).toBe(false);
+    // Held by the owner, whatever its line last was: paused, and nothing to pair.
+    expect(linkWords(line({ link: "unpaired", held: true })).word).toBe("Paused");
+    expect(needsPairing(line({ link: "unpaired", held: true }))).toBe(false);
+  });
+});
+
+describe("each KOS's line, opened once", () => {
+  const paired = (device: string): Paired => ({ url: "http://127.0.0.1:4317", device, hostKey: "k", name: "Chrome" });
+  const key = {} as CryptoKeyPair;
+  function setup(over: { keysFor?: (id: string) => Promise<CryptoKeyPair | undefined> } = {}) {
+    const held = new Set<string>();
+    const states = new Map<string, { state: LinkState; detail?: string }>();
+    const made: string[] = [];
+    const dials: string[] = [];
+    let reading: (() => void) | undefined;
+    const lines = new Lines({
+      keysFor: over.keysFor ?? (() => new Promise<CryptoKeyPair>((r) => (reading = () => r(key)))),
+      link: (p) => {
+        made.push(p.device);
+        return { start: () => void dials.push(p.device) };
+      },
+      wanted: (id) => !held.has(id),
+      stateOf: (id) => states.get(id)?.state,
+      setState: (p, state, detail) => void states.set(p.device, { state, ...(detail ? { detail } : {}) }),
+    });
+    return { lines, held, states, made, dials, read: () => reading?.() };
+  }
+
+  it("dials once when the worker's start and its alarm both ask while the key is read", async () => {
+    const { lines, made, dials, read } = setup();
+    const first = lines.connect(paired("dev_a"));
+    const second = lines.connect(paired("dev_a"));
+    read();
+    await Promise.all([first, second]);
+    expect(made).toEqual(["dev_a"]);
+    expect(dials).toEqual(["dev_a"]);
+    // Asked again, the same link dials again; no second is made.
+    await lines.connect(paired("dev_a"));
+    expect(made).toEqual(["dev_a"]);
+    expect(dials).toEqual(["dev_a", "dev_a"]);
+  });
+
+  it("does not open a line held while its key was read: Chrome opening with 'wait for Connect', or Disconnect pressed", async () => {
+    const { lines, held, made, read } = setup();
+    const opening = lines.connect(paired("dev_a"));
+    held.add("dev_a");
+    read();
+    await opening;
+    expect(made).toEqual([]);
+    expect(lines.links.size).toBe(0);
+  });
+
+  it("says a missing key or one it cannot read, and goes on to the other KOS", async () => {
+    const { lines, states, made } = setup({ keysFor: async (id) => (id === "dev_gone" ? undefined : id === "dev_broken" ? Promise.reject(new Error("the key store did not open")) : key) });
+    await lines.connectAll([paired("dev_broken"), paired("dev_gone"), paired("dev_ok")]);
+    expect(states.get("dev_broken")).toEqual({ state: "error", detail: "This Chrome could not read its key: the key store did not open" });
+    expect(states.get("dev_gone")).toEqual({ state: "unpaired", detail: "This Chrome no longer has the key it paired with. Pair again." });
+    expect(made).toEqual(["dev_ok"]);
+  });
+
+  it("leaves a line KOS no longer takes to the owner: the minute's round skips it, Try now or a changed setting dials it", async () => {
+    const { lines, states, dials } = setup({ keysFor: async () => key });
+    await lines.connect(paired("dev_a"));
+    states.set("dev_a", { state: "unpaired" });
+    await lines.connectAll([paired("dev_a")]);
+    expect(dials).toEqual(["dev_a"]);
+    await lines.connectAll([paired("dev_a")], true);
+    await lines.connect(paired("dev_a"));
+    expect(dials).toEqual(["dev_a", "dev_a", "dev_a"]);
+  });
+});
+
+describe("a line KOS closes", () => {
+  class FakeSocket {
+    static made: FakeSocket[] = [];
+    static readonly OPEN = 1;
+    readyState = 0;
+    onmessage: ((e: MessageEvent<string>) => void) | null = null;
+    onclose: ((e: { code: number; reason: string }) => void) | null = null;
+    constructor(readonly url: string) {
+      FakeSocket.made.push(this);
+    }
+    send(): void {}
+    close(): void {}
+  }
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    FakeSocket.made = [];
+  });
+
+  const closed = (code: number, reason: string) => {
+    vi.useFakeTimers();
+    vi.stubGlobal("WebSocket", FakeSocket);
+    FakeSocket.made = [];
+    const states: [LinkState, string | undefined][] = [];
+    const link = new Link({ url: "http://127.0.0.1:4317", device: "dev_a", hostKey: "k", keys: {} as CryptoKeyPair, hello: () => ({}) as Hello, onCall: async () => ({}), onFace: () => undefined, onState: (s, d) => void states.push([s, d]) });
+    link.start();
+    FakeSocket.made[0]!.onclose!({ code, reason });
+    vi.advanceTimersByTime(1_000);
+    return { states, dials: FakeSocket.made.length };
+  };
+
+  it("dials again, later each time, after any close but a refusal for good, and says KOS's reason meanwhile", () => {
+    expect(closed(4001, "unreadable frame")).toEqual({ states: [["connecting", undefined], ["offline", "Unreadable frame. Trying again."], ["connecting", undefined]], dials: 2 });
+    expect(closed(1006, "").dials).toBe(2);
+  });
+
+  it("waits for the owner after KOS does not take its pairing, or speaks another protocol", () => {
+    expect(closed(4003, "unknown device: KOS has no device by this id; pair again")).toEqual({ states: [["connecting", undefined], ["unpaired", "Unknown device: KOS has no device by this id; pair again."]], dials: 1 });
+    expect(closed(4010, "protocol version: KOS speaks protocol 2; update this app")).toMatchObject({ states: [["connecting", undefined], ["refused", "Protocol version: KOS speaks protocol 2; update this app."]], dials: 1 });
   });
 });

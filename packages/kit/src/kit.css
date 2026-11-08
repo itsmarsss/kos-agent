@@ -423,3 +423,18 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 
 /* What an ask would do, under the model's words for it: on the row, wrapped, never cut. */
 .ask-steps { display: block; margin-top: 2px; color: var(--muted); font-size: var(--text-sm); line-height: 1.4; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+
+/* —— overlay scrollbars (OverlayScroll.ts): the native bar hidden, a thin thumb laid over the edge —— */
+.kos-scroll { scrollbar-width: none; }
+/* Safari before 18.2 has no scrollbar-width; this hides its bar. */
+.kos-scroll::-webkit-scrollbar { display: none; }
+/* Beside the element in its parent, low in the stack, so the menus and popovers around it stay above it.
+   It takes no press while it only shows; only once the pointer is on it (data-grab). */
+.kos-thumb { position: absolute; z-index: 1; top: 0; left: 0; border-radius: 999px; background: color-mix(in srgb, var(--text) 30%, transparent); opacity: 0; pointer-events: none; touch-action: none; transform-origin: right center; transition: opacity 280ms ease, transform 140ms ease, background 140ms ease; }
+.kos-thumb--fixed { position: fixed; }
+.kos-thumb[data-shown] { opacity: 1; transition-duration: 120ms, 140ms, 140ms; }
+.kos-thumb[data-shown][data-grab] { pointer-events: auto; transform: scaleX(1.6); background: color-mix(in srgb, var(--text) 48%, transparent); }
+.kos-thumb[data-none] { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .kos-thumb { transition: none; }
+}

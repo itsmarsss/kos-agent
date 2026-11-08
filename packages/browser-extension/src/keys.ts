@@ -1,14 +1,20 @@
 import { fromBase64, toBase64 } from "./protocol.js";
 
 /**
- * The extension's own key: an Ed25519 pair made in the browser, the private
- * half never exportable, kept in the extension's IndexedDB (where a key can
- * be stored as a key, not as bytes anyone could copy out).
+ * The extension's keys: an Ed25519 pair for each KOS it is paired with,
+ * made in the browser, the private half never exportable, kept in the
+ * extension's IndexedDB (where a key can be stored as a key, not as bytes
+ * anyone could copy out). A key of its own for each pairing, so pairing a
+ * KOS again never meets the key that KOS already holds, and forgetting one
+ * pairing's key leaves the others' alone. Pairings made before that share
+ * the one key an older version kept.
  */
 
 const DB = "kos";
 const STORE = "keys";
-const DEVICE_KEY = "device";
+/** The one key an older version kept for every KOS. */
+const SHARED_KEY = "device";
+const keyOf = (device: string): string => `device:${device}`;
 
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -32,18 +38,26 @@ async function withStore<T>(mode: IDBTransactionMode, work: (store: IDBObjectSto
   }
 }
 
-/** The extension's key pair, made the first time. */
-export async function deviceKeys(): Promise<CryptoKeyPair> {
-  const kept = await withStore<CryptoKeyPair | undefined>("readonly", (s) => s.get(DEVICE_KEY) as IDBRequest<CryptoKeyPair | undefined>);
-  if (kept) return kept;
-  const made = (await crypto.subtle.generateKey({ name: "Ed25519" }, false, ["sign", "verify"])) as CryptoKeyPair;
-  await withStore("readwrite", (s) => s.put(made, DEVICE_KEY));
-  return made;
+const read = (name: string): Promise<CryptoKeyPair | undefined> => withStore("readonly", (s) => s.get(name) as IDBRequest<CryptoKeyPair | undefined>);
+
+/** The key this Chrome proves itself to that KOS with: its own, else the shared one; none when both are gone. */
+export async function keysFor(device: string): Promise<CryptoKeyPair | undefined> {
+  return (await read(keyOf(device))) ?? (await read(SHARED_KEY));
 }
 
-/** A new key the next time one is wanted: unpairing forgets this one. */
-export async function forgetKeys(): Promise<void> {
-  await withStore("readwrite", (s) => s.delete(DEVICE_KEY));
+/** A new key for a pairing, kept only once that KOS has taken it. */
+export async function newKeys(): Promise<CryptoKeyPair> {
+  return (await crypto.subtle.generateKey({ name: "Ed25519" }, false, ["sign", "verify"])) as CryptoKeyPair;
+}
+
+export async function keepKeys(device: string, keys: CryptoKeyPair): Promise<void> {
+  await withStore("readwrite", (s) => s.put(keys, keyOf(device)));
+}
+
+/** A pairing's key forgotten; with `shared`, the older version's one key too, once no pairing is left to use it. */
+export async function forgetKeys(device: string, shared: boolean): Promise<void> {
+  await withStore("readwrite", (s) => s.delete(keyOf(device)));
+  if (shared) await withStore("readwrite", (s) => s.delete(SHARED_KEY));
 }
 
 export async function publicKey(keys: CryptoKeyPair): Promise<string> {

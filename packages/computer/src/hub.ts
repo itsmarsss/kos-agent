@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import type { FaceDrawing } from "@kos/shared";
 
 import { publicKeyFromRaw, type HostKey } from "./keys.js";
-import { DeviceError, DeviceLink, type Socket } from "./link.js";
+import { DeviceError, DeviceLink, type Refusal, type Socket } from "./link.js";
 import { PairingCodes, type PairingCode } from "./pairing.js";
 import { BROWSER_PLATFORM, CLOSE, PROTOCOL_VERSION, type Consent, type DeviceEvent, type EndReason, type Grant, type Method, type PanelMethod, type Permissions, type Size, type Target } from "./protocol.js";
 import { MAX_ASK_MINUTES, type ComputerSettings, type Device, type DeviceStore } from "./store.js";
@@ -56,6 +56,8 @@ export interface HubDeps {
   /** KOS's face as the owner set it, for every device to draw KOS by. */
   face?: () => FaceDrawing;
   now?: () => number;
+  /** Where the hub writes what the owner may need to read in the host's log; the console's error stream unless given. */
+  log?: (line: string) => void;
   /** How long the owner has to answer on the device, plus the trip. */
   beginTimeoutMs?: number;
   callTimeoutMs?: number;
@@ -84,6 +86,12 @@ export class PairError extends Error {
 const BEGIN_TIMEOUT_MS = 315_000;
 const CALL_TIMEOUT_MS = 20_000;
 const PANEL_TIMEOUT_MS = 10_000;
+/** A device refused again and again is logged once in this long. */
+const REFUSAL_LOG_MS = 60_000;
+const MAX_REFUSALS_LOGGED = 100;
+
+/** What a device claimed, safe for a log line: one line, printable, short. */
+const loggable = (text: string, max = 64): string => text.replace(/[^\x20-\x7e]/g, "?").slice(0, max);
 
 export class DeviceHub {
   readonly codes: PairingCodes;
@@ -93,6 +101,8 @@ export class DeviceHub {
   private readonly endings = new Map<string, EndReason | "offline" | "removed">();
   private readonly listeners = new Set<() => void>();
   private readonly deviceListeners = new Set<DeviceListener>();
+  /** When each refused device id was last logged, for each check it failed. */
+  private readonly refusalsLogged = new Map<string, number>();
 
   constructor(private readonly deps: HubDeps) {
     this.codes = new PairingCodes(this.now);
@@ -147,7 +157,20 @@ export class DeviceHub {
       onEvent: (link, event) => this.event(link, event),
       onUnpair: (link) => void this.remove(link.device!.id),
       onClose: (link) => this.gone(link),
+      onRefused: (refusal) => this.refused(refusal),
     });
+  }
+
+  /** A hello turned away, said in the host's log once a minute per device id and check, so a device that cannot get in is not silent. */
+  private refused({ device, app, check }: Refusal): void {
+    const now = this.now();
+    for (const [id, at] of this.refusalsLogged) if (now - at >= REFUSAL_LOG_MS) this.refusalsLogged.delete(id);
+    // Many ids at once is a flood, not a device to diagnose: the first ones said are enough.
+    const key = `${device}\n${check}`;
+    if (this.refusalsLogged.has(key) || this.refusalsLogged.size >= MAX_REFUSALS_LOGGED) return;
+    this.refusalsLogged.set(key, now);
+    const line = `devices: refused ${loggable(device)} (${loggable(app.platform, 20)} ${loggable(app.version, 20)} on ${loggable(app.os, 40)}): ${check}`;
+    (this.deps.log ?? ((l: string) => console.error(l)))(line);
   }
 
   private ready(link: DeviceLink): void {

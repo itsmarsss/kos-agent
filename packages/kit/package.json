@@ -11,7 +11,8 @@
       "default": "./dist/index.js"
     },
     "./kit.css": "./src/kit.css",
-    "./page.css": "./src/page.css"
+    "./page.css": "./src/page.css",
+    "./scrollbars.css": "./src/scrollbars.css"
   },
   "scripts": {
     "build": "tsc -b"
