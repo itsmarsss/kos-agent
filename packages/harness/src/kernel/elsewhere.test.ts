@@ -227,6 +227,20 @@ describe("the picture kept after a step", () => {
     ]);
   });
 
+  it("unchanged again and again, keeps its picture after newer frames let the original go", async () => {
+    const chat = await boot(["computer.look", "", "computer.look", "", "computer.look"], ownerChrome({ starts: true }));
+    answering(kernel, "computer.look", [{ text: "The screen.", images: [jpeg("U0NSRUVO")] }, UNCHANGED]);
+    await kernel.handleMessage("look", { sessionId: chat, owner: true });
+    for (let i = 0; i < 149; i++) kernel.frames.add({ conversationId: chat, tool: "browser.tabs", picture: "Rg==" });
+    await kernel.handleMessage("again", { sessionId: chat, owner: true });
+    await kernel.handleMessage("and again", { sessionId: chat, owner: true });
+    await settled();
+    expect(framesOf(chat).filter((f) => f.tool === "computer.look")).toEqual([
+      { picture: "U0NSRUVO", site: null, tool: "computer.look" },
+      { picture: "U0NSRUVO", site: null, tool: "computer.look" },
+    ]);
+  });
+
   it("unchanged on one site, is that site's picture under its own name, not another's taken since", async () => {
     let site = "a.example";
     const chat = await boot(["browser.look", "browser.tabs", "browser.look"], {

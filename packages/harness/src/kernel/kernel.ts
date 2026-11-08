@@ -3759,6 +3759,12 @@ export class Kernel {
       this.progress.emit({ kind: "frame", conversationId, tool, frameId: frame.id, ...(toolUseId ? { toolUseId } : {}), ...(site ? { site } : {}) });
       return frame.id;
     };
+    // The frame the surface's last picture was kept as, newest last, so the oldest surface goes first past the cap.
+    const shown = (id: number): void => {
+      this.shownFrames.delete(surface);
+      this.shownFrames.set(surface, id);
+      if (this.shownFrames.size > SHOWN_KEPT) this.shownFrames.delete(this.shownFrames.keys().next().value!);
+    };
     // A visit whose last page had no picture answers with an earlier page's: none stands for where it ended.
     const picture = result.endUnseen ? undefined : result.images?.at(-1)?.data;
     // A step whose screen had not changed since the last picture shows that
@@ -3769,7 +3775,8 @@ export class Kernel {
       if (browser) this.seen.still(conversationId, this.spotOf(conversationId), siteNow());
       const id = this.shownFrames.get(surface);
       const last = id === undefined ? undefined : this.frames.shown(id);
-      if (last) keep(last.image, last.site);
+      // Its copy is the frame to show next: a long run of unchanged looks outlives the original's pruning.
+      if (last) shown(keep(last.image, last.site));
       return;
     }
     // A step that answered with a picture is kept by that one. A browser step
@@ -3778,9 +3785,7 @@ export class Kernel {
     // Chrome, where every capture crosses to the extension and back.
     if (picture) {
       const site = siteNow();
-      this.shownFrames.delete(surface);
-      this.shownFrames.set(surface, keep(picture, site));
-      if (this.shownFrames.size > SHOWN_KEPT) this.shownFrames.delete(this.shownFrames.keys().next().value!);
+      shown(keep(picture, site));
       if (browser) this.seen.saw(conversationId, picture, this.spotOf(conversationId), site);
       return;
     }
