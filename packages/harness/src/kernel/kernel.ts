@@ -3129,7 +3129,7 @@ export class Kernel {
       ...(opts.signal ? { signal: opts.signal } : {}),
       permissions: this.permissions,
       permissionContext: (tool) => this.browserContext(tool, opts.conversationId),
-      prepare: (tool) => this.readyBrowser(tool, opts.conversationId),
+      prepare: (tool) => this.readyBrowser(tool, opts.conversationId, opts.signal),
       ...(opts.heard ? { heard: opts.heard } : {}),
       autoApproves: (tool, context) => opts.conversationId !== undefined && this.actsWithoutAsking(opts.conversationId) && actsInYourChrome(tool, context),
       pictureFor: (tool) => this.browserPicture(tool, opts.conversationId),
@@ -3454,11 +3454,11 @@ export class Kernel {
    * pictured for an approval, on the tab it will act in. A session that
    * cannot start refuses the call rather than run it in KOS's own browser.
    */
-  private async readyBrowser(tool: string, conversationId?: string): Promise<string | undefined> {
+  private async readyBrowser(tool: string, conversationId?: string, signal?: AbortSignal): Promise<string | undefined> {
     const place = this.elsewhere;
     if (!tool.startsWith(BROWSER_PREFIX) || !conversationId || !place?.claims?.(conversationId) || place.active(conversationId)) return undefined;
     try {
-      await place.ensure?.(conversationId);
+      await place.ensure?.(conversationId, signal);
       return undefined;
     } catch (err) {
       return err instanceof Error ? err.message : String(err);

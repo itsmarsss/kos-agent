@@ -45,8 +45,8 @@ export interface BrowserElsewhere {
    * owner's. Its browser calls never fall back to KOS's own browser.
    */
   claims?(conversationId: string): boolean;
-  /** Start the conversation's session here, unasked by any tool, or say why it cannot. */
-  ensure?(conversationId: string): Promise<void>;
+  /** Start the conversation's session here, unasked by any tool, or say why it cannot; `signal` is the turn's Stop, which withdraws the ask. */
+  ensure?(conversationId: string, signal?: AbortSignal): Promise<void>;
   /** The conversation's tab there, opened when it has none. */
   tab(conversationId: string): Promise<Tab>;
   tabs(conversationId: string): TabInfo[];

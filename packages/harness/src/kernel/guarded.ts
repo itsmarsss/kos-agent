@@ -331,6 +331,8 @@ export class GuardedTools implements ToolBox {
     // Readied before it is judged: a browser call from the side panel is judged on the owner's tab, once the owner let KOS have it.
     const unready = this.deps.prepare ? await within(() => this.deps.prepare!(name)).catch((err: unknown) => (err instanceof Error ? err.message : String(err))) : undefined;
     if (unready) return { content: unready, isError: true };
+    // A Stop while the owner was being asked: the turn has answered, and nothing runs for it now.
+    if (signal?.aborted) return { content: STOPPED_RESULT, isError: true };
 
     // Judged, asked about and run as stamped: what the owner says yes to is
     // what runs, and the call can check it still holds.

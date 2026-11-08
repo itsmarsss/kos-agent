@@ -276,6 +276,35 @@ describe("the computer tools", () => {
     await expect(turnStop.run(stop.signal, () => never.call("computer.act", { action: "wait", duration: 60 }))).rejects.toThrow(/Stopped by the owner before step 1/);
   });
 
+  it("start nothing when Stop lands while the owner is asked, and give back a yes given after it", async () => {
+    const stop = new AbortController();
+    const { call, pair, hub } = setup();
+    const fake = pair();
+    fake.answers.delete("session.begin");
+    const asked = turnStop.run(stop.signal, () => call("computer.start", { task: "t" }));
+    await new Promise((r) => setTimeout(r, 5));
+    stop.abort();
+    await expect(asked).rejects.toThrow(/none was started/);
+    // The owner presses Allow on the device afterwards.
+    fake.answer("session.begin", { granted: true, until: Date.now() + 60_000, space: { width: 100, height: 100 } });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(hub.sessionOf("c1")).toBeUndefined();
+    expect(fake.calls.at(-1)?.method).toBe("session.end");
+  });
+
+  it("give back a session the owner allows once the turn that asked has ended", async () => {
+    const { call, pair, hub, endTurn } = setup();
+    const fake = pair();
+    fake.answers.delete("session.begin");
+    const asked = call("computer.start", { task: "t" });
+    await new Promise((r) => setTimeout(r, 5));
+    endTurn("c1");
+    fake.answer("session.begin", { granted: true, until: Date.now() + 60_000, space: { width: 100, height: 100 } });
+    await expect(asked).rejects.toThrow(/none was started/);
+    expect(hub.sessionOf("c1")).toBeUndefined();
+    expect(fake.calls.map((c) => c.method)).toContain("session.end");
+  });
+
   it("claim no more than that a device call Stop answered may have finished", async () => {
     const stop = new AbortController();
     const { call, pair } = setup();

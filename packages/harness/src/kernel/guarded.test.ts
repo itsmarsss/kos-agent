@@ -352,6 +352,27 @@ describe("GuardedTools", () => {
       expect(ran).toBe(false);
     });
 
+    it("runs nothing when the stop lands while its session is being asked for, even once the owner allows it", async () => {
+      let ran = false;
+      registry.register({ name: "probe", description: "p", inputSchema: { type: "object" } }, () => {
+        ran = true;
+        return "ran";
+      });
+      let allow: (() => void) | undefined;
+      const asked = new Promise<undefined>((resolve) => (allow = () => resolve(undefined)));
+      const stop = new AbortController();
+      const tools = guarded({ signal: stop.signal, prepare: () => asked });
+      const answered = tools.execute("probe", {});
+      await Promise.resolve();
+      stop.abort();
+      expect((await answered).content).toBe(STOPPED_RESULT);
+      // The owner presses Allow after Stop: the call that waited on it still does nothing.
+      allow!();
+      await new Promise((r) => setTimeout(r, 5));
+      expect(ran).toBe(false);
+      expect(audit.recent(10)).toEqual([]);
+    });
+
     it("leaves what the owner said meanwhile for a turn of its own", async () => {
       let finish: ((v: string) => void) | undefined;
       registry.register({ name: "slow", description: "s", inputSchema: { type: "object" } }, () => new Promise<string>((r) => (finish = r)));

@@ -116,9 +116,9 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
     active: (c) => (active && chrome ? chrome.active(c) : false),
     // The side panel's chat browses in the owner's Chrome even before its session starts: never in KOS's own.
     claims: (c) => active !== undefined && panel.deviceOf(c) !== undefined,
-    ensure: async (c) => {
+    ensure: async (c, signal) => {
       if (!active) throw new Error("Computer use is off, so the owner's Chrome cannot be reached; KOS's own browser is not used for the side panel's chat.");
-      await active.beginPanelChrome(c);
+      await active.beginPanelChrome(c, signal);
     },
     tab: (c) => chrome!.tab(c),
     tabs: (c) => chrome?.tabs(c) ?? [],

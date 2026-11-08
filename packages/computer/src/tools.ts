@@ -96,7 +96,7 @@ interface DeviceAction {
 /** The computer behind a module, for the kernel's browser tools to start a session in the owner's Chrome. */
 export interface ComputerModule extends KosModule {
   /** A session in the Chrome whose side panel this chat is, started unasked by the chat's first browser call. */
-  beginPanelChrome(conversation: string): Promise<void>;
+  beginPanelChrome(conversation: string, signal?: AbortSignal): Promise<void>;
 }
 
 const SETTLE_MS = 450;
@@ -164,6 +164,8 @@ export function refusalText(err: unknown, ending?: string): string {
       return "That app is hidden from KOS on this computer, so KOS cannot see or act on it.";
     case "denied":
       return "The owner did not allow the session on the computer. Do not ask again unless they say so.";
+    case "stopped":
+      return "The ask ended (Stop, or its turn was over) before the owner allowed the session, so none was started.";
     default:
       return err.message;
   }
@@ -245,6 +247,25 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
   /** Chats whose session was started to last past the turn, by its id. */
   const kept = new Map<string, string>();
 
+  /** How many turns each chat has ended: a session granted once its turn is over is given back. */
+  const ended = new Map<string, number>();
+
+  /**
+   * A session asked for in the calling turn. Stop withdraws the ask (the
+   * hub answers at once and gives back a late yes), and a yes that comes
+   * once the turn has ended is given back too: nobody is left to use it.
+   */
+  const ask = async (input: Parameters<DeviceHub["begin"]>[0]): Promise<Session> => {
+    const signal = input.signal;
+    const turns = ended.get(input.conversation) ?? 0;
+    const session = await hub.begin(input);
+    if (signal?.aborted || (ended.get(input.conversation) ?? 0) !== turns) {
+      hub.end(input.conversation);
+      throw new DeviceError("stopped", "the turn that asked was over when the owner allowed it");
+    }
+    return session;
+  };
+
   /** A picture of the session's screen, or a part of it, as a tool result. */
   const look = async (chat: string, prefix: string, region?: { x: number; y: number; width: number; height: number }, settle = false, always = false): Promise<Look> => {
     const result = await hub.act(chat, "screen.capture", { ...(region ? { region } : {}), ...(settle && !region ? { settle: deps.settleMs ?? SETTLE_MS } : {}) });
@@ -322,7 +343,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
   }
 
   /** A session on a computer: what the owner sees asked, on the device, and the first picture of it. */
-  const beginComputer = async (chat: string, input: { task: string; device?: string; app?: string; minutes?: number; keep?: boolean }): Promise<Look> => {
+  const beginComputer = async (chat: string, input: { task: string; device?: string; app?: string; minutes?: number; keep?: boolean }, signal?: AbortSignal): Promise<Look> => {
     const settings = hub.settings();
     const device = hub.find(input.device, "computer");
     if (!device) {
@@ -335,7 +356,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       // A new session's first picture is always sent, and its computer says again whether it settles.
       shown.forget(chat);
       settling.delete(chat);
-      session = await hub.begin({ conversation: chat, device, task: input.task, requester: deps.titleOf(chat), minutes: input.minutes ?? settings.askMinutes, maxEdge: SCREEN_EDGE, ...(input.app ? { app: input.app } : {}) });
+      session = await ask({ conversation: chat, device, task: input.task, requester: deps.titleOf(chat), minutes: input.minutes ?? settings.askMinutes, maxEdge: SCREEN_EDGE, ...(input.app ? { app: input.app } : {}), ...(signal ? { signal } : {}) });
     } catch (err) {
       throw new Error(refusalText(err));
     }
@@ -360,11 +381,11 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     mayUse("a computer");
     if (hub.consentOf(mac.device) === "kos") throw new Error("This Mac starts sessions through KOS's approvals, not on the Mac: call computer.start first.");
     const said = deps.saidIn?.(chat);
-    return beginComputer(chat, { task: intent ?? (said ? `"${said}"` : "what you asked in the KOS window"), device: mac.device, ...(mac.app ? { app: mac.app } : {}) });
+    return beginComputer(chat, { task: intent ?? (said ? `"${said}"` : "what you asked in the KOS window"), device: mac.device, ...(mac.app ? { app: mac.app } : {}) }, turnStop.getStore());
   };
 
   /** A session in the owner's Chrome: asked of the owner there, and the tabs it was handed learned. */
-  const beginChrome = async (chat: string, input: { task: string; chrome?: string; minutes?: number; keep?: boolean }): Promise<string> => {
+  const beginChrome = async (chat: string, input: { task: string; chrome?: string; minutes?: number; keep?: boolean }, signal?: AbortSignal): Promise<string> => {
     const settings = hub.settings();
     // From the side panel, the Chrome the owner is talking from.
     const panel = input.chrome ? undefined : deps.panelChrome?.(chat);
@@ -375,7 +396,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     }
     let session: Session;
     try {
-      session = await hub.begin({ conversation: chat, device, task: input.task, requester: deps.titleOf(chat), minutes: input.minutes ?? settings.askMinutes });
+      session = await ask({ conversation: chat, device, task: input.task, requester: deps.titleOf(chat), minutes: input.minutes ?? settings.askMinutes, ...(signal ? { signal } : {}) });
     } catch (err) {
       throw new Error(refusalText(err));
     }
@@ -399,7 +420,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
    * chrome.start, which those approvals gate. Never KOS's own browser
    * instead: "this tab" is the owner's.
    */
-  const beginPanelChrome = async (chat: string): Promise<void> => {
+  const beginPanelChrome = async (chat: string, signal?: AbortSignal): Promise<void> => {
     const chrome = deps.panelChrome?.(chat);
     if (!chrome) throw new Error("This chat is not the owner's Chrome side panel.");
     if (hub.sessionOf(chat)) return;
@@ -407,7 +428,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     if (hub.consentOf(chrome) === "kos") throw new Error("This Chrome starts sessions through KOS's approvals, not in the Chrome: call chrome.start first. KOS's own browser is not used for the side panel's chat.");
     const said = deps.saidIn?.(chat);
     try {
-      await beginChrome(chat, { task: said ? `"${said}"` : "what you asked in the side panel", chrome });
+      await beginChrome(chat, { task: said ? `"${said}"` : "what you asked in the side panel", chrome }, signal);
     } catch (err) {
       throw new Error(`${err instanceof Error ? err.message : String(err)} KOS's own browser is not used for the side panel's chat: tell the owner it could not work in their tab.`);
     }
@@ -488,7 +509,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
           ...(app ? { app } : {}),
           ...(typeof input.minutes === "number" ? { minutes: input.minutes } : {}),
           ...(input.keep === true ? { keep: true } : {}),
-        });
+        }, turnStop.getStore());
       },
       startRisk,
     );
@@ -620,7 +641,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
           ...(chrome ? { chrome } : {}),
           ...(typeof input.minutes === "number" ? { minutes: input.minutes } : {}),
           ...(input.keep === true ? { keep: true } : {}),
-        });
+        }, turnStop.getStore());
       },
       chromeStartRisk,
     );
@@ -770,6 +791,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
 
   /** A turn over: the sessions it started end with it, unless they were kept. */
   const turnEnded = (chat: string): void => {
+    ended.set(chat, (ended.get(chat) ?? 0) + 1);
     shown.forget(chat);
     const session = hub.sessionOf(chat);
     if (!session) return;
@@ -781,7 +803,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
 
   return {
     manifest: COMPUTER_MANIFEST,
-    beginPanelChrome: (chat) => beginPanelChrome(chat),
+    beginPanelChrome: (chat, signal) => beginPanelChrome(chat, signal),
     activate(ctx) {
       // Offered only while a device of their kind is paired; pairing the
       // first or unpairing the last adds or takes back the tools at once.
