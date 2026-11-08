@@ -458,7 +458,6 @@ function missingPermissions(p: Permissions | undefined): string | undefined {
   return undefined;
 }
 
-/** A browser's grant: its time, and no screen; what it shares is its tabs. */
 /**
  * The device's answer, or a stop the moment the signal aborts. An answer
  * that comes after the stop goes to `late`, so a session granted then can
@@ -483,6 +482,7 @@ function untilStopped(asked: Promise<Record<string, unknown>>, signal: AbortSign
   });
 }
 
+/** A browser's grant: its time, and no screen; what it shares is its tabs. */
 function readBrowserGrant(result: Record<string, unknown>): Grant | undefined {
   if (result.granted !== true || typeof result.until !== "number") return undefined;
   return { granted: true, until: result.until, space: { width: 0, height: 0 }, target: { kind: "tabs" } };
