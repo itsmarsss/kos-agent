@@ -20,10 +20,13 @@ describe("a message sent while a turn is running", () => {
   let root: string;
   let kernel: Kernel;
   let release: (() => void)[] = [];
+  /** How many times the model was asked: what actually ran. */
+  let asked = 0;
 
   /** A model that answers only when the test lets it. */
   const held: Inference = {
     generate: async (): Promise<ModelResponse> => {
+      asked += 1;
       await new Promise<void>((resolve) => release.push(resolve));
       return {
         content: [{ type: "text", text: "answered" }],
@@ -36,6 +39,7 @@ describe("a message sent while a turn is running", () => {
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "kos-queue-"));
     release = [];
+    asked = 0;
     kernel = await Kernel.boot({ rootDir: root, inference: held });
   });
 
@@ -227,5 +231,68 @@ describe("a message sent while a turn is running", () => {
       expect(kernel.conversations.get(forkId)?.title).toContain("fork");
       await finish();
     });
+  });
+
+  /** Let every turn there is run to the end. */
+  const drain = async (...turns: Promise<unknown>[]): Promise<void> => {
+    for (let i = 0; i < 5; i += 1) {
+      release.forEach((fn) => fn());
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    await Promise.all(turns);
+  };
+
+  /** A turn running in a chat of its own, and a second message waiting behind it. */
+  const waitingBehind = async (): Promise<{ id: string; first: Promise<unknown>; second: Promise<{ dropped?: boolean }>; row: number }> => {
+    const id = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Queue" }).id;
+    const first = kernel.handleMessage("first", { sessionId: id });
+    await new Promise((r) => setTimeout(r, 20));
+    const second = kernel.handleMessage("second", { sessionId: id });
+    await new Promise((r) => setTimeout(r, 20));
+    return { id, first, second, row: kernel.pending.forConversation(id)[0]!.id };
+  };
+
+  it("runs a waiting message as it was edited, not as it was sent", async () => {
+    const { id, first, second, row } = await waitingBehind();
+    expect(kernel.pending.edit(row, "second, edited")).toBe(true);
+    await drain(first, second);
+    expect(history(id)).toEqual(["first", "second, edited"]);
+    expect(asked).toBe(2);
+  });
+
+  it("does not run a waiting message that was dropped, and says it was dropped", async () => {
+    const { id, first, second, row } = await waitingBehind();
+    expect(kernel.pending.remove(row)).toBe(true);
+    await drain(first, second);
+    expect(await second).toMatchObject({ reply: "", dropped: true });
+    expect(history(id)).toEqual(["first"]);
+    expect(asked).toBe(1);
+  });
+
+  it("runs a forked message once, in the fork, and not again where it was waiting", async () => {
+    const { id, first, second, row } = await waitingBehind();
+    const fork = await kernel.forkPending(kernel.pending.get(row)!);
+    await drain(first, second);
+    expect(await second).toMatchObject({ dropped: true });
+    expect(history(id)).toEqual(["first"]);
+    expect(history(fork).filter((t) => t === "second")).toHaveLength(1);
+    expect(asked).toBe(2);
+  });
+
+  it("runs one parked behind another queued turn as edited, and skips it when dropped", async () => {
+    const id = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Queue" }).id;
+    // A schedule's turn is never steered: these queue behind the running one.
+    const first = kernel.handleMessage("first", { sessionId: id, origin: "system" });
+    await new Promise((r) => setTimeout(r, 20));
+    const second = kernel.handleMessage("second", { sessionId: id, origin: "system" });
+    const third = kernel.handleMessage("third", { sessionId: id, origin: "system" });
+    await new Promise((r) => setTimeout(r, 20));
+    const [two, three] = kernel.pending.forConversation(id);
+    kernel.pending.edit(two!.id, "second, edited");
+    kernel.pending.remove(three!.id);
+    await drain(first, second, third);
+    expect(history(id)).toEqual(["first", "second, edited"]);
+    expect(await third).toMatchObject({ dropped: true });
+    expect(asked).toBe(2);
   });
 });

@@ -87,6 +87,8 @@ export function connectChannel(
       // its story until the rest of it has run.
       // Taken into the turn already running here: that turn answers it.
       if (res.steered) return { text: "", steered: true };
+      // Dropped or forked away on the dashboard while it waited.
+      if (res.dropped) return { text: "", dropped: true };
       const waiting = res.suspended ? { suspended: true as const } : {};
       if (res.from && res.reply) return { text: res.reply, from: res.from, ...waiting };
       return res.suspended ? { text: res.reply || "(no reply)", ...waiting } : res.reply || "(no reply)";

@@ -295,7 +295,10 @@ a file that writes "the owner says" cannot pass for you. The turn answers
 it, and changes course if you asked it to; the surface shows that it was
 taken in, and the chat shows your words where the turn heard them. Words
 that arrive after the turn's last step, a message with files, and a guest's
-message run as a turn of their own once the running one ends.
+message run as a turn of their own once the running one ends. Until then
+the waiting message is the one on the dashboard: edited there, it is heard
+or run as edited; dropped or forked away, it does not run in this chat,
+and its line on Discord says "dropped".
 
 ## Where a message goes
 

@@ -319,6 +319,17 @@ describe("telling the turn's story on a surface with a presence", () => {
     expect(adapter.sent).toEqual([]);
   });
 
+  it("says a waiting message was dropped, and answers nothing, when it was dropped before its turn", async () => {
+    const adapter = new InMemoryAdapter();
+    adapter.withPresence = true;
+    const runtime = new ChannelRuntime({ adapter, handleTurn: async () => ({ text: "", dropped: true }) });
+    await runtime.start();
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "the second thing" });
+    expect(adapter.shown.at(-1)).toBe("-# dropped");
+    expect(adapter.completed).toEqual([]);
+    expect(adapter.sent).toEqual([]);
+  });
+
   it("shows nothing for a turn that takes no step", async () => {
     const adapter = new InMemoryAdapter();
     adapter.withPresence = true;

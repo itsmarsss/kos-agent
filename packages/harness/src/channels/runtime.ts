@@ -51,10 +51,12 @@ export interface TurnContext {
  * is waiting on an approval and will carry on behind the answer, so the
  * story is kept open until it ends rather than closed with this reply.
  */
-export type TurnHandler = (ctx: TurnContext) => Promise<string | (OutboundMessage & { suspended?: boolean; steered?: boolean })>;
+export type TurnHandler = (ctx: TurnContext) => Promise<string | (OutboundMessage & { suspended?: boolean; steered?: boolean; dropped?: boolean })>;
 
 /** Said where a message was taken into the turn already running, whose answer answers it too. */
 export const STEERED_LINE = "-# taken in by the turn already running";
+/** Said where a waiting message was dropped, or forked away, before its turn came. */
+export const DROPPED_LINE = "-# dropped";
 
 export interface DecisionContext {
   /** KOS user the decider resolved to. */
@@ -365,7 +367,13 @@ export class ChannelRuntime {
         ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
         ...guest,
       });
-      const { suspended = false, steered = false, ...message } = typeof answer === "string" ? { text: answer } : answer;
+      const { suspended = false, steered = false, dropped = false, ...message } = typeof answer === "string" ? { text: answer } : answer;
+      // Dropped while it waited: its line says so, and nothing answers it.
+      if (dropped) {
+        await story?.end();
+        if (presence) await presence.update(DROPPED_LINE);
+        return;
+      }
       // Heard by the turn already running: its answer is the answer, and here it is only said that it was heard.
       if (steered) {
         await story?.end();

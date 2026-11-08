@@ -179,6 +179,40 @@ describe("Kernel", () => {
     expect(events.find((e) => e.kind === "tool")).toMatchObject({ result: expect.not.stringContaining("are you stuck") });
   });
 
+  it("hears words said mid-turn as they were edited while waiting, and not at all once dropped", async () => {
+    const step: ModelResponse = { content: [{ type: "tool_use", id: "t1", name: "files.write", input: { path: "scratch/a.txt", content: "a" } }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+    const said = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    const requests: GenerateRequest[] = [];
+    const seconds: Promise<{ reply: string; steered?: boolean; dropped?: boolean }>[] = [];
+    let chat = "";
+    kernel = await boot({
+      async generate(_t, r) {
+        requests.push(r);
+        if (requests.length === 1) {
+          seconds.push(kernel.handleMessage("use the blue one", { sessionId: chat }));
+          seconds.push(kernel.handleMessage("never mind this", { sessionId: chat }));
+          await new Promise((done) => setTimeout(done, 30));
+          // Edited and dropped on the dashboard while the step runs.
+          const [blue, never] = kernel.pending.forConversation(chat);
+          kernel.pending.edit(blue!.id, "use the red one");
+          kernel.pending.remove(never!.id);
+          return step;
+        }
+        return said("Red it is.");
+      },
+    });
+    chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Paint" }).id;
+    expect((await kernel.handleMessage("paint it", { sessionId: chat })).reply).toBe("Red it is.");
+    expect(await seconds[0]).toMatchObject({ steered: true });
+    expect(await seconds[1]).toMatchObject({ reply: "", dropped: true });
+    expect(requests).toHaveLength(2);
+    const sent = JSON.stringify(requests[1]);
+    expect(sent).toContain("use the red one");
+    expect(sent).not.toContain("use the blue one");
+    expect(sent).not.toContain("never mind this");
+    expect(kernel.pending.forConversation(chat)).toEqual([]);
+  });
+
   it("runs words said too late for a step as a turn of their own", async () => {
     const said = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
     let calls = 0;

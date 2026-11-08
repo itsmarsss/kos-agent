@@ -194,7 +194,12 @@ export interface HandleResult {
   suspended?: boolean;
   /** Taken into the turn already running in this chat, whose answer answers it too. */
   steered?: boolean;
+  /** Dropped or forked away while it waited, so it did not run here. */
+  dropped?: boolean;
 }
+
+/** What became of words said while a turn ran: heard by it, left for a turn of their own, or dropped while they waited. */
+type Heard = "heard" | "left" | "dropped";
 
 /** How long a button KOS sent stays pressable. */
 /** Owner settings for build sub-agents. */
@@ -466,7 +471,7 @@ export class Kernel {
   /** News for a chat mid-turn, written in when the turn ends. */
   private readonly heldNotes = new Map<string, string[]>();
   /** What the owner said to a chat while its turn ran, waiting for that turn's next step. */
-  private readonly steered = new Map<string, { text: string; taken: (took: boolean) => void }[]>();
+  private readonly steered = new Map<string, { id: number; taken: (how: Heard) => void }[]>();
   /**
    * What the owner said to start each running turn of theirs, and the event
    * those words were logged as once a claim has cited them.
@@ -892,19 +897,40 @@ export class Kernel {
      * it waiting. A turn that ends before another step leaves it to run as a
      * turn of its own, as everything said mid-turn used to.
      */
+    /*
+     * While it waits, the row is the message: edited on the dashboard, it
+     * runs as edited; dropped or forked away, it does not run here at all.
+     * So what runs is read back from the row when its moment comes, on
+     * both paths, rather than the words as they were sent.
+     */
+    const dropped: HandleResult = { reply: "", halted: false, sessionId, dropped: true };
+    let parked: number | undefined;
     if (useSession && this.working.has(sessionId) && opts.origin !== "system" && !opts.attachments?.length && !opts.guest && !opts.contextFrom && !opts.context && !opts.roomTalk) {
       const waiting = this.pending.add(sessionId, text, [], originOf(opts));
-      const took = await new Promise<boolean>((taken) => this.steered.set(sessionId, [...(this.steered.get(sessionId) ?? []), { text, taken }]));
-      this.pending.take(waiting);
-      if (took) return { reply: "", halted: false, sessionId, steered: true };
+      const how = await new Promise<Heard>((taken) => this.steered.set(sessionId, [...(this.steered.get(sessionId) ?? []), { id: waiting, taken }]));
+      if (how === "heard") return { reply: "", halted: false, sessionId, steered: true };
+      if (how === "dropped") return dropped;
+      // The turn ended before hearing it: it runs as a turn of its own, and
+      // waits as it is when another is queued ahead of it.
+      if (this.queue.depthOf(sessionId) > 0) parked = waiting;
+      else {
+        const row = this.pending.get(waiting);
+        if (!row) return dropped;
+        this.pending.take(waiting);
+        text = row.text;
+      }
+    } else if (useSession && this.queue.depthOf(sessionId) > 0) {
+      parked = this.pending.add(sessionId, text, opts.attachments ?? [], originOf(opts));
     }
-    const parked =
-      useSession && this.queue.depthOf(sessionId) > 0
-        ? this.pending.add(sessionId, text, opts.attachments ?? [], originOf(opts))
-        : undefined;
 
-    return this.queue.enqueue(() => {
-      if (parked !== undefined) this.pending.take(parked);
+    return this.queue.enqueue(async () => {
+      if (parked !== undefined) {
+        const row = this.pending.get(parked);
+        if (!row) return dropped;
+        this.pending.take(parked);
+        // A guest's words stay named as theirs, however they were edited.
+        text = opts.guest ? `${guestNamed(opts.guest)}${withoutGuestName(row.text, opts.guest)}` : row.text;
+      }
       return this.runTurn(text, userId, sessionId, opts);
     }, sessionId);
   }
@@ -1662,13 +1688,27 @@ export class Kernel {
     }
   }
 
-  /** What the owner said to a chat since its turn's last step, under this turn's mark; each told it was heard. */
+  /**
+   * What the owner said to a chat since its turn's last step, under this
+   * turn's mark; each told it was heard. Read from its waiting row, so an
+   * edit counts and one dropped meanwhile is not heard at all.
+   */
   private hear(sessionId: string, mark: string): string | undefined {
     const waiting = this.steered.get(sessionId);
     if (!waiting?.length) return undefined;
     this.steered.delete(sessionId);
-    for (const w of waiting) w.taken(true);
-    return ownerWords(mark, waiting.map((w) => w.text));
+    const words: string[] = [];
+    for (const w of waiting) {
+      const row = this.pending.get(w.id);
+      if (!row) {
+        w.taken("dropped");
+        continue;
+      }
+      this.pending.take(w.id);
+      words.push(row.text);
+      w.taken("heard");
+    }
+    return words.length ? ownerWords(mark, words) : undefined;
   }
 
   /**
@@ -1688,7 +1728,7 @@ export class Kernel {
     if (turnId) this.turnMade.end(sessionId, turnId);
     this.working.delete(sessionId);
     // Words the turn never reached a step to hear run as a turn of their own.
-    for (const w of this.steered.get(sessionId) ?? []) w.taken(false);
+    for (const w of this.steered.get(sessionId) ?? []) w.taken("left");
     this.steered.delete(sessionId);
     if (turnId) {
       const stops = this.stops.get(sessionId);
