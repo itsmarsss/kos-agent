@@ -22,6 +22,7 @@ export {
   createDashboardServer,
   handleApiRequest,
   mentionsOf,
+  withFrames,
   type ApiExtension,
   type ApiRequest,
   type ApiResponse,

@@ -155,6 +155,38 @@ public struct SwitchRow: View {
 }
 
 /// A symbol on its own tint: what a row is about, at a glance. `small` for a line inside something else, as the tab card's is.
+/// What a step saw (a tab, a screen), as the dashboard's and the side panel's StepPicture (kit):
+/// small under its step, larger when `open`, a press asking for the other.
+public struct StepPicture: View {
+  /// How wide it is small.
+  public static let small: CGFloat = 150
+  private let image: NSImage?
+  private let open: Bool
+  private let press: () -> Void
+
+  public init(_ data: Data, open: Bool = false, press: @escaping () -> Void = {}) {
+    image = NSImage(data: data)
+    self.open = open
+    self.press = press
+  }
+
+  public var body: some View {
+    if let image {
+      Button(action: press) {
+        Image(nsImage: image)
+          .resizable()
+          .aspectRatio(contentMode: .fit)
+          .frame(maxWidth: open ? .infinity : Self.small, alignment: .leading)
+          .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
+          .overlay(RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous).strokeBorder(Theme.line))
+      }
+      .buttonStyle(.plain)
+      .help(open ? "Smaller" : "What this step saw")
+      .accessibilityLabel("What this step saw")
+    }
+  }
+}
+
 public struct Tile: View {
   private let symbol: String
   private let tint: Color

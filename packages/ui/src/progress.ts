@@ -33,6 +33,7 @@ export type ProgressEvent =
   | { kind: "delta"; conversationId: string; of: "reasoning" | "text"; text: string }
   | { kind: "note"; conversationId: string; text: string }
   | { kind: "congregation"; conversationId: string; members: CongregationMember[] }
+  | { kind: "frame"; conversationId: string; tool: string; frameId: number; toolUseId?: string; site?: string }
   | { kind: "turn-end"; conversationId: string };
 
 /** One conversation a turn is waiting on, when it asked several at once. */
@@ -54,6 +55,8 @@ export type LiveStep =
       /** Carried so a running call can be opened like a finished one. */
       input?: Record<string, unknown>;
       result?: string;
+      /** What the step saw, at /api/frames/:id, once it is kept. */
+      frameId?: number;
     };
 
 export interface Live {
@@ -148,6 +151,18 @@ function reduce(live: Live, event: ProgressEvent): Live {
 
     case "congregation":
       return { ...live, congregation: { members: event.members } };
+
+    case "frame": {
+      // The picture lands as its step ends, or just after: it is the most recent step of that tool's.
+      for (let i = steps.length - 1; i >= 0; i--) {
+        const step = steps[i];
+        if (step?.kind === "tool" && step.tool === event.tool) {
+          steps[i] = { ...step, frameId: event.frameId };
+          break;
+        }
+      }
+      return { ...live, steps };
+    }
 
     default:
       return live;

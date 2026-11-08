@@ -26,6 +26,18 @@ struct ChatTests {
     #expect(show.notice?.said == "/new")
   }
 
+  @Test func readsAStepsPictureAndTheChatsNewestOnes() throws {
+    let status = try call(#"{"t":"call","id":7,"method":"chat.status","params":{"conversation":"mac:owner","said":"look","frame":{"id":12,"image":"QUJD","mediaType":"image/jpeg"}}}"#).params(ChatStatus.self)
+    #expect(status.frame == ChatFrame(id: 12, image: "QUJD"))
+    // A picture says nothing of the story: the turn is not ended by it.
+    #expect(status.story == nil)
+    let show = try call(##"{"t":"call","id":8,"method":"chat.show","params":{"conversation":"mac:owner","title":"Mac","messages":[{"role":"steps","steps":[{"summary":"Look","frame":12},{"summary":"Type"}]}],"pictures":{"12":"QUJD"}}}"##).params(ChatShow.self)
+    #expect(show.messages[0].steps == [ChatStep(summary: "Look", frame: 12), ChatStep(summary: "Type")])
+    #expect(show.pictures == ["12": "QUJD"])
+    let bare = try call(#"{"t":"call","id":9,"method":"chat.status","params":{"story":"› Look"}}"#).params(ChatStatus.self)
+    #expect(bare.frame == nil)
+  }
+
   @Test func readsAnAsksStepsBesideItsArguments() throws {
     let raw = ##"{"t":"call","id":5,"method":"chat.ask","params":{"approval":{"id":"11","tool":"computer.act","args":"{\"intent\":\"Note: just closing the popup\"}","mechanics":"Type “hunter2”, press cmd+q"}}}"##
     let ask = try call(raw).params(ChatAsk.self).approval

@@ -79,6 +79,8 @@ export interface PanelDeps {
   setAuto?(conversation: string, on: boolean): void;
   /** Answer with this model from now on, as the dashboard's picker does. */
   setModel?(model: string): Promise<PanelModels>;
+  /** A step's kept picture by its frame id, with the site it shows when it is a page. */
+  picture?(frameId: number): { image: string; site?: string } | undefined;
   /** What an @ in the panel's box can name, best first, as the dashboard's @ menu asks. */
   mentions?(q: string, kind?: string): { kind: string; id: string; label: string; hint?: string }[];
 }
@@ -91,6 +93,8 @@ const SELECTION_MAX = 4_000;
 const MAX_TEXT = 20_000;
 const SHOWN = 200;
 const MAX_ARGS = 600;
+/** How many of the newest step pictures ride with the chat as it is drawn; older ones come from the device's own cache, or not at all. */
+const PICTURES_SHOWN = 4;
 /** How often a running turn's words may be redrawn on a device; a step is told at once. */
 const NARRATE_EVERY_MS = 1_200;
 
@@ -236,6 +240,15 @@ export class DevicePanel implements ChannelAdapter {
       void this.everyDevice("chat.status", { conversation: chat.id, ...this.about(running), story: null }, running.speaker).then(() => this.everyDevice("chat.show", this.drawn()));
       return;
     }
+    if (event.kind === "frame") {
+      // To every device of the kind, the speaker too: its presence carries words, not pictures.
+      const shown = this.deps.picture?.(event.frameId);
+      if (shown) {
+        const frame = { id: event.frameId, image: shown.image, mediaType: "image/jpeg", ...(shown.site ? { site: shown.site } : {}) };
+        void this.everyDevice("chat.status", { conversation: chat.id, ...this.about(running), frame });
+      }
+      return;
+    }
     if (running.narrator.take(event)) this.narrate(running, event.kind !== "delta");
   }
 
@@ -287,7 +300,33 @@ export class DevicePanel implements ChannelAdapter {
       text && !(last?.role === "kos" && last.text === text)
         ? { text, ...(said?.from ? { from: said.from.name } : {}), ...(waiting ? { waiting: true } : {}), ...(about ? { said: about } : {}) }
         : undefined;
-    return { conversation: chat?.id ?? null, title: chat?.title ?? this.place.title, messages, auto: chat ? (this.deps.auto?.(chat.id) ?? false) : false, ...(notice ? { notice } : {}) };
+    const shown = this.picturesOf(messages);
+    return {
+      conversation: chat?.id ?? null,
+      title: chat?.title ?? this.place.title,
+      messages,
+      auto: chat ? (this.deps.auto?.(chat.id) ?? false) : false,
+      ...(notice ? { notice } : {}),
+      ...shown,
+    };
+  }
+
+  /**
+   * The newest steps' pictures by frame id (base64 JPEG), and the site each
+   * page shows, so a device can leave out one the owner hid; nothing when no
+   * step has one.
+   */
+  private picturesOf(messages: PanelMessage[]): { pictures?: Record<string, string>; sites?: Record<string, string> } {
+    const ids = messages.flatMap((m) => (m.role === "steps" ? m.steps.flatMap((s) => (s.frame !== undefined ? [s.frame] : [])) : []));
+    const pictures: Record<string, string> = {};
+    const sites: Record<string, string> = {};
+    for (const id of ids.slice(-PICTURES_SHOWN)) {
+      const shown = this.deps.picture?.(id);
+      if (!shown) continue;
+      pictures[String(id)] = shown.image;
+      if (shown.site) sites[String(id)] = shown.site;
+    }
+    return { ...(Object.keys(pictures).length ? { pictures } : {}), ...(Object.keys(sites).length ? { sites } : {}) };
   }
 
   /** A panel just opened: the chat, whatever in it is waiting on the owner, and the turn running in it so far. */
@@ -413,7 +452,7 @@ export function panelLines(events: ChatEvent[], max = SHOWN): PanelMessage[] {
         break;
       }
       case "tool": {
-        const step = { summary: event.summary, ...(event.isError ? { failed: true as const } : {}) };
+        const step = { summary: event.summary, ...(event.isError ? { failed: true as const } : {}), ...(event.frameId !== undefined ? { frame: event.frameId } : {}) };
         const last = out.at(-1);
         if (last?.role === "steps") last.steps.push(step);
         else out.push({ role: "steps", steps: [step] });
