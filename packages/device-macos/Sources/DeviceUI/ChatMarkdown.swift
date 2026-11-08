@@ -275,10 +275,20 @@ private func outsideCode(_ text: String, _ change: (String) -> String) -> String
   text.components(separatedBy: "`").enumerated().map { i, part in i.isMultiple(of: 2) ? change(part) : part }.joined(separator: "`")
 }
 
+/// The hover text for a line's times, as the dashboard's card says each; a time inside a code span is no time.
+func timesHelpText(_ text: String) -> String? {
+  var outside: [String] = []
+  _ = outsideCode(text) { part in
+    outside.append(part)
+    return part
+  }
+  return ChatTime.help(for: outside.joined(separator: " "))
+}
+
 extension View {
   /// The full date and time of each time in a line, on hover, as the dashboard's card shows it.
   @ViewBuilder func timesHelp(_ text: String) -> some View {
-    if let help = ChatTime.help(for: text) { self.help(help) } else { self }
+    if let help = timesHelpText(text) { self.help(help) } else { self }
   }
 }
 

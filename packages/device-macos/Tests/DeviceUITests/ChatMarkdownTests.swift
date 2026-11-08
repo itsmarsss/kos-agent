@@ -47,6 +47,14 @@ struct ChatMarkdownTests {
     #expect(ChatTime.help(for: "Due <t:\(soon):R>")?.contains("\nat ") == true)
   }
 
+  @Test func saysNothingOnHoverForATimeInACodeSpan() {
+    let soon = Int(Date().timeIntervalSince1970) + 3 * 3600
+    let later = soon + 86_400
+    #expect(timesHelpText("Written `<t:\(soon):R>` as is") == nil)
+    let help = timesHelpText("Due <t:\(later):R>, written `<t:\(soon):R>`")
+    #expect(help == ChatTime.help(for: "<t:\(later):R>"))
+  }
+
   @Test func readsATimeAsWrittenAndSaysItInFull() throws {
     let toronto = try #require(TimeZone(identifier: "America/Toronto"))
     let late = Date(timeIntervalSince1970: 1_795_237_140) // 2026-11-21 04:59 UTC
