@@ -557,6 +557,24 @@ describe("the approval prompt", () => {
     expect(tabs).toContain("```\nPress Tab\nPress Tab\n```");
   });
 
+  it("reads the model's words literally: no ping, no link, no bold", () => {
+    const card = approvalText({
+      id: "24",
+      text: "x",
+      tool: "browser.act",
+      args: { intent: "**Safe** [close the popup](https://evil.example) @everyone <@&42>", steps: [{ click: "@e1" }] },
+      why: "# Heads up @here, see [the docs](https://evil.example)",
+    });
+    const [why, head] = card.split("\n");
+    expect(head).toBe("**Needs your OK** · \\*\\*Safe\\*\\* \\[close the popup\\]\\(<https://evil.example>\\) \\@everyone \\<\\@&42\\> \\(click\\)");
+    expect(why).toBe("> \\# Heads up \\@here, see \\[the docs\\]\\(<https://evil.example>\\)");
+    expect(settledText("approved", "**Done** @everyone", "24")).toBe("-# ✅ Approved · \\*\\*Done\\*\\* \\@everyone");
+    // A step line in the story too, its references still linked.
+    expect(storyText("› **Open** [it](https://evil.example) @everyone <@&42> @page:home", "https://kos.example")).toBe(
+      "-# › \\*\\*Open\\*\\* \\[it\\]\\(<https://evil.example>\\) \\@everyone \\<\\@&42\\> [home](<https://kos.example/#/page/home>)",
+    );
+  });
+
   it("puts every step in a file when the card cannot hold them", () => {
     const steps = Array.from({ length: 20 }, (_, i) => ({ fill: { target: `@e${i}`, text: `${i} ${"x".repeat(150)}` } }));
     const card = approvalCard({ id: "23", text: "x", tool: "browser.act", args: { intent: "fill the form", steps } });
@@ -606,6 +624,29 @@ describe("the approval prompt", () => {
     expect(lines[lines.length - 1]).toMatch(/^-# /);
     expect(lines.length).toBeLessThanOrEqual(5);
     expect((payloads[0]?.components as unknown[])).toHaveLength(1);
+  });
+});
+
+describe("who a message may ping", () => {
+  it("pings nobody by default, whatever the words say", () => {
+    const adapter = new DiscordAdapter({ token: "t" });
+    const options = (adapter as unknown as { client: { options: { allowedMentions?: unknown } } }).client.options;
+    expect(options.allowedMentions).toEqual({ parse: [] });
+  });
+
+  it("lets a reply ping the member it names, and no one else", async () => {
+    const payloads: Record<string, unknown>[] = [];
+    const adapter = new DiscordAdapter({ token: "t" });
+    (adapter as unknown as { membersSeen: Map<string, string> }).membersSeen.set("amy", "111");
+    (adapter as unknown as { client: { users: unknown } }).client = {
+      users: { fetch: async () => ({ send: async (p: Record<string, unknown>) => { payloads.push(p); return {}; } }) },
+    };
+    await adapter.send("owner-id", { text: "Ask @amy, not @everyone or <@&42> or <@999>." });
+    expect(payloads[0]?.content).toBe("Ask <@111>, not @everyone or <@&42> or <@999>.");
+    expect(payloads[0]?.allowedMentions).toEqual({ parse: [], users: ["111"] });
+    // Naming no one, the message keeps the client's default of nobody.
+    await adapter.send("owner-id", { text: "@everyone look" });
+    expect(payloads[1]).not.toHaveProperty("allowedMentions");
   });
 });
 
@@ -1339,8 +1380,9 @@ describe("DiscordAdapter authorization", () => {
     await presence!.update("› get_current_time on time");
     await presence!.update("› get_current_time on time\nNearly midnight.");
     expect(edited).toEqual([
-      ["m1", { content: "-# › get_current_time on time" }],
-      ["m1", { content: "-# › get_current_time on time\nNearly midnight." }],
+      // A step's markup is literal: the underscores read as written.
+      ["m1", { content: "-# › get\\_current\\_time on time" }],
+      ["m1", { content: "-# › get\\_current\\_time on time\nNearly midnight." }],
     ]);
     await presence!.complete({ text: "It is 23:42.", from: verity });
     expect(viaHook[1]).toEqual({ content: "It is 23:42.", username: "Verity" });

@@ -17,6 +17,7 @@ import {
   type ButtonInteraction,
   type Interaction,
   type Message,
+  type MessageMentionOptions,
   type ModalSubmitInteraction,
   type TextChannel,
   type Webhook,
@@ -28,7 +29,7 @@ import type { Access, Audience, ChannelMessage, Listen, MakePlace, MemberInfo, N
 import type { MessageRoom } from "../models/types.js";
 import type { Guest } from "./types.js";
 import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
-import { linkMentions, linkPaths, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
+import { linkMentions, linkPaths, literal, literalWords, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
 import { tablesToCode } from "./tables.js";
 import { shortStory, STEP_MARK } from "./narrate.js";
 import { MESSAGE_LIMITS } from "./types.js";
@@ -115,15 +116,21 @@ function withTimes(text: string, timezone?: string): string {
 export function storyText(status: string, dashboardUrl?: string, timezone?: string, labelOf?: LabelOf): string {
   // References in the story link where they link in the answer, or the
   // same name reads as a token in one place and a link in the other.
-  return noPreviews(linkMentions(withTimes(shortStory(status), timezone), dashboardUrl, labelOf))
+  // A step line is the model's account of a step, read as it is: its
+  // markup made literal, so it cannot ping, shout or hide a link.
+  const story = shortStory(status)
+    .split("\n")
+    .map((line) => (line.startsWith(STEP_MARK) ? `${STEP_MARK}${literalWords(line.slice(STEP_MARK.length))}` : line))
+    .join("\n");
+  return noPreviews(linkMentions(withTimes(story, timezone), dashboardUrl, labelOf))
     .split("\n")
     .map((line) => (line.startsWith(STEP_MARK) ? `-# ${linkPaths(line, dashboardUrl)}` : line))
     .join("\n")
     .slice(0, 1900);
 }
 
-/** A bare url, not already in angle brackets and not the target of a masked link. */
-const BARE_URL = /(?<![<(])https?:\/\/[^\s<>()\]]+/g;
+/** A bare url, not already in angle brackets and not the target of a masked link; a bracket made literal is neither. */
+const BARE_URL = /(?:(?<![<(])|(?<=\\[<(]))https?:\/\/[^\s<>()\]\\]+/g;
 /** A masked link whose target is not yet in angle brackets. */
 const MASKED_LINK = /\]\((https?:\/\/[^\s<>()]+)\)/g;
 
@@ -139,11 +146,6 @@ const MASKED_LINK = /\]\((https?:\/\/[^\s<>()]+)\)/g;
  */
 export function noPreviews(text: string): string {
   return outsideCode(text, (part) => part.replace(MASKED_LINK, "](<$1>)").replace(BARE_URL, "<$&>"));
-}
-
-/** Discord's formatting characters, made literal. */
-function escapeMarkdown(text: string): string {
-  return text.replace(/([*_~`|\\])/g, "\\$1");
 }
 
 /**
@@ -183,9 +185,11 @@ export function approvalCard(req: ApprovalRequest): ApprovalCard {
   // The sentence the ask belongs to, first: what KOS was saying when it
   // reached for the tool. A card that opens with the command alone is a
   // prompt to click yes blind.
-  const said = req.why?.trim() ? [`> ${cut(req.why.trim().replace(/\s*\n+\s*/g, " "), WHY_MAX)}`] : [];
+  // The model's words, all of it, so made literal: a masked link or a
+  // mention in them reads as written and does nothing.
+  const said = req.why?.trim() ? [`> ${literal(cut(req.why.trim().replace(/\s*\n+\s*/g, " "), WHY_MAX))}`] : [];
   // Who is asking, in the headline: "Recap needs your OK", not a bare command.
-  const asks = req.asker ? `**${escapeMarkdown(req.asker.name)} needs your OK**` : "**Needs your OK**";
+  const asks = req.asker ? `**${literal(req.asker.name)} needs your OK**` : "**Needs your OK**";
   if (req.tool === undefined) {
     return { content: noPreviews([...said, `${asks} · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n")) };
   }
@@ -215,7 +219,7 @@ export function approvalCard(req: ApprovalRequest): ApprovalCard {
     noPreviews(
       [
         ...said,
-        `${asks} · ${escapeMarkdown(head)}`,
+        `${asks} · ${literal(head)}`,
         ...(shown.length ? [CODE_FENCE, ...shown.map((l) => l.split(CODE_FENCE).join("'''")), CODE_FENCE] : []),
         ...(more ? [`-# ${more}`] : []),
         `-# ${small}`,
@@ -239,7 +243,7 @@ export function settledText(outcome: ApprovalOutcome, summary: string | undefine
   const mark = outcome === "approved" ? "✅ Approved" : outcome === "expired" ? "⌛ Lapsed" : "❌ Denied";
   if (!summary) return `-# ${mark} · #${id}`;
   const { head, body } = splitSummary(summary);
-  return noPreviews(`-# ${mark} · ${escapeMarkdown(head)}${body ? ` \`${cut(body.replace(/`/g, "'"), 80)}\`` : ""}`);
+  return noPreviews(`-# ${mark} · ${literal(head)}${body ? ` \`${cut(body.replace(/`/g, "'"), 80)}\`` : ""}`);
 }
 
 /** Encode the approve/deny button ids for a pending action. */
@@ -878,6 +882,11 @@ export class DiscordAdapter implements ChannelAdapter {
         GatewayIntentBits.GuildMessageReactions,
       ],
       partials: [Partials.Channel, Partials.Message, Partials.Reaction],
+      // Nothing KOS posts pings anyone unless it means to: the words in a
+      // message are the model's, and "@everyone" or a role written there is
+      // text, not a call on the whole server. A reply that names a member
+      // allows that member alone (see pings).
+      allowedMentions: { parse: [] },
     });
     /*
      * A gateway error is a log line, not the end of the host.
@@ -1839,13 +1848,18 @@ export class DiscordAdapter implements ChannelAdapter {
 
     const payloadFor = (msg: OutboundMessage): {
       content?: string;
+      allowedMentions?: MessageMentionOptions;
       embeds?: EmbedBuilder[];
       components?: ActionRowBuilder<ButtonBuilder>[];
-    } => ({
-      ...(taggedText(msg) ? { content: this.words(taggedText(msg)).slice(0, 2000) } : {}),
-      ...(msg.card ? { embeds: [buildCard(msg.card, { from: msg.from, named: !msg.text, dashboardUrl: this.dashboardUrl, timezone: this.timezone, labelOf: this.labelOf })] } : {}),
-      ...(msg.buttons?.length ? { components: buildButtons(msg.buttons) } : {}),
-    });
+    } => {
+      const content = taggedText(msg) ? this.words(taggedText(msg)).slice(0, 2000) : undefined;
+      return {
+        ...(content ? { content } : {}),
+        ...this.pings(content),
+        ...(msg.card ? { embeds: [buildCard(msg.card, { from: msg.from, named: !msg.text, dashboardUrl: this.dashboardUrl, timezone: this.timezone, labelOf: this.labelOf })] } : {}),
+        ...(msg.buttons?.length ? { components: buildButtons(msg.buttons) } : {}),
+      };
+    };
 
     const respond: PressResponder = {
       openForm: async (modal) => {
@@ -2053,6 +2067,17 @@ export class DiscordAdapter implements ChannelAdapter {
     });
   }
 
+  /**
+   * Who a message may ping, past the client's own default of nobody: the
+   * members seen before that it names, and not a role, not everyone.
+   * Nothing to add when it names none.
+   */
+  private pings(content: string | undefined): { allowedMentions?: MessageMentionOptions } {
+    const seen = new Set(this.membersSeen.values());
+    const users = [...new Set([...(content ?? "").matchAll(/<@!?(\d+)>/g)].map((m) => m[1]!).filter((id) => seen.has(id)))];
+    return users.length ? { allowedMentions: { parse: [], users } } : {};
+  }
+
   /** "@name" as `<@id>` for a member seen before, so a reply naming someone pings them; a @kind: reference is not a name. */
   private memberMentions(text: string): string {
     if (this.membersSeen.size === 0) return text;
@@ -2118,6 +2143,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private async deliver(
     post: (payload: {
       content?: string;
+      allowedMentions?: MessageMentionOptions;
       embeds?: EmbedBuilder[];
       components?: ActionRowBuilder<ButtonBuilder>[];
       files?: { attachment: Buffer; name: string }[];
@@ -2153,6 +2179,7 @@ export class DiscordAdapter implements ChannelAdapter {
       const last = i === Math.max(chunks.length, 1) - 1;
       posted = await post({
         ...(chunks[i] ? { content: chunks[i] } : {}),
+        ...this.pings(chunks[i]),
         ...(last && embeds.length ? { embeds } : {}),
         ...(last && components.length ? { components } : {}),
         ...(last && files.length ? { files: files.map((f) => ({ attachment: f.attachment, name: f.name })) } : {}),

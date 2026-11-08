@@ -27,6 +27,38 @@ export function outsideCode(text: string, rewrite: (part: string) => string): st
     .join("");
 }
 
+/** What Discord reads as markup: emphasis, code, quotes, headers, masked links, mentions. */
+const MARKUP = /[\\*_~`|>#@[\]()<]/g;
+
+/**
+ * Words a model wrote, with Discord's markup made literal: no bold, no
+ * header, no masked link that reads as one thing and opens another, no
+ * mention. For a line the owner decides on, where the model's account of a
+ * step must read as exactly what it says.
+ */
+export function literal(text: string): string {
+  return text.replace(MARKUP, "\\$&");
+}
+
+/**
+ * literal, leaving the references and workspace paths in the words as they
+ * are, so a step line still links what it names once the markup is made
+ * literal around them.
+ */
+export function literalWords(text: string): string {
+  const gap = (part: string): string =>
+    pathsIn(part)
+      .map((run) => (run.path ? run.path : literal(run.text)))
+      .join("");
+  let out = "";
+  let at = 0;
+  for (const m of text.matchAll(MENTION)) {
+    out += gap(text.slice(at, m.index)) + m[0];
+    at = (m.index ?? 0) + m[0].length;
+  }
+  return out + gap(text.slice(at));
+}
+
 /** Where a reference goes on the dashboard, mirroring the chip's own href. */
 export function mentionRoute(kind: string, id: string): string {
   const enc = encodeURIComponent;
