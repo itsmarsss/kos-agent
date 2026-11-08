@@ -12,6 +12,12 @@ export interface ConnectChannelOptions {
    * public surface; omitting it trusts every sender (in-process adapters only).
    */
   identity?: UserMapping;
+  /**
+   * Whether a chat's answers are already shown somewhere of its own on this
+   * surface (a channel or thread it is mirrored into): a decision's resumed
+   * answer lands there, and is not also sent to the owner here.
+   */
+  answeredElsewhere?: (conversationId: string) => boolean;
 }
 
 /**
@@ -108,17 +114,20 @@ export function connectChannel(
      */
     handleDecision: async (ctx) => {
       const id = Number(ctx.pendingId);
+      // The answer after the decision shows where the chat is mirrored, so it is not sent here twice.
+      const chat = kernel.approvals.get(id)?.conversationId;
+      const mirrored = chat ? options.answeredElsewhere?.(chat) === true : false;
       let text: string | undefined;
       if (ctx.approved) {
         const res = await kernel.approve(id, undefined, { remember: ctx.remember === true });
-        if (res.reply) text = res.reply;
+        if (res.reply) text = mirrored ? undefined : res.reply;
         else if (res.isError) text = `Approved #${id} failed: ${res.message}`;
         // A row that was already gone was never settled in place either, so
         // silence here would be a press that did nothing and said nothing.
         else if (!res.ok) text = res.message;
       } else {
         const res = await kernel.deny(id);
-        text = res.reply ?? (res.ok ? undefined : res.message);
+        text = res.reply !== undefined ? (mirrored ? undefined : res.reply) : res.ok ? undefined : res.message;
       }
       if (text) await adapter.send(options.ownerRecipientId, { text });
     },

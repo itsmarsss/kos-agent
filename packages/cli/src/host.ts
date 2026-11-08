@@ -46,6 +46,7 @@ type PanelSurface = "chrome" | "mac";
 
 import { envFilePath } from "./env.js";
 import { ThreadMirror } from "./threadmirror.js";
+import { postSaid, type SaidDeps } from "./saidpost.js";
 import { claimHandle, type HandleClaim } from "./imessagelock.js";
 import { clearDaemonState, writeDaemonState } from "./state.js";
 
@@ -723,6 +724,8 @@ export async function runHost(options: HostOptions): Promise<void> {
     );
     runtime = connectChannel(adapter, kernel, {
       ownerRecipientId: creds.ownerId,
+      // A chat with a channel or thread gets its answers there, a decision's included.
+      answeredElsewhere: (conversationId) => adapter?.mirrorTarget(conversationId, kernel.threadBindings()) !== undefined,
       // The sender->user table, seeded from config: only the configured Discord
       // account maps to a KOS user, so every other DM and button click is
       // dropped. Multi-user is more rows here, not a code change.
@@ -791,6 +794,15 @@ export async function runHost(options: HostOptions): Promise<void> {
        * is left to the presence running it; a scheduled job posts its one
        * result under its own name through the handler below.
        */
+      /** The files that came with words, read back from where the kernel kept them; one that is gone is dropped. */
+      const keptFiles = (files: { name: string; path: string }[]) =>
+        files.flatMap((f) => {
+          try {
+            return [{ name: f.name, mediaType: "application/octet-stream", data: readFileSync(kernel.workspace.resolve(f.path)).toString("base64"), path: f.path }];
+          } catch {
+            return [];
+          }
+        });
       const mirror = new ThreadMirror({
         targetFor: (conv) => adapter?.mirrorTarget(conv, kernel.threadBindings()),
         projectOf: (conv) => {
@@ -806,19 +818,24 @@ export async function runHost(options: HostOptions): Promise<void> {
         speakerFor: (from) => kernel.speakerFor(from),
         ownerSender: () => adapter!.ownerSender(),
         senderFor: (conv) => kernel.senderFor(conv),
-        filesFor: (files) =>
-          files.flatMap((f) => {
-            try {
-              return [{ name: f.name, mediaType: "application/octet-stream", data: readFileSync(kernel.workspace.resolve(f.path)).toString("base64"), path: f.path }];
-            } catch {
-              return [];
-            }
-          }),
+        filesFor: keptFiles,
         postIn: (target, msg) => adapter!.postIn(target, msg),
         openStory: (target, from) => adapter!.openStory(target, from),
         warn: (message) => console.warn(`[discord] thread mirror: ${message}`),
       });
       kernel.progress.subscribe((event) => mirror.onProgress(event));
+      const saidDeps: SaidDeps = {
+        targetFor: (conv) => adapter?.mirrorTarget(conv, kernel.threadBindings()),
+        jobOf: (conv) => (conv.startsWith("cron:") ? kernel.crons.get(Number(conv.slice("cron:".length))) : undefined),
+        ensureThread: (key, conv, title) => adapter!.ensureThread(key, conv, title),
+        bindThread: (threadId, conv) => kernel.bindThread(threadId, conv),
+        senderFor: (conv) => kernel.senderFor(conv),
+        speakerFor: (from) => kernel.speakerFor(from),
+        ownerSender: () => adapter!.ownerSender(),
+        filesFor: keptFiles,
+        postIn: (target, msg) => adapter!.postIn(target, msg),
+        sendOwner: (msg) => adapter!.send(creds.ownerId, msg),
+      };
       /*
        * A turn's exchange, told once it has happened. The mirror handles the
        * turns it has been narrating in a thread (it posts the answer and
@@ -827,68 +844,7 @@ export async function runHost(options: HostOptions): Promise<void> {
        */
       kernel.bus.on("turn:said", (said) => {
         if (!adapter) return;
-        mirror.onSaid(said, async () => {
-          if (!adapter) return;
-        // A turn from Discord is answered by the presence that took it; one
-        // that waited on an approval was answered "waiting on you" there, and
-        // the answer after the decision has only this way back.
-        if (said.channel === "discord" && !said.resumed) return;
-        // A scheduled run of a project's job shows in the project's channel,
-        // under the job's name: a daily post is what a schedule is for.
-        const job = said.conversationId.startsWith("cron:") ? kernel.crons.get(Number(said.conversationId.slice("cron:".length))) : undefined;
-        // Only a run the harness started gets the run format. Anything the
-        // owner says in a job's thread is a conversation, told by the mirror.
-        if (job && said.origin === "system") {
-          /*
-           * A scheduled run goes to the job's own thread: the same
-           * conversation the dashboard shows its runs in, so the two stay in
-           * sync and the project channel stays the orchestrator's. A job made
-           * since the last layout gets its thread now; failing that, the
-           * project's channel. The nudge itself reaches the owner through the
-           * job's notify, not this record.
-           */
-          let where = adapter.mirrorTarget(said.conversationId, kernel.threadBindings());
-          if (!where && job.projectSlug) {
-            where = await adapter.ensureThread(`project:${job.projectSlug}`, said.conversationId, job.name).catch(() => undefined);
-            if (where) kernel.bindThread(where, said.conversationId);
-          }
-          where ??= job.projectSlug ? adapter.mirrorTarget(`project:${job.projectSlug}`, kernel.threadBindings()) : undefined;
-          // The result, with a Run now button so the owner can fire the job
-          // again from here; it runs the same path the dashboard's Run now does.
-          if (where && said.reply.trim()) await adapter.postIn(where, { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] });
-          return;
-        }
-        const target = adapter.mirrorTarget(said.conversationId, kernel.threadBindings());
-        if (!target) return;
-        const from = kernel.senderFor(said.conversationId);
-        if (said.origin === "owner" && said.text.trim() && said.channel !== "discord") {
-          // The files that came with the words go too, read back from where
-          // the kernel kept them; one that is gone is simply not shown.
-          const files = said.files.flatMap((f) => {
-            try {
-              return [{ name: f.name, mediaType: "application/octet-stream", data: readFileSync(kernel.workspace.resolve(f.path)).toString("base64"), path: f.path }];
-            } catch {
-              return [];
-            }
-          });
-          if (said.from) {
-            // Passed on by a chat or a schedule: under that sender's name and
-            // face, which say who; the line says only what they cannot, that
-            // it was passed on. A dispatched message is asked as the owner,
-            // so it used to wear the owner's name and picture here.
-            const speaker = kernel.speakerFor(said.from);
-            await adapter.postIn(target, { text: `${said.text.trim()}\n-# passed on`, from: speaker, ...(files.length ? { files } : {}) });
-          } else {
-            // As the owner, under their own name and picture, so the thread
-            // reads as the conversation it is; quoted by the bot only when the
-            // owner cannot be looked up.
-            const owner = await adapter.ownerSender();
-            const text = owner ? said.text.trim() : `${said.text.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard`;
-            await adapter.postIn(target, { text, ...(owner ? { from: owner } : {}), ...(files.length ? { files } : {}) });
-          }
-        }
-        if (said.reply.trim()) await adapter.postIn(target, { text: said.reply, ...(from ? { from } : {}) });
-        });
+        mirror.onSaid(said, () => postSaid(said, saidDeps));
       });
       // A slash command typed on the dashboard is a small line in the chat's
       // channel or thread, with the first line of what it answered.

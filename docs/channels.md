@@ -25,7 +25,9 @@ your message. A turn that stops to ask you says "waiting on you" and keeps
 its story open: the steps after your decision are added to it, and the
 answer lands under them when the turn ends. Waiting is not working: the
 chat takes your next message meanwhile, and when you decide, the first
-turn finishes and its answer goes on the end. A message sent while a turn
+turn finishes and its answer goes on the end: in the DM for a turn asked
+in the DM, in the channel or thread for one asked there, and only there,
+a decision taken after a restart included. A message sent while a turn
 is still running there says "queued" at once, and runs next; its line
 tells only its own turn's story once that begins. On the dashboard a
 message that waits shows what came with it by name, and one that has just

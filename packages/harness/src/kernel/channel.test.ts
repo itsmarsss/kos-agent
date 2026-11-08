@@ -178,6 +178,28 @@ describe("connectChannel", () => {
     expect(after.filter((t) => /^Approved @approval:\d+\.$/.test(t))).toEqual([]);
   });
 
+  it("after a restart, sends a decision's answer here only when the chat has no channel or thread of its own", async () => {
+    for (const mirrored of [false, true]) {
+      await boot(stub(riskyScript()));
+      await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });
+      const pendingId = adapter.approvalsRequested[0]!.req.id;
+      const chat = kernel.approvals.get(Number(pendingId))!.conversationId!;
+      // A new process: nothing is waiting on the ask, so the decision resumes the chat itself.
+      await runtime.stop();
+      kernel.close();
+      adapter = new InMemoryAdapter();
+      kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: stub([{ content: [{ type: "text", text: "Deleted it." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" }]) });
+      const asked: string[] = [];
+      runtime = connectChannel(adapter, kernel, { ownerRecipientId: "owner", answeredElsewhere: (id) => (asked.push(id), mirrored) });
+      await runtime.start();
+      await adapter.decide({ id: pendingId, approved: true, deciderId: "owner" });
+      expect(asked).toEqual([chat]);
+      expect(adapter.sent.map((m) => m.msg.text)).toEqual(mirrored ? [] : ["Deleted it."]);
+      kernel.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("still speaks up when the decision could not be applied", async () => {
     // Nothing was settled in place for a row that is not there, so silence
     // would be a press that did nothing and said nothing.
