@@ -23,10 +23,12 @@ import {
   startsList,
   styleOf,
   TIME_TOKEN,
+  timeCard,
 } from "@kos/shared";
 
 import { Face } from "./Face.js";
 import { Tex } from "./Tex.js";
+import { Tooltip } from "./Tooltip.js";
 
 /**
  * A small markdown renderer for chat, the one the dashboard and KOS for
@@ -246,7 +248,8 @@ function MentionChip({ kind, id }: { kind: string; id: string }): ReactElement {
  *
  * `<t:2026-10-19T07:30:R>` is read in this browser's zone and shown the way
  * Discord shows its own token: "in 3 hours", or the date and time in the
- * style asked for, with the full date on hover. A relative one keeps up
+ * style asked for, with the full date in a card on hover, focus or a tap,
+ * in this reader's locale. A relative one keeps up
  * with the clock, so a message read later still says how far off it is.
  */
 function Stamp({ value, letter, raw }: { value: string; letter: string | undefined; raw: string }): ReactElement {
@@ -255,9 +258,22 @@ function Stamp({ value, letter, raw }: { value: string; letter: string | undefin
   const now = useNow(style === "R" ? 30_000 : 0);
   if (seconds === undefined) return <>{raw}</>;
   return (
-    <time className="md-time" dateTime={new Date(seconds * 1000).toISOString()} title={formatTime(seconds, "F")}>
-      {formatTime(seconds, style, undefined, now)}
-    </time>
+    <Tooltip tip={<TimeCard seconds={seconds} />}>
+      <time className="md-time" dateTime={new Date(seconds * 1000).toISOString()}>
+        {formatTime(seconds, style, undefined, now)}
+      </time>
+    </Tooltip>
+  );
+}
+
+/** The date in full over the time on the reader's clock, one line each. */
+function TimeCard({ seconds }: { seconds: number }): ReactElement {
+  const [date, time] = timeCard(seconds);
+  return (
+    <span className="md-time-card">
+      <span>{date}</span>
+      <span>{time}</span>
+    </span>
   );
 }
 
