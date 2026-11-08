@@ -6,6 +6,7 @@ import type {
   ModalSpec,
   Sender,
 } from "../channels/types.js";
+import { caller, isOwnerTurn } from "../kernel/caller.js";
 import type { KosModule } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 
@@ -523,6 +524,12 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
 
           const target = parseTarget(input.to);
           const replyTo = typeof input.replyTo === "string" ? input.replyTo : undefined;
+          // Only the owner's own turn sends a press to another chat. Any
+          // other turn (a guest's, a schedule's) would plant a button whose
+          // press runs in a chat it cannot reach, the owner's private one.
+          if (replyTo && replyTo !== caller.getStore() && !isOwnerTurn()) {
+            throw new Error("only the owner's own turn can send a press to another chat; leave replyTo out and a press comes back here");
+          }
           const buttons = asButtons(input.buttons).map((button) => {
             if (button.url) return button;
             if (!deps.routePress) {

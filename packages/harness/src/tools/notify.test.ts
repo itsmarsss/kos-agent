@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
+import { caller, ownership } from "../kernel/caller.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
@@ -102,6 +103,41 @@ describe("notifyModule", () => {
     ]);
     // A link button comes back from nothing, so it needs no token.
     expect(sent[0]?.buttons?.map((b) => b.token)).toEqual(["tok1", undefined]);
+  });
+
+  it("sends a press to another chat only from the owner's own turn", async () => {
+    const sent: NotifyPayload[] = [];
+    const routed: (string | undefined)[] = [];
+    const registry = await load(
+      async (p) => {
+        sent.push(p);
+        return undefined;
+      },
+      (_b, replyTo) => {
+        routed.push(replyTo);
+        return "tok";
+      },
+    );
+    const call = (replyTo: string | undefined, owner: boolean) =>
+      caller.run("room", () =>
+        ownership.run(owner, () =>
+          registry.execute("notify", { text: "pick", buttons: [{ label: "Go" }], ...(replyTo ? { replyTo } : {}) }),
+        ),
+      );
+    // A guest's or a schedule's turn naming the owner's private chat: refused, nothing minted or sent.
+    const planted = await call("private", false);
+    expect(planted.isError).toBe(true);
+    expect(planted.content).toMatch(/only the owner's own turn/);
+    expect(routed).toEqual([]);
+    expect(sent).toEqual([]);
+    // Its own chat, said or left out, is still its own.
+    expect((await call("room", false)).isError).toBe(false);
+    expect((await call(undefined, false)).isError).toBe(false);
+    // The owner's own turn sends a press wherever they say.
+    expect((await call("private", true)).isError).toBe(false);
+    expect(routed).toEqual(["room", undefined, "private"]);
+    // Outside any turn nobody said it was the owner.
+    expect((await registry.execute("notify", { text: "pick", buttons: [{ label: "Go" }], replyTo: "private" })).isError).toBe(true);
   });
 
   it("refuses a button on a surface that cannot take one back", async () => {
