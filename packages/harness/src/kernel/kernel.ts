@@ -1705,7 +1705,7 @@ export class Kernel {
    */
   async handleOrchestratorTurn(
     text: string,
-    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; owner?: boolean } = {},
+    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; context?: string; owner?: boolean } = {},
   ): Promise<HandleResult & { conversationId: string }> {
     const id = this.ensureOrchestratorConversation().id;
     const res = await this.handleMessage(text, {
@@ -1720,6 +1720,7 @@ export class Kernel {
       ...(opts.guest ? { guest: opts.guest } : {}),
       ...(opts.room ? { room: opts.room } : {}),
       ...(opts.members?.length ? { members: opts.members } : {}),
+      ...(opts.context ? { context: opts.context } : {}),
       ...(opts.owner ? { owner: true } : {}),
     });
     return { ...res, conversationId: id };
@@ -2292,7 +2293,7 @@ export class Kernel {
   async handleProjectTurn(
     slug: string,
     text: string,
-    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; owner?: boolean } = {},
+    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; context?: string; owner?: boolean } = {},
   ): Promise<HandleResult & { conversationId: string }> {
     const id = this.ensureProjectConversation(slug).id;
     const res = await this.handleMessage(text, {
@@ -2307,6 +2308,7 @@ export class Kernel {
       ...(opts.guest ? { guest: opts.guest } : {}),
       ...(opts.room ? { room: opts.room } : {}),
       ...(opts.members?.length ? { members: opts.members } : {}),
+      ...(opts.context ? { context: opts.context } : {}),
       ...(opts.owner ? { owner: true } : {}),
     });
     return { ...res, conversationId: id };
@@ -2852,7 +2854,7 @@ export class Kernel {
   /** A turn in a bound conversation, through the door that gives it its reach. */
   private boundTurn(
     conversation: Conversation,
-    input: { text: string; userId: string; channel: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[] },
+    input: { text: string; userId: string; channel: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; context?: string },
   ): Promise<HandleResult> {
     const opts = {
       channel: input.channel,
@@ -2860,6 +2862,8 @@ export class Kernel {
       ...(input.guest ? { guest: input.guest } : {}),
       ...(input.room ? { room: input.room } : {}),
       ...(input.members?.length ? { members: input.members } : {}),
+      // What the room said in between rides beside the words, never parsed as them.
+      ...(input.context ? { context: input.context } : {}),
       // A surface hands on the owner's own words, and names a guest's as theirs.
       ...(input.guest ? {} : { owner: true }),
     };
