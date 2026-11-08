@@ -59,11 +59,11 @@ const flush = async (): Promise<void> => {
 
 describe("the side panel's chat in the owner's Chrome", () => {
   it("starts its session unasked only for the owner's own words in the panel, showing them as the task", async () => {
-    let device: string | undefined;
+    const at: { device?: string } = {};
     const audited: AuditEntry[] = [];
-    const { hub, pairChrome, mod } = setup({ panel: () => device, audit: (e) => void audited.push(e) });
+    const { hub, pairChrome, mod } = setup({ panel: () => at.device, audit: (e) => void audited.push(e) });
     const fake = pairChrome();
-    device = fake.id;
+    at.device = fake.id;
     const as = (from: { surface: string; said: string } | undefined, owner = true) => () =>
       ownership.run(owner, () => (from ? origin.run(from, () => mod.beginPanelChrome("c1")) : mod.beginPanelChrome("c1")));
     // Typed into the same chat on the dashboard, passed on by a chat, or no surface at all: chrome.start is the way.
