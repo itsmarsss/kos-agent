@@ -59,6 +59,9 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   const sockets = deviceSocketServer(() => (active ? hub : undefined));
   const panel = new DevicePanel(CHROME_PANEL, options.panels.chrome);
   const mac = new DevicePanel(MAC_PANEL, options.panels.mac);
+  // The owner leaving a chat on a device ends the session that chat holds there.
+  panel.onLeave((c) => active?.left(c, "browser"));
+  mac.onLeave((c) => active?.left(c, "computer"));
 
   const module: KosModule = {
     manifest: COMPUTER_MANIFEST,

@@ -981,6 +981,9 @@ chrome.runtime.onConnect.addListener((port) => {
   });
   port.onDisconnect.addListener(() => {
     panels.delete(panel);
+    // The owner closed the panel on its chat: the session that chat holds here ends, unless another panel still shows it.
+    const { kos, conversation } = panel;
+    if (kos && conversation && ![...panels].some((p) => p.kos === kos && p.conversation === conversation)) links.get(kos)?.event("chat.close", { conversation });
     // An ask in a panel that closed has no one to answer it: no.
     for (const asked of consents.values()) if (asked.panel === panel) asked.answer({ allowed: false, minutes: 0 });
     for (const asked of reads.values()) if (asked.panel === panel) asked.answer(false);

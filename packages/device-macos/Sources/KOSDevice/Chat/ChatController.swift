@@ -40,13 +40,19 @@ final class ChatController {
     model.switchTo = { [weak self] id in self?.tell(.switchTo(conversation: id)) }
     model.chooseModel = { [weak self] choice in self?.tell(.model(choice)) }
     model.setAuto = { [weak self] on in self?.tell(.auto(on)) }
-    model.close = { [weak self] in self?.window.orderOut(nil) }
+    model.close = { [weak self] in self?.close() }
   }
 
   var isOpen: Bool { window.isVisible }
 
   func toggle() {
-    if isOpen { window.orderOut(nil) } else { open() }
+    if isOpen { close() } else { open() }
+  }
+
+  /// The window put away: KOS hears the owner left the chat, so a session it holds on this Mac ends.
+  private func close() {
+    window.orderOut(nil)
+    tell(.close)
   }
 
   func open() {

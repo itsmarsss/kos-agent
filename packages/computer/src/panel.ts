@@ -121,6 +121,10 @@ export class DevicePanel implements ChannelAdapter {
   /** Where they were when they last spoke there: the app a session started unasked offers first. */
   private lastBeside: unknown;
   private running: Running | undefined;
+  /** The chat last shown on the devices, to hear the owner leave it. */
+  private shownChat: string | undefined;
+  /** Told the chat the owner left on a device: switched the panel to another, or closed it. */
+  private leaving: ((conversation: string) => void) | undefined;
 
   constructor(
     private readonly place: PanelPlace,
@@ -166,6 +170,18 @@ export class DevicePanel implements ChannelAdapter {
     const b = this.lastBeside;
     const r = typeof b === "object" && b !== null ? (b as Record<string, unknown>) : {};
     return r["kind"] === "app" ? said(r["name"], 80) || undefined : undefined;
+  }
+
+  /** Hear the owner leave a chat on a device: a session it holds there ends. */
+  onLeave(handler: (conversation: string) => void): void {
+    this.leaving = handler;
+  }
+
+  /** The chat the panel shows now: one other than the last shown means the owner left that one. */
+  private follow(): void {
+    const now = this.deps.current()?.id;
+    if (this.shownChat && now !== this.shownChat) this.leaving?.(this.shownChat);
+    this.shownChat = now;
   }
 
   /** A decision's outcome, or a resumed turn's answer: every open panel is shown the chat with it. */
@@ -276,6 +292,7 @@ export class DevicePanel implements ChannelAdapter {
    * the panel lets it go once the turn goes on.
    */
   private async show(device: string | undefined, said?: OutboundMessage, waiting = false, about?: string): Promise<void> {
+    this.follow();
     const params = this.drawn(said, waiting, about);
     if (device) await this.tell(device, "chat.show", params);
     else await this.everyDevice("chat.show", params);
@@ -359,6 +376,13 @@ export class DevicePanel implements ChannelAdapter {
           this.deps.setAuto?.(chat.id, data["on"]);
           void this.show(undefined);
         }
+        return;
+      }
+      case "chat.close": {
+        // The panel or window closed on its chat: the owner left it there.
+        const chat = typeof data["conversation"] === "string" ? data["conversation"] : this.deps.current()?.id;
+        if (chat) this.leaving?.(chat);
+        if (chat === this.shownChat) this.shownChat = undefined;
         return;
       }
       case "chat.list":

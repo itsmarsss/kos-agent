@@ -162,6 +162,8 @@ public enum Beside: Encodable, Equatable, Sendable {
 /// What the window tells KOS: it opened, the owner's words, a decision, and what to show next.
 public enum ChatEvent: Sendable {
   case open
+  /// The window closed: the owner left its chat, and a session it holds on this Mac ends.
+  case close
   case send(text: String, beside: Beside)
   case decide(approval: String, approved: Bool, remember: Bool)
   case list
@@ -174,6 +176,7 @@ public enum ChatEvent: Sendable {
   public func frame() throws -> Data {
     switch self {
     case .open: return try Outbound.chatEvent("chat.open", data: Empty())
+    case .close: return try Outbound.chatEvent("chat.close", data: Empty())
     case .send(let text, let beside): return try Outbound.chatEvent("chat.send", data: Send(text: text, beside: beside))
     case .decide(let approval, let approved, let remember):
       return try Outbound.chatEvent("chat.decide", data: Decide(approval: approval, approved: approved, remember: remember ? true : nil))

@@ -1,5 +1,5 @@
 import { fenced } from "@kos/browser";
-import { isAttended, ownWordsOn, turnStop, type AuditEntry, type KosModule, type ModuleContext, type ToolRisk } from "@kos/harness";
+import { isAttended, isOwnerTurn, ownWordsOn, turnStop, type AuditEntry, type KosModule, type ModuleContext, type ToolRisk } from "@kos/harness";
 import { ScreenMemory, UNCHANGED, WAIT_BUDGET_MS, abortable, actionsOf, doneText, hasActions, runActions, type RunAdapter, type WaitBudget } from "@kos/shared";
 
 import type { OwnerChrome } from "./chrome.js";
@@ -21,8 +21,10 @@ import type { Capture, Point } from "./protocol.js";
  *
  * The owner's own turn from the KOS for Mac window needs no `start`: its
  * first act asks for a session on that Mac. Any other turn in that chat (one
- * typed on the dashboard, a dispatch, a schedule) starts one with `start`. A session ends with the turn that started it,
- * unless `start` was asked to keep it.
+ * typed on the dashboard, a dispatch, a schedule) starts one with `start`.
+ * A session the owner's own turn started belongs to its chat and lasts past
+ * the turn; one any other turn started ends with it, unless `start` was
+ * asked to keep it.
  *
  * The tools exist only while a device is paired: a chat on a KOS with no
  * computer is not offered tools that cannot work.
@@ -99,6 +101,8 @@ interface DeviceAction {
 export interface ComputerModule extends KosModule {
   /** A session in the Chrome whose side panel this chat is, started unasked by the chat's first browser call. */
   beginPanelChrome(conversation: string, signal?: AbortSignal): Promise<void>;
+  /** The owner left a chat on a device of this kind (switched the panel away, or closed it): its session there ends. */
+  left(conversation: string, kind: "computer" | "browser"): void;
 }
 
 const SETTLE_MS = 450;
@@ -248,8 +252,29 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
    */
   const settling = new Set<string>();
 
-  /** Chats whose session was started to last past the turn, by its id. */
-  const kept = new Map<string, string>();
+  /**
+   * Chats whose session ends with the turn that started it, by its id: a
+   * turn that is not the owner's own (a schedule, a dispatch, a guest) and
+   * did not ask to keep it. The owner's own sessions belong to the chat and
+   * last until their time, the device's idle limit, the owner leaving the
+   * chat on the device, an end, or the kill switch.
+   */
+  const passing = new Map<string, string>();
+
+  /** How long a session started now lasts: past its turn when the owner's own turn started it, or `keep` asked. */
+  const lasts = (chat: string, session: Session, keep: boolean | undefined): boolean => {
+    const lasting = keep === true || (isOwnerTurn() && isAttended());
+    if (lasting) passing.delete(chat);
+    else passing.set(chat, session.id);
+    return lasting;
+  };
+
+  /** How long a session is said to last, in the words its start answers with. */
+  const untilText = (session: Session, lasting: boolean, end: string): string => {
+    if (!lasting) return "until this turn ends";
+    const left = Math.max(1, Math.round((session.until - Date.now()) / 60_000));
+    return `for ${left} minute${left === 1 ? "" : "s"}, past this turn, until ${end}, its time, or the owner leaving this chat on the device`;
+  };
 
   /** A chat's refusal by the owner this turn, in words: a session is not asked for unasked again until the turn ends. */
   const denied = new Map<string, string>();
@@ -400,12 +425,11 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       if (err instanceof DeviceError && err.code === "denied") denied.set(chat, refusalText(err));
       throw new Error(refusalText(err));
     }
-    if (input.keep) kept.set(chat, session.id);
-    const left = Math.max(1, Math.round((session.until - Date.now()) / 60_000));
+    const lasting = lasts(chat, session, input.keep);
     const shared = session.target.kind === "window"
       ? `the ${session.target.app ?? "app"} window${session.target.title ? ` "${session.target.title}"` : ""} on ${device.name}, and only it`
       : device.name;
-    const until = input.keep ? `for ${left} minute${left === 1 ? "" : "s"}, past this turn until computer.end` : "until this turn ends";
+    const until = untilText(session, lasting, "computer.end");
     return look(chat, `Using ${shared} ${until}. Coordinates are pixels of this picture.`, undefined, false, true);
   };
 
@@ -443,16 +467,15 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       if (err instanceof DeviceError && err.code === "denied") denied.set(chat, refusalText(err));
       throw new Error(refusalText(err));
     }
-    if (input.keep) kept.set(chat, session.id);
+    const lasting = lasts(chat, session, input.keep);
     const handed = await deps.chrome.begun(chat).catch(() => []);
-    const left = Math.max(1, Math.round((session.until - Date.now()) / 60_000));
     const beside = handed.find((t) => t.focus);
     const others = handed.filter((t) => !t.focus);
     const where = beside
       ? ` in the tab the owner has open beside the side panel (${beside.title || beside.url}), where they are looking`
       : " in KOS's own window in that Chrome unless you use a handed tab";
     const tabs = others.length ? ` Tabs the owner handed you: ${others.map((t) => `${t.title || t.url}`).join("; ")} (browser.tabs lists them, browser.use_tab goes to one).` : "";
-    const until = input.keep ? `for ${left} minute${left === 1 ? "" : "s"}, past this turn until chrome.end` : "until this turn ends";
+    const until = untilText(session, lasting, "chrome.end");
     return `Working in the owner's Chrome (${device.name}) ${until}. Your browser.* tools act there now, not in KOS's own browser:${where}.${tabs} The owner can take over or stop it there at any time.`;
   };
 
@@ -526,7 +549,8 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
           "is online; do not switch to it unasked. The owner allows it on the computer, seeing `task`, so say plainly what you will do. Name " +
           "`app` when the work is in one app: the owner is offered its window first and may share only that window, which you then see and act " +
           "in alone (it is brought to the front for you). Returns the first picture of what was shared; work it with computer.act. The session " +
-          "ends with this turn; `keep` keeps it until computer.end or its time. When the owner speaks in the KOS for Mac window, computer.act starts one itself, " +
+          "lasts past this turn in the owner's own turn, until computer.end, its time, or the owner leaving the chat; started by other " +
+          "work it ends with the turn unless `keep`. When the owner speaks in the KOS for Mac window, computer.act starts one itself, " +
           "so this is not needed there. Use it when the work needs a computer's own apps or files; the browser tools are quicker for a web page alone.",
         inputSchema: {
           type: "object",
@@ -535,7 +559,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
             device: { type: "string", description: "The computer's name or id; optional when only one is online." },
             app: { type: "string", description: "The app to work in, by name (\"Figma\") or bundle id; the owner may still share the whole screen." },
             minutes: { type: "number", minimum: 1, maximum: 480, description: "How long you need it; the owner's default when left out. The computer may allow less." },
-            keep: { type: "boolean", description: "Keep the session past this turn, until computer.end or its time." },
+            keep: { type: "boolean", description: "Keep the session past this turn even when work other than the owner's own turn started it." },
           },
           required: ["task"],
         },
@@ -636,14 +660,14 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     ctx.registerTool(
       {
         name: "computer.end",
-        description: "Give the computer back now: end this chat's session. A session ends with the turn anyway; call this to end it sooner, or to end one kept with `keep`.",
+        description: "Give the computer back now: end this chat's session. Call it when the work is done.",
         inputSchema: { type: "object", properties: {} },
       },
       () => {
         const chat = conversation();
         shown.forget(chat);
         settling.delete(chat);
-        kept.delete(chat);
+        passing.delete(chat);
         return hub.end(chat) ? "Ended. The owner has the computer back." : "There was no session to end.";
       },
       { floor: "safe" },
@@ -662,15 +686,15 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
           "when they asked for the computer and it is offline, say so and ask before using their Chrome instead. The owner allows it there, " +
           "seeing `task`, so say plainly what you will do. While the session lasts, this chat's browser.* tools work in the owner's Chrome " +
           "instead of KOS's (each result says which): in a window of KOS's own there, and in tabs the owner handed you. Acting there is " +
-          "trusted apart from KOS's browser, so a site trusted there is asked about again. The session ends with this turn; `keep` keeps it " +
-          "until chrome.end or its time.",
+          "trusted apart from KOS's browser, so a site trusted there is asked about again. The session lasts past this turn in the owner's own " +
+          "turn, until chrome.end, its time, or the owner leaving the chat; started by other work it ends with the turn unless `keep`.",
         inputSchema: {
           type: "object",
           properties: {
             task: { type: "string", description: "What you will do, in a few words, as the owner will read it." },
             chrome: { type: "string", description: "The paired Chrome's name or id; optional when only one is online." },
             minutes: { type: "number", minimum: 1, maximum: 120, description: "How long you need it; the owner may allow less." },
-            keep: { type: "boolean", description: "Keep the session past this turn, until chrome.end or its time." },
+            keep: { type: "boolean", description: "Keep the session past this turn even when work other than the owner's own turn started it." },
           },
           required: ["task"],
         },
@@ -694,12 +718,12 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     ctx.registerTool(
       {
         name: "chrome.end",
-        description: "Give the owner's Chrome back now: end this chat's session there; your browser.* tools go back to KOS's own browser. A session ends with the turn anyway; call this to end it sooner, or to end one kept with `keep`.",
+        description: "Give the owner's Chrome back now: end this chat's session there; your browser.* tools go back to KOS's own browser. Call it when the work is done.",
         inputSchema: { type: "object", properties: {} },
       },
       () => {
         const chat = conversation();
-        kept.delete(chat);
+        passing.delete(chat);
         return hub.end(chat) ? "Ended. The owner has their Chrome back; the browser.* tools work in KOS's own browser again." : "There was no session to end.";
       },
       { floor: "safe" },
@@ -834,15 +858,15 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     }
   };
 
-  /** A turn over: the sessions it started end with it, unless they were kept. */
+  /** A turn over: a session that was to end with it ends; the owner's own sessions go on. */
   const turnEnded = (chat: string): void => {
     ended.set(chat, (ended.get(chat) ?? 0) + 1);
     denied.delete(chat);
     shown.forget(chat);
     const session = hub.sessionOf(chat);
     if (!session) return;
-    if (kept.get(chat) === session.id) return;
-    kept.delete(chat);
+    if (passing.get(chat) !== session.id) return;
+    passing.delete(chat);
     settling.delete(chat);
     hub.end(chat);
   };
@@ -850,6 +874,14 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
   return {
     manifest: COMPUTER_MANIFEST,
     beginPanelChrome: (chat, signal) => beginPanelChrome(chat, signal),
+    left: (chat, kind) => {
+      const session = hub.sessionOf(chat);
+      if (!session || hub.list().find((d) => d.id === session.device)?.kind !== kind) return;
+      passing.delete(chat);
+      settling.delete(chat);
+      shown.forget(chat);
+      hub.end(chat);
+    },
     activate(ctx) {
       // Offered only while a device of their kind is paired; pairing the
       // first or unpairing the last adds or takes back the tools at once.
@@ -880,7 +912,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       unsubscribe = [];
       registered.computer = false;
       registered.browser = false;
-      kept.clear();
+      passing.clear();
       hub.endAll("host");
     },
   };

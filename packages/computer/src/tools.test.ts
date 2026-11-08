@@ -77,7 +77,7 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>;
     fake.hello();
     return fake;
   };
-  return { hub, tools, call, pair, halts, stop: (chat: string) => stops.forEach((s) => s(chat)), fresh: (chat: string) => freshes.forEach((f) => f(chat)), endTurn: (chat: string) => ends.forEach((e) => e(chat)) };
+  return { hub, tools, call, pair, halts, module: mod, stop: (chat: string) => stops.forEach((s) => s(chat)), fresh: (chat: string) => freshes.forEach((f) => f(chat)), endTurn: (chat: string) => ends.forEach((e) => e(chat)) };
 }
 
 const textOf = (r: Result): string => (typeof r === "string" ? r : r.text);
@@ -386,6 +386,36 @@ describe("the computer tools", () => {
     expect(await call("computer.end")).toBe("There was no session to end.");
   });
 
+  it("keep a session the owner's own turn started past it, for the chat, until its time, an end, the owner leaving or the kill switch", async () => {
+    const { call, pair, hub, endTurn, tools, halts, module } = setup();
+    const fake = pair();
+    const mod = () => ownership.run(true, () => call("computer.start", { task: "watch the export" }));
+    expect(textOf(await mod())).toMatch(/for 15 minutes, past this turn, until computer\.end/);
+    endTurn("c1");
+    expect(hub.sessionOf("c1")).toBeDefined();
+    // A call the owner approved after the turn, run outside any turn, still finds it.
+    await call("computer.act", { action: "left_click", coordinate: [10, 20] });
+    expect(fake.calls.map((c) => c.method)).toContain("pointer.click");
+    // Its time.
+    fake.answers.set("session.begin", () => ({ ok: true, result: { granted: true, until: Date.now() + 30, space: { width: 1232, height: 800 } } }));
+    await call("computer.end");
+    await mod();
+    await new Promise((r) => setTimeout(r, 40));
+    expect(hub.sessionOf("c1")).toBeUndefined();
+    fake.answers.set("session.begin", () => ({ ok: true, result: { granted: true, until: Date.now() + 60_000, space: { width: 1232, height: 800 } } }));
+    // The owner leaving the chat on the device; a Chrome's panel never ends a computer's session.
+    await mod();
+    module.left("c1", "browser");
+    expect(hub.sessionOf("c1")).toBeDefined();
+    module.left("c1", "computer");
+    expect(hub.sessionOf("c1")).toBeUndefined();
+    // The kill switch.
+    await mod();
+    halts.forEach((h) => h());
+    expect(hub.sessionOf("c1")).toBeUndefined();
+    expect(tools.size).toBeGreaterThan(0);
+  });
+
   it("end a session with the turn that started it, unless it was kept", async () => {
     const { call, pair, hub, endTurn } = setup();
     const fake = pair();
@@ -396,7 +426,7 @@ describe("the computer tools", () => {
     expect(hub.sessionOf("c1")).toBeUndefined();
     expect(fake.calls.at(-1)?.method).toBe("session.end");
     const kept = await call("computer.start", { task: "watch the export", keep: true });
-    expect(textOf(kept)).toMatch(/past this turn until computer\.end/);
+    expect(textOf(kept)).toMatch(/past this turn, until computer\.end/);
     endTurn("c1");
     expect(hub.sessionOf("c1")).toBeDefined();
     await call("computer.end");
@@ -416,7 +446,7 @@ describe("a turn from the KOS for Mac window", () => {
     expect(fake.calls[0]).toMatchObject({ method: "session.begin", params: { task: '"export this deck"', target: { app: "Keynote" }, maxEdge: 1024 } });
     expect(fake.calls.map((c) => c.method)).not.toContain("pointer.click");
     expect(typeof first !== "string" && first.images).toHaveLength(1);
-    expect(textOf(first)).toMatch(/until this turn ends.*Nothing else was done: you had not seen this screen/s);
+    expect(textOf(first)).toMatch(/past this turn, until computer\.end.*Nothing else was done: you had not seen this screen/s);
     // From then on, the session is there: the act runs.
     await call("computer.act", { intent: "open the File menu", action: "left_click", coordinate: [10, 20] });
     expect(fake.calls.map((c) => c.method)).toContain("pointer.click");

@@ -75,6 +75,7 @@ struct ChatTests {
     let always = try #require(object(ChatEvent.decide(approval: "7", approved: true, remember: true).frame())["data"] as? [String: Any])
     #expect(always["remember"] as? Bool == true)
     #expect(try object(ChatEvent.open.frame())["name"] as? String == "chat.open")
+    #expect(try object(ChatEvent.close.frame())["name"] as? String == "chat.close")
     #expect(try object(ChatEvent.auto(true).frame())["data"] as? [String: Bool] == ["on": true])
   }
 }
