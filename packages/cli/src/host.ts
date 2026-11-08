@@ -618,6 +618,10 @@ export async function runHost(options: HostOptions): Promise<void> {
       cursors: roomCursorsIn(kernel.settings),
       // Each running turn's story line, so one a restart cut short says so.
       keptStories: keptStoriesIn(kernel.settings),
+      // A thread deleted on Discord lets its chat go; it gets a new one on next use.
+      onGone: (id) => {
+        if (kernel.threadBindings()[id]) kernel.unbindThread(id);
+      },
       // The owner renamed a chat's thread on Discord: the chat takes the name.
       onThreadRenamed: (threadId, name) => {
         const id = kernel.threadBindings()[threadId];
@@ -870,6 +874,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       // A chat deleted on the dashboard takes its thread with it.
       kernel.bus.on("chat:deleted", async ({ conversationId }) => {
         if (!adapter) return;
+        // A channel bound to it by topic is let go too, so it cannot make the chat again.
+        await adapter.unbindChannel(conversationId).catch((err: unknown) => console.warn(`[discord] channel for ${conversationId} not let go: ${err instanceof Error ? err.message : String(err)}`));
         const threadId = Object.entries(kernel.threadBindings()).find(([, id]) => id === conversationId)?.[0];
         if (!threadId) return;
         await adapter.deleteThread(threadId).catch((err: unknown) => {

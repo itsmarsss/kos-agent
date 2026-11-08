@@ -5,6 +5,7 @@ import type { ProgressEvent } from "../kernel/progress.js";
 import type { ToolRegistry } from "../agent/registry.js";
 import { SingleOwnerMapping, type UserMapping } from "./identity.js";
 import { TurnNarrator } from "./narrate.js";
+import { BindingGoneError } from "./types.js";
 import type {
   ApprovalDecision,
   ApprovalOutcome,
@@ -411,11 +412,13 @@ export class ChannelRuntime {
        * took the host down with it. There is nowhere left to report to by
        * this point, so it goes to the log and the process stays up.
        */
+      // A room bound to something gone is told so, in the kernel's words.
+      const said = err instanceof BindingGoneError ? err.message : this.errorReply;
       try {
         if (presence) {
-          await presence.fail(this.errorReply);
+          await presence.fail(said);
         } else {
-          await this.adapter.send(msg.senderId, { text: this.errorReply });
+          await this.adapter.send(msg.senderId, { text: said });
         }
       } catch (err) {
         console.error(

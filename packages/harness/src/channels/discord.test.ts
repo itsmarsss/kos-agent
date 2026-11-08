@@ -2285,3 +2285,38 @@ describe("renames", () => {
     expect(renamed).toEqual([["t1", "Seed order"]]);
   });
 });
+
+describe("a channel or thread gone from Discord", () => {
+  it("lets go of what was bound to it, whether deleted or found unknown, and tells the host", async () => {
+    const gone: string[] = [];
+    const adapter = new DiscordAdapter({ token: "t", threadOf: (id) => (id === "t1" ? "chat-1" : undefined), onGone: (id) => void gone.push(id) });
+    const client = (adapter as unknown as { client: { login: () => Promise<string>; emit: (e: string, ...a: unknown[]) => boolean; channels: unknown } }).client;
+    client.login = async () => "";
+    await adapter.start();
+    const internals = adapter as unknown as { boundIds: Map<string, string> };
+    internals.boundIds.set("chat-9", "c9");
+    internals.boundIds.set("project:garden", "c2");
+    adapter.rememberThreads({ t1: "chat-1" });
+    client.emit("channelDelete", { id: "c9" });
+    client.emit("threadDelete", { id: "t1" });
+    expect(internals.boundIds.has("chat-9")).toBe(false);
+    expect(adapter.mirrorTarget("chat-9", {})).toBeUndefined();
+    expect((adapter as unknown as { boundThreads: Set<string> }).boundThreads.has("chat-1")).toBe(false);
+    // Found unknown when posting: the same.
+    client.channels = { fetch: async () => { throw Object.assign(new Error("Unknown Channel"), { code: 10003 }); } };
+    (client as unknown as { isReady: () => boolean }).isReady = () => true;
+    await expect(adapter.postIn("c2", { text: "hi" })).rejects.toThrow(/not somewhere this bot can post/);
+    expect(internals.boundIds.has("project:garden")).toBe(false);
+    expect(gone).toEqual(["c9", "t1", "c2"]);
+  });
+
+  it("puts the topic of a deleted chat's channel back to plain words", async () => {
+    const topics: string[] = [];
+    const adapter = new DiscordAdapter({ token: "t" });
+    (adapter as unknown as { boundIds: Map<string, string> }).boundIds.set("chat-9", "c9");
+    (adapter as unknown as { client: unknown }).client = { channels: { fetch: async () => ({ topic: "kos:chat-9 · Leetcode · https://kos.example/#/chats/chat-9", setTopic: async (t: string) => void topics.push(t) }) } };
+    await adapter.unbindChannel("chat-9");
+    expect(topics).toEqual(["Leetcode"]);
+    expect(adapter.mirrorTarget("chat-9", {})).toBeUndefined();
+  });
+});

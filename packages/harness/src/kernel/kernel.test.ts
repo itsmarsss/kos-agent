@@ -10,6 +10,7 @@ import { Kernel, orchestratorId } from "./kernel.js";
 import type { Conversation } from "./conversations.js";
 import { isKernelTable } from "../tools/fence.js";
 import { SurfaceDownError, type NotifyPayload } from "../tools/notify.js";
+import { BindingGoneError } from "../channels/types.js";
 import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { toPdf } from "../tools/pdf.js";
 import { bodyHexOf } from "@kos/shared";
@@ -418,6 +419,20 @@ describe("Kernel", () => {
     expect(kernel.rebindOwnerThreads()).toHaveLength(1);
     expect(kernel.threadBindings()).toEqual({ t2: "discord:thread:t2", k8: "ordinary", t1: "discord:thread:t1" });
     expect(kernel.ownerThreadDuplicates()).toEqual([]);
+  });
+
+  it("never makes a deleted chat again from a stale binding, and says a room's binding is gone in so many words", async () => {
+    kernel = await boot(stubInference([]));
+    const seed = { title: "Seeds", threadId: "t1" };
+    kernel.boundConversation("discord:thread:t1", "owner", "discord", seed);
+    kernel.conversations.remove("discord:thread:t1");
+    expect(() => kernel.boundConversation("discord:thread:t1", "owner", "discord", seed)).toThrow(BindingGoneError);
+    expect(kernel.conversations.get("discord:thread:t1")).toBeUndefined();
+    // A channel bound by topic to a chat id that is gone makes nothing either.
+    expect(() => kernel.boundConversation("c-deleted:owner", "owner", "discord")).toThrow(/bound to a chat that is gone/);
+    expect(() => kernel.boundConversation("project:gone", "owner", "discord")).toThrow(BindingGoneError);
+    // A new thread of the owner's still makes its chat.
+    expect(kernel.boundConversation("discord:thread:t2", "owner", "discord", { title: "Soil", threadId: "t2" }).title).toBe("Soil");
   });
 
   it("tells the bus what each turn said, and where the words came in", async () => {

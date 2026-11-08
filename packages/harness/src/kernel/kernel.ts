@@ -3,7 +3,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
-import { INTERRUPTED_LINE, OWNER_THREAD_PREFIX, channelName, type Asker, type ConversationSeed, type Guest, type OutboundMessage, type Sender } from "../channels/types.js";
+import { BindingGoneError, INTERRUPTED_LINE, OWNER_THREAD_PREFIX, channelName, type Asker, type ConversationSeed, type Guest, type OutboundMessage, type Sender } from "../channels/types.js";
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry, type ToolExecution } from "../agent/registry.js";
@@ -213,6 +213,9 @@ export const CHANNEL_AUDIENCE_KEY = "discord.audience";
 export const CHANNEL_LISTEN_KEY = "discord.listen";
 /** Which Discord thread stands for which chat. */
 export const THREAD_BINDINGS_KEY = "discord.threads";
+/** Chats made from the owner's threads and deleted since, newest last, at most so many. */
+const GONE_CHATS_KEY = "discord.gone";
+const GONE_CHATS_MAX = 500;
 /** Chats with a turn running, kept so a restart can say which it cut short. */
 const OPEN_TURNS_KEY = "turns.open";
 
@@ -2889,12 +2892,12 @@ export class Kernel {
     if (id === orchestratorId(this.profile.ownerId)) return this.ensureOrchestratorConversation();
     if (id.startsWith("project:")) {
       const slug = id.slice("project:".length);
-      if (!this.manifest.get(slug)) throw new Error(`no project called ${slug}; this channel is bound to one that is gone`);
+      if (!this.manifest.get(slug)) throw new BindingGoneError(`no project called ${slug}; this channel is bound to one that is gone`);
       return this.ensureProjectConversation(slug);
     }
     if (id.startsWith("agent:")) {
       const name = id.slice("agent:".length);
-      if (!this.roles.get(name)) throw new Error(`no blob called ${name}; this channel is bound to one that is gone`);
+      if (!this.roles.get(name)) throw new BindingGoneError(`no blob called ${name}; this channel is bound to one that is gone`);
       return this.ensureAgentConversation(name);
     }
     const existing = this.conversations.get(id);
@@ -2908,6 +2911,11 @@ export class Kernel {
       bindOwn();
       return existing;
     }
+    // Only the owner's own new thread makes a chat here, and never one
+    // deleted before: a stale topic or binding makes nothing again.
+    if (!id.startsWith(OWNER_THREAD_PREFIX) || this.goneChats().includes(id)) {
+      throw new BindingGoneError("this channel is bound to a chat that is gone");
+    }
     const made = this.conversations.create({
       id,
       userId,
@@ -2917,6 +2925,17 @@ export class Kernel {
     });
     bindOwn();
     return made;
+  }
+
+  /** Chats made from a thread of the owner's and deleted since, so a message there does not make them again. */
+  goneChats(): string[] {
+    return this.settings.get<string[]>(GONE_CHATS_KEY) ?? [];
+  }
+
+  /** A deleted chat a surface room could make again, remembered as gone. */
+  rememberGone(id: string): void {
+    if (!id.startsWith(OWNER_THREAD_PREFIX) || this.closed) return;
+    this.settings.set(GONE_CHATS_KEY, [...this.goneChats().filter((g) => g !== id), id].slice(-GONE_CHATS_MAX));
   }
 
   /**

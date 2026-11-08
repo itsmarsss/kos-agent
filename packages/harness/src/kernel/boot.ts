@@ -799,6 +799,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   kernel.conversations.onRemoved((id) => {
     // A chat's kept results go with it.
     shelf.forget(id);
+    kernel.rememberGone(id);
     kernel.bus.emit({ kind: "chat:deleted", conversationId: id });
   });
   return kernelRef;

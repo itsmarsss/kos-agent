@@ -407,6 +407,8 @@ export interface DiscordAdapterOptions {
   keptStories?: KeptStories;
   /** Told when a thread is renamed on Discord, so its chat can take the name. */
   onThreadRenamed?: (threadId: string, name: string) => void;
+  /** Told when a channel or thread is gone from Discord, so what was bound to it is let go. */
+  onGone?: (id: string) => void;
 }
 
 /** The story lines of turns still running, by message, kept across restarts. */
@@ -614,6 +616,16 @@ const TOPIC = /^kos:(\S+)/;
 export function boundKeyOf(topic: string | null | undefined): string | undefined {
   const m = TOPIC.exec(topic ?? "");
   return m?.[1];
+}
+
+/** A topic with its `kos:` binding and its link taken out: what is left once the channel is let go. */
+function plainTopic(topic: string | null | undefined): string {
+  return (topic ?? "").replace(/^kos:[^·\n]*·?\s*/, "").replace(/\s*·\s*https?:\/\/\S+\s*$/, "").trim();
+}
+
+/** Discord's answer for a channel or thread that no longer exists. */
+function isUnknownChannel(err: unknown): boolean {
+  return (err as { code?: unknown } | null)?.code === 10003;
 }
 
 /** The title a `kos:` topic gives its chat: "kos:project:garden · Garden · https://…" is Garden. */
@@ -883,6 +895,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly cursors?: RoomCursors;
   private readonly keptStories?: KeptStories;
   private readonly onThreadRenamed?: (threadId: string, name: string) => void;
+  private readonly onGone?: (id: string) => void;
   /** Messages already taken, newest last, so none runs twice. */
   private readonly seen = new Set<string>();
   private readonly threadBindings?: () => Record<string, string>;
@@ -927,6 +940,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.cursors) this.cursors = options.cursors;
     if (options.keptStories) this.keptStories = options.keptStories;
     if (options.onThreadRenamed) this.onThreadRenamed = options.onThreadRenamed;
+    if (options.onGone) this.onGone = options.onGone;
     if (options.threadBindings) this.threadBindings = options.threadBindings;
     if (options.keptPrompts) this.keptPrompts = options.keptPrompts;
     if (options.timezone) this.timezone = options.timezone;
@@ -1015,6 +1029,10 @@ export class DiscordAdapter implements ChannelAdapter {
     this.client.on(Events.InteractionCreate, (interaction: Interaction) => {
       void this.receiveInteraction(interaction);
     });
+
+    // Deleted on Discord: let go, and made again where it is needed.
+    this.client.on(Events.ChannelDelete, (channel: { id: string }) => this.forgetPlace(channel.id));
+    this.client.on(Events.ThreadDelete, (thread: { id: string }) => this.forgetPlace(thread.id));
 
     // A thread the owner renamed on Discord retitles its chat.
     this.client.on(Events.ThreadUpdate, (before: { name: string }, after: { id: string; name: string }) => {
@@ -1266,7 +1284,7 @@ export class DiscordAdapter implements ChannelAdapter {
     };
     for (const other of all) {
       if (other.id !== target.id && boundKeyOf(other.topic) === key) {
-        await setTopic(other, (other.topic ?? "").replace(/^kos:[^·\n]*·?\s*/, "").replace(/\s*·\s*https?:\/\/\S+\s*$/, "").trim());
+        await setTopic(other, plainTopic(other.topic));
       }
     }
     await setTopic(target, this.topicWithLink(`kos:${key} · ${title}`, key));
@@ -1491,7 +1509,7 @@ export class DiscordAdapter implements ChannelAdapter {
   async ensureThread(channelKey: string, conversationId: string, title: string): Promise<string | undefined> {
     const channelId = this.boundIds.get(channelKey);
     if (!channelId) return undefined;
-    const channel = await this.client.channels.fetch(channelId).catch(() => null);
+    const channel = await this.place(channelId);
     const threads = (channel as { threads?: { create?: (o: unknown) => Promise<{ id: string }> } } | null)?.threads;
     if (!threads?.create) return undefined;
     const made = await threads.create({ name: title.trim().slice(0, 100) || "Chat", autoArchiveDuration: 10080, reason: `KOS: ${conversationId}` }).catch(() => undefined);
@@ -1509,7 +1527,7 @@ export class DiscordAdapter implements ChannelAdapter {
    * the target cannot be posted in.
    */
   async openStory(targetId: string, from?: Sender): Promise<{ edit(text: string): Promise<void>; remove(): Promise<void>; close(): void } | undefined> {
-    const channel = (await this.client.channels.fetch(targetId).catch(() => null)) as
+    const channel = (await this.place(targetId)) as
       | { id: string; isThread?: () => boolean; parent?: { id: string } | null; isSendable?: () => boolean; send?: (p: unknown) => Promise<{ id?: string; edit: (p: unknown) => Promise<unknown>; delete: () => Promise<unknown> }> }
       | null;
     if (!channel?.send || (channel.isSendable && !channel.isSendable())) return undefined;
@@ -1561,10 +1579,57 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   private async postNow(channelId: string, msg: OutboundMessage): Promise<void> {
-    const channel = await this.client.channels.fetch(channelId);
-    if (!channel || !channel.isSendable()) throw new Error(`channel ${channelId} is not somewhere this bot can post`);
+    const channel = (await this.place(channelId)) as { isSendable?: () => boolean } | null;
+    if (!channel?.isSendable?.()) throw new Error(`channel ${channelId} is not somewhere this bot can post`);
     if (msg.from && (await this.sendAs(channel as unknown as Parameters<DiscordAdapter["sendAs"]>[0], msg))) return;
-    await this.deliver((payload) => (channel as unknown as { send: (p: unknown) => Promise<unknown> }).send(payload), msg);
+    try {
+      await this.deliver((payload) => (channel as unknown as { send: (p: unknown) => Promise<unknown> }).send(payload), msg);
+    } catch (err) {
+      if (isUnknownChannel(err)) this.forgetPlace(channelId);
+      throw err;
+    }
+  }
+
+  /**
+   * A channel or thread by id; nothing when it cannot be had. One Discord
+   * says is gone (Unknown Channel) is let go here as well, so what was bound
+   * to it is made again on next use rather than posted into forever.
+   */
+  private async place(id: string): Promise<unknown> {
+    try {
+      return await this.client.channels.fetch(id);
+    } catch (err) {
+      if (isUnknownChannel(err)) this.forgetPlace(id);
+      return null;
+    }
+  }
+
+  /**
+   * A channel or thread that is gone, deleted on Discord: nothing is bound to
+   * it any more. A thread goes back to the kernel to unbind, and its chat
+   * gets a new one when next it speaks; a channel is made again at the next
+   * layout.
+   */
+  forgetPlace(id: string): void {
+    for (const [key, bound] of [...this.boundIds]) if (bound === id) this.boundIds.delete(key);
+    if (this.approvalsChannelId === id) this.approvalsChannelId = undefined;
+    for (const key of [...this.webhooks.keys()]) if (key.startsWith(`${id}:`)) this.webhooks.delete(key);
+    for (const [name, place] of [...this.known]) if (place.id === id) this.known.delete(name);
+    const conversation = this.threadOf?.(id);
+    if (conversation) this.boundThreads.delete(conversation);
+    this.onGone?.(id);
+  }
+
+  /**
+   * Let go of the channel bound to a chat that is gone: its topic back to
+   * plain words, so nothing makes the chat again from it.
+   */
+  async unbindChannel(key: string): Promise<void> {
+    const id = this.boundIds.get(key);
+    if (!id) return;
+    this.boundIds.delete(key);
+    const channel = (await this.place(id)) as { topic?: string | null; setTopic?: (t: string) => Promise<unknown> } | null;
+    if (channel?.setTopic && boundKeyOf(channel.topic) === key) await channel.setTopic(plainTopic(channel.topic));
   }
 
   /**
@@ -1812,8 +1877,8 @@ export class DiscordAdapter implements ChannelAdapter {
     if (!conversationId || !this.guildId) return undefined;
     const target = this.mirrorTarget(conversationId, this.threadBindings?.() ?? {});
     if (!target) return undefined;
-    const channel = await this.client.channels.fetch(target);
-    return channel && channel.isSendable()
+    const channel = (await this.place(target)) as { isSendable?: () => boolean } | null;
+    return channel?.isSendable?.()
       ? (channel as unknown as { id: string; isThread?: () => boolean; parent?: { id: string } | null; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> })
       : undefined;
   }
@@ -1832,8 +1897,8 @@ export class DiscordAdapter implements ChannelAdapter {
   /** The approvals channel, when the server has one; prompts go there rather than to a DM. */
   private async approvalsChannel(): Promise<{ id: string; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> } | undefined> {
     if (!this.approvalsChannelId) return undefined;
-    const channel = await this.client.channels.fetch(this.approvalsChannelId);
-    return channel && channel.isSendable() ? (channel as unknown as { id: string; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> }) : undefined;
+    const channel = (await this.place(this.approvalsChannelId)) as { isSendable?: () => boolean } | null;
+    return channel?.isSendable?.() ? (channel as unknown as { id: string; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> }) : undefined;
   }
 
   /**

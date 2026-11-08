@@ -16,6 +16,15 @@ export interface ConversationSeed {
   threadId?: string;
 }
 
+/**
+ * A room bound to a chat, project or blob that no longer exists. Its
+ * message is said to whoever spoke there, since it is the answer: "this
+ * channel is bound to one that is gone", not "something went wrong".
+ */
+export class BindingGoneError extends Error {
+  override name = "BindingGoneError";
+}
+
 /** A channel's name for a title, the way the layout names one: "My Garden" is my-garden. */
 export function channelName(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 90) || "channel";

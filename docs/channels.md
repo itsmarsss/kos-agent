@@ -123,7 +123,12 @@ any later turn, chat or blob can open it with `files.read`.
 The categories, channels and threads are made when the host starts and
 kept in step every few minutes, so a new project, blob or chat appears
 without a restart; a channel under the wrong category is moved; the layout deletes nothing, a chat you delete takes its thread with
-it, and a thread archives itself when its chat goes quiet
+it and lets go of a channel bound to it (its topic back to plain words),
+and is never made again from either; a channel or thread you delete on
+Discord is let go, and made again where it is needed: a chat's thread the
+next time it speaks, a project's or blob's channel at the next layout. A
+message in the channel of a project or blob that is gone is told so,
+"this channel is bound to one that is gone", and a thread archives itself when its chat goes quiet
 and comes back when spoken to. The bot needs Manage Channels and Manage
 Webhooks on the server, and the message content intent. DMs keep working
 as before.
