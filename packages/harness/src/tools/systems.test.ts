@@ -12,6 +12,7 @@ import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { RoleStore } from "../agents/roles.js";
 import { attendance } from "../kernel/caller.js";
+import { filesModule } from "./files.js";
 import { systemsModule } from "./systems.js";
 
 /**
@@ -61,7 +62,7 @@ describe("systems.migrate risk", () => {
     callerProject = undefined;
     callerBlob = undefined;
     made = new Set();
-    await new ModuleLoader(ctx).load([systemsModule]);
+    await new ModuleLoader(ctx).load([systemsModule, filesModule]);
   });
 
   afterEach(() => {
@@ -357,6 +358,31 @@ describe("systems.migrate risk", () => {
     expect((await registry.execute("artifacts.get", { id: "notes" })).isError).toBe(true);
   });
 
+  it("holds an artifact's file, versions and captures to the same fence through files.*", async () => {
+    const { slug } = JSON.parse((await registry.execute("systems.project_create", { name: "Garden", type: "tracker" })).content) as { slug: string };
+    roles.write({ name: "noter", description: "Notes", brief: "Work.", memory: "own" });
+    callerBlob = "noter";
+    await registry.execute("artifacts.write", { id: "notes", title: "Notes", html: "<h1>Notes</h1>" });
+    expect((await registry.execute("files.read", { path: "blobs/noter/artifacts/notes.html" })).content).toContain("<h1>Notes</h1>");
+    callerBlob = undefined;
+    made = new Set();
+    callerProject = slug;
+    for (const path of ["blobs/noter/artifacts/notes.html", "blobs/noter/artifacts/.history/notes/1.json"]) {
+      const read = await registry.execute("files.read", { path });
+      expect(read.isError, path).toBe(true);
+      expect(read.content).toMatch(/part of the artifact notes; This chat is Garden's, so the blob noter's artifacts are not this chat's to read/);
+    }
+    for (const [tool, args] of [
+      ["files.write", { path: "blobs/noter/artifacts/notes.html", content: "<h1>x</h1>" }],
+      ["files.edit", { path: "blobs/noter/artifacts/notes.html", find: "Notes", replace: "x" }],
+      ["files.rm", { path: "blobs/noter/artifacts/notes.html" }],
+      ["files.cp", { from: "blobs/noter/artifacts/notes.html", to: "scratch/n.html" }],
+    ] as const) expect((await registry.execute(tool, args)).isError, tool).toBe(true);
+    expect(readFileSync(join(root, "blobs/noter/artifacts/notes.html"), "utf8")).toContain("<h1>Notes</h1>");
+    // Its other files are files: the blob's brief is not an artifact.
+    expect((await registry.execute("files.read", { path: "blobs/noter/blob.md" })).isError).toBe(false);
+  });
+
   it("keeps a rewritten artifact in its project unless told to move it", async () => {
     const { slug } = JSON.parse((await registry.execute("systems.project_create", { name: "Garden", type: "tracker" })).content) as { slug: string };
     await registry.execute("artifacts.write", { project: slug, id: "beds", title: "Beds", html: "<h1>Beds</h1>" });
@@ -375,7 +401,7 @@ describe("systems.migrate risk", () => {
     const bare = new ToolRegistry();
     const manifest = new ProjectManifest(ws.db);
     const ctx = toolRegistryContext(bare, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), manifest, migrator: new Migrator(ws.db, manifest), pages: new PageStore(ws.db, ws, manifest) });
-    await new ModuleLoader(ctx).load([systemsModule]);
+    await new ModuleLoader(ctx).load([systemsModule, filesModule]);
     const told = (name: string): string => bare.defs().find((d) => d.name === name)?.description ?? "";
     expect(told("artifacts.write")).toMatch(/artifacts.check is not available/);
     expect(told("artifacts.write")).not.toMatch(/check once with artifacts.check/);

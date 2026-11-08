@@ -1291,6 +1291,36 @@ describe("handleApiRequest", () => {
       expect(kernel.pages.get("notes")).toBeUndefined();
     });
 
+    it("shows a mentioned artifact or its file only where the chat's tools could read it, and nothing to a guest", () => {
+      kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+      kernel.pages.writeHtml({ blob: "noter", id: kernel.roles.identity("noter")! }, { id: "notes", title: "Notes", html: "<p>NOTE-BODY</p>" });
+      mkdirSync(join(root, ".kos"), { recursive: true });
+      writeFileSync(join(root, ".kos/secret.txt"), "KOS-STATE");
+      const resolve = (text: string, conversationId: string | undefined, who: { guest: boolean; attended: boolean }): string =>
+        (kernel as unknown as { resolveMentions: (t: string, c: string | undefined, w: typeof who) => string | null }).resolveMentions(text, conversationId, who) ?? "";
+      const owner = { guest: false, attended: true };
+      const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Shelf chat", projectSlug: "shelf" });
+      // A project's chat sees its own page, and not a blob's, by @page or by its file.
+      const there = resolve("@page:shelf @page:notes @file:blobs/noter/artifacts/notes.html @file:blobs/noter/artifacts/.history/notes/1.json", chat.id, owner);
+      expect(there).toContain("<p>books</p>");
+      expect(there).not.toContain("NOTE-BODY");
+      expect(there).toMatch(/Page notes: not shown; This chat is Shelf's, so the blob noter's artifacts are not this chat's to read/);
+      expect(there).toMatch(/File blobs\/noter\/artifacts\/notes.html: not shown/);
+      // The blob's own thread, and the owner's own chat at the root, see it.
+      expect(resolve("@page:notes", kernel.ensureAgentConversation("noter").id, owner)).toContain("NOTE-BODY");
+      const mine = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mine" });
+      expect(resolve("@file:blobs/noter/artifacts/notes.html", mine.id, owner)).toContain("NOTE-BODY");
+      // A schedule's run at the root is not the owner's own chat.
+      expect(resolve("@page:notes", mine.id, { guest: false, attended: false })).not.toContain("NOTE-BODY");
+      // KOS's own state is never shown.
+      expect(resolve("@file:.kos/secret.txt", mine.id, owner)).not.toContain("KOS-STATE");
+      // A guest's words show nothing of the owner's, even in the project's own chat.
+      const guest = resolve("@page:shelf @file:projects/shelf/pages/shelf.html @page:notes @file:notes.txt", chat.id, { guest: true, attended: false });
+      expect(guest).not.toContain("<p>books</p>");
+      expect(guest).not.toContain("NOTE-BODY");
+      expect(guest).toMatch(/Not shown, since a guest named them/);
+    });
+
     it("knows a blob's own thread by its id, not by its having no project", async () => {
       kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
       const write = (conversationId: string, id: string) => caller.run(conversationId, () => kernel.registry.execute("artifacts.write", { id, title: id, html: `<h1>${id}</h1>` }));

@@ -43,7 +43,9 @@ import type { BrowserElsewhere, TabInfo } from "../tools/browser.js";
 import { PageWatchStore, type WatchLook } from "../ops/watches.js";
 import type { BuiltinFeature } from "../modules/builtins.js";
 import { MODULES_KEY, parseModuleSettings, withBuiltinEnabled } from "../modules/workspace.js";
-import { bootKernel } from "./boot.js";
+import { bootKernel, callerBlobOf } from "./boot.js";
+import { artifactFileRefusal, whyNot } from "../tools/systems.js";
+import type { Reach } from "../tools/fence.js";
 import { ORCHESTRATOR_BRIEF } from "./orchestration.js";
 export { ORCHESTRATOR_BRIEF } from "./orchestration.js";
 import { CronService, type CronFireResult } from "./cronservice.js";
@@ -104,7 +106,7 @@ import { Headlines, type Headline } from "../systems/headlines.js";
 import { ArtifactChecker } from "../systems/artifactcheck.js";
 import { BridgeRefusal, pageFile, pageQuery, pageWrite, type BridgePage } from "../systems/pagebridge.js";
 import { PageQueries } from "../systems/pagequeries.js";
-import { PageStore } from "../systems/pages.js";
+import { ownerOfRecord, PageStore } from "../systems/pages.js";
 import { registeredTables } from "../systems/registered.js";
 import { PermissionStore, actsInYourChrome } from "../ops/permissions.js";
 import { offeredSkills, readSkills } from "../skills/manifest.js";
@@ -1004,7 +1006,7 @@ export class Kernel {
         // here so the agent gets the file's contents or the page's spec
         // rather than a string it has to go and look up, and so a name that
         // no longer exists says so instead of being silently ignored.
-        const mentioned = this.resolveMentions(text, conversation?.id);
+        const mentioned = this.resolveMentions(text, conversation?.id, { guest: opts.guest !== undefined, attended: opts.origin !== "system" });
         // Where this message's files now live, so the model refers to them
         // by path and anything else can open them later.
         const keptNote = opts.kept?.length
@@ -3967,7 +3969,7 @@ export class Kernel {
    * Only what was actually named: this is the owner pointing at something, so
    * it is worth the prompt space, unlike everything else in the workspace.
    */
-  private resolveMentions(text: string, conversationId?: string): string | null {
+  private resolveMentions(text: string, conversationId: string | undefined, who: { guest: boolean; attended: boolean }): string | null {
     const refs = parseMentions(text);
     // A #word that names no channel is a word, not a dead reference.
     const channels = this.discord
@@ -3976,6 +3978,13 @@ export class Kernel {
     if (refs.length === 0 && channels.length === 0) return null;
 
     const parts: string[] = channels.map((place) => this.channelContext(place));
+    // A guest's words resolve only what a guest's own tools read: the channels, and nothing of the owner's.
+    if (who.guest) {
+      if (refs.length) parts.push(`Not shown, since a guest named them and a guest's turn reaches none of them: ${refs.map((r) => `@${r.kind}:${r.id}`).join(", ")}.`);
+      return parts.length ? ["## Referenced in this message", ...parts].join("\n\n") : null;
+    }
+    // What a mention shows, this chat's tools could read: an artifact is fenced to its owner's chats either way.
+    const reach = this.mentionReach(conversationId, who.attended);
     for (const ref of refs) {
       if (ref.kind === "tab") {
         // A page someone has open. Named with how to get to it, since the
@@ -4002,6 +4011,12 @@ export class Kernel {
         continue;
       }
       if (ref.kind === "page") {
+        const record = this.pages.record(ref.id);
+        const why = record ? whyNot(ownerOfRecord(record), reach, "read", (id) => this.pages.blobIds.removed(id)) : undefined;
+        if (why) {
+          parts.push(`Page ${ref.id}: not shown; ${why} are not this chat's to read.`);
+          continue;
+        }
         const page = this.pages.get(ref.id);
         parts.push(
           page
@@ -4113,6 +4128,10 @@ export class Kernel {
         continue;
       }
       try {
+        // As files.read reads it: never KOS's own state, and an artifact's file only from its owner's chats.
+        if (/^(\.\/)*\.kos(\/|$)/.test(ref.id.replace(/\\/g, "/"))) throw new Error(".kos is KOS's own state and is not shown");
+        const why = artifactFileRefusal(this.pages, ref.id, reach, "read");
+        if (why) throw new Error(`not shown; ${why}`);
         const file = readWorkspaceFile(this.workspace, ref.id);
         parts.push(
           file.text === undefined
@@ -4126,6 +4145,17 @@ export class Kernel {
       }
     }
     return ["## Referenced by the owner in this message", ...parts].join("\n\n");
+  }
+
+  /** Who a chat is to the fences, for what its mentions may show: as reachOf has it for the same chat's tool calls. */
+  private mentionReach(conversationId: string | undefined, attended: boolean): Reach {
+    const projectSlug = conversationId ? this.conversations.get(conversationId)?.projectSlug ?? undefined : undefined;
+    return {
+      project: projectSlug,
+      blob: callerBlobOf(conversationId, this.conversations, this.roles),
+      projects: this.manifest.list().map((p) => ({ slug: p.slug, name: p.name })),
+      owner: attended && !conversationId?.startsWith("cron:"),
+    };
   }
 
   /** What a channel named in a message is: where it sits, who reads it, whose home it is, and how to reach it. */
