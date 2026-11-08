@@ -82,6 +82,11 @@ export function markupExits(html: string): string[] {
         if (url.startsWith("javascript:") ? !literal : leaves(url)) found.add("a link off the page (link within it with #id)");
       }
     }
+    // An SVG reference: <use> draws another document's symbol, <feImage> loads an image; within the page, #id.
+    if (tag.toLowerCase() === "use" || tag.toLowerCase() === "feimage") {
+      const off = el.attrs.some((a) => (attrName(a) === "href" || attrName(a) === "xlink:href") && !a.value.trim().startsWith("#") && !urlOf(a.value).startsWith("data:"));
+      if (off) found.add("an SVG <use> or <feImage> from outside the page (refer within it with #id)");
+    }
     if (MEDIA.has(tag)) {
       for (const a of el.attrs) {
         const name = attrName(a);
@@ -157,6 +162,21 @@ function refuseTag(tag: string): EditRefusal {
   return code(`a <${tag}>, which a doc is not made of`);
 }
 
+/** SVG presentation attributes that can name a resource with url(): a paint, a mask, a clip, a filter, a marker. */
+const SVG_REFS = new Set(["fill", "stroke", "mask", "clip-path", "filter", "marker-start", "marker-mid", "marker-end", "cursor"]);
+
+/**
+ * Whether a CSS value (a style attribute, an SVG presentation attribute) could
+ * load or run something. Any backslash is refused rather than decoded: a CSS
+ * escape (`u\72l(`) spells url( to the browser and to no pattern. Then a
+ * url( to anything but the page's own #id, an image-set( or image(, and the
+ * old expression( and @import.
+ */
+const cssReaches = (value: string): boolean =>
+  value.includes("\\") ||
+  /url\s*\((?!\s*['"]?\s*#)/i.test(value) ||
+  /(^|[^\w-])(-webkit-)?image(-set)?\s*\(|(^|[^\w-])src\s*\(|expression\s*\(|@import/i.test(value);
+
 /** Attributes that fetch or go somewhere, whatever element carries them. */
 const FETCHES = new Set(["srcset", "poster", "action", "formaction", "ping", "background", "lowsrc", "data", "codebase"]);
 
@@ -171,7 +191,8 @@ function checkReach(a: Attr): void {
   if (name === "src" && !url.startsWith("data:image/")) throw exit("an image from outside the page (an image is kept in it as data)");
   if (FETCHES.has(name)) throw exit(`${name}, which reaches outside the page`);
   if (name === "cite" && leaves(url)) throw exit("a citation URL");
-  if (name === "style" && /url\s*\(|expression\s*\(|@import/i.test(a.value.replace(/\\/g, ""))) throw code("a style that loads or runs something");
+  if (name === "style" && cssReaches(a.value)) throw code("a style that loads or runs something");
+  if (SVG_REFS.has(name) && cssReaches(a.value)) throw exit(`${name} naming something outside the page (refer within it with url(#id))`);
 }
 
 /** Whether a doc's element may carry this attribute. */

@@ -51,6 +51,28 @@ describe("the owner's edit to a doc, parsed", () => {
       "<form><button>x</button></form>",
     ];
     for (const bad of leaves) expect(() => docEditOf(bad), bad).toThrow(/cannot leave its frame/);
+    // A style or an SVG paint that loads, however it is spelled: a CSS escape, image-set, a url( that is not the page's own #id.
+    const loads = [
+      '<p style="background:u\\72l(https://x.example/p.png)">a</p>',
+      '<p style="background:\\75rl(//x.example)">a</p>',
+      '<p style="background-image:image-set(\'https://x.example/p.png\' 1x)">a</p>',
+      '<p style="background-image:-webkit-image-set(\'//x.example/p.png\' 1x)">a</p>',
+      '<p style="background:URL( https://x.example)">a</p>',
+    ];
+    for (const bad of loads) expect(() => docEditOf(bad), bad).toThrow(/a style that loads or runs something/);
+    const paints = [
+      '<svg><rect fill="url(https://x.example/p.svg#g)"></rect></svg>',
+      '<svg><path stroke="url(//x.example/p.svg#g)"></path></svg>',
+      '<svg><g mask="url(x.svg#m)"></g></svg>',
+      '<svg><g clip-path="u\\72l(x.svg#c)"></g></svg>',
+      '<svg><path marker-end="url(\'https://x.example/m.svg#m\')"></path></svg>',
+      '<svg><use href="https://x.example/s.svg#a"></use></svg>',
+      '<svg><use xlink:href="s.svg#a"></use></svg>',
+      '<svg><filter><feImage href="https://x.example/p.png"></feImage></filter></svg>',
+    ];
+    for (const bad of paints) expect(() => docEditOf(bad), bad).toThrow(/may not hold/);
+    // Within the page is the page's own.
+    expect(docEditOf('<svg><defs><linearGradient id="g"></linearGradient></defs><rect fill="url(#g)" clip-path="url( \'#c\')"></rect><use href="#g"></use></svg>')).toContain('fill="url(#g)"');
     // What a doc is not made of is refused by name.
     expect(() => docEditOf("<marquee>x</marquee>")).toThrow(/<marquee>/);
     expect(() => docEditOf('<p contenteditable="true">x</p>')).toThrow(/attribute contenteditable/);
@@ -72,6 +94,11 @@ describe("an agent's page, parsed for its exits", () => {
     expect(markupExits('<img srcset="data:image/png;base64,AA 1x, //evil.example/p.png 2x">')).toContain("an image or media from the network (inline it as data:)");
     expect(markupExits('<p title="<iframe>">x</p><LINK rel=prefetch href=//x>')).toEqual(["a <link> (a page loads nothing; prefetch and prerender links reach the network)"]);
     expect(markupExits("<template><iframe></iframe></template>")).toEqual(["a frame, object or embed"]);
+    const svg = "an SVG <use> or <feImage> from outside the page (refer within it with #id)";
+    for (const html of ['<svg><use href="https://x.example/s.svg#a"/></svg>', '<svg><use xlink:href="//x.example/s.svg#a"/></svg>', '<svg><filter><feImage href="https://x.example/p.png"/></filter></svg>', '<svg><use href="s.svg#a"/></svg>']) {
+      expect(markupExits(html), html).toContain(svg);
+    }
+    expect(markupExits('<svg><symbol id="a"></symbol><use href="#a"/><filter><feImage href="data:image/png;base64,AA"/></filter></svg>')).toEqual([]);
   });
 
   it("leaves a page's own links and code alone", () => {
