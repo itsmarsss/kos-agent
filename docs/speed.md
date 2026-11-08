@@ -152,14 +152,18 @@ What changed (`packages/browser`, the extension's worker):
 - **Pictures** are 1024 on the long side at q60 on every web surface
   (`PICTURE`), the Mac's long side. The extension takes a tab on screen
   from the frame Chrome drew, through a one-frame screencast made that
-  size; a clip with a scale redraws the owner's page, which flashed. An
-  approval shows the picture the agent last saw its page by, when it is
-  under 30 s old.
+  size; a clip with a scale redraws the owner's page, which flashed (an
+  extension from before is still asked for one, once its first picture
+  comes back full size). An approval shows the last picture the agent saw
+  its page by, while it stands for the page: under 30 s old, the same tab
+  at the same address on the same site, no navigation or takeover since,
+  and no other browser call of the chat running.
 - **The relay** checks each command against the tab's address kept as it
-  changes, not asked of Chrome each time; takes several commands in one
-  round trip (`cdp.batch`: a click's moves and presses, a key with what is
-  held, the nodes of a look); and passes on only the network events
-  settling reads, without headers.
+  changes while the debugger is on the tab, and asked of Chrome once it
+  was let go of; takes several commands in one round trip (`cdp.batch`, a
+  hundred at most, longer ones split: a click's moves and presses, a key
+  with what is held, the nodes of a look), each checked as it is sent; and
+  passes on only the network events settling reads, without headers.
 - **Stop** ends a web step under way, as on the Mac.
 
 ## Not done
