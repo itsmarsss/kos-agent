@@ -448,6 +448,8 @@ async function end(reason: EndReason): Promise<void> {
   );
   attached.clear();
   overlays.clear();
+  tabUrls.clear();
+  openRequests.clear();
   beside = undefined;
   tell("session.ended", { session: ended.info.id, reason });
   owner = undefined;
@@ -550,8 +552,9 @@ async function relayAll(params: Record<string, unknown>, origin: string): Promis
 
 async function relayOne(s: Session, tab: number, method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   checkCommand(method, args);
-  // Not a look, a click or a word on a hidden site, and no way there.
-  const url = tabUrls.get(tab) ?? (await chrome.tabs.get(tab).catch(() => undefined))?.url ?? "";
+  // Not a look, a click or a word on a hidden site, and no way there. The address kept is the tab's only while
+  // the debugger hears it change; a tab let go of may have gone anywhere since.
+  const url = (attached.has(tab) ? tabUrls.get(tab) : undefined) ?? (await chrome.tabs.get(tab).catch(() => undefined))?.url ?? "";
   if (isHidden(url, settings.hiddenSites)) throw hiddenError(url);
   if (method === "Page.navigate" && isHidden(str(args["url"]), settings.hiddenSites)) throw hiddenError(str(args["url"]));
   if (s.paused && (isInput(method) || method === "Page.navigate")) throw new CallError("paused", "the owner has taken over this tab; wait for them to hand it back");
@@ -756,7 +759,8 @@ chrome.tabs.onUpdated.addListener((tab, change, info) => {
   if ((change.status === "loading" || change.url) && selections.delete(tab) && info.active) void tellSelection(info.windowId, tab);
 });
 
-chrome.tabs.onRemoved.addListener((tab) => {
+/** A tab gone from Chrome, closed or replaced by another (a page Chrome loaded ahead swapped in). */
+function gone(tab: number): void {
   tabUrls.delete(tab);
   openRequests.delete(tab);
   selections.delete(tab);
@@ -765,7 +769,10 @@ chrome.tabs.onRemoved.addListener((tab) => {
   if (!session?.tabs.has(tab)) return;
   session.tabs.delete(tab);
   tell("tab.closed", { session: session.info.id, tab: String(tab) });
-});
+}
+
+chrome.tabs.onRemoved.addListener(gone);
+chrome.tabs.onReplaced.addListener((_added, removed) => gone(removed));
 
 // The popup and the consent window.
 
@@ -920,6 +927,8 @@ async function hand(tab: number, give: boolean): Promise<void> {
     if (session?.tabs.delete(tab)) {
       tell("tab.closed", { session: session.info.id, tab: String(tab) });
       overlays.delete(tab);
+      tabUrls.delete(tab);
+      openRequests.delete(tab);
       if (attached.delete(tab)) await chrome.debugger.detach({ tabId: tab }).catch(() => undefined);
     }
   }

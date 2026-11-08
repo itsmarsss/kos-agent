@@ -364,6 +364,50 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect((await call("tabs.list", { session: "s1" }))["error"]).toMatchObject({ code: "no_session" });
   });
 
+  describe("a tab the owner handed, in sessions one after another", () => {
+    let tab = "";
+    let owners = "";
+    const popupSays = (message: Record<string, unknown>): Promise<unknown> => devtools.evaluate(popup, `chrome.runtime.sendMessage(${JSON.stringify(message)})`);
+    /** A session KOS may start without asking, as one whose owner left it to its own approvals. */
+    const begin = async (id: string): Promise<void> => {
+      expect(await call("session.begin", { session: id, task: "work in my tab", requester: "Test", minutes: 5 })).toMatchObject({ ok: true, result: { granted: true } });
+    };
+    const handBack = async (): Promise<void> => {
+      await popupSays({ type: "hand", tab: Number(tab), give: true });
+    };
+
+    beforeAll(async () => {
+      expect(await popupSays({ type: "askFirst", id: "dev_test", on: false })).toMatchObject({ ok: true });
+      await devtools.send("Target.createTarget", { url: `${base}/mine` });
+      owners = await devtools.attach((u) => u.endsWith("/mine"));
+      await devtools.loaded(owners);
+      tab = String(await devtools.evaluate(popup, `chrome.tabs.query({}).then((ts) => ts.find((t) => t.url.endsWith("/mine")).id)`));
+      await handBack();
+    }, 30_000);
+
+    afterAll(async () => {
+      await popupSays({ type: "hand", tab: Number(tab), give: false });
+      await popupSays({ type: "unhide", site: "localhost" });
+      await popupSays({ type: "askFirst", id: "dev_test", on: true });
+      await devtools.evaluate(popup, `chrome.tabs.remove(${tab})`);
+    });
+
+    it("asks Chrome where a tab is once it has let go of it: a hidden site it went to meanwhile stays closed", async () => {
+      await begin("h1");
+      expect(await call("cdp.send", { session: "h1", tab, method: "Runtime.evaluate", params: { expression: "document.title", returnByValue: true } })).toMatchObject({ ok: true });
+      expect(await call("session.end", { session: "h1" })).toMatchObject({ ok: true });
+      // Between sessions, with no debugger on it to hear it, the owner goes to a site they hide.
+      expect(await popupSays({ type: "hide", site: "localhost" })).toMatchObject({ ok: true });
+      await devtools.send("Page.navigate", { url: `${base.replace("127.0.0.1", "localhost")}/secret` }, owners);
+      await devtools.loaded(owners);
+      await begin("h2");
+      expect((await call("cdp.send", { session: "h2", tab, method: "Runtime.evaluate", params: { expression: "document.title", returnByValue: true } }))["error"]).toMatchObject({ code: "hidden_site" });
+      await devtools.send("Page.navigate", { url: `${base}/mine` }, owners);
+      await devtools.loaded(owners);
+      expect(await call("cdp.send", { session: "h2", tab, method: "Runtime.evaluate", params: { expression: "document.title", returnByValue: true } })).toMatchObject({ ok: true, result: { result: { value: "Shop" } } });
+    }, 30_000);
+  });
+
   it("carries a side panel's chat, asks for a session there, and works in the tab beside it", async () => {
     const id = new URL(await devtools.evaluate(popup, "location.href") as string).host;
     await devtools.send("Target.createTarget", { url: `chrome-extension://${id}/panel.html` });
