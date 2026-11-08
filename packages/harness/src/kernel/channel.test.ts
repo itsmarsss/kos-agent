@@ -200,6 +200,21 @@ describe("connectChannel", () => {
     }
   });
 
+  it("says how an ask already went when it is pressed after being decided elsewhere, and decides nothing", async () => {
+    await boot(stub(riskyScript()));
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });
+    const pendingId = adapter.approvalsRequested[0]!.req.id;
+    await kernel.deny(Number(pendingId));
+    const before = adapter.sent.length;
+    const settled: unknown[] = [];
+    // Straight to the runtime's sink, as the adapter's press does.
+    const decide = (runtime as unknown as { decide: (d: unknown) => Promise<unknown> }).decide.bind(runtime);
+    settled.push(await decide({ id: pendingId, approved: true, deciderId: "owner" }));
+    expect(settled).toEqual([{ outcome: "denied", already: true }]);
+    expect(kernel.approvals.get(Number(pendingId))?.status).toBe("denied");
+    expect(adapter.sent.length).toBe(before);
+  });
+
   it("still speaks up when the decision could not be applied", async () => {
     // Nothing was settled in place for a row that is not there, so silence
     // would be a press that did nothing and said nothing.

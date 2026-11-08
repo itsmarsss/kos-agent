@@ -247,8 +247,10 @@ export function approvalCard(req: ApprovalRequest): ApprovalCard {
 }
 
 /** What a settled prompt becomes: one small line saying how it went. */
-export function settledText(outcome: ApprovalOutcome, summary: string | undefined, id: string): string {
-  const mark = outcome === "approved" ? "✅ Approved" : outcome === "expired" ? "⌛ Lapsed" : "❌ Denied";
+export function settledText(outcome: ApprovalOutcome, summary: string | undefined, id: string, already = false): string {
+  const how = outcome === "approved" ? "✅ Approved" : outcome === "expired" ? "⌛ Lapsed" : "❌ Denied";
+  // Pressed after it was settled somewhere else: how it went, said as that.
+  const mark = already ? `Already decided on the dashboard: ${how}` : how;
   if (!summary) return `-# ${mark} · #${id}`;
   const { head, body } = splitSummary(summary);
   return noPreviews(`-# ${mark} · ${literal(head)}${body ? ` \`${cut(body.replace(/`/g, "'"), 80)}\`` : ""}`);
@@ -1977,24 +1979,23 @@ export class DiscordAdapter implements ChannelAdapter {
     }
 
     const prompt = this.promptOf(decision.id);
-    const settled = { content: settledText(decision.approved ? "approved" : "denied", prompt?.summary, decision.id), embeds: [] as never[], components: [] as never[] };
-    try {
-      // The prompt settles into one small line; the resumed turn's answer is
-      // its own message, which is the one the owner is waiting for.
-      await interaction.update(settled);
-    } catch {
-      // interaction may already be acknowledged
-    }
-    // Its other card, in #needs-you or where the chat is read, says the same.
-    const pressed = (interaction as { message?: { id?: string } }).message?.id;
-    await Promise.all((prompt?.copies ?? []).filter((c) => c.messageId !== pressed).map((c) => c.edit(settled).catch(() => undefined)));
-    this.forget(decision.id);
-    await this.approvalHandler?.({
+    // Acknowledged first and labelled after: the button pressed is not
+    // always how it went, since the ask may have been decided elsewhere.
+    await interaction.deferUpdate().catch(() => undefined);
+    const how = await this.approvalHandler?.({
       id: decision.id,
       approved: decision.approved,
       deciderId: interaction.user.id,
       ...(decision.remember ? { remember: true } : {}),
     });
+    const outcome = how?.outcome ?? (decision.approved ? "approved" : "denied");
+    const settled = { content: settledText(outcome, prompt?.summary, decision.id, how?.already === true), embeds: [] as never[], components: [] as never[] };
+    // The prompt settles into one small line, on this card and its twin; the
+    // resumed turn's answer is its own message.
+    await interaction.editReply(settled).catch(() => undefined);
+    const pressed = (interaction as { message?: { id?: string } }).message?.id;
+    await Promise.all((prompt?.copies ?? []).filter((c) => c.messageId !== pressed).map((c) => c.edit(settled).catch(() => undefined)));
+    this.forget(decision.id);
   }
 
   /**

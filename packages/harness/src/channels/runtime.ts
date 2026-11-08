@@ -8,6 +8,7 @@ import { TurnNarrator } from "./narrate.js";
 import type {
   ApprovalDecision,
   ApprovalOutcome,
+  ApprovalSettled,
   ChannelAdapter,
   ConversationSeed,
   Guest,
@@ -69,8 +70,8 @@ export interface DecisionContext {
   remember?: boolean;
 }
 
-/** Handles an approve/deny decision that already passed the identity gate. */
-export type DecisionHandler = (ctx: DecisionContext) => Promise<void> | void;
+/** Handles an approve/deny decision that already passed the identity gate, and says how the ask went. */
+export type DecisionHandler = (ctx: DecisionContext) => Promise<ApprovalSettled | void> | ApprovalSettled | void;
 
 /** An inbound event from a sender the identity mapping does not recognize. */
 export interface RejectedInbound {
@@ -287,7 +288,7 @@ export class ChannelRuntime {
     return this.identity.resolve(channel, senderId) ?? null;
   }
 
-  private async decide(decision: ApprovalDecision): Promise<void> {
+  private async decide(decision: ApprovalDecision): Promise<ApprovalSettled | void> {
     const channel = this.adapter.name;
     const userId = this.resolve(channel, decision.deciderId);
     if (userId === null) {
@@ -300,7 +301,7 @@ export class ChannelRuntime {
       return;
     }
     try {
-      await this.handleDecision?.({
+      return await this.handleDecision?.({
         userId,
         channel,
         deciderId: decision.deciderId,

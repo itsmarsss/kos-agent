@@ -115,7 +115,10 @@ export function connectChannel(
     handleDecision: async (ctx) => {
       const id = Number(ctx.pendingId);
       // The answer after the decision shows where the chat is mirrored, so it is not sent here twice.
-      const chat = kernel.approvals.get(id)?.conversationId;
+      const action = kernel.approvals.get(id);
+      // Settled already, on the dashboard or another surface: said as it went, not decided again.
+      if (action && action.status !== "pending") return { outcome: action.status, already: true };
+      const chat = action?.conversationId;
       const mirrored = chat ? options.answeredElsewhere?.(chat) === true : false;
       let text: string | undefined;
       if (ctx.approved) {
@@ -130,6 +133,7 @@ export function connectChannel(
         text = res.reply !== undefined ? (mirrored ? undefined : res.reply) : res.ok ? undefined : res.message;
       }
       if (text) await adapter.send(options.ownerRecipientId, { text });
+      return { outcome: ctx.approved ? "approved" : "denied" };
     },
   });
 }

@@ -364,9 +364,15 @@ export interface TurnPresence {
 }
 
 export type MessageHandler = (msg: InboundMessage) => Promise<void> | void;
+/** How an ask went once a decision on it was taken: as decided, or as it already had been elsewhere. */
+export interface ApprovalSettled {
+  outcome: ApprovalOutcome;
+  already?: boolean;
+}
+
 export type ApprovalHandler = (
   decision: ApprovalDecision,
-) => Promise<void> | void;
+) => Promise<ApprovalSettled | void> | ApprovalSettled | void;
 export type ButtonPressHandler = (
   press: ButtonPress,
   respond: PressResponder,

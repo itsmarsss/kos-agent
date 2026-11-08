@@ -80,6 +80,7 @@ interface FakeInteraction {
   user: { id: string };
   update: ReturnType<typeof vi.fn>;
   reply: ReturnType<typeof vi.fn>;
+  editReply: ReturnType<typeof vi.fn>;
 }
 
 function fakeMessage(authorId: string): Message {
@@ -98,6 +99,7 @@ function fakeButton(authorId: string, customId: string): FakeInteraction {
     update: vi.fn(async () => undefined),
     reply: vi.fn(async () => undefined),
     deferUpdate: vi.fn(async () => undefined),
+    editReply: vi.fn(async () => undefined),
     component: { label: "Ship it" },
   } as unknown as FakeInteraction;
 }
@@ -1637,7 +1639,22 @@ describe("DiscordAdapter authorization", () => {
     expect(decisions).toEqual([
       { id: "5", approved: true, deciderId: "owner-id" },
     ]);
-    expect(button.update).toHaveBeenCalled();
+    expect(button.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: "-# ✅ Approved · #5" }));
+  });
+
+  it("labels a pressed card with how the ask really went, when it was decided elsewhere first", async () => {
+    const adapter = new DiscordAdapter({ token: "t" });
+    adapter.setAuthorizer((id) => id === "owner-id");
+    const order: string[] = [];
+    adapter.onApproval(() => {
+      order.push("decided");
+      return { outcome: "denied", already: true };
+    });
+    const button = fakeButton("owner-id", approvalCustomIds("5").approve) as unknown as { deferUpdate: ReturnType<typeof vi.fn>; editReply: ReturnType<typeof vi.fn> };
+    button.deferUpdate.mockImplementation(async () => void order.push("deferred"));
+    button.editReply.mockImplementation(async (p: { content: string }) => void order.push(p.content));
+    await adapter.receiveInteraction(button as unknown as Interaction);
+    expect(order).toEqual(["deferred", "decided", "-# Already decided on the dashboard: ❌ Denied · #5"]);
   });
 
   it("settles the ask's other card when one is pressed", async () => {
@@ -1650,7 +1667,7 @@ describe("DiscordAdapter authorization", () => {
     });
     const button = { ...fakeButton("owner-id", approvalCustomIds("5").approve), message: { id: "in-garden" } };
     await adapter.receiveInteraction(button as unknown as Interaction);
-    expect(button.update).toHaveBeenCalled();
+    expect(button.editReply).toHaveBeenCalled();
     expect(pressed).not.toHaveBeenCalled();
     expect(twin).toHaveBeenCalledTimes(1);
     expect(String((twin.mock.calls[0] as unknown as [{ content: string }])[0].content)).toContain("Approved");
