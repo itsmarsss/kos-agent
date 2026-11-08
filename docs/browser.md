@@ -60,13 +60,22 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   Keys go as Chrome wants them, with editing shortcuts as the commands
   they are. After each step the page is given time to answer: a
   navigation the step started, to DOMContentLoaded, then the document
-  still for 150 ms (watched from KOS's world) with none of the page's own
-  requests open (its documents, scripts and data from its own site; not
-  pictures, beacons, sockets or streams, nor a request open a second,
-  which is a poll), at most 800 ms; once a request ends, 60 ms more for
-  the page to show what it brought. So a run needs no waits of its own
-  after clicks, and a page that never stops talking does not hold every
-  step. Stop ends the step under way: a wait is woken, a command still
+  still for 150 ms (watched from KOS's world) with no request open that
+  the page's answer waits on: data it fetches from any site, and its own
+  documents and scripts, that the step started (or that began just
+  before it, for a second at most). Not pictures, beacons, others'
+  scripts or streams; not a request open three seconds, which is a long
+  poll; not an address the page asks again and again, which is a poll
+  (three times in ten seconds, counting the times it asked between steps
+  and since this one, not during earlier ones). At most 800 ms, or 2.5 s
+  while a request the step started is still coming, and a step that ends
+  with one still open says the page may still be loading. Typing and keys
+  give at least 400 ms, for a field that searches a moment after the
+  typing stops; once a request ends or a socket message comes, 60 ms more
+  for the page to show what it brought. Requests are dated by the
+  browser's clock, so one heard late is not taken for the step's. So a
+  run needs no waits of its own after clicks, and a page that never stops
+  talking does not hold every step. Stop ends the step under way: a wait is woken, a command still
   out is no longer waited for, no further one is sent, and the run says
   it was stopped.
 - **Never hanging.** Every wait has a deadline and ends in an answer: a

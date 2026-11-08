@@ -72,20 +72,40 @@ export interface PageOptions {
 }
 /** After an action: how long a navigation it started may take. */
 const SETTLE_NAV_MS = 10_000;
-/** The page has answered once its document has not changed for this long, with none of its own requests open. */
+/** The page has answered once its document has not changed for this long, with none of the requests it waits on open. */
 const DOM_QUIET_MS = 150;
-/** After one of those requests ends, time for the page to show what it brought. */
+/** After one of those requests ends, or a message comes on a socket, time for the page to show what it brought. */
 const ANSWER_MS = 60;
-/** The most an action waits for that, after any navigation it started. */
+/** The most an action waits for that, after any navigation it started, while nothing it started is still coming. */
 const SETTLE_MAX_MS = 800;
-/** A request open longer than this is a long poll or a stream, and does not hold the quiet. */
-const STALE_REQUEST_MS = 1_000;
+/** The most it waits while a request the action started is still open. */
+const SETTLE_BUSY_MS = 2_500;
+/** At least this long after typing or a key: a field that searches as one types waits a moment first. */
+const TYPED_MS = 400;
+/** A request the action started, open longer than this, is a long poll or a stream, and does not hold the quiet. */
+const STALE_REQUEST_MS = 3_000;
+/** One open from before the action holds it only this long from its start. */
+const EARLIER_STALE_MS = 1_000;
 /**
- * The requests a page's answer waits on: its documents, scripts and data,
- * from its own site. Pictures, fonts, beacons, analytics, sockets and
- * streams never hold it. KOS for Chrome forwards only these (relay.ts).
+ * An address the page asks again and again is a poll, and does not hold the
+ * quiet: asked this many times in the window, counting the times it asked
+ * while KOS was not at work on the page and the times since the action, not
+ * those during earlier steps (a search asked once at each word typed).
+ */
+const POLL_REPEATS = 3;
+const POLL_WINDOW_MS = 10_000;
+/** Addresses whose recent requests are counted, at most. */
+const PATTERNS_MAX = 200;
+/**
+ * The requests a page's answer waits on: data it fetches, from any site,
+ * and its own documents and scripts. Pictures, fonts, beacons, others'
+ * scripts, sockets and streams never hold it. KOS for Chrome forwards only
+ * these kinds (relay.ts).
  */
 const AWAITED = new Set(["Document", "Script", "XHR", "Fetch"]);
+const DATA = new Set(["XHR", "Fetch"]);
+/** Said with a step's result when it ended with the page still bringing something in. */
+const STILL_LOADING = "The page may still be loading; look again before relying on what it shows.";
 /** The world KOS's own page-side scripts run in, apart from the page's. */
 const WORLD = "kos-hands";
 const EVAL_MS = 10_000;
@@ -176,7 +196,20 @@ export class Page {
   /** The main frame's current document, and the lifecycle points it has reached. */
   private life = { loader: "", reached: new Set<string>() };
   private loading = false;
-  private readonly inflight = new Map<string, number>();
+  /** Requests the page's answer may wait on: when each started, and the address it went to, less its query. */
+  private readonly inflight = new Map<string, { at: number; pattern: string }>();
+  /** When the page last asked each address, and whether KOS was at work on the page then, for telling a poll from an answer. */
+  private readonly asked = new Map<string, { at: number; idle: boolean }[]>();
+  /** Calls at work on the page now. */
+  private working = 0;
+  /** When a message last came in on one of the page's sockets. */
+  private socketAt = 0;
+  /**
+   * The browser's clock to this one: the least of when an event was heard
+   * less when the browser says it happened. A request is dated by the
+   * browser, so one heard late is not taken for one the action started.
+   */
+  private offset = Infinity;
   /** How to answer the next dialog, when a step said. */
   private answer: { accept: boolean; text?: string } | null = null;
   /** What a drag the page started would carry, while a drag of the hands' is under way. */
@@ -207,8 +240,13 @@ export class Page {
   /** Calls on one tab, one at a time: two at once would act on each other's page. */
   run<T>(work: () => Promise<T>): Promise<T> {
     const gated = async (): Promise<T> => {
-      await this.waitForOwner();
-      return work();
+      this.working++;
+      try {
+        await this.waitForOwner();
+        return await work();
+      } finally {
+        this.working--;
+      }
     };
     const next = this.queue.then(gated, gated);
     this.queue = next.catch(() => undefined);
@@ -223,6 +261,9 @@ export class Page {
   /** An event from the tab's session. */
   handle(event: CdpEvent): void {
     const p = event.params;
+    if (typeof p["timestamp"] === "number" && (event.method.startsWith("Network.") || event.method === "Page.lifecycleEvent")) {
+      this.offset = Math.min(this.offset, this.now() - p["timestamp"] * 1000);
+    }
     switch (event.method) {
       case "Page.frameStartedLoading":
         if (p["frameId"] === this.mainFrame) {
@@ -258,9 +299,13 @@ export class Page {
         break;
       case "Network.requestWillBeSent": {
         const url = (p["request"] as { url?: string } | undefined)?.url ?? "";
-        if (AWAITED.has(String(p["type"] ?? "")) && siteOf(url) === this.site) this.inflight.set(String(p["requestId"]), this.now());
+        const type = String(p["type"] ?? "");
+        if (DATA.has(type) || (AWAITED.has(type) && siteOf(url) === this.site)) this.requested(String(p["requestId"]), url, p["timestamp"]);
         break;
       }
+      case "Network.webSocketFrameReceived":
+        this.socketAt = this.now();
+        break;
       case "Network.loadingFinished":
       case "Network.loadingFailed":
         this.inflight.delete(String(p["requestId"]));
@@ -451,16 +496,16 @@ export class Page {
       return `hovered over ${step.hover}`;
     }
     if ("fill" in step) {
-      await this.acting(async () => this.write(await this.element(step.fill.target), step.fill.target, step.fill.text, true));
+      await this.acting(async () => this.write(await this.element(step.fill.target), step.fill.target, step.fill.text, true), TYPED_MS);
       return `filled ${step.fill.target}`;
     }
     if ("type" in step) {
-      await this.acting(async () => this.write(await this.element(step.type.target), step.type.target, step.type.text, false));
+      await this.acting(async () => this.write(await this.element(step.type.target), step.type.target, step.type.text, false), TYPED_MS);
       return `typed into ${step.type.target}`;
     }
     if ("press" in step) {
       const press = parseKeys(step.press);
-      await this.acting(() => this.key(press));
+      await this.acting(() => this.key(press), TYPED_MS);
       return `pressed ${step.press}`;
     }
     if ("select" in step) {
@@ -484,54 +529,92 @@ export class Page {
     await this.session.send("Runtime.releaseObjectGroup", { objectGroup: GROUP }).catch(() => undefined);
   }
 
-  /** An action, then the page given time to answer it. */
-  private async acting(action: () => Promise<void>): Promise<void> {
+  /** An action, then the page given time to answer it; `floor` is the least of that. */
+  private async acting(action: () => Promise<void>, floor = 0): Promise<void> {
     const [before, since] = [this.life.loader, this.now()];
     await action();
-    await this.settle(before, since);
+    await this.settle(before, since, false, floor);
   }
 
   /**
    * Until the page has answered what was just done to it: a navigation the
    * action started has reached DOMContentLoaded, then the document has gone
-   * still and none of the page's own requests is open, or the most worth
-   * waiting has gone. `before` is the document the action was done on, and
-   * `since` when; `navigated` says a navigation was already waited for.
+   * still, no request it waits on is open and no socket message has just
+   * come, or the most worth waiting has gone: longer while a request the
+   * action started is still coming. A step that ends with one still open is
+   * said to have. `before` is the document the action was done on, and
+   * `since` when; `navigated` says a navigation was already waited for;
+   * `floor` is the least time given.
    */
-  private async settle(before: string, since: number, navigated = false): Promise<void> {
+  private async settle(before: string, since: number, navigated = false, floor = 0): Promise<void> {
     const moving = (): boolean => !navigated && (this.life.loader !== before || (this.loading && this.loadStarted >= since));
-    let end = this.now() + SETTLE_MAX_MS;
-    // Counted from the action at first; after a request, from its end.
-    let grace = DOM_QUIET_MS;
+    let start = this.now();
+    const end = (): number => start + (this.requesting(since) === "started" ? SETTLE_BUSY_MS : SETTLE_MAX_MS);
+    // Counted from the action at first; after a request or a socket message, from it.
+    let grace = Math.max(DOM_QUIET_MS, floor);
     for (;;) {
       if (moving()) {
         navigated = true;
         await this.waitUntil(() => (this.life.loader !== before ? this.life.reached.has("DOMContentLoaded") : !this.loading), SETTLE_NAV_MS);
-        end = this.now() + SETTLE_MAX_MS;
+        start = this.now();
         grace = DOM_QUIET_MS;
       }
-      const left = end - this.now();
-      if (left <= 0) return;
+      const left = end() - this.now();
+      if (left <= 0) {
+        if (this.requesting(since) === "started" && !this.heard.includes(STILL_LOADING)) this.heard.push(STILL_LOADING);
+        return;
+      }
+      const socket = this.socketAt;
       const still = await this.domQuiet(grace, left);
       if (moving()) continue;
-      if (!this.requesting()) {
-        if (still) return;
+      if (!this.requesting(since)) {
+        if (still && this.socketAt === socket) return;
+        if (this.socketAt !== socket) grace = ANSWER_MS;
         continue;
       }
-      await this.waitUntil(() => !this.requesting() || moving(), Math.min(STALE_REQUEST_MS, end - this.now()));
+      await this.waitUntil(() => !this.requesting(since) || moving(), Math.max(0, end() - this.now()));
       grace = ANSWER_MS;
     }
   }
 
-  /** Whether one of the page's own requests is open, and not so long that it is a poll or a stream. */
-  private requesting(): boolean {
+  /** A request the page's answer may wait on began, `timestamp` by the browser's clock when it says. */
+  private requested(id: string, url: string, timestamp: unknown): void {
+    const t = typeof timestamp === "number" && Number.isFinite(this.offset) ? Math.min(this.now(), timestamp * 1000 + this.offset) : this.now();
+    const pattern = url.replace(/[?#].*$/, "");
+    this.inflight.set(id, { at: t, pattern });
+    const times = (this.asked.get(pattern) ?? []).filter((a) => t - a.at < POLL_WINDOW_MS);
+    times.push({ at: t, idle: this.working === 0 });
+    this.asked.delete(pattern);
+    this.asked.set(pattern, times);
+    if (this.asked.size > PATTERNS_MAX) this.asked.delete(this.asked.keys().next().value!);
+  }
+
+  /**
+   * Whether a request the page's answer waits on is open: one the action
+   * `since` started ("started"), one from just before it (true), or none.
+   * Not one open so long that it is a long poll or a stream, nor one to an
+   * address the page asks again and again (a poll): told apart by age and
+   * repetition, not by whose site it is.
+   */
+  private requesting(since: number): "started" | boolean {
     const t = this.now();
-    let open = false;
-    for (const [id, at] of this.inflight) {
-      if (t - at > 60_000) this.inflight.delete(id);
-      else if (t - at < STALE_REQUEST_MS) open = true;
+    let open: "started" | boolean = false;
+    for (const [id, { at, pattern }] of this.inflight) {
+      if (t - at > 60_000) {
+        this.inflight.delete(id);
+        continue;
+      }
+      if (t - at >= (at >= since ? STALE_REQUEST_MS : EARLIER_STALE_MS) || this.polled(pattern, since, t)) continue;
+      if (at >= since) return "started";
+      open = true;
     }
     return open;
+  }
+
+  /** Whether the page asks an address again and again: while KOS was not at work on it, and since the action. */
+  private polled(pattern: string, since: number, t: number): boolean {
+    const times = this.asked.get(pattern) ?? [];
+    return times.filter((a) => t - a.at < POLL_WINDOW_MS && (a.idle || a.at >= since)).length >= POLL_REPEATS;
   }
 
   /** Until the main document has not changed for a moment and `grace` has gone, or `ms` has; true when it went still. */

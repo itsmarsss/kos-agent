@@ -177,8 +177,9 @@ next is checked against where the tab went.
 `maxEdge`: the picture's longer side, in pixels. A tab's events go to KOS
 as `cdp.event` (`tab`, `method`, `params`) only for what the hands listen
 for; of the network, only the requests a page's answer waits on (its
-documents, scripts and data), with their id, kind and url and no headers,
-and the end of only those.
+documents, scripts and data), with their id, kind, url and when they began
+and no headers, and the end of only those. Socket messages are not passed
+on: a step in the owner's Chrome does not wait on them.
 
 The side panel's calls take no session: they carry the chat, and the page
 beside it when the chat asks.

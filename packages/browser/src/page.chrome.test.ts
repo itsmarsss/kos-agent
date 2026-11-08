@@ -24,12 +24,12 @@ const FETCHED = page(
   `<button id=go onclick="fetch('/data').then(r => r.text()).then(t => { document.getElementById('out').textContent = t })">Load</button><p id=out></p>`,
 );
 
-/** A page that never goes quiet on the wire: a poll, a long poll, a stream and beacons, all the time. */
+/** A page that never goes quiet on the wire: polls that overlap, a long poll, a stream and beacons, all the time. */
 const CHATTY = page(
   "Chatty",
   `<button id=go onclick="this.textContent='Pressed'">Press</button>
 <script>
-  setInterval(() => fetch('/poll?' + Math.random()), 200);
+  setInterval(() => fetch('/poll?' + Math.random()), 100);
   setInterval(() => navigator.sendBeacon('/beacon', 'x'), 150);
   setInterval(() => { new Image().src = '/pixel?' + Math.random(); }, 100);
   fetch('/longpoll');
@@ -68,6 +68,20 @@ const HIDDEN = page(
 
 const NEXT = page("Next", `<main><p>The next page.</p></main>`);
 
+/** A search that asks the server a moment after the typing stops, as most do. */
+const SEARCH = page(
+  "Search",
+  `<input id=q aria-label=Search><ul id=out></ul>
+<script>let t; document.getElementById('q').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => fetch('/search?q=' + encodeURIComponent(e.target.value)).then(r => r.text()).then(x => { document.getElementById('out').innerHTML = '<li>' + x + '</li>' }), 300) })</script>`,
+);
+
+/** A click whose answer takes its time: a second and a half, or longer than any step waits. */
+const SLOW = page(
+  "Slow",
+  `<button id=slow onclick="fetch('/slow').then(r => r.text()).then(t => { document.getElementById('out').textContent = t })">Slow</button>
+<button id=slower onclick="fetch('/slower').then(r => r.text()).then(t => { document.getElementById('out').textContent = t })">Slower</button><p id=out></p>`,
+);
+
 describe.skipIf(!findChrome(undefined))("a page's answer and its controls, on a real Chrome", () => {
   let server: Server;
   let other: Server;
@@ -90,11 +104,22 @@ document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<but
 <iframe src="${otherBase.replace("127.0.0.1", "localhost")}/inner" style="width:300px;height:80px"></iframe>`,
     );
 
+  /** A click whose answer comes from another site's API, after a while. */
+  const elsewhere = (): string =>
+    page(
+      "Elsewhere",
+      `<button id=go onclick="fetch('${otherBase.replace("127.0.0.1", "localhost")}/api/late').then(r => r.text()).then(t => { document.getElementById('out').textContent = t })">Load</button><p id=out></p>`,
+    );
+
   const answer = (req: IncomingMessage, res: ServerResponse): void => {
     const url = req.url ?? "/";
     const html = (body: string): void => void res.writeHead(200, { "content-type": "text/html" }).end(body);
     if (url === "/data") return void setTimeout(() => res.end("Arrived from the server"), 300);
-    if (url.startsWith("/poll")) return void setTimeout(() => res.end("ok"), 100);
+    if (url === "/api/late") return void setTimeout(() => res.writeHead(200, { "access-control-allow-origin": "*" }).end("Arrived from another site"), 400);
+    if (url.startsWith("/search")) return void setTimeout(() => res.end(`Results for ${new URL(url, base).searchParams.get("q")}`), 100);
+    if (url === "/slow") return void setTimeout(() => res.end("Slow, but here"), 1_500);
+    if (url === "/slower") return void setTimeout(() => res.end("Too late"), 4_000);
+    if (url.startsWith("/poll")) return void setTimeout(() => res.end("ok"), 300);
     if (url === "/longpoll" || url === "/stream") {
       res.writeHead(200, { "content-type": url === "/stream" ? "text/event-stream" : "text/plain" });
       return void res.write(url === "/stream" ? ": open\n\n" : "");
@@ -102,7 +127,7 @@ document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<but
     if (url.startsWith("/beacon") || url.startsWith("/pixel")) return void res.writeHead(204).end();
     if (url === "/api/settings") return void setTimeout(() => res.writeHead(200, { "content-type": "application/json" }).end('{"user":"Ada"}'), 200);
     if (url === "/inner") return html(page("Inner", `<button onclick="parent.postMessage('inner ' + location.port, '*')">Inner button</button>`));
-    const pages: Record<string, string> = { "/fetched": FETCHED, "/chatty": CHATTY, "/stepped": STEPPED, "/app": SPA, "/big": BIG, "/hidden": HIDDEN, "/next": NEXT, "/framed": framed() };
+    const pages: Record<string, string> = { "/elsewhere": elsewhere(), "/finder": SEARCH, "/waiting": SLOW, "/fetched": FETCHED, "/chatty": CHATTY, "/stepped": STEPPED, "/app": SPA, "/big": BIG, "/hidden": HIDDEN, "/next": NEXT, "/framed": framed() };
     html(pages[url] ?? page("Start", `<a id=go href="/next">Next</a>`));
   };
 
@@ -146,12 +171,36 @@ document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<but
     expect(value.text).toContain("Arrived from the server");
   });
 
-  it("does not wait on polls, a long poll, a stream or beacons", async () => {
-    const opened = await timed(() => visit(tab, [`${base}/chatty`], { then: "none" }));
-    expect(opened.ms).toBeLessThan(1_500);
-    const clicked = await timed(() => act(tab, stepsOf([{ click: "#go" }]), "read"));
-    expect(clicked.value.text).toContain("Pressed");
-    expect(clicked.ms).toBeLessThan(1_000);
+  it("sees what a click fetched from another site's API, once it has landed", async () => {
+    await visit(tab, [`${base}/elsewhere`], { then: "none" });
+    const done = await act(tab, stepsOf([{ click: "#go" }]), "read");
+    expect(done.text).toContain("Arrived from another site");
+  });
+
+  it("waits for a search that asks a moment after the typing stops", async () => {
+    await visit(tab, [`${base}/finder`], { then: "none" });
+    const done = await act(tab, stepsOf([{ type: { target: "#q", text: "kos" } }]), "read");
+    expect(done.text).toContain("Results for kos");
+  });
+
+  it("waits out a slow answer, and says when one takes longer than a step waits", async () => {
+    await visit(tab, [`${base}/waiting`], { then: "none" });
+    const slow = await act(tab, stepsOf([{ click: "#slow" }]), "read");
+    expect(slow.text).toContain("Slow, but here");
+    expect(slow.text).not.toContain("may still be loading");
+    const slower = await act(tab, stepsOf([{ click: "#slower" }]), "none");
+    expect(slower.text).toContain("The page may still be loading");
+  });
+
+  it("tells polls from answers: polls that overlap, a long poll, a stream and beacons hold no step", async () => {
+    // Were the polls taken for answers, one is always open, and each step would wait its longest and say the page may still be loading.
+    const opened = await visit(tab, [`${base}/chatty`], { then: "none" });
+    expect(opened.text).not.toContain("may still be loading");
+    for (let i = 0; i < 3; i++) {
+      const clicked = await act(tab, stepsOf([{ click: "#go" }]), "read");
+      expect(clicked.text).toContain("Pressed");
+      expect(clicked.text).not.toContain("may still be loading");
+    }
   });
 
   it("waits out a page that changes in quick steps", async () => {

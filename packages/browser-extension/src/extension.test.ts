@@ -98,8 +98,8 @@ describe("what reaches a tab", () => {
     expect(forwarded("Network.responseReceivedExtraInfo", {}, open)).toBeUndefined();
     expect(forwarded("Runtime.consoleAPICalled", {}, open)).toBeUndefined();
     // Of the network, only the requests a page's answer waits on, without their headers, and the end of only those.
-    const sent = { requestId: "1", type: "Fetch", request: { url: "https://shop.example/api", headers: { cookie: "x" } }, initiator: { type: "script" } };
-    expect(forwarded("Network.requestWillBeSent", sent, open)).toEqual({ requestId: "1", type: "Fetch", request: { url: "https://shop.example/api" } });
+    const sent = { requestId: "1", type: "Fetch", timestamp: 812.5, request: { url: "https://shop.example/api", headers: { cookie: "x" } }, initiator: { type: "script" } };
+    expect(forwarded("Network.requestWillBeSent", sent, open)).toEqual({ requestId: "1", type: "Fetch", timestamp: 812.5, request: { url: "https://shop.example/api" } });
     expect(forwarded("Network.requestWillBeSent", { requestId: "2", type: "Image", request: { url: "https://shop.example/a.png" } }, open)).toBeUndefined();
     expect(forwarded("Network.loadingFinished", { requestId: "2" }, open)).toBeUndefined();
     expect(forwarded("Network.loadingFinished", { requestId: "1", encodedDataLength: 9 }, open)).toEqual({ requestId: "1" });
