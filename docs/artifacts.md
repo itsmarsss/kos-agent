@@ -37,31 +37,57 @@ An artifact has one owner, as a file has one folder:
 | Owner | Where it lives | Made by | Reaches |
 | --- | --- | --- | --- |
 | A project | `projects/<slug>/pages/` | the project's chats | the project's tables and files, as declared |
-| A blob | `blobs/<name>/artifacts/`, beside the blob's file and whatever else it makes | the blob's own thread (and a chat of its outside any project) | nothing: a blob's turn reaches no tables, so neither does its artifact |
+| A blob | `blobs/<name>/artifacts/`, beside the blob's file and whatever else it makes | the blob's own thread, `agent:<name>` | nothing: a blob's turn reaches no tables, so neither does its artifact |
 | The workspace | `artifacts/` | anywhere else (a memo, a deck from notes) | nothing |
 
 All three are rows of the one `pages` table (`PageStore`, `systems/pages.ts`):
-`project_slug` names a project's, the `blob` column a blob's, and a row with
-neither is the workspace's. The column was added to the table as it was, so
-every older row kept its project or the workspace. An artifact that moves
-owner takes its versions and captures with it. The kind, description and
+`project_slug` names a project's, the `blob` and `blob_id` columns a blob's,
+and a row with neither is the workspace's. The columns were added to the
+table as it was, so every older row kept its project or the workspace.
+
+A blob is told apart by its id, not its name. Each blob is given an id when
+it is made (`blob_ids`, `systems/blobids.ts`, kept by `RoleStore`), and its
+artifacts' rows carry it. When the blob is removed its id is retired and
+never given out again, so a blob made later under the same name, from the
+root or from a project's chat with `blobs.create`, is a new owner and owns
+none of what the old one made. A blob row from before ids went to the living
+blob of its name, or to a retired id when that blob was gone. `blob_id` is
+indexed.
+
+An id is one artifact's wherever it lives, and the store holds that line
+itself: a write replaces only a row of the same owner, or moves one from the
+owner its caller checked (`SaveOptions.from`), so a write naming another
+owner's id is refused and that artifact is left as it was. An artifact that
+moves owner takes its versions and captures with it. The kind, description and
 fonts are kept with the declarations. A blob's or a workspace artifact may
 not declare writes, file reads or a headline.
 
 Who may reach whose, for every artifacts tool (write, list, get, check,
-history, rollback; `refuseOtherOwnersPage` in `tools/systems.ts`):
+history, rollback; `whyNot` in `tools/systems.ts`), for `files.*` on an
+artifact's file, versions and captures (`artifactFileRefusal`), and for an
+`@page` or `@file` mention:
 
 - a project's: its own chats, the turn that made the project, and
-  Maintenance; never a blob's turn;
-- a blob's: its own turns, and KOS at the root and Maintenance, as they reach
-  a blob's files; never a project's chat or another blob's;
+  Maintenance; never a blob's thread;
+- a blob's: its own thread, the owner's own chats at the root and
+  Maintenance, as they reach a blob's files; never a project's chat or
+  another blob's. "The owner's own" is a turn the owner started at the root:
+  not a schedule's run, a guest's words in a channel, or work passed on;
 - the workspace's: any chat.
 
-`artifacts.list` leaves out what the chat may not read. A blob inside a
-project (one of its chats there) works for the project, so what it makes
-there is the project's. When a blob is removed its file goes and its folder
-stays with the work in it, as its files do, so its artifacts stay too, under
-its name; a blob made again with that name has them back.
+A blob's own thread is known by its id, `agent:<name>`, and a living blob of
+that name, not by its having no project: a blob's chat in a project works
+for the project, and stays so after the project is deleted.
+
+`artifacts.list` leaves out what the chat may not read. A write whose `id`
+and `spec.id` differ is refused. A guest's turn has no artifact or file tool,
+and a guest's mentions show nothing but the channels they name.
+
+When a blob is removed its file goes and its folder stays with the work in
+it, as its files do, and its artifacts are kept: listed as "Removed blob:
+<name>", read but never changed by KOS, and the owner's to look at, restore
+or delete (`POST /api/pages/<id>/delete`, for a removed blob's only). Their
+viewer offers no way to the blob's page, which is gone, nor Edit with KOS.
 
 ## How an artifact is written
 
@@ -107,16 +133,25 @@ a rollback is a version too, so it can be undone.
 A doc's text and a sheet's cells are edited in place. The runtime sends the
 edit with `kos.save`, and the server keeps it as the next version
 (`PageStore.applyEdit`). Only the kind's own region changes: the inside of a
-doc's article, or a sheet's data script. A doc's edit is text, so a script,
-stylesheet, handler, `javascript:` URL or article tag in it is refused; a
+doc's article, or a sheet's data script. A doc's edit is parsed as the
+browser parses it (parse5, `systems/markup.ts`): entities decoded, names
+lower-cased, a `>` inside a quoted attribute read as text. It is held to the
+elements and attributes a doc is made of; a link may go only to `#id` and an
+image only be `data:image/`; a script, stylesheet, handler, `javascript:` URL
+(however encoded) or article tag is refused; and what is saved is the parse
+written back out, so a stray end tag cannot end the article early. A
 sheet's data is re-serialised with `<` escaped, so it cannot end its script,
 and may not change which tables the sheet reads. Then the whole document
 goes through every check a write does. A page or a deck is not edited in
 place; "Edit with KOS" asks for the change instead.
 
 A save is the owner's: the dashboard relays `kos.save` only while the
-browser reports a user gesture (`navigator.userActivation.isActive`), so a
-page cannot save on its own. The dashboard sends the version the edit was
+owner's hand is in that frame (`ownerIn`: the dashboard's focus is on it and
+the browser counts a gesture as active), or within 2.5 s (`DONE_MS`) of the
+dashboard's own Done, which covers the doc waiting out the gap between
+saves. A press elsewhere on the dashboard, and Discard, Undo or Edit sent
+from it, end that leave, so a page cannot turn a click on the dashboard into
+a save (`saveAllowed`, `widgets/frameheight.ts`). The dashboard sends the version the edit was
 made on (the record's `updatedAt`); if KOS or another window saved since,
 the server answers 409 and the dashboard says so and offers a reload rather
 than overwrite the newer version. An edit that changes nothing is refused,
@@ -147,8 +182,12 @@ what is waiting and draws the doc again, and stays in editing if the save
 was refused. Discard puts back what was not yet saved and leaves editing.
 An edit longer than the server takes (`DOC_EDIT_MAX`, 300,000 characters) is
 not sent, and an image is kept to well under it, counting base64's growth.
-Before the frame goes (another version, another artifact, back), the viewer
-asks the doc to finish, so nothing typed is lost.
+Before the frame goes (another version, another artifact, back, another
+thread beside it, another route by any means), the viewer asks the doc to
+finish, so nothing typed is lost; that save is allowed by the Done window. A
+page that says it is editing holds the dashboard 2.5 s at most
+(`SETTLE_MS`). A restore made while an edit waits names the version that
+edit saved, not the one first opened.
 
 It runs inside the doc's frame, on the browser's own editing
 (contenteditable and its commands), not on an editor library's model: a
@@ -294,9 +333,12 @@ shown (its project, the viewer, full screen):
   `scrollIntoView`, a doc's contents and notes) is posted as the same
   message with `reveal: {top, bottom, block}`, and the dashboard scrolls
   whatever holds the frame to it, held within the frame, and only while the
-  owner's hand is in that frame: the dashboard's focus is on it and the
-  browser counts a gesture as active, so a page cannot move the dashboard by
-  itself and a press elsewhere does not count. While the frame has a scroll
+  owner's hand is in that frame and within 500 ms (`REVEAL_MS`) of their
+  press or key in it. The bridge, before any of the page's code runs, hands
+  the dashboard a channel of its own and tells it over that channel of each
+  trusted press and key in the frame; the page never holds the channel, and
+  a second one is ignored, so a page cannot move the dashboard by itself and
+  a press elsewhere does not count. While the frame has a scroll
   of its own (past the cap, frozen, or the check's fixed view), a jump scrolls
   inside it too.
 - A doc's contents beside the text stay in view: the dashboard tells the doc
@@ -334,6 +376,13 @@ An opaque frame has no Navigation API, which is the one way to cancel a
 navigation before it starts, so this is held at write time only: a page that
 names `location` or a link target plainly is refused, and one that hides it
 behind computed names is not caught.
+
+The markup part of that check (a link, frame, form, base, meta refresh, link
+target, download, or a link or media off the page) is read twice: by
+patterns in `@kos/shared` (`htmlpage.ts`), and on the server from the
+document as parse5 builds it (`markupExits`, `systems/markup.ts`), so an
+exit behind an entity, a quoted `>`, a new line or upper case is refused as
+well. The parser stays on the server; nothing of it ships to the dashboard.
 
 Before the page's own markup the frame gets:
 
