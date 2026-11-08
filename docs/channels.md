@@ -8,7 +8,9 @@ can show.
 
 Direct messages from one account. Buttons for approvals and for whatever
 KOS offers; forms for answers that are not fixed. Slash commands are
-answered by the host without a model turn. An approval card opens with
+answered by the host without a model turn; typed in a bound channel or
+thread, `/stop` stops that room's chat and `/chats` marks it, while
+`/target`, `/here` and `/new` still move only where your DMs go, and say so. An approval card opens with
 what KOS was saying when it reached for the tool, quoted, so the ask
 reads as a sentence and not a bare command; iMessage and SMS prompts and
 the dashboard's Inbox carry the same words. While a turn runs, a silent

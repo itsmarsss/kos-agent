@@ -2183,3 +2183,18 @@ describe("a turn a restart cut short", () => {
     expect(Object.keys(edits)).toHaveLength(2);
   });
 });
+
+describe("a slash command in a room", () => {
+  it("acts on the chat the channel or thread it was typed in is bound to", async () => {
+    const stopped: string[] = [];
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", threadOf: (id) => (id === "t5" ? "chat-5" : undefined) });
+    adapter.setAuthorizer((id) => id === "owner-id");
+    adapter.onCommand({ list: () => [], current: () => "dm-chat", target: () => undefined, home: () => "h", stop: (id) => (stopped.push(id), true), create: () => ({ id: "x", title: "x" }) });
+    const stop = (guildId: string | null, channel: unknown) =>
+      ({ isButton: () => false, isAutocomplete: () => false, isChatInputCommand: () => true, commandName: "stop", guildId, channel, user: { id: "owner-id" }, options: { data: [] }, reply: async () => undefined }) as unknown as Interaction;
+    await adapter.receiveInteraction(stop("g1", { id: "t5", isThread: () => true, parent: { topic: "kos:project:garden · Garden" } }));
+    await adapter.receiveInteraction(stop("g1", { id: "c1", topic: "kos:agent:recap · Recap" }));
+    await adapter.receiveInteraction(stop(null, { id: "dm" }));
+    expect(stopped).toEqual(["chat-5", "agent:recap", "dm-chat"]);
+  });
+});

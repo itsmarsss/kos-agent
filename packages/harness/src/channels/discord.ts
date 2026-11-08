@@ -1902,11 +1902,9 @@ export class DiscordAdapter implements ChannelAdapter {
         await this.runNow(interaction, jobNamed(this.commands, argument === undefined ? undefined : String(argument)));
         return;
       }
-      const said = runCommand(
-        this.commands,
-        interaction.commandName,
-        argument === undefined ? undefined : String(argument),
-      );
+      // Typed in a bound channel or thread: that room's chat is the one meant.
+      const here = interaction.guildId ? bindingOf(interaction.channel as Parameters<typeof bindingOf>[0], this.threadOf)?.conversationId : undefined;
+      const said = runCommand(this.commands, interaction.commandName, argument === undefined ? undefined : String(argument), here);
       // Only to whoever asked: where someone sends their messages is not
       // news for a channel.
       await interaction.reply({
