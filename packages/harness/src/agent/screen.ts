@@ -13,11 +13,11 @@
 const SCREEN_TOOL = /^(computer|chrome|browser)\./;
 
 /**
- * Screen tools that only read, and answer in words: the text of the page
- * beside the side panel. "Summarize this page" is the turn's own work, so
- * it stays with it as well as going to the screen agent.
+ * Screen tools that only read, and answer in words: what is paired, and the
+ * text of the page beside the side panel. "Summarize this page" is the
+ * turn's own work, so these stay with it as well as going to the screen agent.
  */
-const READS = new Set(["chrome.page"]);
+const READS = new Set(["computer.devices", "chrome.page"]);
 
 /** A tool whose steps run on the screen route: it acts on a screen or looks at one. */
 export function isScreenTool(name: string): boolean {

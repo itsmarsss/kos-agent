@@ -128,7 +128,7 @@ const KEEPALIVE_MS = 30_000;
 /** A look at one pixel: the cheapest call the device counts as activity. */
 const TOUCH = { region: { x: 0, y: 0, width: 1, height: 1 } };
 
-const COMPUTER_TOOLS = ["computer.start", "computer.act", "computer.end"];
+const COMPUTER_TOOLS = ["computer.devices", "computer.start", "computer.act", "computer.end"];
 const CHROME_TOOLS = ["chrome.start", "chrome.end", "chrome.page"];
 /** As much of a page as chrome.page hands the model first: its outline and its start. */
 const PAGE_OUTLINE = 2_000;
@@ -362,16 +362,21 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     }
   };
 
-  /** What is paired, as a start that could not pick one says it. */
-  const pairedText = (kind: "computer" | "browser"): string => {
-    const devices = hub.list().filter((d) => d.kind === kind);
-    if (devices.length === 0) return kind === "computer" ? "No computers are paired. The owner pairs one under Settings, Devices." : "No Chrome is paired.";
+  /**
+   * What is paired, of one kind or all, as computer.devices says it and a
+   * start that could not use one does: each device, what it is, whether it is
+   * online, how a session on it is allowed, and whether one is in use.
+   */
+  const pairedText = (kind?: "computer" | "browser"): string => {
+    const devices = hub.list().filter((d) => !kind || d.kind === kind);
+    if (devices.length === 0) return kind === "browser" ? "No Chrome is paired." : "Nothing is paired. The owner pairs a computer or a Chrome under Settings, Devices.";
     return devices
       .map((d) => {
+        const what = d.kind === "browser" ? "the owner's own Chrome, through KOS for Chrome; chrome.start works in it" : `a computer (${d.platform}), through KOS for Mac; computer.start uses it`;
         const state = d.online ? "online" : "offline";
         const consent = d.consent === "kos" ? "starts through KOS's approvals" : d.consent === "device" ? "asks on the device" : "";
         const busy = d.session ? `in use by ${deps.titleOf(d.session.conversation)}${d.session.paused ? ", paused by the owner" : ""}` : "free";
-        return `${d.name} (${d.id}): ${[state, consent, d.online ? busy : ""].filter(Boolean).join(", ")}`;
+        return `${d.name} (${d.id}): ${what}. ${[state, consent, d.online ? busy : ""].filter(Boolean).join(", ")}`;
       })
       .join("\n");
   };
@@ -423,7 +428,8 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       session = await ask({ conversation: chat, device, task: input.task, requester: deps.titleOf(chat), minutes: input.minutes ?? settings.askMinutes, maxEdge: SCREEN_EDGE, ...(input.app ? { app: input.app } : {}), ...(signal ? { signal } : {}) });
     } catch (err) {
       if (err instanceof DeviceError && err.code === "denied") denied.set(chat, refusalText(err));
-      throw new Error(refusalText(err));
+      // Offline: what is paired and on, so the next step can be the right one without asking.
+      throw new Error(err instanceof DeviceError && err.code === "offline" ? `${refusalText(err)}. Paired:\n${pairedText()}` : refusalText(err));
     }
     const lasting = lasts(chat, session, input.keep);
     const shared = session.target.kind === "window"
@@ -465,7 +471,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       session = await ask({ conversation: chat, device, task: input.task, requester: deps.titleOf(chat), minutes: input.minutes ?? settings.askMinutes, ...(signal ? { signal } : {}) });
     } catch (err) {
       if (err instanceof DeviceError && err.code === "denied") denied.set(chat, refusalText(err));
-      throw new Error(refusalText(err));
+      throw new Error(err instanceof DeviceError && err.code === "offline" ? `${refusalText(err)}. Paired:\n${pairedText()}` : refusalText(err));
     }
     const lasting = lasts(chat, session, input.keep);
     const handed = await deps.chrome.begun(chat).catch(() => []);
@@ -539,6 +545,19 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
   };
 
   const registerComputer = (ctx: ModuleContext): void => {
+    ctx.registerTool(
+      {
+        name: "computer.devices",
+        description:
+          "What the owner has paired with KOS, asking nobody: their computers (KOS for Mac, for computer.start) and their own Chromes " +
+          "(KOS for Chrome, for chrome.start), neither of them KOS's own browser. Says whether each is online, how a session on it is " +
+          "allowed, and whether one is in use.",
+        inputSchema: { type: "object", properties: {} },
+      },
+      () => pairedText(),
+      { floor: "safe" },
+    );
+
     ctx.registerTool(
       {
         name: "computer.start",

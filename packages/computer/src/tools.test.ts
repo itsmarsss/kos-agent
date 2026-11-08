@@ -87,9 +87,18 @@ describe("the computer tools", () => {
     const { tools, pair, hub } = setup();
     expect(tools.size).toBe(0);
     const fake = pair();
-    expect([...tools.keys()].sort()).toEqual(["computer.act", "computer.end", "computer.start"]);
+    expect([...tools.keys()].sort()).toEqual(["computer.act", "computer.devices", "computer.end", "computer.start"]);
     hub.remove(fake.id);
     expect(tools.size).toBe(0);
+  });
+
+  it("say what is paired and online without asking anyone, and list it when the one Mac is offline", async () => {
+    const { call, pair } = setup();
+    const fake = pair();
+    expect(await call("computer.devices")).toMatch(/^Studio MacBook \(dev_[^)]+\): a computer \(macos\), through KOS for Mac; computer\.start uses it\. online, asks on the device, free$/);
+    expect(fake.calls).toEqual([]);
+    fake.drop();
+    await expect(call("computer.start", { task: "t" })).rejects.toThrow(/offline.*Paired:\nStudio MacBook \(dev_[^)]+\): a computer \(macos\).*\. offline$/s);
   });
 
   it("ask through KOS's approvals only when the computer does not ask itself", () => {
@@ -378,7 +387,7 @@ describe("the computer tools", () => {
     const { call, pair, halts, hub } = setup();
     pair();
     pair("Office iMac");
-    await expect(call("computer.start", { task: "t" })).rejects.toThrow(/More than one computer could be meant.*Paired:\nStudio MacBook \(dev_[^)]+\): online, asks on the device, free\nOffice iMac/s);
+    await expect(call("computer.start", { task: "t" })).rejects.toThrow(/More than one computer could be meant.*Paired:\nStudio MacBook \(dev_[^)]+\): a computer \(macos\).*\. online, asks on the device, free\nOffice iMac/s);
     await call("computer.start", { task: "t", device: "Studio" });
     expect(hub.sessionOf("c1")).toBeDefined();
     halts.forEach((h) => h());
