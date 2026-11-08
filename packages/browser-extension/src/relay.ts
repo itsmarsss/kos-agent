@@ -61,12 +61,38 @@ export function isWebUrl(url: string): boolean {
   return /^https?:\/\//i.test(url) || url === "about:blank";
 }
 
-/** A command checked before it reaches the tab: on the list, and if it navigates, to the web. */
-export function checkCommand(method: string, params: Record<string, unknown>): void {
+/** The world KOS's hands make for their page-side scripts (WORLD in packages/browser/src/page.ts): the one world KOS may make. */
+export const HANDS_WORLD = "kos-hands";
+
+/** The overlay's worlds in a tab, by id and by unique id: the extension's own, never KOS's to run script in. */
+export interface OverlayWorlds {
+  ids: ReadonlySet<number>;
+  unique: ReadonlySet<string>;
+}
+
+/**
+ * A command checked before it reaches the tab: on the list, and if it
+ * navigates, to the web. A world KOS makes is its hands' own, by that name
+ * and with no more reach than the page's; script runs anywhere but in the
+ * overlay's world, whose binding speaks for the owner (Take over, Hand back,
+ * Stop).
+ */
+export function checkCommand(method: string, params: Record<string, unknown>, overlay?: OverlayWorlds): void {
   if (!COMMANDS.has(method)) throw new CallError("method", `${method} is not one the extension passes on`);
   if (method === "Page.navigate") {
     const url = params["url"];
     if (typeof url !== "string" || !isWebUrl(url)) throw new CallError("url", "only web pages (http and https) open in your Chrome");
+  }
+  if (method === "Page.createIsolatedWorld") {
+    if (params["worldName"] !== HANDS_WORLD) throw new CallError("method", `the only world KOS may make is ${HANDS_WORLD}`);
+    if (params["grantUniveralAccess"] !== undefined && params["grantUniveralAccess"] !== false) throw new CallError("method", "a world KOS makes has no more reach than the page");
+  }
+  if (overlay && (method === "Runtime.evaluate" || method === "Runtime.callFunctionOn")) {
+    const id = params["contextId"] ?? params["executionContextId"];
+    const unique = params["uniqueContextId"];
+    if ((typeof id === "number" && overlay.ids.has(id)) || (typeof unique === "string" && overlay.unique.has(unique))) {
+      throw new CallError("method", "the overlay's world is the extension's own");
+    }
   }
 }
 

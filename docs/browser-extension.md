@@ -132,6 +132,10 @@ session, unattended work off unless allowed. In addition:
   fixed list (reading the page, pointer and keys, navigation); everything
   else is refused, the browser-wide domains among them (other tabs, cookies
   of every site, downloads, the browser itself).
+- **Not the overlay.** The bar's Take over, Hand back and Stop reach the
+  extension from the overlay's own world, and only from the worlds Chrome
+  made under its name; KOS may make one world of its own, `kos-hands`, with
+  no more reach than the page, and runs no script in the overlay's.
 - **Only the web.** A navigation goes to http, https or a blank page; a
   file, `chrome:` or an extension's page is refused.
 - **Asking is the owner's, per KOS.** With Ask before each session off for a

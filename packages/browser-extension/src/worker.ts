@@ -129,6 +129,8 @@ const handed = new Set<number>();
 const attached = new Set<number>();
 /** Each tab's overlay, by the world it runs in. */
 const overlays = new Map<number, Set<number>>();
+/** Each tab's worlds named as the overlay's, as Chrome made them: only these speak for the overlay, and KOS runs no script in them. */
+const overlayWorlds = new Map<number, { ids: Set<number>; unique: Set<string> }>();
 /** Each KOS tab's address as it changes, so one on a hidden site tells KOS nothing. */
 const tabUrls = new Map<number, string>();
 /** Each KOS tab's main document, by its loader, as the debugger last heard it commit. */
@@ -463,6 +465,7 @@ async function end(reason: EndReason): Promise<void> {
   overlays.clear();
   tabUrls.clear();
   loaders.clear();
+  overlayWorlds.clear();
   openRequests.clear();
   beside = undefined;
   tell("session.ended", { session: ended.info.id, reason });
@@ -566,7 +569,7 @@ async function relayAll(params: Record<string, unknown>, origin: string): Promis
 }
 
 async function relayOne(s: Session, tab: number, method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  checkCommand(method, args);
+  checkCommand(method, args, overlayWorlds.get(tab));
   stillIn(s, tab);
   // Not a look, a click or a word on a hidden site, and no way there. The address kept is the tab's only while
   // the debugger hears it change; a tab let go of may have gone anywhere since.
@@ -778,7 +781,26 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   if (tab === undefined || !session?.tabs.has(tab)) return;
   const p = (params ?? {}) as Record<string, unknown>;
   if (method === "Runtime.bindingCalled") {
-    if (p["name"] === BINDING) void fromOverlay(tab, Number(p["executionContextId"]), str(p["payload"]));
+    const world = Number(p["executionContextId"]);
+    if (p["name"] === BINDING && overlayWorlds.get(tab)?.ids.has(world)) void fromOverlay(tab, world, str(p["payload"]));
+    return;
+  }
+  if (method === "Runtime.executionContextCreated") {
+    const context = (p["context"] ?? {}) as { id?: unknown; uniqueId?: unknown; name?: unknown };
+    if (context.name !== WORLD || typeof context.id !== "number") return;
+    const worlds = overlayWorlds.get(tab) ?? { ids: new Set<number>(), unique: new Set<string>() };
+    overlayWorlds.set(tab, worlds);
+    worlds.ids.add(context.id);
+    if (typeof context.uniqueId === "string") worlds.unique.add(context.uniqueId);
+    return;
+  }
+  if (method === "Runtime.executionContextDestroyed") {
+    overlayWorlds.get(tab)?.ids.delete(Number(p["executionContextId"]));
+    if (typeof p["executionContextUniqueId"] === "string") overlayWorlds.get(tab)?.unique.delete(p["executionContextUniqueId"]);
+    return;
+  }
+  if (method === "Runtime.executionContextsCleared") {
+    overlayWorlds.delete(tab);
     return;
   }
   const frame = p["frame"] as { url?: unknown; parentId?: unknown } | undefined;
@@ -801,6 +823,7 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   overlays.delete(tab);
   tabUrls.delete(tab);
   loaders.delete(tab);
+  overlayWorlds.delete(tab);
   openRequests.delete(tab);
   for (const wake of [...commits]) wake();
   // Closing Chrome's debugging bar is the owner saying stop.
@@ -817,6 +840,7 @@ chrome.tabs.onUpdated.addListener((tab, change, info) => {
 function gone(tab: number): void {
   tabUrls.delete(tab);
   loaders.delete(tab);
+  overlayWorlds.delete(tab);
   openRequests.delete(tab);
   selections.delete(tab);
   if (tab === beside) beside = undefined;
@@ -984,6 +1008,7 @@ async function hand(tab: number, give: boolean): Promise<void> {
       overlays.delete(tab);
       tabUrls.delete(tab);
       loaders.delete(tab);
+      overlayWorlds.delete(tab);
       openRequests.delete(tab);
       if (attached.delete(tab)) await chrome.debugger.detach({ tabId: tab }).catch(() => undefined);
       for (const wake of [...commits]) wake();

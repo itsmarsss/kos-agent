@@ -296,6 +296,11 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     const title = await cdp("Runtime.evaluate", { expression: "document.title", returnByValue: true });
     expect(title["result"]).toMatchObject({ result: { value: "Shop" } });
     expect((await cdp("Storage.getCookies"))["error"]).toMatchObject({ code: "method" });
+    // No world of the overlay's name for KOS, whose binding speaks for the owner, and none with more reach than the page.
+    const frameId = ((await cdp("Page.getFrameTree"))["result"] as { frameTree: { frame: { id: string } } }).frameTree.frame.id;
+    expect((await cdp("Page.createIsolatedWorld", { frameId, worldName: "kos" }))["error"]).toMatchObject({ code: "method" });
+    expect((await cdp("Page.createIsolatedWorld", { frameId, worldName: "kos-hands", grantUniveralAccess: true }))["error"]).toMatchObject({ code: "method" });
+    expect(await cdp("Page.createIsolatedWorld", { frameId, worldName: "kos-hands" })).toMatchObject({ ok: true, result: { executionContextId: expect.any(Number) } });
     expect((await cdp("Page.navigate", { url: "file:///etc/passwd" }))["error"]).toMatchObject({ code: "url" });
     expect((await call("cdp.send", { session: "s1", tab: "999999", method: "Runtime.evaluate", params: { expression: "1" } }))["error"]).toMatchObject({ code: "tab" });
     // The overlay is on the page, and out of its accessibility tree.

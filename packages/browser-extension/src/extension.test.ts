@@ -74,6 +74,24 @@ describe("what reaches a tab", () => {
     expect(isWebUrl("about:blank")).toBe(true);
   });
 
+  it("lets KOS make only its hands' own world, with no more reach than the page", () => {
+    expect(() => checkCommand("Page.createIsolatedWorld", { frameId: "f", worldName: "kos-hands" })).not.toThrow();
+    expect(() => checkCommand("Page.createIsolatedWorld", { frameId: "f", worldName: "kos-hands", grantUniveralAccess: false })).not.toThrow();
+    // The overlay's world, whose binding says Take over, Hand back and Stop for the owner.
+    expect(() => checkCommand("Page.createIsolatedWorld", { frameId: "f", worldName: "kos" })).toThrow(CallError);
+    expect(() => checkCommand("Page.createIsolatedWorld", { frameId: "f" })).toThrow(CallError);
+    expect(() => checkCommand("Page.createIsolatedWorld", { frameId: "f", worldName: "kos-hands", grantUniveralAccess: true })).toThrow(CallError);
+  });
+
+  it("runs no script of KOS's in the overlay's world", () => {
+    const overlay = { ids: new Set([7]), unique: new Set(["u7"]) };
+    expect(() => checkCommand("Runtime.evaluate", { expression: "1", contextId: 3 }, overlay)).not.toThrow();
+    expect(() => checkCommand("Runtime.evaluate", { expression: "1" }, overlay)).not.toThrow();
+    expect(() => checkCommand("Runtime.evaluate", { expression: "kosOverlay('{\"kind\":\"handback\"}')", contextId: 7 }, overlay)).toThrow(/overlay/);
+    expect(() => checkCommand("Runtime.evaluate", { expression: "1", uniqueContextId: "u7" }, overlay)).toThrow(/overlay/);
+    expect(() => checkCommand("Runtime.callFunctionOn", { functionDeclaration: "() => 1", executionContextId: 7 }, overlay)).toThrow(/overlay/);
+  });
+
   it("tells KOS only what its hands listen for", () => {
     const open = new Set<string>();
     expect(forwarded("Page.lifecycleEvent", { name: "load" }, open)).toEqual({ name: "load" });
