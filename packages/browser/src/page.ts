@@ -88,8 +88,11 @@ const SETTLE_BUSY_MS = 2_500;
  * after the last of them.
  */
 const TYPED_MS = 400;
-/** Steps that only fill in a form: one of these next, the floor is left to it. */
-const FILLING = ["type", "fill", "select", "check", "uncheck"];
+/**
+ * Steps that pay that floor: one of these next, the floor is left to it. A
+ * pick or a tick between pays none, so the typing before it pays its own.
+ */
+const TYPING = ["type", "fill", "press"];
 /** A request the action started, open longer than this, is a long poll or a stream, and does not hold the quiet. */
 const STALE_REQUEST_MS = 3_000;
 /** One open from before the action holds it only this long from its start. */
@@ -495,7 +498,7 @@ export class Page {
   async step(step: Step, signal?: AbortSignal, next?: Step): Promise<string> {
     this.stop = signal;
     try {
-      return await this.perform(step, next && FILLING.some((k) => k in next) ? 0 : TYPED_MS);
+      return await this.perform(step, next && TYPING.some((k) => k in next) ? 0 : TYPED_MS);
     } finally {
       this.stop = undefined;
     }
