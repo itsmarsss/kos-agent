@@ -498,6 +498,20 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
       expect(await cdp("Runtime.evaluate", { expression: "location.pathname", returnByValue: true })).toMatchObject({ ok: true, result: { result: { value: "/mine" } } });
     }, 30_000);
 
+    it("tells KOS of a route the page changes to itself, in its main frame only", async () => {
+      const cdp = (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> => call("cdp.send", { session: "h2", tab, method, params });
+      const routes = (): unknown[] => events.filter((e) => e.name === "cdp.event" && e.data["method"] === "Page.navigatedWithinDocument").map((e) => (e.data["params"] as { url?: unknown }).url);
+      const before = routes().length;
+      // A frame's route first, then the page's: only the page's crosses.
+      await cdp("Runtime.evaluate", { expression: "new Promise((r) => { const f = document.createElement('iframe'); f.src = '/inner'; f.onload = () => { f.contentWindow.history.pushState({}, '', '/inner/next'); r(1); }; document.body.append(f); })", awaitPromise: true });
+      await cdp("Runtime.evaluate", { expression: "history.pushState({}, '', '/mine/next')" });
+      await until(() => routes().length > before);
+      await until(() => false, 300);
+      expect(routes().slice(before)).toEqual([`${base}/mine/next`]);
+      await devtools.send("Page.navigate", { url: `${base}/mine` }, owners);
+      await devtools.loaded(owners);
+    }, 30_000);
+
     it("refuses the rest of a batch once the owner takes the tab over part way", async () => {
       const running = batch("h2", [slow(600), { method: "Input.dispatchMouseEvent", params: { type: "mouseMoved", x: 5, y: 5 } }]);
       await until(() => false, 200);

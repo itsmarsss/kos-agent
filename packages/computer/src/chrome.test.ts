@@ -134,6 +134,9 @@ describe("a Chrome paired through the extension", () => {
     fake.event("session.paused", { session: sent[0]!["session"], reason: "owner" });
     fake.event("session.resumed", { session: sent[0]!["session"] });
     expect(chrome.spot("c1")!.moved).toBe(moved.moved + 2);
+    // A route the page changed to itself (pushState) moves it too, and its address.
+    fake.event("cdp.event", { session: sent[0]!["session"], tab: "88", method: "Page.navigatedWithinDocument", params: { frameId: "F", url: "https://shop.example/checkout/pay" } });
+    expect(chrome.spot("c1")).toMatchObject({ url: "https://shop.example/checkout/pay", moved: moved.moved + 3 });
   });
 
   it("pictures a tab at the size asked, and asks an extension that sends the tab's whole size to draw it small", async () => {

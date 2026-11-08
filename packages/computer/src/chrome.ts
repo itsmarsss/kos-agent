@@ -337,6 +337,14 @@ export class OwnerChrome implements BrowserElsewhere {
         b.moved++;
       }
     }
+    // A route the page changed to itself; the extension passes on only the main frame's.
+    if (method === "Page.navigatedWithinDocument") {
+      const kept = b.tabs.get(tab);
+      if (kept && typeof params["url"] === "string") {
+        kept.url = params["url"];
+        b.moved++;
+      }
+    }
     b.pages.get(tab)?.handle({ method, params });
   }
 }

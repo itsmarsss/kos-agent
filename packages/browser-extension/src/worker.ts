@@ -851,6 +851,11 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     if (typeof frame.id === "string") mainFrames.set(tab, frame.id);
     for (const wake of [...commits]) wake();
   }
+  // A route the page changed to itself (pushState): the main frame's moves the tab's address, and is passed on; a frame's within it is not.
+  if (method === "Page.navigatedWithinDocument") {
+    if (p["frameId"] !== mainFrames.get(tab)) return;
+    if (typeof p["url"] === "string") tabUrls.set(tab, p["url"]);
+  }
   if (fromHidden(tab, p)) return;
   const open = openRequests.get(tab) ?? new Set<string>();
   openRequests.set(tab, open);

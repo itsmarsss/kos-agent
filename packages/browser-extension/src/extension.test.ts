@@ -122,6 +122,7 @@ describe("what reaches a tab", () => {
   it("tells KOS only what its hands listen for", () => {
     const open = new Set<string>();
     expect(forwarded("Page.lifecycleEvent", { name: "load" }, open)).toEqual({ name: "load" });
+    expect(forwarded("Page.navigatedWithinDocument", { frameId: "F", url: "https://shop.example/cart" }, open)).toEqual({ frameId: "F", url: "https://shop.example/cart" });
     expect(forwarded("Network.responseReceivedExtraInfo", {}, open)).toBeUndefined();
     expect(forwarded("Runtime.consoleAPICalled", {}, open)).toBeUndefined();
     // Of the network, only the requests a page's answer waits on, without their headers, and the end of only those.
