@@ -36,6 +36,11 @@ While KOS is in control:
 - `computer.act` takes one action or, as `actions`, a short run of them
   (click a field, type, press Return) with one picture at the end, so a
   sequence it can see through costs one round trip;
+- each step says what it is for in a few words (`intent`, "open the
+  Quizzes tab"), which is the step's line wherever steps are listed; how
+  it does it (click, type "BU354", press Return) is the line when there
+  is no intent, and the step's detail on the dashboard when there is.
+  Coordinates are never in the line;
 - a bar at the top says what it is doing, with Pause and Stop;
 - touching the mouse, trackpad or keyboard pauses it at once, and only you
   resume it, on the device;

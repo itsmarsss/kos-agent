@@ -130,6 +130,19 @@ describe("browser.visit", () => {
 });
 
 describe("browser.act", () => {
+  it("takes an intent the owner reads as the step, never requires one, and still runs", async () => {
+    const { registry, ready } = harness();
+    await ready;
+    const def = registry.defs().find((d) => d.name === "browser.act")!;
+    const schema = def.inputSchema as { properties: Record<string, { type: string }>; required?: string[] };
+    expect(schema.properties["intent"]).toMatchObject({ type: "string" });
+    expect(schema.required).toEqual(["steps"]);
+    expect(def.description).toMatch(/`intent`/);
+    expect(registry.classify("browser.act", { intent: "wait for it", steps: [{ wait: 5 }] }).tier).toBe("safe");
+    const result = await registry.execute("browser.act", { intent: "wait for it", steps: [{ wait: 5 }], then: "none" });
+    expect(result.content).toBe("Done: waited 5ms.");
+  });
+
   it("runs the steps, then looks, and names a tab a step opened", async () => {
     // The scroll is what opens the second tab here.
     const scrolled = (): boolean => script.sent.some((m) => m.method === "Input.dispatchMouseEvent" && m.params["type"] === "mouseWheel");

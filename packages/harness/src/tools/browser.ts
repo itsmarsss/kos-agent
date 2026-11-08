@@ -179,12 +179,15 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
             "the view and on other parts of it; only one covered everywhere is refused, naming what is in the way. Steps that only " +
             "look or move (open, go, hover, scroll, wait, dialog) run at once; the rest ask the owner unless the site is trusted. " +
             "If a step fails, the run stops and says what was done, why, and what the page offers now. `then` as for browser.visit: " +
-            '"snapshot" or "read" when the words on the page are enough, which is quicker; "look" when how it looks matters.',
+            '"snapshot" or "read" when the words on the page are enough, which is quicker; "look" when how it looks matters. ' +
+            'Say what the call is for in `intent`, a few words the owner reads as the step, like "open the Quizzes tab": without it ' +
+            "they see only clicks and refs.",
           inputSchema: {
             type: "object",
             properties: {
               steps: { type: "array", items: { type: "object" }, minItems: 1, maxItems: STEPS_MAX },
               then: THEN,
+              intent: { type: "string", description: "What these steps do, in a few words the owner will read, like 'open the Quizzes tab' or 'search for the engagement form'." },
             },
             required: ["steps"],
           },
