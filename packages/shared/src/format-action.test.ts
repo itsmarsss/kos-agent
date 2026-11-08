@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   detailLines,
   formatApprovalPrompt,
+  stepMechanics,
   summarizeAction,
 } from "./format-action.js";
 
@@ -58,8 +59,13 @@ describe("summaries for the browser", () => {
     );
     expect(summarizeAction("chats.handoff", { to: "x", brief: "a".repeat(120) })).toBe(`Hand off to x: ${"a".repeat(89)}…`);
     expect(summarizeAction("browser.handoff", { reason: "log in to your bank" })).toBe("Needs your hands: log in to your bank");
-    expect(summarizeAction("browser.act", { steps: [{ fill: { selector: "@e2", text: "jane" } }, { click: "@e5" }, { wait: 500 }] })).toBe("On the page: fill @e2, click @e5, wait 500ms");
-    expect(summarizeAction("browser.act", { steps: [{ fill: { target: "@e2", text: "jane" } }, { press: "Enter" }] })).toBe("On the page: fill @e2, press Enter");
+    // A @ref names nothing the owner can see; the words a step types and the text it aims at do.
+    expect(summarizeAction("browser.act", { steps: [{ fill: { selector: "@e2", text: "jane" } }, { click: "@e5" }, { wait: 500 }] })).toBe("Fill in “jane”, click, wait");
+    expect(summarizeAction("browser.act", { steps: [{ fill: { target: "@e2", text: "jane" } }, { press: "Enter" }] })).toBe("Fill in “jane”, press Enter");
+    expect(summarizeAction("browser.act", { steps: [{ click: "button:has-text('Submit')" }, { click: "text=Next" }] })).toBe("Click “Submit”, click “Next”");
+    expect(summarizeAction("browser.act", { intent: "sign in as jane", steps: [{ fill: { target: "@e2", text: "jane" } }, { click: "@e5" }] })).toBe("Sign in as jane");
+    expect(stepMechanics("browser.act", { intent: "sign in as jane", steps: [{ fill: { target: "@e2", text: "jane" } }, { click: "@e5" }] })).toBe("Fill in “jane”, click");
+    expect(summarizeAction("browser.act", { steps: [{ zoom: 2 }] })).toBe("Zoom");
     expect(summarizeAction("browser.look", {})).toBe("Look at the page");
     expect(summarizeAction("chrome.start", { task: "check the cart" })).toBe("Work in your Chrome: check the cart");
     expect(summarizeAction("chrome.page", {})).toBe("Read the page beside the panel");
@@ -75,14 +81,49 @@ describe("summaries for a computer", () => {
   it("say what each step does on the screen", () => {
     expect(summarizeAction("computer.start", { device: "Studio MacBook", task: "export the deck" })).toBe("Use Studio MacBook: export the deck");
     expect(summarizeAction("computer.start", { device: "dev_qgaNFoIB", task: "smoke test" })).toBe("Use a computer: smoke test");
-    expect(summarizeAction("computer.act", { action: "left_click", coordinate: [800, 769] })).toBe("Click at (800, 769)");
-    expect(summarizeAction("computer.act", { action: "double_click", coordinate: [1, 2], text: "shift" })).toBe("Double-click at (1, 2) holding shift");
-    expect(summarizeAction("computer.act", { action: "left_click_drag", start_coordinate: [1, 2], coordinate: [3, 4] })).toBe("Drag from (1, 2) to (3, 4)");
+    // No coordinates: a point in a picture means nothing to the owner reading the step.
+    expect(summarizeAction("computer.act", { action: "left_click", coordinate: [800, 769] })).toBe("Click");
+    expect(summarizeAction("computer.act", { action: "double_click", coordinate: [1, 2], text: "shift" })).toBe("Double-click holding shift");
+    expect(summarizeAction("computer.act", { action: "left_click_drag", start_coordinate: [1, 2], coordinate: [3, 4] })).toBe("Drag");
     expect(summarizeAction("computer.act", { action: "scroll", scroll_direction: "up", scroll_amount: 5 })).toBe("Scroll up 5");
     expect(summarizeAction("computer.act", { action: "type", text: "hello" })).toBe("Type “hello”");
     expect(summarizeAction("computer.act", { action: "key", text: "cmd+s" })).toBe("Press cmd+s");
     expect(summarizeAction("computer.act", { action: "screenshot" })).toBe("Look at the screen");
     expect(summarizeAction("computer.end", {})).toBe("Give the computer back");
+  });
+});
+
+describe("computer steps", () => {
+  const batch = { actions: [{ action: "left_click", coordinate: [812, 440] }, { action: "type", text: "BU354" }, { action: "key", text: "Return" }] };
+
+  it("say a batch from its own actions", () => {
+    expect(summarizeAction("computer.act", batch)).toBe("Click, type “BU354”, press Return");
+  });
+
+  it("fold repeats and count what does not fit", () => {
+    const tabs = { actions: [{ action: "key", text: "Tab" }, { action: "key", text: "Tab" }, { action: "key", text: "Tab" }, { action: "type", text: "x" }] };
+    expect(summarizeAction("computer.act", tabs)).toBe("Press Tab ×3, type “x”");
+    const long = { actions: ["a", "b", "c", "d", "e", "f"].map((text) => ({ action: "type", text })) };
+    expect(summarizeAction("computer.act", long)).toBe("Type “a”, type “b”, type “c” and 3 more");
+    expect(stepMechanics("computer.act", { ...long, intent: "fill the form" })).toBe("Type “a”, type “b”, type “c”, type “d”, type “e”, type “f”");
+  });
+
+  it("lead with the intent, the mechanics in parentheses only when short", () => {
+    expect(summarizeAction("computer.act", { ...batch, intent: "search for the engagement form" })).toBe("Search for the engagement form");
+    expect(stepMechanics("computer.act", { ...batch, intent: "search for the engagement form" })).toBe("Click, type “BU354”, press Return");
+    expect(summarizeAction("computer.act", { action: "left_click", coordinate: [812, 440], intent: "open the Quizzes tab." })).toBe("Open the Quizzes tab (click)");
+    expect(stepMechanics("computer.act", { action: "left_click", intent: "  " })).toBeUndefined();
+  });
+
+  it("name an unknown action, and say something when there is none", () => {
+    expect(summarizeAction("computer.act", { action: "hold_key", text: "shift" })).toBe("Hold key");
+    expect(summarizeAction("computer.act", {})).toBe("Use the computer");
+    expect(summarizeAction("computer.act", { actions: [] })).toBe("Use the computer");
+    expect(summarizeAction("computer.act", {})).not.toMatch(/: $/);
+  });
+
+  it("keep the mechanics in the detail an approval shows", () => {
+    expect(detailLines("computer.act", { ...batch, intent: "search for it" }).slice(0, 2)).toEqual(["Search for it", "Click, type “BU354”, press Return"]);
   });
 });
 

@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from "react";
 
-import { pathsIn } from "@kos/shared";
+import { pathsIn, stepMechanics } from "@kos/shared";
 import { ChevronDown, ChevronRight } from "@kos/kit";
 
 import type { ChatEvent } from "./api.js";
@@ -69,6 +69,8 @@ export function ToolCall({
   const [frameOpen, setFrameOpen] = useState(false);
   const running = event.result === undefined;
   const queued = event.pendingId !== undefined;
+  // A step said by what it is for keeps how it did it here, under the line.
+  const mechanics = stepMechanics(event.name, event.args);
 
   // A queued call did not fail, but it did not happen either. Calling that
   // "ok" is how a risky tool looks like a tool that silently does nothing.
@@ -134,6 +136,12 @@ export function ToolCall({
 
       {open && (
         <div className="toolcall-body">
+          {mechanics && (
+            <div className="toolcall-part">
+              <span className="toolcall-label">Steps</span>
+              <pre>{mechanics}</pre>
+            </div>
+          )}
           <div className="toolcall-part">
             <span className="toolcall-label">Arguments</span>
             <pre>{JSON.stringify(event.args, null, 2)}</pre>

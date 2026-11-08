@@ -61,6 +61,7 @@ export {
 export {
   detailLines,
   formatApprovalPrompt,
+  stepMechanics,
   summarizeAction,
 } from "./format-action.js";
 
