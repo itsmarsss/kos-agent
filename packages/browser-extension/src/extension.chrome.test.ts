@@ -313,6 +313,17 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     const [a, b] = await Promise.all([cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, maxEdge: edge }), cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, maxEdge: edge })]);
     expect(jpegSize((a["result"] as { data: string }).data)).toEqual(size);
     expect(jpegSize((b["result"] as { data: string }).data)).toEqual(size);
+    // Several commands in one round trip, each checked as one alone would be: in order up to the first refused, or side by side.
+    const calls = [
+      { method: "Runtime.evaluate", params: { expression: "1 + 1", returnByValue: true } },
+      { method: "Storage.getCookies", params: {} },
+      { method: "Runtime.evaluate", params: { expression: "document.title", returnByValue: true } },
+    ];
+    const inOrder = (await call("cdp.batch", { session: "s1", tab, calls }))["result"] as { results: Record<string, unknown>[] };
+    expect(inOrder.results).toEqual([{ result: { result: { type: "number", value: 2, description: "2" } } }, { error: expect.objectContaining({ code: "method" }) }]);
+    const sideBySide = (await call("cdp.batch", { session: "s1", tab, calls, parallel: true }))["result"] as { results: Record<string, unknown>[] };
+    expect(sideBySide.results).toHaveLength(3);
+    expect(sideBySide.results[2]).toMatchObject({ result: { result: { value: "Shop" } } });
   }, 30_000);
 
   it("knows its own click from the owner's, and the owner's takes the tab over", async () => {

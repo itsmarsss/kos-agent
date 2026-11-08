@@ -19,9 +19,37 @@ import type { Step } from "./steps.js";
  * way.
  */
 
+/** One command of several sent together. */
+export interface Call {
+  method: string;
+  params?: Record<string, unknown>;
+}
+
 /** A tab's commands, already addressed to it. */
 export interface Session {
   send(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>>;
+  /**
+   * Several commands in one round trip, where the line to the tab is long
+   * (KOS for Chrome): in order, stopping at the first that fails, or side by
+   * side when `parallel`. One answer or error for each; an error for each
+   * not sent.
+   */
+  batch?(calls: Call[], parallel: boolean, timeoutMs?: number): Promise<(Record<string, unknown> | Error)[]>;
+}
+
+/**
+ * Commands one by one, as a batch is answered: in order, stopping at the
+ * first that fails (an error for it and for each after), or side by side.
+ */
+export async function sendEach(send: Session["send"], calls: Call[], parallel: boolean, timeoutMs?: number): Promise<(Record<string, unknown> | Error)[]> {
+  const asError = (err: unknown): Error => (err instanceof Error ? err : new Error(String(err)));
+  if (parallel) return Promise.all(calls.map((c) => send(c.method, c.params, timeoutMs).catch(asError)));
+  const out: (Record<string, unknown> | Error)[] = [];
+  for (const c of calls) {
+    const failed = out.find((r) => r instanceof Error);
+    out.push(failed ? new Error(`not sent: ${failed.message}`) : await send(c.method, c.params, timeoutMs).catch(asError));
+  }
+  return out;
 }
 
 /** How long a page may take to be ready to read, and to load in full. */
@@ -151,6 +179,8 @@ export class Page {
   private prepared: Promise<void> | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly wakers = new Set<() => void>();
+  /** Elements resolved for this call, by node, and the document they were resolved in. */
+  private objects = { loader: "", ids: new Map<number, string>() };
 
   private readonly limits: PageLimits;
   private readonly now: () => number;
@@ -428,6 +458,7 @@ export class Page {
 
   /** Objects made for the last call let go of, so a long session does not hold the page's memory. */
   async release(): Promise<void> {
+    this.objects.ids.clear();
     await this.session.send("Runtime.releaseObjectGroup", { objectGroup: GROUP }).catch(() => undefined);
   }
 
@@ -519,11 +550,11 @@ export class Page {
 
   private async click(node: number, label: string, how: { button: "left" | "right"; count: number } = { button: "left", count: 1 }): Promise<void> {
     const at = await this.reachable(node, label);
-    await this.mouse("mouseMoved", at);
-    for (let n = 1; n <= how.count; n++) {
-      await this.mouse("mousePressed", at, { button: how.button, clickCount: n });
-      await this.mouse("mouseReleased", at, { button: how.button, clickCount: n });
-    }
+    const presses = Array.from({ length: how.count }, (_, i) => [
+      this.mouseCall("mousePressed", at, { button: how.button, clickCount: i + 1 }),
+      this.mouseCall("mouseReleased", at, { button: how.button, clickCount: i + 1 }),
+    ]).flat();
+    await this.all([this.mouseCall("mouseMoved", at), ...presses]);
   }
 
   /**
@@ -642,10 +673,15 @@ export class Page {
     return node;
   }
 
+  /** An element's handle in the page, resolved once a call. */
   private async objectOf(node: number): Promise<string> {
+    if (this.objects.loader !== this.life.loader) this.objects = { loader: this.life.loader, ids: new Map() };
+    const known = this.objects.ids.get(node);
+    if (known) return known;
     const resolved = await this.session.send("DOM.resolveNode", { backendNodeId: node, objectGroup: GROUP }).catch(() => undefined);
     const objectId = (resolved?.["object"] as { objectId?: string } | undefined)?.objectId;
     if (!objectId) throw new Error("that element is gone from the page (it changed); take a fresh look");
+    this.objects.ids.set(node, objectId);
     return objectId;
   }
 
@@ -678,8 +714,11 @@ export class Page {
 
   /** The middle of an element, scrolled into view; for a control hidden behind its label, the label's. */
   private async point(node: number, label: string, viaLabel = false): Promise<{ x: number; y: number }> {
-    await this.session.send("DOM.scrollIntoViewIfNeeded", { backendNodeId: node }).catch(() => undefined);
-    const got = await this.session.send("DOM.getContentQuads", { backendNodeId: node }).catch(() => ({}) as Record<string, unknown>);
+    const [, quads] = await this.many([
+      { method: "DOM.scrollIntoViewIfNeeded", params: { backendNodeId: node } },
+      { method: "DOM.getContentQuads", params: { backendNodeId: node } },
+    ]);
+    const got = quads instanceof Error || !quads ? {} : quads;
     const quad = ((got["quads"] as number[][] | undefined) ?? []).find((q) => Math.abs((q[4]! - q[0]!) * (q[5]! - q[1]!)) > 1);
     if (quad) return { x: (quad[0]! + quad[2]! + quad[4]! + quad[6]!) / 4, y: (quad[1]! + quad[3]! + quad[5]! + quad[7]!) / 4 };
     if (!viaLabel) {
@@ -737,32 +776,47 @@ export class Page {
     return [at(0.25, 0.5), at(0.75, 0.5), at(0.5, 0.25), at(0.5, 0.75), at(0.1, 0.15), at(0.9, 0.15), at(0.1, 0.85), at(0.9, 0.85)];
   }
 
-  private async mouse(type: string, at: { x: number; y: number }, extra: Record<string, unknown> = {}): Promise<void> {
-    await this.session.send("Input.dispatchMouseEvent", { type, x: at.x, y: at.y, button: "none", modifiers: 0, ...extra }, INPUT_MS);
+  private mouseCall(type: string, at: { x: number; y: number }, extra: Record<string, unknown> = {}): Call {
+    return { method: "Input.dispatchMouseEvent", params: { type, x: at.x, y: at.y, button: "none", modifiers: 0, ...extra } };
   }
 
+  private async mouse(type: string, at: { x: number; y: number }, extra: Record<string, unknown> = {}): Promise<void> {
+    await this.all([this.mouseCall(type, at, extra)]);
+  }
+
+  /** A key, with what is held around it, as one run of events. */
   private async key(press: KeyPress): Promise<void> {
+    const calls: Call[] = [];
+    const event = (params: Record<string, unknown>): void => void calls.push({ method: "Input.dispatchKeyEvent", params });
     let bits = 0;
     for (const held of press.held) {
       bits |= held.bit;
-      await this.session.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: held.key, code: held.code, windowsVirtualKeyCode: held.keyCode, modifiers: bits }, INPUT_MS);
+      event({ type: "rawKeyDown", key: held.key, code: held.code, windowsVirtualKeyCode: held.keyCode, modifiers: bits });
     }
     const base = { key: press.key, code: press.code, windowsVirtualKeyCode: press.keyCode, nativeVirtualKeyCode: press.keyCode, modifiers: press.modifiers };
-    await this.session.send(
-      "Input.dispatchKeyEvent",
-      {
-        ...base,
-        type: press.text ? "keyDown" : "rawKeyDown",
-        ...(press.text ? { text: press.text, unmodifiedText: press.text } : {}),
-        ...(press.commands ? { commands: press.commands } : {}),
-      },
-      INPUT_MS,
-    );
-    await this.session.send("Input.dispatchKeyEvent", { ...base, type: "keyUp" }, INPUT_MS);
+    event({
+      ...base,
+      type: press.text ? "keyDown" : "rawKeyDown",
+      ...(press.text ? { text: press.text, unmodifiedText: press.text } : {}),
+      ...(press.commands ? { commands: press.commands } : {}),
+    });
+    event({ ...base, type: "keyUp" });
     for (const held of [...press.held].reverse()) {
       bits &= ~held.bit;
-      await this.session.send("Input.dispatchKeyEvent", { type: "keyUp", key: held.key, code: held.code, windowsVirtualKeyCode: held.keyCode, modifiers: bits }, INPUT_MS);
+      event({ type: "keyUp", key: held.key, code: held.code, windowsVirtualKeyCode: held.keyCode, modifiers: bits });
     }
+    await this.all(calls);
+  }
+
+  /** Commands in order (or side by side), in one round trip where the session can. */
+  private many(calls: Call[], parallel = false): Promise<(Record<string, unknown> | Error)[]> {
+    return this.session.batch ? this.session.batch(calls, parallel, INPUT_MS) : sendEach((m, p, t) => this.session.send(m, p, t), calls, parallel, INPUT_MS);
+  }
+
+  /** Commands in order, the first error thrown. */
+  private async all(calls: Call[]): Promise<void> {
+    const failed = (await this.many(calls)).find((r) => r instanceof Error);
+    if (failed) throw failed;
   }
 
   private async viewport(): Promise<{ width: number; height: number }> {
@@ -811,16 +865,8 @@ export class Page {
     const meta = JSON.parse(String(byName.get("kos")?.value ?? "{}")) as { items?: inpage.FoundControl[]; total?: number; missing?: boolean };
     if (meta.missing) throw new Error(`nothing on the page matches ${scope}`);
     const items = meta.items ?? [];
-    const nodes = await Promise.all(
-      items.map((_, i) => {
-        const element = byName.get(String(i))?.objectId;
-        if (!element) return Promise.resolve(undefined);
-        return this.session.send("DOM.describeNode", { objectId: element }).then(
-          (d) => d["node"] as { backendNodeId?: number; frameId?: string } | undefined,
-          () => undefined,
-        );
-      }),
-    );
+    const described = items.length ? await this.many(items.map((_, i) => ({ method: "DOM.describeNode", params: { objectId: byName.get(String(i))?.objectId ?? "" } })), true) : [];
+    const nodes = described.map((d) => (d instanceof Error ? undefined : (d["node"] as { backendNodeId?: number; frameId?: string } | undefined)));
     // The frames it could not reach, read beside one another.
     const inner = await Promise.all(
       items.map(async (item, i) => {

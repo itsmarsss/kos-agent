@@ -10,7 +10,7 @@ import { installOverlay, type OverlayState } from "./overlay.js";
 import { readPage } from "./page.js";
 import { adding, readPairings, removing, replacedBy, type Paired } from "./pairings.js";
 import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
-import { checkCommand, forwards, isInput, isWebUrl } from "./relay.js";
+import { checkCommand, forwarded, isInput, isWebUrl } from "./relay.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, asksFirst, isHidden, readSettings, siteOf, type ExtensionSettings } from "./settings.js";
 
@@ -98,6 +98,8 @@ interface Asked {
   panel?: Panel;
 }
 
+/** Commands in one batch, at most. */
+const BATCH_MAX = 100;
 /** The id the selection script is registered under. */
 const SELECTION_SCRIPT = "kos-selection";
 /** As much of a page's text as the panel's chat reads in one go. */
@@ -127,6 +129,8 @@ const attached = new Set<number>();
 const overlays = new Map<number, Set<number>>();
 /** Each KOS tab's address as it changes, so one on a hidden site tells KOS nothing. */
 const tabUrls = new Map<number, string>();
+/** Each KOS tab's requests passed on to KOS that have not ended. */
+const openRequests = new Map<number, Set<string>>();
 const consents = new Map<string, Asked>();
 const panels = new Set<Panel>();
 /** Asks to read pages, waiting on the owner in a panel. */
@@ -299,6 +303,8 @@ async function answer(method: string, params: Record<string, unknown>, origin: s
     }
     case "cdp.send":
       return relay(params, origin);
+    case "cdp.batch":
+      return relayAll(params, origin);
     case "page.read":
       return pageRead(params, origin);
     default:
@@ -503,14 +509,49 @@ async function attach(tab: number): Promise<void> {
   await send("Page.addScriptToEvaluateOnNewDocument", { source: `(${installOverlay.toString()})()`, worldName: WORLD, runImmediately: true });
 }
 
+const record = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+
 async function relay(params: Record<string, unknown>, origin: string): Promise<Record<string, unknown>> {
   const s = live(params, origin);
+  return relayOne(s, tabOf(s, params), str(params["method"]), record(params["params"]));
+}
+
+/**
+ * Several commands to one tab in one round trip, each checked as one alone
+ * would be: in order, stopping at the first that fails (a press after a move
+ * that failed would land somewhere else), or side by side when `parallel`
+ * says they do not depend on one another. Each answer is `{ result }` or
+ * `{ error }`; those not sent after a failure are left out. The owner having
+ * taken the tab over refuses the whole batch.
+ */
+async function relayAll(params: Record<string, unknown>, origin: string): Promise<Record<string, unknown>> {
+  const s = live(params, origin);
   const tab = tabOf(s, params);
-  const method = str(params["method"]);
-  const args = (typeof params["params"] === "object" && params["params"] !== null ? params["params"] : {}) as Record<string, unknown>;
+  const calls = (Array.isArray(params["calls"]) ? params["calls"] : []).map(record);
+  if (calls.length === 0 || calls.length > BATCH_MAX) throw new CallError("bad_request", `a batch is 1 to ${BATCH_MAX} commands`);
+  const one = async (call: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    try {
+      return { result: await relayOne(s, tab, str(call["method"]), record(call["params"])) };
+    } catch (err) {
+      // The owner taking over is the whole batch's answer, as it is a lone command's: KOS waits for them.
+      if (err instanceof CallError && err.code === "paused") throw err;
+      return { error: { code: err instanceof CallError ? err.code : "cdp", message: err instanceof Error ? err.message : String(err) } };
+    }
+  };
+  if (params["parallel"] === true) return { results: await Promise.all(calls.map(one)) };
+  const results: Record<string, unknown>[] = [];
+  for (const call of calls) {
+    const answer = await one(call);
+    results.push(answer);
+    if ("error" in answer) break;
+  }
+  return { results };
+}
+
+async function relayOne(s: Session, tab: number, method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   checkCommand(method, args);
   // Not a look, a click or a word on a hidden site, and no way there.
-  const url = (await chrome.tabs.get(tab).catch(() => undefined))?.url ?? "";
+  const url = tabUrls.get(tab) ?? (await chrome.tabs.get(tab).catch(() => undefined))?.url ?? "";
   if (isHidden(url, settings.hiddenSites)) throw hiddenError(url);
   if (method === "Page.navigate" && isHidden(str(args["url"]), settings.hiddenSites)) throw hiddenError(str(args["url"]));
   if (s.paused && (isInput(method) || method === "Page.navigate")) throw new CallError("paused", "the owner has taken over this tab; wait for them to hand it back");
@@ -689,7 +730,13 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     if (p["name"] === BINDING) void fromOverlay(tab, Number(p["executionContextId"]), str(p["payload"]));
     return;
   }
-  if (forwards(method) && !fromHidden(tab, p)) tell("cdp.event", { session: session.info.id, tab: String(tab), method, params: p });
+  const frame = p["frame"] as { url?: unknown; parentId?: unknown } | undefined;
+  if (method === "Page.frameNavigated" && frame && !frame.parentId && typeof frame.url === "string") tabUrls.set(tab, frame.url);
+  if (fromHidden(tab, p)) return;
+  const open = openRequests.get(tab) ?? new Set<string>();
+  openRequests.set(tab, open);
+  const passed = forwarded(method, p, open);
+  if (passed) tell("cdp.event", { session: session.info.id, tab: String(tab), method, params: passed });
 });
 
 chrome.debugger.onDetach.addListener((source, reason) => {
@@ -697,6 +744,8 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   if (tab === undefined) return;
   attached.delete(tab);
   overlays.delete(tab);
+  tabUrls.delete(tab);
+  openRequests.delete(tab);
   // Closing Chrome's debugging bar is the owner saying stop.
   if (reason === "canceled_by_user") void end("detached");
 });
@@ -709,6 +758,7 @@ chrome.tabs.onUpdated.addListener((tab, change, info) => {
 
 chrome.tabs.onRemoved.addListener((tab) => {
   tabUrls.delete(tab);
+  openRequests.delete(tab);
   selections.delete(tab);
   if (tab === beside) beside = undefined;
   if (handed.delete(tab)) void saveHanded();

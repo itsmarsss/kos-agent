@@ -1,7 +1,8 @@
-import { PICTURE, Page, type Tab } from "@kos/browser";
+import { PICTURE, Page, sendEach, type Call, type Session as TabSession, type Tab } from "@kos/browser";
 import type { BrowserElsewhere, TabInfo } from "@kos/harness";
 
 import { kindOf, type DeviceHub, type Session } from "./hub.js";
+import { DeviceError } from "./link.js";
 import type { DeviceEvent } from "./protocol.js";
 import type { Device } from "./store.js";
 
@@ -163,13 +164,39 @@ export class OwnerChrome implements BrowserElsewhere {
   private pageOf(conversation: string, b: Borrowed, tab: string): Page {
     let page = b.pages.get(tab);
     if (!page) {
-      page = new Page(
-        { send: (method, params, timeoutMs) => this.hub.act(conversation, "cdp.send", { tab, method, params: params ?? {} }, (timeoutMs ?? 15_000) + RELAY_SLACK_MS) },
-        { gate: () => this.whileOwnerHas(conversation) },
-      );
+      page = new Page(this.line(conversation, tab), { gate: () => this.whileOwnerHas(conversation) });
       b.pages.set(tab, page);
     }
     return page;
+  }
+
+  /**
+   * A tab's commands, through the extension: one at a time, or several in
+   * one round trip. An extension from before batches is sent them one by one.
+   */
+  private line(conversation: string, tab: string): TabSession {
+    const send = (method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> =>
+      this.hub.act(conversation, "cdp.send", { tab, method, params: params ?? {} }, (timeoutMs ?? 15_000) + RELAY_SLACK_MS);
+    let batches = true;
+    const oneByOne = (calls: Call[], parallel: boolean, timeoutMs?: number): Promise<(Record<string, unknown> | Error)[]> => sendEach(send, calls, parallel, timeoutMs);
+    const batch = async (calls: Call[], parallel: boolean, timeoutMs?: number): Promise<(Record<string, unknown> | Error)[]> => {
+      if (!batches) return oneByOne(calls, parallel, timeoutMs);
+      let answer: Record<string, unknown>;
+      try {
+        answer = await this.hub.act(conversation, "cdp.batch", { tab, calls: calls.map((c) => ({ method: c.method, params: c.params ?? {} })), parallel }, (timeoutMs ?? 15_000) * Math.max(1, parallel ? 1 : calls.length) + RELAY_SLACK_MS);
+      } catch (err) {
+        if (!(err instanceof DeviceError && err.code === "bad_request")) throw err;
+        batches = false;
+        return oneByOne(calls, parallel, timeoutMs);
+      }
+      const results = Array.isArray(answer["results"]) ? (answer["results"] as { result?: Record<string, unknown>; error?: { code?: string; message?: string } }[]) : [];
+      return calls.map((_, i) => {
+        const r = results[i];
+        if (!r) return new Error(`not sent: ${results.find((x) => x.error)?.error?.message ?? "the batch was cut short"}`);
+        return r.error ? new DeviceError(r.error.code ?? "cdp", r.error.message ?? "the command failed") : (r.result ?? {});
+      });
+    };
+    return { send, batch };
   }
 
   /** Until the owner hands the Chrome back: at once when they have not taken it. True when it waited. */

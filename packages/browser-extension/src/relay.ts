@@ -70,9 +70,33 @@ export function checkCommand(method: string, params: Record<string, unknown>): v
   }
 }
 
-/** Whether an event from a tab goes on to KOS. */
-export function forwards(method: string): boolean {
-  return EVENTS.has(method);
+/**
+ * The requests a page's answer waits on, as KOS's hands judge it (AWAITED in
+ * packages/browser/src/page.ts): only these cross to KOS, and only the part
+ * of them it reads. The rest (pictures, beacons, sockets, streams) and every
+ * header stay in the browser.
+ */
+const AWAITED = new Set(["Document", "Script", "XHR", "Fetch"]);
+/** Requests passed on and not ended yet, kept for one tab at most. */
+const OPEN_MAX = 1_000;
+
+/**
+ * What of an event from a tab goes on to KOS: nothing, or what its hands
+ * read of it. `open` is the tab's requests passed on that have not ended, so
+ * the end of one is passed on only when its start was.
+ */
+export function forwarded(method: string, params: Record<string, unknown>, open: Set<string>): Record<string, unknown> | undefined {
+  if (!EVENTS.has(method)) return undefined;
+  const id = String(params["requestId"] ?? "");
+  if (method === "Network.requestWillBeSent") {
+    if (!AWAITED.has(String(params["type"] ?? ""))) return undefined;
+    open.delete(id);
+    open.add(id);
+    if (open.size > OPEN_MAX) open.delete(open.values().next().value!);
+    return { requestId: id, type: params["type"], request: { url: (params["request"] as { url?: unknown } | undefined)?.url } };
+  }
+  if (method === "Network.loadingFinished" || method === "Network.loadingFailed") return open.delete(id) ? { requestId: id } : undefined;
+  return params;
 }
 
 /** Pointer and key commands, which are KOS's own hands: told apart from the owner's. */

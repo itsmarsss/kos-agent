@@ -8,7 +8,7 @@ import { Lines } from "./lines.js";
 import { linkWords, needsPairing, type LineOf } from "./linkwords.js";
 import { installOverlay } from "./overlay.js";
 import { adding, readPairings, removing, replacedBy, type Paired } from "./pairings.js";
-import { checkCommand, forwards, isWebUrl } from "./relay.js";
+import { checkCommand, forwarded, isWebUrl } from "./relay.js";
 import { Session } from "./session.js";
 import { DEFAULTS, DEFAULT_HIDDEN, asksFirst, isHidden, readSettings, siteOf } from "./settings.js";
 
@@ -75,9 +75,17 @@ describe("what reaches a tab", () => {
   });
 
   it("tells KOS only what its hands listen for", () => {
-    expect(forwards("Page.lifecycleEvent")).toBe(true);
-    expect(forwards("Network.responseReceivedExtraInfo")).toBe(false);
-    expect(forwards("Runtime.consoleAPICalled")).toBe(false);
+    const open = new Set<string>();
+    expect(forwarded("Page.lifecycleEvent", { name: "load" }, open)).toEqual({ name: "load" });
+    expect(forwarded("Network.responseReceivedExtraInfo", {}, open)).toBeUndefined();
+    expect(forwarded("Runtime.consoleAPICalled", {}, open)).toBeUndefined();
+    // Of the network, only the requests a page's answer waits on, without their headers, and the end of only those.
+    const sent = { requestId: "1", type: "Fetch", request: { url: "https://shop.example/api", headers: { cookie: "x" } }, initiator: { type: "script" } };
+    expect(forwarded("Network.requestWillBeSent", sent, open)).toEqual({ requestId: "1", type: "Fetch", request: { url: "https://shop.example/api" } });
+    expect(forwarded("Network.requestWillBeSent", { requestId: "2", type: "Image", request: { url: "https://shop.example/a.png" } }, open)).toBeUndefined();
+    expect(forwarded("Network.loadingFinished", { requestId: "2" }, open)).toBeUndefined();
+    expect(forwarded("Network.loadingFinished", { requestId: "1", encodedDataLength: 9 }, open)).toEqual({ requestId: "1" });
+    expect(forwarded("Network.loadingFailed", { requestId: "1" }, open)).toBeUndefined();
   });
 });
 
