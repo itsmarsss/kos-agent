@@ -121,8 +121,8 @@ copy. The turn is told the path, so it refers to the file by `@file:` and
 any later turn, chat or blob can open it with `files.read`.
 
 The categories, channels and threads are made when the host starts and
-kept in step every few minutes, so a new project, blob or chat appears
-without a restart; a channel under the wrong category is moved; the layout deletes nothing, a chat you delete takes its thread with
+kept in step every few minutes, so a new chat appears without a restart,
+and a new project or blob has its channel the moment it is made; a channel under the wrong category is moved; the layout deletes nothing, a chat you delete takes its thread with
 it and lets go of a channel bound to it (its topic back to plain words),
 and is never made again from either; a channel or thread you delete on
 Discord is let go, and made again where it is needed: a chat's thread the

@@ -797,8 +797,15 @@ export async function runHost(options: HostOptions): Promise<void> {
           if (first) console.error(`Discord: could not set the server up: ${err instanceof Error ? err.message : String(err)}`);
         }
       };
-      await sync(true);
-      setInterval(() => void sync(false), 5 * 60_000).unref();
+      // One layout at a time: two at once would each make the channel the other is making.
+      let laying: Promise<void> = Promise.resolve();
+      const syncOnce = (first: boolean): Promise<void> => (laying = laying.then(() => sync(first)));
+      await syncOnce(true);
+      setInterval(() => void syncOnce(false), 5 * 60_000).unref();
+      // A project or a blob made now has its channel now, not at the next look.
+      kernel.bus.on("chat:created", ({ conversationId }) => {
+        if (/^(project|agent):/.test(conversationId)) void syncOnce(false);
+      });
       /*
        * The server shows every exchange, wherever it happened, as it happens.
        * A turn taken on the dashboard, handed off, or dispatched by an

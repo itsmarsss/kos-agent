@@ -38,6 +38,14 @@ describe("ConversationStore", () => {
     store = new ConversationStore(ws.db, () => clock);
   });
 
+  it("says when a chat is made, once", () => {
+    const made: string[] = [];
+    store.onCreated((id) => void made.push(id));
+    store.create({ id: "project:garden", userId: "owner", title: "Garden" });
+    store.create({ id: "project:garden", userId: "owner", title: "Garden" });
+    expect(made).toEqual(["project:garden"]);
+  });
+
   it("says when a chat's title changes, however it changes, and not when it does not", () => {
     const told: [string, string][] = [];
     store.onRenamed((id, title) => void told.push([id, title]));

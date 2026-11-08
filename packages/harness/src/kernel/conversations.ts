@@ -209,6 +209,13 @@ export class ConversationStore {
     this.removedListeners.push(listener);
   }
 
+  /** Told when a chat is made: a project's or a blob's is a channel to lay out at once. */
+  private readonly createdListeners: ((id: string) => void)[] = [];
+
+  onCreated(listener: (id: string) => void): void {
+    this.createdListeners.push(listener);
+  }
+
   /** Told when a chat's title changes, however it changed, so what stands for it elsewhere is named the same. */
   private readonly renamedListeners: ((id: string, title: string) => void)[] = [];
 
@@ -275,7 +282,7 @@ export class ConversationStore {
       readAt: null,
     };
     const { readAt: _unread, ...columns } = row;
-    this.db
+    const inserted = this.db
       .prepare(
         `INSERT INTO conversations (id, user_id, title, channel, created_at, updated_at, archived, brief, tool_allow, project_slug, role)
          VALUES (@id, @userId, @title, @channel, @createdAt, @updatedAt, 0, @brief, @toolAllow, @projectSlug, @role)
@@ -285,6 +292,7 @@ export class ConversationStore {
         ...columns,
         toolAllow: row.toolAllow === null ? null : JSON.stringify(row.toolAllow),
       });
+    if (inserted.changes > 0) for (const listener of this.createdListeners) listener(id);
     return this.get(id) ?? row;
   }
 
