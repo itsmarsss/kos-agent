@@ -130,6 +130,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
     tabsOf: (c) => chrome?.tabsOf(c) ?? [],
     useTab: (c, t) => chrome!.useTab(c, t),
     newTab: (c) => chrome!.newTab(c),
+    spot: (c) => chrome?.spot(c),
     siteOf: (c) => chrome?.siteOf(c),
     picture: async (c, w) => chrome?.picture(c, w),
     describe: (c) => chrome?.describe(c) ?? "the owner's Chrome",

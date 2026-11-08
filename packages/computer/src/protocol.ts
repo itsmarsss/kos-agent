@@ -142,6 +142,7 @@ export type Method =
   | "tabs.open"
   | "tabs.close"
   | "cdp.send"
+  | "cdp.batch"
   | PanelMethod;
 
 /**

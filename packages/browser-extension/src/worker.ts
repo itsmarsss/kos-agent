@@ -9,8 +9,8 @@ import { iconPixels } from "./icon.js";
 import { installOverlay, type OverlayState } from "./overlay.js";
 import { readPage } from "./page.js";
 import { adding, readPairings, removing, replacedBy, type Paired } from "./pairings.js";
-import { CallError, PROTOCOL, toBase64 } from "./protocol.js";
-import { checkCommand, forwards, isInput, isWebUrl } from "./relay.js";
+import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
+import { checkCommand, forwarded, isInput, isWebUrl } from "./relay.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, asksFirst, isHidden, readSettings, siteOf, type ExtensionSettings } from "./settings.js";
 
@@ -98,6 +98,10 @@ interface Asked {
   panel?: Panel;
 }
 
+/** Commands in one batch, at most. */
+const BATCH_MAX = 100;
+/** Refusals that are the whole batch's answer, met at any command in it. */
+const WHOLE_BATCH = new Set(["paused", "no_session", "tab"]);
 /** The id the selection script is registered under. */
 const SELECTION_SCRIPT = "kos-selection";
 /** As much of a page's text as the panel's chat reads in one go. */
@@ -125,8 +129,16 @@ const handed = new Set<number>();
 const attached = new Set<number>();
 /** Each tab's overlay, by the world it runs in. */
 const overlays = new Map<number, Set<number>>();
+/** Each tab's worlds named as the overlay's, as Chrome made them: only these speak for the overlay, and KOS runs no script in them. */
+const overlayWorlds = new Map<number, { ids: Set<number>; unique: Set<string> }>();
 /** Each KOS tab's address as it changes, so one on a hidden site tells KOS nothing. */
 const tabUrls = new Map<number, string>();
+/** Each KOS tab's main document, by its loader, as the debugger last heard it commit. */
+const loaders = new Map<number, string>();
+/** Waits on a navigation to commit, woken at each one. */
+const commits = new Set<() => void>();
+/** Each KOS tab's requests passed on to KOS that have not ended. */
+const openRequests = new Map<number, Set<string>>();
 const consents = new Map<string, Asked>();
 const panels = new Set<Panel>();
 /** Asks to read pages, waiting on the owner in a panel. */
@@ -299,6 +311,8 @@ async function answer(method: string, params: Record<string, unknown>, origin: s
     }
     case "cdp.send":
       return relay(params, origin);
+    case "cdp.batch":
+      return relayAll(params, origin);
     case "page.read":
       return pageRead(params, origin);
     default:
@@ -321,6 +335,12 @@ function tabOf(s: Session, params: Record<string, unknown>): number {
   const tab = Number(params["tab"]);
   if (!Number.isInteger(tab) || !s.tabs.has(tab)) throw new CallError("tab", "that tab is not one KOS was given");
   return tab;
+}
+
+/** The session still the live one, and the tab still in it: either can go while a call waits (Stop, the owner taking the tab back). */
+function stillIn(s: Session, tab: number): void {
+  if (session !== s) throw new CallError("no_session", "no session is live in this Chrome");
+  if (!s.tabs.has(tab)) throw new CallError("tab", "that tab is not one KOS was given");
 }
 
 function hiddenError(url: string): CallError {
@@ -441,7 +461,12 @@ async function end(reason: EndReason): Promise<void> {
     }),
   );
   attached.clear();
+  for (const wake of [...commits]) wake();
   overlays.clear();
+  tabUrls.clear();
+  loaders.clear();
+  overlayWorlds.clear();
+  openRequests.clear();
   beside = undefined;
   tell("session.ended", { session: ended.info.id, reason });
   owner = undefined;
@@ -503,18 +528,62 @@ async function attach(tab: number): Promise<void> {
   await send("Page.addScriptToEvaluateOnNewDocument", { source: `(${installOverlay.toString()})()`, worldName: WORLD, runImmediately: true });
 }
 
+const record = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+
 async function relay(params: Record<string, unknown>, origin: string): Promise<Record<string, unknown>> {
   const s = live(params, origin);
+  return relayOne(s, tabOf(s, params), str(params["method"]), record(params["params"]));
+}
+
+/**
+ * Several commands to one tab in one round trip, each checked as one alone
+ * would be: in order, stopping at the first that fails (a press after a move
+ * that failed would land somewhere else), or side by side when `parallel`
+ * says they do not depend on one another. Each answer is `{ result }` or
+ * `{ error }`; those not sent after a failure are left out. The owner having
+ * taken the tab over, the session ending or the tab taken back, at any point
+ * in it, refuses the whole batch: nothing after is sent.
+ */
+async function relayAll(params: Record<string, unknown>, origin: string): Promise<Record<string, unknown>> {
+  const s = live(params, origin);
   const tab = tabOf(s, params);
-  const method = str(params["method"]);
-  const args = (typeof params["params"] === "object" && params["params"] !== null ? params["params"] : {}) as Record<string, unknown>;
-  checkCommand(method, args);
-  // Not a look, a click or a word on a hidden site, and no way there.
-  const url = (await chrome.tabs.get(tab).catch(() => undefined))?.url ?? "";
+  const calls = (Array.isArray(params["calls"]) ? params["calls"] : []).map(record);
+  if (calls.length === 0 || calls.length > BATCH_MAX) throw new CallError("bad_request", `a batch is 1 to ${BATCH_MAX} commands`);
+  const one = async (call: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    try {
+      return { result: await relayOne(s, tab, str(call["method"]), record(call["params"])) };
+    } catch (err) {
+      // The owner taking over is the whole batch's answer, as it is a lone command's: KOS waits for them. So is the session or the tab gone.
+      if (err instanceof CallError && WHOLE_BATCH.has(err.code)) throw err;
+      return { error: { code: err instanceof CallError ? err.code : "cdp", message: err instanceof Error ? err.message : String(err) } };
+    }
+  };
+  if (params["parallel"] === true) return { results: await Promise.all(calls.map(one)) };
+  const results: Record<string, unknown>[] = [];
+  for (const call of calls) {
+    const answer = await one(call);
+    results.push(answer);
+    if ("error" in answer) break;
+  }
+  return { results };
+}
+
+async function relayOne(s: Session, tab: number, method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  checkCommand(method, args, overlayWorlds.get(tab));
+  stillIn(s, tab);
+  // Not a look, a click or a word on a hidden site, and no way there. The address kept is the tab's only while
+  // the debugger hears it change; a tab let go of may have gone anywhere since.
+  const url = (attached.has(tab) ? tabUrls.get(tab) : undefined) ?? (await chrome.tabs.get(tab).catch(() => undefined))?.url ?? "";
+  stillIn(s, tab);
   if (isHidden(url, settings.hiddenSites)) throw hiddenError(url);
   if (method === "Page.navigate" && isHidden(str(args["url"]), settings.hiddenSites)) throw hiddenError(str(args["url"]));
   if (s.paused && (isInput(method) || method === "Page.navigate")) throw new CallError("paused", "the owner has taken over this tab; wait for them to hand it back");
   await attach(tab);
+  // Let go of meanwhile: not held on to for a session that has gone.
+  if (session !== s || !s.tabs.has(tab)) {
+    if (!session?.tabs.has(tab) && attached.delete(tab)) await chrome.debugger.detach({ tabId: tab }).catch(() => undefined);
+    stillIn(s, tab);
+  }
   if (isInput(method)) s.dispatching(method, args, Date.now());
   // KOS's pointer, shown where its hands are about to act.
   if (method === "Input.dispatchMouseEvent" && typeof args["x"] === "number" && typeof args["y"] === "number") {
@@ -522,36 +591,108 @@ async function relay(params: Record<string, unknown>, origin: string): Promise<R
   }
   try {
     if (method === "Page.captureScreenshot") return await picture(tab, args);
-    return ((await chrome.debugger.sendCommand({ tabId: tab }, method, args)) as Record<string, unknown> | undefined) ?? {};
+    const answer = ((await chrome.debugger.sendCommand({ tabId: tab }, method, args)) as Record<string, unknown> | undefined) ?? {};
+    // A navigation answers before its page is in; the next command waits for it, so it is checked against where the tab went.
+    if (method === "Page.navigate" && typeof answer["loaderId"] === "string" && !answer["errorText"]) await committed(tab, answer["loaderId"]);
+    return answer;
   } catch (err) {
+    // Cut off by the session ending or the tab taken back, which is the answer, not the debugger's words for it.
+    stillIn(s, tab);
     throw new CallError("cdp", err instanceof Error ? err.message : String(err));
   }
 }
 
+/** How long a navigation's answer waits for its page to come in, at most. */
+const COMMIT_WAIT_MS = 5_000;
+
+/** Until the tab's main frame holds the document `loader`, the tab is let go of, or the most worth waiting has gone. */
+function committed(tab: number, loader: string): Promise<void> {
+  const there = (): boolean => loaders.get(tab) === loader || !attached.has(tab);
+  if (there()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer);
+      commits.delete(check);
+      resolve();
+    };
+    const check = (): void => {
+      if (there()) done();
+    };
+    const timer = setTimeout(done, COMMIT_WAIT_MS);
+    commits.add(check);
+  });
+}
+
+/** How long a tab on screen may take to hand over the frame Chrome drew. */
+const FRAME_WAIT_MS = 400;
+/** Frames being taken, by tab: a second picture asked for meanwhile is the same one. */
+const framing = new Map<number, Promise<string | undefined>>();
+
 /**
  * A picture of a tab, without touching what the owner sees. Asked for with a
- * clip and a scale, Chrome draws the page again at that size for the
- * picture, which on a tab the owner is looking at flashes on every look. So
- * the tab is taken as it is, and the picture cut and made smaller here.
+ * clip and a scale, Chrome draws the page again at that size, which on a tab
+ * the owner is looking at flashes on every look. So a tab on screen is taken
+ * from the frame Chrome already drew, made small as it is taken; one that is
+ * not on screen draws no frames, and is captured as it is and made smaller
+ * here. `maxEdge` is the relay's own, not the protocol's: the picture's
+ * longer side.
  */
 async function picture(tab: number, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const format = args["format"] === "png" ? "png" : "jpeg";
-  const quality = typeof args["quality"] === "number" ? Math.min(100, Math.max(1, args["quality"])) : 80;
-  const shot = (await chrome.debugger.sendCommand({ tabId: tab }, "Page.captureScreenshot", { format, ...(format === "jpeg" ? { quality: 95 } : {}) })) as { data?: string };
-  const clip = args["clip"] as { x?: number; y?: number; width?: number; height?: number; scale?: number } | undefined;
-  if (!shot.data || !clip?.width || !clip.height) return shot;
-  const metrics = (await chrome.debugger.sendCommand({ tabId: tab }, "Page.getLayoutMetrics", {})) as { cssVisualViewport?: { clientWidth?: number } };
-  const image = await createImageBitmap(await (await fetch(`data:image/${format};base64,${shot.data}`)).blob());
-  // Device pixels to the page's own: two on a Retina screen.
-  const ratio = image.width / (metrics.cssVisualViewport?.clientWidth || image.width);
-  const scale = clip.scale ?? 1;
-  const width = Math.max(1, Math.round(clip.width * scale));
-  const height = Math.max(1, Math.round(clip.height * scale));
-  const canvas = new OffscreenCanvas(width, height);
-  canvas.getContext("2d")!.drawImage(image, (clip.x ?? 0) * ratio, (clip.y ?? 0) * ratio, clip.width * ratio, clip.height * ratio, 0, 0, width, height);
+  const quality = typeof args["quality"] === "number" ? Math.min(100, Math.max(1, Math.round(args["quality"]))) : 80;
+  const edge = typeof args["maxEdge"] === "number" && args["maxEdge"] > 0 ? Math.round(args["maxEdge"]) : 0;
+  if (format === "jpeg" && edge && (await onScreen(tab))) {
+    const data = await frameOf(tab, quality, edge);
+    if (data) return { data };
+  }
+  const send = (method: string, params: Record<string, unknown>): Promise<unknown> => chrome.debugger.sendCommand({ tabId: tab }, method, params);
+  const shot = (await send("Page.captureScreenshot", { format, ...(format === "jpeg" ? { quality } : {}), optimizeForSpeed: true })) as { data?: string };
+  if (!shot.data || !edge) return shot;
+  const image = await createImageBitmap(new Blob([fromBase64(shot.data)], { type: `image/${format}` }));
+  const scale = edge / Math.max(image.width, image.height);
+  if (scale >= 1) {
+    image.close();
+    return shot;
+  }
+  const canvas = new OffscreenCanvas(Math.max(1, Math.round(image.width * scale)), Math.max(1, Math.round(image.height * scale)));
+  canvas.getContext("2d")!.drawImage(image, 0, 0, canvas.width, canvas.height);
   image.close();
   const blob = await canvas.convertToBlob({ type: `image/${format}`, quality: quality / 100 });
   return { data: toBase64(new Uint8Array(await blob.arrayBuffer())) };
+}
+
+/** Whether the tab is drawn: in front in its window, and its window not hidden or folded away. */
+async function onScreen(tab: number): Promise<boolean> {
+  const seen = (await chrome.debugger.sendCommand({ tabId: tab }, "Runtime.evaluate", { expression: "document.visibilityState", returnByValue: true }).catch(() => undefined)) as
+    | { result?: { value?: unknown } }
+    | undefined;
+  return seen?.result?.value === "visible";
+}
+
+/** The frame Chrome draws next of the tab, at most `edge` on its longer side, from a cast started and stopped for it. */
+function frameOf(tab: number, quality: number, edge: number): Promise<string | undefined> {
+  const taking = framing.get(tab);
+  if (taking) return taking;
+  const send = (method: string, params: Record<string, unknown> = {}): Promise<unknown> => chrome.debugger.sendCommand({ tabId: tab }, method, params);
+  const taken = new Promise<string | undefined>((resolve) => {
+    const done = (data: string | undefined): void => {
+      clearTimeout(timer);
+      chrome.debugger.onEvent.removeListener(heard);
+      void send("Page.stopScreencast").catch(() => undefined);
+      resolve(data);
+    };
+    const heard = (source: chrome.debugger.Debuggee, method: string, params?: object): void => {
+      if (source.tabId !== tab || method !== "Page.screencastFrame") return;
+      const frame = (params ?? {}) as { data?: string; sessionId?: number };
+      void send("Page.screencastFrameAck", { sessionId: frame.sessionId }).catch(() => undefined);
+      done(frame.data || undefined);
+    };
+    const timer = setTimeout(() => done(undefined), FRAME_WAIT_MS);
+    chrome.debugger.onEvent.addListener(heard);
+    send("Page.startScreencast", { format: "jpeg", quality, maxWidth: edge, maxHeight: edge, everyNthFrame: 1 }).catch(() => done(undefined));
+  }).finally(() => framing.delete(tab));
+  framing.set(tab, taken);
+  return taken;
 }
 
 /** Whether a tab's event would tell KOS of a hidden site: the tab is on one, or the event is a way to one. */
@@ -640,10 +781,39 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   if (tab === undefined || !session?.tabs.has(tab)) return;
   const p = (params ?? {}) as Record<string, unknown>;
   if (method === "Runtime.bindingCalled") {
-    if (p["name"] === BINDING) void fromOverlay(tab, Number(p["executionContextId"]), str(p["payload"]));
+    const world = Number(p["executionContextId"]);
+    if (p["name"] === BINDING && overlayWorlds.get(tab)?.ids.has(world)) void fromOverlay(tab, world, str(p["payload"]));
     return;
   }
-  if (forwards(method) && !fromHidden(tab, p)) tell("cdp.event", { session: session.info.id, tab: String(tab), method, params: p });
+  if (method === "Runtime.executionContextCreated") {
+    const context = (p["context"] ?? {}) as { id?: unknown; uniqueId?: unknown; name?: unknown };
+    if (context.name !== WORLD || typeof context.id !== "number") return;
+    const worlds = overlayWorlds.get(tab) ?? { ids: new Set<number>(), unique: new Set<string>() };
+    overlayWorlds.set(tab, worlds);
+    worlds.ids.add(context.id);
+    if (typeof context.uniqueId === "string") worlds.unique.add(context.uniqueId);
+    return;
+  }
+  if (method === "Runtime.executionContextDestroyed") {
+    overlayWorlds.get(tab)?.ids.delete(Number(p["executionContextId"]));
+    if (typeof p["executionContextUniqueId"] === "string") overlayWorlds.get(tab)?.unique.delete(p["executionContextUniqueId"]);
+    return;
+  }
+  if (method === "Runtime.executionContextsCleared") {
+    overlayWorlds.delete(tab);
+    return;
+  }
+  const frame = p["frame"] as { url?: unknown; parentId?: unknown } | undefined;
+  if (method === "Page.frameNavigated" && frame && !frame.parentId && typeof frame.url === "string") {
+    tabUrls.set(tab, frame.url);
+    loaders.set(tab, String((frame as { loaderId?: unknown }).loaderId ?? ""));
+    for (const wake of [...commits]) wake();
+  }
+  if (fromHidden(tab, p)) return;
+  const open = openRequests.get(tab) ?? new Set<string>();
+  openRequests.set(tab, open);
+  const passed = forwarded(method, p, open);
+  if (passed) tell("cdp.event", { session: session.info.id, tab: String(tab), method, params: passed });
 });
 
 chrome.debugger.onDetach.addListener((source, reason) => {
@@ -651,6 +821,11 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   if (tab === undefined) return;
   attached.delete(tab);
   overlays.delete(tab);
+  tabUrls.delete(tab);
+  loaders.delete(tab);
+  overlayWorlds.delete(tab);
+  openRequests.delete(tab);
+  for (const wake of [...commits]) wake();
   // Closing Chrome's debugging bar is the owner saying stop.
   if (reason === "canceled_by_user") void end("detached");
 });
@@ -661,15 +836,22 @@ chrome.tabs.onUpdated.addListener((tab, change, info) => {
   if ((change.status === "loading" || change.url) && selections.delete(tab) && info.active) void tellSelection(info.windowId, tab);
 });
 
-chrome.tabs.onRemoved.addListener((tab) => {
+/** A tab gone from Chrome, closed or replaced by another (a page Chrome loaded ahead swapped in). */
+function gone(tab: number): void {
   tabUrls.delete(tab);
+  loaders.delete(tab);
+  overlayWorlds.delete(tab);
+  openRequests.delete(tab);
   selections.delete(tab);
   if (tab === beside) beside = undefined;
   if (handed.delete(tab)) void saveHanded();
   if (!session?.tabs.has(tab)) return;
   session.tabs.delete(tab);
   tell("tab.closed", { session: session.info.id, tab: String(tab) });
-});
+}
+
+chrome.tabs.onRemoved.addListener(gone);
+chrome.tabs.onReplaced.addListener((_added, removed) => gone(removed));
 
 // The popup and the consent window.
 
@@ -824,7 +1006,12 @@ async function hand(tab: number, give: boolean): Promise<void> {
     if (session?.tabs.delete(tab)) {
       tell("tab.closed", { session: session.info.id, tab: String(tab) });
       overlays.delete(tab);
+      tabUrls.delete(tab);
+      loaders.delete(tab);
+      overlayWorlds.delete(tab);
+      openRequests.delete(tab);
       if (attached.delete(tab)) await chrome.debugger.detach({ tabId: tab }).catch(() => undefined);
+      for (const wake of [...commits]) wake();
     }
   }
   await saveHanded();

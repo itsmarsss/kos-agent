@@ -3,9 +3,10 @@ import { describe, expect, it } from "vitest";
 
 import { attendance, openDatabase, origin, ownership, type AuditEntry, type ModuleContext, type ToolRisk } from "@kos/harness";
 
-import { OwnerChrome } from "./chrome.js";
+import { jpegEdge, OwnerChrome, relayLine, type Relay } from "./chrome.js";
 import { FakeDevice } from "./device.fixture.js";
 import { DeviceHub } from "./hub.js";
+import { DeviceError } from "./link.js";
 import { rawPublicKey } from "./keys.js";
 import { DeviceStore } from "./store.js";
 import { computerModule } from "./tools.js";
@@ -150,6 +151,35 @@ describe("a Chrome paired through the extension", () => {
     // A navigation it heard about moves the tab's address, and so its site.
     fake.event("cdp.event", { session: sent[0]!["session"], tab: "88", method: "Page.frameNavigated", params: { frame: { id: "F", url: "https://shop.example/checkout" } } });
     expect(chrome.siteOf("c1")).toBe("shop.example");
+    // And says its page moved under the agent, as the owner taking the Chrome over and handing it back does.
+    const moved = chrome.spot("c1")!;
+    expect(moved).toMatchObject({ tab: "88", url: "https://shop.example/checkout" });
+    fake.event("session.paused", { session: sent[0]!["session"], reason: "owner" });
+    fake.event("session.resumed", { session: sent[0]!["session"] });
+    expect(chrome.spot("c1")!.moved).toBe(moved.moved + 2);
+  });
+
+  it("pictures a tab at the size asked, and asks an extension that sends the tab's whole size to draw it small", async () => {
+    /** A JPEG as far as its frame header, which is all its size needs. */
+    const jpeg = (width: number, height: number): string =>
+      Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, height >> 8, height & 255, width >> 8, width & 255, 3, ...Array(12).fill(0)]).toString("base64");
+    for (const old of [false, true]) {
+      const { chrome, tools, pairChrome } = setup();
+      const fake = pairChrome();
+      fake.answers.set("cdp.send", (p) => {
+        const params = (p["params"] ?? {}) as { maxEdge?: number; clip?: { width: number; height: number; scale: number } };
+        if (p["method"] === "Page.getLayoutMetrics") return { ok: true, result: { cssVisualViewport: { clientWidth: 2048, clientHeight: 1280 } } };
+        if (p["method"] !== "Page.captureScreenshot") return { ok: true, result: {} };
+        if (params.clip) return { ok: true, result: { data: jpeg(Math.round(params.clip.width * params.clip.scale), Math.round(params.clip.height * params.clip.scale)) } };
+        return { ok: true, result: { data: old ? jpeg(2048, 1280) : jpeg(params.maxEdge!, Math.round((params.maxEdge! * 1280) / 2048)) } };
+      });
+      await attendance.run(true, () => tools.get("chrome.start")!({ task: "look" }));
+      await chrome.tab("c1");
+      for (let i = 0; i < 2; i++) expect(jpegEdge((await chrome.picture("c1", 1024))!)).toBe(1024);
+      const shots = fake.calls.filter((c) => c.method === "cdp.send" && (c.params["method"] === "Page.captureScreenshot" || c.params["method"] === "Page.getLayoutMetrics"));
+      // A new extension: one call a picture. An old one: found out once, then asked to draw it small.
+      expect(shots.length).toBe(old ? 5 : 2);
+    }
   });
 
   it("waits while the owner has taken over, and goes on when they hand it back", async () => {
@@ -217,5 +247,52 @@ describe("a Chrome beside a computer", () => {
     mac.hello();
     expect([...tools.keys()].sort()).toEqual(["chrome.end", "chrome.page", "chrome.start", "computer.act", "computer.devices", "computer.end", "computer.start"]);
     await expect(attendance.run(true, () => tools.get("computer.start")!({ task: "x", device: "Chrome on macOS" }))).rejects.toThrow(/is the owner's Chrome, not a computer; chrome.start/);
+  });
+});
+
+describe("a tab's commands through the extension", () => {
+  const calls = (n: number) => Array.from({ length: n }, (_, i) => ({ method: "DOM.describeNode", params: { objectId: String(i) } }));
+  /** The extension as it answers: a batch with each command's answer, or one command. */
+  const extension = (old = false) => {
+    const sent: { method: string; params: Record<string, unknown> }[] = [];
+    const relay: Relay = async (method, params) => {
+      sent.push({ method, params });
+      if (method === "cdp.batch") {
+        if (old) throw new DeviceError("bad_request", "cdp.batch is not something this extension does");
+        const asked = params["calls"] as { params: { objectId: string } }[];
+        if (asked.length > 100) throw new DeviceError("bad_request", "a batch is 1 to 100 commands");
+        return { results: asked.map((c) => ({ result: { node: { backendNodeId: Number(c.params.objectId) } } })) };
+      }
+      return { node: { backendNodeId: Number((params["params"] as { objectId: string }).objectId) } };
+    };
+    return { sent, line: relayLine(relay, "88") };
+  };
+
+  it("sends a long batch a hundred at a time, its answers in order, and keeps batching", async () => {
+    const { sent, line } = extension();
+    const answers = await line.batch!(calls(250), true);
+    expect(sent.map((s) => (s.params["calls"] as unknown[]).length)).toEqual([100, 100, 50]);
+    expect(answers.map((a) => (a as { node: { backendNodeId: number } }).node.backendNodeId)).toEqual(Array.from({ length: 250 }, (_, i) => i));
+    await line.batch!(calls(2), true);
+    expect(sent.at(-1)?.method).toBe("cdp.batch");
+  });
+
+  it("sends an extension from before batches one command at a time, told by the method it does not have", async () => {
+    const { sent, line } = extension(true);
+    const answers = await line.batch!(calls(3), false);
+    expect(answers).toEqual([0, 1, 2].map((n) => ({ node: { backendNodeId: n } })));
+    expect(sent.map((s) => s.method)).toEqual(["cdp.batch", "cdp.send", "cdp.send", "cdp.send"]);
+    await line.batch!(calls(2), false);
+    expect(sent.slice(4).map((s) => s.method)).toEqual(["cdp.send", "cdp.send"]);
+  });
+
+  it("does not take another refusal for an old extension", async () => {
+    const relay: Relay = async (method) => {
+      if (method === "cdp.batch") throw new DeviceError("bad_request", "session required");
+      return {};
+    };
+    const line = relayLine(relay, "88");
+    await expect(line.batch!(calls(2), false)).rejects.toThrow("session required");
+    await expect(line.batch!(calls(2), false)).rejects.toThrow("session required");
   });
 });

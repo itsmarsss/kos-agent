@@ -192,6 +192,22 @@ describe("the live view of the one Chrome", () => {
     expect(await live.page(tab)).not.toBe(page);
   });
 
+  it("says where a conversation's tab is, and counts each time its page moves under it", async () => {
+    const { live, chrome } = setup();
+    const tab = await live.tabFor("c1");
+    await (await live.page(tab)).ready();
+    const first = live.spot("c1")!;
+    expect(first.tab).toBe(tab);
+    chrome.event("Page.frameNavigated", { frame: { id: tab, url: "https://example.com/" } }, `S-${tab}`);
+    chrome.event("Page.frameNavigated", { frame: { id: "F2", parentId: tab, url: "https://ads.example/" } }, `S-${tab}`);
+    chrome.event("Page.navigatedWithinDocument", { frameId: tab, url: "https://example.com/#more" }, `S-${tab}`);
+    expect(live.spot("c1")!.moved).toBe(first.moved + 2);
+    live.hold(tab, "w1");
+    live.release(tab, "w1");
+    expect(live.spot("c1")!.moved).toBe(first.moved + 4);
+    expect(live.spot("nobody")).toBeUndefined();
+  });
+
   it("screencasts the watched tab, acks each frame, and stops when the last watcher leaves", async () => {
     const { live, chrome } = setup();
     await live.tabFor("c1");

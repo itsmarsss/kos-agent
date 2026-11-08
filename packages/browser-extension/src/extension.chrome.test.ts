@@ -152,6 +152,8 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
         return;
       }
       // A page made of frames, as SmartBook is: the overlay must leave every one of them when the session ends.
+      // A link that goes on to another site, one the owner may hide.
+      if (req.url === "/away") return void res.writeHead(302, { location: `${base.replace("127.0.0.1", "localhost")}/secret` }).end();
       if (req.url === "/framed") return void res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Framed</title><iframe src='/inner' style='width:400px;height:200px'></iframe>");
       res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Shop</title><button id='buy' style='margin:80px;padding:20px'>Buy</button>");
     });
@@ -294,6 +296,11 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     const title = await cdp("Runtime.evaluate", { expression: "document.title", returnByValue: true });
     expect(title["result"]).toMatchObject({ result: { value: "Shop" } });
     expect((await cdp("Storage.getCookies"))["error"]).toMatchObject({ code: "method" });
+    // No world of the overlay's name for KOS, whose binding speaks for the owner, and none with more reach than the page.
+    const frameId = ((await cdp("Page.getFrameTree"))["result"] as { frameTree: { frame: { id: string } } }).frameTree.frame.id;
+    expect((await cdp("Page.createIsolatedWorld", { frameId, worldName: "kos" }))["error"]).toMatchObject({ code: "method" });
+    expect((await cdp("Page.createIsolatedWorld", { frameId, worldName: "kos-hands", grantUniveralAccess: true }))["error"]).toMatchObject({ code: "method" });
+    expect(await cdp("Page.createIsolatedWorld", { frameId, worldName: "kos-hands" })).toMatchObject({ ok: true, result: { executionContextId: expect.any(Number) } });
     expect((await cdp("Page.navigate", { url: "file:///etc/passwd" }))["error"]).toMatchObject({ code: "url" });
     expect((await call("cdp.send", { session: "s1", tab: "999999", method: "Runtime.evaluate", params: { expression: "1" } }))["error"]).toMatchObject({ code: "tab" });
     // The overlay is on the page, and out of its accessibility tree.
@@ -301,11 +308,29 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     const overlay = await cdp("Runtime.evaluate", { expression: "(() => { const o = document.querySelector('kos-overlay'); return o ? o.getAttribute('aria-hidden') : 'none'; })()", returnByValue: true });
     expect(overlay["result"]).toMatchObject({ result: { value: "true" } });
     expect(await call("tabs.list", { session: "s1" })).toMatchObject({ ok: true, result: { tabs: [{ id: tab, title: "Shop" }] } });
-    // A picture asked for smaller comes back smaller, taken without drawing the page again (which flashed the owner's tab).
+    // A picture asked for smaller comes back that size on its longer side, in one call, taken without drawing the page again (which flashed the owner's tab).
     const metrics = (await cdp("Page.getLayoutMetrics"))["result"] as { cssVisualViewport: { clientWidth: number; clientHeight: number } };
     const { clientWidth: w, clientHeight: h } = metrics.cssVisualViewport;
-    const shot = (await cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, clip: { x: 0, y: 0, width: w, height: h, scale: 0.5 } }))["result"] as { data: string };
-    expect(jpegSize(shot.data)).toEqual({ width: Math.round(w * 0.5), height: Math.round(h * 0.5) });
+    const edge = Math.round(Math.max(w, h) / 2);
+    const shot = (await cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, maxEdge: edge }))["result"] as { data: string };
+    const size = jpegSize(shot.data);
+    expect(Math.max(size.width, size.height)).toBe(edge);
+    expect(size.width / size.height).toBeCloseTo(w / h, 1);
+    // Asked again before the first is in, it is the same picture.
+    const [a, b] = await Promise.all([cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, maxEdge: edge }), cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, maxEdge: edge })]);
+    expect(jpegSize((a["result"] as { data: string }).data)).toEqual(size);
+    expect(jpegSize((b["result"] as { data: string }).data)).toEqual(size);
+    // Several commands in one round trip, each checked as one alone would be: in order up to the first refused, or side by side.
+    const calls = [
+      { method: "Runtime.evaluate", params: { expression: "1 + 1", returnByValue: true } },
+      { method: "Storage.getCookies", params: {} },
+      { method: "Runtime.evaluate", params: { expression: "document.title", returnByValue: true } },
+    ];
+    const inOrder = (await call("cdp.batch", { session: "s1", tab, calls }))["result"] as { results: Record<string, unknown>[] };
+    expect(inOrder.results).toEqual([{ result: { result: { type: "number", value: 2, description: "2" } } }, { error: expect.objectContaining({ code: "method" }) }]);
+    const sideBySide = (await call("cdp.batch", { session: "s1", tab, calls, parallel: true }))["result"] as { results: Record<string, unknown>[] };
+    expect(sideBySide.results).toHaveLength(3);
+    expect(sideBySide.results[2]).toMatchObject({ result: { result: { value: "Shop" } } });
   }, 30_000);
 
   it("knows its own click from the owner's, and the owner's takes the tab over", async () => {
@@ -344,6 +369,98 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     await until(() => events.some((e) => e.name === "session.ended"));
     expect(events.find((e) => e.name === "session.ended")?.data).toMatchObject({ session: "s1", reason: "host" });
     expect((await call("tabs.list", { session: "s1" }))["error"]).toMatchObject({ code: "no_session" });
+  });
+
+  describe("a tab the owner handed, in sessions one after another", () => {
+    let tab = "";
+    let owners = "";
+    const popupSays = (message: Record<string, unknown>): Promise<unknown> => devtools.evaluate(popup, `chrome.runtime.sendMessage(${JSON.stringify(message)})`);
+    const batch = (session: string, calls: { method: string; params?: Record<string, unknown> }[]): Promise<Record<string, unknown>> => call("cdp.batch", { session, tab, calls });
+    const slow = (ms: number): { method: string; params: Record<string, unknown> } => ({ method: "Runtime.evaluate", params: { expression: `new Promise((r) => setTimeout(() => r(1), ${ms}))`, awaitPromise: true, returnByValue: true } });
+    const title = { method: "Runtime.evaluate", params: { expression: "document.title", returnByValue: true } };
+    /** A session KOS may start without asking, as one whose owner left it to its own approvals. */
+    const begin = async (id: string): Promise<void> => {
+      expect(await call("session.begin", { session: id, task: "work in my tab", requester: "Test", minutes: 5 })).toMatchObject({ ok: true, result: { granted: true } });
+    };
+    /** Whether anything but this test has a debugger on the tab: the test's own let go of to ask, and taken up again. */
+    const debugged = async (): Promise<boolean> => {
+      await devtools.send("Target.detachFromTarget", { sessionId: owners });
+      const { targetInfos } = (await devtools.send("Target.getTargets")) as { targetInfos: { url: string; attached: boolean }[] };
+      owners = await devtools.attach((u) => u.endsWith("/mine"));
+      return targetInfos.some((t) => t.url.endsWith("/mine") && t.attached);
+    };
+    const handBack = async (): Promise<void> => {
+      await popupSays({ type: "hand", tab: Number(tab), give: true });
+    };
+
+    beforeAll(async () => {
+      expect(await popupSays({ type: "askFirst", id: "dev_test", on: false })).toMatchObject({ ok: true });
+      await devtools.send("Target.createTarget", { url: `${base}/mine` });
+      owners = await devtools.attach((u) => u.endsWith("/mine"));
+      await devtools.loaded(owners);
+      tab = String(await devtools.evaluate(popup, `chrome.tabs.query({}).then((ts) => ts.find((t) => t.url.endsWith("/mine")).id)`));
+      await handBack();
+    }, 30_000);
+
+    afterAll(async () => {
+      await popupSays({ type: "hand", tab: Number(tab), give: false });
+      await popupSays({ type: "unhide", site: "localhost" });
+      await popupSays({ type: "askFirst", id: "dev_test", on: true });
+      await devtools.evaluate(popup, `chrome.tabs.remove(${tab})`);
+    });
+
+    it("asks Chrome where a tab is once it has let go of it: a hidden site it went to meanwhile stays closed", async () => {
+      await begin("h1");
+      expect(await call("cdp.send", { session: "h1", tab, method: "Runtime.evaluate", params: { expression: "document.title", returnByValue: true } })).toMatchObject({ ok: true });
+      expect(await call("session.end", { session: "h1" })).toMatchObject({ ok: true });
+      // Between sessions, with no debugger on it to hear it, the owner goes to a site they hide.
+      expect(await popupSays({ type: "hide", site: "localhost" })).toMatchObject({ ok: true });
+      await devtools.send("Page.navigate", { url: `${base.replace("127.0.0.1", "localhost")}/secret` }, owners);
+      await devtools.loaded(owners);
+      await begin("h2");
+      expect((await call("cdp.send", { session: "h2", tab, method: "Runtime.evaluate", params: { expression: "document.title", returnByValue: true } }))["error"]).toMatchObject({ code: "hidden_site" });
+      await devtools.send("Page.navigate", { url: `${base}/mine` }, owners);
+      await devtools.loaded(owners);
+      expect(await call("cdp.send", { session: "h2", tab, method: "Runtime.evaluate", params: { expression: "document.title", returnByValue: true } })).toMatchObject({ ok: true, result: { result: { value: "Shop" } } });
+    }, 30_000);
+
+    it("stops a batch whose page goes to a hidden site part way, before the next command", async () => {
+      try {
+        const done = (await batch("h2", [{ method: "Page.navigate", params: { url: `${base}/away` } }, title]))["result"] as { results: Record<string, unknown>[] };
+        expect(done.results).toEqual([{ result: expect.objectContaining({ frameId: expect.any(String) }) }, { error: expect.objectContaining({ code: "hidden_site" }) }]);
+      } finally {
+        await devtools.send("Page.navigate", { url: `${base}/mine` }, owners);
+        await devtools.loaded(owners);
+      }
+    }, 30_000);
+
+    it("refuses the rest of a batch once the owner takes the tab over part way", async () => {
+      const running = batch("h2", [slow(600), { method: "Input.dispatchMouseEvent", params: { type: "mouseMoved", x: 5, y: 5 } }]);
+      await until(() => false, 200);
+      for (const type of ["mousePressed", "mouseReleased"]) await devtools.send("Input.dispatchMouseEvent", { type, x: 300, y: 300, button: "left", clickCount: 1 }, owners);
+      expect((await running)["error"]).toMatchObject({ code: "paused" });
+      expect(await popupSays({ type: "handback" })).toMatchObject({ ok: true });
+    }, 30_000);
+
+    it("refuses the rest of a batch once the owner takes the tab back part way, and lets go of it", async () => {
+      const running = batch("h2", [slow(600), title, title]);
+      await until(() => false, 200);
+      await popupSays({ type: "hand", tab: Number(tab), give: false });
+      expect((await running)["error"]).toMatchObject({ code: "tab" });
+      expect(await debugged()).toBe(false);
+      await handBack();
+      expect(await call("session.end", { session: "h2" })).toMatchObject({ ok: true });
+    }, 30_000);
+
+    it("refuses the rest of a batch once the session ends part way, and does not take the tab up again", async () => {
+      await begin("h3");
+      const running = batch("h3", [slow(600), title, title]);
+      await until(() => false, 200);
+      expect(await call("session.end", { session: "h3" })).toMatchObject({ ok: true });
+      expect((await running)["error"]).toMatchObject({ code: "no_session" });
+      await until(() => false, 300);
+      expect(await debugged()).toBe(false);
+    }, 30_000);
   });
 
   it("carries a side panel's chat, asks for a session there, and works in the tab beside it", async () => {

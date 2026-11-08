@@ -53,6 +53,7 @@ function ownerChrome(opts: { starts: boolean }): BrowserElsewhere & { ensured: s
     tab: async () => {
       throw new Error("no tab in this test");
     },
+    spot: () => (live ? { tab: "77", url: "https://shop.example/cart", moved: 0 } : undefined),
     tabs: () => [{ id: "77", title: "Cart", url: "https://shop.example/cart", current: true }],
     tabsOf: () => ["77"],
     useTab: async () => undefined,

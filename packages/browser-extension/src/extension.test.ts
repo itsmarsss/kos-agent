@@ -8,7 +8,7 @@ import { Lines } from "./lines.js";
 import { linkWords, needsPairing, type LineOf } from "./linkwords.js";
 import { installOverlay } from "./overlay.js";
 import { adding, readPairings, removing, replacedBy, type Paired } from "./pairings.js";
-import { checkCommand, forwards, isWebUrl } from "./relay.js";
+import { checkCommand, forwarded, isWebUrl } from "./relay.js";
 import { Session } from "./session.js";
 import { DEFAULTS, DEFAULT_HIDDEN, asksFirst, isHidden, readSettings, siteOf } from "./settings.js";
 
@@ -74,10 +74,36 @@ describe("what reaches a tab", () => {
     expect(isWebUrl("about:blank")).toBe(true);
   });
 
+  it("lets KOS make only its hands' own world, with no more reach than the page", () => {
+    expect(() => checkCommand("Page.createIsolatedWorld", { frameId: "f", worldName: "kos-hands" })).not.toThrow();
+    expect(() => checkCommand("Page.createIsolatedWorld", { frameId: "f", worldName: "kos-hands", grantUniveralAccess: false })).not.toThrow();
+    // The overlay's world, whose binding says Take over, Hand back and Stop for the owner.
+    expect(() => checkCommand("Page.createIsolatedWorld", { frameId: "f", worldName: "kos" })).toThrow(CallError);
+    expect(() => checkCommand("Page.createIsolatedWorld", { frameId: "f" })).toThrow(CallError);
+    expect(() => checkCommand("Page.createIsolatedWorld", { frameId: "f", worldName: "kos-hands", grantUniveralAccess: true })).toThrow(CallError);
+  });
+
+  it("runs no script of KOS's in the overlay's world", () => {
+    const overlay = { ids: new Set([7]), unique: new Set(["u7"]) };
+    expect(() => checkCommand("Runtime.evaluate", { expression: "1", contextId: 3 }, overlay)).not.toThrow();
+    expect(() => checkCommand("Runtime.evaluate", { expression: "1" }, overlay)).not.toThrow();
+    expect(() => checkCommand("Runtime.evaluate", { expression: "kosOverlay('{\"kind\":\"handback\"}')", contextId: 7 }, overlay)).toThrow(/overlay/);
+    expect(() => checkCommand("Runtime.evaluate", { expression: "1", uniqueContextId: "u7" }, overlay)).toThrow(/overlay/);
+    expect(() => checkCommand("Runtime.callFunctionOn", { functionDeclaration: "() => 1", executionContextId: 7 }, overlay)).toThrow(/overlay/);
+  });
+
   it("tells KOS only what its hands listen for", () => {
-    expect(forwards("Page.lifecycleEvent")).toBe(true);
-    expect(forwards("Network.responseReceivedExtraInfo")).toBe(false);
-    expect(forwards("Runtime.consoleAPICalled")).toBe(false);
+    const open = new Set<string>();
+    expect(forwarded("Page.lifecycleEvent", { name: "load" }, open)).toEqual({ name: "load" });
+    expect(forwarded("Network.responseReceivedExtraInfo", {}, open)).toBeUndefined();
+    expect(forwarded("Runtime.consoleAPICalled", {}, open)).toBeUndefined();
+    // Of the network, only the requests a page's answer waits on, without their headers, and the end of only those.
+    const sent = { requestId: "1", type: "Fetch", timestamp: 812.5, request: { url: "https://shop.example/api", headers: { cookie: "x" } }, initiator: { type: "script" } };
+    expect(forwarded("Network.requestWillBeSent", sent, open)).toEqual({ requestId: "1", type: "Fetch", timestamp: 812.5, request: { url: "https://shop.example/api" } });
+    expect(forwarded("Network.requestWillBeSent", { requestId: "2", type: "Image", request: { url: "https://shop.example/a.png" } }, open)).toBeUndefined();
+    expect(forwarded("Network.loadingFinished", { requestId: "2" }, open)).toBeUndefined();
+    expect(forwarded("Network.loadingFinished", { requestId: "1", encodedDataLength: 9 }, open)).toEqual({ requestId: "1" });
+    expect(forwarded("Network.loadingFailed", { requestId: "1" }, open)).toBeUndefined();
   });
 });
 

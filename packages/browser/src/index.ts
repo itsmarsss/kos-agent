@@ -2,7 +2,7 @@ export { CdpClient, type CdpEvent, type CdpListener, type CdpSocket } from "./cd
 export { ChromeHost, chromeArgs, findChrome, type ChromeLaunch, type ChromeOptions, type ChromeState } from "./chrome.js";
 export { KEEP_DAYS, keptSessionCookies, type CdpCookie } from "./cookies.js";
 export { downloadsFolder, safeName, settleDownload, uniquePath } from "./downloads.js";
-export { PICTURE_WIDTH, STEPS_MAX, VISIT_MAX, act, evaluate, fenced, look, readAt, seeAfter, stepsOf, urlFor, visit, type SeeOptions, type Seen, type Tab, type Then } from "./hands.js";
+export { PICTURE, STEPS_MAX, VISIT_MAX, act, evaluate, fenced, look, readAt, seeAfter, stepsOf, urlFor, visit, type SeeOptions, type Seen, type Tab, type Then } from "./hands.js";
 export { parseKeys, type KeyPress } from "./keys.js";
 export {
   BrowserLive,
@@ -22,7 +22,7 @@ export {
   type BrowserStatus,
   type BrowserTab,
 } from "./live.js";
-export { Page, type Look, type PageLimits, type PageOptions, type Session } from "./page.js";
+export { Page, sendEach, type Call, type Look, type PageLimits, type PageOptions, type Session } from "./page.js";
 export { INDEX_MAX, Refs, TREE_MAX, indexOf, treeOf, type AxNode, type PageIndex } from "./snapshot.js";
 export { STEP_KEYS, WAIT_MAX_MS, parseStep, touchesPage, type Step } from "./steps.js";
 export { probe as probeArtifact, type ProbeResult, type ProbedElement } from "./artifactprobe.js";

@@ -93,6 +93,8 @@ export interface GuardedToolsDeps {
    * why it cannot be readied refuse the call.
    */
   prepare?: (tool: string) => Promise<string | undefined>;
+  /** Called as a call's tool begins to run, past any approval; what it answers is called once the tool has ended. */
+  running?: (tool: string) => (() => void) | undefined;
   /** Called once the owner has decided about a queued call. */
   onDecided?: (action: PendingAction, status: string) => void;
   /** How long to hold a suspended turn before treating silence as refusal. */
@@ -308,9 +310,14 @@ export class GuardedTools implements ToolBox {
     const placed = <T>(work: () => Promise<T>): Promise<T> => (from ? origin.run(from, work) : work());
     const within = <T>(work: () => Promise<T>): Promise<T> =>
       attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work)))));
-    const run = (n: string, i: Record<string, unknown>): Promise<ToolExecution> => {
+    const run = async (n: string, i: Record<string, unknown>): Promise<ToolExecution> => {
       started.ran = true;
-      return within(() => registry.execute(n, i));
+      const ended = this.deps.running?.(n);
+      try {
+        return await within(() => registry.execute(n, i));
+      } finally {
+        ended?.();
+      }
     };
 
     const repeated = this.repeatGuard(name, called);
