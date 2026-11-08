@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
+import { caller, ownership } from "../kernel/caller.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
@@ -34,6 +35,7 @@ describe("notifyModule", () => {
   async function load(
     notify?: (payload: NotifyPayload) => Promise<string | undefined>,
     routePress?: (b: { id: string; label: string }, replyTo?: string) => string,
+    projectOf?: (conversationId: string) => string | undefined,
   ): Promise<ToolRegistry> {
     const registry = new ToolRegistry();
     const ctx = toolRegistryContext(registry, {
@@ -43,7 +45,7 @@ describe("notifyModule", () => {
       ...(notify ? { notify } : {}),
     });
     await new ModuleLoader(ctx).load([
-      routePress ? createNotifyModule({ routePress }) : notifyModule,
+      routePress ? createNotifyModule({ routePress, ...(projectOf ? { projectOf } : {}) }) : notifyModule,
     ]);
     return registry;
   }
@@ -102,6 +104,71 @@ describe("notifyModule", () => {
     ]);
     // A link button comes back from nothing, so it needs no token.
     expect(sent[0]?.buttons?.map((b) => b.token)).toEqual(["tok1", undefined]);
+  });
+
+  it("sends a press to another chat only from the owner's own turn", async () => {
+    const sent: NotifyPayload[] = [];
+    const routed: (string | undefined)[] = [];
+    const registry = await load(
+      async (p) => {
+        sent.push(p);
+        return undefined;
+      },
+      (_b, replyTo) => {
+        routed.push(replyTo);
+        return "tok";
+      },
+    );
+    const call = (replyTo: string | undefined, owner: boolean) =>
+      caller.run("room", () =>
+        ownership.run(owner, () =>
+          registry.execute("notify", { text: "pick", buttons: [{ label: "Go" }], ...(replyTo ? { replyTo } : {}) }),
+        ),
+      );
+    // A guest's or a schedule's turn naming the owner's private chat: refused, nothing minted or sent.
+    const planted = await call("private", false);
+    expect(planted.isError).toBe(true);
+    expect(planted.content).toMatch(/only the owner's own turn/);
+    expect(routed).toEqual([]);
+    expect(sent).toEqual([]);
+    // Its own chat, said or left out, is still its own.
+    expect((await call("room", false)).isError).toBe(false);
+    expect((await call(undefined, false)).isError).toBe(false);
+    // The owner's own turn sends a press wherever they say.
+    expect((await call("private", true)).isError).toBe(false);
+    expect(routed).toEqual(["room", undefined, "private"]);
+    // Outside any turn nobody said it was the owner.
+    expect((await registry.execute("notify", { text: "pick", buttons: [{ label: "Go" }], replyTo: "private" })).isError).toBe(true);
+  });
+
+  it("sends a press from a turn not the owner's to another chat of its own project, and nowhere else", async () => {
+    const projects: Record<string, string> = { "cron:1": "a", "project:a": "a", "discord:thread:t1": "a", "project:b": "b" };
+    const routed: (string | undefined)[] = [];
+    const registry = await load(
+      async () => undefined,
+      (_b, replyTo) => {
+        routed.push(replyTo);
+        return "tok";
+      },
+      (id) => projects[id],
+    );
+    const from = (chat: string, replyTo: string) =>
+      caller.run(chat, () => ownership.run(false, () => registry.execute("notify", { text: "hint?", buttons: [{ label: "Show hint" }], replyTo })));
+    // A project's schedule, its button reaching the project's own chat.
+    expect((await from("cron:1", "project:a")).isError).toBe(false);
+    // A guest in the project's room, naming another chat of the same project.
+    expect((await from("project:a", "discord:thread:t1")).isError).toBe(false);
+    expect(routed).toEqual(["project:a", "discord:thread:t1"]);
+    // Another project, the root or a private chat, a blob's thread, a chat that is not there: refused.
+    for (const to of ["project:b", "orchestrator:owner", "private", "agent:noter", "nowhere"]) {
+      const res = await from("cron:1", to);
+      expect(res.isError, to).toBe(true);
+      expect(res.content).toMatch(/only the owner's own turn/);
+    }
+    // A caller with no project reaches its own chat alone.
+    expect((await from("agent:noter", "agent:noter")).isError).toBe(false);
+    expect((await from("agent:noter", "project:a")).isError).toBe(true);
+    expect(routed).toEqual(["project:a", "discord:thread:t1", "agent:noter"]);
   });
 
   it("refuses a button on a surface that cannot take one back", async () => {

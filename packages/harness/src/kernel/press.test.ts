@@ -1,13 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Inference } from "../agent/loop.js";
 import type { ModelResponse } from "../models/types.js";
-import type { ModalSpec, OutboundMessage } from "../channels/types.js";
+import { OWNER_ONLY, type ModalSpec, type OutboundMessage } from "../channels/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
-import { Kernel } from "./kernel.js";
+import { GUEST_TOOLS, Kernel } from "./kernel.js";
 import { createPressHandler, pressMessage } from "./press.js";
 
 function text(body: string): ModelResponse {
@@ -289,6 +289,47 @@ describe("answering a press", () => {
       spy.responder,
     );
     expect(spy.sent[0]?.text).toContain("too old");
+  });
+
+  it("runs a guest's press only in their room's own chat, and as the guest", async () => {
+    const asked: string[] = [];
+    kernel = await boot({
+      generate: async (task: string) => {
+        if (task !== "cheap") asked.push(task);
+        return text(task === "cheap" ? '{"facts":[]}' : "Done.");
+      },
+    } as unknown as Inference);
+    const k = kernel as unknown as { guardedTools: (o: { conversationId?: string; attended?: boolean; owner?: boolean; allow?: string[] }) => unknown };
+    const real = k.guardedTools.bind(kernel);
+    const flags: { attended: boolean; owner: boolean; allow?: string[] }[] = [];
+    vi.spyOn(k, "guardedTools").mockImplementation((o) => {
+      flags.push({ attended: o.attended !== false, owner: o.owner === true, ...(o.allow ? { allow: o.allow } : {}) });
+      return real(o);
+    });
+    const club = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Club" });
+    const mine = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Private" });
+    const handle = createPressHandler({ kernel, channel: "discord", ownerRecipientId: "owner-id" });
+    const guest = { id: "u1", name: "Ana" };
+
+    // A button the owner's private chat sent into the guest room: theirs to press, not the guest's.
+    const planted = kernel.presses.register({ conversationId: mine.id, buttonId: "go", label: "Go" });
+    for (const room of [club.id, undefined]) {
+      const spy = responderSpy();
+      await handle({ buttonId: "", label: "Go", token: planted, pressedBy: "u1", guest, ...(room ? { room } : {}) }, spy.responder);
+      expect(spy.calls).toEqual(["working:private", "send"]);
+      expect(spy.sent[0]?.text).toBe(OWNER_ONLY);
+    }
+    expect(asked).toEqual([]);
+    expect(kernel.sessions.get(mine.id)).toEqual([]);
+
+    // One the room's own chat offered: a guest's turn there, with a guest's reach and nothing of the owner's.
+    const offered = kernel.presses.register({ conversationId: club.id, buttonId: "go", label: "Go" });
+    const spy = responderSpy();
+    await handle({ buttonId: "", label: "Go", token: offered, pressedBy: "u1", guest, room: club.id }, spy.responder);
+    expect(spy.sent[0]?.text).toContain("Done.");
+    expect(flags).toHaveLength(1);
+    expect(flags[0]).toMatchObject({ attended: false, owner: false });
+    expect(flags[0]?.allow?.every((t) => GUEST_TOOLS.includes(t))).toBe(true);
   });
 
   it("tells the agent who pressed and what they typed", () => {

@@ -242,7 +242,16 @@ export interface ButtonPress {
   pressedBy: string;
   /** Set when the presser is a guest of the channel rather than the owner. */
   guest?: Guest;
+  /**
+   * The conversation bound to the room a guest pressed in. A guest's press
+   * reaches that conversation alone: a button another chat put in the room
+   * is the owner's to press.
+   */
+  room?: string;
 }
+
+/** What anyone but the owner is told when they reach for something of the owner's. */
+export const OWNER_ONLY = "Only the owner can do this.";
 
 /** Someone in a channel who is not the owner, as the surface names them. */
 export interface Guest {

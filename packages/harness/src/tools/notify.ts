@@ -6,6 +6,7 @@ import type {
   ModalSpec,
   Sender,
 } from "../channels/types.js";
+import { caller, isOwnerTurn } from "../kernel/caller.js";
 import type { KosModule } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 
@@ -61,6 +62,16 @@ export interface NotifyToolDeps {
     },
     replyTo?: string,
   ) => string;
+  /** The project a chat belongs to, if any: a press may go to another chat of the caller's own project. */
+  projectOf?: (conversationId: string) => string | undefined;
+}
+
+/** Whether a press may go to `to` from the calling chat: the chat itself, or another of the same project. */
+function sameProject(to: string, from: string | undefined, projectOf: NotifyToolDeps["projectOf"]): boolean {
+  if (!from) return false;
+  if (to === from) return true;
+  const mine = projectOf?.(from);
+  return mine !== undefined && projectOf?.(to) === mine;
 }
 
 /** Keys a card is made of. Anything else the caller invented is reported. */
@@ -523,6 +534,13 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
 
           const target = parseTarget(input.to);
           const replyTo = typeof input.replyTo === "string" ? input.replyTo : undefined;
+          // A turn not the owner's (a guest's, a schedule's) sends a press to
+          // its own chat or another of its project, never further: a button
+          // planted elsewhere would run its press in a chat the turn cannot
+          // reach, the owner's private one.
+          if (replyTo && !isOwnerTurn() && !sameProject(replyTo, caller.getStore(), deps.projectOf)) {
+            throw new Error("a press can go to this chat or another in its project; only the owner's own turn sends one elsewhere, so leave replyTo out and it comes back here");
+          }
           const buttons = asButtons(input.buttons).map((button) => {
             if (button.url) return button;
             if (!deps.routePress) {
