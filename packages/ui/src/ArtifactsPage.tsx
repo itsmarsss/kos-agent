@@ -321,9 +321,13 @@ export const ownerOf = (r: Pick<PageSummary, "projectSlug" | "blob">): ArtifactO
 /** The chat that answers for an artifact: its project's, its blob's thread, or KOS at the root (undefined). */
 export const chatIdOf = (owner: ArtifactOwner): string | undefined => (!owner ? undefined : "project" in owner ? `project:${owner.project}` : `agent:${owner.blob}`);
 
-/** Where "Edit with KOS" takes the owner after asking: the project's page, the blob's, or the root chat the request went to. */
+/**
+ * Where "Edit with KOS" takes the owner after asking: the project's page, the
+ * blob's, or the root chat the request went to; the chat list when the root
+ * chat cannot be named (the settings did not load), rather than nowhere.
+ */
 export async function chatOf(owner: ArtifactOwner): Promise<Route> {
-  if (!owner) return { name: "chats", id: await rootChatId() };
+  if (!owner) return rootChatId().then((id): Route => ({ name: "chats", id }), (): Route => ({ name: "chats" }));
   return "project" in owner ? { name: "project", slug: owner.project } : { name: "blobs", blob: owner.blob };
 }
 

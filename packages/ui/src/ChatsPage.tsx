@@ -1913,7 +1913,8 @@ export function ChatsPage({
                 setInline(undefined);
                 const id = chatIdOf(owner);
                 if (id) onOpen(id);
-                else void rootChatId().then(onOpen);
+                // Not named (the settings did not load): the chat list, which is what shows once the artifact closes.
+                else void rootChatId().then(onOpen, () => undefined);
               }}
             />
           </div>

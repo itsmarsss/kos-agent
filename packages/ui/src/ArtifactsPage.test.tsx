@@ -193,6 +193,17 @@ describe("one artifact, full size", () => {
     expect(await chatOf({ blob: "noter" })).toEqual({ name: "blobs", blob: "noter" });
   });
 
+  it("opens the chat list when KOS's root chat cannot be named, and names it once the settings load", async () => {
+    // A fresh module: the root chat's id is kept once known.
+    vi.resetModules();
+    const fresh = await import("./api.js");
+    const { chatOf: freshChatOf } = await import("./ArtifactsPage.js");
+    vi.spyOn(fresh.api, "settings").mockRejectedValue(new Error("offline"));
+    expect(await freshChatOf(null)).toEqual({ name: "chats" });
+    vi.spyOn(fresh.api, "settings").mockResolvedValue({ profile: { name: "K", timezone: "UTC", ownerId: "kenny" } } as never);
+    expect(await freshChatOf(null)).toEqual({ name: "chats", id: "primary:kenny" });
+  });
+
   it("shows a removed blob's artifact as kept: named so, no way to its missing page or to KOS, and the owner's to delete", async () => {
     const record = { id: "notes", projectSlug: null, blob: "noter", blobId: "old", blobRemoved: true as const, title: "Notes", path: "", updatedAt: at(1), kind: "html" as const, artifactKind: "doc" as const };
     vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "notes", title: "Notes", kind: "doc", html: "<article data-doc></article>" } } as never);
