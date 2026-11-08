@@ -125,6 +125,13 @@ describe("who a turn is, by where it came from", () => {
     await kernel.dispatchTo(target.id, "do it", from.id);
     expect(await settle(target.id)).toEqual(attendedOnly);
 
+    // /dispatch typed by the owner is theirs; by anyone else, neither theirs nor attended.
+    for (const [typedByOwner, flags] of [[true, owner], [false, neither]] as const) {
+      seen.delete(target.id);
+      await kernel.runKernelCommand({ kind: "dispatch", target: "Target", task: "do it" }, from.id, kernel.profile.ownerId, "discord", typedByOwner);
+      expect(await settle(target.id), `typed by the owner: ${typedByOwner}`).toEqual(flags);
+    }
+
     // A handoff an agent makes is its turn's; the owner's own, from the dashboard, is theirs.
     seen.delete(target.id);
     await attendance.run(false, () => ownership.run(false, () => kernel.handoff({ from: from.id, to: target.id, brief: "the brief", ask: "go", by: "agent" })));

@@ -2609,7 +2609,8 @@ export class Kernel {
         if (!found) return { reply: `No chat matches “${command.target}”. \`/agents\` lists them.` };
         if (found.id === conversationId) return { reply: "That is this chat. Just say it." };
         if (this.killSwitch.halted) return { reply: "KOS is halted; nothing is dispatched until it resumes." };
-        void this.dispatchTo(found.id, command.task, conversationId, { attended: true, owner }).catch((err: unknown) => {
+        // Attended only when the owner typed it: a guest's dispatch is nobody's to answer for.
+        void this.dispatchTo(found.id, command.task, conversationId, { attended: owner, owner }).catch((err: unknown) => {
           console.error(`dispatch to ${found.id}: ${err instanceof Error ? err.message : String(err)}`);
         });
         return { reply: `Handed to “${found.title}”: ${command.task}` };
