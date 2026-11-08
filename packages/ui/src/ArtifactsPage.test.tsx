@@ -245,7 +245,11 @@ describe("one artifact, full size", () => {
     const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
     Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
     const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
-    // An edit is waiting when Restore is pressed: the doc finishes it, saved by the dashboard's own Done, then the restore names that version.
+    // An edit the owner typed is waiting when Restore is pressed: the doc finishes it, saved by the dashboard's own Done, then the restore names that version.
+    const gestures = new MessageChannel();
+    act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "gestures" }, ports: [gestures.port2] })));
+    gestures.port1.postMessage(0);
+    await new Promise((r) => setTimeout(r, 20));
     say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
     fireEvent.click(screen.getByRole("button", { name: "History" }));
     const rows = within(await screen.findByRole("dialog", { name: "History" })).getAllByRole("listitem");

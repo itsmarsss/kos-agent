@@ -423,7 +423,7 @@ describe("a doc's saves, which are the owner's", () => {
     Object.defineProperty(navigator, "userActivation", { value: { isActive, hasBeenActive: isActive }, configurable: true });
   };
 
-  async function frame(): Promise<{ handle: { current: ArtifactHandle | null }; pageWin: Window; say: (data: unknown) => void; save: (id: number) => void }> {
+  async function frame(): Promise<{ handle: { current: ArtifactHandle | null }; pageWin: Window; say: (data: unknown) => void; save: (id: number) => void; press: () => Promise<void> }> {
     const handle: { current: ArtifactHandle | null } = { current: null };
     render(<ArtifactPage ref={handle} record={record} page={page} />);
     const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
@@ -431,18 +431,29 @@ describe("a doc's saves, which are the owner's", () => {
     Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
     const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
     const save = (id: number): void => say({ __kos: "call", id, method: "save", args: { edit: { doc: `<p>${id}</p>` } } });
-    return { handle, pageWin, say, save };
+    // The bridge's channel for the owner's presses and keys, as it hands it over; a press is one stamp on it.
+    const channel = new MessageChannel();
+    act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "gestures" }, ports: [channel.port2] })));
+    const press = async (): Promise<void> => {
+      channel.port1.postMessage(0);
+      await new Promise((r) => setTimeout(r, 20));
+    };
+    return { handle, pageWin, say, save, press };
   }
 
   it("relays a save just after the dashboard's own Done, with no hand in the frame, and never after Discard, Undo or Edit", async () => {
     const saved = vi.spyOn(api, "savePage").mockResolvedValue({ ...record, updatedAt: 2 });
     hand(false);
-    const { say, save } = await frame();
+    const { say, save, press } = await frame();
     say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
     // A page saving on its own, the owner's hand nowhere: refused.
     save(1);
     expect(saved).not.toHaveBeenCalled();
+    await press();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    save(2);
+    expect(saved).toHaveBeenCalledTimes(1);
+    // One save for one Done.
     save(2);
     expect(saved).toHaveBeenCalledTimes(1);
     for (const name of ["Discard", "Undo"]) {
@@ -456,17 +467,43 @@ describe("a doc's saves, which are the owner's", () => {
     expect(saved).toHaveBeenCalledTimes(1);
     // Done, and then too long: the window has passed.
     say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
+    await press();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     vi.spyOn(performance, "now").mockReturnValue(performance.now() + DONE_MS + 100);
     save(5);
     expect(saved).toHaveBeenCalledTimes(1);
   });
 
+  it("saves nothing on the way out of a doc the owner only looked at, or did not touch again since its last save", async () => {
+    const saved = vi.spyOn(api, "savePage").mockResolvedValue({ ...record, updatedAt: 2 });
+    hand(false);
+    const { handle, say, save, press } = await frame();
+    // The page says it is editing, with an edit waiting, and the owner never pressed or typed in it.
+    say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
+    const leaving = handle.current!.settle();
+    save(7);
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    save(8);
+    expect(saved).not.toHaveBeenCalled();
+    say({ __kos: "edit", editing: false, pending: false, status: "", bad: false });
+    await leaving;
+    // Touched, saved once by Done; then untouched again, the next Done saves nothing.
+    say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
+    await press();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    save(9);
+    expect(saved).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    save(10);
+    expect(saved).toHaveBeenCalledTimes(1);
+  });
+
   it("finishes editing before the frame goes, its save allowed though the gesture has passed, and holds the frame no longer than the cap", async () => {
     const saved = vi.spyOn(api, "savePage").mockResolvedValue({ ...record, updatedAt: 2 });
     hand(false);
-    const { handle, say, save } = await frame();
+    const { handle, say, save, press } = await frame();
     say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
+    await press();
     const settling = handle.current!.settle();
     save(6);
     expect(saved).toHaveBeenCalledTimes(1);

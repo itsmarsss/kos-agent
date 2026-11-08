@@ -109,6 +109,8 @@ export const DONE_MS = 2500;
 export interface EditTold {
   action: "edit" | "done" | "discard" | "undo" | "redo";
   at: number;
+  /** The owner pressed or typed in the document since it loaded or last saved: a Done finishes only that. */
+  touched?: boolean;
 }
 
 /**
@@ -121,11 +123,13 @@ export const revealAllowed = (frame: Element, gestureAt: number, now: number = p
 /**
  * Whether a page's kos.save is the owner's: their hand is in the frame, or
  * the dashboard's own Done (pressed, or sent to finish before the frame goes)
- * asked for it a moment ago. After Discard, Undo or Edit from the dashboard,
- * nothing but the owner's hand in the frame saves.
+ * asked for it a moment ago, after the owner's own presses or keys in the
+ * document. A page only looked at saves nothing as it goes. After Discard,
+ * Undo or Edit from the dashboard, nothing but the owner's hand in the frame
+ * saves. The caller spends the Done on the save it lets through.
  */
 export const saveAllowed = (frame: Element, told: EditTold | undefined, now: number = performance.now()): boolean =>
-  ownerIn(frame) || (told?.action === "done" && now - told.at >= 0 && now - told.at <= DONE_MS);
+  ownerIn(frame) || (told?.action === "done" && told.touched === true && now - told.at >= 0 && now - told.at <= DONE_MS);
 
 /**
  * Scroll the dashboard to a place on a frame's page. A frame as tall as its

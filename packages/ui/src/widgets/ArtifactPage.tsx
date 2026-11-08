@@ -174,8 +174,12 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const settled = useRef<(() => void)[]>([]);
   // What the dashboard last told the doc's editing to do: a save just after its own Done is the owner's.
   const sent = useRef<EditTold | undefined>(undefined);
-  // When the owner last pressed or typed in the frame, as the frame's own capture says over a channel the page never holds.
-  const gestures = useRef<{ port?: MessagePort; at: number }>({ at: Number.NEGATIVE_INFINITY });
+  /*
+   * When the owner last pressed or typed in the frame, as the frame's own
+   * capture says over a channel the page never holds; and when they last
+   * saved (or the document loaded), so a Done finishes only what their hand began.
+   */
+  const gestures = useRef<{ port?: MessagePort; at: number; since: number }>({ at: Number.NEGATIVE_INFINITY, since: 0 });
   // Made once, lazily, then again for each new document.
   const gate = useRef<HeightGate>(null);
   if (gate.current === null) gate.current = heightGate();
@@ -201,7 +205,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     setDoc(undefined);
     // A new document hands over a new channel: the old one is closed, and the first the new one sends is taken.
     gestures.current.port?.close();
-    gestures.current = { at: Number.NEGATIVE_INFINITY };
+    gestures.current = { at: Number.NEGATIVE_INFINITY, since: performance.now() };
     sent.current = undefined;
     const { scripts, fonts } = artifactAssets(page);
     void Promise.all([Promise.all(scripts.map(library)), fontCss(fonts)])
@@ -287,8 +291,10 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         return;
       }
       if (m.method === "save") {
-        // A save is the owner's edit, so it comes with the owner's hand in this frame, or just after the dashboard's own Done.
+        // A save is the owner's edit, so it comes with the owner's hand in this frame, or just after the dashboard's own Done: once.
         if (!saveAllowed(frame.current, sent.current)) return reply(m.id, { error: "a save comes from the owner: press Save, or edit a cell" });
+        sent.current = undefined;
+        gestures.current.since = performance.now();
         api.savePage(record.id, args.edit, base.current).then(
           (saved) => {
             base.current = saved.updatedAt;
@@ -360,7 +366,9 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
 
   const editDo = useCallback(
     (action: EditTold["action"]) => {
-      sent.current = { action, at: performance.now() };
+      // A Done opens a save only for what the owner's hand did in this document since it loaded or last saved.
+      const touched = gestures.current.at > gestures.current.since;
+      sent.current = { action, at: performance.now(), ...(action === "done" && touched ? { touched } : {}) };
       pageWindow()?.postMessage({ __kos: "edit-do", action }, "*");
     },
     [pageWindow],
