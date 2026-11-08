@@ -86,10 +86,10 @@ const SEARCH = page(
 <script>let t; document.getElementById('q').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => fetch('/search?q=' + encodeURIComponent(e.target.value)).then(r => r.text()).then(x => { document.getElementById('out').innerHTML = '<li>' + x + '</li>' }), 300) })</script>`,
 );
 
-/** A click whose answer takes its time: a second and a half, or longer than any step waits. */
+/** A click whose answer takes its time: a second and a half, then read and drawn a moment later as an app's would be; or longer than any step waits. */
 const SLOW = page(
   "Slow",
-  `<button id=slow onclick="fetch('/slow').then(r => r.text()).then(t => { document.getElementById('out').textContent = t })">Slow</button>
+  `<button id=slow onclick="fetch('/slow').then(r => r.text()).then(t => setTimeout(() => { document.getElementById('out').textContent = t }, 150))">Slow</button>
 <button id=slower onclick="fetch('/slower').then(r => r.text()).then(t => { document.getElementById('out').textContent = t })">Slower</button><p id=out></p>`,
 );
 
