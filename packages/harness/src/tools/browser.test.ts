@@ -2,6 +2,7 @@ import { Page, type AxNode, type Session, type Tab } from "@kos/browser";
 import { describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
+import { caller } from "../kernel/caller.js";
 import { createBrowserModule, type BrowserToolsDeps } from "./browser.js";
 
 /**
@@ -136,11 +137,42 @@ describe("browser.act", () => {
     const def = registry.defs().find((d) => d.name === "browser.act")!;
     const schema = def.inputSchema as { properties: Record<string, { type: string }>; required?: string[] };
     expect(schema.properties["intent"]).toMatchObject({ type: "string" });
-    expect(schema.required).toEqual(["steps"]);
+    expect(schema.required ?? []).toEqual([]);
+    expect(Object.keys(schema.properties)).toContain("actions");
     expect(def.description).toMatch(/`intent`/);
-    expect(registry.classify("browser.act", { intent: "wait for it", steps: [{ wait: 5 }] }).tier).toBe("safe");
-    const result = await registry.execute("browser.act", { intent: "wait for it", steps: [{ wait: 5 }], then: "none" });
+    expect(registry.classify("browser.act", { intent: "wait for it", actions: [{ wait: 5 }] }).tier).toBe("safe");
+    const result = await registry.execute("browser.act", { intent: "wait for it", actions: [{ wait: 5 }], then: "none" });
     expect(result.content).toBe("Done: waited 5ms.");
+  });
+
+  it("sends the picture after a run only when the page changed since the chat's last one, the index either way", async () => {
+    const { registry, ready } = harness();
+    await ready;
+    const images = (r: { images?: unknown[] }): number => r.images?.length ?? 0;
+    await caller.run("c1", async () => {
+      expect(images(await registry.execute("browser.look", {}))).toBe(1);
+      const same = await registry.execute("browser.act", { actions: [{ wait: 5 }] });
+      expect(images(same)).toBe(0);
+      expect(same.content).toContain("The screen has not changed since your last picture.");
+      expect(plain(same.content)).toMatch(/Can be acted on/);
+      // Asked for outright, the picture goes whatever.
+      expect(images(await registry.execute("browser.look", {}))).toBe(1);
+    });
+    // Another chat has not seen it.
+    await caller.run("c2", async () => expect(images(await registry.execute("browser.act", { actions: [{ wait: 5 }] }))).toBe(1));
+  });
+
+  it("takes `steps` as the older name for `actions`, judged and run the same, and refuses both at once", async () => {
+    const { registry, ready } = harness();
+    await ready;
+    for (const key of ["actions", "steps"]) {
+      expect(registry.classify("browser.act", { [key]: [{ wait: 5 }, { scroll: "down" }] }).tier).toBe("safe");
+      expect(registry.classify("browser.act", { [key]: [{ wait: 5 }, { click: "@e1" }] }).tier).toBe("risky");
+      expect(registry.classify("browser.act", { [key]: [] }).tier).toBe("risky");
+      expect((await registry.execute("browser.act", { [key]: [{ wait: 5 }], then: "none" })).content).toBe("Done: waited 5ms.");
+    }
+    expect(registry.classify("browser.act", { actions: [{ wait: 5 }], steps: [{ wait: 5 }] }).tier).toBe("risky");
+    expect((await registry.execute("browser.act", { actions: [{ wait: 5 }], steps: [{ wait: 5 }] })).content).toMatch(/not with `steps`/);
   });
 
   it("runs the steps, then looks, and names a tab a step opened", async () => {

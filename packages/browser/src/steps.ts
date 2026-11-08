@@ -35,10 +35,13 @@ export const WAIT_MAX_MS = 30_000;
 /**
  * Whether a run of steps does anything to the page. Decided on the raw
  * input, before the steps are parsed, so a shape the parser would refuse
- * counts as touching: an unreadable step never runs unasked.
+ * counts as touching: an unreadable step never runs unasked. The steps are
+ * `actions`, or `steps` by their older name; a call giving both is refused
+ * when it runs, and counts as touching here.
  */
 export function touchesPage(input: Record<string, unknown>): boolean {
-  const steps = input["steps"];
+  if (input["actions"] !== undefined && input["steps"] !== undefined) return true;
+  const steps = input["actions"] ?? input["steps"];
   if (!Array.isArray(steps) || steps.length === 0) return true;
   return steps.some((s) => {
     if (!s || typeof s !== "object" || Array.isArray(s)) return true;
