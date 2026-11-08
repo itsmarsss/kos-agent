@@ -24,7 +24,7 @@ import { NewProjectDialog } from "./NewProjectDialog.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { ProjectPanel } from "./ProjectPanel.js";
 import { ArtifactRail, ArtifactStrip, type RailOwner, useOwnedArtifacts } from "./ArtifactRail.js";
-import { ArtifactViewer, ROOT_CHAT, chatIdOf } from "./ArtifactsPage.js";
+import { ArtifactViewer, chatIdOf, rootChatId, type ViewerHandle } from "./ArtifactsPage.js";
 import { RailGroup, useRailFolds } from "./RailGroup.js";
 import {
   api,
@@ -692,8 +692,15 @@ export function ChatsPage({
   );
   // Read again when what was open in place closes, since the owner may have edited it there.
   const owned = useOwnedArtifacts(railOwner, inline);
-  // Another project, blob or thread: the thread is what shows, not the artifact open before.
-  useEffect(() => setInline(undefined), [projectSlug, agentName, activeId]);
+  // Another project, blob or thread: the thread is what shows, not the artifact open before, once its editing is finished.
+  const viewer = useRef<ViewerHandle>(null);
+  useEffect(() => {
+    let stale = false;
+    void (viewer.current?.settle() ?? Promise.resolve()).then(() => !stale && setInline(undefined));
+    return () => {
+      stale = true;
+    };
+  }, [projectSlug, agentName, activeId]);
   const openOwned = (a: PageSummary): void => {
     // An older widget page has no viewer of its own here; it opens on its page.
     if (a.kind !== "html") (project ?? agent)?.onOpenPage(a.id);
@@ -1896,6 +1903,7 @@ export function ChatsPage({
         {inline && (
           <div className="chats-inline">
             <ArtifactViewer
+              ref={viewer}
               id={inline}
               projects={projects}
               backLabel="← Back to the chat"
@@ -1903,7 +1911,9 @@ export function ChatsPage({
               onOpenChat={(owner) => {
                 // The thread the request went to: the project's, the blob's, or KOS at the root.
                 setInline(undefined);
-                onOpen(chatIdOf(owner) ?? ROOT_CHAT);
+                const id = chatIdOf(owner);
+                if (id) onOpen(id);
+                else void rootChatId().then(onOpen);
               }}
             />
           </div>

@@ -1,6 +1,6 @@
 import { Chips, Count, Empty, Face, NavIcon, PlusIcon, Skeleton, Tag, type ChipOption } from "@kos/kit";
 import { WORKSPACE_SCOPE, relativeWords, type ArtifactKind, type HtmlPage } from "@kos/shared";
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
 
 import { api, type AnyPagePayload, type ArtifactSummary, type PageSummary, type PageVersion, type Project } from "./api.js";
 import { PageHead } from "./PageHead.js";
@@ -8,6 +8,7 @@ import { Drawer } from "./Drawer.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { VersionList } from "./PageHistory.js";
 import type { Route } from "./routes.js";
+import { ConfirmButton } from "./kit.js";
 import { Select } from "./Select.js";
 import { ArtifactPage, type ArtifactHandle } from "./widgets/ArtifactPage.js";
 
@@ -38,8 +39,8 @@ export const KIND_WORD: Record<ArtifactKind, string> = { page: "Page", doc: "Doc
 const ALL_PROJECTS = "@all";
 /** The owner filter's value for a blob: never a project's slug, which has no colon. */
 const BLOB_PREFIX = "blob:";
-/** An artifact's owner as the filter names it: a project's slug, a blob, or the workspace. */
-const ownerValue = (a: Pick<PageSummary, "projectSlug" | "blob">): string => (a.blob ? `${BLOB_PREFIX}${a.blob}` : a.projectSlug ?? WORKSPACE_SCOPE);
+/** An artifact's owner as the filter names it: a project's slug, a blob by its id (a removed one apart from a later one of its name), or the workspace. */
+const ownerValue = (a: Pick<PageSummary, "projectSlug" | "blob" | "blobId">): string => (a.blob ? `${BLOB_PREFIX}${a.blobId ?? a.blob}` : a.projectSlug ?? WORKSPACE_SCOPE);
 
 /** How many missing or stale captures one visit redraws: each is a few seconds of Chrome. */
 const REDRAW_MAX = 8;
@@ -176,22 +177,24 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
 
   const owners = useMemo(() => {
     const slugs = [...new Set((list ?? []).flatMap((a) => (a.projectSlug ? [a.projectSlug] : [])))];
-    const blobs = [...new Set((list ?? []).flatMap((a) => (a.blob ? [a.blob] : [])))].sort();
+    const blobs = [...new Map((list ?? []).flatMap((a) => (a.blob ? [[ownerValue(a), a] as const] : []))).values()].sort((a, b) => ownerName(a, projects).localeCompare(ownerName(b, projects)));
     return [
       { value: ALL_PROJECTS, label: "Everyone's" },
       ...((list ?? []).some((a) => a.projectSlug === null && !a.blob) ? [{ value: WORKSPACE_SCOPE, label: "Workspace" }] : []),
       ...slugs
         .map((s) => ({ value: s, label: bySlug.get(s)?.name ?? s, icon: <ProjectMark slug={s} name={bySlug.get(s)?.name ?? s} colour={bySlug.get(s)?.colour} /> }))
         .sort((a, b) => a.label.localeCompare(b.label)),
-      ...blobs.map((b) => ({ value: `${BLOB_PREFIX}${b}`, label: b, icon: <Face seed={b} size={14} /> })),
+      ...blobs.map((b) => ({ value: ownerValue(b), label: ownerName(b, projects), icon: <Face seed={b.blob!} size={14} /> })),
     ];
-  }, [list, bySlug]);
+  }, [list, bySlug, projects]);
 
-  // A section per project, the one touched most recently first, and the workspace's own last.
+  // A section per owner, the one touched most recently first, and the workspace's own last.
   const groups = useMemo(() => {
     const by = new Map<string, ArtifactSummary[]>();
     for (const a of shown) by.set(ownerValue(a), [...(by.get(ownerValue(a)) ?? []), a]);
-    return [...by.values()].sort(([a], [b]) => (ownerValue(a!) === WORKSPACE_SCOPE ? 1 : ownerValue(b!) === WORKSPACE_SCOPE ? -1 : 0));
+    const latest = (items: ArtifactSummary[]): number => Math.max(...items.map((a) => a.updatedAt));
+    const last = (items: ArtifactSummary[]): number => (ownerValue(items[0]!) === WORKSPACE_SCOPE ? 1 : 0);
+    return [...by.values()].sort((a, b) => last(a) - last(b) || latest(b) - latest(a));
   }, [shown]);
 
   const filtered = kind !== "all" || project !== ALL_PROJECTS || query.trim() !== "";
@@ -302,8 +305,13 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
   );
 }
 
-/** KOS's own chat at the root, where a message with no chat named goes: the profile's owner id is fixed. */
-export const ROOT_CHAT = "primary:owner";
+/** KOS's own chat at the root, where a message with no chat named goes: the owner's Main, by the owner id this KOS is set up with. */
+let rootChat: Promise<string> | undefined;
+export function rootChatId(): Promise<string> {
+  rootChat ??= api.settings().then((s) => `primary:${s.profile.ownerId}`);
+  rootChat.catch(() => (rootChat = undefined));
+  return rootChat;
+}
 
 /** Who an artifact belongs to: a project, a blob, or the workspace (null). */
 export type ArtifactOwner = { project: string } | { blob: string } | null;
@@ -314,18 +322,18 @@ export const ownerOf = (r: Pick<PageSummary, "projectSlug" | "blob">): ArtifactO
 export const chatIdOf = (owner: ArtifactOwner): string | undefined => (!owner ? undefined : "project" in owner ? `project:${owner.project}` : `agent:${owner.blob}`);
 
 /** Where "Edit with KOS" takes the owner after asking: the project's page, the blob's, or the root chat the request went to. */
-export function chatOf(owner: ArtifactOwner): Route {
-  if (!owner) return { name: "chats", id: ROOT_CHAT };
+export async function chatOf(owner: ArtifactOwner): Promise<Route> {
+  if (!owner) return { name: "chats", id: await rootChatId() };
   return "project" in owner ? { name: "project", slug: owner.project } : { name: "blobs", blob: owner.blob };
 }
 
 /** An owner's mark and name, for a card, a row or the viewer's head. */
-export function OwnerMark({ record, projects }: { record: Pick<PageSummary, "projectSlug" | "blob">; projects: Project[] }): ReactElement {
+export function OwnerMark({ record, projects }: { record: Pick<PageSummary, "projectSlug" | "blob" | "blobRemoved">; projects: Project[] }): ReactElement {
   if (record.blob) {
     return (
       <>
         <Face seed={record.blob} size={16} />
-        <span>{record.blob}</span>
+        <span>{ownerName(record, projects)}</span>
       </>
     );
   }
@@ -339,8 +347,8 @@ export function OwnerMark({ record, projects }: { record: Pick<PageSummary, "pro
 }
 
 /** An owner as a word. */
-const ownerName = (r: Pick<PageSummary, "projectSlug" | "blob">, projects: Project[]): string =>
-  r.blob ?? (r.projectSlug ? projects.find((p) => p.slug === r.projectSlug)?.name ?? r.projectSlug : "Workspace");
+const ownerName = (r: Pick<PageSummary, "projectSlug" | "blob" | "blobRemoved">, projects: Project[]): string =>
+  r.blob ? (r.blobRemoved ? `Removed blob: ${r.blob}` : r.blob) : r.projectSlug ? projects.find((p) => p.slug === r.projectSlug)?.name ?? r.projectSlug : "Workspace";
 
 /** What "Edit with KOS" sends: the owner's words, then which artifact they are about. */
 export function editRequest(words: string, record: PageSummary): string {
@@ -358,6 +366,19 @@ export function convertRequest(record: PageSummary): string {
  * versions in a drawer with a way back, presenting for a deck, its project),
  * then the artifact itself, drawn as part of the page.
  */
+/** What whoever shows the viewer can ask of it: finish the doc's editing before it goes. */
+export interface ViewerHandle {
+  settle(): Promise<void>;
+}
+
+/** Each viewer open now, so a move elsewhere in the dashboard finishes their editing first. */
+const openViewers = new Set<ViewerHandle>();
+
+/** Finish the editing of every open viewer: what a route change awaits, each capped as settle is. */
+export function settleOpenViewers(): Promise<void> {
+  return Promise.all([...openViewers].map((v) => v.settle())).then(() => undefined);
+}
+
 export function ArtifactViewer({
   id,
   projects,
@@ -366,6 +387,7 @@ export function ArtifactViewer({
   onOpenChat,
   onOpenOwner,
   initial,
+  ref,
 }: {
   id: string;
   projects: Project[];
@@ -378,6 +400,7 @@ export function ArtifactViewer({
   onOpenChat: (owner: ArtifactOwner) => void;
   /** Go to whoever owns it: its project's page or its blob's. */
   onOpenOwner?: (owner: NonNullable<ArtifactOwner>) => void;
+  ref?: Ref<ViewerHandle>;
 }): ReactElement {
   const [record, setRecord] = useState<PageSummary>();
   const [page, setPage] = useState<HtmlPage>();
@@ -389,10 +412,16 @@ export function ArtifactViewer({
   /** An older version shown in place of the current one, to look at before restoring it. */
   const [preview, setPreview] = useState<{ version: PageVersion; page: HtmlPage }>();
   const frame = useRef<ArtifactHandle>(null);
+  // The newest version as saved, read when a restore is sent: the doc's own save just before it is the version it is made on.
+  const latest = useRef<PageSummary | undefined>(undefined);
+  const saved = (r: PageSummary): void => {
+    latest.current = r;
+    setRecord(r);
+  };
 
   const show = (got: AnyPagePayload): void => {
     setPreview(undefined);
-    setRecord(got.record);
+    saved(got.record);
     setOlder(got.kind !== "html");
     if (got.kind === "html") setPage(got.page);
   };
@@ -402,8 +431,15 @@ export function ArtifactViewer({
   const settle = (): Promise<void> => frame.current?.settle() ?? Promise.resolve();
   const restore = (version: number): Promise<void> =>
     settle()
-      .then(() => api.pageRollback(id, version, record?.updatedAt))
+      .then(() => api.pageRollback(id, version, latest.current?.updatedAt))
       .then(load);
+  useImperativeHandle(ref, () => ({ settle }), []);
+  // Known while open, so leaving for another route finishes its editing first.
+  useEffect(() => {
+    const me: ViewerHandle = { settle: () => frame.current?.settle() ?? Promise.resolve() };
+    openViewers.add(me);
+    return () => void openViewers.delete(me);
+  }, []);
 
   // A new artifact in the same viewer (another one picked beside a chat): the one open finishes its editing first.
   useEffect(() => {
@@ -456,7 +492,7 @@ export function ArtifactViewer({
             <button type="button" className="btn btn--ghost btn--sm" aria-expanded={history} onClick={() => setHistory(true)}>
               History
             </button>
-            {whose && onOpenOwner && (
+            {whose && onOpenOwner && !record.blobRemoved && (
               <button type="button" className="btn btn--ghost btn--sm" onClick={() => void settle().then(() => onOpenOwner(whose))}>
                 Open {owner}
               </button>
@@ -466,10 +502,19 @@ export function ArtifactViewer({
                 Present
               </button>
             )}
-            {!older && (
-              <button type="button" className="btn btn--primary btn--sm" aria-expanded={asking} onClick={() => setAsking((v) => !v)}>
-                Edit with KOS
-              </button>
+            {/* What a removed blob made is kept as it is: KOS no longer changes it, and the owner may let it go. */}
+            {record.blobRemoved ? (
+              <ConfirmButton
+                label="Delete"
+                text={`Delete “${record.title}”, which the removed blob ${record.blob} made, and its versions?`}
+                onConfirm={() => void api.deletePage(record.id).then(onBack, failed)}
+              />
+            ) : (
+              !older && (
+                <button type="button" className="btn btn--primary btn--sm" aria-expanded={asking} onClick={() => setAsking((v) => !v)}>
+                  Edit with KOS
+                </button>
+              )
             )}
           </div>
         </header>
@@ -526,7 +571,7 @@ export function ArtifactViewer({
         </div>
       )}
       {record && preview && <ArtifactPage key={`v${preview.version.version}`} record={record} page={preview.page} locked />}
-      {record && page && !preview && <ArtifactPage ref={frame} record={record} page={page} onSaved={setRecord} onReload={() => void load().catch(failed)} />}
+      {record && page && !preview && <ArtifactPage ref={frame} record={record} page={page} onSaved={saved} onReload={() => void load().catch(failed)} />}
       {!record && !error && (
         <div className="artifact-view-loading" aria-busy="true" aria-label="Loading the artifact">
           <Skeleton width="40%" height={26} />

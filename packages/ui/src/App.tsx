@@ -39,7 +39,7 @@ import { AgentsPage } from "./AgentsPage.js";
 import { BuildsPage } from "./BuildsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
 import { ProjectsPage } from "./ProjectsPage.js";
-import { ArtifactViewer, ArtifactsPage, chatOf } from "./ArtifactsPage.js";
+import { ArtifactViewer, ArtifactsPage, chatOf, settleOpenViewers } from "./ArtifactsPage.js";
 import { placeOf } from "./chattree.js";
 import { MemoryPage } from "./MemoryPage.js";
 import { InboxPage } from "./InboxPage.js";
@@ -320,8 +320,15 @@ export function App(): React.ReactElement {
   }, []);
 
   useEffect(() => {
+    // An open artifact finishes its editing before the route moves on, however the move was made (a link, Back, a button): each viewer is capped as settle is.
+    let moves = 0;
     const sync = (): void => {
-      const next = parseRoute(window.location.hash);
+      const move = ++moves;
+      void settleOpenViewers().then(() => {
+        if (move === moves) show(parseRoute(window.location.hash));
+      });
+    };
+    const show = (next: Route): void => {
       setRoute(next);
       if (next.name === "page") {
         setPageError(null);
@@ -334,7 +341,7 @@ export function App(): React.ReactElement {
           });
       }
     };
-    sync();
+    show(parseRoute(window.location.hash));
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
   }, []);
@@ -882,8 +889,8 @@ export function App(): React.ReactElement {
           projects={projects}
           backLabel={owner ? "← Projects" : "← Home"}
           onBack={() => go(back)}
-          onOpenChat={(owner) => go(chatOf(owner))}
-          onOpenOwner={(owner) => go(chatOf(owner))}
+          onOpenChat={(owner) => void chatOf(owner).then(go)}
+          onOpenOwner={(owner) => void chatOf(owner).then(go)}
         />,
       );
     }
@@ -990,17 +997,18 @@ export function App(): React.ReactElement {
           id={route.id}
           projects={projects}
           onBack={() => go({ name: "artifacts" })}
-          onOpenChat={(owner) => go(chatOf(owner))}
-          onOpenOwner={(owner) => go(chatOf(owner))}
+          onOpenChat={(owner) => void chatOf(owner).then(go)}
+          onOpenOwner={(owner) => void chatOf(owner).then(go)}
         />
       ) : (
         <ArtifactsPage
           projects={projects}
           onOpen={(id) => go({ name: "artifacts", id })}
           onNew={(text) => {
-            const chat = chatOf(null);
-            if (chat.name === "chats" && chat.id) setPrefill({ id: chat.id, text });
-            go(chat);
+            void chatOf(null).then((chat) => {
+              if (chat.name === "chats" && chat.id) setPrefill({ id: chat.id, text });
+              go(chat);
+            });
           }}
         />
       ),

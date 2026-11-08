@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { api, type ArtifactSummary, type Project } from "./api.js";
-import { ArtifactViewer, ArtifactsPage, NEW_ARTIFACT_WORDS, chatOf, convertRequest, editRequest } from "./ArtifactsPage.js";
+import { ArtifactViewer, ArtifactsPage, NEW_ARTIFACT_WORDS, chatOf, convertRequest, editRequest, settleOpenViewers } from "./ArtifactsPage.js";
 import { hrefFor, NAV, parseRoute } from "./routes.js";
 
 beforeAll(() => {
@@ -185,11 +185,104 @@ describe("one artifact, full size", () => {
     expect(sent).toHaveBeenCalledWith(editRequest("Add a slide on cost", ART[2]!), undefined);
     expect(sent.mock.calls[0]?.[0]).toMatch(/^Add a slide on cost\n\nThis is about @page:pitch, the deck "Garden pitch"/);
     expect(opened).toHaveBeenCalledWith(null);
-    // The request went to KOS at the root, so that is the chat opened, not the chat list.
-    expect(chatOf(null)).toEqual({ name: "chats", id: "primary:owner" });
-    expect(hrefFor(chatOf(null))).toBe(hrefFor({ name: "chats", id: "primary:owner" }));
-    expect(chatOf({ project: "budget" })).toEqual({ name: "project", slug: "budget" });
-    expect(chatOf({ blob: "noter" })).toEqual({ name: "blobs", blob: "noter" });
+    // The request went to KOS at the root, so that is the chat opened, not the chat list: the owner's Main, by the owner id this KOS has.
+    vi.spyOn(api, "settings").mockResolvedValue({ profile: { name: "K", timezone: "UTC", ownerId: "kenny" } } as never);
+    expect(await chatOf(null)).toEqual({ name: "chats", id: "primary:kenny" });
+    expect(hrefFor(await chatOf(null))).toBe(hrefFor({ name: "chats", id: "primary:kenny" }));
+    expect(await chatOf({ project: "budget" })).toEqual({ name: "project", slug: "budget" });
+    expect(await chatOf({ blob: "noter" })).toEqual({ name: "blobs", blob: "noter" });
+  });
+
+  it("shows a removed blob's artifact as kept: named so, no way to its missing page or to KOS, and the owner's to delete", async () => {
+    const record = { id: "notes", projectSlug: null, blob: "noter", blobId: "old", blobRemoved: true as const, title: "Notes", path: "", updatedAt: at(1), kind: "html" as const, artifactKind: "doc" as const };
+    vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "notes", title: "Notes", kind: "doc", html: "<article data-doc></article>" } } as never);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
+    const gone = vi.spyOn(api, "deletePage").mockResolvedValue({ deleted: true });
+    const back = vi.fn();
+    render(<ArtifactViewer id="notes" projects={projects} onBack={back} onOpenChat={() => undefined} onOpenOwner={() => undefined} />);
+    expect(await screen.findByText("Removed blob: noter")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Open/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit with KOS" })).toBeNull();
+    expect(screen.getByRole("button", { name: "History" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(back).toHaveBeenCalled());
+    expect(gone).toHaveBeenCalledWith("notes");
+  });
+
+  it("lists a removed blob's artifacts apart from a later blob of its name", async () => {
+    const old = { id: "old-notes", projectSlug: null, blob: "noter", blobId: "old", blobRemoved: true, title: "Old notes", path: "", updatedAt: at(3), kind: "html", artifactKind: "doc", capturedAt: at(0) } as ArtifactSummary;
+    const now = { id: "new-notes", projectSlug: null, blob: "noter", blobId: "new", title: "New notes", path: "", updatedAt: at(2), kind: "html", artifactKind: "doc", capturedAt: at(0) } as ArtifactSummary;
+    vi.spyOn(api, "artifacts").mockResolvedValue([old, now, ...ART]);
+    vi.spyOn(api, "checkArtifact").mockResolvedValue({ findings: [], capturedAt: Date.now() });
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
+    await waitFor(() => expect(titles()).toHaveLength(6));
+    expect(within(screen.getByText("Old notes").closest("button")!).getByText("Removed blob: noter")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Owner" }));
+    fireEvent.click(screen.getByRole("option", { name: "Removed blob: noter" }));
+    expect(titles()).toEqual(["Old notes"]);
+    fireEvent.click(screen.getByRole("button", { name: "Owner" }));
+    fireEvent.click(screen.getByRole("option", { name: "noter" }));
+    expect(titles()).toEqual(["New notes"]);
+  });
+
+  it("restores on the version the doc's own last save made, not the one first opened", async () => {
+    const record = { ...ART[3]!, artifactKind: "page" as const };
+    vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "ledger", title: "Ledger", html: "<p>x</p>" } } as never);
+    vi.spyOn(api, "pageHistory").mockResolvedValue([
+      { version: 1, at: at(90), title: "Ledger", kind: "html" },
+      { version: 2, at: at(40), title: "Ledger", kind: "html" },
+    ]);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
+    const rollback = vi.spyOn(api, "pageRollback").mockResolvedValue(record);
+    vi.spyOn(api, "savePage").mockResolvedValue({ ...record, updatedAt: record.updatedAt + 500 });
+    render(<ArtifactViewer id="ledger" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
+    const el = await waitFor(() => {
+      const f = document.querySelector<HTMLIFrameElement>("iframe.artifact-frame");
+      if (!f) throw new Error("no frame yet");
+      return f;
+    });
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
+    // An edit is waiting when Restore is pressed: the doc finishes it, saved by the dashboard's own Done, then the restore names that version.
+    say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    const rows = within(await screen.findByRole("dialog", { name: "History" })).getAllByRole("listitem");
+    fireEvent.click(within(rows[1]!).getByRole("button", { name: "Restore" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Restore" })).getByRole("button", { name: "Restore" }));
+    await act(async () => {
+      say({ __kos: "call", id: 1, method: "save", args: { edit: { doc: "<p>y</p>" } } });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    say({ __kos: "edit", editing: false, pending: false, status: "Saved", bad: false });
+    await waitFor(() => expect(rollback).toHaveBeenCalledWith("ledger", 1, record.updatedAt + 500));
+  });
+
+  it("finishes an open doc's editing before the dashboard moves elsewhere", async () => {
+    const record = { ...ART[3]!, artifactKind: "page" as const };
+    vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "ledger", title: "Ledger", html: "<p>x</p>" } } as never);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
+    render(<ArtifactViewer id="ledger" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
+    const el = await waitFor(() => {
+      const f = document.querySelector<HTMLIFrameElement>("iframe.artifact-frame");
+      if (!f) throw new Error("no frame yet");
+      return f;
+    });
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const told = vi.spyOn(pageWin, "postMessage");
+    const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
+    say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
+    let moved = false;
+    const leaving = settleOpenViewers().then(() => (moved = true));
+    expect(told).toHaveBeenCalledWith({ __kos: "edit-do", action: "done" }, "*");
+    await Promise.resolve();
+    expect(moved).toBe(false);
+    say({ __kos: "edit", editing: false, pending: false, status: "Saved", bad: false });
+    await leaving;
+    expect(moved).toBe(true);
   });
 
   it("keeps its versions in a drawer, each older one with a way back, and opens its project", async () => {

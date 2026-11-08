@@ -421,8 +421,12 @@ export interface PageSummary {
   id: string;
   /** Null for a blob's or a workspace artifact, which belong to no project. */
   projectSlug: string | null;
-  /** The blob that owns it, when a blob made it. */
+  /** The blob that owns it, by name, when a blob made it. */
   blob?: string;
+  /** That blob's id, which tells it from a later blob of the same name. */
+  blobId?: string;
+  /** The blob that made it was removed: kept for the owner to look at, restore or delete. */
+  blobRemoved?: true;
   title: string;
   path: string;
   updatedAt: number;
@@ -1136,6 +1140,8 @@ export const api = {
   /** One kept version of an HTML artifact, to look at before restoring it. */
   pageVersion: (id: string, version: number) => get<HtmlPage>(`/api/pages/${encodeURIComponent(id)}/versions/${version}`),
   /** Put a page back as it was at a version; `base`, the version it was opened at, refuses one made on a page changed since (409). */
+  /** Delete what a removed blob made, which is the owner's alone to let go. */
+  deletePage: (id: string) => post<{ deleted: boolean }>(`/api/pages/${encodeURIComponent(id)}/delete`, {}),
   pageRollback: (id: string, version: number, base?: number) => post<PageSummary>(`/api/pages/${encodeURIComponent(id)}/rollback`, { version, ...(base !== undefined ? { base } : {}) }),
   mutate: (req: MutateRequest) => post<MutateResult>("/api/mutate", req),
   conversations: (includeArchived = false) =>

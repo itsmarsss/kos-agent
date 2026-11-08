@@ -61,9 +61,11 @@ describe("what an owner owns", () => {
     ...items,
     { id: "notes", projectSlug: null, blob: "noter", title: "Notes", path: "", updatedAt: at(1), kind: "html", artifactKind: "doc" },
     { id: "memo", projectSlug: null, title: "Memo", path: "", updatedAt: at(2), kind: "html", artifactKind: "doc" },
+    { id: "left", projectSlug: null, blob: "noter", blobId: "old", blobRemoved: true, title: "Left", path: "", updatedAt: at(3), kind: "html", artifactKind: "doc" },
   ];
 
   it("gives a blob only its own, and a project only its own, with no stand-in from elsewhere", () => {
+    // What a removed blob of the same name left is not the living one's.
     expect(all.filter((a) => ownedBy({ blob: "noter" }, a)).map((a) => a.id)).toEqual(["notes"]);
     expect(all.filter((a) => ownedBy({ blob: "roster" }, a))).toEqual([]);
     expect(all.filter((a) => ownedBy({ project: "garden" }, a)).map((a) => a.id)).toEqual(["minutes"]);

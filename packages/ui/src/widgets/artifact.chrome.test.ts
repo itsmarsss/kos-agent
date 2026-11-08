@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { GUARD_SCRIPT, pageDocument, wrapperDocument } from "@kos/shared";
+import { DONE_MS, REVEAL_MS, ownerIn, revealAllowed, saveAllowed } from "./frameheight.js";
 
 /**
  * Every way out of a page's frame, tried in a real Chrome. Each attempt aims
@@ -350,16 +351,23 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     const runtime = bundled.outputFiles[0]!.text;
     const html = `<article data-doc><p><br></p><h2>Next</h2></article>`;
     const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [runtime], kind: "doc" }));
-    pages.set("/doc", `<!doctype html><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:800px;height:600px" srcdoc="${frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe><script>
+    // The dashboard's own checks, as ArtifactPage makes them (frameheight.ts), run here in the browser.
+    const checks = `const REVEAL_MS = ${REVEAL_MS}, DONE_MS = ${DONE_MS}; const ownerIn = ${ownerIn.toString()}; const saveAllowed = ${saveAllowed.toString()}; const revealAllowed = ${revealAllowed.toString()};`;
+    pages.set("/doc", `<!doctype html><body style="margin:0"><button id="elsewhere">elsewhere</button><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:800px;height:560px" srcdoc="${frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe><script>
+      ${checks}
       const f = document.getElementById("f");
+      let gestureAt = -Infinity, ports = 0;
       addEventListener("message", (e) => {
         const page = f.contentWindow.frames[0], m = e.data || {};
         if (e.source !== page) return;
+        // The bridge's channel for the owner's presses and keys, taken once as ArtifactPage takes it.
+        if (m.__kos === "gestures") { ports += 1; document.body.dataset.ports = String(ports); if (ports === 1) e.ports[0].onmessage = () => { gestureAt = performance.now(); document.body.dataset.gestures = String(Number(document.body.dataset.gestures || 0) + 1); }; return; }
         // The dashboard's edit bar: Edit once the doc says it can be edited.
         if (m.__kos === "edit" && !m.editing && !document.body.dataset.asked) { document.body.dataset.asked = "1"; page.postMessage({ __kos: "edit-do", action: "edit" }, "*"); }
         if (m.__kos !== "call" || m.method !== "save") return;
-        // What the dashboard checks before it relays a save: the owner's hand, as the browser reports it here.
-        document.body.dataset.active = String(navigator.userActivation.isActive);
+        // What the dashboard checks before it relays a save: the owner's hand in this frame, as the browser reports it here.
+        document.body.dataset.active = String(saveAllowed(f, undefined));
+        document.body.dataset.reveal = String(revealAllowed(f, gestureAt));
         document.body.dataset.saves = String(Number(document.body.dataset.saves || 0) + 1);
         document.body.dataset.saved = m.args.edit.doc;
         page.postMessage({ __kos: "reply", id: m.id, result: {} }, "*");
@@ -368,7 +376,11 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
     await send("Page.navigate", { url: `${base}/doc` });
     await new Promise((r) => setTimeout(r, 1200));
-    const value = async (expression: string): Promise<unknown> => ((await send("Runtime.evaluate", { expression, returnByValue: true })).result as { value?: unknown } | undefined)?.value;
+    const value = async (expression: string): Promise<unknown> => ((await send("Runtime.evaluate", { expression, returnByValue: true, userGesture: false })).result as { value?: unknown } | undefined)?.value;
+    // Before the owner touches it, nothing is theirs: no hand in the frame, no press over the channel, which came once.
+    expect(await value("ownerIn(f)")).toBe(false);
+    expect(await value("document.body.dataset.ports")).toBe("1");
+    expect(await value("document.body.dataset.gestures || '0'")).toBe("0");
     const key = async (k: string): Promise<void> => {
       const enter = k === "Enter";
       await send("Input.dispatchKeyEvent", { type: "keyDown", key: k, text: enter ? "\r" : k, ...(enter ? { code: "Enter", windowsVirtualKeyCode: 13 } : {}) });
@@ -377,9 +389,13 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     const type = async (text: string): Promise<void> => {
       for (const k of text) await key(k);
     };
-    // Into the first line, as the owner would.
-    for (const t of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type: t, x: 200, y: 40, button: "left", clickCount: 1 });
+    // Into the first line, as the owner would (below the dashboard's own button).
+    for (const t of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type: t, x: 200, y: 70, button: "left", clickCount: 1 });
     await new Promise((r) => setTimeout(r, 200));
+    // The press is the owner's hand in the frame, and the frame's channel told the dashboard of it, just now.
+    expect(await value("ownerIn(f)")).toBe(true);
+    expect(Number(await value("document.body.dataset.gestures"))).toBeGreaterThan(0);
+    expect(await value("revealAllowed(f, gestureAt)")).toBe(true);
     await type("## Water");
     await key("Enter");
     await type("it is **wet** now");
@@ -397,6 +413,13 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     // One save for the run of typing, not one a key; and the owner's hand was still counted when it went, here and in the frame (whose bridge refuses one without it).
     expect(Number(await value("document.body.dataset.saves"))).toBe(1);
     expect(await value("document.body.dataset.active")).toBe("true");
+    // Two seconds on, the press is too long ago for a jump to scroll the dashboard.
+    expect(await value("revealAllowed(f, gestureAt)")).toBe(false);
+    // A press on the dashboard itself takes the hand out of the frame.
+    for (const t of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type: t, x: 20, y: 8, button: "left", clickCount: 1 });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(await value("ownerIn(f)")).toBe(false);
+    expect(await value("saveAllowed(f, undefined)")).toBe(false);
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 

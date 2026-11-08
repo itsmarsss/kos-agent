@@ -16,9 +16,9 @@ import { onTurnEnd } from "./progress.js";
 /** Whose rail it is: a project's, by its slug, or a blob's, by its name. */
 export type RailOwner = { project: string } | { blob: string };
 
-/** What an owner owns: a blob's own, or a project's that no blob owns. */
-export const ownedBy = (owner: RailOwner, a: Pick<PageSummary, "projectSlug" | "blob">): boolean =>
-  "blob" in owner ? a.blob === owner.blob : a.projectSlug === owner.project && !a.blob;
+/** What an owner owns: the living blob's own (not what a removed blob of its name left), or a project's. */
+export const ownedBy = (owner: RailOwner, a: Pick<PageSummary, "projectSlug" | "blob" | "blobRemoved">): boolean =>
+  "blob" in owner ? a.blob === owner.blob && !a.blobRemoved : a.projectSlug === owner.project;
 
 /**
  * An owner's artifacts, newest first. Read when the owner changes, when
@@ -27,16 +27,19 @@ export const ownedBy = (owner: RailOwner, a: Pick<PageSummary, "projectSlug" | "
  */
 export function useOwnedArtifacts(owner: RailOwner | undefined, again?: unknown): PageSummary[] {
   const [items, setItems] = useState<PageSummary[]>([]);
-  const key = owner ? ("blob" in owner ? `blob:${owner.blob}` : `project:${owner.project}`) : "";
+  // The owner as plain values, so an equal owner made anew by a parent's render reads nothing.
+  const blob = owner && "blob" in owner ? owner.blob : undefined;
+  const project = owner && "project" in owner ? owner.project : undefined;
   // Another owner's list is not shown while this one's is read.
-  useEffect(() => setItems([]), [key]);
+  useEffect(() => setItems([]), [blob, project]);
   useEffect(() => {
-    if (!owner) return;
+    const whose: RailOwner | undefined = blob ? { blob } : project ? { project } : undefined;
+    if (!whose) return;
     let stale = false;
     const read = (): void =>
       void api
         .artifacts()
-        .then((list) => !stale && setItems(list.filter((a) => ownedBy(owner, a)).sort((a, b) => b.updatedAt - a.updatedAt)))
+        .then((list) => !stale && setItems(list.filter((a) => ownedBy(whose, a)).sort((a, b) => b.updatedAt - a.updatedAt)))
         .catch(() => undefined);
     read();
     const stop = onTurnEnd(read);
@@ -44,7 +47,7 @@ export function useOwnedArtifacts(owner: RailOwner | undefined, again?: unknown)
       stale = true;
       stop();
     };
-  }, [key, again]);
+  }, [blob, project, again]);
   return items;
 }
 
