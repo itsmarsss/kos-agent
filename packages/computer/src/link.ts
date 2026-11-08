@@ -9,6 +9,7 @@ import {
   type AppInfo,
   type DeviceEvent,
   type DeviceState,
+  type Hello,
   type Method,
   type Reply,
 } from "./protocol.js";
@@ -53,8 +54,27 @@ export interface LinkDeps {
   /** The owner unpaired it on the device: only ever its own pairing, on a line it proved. */
   onUnpair(link: DeviceLink): void;
   onClose(link: DeviceLink): void;
+  /** A hello turned away, with which check it failed; the line is closed with that check named. */
+  onRefused?(refusal: Refusal): void;
   helloTimeoutMs?: number;
 }
+
+/** Which check a hello failed. */
+export type RefusedCheck = "protocol version" | "unknown device" | "bad signature";
+
+/** A hello turned away: the id and app it claimed, unproved, and the check it failed. Never its key or signature. */
+export interface Refusal {
+  device: string;
+  app: AppInfo;
+  check: RefusedCheck;
+}
+
+/** The close reason for each check: the check first, then what it means for the device's owner. */
+export const REFUSED_REASON: Record<RefusedCheck, string> = {
+  "protocol version": `protocol version: KOS speaks protocol ${PROTOCOL_VERSION}; update this app`,
+  "unknown device": "unknown device: KOS has no device by this id; pair again",
+  "bad signature": "bad signature: not signed by the key this device paired with; pair again",
+};
 
 const HELLO_TIMEOUT_MS = 10_000;
 
@@ -119,10 +139,10 @@ export class DeviceLink {
     if (!frame) return this.close(CLOSE.malformed, "unreadable frame");
     if (!this.device) {
       if (frame.t !== "hello") return this.close(CLOSE.malformed, "hello first");
-      if (frame.protocol !== PROTOCOL_VERSION) return this.close(CLOSE.version, `KOS speaks protocol ${PROTOCOL_VERSION}`);
-      const device = this.deps.lookup(frame.device);
-      if (!device || !verifyText(device.publicKey, deviceProof(this.challenge, frame.device), frame.signature)) {
-        return this.close(CLOSE.unauthorized, "not a paired device");
+      const device = this.admit(frame);
+      if (typeof device === "string") {
+        this.deps.onRefused?.({ device: frame.device, app: frame.app, check: device });
+        return this.close(device === "protocol version" ? CLOSE.version : CLOSE.unauthorized, REFUSED_REASON[device]);
       }
       clearTimeout(this.helloTimer);
       this.device = device;
@@ -153,6 +173,14 @@ export class DeviceLink {
       case "unpair":
         return this.deps.onUnpair(this);
     }
+  }
+
+  /** The paired device a hello proves it is, or the first check it fails. */
+  private admit(hello: Hello): Device | RefusedCheck {
+    if (hello.protocol !== PROTOCOL_VERSION) return "protocol version";
+    const device = this.deps.lookup(hello.device);
+    if (!device) return "unknown device";
+    return verifyText(device.publicKey, deviceProof(this.challenge, hello.device), hello.signature) ? device : "bad signature";
   }
 
   private settle(reply: Reply): void {
