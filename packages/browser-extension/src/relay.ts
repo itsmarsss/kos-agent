@@ -26,6 +26,7 @@ export const COMMANDS: ReadonlySet<string> = new Set([
   "Inspector.enable",
   "Network.enable",
   "Page.captureScreenshot",
+  "Page.createIsolatedWorld",
   "Page.enable",
   "Page.getFrameTree",
   "Page.getLayoutMetrics",
@@ -37,6 +38,7 @@ export const COMMANDS: ReadonlySet<string> = new Set([
   "Page.setLifecycleEventsEnabled",
   "Runtime.callFunctionOn",
   "Runtime.evaluate",
+  "Runtime.getProperties",
   "Runtime.releaseObjectGroup",
 ]);
 

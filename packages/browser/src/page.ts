@@ -1,7 +1,7 @@
 import type { CdpEvent } from "./cdp.js";
 import * as inpage from "./inpage.js";
 import { parseKeys, type KeyPress } from "./keys.js";
-import { indexOf, Refs, treeOf, type AxNode, type PageIndex } from "./snapshot.js";
+import { controlsOf, indexOf, INDEX_MAX, Refs, treeOf, type AxNode, type Control, type PageIndex } from "./snapshot.js";
 import type { Step } from "./steps.js";
 
 /**
@@ -324,8 +324,13 @@ export class Page {
 
   /** What can be acted on, each with its ref; `scope` limits it to the part of the page a CSS selector names. */
   async index(scope?: string): Promise<Look> {
+    this.freshDocument();
+    const found = await this.found(this.mainFrame, scope ?? null, { left: FRAMES_MAX });
+    if (found) return { index: indexOf(found.controls, found.total, this.refs), unread: found.unread };
+    // No world of KOS's own on this tab (a KOS for Chrome from before there was one): the tree it was read from before.
     const { nodes, unread } = await this.nodes(scope);
-    return { index: indexOf(nodes, this.refs), unread };
+    const { controls, total } = controlsOf(nodes);
+    return { index: indexOf(controls, total, this.refs), unread };
   }
 
   /** The whole page as an outline, each element with its ref. */
@@ -766,35 +771,124 @@ export class Page {
     return { width: view.clientWidth ?? 1280, height: view.clientHeight ?? 800 };
   }
 
-  /** The tree of the page and of the frames in it that live in its process, as one. */
-  private async nodes(scope?: string): Promise<{ nodes: AxNode[]; unread: string[] }> {
-    // A new document: its elements are new, and so are their refs.
+  /** A new document: its elements are new, and so are their refs. */
+  private freshDocument(): void {
     if (this.life.loader && this.life.loader !== this.documentId) {
       this.refs.clear();
       this.documentId = this.life.loader;
     }
-    const nodes = ((await this.session.send("Accessibility.getFullAXTree", {}, AX_MS))["nodes"] as AxNode[] | undefined) ?? [];
+  }
+
+  /**
+   * What can be acted on in a frame, found by the page itself in one call
+   * (see inpage.controls), and in the frames it could not reach, each in its
+   * own world, side by side. Undefined when the frame has no world of KOS's
+   * own to look from. `frames` is how many more frames may be read.
+   */
+  private async found(frame: string, scope: string | null, frames: { left: number }, again = true): Promise<{ controls: Control[]; total: number; unread: string[] } | undefined> {
+    const context = await this.world(frame);
+    if (context === undefined) return undefined;
+    let answer: Record<string, unknown>;
+    try {
+      answer = await this.session.send(
+        "Runtime.evaluate",
+        { expression: `(${inpage.controls.toString()})(${JSON.stringify(scope)}, ${INDEX_MAX})`, contextId: context, objectGroup: GROUP },
+        EVAL_MS,
+      );
+    } catch (err) {
+      // Its document went since the world was made: once more, in a new one.
+      this.worlds.delete(frame);
+      if (again) return this.found(frame, scope, frames, false);
+      throw err;
+    }
+    if (answer["exceptionDetails"]) {
+      if (scope) throw new Error(`${scope} is not a selector I can use: ${exceptionText(answer["exceptionDetails"])}`);
+      throw new Error(`the page could not be read: ${exceptionText(answer["exceptionDetails"])}`);
+    }
+    const objectId = (answer["result"] as { objectId?: string } | undefined)?.objectId;
+    const props = objectId ? await this.session.send("Runtime.getProperties", { objectId, ownProperties: true }) : {};
+    const byName = new Map(((props["result"] as { name: string; value?: { value?: unknown; objectId?: string } }[] | undefined) ?? []).map((p) => [p.name, p.value]));
+    const meta = JSON.parse(String(byName.get("kos")?.value ?? "{}")) as { items?: inpage.FoundControl[]; total?: number; missing?: boolean };
+    if (meta.missing) throw new Error(`nothing on the page matches ${scope}`);
+    const items = meta.items ?? [];
+    const nodes = await Promise.all(
+      items.map((_, i) => {
+        const element = byName.get(String(i))?.objectId;
+        if (!element) return Promise.resolve(undefined);
+        return this.session.send("DOM.describeNode", { objectId: element }).then(
+          (d) => d["node"] as { backendNodeId?: number; frameId?: string } | undefined,
+          () => undefined,
+        );
+      }),
+    );
+    // The frames it could not reach, read beside one another.
+    const inner = await Promise.all(
+      items.map(async (item, i) => {
+        if (item.frame === undefined) return undefined;
+        const id = nodes[i]?.frameId;
+        if (!id || frames.left <= 0) return { missed: item.frame };
+        frames.left--;
+        const got = await this.found(id, null, frames).catch(() => undefined);
+        return got ?? { missed: item.frame };
+      }),
+    );
+    const controls: Control[] = [];
     const unread: string[] = [];
-    const frames = childFrames((await this.session.send("Page.getFrameTree"))["frameTree"]).slice(0, FRAMES_MAX);
-    for (const [i, frame] of frames.entries()) {
-      try {
-        const owner = (await this.session.send("DOM.getFrameOwner", { frameId: frame.id }))["backendNodeId"];
-        const host = nodes.find((n) => n.backendDOMNodeId === owner);
-        const inner = ((await this.session.send("Accessibility.getFullAXTree", { frameId: frame.id }, AX_MS))["nodes"] as AxNode[] | undefined) ?? [];
-        const root = inner.find((n) => !n.parentId);
-        if (!host || !root) continue;
-        const tag = `f${i}:`;
-        for (const n of inner) {
-          n.nodeId = tag + n.nodeId;
-          if (n.parentId) n.parentId = tag + n.parentId;
-          if (n.childIds) n.childIds = n.childIds.map((c) => tag + c);
-        }
-        root.parentId = host.nodeId;
-        host.childIds = [...(host.childIds ?? []), root.nodeId];
-        nodes.push(...inner);
-      } catch {
-        if (frame.url && !frame.url.startsWith("about:")) unread.push(hostOf(frame.url));
+    let total = meta.total ?? 0;
+    for (const [i, item] of items.entries()) {
+      const from = inner[i];
+      if (from && "missed" in from) {
+        if (!from.missed.startsWith("about:")) unread.push(hostOf(from.missed));
+        continue;
       }
+      if (from) {
+        controls.push(...from.controls.map((c) => (c.dialog === undefined && item.dialog !== undefined ? { ...c, dialog: item.dialog } : c)));
+        unread.push(...from.unread);
+        total += from.total;
+        continue;
+      }
+      const node = nodes[i]?.backendNodeId;
+      if (node === undefined) continue;
+      controls.push({ node, role: item.role, name: item.name, states: item.states, ...(item.value !== undefined ? { value: item.value } : {}), ...(item.dialog !== undefined ? { dialog: item.dialog } : {}), ...(item.more ? { more: item.more } : {}) });
+    }
+    return { controls, total, unread };
+  }
+
+  /** The accessibility tree of the page and of the frames in it that live in its process, as one. */
+  private async nodes(scope?: string): Promise<{ nodes: AxNode[]; unread: string[] }> {
+    this.freshDocument();
+    const [whole, tree] = await Promise.all([this.session.send("Accessibility.getFullAXTree", {}, AX_MS), this.session.send("Page.getFrameTree")]);
+    const nodes = (whole["nodes"] as AxNode[] | undefined) ?? [];
+    const unread: string[] = [];
+    const frames = childFrames(tree["frameTree"]).slice(0, FRAMES_MAX);
+    const read = await Promise.all(
+      frames.map(async (frame) => {
+        try {
+          const [owner, inner] = await Promise.all([
+            this.session.send("DOM.getFrameOwner", { frameId: frame.id }),
+            this.session.send("Accessibility.getFullAXTree", { frameId: frame.id }, AX_MS),
+          ]);
+          return { owner: owner["backendNodeId"], inner: (inner["nodes"] as AxNode[] | undefined) ?? [] };
+        } catch {
+          if (frame.url && !frame.url.startsWith("about:")) unread.push(hostOf(frame.url));
+          return undefined;
+        }
+      }),
+    );
+    for (const [i, got] of read.entries()) {
+      if (!got) continue;
+      const host = nodes.find((n) => n.backendDOMNodeId === got.owner);
+      const root = got.inner.find((n) => !n.parentId);
+      if (!host || !root) continue;
+      const tag = `f${i}:`;
+      for (const n of got.inner) {
+        n.nodeId = tag + n.nodeId;
+        if (n.parentId) n.parentId = tag + n.parentId;
+        if (n.childIds) n.childIds = n.childIds.map((c) => tag + c);
+      }
+      root.parentId = host.nodeId;
+      host.childIds = [...(host.childIds ?? []), root.nodeId];
+      nodes.push(...got.inner);
     }
     if (!scope) return { nodes, unread };
     const within = await this.scopeNodes(scope);

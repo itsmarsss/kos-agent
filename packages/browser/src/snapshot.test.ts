@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { indexOf, Refs, treeOf, type AxNode } from "./snapshot.js";
+import { controlsOf, indexOf as indexOfControls, Refs, treeOf, type AxNode } from "./snapshot.js";
+
+/** The index of a tree, as the tree is read when the page cannot be asked. */
+function indexOf(nodes: AxNode[], refs: Refs, max?: number) {
+  const { controls, total } = controlsOf(nodes);
+  return indexOfControls(controls, total, refs, max);
+}
 
 /** A tree as Chrome reports one: flat, linked by ids. */
 function tree(spec: [id: string, parent: string | null, role: string, name?: string, backend?: number, extra?: Partial<AxNode>][]): AxNode[] {

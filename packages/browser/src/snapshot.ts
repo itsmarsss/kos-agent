@@ -110,8 +110,8 @@ function prop(node: AxNode, name: string): unknown {
   return node.properties?.find((p) => p.name === name)?.value.value;
 }
 
-/** What a control is like right now, in brackets: checked, expanded, disabled. */
-function states(node: AxNode): string {
+/** What a control is like right now: checked, expanded, disabled. */
+function states(node: AxNode): string[] {
   const out: string[] = [];
   const checked = prop(node, "checked");
   if (checked === "true" || checked === true) out.push("checked");
@@ -127,15 +127,23 @@ function states(node: AxNode): string {
   if (prop(node, "focused") === true) out.push("focused");
   const level = prop(node, "level");
   if (typeof level === "number") out.push(`level ${level}`);
-  return out.length ? ` [${out.join(", ")}]` : "";
+  return out;
 }
 
-/** A node as one line: role, name, state, value, and its ref when it is an element. */
+function clip(s: string, max: number): string {
+  const one = s.replace(/\s+/g, " ").trim();
+  return one.length > max ? `${one.slice(0, max - 1)}…` : one;
+}
+
+/** One element as a line: role, name, state, value, and its ref. */
+function describe(role: string, name: string, state: string[], value: string, ref: string): string {
+  return `${role}${name ? ` ${quoted(clip(name, 100))}` : ""}${state.length ? ` [${state.join(", ")}]` : ""}${value ? ` = ${quoted(clip(value, 60))}` : ""}${ref ? ` @${ref}` : ""}`;
+}
+
+/** A node as one line, with its ref when it is an element. */
 function lineOf(node: AxNode, role: string, refs: Refs): string {
-  const name = text(node.name, 100);
-  const value = VALUED.has(role) ? text(node.value, 60) : "";
-  const ref = node.backendDOMNodeId !== undefined ? ` @${refs.refOf(node.backendDOMNodeId)}` : "";
-  return `${role}${name ? ` ${quoted(name)}` : ""}${states(node)}${value ? ` = ${quoted(value)}` : ""}${ref}`;
+  const ref = node.backendDOMNodeId !== undefined ? refs.refOf(node.backendDOMNodeId) : "";
+  return describe(role, text(node.name, 100), states(node), VALUED.has(role) ? text(node.value, 60) : "", ref);
 }
 
 interface Walked {
@@ -175,36 +183,58 @@ export interface PageIndex {
   total: number;
 }
 
-/**
- * What can be acted on, one line each: role, label, state and ref. A dialog's
- * controls come first, under its name, since a page with a dialog open is
- * waiting on it (a cookie banner is the usual one). Links with the same label
- * fold into one line that says how many more there are; buttons do not, as
- * the second "Add to cart" is a different thing to add.
- */
-export function indexOf(nodes: AxNode[], refs: Refs, max = INDEX_MAX): PageIndex {
-  const groups = new Map<string, string[]>();
-  const links = new Map<string, { at: string[]; i: number; more: number }>();
-  let total = 0;
+/** A control the index names: what it is, as a reader hears it, and its element. */
+export interface Control {
+  node: number;
+  role: string;
+  name: string;
+  states: string[];
+  value?: string;
+  /** The dialog it sits in, by name. */
+  dialog?: string;
+  /** Links of the same label folded into this one. */
+  more?: number;
+}
+
+/** The controls of a tree, in reading order, links of one label folded into the first and unlabeled ones left out. */
+export function controlsOf(nodes: AxNode[]): { controls: Control[]; total: number } {
+  const controls: Control[] = [];
+  const links = new Map<string, Control>();
   for (const { node, role, dialog } of walk(nodes)) {
     if (!CONTROLS.has(role) || node.backendDOMNodeId === undefined) continue;
     const name = text(node.name, 100);
     if (!name && role === "link") continue;
-    const key = dialog ?? "";
-    const lines = groups.get(key) ?? [];
-    groups.set(key, lines);
+    const control: Control = { node: node.backendDOMNodeId, role, name, states: states(node), ...(VALUED.has(role) ? { value: text(node.value, 60) } : {}), ...(dialog !== undefined ? { dialog } : {}) };
     if (role === "link") {
-      const same = links.get(`${key}|${name}`);
+      const same = links.get(`${dialog ?? ""}|${name}`);
       if (same) {
-        same.more++;
+        same.more = (same.more ?? 0) + 1;
         continue;
       }
-      links.set(`${key}|${name}`, { at: lines, i: lines.length, more: 0 });
+      links.set(`${dialog ?? ""}|${name}`, control);
     }
-    lines.push(lineOf(node, role, refs));
-    total++;
+    controls.push(control);
   }
-  for (const { at, i, more } of links.values()) if (more) at[i] = `${at[i]} (+${more} more like it)`;
+  return { controls, total: controls.length };
+}
+
+/**
+ * What can be acted on, one line each: role, label, state and ref. A dialog's
+ * controls come first, under its name, since a page with a dialog open is
+ * waiting on it (a cookie banner is the usual one). Links with the same label
+ * are folded into one line that says how many more there are; buttons are
+ * not, as the second "Add to cart" is a different thing to add. Refs are
+ * given in reading order.
+ */
+export function indexOf(controls: Control[], total: number, refs: Refs, max = INDEX_MAX): PageIndex {
+  const groups = new Map<string, string[]>();
+  for (const c of controls) {
+    const key = c.dialog ?? "";
+    const lines = groups.get(key) ?? [];
+    groups.set(key, lines);
+    const line = describe(c.role, c.name, c.states, VALUED.has(c.role) ? (c.value ?? "") : "", refs.refOf(c.node));
+    lines.push(c.more ? `${line} (+${c.more} more like it)` : line);
+  }
   const ordered: string[] = [];
   for (const [dialog, lines] of groups) {
     if (!dialog) continue;
