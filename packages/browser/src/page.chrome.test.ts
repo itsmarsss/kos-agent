@@ -1,0 +1,218 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import { ChromeHost, findChrome } from "./chrome.js";
+import { act, look, stepsOf, visit, type Tab } from "./hands.js";
+import { BrowserLive, DEFAULT_CONFIG } from "./live.js";
+
+/**
+ * How long a step waits for the page to answer, and what a look finds, on a
+ * real Chrome: a page that shows what a fetch brought only once it lands
+ * must be seen with it, and a page that never stops talking (polls, a long
+ * poll, a stream, beacons) must not hold every step to the most worth
+ * waiting. Skipped where no Chrome is installed.
+ */
+
+const page = (title: string, body: string): string => `<!doctype html><meta charset=utf-8><title>${title}</title>${body}`;
+
+/** A click whose answer is fetched, and shown when it lands. */
+const FETCHED = page(
+  "Fetched",
+  `<button id=go onclick="fetch('/data').then(r => r.text()).then(t => { document.getElementById('out').textContent = t })">Load</button><p id=out></p>`,
+);
+
+/** A page that never goes quiet on the wire: a poll, a long poll, a stream and beacons, all the time. */
+const CHATTY = page(
+  "Chatty",
+  `<button id=go onclick="this.textContent='Pressed'">Press</button>
+<script>
+  setInterval(() => fetch('/poll?' + Math.random()), 200);
+  setInterval(() => navigator.sendBeacon('/beacon', 'x'), 150);
+  setInterval(() => { new Image().src = '/pixel?' + Math.random(); }, 100);
+  fetch('/longpoll');
+  new EventSource('/stream');
+</script>`,
+);
+
+/** A page that changes in steps, each soon after the last. */
+const STEPPED = page(
+  "Stepped",
+  `<button id=go onclick="let n = 0; const tick = () => { document.getElementById('out').textContent = 'step ' + (++n); if (n < 5) setTimeout(tick, 80); }; tick()">Run</button><p id=out></p>`,
+);
+
+/** A single-page app: a click moves the route and fetches what the new one shows. */
+const SPA = page(
+  "App",
+  `<a href="/app/settings" id=go onclick="event.preventDefault(); history.pushState({}, '', this.href); fetch('/api/settings').then(r => r.json()).then(j => { document.getElementById('view').textContent = 'Settings for ' + j.user })">Settings</a><main id=view>Home</main>`,
+);
+
+const BIG = page(
+  "Big",
+  `<button id=b onclick="document.title='go'">Go</button>${Array.from({ length: 3000 }, (_, i) => `<div><a href="/p${i}">Product ${i}</a> <span>$${i}</span> <button onclick="document.title='added ${i}'">Add ${i}</button></div>`).join("")}`,
+);
+
+const HIDDEN = page(
+  "Hidden",
+  `<button>Shown</button>
+<div style="display:none"><button>Not drawn</button></div>
+<button style="visibility:hidden">Invisible</button>
+<div aria-hidden="true"><button>Kept from readers</button></div>
+<div inert><button>Inert</button></div>
+<details><summary>More</summary><a href="/x">Folded away</a></details>
+<button style="opacity:0">See-through</button>
+<div style="display:contents"><button>In contents</button></div>`,
+);
+
+const NEXT = page("Next", `<main><p>The next page.</p></main>`);
+
+describe.skipIf(!findChrome(undefined))("a page's answer and its controls, on a real Chrome", () => {
+  let server: Server;
+  let other: Server;
+  let base = "";
+  let otherBase = "";
+  let profile = "";
+  let live: BrowserLive;
+  let host: ChromeHost;
+  let tab: Tab;
+
+  /** The second server: another origin of the same site, and another site (by name). */
+  const framed = (): string =>
+    page(
+      "Framed",
+      `<button>Top</button><div id=host></div>
+<script>addEventListener('message', (e) => { document.title = e.data });
+document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<button onclick="document.title=\\'shadow\\'">In shadow</button>'</script>
+<iframe src="/inner" style="width:300px;height:80px"></iframe>
+<iframe src="${otherBase}/inner" style="width:300px;height:80px"></iframe>
+<iframe src="${otherBase.replace("127.0.0.1", "localhost")}/inner" style="width:300px;height:80px"></iframe>`,
+    );
+
+  const answer = (req: IncomingMessage, res: ServerResponse): void => {
+    const url = req.url ?? "/";
+    const html = (body: string): void => void res.writeHead(200, { "content-type": "text/html" }).end(body);
+    if (url === "/data") return void setTimeout(() => res.end("Arrived from the server"), 300);
+    if (url.startsWith("/poll")) return void setTimeout(() => res.end("ok"), 100);
+    if (url === "/longpoll" || url === "/stream") {
+      res.writeHead(200, { "content-type": url === "/stream" ? "text/event-stream" : "text/plain" });
+      return void res.write(url === "/stream" ? ": open\n\n" : "");
+    }
+    if (url.startsWith("/beacon") || url.startsWith("/pixel")) return void res.writeHead(204).end();
+    if (url === "/api/settings") return void setTimeout(() => res.writeHead(200, { "content-type": "application/json" }).end('{"user":"Ada"}'), 200);
+    if (url === "/inner") return html(page("Inner", `<button onclick="parent.postMessage('inner ' + location.port, '*')">Inner button</button>`));
+    const pages: Record<string, string> = { "/fetched": FETCHED, "/chatty": CHATTY, "/stepped": STEPPED, "/app": SPA, "/big": BIG, "/hidden": HIDDEN, "/next": NEXT, "/framed": framed() };
+    html(pages[url] ?? page("Start", `<a id=go href="/next">Next</a>`));
+  };
+
+  beforeAll(async () => {
+    server = createServer(answer);
+    other = createServer(answer);
+    for (const s of [server, other]) await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
+    const portOf = (s: Server): number => {
+      const a = s.address();
+      return typeof a === "object" && a ? a.port : 0;
+    };
+    base = `http://127.0.0.1:${portOf(server)}`;
+    otherBase = `http://127.0.0.1:${portOf(other)}`;
+    profile = mkdtempSync(join(tmpdir(), "kos-page-"));
+    host = new ChromeHost({ port: 9800 + Math.floor(Math.random() * 150), profileDir: profile, launch: () => ({ windowSize: { width: 1200, height: 800 } }) });
+    live = new BrowserLive({ config: () => DEFAULT_CONFIG, chrome: host });
+    const id = await live.tabFor("test");
+    tab = { page: await live.page(id), capture: (w) => live.capture(id, w) };
+  }, 30_000);
+
+  afterAll(async () => {
+    await live?.shutdown();
+    await host?.waitGone();
+    host?.stop();
+    for (const s of [server, other]) {
+      s?.closeAllConnections();
+      s?.close();
+    }
+    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  });
+
+  const timed = async <T>(work: () => Promise<T>): Promise<{ value: T; ms: number }> => {
+    const start = Date.now();
+    const value = await work();
+    return { value, ms: Date.now() - start };
+  };
+
+  it("sees what a click fetched, once it has landed", async () => {
+    await visit(tab, [`${base}/fetched`], { then: "none" });
+    const { value } = await timed(() => act(tab, stepsOf([{ click: "#go" }]), "read"));
+    expect(value.text).toContain("Arrived from the server");
+  });
+
+  it("does not wait on polls, a long poll, a stream or beacons", async () => {
+    const opened = await timed(() => visit(tab, [`${base}/chatty`], { then: "none" }));
+    expect(opened.ms).toBeLessThan(1_500);
+    const clicked = await timed(() => act(tab, stepsOf([{ click: "#go" }]), "read"));
+    expect(clicked.value.text).toContain("Pressed");
+    expect(clicked.ms).toBeLessThan(1_000);
+  });
+
+  it("waits out a page that changes in quick steps", async () => {
+    await visit(tab, [`${base}/stepped`], { then: "none" });
+    const done = await act(tab, stepsOf([{ click: "#go" }]), "read");
+    expect(done.text).toContain("step 5");
+  });
+
+  it("follows a click to the page it opens", async () => {
+    await visit(tab, [base], { then: "none" });
+    const done = await act(tab, stepsOf([{ click: "#go" }]), "read");
+    expect(done.text).toContain(`Now at ${base}/next`);
+    expect(done.text).toContain("The next page.");
+  });
+
+  it("sees a single-page app's new route once its data has come", async () => {
+    await visit(tab, [`${base}/app`], { then: "none" });
+    const done = await act(tab, stepsOf([{ click: "#go" }]), "read");
+    expect(done.text).toContain(`Now at ${base}/app/settings`);
+    expect(done.text).toContain("Settings for Ada");
+  });
+
+  it("indexes a big page quickly, capped, with refs that act", async () => {
+    await visit(tab, [`${base}/big`], { then: "none" });
+    await look(tab);
+    const { value: seen, ms } = await timed(() => look(tab));
+    expect(ms).toBeLessThan(400);
+    expect(seen.text).toContain("(some of 6001;");
+    const lines = seen.text.split("\n").filter((l) => /@e\d+/.test(l));
+    expect(lines).toHaveLength(60);
+    expect(lines[0]).toMatch(/^button "Go" @e1$/);
+    const add = /button "Add 3" @(e\d+)/.exec(seen.text)![1]!;
+    await act(tab, stepsOf([{ click: `@${add}` }]), "none");
+    expect(await tab.page.evaluate("document.title")).toBe("added 3");
+  });
+
+  it("leaves out what is not drawn or is kept from readers", async () => {
+    const seen = await visit(tab, [`${base}/hidden`], { then: "look" });
+    for (const shown of ["Shown", "See-through", "In contents"]) expect(seen.text).toContain(`button "${shown}"`);
+    for (const hidden of ["Not drawn", "Invisible", "Kept from readers", "Inert", "Folded away"]) expect(seen.text).not.toContain(hidden);
+  });
+
+  it("reads open shadow roots and the frames it can reach, says which it could not, and acts in them", async () => {
+    const seen = await visit(tab, [`${base}/framed`], { then: "look" });
+    expect(seen.text).toMatch(/button "Top" @e1\nbutton "In shadow" @e2\nbutton "Inner button" @e3\nbutton "Inner button" @e4/);
+    expect(seen.text).toMatch(/Not read: an embedded frame from localhost:\d+/);
+    await act(tab, stepsOf([{ click: "@e2" }]), "none");
+    expect(await tab.page.evaluate("document.title")).toBe("shadow");
+    // The frame of another origin, read in a world of its own, is acted in by its ref too.
+    await act(tab, stepsOf([{ click: "@e4" }]), "none");
+    expect(await tab.page.evaluate("document.title")).toBe(`inner ${new URL(otherBase).port}`);
+    const outline = await look(tab, "snapshot");
+    expect(outline.text).toContain('button "Inner button"');
+  });
+
+  it("looks only inside a scope, and says when nothing matches it", async () => {
+    await visit(tab, [`${base}/big`], { then: "none" });
+    const scoped = await look(tab, "look", "div:nth-of-type(2)");
+    const lines = scoped.text.split("\n").filter((l) => /@e\d+/.test(l));
+    expect(lines.map((l) => l.replace(/ @e\d+.*/, ""))).toEqual(['link "Product 1"', 'button "Add 1"']);
+    await expect(look(tab, "look", "#nothing-here")).rejects.toThrow(/nothing on the page matches #nothing-here/);
+    await expect(look(tab, "look", "[[bad")).rejects.toThrow(/is not a selector I can use/);
+  });
+});
