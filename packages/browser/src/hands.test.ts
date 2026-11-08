@@ -72,6 +72,16 @@ describe("a run of steps", () => {
     expect(given).toEqual([stop.signal]);
   });
 
+  it("tells each step the one to come after it, and the last that none does", async () => {
+    const { tab } = fakeTab(["http://shop.test/1"]);
+    const nexts: unknown[] = [];
+    const page = tab.page as unknown as { step: (step: unknown, signal?: AbortSignal, next?: unknown) => Promise<string> };
+    page.step = async (_step, _signal, next) => (nexts.push(next), "done");
+    const fill = (target: string) => ({ fill: { target, text: "x" } });
+    await act(tab, [fill("#a"), fill("#b"), { click: "#go" }] as never[], "none");
+    expect(nexts).toEqual([fill("#b"), { click: "#go" }, undefined]);
+  });
+
   it("claims a Stop ended only a wait where it was; input already sent may have finished", async () => {
     for (const [step, said] of [
       [{ click: "@e1" }, "Stopped by the owner; step 1 may have finished in the page."],
