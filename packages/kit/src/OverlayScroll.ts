@@ -3,22 +3,36 @@ import { useCallback, type RefObject } from "react";
 /**
  * Scrollbars as the Mac draws its own: no lane of their own, a thin thumb
  * over the content's edge that shows while it scrolls or the pointer is
- * over it, and fades soon after. Chrome no longer draws these, so the
+ * near it, and fades soon after. Chrome no longer draws these, so the
  * native bar is hidden (`.kos-scroll`) and a thumb is laid over the
- * element's edge, at the page's top level so nothing inside clips it. The
- * element scrolls as it always did: wheel, keys and touch are untouched;
- * the thumb is only something to see and drag, hidden from assistive tech,
- * which reads the element's own scrolling.
+ * element's edge: beside the element, in its parent, so the menus and
+ * popovers around it stack above it as they did above the native bar (the
+ * document's own thumb, for a page that scrolls as a whole, is fixed to the
+ * window). The thumb takes no press until the pointer is on the thumb as
+ * drawn, so what lies at the content's edge stays pressable. The element
+ * scrolls as it always did: wheel, keys and touch are untouched; the thumb
+ * is hidden from assistive tech, which reads the element's own scrolling.
  */
 
 /** How long the thumb stays after the last scroll or hover. */
-export const FADE_MS = 800;
+const FADE_MS = 800;
 /** The shortest thumb, so a very long page still has one to grab. */
 const MIN_THUMB = 28;
 /** Space between the thumb and the element's top, bottom and right edges. */
-const INSET = 2;
-/** How near the right edge the pointer keeps the thumb up, so it can be grabbed. */
-const EDGE = 16;
+const INSET = 1;
+/** The thumb's width at rest; it widens toward the content under the pointer. */
+const WIDTH = 4;
+/** How near the right edge the pointer shows the thumb. */
+const EDGE = 8;
+
+/** Where the thumb was last put, in the window's coordinates, and what its travel stands for. */
+interface Bar {
+  left: number;
+  top: number;
+  size: number;
+  span: number;
+  track: number;
+}
 
 /** Lay an overlay thumb over `el`'s scrolling, the document's when `el` is its root. Returns what takes it off again. */
 export function overlayScroll(el: HTMLElement): () => void {
@@ -27,50 +41,73 @@ export function overlayScroll(el: HTMLElement): () => void {
   if (!win) return () => undefined;
   const root = el === doc.documentElement;
   const thumb = doc.createElement("div");
-  thumb.className = "kos-thumb";
+  thumb.className = root ? "kos-thumb kos-thumb--fixed" : "kos-thumb";
   thumb.setAttribute("aria-hidden", "true");
-  doc.body.append(thumb);
+  thumb.style.width = `${WIDTH}px`;
+  if (root) doc.body.append(thumb);
+  else el.after(thumb);
   el.classList.add("kos-scroll");
 
   let fade: ReturnType<typeof setTimeout> | undefined;
+  let shown = false;
   let near = false;
   let over = false;
   let drag: { y: number; top: number; ratio: number } | undefined;
+  let bar: Bar | undefined;
 
+  /** The element's scrolling box in the window's coordinates. */
   const box = (): { top: number; right: number } => {
     if (root) return { top: 0, right: el.clientWidth || win.innerWidth };
     const r = el.getBoundingClientRect();
     return { top: r.top + el.clientTop, right: r.left + el.clientLeft + el.clientWidth };
   };
-  /** Where the thumb is and how long, from the element's scrolling now; none when nothing overflows. */
-  const place = (): { size: number; span: number; track: number } | undefined => {
+  /** Where the thumb's own coordinates start, in the window's: its containing block's padding box, else the document. */
+  const origin = (): { x: number; y: number } => {
+    if (root) return { x: 0, y: 0 };
+    const cb = thumb.offsetParent;
+    if (!(cb instanceof win.HTMLElement) || (cb === doc.body && win.getComputedStyle(cb).position === "static")) return { x: -win.scrollX, y: -win.scrollY };
+    const r = cb.getBoundingClientRect();
+    return { x: r.left + cb.clientLeft - cb.scrollLeft, y: r.top + cb.clientTop - cb.scrollTop };
+  };
+  /** Put the thumb where the element's scrolling says; none when nothing overflows. */
+  const place = (): Bar | undefined => {
     const span = el.scrollHeight - el.clientHeight;
     const track = el.clientHeight - 2 * INSET;
     if (span < 1 || track <= MIN_THUMB) {
       thumb.dataset.none = "";
-      delete thumb.dataset.shown;
+      bar = undefined;
       return undefined;
     }
     delete thumb.dataset.none;
     const size = Math.max(MIN_THUMB, Math.round((track * el.clientHeight) / el.scrollHeight));
     const at = ((track - size) * Math.min(span, Math.max(0, el.scrollTop))) / span;
     const { top, right } = box();
+    const o = origin();
+    bar = { left: right - INSET - WIDTH, top: Math.round(top + INSET + at), size, span, track };
     thumb.style.height = `${size}px`;
-    thumb.style.top = `${Math.round(top + INSET + at)}px`;
-    thumb.style.left = `${Math.round(right - INSET - thumb.offsetWidth)}px`;
-    return { size, span, track };
+    thumb.style.top = `${bar.top - o.y}px`;
+    thumb.style.left = `${bar.left - o.x}px`;
+    return bar;
+  };
+  const hide = (): void => {
+    shown = false;
+    delete thumb.dataset.shown;
+    delete thumb.dataset.grab;
   };
   const hideLater = (): void => {
     clearTimeout(fade);
     fade = setTimeout(() => {
-      if (!near && !over && !drag) delete thumb.dataset.shown;
+      if (!near && !over && !drag) hide();
     }, FADE_MS);
   };
   const show = (): void => {
-    if (!place()) return;
+    if (!place()) return hide();
+    shown = true;
     thumb.dataset.shown = "";
     hideLater();
   };
+  /** Whether a point is on the thumb as drawn: never the content's pixels beside it. */
+  const onBar = (x: number, y: number): boolean => !!bar && x >= bar.left && x <= bar.left + WIDTH + INSET && y >= bar.top && y <= bar.top + bar.size;
 
   const target: HTMLElement | Window = root ? win : el;
   const onScroll = (): void => show();
@@ -81,23 +118,27 @@ export function overlayScroll(el: HTMLElement): () => void {
     near = e.clientX >= edge - EDGE && e.clientX <= edge;
     if (near && !was) show();
     else if (was && !near) hideLater();
+    // Near the edge only shows it; the thumb takes presses once the pointer is on it.
+    if (shown && onBar(e.clientX, e.clientY)) thumb.dataset.grab = "";
   };
   const onLeave = (): void => {
     near = false;
     hideLater();
   };
-  // An ancestor's scroll or the window's size moves the element, and the thumb with it.
-  const onMoved = (): void => void (thumb.dataset.shown !== undefined && place());
+  // A scroll of an ancestor, or the window's size, can move the element apart from where the thumb was put.
+  const onMoved = (e: Event): void => {
+    if (shown && e.target !== el) place();
+  };
   const onThumbEnter = (): void => void (over = true);
   const onThumbLeave = (): void => {
     over = false;
+    if (!drag) delete thumb.dataset.grab;
     hideLater();
   };
   const onDown = (e: PointerEvent): void => {
-    const at = place();
-    if (!at || e.button !== 0) return;
+    if (!bar || e.button !== 0) return;
     e.preventDefault();
-    drag = { y: e.clientY, top: el.scrollTop, ratio: at.span / Math.max(1, at.track - at.size) };
+    drag = { y: e.clientY, top: el.scrollTop, ratio: bar.span / Math.max(1, bar.track - bar.size) };
     thumb.dataset.dragging = "";
     thumb.setPointerCapture?.(e.pointerId);
   };
@@ -108,6 +149,7 @@ export function overlayScroll(el: HTMLElement): () => void {
     if (!drag) return;
     drag = undefined;
     delete thumb.dataset.dragging;
+    if (!over) delete thumb.dataset.grab;
     if (thumb.hasPointerCapture?.(e.pointerId)) thumb.releasePointerCapture(e.pointerId);
     hideLater();
   };
@@ -126,7 +168,10 @@ export function overlayScroll(el: HTMLElement): () => void {
   thumb.addEventListener("pointercancel", onUp);
 
   // The content growing or shrinking changes the thumb's length: the element, and each child as children come and go.
-  const sized = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(() => void place());
+  // A hidden thumb is not put anywhere; it is put right when it next shows.
+  const sized = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(() => {
+        if (shown && !place()) hide();
+      });
   const watch = (): void => {
     if (!sized) return;
     sized.disconnect();
@@ -136,7 +181,6 @@ export function overlayScroll(el: HTMLElement): () => void {
   const children = typeof MutationObserver === "undefined" ? undefined : new MutationObserver(watch);
   watch();
   children?.observe(el, { childList: true });
-  place();
 
   return () => {
     clearTimeout(fade);
