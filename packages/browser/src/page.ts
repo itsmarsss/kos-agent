@@ -66,9 +66,10 @@ export interface PageOptions {
   /**
    * Waited on before each call and each step: while the owner has taken the
    * tab, the agent's hands wait for them to let go. True when it waited, so
-   * the agent is told the page may have changed under it.
+   * the agent is told the page may have changed under it. Once `signal`
+   * aborts, the wait is dropped.
    */
-  gate?: () => Promise<boolean>;
+  gate?: (signal?: AbortSignal) => Promise<boolean>;
 }
 /** After an action: how long a navigation it started may take. */
 const SETTLE_NAV_MS = 10_000;
@@ -261,7 +262,7 @@ export class Page {
 
   private readonly limits: PageLimits;
   private readonly now: () => number;
-  private readonly gate: () => Promise<boolean>;
+  private readonly gate: (signal?: AbortSignal) => Promise<boolean>;
 
   constructor(
     private readonly session: Session,
@@ -294,7 +295,7 @@ export class Page {
 
   /** While the owner has the tab, nothing; once they let go, a word that the page may have changed. A Stop ends the wait. */
   private async waitForOwner(stop = this.stop): Promise<void> {
-    if (await this.guard(this.gate(), stop)) this.heard.push("The owner had this tab and has let go; what is on it may have changed, so look before acting on it.");
+    if (await this.guard(this.gate(stop), stop)) this.heard.push("The owner had this tab and has let go; what is on it may have changed, so look before acting on it.");
   }
 
   /** An event from the tab's session. */

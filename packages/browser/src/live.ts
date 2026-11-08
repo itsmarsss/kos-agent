@@ -385,7 +385,7 @@ export class BrowserLive {
       // The session is looked up at each call, so a tab re-attached after a detach is still reached.
       page = new Page(
         { send: async (method, params, timeoutMs) => this.cdp.send(method, params, await this.sessionFor(tab), timeoutMs) },
-        { now: this.now, ...(this.options.pageLimits ? { limits: this.options.pageLimits } : {}), gate: () => this.whileHeld(tab) },
+        { now: this.now, ...(this.options.pageLimits ? { limits: this.options.pageLimits } : {}), gate: (signal) => this.whileHeld(tab, signal) },
       );
       this.pages.set(tab, page);
     }
@@ -437,24 +437,33 @@ export class BrowserLive {
   /**
    * Until the owner lets go of a tab: at once when they have not taken it.
    * True when it waited. One that waits longer than an agent should is told
-   * the owner still has it.
+   * the owner still has it; one stopped stops waiting, and the tab no longer
+   * shows it waiting.
    */
-  private async whileHeld(tab: string): Promise<boolean> {
-    if (!this.held.has(tab)) return false;
+  private async whileHeld(tab: string, signal?: AbortSignal): Promise<boolean> {
+    if (!this.held.has(tab) || signal?.aborted) return false;
     const waiting = this.waiters.get(tab) ?? new Set<() => void>();
     this.waiters.set(tab, waiting);
     let wake: () => void = () => undefined;
-    const freed = await new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => resolve(false), this.options.holdWaitMs ?? HOLD_WAIT_MS);
-      wake = () => {
+    const ended = await new Promise<"freed" | "late" | "stopped">((resolve) => {
+      const done = (how: "freed" | "late" | "stopped"): void => {
         clearTimeout(timer);
-        resolve(true);
+        signal?.removeEventListener("abort", stopped);
+        resolve(how);
       };
+      const stopped = (): void => done("stopped");
+      const timer = setTimeout(() => done("late"), this.options.holdWaitMs ?? HOLD_WAIT_MS);
+      signal?.addEventListener("abort", stopped, { once: true });
+      wake = () => done("freed");
       waiting.add(wake);
       this.emitTabs();
     });
     waiting.delete(wake);
-    if (!freed) {
+    if (ended === "stopped") {
+      this.emitTabs();
+      return false;
+    }
+    if (ended === "late") {
       this.emitTabs();
       throw new Error("the owner has taken this tab and has not let go; tell them what you were doing, or try again later");
     }
