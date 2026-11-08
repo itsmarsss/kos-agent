@@ -12,7 +12,7 @@
 
 import { DOC_EDIT_MAX } from "@kos/shared";
 
-import { docEditOf } from "./markup.js";
+import { docEditOf, EditRefusal } from "./markup.js";
 
 const OPEN = /<article\b[^>]*\sdata-doc\b[^>]*>/i;
 const TAG = /<(\/?)article\b[^>]*>/gi;
@@ -29,6 +29,24 @@ function docRegion(html: string): { start: number; end: number } | undefined {
     if (depth === 0) return { start, end: m.index };
   }
   return undefined;
+}
+
+/**
+ * Why the owner could not save this doc's text back once edited, or
+ * undefined when they could: the agent's write is held to what an edit is,
+ * so a doc it writes is one the editor can save. A locked article
+ * (data-locked) is not edited in place, so it is not held to it.
+ */
+export function unsavableDocText(html: string): string | undefined {
+  const region = docRegion(html);
+  if (!region || /\sdata-locked\b/i.test(OPEN.exec(html)?.[0] ?? "")) return undefined;
+  try {
+    docEditOf(html.slice(region.start, region.end));
+    return undefined;
+  } catch (err) {
+    if (err instanceof EditRefusal) return err.message;
+    throw err;
+  }
 }
 
 /** The document with its doc's text replaced by the owner's edit, as parsed and checked (markup.ts). */

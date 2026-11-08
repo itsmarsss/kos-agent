@@ -9,6 +9,7 @@ import { ProjectManifest } from "./manifest.js";
 import { Migrator } from "./migrate.js";
 import { DOC_EDIT_MAX, type ArtifactEdit } from "@kos/shared";
 
+import { GUIDE_PARTS } from "./artifactguide.js";
 import { EDIT_GAP_MS, EditConflict, PageStore } from "./pages.js";
 import { runDisplayQuery } from "./display.js";
 import type { LoadedPage, PageRecord } from "./pages.js";
@@ -575,13 +576,40 @@ describe("PageStore HTML pages", () => {
     });
 
     it("keeps the owner's edit to a doc as a version, changing only the article's text", () => {
-      pages.writeHtml("budget", { id: "brief", kind: "doc", title: "Brief", html: doc("<p>Before</p><aside class=\"callout\"><article>nested</article></aside>") });
+      pages.writeHtml("budget", { id: "brief", kind: "doc", title: "Brief", html: doc("<p>Before</p><aside class=\"callout\"><p>aside</p></aside>") });
       edit("brief", { doc: "<h1>Plan</h1><p>After, <em>edited</em></p>" });
       const got = pages.get("brief");
       expect(got?.kind === "html" && got.page.html).toBe("<style>h1{color:var(--text)}</style><article data-doc><h1>Plan</h1><p>After, <em>edited</em></p></article><script>kos.theme</script>");
       expect(pages.history("brief")).toHaveLength(2);
       pages.rollback("brief", 1);
       expect(pages.get("brief")?.kind === "html" && (pages.get("brief") as { page: { html: string } }).page.html).toContain("Before");
+    });
+
+    it("refuses at write a doc whose text the owner could not save back, and saves an edit to one it takes", () => {
+      // What the editor would refuse on the owner's first save is refused to the agent now, saying what to change.
+      const escaped = () => pages.writeHtml("budget", { id: "esc", kind: "doc", title: "Esc", html: doc('<p style="color:\\72 ed">x</p>') });
+      expect(escaped).toThrow(/the text inside <article data-doc> is what the owner edits.*a style that loads or runs something/);
+      const offList = () => pages.writeHtml("budget", { id: "off", kind: "doc", title: "Off", html: doc("<p>x</p><marquee>hi</marquee>") });
+      expect(offList).toThrow(/<marquee>, which a doc is not made of.*put scripts, styles and anything else outside it/);
+      expect(pages.get("esc")).toBeUndefined();
+      expect(pages.get("off")).toBeUndefined();
+      // A locked doc is not edited in place, so it is not held to an edit.
+      pages.writeHtml("budget", { id: "locked", kind: "doc", title: "Locked", html: "<article data-doc data-locked><marquee>hi</marquee></article>" });
+      // The guide's own shapes, a chart drawn on a canvas by a script after the article, and the runtime's classes.
+      const body =
+        '<header><p class="kicker">Brief</p><p class="lede">The point.</p><p class="byline">For ops</p></header><h2>Why</h2><p>Text<span class="fn">A source.</span>.</p>' +
+          '<figure class="doc-wide"><svg viewBox="0 0 10 10"><rect width="4" height="8" fill="url(#g)"/></svg><figcaption>Bookings</figcaption></figure>' +
+          '<figure><canvas id="trend" width="320" height="120"></canvas><figcaption>Trend</figcaption></figure>' +
+          '<blockquote class="pull">Said<cite>Ana</cite></blockquote><aside class="callout warn"><p>Risk</p></aside><table><tr><th class="num">n</th></tr><tr><td class="num">3</td></tr></table>';
+      pages.writeHtml("budget", { id: "brief", kind: "doc", title: "Brief", html: doc(body) });
+      // The guide's own example, as an agent would copy it.
+      const example = /^ {4}<article data-doc>[\s\S]*?^ {4}<\/article>/m.exec(GUIDE_PARTS.doc)?.[0];
+      expect(example).toBeDefined();
+      pages.writeHtml("budget", { id: "example", kind: "doc", title: "Example", html: example! });
+      // And the owner can then edit it, all of it as it was written, and save.
+      edit("brief", { doc: `<h1>Plan</h1>${body}<p>Edited</p>` });
+      expect(pages.get("brief")?.kind === "html" && (pages.get("brief") as { page: { html: string } }).page.html).toContain("<p>Edited</p>");
+      expect(pages.history("brief")).toHaveLength(2);
     });
 
     it("refuses an edit that carries code, or that does not fit the kind", () => {

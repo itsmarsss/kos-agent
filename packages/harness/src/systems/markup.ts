@@ -109,6 +109,8 @@ const DOC_TAGS = new Set([
   "h4", "h5", "h6", "header", "hgroup", "hr", "i", "img", "ins", "kbd", "li", "mark", "nav", "ol", "p", "picture",
   "pre", "q", "s", "samp", "section", "small", "span", "strong", "sub", "summary", "sup", "table", "tbody", "td",
   "tfoot", "th", "thead", "time", "tr", "u", "ul", "var", "wbr",
+  // A figure's chart drawn by a script outside the article: the canvas itself is inert.
+  "canvas",
   // A figure's chart, drawn as SVG.
   "svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "text", "tspan", "title", "desc",
   "defs", "lineargradient", "radialgradient", "stop", "clippath", "mask", "pattern", "symbol", "use", "marker",
@@ -131,6 +133,7 @@ const ATTRS: Record<string, Set<string>> = {
   del: new Set(["cite", "datetime"]),
   ins: new Set(["cite", "datetime"]),
   details: new Set(["open"]),
+  canvas: new Set(["width", "height"]),
   use: new Set(["href", "xlink:href"]),
 };
 /** An SVG drawing's presentation, on any SVG element. */

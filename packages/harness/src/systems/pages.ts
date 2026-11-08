@@ -22,7 +22,7 @@ import type { Db } from "../store/db.js";
 import { foldedPath, type Workspace } from "../store/workspace.js";
 import { projectTable } from "./identifiers.js";
 import type { ProjectManifest } from "./manifest.js";
-import { withDocText } from "./artifactedit.js";
+import { unsavableDocText, withDocText } from "./artifactedit.js";
 import { BlobIds } from "./blobids.js";
 import { markupExits } from "./markup.js";
 import { BridgeRefusal, tablesRead } from "./pagebridge.js";
@@ -426,6 +426,9 @@ export class PageStore {
     // The exits again, from the document as the browser parses it: a pattern misses one behind an entity or a quoted >.
     const exits = errors.length === 0 ? markupExits((input as HtmlPage).html) : [];
     if (exits.length) errors.push(`a page cannot leave its frame, so it may not hold ${exits.join("; ")}; keep everything on the page and reach data through window.kos`);
+    // A doc's article is what the owner edits, and the editor saves only what a doc is made of: held to that now, not on their first save.
+    const unsavable = errors.length === 0 && (input as HtmlPage).kind === "doc" ? unsavableDocText((input as HtmlPage).html) : undefined;
+    if (unsavable) errors.push(`the text inside <article data-doc> is what the owner edits, and the editor could not save it back: ${unsavable}. Keep the article to text, headings, lists, tables, figures and SVG with plain styles; put scripts, styles and anything else outside it, or add data-locked to the article if it is not to be edited`);
     if (errors.length > 0) throw new Error(`invalid artifact: ${errors.join("; ")}`);
     const page = input as HtmlPage;
     if (projectSlug === null) {
