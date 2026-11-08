@@ -23,7 +23,7 @@ hands `@kos/browser` drives its own Chrome with.
    extension asks you in a window of its own, and while the session lasts
    that chat's browser tools work in your Chrome. A session your own turn
    started belongs to the chat and lasts until its time, the idle limit,
-   `chrome.end`, you leaving the chat (switching the panel or closing it) or
+   `chrome.end`, you switching the panel to another chat, disconnect, or
    the kill switch; one other work started (a schedule, a dispatch) ends with
    its turn unless `keep`.
 
@@ -234,7 +234,6 @@ Events, besides `session.paused`, `session.resumed` and `session.ended`
 | `chat.decide` | `approval`, `approved` |
 | `chat.list` | `{}`: asks for `chat.chats` |
 | `chat.switch` | `conversation`: the panel continues that chat, and is shown it; a session the chat it left holds ends |
-| `chat.close` | `conversation`: the last panel showing that chat closed; a session the chat holds in this Chrome ends |
 | `chat.models` | `{}`: asks for `chat.models` |
 | `chat.model` | `model`: KOS answers with it from now on, as the dashboard's picker sets it |
 | `chat.mentions` | `q`, `kind?`: asks what an @ can name |

@@ -252,8 +252,8 @@ in its menu): the side panel's chat, on the Mac. It takes the side panel's
 calls but `page.read` (`chat.show`, `chat.status`, `chat.ask`,
 `chat.settled`, `chat.chats`, `chat.models`) and sends its events
 (`chat.open`, `chat.send`, `chat.decide`, `chat.list`, `chat.switch`,
-`chat.models`, `chat.model`, `chat.auto`, and `chat.close` as the window
-closes, which ends a session its chat holds on that Mac). Its chats are the `mac`
+`chat.models`, `chat.model`, and `chat.auto`). Hiding the window leaves a
+session its chat holds running, so KOS can work the screen. Its chats are the `mac`
 surface's, as the panel's are `chrome`'s, and a Chrome's words never reach
 it nor the other way round.
 

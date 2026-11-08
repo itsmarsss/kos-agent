@@ -49,10 +49,9 @@ final class ChatController {
     if isOpen { close() } else { open() }
   }
 
-  /// The window put away: KOS hears the owner left the chat, so a session it holds on this Mac ends.
+  /// The window put away: a session its chat holds goes on, so KOS can work the screen behind it.
   private func close() {
     window.orderOut(nil)
-    tell(.close)
   }
 
   func open() {

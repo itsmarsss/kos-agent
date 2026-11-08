@@ -123,7 +123,7 @@ export class DevicePanel implements ChannelAdapter {
   private running: Running | undefined;
   /** The chat last shown on the devices, to hear the owner leave it. */
   private shownChat: string | undefined;
-  /** Told the chat the owner left on a device: switched the panel to another, or closed it. */
+  /** Told the chat the owner left on a device: switched the panel to another. Closing or hiding it is not leaving. */
   private leaving: ((conversation: string) => void) | undefined;
 
   constructor(
@@ -376,13 +376,6 @@ export class DevicePanel implements ChannelAdapter {
           this.deps.setAuto?.(chat.id, data["on"]);
           void this.show(undefined);
         }
-        return;
-      }
-      case "chat.close": {
-        // The panel or window closed on its chat: the owner left it there.
-        const chat = typeof data["conversation"] === "string" ? data["conversation"] : this.deps.current()?.id;
-        if (chat) this.leaving?.(chat);
-        if (chat === this.shownChat) this.shownChat = undefined;
         return;
       }
       case "chat.list":

@@ -101,7 +101,7 @@ interface DeviceAction {
 export interface ComputerModule extends KosModule {
   /** A session in the Chrome whose side panel this chat is, started unasked by the chat's first browser call. */
   beginPanelChrome(conversation: string, signal?: AbortSignal): Promise<void>;
-  /** The owner left a chat on a device of this kind (switched the panel away, or closed it): its session there ends. */
+  /** The owner left a chat on a device of this kind (switched the panel to another chat): its session there ends. */
   left(conversation: string, kind: "computer" | "browser"): void;
 }
 

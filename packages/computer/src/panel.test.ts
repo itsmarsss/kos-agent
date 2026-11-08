@@ -352,7 +352,7 @@ describe("a Chrome's side panel", () => {
     expect(chrome.calls.at(-1)).toMatchObject({ method: "chat.show", params: { conversation: "cm1:owner", title: "Trip plan" } });
   });
 
-  it("hears the owner leave a chat: switching the panel to another, or closing it", async () => {
+  it("hears the owner leave a chat by switching, not by closing the panel", async () => {
     const { pair, setChat, panel } = setup();
     const chrome = pair();
     const left: string[] = [];
@@ -365,7 +365,7 @@ describe("a Chrome's side panel", () => {
     expect(left).toEqual(["chrome:owner"]);
     chrome.event("chat.close", { conversation: "cm1:owner" });
     await flush();
-    expect(left).toEqual(["chrome:owner", "cm1:owner"]);
+    expect(left).toEqual(["chrome:owner"]);
   });
 
   it("says which model answers, changes it, and says when it cannot", async () => {
