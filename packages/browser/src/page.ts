@@ -641,13 +641,23 @@ export class Page {
     }
   }
 
-  /** A frame's world of KOS's own, made once for each document it holds. */
+  /**
+   * A frame's world of KOS's own, made once for each document it holds.
+   * Undefined where the browser will not make one (a KOS for Chrome from
+   * before there was one), which is kept; any other failure, a Stop among
+   * them, is not, so the next call asks again.
+   */
   private world(frame: string): Promise<number | undefined> {
     let made = this.worlds.get(frame);
     if (!made) {
       made = this.send("Page.createIsolatedWorld", { frameId: frame, worldName: WORLD }).then(
         (r) => (typeof r["executionContextId"] === "number" ? r["executionContextId"] : undefined),
-        () => undefined,
+        (err: unknown) => {
+          if ((err as { code?: unknown }).code === "method") return undefined;
+          if (this.worlds.get(frame) === made) this.worlds.delete(frame);
+          if (err instanceof Stopped) throw err;
+          return undefined;
+        },
       );
       this.worlds.set(frame, made);
     }
