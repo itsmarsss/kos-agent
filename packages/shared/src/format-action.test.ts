@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   detailLines,
   formatApprovalPrompt,
+  stepActions,
   stepMechanics,
   summarizeAction,
 } from "./format-action.js";
@@ -106,6 +107,25 @@ describe("computer steps", () => {
     const long = { actions: ["a", "b", "c", "d", "e", "f"].map((text) => ({ action: "type", text })) };
     expect(summarizeAction("computer.act", long)).toBe("Type “a”, type “b”, type “c” and 3 more");
     expect(stepMechanics("computer.act", { ...long, intent: "fill the form" })).toBe("Type “a”, type “b”, type “c”, type “d”, type “e”, type “f”");
+  });
+
+  it("fold only the same action repeated", () => {
+    // Two clicks read alike in words; they land in two places, so they are two clicks.
+    const clicks = { actions: [{ action: "left_click", coordinate: [10, 20] }, { action: "left_click", coordinate: [300, 400] }] };
+    expect(summarizeAction("computer.act", clicks)).toBe("Click, click");
+    expect(summarizeAction("browser.act", { steps: [{ click: "@e1" }, { click: "@e2" }] })).toBe("Click, click");
+    expect(summarizeAction("browser.act", { steps: [{ click: "@e1" }, { click: "@e1" }] })).toBe("Click ×2");
+    // Two fills that read the same once cut are still two different fills.
+    const prefix = "p".repeat(200);
+    const fills = { steps: [{ fill: { target: "@e1", text: `${prefix}one` } }, { fill: { target: "@e1", text: `${prefix}two` } }] };
+    expect(summarizeAction("browser.act", fills)).not.toMatch(/×/);
+    expect(summarizeAction("computer.act", { actions: [{ text: "Tab", action: "key" }, { action: "key", text: "Tab" }] })).toBe("Press Tab ×2");
+  });
+
+  it("never fold the mechanics an approval shows", () => {
+    const tabs = { intent: "move to the field", actions: [{ action: "key", text: "Tab" }, { action: "key", text: "Tab" }] };
+    expect(stepMechanics("computer.act", tabs)).toBe("Press Tab, press Tab");
+    expect(stepActions("computer.act", tabs)).toEqual(["Press Tab", "Press Tab"]);
   });
 
   it("lead with the intent, the mechanics in parentheses only when short", () => {

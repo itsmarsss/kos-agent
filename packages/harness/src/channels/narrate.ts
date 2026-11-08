@@ -98,8 +98,9 @@ const STEP_LINE_MAX = 160;
 export function shortStory(story: string, keep = KEEP_STEPS): string {
   const cut = story.startsWith("…");
   const lines: { text: string; times: number }[] = [];
-  for (const raw of (cut ? story.slice(1) : story).split("\n")) {
-    const line = raw.startsWith(STEP_MARK) && raw.length > STEP_LINE_MAX ? `${raw.slice(0, STEP_LINE_MAX - 1)}…` : raw;
+  for (const line of (cut ? story.slice(1) : story).split("\n")) {
+    // Folded on the whole line, before any of it is cut: two fills that
+    // share their first hundred and sixty characters are two fills.
     const last = lines[lines.length - 1];
     if (last && line.startsWith(STEP_MARK) && last.text === line) last.times += 1;
     else lines.push({ text: line, times: 1 });
@@ -107,7 +108,10 @@ export function shortStory(story: string, keep = KEEP_STEPS): string {
   const steps = lines.filter((l) => l.text.startsWith(STEP_MARK));
   const first = steps.length > keep ? lines.indexOf(steps[steps.length - keep]!) : 0;
   const earlier = lines.slice(0, first).reduce((n, l) => n + (l.text.startsWith(STEP_MARK) ? l.times : 0), 0);
-  const shown = lines.slice(first).map((l) => (l.times > 1 ? `${l.text} ×${l.times}` : l.text));
+  const shown = lines.slice(first).map((l) => {
+    const text = l.text.startsWith(STEP_MARK) && l.text.length > STEP_LINE_MAX ? `${l.text.slice(0, STEP_LINE_MAX - 1)}…` : l.text;
+    return l.times > 1 ? `${text} ×${l.times}` : text;
+  });
   if (!earlier && !cut) return shown.join("\n");
   const count = earlier ? `${earlier}${cut ? "+" : ""} earlier step${earlier === 1 && !cut ? "" : "s"}` : "Earlier steps";
   return [`${STEP_MARK}${count}`, ...shown].join("\n");

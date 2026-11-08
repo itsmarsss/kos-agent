@@ -83,17 +83,35 @@ const upperFirst = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1)
 /** A name the formatter does not know, as words: "hold_key" is "Hold key". */
 const itself = (name: string): string => upperFirst(name.replace(/_/g, " ").trim());
 
+/** One action of a step: the words it reads as, and the action as the model wrote it. */
+interface Part {
+  words: string;
+  raw: unknown;
+}
+
+/** The same value, whatever order its keys were written in. */
+function same(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object" || Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  return ka.length === kb.length && ka.every((k) => same((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+}
+
 /**
  * The parts of one step as a line: repeats folded ("press Tab ×3"), the
- * first few said and the rest counted, so a long run stays readable.
+ * first few said and the rest counted, so a long run stays readable. Only
+ * the same action repeated folds: two clicks that read alike but land in
+ * different places are two clicks.
  */
-function joinParts(parts: string[], cap = MAX_PARTS): string {
+function joinParts(parts: Part[], cap = MAX_PARTS): string {
   const folded: string[] = [];
   let run = 0;
   for (const [i, part] of parts.entries()) {
     run += 1;
-    if (parts[i + 1] === part) continue;
-    folded.push(run > 1 ? `${part} ×${run}` : part);
+    const next = parts[i + 1];
+    if (next && same(next.raw, part.raw)) continue;
+    folded.push(run > 1 ? `${part.words} ×${run}` : part.words);
     run = 0;
   }
   const said = folded.length > cap ? folded.slice(0, cap - 1) : folded;
@@ -107,11 +125,11 @@ function joinParts(parts: string[], cap = MAX_PARTS): string {
  * short action follows in parentheses; anything more is the step's detail,
  * for a surface that shows one.
  */
-function withIntent(intent: unknown, parts: string[]): string {
+function withIntent(intent: unknown, parts: Part[]): string {
   const purpose = typeof intent === "string" ? intent.replace(/\s+/g, " ").trim().replace(/\.$/, "") : "";
   if (!purpose) return joinParts(parts);
   const head = upperFirst(truncate(purpose, 80));
-  const only = parts.length === 1 ? parts[0]! : "";
+  const only = parts.length === 1 ? parts[0]!.words : "";
   return only && only.length <= SHORT_MECHANICS ? `${head} (${lowerFirst(only)})` : head;
 }
 
@@ -145,10 +163,10 @@ function computerAction(a: Record<string, unknown>): string {
 }
 
 /** The actions of one computer.act call, one or a batch, each in words. */
-function computerParts(a: Record<string, unknown>): string[] {
-  if (!Array.isArray(a.actions)) return [computerAction(a)];
-  const parts = a.actions.map((item) => computerAction(item && typeof item === "object" ? (item as Record<string, unknown>) : {}));
-  return parts.length ? parts : ["Use the computer"];
+function computerParts(a: Record<string, unknown>): Part[] {
+  if (!Array.isArray(a.actions)) return [{ words: computerAction(a), raw: a }];
+  const parts = a.actions.map((item) => ({ words: computerAction(item && typeof item === "object" ? (item as Record<string, unknown>) : {}), raw: item as unknown }));
+  return parts.length ? parts : [{ words: "Use the computer", raw: null }];
 }
 
 /** A computer step as what it does on the screen; a device id names nothing the owner knows, so it is left out. */
@@ -219,23 +237,30 @@ function browserStep(s: Record<string, unknown>): string {
 }
 
 /** The steps of one browser.act call, each in words. */
-function browserParts(a: Record<string, unknown>): string[] {
+function browserParts(a: Record<string, unknown>): Part[] {
   const steps = Array.isArray(a.steps) ? a.steps : [];
-  const parts = steps.map((s) => browserStep(s && typeof s === "object" ? (s as Record<string, unknown>) : {}));
-  return parts.length ? parts : ["Act on the page"];
+  const parts = steps.map((s) => ({ words: browserStep(s && typeof s === "object" ? (s as Record<string, unknown>) : {}), raw: s as unknown }));
+  return parts.length ? parts : [{ words: "Act on the page", raw: null }];
 }
 
 /**
  * How a step does what its line says, when the line says what it is for
  * instead: every action of a computer.act or browser.act that carries an
- * intent, uncapped. Undefined where the line already is the mechanics.
+ * intent, in order, none folded and none left out, since an approval is
+ * given for these and not for the model's account of them. Undefined where
+ * the line already is the mechanics.
  */
-export function stepMechanics(tool: string, args: string | Record<string, unknown>): string | undefined {
+export function stepActions(tool: string, args: string | Record<string, unknown>): string[] | undefined {
   const a = parseArgs(args);
   if (typeof a.intent !== "string" || !a.intent.trim()) return undefined;
-  if (tool === "computer.act") return joinParts(computerParts(a), Infinity);
-  if (tool === "browser.act") return joinParts(browserParts(a), Infinity);
+  if (tool === "computer.act") return computerParts(a).map((p) => p.words);
+  if (tool === "browser.act") return browserParts(a).map((p) => p.words);
   return undefined;
+}
+
+/** stepActions as one line. */
+export function stepMechanics(tool: string, args: string | Record<string, unknown>): string | undefined {
+  return stepActions(tool, args)?.map((w, i) => (i === 0 ? w : lowerFirst(w))).join(", ");
 }
 
 /** One-line summary for a tool + args, with names for the ids the caller can name. */

@@ -61,6 +61,14 @@ describe("a short story", () => {
     expect(shortStory("› Look\nStill loading.\n› Look")).toBe("› Look\nStill loading.\n› Look");
   });
 
+  it("folds only steps that are the same whole line", () => {
+    const fill = (end: string): string => `› Fill in “${"p".repeat(200)}${end}”`;
+    const told = shortStory(`${fill("one")}\n${fill("two")}`).split("\n");
+    expect(told).toHaveLength(2);
+    expect(told.every((l) => !l.includes("×"))).toBe(true);
+    expect(shortStory(`${fill("one")}\n${fill("one")}`)).toBe(`${fill("one").slice(0, 159)}… ×2`);
+  });
+
   it("keeps the last steps under a line counting the rest", () => {
     expect(shortStory(steps(8))).toBe(steps(8));
     const told = shortStory(`I'll start.\n${steps(30)}\nAlmost there.`).split("\n");
