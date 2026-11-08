@@ -48,10 +48,13 @@ function jpegSize(base64: string): { width: number; height: number } {
 class Devtools {
   private id = 0;
   private readonly waiting = new Map<number, (m: Record<string, unknown>) => void>();
+  /** Events heard, in order, each with the session it came on. */
+  readonly heard: { method: string; params: Record<string, unknown>; sessionId?: string }[] = [];
   private constructor(private readonly ws: globalThis.WebSocket) {
     ws.onmessage = (e) => {
       const m = JSON.parse(String(e.data)) as Record<string, unknown>;
       if (typeof m["id"] === "number") this.waiting.get(m["id"])?.(m);
+      else if (typeof m["method"] === "string") this.heard.push(m as { method: string; params: Record<string, unknown>; sessionId?: string });
     };
   }
   static async open(url: string): Promise<Devtools> {
@@ -152,6 +155,9 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
         return;
       }
       // A page made of frames, as SmartBook is: the overlay must leave every one of them when the session ends.
+      // A link that goes on to another site, one the owner may hide.
+      if (req.url === "/away") return void res.writeHead(302, { location: `${base.replace("127.0.0.1", "localhost")}/secret` }).end();
+      if (req.url === "/link") return void res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Link</title><a href='/away' style='display:block;margin:80px;padding:20px'>Away</a>");
       if (req.url === "/framed") return void res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Framed</title><iframe src='/inner' style='width:400px;height:200px'></iframe>");
       res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Shop</title><button id='buy' style='margin:80px;padding:20px'>Buy</button>");
     });
@@ -294,6 +300,11 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     const title = await cdp("Runtime.evaluate", { expression: "document.title", returnByValue: true });
     expect(title["result"]).toMatchObject({ result: { value: "Shop" } });
     expect((await cdp("Storage.getCookies"))["error"]).toMatchObject({ code: "method" });
+    // No world of the overlay's name for KOS, whose binding speaks for the owner, and none with more reach than the page.
+    const frameId = ((await cdp("Page.getFrameTree"))["result"] as { frameTree: { frame: { id: string } } }).frameTree.frame.id;
+    expect((await cdp("Page.createIsolatedWorld", { frameId, worldName: "kos" }))["error"]).toMatchObject({ code: "method" });
+    expect((await cdp("Page.createIsolatedWorld", { frameId, worldName: "kos-hands", grantUniveralAccess: true }))["error"]).toMatchObject({ code: "method" });
+    expect(await cdp("Page.createIsolatedWorld", { frameId, worldName: "kos-hands" })).toMatchObject({ ok: true, result: { executionContextId: expect.any(Number) } });
     expect((await cdp("Page.navigate", { url: "file:///etc/passwd" }))["error"]).toMatchObject({ code: "url" });
     expect((await call("cdp.send", { session: "s1", tab: "999999", method: "Runtime.evaluate", params: { expression: "1" } }))["error"]).toMatchObject({ code: "tab" });
     // The overlay is on the page, and out of its accessibility tree.
@@ -301,11 +312,78 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     const overlay = await cdp("Runtime.evaluate", { expression: "(() => { const o = document.querySelector('kos-overlay'); return o ? o.getAttribute('aria-hidden') : 'none'; })()", returnByValue: true });
     expect(overlay["result"]).toMatchObject({ result: { value: "true" } });
     expect(await call("tabs.list", { session: "s1" })).toMatchObject({ ok: true, result: { tabs: [{ id: tab, title: "Shop" }] } });
-    // A picture asked for smaller comes back smaller, taken without drawing the page again (which flashed the owner's tab).
+    // A picture asked for smaller comes back that size on its longer side, in one call, taken without drawing the page again (which flashed the owner's tab).
     const metrics = (await cdp("Page.getLayoutMetrics"))["result"] as { cssVisualViewport: { clientWidth: number; clientHeight: number } };
     const { clientWidth: w, clientHeight: h } = metrics.cssVisualViewport;
-    const shot = (await cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, clip: { x: 0, y: 0, width: w, height: h, scale: 0.5 } }))["result"] as { data: string };
-    expect(jpegSize(shot.data)).toEqual({ width: Math.round(w * 0.5), height: Math.round(h * 0.5) });
+    const edge = Math.round(Math.max(w, h) / 2);
+    const shot = (await cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, maxEdge: edge }))["result"] as { data: string };
+    const size = jpegSize(shot.data);
+    expect(Math.max(size.width, size.height)).toBe(edge);
+    expect(size.width / size.height).toBeCloseTo(w / h, 1);
+    // Asked again before the first is in, it is the same picture.
+    const [a, b] = await Promise.all([cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, maxEdge: edge }), cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, maxEdge: edge })]);
+    expect(jpegSize((a["result"] as { data: string }).data)).toEqual(size);
+    expect(jpegSize((b["result"] as { data: string }).data)).toEqual(size);
+    // Several commands in one round trip, each checked as one alone would be: in order up to the first refused, or side by side.
+    const calls = [
+      { method: "Runtime.evaluate", params: { expression: "1 + 1", returnByValue: true } },
+      { method: "Storage.getCookies", params: {} },
+      { method: "Runtime.evaluate", params: { expression: "document.title", returnByValue: true } },
+    ];
+    const inOrder = (await call("cdp.batch", { session: "s1", tab, calls }))["result"] as { results: Record<string, unknown>[] };
+    expect(inOrder.results).toEqual([{ result: { result: { type: "number", value: 2, description: "2" } } }, { error: expect.objectContaining({ code: "method" }) }]);
+    const sideBySide = (await call("cdp.batch", { session: "s1", tab, calls, parallel: true }))["result"] as { results: Record<string, unknown>[] };
+    expect(sideBySide.results).toHaveLength(3);
+    expect(sideBySide.results[2]).toMatchObject({ result: { result: { value: "Shop" } } });
+  }, 30_000);
+
+  it("lets no command reach the overlay's world, by any name for it or an object in it", async () => {
+    const tab = ((await call("tabs.list", { session: "s1" }))["result"] as { tabs: { id: string }[] }).tabs[0]!.id;
+    const cdp = (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> => call("cdp.send", { session: "s1", tab, method, params });
+    // The tab's worlds, as this test's own debugger sees them: the overlay's is the one named as the extension names it.
+    const page = await devtools.attach((u) => u.endsWith("/shop"));
+    await devtools.send("Runtime.enable", {}, page);
+    type Context = { id: number; uniqueId: string; name: string; auxData?: { frameId?: string; isDefault?: boolean } };
+    const contexts = (): Context[] => devtools.heard.filter((m) => m.sessionId === page && m.method === "Runtime.executionContextCreated").map((m) => m.params["context"] as Context);
+    await until(() => contexts().some((c) => c.name === "kos"));
+    const overlay = contexts().find((c) => c.name === "kos")!;
+    expect(overlay).toBeDefined();
+    const refused = { error: expect.objectContaining({ code: "method", message: expect.stringMatching(/overlay/) }) };
+    const handback = `function () { kosOverlay(JSON.stringify({ kind: "handback" })); return 1; }`;
+    // A node resolved into the overlay's world, which a function called on it would run in, is not made.
+    const body = ((await cdp("Runtime.evaluate", { expression: "document.body" }))["result"] as { result: { objectId: string } }).result.objectId;
+    const node = ((await cdp("DOM.describeNode", { objectId: body }))["result"] as { node: { backendNodeId: number } }).node.backendNodeId;
+    expect(await cdp("DOM.resolveNode", { backendNodeId: node, executionContextId: overlay.id })).toMatchObject(refused);
+    // One resolved into the hands' world is made, its id naming that world, and a function runs on it.
+    const frameId = ((await cdp("Page.getFrameTree"))["result"] as { frameTree: { frame: { id: string } } }).frameTree.frame.id;
+    const hands = ((await cdp("Page.createIsolatedWorld", { frameId, worldName: "kos-hands" }))["result"] as { executionContextId: number }).executionContextId;
+    const resolved = ((await cdp("DOM.resolveNode", { backendNodeId: node, executionContextId: hands }))["result"] as { object: { objectId: string } }).object.objectId;
+    expect(resolved).toMatch(new RegExp(`^-?\\d+\\.${hands}\\.\\d+$`));
+    expect(await cdp("Runtime.callFunctionOn", { objectId: resolved, functionDeclaration: "function () { return this.tagName; }", returnByValue: true })).toMatchObject({ ok: true, result: { result: { value: "BODY" } } });
+    // An object of the overlay's world, by its id, is not reached: here one this test made there.
+    const theirs = ((await devtools.send("Runtime.evaluate", { expression: "document.body", contextId: overlay.id }, page))["result"] as { objectId: string }).objectId;
+    expect(theirs).toMatch(new RegExp(`^-?\\d+\\.${overlay.id}\\.\\d+$`));
+    expect(await cdp("Runtime.callFunctionOn", { objectId: theirs, functionDeclaration: handback })).toMatchObject(refused);
+    expect(await cdp("Runtime.getProperties", { objectId: theirs })).toMatchObject(refused);
+    // Each name a command may give its world is read alone: a string in one does not let the overlay's id through in another.
+    expect(await cdp("Runtime.callFunctionOn", { functionDeclaration: handback, contextId: "x", executionContextId: overlay.id })).toMatchObject({ error: expect.objectContaining({ code: "method" }) });
+    expect(await cdp("Runtime.callFunctionOn", { functionDeclaration: handback, contextId: 1, executionContextId: overlay.id })).toMatchObject(refused);
+    expect(await cdp("Runtime.evaluate", { expression: `(${handback})()`, uniqueContextId: overlay.uniqueId })).toMatchObject(refused);
+    expect(await cdp("Runtime.callFunctionOn", { functionDeclaration: handback, uniqueContextId: overlay.uniqueId })).toMatchObject(refused);
+    // Only worlds Chrome has said it made, the page's and the hands': one it has not, or one another made (here this test, as an extension would), is refused.
+    const unknown = { error: expect.objectContaining({ code: "method", message: expect.stringMatching(/not one Chrome has said this tab holds/) }) };
+    expect(await cdp("Runtime.evaluate", { expression: "1", contextId: 999_999 })).toMatchObject(unknown);
+    expect(await cdp("Runtime.getProperties", { objectId: "1.999999.1" })).toMatchObject(unknown);
+    const another = ((await devtools.send("Page.createIsolatedWorld", { frameId, worldName: "another" }, page)) as { executionContextId: number }).executionContextId;
+    expect(await cdp("Runtime.evaluate", { expression: "1", contextId: another })).toMatchObject({ error: expect.objectContaining({ code: "method", message: expect.stringMatching(/neither the page's nor KOS's own/) }) });
+    // The page's own world, by its id, and a hands' world used the moment it is made.
+    const main = contexts().find((c) => c.auxData?.isDefault && c.auxData.frameId === frameId)!;
+    expect(await cdp("Runtime.evaluate", { expression: "document.title", contextId: main.id, returnByValue: true })).toMatchObject({ ok: true, result: { result: { value: "Shop" } } });
+    const fresh = ((await cdp("Page.createIsolatedWorld", { frameId, worldName: "kos-hands" }))["result"] as { executionContextId: number }).executionContextId;
+    expect(await cdp("Runtime.evaluate", { expression: "document.title", contextId: fresh, returnByValue: true })).toMatchObject({ ok: true, result: { result: { value: "Shop" } } });
+    await until(() => false, 300);
+    expect(events.some((e) => e.name === "session.resumed" || e.name === "session.ended")).toBe(false);
+    await devtools.send("Target.detachFromTarget", { sessionId: page });
   }, 30_000);
 
   it("knows its own click from the owner's, and the owner's takes the tab over", async () => {
@@ -344,6 +422,135 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     await until(() => events.some((e) => e.name === "session.ended"));
     expect(events.find((e) => e.name === "session.ended")?.data).toMatchObject({ session: "s1", reason: "host" });
     expect((await call("tabs.list", { session: "s1" }))["error"]).toMatchObject({ code: "no_session" });
+  });
+
+  describe("a tab the owner handed, in sessions one after another", () => {
+    let tab = "";
+    let owners = "";
+    const popupSays = (message: Record<string, unknown>): Promise<unknown> => devtools.evaluate(popup, `chrome.runtime.sendMessage(${JSON.stringify(message)})`);
+    const batch = (session: string, calls: { method: string; params?: Record<string, unknown> }[]): Promise<Record<string, unknown>> => call("cdp.batch", { session, tab, calls });
+    const slow = (ms: number): { method: string; params: Record<string, unknown> } => ({ method: "Runtime.evaluate", params: { expression: `new Promise((r) => setTimeout(() => r(1), ${ms}))`, awaitPromise: true, returnByValue: true } });
+    const title = { method: "Runtime.evaluate", params: { expression: "document.title", returnByValue: true } };
+    /** A session KOS may start without asking, as one whose owner left it to its own approvals. */
+    const begin = async (id: string): Promise<void> => {
+      expect(await call("session.begin", { session: id, task: "work in my tab", requester: "Test", minutes: 5 })).toMatchObject({ ok: true, result: { granted: true } });
+    };
+    /** Whether anything but this test has a debugger on the tab: the test's own let go of to ask, and taken up again. */
+    const debugged = async (): Promise<boolean> => {
+      await devtools.send("Target.detachFromTarget", { sessionId: owners });
+      const { targetInfos } = (await devtools.send("Target.getTargets")) as { targetInfos: { url: string; attached: boolean }[] };
+      owners = await devtools.attach((u) => u.endsWith("/mine"));
+      return targetInfos.some((t) => t.url.endsWith("/mine") && t.attached);
+    };
+    const handBack = async (): Promise<void> => {
+      await popupSays({ type: "hand", tab: Number(tab), give: true });
+    };
+
+    beforeAll(async () => {
+      expect(await popupSays({ type: "askFirst", id: "dev_test", on: false })).toMatchObject({ ok: true });
+      await devtools.send("Target.createTarget", { url: `${base}/mine` });
+      owners = await devtools.attach((u) => u.endsWith("/mine"));
+      await devtools.loaded(owners);
+      tab = String(await devtools.evaluate(popup, `chrome.tabs.query({}).then((ts) => ts.find((t) => t.url.endsWith("/mine")).id)`));
+      await handBack();
+    }, 30_000);
+
+    afterAll(async () => {
+      await popupSays({ type: "hand", tab: Number(tab), give: false });
+      await popupSays({ type: "unhide", site: "localhost" });
+      await popupSays({ type: "askFirst", id: "dev_test", on: true });
+      await devtools.evaluate(popup, `chrome.tabs.remove(${tab})`);
+    });
+
+    it("asks Chrome where a tab is once it has let go of it: a hidden site it went to meanwhile stays closed", async () => {
+      await begin("h1");
+      expect(await call("cdp.send", { session: "h1", tab, method: "Runtime.evaluate", params: { expression: "document.title", returnByValue: true } })).toMatchObject({ ok: true });
+      expect(await call("session.end", { session: "h1" })).toMatchObject({ ok: true });
+      // Between sessions, with no debugger on it to hear it, the owner goes to a site they hide.
+      expect(await popupSays({ type: "hide", site: "localhost" })).toMatchObject({ ok: true });
+      await devtools.send("Page.navigate", { url: `${base.replace("127.0.0.1", "localhost")}/secret` }, owners);
+      await devtools.loaded(owners);
+      await begin("h2");
+      expect((await call("cdp.send", { session: "h2", tab, method: "Runtime.evaluate", params: { expression: "document.title", returnByValue: true } }))["error"]).toMatchObject({ code: "hidden_site" });
+      await devtools.send("Page.navigate", { url: `${base}/mine` }, owners);
+      await devtools.loaded(owners);
+      expect(await call("cdp.send", { session: "h2", tab, method: "Runtime.evaluate", params: { expression: "document.title", returnByValue: true } })).toMatchObject({ ok: true, result: { result: { value: "Shop" } } });
+    }, 30_000);
+
+    it("stops a batch whose page goes to a hidden site part way, giving nothing of where it went", async () => {
+      try {
+        const done = (await batch("h2", [{ method: "Page.navigate", params: { url: `${base}/away` } }, title]))["result"] as { results: Record<string, unknown>[] };
+        expect(done.results).toEqual([{ error: expect.objectContaining({ code: "hidden_site" }) }]);
+      } finally {
+        await devtools.send("Page.navigate", { url: `${base}/mine` }, owners);
+        await devtools.loaded(owners);
+      }
+    }, 30_000);
+
+    it("gives KOS nothing of a page a click took to a hidden site, while a command ran or after", async () => {
+      const cdp = (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> => call("cdp.send", { session: "h2", tab, method, params });
+      try {
+        await devtools.send("Page.navigate", { url: `${base}/link` }, owners);
+        await devtools.loaded(owners);
+        for (const type of ["mousePressed", "mouseReleased"]) expect(await cdp("Input.dispatchMouseEvent", { type, x: 120, y: 110, button: "left", clickCount: 1 })).toMatchObject({ ok: true });
+        // A look begun as the click takes the page away, answered once the tab is on the hidden site: refused, not its answer.
+        expect((await cdp("Runtime.evaluate", { expression: "new Promise((r) => setTimeout(() => r(document.title), 1500))", awaitPromise: true, returnByValue: true }))["error"]).toMatchObject({ code: "hidden_site" });
+        expect((await cdp("Page.captureScreenshot", { format: "jpeg", quality: 60 }))["error"]).toMatchObject({ code: "hidden_site" });
+        expect((await cdp("Runtime.evaluate", { expression: "document.title", returnByValue: true }))["error"]).toMatchObject({ code: "hidden_site" });
+      } finally {
+        await devtools.send("Page.navigate", { url: `${base}/mine` }, owners);
+        await devtools.loaded(owners);
+      }
+      // The tab's history names no hidden site, and goes back to none.
+      const { entries } = (await cdp("Page.getNavigationHistory"))["result"] as { entries: { id: number; url: string; title: string }[] };
+      expect(entries.some((e) => e.url.includes("localhost"))).toBe(false);
+      const hidden = entries.find((e) => e.title === "Hidden from KOS");
+      expect(hidden).toMatchObject({ url: "" });
+      expect((await cdp("Page.navigateToHistoryEntry", { entryId: hidden!.id }))["error"]).toMatchObject({ code: "hidden_site" });
+      expect(await cdp("Runtime.evaluate", { expression: "location.pathname", returnByValue: true })).toMatchObject({ ok: true, result: { result: { value: "/mine" } } });
+    }, 30_000);
+
+    it("tells KOS of a route the page changes to itself, in its main frame only", async () => {
+      const cdp = (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> => call("cdp.send", { session: "h2", tab, method, params });
+      const routes = (): unknown[] => events.filter((e) => e.name === "cdp.event" && e.data["method"] === "Page.navigatedWithinDocument").map((e) => (e.data["params"] as { url?: unknown }).url);
+      const before = routes().length;
+      // A frame's route first, then the page's: only the page's crosses.
+      await cdp("Runtime.evaluate", { expression: "new Promise((r) => { const f = document.createElement('iframe'); f.src = '/inner'; f.onload = () => { f.contentWindow.history.pushState({}, '', '/inner/next'); r(1); }; document.body.append(f); })", awaitPromise: true });
+      await cdp("Runtime.evaluate", { expression: "history.pushState({}, '', '/mine/next')" });
+      await until(() => routes().length > before);
+      await until(() => false, 300);
+      expect(routes().slice(before)).toEqual([`${base}/mine/next`]);
+      await devtools.send("Page.navigate", { url: `${base}/mine` }, owners);
+      await devtools.loaded(owners);
+    }, 30_000);
+
+    it("refuses the rest of a batch once the owner takes the tab over part way", async () => {
+      const running = batch("h2", [slow(600), { method: "Input.dispatchMouseEvent", params: { type: "mouseMoved", x: 5, y: 5 } }]);
+      await until(() => false, 200);
+      for (const type of ["mousePressed", "mouseReleased"]) await devtools.send("Input.dispatchMouseEvent", { type, x: 300, y: 300, button: "left", clickCount: 1 }, owners);
+      expect((await running)["error"]).toMatchObject({ code: "paused" });
+      expect(await popupSays({ type: "handback" })).toMatchObject({ ok: true });
+    }, 30_000);
+
+    it("refuses the rest of a batch once the owner takes the tab back part way, and lets go of it", async () => {
+      const running = batch("h2", [slow(600), title, title]);
+      await until(() => false, 200);
+      await popupSays({ type: "hand", tab: Number(tab), give: false });
+      expect((await running)["error"]).toMatchObject({ code: "tab" });
+      expect(await debugged()).toBe(false);
+      await handBack();
+      expect(await call("session.end", { session: "h2" })).toMatchObject({ ok: true });
+    }, 30_000);
+
+    it("refuses the rest of a batch once the session ends part way, and does not take the tab up again", async () => {
+      await begin("h3");
+      const running = batch("h3", [slow(600), title, title]);
+      await until(() => false, 200);
+      expect(await call("session.end", { session: "h3" })).toMatchObject({ ok: true });
+      expect((await running)["error"]).toMatchObject({ code: "no_session" });
+      await until(() => false, 300);
+      expect(await debugged()).toBe(false);
+    }, 30_000);
   });
 
   it("carries a side panel's chat, asks for a session there, and works in the tab beside it", async () => {

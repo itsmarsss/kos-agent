@@ -403,11 +403,15 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     };
     // Into the first line, as the owner would (below the dashboard's own button).
     for (const t of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type: t, x: 200, y: 70, button: "left", clickCount: 1 });
-    await new Promise((r) => setTimeout(r, 200));
-    // The press is the owner's hand in the frame, and the frame's channel told the dashboard of it, just now.
-    expect(await value("ownerIn(f)")).toBe(true);
-    expect(Number(await value("document.body.dataset.gestures"))).toBeGreaterThan(0);
-    expect(await value("revealAllowed(f, gestureAt)")).toBe(true);
+    // The press is the owner's hand in the frame, and the frame's channel told the dashboard of it, just now:
+    // read all three the moment the stamp lands, since the window for a jump is half a second.
+    let seen: unknown;
+    for (let waited = 0; waited < 5_000; waited += 20) {
+      seen = await value("Number(document.body.dataset.gestures || 0) > 0 ? [ownerIn(f), revealAllowed(f, gestureAt)] : null");
+      if (seen) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(seen).toEqual([true, true]);
     await type("## Water");
     await key("Enter");
     await type("it is **wet** now");

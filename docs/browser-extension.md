@@ -103,8 +103,10 @@ While KOS works in your Chrome:
   the extension stops checking in, so a session that ended leaves nothing;
 - KOS's own cursor glides to each point it acts at and ripples as it
   presses, as on the Mac;
-- the pictures KOS takes are cut and shrunk by the extension from the tab
-  as it is, so taking one never redraws the page you are looking at;
+- the pictures KOS takes never redraw the page you are looking at: a tab
+  on screen is pictured from the frame Chrome already drew, made small as
+  it is taken, and one that is not is captured as it is and made smaller
+  by the extension;
 - Chrome's own bar says the extension is debugging the tab, as it does for
   any extension that drives one;
 - clicking or typing in one of its tabs yourself takes it over: KOS waits
@@ -130,6 +132,14 @@ session, unattended work off unless allowed. In addition:
   fixed list (reading the page, pointer and keys, navigation); everything
   else is refused, the browser-wide domains among them (other tabs, cookies
   of every site, downloads, the browser itself).
+- **Not the overlay.** The bar's Take over, Hand back and Stop reach the
+  extension from the overlay's own world, and only from the worlds Chrome
+  made under its name; KOS may make one world of its own, `kos-hands`, with
+  no more reach than the page. Its script runs, and its objects are made
+  or reached, only in the page's own worlds and its hands', each one
+  Chrome has told the extension it made; any other world, the overlay's
+  among them, is refused, and so is one not heard of (a world just made
+  is waited for, up to 200 ms).
 - **Only the web.** A navigation goes to http, https or a blank page; a
   file, `chrome:` or an extension's page is refused.
 - **Asking is the owner's, per KOS.** With Ask before each session off for a
@@ -158,6 +168,22 @@ pair route may be read from any origin: the code is the proof.
 | `tabs.open` | `session`, `url?` | `tab` |
 | `tabs.close` | `session`, `tab` | `{}` |
 | `cdp.send` | `session`, `tab`, `method`, `params?` | the command's result |
+| `cdp.batch` | `session`, `tab`, `calls [{ method, params? }]` (1 to 100), `parallel?` | `results [{ result } or { error { code, message } }]`: in order, up to the first that fails, or all side by side when `parallel`; each checked as `cdp.send` checks one, as it is sent |
+
+A batch is refused as a whole, with nothing after sent, when at any
+command in it the owner has taken the tab over (`paused`), the session has
+ended (`no_session`) or the tab was taken back (`tab`); a command that goes
+to a hidden site, or comes after a navigation to one, is refused on its own
+(`hidden_site`). `Page.navigate` answers once its page is in, so what comes
+next is checked against where the tab went.
+
+`Page.captureScreenshot` takes one parameter of the extension's own,
+`maxEdge`: the picture's longer side, in pixels. A tab's events go to KOS
+as `cdp.event` (`tab`, `method`, `params`) only for what the hands listen
+for; of the network, only the requests a page's answer waits on (its
+documents, scripts and data), with their id, kind, url and when they began
+and no headers, and the end of only those. Socket messages are not passed
+on: a step in the owner's Chrome does not wait on them.
 
 The side panel's calls take no session: they carry the chat, and the page
 beside it when the chat asks.

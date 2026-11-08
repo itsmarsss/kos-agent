@@ -1,6 +1,7 @@
 import { CdpClient, type CdpEvent, type CdpSocket } from "./cdp.js";
 import type { ChromeHost, ChromeLaunch, ChromeState } from "./chrome.js";
 import { keptSessionCookies, type CdpCookie } from "./cookies.js";
+import { PICTURE } from "./hands.js";
 import { Page, type PageLimits } from "./page.js";
 
 /**
@@ -289,6 +290,8 @@ export class BrowserLive {
   private readonly pages = new Map<string, Page>();
   /** Tabs the owner has taken, each by which of their windows. */
   private readonly held = new Map<string, string>();
+  /** How often each tab's page has moved under its agent: navigated, taken by the owner, let go. */
+  private readonly moves = new Map<string, number>();
   /** Agents waiting on a held tab, woken when it is let go. */
   private readonly waiters = new Map<string, Set<() => void>>();
   private keeping: ReturnType<typeof setInterval> | null = null;
@@ -397,6 +400,7 @@ export class BrowserLive {
   hold(tab: string, holder: string): void {
     if (!this.targets.has(tab)) throw new Error("no such tab");
     this.held.set(tab, holder);
+    this.moved(tab);
     this.emitTabs();
   }
 
@@ -411,7 +415,18 @@ export class BrowserLive {
     for (const [tab, by] of [...this.held]) if (by === holder) this.letGo(tab);
   }
 
+  private moved(tab: string): void {
+    this.moves.set(tab, (this.moves.get(tab) ?? 0) + 1);
+  }
+
+  /** Where a conversation's tab is, and how often its page has moved under it. */
+  spot(conversationId: string): { tab: string; url: string; moved: number } | undefined {
+    const tab = this.tabOf(conversationId);
+    return tab ? { tab, url: this.targets.get(tab)?.url ?? "", moved: this.moves.get(tab) ?? 0 } : undefined;
+  }
+
   private letGo(tab: string): void {
+    this.moved(tab);
     this.held.delete(tab);
     const waiting = this.waiters.get(tab);
     this.waiters.delete(tab);
@@ -607,18 +622,18 @@ export class BrowserLive {
 
   /**
    * One picture of a tab, small enough to send anywhere: what an approval
-   * shows, and what a step keeps. Base64 JPEG, at most `maxWidth` wide.
+   * shows, and what a step keeps. Base64 JPEG, its longer side at most `maxEdge`.
    */
-  async capture(tab: string, maxWidth = 900): Promise<string | undefined> {
+  async capture(tab: string, maxEdge = 900): Promise<string | undefined> {
     if (!this.targets.has(tab)) return undefined;
     const sessionId = await this.sessionFor(tab);
     const metrics: Record<string, unknown> = await this.cdp.send("Page.getLayoutMetrics", {}, sessionId).catch(() => ({}));
     const size = (metrics["cssVisualViewport"] ?? metrics["layoutViewport"] ?? {}) as Record<string, unknown>;
     const width = typeof size["clientWidth"] === "number" ? size["clientWidth"] : 0;
     const height = typeof size["clientHeight"] === "number" ? size["clientHeight"] : 0;
-    const scale = width > maxWidth ? maxWidth / width : 1;
+    const scale = Math.min(1, maxEdge / Math.max(width, height, 1));
     const shot: Record<string, unknown> = await this.cdp
-      .send("Page.captureScreenshot", { format: "jpeg", quality: 60, ...(width && height ? { clip: { x: 0, y: 0, width, height, scale } } : {}) }, sessionId)
+      .send("Page.captureScreenshot", { format: "jpeg", quality: PICTURE.quality, ...(width && height ? { clip: { x: 0, y: 0, width, height, scale } } : {}) }, sessionId)
       .catch(() => ({}));
     return typeof shot["data"] === "string" && shot["data"] ? shot["data"] : undefined;
   }
@@ -808,11 +823,15 @@ export class BrowserLive {
         }
         return;
       }
+      case "Page.navigatedWithinDocument":
+        if (event.params["frameId"] && event.sessionId) for (const [tab, s] of this.sessions) if (s === event.sessionId && event.params["frameId"] === tab) this.moved(tab);
+        return;
       case "Page.frameNavigated": {
         // A cross-site navigation swaps the renderer under the cast, and the
         // cast dies quietly with it. Started again for the new page.
         const frame = event.params["frame"] as Record<string, unknown> | undefined;
         if (!event.sessionId || !frame || frame["parentId"]) return;
+        for (const [tab, s] of this.sessions) if (s === event.sessionId) this.moved(tab);
         const navigated = [...this.watches].find(([, w]) => w.sessionId === event.sessionId);
         if (navigated) void this.recast(navigated[0], navigated[1]);
         return;

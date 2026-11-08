@@ -35,9 +35,22 @@ export interface TabInfo {
  * owner's Chrome, through KOS for Chrome. While a conversation is, its
  * browser tools work there, on the tabs that browser gives it.
  */
+/**
+ * Where a conversation's tab is: which tab, its address, and a count that
+ * moves each time its page may have changed under the agent (a navigation,
+ * the owner taking the tab or letting it go).
+ */
+export interface PageSpot {
+  tab: string;
+  url: string;
+  moved: number;
+}
+
 export interface BrowserElsewhere {
   /** Whether the conversation is working in it now. */
   active(conversationId: string): boolean;
+  /** Where the conversation's tab there is, if it has one. */
+  spot(conversationId: string): PageSpot | undefined;
   /** The conversation's tab there, opened when it has none. */
   tab(conversationId: string): Promise<Tab>;
   tabs(conversationId: string): TabInfo[];

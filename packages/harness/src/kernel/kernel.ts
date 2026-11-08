@@ -12,6 +12,7 @@ import { CronStore } from "../cron/store.js";
 import type { McpModule } from "../tools/mcp.js";
 import type { PermissionContext } from "../ops/permissions.js";
 import { FrameStore } from "../ops/frames.js";
+import { SeenPages } from "./seen.js";
 import { toolUse } from "./caller.js";
 
 /** KOS's browser tools: they act on the caller's tab and share its site trust. */
@@ -39,7 +40,7 @@ import {
   type Tab,
 } from "@kos/browser";
 import { BROWSER_KEY, BROWSER_PORT, browserConfig } from "../ops/browsersettings.js";
-import type { BrowserElsewhere, TabInfo } from "../tools/browser.js";
+import type { BrowserElsewhere, PageSpot, TabInfo } from "../tools/browser.js";
 import { PageWatchStore, type WatchLook } from "../ops/watches.js";
 import type { BuiltinFeature } from "../modules/builtins.js";
 import { MODULES_KEY, parseModuleSettings, withBuiltinEnabled } from "../modules/workspace.js";
@@ -498,6 +499,8 @@ export class Kernel {
   readonly discord: DiscordServices | undefined;
   /** What the browser showed after each step, for the thread. */
   readonly frames: FrameStore;
+  /** Each conversation's last picture of its page, for its approvals. */
+  private readonly seen = new SeenPages();
   /** Pages watched for change, and what each said last time. */
   readonly watches: PageWatchStore;
   private idleSweep: ReturnType<typeof setInterval> | null = null;
@@ -3132,6 +3135,7 @@ export class Kernel {
       ...(opts.heard ? { heard: opts.heard } : {}),
       autoApproves: (tool, context) => opts.conversationId !== undefined && this.actsWithoutAsking(opts.conversationId) && actsInYourChrome(tool, context),
       pictureFor: (tool) => this.browserPicture(tool, opts.conversationId),
+      running: (tool) => (opts.conversationId && tool.startsWith(BROWSER_PREFIX) ? this.seen.run(opts.conversationId) : undefined),
       projectSlug: () =>
         opts.conversationId
           ? (this.conversations.get(opts.conversationId)?.projectSlug ?? undefined)
@@ -3148,7 +3152,8 @@ export class Kernel {
       },
       onExecuted: (tool, result) => {
         this.afterToolRan(tool);
-        this.keepFrame(tool, opts.conversationId, result.images?.[0]?.data);
+        // The last picture a call answered with: where its page ended up (a visit to several pages answers with each).
+        this.keepFrame(tool, opts.conversationId, result.images?.at(-1)?.data);
         this.bus.emit({ kind: "tool:end", tool, isError: result.isError === true, conversationId: opts.conversationId ?? null });
         // A call that ends after its turn was stopped has no live view left to
         // end; told now, it would land in whatever turn the chat runs next.
@@ -3712,8 +3717,12 @@ export class Kernel {
     // Chrome, where every capture crosses to the extension and back.
     if (picture || !this.browserContext(tool, conversationId)) {
       if (picture) this.frames.add({ conversationId, ...(toolUseId ? { toolUseId } : {}), tool, picture });
+      const context = this.browserContext(tool, conversationId);
+      if (picture && context) this.seen.saw(conversationId, picture, this.spotOf(conversationId), context.browser?.site);
       return;
     }
+    // A browser call that answered without a picture may have changed the page: the last one no longer stands for it.
+    this.seen.forget(conversationId);
     const away = this.away(conversationId);
     const tab = this.browser.tabOf(conversationId);
     if (!away && !tab) return;
@@ -3724,9 +3733,21 @@ export class Kernel {
       .catch(() => undefined);
   }
 
-  /** The page a browser action is aimed at, pictured for the approval. */
+  /** Where a conversation's tab is, in whichever browser it works in. */
+  private spotOf(conversationId: string): PageSpot | undefined {
+    return (this.away(conversationId) ?? this.browser).spot(conversationId);
+  }
+
+  /**
+   * The page a browser action is aimed at, pictured for the approval: the
+   * picture the agent just saw it by, while it still stands for the page
+   * (see SeenPages), rather than another taken on the same line to the tab.
+   */
   private async browserPicture(tool: string, conversationId?: string): Promise<string | undefined> {
-    if (!conversationId || !this.browserContext(tool, conversationId)) return undefined;
+    const context = conversationId ? this.browserContext(tool, conversationId) : undefined;
+    if (!conversationId || !context) return undefined;
+    const seen = this.seen.picture(conversationId, this.spotOf(conversationId), context.browser?.site);
+    if (seen) return seen;
     const away = this.away(conversationId);
     if (away) return away.picture(conversationId, 900);
     const tab = this.browser.tabOf(conversationId);

@@ -84,6 +84,8 @@ export interface GuardedToolsDeps {
   onFinishedAfterStop?: (tool: string, result: ToolExecution) => void;
   /** Called as a call begins, so a reader can see the step it is on. */
   onStarted?: (tool: string, input: Record<string, unknown>) => void;
+  /** Called as a call's tool begins to run, past any approval; what it answers is called once the tool has ended. */
+  running?: (tool: string) => (() => void) | undefined;
   /** Called once the owner has decided about a queued call. */
   onDecided?: (action: PendingAction, status: string) => void;
   /** How long to hold a suspended turn before treating silence as refusal. */
@@ -297,9 +299,14 @@ export class GuardedTools implements ToolBox {
       signal ? turnStop.run(signal, () => registry.execute(n, i)) : registry.execute(n, i);
     const inTurn = (n: string, i: Record<string, unknown>): Promise<ToolExecution> =>
       turnId ? turn.run(turnId, () => stoppable(n, i)) : stoppable(n, i);
-    const run = (n: string, i: Record<string, unknown>): Promise<ToolExecution> => {
+    const run = async (n: string, i: Record<string, unknown>): Promise<ToolExecution> => {
       started.ran = true;
-      return attendance.run(attended, () => ownership.run(owner, () => (conversationId ? caller.run(conversationId, () => inTurn(n, i)) : inTurn(n, i))));
+      const ended = this.deps.running?.(n);
+      try {
+        return await attendance.run(attended, () => ownership.run(owner, () => (conversationId ? caller.run(conversationId, () => inTurn(n, i)) : inTurn(n, i))));
+      } finally {
+        ended?.();
+      }
     };
 
     const repeated = this.repeatGuard(name, called);

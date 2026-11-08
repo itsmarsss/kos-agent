@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { indexOf, Refs, treeOf, type AxNode } from "./snapshot.js";
+import { controlsOf, indexOf as indexOfControls, Refs, treeOf, type AxNode } from "./snapshot.js";
+
+/** The index of a tree, as the tree is read when the page cannot be asked. */
+function indexOf(nodes: AxNode[], refs: Refs, max?: number) {
+  const { controls, total } = controlsOf(nodes);
+  return indexOfControls(controls, total, refs, max);
+}
 
 /** A tree as Chrome reports one: flat, linked by ids. */
 function tree(spec: [id: string, parent: string | null, role: string, name?: string, backend?: number, extra?: Partial<AxNode>][]): AxNode[] {
@@ -64,6 +70,13 @@ describe("the index of a page", () => {
     ]);
     // Refs follow the page's reading order; the dialog only comes first in the list.
     expect(indexOf(page, new Refs()).lines).toEqual(['In the dialog "Cookies":', '  button "Accept all" @e2', "On the page:", 'button "Subscribe" @e1']);
+  });
+
+  it("heads a dialog with the start of its name, however it was read", () => {
+    const long = "We use cookies to give you the best experience on our site, and to show you ads";
+    const lines = indexOfControls([{ node: 4, role: "button", name: "Accept all", states: [], dialog: long }], 1, new Refs()).lines;
+    expect(lines[0]).toBe(`In the dialog "${long.slice(0, 59)}…":`);
+    expect(lines[1]).toBe('  button "Accept all" @e1');
   });
 
   it("caps the list, and says how many there were", () => {
