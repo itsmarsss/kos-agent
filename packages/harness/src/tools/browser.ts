@@ -86,7 +86,7 @@ export interface BrowserToolsDeps {
 const WHERE =
   "These tools work in KOS's own browser: a Chrome that KOS runs on its own host, which the owner watches in the dashboard's " +
   "Browser window. It is not the owner's Chrome. In the chat of KOS for Chrome's side panel they work in the owner's Chrome, " +
-  "in the tab beside the panel, from the first call (the owner allows it there), and never in KOS's own; elsewhere, while " +
+  "in the tab beside the panel, from the first call of a turn the owner said there (they allow it there; any other turn calls chrome.start), and never in KOS's own; elsewhere, while " +
   "this chat holds the owner's Chrome (chrome.start), they work there instead. Each result says which browser it ran in. When " +
   "the owner says my Chrome, my browser or the browser device, they mean their own Chrome: chrome.start, not these alone.";
 const WHERE_SHORT = "In KOS's own browser, or in the owner's Chrome from its side panel or while chrome.start holds it; the result says which.";

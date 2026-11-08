@@ -85,8 +85,6 @@ export interface PanelDeps {
   mentions?(q: string, kind?: string): { kind: string; id: string; label: string; hint?: string }[];
 }
 
-/** As much of the owner's words as a session's prompt shows for a task KOS did not write. */
-const SAID_MAX = 120;
 /** As much of what the owner selected on the page as rides with their words. */
 const SELECTION_MAX = 4_000;
 /** The longest message the panel sends, and how much of the chat it is shown. */
@@ -120,8 +118,8 @@ export class DevicePanel implements ChannelAdapter {
   private decisions: ApprovalHandler | undefined;
   /** The device the owner last spoke from: for a Chrome, the page chrome.page reads and the Chrome its browser tools work in. */
   private last: string | undefined;
-  /** What they said there last, and where they were: the task a session started unasked shows, and the app it offers first. */
-  private lastSaid: { text: string; beside: unknown } | undefined;
+  /** Where they were when they last spoke there: the app a session started unasked offers first. */
+  private lastBeside: unknown;
   private running: Running | undefined;
 
   constructor(
@@ -162,17 +160,10 @@ export class DevicePanel implements ChannelAdapter {
     return this.last && this.isMine(this.last) && conversation === this.deps.current()?.id ? this.last : undefined;
   }
 
-  /** What the owner last said in the panel's chat, in a line, when the chat is the panel's. */
-  saidIn(conversation: string): string | undefined {
-    if (!this.deviceOf(conversation) || !this.lastSaid) return undefined;
-    const line = this.lastSaid.text.replace(/\s+/g, " ").trim();
-    return line.length > SAID_MAX ? `${line.slice(0, SAID_MAX - 1)}…` : line;
-  }
-
   /** The app in front of the KOS for Mac window when the owner last spoke there; none for an app they hid. */
   appOf(conversation: string): string | undefined {
     if (!this.deviceOf(conversation)) return undefined;
-    const b = this.lastSaid?.beside;
+    const b = this.lastBeside;
     const r = typeof b === "object" && b !== null ? (b as Record<string, unknown>) : {};
     return r["kind"] === "app" ? said(r["name"], 80) || undefined : undefined;
   }
@@ -351,7 +342,7 @@ export class DevicePanel implements ChannelAdapter {
         const text = typeof data["text"] === "string" ? data["text"].trim().slice(0, MAX_TEXT) : "";
         if (!text) return;
         this.last = device;
-        this.lastSaid = { text, beside: data["beside"] };
+        this.lastBeside = data["beside"];
         const named = this.hub?.list().find((d) => d.id === device)?.name ?? device;
         void this.messages?.({ channel: this.name, senderId: device, text, context: this.place.beside(data["beside"], named) });
         return;

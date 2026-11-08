@@ -5,7 +5,7 @@ import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
 import { injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
-import { attendance, caller, ownership, turn, turnStop } from "./caller.js";
+import { attendance, caller, origin, ownership, turn, turnStop, type TurnOrigin } from "./caller.js";
 
 export interface GuardedToolsDeps {
   /** A big result set aside as it comes back: whole with its handle, or its start and an outline when huge (in an SDK query). */
@@ -43,6 +43,8 @@ export interface GuardedToolsDeps {
   attended?: boolean;
   /** True for the owner's own turn alone; see `ownership`. */
   owner?: boolean;
+  /** The surface the turn's words arrived on, and those words; see `origin`. */
+  origin?: TurnOrigin;
   /**
    * The turn's stop. Once it aborts, a call that is running answers at once
    * (what it started is told through `turnStop`, and its own end is still
@@ -302,8 +304,10 @@ export class GuardedTools implements ToolBox {
     const { turnId, signal } = this.deps;
     const stoppable = <T>(work: () => Promise<T>): Promise<T> => (signal ? turnStop.run(signal, work) : work());
     const inTurn = <T>(work: () => Promise<T>): Promise<T> => (turnId ? turn.run(turnId, () => stoppable(work)) : stoppable(work));
+    const from = this.deps.origin;
+    const placed = <T>(work: () => Promise<T>): Promise<T> => (from ? origin.run(from, work) : work());
     const within = <T>(work: () => Promise<T>): Promise<T> =>
-      attendance.run(attended, () => ownership.run(owner, () => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work))));
+      attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work)))));
     const run = (n: string, i: Record<string, unknown>): Promise<ToolExecution> => {
       started.ran = true;
       return within(() => registry.execute(n, i));

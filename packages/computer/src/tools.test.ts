@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { attendance, openDatabase, turnStop, type ModuleContext, type ToolRisk } from "@kos/harness";
+import { attendance, openDatabase, origin, ownership, turnStop, type ModuleContext, type ToolRisk } from "@kos/harness";
 
 import { FakeDevice } from "./device.fixture.js";
 import { OwnerChrome } from "./chrome.js";
@@ -16,7 +16,10 @@ type Result = string | { text: string; images?: { mediaType: string; data: strin
 
 const hostPrivate = generateKeyPairSync("ed25519").privateKey;
 
-function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>; mac?: () => { device: string; app?: string } | undefined; said?: string } = {}) {
+/** The owner speaking on a surface: what a call in that turn is under. */
+type Spoken = { surface: string; said: string };
+
+function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>; mac?: () => { device: string; app?: string } | undefined; from?: Spoken } = {}) {
   const hub = new DeviceHub({
     store: new DeviceStore(openDatabase(":memory:")),
     hostKey: { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) },
@@ -57,7 +60,6 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>;
       return () => undefined;
     },
     ...(opts.mac ? { panelMac: () => opts.mac!() } : {}),
-    ...(opts.said ? { saidIn: () => opts.said } : {}),
     settleMs: opts.settleMs ?? 0,
     sleep: opts.sleep ?? (async () => undefined),
   });
@@ -65,7 +67,8 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>;
   const call = async (name: string, input: Record<string, unknown> = {}): Promise<Result> => {
     const tool = tools.get(name);
     if (!tool) throw new Error(`no tool ${name}`);
-    return (await tool.handler(input)) as Result;
+    const run = async (): Promise<Result> => (await tool.handler(input)) as Result;
+    return (await (opts.from ? ownership.run(true, () => origin.run(opts.from!, run)) : run())) as Result;
   };
   const pair = (name = "Studio MacBook"): FakeDevice => {
     const fake = new FakeDevice();
@@ -406,7 +409,7 @@ describe("the computer tools", () => {
 describe("a turn from the KOS for Mac window", () => {
   it("starts its session on that Mac with its first act, offering the app in front, and does nothing it has not seen", async () => {
     const at: { mac?: { device: string; app?: string } } = {};
-    const { call, pair, hub } = setup({ mac: () => at.mac, said: "export this deck" });
+    const { call, pair, hub } = setup({ mac: () => at.mac, from: { surface: "mac", said: "export this deck" } });
     const fake = pair();
     at.mac = { device: fake.id, app: "Keynote" };
     const first = await call("computer.act", { action: "left_click", coordinate: [10, 20] });
@@ -422,7 +425,7 @@ describe("a turn from the KOS for Mac window", () => {
 
   it("says the intent as the task, answers a first screenshot with the screen alone, and starts nothing outside the window's chat", async () => {
     const at: { mac?: { device: string; app?: string } } = {};
-    const { call, pair } = setup({ mac: () => at.mac });
+    const { call, pair } = setup({ mac: () => at.mac, from: { surface: "mac", said: "what is open?" } });
     const fake = pair();
     await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/computer\.start first/);
     expect(fake.calls).toEqual([]);
@@ -432,9 +435,18 @@ describe("a turn from the KOS for Mac window", () => {
     expect(textOf(seen)).not.toMatch(/Nothing else was done/);
   });
 
+  it("starts nothing for a turn in the window's chat that is not the owner speaking there", async () => {
+    for (const from of [undefined, { surface: "dashboard", said: "look at my screen" }, { surface: "dispatch", said: "look at my screen" }]) {
+      const { call, pair } = setup({ mac: () => ({ device: fake.id }), ...(from ? { from } : {}) });
+      const fake = pair();
+      await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/not the owner speaking in the KOS for Mac window.*computer\.start/);
+      expect(fake.calls).toEqual([]);
+    }
+  });
+
   it("keeps the consent it needs: a Mac that leaves sessions to KOS's approvals, or work the owner did not start, is refused", async () => {
     const at: { mac?: { device: string; app?: string } } = {};
-    const { call, pair } = setup({ mac: () => at.mac });
+    const { call, pair } = setup({ mac: () => at.mac, from: { surface: "mac", said: "look" } });
     const fake = pair();
     at.mac = { device: fake.id };
     await expect(attendance.run(false, () => call("computer.act", { action: "screenshot" }))).rejects.toThrow(/did not start/);

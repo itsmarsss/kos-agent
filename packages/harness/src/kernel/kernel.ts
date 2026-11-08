@@ -97,7 +97,7 @@ import { DB_FILENAME, Workspace } from "../store/workspace.js";
 import { InstanceConfig } from "../systems/config.js";
 import { ProjectManifest } from "../systems/manifest.js";
 import { describeActive, describeProject, type ProjectSchema } from "../systems/schema.js";
-import { caller, isAttended, isOwnerTurn } from "./caller.js";
+import { caller, isAttended, isOwnerTurn, type TurnOrigin } from "./caller.js";
 import {
   deleteProject as cascadeDeleteProject,
   type DeleteProjectResult,
@@ -1008,6 +1008,8 @@ export class Kernel {
           // A schedule's prompt, a blob's own timer, a guest: the owner did not start this one.
           attended,
           owner,
+          // Where the words were said, for a start on that device that needs no ask from a tool.
+          ...(opts.channel && text.trim() ? { origin: { surface: opts.channel, said: text } } : {}),
           heard: () => this.hear(sessionId, mark),
           onQueued: (action) => suspend?.(action),
           // null is unrestricted; an array is the exact scope, empty included.
@@ -3099,6 +3101,8 @@ export class Kernel {
     attended?: boolean;
     /** True for the owner's own turn alone. */
     owner?: boolean;
+    /** The surface the turn's words arrived on, and those words. */
+    origin?: TurnOrigin;
     /** The owner's words said since the last call, for the model with this call's result. */
     heard?: () => string | undefined;
     /** The turn's stop. */
@@ -3142,6 +3146,7 @@ export class Kernel {
       ...(opts.waitForApproval === false ? { waitForApproval: false } : {}),
       ...(opts.attended === false ? { attended: false } : {}),
       ...(opts.owner === true ? { owner: true } : {}),
+      ...(opts.origin ? { origin: opts.origin } : {}),
       onQueued: (action) => {
         opts.onQueued?.(action);
         this.onApprovalRequested?.(action);

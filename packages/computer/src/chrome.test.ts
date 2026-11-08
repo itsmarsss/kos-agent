@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { attendance, openDatabase, type ModuleContext, type ToolRisk } from "@kos/harness";
+import { attendance, openDatabase, origin, ownership, type ModuleContext, type ToolRisk } from "@kos/harness";
 
 import { OwnerChrome } from "./chrome.js";
 import { FakeDevice } from "./device.fixture.js";
@@ -19,7 +19,7 @@ import { computerModule } from "./tools.js";
 const hostPrivate = generateKeyPairSync("ed25519").privateKey;
 type Handler = (input: Record<string, unknown>) => unknown;
 
-function setup() {
+function setup(opts: { panel?: () => string | undefined } = {}) {
   const hub = new DeviceHub({
     store: new DeviceStore(openDatabase(":memory:")),
     hostKey: { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) },
@@ -37,7 +37,8 @@ function setup() {
     },
     unregisterTool: (name) => tools.delete(name),
   };
-  void computerModule({ hub, chrome, caller: () => "c1", titleOf: (id) => (id === "c1" ? "Shopping" : id), settleMs: 0, sleep: async () => undefined }).activate(ctx);
+  const mod = computerModule({ hub, chrome, caller: () => "c1", titleOf: (id) => (id === "c1" ? "Shopping" : id), settleMs: 0, sleep: async () => undefined, ...(opts.panel ? { panelChrome: opts.panel } : {}) });
+  void mod.activate(ctx);
   /** A paired Chrome, connected: the extension's hello, and its answers. */
   const pairChrome = (name = "Chrome on macOS"): FakeDevice => {
     const fake = new FakeDevice();
@@ -49,12 +50,31 @@ function setup() {
     fake.hello({ app: { version: "0.1.0", platform: "chrome", os: "macOS" }, permissions: { tabs: true }, displays: [] });
     return fake;
   };
-  return { hub, chrome, tools, risks, pairChrome };
+  return { hub, chrome, tools, risks, pairChrome, mod };
 }
 
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 };
+
+describe("the side panel's chat in the owner's Chrome", () => {
+  it("starts its session unasked only for the owner's own words in the panel, showing them as the task", async () => {
+    let device: string | undefined;
+    const { hub, pairChrome, mod } = setup({ panel: () => device });
+    const fake = pairChrome();
+    device = fake.id;
+    const as = (from: { surface: string; said: string } | undefined, owner = true) => () =>
+      ownership.run(owner, () => (from ? origin.run(from, () => mod.beginPanelChrome("c1")) : mod.beginPanelChrome("c1")));
+    // Typed into the same chat on the dashboard, passed on by a chat, or no surface at all: chrome.start is the way.
+    for (const turn of [as({ surface: "dashboard", said: "buy it" }), as({ surface: "dispatch", said: "buy it" }), as(undefined), as({ surface: "chrome", said: "buy it" }, false)]) {
+      await expect(turn()).rejects.toThrow(/not the owner speaking in the Chrome side panel.*chrome\.start/);
+    }
+    expect(fake.calls.filter((c) => c.method === "session.begin")).toEqual([]);
+    await as({ surface: "chrome", said: "buy this mug" })();
+    expect(fake.calls.find((c) => c.method === "session.begin")?.params).toMatchObject({ task: '"buy this mug"' });
+    expect(hub.sessionOf("c1")).toBeDefined();
+  });
+});
 
 describe("a Chrome paired through the extension", () => {
   it("connects with a browser's hello, and is answered when it pings", async () => {

@@ -7,6 +7,7 @@ import type { Inference } from "../agent/loop.js";
 import type { GenerateRequest, ModelResponse } from "../models/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import type { BrowserElsewhere } from "../tools/browser.js";
+import { ownWordsOn } from "./caller.js";
 import { Kernel } from "./kernel.js";
 
 /**
@@ -107,5 +108,50 @@ describe("a browser call from the side panel's chat", () => {
     kernel.setBrowserElsewhere(chrome);
     await kernel.handleMessage("what files are there?");
     expect(chrome.ensured).toEqual([]);
+  });
+});
+
+describe("a session started unasked on the owner's device", () => {
+  let root: string;
+  let kernel: Kernel;
+
+  afterEach(() => {
+    kernel?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  /** A model that makes one browser call for each message, then answers. */
+  const everyTurn: Inference = {
+    async generate(_t, req) {
+      const last = JSON.stringify(req.messages.at(-1));
+      if (last.includes("tool_result")) return ended("done");
+      return { content: [{ type: "tool_use", id: `t${req.messages.length}`, name: "browser.tabs", input: {} }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+    },
+  };
+
+  it("is the owner's own words said in that chat on that device, and no other turn's", async () => {
+    root = mkdtempSync(join(tmpdir(), "kos-origin-"));
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: everyTurn, profileOverrides: { name: "Kenny", timezone: "UTC" } });
+    // What a start in the panel's Chrome would be told, each time one is asked for.
+    const heard: (string | undefined)[] = [];
+    kernel.setBrowserElsewhere({ ...ownerChrome({ starts: false }), ensure: async () => void heard.push(ownWordsOn("chrome")) });
+    const owner = kernel.profile.ownerId;
+
+    // Said in the side panel: the one turn that qualifies.
+    const panel = await kernel.handleChannelTurn({ text: "what is on this tab?", userId: owner, channel: "chrome" });
+    // The same chat, typed on the dashboard.
+    await kernel.handleMessage("and this one?", { sessionId: panel.conversationId, owner: true });
+    // Passed on to it by another chat, at the owner's own hand.
+    await kernel.dispatchTo(panel.conversationId, "check the tab", undefined, { attended: true, owner: true });
+    // A schedule's run, or a blob's own timer, on the same surface.
+    await kernel.handleMessage("the nightly check", { sessionId: panel.conversationId, channel: "chrome", attended: false });
+    // A resumed approval: the harness's turn, not the owner's words.
+    await kernel.handleMessage("carry on", { sessionId: panel.conversationId, channel: "chrome", origin: "system" });
+    // A guest's words.
+    await kernel.handleChannelTurn({ text: "open the tab", userId: owner, channel: "chrome", conversationId: panel.conversationId, guest: { id: "g1", name: "Sam" } });
+
+    expect(heard[0]).toBe("what is on this tab?");
+    expect(heard.slice(1)).toEqual(heard.slice(1).map(() => undefined));
+    expect(heard.length).toBeGreaterThanOrEqual(5);
   });
 });

@@ -85,7 +85,6 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
           const app = mac.appOf(conversation);
           return device ? { device, ...(app ? { app } : {}) } : undefined;
         },
-        saidIn: (conversation) => panel.saidIn(conversation) ?? mac.saidIn(conversation),
         ...(events
           ? {
               onHalt: (handler: () => void) => events.on("halt:changed", (e) => (e.halted ? handler() : undefined)),
