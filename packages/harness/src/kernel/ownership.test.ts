@@ -284,3 +284,57 @@ describe("a blob's artifact, from a chat at the root", () => {
     expect(results()[1]).toMatchObject({ isError: true, content: expect.stringMatching(/blob noter's artifacts are not this chat's to read/) });
   });
 });
+
+/**
+ * A button a turn not the owner's puts out, and where its press may land:
+ * its own chat or another of its project, as wired at boot, end to end.
+ */
+describe("where a schedule's button may send its press", () => {
+  let root: string;
+  let kernel: Kernel;
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), "kos-press-route-"));
+    // The run asks for a button whose press goes where its prompt says.
+    const inference: Inference = {
+      async generate(_task, req) {
+        const sent = JSON.stringify(req.messages.at(-1));
+        const to = /PRESS-TO:([\w:-]+)/.exec(sent)?.[1];
+        if (to && !sent.includes("tool_result")) {
+          return { content: [{ type: "tool_use", id: "t1", name: "notify", input: { text: "hint?", buttons: [{ label: "Show hint" }], replyTo: to } }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+        }
+        return { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    };
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference, chrome: { port: 1, exists: () => false } });
+  });
+
+  afterEach(() => {
+    kernel.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("reaches its project's own chat, and not another project's or the root", async () => {
+    const a = kernel.standUpProject({ name: "Daily", type: "tracker" });
+    const b = kernel.standUpProject({ name: "Other", type: "tracker" });
+    const rootChat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mine" });
+    const job = kernel.crons.create({ name: "daily", schedule: "0 9 * * *", type: "self_prompt", prompt: "go", projectSlug: a.slug, enabled: true });
+    const runJob = (kernel as unknown as { runJobTurn: (p: string, j: CronJob) => Promise<string> }).runJobTurn.bind(kernel);
+    const routed = vi.spyOn(kernel.presses, "register");
+    const lastResult = (id: string): { content: string; isError?: boolean } =>
+      kernel.sessions.get(id).flatMap((m) => m.content.filter((c) => c.type === "tool_result")).at(-1) as { content: string; isError?: boolean };
+
+    await runJob(`PRESS-TO:${a.conversationId}`, job);
+    const thread = kernel.conversations.get(`cron:${job.id}`)!;
+    expect(thread.projectSlug).toBe(a.slug);
+    expect(lastResult(thread.id).isError).not.toBe(true);
+    expect(routed).toHaveBeenCalledTimes(1);
+    expect(routed.mock.calls[0]?.[0]).toMatchObject({ conversationId: a.conversationId });
+
+    for (const to of [b.conversationId, rootChat.id]) {
+      await runJob(`PRESS-TO:${to}`, job);
+      expect(lastResult(thread.id), to).toMatchObject({ isError: true, content: expect.stringMatching(/only the owner's own turn/) });
+    }
+    expect(routed).toHaveBeenCalledTimes(1);
+  });
+});
