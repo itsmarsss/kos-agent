@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -409,6 +409,48 @@ describe("PageStore HTML pages", () => {
     pages.writeHtml(null, { id: "n", title: "Notes", html: "<p>moved</p>" }, { from: noter });
     expect(existsSync(join(root, "artifacts/.history/n/1.json"))).toBe(true);
     expect(pages.get("n")?.record.blob).toBeUndefined();
+  });
+
+  it("retires a blob's id when it is removed or made again, never because its file is missing for a moment", () => {
+    const roles = new RoleStore(ws, pages.blobIds);
+    roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+    const first = roles.identity("noter")!;
+    pages.writeHtml({ blob: "noter", id: first }, { id: "n", title: "Notes", html: "<p>n</p>" });
+    // An editor saving by rename: the file is gone between two calls, and back.
+    const file = join(root, "blobs/noter/blob.md");
+    const text = readFileSync(file, "utf8");
+    rmSync(file);
+    expect(roles.identity("noter")).toBeUndefined();
+    expect(pages.blobIds.removed(first)).toBe(false);
+    writeFileSync(file, text);
+    expect(roles.identity("noter")).toBe(first);
+    // An edit through the store is the same blob.
+    roles.write({ name: "noter", description: "Keeps more notes", brief: "You keep notes.", memory: "own" });
+    expect(roles.identity("noter")).toBe(first);
+    // Its folder deleted out of band, then the blob made again: a new owner, holding none of the old one's.
+    rmSync(join(root, "blobs/noter"), { recursive: true });
+    roles.write({ name: "noter", description: "Again", brief: "You keep notes.", memory: "own" });
+    const again = roles.identity("noter")!;
+    expect(again).not.toBe(first);
+    expect(pages.blobIds.removed(first)).toBe(true);
+    expect(pages.list({ blob: "noter", id: again })).toEqual([]);
+  });
+
+  it("retires at boot, once, the id of a blob whose folder went while KOS was away", () => {
+    const roles = new RoleStore(ws, pages.blobIds);
+    roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+    roles.write({ name: "keeper", description: "Keeps", brief: "Keep.", memory: "own" });
+    const gone = roles.identity("noter")!;
+    const kept = roles.identity("keeper")!;
+    rmSync(join(root, "blobs/noter"), { recursive: true });
+    expect(roles.reconcile()).toEqual(["noter"]);
+    expect(pages.blobIds.removed(gone)).toBe(true);
+    expect(pages.blobIds.removed(kept)).toBe(false);
+    expect(roles.reconcile()).toEqual([]);
+    // Made again by hand afterwards, it is a new blob.
+    mkdirSync(join(root, "blobs/noter"), { recursive: true });
+    writeFileSync(join(root, "blobs/noter/blob.md"), readFileSync(join(root, "blobs/keeper/blob.md"), "utf8").replace("name: keeper", "name: noter"));
+    expect(roles.identity("noter")).not.toBe(gone);
   });
 
   it("takes a blob whose name has an underscore, as a blob's name may", () => {

@@ -250,6 +250,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const facts = new FactsStore(workspace.db);
   const review = new ReviewQueue(workspace.db);
   const roles = new RoleStore(workspace);
+  for (const name of roles.reconcile()) console.log(`[blobs] ${name}: its file went while KOS was away, so its id is retired; a blob made under the name is a new one`);
   const suggestions = new SuggestionStore(workspace.db);
   const observations = new ObservationStore(workspace.db);
   const callers = new CallerStore(workspace.db);

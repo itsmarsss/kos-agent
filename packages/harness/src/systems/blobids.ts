@@ -34,6 +34,11 @@ export class BlobIds {
     return (this.db.prepare(`SELECT id FROM blob_ids WHERE name = ? AND removed_at IS NULL`).get(name) as { id: string } | undefined)?.id;
   }
 
+  /** Every name with a living id. */
+  living(): string[] {
+    return (this.db.prepare(`SELECT name FROM blob_ids WHERE removed_at IS NULL`).all() as { name: string }[]).map((r) => r.name);
+  }
+
   /** The living blob's id, given now if it has none yet (one made before ids, or by hand). */
   ensure(name: string): string {
     const had = this.live(name);
