@@ -103,8 +103,10 @@ While KOS works in your Chrome:
   the extension stops checking in, so a session that ended leaves nothing;
 - KOS's own cursor glides to each point it acts at and ripples as it
   presses, as on the Mac;
-- the pictures KOS takes are cut and shrunk by the extension from the tab
-  as it is, so taking one never redraws the page you are looking at;
+- the pictures KOS takes never redraw the page you are looking at: a tab
+  on screen is pictured from the frame Chrome already drew, made small as
+  it is taken, and one that is not is captured as it is and made smaller
+  by the extension;
 - Chrome's own bar says the extension is debugging the tab, as it does for
   any extension that drives one;
 - clicking or typing in one of its tabs yourself takes it over: KOS waits
@@ -158,6 +160,14 @@ pair route may be read from any origin: the code is the proof.
 | `tabs.open` | `session`, `url?` | `tab` |
 | `tabs.close` | `session`, `tab` | `{}` |
 | `cdp.send` | `session`, `tab`, `method`, `params?` | the command's result |
+| `cdp.batch` | `session`, `tab`, `calls [{ method, params? }]` (1 to 100), `parallel?` | `results [{ result } or { error { code, message } }]`: in order, up to the first that fails, or all side by side when `parallel`; each checked as `cdp.send` checks one |
+
+`Page.captureScreenshot` takes one parameter of the extension's own,
+`maxEdge`: the picture's longer side, in pixels. A tab's events go to KOS
+as `cdp.event` (`tab`, `method`, `params`) only for what the hands listen
+for; of the network, only the requests a page's answer waits on (its
+documents, scripts and data), with their id, kind and url and no headers,
+and the end of only those.
 
 The side panel's calls take no session: they carry the chat, and the page
 beside it when the chat asks.

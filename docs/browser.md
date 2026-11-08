@@ -31,14 +31,19 @@ and later ignores `--load-extension`.
 
 A tab's `Page` (`page.ts`) does what an agent asks of it:
 
-- **Looking.** The page is read from Chrome's accessibility tree: the role
-  and name a screen reader would announce. The index lists what can be
-  acted on, one line each with a ref (`@e12`); a dialog's controls come
-  first, since a page with one open is waiting on it. A ref stays the
-  same for the same element while its document lives. Frames in the
-  page's own process are read into it; one that is not is named as
-  unread. The outline (`then: "snapshot"`) has everything, the reading
-  (`then: "read"`) the page's text and links.
+- **Looking.** The index lists what can be acted on, one line each with a
+  ref (`@e12`): the role, name, state and value a screen reader would
+  announce. The page finds it itself, in one call, from a world of KOS's
+  own beside the page's (`inpage.controls`), so a page of thousands of rows
+  costs what its first sixty controls do, not its whole tree: rendered
+  controls only, through open shadow roots and the frames it can reach;
+  a frame of another origin is read in a world of its own, side by side
+  with the rest, and one in another process is named as unread. A dialog's
+  controls come first, since a page with one open is waiting on it. A ref
+  stays the same for the same element while its document lives. The
+  outline (`then: "snapshot"`) is Chrome's accessibility tree, everything
+  on the page, and so is the index on a KOS for Chrome too old to make a
+  world; the reading (`then: "read"`) is the page's text and links.
 - **Acting.** Clicks are real input events at the middle of the element,
   after it is scrolled into view. When something sits over that point (a
   bar the page keeps at its edge, over what was just scrolled there), the
@@ -53,9 +58,17 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   (`button:has-text('Submit')`, `text=Submit`). Fill replaces a field's text, type adds to it; a field
   typing does not reach (a date) is set the way a framework notices.
   Keys go as Chrome wants them, with editing shortcuts as the commands
-  they are. After each step the page is given time to settle: a
-  navigation the step started, then a quiet network, so a run needs no
-  waits of its own after clicks.
+  they are. After each step the page is given time to answer: a
+  navigation the step started, to DOMContentLoaded, then the document
+  still for 150 ms (watched from KOS's world) with none of the page's own
+  requests open (its documents, scripts and data from its own site; not
+  pictures, beacons, sockets or streams, nor a request open a second,
+  which is a poll), at most 800 ms; once a request ends, 60 ms more for
+  the page to show what it brought. So a run needs no waits of its own
+  after clicks, and a page that never stops talking does not hold every
+  step. Stop ends the step under way: a wait is woken, a command still
+  out is no longer waited for, no further one is sent, and the run says
+  it was stopped.
 - **Never hanging.** Every wait has a deadline and ends in an answer: a
   page still loading at twenty seconds is handed back as it is, said to
   be still loading. A dialog is answered the moment it opens (an alert
