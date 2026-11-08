@@ -3791,9 +3791,11 @@ export class Kernel {
     this.seen.forget(conversationId);
     const tab = this.browser.tabOf(conversationId);
     if (!away && !tab) return;
+    // Labelled by the site the tab was on as it was taken: one that moved while it was taken is not kept.
+    const site = siteNow();
     void (away ? away.picture(conversationId, 640) : this.browser.capture(tab!, 640))
       .then((picture) => {
-        if (picture) keep(picture, siteNow());
+        if (picture && siteNow() === site) keep(picture, site);
       })
       .catch(() => undefined);
   }

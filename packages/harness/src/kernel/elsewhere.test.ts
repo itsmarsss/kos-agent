@@ -260,4 +260,22 @@ describe("the picture kept after a step", () => {
     await settled();
     expect(framesOf(chat)).toEqual([{ picture: "TEFTVA==", site: "shop.example", tool: "browser.visit" }]);
   });
+
+  it("taken in the background, is named for the site the tab was on, and dropped if the tab moved meanwhile", async () => {
+    let site = "a.example";
+    let moves = false;
+    const chat = await boot(["browser.tabs", "browser.tabs"], {
+      ...ownerChrome({ starts: true }),
+      siteOf: () => site,
+      picture: async () => {
+        if (moves) site = "b.example";
+        moves = true;
+        return "VEFC";
+      },
+    });
+    answering(kernel, "browser.tabs", ["In the owner's Chrome."]);
+    await kernel.handleMessage("where is it?", { sessionId: chat, owner: true });
+    await settled();
+    expect(framesOf(chat)).toEqual([{ picture: "VEFC", site: "a.example", tool: "browser.tabs" }]);
+  });
 });
