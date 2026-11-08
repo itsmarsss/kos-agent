@@ -1,11 +1,14 @@
-import { Chips, Empty, NavIcon, Tag, type ChipOption } from "@kos/kit";
+import { Chips, Count, Empty, Face, NavIcon, PlusIcon, Skeleton, Tag, type ChipOption } from "@kos/kit";
 import { WORKSPACE_SCOPE, relativeWords, type ArtifactKind, type HtmlPage } from "@kos/shared";
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
 
-import { api, type ArtifactSummary, type PageSummary, type Project } from "./api.js";
+import { api, type AnyPagePayload, type ArtifactSummary, type PageSummary, type PageVersion, type Project } from "./api.js";
 import { PageHead } from "./PageHead.js";
-import { PageHistory } from "./PageHistory.js";
+import { Drawer } from "./Drawer.js";
+import { ProjectMark } from "./ProjectMark.js";
+import { VersionList } from "./PageHistory.js";
 import type { Route } from "./routes.js";
+import { ConfirmButton } from "./kit.js";
 import { Select } from "./Select.js";
 import { ArtifactPage, type ArtifactHandle } from "./widgets/ArtifactPage.js";
 
@@ -29,10 +32,15 @@ const KINDS: readonly ChipOption<ArtifactKind | "all">[] = [
   ["sheet", "Sheets"],
 ];
 
-const KIND_WORD: Record<ArtifactKind, string> = { page: "Page", doc: "Doc", deck: "Deck", sheet: "Sheet" };
+/** An artifact's kind as a word, wherever one is named. */
+export const KIND_WORD: Record<ArtifactKind, string> = { page: "Page", doc: "Doc", deck: "Deck", sheet: "Sheet" };
 
 /** The project filter's "every project": like WORKSPACE_SCOPE, never a slug. */
 const ALL_PROJECTS = "@all";
+/** The owner filter's value for a blob: never a project's slug, which has no colon. */
+const BLOB_PREFIX = "blob:";
+/** An artifact's owner as the filter names it: a project's slug, a blob by its id (a removed one apart from a later one of its name), or the workspace. */
+const ownerValue = (a: Pick<PageSummary, "projectSlug" | "blob" | "blobId">): string => (a.blob ? `${BLOB_PREFIX}${a.blobId ?? a.blob}` : a.projectSlug ?? WORKSPACE_SCOPE);
 
 /** How many missing or stale captures one visit redraws: each is a few seconds of Chrome. */
 const REDRAW_MAX = 8;
@@ -60,15 +68,65 @@ function useDashboardTheme(): "light" | "dark" {
   return theme;
 }
 
-export function ArtifactsPage({ projects, onOpen }: { projects: Project[]; onOpen: (id: string) => void }): ReactElement {
+/** How the gallery is laid out: one grid, newest first, or a section per project. */
+type Grouping = "recent" | "project";
+const GROUPINGS: readonly ChipOption<Grouping>[] = [
+  ["recent", "Recent"],
+  ["project", "By owner"],
+];
+
+/** What New artifact starts the root chat with, for the owner to finish. */
+export const NEW_ARTIFACT_WORDS = "Make a ";
+
+/** How many cards the loading gallery draws in their place. */
+const SKELETONS = 6;
+
+function ArtifactCard({ a, projects, theme, onOpen }: { a: ArtifactSummary; projects: Project[]; theme: "light" | "dark"; onOpen: () => void }): ReactElement {
+  return (
+    <button type="button" className="artifact-card" onClick={onOpen}>
+      <span className="artifact-thumb" data-kind={a.artifactKind}>
+        {a.capturedAt ? (
+          <img src={`/api/artifacts/${encodeURIComponent(a.id)}/thumb?theme=${theme}&v=${Math.round(a.capturedAt)}`} alt="" loading="lazy" />
+        ) : (
+          <span className="artifact-thumb-mark">
+            <NavIcon name={a.artifactKind} />
+          </span>
+        )}
+      </span>
+      <span className="artifact-card-body">
+        <span className="artifact-card-title">{a.title}</span>
+        <span className="artifact-card-desc">{a.description || "\u00a0"}</span>
+        <span className="artifact-card-meta">
+          {isWidgetPage(a) ? <Tag title="Made before artifacts; KOS can convert it">Older widget page</Tag> : <Tag>{KIND_WORD[a.artifactKind]}</Tag>}
+          <span className="artifact-card-owner">
+            <OwnerMark record={a} projects={projects} />
+          </span>
+          <span className="artifact-card-time">{relativeWords(Math.round(a.updatedAt / 1000))}</span>
+        </span>
+      </span>
+    </button>
+  );
+}
+
+function CardGrid({ items, label, children }: { items: ArtifactSummary[]; label: string; children: (a: ArtifactSummary) => ReactElement }): ReactElement {
+  return (
+    <ul className="artifact-grid" aria-label={label}>
+      {items.map((a) => (
+        <li key={a.id}>{children(a)}</li>
+      ))}
+    </ul>
+  );
+}
+
+export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]; onOpen: (id: string) => void; onNew?: (words: string) => void }): ReactElement {
   const theme = useDashboardTheme();
   const [list, setList] = useState<ArtifactSummary[]>();
   const [error, setError] = useState<string>();
   const [kind, setKind] = useState<ArtifactKind | "all">("all");
   const [project, setProject] = useState(ALL_PROJECTS);
   const [query, setQuery] = useState("");
-  const projectName = useMemo(() => new Map(projects.map((p) => [p.slug, p.name])), [projects]);
-  const nameOf = (a: ArtifactSummary): string => (a.projectSlug ? projectName.get(a.projectSlug) ?? a.projectSlug : "Workspace");
+  const [grouping, setGrouping] = useState<Grouping>("recent");
+  const bySlug = useMemo(() => new Map(projects.map((p) => [p.slug, p])), [projects]);
 
   useEffect(() => {
     let stale = false;
@@ -102,94 +160,199 @@ export function ArtifactsPage({ projects, onOpen }: { projects: Project[]; onOpe
     };
   }, [list]);
 
-  const shown = useMemo(() => {
+  // Every filter but the kind's, so each kind chip can say how many it would show.
+  const matching = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (list ?? []).filter(
       (a) =>
-        (kind === "all" || a.artifactKind === kind) &&
-        (project === ALL_PROJECTS || (project === WORKSPACE_SCOPE ? a.projectSlug === null : a.projectSlug === project)) &&
-        (!q || haystack(a, a.projectSlug ? projectName.get(a.projectSlug) ?? a.projectSlug : "workspace").includes(q)),
+        (project === ALL_PROJECTS || ownerValue(a) === project) &&
+        (!q || haystack(a, ownerName(a, projects)).includes(q)),
     );
-  }, [kind, list, project, projectName, query]);
+  }, [list, project, projects, query]);
+  const shown = useMemo(() => matching.filter((a) => kind === "all" || a.artifactKind === kind), [kind, matching]);
+  const kinds = useMemo(
+    () => KINDS.map(([value, word]): ChipOption<ArtifactKind | "all"> => [value, <>{word}<Count n={value === "all" ? matching.length : matching.filter((a) => a.artifactKind === value).length} /></>]),
+    [matching],
+  );
 
   const owners = useMemo(() => {
     const slugs = [...new Set((list ?? []).flatMap((a) => (a.projectSlug ? [a.projectSlug] : [])))];
+    const blobs = [...new Map((list ?? []).flatMap((a) => (a.blob ? [[ownerValue(a), a] as const] : []))).values()].sort((a, b) => ownerName(a, projects).localeCompare(ownerName(b, projects)));
     return [
-      { value: ALL_PROJECTS, label: "All projects" },
-      ...((list ?? []).some((a) => a.projectSlug === null) ? [{ value: WORKSPACE_SCOPE, label: "Workspace" }] : []),
-      ...slugs.map((s) => ({ value: s, label: projectName.get(s) ?? s })).sort((a, b) => a.label.localeCompare(b.label)),
+      { value: ALL_PROJECTS, label: "Everyone's" },
+      ...((list ?? []).some((a) => a.projectSlug === null && !a.blob) ? [{ value: WORKSPACE_SCOPE, label: "Workspace" }] : []),
+      ...slugs
+        .map((s) => ({ value: s, label: bySlug.get(s)?.name ?? s, icon: <ProjectMark slug={s} name={bySlug.get(s)?.name ?? s} colour={bySlug.get(s)?.colour} /> }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+      ...blobs.map((b) => ({ value: ownerValue(b), label: ownerName(b, projects), icon: <Face seed={b.blob!} size={14} /> })),
     ];
-  }, [list, projectName]);
+  }, [list, bySlug, projects]);
+
+  // A section per owner, the one touched most recently first, and the workspace's own last.
+  const groups = useMemo(() => {
+    const by = new Map<string, ArtifactSummary[]>();
+    for (const a of shown) by.set(ownerValue(a), [...(by.get(ownerValue(a)) ?? []), a]);
+    const latest = (items: ArtifactSummary[]): number => Math.max(...items.map((a) => a.updatedAt));
+    const last = (items: ArtifactSummary[]): number => (ownerValue(items[0]!) === WORKSPACE_SCOPE ? 1 : 0);
+    return [...by.values()].sort((a, b) => last(a) - last(b) || latest(b) - latest(a));
+  }, [shown]);
+
+  const filtered = kind !== "all" || project !== ALL_PROJECTS || query.trim() !== "";
+  const card = (a: ArtifactSummary): ReactElement => <ArtifactCard a={a} projects={projects} theme={theme} onOpen={() => onOpen(a.id)} />;
+  const newArtifact = onNew ? (
+    <button type="button" className="btn btn--primary btn--sm artifacts-new" onClick={() => onNew(NEW_ARTIFACT_WORDS)}>
+      <PlusIcon size={13} title="" />
+      New artifact
+    </button>
+  ) : null;
 
   return (
     <div className="list-page artifacts">
       <PageHead
         title="Artifacts"
-        subtitle="The pages, docs, decks and sheets KOS has made, across projects and the workspace."
+        {...(list ? { count: list.length } : {})}
+        subtitle="The pages, docs, decks and sheets KOS has made, across projects, blobs and the workspace."
         search={
           <input
             className="list-search"
             type="search"
-            placeholder="Search titles and descriptions"
+            placeholder="Search artifacts"
             aria-label="Search artifacts"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         }
+        actions={newArtifact}
       />
-      <div className="list-filters">
-        <Chips options={KINDS} selected={kind} onChoose={setKind} label="Kind" small />
-        {owners.length > 2 && <Select value={project} options={owners} onChange={setProject} label="Project" />}
-      </div>
+      {list && list.length > 0 && (
+        <div className="artifacts-bar">
+          <Chips options={kinds} selected={kind} onChoose={setKind} label="Kind" small scroll />
+          <div className="artifacts-bar-end">
+            {owners.length > 2 && <Select value={project} options={owners} onChange={setProject} label="Owner" />}
+            <Chips options={GROUPINGS} selected={grouping} onChoose={setGrouping} label="Group" small />
+          </div>
+        </div>
+      )}
       {error && (
         <p className="ops-alert ops-alert--err" role="alert">
           {error}
         </p>
       )}
-      {list && list.length === 0 && (
-        <Empty title="Nothing made yet">Ask KOS for a doc, a deck, a sheet or a page, and it shows up here.</Empty>
-      )}
-      {list && list.length > 0 && shown.length === 0 && <Empty inline>No artifact matches these filters.</Empty>}
-      {!list && !error && <p className="hint">Loading…</p>}
-      {shown.length > 0 && (
-        <ul className="artifact-grid" aria-label="Artifacts">
-          {shown.map((a) => (
-            <li key={a.id}>
-              <button type="button" className="artifact-card" onClick={() => onOpen(a.id)}>
-                <span className="artifact-thumb" data-kind={a.artifactKind}>
-                  {a.capturedAt ? (
-                    <img src={`/api/artifacts/${encodeURIComponent(a.id)}/thumb?theme=${theme}&v=${Math.round(a.capturedAt)}`} alt="" loading="lazy" />
-                  ) : (
-                    <span className="artifact-thumb-mark">
-                      <NavIcon name={a.artifactKind} />
-                    </span>
-                  )}
-                </span>
+      {!list && !error && (
+        <ul className="artifact-grid" aria-label="Loading artifacts" aria-busy="true">
+          {Array.from({ length: SKELETONS }, (_, i) => (
+            <li key={i}>
+              <span className="artifact-card artifact-card--loading">
+                <Skeleton className="artifact-thumb" radius={0} height="auto" />
                 <span className="artifact-card-body">
-                  <span className="artifact-card-title">{a.title}</span>
-                  {a.description && <span className="artifact-card-desc">{a.description}</span>}
-                  <span className="artifact-card-meta">
-                    {isWidgetPage(a) ? <Tag title="Made before artifacts; KOS can convert it">Older widget page</Tag> : <Tag>{KIND_WORD[a.artifactKind]}</Tag>}
-                    <span className="artifact-card-owner">{nameOf(a)}</span>
-                    <span className="artifact-card-time">{relativeWords(Math.round(a.updatedAt / 1000))}</span>
-                  </span>
+                  <Skeleton width="60%" height={14} />
+                  <Skeleton width="85%" height={12} />
+                  <Skeleton width="40%" height={12} />
                 </span>
-              </button>
+              </span>
             </li>
           ))}
         </ul>
+      )}
+      {list && list.length === 0 && (
+        <div className="artifacts-empty">
+          <Empty title="Nothing made yet">Ask KOS for a doc, a deck, a sheet or a page, and it shows up here.</Empty>
+          {newArtifact}
+        </div>
+      )}
+      {list && list.length > 0 && shown.length === 0 && (
+        <div className="artifacts-none">
+          <Empty inline>No artifact matches these filters.</Empty>
+          {filtered && (
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => {
+                setKind("all");
+                setProject(ALL_PROJECTS);
+                setQuery("");
+              }}
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
+      {shown.length > 0 && grouping === "recent" && (
+        <section className="artifact-group">
+          <h2 className="label">Recently updated</h2>
+          <CardGrid items={shown} label="Artifacts">
+            {card}
+          </CardGrid>
+        </section>
+      )}
+      {shown.length > 0 && grouping === "project" && (
+        <div className="artifact-groups" role="list" aria-label="Artifacts">
+          {groups.map((items) => (
+            <section key={ownerValue(items[0]!)} className="artifact-group" role="listitem">
+              <h2 className="label">
+                {ownerName(items[0]!, projects)}
+                <Count n={items.length} />
+              </h2>
+              <CardGrid items={items} label={ownerName(items[0]!, projects)}>
+                {card}
+              </CardGrid>
+            </section>
+          ))}
+        </div>
       )}
     </div>
   );
 }
 
-/** KOS's own chat at the root, where a message with no chat named goes: the profile's owner id is fixed. */
-const ROOT_CHAT = "primary:owner";
-
-/** Where "Edit with KOS" takes the owner after asking: the project's chat, or the root chat the request went to. */
-export function chatOf(projectSlug: string | null): Route {
-  return projectSlug ? { name: "project", slug: projectSlug } : { name: "chats", id: ROOT_CHAT };
+/** KOS's own chat at the root, where a message with no chat named goes: the owner's Main, by the owner id this KOS is set up with. */
+let rootChat: Promise<string> | undefined;
+export function rootChatId(): Promise<string> {
+  rootChat ??= api.settings().then((s) => `primary:${s.profile.ownerId}`);
+  rootChat.catch(() => (rootChat = undefined));
+  return rootChat;
 }
+
+/** Who an artifact belongs to: a project, a blob, or the workspace (null). */
+export type ArtifactOwner = { project: string } | { blob: string } | null;
+
+export const ownerOf = (r: Pick<PageSummary, "projectSlug" | "blob">): ArtifactOwner => (r.blob ? { blob: r.blob } : r.projectSlug ? { project: r.projectSlug } : null);
+
+/** The chat that answers for an artifact: its project's, its blob's thread, or KOS at the root (undefined). */
+export const chatIdOf = (owner: ArtifactOwner): string | undefined => (!owner ? undefined : "project" in owner ? `project:${owner.project}` : `agent:${owner.blob}`);
+
+/**
+ * Where "Edit with KOS" takes the owner after asking: the project's page, the
+ * blob's, or the root chat the request went to; the chat list when the root
+ * chat cannot be named (the settings did not load), rather than nowhere.
+ */
+export async function chatOf(owner: ArtifactOwner): Promise<Route> {
+  if (!owner) return rootChatId().then((id): Route => ({ name: "chats", id }), (): Route => ({ name: "chats" }));
+  return "project" in owner ? { name: "project", slug: owner.project } : { name: "blobs", blob: owner.blob };
+}
+
+/** An owner's mark and name, for a card, a row or the viewer's head. */
+export function OwnerMark({ record, projects }: { record: Pick<PageSummary, "projectSlug" | "blob" | "blobRemoved">; projects: Project[] }): ReactElement {
+  if (record.blob) {
+    return (
+      <>
+        <Face seed={record.blob} size={16} />
+        <span>{ownerName(record, projects)}</span>
+      </>
+    );
+  }
+  const project = record.projectSlug ? projects.find((p) => p.slug === record.projectSlug) : undefined;
+  return (
+    <>
+      {record.projectSlug && <ProjectMark slug={record.projectSlug} name={project?.name ?? record.projectSlug} colour={project?.colour} />}
+      <span>{record.projectSlug ? project?.name ?? record.projectSlug : "Workspace"}</span>
+    </>
+  );
+}
+
+/** An owner as a word. */
+const ownerName = (r: Pick<PageSummary, "projectSlug" | "blob" | "blobRemoved">, projects: Project[]): string =>
+  r.blob ? (r.blobRemoved ? `Removed blob: ${r.blob}` : r.blob) : r.projectSlug ? projects.find((p) => p.slug === r.projectSlug)?.name ?? r.projectSlug : "Workspace";
 
 /** What "Edit with KOS" sends: the owner's words, then which artifact they are about. */
 export function editRequest(words: string, record: PageSummary): string {
@@ -202,90 +365,164 @@ export function convertRequest(record: PageSummary): string {
 }
 
 /**
- * One artifact, filling the page: its frame, its versions with a way back,
- * a way to ask KOS for a change in the chat that owns it, and presenting
- * for a deck.
+ * One artifact, filling the page: a head that says what it is and holds what
+ * can be done with it (ask KOS for a change in the chat that owns it, its
+ * versions in a drawer with a way back, presenting for a deck, its project),
+ * then the artifact itself, drawn as part of the page.
  */
+/** What whoever shows the viewer can ask of it: finish the doc's editing before it goes. */
+export interface ViewerHandle {
+  settle(): Promise<void>;
+}
+
+/** Each viewer open now, so a move elsewhere in the dashboard finishes their editing first. */
+const openViewers = new Set<ViewerHandle>();
+
+/** Finish the editing of every open viewer: what a route change awaits, each capped as settle is. */
+export function settleOpenViewers(): Promise<void> {
+  return Promise.all([...openViewers].map((v) => v.settle())).then(() => undefined);
+}
+
 export function ArtifactViewer({
   id,
   projects,
   onBack,
+  backLabel = "← Artifacts",
   onOpenChat,
+  onOpenOwner,
+  initial,
+  ref,
 }: {
   id: string;
   projects: Project[];
+  /** The artifact already loaded by whoever shows this, so it is not fetched twice. */
+  initial?: AnyPagePayload;
   onBack: () => void;
-  /** Go to the chat the request went to: the project's, or KOS at the root. */
-  onOpenChat: (projectSlug: string | null) => void;
+  /** What going back says: where it goes. */
+  backLabel?: string;
+  /** Go to the chat the request went to: the project's, the blob's, or KOS at the root. */
+  onOpenChat: (owner: ArtifactOwner) => void;
+  /** Go to whoever owns it: its project's page or its blob's. */
+  onOpenOwner?: (owner: NonNullable<ArtifactOwner>) => void;
+  ref?: Ref<ViewerHandle>;
 }): ReactElement {
   const [record, setRecord] = useState<PageSummary>();
   const [page, setPage] = useState<HtmlPage>();
   const [error, setError] = useState<string>();
   const [older, setOlder] = useState(false);
   const [asking, setAsking] = useState(false);
+  const [history, setHistory] = useState(false);
   const [words, setWords] = useState("");
+  /** An older version shown in place of the current one, to look at before restoring it. */
+  const [preview, setPreview] = useState<{ version: PageVersion; page: HtmlPage }>();
   const frame = useRef<ArtifactHandle>(null);
+  // The newest version as saved, read when a restore is sent: the doc's own save just before it is the version it is made on.
+  const latest = useRef<PageSummary | undefined>(undefined);
+  const saved = (r: PageSummary): void => {
+    latest.current = r;
+    setRecord(r);
+  };
 
-  const load = (): Promise<void> =>
-    api.anyPage(id).then((got) => {
-      setRecord(got.record);
-      setOlder(got.kind !== "html");
-      if (got.kind === "html") setPage(got.page);
-    });
+  const show = (got: AnyPagePayload): void => {
+    setPreview(undefined);
+    saved(got.record);
+    setOlder(got.kind !== "html");
+    if (got.kind === "html") setPage(got.page);
+  };
+  const load = (): Promise<void> => api.anyPage(id).then(show);
+  const failed = (err: unknown): void => setError(err instanceof Error ? err.message : String(err));
+  /** Whatever the doc has not saved is saved before the frame goes. */
+  const settle = (): Promise<void> => frame.current?.settle() ?? Promise.resolve();
+  const restore = (version: number): Promise<void> =>
+    settle()
+      .then(() => api.pageRollback(id, version, latest.current?.updatedAt))
+      .then(load);
+  useImperativeHandle(ref, () => ({ settle }), []);
+  // Known while open, so leaving for another route finishes its editing first.
+  useEffect(() => {
+    const me: ViewerHandle = { settle: () => frame.current?.settle() ?? Promise.resolve() };
+    openViewers.add(me);
+    return () => void openViewers.delete(me);
+  }, []);
 
+  // A new artifact in the same viewer (another one picked beside a chat): the one open finishes its editing first.
   useEffect(() => {
     setError(undefined);
-    load().catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+    if (initial?.record.id === id && !record) {
+      show(initial);
+      return;
+    }
+    void settle()
+      .then(load)
+      .catch(failed);
   }, [id]);
 
-  const owner = record?.projectSlug ? projects.find((p) => p.slug === record.projectSlug)?.name ?? record.projectSlug : "Workspace";
+  const whose = record ? ownerOf(record) : null;
+  const owner = record ? ownerName(record, projects) : "Workspace";
 
   const convert = (): void => {
     if (!record?.projectSlug) return;
     void api.message(convertRequest(record), `project:${record.projectSlug}`).catch(() => undefined);
-    onOpenChat(record.projectSlug);
+    onOpenChat({ project: record.projectSlug });
   };
 
   const ask = (): void => {
     if (!record || !words.trim()) return;
-    void api.message(editRequest(words, record), record.projectSlug ? `project:${record.projectSlug}` : undefined).catch(() => undefined);
+    void api.message(editRequest(words, record), chatIdOf(whose)).catch(() => undefined);
     setAsking(false);
     setWords("");
-    onOpenChat(record.projectSlug);
+    onOpenChat(whose);
   };
 
   return (
     <div className="artifact-view">
-      <header className="artifact-view-head">
-        <button type="button" className="btn btn--ghost btn--sm" onClick={onBack}>
-          ← Artifacts
-        </button>
-        {record && (
+      <button type="button" className="ops-back artifact-view-back" onClick={() => void settle().then(onBack)}>
+        {backLabel}
+      </button>
+      {record && (
+        <header className="artifact-view-head">
           <div className="artifact-view-titles">
             <h1 className="artifact-view-title">{record.title}</h1>
             <span className="artifact-view-meta">
               <Tag>{older ? "Older widget page" : KIND_WORD[record.artifactKind]}</Tag>
-              <span>{owner}</span>
-              <span>{relativeWords(Math.round(record.updatedAt / 1000))}</span>
+              <span className="artifact-view-owner">
+                <OwnerMark record={record} projects={projects} />
+              </span>
+              <span>Updated {relativeWords(Math.round(record.updatedAt / 1000))}</span>
             </span>
+            {record.description && <p className="artifact-view-desc">{record.description}</p>}
           </div>
-        )}
-        {record && (
           <div className="artifact-view-acts">
-            <PageHistory record={record} onRolledBack={load} />
-            {record.artifactKind === "deck" && (
+            <button type="button" className="btn btn--ghost btn--sm" aria-expanded={history} onClick={() => setHistory(true)}>
+              History
+            </button>
+            {whose && onOpenOwner && !record.blobRemoved && (
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => void settle().then(() => onOpenOwner(whose))}>
+                Open {owner}
+              </button>
+            )}
+            {record.artifactKind === "deck" && !older && (
               <button type="button" className="btn btn--sm" onClick={() => frame.current?.present()}>
                 Present
               </button>
             )}
-            {!older && (
-              <button type="button" className="btn btn--primary btn--sm" aria-expanded={asking} onClick={() => setAsking((v) => !v)}>
-                Edit with KOS
-              </button>
+            {/* What a removed blob made is kept as it is: KOS no longer changes it, and the owner may let it go. */}
+            {record.blobRemoved ? (
+              <ConfirmButton
+                label="Delete"
+                text={`Delete “${record.title}”, which the removed blob ${record.blob} made, and its versions?`}
+                onConfirm={() => void api.deletePage(record.id).then(onBack, failed)}
+              />
+            ) : (
+              !older && (
+                <button type="button" className="btn btn--primary btn--sm" aria-expanded={asking} onClick={() => setAsking((v) => !v)}>
+                  Edit with KOS
+                </button>
+              )
             )}
           </div>
-        )}
-      </header>
+        </header>
+      )}
       {asking && record && (
         <form
           className="artifact-ask-edit"
@@ -294,7 +531,7 @@ export function ArtifactViewer({
             ask();
           }}
         >
-          <label htmlFor="artifact-edit-words">What should change? It goes to {record.projectSlug ? `${owner}'s chat` : "KOS"}.</label>
+          <label htmlFor="artifact-edit-words">What should change? It goes to {whose ? `${owner}'s chat` : "KOS"}.</label>
           <div className="artifact-ask-edit-row">
             <input id="artifact-edit-words" className="kos-input" autoFocus value={words} onChange={(e) => setWords(e.target.value)} placeholder="Add a slide on risks after the timeline" />
             <button type="submit" className="btn btn--primary btn--sm" disabled={!words.trim()}>
@@ -303,7 +540,6 @@ export function ArtifactViewer({
           </div>
         </form>
       )}
-      {record?.description && <p className="artifact-view-desc">{record.description}</p>}
       {older && record && (
         <div className="ops-alert artifact-older" role="status">
           <span>{WIDGET_PAGE_WORDS}</span>
@@ -319,8 +555,60 @@ export function ArtifactViewer({
           {error}
         </p>
       )}
-      {record && page && <ArtifactPage ref={frame} record={record} page={page} onSaved={setRecord} onReload={() => void load().catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))} />}
-      {!record && !error && <p className="hint">Loading…</p>}
+      {preview && record && (
+        <div className="ops-alert artifact-preview" role="status">
+          <span>
+            Looking at version {preview.version.version}, from {relativeWords(Math.round(preview.version.at / 1000))}. Nothing here is saved.
+          </span>
+          <span className="artifact-preview-acts">
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => void load().catch(failed)}>
+              Back to current
+            </button>
+            <button
+              type="button"
+              className="btn btn--primary btn--sm"
+              onClick={() => void restore(preview.version.version).catch(failed)}
+            >
+              Restore this version
+            </button>
+          </span>
+        </div>
+      )}
+      {record && preview && <ArtifactPage key={`v${preview.version.version}`} record={record} page={preview.page} locked />}
+      {record && page && !preview && <ArtifactPage ref={frame} record={record} page={page} onSaved={saved} onReload={() => void load().catch(failed)} />}
+      {!record && !error && (
+        <div className="artifact-view-loading" aria-busy="true" aria-label="Loading the artifact">
+          <Skeleton width="40%" height={26} />
+          <Skeleton width="25%" height={14} />
+          <Skeleton height="60vh" radius="var(--r-md)" />
+        </div>
+      )}
+      {record && (
+        <Drawer open={history} title="History" subtitle={record.title} onClose={() => setHistory(false)}>
+          <VersionList
+            record={record}
+            {...(preview ? { previewing: preview.version.version } : {})}
+            onRolledBack={() => load().then(() => setHistory(false))}
+            onRestore={(version) =>
+              restore(version)
+                .then(() => setHistory(false))
+                .catch(failed)
+            }
+            {...(!older
+              ? {
+                  onPreview: (version: PageVersion) =>
+                    void settle()
+                      .then(() => api.pageVersion(record.id, version.version))
+                      .then((got) => {
+                        setPreview({ version, page: got });
+                        setHistory(false);
+                      })
+                      .catch(failed),
+                }
+              : {})}
+          />
+        </Drawer>
+      )}
     </div>
   );
 }

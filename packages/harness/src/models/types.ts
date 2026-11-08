@@ -9,6 +9,12 @@ export type Role = "user" | "assistant";
 export interface TextBlock {
   type: "text";
   text: string;
+  /**
+   * What guests said in the room beside the message, not the message's own
+   * words: kept with it so later turns still have it, sent to the model as
+   * untrusted room talk, and never read as what the owner said.
+   */
+  guestContext?: true;
 }
 
 export interface ToolUseBlock {
@@ -125,6 +131,8 @@ export interface MessageFrom {
   kind: "guest" | "chat" | "schedule";
   name: string;
   id?: string;
+  /** A chat's words passed on by the owner's own turn or hand: theirs again when sent again. */
+  owner?: true;
 }
 
 /**
@@ -209,6 +217,19 @@ export function textOf(content: ContentBlock[]): string {
     .filter((b): b is TextBlock => b.type === "text")
     .map((b) => b.text)
     .join("");
+}
+
+/** Whether a block is guests' room talk riding beside a message rather than its own words. */
+export function isGuestContext(block: ContentBlock): boolean {
+  return block.type === "text" && block.guestContext === true;
+}
+
+/** A message's own words: its text, without any room talk riding beside it. */
+export function saidText(content: ContentBlock[], separator = ""): string {
+  return content
+    .filter((b): b is TextBlock => b.type === "text" && !b.guestContext)
+    .map((b) => b.text)
+    .join(separator);
 }
 
 /** Convenience: all tool-use blocks in a content block list. */

@@ -15,7 +15,7 @@ import type { SheetBook, SheetCell, SheetColumn, SheetTab } from "@kos/shared";
 import { bar, line, pie } from "./chartdraw.js";
 import { SHEET_CSS } from "./sheet.css.js";
 import { Workbook, columnLetter, formatValue, isError, isNumeric, literalOf, sortValue, totalsRow, type Value } from "./sheetformula.js";
-import { addStyle, el, kos, ready, reason } from "./runtime.js";
+import { addStyle, editable, el, kos, ready, reason } from "./runtime.js";
 
 /** How long after an edit the workbook is saved, so a run of edits is one version. */
 export const SAVE_DELAY_MS = 600;
@@ -24,6 +24,9 @@ export const SAVE_GAP_MS = 2100;
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const quote = (name: string): string => `"${name.replace(/"/g, '""')}"`;
+
+/** The shortest a grid is drawn, however little room the frame has. */
+const SHEET_MIN_HEIGHT = 320;
 
 /** The query that reads a source tab's rows: its key, then each column's table column. */
 export function sourceQuery(tab: SheetTab): string | undefined {
@@ -95,7 +98,22 @@ class Sheet {
       });
       this.resizeWatch.observe(this.root);
     }
+    addEventListener("resize", () => this.fit());
     this.render();
+  }
+
+  /**
+   * The grid takes what is left of the frame below the sheet's head and tools,
+   * so in the dashboard only the grid scrolls, never the frame around it. A
+   * page of several sheets, or one with charts under its grid, keeps the
+   * stylesheet's height and scrolls as a page.
+   */
+  private fit(): void {
+    const scroll = this.root.querySelector<HTMLElement>(".sheet-scroll");
+    if (!scroll || this.book.charts?.length || document.querySelectorAll(".sheet").length > 1) return;
+    const pad = parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
+    const room = Math.floor(innerHeight - (scroll.getBoundingClientRect().top + scrollY) - pad - 2);
+    this.root.style.setProperty("--sheet-height", `${Math.max(SHEET_MIN_HEIGHT, room)}px`);
   }
 
   /** The workbook as it is evaluated: source tabs carry the rows read for them. */
@@ -136,13 +154,14 @@ class Sheet {
     const tab = this.book.sheets[t]!;
     if (tab.pivot) return false;
     if (tab.source) return typeof kos()?.write === "function" && !this.loaded.get(t)?.error;
-    return typeof kos()?.save === "function";
+    return editable();
   }
 
   /** Draw the tab. A tab that cannot be drawn says why, under its tabs, rather than leave the sheet blank. */
   private render(): void {
     try {
       this.draw();
+      this.fit();
     } catch (e) {
       this.root.replaceChildren(...this.tabBar(), el("p", { class: "sheet-error", role: "alert" }, `This tab could not be drawn: ${reason(e)}`));
     }

@@ -2,14 +2,17 @@
  * kos-doc: a designed document from plain markup. The agent writes one
  * `<article data-doc>`; this numbers its footnotes and figures, wraps its
  * tables so they scroll on their own, builds a table of contents for a long
- * one, and lets the owner edit the text in place, each save kept as a
- * version through kos.save. What it adds is marked data-kos-gen and taken
+ * one, and lets the owner edit it in place as in a document editor
+ * (docedit.ts), each pause in typing kept as a version through kos.save. What it adds is marked data-kos-gen and taken
  * out again before a save, so an edit stores only what the agent wrote and
  * the owner changed.
  */
 
 import { DOC_CSS } from "./doc.css.js";
-import { addStyle, el, kos, ready, reason, reducedMotion } from "./runtime.js";
+import { DOC_EDIT_MAX } from "@kos/shared/artifacts";
+
+import { startEditor, type Editor } from "./docedit.js";
+import { addStyle, editable, el, kos, ready, reducedMotion } from "./runtime.js";
 
 /** How many h2s make a document long enough for a table of contents. */
 export const TOC_MIN = 4;
@@ -24,7 +27,7 @@ export function slugOf(text: string, taken: Set<string>): string {
     text
       .toLowerCase()
       .normalize("NFKD")
-      .replace(/[̀-ͯ]/g, "")
+      .replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 48) || "section";
@@ -171,87 +174,137 @@ export function enhance(article: HTMLElement): Enhanced {
   };
 }
 
-/** The Edit, Save and Cancel controls, and what they do. */
+/** What the doc tells the dashboard about its editing, which draws the controls (ArtifactPage's edit bar). */
+export interface EditState {
+  __kos: "edit";
+  editing: boolean;
+  /** An edit waiting to be saved. */
+  pending: boolean;
+  status: string;
+  bad: boolean;
+}
+
+/** What the dashboard's edit bar asks of the doc. */
+export type EditAction = "edit" | "done" | "discard" | "undo" | "redo";
+
+/**
+ * Editing: the doc becomes editable where it is (docedit.ts holds the
+ * formats, the "/" menu and the markdown), each pause in typing saved as a
+ * new version through kos.save. Its controls (Edit, Done, Discard, Undo,
+ * Redo and the save's state) are the dashboard's, kept in view above the
+ * frame while the doc scrolls by: the doc says how its editing stands and
+ * the dashboard says what the owner pressed. Cmd+S and Escape finish here
+ * too.
+ */
 function editing(article: HTMLElement, start: () => Enhanced): void {
   const bridge = kos();
-  if (article.hasAttribute("data-locked") || typeof bridge?.save !== "function") return;
+  if (article.hasAttribute("data-locked") || !editable() || !bridge?.save) return;
   const save = bridge.save.bind(bridge);
   let enhanced = start();
-  let before = "";
-  const status = el("span", { class: "doc-status", role: "status", "aria-live": "polite" });
-  const editBtn = el("button", { type: "button", title: "Edit the text in place" }, "Edit");
-  const saveBtn = el("button", { type: "button", class: "primary", hidden: true }, "Save");
-  const cancelBtn = el("button", { type: "button", hidden: true }, "Cancel");
-  const tools = el("div", { class: "doc-tools" }, status, cancelBtn, saveBtn, editBtn);
-  document.body.append(tools);
-  const say = (text: string, bad = false): void => {
-    status.textContent = text;
-    status.classList.toggle("bad", bad);
+  let editor: Editor | undefined;
+  /** The article as last saved (or as editing began), to put back on Discard; and its clean HTML, to skip a save that changes nothing. */
+  let savedInner = "";
+  let last = "";
+  const state: EditState = { __kos: "edit", editing: false, pending: false, status: "", bad: false };
+  const tell = (change: Partial<EditState>): void => {
+    Object.assign(state, change);
+    top?.postMessage({ ...state }, "*");
   };
-  const setEditing = (on: boolean): void => {
-    editBtn.hidden = on;
-    saveBtn.hidden = !on;
-    cancelBtn.hidden = !on;
-    if (on) {
-      article.setAttribute("contenteditable", "true");
-      article.setAttribute("spellcheck", "true");
-      article.focus();
-    } else {
-      article.removeAttribute("contenteditable");
-      article.removeAttribute("spellcheck");
-    }
-  };
+  const say = (status: string, bad = false): void => tell({ status, bad });
+
   const begin = (): void => {
+    if (editor) return;
     enhanced.undo();
-    before = article.innerHTML;
-    say("");
-    setEditing(true);
+    savedInner = article.innerHTML;
+    last = cleanDocHtml(article);
+    article.setAttribute("contenteditable", "true");
+    article.setAttribute("spellcheck", "true");
+    document.documentElement.setAttribute("data-editing", "");
+    article.focus();
+    editor = startEditor(article, {
+      say,
+      onPending: (pending) => tell({ pending }),
+      // An edit that changes nothing is no version; the server refuses one anyway. One too long would only be refused.
+      save: async () => {
+        const html = cleanDocHtml(article);
+        if (html === last) return;
+        if (html.length > DOC_EDIT_MAX) throw new Error(`the doc is ${html.length} characters; an edit saves at most ${DOC_EDIT_MAX}. Take something out, or Discard`);
+        const inner = article.innerHTML;
+        await save({ doc: html });
+        last = html;
+        savedInner = inner;
+      },
+    });
+    tell({ editing: true, status: "", bad: false });
   };
-  const finish = (): void => {
-    setEditing(false);
+  const leave = (): void => {
+    editor = undefined;
+    article.removeAttribute("contenteditable");
+    article.removeAttribute("spellcheck");
+    document.documentElement.removeAttribute("data-editing");
     enhanced = start();
+    tell({ editing: false, pending: false });
   };
-  const cancel = (): void => {
-    article.innerHTML = before;
-    finish();
-    say("");
+  const finish = async (): Promise<void> => {
+    if (!editor) return;
+    if (await editor.stop()) leave();
   };
-  const commit = async (): Promise<void> => {
-    const html = cleanDocHtml(article);
-    if (html === before.trim()) {
-      finish();
-      return;
+  const discard = (): void => {
+    if (!editor) return;
+    editor.discard();
+    article.innerHTML = savedInner;
+    leave();
+    say("Changes since the last save were put back");
+  };
+  const act = (action: EditAction): void => {
+    if (action === "edit") begin();
+    else if (action === "done") void finish();
+    else if (action === "discard") discard();
+    else if (editor) {
+      article.focus();
+      document.execCommand(action);
+      article.dispatchEvent(new InputEvent("input", { inputType: action === "undo" ? "historyUndo" : "historyRedo" }));
     }
-    saveBtn.disabled = true;
-    say("Saving…");
-    try {
-      await save({ doc: html });
-      finish();
-      say("Saved as a new version");
-    } catch (e) {
-      say(`Not saved: ${reason(e)}`, true);
-    } finally {
-      saveBtn.disabled = false;
-    }
   };
-  editBtn.addEventListener("click", begin);
-  cancelBtn.addEventListener("click", cancel);
-  saveBtn.addEventListener("click", () => void commit());
-  article.addEventListener("paste", (e) => {
-    if (article.getAttribute("contenteditable") !== "true") return;
-    e.preventDefault();
-    const text = e.clipboardData?.getData("text/plain") ?? "";
-    document.execCommand("insertText", false, text);
+  addEventListener("message", (e) => {
+    const m = (e.data ?? {}) as { __kos?: string; action?: EditAction };
+    if (e.source === top && m.__kos === "edit-do" && m.action && article.isConnected) act(m.action);
   });
   document.addEventListener("keydown", (e) => {
-    if (article.getAttribute("contenteditable") !== "true") return;
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+    // The "/" menu takes its own Escape first.
+    if (!editor || e.defaultPrevented) return;
+    if (((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") || e.key === "Escape") {
       e.preventDefault();
-      void commit();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      cancel();
+      void finish();
     }
+  });
+  tell({});
+}
+
+/**
+ * The contents beside the text stay in view as the dashboard scrolls the doc
+ * past: a frame as tall as its doc never scrolls itself, so `sticky` has
+ * nothing to stick to. The dashboard tells the doc where its view is (how far
+ * down the frame the view's top is, and how tall the view is), and the
+ * contents are moved to match, within the text beside them.
+ */
+function followView(): void {
+  addEventListener("message", (e) => {
+    const m = (e.data ?? {}) as { __kos?: string; top?: unknown; height?: unknown };
+    if (e.source !== top || m.__kos !== "view" || typeof m.top !== "number" || typeof m.height !== "number") return;
+    const toc = document.querySelector<HTMLElement>(".doc-toc");
+    if (!toc) return;
+    if (!matchMedia("(min-width: 1100px)").matches) {
+      toc.style.transform = "";
+      toc.style.maxHeight = "";
+      return;
+    }
+    const shift = new DOMMatrixReadOnly(getComputedStyle(toc).transform === "none" ? undefined : getComputedStyle(toc).transform).m42;
+    const natural = toc.getBoundingClientRect().top + scrollY - shift;
+    const room = (toc.parentElement?.getBoundingClientRect().bottom ?? 0) + scrollY - natural - toc.offsetHeight;
+    const y = Math.max(0, Math.min(m.top + 24 - natural, room));
+    toc.style.transform = y > 0 ? `translateY(${Math.round(y)}px)` : "";
+    toc.style.maxHeight = `${Math.max(160, Math.round(m.height - 48))}px`;
   });
 }
 
@@ -259,7 +312,8 @@ export function startDoc(): void {
   const article = document.querySelector<HTMLElement>("article[data-doc]");
   if (!article) return;
   const start = (): Enhanced => enhance(article);
-  if (article.hasAttribute("data-locked") || typeof kos()?.save !== "function") start();
+  followView();
+  if (article.hasAttribute("data-locked") || !editable()) start();
   else editing(article, start);
 }
 

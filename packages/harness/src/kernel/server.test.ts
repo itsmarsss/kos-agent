@@ -6,10 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Inference } from "../agent/loop.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
-import { Kernel, orchestratorId } from "./kernel.js";
+import { GUEST_TOOLS, Kernel, orchestratorId } from "./kernel.js";
 import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { RATES_KEY } from "../ops/spend.js";
 import { cronSessionId } from "./session.js";
+import { caller } from "./caller.js";
 import { handleApiRequest, withFrames } from "./server.js";
 
 const stub: Inference = {
@@ -1265,6 +1266,145 @@ describe("handleApiRequest", () => {
       const base = kernel.pages.get("note")!.record.updatedAt;
       const saved = await handleApiRequest(kernel, { method: "POST", path: "/api/pages/note/save", body: { edit: { doc: "<h1>Note</h1><p>mine</p>" }, base } });
       expect(saved.status).toBe(200);
+    });
+
+    it("gives a blob's artifact no tables, keeps it the blob's through an edit, and keeps it when the blob goes", async () => {
+      kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+      const rec = kernel.pages.writeHtml({ blob: "noter", id: kernel.roles.identity("noter")! }, { id: "notes", kind: "doc", title: "Notes", html: "<article data-doc><h1>Notes</h1><p>one</p></article>" });
+      // A blob's turn reaches no tables, so neither does what it makes, even a project's it works beside.
+      for (const sql of ["SELECT title FROM shelf_books", "SELECT token FROM vault_keys"]) {
+        const read = await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/query", body: { sql } });
+        expect(read.status).toBe(403);
+      }
+      const saved = await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/save", body: { edit: { doc: "<h1>Notes</h1><p>two</p>" }, base: rec.updatedAt } });
+      expect(saved.status).toBe(200);
+      expect(saved.body).toMatchObject({ blob: "noter", projectSlug: null });
+      // A living blob's is not deleted from the dashboard.
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(403);
+      // Removed, its file goes and its folder stays with the work in it: the artifact is kept, marked as a removed blob's.
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/agents/delete", body: { name: "noter" } })).status).toBe(200);
+      const list = (await handleApiRequest(kernel, { method: "GET", path: "/api/artifacts", body: {} })).body as { id: string; blob?: string; blobRemoved?: boolean }[];
+      expect(list.find((p) => p.id === "notes")).toMatchObject({ blob: "noter", blobRemoved: true });
+      // The owner can still restore it, and delete it.
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/rollback", body: { version: 1 } })).status).toBe(200);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(200);
+      expect(kernel.pages.get("notes")).toBeUndefined();
+    });
+
+    it("lets the owner delete a removed blob's artifact whose file is already gone, by its row", async () => {
+      kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+      kernel.pages.writeHtml({ blob: "noter", id: kernel.roles.identity("noter")! }, { id: "notes", title: "Notes", html: "<p>n</p>" });
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/agents/delete", body: { name: "noter" } })).status).toBe(200);
+      rmSync(join(root, "blobs/noter/artifacts/notes.html"));
+      expect(kernel.pages.get("notes")).toBeUndefined();
+      const res = await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} });
+      expect(res).toMatchObject({ status: 200, body: { deleted: true } });
+      expect(kernel.pages.record("notes")).toBeUndefined();
+      expect(existsSync(join(root, "blobs/noter/artifacts/.history/notes"))).toBe(false);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(404);
+    });
+
+    it("lets the owner delete what a blob made once its folder was deleted by hand, without a reboot", async () => {
+      kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+      kernel.pages.writeHtml({ blob: "noter", id: kernel.roles.identity("noter")! }, { id: "notes", title: "Notes", html: "<p>n</p>" });
+      // Its file moved aside for a moment is still a living blob's.
+      const file = join(root, "blobs/noter/blob.md");
+      const text = readFileSync(file, "utf8");
+      rmSync(file);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(403);
+      writeFileSync(file, text);
+      // The whole folder gone is the blob deleted: the list says so, and Delete works.
+      rmSync(join(root, "blobs/noter"), { recursive: true });
+      const list = (await handleApiRequest(kernel, { method: "GET", path: "/api/artifacts", body: {} })).body as { id: string; blobRemoved?: boolean }[];
+      expect(list.find((p) => p.id === "notes")).toMatchObject({ blobRemoved: true });
+      expect(await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).toMatchObject({ status: 200, body: { deleted: true } });
+      expect(kernel.pages.record("notes")).toBeUndefined();
+    });
+
+    it("shows a mentioned artifact or its file only where the chat's tools could read it, and nothing to a guest", () => {
+      kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+      kernel.pages.writeHtml({ blob: "noter", id: kernel.roles.identity("noter")! }, { id: "notes", title: "Notes", html: "<p>NOTE-BODY</p>" });
+      mkdirSync(join(root, ".kos"), { recursive: true });
+      writeFileSync(join(root, ".kos/secret.txt"), "KOS-STATE");
+      const resolve = (text: string, conversationId: string | undefined, who: { guest: boolean; owner: boolean }): string =>
+        (kernel as unknown as { resolveMentions: (t: string, c: string | undefined, w: typeof who) => string | null }).resolveMentions(text, conversationId, who) ?? "";
+      const owner = { guest: false, owner: true };
+      const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Shelf chat", projectSlug: "shelf" });
+      // A project's chat sees its own page, and not a blob's, by @page or by its file.
+      const there = resolve("@page:shelf @page:notes @file:blobs/noter/artifacts/notes.html @file:blobs/noter/artifacts/.history/notes/1.json", chat.id, owner);
+      expect(there).toContain("<p>books</p>");
+      expect(there).not.toContain("NOTE-BODY");
+      expect(there).toMatch(/Page notes: not shown; This chat is Shelf's, so the blob noter's artifacts are not this chat's to read/);
+      expect(there).toMatch(/File blobs\/noter\/artifacts\/notes.html: not shown/);
+      // A change of case is the same file on a case-insensitive disk, and refused on any.
+      const cased = resolve("@file:Blobs/noter/Artifacts/NOTES.html @file:blobs/noter/artifacts/.History/notes/1.json", chat.id, owner);
+      expect(cased).not.toContain("NOTE-BODY");
+      expect(cased.match(/not shown; .*part of the artifact notes/g)).toHaveLength(2);
+      // The blob's own thread, and the owner's own chat at the root, see it.
+      expect(resolve("@page:notes", kernel.ensureAgentConversation("noter").id, owner)).toContain("NOTE-BODY");
+      const mine = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mine" });
+      expect(resolve("@file:blobs/noter/artifacts/notes.html", mine.id, owner)).toContain("NOTE-BODY");
+      // A schedule's run at the root is not the owner's own chat.
+      expect(resolve("@page:notes", mine.id, { guest: false, owner: false })).not.toContain("NOTE-BODY");
+      // KOS's own state is never shown.
+      expect(resolve("@file:.kos/secret.txt", mine.id, owner)).not.toContain("KOS-STATE");
+      for (const path of [".KOS/secret.txt", "notes/../.Kos/secret.txt"]) expect(resolve(`@file:${path}`, mine.id, owner)).toMatch(/KOS's own state and is not shown/);
+      // A guest's words show nothing of the owner's, even in the project's own chat.
+      const guest = resolve("@page:shelf @file:projects/shelf/pages/shelf.html @page:notes @file:notes.txt", chat.id, { guest: true, owner: false });
+      expect(guest).not.toContain("<p>books</p>");
+      expect(guest).not.toContain("NOTE-BODY");
+      expect(guest).toMatch(/Not shown, since a guest named them/);
+    });
+
+    it("shows a project's chat or a blob's thread KOS's own records only as its tools reach them, and the root all of them", () => {
+      kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "NOTER-BRIEF", memory: "own" });
+      kernel.roles.write({ name: "locker", description: "Locks", brief: "LOCKER-BRIEF", memory: "own", project: "vault" });
+      const theirs = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Vault chat", projectSlug: "vault", brief: "VAULT-CHAT-BRIEF" });
+      const mine = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Shelf chat", projectSlug: "shelf", brief: "SHELF-CHAT-BRIEF" });
+      const job = kernel.crons.create({ name: "rotate", schedule: "0 3 * * *", type: "self_prompt", prompt: "ROTATE-PROMPT", enabled: true, projectSlug: "vault" });
+      const asked = kernel.approvals.enqueue({ tool: "files.read", args: { path: "VAULT-KEY" }, riskTier: "risky", conversationId: theirs.id });
+      const resolve = (text: string, conversationId: string): string =>
+        (kernel as unknown as { resolveMentions: (t: string, c: string, w: { guest: boolean; owner: boolean }) => string | null }).resolveMentions(text, conversationId, { guest: false, owner: true }) ?? "";
+      const named = `@schedule:${job.id} @approval:${asked.id} @chat:[${theirs.id}] @blob:locker @blob:noter @chat:[${mine.id}]`;
+      // Another project's chat: the schedule as cron.list has it, nothing of the approval, the chat or a blob's brief.
+      const fenced = resolve(named, mine.id);
+      for (const hidden of ["ROTATE-PROMPT", "VAULT-KEY", "VAULT-CHAT-BRIEF", "LOCKER-BRIEF", "NOTER-BRIEF"]) expect(fenced, hidden).not.toContain(hidden);
+      expect(fenced).toMatch(/Schedule "rotate" \(id \d+\): 0 3 \* \* \*, type self_prompt, enabled\. Not this chat's/);
+      expect(fenced).toContain("SHELF-CHAT-BRIEF");
+      // A blob's thread: its own brief, nobody else's.
+      const thread = resolve(named, kernel.ensureAgentConversation("noter").id);
+      expect(thread).toContain("NOTER-BRIEF");
+      for (const hidden of ["ROTATE-PROMPT", "VAULT-KEY", "VAULT-CHAT-BRIEF", "LOCKER-BRIEF", "SHELF-CHAT-BRIEF"]) expect(thread, hidden).not.toContain(hidden);
+      // The project's own chat sees its own; the owner's root chat, everything.
+      const own = resolve(named, theirs.id);
+      for (const shown of ["ROTATE-PROMPT", "VAULT-KEY", "VAULT-CHAT-BRIEF", "LOCKER-BRIEF"]) expect(own, shown).toContain(shown);
+      const root = resolve(named, kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mine" }).id);
+      for (const shown of ["ROTATE-PROMPT", "VAULT-KEY", "VAULT-CHAT-BRIEF", "LOCKER-BRIEF", "NOTER-BRIEF", "SHELF-CHAT-BRIEF"]) expect(root, shown).toContain(shown);
+    });
+
+    it("gives a guest's turn no artifact or file tool, so a guest never reaches the root's reach over a blob's artifacts", () => {
+      expect(GUEST_TOOLS.filter((t) => t.startsWith("artifacts.") || t.startsWith("files.") || t === "pages.write")).toEqual([]);
+    });
+
+    it("knows a blob's own thread by its id, not by its having no project", async () => {
+      kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+      const write = (conversationId: string, id: string) => caller.run(conversationId, () => kernel.registry.execute("artifacts.write", { id, title: id, html: `<h1>${id}</h1>` }));
+      const home = kernel.ensureAgentConversation("noter");
+      expect((await write(home.id, "own")).isError).toBe(false);
+      expect(kernel.pages.record("own")).toMatchObject({ blob: "noter", blobId: kernel.roles.identity("noter") });
+      // Its chat in a project works for the project, and is still not its own thread once the project is deleted.
+      const there = kernel.spawnAgent("noter", "shelf");
+      kernel.deleteProject("shelf");
+      expect(kernel.conversations.get(there.id)).toMatchObject({ projectSlug: null, role: "noter" });
+      expect((await write(there.id, "after")).isError).toBe(false);
+      expect(kernel.pages.record("after")?.blob).toBeUndefined();
+      // Removed, its thread is nobody's: what it writes is not the old blob's, and a new noter is a new owner.
+      kernel.roles.remove("noter");
+      expect((await write(home.id, "orphan")).isError).toBe(false);
+      expect(kernel.pages.record("orphan")?.blob).toBeUndefined();
+      kernel.roles.write({ name: "noter", description: "Again", brief: "Again.", memory: "own" });
+      const again = await caller.run(home.id, () => kernel.registry.execute("artifacts.get", { id: "own" }));
+      expect(again.isError).toBe(true);
     });
 
     /*

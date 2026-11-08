@@ -23,12 +23,15 @@ import { Gutter } from "./Gutter.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { ProjectPanel } from "./ProjectPanel.js";
+import { ArtifactRail, ArtifactStrip, type RailOwner, useOwnedArtifacts } from "./ArtifactRail.js";
+import { ArtifactViewer, chatIdOf, rootChatId, type ViewerHandle } from "./ArtifactsPage.js";
 import { RailGroup, useRailFolds } from "./RailGroup.js";
 import {
   api,
   type CronJob,
   type ChatEvent,
   type Conversation,
+  type PageSummary,
   type BrowserTabInfo,
   type BuildRecord,
   type PendingAction,
@@ -94,6 +97,8 @@ export interface AgentMode {
   name: string;
   /** Out of the agent, back to the list. */
   onBack: () => void;
+  /** An older widget page from its list, which opens on its own page. */
+  onOpenPage: (id: string) => void;
   onOpenFile: (path: string) => void;
   onError: (message: string) => void;
   /** The agent was removed from its panel: nothing is left to show here. */
@@ -155,7 +160,11 @@ export interface ChatsPageProps {
    * about nothing, and the question it was answering appeared a minute later.
    */
   seed?: { id: string; text: string };
+  /** Words to start the composer with in one chat, for the owner to finish and send; said once, then let go. */
+  prefill?: { id: string; text: string };
+  onPrefilled?: () => void;
 }
+
 
 /** A tool's arguments as the owner can read them: the JSON laid out, or the string as it came. */
 function prettyArgs(args: string): string {
@@ -229,6 +238,8 @@ export function ChatsPage({
   onChanged,
   onDecide,
   seed,
+  prefill,
+  onPrefilled,
 }: ChatsPageProps): ReactElement {
   const [query, setQuery] = useState("");
   /** KOS's face, wherever KOS is drawn on this page. */
@@ -433,6 +444,19 @@ export function ChatsPage({
     };
   }, [project?.slug, conversations, activeId, approvals]);
   const suggestions = useSuggestions(trigger, suggestionOptions);
+
+  // Words handed over to start with ("Make a "): in the composer, the caret after them.
+  useEffect(() => {
+    if (!prefill || prefill.id !== activeId) return;
+    setDraft(prefill.text);
+    onPrefilled?.();
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(prefill.text.length, prefill.text.length);
+    });
+  }, [prefill, activeId, onPrefilled]);
 
   const syncTrigger = (): void => {
     const el = inputRef.current;
@@ -654,6 +678,42 @@ export function ChatsPage({
     () => (agent ? conversations.filter((c) => c.kind === "chat" && c.role === agent.name && !c.archived).sort(byAttention) : []),
     [agent, conversations],
   );
+  /*
+   * What the project or the blob owns, beside its chat, and the one open in
+   * place of the thread. A blob owns what its own thread makes, as it owns
+   * its folder; a project, what its chats make.
+   */
+  const [inline, setInline] = useState<string>();
+  const projectSlug = project?.slug;
+  const agentName = agent?.name;
+  const railOwner = useMemo<RailOwner | undefined>(
+    () => (agentName ? { blob: agentName } : projectSlug ? { project: projectSlug } : undefined),
+    [agentName, projectSlug],
+  );
+  // Read again when what was open in place closes, since the owner may have edited it there.
+  const owned = useOwnedArtifacts(railOwner, inline);
+  // Another project, blob or thread: the thread is what shows, not the artifact open before, once its editing is finished.
+  const viewer = useRef<ViewerHandle>(null);
+  const shown = useRef(inline);
+  useEffect(() => {
+    shown.current = inline;
+  }, [inline]);
+  useEffect(() => {
+    let stale = false;
+    // Closed only if it is still the one being finished: one opened during the wait stays.
+    const settling = shown.current;
+    void (viewer.current?.settle() ?? Promise.resolve()).then(() => !stale && setInline((now) => (now === settling ? undefined : now)));
+    return () => {
+      stale = true;
+    };
+  }, [projectSlug, agentName, activeId]);
+  const openOwned = (a: PageSummary): void => {
+    // An older widget page has no viewer of its own here; it opens on its page.
+    if (a.kind !== "html") (project ?? agent)?.onOpenPage(a.id);
+    else setInline(a.id);
+  };
+  const railProps = { items: owned, ...(inline ? { open: inline } : {}), onOpen: openOwned };
+
   const q = query.trim().toLowerCase();
   const matches = (c: Conversation): boolean => !q || c.title.toLowerCase().includes(q);
   const filtered = useMemo(() => tree.roots.filter(matches), [tree, q]);
@@ -1845,7 +1905,26 @@ export function ChatsPage({
         </aside>
       )}
 
-      <section className="chats-view">
+      <section className={`chats-view${inline ? " has-inline" : ""}`}>
+        {inline && (
+          <div className="chats-inline">
+            <ArtifactViewer
+              ref={viewer}
+              id={inline}
+              projects={projects}
+              backLabel="← Back to the chat"
+              onBack={() => setInline(undefined)}
+              onOpenChat={(owner) => {
+                // The thread the request went to: the project's, the blob's, or KOS at the root.
+                setInline(undefined);
+                const id = chatIdOf(owner);
+                if (id) onOpen(id);
+                // Not named (the settings did not load): the chat list, which is what shows once the artifact closes.
+                else void rootChatId().then(onOpen, () => undefined);
+              }}
+            />
+          </div>
+        )}
         {undo && (
           <div className="chats-undo" role="status">
             <span>Archived “{undo.title}”.</span>
@@ -2566,6 +2645,7 @@ export function ChatsPage({
             </div>
           </>
         )}
+        {(project || agent) && <ArtifactStrip {...railProps} />}
       </section>
 
       {project && (
@@ -2573,7 +2653,7 @@ export function ChatsPage({
            than the panel vanishing; it polls nothing until it is back. */
         <ProjectPanel
           slug={project.slug}
-          onOpenPage={project.onOpenPage}
+          rail={<ArtifactRail {...railProps} />}
           onOpenFile={project.onOpenFile}
           onChanged={onChanged}
           onError={project.onError}
@@ -2589,6 +2669,7 @@ export function ChatsPage({
           onNotice={onNotice}
           onRemoved={agent.onRemoved}
           hidden={!panelOpen}
+          rail={<ArtifactRail {...railProps} />}
         />
       )}
 

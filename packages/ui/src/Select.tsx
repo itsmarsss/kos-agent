@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type ReactElement,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, m } from "motion/react";
@@ -31,6 +32,8 @@ export interface SelectOption {
   value: string;
   label: string;
   hint?: string;
+  /** A mark before the label: a project's tile, a blob's face. */
+  icon?: ReactNode;
 }
 
 export function Select({
@@ -112,7 +115,10 @@ export function Select({
           }
         }}
       >
-        <span className="sel-value">{current?.label ?? value}</span>
+        <span className="sel-value">
+          {current?.icon && <span className="sel-icon" aria-hidden="true">{current.icon}</span>}
+          {current?.label ?? value}
+        </span>
         <span className="sel-caret"><ChevronDown size={10} title="" /></span>
       </button>
 
@@ -176,7 +182,10 @@ export function Select({
                     onMouseEnter={() => setCursor(i)}
                     onClick={() => pick(opt.value)}
                   >
-                    <span className="sel-option-label">{opt.label}</span>
+                    <span className="sel-option-label">
+                      {opt.icon && <span className="sel-icon" aria-hidden="true">{opt.icon}</span>}
+                      {opt.label}
+                    </span>
                     {opt.hint && (
                       <span className="sel-option-hint">{opt.hint}</span>
                     )}

@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { PendingAction } from "../ops/approvals.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
+import { isAttended, isOwnerTurn } from "./caller.js";
 import { Decisions, type DecisionsDeps } from "./decisions.js";
 
 function pending(over: Partial<PendingAction> = {}): PendingAction {
-  return { id: 5, tool: "files.rm", args: JSON.stringify({ path: "projects/books/x.md" }), riskTier: "risky", reason: "r", status: "pending", userId: "owner", conversationId: "c1", requestedAt: 0, decidedAt: null, decidedBy: null, rule: null, picture: false, why: null, ...over };
+  return { id: 5, tool: "files.rm", args: JSON.stringify({ path: "projects/books/x.md" }), riskTier: "risky", reason: "r", status: "pending", userId: "owner", conversationId: "c1", requestedAt: 0, decidedAt: null, decidedBy: null, rule: null, picture: false, why: null, owner: false, attended: false, ...over };
 }
 
 function deps(action: PendingAction | undefined, awaited: boolean, over: Partial<DecisionsDeps> = {}) {
@@ -56,6 +57,22 @@ describe("approving", () => {
     const r = await new Decisions(d).approve(5);
     expect(log).toEqual(["approve:5:owner", "lane:c1", "in:c1", "run:files.rm", "audit:files.rm:ok", "ran:files.rm", "resume:c1:system:approved"]);
     expect(r).toMatchObject({ ok: true, message: "removed", isError: false, reply: "carried on" });
+  });
+
+  it("runs an orphaned action as the turn that asked: the owner's reach only if it was theirs", async () => {
+    const as = async (asked: { owner: boolean; attended: boolean }): Promise<{ owner: boolean; attended: boolean }> => {
+      let seen = { owner: true, attended: true };
+      const { d } = deps(pending(asked), false, {
+        registry: { execute: async () => { seen = { owner: isOwnerTurn(), attended: isAttended() }; return { content: "ok", isError: false }; } },
+      });
+      await new Decisions(d).approve(5);
+      return seen;
+    };
+    expect(await as({ owner: true, attended: true })).toEqual({ owner: true, attended: true });
+    expect(await as({ owner: false, attended: true })).toEqual({ owner: false, attended: true });
+    expect(await as({ owner: false, attended: false })).toEqual({ owner: false, attended: false });
+    // A turn nobody attended is never the owner's.
+    expect(await as({ owner: true, attended: false })).toEqual({ owner: false, attended: false });
   });
 
   it("holds the chat while a sibling is still waiting, then resumes once with every outcome", async () => {

@@ -17,11 +17,14 @@ import {
   type SheetBook,
 } from "@kos/shared";
 
+import { ROLE_NAME, RoleStore } from "../agents/roles.js";
 import type { Db } from "../store/db.js";
-import type { Workspace } from "../store/workspace.js";
+import { foldedPath, type Workspace } from "../store/workspace.js";
 import { projectTable } from "./identifiers.js";
 import type { ProjectManifest } from "./manifest.js";
-import { withDocText } from "./artifactedit.js";
+import { unsavableDocText, withDocText } from "./artifactedit.js";
+import { BlobIds } from "./blobids.js";
+import { markupExits } from "./markup.js";
 import { BridgeRefusal, tablesRead } from "./pagebridge.js";
 import { registeredTables } from "./registered.js";
 
@@ -59,12 +62,42 @@ export const EDIT_GAP_MS = 2000;
  */
 export class EditConflict extends Error {}
 
+/** A write's leave to move an artifact: the owner the caller checked it has now. Without it, a write keeps it where it is. */
+export interface SaveOptions {
+  from?: PageOwner;
+}
+
 export type PageKind = "spec" | "html";
+
+/**
+ * Who an artifact belongs to: a project (its slug), a blob ({ blob: name,
+ * id }), or the workspace (null). A blob owns what it makes as it owns its
+ * files, in its own folder; like the workspace it has no tables, so its
+ * artifacts reach none. A blob is told apart by its id (blobids.ts), not its
+ * name, so a blob made later under a removed one's name owns none of its.
+ */
+export type BlobOwner = { blob: string; id: string };
+export type PageOwner = string | null | BlobOwner;
+
+/** The owner's project, if it is one. */
+const projectOf = (owner: PageOwner): string | null => (typeof owner === "string" ? owner : null);
+/** The owner's blob, if it is one. */
+const blobOf = (owner: PageOwner): BlobOwner | null => (owner !== null && typeof owner === "object" ? owner : null);
+/** One owner as a word, to compare two. */
+export const ownerKey = (owner: PageOwner): string => (typeof owner === "string" ? `project:${owner}` : owner ? `blob:${owner.id}` : "workspace");
+/** An owner as the words a refusal uses. */
+const ownerWords = (owner: PageOwner): string => (typeof owner === "string" ? `project ${owner}'s` : owner ? `the blob ${owner.blob}'s` : "the workspace's");
 
 export interface PageRecord {
   id: string;
-  /** The project it belongs to; null for a workspace artifact, which belongs to none. */
+  /** The project it belongs to; null for a blob's or a workspace artifact, which belong to none. */
   projectSlug: string | null;
+  /** The blob it belongs to, by name, when a blob made it; absent for a project's or the workspace's. */
+  blob?: string;
+  /** That blob's id, which tells it from a later blob of the same name. */
+  blobId?: string;
+  /** The blob that made it has been removed: it is kept, the owner's to look at, restore or delete. */
+  blobRemoved?: true;
   title: string;
   path: string;
   updatedAt: number;
@@ -94,7 +127,15 @@ interface Row {
   updated_at: number;
   kind: string | null;
   meta: string | null;
+  blob: string | null;
+  blob_id: string | null;
+  /** From blob_ids: when the owning blob was removed. */
+  blob_removed: number | null;
 }
+
+/** A row's columns, with whether its blob was removed. */
+const COLS = `p.id, p.project_slug, p.title, p.path, p.updated_at, p.kind, p.meta, p.blob, p.blob_id, b.removed_at AS blob_removed`;
+const FROM = `pages p LEFT JOIN blob_ids b ON b.id = p.blob_id`;
 
 /** What an HTML page declares besides its markup, kept on its row. */
 type HtmlMeta = Omit<HtmlPage, "id" | "title" | "html">;
@@ -109,6 +150,7 @@ const recordOf = (r: Row): PageRecord => {
   return {
     id: r.id,
     projectSlug: r.project_slug === WORKSPACE ? null : r.project_slug,
+    ...(r.blob && r.blob_id ? { blob: r.blob, blobId: r.blob_id, ...(r.blob_removed !== null ? { blobRemoved: true as const } : {}) } : {}),
     title: r.title,
     path: r.path,
     updatedAt: r.updated_at,
@@ -118,8 +160,21 @@ const recordOf = (r: Row): PageRecord => {
   };
 };
 
-/** Where an artifact's file lives: its project's pages folder, or the workspace's artifacts folder. */
-const folderOf = (projectSlug: string | null): string => (projectSlug ? join("projects", projectSlug, "pages") : "artifacts");
+/** Who a row belongs to. */
+const ownerOfRow = (r: Row): PageOwner => (r.blob && r.blob_id ? { blob: r.blob, id: r.blob_id } : r.project_slug === WORKSPACE ? null : r.project_slug);
+
+/** Who a record belongs to. */
+export const ownerOfRecord = (r: PageRecord): PageOwner => (r.blob && r.blobId ? { blob: r.blob, id: r.blobId } : r.projectSlug);
+
+/** A stored path as a fence compares it: forward slashes, lower case. */
+const fold = (path: string): string => path.split("\\").join("/").toLowerCase();
+
+/** Where an artifact's file lives: its project's pages folder, its blob's artifacts folder beside its files, or the workspace's. */
+const folderOf = (owner: PageOwner): string => {
+  const project = projectOf(owner);
+  const blob = blobOf(owner);
+  return project ? join("projects", project, "pages") : blob ? join("blobs", blob.blob, "artifacts") : "artifacts";
+};
 
 /**
  * Models write `<\/script>` because that is how a closing tag is escaped inside
@@ -140,6 +195,8 @@ export function ownerOf(table: string, slugs: string[]): string | undefined {
 export class PageStore {
   /** When each artifact last took one of the owner's edits. */
   private readonly lastEdit = new Map<string, number>();
+  /** Which blob is which, by id. */
+  readonly blobIds: BlobIds;
 
   constructor(
     private readonly db: Db,
@@ -152,21 +209,88 @@ export class PageStore {
     const cols = new Set((this.db.prepare(`PRAGMA table_info(pages)`).all() as { name: string }[]).map((c) => c.name));
     if (!cols.has("kind")) this.db.exec(`ALTER TABLE pages ADD COLUMN kind TEXT NOT NULL DEFAULT 'spec'`);
     if (!cols.has("meta")) this.db.exec(`ALTER TABLE pages ADD COLUMN meta TEXT`);
+    // The blob that owns it, added once blobs could own artifacts: every older row keeps its project or the workspace.
+    if (!cols.has("blob")) this.db.exec(`ALTER TABLE pages ADD COLUMN blob TEXT`);
+    // Its id, added once a blob was told apart from a later one of the same name.
+    if (!cols.has("blob_id")) this.db.exec(`ALTER TABLE pages ADD COLUMN blob_id TEXT`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS pages_blob_id ON pages(blob_id)`);
+    this.blobIds = new BlobIds(db, now);
+    this.giveBlobIds();
+  }
+
+  /**
+   * A blob's row from before ids: the living blob of that name owns it, and
+   * one whose blob is gone goes to a retired id, so a blob made under that
+   * name later is not handed it.
+   */
+  private giveBlobIds(): void {
+    const names = (this.db.prepare(`SELECT DISTINCT blob FROM pages WHERE blob IS NOT NULL AND blob_id IS NULL`).all() as { blob: string }[]).map((r) => r.blob);
+    if (names.length === 0) return;
+    const roles = new RoleStore(this.workspace, this.blobIds);
+    const give = this.db.prepare(`UPDATE pages SET blob_id = ? WHERE blob = ? AND blob_id IS NULL`);
+    for (const name of names) give.run(roles.identity(name) ?? this.blobIds.retired(name), name);
   }
 
   private row(id: string): Row | undefined {
-    return this.db.prepare(`SELECT id, project_slug, title, path, updated_at, kind, meta FROM pages WHERE id = ?`).get(id) as Row | undefined;
+    return this.db.prepare(`SELECT ${COLS} FROM ${FROM} WHERE p.id = ?`).get(id) as Row | undefined;
   }
 
-  /** Every artifact, or one project's; null lists the workspace's own. */
-  list(projectSlug?: string | null): PageRecord[] {
-    const cols = `id, project_slug, title, path, updated_at, kind, meta`;
+  /** Every artifact, or one owner's: a project's, a blob's ({ blob, id }), or the workspace's own (null). */
+  list(owner?: PageOwner): PageRecord[] {
+    const blob = owner === undefined ? undefined : blobOf(owner);
     const rows = (
-      projectSlug !== undefined
-        ? this.db.prepare(`SELECT ${cols} FROM pages WHERE project_slug = ? ORDER BY title`).all(projectSlug ?? WORKSPACE)
-        : this.db.prepare(`SELECT ${cols} FROM pages ORDER BY project_slug, title`).all()
+      owner === undefined
+        ? this.db.prepare(`SELECT ${COLS} FROM ${FROM} ORDER BY p.project_slug, p.title`).all()
+        : blob
+          ? this.db.prepare(`SELECT ${COLS} FROM ${FROM} WHERE p.blob_id = ? ORDER BY p.title`).all(blob.id)
+          : this.db.prepare(`SELECT ${COLS} FROM ${FROM} WHERE p.project_slug = ? AND p.blob_id IS NULL ORDER BY p.title`).all(projectOf(owner) ?? WORKSPACE)
     ) as Row[];
     return rows.map(recordOf);
+  }
+
+  /** An artifact's record, whether or not its file is still there: whose it is, for a check before anything is read or written. */
+  record(id: string): PageRecord | undefined {
+    const row = this.row(id);
+    return row ? recordOf(row) : undefined;
+  }
+
+  /**
+   * The artifact a workspace path is part of: its file, or a version or
+   * capture of it under its owner's folder. Undefined for any other path,
+   * a folder's own file that is no artifact's included. Matched with the
+   * path folded (foldedPath) and the id in any case, so `Blobs/x/Artifacts/`
+   * is the folder it opens on a case-insensitive disk, and refused as one.
+   */
+  recordAt(path: string): PageRecord | undefined {
+    const parts = foldedPath(this.workspace.root, path).split("/").filter((p) => p !== "");
+    const at = parts[0] === "projects" && parts[2] === "pages" ? 3 : parts[0] === "blobs" && parts[2] === "artifacts" ? 3 : parts[0] === "artifacts" ? 1 : -1;
+    if (at < 0 || parts.length <= at) return undefined;
+    const rest = parts.slice(at);
+    const id = rest[0] === ".history" || rest[0] === ".captures" ? rest[1] : rest.length === 1 ? rest[0]!.replace(/\.(html|json)$/, "") : undefined;
+    if (!id) return undefined;
+    const folder = parts.slice(0, at).join("/");
+    const rows = this.db.prepare(`SELECT ${COLS} FROM ${FROM} WHERE p.id = ? COLLATE NOCASE`).all(id) as Row[];
+    const row = rows.find((r) => fold(folderOf(ownerOfRow(r))) === folder);
+    return row ? recordOf(row) : undefined;
+  }
+
+  /**
+   * Every artifact with a file, version or capture under a workspace folder:
+   * read from the rows, not by walking the folder, so a folder operation
+   * (an rm, an mv, a cp of `blobs/noter` or `projects/x/pages`) is held to
+   * whose artifacts it would take with it. The workspace's root holds them
+   * all. Compared folded, as recordAt compares a file.
+   */
+  recordsUnder(folder: string): PageRecord[] {
+    const prefix = foldedPath(this.workspace.root, folder);
+    const under = (path: string): boolean => prefix === "" || path === prefix || path.startsWith(`${prefix}/`);
+    const rows = this.db.prepare(`SELECT ${COLS} FROM ${FROM}`).all() as Row[];
+    return rows
+      .filter((r) => {
+        const dir = fold(folderOf(ownerOfRow(r)));
+        return under(fold(r.path)) || [".history", ".captures"].some((sub) => under(`${dir}/${sub}/${r.id.toLowerCase()}`));
+      })
+      .map(recordOf);
   }
 
   get(id: string): LoadedPage | undefined {
@@ -269,7 +393,7 @@ export class PageStore {
    * Validate and write a page spec. page id must match the spec id. Project
    * must already exist in the manifest.
    */
-  write(projectSlug: string, spec: unknown): PageRecord {
+  write(projectSlug: string, spec: unknown, opts: SaveOptions = {}): PageRecord {
     if (!this.manifest.get(projectSlug)) {
       throw new Error(`unknown project: ${projectSlug}`);
     }
@@ -281,7 +405,7 @@ export class PageStore {
     const page = spec as PageSpec;
     this.assertMutationTablesExist(projectSlug, page);
     this.assertQueriesStayInProject(projectSlug, page);
-    return this.save(projectSlug, page.id, page.title, "spec", JSON.stringify(page, null, 2), null);
+    return this.save(projectSlug, page.id, page.title, "spec", JSON.stringify(page, null, 2), null, opts);
   }
 
   /**
@@ -291,24 +415,34 @@ export class PageStore {
    * the mistake is named now rather than on the owner's first save. A
    * workspace artifact (no project) has no tables or files to reach.
    */
-  writeHtml(projectSlug: string | null, input: unknown): PageRecord {
+  writeHtml(owner: PageOwner, input: unknown, opts: SaveOptions = {}): PageRecord {
+    const projectSlug = projectOf(owner);
+    const blob = blobOf(owner);
     if (projectSlug !== null && !this.manifest.get(projectSlug)) {
       throw new Error(`unknown project: ${projectSlug}`);
     }
+    if (blob !== null && !ROLE_NAME.test(blob.blob)) throw new Error(`not a blob's name: ${blob.blob}`);
     const errors = validateHtmlPage(input);
+    // The exits again, from the document as the browser parses it: a pattern misses one behind an entity or a quoted >.
+    const exits = errors.length === 0 ? markupExits((input as HtmlPage).html) : [];
+    if (exits.length) errors.push(`a page cannot leave its frame, so it may not hold ${exits.join("; ")}; keep everything on the page and reach data through window.kos`);
+    // A doc's article is what the owner edits, and the editor saves only what a doc is made of: held to that now, not on their first save.
+    const unsavable = errors.length === 0 && (input as HtmlPage).kind === "doc" ? unsavableDocText((input as HtmlPage).html) : undefined;
+    if (unsavable) errors.push(`the text inside <article data-doc> is what the owner edits, and the editor could not save it back: ${unsavable}. Keep the article to text, headings, lists, tables, figures and SVG with plain styles; put scripts, styles and anything else outside it, or add data-locked to the article if it is not to be edited`);
     if (errors.length > 0) throw new Error(`invalid artifact: ${errors.join("; ")}`);
     const page = input as HtmlPage;
     if (projectSlug === null) {
       const reaches = [page.capabilities?.writes?.length ? "capabilities.writes" : "", page.capabilities?.files ? "capabilities.files" : "", page.headline ? "a headline" : ""].filter(Boolean);
-      if (reaches.length) throw new Error(`a workspace artifact belongs to no project, so it has no tables or files; drop ${reaches.join(", ")}, or write it under the project whose data it shows`);
+      const whose = blob ? `a blob's artifact (${blob.blob}'s)` : "a workspace artifact";
+      if (reaches.length) throw new Error(`${whose} belongs to no project, so it has no tables or files; drop ${reaches.join(", ")}, or write it under the project whose data it shows`);
     }
     const tables = projectSlug === null ? new Set<string>() : registeredTables(this.db, projectSlug);
-    const owner = projectSlug ?? "the workspace";
+    const holder = projectSlug ?? (blob ? `the blob ${blob.blob}` : "the workspace");
     for (const [i, target] of (page.capabilities?.writes ?? []).entries()) {
       if (tables.has(target.table)) continue;
       const namespaced = projectTable(projectSlug ?? "", target.table);
       const hint = tables.has(namespaced) ? `use "${namespaced}"` : "create it with systems.migrate first";
-      throw new Error(`capabilities.writes[${i}]: "${target.table}" is not a table of project "${owner}"; ${hint}`);
+      throw new Error(`capabilities.writes[${i}]: "${target.table}" is not a table of project "${holder}"; ${hint}`);
     }
     if (page.kind === "sheet") {
       const book = JSON.parse(sheetDataOf(page.html) ?? "{}") as SheetBook;
@@ -320,7 +454,7 @@ export class PageStore {
       if (!isReadOnlyQuery(page.headline.query)) throw new Error("headline.query must be a single read-only SELECT");
       try {
         for (const table of tablesRead(this.db, page.headline.query, [])) {
-          if (!tables.has(table)) throw new BridgeRefusal(`it reads "${table}", which is not a table of project "${owner}"`);
+          if (!tables.has(table)) throw new BridgeRefusal(`it reads "${table}", which is not a table of project "${holder}"`);
         }
       } catch (err) {
         throw new Error(`headline.query: ${err instanceof Error ? err.message : String(err)}`);
@@ -328,7 +462,7 @@ export class PageStore {
     }
     const { id: _id, title: _title, html: _html, ...declared } = page;
     const meta: HtmlMeta = Object.fromEntries(Object.entries(declared).filter(([, v]) => v !== undefined && v !== "")) as HtmlMeta;
-    return this.save(projectSlug, page.id, page.title, "html", repairClosingTags(page.html), meta);
+    return this.save(owner, page.id, page.title, "html", repairClosingTags(page.html), meta, opts);
   }
 
   /**
@@ -367,15 +501,27 @@ export class PageStore {
     const now = this.now();
     const last = this.lastEdit.get(id);
     if (last !== undefined && now - last < EDIT_GAP_MS) throw new Error("saved a moment ago; wait a second and save again");
-    const record = this.writeHtml(got.record.projectSlug, { ...page, html });
+    const record = this.writeHtml(ownerOfRecord(got.record), { ...page, html });
     this.lastEdit.set(id, now);
     return record;
   }
 
-  /** Write a page's file and row, and keep the write as a version. */
-  private save(projectSlug: string | null, id: string, title: string, kind: PageKind, body: string, meta: HtmlMeta | null): PageRecord {
+  /**
+   * Write a page's file and row, and keep the write as a version. An id is
+   * one artifact's wherever it lives, so a write never takes another
+   * owner's: the row it would replace must be the same owner's, or, for a
+   * move the caller decided on, the owner it checked (`from`).
+   */
+  private save(owner: PageOwner, id: string, title: string, kind: PageKind, body: string, meta: HtmlMeta | null, opts: SaveOptions): PageRecord {
+    const projectSlug = projectOf(owner);
+    const blob = blobOf(owner);
     const previous = this.row(id);
-    const rel = join(folderOf(projectSlug), `${id}.${kind === "html" ? "html" : "json"}`);
+    if (previous) {
+      const was = ownerOfRow(previous);
+      const allowed = opts.from === undefined ? owner : opts.from;
+      if (ownerKey(was) !== ownerKey(allowed)) throw new Error(`the artifact ${id} is ${ownerWords(was)}, so it is not written as ${ownerWords(owner)}`);
+    }
+    const rel = join(folderOf(owner), `${id}.${kind === "html" ? "html" : "json"}`);
     const abs = this.workspace.resolve(rel);
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, body);
@@ -388,45 +534,47 @@ export class PageStore {
     const metaText = meta ? JSON.stringify(meta) : null;
     this.db
       .prepare(
-        `INSERT INTO pages (id, project_slug, title, path, updated_at, kind, meta)
-         VALUES (@id, @projectSlug, @title, @path, @ts, @kind, @meta)
+        `INSERT INTO pages (id, project_slug, title, path, updated_at, kind, meta, blob, blob_id)
+         VALUES (@id, @projectSlug, @title, @path, @ts, @kind, @meta, @blob, @blobId)
          ON CONFLICT(id) DO UPDATE SET
            project_slug = excluded.project_slug,
+           blob = excluded.blob,
+           blob_id = excluded.blob_id,
            title = excluded.title,
            path = excluded.path,
            updated_at = excluded.updated_at,
            kind = excluded.kind,
            meta = excluded.meta`,
       )
-      .run({ id, projectSlug: projectSlug ?? WORKSPACE, title, path: rel, ts, kind, meta: metaText });
-    // An artifact moved between projects, or to the workspace, takes its history and captures with it.
-    const was = previous ? (previous.project_slug === WORKSPACE ? null : previous.project_slug) : undefined;
-    if (was !== undefined && was !== projectSlug) {
+      .run({ id, projectSlug: projectSlug ?? WORKSPACE, title, path: rel, ts, kind, meta: metaText, blob: blob?.blob ?? null, blobId: blob?.id ?? null });
+    // An artifact moved between owners takes its history and captures with it.
+    const was = previous ? ownerOfRow(previous) : undefined;
+    if (was !== undefined && ownerKey(was) !== ownerKey(owner)) {
       for (const sub of [".history", ".captures"]) {
         const from = this.workspace.resolve(join(folderOf(was), sub, id));
-        const to = this.workspace.resolve(join(folderOf(projectSlug), sub, id));
+        const to = this.workspace.resolve(join(folderOf(owner), sub, id));
         if (!existsSync(from)) continue;
         mkdirSync(dirname(to), { recursive: true });
         renameSync(from, to);
       }
     }
-    this.keepVersion(projectSlug, id, { at: ts, title, kind, body, meta });
+    this.keepVersion(owner, id, { at: ts, title, kind, body, meta });
     if (projectSlug) this.manifest.touchProject(projectSlug);
-    return recordOf({ id, project_slug: projectSlug ?? WORKSPACE, title, path: rel, updated_at: ts, kind, meta: metaText });
+    return recordOf({ id, project_slug: projectSlug ?? WORKSPACE, title, path: rel, updated_at: ts, kind, meta: metaText, blob: blob?.blob ?? null, blob_id: blob?.id ?? null, blob_removed: blob && this.blobIds.removed(blob.id) ? 1 : null });
   }
 
   /** Where artifacts.check keeps an artifact's renders, which the gallery shows as its thumbnail. */
   capturesDir(id: string): string {
     const row = this.row(id);
-    return this.workspace.resolve(join(folderOf(row ? recordOf(row).projectSlug : null), ".captures", id));
+    return this.workspace.resolve(join(folderOf(row ? ownerOfRow(row) : null), ".captures", id));
   }
 
-  private historyDir(projectSlug: string | null, id: string): string {
-    return this.workspace.resolve(join(folderOf(projectSlug), ".history", id));
+  private historyDir(owner: PageOwner, id: string): string {
+    return this.workspace.resolve(join(folderOf(owner), ".history", id));
   }
 
-  private keepVersion(projectSlug: string | null, id: string, snapshot: { at: number; title: string; kind: PageKind; body: string; meta: HtmlMeta | null }): void {
-    const dir = this.historyDir(projectSlug, id);
+  private keepVersion(owner: PageOwner, id: string, snapshot: { at: number; title: string; kind: PageKind; body: string; meta: HtmlMeta | null }): void {
+    const dir = this.historyDir(owner, id);
     mkdirSync(dir, { recursive: true });
     const numbers = this.versionNumbers(dir);
     const next = (numbers.at(-1) ?? 0) + 1;
@@ -447,36 +595,53 @@ export class PageStore {
   history(id: string): PageVersion[] {
     const row = this.row(id);
     if (!row) return [];
-    const dir = this.historyDir(recordOf(row).projectSlug, id);
+    const dir = this.historyDir(ownerOfRow(row), id);
     return this.versionNumbers(dir).map((version) => {
       const v = JSON.parse(readFileSync(join(dir, `${version}.json`), "utf8")) as { at: number; title: string; kind: PageKind };
       return { version, at: v.at, title: v.title, kind: v.kind };
     });
   }
 
+  /** An HTML artifact as it was at a version, to look at: nothing is written. */
+  version(id: string, version: number): HtmlPage | undefined {
+    const row = this.row(id);
+    if (!row || !Number.isInteger(version)) return undefined;
+    const file = join(this.historyDir(ownerOfRow(row), id), `${version}.json`);
+    if (!existsSync(file)) return undefined;
+    const v = JSON.parse(readFileSync(file, "utf8")) as { title: string; kind: PageKind; body: string; meta: HtmlMeta | null };
+    return v.kind === "html" ? { id, title: v.title, html: v.body, ...(v.meta ?? {}) } : undefined;
+  }
+
   /**
    * Put a page back as it was at a version. It goes through the same checks as
    * any write, against the tables as they are now, and is itself kept as a
-   * version, so a rollback can be undone.
+   * version, so a rollback can be undone. The owner's restore names the
+   * version it was made on (`base`), as an edit does: one made on an older
+   * version is an EditConflict rather than a silent overwrite.
    */
-  rollback(id: string, version: number): PageRecord {
+  rollback(id: string, version: number, base?: unknown): PageRecord {
     const row = this.row(id);
     if (!row) throw new Error(`page not found: ${id}`);
-    const projectSlug = recordOf(row).projectSlug;
-    const file = join(this.historyDir(projectSlug, id), `${version}.json`);
+    if (base !== undefined && base !== row.updated_at) {
+      throw new EditConflict("This artifact changed after it was opened: KOS or another window saved a newer version. Reload it, then restore again.");
+    }
+    const owner = ownerOfRow(row);
+    const projectSlug = projectOf(owner);
+    const file = join(this.historyDir(owner, id), `${version}.json`);
     if (!Number.isInteger(version) || !existsSync(file)) throw new Error(`page ${id} has no version ${version}`);
     const v = JSON.parse(readFileSync(file, "utf8")) as { title: string; kind: PageKind; body: string; meta: HtmlMeta | null };
-    if (v.kind === "html") return this.writeHtml(projectSlug, { id, title: v.title, html: v.body, ...(v.meta ?? {}) });
+    if (v.kind === "html") return this.writeHtml(owner, { id, title: v.title, html: v.body, ...(v.meta ?? {}) });
     if (projectSlug === null) throw new Error(`page ${id} version ${version} is a widget spec, which needs a project`);
     return this.write(projectSlug, JSON.parse(v.body));
   }
 
+  /** Remove an artifact, its row, file, versions and captures: whatever of them is still there. */
   remove(id: string): boolean {
-    const got = this.get(id);
-    if (!got) return false;
-    const abs = this.workspace.resolve(got.record.path);
+    const record = this.record(id);
+    if (!record) return false;
+    const abs = this.workspace.resolve(record.path);
     if (existsSync(abs)) unlinkSync(abs);
-    rmSync(this.historyDir(got.record.projectSlug, id), { recursive: true, force: true });
+    rmSync(this.historyDir(ownerOfRecord(record), id), { recursive: true, force: true });
     rmSync(this.capturesDir(id), { recursive: true, force: true });
     this.db.prepare(`DELETE FROM pages WHERE id = ?`).run(id);
     return true;

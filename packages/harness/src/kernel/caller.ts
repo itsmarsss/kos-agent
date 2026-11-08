@@ -38,6 +38,22 @@ export function isAttended(): boolean {
 }
 
 /**
+ * Whether the current call is part of the owner's own turn: their own
+ * message, on the dashboard or a surface they speak on, and nothing else.
+ * Not a schedule's run, a guest's words, a resumed approval, or work another
+ * chat passed on, whoever that chat was talking to: what only the owner's
+ * turns reach (a blob's artifacts from a root chat) is not laundered through
+ * a dispatch. False outside a turn, so a caller that forgets to say is not
+ * taken for the owner.
+ */
+export const ownership = new AsyncLocalStorage<boolean>();
+
+/** True only inside a call of the owner's own turn. */
+export function isOwnerTurn(): boolean {
+  return ownership.getStore() ?? false;
+}
+
+/**
  * Which turn is making the current call, beside its conversation. A chat can
  * have two turns alive at once (one suspended on an approval, one answering
  * the next message), and what a turn may reach can belong to that turn alone.

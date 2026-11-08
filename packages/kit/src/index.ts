@@ -35,6 +35,6 @@ export { KindMark, Markdown, MentionNames, RefChip, RefLinks } from "./Markdown.
 export { Field, Req, type FieldProps } from "./Field.js";
 export { Tex } from "./Tex.js";
 export { Tooltip, type TooltipAnchorProps, type TooltipProps } from "./Tooltip.js";
-export { Card, Chips, Collapse, Count, Empty, type CardProps, type ChipOption, DrawerRow, Elapsed, formatElapsed, IconButton, IconLink, Pill, Section, StatusDot, Switch, Tag, WorkingDots, type DotState, type IconButtonProps, type Tone } from "./kit.js";
+export { Card, Chips, Collapse, Count, Empty, type CardProps, type ChipOption, DrawerRow, Elapsed, formatElapsed, IconButton, IconLink, Pill, Section, Skeleton, StatusDot, Switch, Tag, WorkingDots, type DotState, type IconButtonProps, type Tone } from "./kit.js";
 export { useDismiss, type DismissOptions } from "./useDismiss.js";
 export * from "./icons.js";

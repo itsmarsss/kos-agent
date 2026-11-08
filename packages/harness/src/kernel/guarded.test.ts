@@ -10,7 +10,7 @@ import { PermissionStore, actsInYourChrome } from "../ops/permissions.js";
 import { RISKY } from "../risk/tiers.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { caller, isAttended, turnStop } from "./caller.js";
+import { caller, isAttended, isOwnerTurn, turnStop } from "./caller.js";
 import { GuardedTools, STOPPED_RESULT, finishedAfterStop, type GuardedToolsDeps } from "./guarded.js";
 
 describe("GuardedTools", () => {
@@ -45,6 +45,15 @@ describe("GuardedTools", () => {
     expect((await guarded({ conversationId: "cron:3", attended: false }).execute("probe", {})).content).toBe("unattended");
     // Outside any call, nothing is known to be unattended.
     expect(isAttended()).toBe(true);
+  });
+
+  it("tells a tool the turn is the owner's only when its door said so, and never an unattended one's", async () => {
+    registry.register({ name: "whose", description: "w", inputSchema: { type: "object" } }, () => (isOwnerTurn() ? "owner" : "not"));
+    expect((await guarded({ conversationId: "c1", owner: true }).execute("whose", {})).content).toBe("owner");
+    expect((await guarded({ conversationId: "c1" }).execute("whose", {})).content).toBe("not");
+    expect((await guarded({ conversationId: "c1", owner: true, attended: false }).execute("whose", {})).content).toBe("not");
+    // Outside any call, nobody is taken for the owner.
+    expect(isOwnerTurn()).toBe(false);
   });
 
   it("offers a granted tool past the allow-list, restricted or not", () => {

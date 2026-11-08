@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useState, type CSSProperties, type ReactElement } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { hexOfHsl, hueOfHex } from "@kos/shared";
-import { Card, Empty, lookOf, Pill, RefChip, Tag } from "@kos/kit";
+import { Card, Empty, lookOf, Pill, Tag } from "@kos/kit";
 
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
 import { FileIcon } from "./FileIcon.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
 import { markInk } from "./ProjectMark.js";
-import { hrefFor } from "./routes.js";
 
 /**
  * The column beside a project's threads: what the project has made and what
@@ -18,13 +17,14 @@ import { hrefFor } from "./routes.js";
 
 export interface ProjectPanelProps {
   slug: string;
-  onOpenPage: (id: string) => void;
   onOpenFile: (path: string) => void;
   /** Something changed that the rest of the dashboard lists too. */
   onChanged: () => void;
   onError: (message: string) => void;
   /** Slid shut: still mounted so it can slide open, but polling nothing. */
   hidden?: boolean;
+  /** The project's artifacts (ArtifactRail), which open in place beside it. */
+  rail: ReactNode;
 }
 
 /** How often the panel re-reads the project, so a page an agent made shows up. */
@@ -34,7 +34,7 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError, hidden = false }: ProjectPanelProps): ReactElement {
+export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = false, rail }: ProjectPanelProps): ReactElement {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** The colour row under the hero, shown on request. */
@@ -84,7 +84,7 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError,
     );
   }
 
-  const { project, tables, pages, sites } = detail;
+  const { project, tables, sites } = detail;
   const hue = (project.colour ? hueOfHex(project.colour) : null) ?? lookOf(project.slug).hue;
   const recolour = async (colour: string | null): Promise<void> => {
     try {
@@ -149,27 +149,7 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError,
         paused={hidden}
       />
 
-      <Card className="project-panel-section" title="Pages" count={pages.length}>
-        {pages.length === 0 ? (
-          <Empty inline>No pages yet.</Empty>
-        ) : (
-          <div className="project-panel-chips">
-            {pages.map((pg) => (
-              <RefChip
-                key={pg.id}
-                kind="page"
-                href={hrefFor({ name: "page", id: pg.id })}
-                onClick={(e) => {
-                  e.preventDefault();
-                  onOpenPage(pg.id);
-                }}
-              >
-                {pg.title}
-              </RefChip>
-            ))}
-          </div>
-        )}
-      </Card>
+      {rail}
 
       <Card className="project-panel-section" title="Tables" count={tables.length}>
         {tables.length === 0 ? (

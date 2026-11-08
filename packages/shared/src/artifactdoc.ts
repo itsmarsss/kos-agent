@@ -27,6 +27,15 @@
  * write time only.
  */
 
+/** The kinds whose frame is as tall as their content; a deck keeps its stage and a sheet its grid. */
+export const FIT_KINDS: readonly string[] = ["page", "doc"];
+
+/** Whether an artifact of this kind takes its content's height in the dashboard. */
+export const fitsContent = (kind: string | undefined): boolean => FIT_KINDS.includes(kind ?? "page");
+
+/** The tallest the dashboard lets a page's frame grow: the height is the page's to say, so it is capped. */
+export const FRAME_HEIGHT_MAX = 50_000;
+
 /** What a page may load: nothing from the network. */
 export const PAGE_CSP = [
   "default-src 'none'",
@@ -131,9 +140,46 @@ export function tokenRule(tokens: Record<string, string>, mode: "light" | "dark"
  * and send the frame away; the shell answers only this frame, and the server checks
  * each call against what the page declared. Errors the page throws are told
  * to the shell, which shows them with a way to ask KOS to fix the page.
+ *
+ * A page or a doc is as tall as its content: the bridge reports the height
+ * (a ResizeObserver, debounced) and the shell sizes the frame, so the
+ * dashboard scrolls as one page. With no scroll of its own, a jump to a
+ * place on the page (a #id link, scrollIntoView) is reported with the same
+ * message, as where the place is, and the shell scrolls the dashboard. The
+ * frame keeps its own scrollbar only while it is shorter than its content,
+ * as in the check's fixed view, past the shell's cap, or while the shell
+ * holds a height; then a jump scrolls inside it too. While the frame is not
+ * the height reported, the report is sent again, backing off, so a height
+ * the shell set aside is asked for once the page settles.
+ *
+ * Before any of the page's own code runs, the bridge hands the shell a
+ * channel of its own and tells it over that channel each time the owner
+ * presses or types in the frame (trusted events only, caught first). The
+ * page never holds the channel, so it cannot claim a press; the shell lets
+ * a jump scroll the dashboard only just after one. A save is the shell's to
+ * allow, not the page's: it is relayed while the owner's hand is in the
+ * frame, or just after the shell's own Done.
  */
 export const BRIDGE_SCRIPT = `(function(){
+var gestures=new MessageChannel(),gport=gestures.port1,tell=MessagePort.prototype.postMessage,apply=Reflect.apply,listen=EventTarget.prototype.addEventListener;
+top.postMessage({__kos:"gestures"},"*",[gestures.port2]);
+function stamp(e){if(e.isTrusted)apply(tell,gport,[0])}
+apply(listen,window,["pointerdown",stamp,true]);apply(listen,window,["keydown",stamp,true]);
 var seq=0,waiting={},themeFns=[],refreshFns=[],mode=document.documentElement.dataset.mode||"dark";
+var root=document.documentElement,fit=${JSON.stringify(FIT_KINDS)}.indexOf(root.dataset.kind||"page")>=0,last=-1,timer=0,retry=0,wait=500,into=Element.prototype.scrollIntoView;
+function inner(){return root.scrollHeight>innerHeight+1}
+function height(extra){var b=document.body,h=Math.ceil(Math.max(root.getBoundingClientRect().height,b?b.scrollHeight:0)),shown=Math.abs(h-innerHeight)<=1||(h>=${FRAME_HEIGHT_MAX}&&innerHeight>=${FRAME_HEIGHT_MAX}-1);root.style.overflowY=h<=innerHeight+1?"hidden":"";clearTimeout(retry);
+if(shown)wait=500;else{retry=setTimeout(function(){height()},wait);wait=Math.min(wait*2,8000)}
+if(!extra&&h===last&&shown)return;last=h;top.postMessage(Object.assign({__kos:"height",height:h},extra||{}),"*")}
+function measure(){clearTimeout(timer);timer=setTimeout(function(){height()},60)}
+function reveal(el,block){var r=el?el.getBoundingClientRect():{top:-scrollY,bottom:-scrollY};height({reveal:{top:Math.max(0,r.top+scrollY),bottom:Math.max(0,r.bottom+scrollY),block:block}})}
+if(fit){
+root.style.overflowX="hidden";
+var watch=function(){var ro=new ResizeObserver(measure);ro.observe(root);if(document.body)ro.observe(document.body);height()};
+if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",watch);else watch();
+addEventListener("load",measure);
+Element.prototype.scrollIntoView=function(o){if(inner())into.call(this,o);reveal(this,o===false?"end":o&&typeof o==="object"&&o.block||"start")};
+}
 function call(method,args){return new Promise(function(resolve,reject){var id=++seq;waiting[id]={resolve:resolve,reject:reject};top.postMessage({__kos:"call",id:id,method:method,args:args},"*");});}
 function report(message){try{top.postMessage({__kos:"error",message:String(message).slice(0,2000)},"*");}catch(_){}}
 addEventListener("message",function(e){
@@ -142,7 +188,7 @@ if(m.__kos==="reply"){var w=waiting[m.id];if(!w)return;delete waiting[m.id];if(m
 else if(m.__kos==="theme"){mode=m.mode;document.documentElement.dataset.mode=m.mode;document.documentElement.dataset.theme=m.mode;var s=document.getElementById("kos-tokens");if(s)s.textContent=m.rule;themeFns.forEach(function(f){try{f(m.mode)}catch(err){report(err&&err.message||err)}});}
 else if(m.__kos==="present"){var on=m.on===true;if(on)document.documentElement.dataset.present="on";else delete document.documentElement.dataset.present;dispatchEvent(new CustomEvent("kos:present",{detail:{on:on}}));}
 });
-document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href^='#']"):null;if(!a||e.defaultPrevented)return;e.preventDefault();var id=decodeURIComponent(a.getAttribute("href").slice(1)),t=id?document.getElementById(id):null,b=matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth";if(t)t.scrollIntoView({behavior:b,block:"start"});else if(!id)scrollTo({top:0,behavior:b})});
+document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href^='#']"):null;if(!a||e.defaultPrevented)return;e.preventDefault();var id=decodeURIComponent(a.getAttribute("href").slice(1)),t=id?document.getElementById(id):null,b=matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth";if(t)t.scrollIntoView({behavior:b,block:"start"});else if(!id){if(!fit||inner())scrollTo({top:0,behavior:b});if(fit)reveal(null,"start")}});
 addEventListener("error",function(e){report(e.message||"The page hit an error")});
 addEventListener("unhandledrejection",function(e){var r=e.reason;report(r&&r.message?r.message:String(r))});
 var kos={
@@ -150,7 +196,7 @@ query:function(sql,params){return call("query",{sql:sql,params:params})},
 write:function(table,op,values,key){return call("write",{table:table,op:op,values:values,key:key}).then(function(r){refreshFns.forEach(function(f){try{f()}catch(err){report(err&&err.message||err)}});return r})},
 files:Object.freeze({read:function(path){return call("file",{path:path})}}),
 ask:function(text){return call("ask",{text:String(text)})},
-save:function(edit){var u=navigator.userActivation;if(u&&!u.isActive)return Promise.reject(new Error("a save comes from the owner: press Save, or edit a cell"));return call("save",{edit:edit})},
+save:function(edit){return call("save",{edit:edit})},
 present:function(){top.postMessage({__kos:"present"},"*")},
 onTheme:function(f){themeFns.push(f)},
 refresh:function(f){refreshFns.push(f)}
@@ -172,13 +218,15 @@ export interface PageDocumentInput {
   libraries: string[];
   /** The artifact's kind, which its runtime and its own CSS can key on. */
   kind?: string;
+  /** An older version shown to look at: the runtimes offer no editing. */
+  locked?: boolean;
 }
 
-export function pageDocument({ html, tokens, mode, css, libraries, kind = "page" }: PageDocumentInput): string {
+export function pageDocument({ html, tokens, mode, css, libraries, kind = "page", locked = false }: PageDocumentInput): string {
   const { head, body } = splitHtml(html);
   return [
     "<!doctype html>",
-    `<html data-mode="${mode}" data-theme="${mode}" data-kind="${kind.replace(/[^a-z]/g, "")}"><head>`,
+    `<html data-mode="${mode}" data-theme="${mode}" data-kind="${kind.replace(/[^a-z]/g, "")}"${locked ? " data-locked" : ""}><head>`,
     `<meta http-equiv="Content-Security-Policy" content="${PAGE_GUARD_CSP}">`,
     '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
     `<script>${GUARD_SCRIPT}</script>`,
