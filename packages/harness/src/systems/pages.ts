@@ -24,6 +24,7 @@ import { projectTable } from "./identifiers.js";
 import type { ProjectManifest } from "./manifest.js";
 import { withDocText } from "./artifactedit.js";
 import { BlobIds } from "./blobids.js";
+import { markupExits } from "./markup.js";
 import { BridgeRefusal, tablesRead } from "./pagebridge.js";
 import { registeredTables } from "./registered.js";
 
@@ -396,6 +397,9 @@ export class PageStore {
     }
     if (blob !== null && !ROLE_NAME.test(blob.blob)) throw new Error(`not a blob's name: ${blob.blob}`);
     const errors = validateHtmlPage(input);
+    // The exits again, from the document as the browser parses it: a pattern misses one behind an entity or a quoted >.
+    const exits = errors.length === 0 ? markupExits((input as HtmlPage).html) : [];
+    if (exits.length) errors.push(`a page cannot leave its frame, so it may not hold ${exits.join("; ")}; keep everything on the page and reach data through window.kos`);
     if (errors.length > 0) throw new Error(`invalid artifact: ${errors.join("; ")}`);
     const page = input as HtmlPage;
     if (projectSlug === null) {

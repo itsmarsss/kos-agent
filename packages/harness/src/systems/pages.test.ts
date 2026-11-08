@@ -584,7 +584,7 @@ describe("PageStore HTML pages", () => {
       pages.writeHtml("budget", { id: "brief", kind: "doc", title: "Brief", html: doc("<p>x</p>") });
       // Prose that only mentions them is text.
       edit("brief", { doc: "<p>Set onload = fast, and javascript: the language, in the notes.</p>" });
-      for (const bad of ['<a href=""onclick="x()">a</a>', '<p title="x"/onmouseover=x()>a</p>', '<a href="javascript:x()">a</a>']) {
+      for (const bad of ['<a href=""onclick="x()">a</a>', '<p title="x"/onmouseover=x()>a</p>', '<a href="javascript:x()">a</a>', '<img alt=">" src=x onerror="x()">', '<a href="&#106;avascript:x()">a</a>']) {
         expect(() => edit("brief", { doc: bad }), bad).toThrow(/may not hold/);
       }
       for (const leaves of [
@@ -595,6 +595,8 @@ describe("PageStore HTML pages", () => {
         "<img src=//x.example/p.png>",
         '<img srcset="https://x.example/p.png 2x" src="data:image/png;base64,AAAA">',
         '<svg><image href="http://x.example/p.png"/></svg>',
+        '<a title=">" href="https://evil.example">x</a>',
+        '<a href="&#104;ttps://evil.example">x</a>',
       ]) {
         expect(() => edit("brief", { doc: leaves }), leaves).toThrow(/cannot leave its frame/);
         expect(() => pages.writeHtml("budget", { id: "w", title: "W", html: leaves }), leaves).toThrow(/cannot leave its frame/);
