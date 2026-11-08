@@ -270,12 +270,16 @@ export class Page {
     this.gate = options.gate ?? (async () => false);
   }
 
-  /** Calls on one tab, one at a time: two at once would act on each other's page. */
-  run<T>(work: () => Promise<T>): Promise<T> {
+  /**
+   * Calls on one tab, one at a time: two at once would act on each other's
+   * page. Once `signal` aborts, a call still waiting for the owner to let go
+   * of the tab gives up its turn, and the next call has it.
+   */
+  run<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     const gated = async (): Promise<T> => {
       this.working++;
       try {
-        await this.waitForOwner();
+        await this.waitForOwner(signal);
         return await work();
       } finally {
         this.working--;
@@ -286,9 +290,9 @@ export class Page {
     return next;
   }
 
-  /** While the owner has the tab, nothing; once they let go, a word that the page may have changed. */
-  private async waitForOwner(): Promise<void> {
-    if (await this.gate()) this.heard.push("The owner had this tab and has let go; what is on it may have changed, so look before acting on it.");
+  /** While the owner has the tab, nothing; once they let go, a word that the page may have changed. A Stop ends the wait. */
+  private async waitForOwner(stop = this.stop): Promise<void> {
+    if (await this.guard(this.gate(), stop)) this.heard.push("The owner had this tab and has let go; what is on it may have changed, so look before acting on it.");
   }
 
   /** An event from the tab's session. */
@@ -1009,8 +1013,7 @@ export class Page {
   }
 
   /** Work in flight, given up once the owner presses Stop; what it brings back after is let go of, not left for the page to hold. */
-  private guard<T>(work: Promise<T>): Promise<T> {
-    const stop = this.stop;
+  private guard<T>(work: Promise<T>, stop = this.stop): Promise<T> {
     if (!stop) return work;
     return new Promise<T>((resolve, reject) => {
       let settled = false;

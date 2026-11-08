@@ -226,7 +226,7 @@ export async function act(tab: Tab, steps: Step[], then: Then, signal?: AbortSig
     } finally {
       await page.release();
     }
-  });
+  }, signal);
 }
 
 /** The page as it is, without doing anything to it. */
