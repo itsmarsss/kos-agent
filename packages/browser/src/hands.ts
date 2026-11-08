@@ -27,12 +27,17 @@ export interface Seen {
 /** A tab as the hands use it: its page, and a picture of it. */
 export interface Tab {
   page: Page;
-  /** The tab as it looks, base64 JPEG, at most `maxWidth` wide. */
-  capture(maxWidth: number): Promise<string | undefined>;
+  /** The tab as it looks, base64 JPEG, its longer side at most `maxEdge`. */
+  capture(maxEdge: number): Promise<string | undefined>;
 }
 
-/** How wide a picture handed to the model is. */
-export const PICTURE_WIDTH = 1280;
+/**
+ * A picture handed to the model: its longer side, and its JPEG quality. The
+ * same on every surface: KOS for Mac is asked for this long side too
+ * (`SCREEN_EDGE` in packages/computer/src/tools.ts), though its app encodes
+ * at a quality of its own.
+ */
+export const PICTURE = { edge: 1024, quality: 60 } as const;
 /** How long one run of steps may take in all. */
 const RUN_MS = 120_000;
 /** Steps in one run, at most. */
@@ -92,7 +97,7 @@ export async function seeAfter(tab: Tab, then: Then, scope?: string): Promise<Se
     const cut = tree.cut ? "\n(cut; `scope` narrows it to one part)" : "";
     return { text: `${head}${lines(page.takeNotes().join("\n"))}${tree.text ? fenced(tree.text) : "(nothing on the page)"}${cut}${unreadNote(tree.unread)}`, images: [], url };
   }
-  const [{ head, url }, look, shot] = await Promise.all([heading(), page.index(scope), tab.capture(PICTURE_WIDTH).catch(() => undefined)]);
+  const [{ head, url }, look, shot] = await Promise.all([heading(), page.index(scope), tab.capture(PICTURE.edge).catch(() => undefined)]);
   const { index } = look;
   const more = index.total > index.lines.filter((l) => l.includes("@")).length ? ` (some of ${index.total}; then: "snapshot" lists all, scope narrows)` : "";
   const list = index.lines.length ? `Can be acted on${more}:\n${fenced(index.lines.join("\n"))}` : `Nothing to act on was found; then: "snapshot" or "read" may show more.`;

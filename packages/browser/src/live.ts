@@ -1,6 +1,7 @@
 import { CdpClient, type CdpEvent, type CdpSocket } from "./cdp.js";
 import type { ChromeHost, ChromeLaunch, ChromeState } from "./chrome.js";
 import { keptSessionCookies, type CdpCookie } from "./cookies.js";
+import { PICTURE } from "./hands.js";
 import { Page, type PageLimits } from "./page.js";
 
 /**
@@ -607,18 +608,18 @@ export class BrowserLive {
 
   /**
    * One picture of a tab, small enough to send anywhere: what an approval
-   * shows, and what a step keeps. Base64 JPEG, at most `maxWidth` wide.
+   * shows, and what a step keeps. Base64 JPEG, its longer side at most `maxEdge`.
    */
-  async capture(tab: string, maxWidth = 900): Promise<string | undefined> {
+  async capture(tab: string, maxEdge = 900): Promise<string | undefined> {
     if (!this.targets.has(tab)) return undefined;
     const sessionId = await this.sessionFor(tab);
     const metrics: Record<string, unknown> = await this.cdp.send("Page.getLayoutMetrics", {}, sessionId).catch(() => ({}));
     const size = (metrics["cssVisualViewport"] ?? metrics["layoutViewport"] ?? {}) as Record<string, unknown>;
     const width = typeof size["clientWidth"] === "number" ? size["clientWidth"] : 0;
     const height = typeof size["clientHeight"] === "number" ? size["clientHeight"] : 0;
-    const scale = width > maxWidth ? maxWidth / width : 1;
+    const scale = Math.min(1, maxEdge / Math.max(width, height, 1));
     const shot: Record<string, unknown> = await this.cdp
-      .send("Page.captureScreenshot", { format: "jpeg", quality: 60, ...(width && height ? { clip: { x: 0, y: 0, width, height, scale } } : {}) }, sessionId)
+      .send("Page.captureScreenshot", { format: "jpeg", quality: PICTURE.quality, ...(width && height ? { clip: { x: 0, y: 0, width, height, scale } } : {}) }, sessionId)
       .catch(() => ({}));
     return typeof shot["data"] === "string" && shot["data"] ? shot["data"] : undefined;
   }

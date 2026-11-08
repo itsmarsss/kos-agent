@@ -1,4 +1,4 @@
-import { Page, type Tab } from "@kos/browser";
+import { PICTURE, Page, type Tab } from "@kos/browser";
 import type { BrowserElsewhere, TabInfo } from "@kos/harness";
 
 import { kindOf, type DeviceHub, type Session } from "./hub.js";
@@ -37,7 +37,6 @@ interface Borrowed {
 const HOLD_WAIT_MS = 10 * 60_000;
 /** Time for a command's round trip through the extension, beyond the command's own. */
 const RELAY_SLACK_MS = 5_000;
-const CAPTURE_WIDTH = 1280;
 
 function hostOf(url: string): string | undefined {
   try {
@@ -91,7 +90,7 @@ export class OwnerChrome implements BrowserElsewhere {
     const b = this.borrowed(conversation);
     if (!b.current || !b.tabs.has(b.current)) b.current = await this.open(conversation, b);
     const tab = b.current;
-    return { page: this.pageOf(conversation, b, tab), capture: (maxWidth) => this.capture(conversation, tab, maxWidth) };
+    return { page: this.pageOf(conversation, b, tab), capture: (maxEdge) => this.capture(conversation, tab, maxEdge) };
   }
 
   tabs(conversation: string): TabInfo[] {
@@ -128,9 +127,9 @@ export class OwnerChrome implements BrowserElsewhere {
     return `the owner's Chrome${device ? ` (${device.name})` : ""}`;
   }
 
-  async picture(conversation: string, maxWidth: number): Promise<string | undefined> {
+  async picture(conversation: string, maxEdge: number): Promise<string | undefined> {
     const b = this.held.get(conversation);
-    return b?.current && this.session(conversation) ? this.capture(conversation, b.current, maxWidth) : undefined;
+    return b?.current && this.session(conversation) ? this.capture(conversation, b.current, maxEdge) : undefined;
   }
 
   private borrowed(conversation: string): Borrowed {
@@ -193,15 +192,15 @@ export class OwnerChrome implements BrowserElsewhere {
     });
   }
 
-  /** The tab as it looks, small enough to send, through the extension. */
-  private async capture(conversation: string, tab: string, maxWidth = CAPTURE_WIDTH): Promise<string | undefined> {
-    const send = (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> => this.hub.act(conversation, "cdp.send", { tab, method, params }, 20_000);
-    const metrics = await send("Page.getLayoutMetrics").catch(() => ({}) as Record<string, unknown>);
-    const view = (metrics["cssVisualViewport"] ?? metrics["layoutViewport"] ?? {}) as { clientWidth?: number; clientHeight?: number };
-    const width = view.clientWidth ?? 0;
-    const height = view.clientHeight ?? 0;
-    const scale = width > maxWidth ? maxWidth / width : 1;
-    const shot = await send("Page.captureScreenshot", { format: "jpeg", quality: 60, ...(width && height ? { clip: { x: 0, y: 0, width, height, scale } } : {}) }).catch(() => ({}) as Record<string, unknown>);
+  /**
+   * The tab as it looks, small enough to send, through the extension: one
+   * call, the extension making it this size (`maxEdge` is its own, not the
+   * protocol's) without drawing the owner's page again.
+   */
+  private async capture(conversation: string, tab: string, maxEdge: number = PICTURE.edge): Promise<string | undefined> {
+    const shot = await this.hub
+      .act(conversation, "cdp.send", { tab, method: "Page.captureScreenshot", params: { format: "jpeg", quality: PICTURE.quality, maxEdge } }, 20_000)
+      .catch(() => ({}) as Record<string, unknown>);
     return typeof shot["data"] === "string" && shot["data"] ? shot["data"] : undefined;
   }
 
