@@ -267,6 +267,24 @@ export class PageStore {
     return recordOf(row);
   }
 
+  /**
+   * Every artifact with a file, version or capture under a workspace folder:
+   * read from the rows, not by walking the folder, so a folder operation
+   * (an rm, an mv, a cp of `blobs/noter` or `projects/x/pages`) is held to
+   * whose artifacts it would take with it. The workspace's root holds them all.
+   */
+  recordsUnder(folder: string): PageRecord[] {
+    const prefix = folder.replace(/\\/g, "/").split("/").filter((p) => p !== "" && p !== ".").join("/");
+    const under = (path: string): boolean => prefix === "" || path === prefix || path.startsWith(`${prefix}/`);
+    const rows = this.db.prepare(`SELECT ${COLS} FROM ${FROM}`).all() as Row[];
+    return rows
+      .filter((r) => {
+        const dir = folderOf(ownerOfRow(r)).split("\\").join("/");
+        return under(r.path) || [".history", ".captures"].some((sub) => under(`${dir}/${sub}/${r.id}`));
+      })
+      .map(recordOf);
+  }
+
   get(id: string): LoadedPage | undefined {
     const row = this.row(id);
     if (!row) return undefined;

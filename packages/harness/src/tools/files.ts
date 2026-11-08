@@ -18,7 +18,7 @@ import { requireServices } from "../modules/loader.js";
 import { SAFE, type ToolRisk } from "../risk/tiers.js";
 import type { Workspace } from "../store/workspace.js";
 import { reachOf } from "./sql.js";
-import { artifactFileRefusal } from "./systems.js";
+import { artifactFileRefusal, artifactFolderRefusal } from "./systems.js";
 
 /**
  * The `files` tool module: primitive, path-gated filesystem operations the agent
@@ -65,10 +65,14 @@ function usable(ws: Workspace, path: string): string {
 
 function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
   /** An artifact's file, version or capture is reached as the artifacts tools reach it: by its owner's chats. */
-  const fenced = (path: string, what: "read" | "change"): string => {
+  const fenced = (path: string, what: "read" | "change", whole = false): string => {
     const abs = usable(ws, path);
     const pages = ctx.services?.pages;
-    const why = pages ? artifactFileRefusal(pages, relative(ws.root, abs), reachOf(ctx), what) : undefined;
+    if (!pages) return abs;
+    const rel = relative(ws.root, abs);
+    const reach = reachOf(ctx);
+    // A folder taken whole (rm, mv, cp) takes every artifact under it, so each one's owner must be this chat's to reach.
+    const why = artifactFileRefusal(pages, rel, reach, what) ?? (whole ? artifactFolderRefusal(pages, rel, reach, what) : undefined);
     if (why) throw new Error(why);
     return abs;
   };
@@ -193,7 +197,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
     (input) => {
       const to = fenced(str(input, "to"), "change");
       mkdirSync(dirname(to), { recursive: true });
-      copyFileSync(fenced(str(input, "from"), "read"), to);
+      copyFileSync(fenced(str(input, "from"), "read", true), to);
       return "ok";
     },
     SAFE,
@@ -212,7 +216,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
     (input) => {
       const to = fenced(str(input, "to"), "change");
       mkdirSync(dirname(to), { recursive: true });
-      renameSync(fenced(str(input, "from"), "change"), to);
+      renameSync(fenced(str(input, "from"), "change", true), to);
       return "ok";
     },
     { floor: "safe", escalate: (input) => (outsideScratch(optStr(input, "from") ?? "") ? "outside the scratch folder" : false) },
@@ -229,7 +233,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      rmSync(fenced(str(input, "path"), "change"), { recursive: true, force: true });
+      rmSync(fenced(str(input, "path"), "change", true), { recursive: true, force: true });
       return "ok";
     },
     rmRisk,

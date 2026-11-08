@@ -106,6 +106,21 @@ export function artifactFileRefusal(pages: PageStore, path: string, reach: Reach
   return why ? `${path} is part of the artifact ${record.id}; ${why} are not this chat's to ${what}.${handTo(owner, reach, removed)}` : undefined;
 }
 
+/**
+ * Why a chat may not take a whole folder (rm, mv, cp): the first artifact
+ * under it, by its rows, whose owner the chat may not reach. Undefined when
+ * it may reach every one, or none is there.
+ */
+export function artifactFolderRefusal(pages: PageStore, folder: string, reach: Reach, what: "change" | "read"): string | undefined {
+  const removed = (blobId: string): boolean => pages.blobIds.removed(blobId);
+  for (const record of pages.recordsUnder(folder)) {
+    const owner = ownerOfRecord(record);
+    const why = whyNot(owner, reach, what, removed);
+    if (why) return `${folder} holds the artifact ${record.id}; ${why} are not this chat's to ${what}.${handTo(owner, reach, removed)}`;
+  }
+  return undefined;
+}
+
 /** Who a new artifact from this chat belongs to when it names none: a blob's thread makes its own; anywhere else, the workspace. */
 const defaultOwner = (reach: Reach): PageOwner => (reach.blob && !reach.project ? { blob: reach.blob.name, id: reach.blob.id } : null);
 

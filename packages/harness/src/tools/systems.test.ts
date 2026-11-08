@@ -383,6 +383,58 @@ describe("systems.migrate risk", () => {
     expect((await registry.execute("files.read", { path: "blobs/noter/blob.md" })).isError).toBe(false);
   });
 
+  it("refuses a folder taken whole when it holds an artifact the chat may not reach, by the rows under it", async () => {
+    const { slug } = JSON.parse((await registry.execute("systems.project_create", { name: "Garden", type: "tracker" })).content) as { slug: string };
+    await registry.execute("artifacts.write", { project: slug, id: "beds", title: "Beds", html: "<h1>Beds</h1>" });
+    made = new Set();
+    for (const name of ["noter", "roster"]) {
+      roles.write({ name, description: name, brief: "Work.", memory: "own" });
+      callerBlob = name;
+      await registry.execute("artifacts.write", { id: `${name}-doc`, title: name, html: `<h1>${name}</h1>` });
+    }
+    callerBlob = undefined;
+    const pages = `projects/${slug}/pages`;
+    const refused = async (tool: string, args: Record<string, unknown>): Promise<string> => {
+      const res = await registry.execute(tool, args);
+      expect(res.isError, `${tool} ${JSON.stringify(args)}`).toBe(true);
+      return res.content;
+    };
+    const allowed = async (tool: string, args: Record<string, unknown>): Promise<void> => {
+      const res = await registry.execute(tool, args);
+      expect(res.isError, `${tool} ${JSON.stringify(args)}: ${res.content}`).toBe(false);
+    };
+
+    // A project's chat: not a blob's folder, its artifacts or their versions, nor the whole workspace.
+    callerProject = slug;
+    expect(await refused("files.rm", { path: "blobs/noter" })).toMatch(/blobs\/noter holds the artifact noter-doc; This chat is Garden's, so the blob noter's artifacts are not this chat's to change/);
+    await refused("files.rm", { path: "blobs/noter/artifacts" });
+    await refused("files.rm", { path: "blobs/noter/artifacts/.history" });
+    await refused("files.mv", { from: "blobs/noter", to: "scratch/noter" });
+    await refused("files.cp", { from: "blobs/noter/artifacts", to: "scratch/x" });
+    await refused("files.rm", { path: "." });
+    // A blob's own turn: not a project's pages, nor another blob's folder.
+    callerProject = undefined;
+    callerBlob = "noter";
+    await refused("files.rm", { path: pages });
+    await refused("files.mv", { from: "blobs/roster", to: "scratch/roster" });
+    // The root, the owner's own chat: a blob's folder, but not a project's pages.
+    callerBlob = undefined;
+    await refused("files.rm", { path: pages });
+    await refused("files.rm", { path: "projects" });
+    expect(existsSync(join(root, "blobs/noter/artifacts/noter-doc.html"))).toBe(true);
+    expect(existsSync(join(root, `${pages}/beds.html`))).toBe(true);
+    await allowed("files.mv", { from: "blobs/roster", to: "scratch/roster" });
+    // Each owner may take its own: the blob its versions, the project its pages.
+    callerBlob = "noter";
+    await allowed("files.rm", { path: "blobs/noter/artifacts/.history" });
+    callerBlob = undefined;
+    callerProject = slug;
+    await allowed("files.rm", { path: pages });
+    // A folder that holds no artifact is a folder.
+    await allowed("files.mkdir", { path: "notes/old" });
+    await allowed("files.rm", { path: "notes" });
+  });
+
   it("keeps a rewritten artifact in its project unless told to move it", async () => {
     const { slug } = JSON.parse((await registry.execute("systems.project_create", { name: "Garden", type: "tracker" })).content) as { slug: string };
     await registry.execute("artifacts.write", { project: slug, id: "beds", title: "Beds", html: "<h1>Beds</h1>" });
