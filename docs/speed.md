@@ -156,15 +156,20 @@ What changed (`packages/browser`, the extension's worker):
   extension from before is still asked for one, once its first picture
   comes back full size). An approval shows the last picture the agent saw
   its page by, while it stands for the page: under 30 s old, the same tab
-  at the same address on the same site, no navigation or takeover since,
-  and no other browser call of the chat running.
+  at the same address on the same site in the same session, no navigation
+  or takeover since, and no other browser call of the chat running. A look
+  that finds the screen unchanged shows again the frame its surface (the
+  browser, the computer) last showed the chat, with that frame's own site;
+  a visit whose last page had no picture keeps none of an earlier page.
 - **The relay** checks each command against the tab's address kept as it
   changes while the debugger is on the tab, and asked of Chrome once it
   was let go of; takes several commands in one round trip (`cdp.batch`, a
   hundred at most, longer ones split: a click's moves and presses, a key
   with what is held, the nodes of a look), each checked as it is sent; and
   passes on only the network events settling reads, without headers.
-- **Stop** ends a web step under way, as on the Mac.
+- **Stop** ends a web wait under way, and a wait for the owner to let go of
+  the tab; a click or a key already sent may have finished, and the run says
+  so, as on the Mac.
 
 ## Not done
 
