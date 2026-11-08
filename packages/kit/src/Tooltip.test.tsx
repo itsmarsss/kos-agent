@@ -1,0 +1,103 @@
+// @vitest-environment jsdom
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { Markdown } from "./Markdown.js";
+
+/** 2026-11-21 04:59 UTC: late on Friday the 20th in Toronto. */
+const SECONDS = Date.UTC(2026, 10, 21, 4, 59) / 1000;
+
+function chip(): HTMLElement {
+  render(<Markdown text={`Due <t:${SECONDS}:R>.`} />);
+  return document.querySelector<HTMLElement>(".md-time")!;
+}
+
+const card = (): HTMLElement | null => document.querySelector<HTMLElement>('[role="tooltip"]');
+const spaced = (s: string | null | undefined): string => (s ?? "").replace(/\s/g, " ");
+
+describe("the time's hover card", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+    vi.restoreAllMocks();
+  });
+
+  it("opens at once on hover, with the date over the time, and wires itself to the chip", () => {
+    const time = chip();
+    expect(time.hasAttribute("title")).toBe(false);
+    expect(time.tabIndex).toBe(0);
+    expect(card()).toBeNull();
+    expect(time.hasAttribute("aria-describedby")).toBe(false);
+
+    fireEvent.pointerEnter(time, { pointerType: "mouse" });
+    const tip = card();
+    expect(tip).not.toBeNull();
+    expect(time.getAttribute("aria-describedby")).toBe(tip?.id);
+    const lines = [...(tip?.querySelectorAll(".md-time-card > span") ?? [])].map((l) => spaced(l.textContent));
+    const at = new Date(SECONDS * 1000);
+    expect(lines).toEqual([
+      at.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" }).replace(/\s/g, " "),
+      `at ${at.toLocaleTimeString(undefined, { timeStyle: "short" }).replace(/\s/g, " ")}`,
+    ]);
+
+    fireEvent.pointerLeave(time, { pointerType: "mouse" });
+    expect(card()).toBeNull();
+  });
+
+  it("opens on keyboard focus and closes on blur or Escape", () => {
+    const time = chip();
+    act(() => time.focus());
+    expect(card()).not.toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(card()).toBeNull();
+    act(() => time.blur());
+    act(() => time.focus());
+    expect(screen.getByRole("tooltip")).toBeTruthy();
+    act(() => time.blur());
+    expect(card()).toBeNull();
+  });
+
+  it("toggles on a tap and closes on a tap away", () => {
+    const time = chip();
+    const tap = (): void => {
+      fireEvent.pointerDown(time, { pointerType: "touch" });
+      act(() => time.focus());
+      fireEvent.click(time);
+    };
+    tap();
+    expect(card()).not.toBeNull();
+    tap();
+    expect(card()).toBeNull();
+    tap();
+    fireEvent.pointerDown(document.body, { pointerType: "touch" });
+    expect(card()).toBeNull();
+  });
+
+  it("sits above the chip, below it near the top, and inside the window side to side", () => {
+    const box = (left: number, top: number, width: number, height: number): DOMRect =>
+      ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+    let chipAt = box(500, 300, 60, 20);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("kos-tip") ? box(0, 0, 200, 50) : chipAt;
+    });
+    const open = (): HTMLElement => {
+      const time = document.querySelector<HTMLElement>(".md-time")!;
+      fireEvent.pointerEnter(time, { pointerType: "mouse" });
+      return card()!;
+    };
+    const close = (): void => {
+      fireEvent.pointerLeave(document.querySelector<HTMLElement>(".md-time")!, { pointerType: "mouse" });
+    };
+    chip();
+    let tip = open();
+    // Centred over the chip, 8px above it, its arrow on the chip's middle.
+    expect([tip.style.left, tip.style.top, tip.style.getPropertyValue("--tip-arrow")]).toEqual(["430px", "242px", "100px"]);
+    expect(tip.classList.contains("kos-tip--below")).toBe(false);
+    close();
+
+    chipAt = box(4, 10, 60, 20);
+    tip = open();
+    // At the top left: under the chip, held 8px in, the arrow still on the chip.
+    expect([tip.style.left, tip.style.top, tip.style.getPropertyValue("--tip-arrow")]).toEqual(["8px", "38px", "26px"]);
+    expect(tip.classList.contains("kos-tip--below")).toBe(true);
+  });
+});

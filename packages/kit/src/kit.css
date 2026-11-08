@@ -129,6 +129,39 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
   cursor: default;
   white-space: nowrap;
 }
+.md-time:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.md-time-card { display: flex; flex-direction: column; align-items: center; gap: 0.1rem; }
+
+/* Tooltip: a small card over what it explains, its arrow on it; below it near the window's top. */
+.kos-tip {
+  position: fixed;
+  z-index: 1100;
+  max-width: min(18rem, calc(100vw - 16px));
+  padding: 0.45rem 0.7rem;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--float);
+  font-size: var(--text-md);
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: center;
+  pointer-events: none;
+}
+.kos-tip::after {
+  content: "";
+  position: absolute;
+  left: var(--tip-arrow, 50%);
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  background: var(--panel);
+  border: solid var(--line);
+  border-width: 0 1px 1px 0;
+  transform: translateX(-50%) rotate(45deg);
+}
+.kos-tip--below::after { bottom: auto; top: -5px; border-width: 1px 0 0 1px; }
 .md code {
   font-family: var(--mono);
   font-size: 0.9em;
