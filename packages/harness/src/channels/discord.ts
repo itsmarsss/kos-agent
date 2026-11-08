@@ -1730,7 +1730,8 @@ export class DiscordAdapter implements ChannelAdapter {
       // reading it defensively is cheaper than narrowing a wire shape.
       const label =
         (interaction.component as { label?: string | null }).label ?? "";
-      await this.handlePress(interaction, token, label, guest);
+      const room = guest ? bindingOf(interaction.channel as Parameters<typeof bindingOf>[0], this.threadOf)?.conversationId : undefined;
+      await this.handlePress(interaction, token, label, guest, room);
       return;
     }
 
@@ -1790,6 +1791,7 @@ export class DiscordAdapter implements ChannelAdapter {
     token: string,
     label: string,
     guest?: Guest,
+    room?: string,
   ): Promise<void> {
     // Where the answer goes once a form has moved the conversation onto the
     // submission: the button's own interaction can no longer be replied to.
@@ -1891,7 +1893,7 @@ export class DiscordAdapter implements ChannelAdapter {
     }
 
     await this.buttonHandler(
-      { buttonId: "", label, token, pressedBy: interaction.user.id, ...(guest ? { guest } : {}) },
+      { buttonId: "", label, token, pressedBy: interaction.user.id, ...(guest ? { guest } : {}), ...(room ? { room } : {}) },
       respond,
     );
 

@@ -1,8 +1,9 @@
-import type {
-  ButtonPress,
-  ButtonPressHandler,
-  OutboundMessage,
-  PressResponder,
+import {
+  OWNER_ONLY,
+  type ButtonPress,
+  type ButtonPressHandler,
+  type OutboundMessage,
+  type PressResponder,
 } from "../channels/types.js";
 import type { Kernel } from "./kernel.js";
 
@@ -67,6 +68,14 @@ export function createPressHandler(deps: PressHandlerDeps): ButtonPressHandler {
       await respond.send({
         text: "That button is from a message too old to still be live.",
       });
+      return;
+    }
+    // A guest presses only what their room's own chat offered them. A button
+    // another chat sent into the room would run their press there, in a chat
+    // they cannot see, and answer them from it.
+    if (press.guest && route.conversationId !== press.room) {
+      await respond.working({ ephemeral: true });
+      await respond.send({ text: OWNER_ONLY });
       return;
     }
 
