@@ -384,6 +384,12 @@ export interface ChannelAdapter {
   readonly contained?: boolean;
   start(): Promise<void>;
   stop(): Promise<void>;
+  /**
+   * Optional: whether the surface can reach anyone right now. Wired but not
+   * connected (logging in, dropped by its gateway) is not an error: a
+   * message for the owner is left on the dashboard instead.
+   */
+  connected?(): boolean;
   onMessage(handler: MessageHandler): void;
   send(recipientId: string, msg: OutboundMessage): Promise<void>;
   /**

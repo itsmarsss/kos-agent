@@ -144,6 +144,24 @@ function keepRunning(): void {
   });
 }
 
+/**
+ * The surface a message goes out on, when it is wired and up. A surface
+ * named that is not wired here is an error; one wired but down (Discord
+ * logging in, or dropped by its gateway) is the surface-down path, which
+ * leaves a message for the owner on the dashboard instead.
+ */
+export function surfaceUp(surfaces: Map<string, () => ChannelAdapter | undefined>, surface: string, named: boolean): ChannelAdapter {
+  const up = (name: string): ChannelAdapter | undefined => {
+    const wired = surfaces.get(name)?.();
+    return wired && wired.connected?.() !== false ? wired : undefined;
+  };
+  const connected = [...surfaces.keys()].filter((name) => up(name));
+  if (named && !surfaces.has(surface)) throw new Error(`no ${surface} surface here. Connected: ${connected.join(", ") || "none"}.`);
+  const send = up(surface);
+  if (!send) throw new SurfaceDownError(surface, connected);
+  return send;
+}
+
 /** The key the open asks' Discord cards are kept under, by approval id. */
 const KEPT_PROMPTS_KEY = "discord.prompts";
 /** An ask lapses well within this; a record older is let go. */
@@ -203,20 +221,8 @@ export async function runHost(options: HostOptions): Promise<void> {
   const notify =
     (creds && wantDiscord) || sms
       ? async (payload: NotifyPayload) => {
-          const wanted = payload.target.surface;
-          const connected = [...surfaces.keys()].filter((name) =>
-            surfaces.get(name)!(),
-          );
-          if (wanted && !surfaces.has(wanted)) {
-            throw new Error(
-              `no ${wanted} surface here. Connected: ${connected.join(", ") || "none"}.`,
-            );
-          }
-          // No surface named means wherever the owner already is: the
-          // first one wired.
-          const surface = wanted ?? defaultSurface;
-          const send = surfaces.get(surface)?.();
-          if (!send) throw new SurfaceDownError(surface, connected);
+          const surface = payload.target.surface ?? defaultSurface;
+          const send = surfaceUp(surfaces, surface, payload.target.surface !== undefined);
           const msg = {
             text: payload.text,
             ...(payload.card ? { card: payload.card } : {}),
@@ -594,6 +600,13 @@ export async function runHost(options: HostOptions): Promise<void> {
       listenOf: (key) => kernel.channelListening()[key] ?? "always",
       // Who speaks from a chat, so a blob's story in its channel is the blob's.
       senderOf: (conversationId) => kernel.senderFor(conversationId),
+      // Back from a drop: an ask made while the gateway was down, or whose
+      // card never went out, gets one now.
+      onConnected: async () => {
+        for (const action of kernel.approvals.pending()) {
+          if (!adapter!.hasCard(String(action.id))) await adapter!.requestApproval(creds.ownerId, approvalRequest(action)).catch(() => undefined);
+        }
+      },
     });
     /*
      * A button KOS sent comes back as a message.

@@ -33,6 +33,7 @@ import { linkMentions, linkPaths, literal, literalWords, outsideCode, plainMenti
 import { tablesToCode } from "./tables.js";
 import { shortStory, STEP_MARK } from "./narrate.js";
 import { MESSAGE_LIMITS } from "./types.js";
+import { DownLog } from "./downlog.js";
 import type {
   ApprovalHandler,
   ApprovalRequest,
@@ -86,6 +87,8 @@ const THINKING = "-# thinking…";
 /** Discord's limits on uploads: files per message, bytes per file. */
 const DISCORD_FILES = 10;
 const DISCORD_FILE_BYTES = 10 * 1024 * 1024;
+/** How many sends may wait for a dropped gateway; past it the oldest goes. */
+const OUTBOX_MAX = 100;
 /** Subtext lines may not be longer than this and still read as a glance. */
 const DETAIL_MAX = 160;
 
@@ -386,6 +389,8 @@ export interface DiscordAdapterOptions {
    * answer is. KOS's own conversations have no speaker and the bot tells it.
    */
   senderOf?: (conversationId: string) => Sender | undefined;
+  /** Told each time the gateway is up again, once what waited for it is sent: asks with no card get one. */
+  onConnected?: () => Promise<void> | void;
 }
 
 /** An ask's card as sent: its words, its buttons, and the page it is about when there is one. */
@@ -834,6 +839,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly guildId?: string;
   private readonly threadOf?: (threadId: string) => string | undefined;
   private readonly senderOf?: (conversationId: string) => Sender | undefined;
+  private readonly onConnected?: () => Promise<void> | void;
   private readonly threadBindings?: () => Record<string, string>;
   private readonly keptPrompts?: KeptPrompts;
   private readonly timezone?: string;
@@ -854,6 +860,12 @@ export class DiscordAdapter implements ChannelAdapter {
   /** The owner as a speaker, once looked up. */
   private owner?: Sender;
   private isAuthorized: SenderAuthorizer = () => true;
+  private readonly downLog = new DownLog((line) => console.error(line));
+  /** Set once start() logs in: before that nothing is waiting on a gateway. */
+  private started = false;
+  /** Sends made while the gateway was down, waiting for it to be back. */
+  private readonly outbox: { what: string; send: () => Promise<void> }[] = [];
+  private flushing = false;
 
   setAuthorizer(isAuthorized: SenderAuthorizer): void {
     this.isAuthorized = isAuthorized;
@@ -866,6 +878,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.guildId) this.guildId = options.guildId;
     if (options.threadOf) this.threadOf = options.threadOf;
     if (options.senderOf) this.senderOf = options.senderOf;
+    if (options.onConnected) this.onConnected = options.onConnected;
     if (options.threadBindings) this.threadBindings = options.threadBindings;
     if (options.keptPrompts) this.keptPrompts = options.keptPrompts;
     if (options.timezone) this.timezone = options.timezone;
@@ -897,12 +910,42 @@ export class DiscordAdapter implements ChannelAdapter {
      * error event brings the process down. discord.js reconnects on its own
      * once the socket closes; all it needs from here is someone listening.
      */
+    // Said once when it drops and once a minute while down, not per retry.
     this.client.on(Events.Error, (err: Error) => {
-      console.error(`Discord: ${err.message}`);
+      if (this.downLog.down) this.downLog.error(err.message);
+      else console.error(`Discord: ${err.message}`);
     });
-    this.client.on(Events.ShardError, (err: Error) => {
-      console.error(`Discord gateway: ${err.message}`);
-    });
+    this.client.on(Events.ShardError, (err: Error) => this.downLog.error(err.message));
+    this.client.on(Events.ShardDisconnect, (event: { code?: number }) => this.downLog.error(`closed${event?.code ? ` ${event.code}` : ""}`));
+  }
+
+  /** Whether the gateway is up now: what is sent while it is not waits for it. */
+  connected(): boolean {
+    return this.client.isReady();
+  }
+
+  /** Sent now when the gateway is up; otherwise kept, in order, for when it is back. */
+  private async whenUp(what: string, send: () => Promise<void>): Promise<void> {
+    if (!this.started || (this.connected() && !this.flushing)) return send();
+    if (this.outbox.length >= OUTBOX_MAX) {
+      const dropped = this.outbox.shift();
+      console.warn(`[discord] too much waiting for the connection; dropped ${dropped?.what}`);
+    }
+    this.outbox.push({ what, send });
+  }
+
+  /** What waited for the connection, sent in the order it was made. */
+  private async flushOutbox(): Promise<void> {
+    if (this.flushing) return;
+    this.flushing = true;
+    try {
+      while (this.outbox.length && this.connected()) {
+        const next = this.outbox.shift()!;
+        await next.send().catch((err: unknown) => console.warn(`[discord] ${next.what} not sent after reconnecting: ${err instanceof Error ? err.message : String(err)}`));
+      }
+    } finally {
+      this.flushing = false;
+    }
   }
 
   /** Told what the slash commands do, when the harness wires them. */
@@ -915,20 +958,47 @@ export class DiscordAdapter implements ChannelAdapter {
       void this.receiveMessage(message);
     });
 
-    /*
-     * Registered once the connection is up, because it needs the bot's own
-     * id. Global rather than per guild: KOS is talked to in a DM, and a DM
-     * has no guild to register against.
-     */
-    this.client.once(Events.ClientReady, () => {
-      void this.registerCommands();
-    });
+    // Up: at login, after a new session, and after a resumed one. Each time,
+    // what waited is sent and what was missed is read.
+    for (const event of [Events.ClientReady, Events.ShardReady, Events.ShardResume] as const) {
+      this.client.on(event, () => void this.onUp());
+    }
 
     this.client.on(Events.InteractionCreate, (interaction: Interaction) => {
       void this.receiveInteraction(interaction);
     });
 
+    this.started = true;
     await this.client.login(this.token);
+  }
+
+  /**
+   * The gateway is up. One at a time: the ready and the shard's ready both
+   * come at login, and a second pass only finds what the first left.
+   */
+  onUp(): Promise<void> {
+    this.downLog.up();
+    this.upChain = this.upChain.then(() => this.afterUp()).catch((err: unknown) => {
+      console.warn(`[discord] after reconnecting: ${err instanceof Error ? err.message : String(err)}`);
+    });
+    return this.upChain;
+  }
+
+  private upChain: Promise<void> = Promise.resolve();
+  private commandsRegistered = false;
+
+  private async afterUp(): Promise<void> {
+    /*
+     * Registered once the connection is up, because it needs the bot's own
+     * id. Global rather than per guild: KOS is talked to in a DM, and a DM
+     * has no guild to register against.
+     */
+    if (!this.commandsRegistered) {
+      this.commandsRegistered = true;
+      void this.registerCommands();
+    }
+    await this.flushOutbox();
+    await this.onConnected?.();
   }
 
   /** Gateway MessageCreate handler. Internal; separated for tests. */
@@ -1318,6 +1388,10 @@ export class DiscordAdapter implements ChannelAdapter {
    * for and not only a door into it.
    */
   async postIn(channelId: string, msg: OutboundMessage): Promise<void> {
+    await this.whenUp(`a post in ${channelId}`, () => this.postNow(channelId, msg));
+  }
+
+  private async postNow(channelId: string, msg: OutboundMessage): Promise<void> {
     const channel = await this.client.channels.fetch(channelId);
     if (!channel || !channel.isSendable()) throw new Error(`channel ${channelId} is not somewhere this bot can post`);
     if (msg.from && (await this.sendAs(channel as unknown as Parameters<DiscordAdapter["sendAs"]>[0], msg))) return;
@@ -1977,8 +2051,10 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   async send(recipientId: string, msg: OutboundMessage): Promise<void> {
-    const user = await this.client.users.fetch(recipientId);
-    await this.deliver((payload) => user.send(payload), msg);
+    await this.whenUp("a direct message", async () => {
+      const user = await this.client.users.fetch(recipientId);
+      await this.deliver((payload) => user.send(payload), msg);
+    });
   }
 
   /**
@@ -2291,10 +2367,16 @@ export class DiscordAdapter implements ChannelAdapter {
     };
   }
 
-  async requestApproval(
-    recipientId: string,
-    req: ApprovalRequest,
-  ): Promise<void> {
+  async requestApproval(recipientId: string, req: ApprovalRequest): Promise<void> {
+    await this.whenUp(`the card for #${req.id}`, () => this.askNow(recipientId, req));
+  }
+
+  /** Whether an ask has a card here: made by this run, or kept from the last. */
+  hasCard(id: string): boolean {
+    return this.promptOf(id) !== undefined;
+  }
+
+  private async askNow(recipientId: string, req: ApprovalRequest): Promise<void> {
     const ids = approvalCustomIds(req.id);
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
@@ -2338,7 +2420,9 @@ export class DiscordAdapter implements ChannelAdapter {
     }
     if (copies.length === 0) {
       const sent = await (await this.client.users.fetch(recipientId)).send(payload);
-      copies.push({ messageId: sent.id, edit: (edited) => sent.edit(edited) });
+      // Kept too, so a restart knows the ask has its card and settles it.
+      const ref = typeof sent.channelId === "string" ? { ref: { channelId: sent.channelId, messageId: sent.id } } : {};
+      copies.push({ messageId: sent.id, edit: (edited) => sent.edit(edited), ...ref });
     }
     this.prompts.set(req.id, { copies, summary });
     const refs = copies.flatMap((c) => (c.ref ? [c.ref] : []));

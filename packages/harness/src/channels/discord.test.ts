@@ -1976,3 +1976,58 @@ describe("a guest's slash commands", () => {
     expect(stopped).toEqual([]);
   });
 });
+
+describe("while the gateway is down", () => {
+  /** An adapter that has started, on a client whose readiness the test sets. */
+  function dropped(): { adapter: DiscordAdapter; sent: unknown[]; setReady: (r: boolean) => void; connectedCalls: number[] } {
+    const sent: unknown[] = [];
+    let ready = false;
+    const connectedCalls: number[] = [];
+    const adapter = new DiscordAdapter({ token: "t", onConnected: () => void connectedCalls.push(sent.length) });
+    const channel = { id: "c1", isSendable: () => true, send: async (p: { content?: string }) => { sent.push(p.content); return { id: `m${sent.length}` }; } };
+    (adapter as unknown as { client: unknown }).client = {
+      isReady: () => ready,
+      user: { id: "bot" },
+      channels: { fetch: async () => channel },
+      users: { fetch: async () => ({ send: async (p: { content?: string }) => { sent.push(`dm:${p.content}`); return { id: "d1", channelId: "dm1", edit: async () => undefined }; } }) },
+      application: { commands: { set: async () => undefined } },
+    };
+    (adapter as unknown as { started: boolean }).started = true;
+    return { adapter, sent, setReady: (r) => (ready = r), connectedCalls };
+  }
+
+  it("says it is not connected, keeps what is sent, and sends it in order once it is back", async () => {
+    const { adapter, sent, setReady, connectedCalls } = dropped();
+    expect(adapter.connected()).toBe(false);
+    await adapter.postIn("c1", { text: "first" });
+    await adapter.send("owner", { text: "second" });
+    await adapter.postIn("c1", { text: "third" });
+    expect(sent).toEqual([]);
+    setReady(true);
+    await adapter.onUp();
+    expect(sent).toEqual(["first", "dm:second", "third"]);
+    // The host is told after what waited went out, so it does not ask twice.
+    expect(connectedCalls).toEqual([3]);
+    await adapter.postIn("c1", { text: "live" });
+    expect(sent.at(-1)).toBe("live");
+  });
+
+  it("keeps an ask's card for the reconnect, and knows the ask has its card after", async () => {
+    const { adapter, sent, setReady } = dropped();
+    await adapter.requestApproval("owner", { id: "7", text: "Approve x?" });
+    expect(adapter.hasCard("7")).toBe(false);
+    setReady(true);
+    await adapter.onUp();
+    expect(sent).toHaveLength(1);
+    expect(adapter.hasCard("7")).toBe(true);
+  });
+
+  it("keeps a direct message's card where a restart can find it", async () => {
+    const kept = new Map<string, { summary: string; refs: PromptRef[] }>();
+    const { adapter, setReady } = dropped();
+    (adapter as unknown as { keptPrompts: KeptPrompts }).keptPrompts = { get: (id) => kept.get(id), set: (id, p) => void kept.set(id, p), delete: (id) => void kept.delete(id) };
+    setReady(true);
+    await adapter.requestApproval("owner", { id: "8", text: "Approve y?" });
+    expect(kept.get("8")?.refs).toEqual([{ channelId: "dm1", messageId: "d1" }]);
+  });
+});
