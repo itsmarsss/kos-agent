@@ -203,13 +203,22 @@ public enum ChatBlock: Equatable {
   }
 }
 
-/// One line of inline marks, as styled text: bold, italics, code, links (the web and mail only), references by name.
+/// One line of inline marks, as styled text: bold, italics, code, links (the web and mail only), references by name,
+/// times on this Mac's clock.
 /// `size` is the text's own, which a code span sits at nine tenths of, as the dashboard draws one.
 public func chatInline(_ text: String, size: CGFloat = KOSType.body.rawValue) -> AttributedString {
   var source = text
   // KOS's references, @page:[Budget] or @approval:6, as the names they stand for, marked for the violet chip the panel draws.
   source = source.replacingOccurrences(of: #"@([a-z]+):\[([^\]\n]+)\]"#, with: "[$2](\(referenceScheme):$1)", options: .regularExpression)
   source = source.replacingOccurrences(of: #"@([a-z]+):([\w.:/-]*\w)"#, with: "[$1 $2](\(referenceScheme):$1)", options: .regularExpression)
+  // A time, <t:1760845320:R>, as its words on this Mac's clock, marked for the grey chip; never inside a code span.
+  source = outsideCode(source) { part in
+    var out = part
+    for found in ChatTime.tokens(in: part).reversed() {
+      out.replaceSubrange(found.range, with: "[\(ChatTime.words(found.date, style: found.style))](\(timeScheme):\(Int(found.date.timeIntervalSince1970)))")
+    }
+    return out
+  }
   // A bare address is a link too, as the panel makes it.
   source = source.replacingOccurrences(of: #"(?<![(<\[])\b(https?://[^\s<>)\]]+[^\s<>)\].,;:!?])"#, with: "<$1>", options: .regularExpression)
   guard let parsed = try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) else {
@@ -230,7 +239,12 @@ public func chatInline(_ text: String, size: CGFloat = KOSType.body.rawValue) ->
       continue
     }
     piece.link = nil
-    if link.scheme == referenceScheme {
+    if link.scheme == timeScheme {
+      // A time: the dashboard's grey chip; its full date is the line's hover (`timesHelp`).
+      let tint = Color(white: 0.5).opacity(0.18).blended(over: Theme.bg)
+      piece.swiftUI.backgroundColor = tint
+      styled += pad(tint, size: size) + piece + pad(tint, size: size)
+    } else if link.scheme == referenceScheme {
       // A reference: the panel's violet chip, at the chip's 12, not a link.
       let tint = Theme.violet.opacity(Theme.tint).blended(over: Theme.bg)
       piece.swiftUI.foregroundColor = Theme.violet
@@ -252,6 +266,21 @@ public func chatInline(_ text: String, size: CGFloat = KOSType.body.rawValue) ->
 
 /// The scheme a reference is marked with between reading it and drawing it; nothing opens it.
 private let referenceScheme = "kos-ref"
+
+/// The scheme a time is marked with between reading it and drawing it; nothing opens it.
+private let timeScheme = "kos-time"
+
+/// A line with `change` applied to what is outside its `code spans`.
+private func outsideCode(_ text: String, _ change: (String) -> String) -> String {
+  text.components(separatedBy: "`").enumerated().map { i, part in i.isMultiple(of: 2) ? change(part) : part }.joined(separator: "`")
+}
+
+extension View {
+  /// The full date and time of each time in a line, on hover, as the dashboard's card shows it.
+  @ViewBuilder func timesHelp(_ text: String) -> some View {
+    if let help = ChatTime.help(for: text) { self.help(help) } else { self }
+  }
+}
 
 /// A sliver of the tint a span sits on, for its ends: a Text run cannot be padded, so a thin space stands in for the panel's padding.
 private func pad(_ tint: Color, size: CGFloat) -> AttributedString {
@@ -306,17 +335,18 @@ private struct BlockView: View {
   var body: some View {
     switch block {
     case .paragraph(let text):
-      Text(chatInline(text)).fixedSize(horizontal: false, vertical: true)
+      Text(chatInline(text)).fixedSize(horizontal: false, vertical: true).timesHelp(text)
     case .heading(_, let text):
       // One size for every level, the chat's own, set apart by weight, as the dashboard's are.
-      Text(chatInline(text)).font(.kos(.body, .semibold)).padding(.top, 2)
+      Text(chatInline(text)).font(.kos(.body, .semibold)).padding(.top, 2).timesHelp(text)
     case .small(let text):
-      Text(chatInline(text, size: KOSType.detail.rawValue)).font(.kos(.detail)).foregroundStyle(Theme.muted)
+      Text(chatInline(text, size: KOSType.detail.rawValue)).font(.kos(.detail)).foregroundStyle(Theme.muted).timesHelp(text)
     case .quote(let text):
       Text(chatInline(text))
         .foregroundStyle(Theme.muted)
         .padding(.leading, 10)
         .overlay(alignment: .leading) { Rectangle().fill(Theme.lineStrong).frame(width: 2) }
+        .timesHelp(text)
     case .code(let code):
       Card(padding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)) {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -349,6 +379,7 @@ private struct BlockView: View {
             GridRow {
               ForEach(0..<head.count, id: \.self) { j in
                 Text(chatInline(j < row.count ? row[j] : "", size: KOSType.table.rawValue)).font(.kos(.table))
+                  .timesHelp(j < row.count ? row[j] : "")
               }
             }
           }

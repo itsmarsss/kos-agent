@@ -33,4 +33,34 @@ struct ChatMarkdownTests {
     #expect(String(styled.characters).contains("Budget"))
     #expect(!String(styled.characters).contains("@page"))
   }
+
+  @Test func drawsATimeAsItsWordsWithTheFullDateOnHover() {
+    let soon = Int(Date().timeIntervalSince1970) + 3 * 3600
+    let styled = chatInline("Due <t:\(soon):R>, not `<t:\(soon):R>`.")
+    let words = String(styled.characters)
+    #expect(words.contains("in 3 hours"))
+    #expect(words.contains("`") == false && words.contains("<t:\(soon):R>"))
+    #expect(styled.runs.compactMap(\.link).isEmpty)
+    // One that does not parse stays as typed.
+    #expect(String(chatInline("at <t:never:R>").characters) == "at <t:never:R>")
+    #expect(ChatTime.help(for: "nothing to say") == nil)
+    #expect(ChatTime.help(for: "Due <t:\(soon):R>")?.contains("\nat ") == true)
+  }
+
+  @Test func readsATimeAsWrittenAndSaysItInFull() throws {
+    let toronto = try #require(TimeZone(identifier: "America/Toronto"))
+    let late = Date(timeIntervalSince1970: 1_795_237_140) // 2026-11-21 04:59 UTC
+    #expect(ChatTime.instant("2026-11-20T23:59", zone: toronto) == late)
+    #expect(ChatTime.instant("2026-11-21T04:59Z") == late)
+    #expect(ChatTime.instant("2026-11-21T06:59+02:00") == late)
+    #expect(ChatTime.instant("1795237140") == late)
+    #expect(ChatTime.instant("2026-13-01") == nil)
+    #expect(ChatTime.words(late, style: "t", zone: toronto) == "23:59")
+    #expect(ChatTime.words(late, style: "D", zone: toronto) == "20 November 2026")
+    let us = ChatTime.card(late, locale: Locale(identifier: "en_US"), zone: toronto)
+    #expect(us.date == "Friday, November 20, 2026")
+    #expect(us.time.replacingOccurrences(of: "\u{202F}", with: " ") == "at 11:59 PM")
+    #expect(ChatTime.card(late, locale: Locale(identifier: "en_GB"), zone: toronto).time == "at 23:59")
+  }
 }
+

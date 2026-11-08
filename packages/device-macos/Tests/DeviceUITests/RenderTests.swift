@@ -94,6 +94,14 @@ struct RenderTests {
     #expect(size.height == ChatView.size.height)
   }
 
+  /// A time KOS wrote, as its words on the dashboard's grey chip.
+  @Test func chatMarkdownWithATime() throws {
+    let due = Int(Date().timeIntervalSince1970) + 13 * 86_400
+    let view = ChatMarkdown("The deadline is <t:\(due):R>, so there is still time.").foregroundStyle(Theme.text).padding(16).background(Theme.bg)
+    let size = try render("chat-time", view.frame(width: 420))
+    #expect(size.height > 0)
+  }
+
   /// Before a word: what to ask, under the app card; and a turn that has taken no step yet, then one at a step, while a session runs.
   @Test func chatWindowEmptyThinkingAndAtAStep() throws {
     let model = ChatModel()
