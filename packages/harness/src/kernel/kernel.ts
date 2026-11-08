@@ -1763,6 +1763,8 @@ export class Kernel {
 
   /** Kept across restarts: which chats have a turn running, so one a restart cut short is said to be. */
   private openTurn(sessionId: string, open: boolean): void {
+    // A turn that ends after the store closed has no record to change.
+    if (this.closed) return;
     const now = this.settings.get<Record<string, number>>(OPEN_TURNS_KEY) ?? {};
     if (open === sessionId in now) return;
     const { [sessionId]: _was, ...rest } = now;
