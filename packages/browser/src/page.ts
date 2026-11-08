@@ -76,6 +76,8 @@ const SETTLE_NAV_MS = 10_000;
 const DOM_QUIET_MS = 150;
 /** After one of those requests ends, or a message comes on a socket, time for the page to show what it brought. */
 const ANSWER_MS = 60;
+/** After one the action started ends, time for the page to read what it brought and draw it (a parse, then a render). */
+const ANSWERED_MS = ANSWER_MS + DOM_QUIET_MS;
 /** The most an action waits for that, after any navigation it started, while nothing it started is still coming. */
 const SETTLE_MAX_MS = 800;
 /** The most it waits while a request the action started is still open. */
@@ -96,6 +98,8 @@ const POLL_REPEATS = 3;
 const POLL_WINDOW_MS = 10_000;
 /** Addresses whose recent requests are counted, at most. */
 const PATTERNS_MAX = 200;
+/** Requests ended lately that are kept, at most. */
+const ENDED_MAX = 20;
 /**
  * The requests a page's answer waits on: data it fetches, from any site,
  * and its own documents and scripts. Pictures, fonts, beacons, others'
@@ -198,6 +202,8 @@ export class Page {
   private loading = false;
   /** Requests the page's answer may wait on: when each started, and the address it went to, less its query. */
   private readonly inflight = new Map<string, { at: number; pattern: string }>();
+  /** Requests ended lately: when each started and ended, and its address, for giving the page time to show its answer. */
+  private readonly ended: { at: number; pattern: string; end: number }[] = [];
   /** When the page last asked each address, and whether KOS was at work on the page then, for telling a poll from an answer. */
   private readonly asked = new Map<string, { at: number; idle: boolean }[]>();
   /** Calls at work on the page now. */
@@ -307,9 +313,15 @@ export class Page {
         this.socketAt = this.now();
         break;
       case "Network.loadingFinished":
-      case "Network.loadingFailed":
-        this.inflight.delete(String(p["requestId"]));
+      case "Network.loadingFailed": {
+        const id = String(p["requestId"]);
+        const request = this.inflight.get(id);
+        if (!request) break;
+        this.inflight.delete(id);
+        this.ended.push({ ...request, end: this.now() });
+        if (this.ended.length > ENDED_MAX) this.ended.shift();
         break;
+      }
       case "Inspector.targetCrashed":
         this.crashed = true;
         break;
@@ -539,17 +551,25 @@ export class Page {
   /**
    * Until the page has answered what was just done to it: a navigation the
    * action started has reached DOMContentLoaded, then the document has gone
-   * still, no request it waits on is open and no socket message has just
-   * come, or the most worth waiting has gone: longer while a request the
-   * action started is still coming. A step that ends with one still open is
-   * said to have. `before` is the document the action was done on, and
-   * `since` when; `navigated` says a navigation was already waited for;
-   * `floor` is the least time given.
+   * still, no request it waits on is open, no socket message has just come
+   * and the page has had a moment to draw what a request the action started
+   * brought, or the most worth waiting has gone: longer while a request the
+   * action started is still coming, and long enough after one ends to draw
+   * it. A step that ends with one still open is said to have. `before` is
+   * the document the action was done on, and `since` when; `navigated` says
+   * a navigation was already waited for; `floor` is the least time given.
    */
   private async settle(before: string, since: number, navigated = false, floor = 0): Promise<void> {
     const moving = (): boolean => !navigated && (this.life.loader !== before || (this.loading && this.loadStarted >= since));
     let start = this.now();
-    const end = (): number => start + (this.requesting(since) === "started" ? SETTLE_BUSY_MS : SETTLE_MAX_MS);
+    // An answer that lands as the busy wait runs out still has its time to be drawn, and its quiet after.
+    const end = (): number => {
+      const answered = this.answered(since);
+      const busy = start + (this.requesting(since) === "started" ? SETTLE_BUSY_MS : SETTLE_MAX_MS);
+      return Math.max(busy, Math.min(answered, start + SETTLE_BUSY_MS) + ANSWERED_MS + DOM_QUIET_MS);
+    };
+    // What is left of the time the page has to draw an answer it brought.
+    const drawing = (): number => this.answered(since) + ANSWERED_MS - this.now();
     // Counted from the action at first; after a request or a socket message, from it.
     let grace = Math.max(DOM_QUIET_MS, floor);
     for (;;) {
@@ -568,13 +588,23 @@ export class Page {
       const still = await this.domQuiet(grace, left);
       if (moving()) continue;
       if (!this.requesting(since)) {
-        if (still && this.socketAt === socket) return;
+        if (still && this.socketAt === socket && drawing() <= 0) return;
         if (this.socketAt !== socket) grace = ANSWER_MS;
+        if (drawing() > 0) grace = drawing();
         continue;
       }
       await this.waitUntil(() => !this.requesting(since) || moving(), Math.max(0, end() - this.now()));
-      grace = ANSWER_MS;
+      grace = Math.max(ANSWER_MS, drawing());
     }
+  }
+
+  /** When a request the action `since` started last ended, as one its answer waits on (not a poll, nor a long one); -Infinity if none has. */
+  private answered(since: number): number {
+    let last = -Infinity;
+    for (const { at, pattern, end } of this.ended) {
+      if (at >= since && end - at < STALE_REQUEST_MS && end > last && !this.polled(pattern, since, end)) last = end;
+    }
+    return last;
   }
 
   /** A request the page's answer may wait on began, `timestamp` by the browser's clock when it says. */

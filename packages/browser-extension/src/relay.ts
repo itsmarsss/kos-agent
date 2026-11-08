@@ -74,9 +74,9 @@ export interface OverlayWorlds {
 /**
  * A command checked before it reaches the tab: on the list, and if it
  * navigates, to the web. A world KOS makes is its hands' own, by that name
- * and with no more reach than the page's; script runs anywhere but in the
- * overlay's world, whose binding speaks for the owner (Take over, Hand back,
- * Stop).
+ * and with no more reach than the page's; script runs, and objects are
+ * made or reached, anywhere but in the overlay's world, whose binding speaks
+ * for the owner (Take over, Hand back, Stop).
  */
 export function checkCommand(method: string, params: Record<string, unknown>, overlay?: OverlayWorlds): void {
   if (!COMMANDS.has(method)) throw new CallError("method", `${method} is not one the extension passes on`);
@@ -88,13 +88,36 @@ export function checkCommand(method: string, params: Record<string, unknown>, ov
     if (params["worldName"] !== HANDS_WORLD) throw new CallError("method", `the only world KOS may make is ${HANDS_WORLD}`);
     if (params["grantUniveralAccess"] !== undefined && params["grantUniveralAccess"] !== false) throw new CallError("method", "a world KOS makes has no more reach than the page");
   }
-  if (overlay && (method === "Runtime.evaluate" || method === "Runtime.callFunctionOn")) {
-    const id = params["contextId"] ?? params["executionContextId"];
-    const unique = params["uniqueContextId"];
-    if ((typeof id === "number" && overlay.ids.has(id)) || (typeof unique === "string" && overlay.unique.has(unique))) {
-      throw new CallError("method", "the overlay's world is the extension's own");
-    }
+  if (reachesOverlay(params, overlay ?? NO_OVERLAY)) throw new CallError("method", "the overlay's world is the extension's own");
+}
+
+const NO_OVERLAY: OverlayWorlds = { ids: new Set(), unique: new Set() };
+
+/** The world an object lives in, from its id (isolate.context.object, as V8 writes it); undefined for an id not of that form. */
+function worldOfObject(objectId: string): number | undefined {
+  const parts = /^-?\d+\.(\d+)\.\d+$/.exec(objectId);
+  return parts ? Number(parts[1]) : undefined;
+}
+
+/**
+ * Whether a command's parameters name the overlay's world, or an object in
+ * it, by any of the names a command may use: each checked alone, since a
+ * command reads the one it knows and ignores the rest. A name given as
+ * anything but what the protocol takes is refused as well, so none slips
+ * past by its type.
+ */
+function reachesOverlay(params: Record<string, unknown>, overlay: OverlayWorlds): boolean {
+  for (const key of ["contextId", "executionContextId"]) {
+    const id = params[key];
+    if (id !== undefined && (typeof id !== "number" || overlay.ids.has(id))) return true;
   }
+  const unique = params["uniqueContextId"];
+  if (unique !== undefined && (typeof unique !== "string" || overlay.unique.has(unique))) return true;
+  const object = params["objectId"];
+  if (object === undefined) return false;
+  if (typeof object !== "string") return true;
+  const world = worldOfObject(object);
+  return world !== undefined && overlay.ids.has(world);
 }
 
 /**
