@@ -50,7 +50,11 @@ it is made (`blob_ids`, `systems/blobids.ts`, kept by `RoleStore`), and its
 artifacts' rows carry it. When the blob is removed its id is retired and
 never given out again, so a blob made later under the same name, from the
 root or from a project's chat with `blobs.create`, is a new owner and owns
-none of what the old one made. A blob row from before ids went to the living
+none of what the old one made. An id is retired only by `remove()`, by a
+write that makes the blob again where its file was not, or at boot
+(`RoleStore.reconcile`, once, with a log line) for a blob whose folder went
+while KOS was away; a file missing for a moment (an editor's rename-save)
+retires nothing. A blob row from before ids went to the living
 blob of its name, or to a retired id when that blob was gone. `blob_id` is
 indexed.
 
@@ -75,6 +79,27 @@ artifact's file, versions and captures (`artifactFileRefusal`), and for an
   not a schedule's run, a guest's words in a channel, or work passed on;
 - the workspace's: any chat.
 
+A path is matched folded (`foldedPath`, `store/workspace.ts`): normalized,
+in its on-disk case as far as it exists, and lower-cased throughout, with the
+id looked up in any case. The workspace can sit on a case-insensitive disk,
+where `Blobs/x/Artifacts/<ID>.html` opens `blobs/x/artifacts/<id>.html`; the
+fence refuses it on any disk. `.kos/` is refused the same way, as `.KOS/`.
+
+A turn is the owner's own (`ownership`, `kernel/caller.ts`) only when the
+door that took the owner's message says so: the dashboard's API (which the
+extension and KOS for Mac use too), a surface's message from the owner
+(Discord, iMessage), the CLI, a dashboard fix, rewind or fork. A schedule, a
+guest, a resumed approval and a fix KOS starts itself are not. A dispatch or
+a handoff passes on no more than the sending turn had, attended and owner
+alike, read from the call that sends it.
+
+`@schedule`, `@approval`, `@chat` and `@blob` are fenced the same way: the
+root and Maintenance see all of them; a project's chat its project's, a
+blob's thread its own, and of anyone else's a schedule's line as `cron.list`
+gives it and a blob's description without its brief. Lines a mention-gated
+Discord room said in between ride beside the owner's words as context and
+are never read for mentions.
+
 A blob's own thread is known by its id, `agent:<name>`, and a living blob of
 that name, not by its having no project: a blob's chat in a project works
 for the project, and stays so after the project is deleted.
@@ -86,7 +111,8 @@ and a guest's mentions show nothing but the channels they name.
 When a blob is removed its file goes and its folder stays with the work in
 it, as its files do, and its artifacts are kept: listed as "Removed blob:
 <name>", read but never changed by KOS, and the owner's to look at, restore
-or delete (`POST /api/pages/<id>/delete`, for a removed blob's only). Their
+or delete (`POST /api/pages/<id>/delete`, for a removed blob's only, by its
+row, so one whose file is already gone is let go too). Their
 viewer offers no way to the blob's page, which is gone, nor Edit with KOS.
 
 ## How an artifact is written
@@ -138,7 +164,10 @@ browser parses it (parse5, `systems/markup.ts`): entities decoded, names
 lower-cased, a `>` inside a quoted attribute read as text. It is held to the
 elements and attributes a doc is made of; a link may go only to `#id` and an
 image only be `data:image/`; a script, stylesheet, handler, `javascript:` URL
-(however encoded) or article tag is refused; and what is saved is the parse
+(however encoded) or article tag is refused; a style or an SVG paint, mask,
+clip, filter or marker holding a backslash (a CSS escape), `image-set(` or a
+`url(` to anything but `#id` is refused, as is `<use>` or `<feImage>` naming
+anything off the page; and what is saved is the parse
 written back out, so a stray end tag cannot end the article early. A
 sheet's data is re-serialised with `<` escaped, so it cannot end its script,
 and may not change which tables the sheet reads. Then the whole document
@@ -149,7 +178,9 @@ A save is the owner's: the dashboard relays `kos.save` only while the
 owner's hand is in that frame (`ownerIn`: the dashboard's focus is on it and
 the browser counts a gesture as active), or within 2.5 s (`DONE_MS`) of the
 dashboard's own Done, which covers the doc waiting out the gap between
-saves. A press elsewhere on the dashboard, and Discard, Undo or Edit sent
+saves. A Done opens that window only when the owner pressed or typed in the
+document since it loaded or last saved, and the window lets one save
+through, so a doc only looked at saves nothing on the way out. A press elsewhere on the dashboard, and Discard, Undo or Edit sent
 from it, end that leave, so a page cannot turn a click on the dashboard into
 a save (`saveAllowed`, `widgets/frameheight.ts`). The dashboard sends the version the edit was
 made on (the record's `updatedAt`); if KOS or another window saved since,
@@ -187,7 +218,8 @@ thread beside it, another route by any means), the viewer asks the doc to
 finish, so nothing typed is lost; that save is allowed by the Done window. A
 page that says it is editing holds the dashboard 2.5 s at most
 (`SETTLE_MS`). A restore made while an edit waits names the version that
-edit saved, not the one first opened.
+edit saved, not the one first opened. An artifact opened beside a thread
+while that wait runs stays open.
 
 It runs inside the doc's frame, on the browser's own editing
 (contenteditable and its commands), not on an editor library's model: a
