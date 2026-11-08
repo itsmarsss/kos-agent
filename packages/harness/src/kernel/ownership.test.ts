@@ -92,8 +92,12 @@ describe("who a turn is, by where it came from", () => {
     const cronId = [...seen.keys()].find((id) => id.startsWith("cron:"));
     expect(cronId && seen.get(cronId)).toEqual(neither);
 
+    // An approval nobody waits on any more, the owner's own: the chat it resumes is told the result, and is not theirs.
     const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mine" });
-    await kernel.handleMessage("carry on", { sessionId: chat.id, origin: "system" });
+    const orphan = kernel.approvals.enqueue({ tool: "files.ls", args: { path: "." }, riskTier: "risky", conversationId: chat.id, owner: true, attended: true });
+    expect(kernel.approvals.isAwaited(orphan.id)).toBe(false);
+    const decided = await kernel.approve(orphan.id);
+    expect(decided).toMatchObject({ ok: true, isError: false, reply: "ok" });
     expect(await settle(chat.id)).toEqual(neither);
 
     // A caller that says nothing is not taken for the owner.
@@ -175,10 +179,11 @@ describe("who a turn is, by where it came from", () => {
 
 /**
  * What only the owner's own turns reach, a blob's artifact from a chat at the
- * root, carried through an approval nobody is waiting on any more: run as the
- * turn that asked, no more and no less.
+ * root, end to end: through a real turn, an approval nobody is waiting on any
+ * more, and work a schedule passes on. Each runs as the turn behind it, no
+ * more and no less.
  */
-describe("an orphaned approval, run as the turn that asked", () => {
+describe("a blob's artifact, from a chat at the root", () => {
   let root: string;
   const kernels: Kernel[] = [];
   const NOTE = "blobs/noter/artifacts/notes.html";
@@ -242,5 +247,40 @@ describe("an orphaned approval, run as the turn that asked", () => {
     expect(res).toMatchObject({ ok: true, isError: true });
     expect(res.message).toMatch(/blob noter's artifacts are not this chat's to change/);
     expect(existsSync(join(root, NOTE))).toBe(true);
+  });
+
+  it("lets the owner's chat at the root read a blob's artifact, and not a turn a schedule handed to it", async () => {
+    let rootChat = "";
+    // Each turn's model by what it was asked: the schedule hands to the root chat, which reads the artifact.
+    const inference: Inference = {
+      async generate(_task, req) {
+        // The newest message alone: a later turn carries the earlier ones before it.
+        const sent = JSON.stringify(req.messages.at(-1));
+        const call = (name: string, input: Record<string, unknown>) => ({ content: [{ type: "tool_use" as const, id: "t1", name, input }], stopReason: "tool_use" as const, usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+        if (sent.includes("tool_result")) return { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+        if (sent.includes("CRON-GO")) return call("chats.handoff", { to: `@chat:${rootChat}`, brief: "The notes page.", ask: "READ-IT" });
+        if (sent.includes("READ-IT") || sent.includes("ROOT-GO")) return call("files.read", { path: NOTE });
+        return { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    };
+    const kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference, chrome: { port: 1, exists: () => false } });
+    kernels.push(kernel);
+    blobArtifact(kernel);
+    rootChat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mine" }).id;
+    const results = (): { content: string; isError?: boolean }[] =>
+      kernel.sessions.get(rootChat).flatMap((m) => m.content.filter((b) => b.type === "tool_result")) as { content: string; isError?: boolean }[];
+
+    // The owner's own words, at the root: the blob's artifact is theirs to read.
+    await handleApiRequest(kernel, { method: "POST", path: "/api/message", body: { sessionId: rootChat, text: "ROOT-GO" } });
+    await vi.waitFor(() => expect(results()).toHaveLength(1));
+    expect(results()[0]).toMatchObject({ content: expect.stringContaining("<p>n</p>") });
+    expect(results()[0]?.isError).not.toBe(true);
+
+    // A schedule's run hands the same ask to the same chat: none of the owner's reach goes with it.
+    const job = kernel.crons.create({ name: "nightly", schedule: "0 3 * * *", type: "self_prompt", prompt: "CRON-GO", enabled: true });
+    await (kernel as unknown as { runJobTurn: (p: string, j: CronJob) => Promise<string> }).runJobTurn("CRON-GO", job);
+    await vi.waitFor(() => expect(results()).toHaveLength(2));
+    await vi.waitFor(() => expect(kernel.busyConversations()).not.toContain(rootChat));
+    expect(results()[1]).toMatchObject({ isError: true, content: expect.stringMatching(/blob noter's artifacts are not this chat's to read/) });
   });
 });
