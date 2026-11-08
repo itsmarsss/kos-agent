@@ -72,6 +72,21 @@ describe("a run of steps", () => {
     expect(given).toEqual([stop.signal]);
   });
 
+  it("claims a Stop ended only a wait where it was; input already sent may have finished", async () => {
+    for (const [step, said] of [
+      [{ click: "@e1" }, "Stopped by the owner; step 1 may have finished in the page."],
+      [{ hover: "@e1" }, "Stopped by the owner; step 1 may have finished in the page."],
+      [{ wait: { text: "Done" } }, "Stopped by the owner during step 1."],
+    ] as const) {
+      const stop = new AbortController();
+      const { tab } = fakeTab(["http://shop.test/1"], () => {
+        stop.abort();
+        throw new Error("stopped");
+      });
+      await expect(act(tab, [step] as never[], "none", stop.signal)).rejects.toThrow(said);
+    }
+  });
+
   describe("waits", () => {
     afterEach(() => void vi.useRealTimers());
 

@@ -192,8 +192,8 @@ function webSteps(page: Page): RunAdapter<Step> {
       }
       return page.step(step, signal, next);
     },
-    // Every step ends where it is at Stop: a pause, and a step on the page, which Page.step aborts.
-    cancels: () => true,
+    // Only a wait ends where it is at Stop; input already sent to the page (a click, a key, a scroll) cannot be taken back.
+    cancels: (step) => "wait" in step,
     place: "in the page",
     afterFailure: async () => {
       const notes = page.takeNotes();
