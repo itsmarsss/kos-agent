@@ -87,6 +87,11 @@ const THINKING = "-# thinking…";
 /** Discord's limits on uploads: files per message, bytes per file. */
 const DISCORD_FILES = 10;
 const DISCORD_FILE_BYTES = 10 * 1024 * 1024;
+/** How many messages already taken are remembered, so a replay does not run one twice. */
+const SEEN_MAX = 2000;
+/** At most this many messages per room are caught up after a drop, and none older than the window. */
+const CATCH_UP_MAX = 50;
+const CATCH_UP_WINDOW_MS = 6 * 3_600_000;
 /** How many sends may wait for a dropped gateway; past it the oldest goes. */
 const OUTBOX_MAX = 100;
 /** Subtext lines may not be longer than this and still read as a glance. */
@@ -391,6 +396,16 @@ export interface DiscordAdapterOptions {
   senderOf?: (conversationId: string) => Sender | undefined;
   /** Told each time the gateway is up again, once what waited for it is sent: asks with no card get one. */
   onConnected?: () => Promise<void> | void;
+  /** The last message taken in each room, kept across restarts, so catch-up reads only what came after. */
+  cursors?: RoomCursors;
+}
+
+/** The last message taken in each room (a bound channel, a thread, the owner's DM), by the room's id. */
+export interface RoomCursors {
+  get(roomId: string): string | undefined;
+  /** Moved forward only: an older id leaves it where it is. */
+  advance(roomId: string, messageId: string): void;
+  rooms(): string[];
 }
 
 /** An ask's card as sent: its words, its buttons, and the page it is about when there is one. */
@@ -840,6 +855,9 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly threadOf?: (threadId: string) => string | undefined;
   private readonly senderOf?: (conversationId: string) => Sender | undefined;
   private readonly onConnected?: () => Promise<void> | void;
+  private readonly cursors?: RoomCursors;
+  /** Messages already taken, newest last, so none runs twice. */
+  private readonly seen = new Set<string>();
   private readonly threadBindings?: () => Record<string, string>;
   private readonly keptPrompts?: KeptPrompts;
   private readonly timezone?: string;
@@ -879,6 +897,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.threadOf) this.threadOf = options.threadOf;
     if (options.senderOf) this.senderOf = options.senderOf;
     if (options.onConnected) this.onConnected = options.onConnected;
+    if (options.cursors) this.cursors = options.cursors;
     if (options.threadBindings) this.threadBindings = options.threadBindings;
     if (options.keptPrompts) this.keptPrompts = options.keptPrompts;
     if (options.timezone) this.timezone = options.timezone;
@@ -999,11 +1018,70 @@ export class DiscordAdapter implements ChannelAdapter {
     }
     await this.flushOutbox();
     await this.onConnected?.();
+    // Not awaited: catch-up runs whole turns, and the next drop's sends
+    // should not wait behind them.
+    void this.catchUp();
+  }
+
+  /**
+   * What was said while KOS was away, read from each room it last heard in
+   * and taken the way it would have been live, oldest first: the same gates,
+   * the same owner and guest, nothing more for having come late. A room
+   * that said more than catch-up reads is told so.
+   */
+  async catchUp(): Promise<void> {
+    if (!this.cursors) return;
+    await Promise.all(
+      this.cursors.rooms().map((room) =>
+        this.catchUpIn(room).catch((err: unknown) => console.warn(`[discord] catch-up in ${room}: ${err instanceof Error ? err.message : String(err)}`)),
+      ),
+    );
+  }
+
+  private async catchUpIn(roomId: string): Promise<void> {
+    const since = this.cursors?.get(roomId);
+    if (!since || this.catchingUp.has(roomId)) return;
+    this.catchingUp.add(roomId);
+    try {
+      await this.readMissed(roomId, since);
+    } finally {
+      this.catchingUp.delete(roomId);
+    }
+  }
+
+  private readonly catchingUp = new Set<string>();
+
+  private async readMissed(roomId: string, since: string): Promise<void> {
+    const room = (await this.client.channels.fetch(roomId).catch(() => null)) as (ReadableChannel & { send?: (p: unknown) => Promise<unknown> }) | null;
+    if (!room || !("messages" in room)) return;
+    const fetched = [...(await room.messages.fetch({ limit: CATCH_UP_MAX })).values()] as unknown as Message[];
+    const after = fetched.filter((m) => BigInt(m.id) > BigInt(since)).sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
+    if (after.length === 0) return;
+    const oldest = Date.now() - CATCH_UP_WINDOW_MS;
+    const said = (m: Message): boolean => !m.author.bot && !m.system;
+    const recent = after.filter((m) => m.createdTimestamp >= oldest);
+    // More than one fetch's worth after the cursor, or some of it too old.
+    const capped = (fetched.length >= CATCH_UP_MAX && after.length === fetched.length) || after.some((m) => m.createdTimestamp < oldest && said(m));
+    this.cursors?.advance(roomId, after.at(-1)!.id);
+    const missed = recent.filter((m) => said(m) && !this.seen.has(m.id));
+    if (capped && missed.length) {
+      await room
+        .send?.({ content: `-# KOS was offline; only the last ${missed.length} message${missed.length === 1 ? "" : "s"} here, from the last ${CATCH_UP_WINDOW_MS / 3_600_000} hours at most, are answered`, flags: MessageFlags.SuppressNotifications })
+        .catch(() => undefined);
+    }
+    for (const message of missed) await this.receiveMessage(message, { late: true });
   }
 
   /** Gateway MessageCreate handler. Internal; separated for tests. */
-  async receiveMessage(message: Message): Promise<void> {
+  async receiveMessage(message: Message, how: { late?: boolean } = {}): Promise<void> {
     if (message.author.bot) return;
+    // Once each: a resumed gateway replays what it missed, and catch-up
+    // reads the same messages from the history.
+    if (message.id) {
+      if (this.seen.has(message.id)) return;
+      this.seen.add(message.id);
+      if (this.seen.size > SEEN_MAX) this.seen.delete(this.seen.values().next().value!);
+    }
     // A Discord system message is not something anyone said: starting a
     // thread, pinning, a join. The "thread created" one carries the thread's
     // name as its content, so without this KOS read "Test" as a question and
@@ -1055,8 +1133,11 @@ export class DiscordAdapter implements ChannelAdapter {
     const members = this.membersNamed(message);
     const speaker = message.author.globalName ?? message.author.username;
     if (speaker) this.membersSeen.set(speaker.toLowerCase(), message.author.id);
+    // Where catch-up starts reading this room from, after a drop or a restart.
+    if (message.id && message.channel?.id) this.cursors?.advance(message.channel.id, message.id);
     await this.messageHandler?.({
       channel: this.name,
+      ...(how.late ? { late: true } : {}),
       senderId: message.author.id,
       text: this.membersInWords(this.channelsNamed(this.withoutOwnMention(message.content)), members) + note,
       // Beside the words, not in them: kept as room talk, and never read for
@@ -2343,8 +2424,10 @@ export class DiscordAdapter implements ChannelAdapter {
         told = true;
         await story.edit(content);
       },
-      complete: async (reply: OutboundMessage) => {
+      complete: async (answer: OutboundMessage) => {
         await settle();
+        // Answered on KOS's return: said under it, so a late answer reads as one.
+        const reply = msg.late ? { ...answer, text: `${answer.text}\n-# sent while KOS was offline` } : answer;
         // In a server, a blob answers as itself: through the channel's
         // webhook, under its own name, with no tag line needed.
         if (reply.from && message.guild && (await this.sendAs(message.channel as Parameters<DiscordAdapter["sendAs"]>[0], reply))) return;

@@ -2031,3 +2031,107 @@ describe("while the gateway is down", () => {
     expect(kept.get("8")?.refs).toEqual([{ channelId: "dm1", messageId: "d1" }]);
   });
 });
+
+describe("catching up after a drop or a restart", () => {
+  const HOUR = 3_600_000;
+  interface Said { id: string; author: string; at?: number; bot?: boolean }
+  function room(id: string, said: Said[], extra: Record<string, unknown> = {}): { channel: Record<string, unknown>; posted: string[]; messages: Message[] } {
+    const posted: string[] = [];
+    const channel: Record<string, unknown> = { id, ...extra, send: async (p: { content: string }) => void posted.push(p.content) };
+    const messages = said.map(
+      (m) =>
+        ({
+          id: m.id,
+          content: `said ${m.id}`,
+          createdTimestamp: m.at ?? Date.now() - 60_000,
+          author: { id: m.author, bot: m.bot === true, username: m.author },
+          system: false,
+          guild: extra.topic ? { id: "g1" } : null,
+          guildId: extra.topic ? "g1" : null,
+          channel,
+        }) as unknown as Message,
+    );
+    channel.messages = { fetch: async () => new Map(messages.map((m) => [m.id, m])) };
+    return { channel, posted, messages };
+  }
+  function adapterOver(rooms: Record<string, Record<string, unknown>>, cursors: Record<string, string>, guests = false): { adapter: DiscordAdapter; heard: InboundMessage[] } {
+    const adapter = new DiscordAdapter({
+      token: "t",
+      guildId: "g1",
+      guestsAllowed: () => guests,
+      cursors: {
+        get: (r) => cursors[r],
+        advance: (r, id) => {
+          if (!cursors[r] || BigInt(cursors[r]!) < BigInt(id)) cursors[r] = id;
+        },
+        rooms: () => Object.keys(cursors),
+      },
+    });
+    (adapter as unknown as { client: unknown }).client = { user: { id: "bot" }, channels: { fetch: async (id: string) => rooms[id] } };
+    adapter.setAuthorizer((id) => id === "owner");
+    const heard: InboundMessage[] = [];
+    adapter.onMessage(async (m) => void heard.push(m));
+    return { adapter, heard };
+  }
+
+  it("takes the owner's missed messages, in order, as they would have been taken live, and moves the cursor on", async () => {
+    const dm = room("dm1", [{ id: "103", author: "bot", bot: true }, { id: "102", author: "stranger" }, { id: "101", author: "owner" }, { id: "104", author: "owner" }, { id: "99", author: "owner" }]);
+    const cursors = { dm1: "100" };
+    const { adapter, heard } = adapterOver({ dm1: dm.channel }, cursors);
+    await adapter.catchUp();
+    expect(heard.map((m) => [m.text, m.senderId, m.late, m.guest])).toEqual([
+      ["said 101", "owner", true, undefined],
+      ["said 104", "owner", true, undefined],
+    ]);
+    expect(cursors.dm1).toBe("104");
+    expect(dm.posted).toEqual([]);
+  });
+
+  it("holds a guest's missed words to the same gate as live, and never as the owner's", async () => {
+    const said = [{ id: "201", author: "ana" }, { id: "202", author: "owner" }];
+    const shut = room("c1", said, { topic: "kos:project:garden · Garden" });
+    const closed = adapterOver({ c1: shut.channel }, { c1: "200" }, false);
+    await closed.adapter.catchUp();
+    expect(closed.heard.map((m) => m.senderId)).toEqual(["owner"]);
+    const open = room("c1", said, { topic: "kos:project:garden · Garden" });
+    const opened = adapterOver({ c1: open.channel }, { c1: "200" }, true);
+    await opened.adapter.catchUp();
+    expect(opened.heard.map((m) => [m.senderId, m.guest?.id, m.conversationId])).toEqual([
+      ["ana", "ana", "project:garden"],
+      ["owner", undefined, "project:garden"],
+    ]);
+  });
+
+  it("runs a message once, whether it came live, in a replay, or in catch-up", async () => {
+    const dm = room("dm1", [{ id: "301", author: "owner" }]);
+    const { adapter, heard } = adapterOver({ dm1: dm.channel }, { dm1: "300" });
+    await adapter.receiveMessage(dm.messages[0]!);
+    await adapter.receiveMessage(dm.messages[0]!);
+    await adapter.catchUp();
+    expect(heard).toHaveLength(1);
+    expect(heard[0]!.late).toBeUndefined();
+  });
+
+  it("reads at most fifty and six hours of a room, and says so there when it left some", async () => {
+    const many = Array.from({ length: 50 }, (_, i) => ({ id: String(1000 + i), author: "owner" }));
+    const busy = room("dm1", many);
+    const a = adapterOver({ dm1: busy.channel }, { dm1: "10" });
+    await a.adapter.catchUp();
+    expect(a.heard).toHaveLength(50);
+    expect(busy.posted).toEqual(["-# KOS was offline; only the last 50 messages here, from the last 6 hours at most, are answered"]);
+    const stale = room("dm1", [{ id: "401", author: "owner", at: Date.now() - 7 * HOUR }, { id: "402", author: "owner" }]);
+    const b = adapterOver({ dm1: stale.channel }, { dm1: "400" });
+    await b.adapter.catchUp();
+    expect(b.heard.map((m) => m.text)).toEqual(["said 402"]);
+    expect(stale.posted).toHaveLength(1);
+  });
+
+  it("says under a late answer that it was sent while KOS was away", async () => {
+    const posted: unknown[] = [];
+    const message = { author: { id: "owner", bot: false }, guild: null, content: "hi", channel: { send: async (p: unknown) => { posted.push(p); return { edit: async () => undefined, delete: async () => undefined }; } } } as unknown as Message;
+    const adapter = new DiscordAdapter({ token: "t" });
+    const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner", text: "hi", late: true, native: message });
+    await presence!.complete({ text: "done" });
+    expect(posted.at(-1)).toEqual({ content: "done\n-# sent while KOS was offline" });
+  });
+});

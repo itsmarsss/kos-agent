@@ -64,6 +64,8 @@ export interface InboundMessage {
    * never read as the words themselves.
    */
   roomTalk?: string;
+  /** Sent while KOS was away and read on its return: the answer says so. */
+  late?: boolean;
   /**
    * Adapter-private handle (e.g. Discord Message) for reactions/edits.
    * Runtime must not inspect this; only the adapter's acknowledge() may.

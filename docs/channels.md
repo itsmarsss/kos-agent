@@ -299,7 +299,19 @@ surface. A surface that is wired but not connected at that moment (Discord
 still logging in, or dropped by the gateway) is not an error: a message for
 you is left in the primary chat on the dashboard and the turn is told so.
 A message for a channel or another person has nowhere else to go, so that
-one fails.
+one fails. What a running turn sends meanwhile, an answer, a card, a post
+mirrored into a thread, waits and goes out in order once Discord is back,
+and an ask still waiting with no card anywhere gets one then. A dropped
+gateway is one line in the log when it drops, one a minute while it stays
+down, and one when it is back.
+
+What you said on Discord while KOS was away, stopped or dropped, is read
+when it is back: in the DM and in every channel and thread it last heard
+in, oldest first, through the same gates as if it had come live, so a
+guest's words are still a guest's. It reads at most the last fifty
+messages and six hours of each, and says so there when it left some out;
+an answer to one of them says "sent while KOS was offline" under it.
+Nothing is run twice, however it arrives.
 
 No link KOS sends on Discord unfurls: every URL goes out in angle
 brackets, so Discord draws no preview card for it and its crawler does not

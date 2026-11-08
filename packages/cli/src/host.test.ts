@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { SurfaceDownError, type ChannelAdapter } from "@kos/harness";
 
-import { surfaceUp, waitForPortFree } from "./host.js";
+import { roomCursorsIn, surfaceUp, waitForPortFree } from "./host.js";
 
 describe("waitForPortFree", () => {
   let server: Server | undefined;
@@ -49,5 +49,18 @@ describe("surfaceUp", () => {
 
   it("refuses a surface that is not wired here at all", () => {
     expect(() => surfaceUp(new Map(), "telegram", true)).toThrow(/no telegram surface here/);
+  });
+});
+
+describe("roomCursorsIn", () => {
+  it("keeps each room's last message, moving only forward", () => {
+    const store = new Map<string, unknown>();
+    const settings = { get: <T,>(k: string) => store.get(k) as T | undefined, set: (k: string, v: unknown) => void store.set(k, v) };
+    const cursors = roomCursorsIn(settings);
+    cursors.advance("dm1", "1000000000000000002");
+    cursors.advance("dm1", "999999999999999999");
+    cursors.advance("t1", "5");
+    expect(cursors.get("dm1")).toBe("1000000000000000002");
+    expect(cursors.rooms()).toEqual(["dm1", "t1"]);
   });
 });

@@ -32,6 +32,7 @@ export {
   type DiscordAdapterOptions,
   type KeptPrompts,
   type PromptRef,
+  type RoomCursors,
 } from "./discord.js";
 export {
   ChannelRuntime,

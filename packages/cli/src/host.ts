@@ -13,6 +13,7 @@ import {
   DiscordAdapter,
   type KeptPrompts,
   type PromptRef,
+  type RoomCursors,
   IMessageAdapter,
   describeStartFailure,
   SmsAdapter,
@@ -183,6 +184,24 @@ function keptPromptsIn(kernel: Kernel): KeptPrompts {
       const { [id]: _gone, ...rest } = all();
       save(rest);
     },
+  };
+}
+
+/** The key the last message taken in each Discord room is kept under. */
+const ROOM_CURSORS_KEY = "discord.cursors";
+
+/** Where catch-up starts in each room, in the workspace's settings so a restart knows. */
+export function roomCursorsIn(settings: { get<T>(key: string): T | undefined; set(key: string, value: unknown): void }): RoomCursors {
+  const all = (): Record<string, string> => settings.get<Record<string, string>>(ROOM_CURSORS_KEY) ?? {};
+  return {
+    get: (room) => all()[room],
+    advance: (room, id) => {
+      const now = all();
+      const at = now[room];
+      if (at && BigInt(at) >= BigInt(id)) return;
+      settings.set(ROOM_CURSORS_KEY, { ...now, [room]: id });
+    },
+    rooms: () => Object.keys(all()),
   };
 }
 
@@ -570,6 +589,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       threadOf: (threadId) => kernel.threadBindings()[threadId],
       // Each open ask's cards, kept in the workspace so a restart still settles both.
       keptPrompts: keptPromptsIn(kernel),
+      // What each room last said to KOS, so what was said while it was away is caught up.
+      cursors: roomCursorsIn(kernel.settings),
       threadBindings: () => kernel.threadBindings(),
       timezone: kernel.profile.timezone,
       labelOf: (kind, id) => kernel.labelFor(kind, id),
