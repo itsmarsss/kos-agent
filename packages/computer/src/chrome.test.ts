@@ -153,7 +153,7 @@ describe("a Chrome paired through the extension", () => {
     expect(chrome.siteOf("c1")).toBe("shop.example");
     // And says its page moved under the agent, as the owner taking the Chrome over and handing it back does.
     const moved = chrome.spot("c1")!;
-    expect(moved).toMatchObject({ tab: "88", url: "https://shop.example/checkout" });
+    expect(moved).toMatchObject({ tab: "88", url: "https://shop.example/checkout", session: sent[0]!["session"] });
     fake.event("session.paused", { session: sent[0]!["session"], reason: "owner" });
     fake.event("session.resumed", { session: sent[0]!["session"] });
     expect(chrome.spot("c1")!.moved).toBe(moved.moved + 2);

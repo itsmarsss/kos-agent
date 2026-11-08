@@ -79,5 +79,5 @@ export class SeenPages {
 }
 
 function sameSpot(seen: Seen, spot: PageSpot, site: string | undefined): boolean {
-  return seen.spot.tab === spot.tab && seen.spot.url === spot.url && seen.spot.moved === spot.moved && seen.site === site;
+  return seen.spot.tab === spot.tab && seen.spot.url === spot.url && seen.spot.moved === spot.moved && seen.spot.session === spot.session && seen.site === site;
 }

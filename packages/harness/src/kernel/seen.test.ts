@@ -31,6 +31,14 @@ describe("the last picture of a conversation's page", () => {
     expect(seenAt().picture("c1", { ...at, moved: 4 }, "shop.example")).toBeUndefined();
   });
 
+  it("does not stand in a new session on the same tab and address, whose count starts again", () => {
+    const seen = new SeenPages(() => 0);
+    seen.run("c1")();
+    seen.saw("c1", "PICTURE", { tab: "77", url: "https://shop.example/cart", moved: 0, session: "s1" }, "shop.example");
+    expect(seen.picture("c1", { tab: "77", url: "https://shop.example/cart", moved: 0, session: "s2" }, "shop.example")).toBeUndefined();
+    expect(seen.picture("c1", { tab: "77", url: "https://shop.example/cart", moved: 0, session: "s1" }, "shop.example")).toBe("PICTURE");
+  });
+
   it("goes stale", () => {
     const now = { t: 0 };
     const seen = seenAt(now);

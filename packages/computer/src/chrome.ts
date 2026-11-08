@@ -200,7 +200,7 @@ export class OwnerChrome implements BrowserElsewhere {
 
   spot(conversation: string): PageSpot | undefined {
     const b = this.held.get(conversation);
-    return b?.current ? { tab: b.current, url: b.tabs.get(b.current)?.url ?? "", moved: b.moved } : undefined;
+    return b?.current ? { tab: b.current, url: b.tabs.get(b.current)?.url ?? "", moved: b.moved, session: b.session } : undefined;
   }
 
   siteOf(conversation: string): string | undefined {

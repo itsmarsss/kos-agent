@@ -45,6 +45,8 @@ export interface PageSpot {
   tab: string;
   url: string;
   moved: number;
+  /** The session the tab is driven in, where one is: a new session on the same tab is not the page last seen. */
+  session?: string;
 }
 
 export interface BrowserElsewhere {
