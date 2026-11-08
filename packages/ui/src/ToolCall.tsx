@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from "react";
 
 import { pathsIn, stepMechanics } from "@kos/shared";
-import { ChevronDown, ChevronRight } from "@kos/kit";
+import { ChevronDown, ChevronRight, StepPicture } from "@kos/kit";
 
 import type { ChatEvent } from "./api.js";
 import { Decision } from "./Decision.js";
@@ -66,7 +66,6 @@ export function ToolCall({
   deciding?: ReadonlySet<number>;
 }): ReactElement {
   const [open, setOpen] = useState(false);
-  const [frameOpen, setFrameOpen] = useState(false);
   const running = event.result === undefined;
   const queued = event.pendingId !== undefined;
   // A step said by what it is for keeps how it did it here, under the line.
@@ -107,9 +106,9 @@ export function ToolCall({
       {/* What the step saw (the browser's tab, a computer's screen): the
           evidence for what the reply says it read, small until clicked. */}
       {event.frameId !== undefined && (
-        <button type="button" className={`toolcall-frame${frameOpen ? " is-open" : ""}`} onClick={() => setFrameOpen((v) => !v)} title={frameOpen ? "Smaller" : "What this step saw"}>
-          <img src={`/api/frames/${event.frameId}`} alt="What this step saw" loading="lazy" />
-        </button>
+        <div className="toolcall-frame">
+          <StepPicture src={`/api/frames/${event.frameId}`} />
+        </div>
       )}
 
       {queued && awaitingApproval && onDecide && (
