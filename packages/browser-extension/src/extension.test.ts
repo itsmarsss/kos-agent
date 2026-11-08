@@ -92,6 +92,33 @@ describe("what reaches a tab", () => {
     expect(() => checkCommand("Runtime.callFunctionOn", { functionDeclaration: "() => 1", executionContextId: 7 }, overlay)).toThrow(/overlay/);
   });
 
+  it("reads each name a command may give a world by alone, so one cannot hide another", () => {
+    const overlay = { ids: new Set([7]), unique: new Set(["u7"]) };
+    // callFunctionOn reads executionContextId and ignores contextId: a string there once let the overlay's id through.
+    expect(() => checkCommand("Runtime.callFunctionOn", { functionDeclaration: "() => 1", contextId: "x", executionContextId: 7 }, overlay)).toThrow(/overlay/);
+    expect(() => checkCommand("Runtime.callFunctionOn", { functionDeclaration: "() => 1", contextId: 3, executionContextId: 7 }, overlay)).toThrow(/overlay/);
+    expect(() => checkCommand("Runtime.evaluate", { expression: "1", contextId: 3, uniqueContextId: "u7" }, overlay)).toThrow(/overlay/);
+    expect(() => checkCommand("Runtime.callFunctionOn", { functionDeclaration: "() => 1", uniqueContextId: "u7" }, overlay)).toThrow(/overlay/);
+    // A name of the wrong type is refused rather than passed on to be read some other way.
+    expect(() => checkCommand("Runtime.evaluate", { expression: "1", contextId: "7" }, overlay)).toThrow(CallError);
+    expect(() => checkCommand("Runtime.evaluate", { expression: "1", uniqueContextId: 7 })).toThrow(CallError);
+    expect(() => checkCommand("Runtime.evaluate", { expression: "1", contextId: 3, uniqueContextId: "u3" }, overlay)).not.toThrow();
+  });
+
+  it("makes and reaches no object in the overlay's world", () => {
+    const overlay = { ids: new Set([7]), unique: new Set(["u7"]) };
+    // A node resolved into the overlay's world is an object there, which a function called on it would run in.
+    expect(() => checkCommand("DOM.resolveNode", { backendNodeId: 5, executionContextId: 7 }, overlay)).toThrow(/overlay/);
+    expect(() => checkCommand("DOM.resolveNode", { backendNodeId: 5, executionContextId: 3, objectGroup: "kos" }, overlay)).not.toThrow();
+    expect(() => checkCommand("DOM.resolveNode", { backendNodeId: 5 }, overlay)).not.toThrow();
+    // An object's id names its world (isolate.world.object): one of the overlay's is refused for every command that takes one.
+    for (const method of ["Runtime.callFunctionOn", "Runtime.getProperties", "Runtime.releaseObject", "DOM.describeNode", "DOM.focus", "DOM.getContentQuads"]) {
+      expect(() => checkCommand(method, { objectId: "-4087261833316862514.7.12", functionDeclaration: "function () { kosOverlay('{\"kind\":\"handback\"}') }" }, overlay)).toThrow(/overlay/);
+      expect(() => checkCommand(method, { objectId: "4087261833316862514.3.12", functionDeclaration: "function () {}" }, overlay)).not.toThrow();
+    }
+    expect(() => checkCommand("Runtime.callFunctionOn", { objectId: 7, functionDeclaration: "function () {}" }, overlay)).toThrow(CallError);
+  });
+
   it("tells KOS only what its hands listen for", () => {
     const open = new Set<string>();
     expect(forwarded("Page.lifecycleEvent", { name: "load" }, open)).toEqual({ name: "load" });

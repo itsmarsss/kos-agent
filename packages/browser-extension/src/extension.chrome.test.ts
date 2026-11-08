@@ -48,10 +48,13 @@ function jpegSize(base64: string): { width: number; height: number } {
 class Devtools {
   private id = 0;
   private readonly waiting = new Map<number, (m: Record<string, unknown>) => void>();
+  /** Events heard, in order, each with the session it came on. */
+  readonly heard: { method: string; params: Record<string, unknown>; sessionId?: string }[] = [];
   private constructor(private readonly ws: globalThis.WebSocket) {
     ws.onmessage = (e) => {
       const m = JSON.parse(String(e.data)) as Record<string, unknown>;
       if (typeof m["id"] === "number") this.waiting.get(m["id"])?.(m);
+      else if (typeof m["method"] === "string") this.heard.push(m as { method: string; params: Record<string, unknown>; sessionId?: string });
     };
   }
   static async open(url: string): Promise<Devtools> {
@@ -331,6 +334,43 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     const sideBySide = (await call("cdp.batch", { session: "s1", tab, calls, parallel: true }))["result"] as { results: Record<string, unknown>[] };
     expect(sideBySide.results).toHaveLength(3);
     expect(sideBySide.results[2]).toMatchObject({ result: { result: { value: "Shop" } } });
+  }, 30_000);
+
+  it("lets no command reach the overlay's world, by any name for it or an object in it", async () => {
+    const tab = ((await call("tabs.list", { session: "s1" }))["result"] as { tabs: { id: string }[] }).tabs[0]!.id;
+    const cdp = (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> => call("cdp.send", { session: "s1", tab, method, params });
+    // The tab's worlds, as this test's own debugger sees them: the overlay's is the one named as the extension names it.
+    const page = await devtools.attach((u) => u.endsWith("/shop"));
+    await devtools.send("Runtime.enable", {}, page);
+    type Context = { id: number; uniqueId: string; name: string; auxData?: { frameId?: string; isDefault?: boolean } };
+    const contexts = (): Context[] => devtools.heard.filter((m) => m.sessionId === page && m.method === "Runtime.executionContextCreated").map((m) => m.params["context"] as Context);
+    await until(() => contexts().some((c) => c.name === "kos"));
+    const overlay = contexts().find((c) => c.name === "kos")!;
+    expect(overlay).toBeDefined();
+    const refused = { error: expect.objectContaining({ code: "method", message: expect.stringMatching(/overlay/) }) };
+    const handback = `function () { kosOverlay(JSON.stringify({ kind: "handback" })); return 1; }`;
+    // A node resolved into the overlay's world, which a function called on it would run in, is not made.
+    const body = ((await cdp("Runtime.evaluate", { expression: "document.body" }))["result"] as { result: { objectId: string } }).result.objectId;
+    const node = ((await cdp("DOM.describeNode", { objectId: body }))["result"] as { node: { backendNodeId: number } }).node.backendNodeId;
+    expect(await cdp("DOM.resolveNode", { backendNodeId: node, executionContextId: overlay.id })).toMatchObject(refused);
+    // One resolved into the hands' world is made, its id naming that world, and a function runs on it.
+    const frameId = ((await cdp("Page.getFrameTree"))["result"] as { frameTree: { frame: { id: string } } }).frameTree.frame.id;
+    const hands = ((await cdp("Page.createIsolatedWorld", { frameId, worldName: "kos-hands" }))["result"] as { executionContextId: number }).executionContextId;
+    const resolved = ((await cdp("DOM.resolveNode", { backendNodeId: node, executionContextId: hands }))["result"] as { object: { objectId: string } }).object.objectId;
+    expect(resolved).toMatch(new RegExp(`^-?\\d+\\.${hands}\\.\\d+$`));
+    expect(await cdp("Runtime.callFunctionOn", { objectId: resolved, functionDeclaration: "function () { return this.tagName; }", returnByValue: true })).toMatchObject({ ok: true, result: { result: { value: "BODY" } } });
+    // An object of the overlay's world, by its id, is not reached: here one this test made there.
+    const theirs = ((await devtools.send("Runtime.evaluate", { expression: "document.body", contextId: overlay.id }, page))["result"] as { objectId: string }).objectId;
+    expect(theirs).toMatch(new RegExp(`^-?\\d+\\.${overlay.id}\\.\\d+$`));
+    expect(await cdp("Runtime.callFunctionOn", { objectId: theirs, functionDeclaration: handback })).toMatchObject(refused);
+    expect(await cdp("Runtime.getProperties", { objectId: theirs })).toMatchObject(refused);
+    // Each name a command may give its world is read alone: a string in one does not let the overlay's id through in another.
+    expect(await cdp("Runtime.callFunctionOn", { functionDeclaration: handback, contextId: "x", executionContextId: overlay.id })).toMatchObject(refused);
+    expect(await cdp("Runtime.evaluate", { expression: `(${handback})()`, uniqueContextId: overlay.uniqueId })).toMatchObject(refused);
+    expect(await cdp("Runtime.callFunctionOn", { functionDeclaration: handback, uniqueContextId: overlay.uniqueId })).toMatchObject(refused);
+    await until(() => false, 300);
+    expect(events.some((e) => e.name === "session.resumed" || e.name === "session.ended")).toBe(false);
+    await devtools.send("Target.detachFromTarget", { sessionId: page });
   }, 30_000);
 
   it("knows its own click from the owner's, and the owner's takes the tab over", async () => {
