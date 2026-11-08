@@ -42,14 +42,24 @@ export interface PageOptions {
    */
   gate?: () => Promise<boolean>;
 }
-/** After an action: how long a navigation it started may take, and the network's quiet. */
+/** After an action: how long a navigation it started may take. */
 const SETTLE_NAV_MS = 10_000;
-const QUIET_MS = 350;
-const QUIET_MAX_MS = 2_500;
-/** A request open longer than this is a stream or a long poll, and does not hold the quiet. */
-const LONG_REQUEST_MS = 4_000;
-/** Request kinds that never finish the way a page load does. */
-const ENDLESS = new Set(["WebSocket", "EventSource", "Media", "Ping", "Prefetch"]);
+/** The page has answered once its document has not changed for this long, with none of its own requests open. */
+const DOM_QUIET_MS = 150;
+/** After one of those requests ends, time for the page to show what it brought. */
+const ANSWER_MS = 60;
+/** The most an action waits for that, after any navigation it started. */
+const SETTLE_MAX_MS = 800;
+/** A request open longer than this is a long poll or a stream, and does not hold the quiet. */
+const STALE_REQUEST_MS = 1_000;
+/**
+ * The requests a page's answer waits on: its documents, scripts and data,
+ * from its own site. Pictures, fonts, beacons, analytics, sockets and
+ * streams never hold it. KOS for Chrome forwards only these (relay.ts).
+ */
+const AWAITED = new Set(["Document", "Script", "XHR", "Fetch"]);
+/** The world KOS's own page-side scripts run in, apart from the page's. */
+const WORLD = "kos-hands";
 const EVAL_MS = 10_000;
 /** Moves between a drag's press and its release, as a hand would make them. */
 const DRAG_STEPS = 8;
@@ -93,6 +103,16 @@ function childFrames(tree: unknown): FrameInfo[] {
   return out;
 }
 
+/** A url's site, near enough: its host's last two labels (a machine's name or address whole). */
+function siteOf(url: string): string {
+  try {
+    const host = new URL(url).hostname;
+    return /^[\d.]+$|:/.test(host) || !host.includes(".") ? host : host.split(".").slice(-2).join(".");
+  } catch {
+    return "";
+  }
+}
+
 function hostOf(url: string): string {
   try {
     return new URL(url).host || url;
@@ -112,6 +132,12 @@ export class Page {
   /** The document the refs belong to. */
   private documentId = "";
   private mainFrame = "";
+  /** The site the main frame is on: its requests are the ones an action's answer waits on. */
+  private site = "";
+  /** When the main frame last began to load. */
+  private loadStarted = 0;
+  /** Each frame's world of KOS's own, by frame: undefined where none could be made. */
+  private readonly worlds = new Map<string, Promise<number | undefined>>();
   /** The main frame's current document, and the lifecycle points it has reached. */
   private life = { loader: "", reached: new Set<string>() };
   private loading = false;
@@ -160,7 +186,10 @@ export class Page {
     const p = event.params;
     switch (event.method) {
       case "Page.frameStartedLoading":
-        if (p["frameId"] === this.mainFrame) this.loading = true;
+        if (p["frameId"] === this.mainFrame) {
+          this.loading = true;
+          this.loadStarted = this.now();
+        }
         break;
       case "Page.frameStoppedLoading":
         if (p["frameId"] === this.mainFrame) this.loading = false;
@@ -173,8 +202,12 @@ export class Page {
         }
         break;
       case "Page.frameNavigated": {
-        const frame = p["frame"] as { id?: string; parentId?: string } | undefined;
-        if (frame?.id && !frame.parentId) this.mainFrame = frame.id;
+        const frame = p["frame"] as { id?: string; parentId?: string; url?: string } | undefined;
+        if (frame?.id) this.worlds.delete(frame.id);
+        if (frame?.id && !frame.parentId) {
+          this.mainFrame = frame.id;
+          this.site = siteOf(frame.url ?? "");
+        }
         break;
       }
       case "Page.javascriptDialogOpening":
@@ -184,9 +217,11 @@ export class Page {
       case "Input.dragIntercepted":
         this.dragged = p["data"];
         break;
-      case "Network.requestWillBeSent":
-        if (!ENDLESS.has(String(p["type"] ?? ""))) this.inflight.set(String(p["requestId"]), this.now());
+      case "Network.requestWillBeSent": {
+        const url = (p["request"] as { url?: string } | undefined)?.url ?? "";
+        if (AWAITED.has(String(p["type"] ?? "")) && siteOf(url) === this.site) this.inflight.set(String(p["requestId"]), this.now());
         break;
+      }
       case "Network.loadingFinished":
       case "Network.loadingFailed":
         this.inflight.delete(String(p["requestId"]));
@@ -214,8 +249,9 @@ export class Page {
     await this.prepared;
     if (this.crashed) {
       this.crashed = false;
+      const [before, since] = [this.life.loader, this.now()];
       await this.session.send("Page.reload", {});
-      await this.settle(this.life.loader);
+      await this.settle(before, since);
       this.heard.push("The tab had crashed, and was loaded again.");
     }
   }
@@ -226,8 +262,9 @@ export class Page {
     await this.session.send("Network.enable");
     await this.session.send("Inspector.enable").catch(() => undefined);
     const tree = await this.session.send("Page.getFrameTree");
-    const frame = (tree["frameTree"] as { frame?: { id?: string; loaderId?: string } } | undefined)?.frame;
+    const frame = (tree["frameTree"] as { frame?: { id?: string; loaderId?: string; url?: string } } | undefined)?.frame;
     this.mainFrame = frame?.id ?? "";
+    this.site = siteOf(frame?.url ?? "");
     // A page already there when KOS came to it: what it has reached is asked, not heard.
     const state = await this.value<string>("document.readyState").catch(() => "complete");
     const reached = state === "complete" ? ["DOMContentLoaded", "load"] : state === "interactive" ? ["DOMContentLoaded"] : [];
@@ -257,13 +294,13 @@ export class Page {
     if (!loader) return { stillLoading: false };
     const want = until === "load" ? "load" : "DOMContentLoaded";
     const reached = await this.waitUntil(() => this.life.loader === loader && this.life.reached.has(want), until === "load" ? this.limits.loadMs : this.limits.domMs);
-    if (reached) await this.quiet();
+    if (reached) await this.settle(loader, this.now(), true);
     return { stillLoading: !reached };
   }
 
   /** Back, forward or reload, as the browser's buttons do. False when there is no page to go to. */
   async go(where: "back" | "forward" | "reload"): Promise<boolean> {
-    const before = this.life.loader;
+    const [before, since] = [this.life.loader, this.now()];
     if (where === "reload") {
       await this.session.send("Page.reload", {});
     } else {
@@ -274,7 +311,7 @@ export class Page {
       if (!entry) return false;
       await this.session.send("Page.navigateToHistoryEntry", { entryId: entry.id });
     }
-    await this.settle(before);
+    await this.settle(before, since);
     return true;
   }
 
@@ -389,36 +426,90 @@ export class Page {
     await this.session.send("Runtime.releaseObjectGroup", { objectGroup: GROUP }).catch(() => undefined);
   }
 
-  /** An action, then the page given time to answer it: a navigation it started, and the network's quiet. */
+  /** An action, then the page given time to answer it. */
   private async acting(action: () => Promise<void>): Promise<void> {
-    const before = this.life.loader;
+    const [before, since] = [this.life.loader, this.now()];
     await action();
-    await this.settle(before);
+    await this.settle(before, since);
   }
 
-  private async settle(before: string): Promise<void> {
-    await sleep(100);
-    if (this.loading || this.life.loader !== before) {
-      await this.waitUntil(() => (this.life.loader !== before ? this.life.reached.has("DOMContentLoaded") : !this.loading), SETTLE_NAV_MS);
-    }
-    await this.quiet();
-  }
-
-  /** Until no request has been open for a moment, or the most that is worth waiting. */
-  private async quiet(): Promise<void> {
-    const end = this.now() + QUIET_MAX_MS;
-    let calm = this.now();
-    while (this.now() < end) {
-      const t = this.now();
-      let busy = false;
-      for (const [id, at] of this.inflight) {
-        if (t - at > 60_000) this.inflight.delete(id);
-        else if (t - at < LONG_REQUEST_MS) busy = true;
+  /**
+   * Until the page has answered what was just done to it: a navigation the
+   * action started has reached DOMContentLoaded, then the document has gone
+   * still and none of the page's own requests is open, or the most worth
+   * waiting has gone. `before` is the document the action was done on, and
+   * `since` when; `navigated` says a navigation was already waited for.
+   */
+  private async settle(before: string, since: number, navigated = false): Promise<void> {
+    const moving = (): boolean => !navigated && (this.life.loader !== before || (this.loading && this.loadStarted >= since));
+    let end = this.now() + SETTLE_MAX_MS;
+    // Counted from the action at first; after a request, from its end.
+    let grace = DOM_QUIET_MS;
+    for (;;) {
+      if (moving()) {
+        navigated = true;
+        await this.waitUntil(() => (this.life.loader !== before ? this.life.reached.has("DOMContentLoaded") : !this.loading), SETTLE_NAV_MS);
+        end = this.now() + SETTLE_MAX_MS;
+        grace = DOM_QUIET_MS;
       }
-      if (busy) calm = t;
-      else if (t - calm >= QUIET_MS) return;
-      await sleep(50);
+      const left = end - this.now();
+      if (left <= 0) return;
+      const still = await this.domQuiet(grace, left);
+      if (moving()) continue;
+      if (!this.requesting()) {
+        if (still) return;
+        continue;
+      }
+      await this.waitUntil(() => !this.requesting() || moving(), Math.min(STALE_REQUEST_MS, end - this.now()));
+      grace = ANSWER_MS;
     }
+  }
+
+  /** Whether one of the page's own requests is open, and not so long that it is a poll or a stream. */
+  private requesting(): boolean {
+    const t = this.now();
+    let open = false;
+    for (const [id, at] of this.inflight) {
+      if (t - at > 60_000) this.inflight.delete(id);
+      else if (t - at < STALE_REQUEST_MS) open = true;
+    }
+    return open;
+  }
+
+  /** Until the main document has not changed for a moment and `grace` has gone, or `ms` has; true when it went still. */
+  private async domQuiet(grace: number, ms: number): Promise<boolean> {
+    const context = await this.world(this.mainFrame);
+    if (context === undefined) {
+      await sleep(Math.min(grace, ms));
+      return true;
+    }
+    const wait = Math.max(1, Math.round(ms));
+    try {
+      const got = await this.session.send(
+        "Runtime.evaluate",
+        { expression: `(${inpage.domQuiet.toString()})(${DOM_QUIET_MS}, ${grace}, ${wait})`, contextId: context, awaitPromise: true, returnByValue: true },
+        wait + EVAL_MS,
+      );
+      return (got["result"] as { value?: unknown } | undefined)?.value === true;
+    } catch {
+      // The document went (a navigation) or its world did: made again when next asked for.
+      this.worlds.delete(this.mainFrame);
+      await sleep(Math.min(50, ms));
+      return false;
+    }
+  }
+
+  /** A frame's world of KOS's own, made once for each document it holds. */
+  private world(frame: string): Promise<number | undefined> {
+    let made = this.worlds.get(frame);
+    if (!made) {
+      made = this.session.send("Page.createIsolatedWorld", { frameId: frame, worldName: WORLD }).then(
+        (r) => (typeof r["executionContextId"] === "number" ? r["executionContextId"] : undefined),
+        () => undefined,
+      );
+      this.worlds.set(frame, made);
+    }
+    return made;
   }
 
   private async click(node: number, label: string, how: { button: "left" | "right"; count: number } = { button: "left", count: 1 }): Promise<void> {
@@ -476,10 +567,11 @@ export class Page {
   }
 
   private async choose(node: number, label: string, values: string[]): Promise<string[]> {
+    const [before, since] = [this.life.loader, this.now()];
     const got = await this.call<{ picked?: string[]; error?: string; options?: string[] }>(node, inpage.selectOptions, [{ value: values }]);
     if (got.error === "not-select") throw new Error(`${label} is not a list box (<select>); click it, then click the option`);
     if (!got.picked?.length) throw new Error(`${label} has no option ${values.map((v) => JSON.stringify(v)).join(" or ")}; it has ${(got.options ?? []).join(", ")}`);
-    await this.settle(this.life.loader);
+    await this.settle(before, since);
     return got.picked;
   }
 

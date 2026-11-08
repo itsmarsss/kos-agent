@@ -191,3 +191,33 @@ export function readPage(selector: string | null): { text: string; links: { text
 export function whereAmI(): { url: string; title: string } {
   return { url: location.href, title: document.title };
 }
+
+/**
+ * Until the document has not changed for `quietMs` and `graceMs` has gone
+ * since this call, or `maxMs` has; true when it went still. Run in a world of
+ * KOS's own, so what it keeps is out of the page's sight; the watch on the
+ * document starts on the first call and serves every later one for it.
+ */
+export function domQuiet(quietMs: number, graceMs: number, maxMs: number): Promise<boolean> {
+  const g = globalThis as unknown as { kosChanged?: { at: number } };
+  let changed = g.kosChanged;
+  if (!changed) {
+    const kept = { at: performance.now() };
+    new MutationObserver(() => {
+      kept.at = performance.now();
+    }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+    changed = g.kosChanged = kept;
+  }
+  const last = changed;
+  const start = performance.now();
+  return new Promise((resolve) => {
+    const check = (): void => {
+      const now = performance.now();
+      const wait = Math.max(quietMs - (now - last.at), graceMs - (now - start));
+      if (wait <= 0) return resolve(true);
+      if (now - start >= maxMs) return resolve(false);
+      setTimeout(check, Math.max(1, Math.min(wait, maxMs - (now - start))));
+    };
+    check();
+  });
+}
