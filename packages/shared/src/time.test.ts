@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatTime, instantOf, relativeWords, timesInWords, withUnixTimes } from "./time.js";
+import { formatTime, instantOf, relativeWords, timeCard, timesInWords, withUnixTimes } from "./time.js";
 
 const TZ = "America/Toronto";
 /** 2026-10-18 23:42 in Toronto (EDT, UTC-4) is 03:42 UTC the next day. */
@@ -58,5 +58,20 @@ describe("a time token", () => {
     const now = LATE * 1000;
     expect(timesInWords("due <t:2026-10-19T02:42:R>, on <t:2026-10-19T02:42:f>", TZ, now)).toBe("due in 3 hours, on 19 October 2026 02:42");
     expect(timesInWords("<t:never:R>", TZ, now)).toBe("<t:never:R>");
+  });
+
+  it("says a moment in full for the hover card, in the reader's locale and clock", () => {
+    // ICU puts a narrow space before PM; a reader sees a space.
+    const card = (locale: string): string[] => timeCard(Date.UTC(2026, 10, 21, 4, 59) / 1000, locale, TZ).map((l) => l.replace(/\s/g, " "));
+    expect(card("en-US")).toEqual(["Friday, November 20, 2026", "at 11:59 PM"]);
+    // A locale on a 24-hour clock keeps its own.
+    expect(card("en-GB")).toEqual(["Friday, 20 November 2026", "at 23:59"]);
+    // Each locale joins the two in its own words.
+    expect(card("fr")).toEqual(["vendredi 20 novembre 2026", "à 23:59"]);
+    expect(card("de")).toEqual(["Freitag, 20. November 2026", "um 23:59"]);
+    expect(card("ru")).toEqual(["пятница, 20 ноября 2026 г.", "в 23:59"]);
+    // One that joins them with a comma or a space has no word to lead with.
+    expect(card("es")).toEqual(["viernes, 20 de noviembre de 2026", "23:59"]);
+    expect(card("ja")).toEqual(["2026年11月20日金曜日", "23:59"]);
   });
 });

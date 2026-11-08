@@ -382,8 +382,13 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     </script></body>`);
     await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
     await send("Page.navigate", { url: `${base}/doc` });
-    await new Promise((r) => setTimeout(r, 1200));
     const value = async (expression: string): Promise<unknown> => ((await send("Runtime.evaluate", { expression, returnByValue: true, userGesture: false })).result as { value?: unknown } | undefined)?.value;
+    // Wait for what is expected, up to a bound, rather than guess how long a busy machine takes.
+    const until = async (expression: string, bound = 10_000): Promise<void> => {
+      for (let waited = 0; !(await value(expression)) && waited < bound; waited += 100) await new Promise((r) => setTimeout(r, 100));
+    };
+    await until("document.body.dataset.ports === '1'");
+    await new Promise((r) => setTimeout(r, 300));
     // Before the owner touches it, nothing is theirs: no hand in the frame, no press over the channel, which came once.
     expect(await value("ownerIn(f)")).toBe(false);
     expect(await value("document.body.dataset.ports")).toBe("1");
@@ -408,9 +413,10 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await type("it is **wet** now");
     await key("Enter");
     await type("/div");
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 400));
     await key("Enter");
-    await new Promise((r) => setTimeout(r, 2000));
+    await until("document.body.dataset.saved");
+    await new Promise((r) => setTimeout(r, 700));
     const saved = String(await value("document.body.dataset.saved || ''"));
     expect(saved).toContain("<h2>Water</h2>");
     expect(saved).toMatch(/<p>it is(&nbsp;| )<strong>wet<\/strong>(&nbsp;| )now<\/p><hr><h2>Next<\/h2>/);

@@ -27,7 +27,7 @@ import { CHANNEL_TOKEN, detailLines, stepActions, summarizeAction, withUnixTimes
 import { isReadable, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
-import type { Guest } from "./types.js";
+import { OWNER_ONLY, type Guest } from "./types.js";
 import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
 import { linkMentions, linkPaths, literal, literalWords, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
 import { tablesToCode } from "./tables.js";
@@ -1004,11 +1004,13 @@ export class DiscordAdapter implements ChannelAdapter {
 
   /**
    * The member who wrote or pressed, as a guest, when the room (the channel,
-   * or a thread's parent) is one KOS opened to guests; nobody otherwise.
+   * or a thread's parent) is one KOS opened to guests in the owner's server;
+   * nobody otherwise. A topic is anyone's to write in a server of their own.
    */
-  private guestIn(from: { author?: { id: string; username: string; globalName?: string | null }; user?: { id: string; username: string; globalName?: string | null }; member?: { displayName?: string } | null; channel: unknown }): Guest | undefined {
+  private guestIn(from: { author?: { id: string; username: string; globalName?: string | null }; user?: { id: string; username: string; globalName?: string | null }; member?: { displayName?: string } | null; channel: unknown; guildId?: string | null; guild?: { id: string } | null }): Guest | undefined {
     const who = from.author ?? from.user;
     if (!who) return undefined;
+    if (!this.guildId || (from.guildId ?? from.guild?.id) !== this.guildId) return undefined;
     const key = this.roomKeyOf(from.channel);
     if (!key || !this.guestsAllowed?.(key)) return undefined;
     return { id: who.id, name: from.member?.displayName ?? who.globalName ?? who.username };
@@ -1713,7 +1715,7 @@ export class DiscordAdapter implements ChannelAdapter {
       if (!this.commands) return;
       if (!this.isAuthorized(interaction.user.id)) {
         await interaction.reply({
-          content: "Not authorized.",
+          content: OWNER_ONLY,
           flags: MessageFlags.Ephemeral,
         });
         return;
@@ -1747,7 +1749,7 @@ export class DiscordAdapter implements ChannelAdapter {
     // alone; a guest cannot fire a job.
     if (interaction.customId.startsWith(CRON_PREFIX)) {
       if (!this.isAuthorized(interaction.user.id)) {
-        await interaction.reply({ content: "Not authorized.", flags: MessageFlags.Ephemeral }).catch(() => undefined);
+        await interaction.reply({ content: OWNER_ONLY, flags: MessageFlags.Ephemeral }).catch(() => undefined);
         return;
       }
       const id = Number(interaction.customId.slice(CRON_PREFIX.length));
@@ -1764,7 +1766,7 @@ export class DiscordAdapter implements ChannelAdapter {
       if (!this.isAuthorized(interaction.user.id) && !guest) {
         try {
           await interaction.reply({
-            content: "Not authorized.",
+            content: OWNER_ONLY,
             flags: MessageFlags.Ephemeral,
           });
         } catch {
@@ -1776,7 +1778,8 @@ export class DiscordAdapter implements ChannelAdapter {
       // reading it defensively is cheaper than narrowing a wire shape.
       const label =
         (interaction.component as { label?: string | null }).label ?? "";
-      await this.handlePress(interaction, token, label, guest);
+      const room = guest ? bindingOf(interaction.channel as Parameters<typeof bindingOf>[0], this.threadOf)?.conversationId : undefined;
+      await this.handlePress(interaction, token, label, guest, room);
       return;
     }
 
@@ -1791,7 +1794,7 @@ export class DiscordAdapter implements ChannelAdapter {
       );
       try {
         await interaction.reply({
-          content: "Not authorized.",
+          content: OWNER_ONLY,
           flags: MessageFlags.Ephemeral,
         });
       } catch {
@@ -1836,6 +1839,7 @@ export class DiscordAdapter implements ChannelAdapter {
     token: string,
     label: string,
     guest?: Guest,
+    room?: string,
   ): Promise<void> {
     // Where the answer goes once a form has moved the conversation onto the
     // submission: the button's own interaction can no longer be replied to.
@@ -1942,7 +1946,7 @@ export class DiscordAdapter implements ChannelAdapter {
     }
 
     await this.buttonHandler(
-      { buttonId: "", label, token, pressedBy: interaction.user.id, ...(guest ? { guest } : {}) },
+      { buttonId: "", label, token, pressedBy: interaction.user.id, ...(guest ? { guest } : {}), ...(room ? { room } : {}) },
       respond,
     );
 

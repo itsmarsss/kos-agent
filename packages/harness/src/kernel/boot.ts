@@ -369,6 +369,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
           ...(button.modal ? { modal: button.modal } : {}),
           ...(button.ephemeral ? { ephemeral: true } : {}),
         }),
+      projectOf: (conversationId) => conversations.get(conversationId)?.projectSlug ?? undefined,
     }),
     createCronModule({
       // The same path the schedule uses, so a job tried by hand is a job

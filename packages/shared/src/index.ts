@@ -123,7 +123,7 @@ export {
   type Lobe,
 } from "./blob.js";
 export type { ActionNames } from "./format-action.js";
-export { TIME_TOKEN, formatTime, instantOf, relativeWords, styleOf, timesInWords, withUnixTimes, type TimeStyle } from "./time.js";
+export { TIME_TOKEN, formatTime, instantOf, relativeWords, styleOf, timeCard, timesInWords, withUnixTimes, type TimeStyle } from "./time.js";
 export { pathsIn, type PathPart } from "./workspacepath.js";
 export { CHANNEL_TOKEN, channelNamesIn } from "./channel.js";
 export { MENTION_KINDS, MENTION_SOURCE, type MentionKind } from "./mentions.js";
