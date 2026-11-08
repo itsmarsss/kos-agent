@@ -107,6 +107,7 @@ export function LiveTurn({
                   args: step.input ?? {},
                   ...(step.done ? { result: step.result ?? "" } : {}),
                   ...(step.isError ? { isError: true } : {}),
+                  ...(step.frameId !== undefined ? { frameId: step.frameId } : {}),
                 }}
               />
             </m.div>
