@@ -1,6 +1,6 @@
 import { KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { ChatIcon, ChevronLeft, Chips, Collapse, DrawerRow, Face, Field, GearIcon, GlobeIcon, HandIcon, HiddenIcon, IconButton, listItem, Pill, Section, ServerIcon, spring, stagger, StatusDot, Switch, Tag, type Tone } from "@kos/kit";
+import { ChatIcon, ChevronLeft, Chips, Collapse, DrawerRow, Face, Field, GearIcon, GlobeIcon, HandIcon, HiddenIcon, IconButton, listItem, overlayScroll, Pill, Section, ServerIcon, spring, stagger, StatusDot, Switch, Tag, type Tone } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -61,6 +61,8 @@ function usePopup(): { state: PopupState | undefined; tab: chrome.tabs.Tab | und
 function Popup(): ReactElement {
   const { state, tab, error, act } = usePopup();
   const [page, setPage] = useState<"home" | "settings">("home");
+  // A tall popup scrolls as a page: the overlay thumb over its edge, no lane taken from its 392 px.
+  useEffect(() => overlayScroll(document.documentElement), []);
   const live = state?.session && !state.session.paused;
   const best = state?.kos.find(connected) ?? state?.kos[0];
   // The head says what the card of the KOS it shows says, or that a session has this Chrome.
@@ -239,10 +241,11 @@ function KosCard({ k, open, toggle, act }: { k: KosState; open: boolean; toggle:
   const [pairing, setPairing] = useState(false);
   const link = linkWords(k);
   const on = connected(k);
-  const trouble = !on && !k.held && k.link !== "connecting";
+  // Why it is not connected, under the row with what puts it right; nothing while it is on or on its way.
+  const trouble = !on && (k.held || k.link !== "connecting");
   return (
     <div className="card">
-      <DrawerRow icon={<ServerIcon />} tone={link.tone} title={k.host} detail={on || k.held ? link.detail : `As ${k.name}`} open={open} onToggle={toggle} trailing={<Pill tone={link.tone}>{link.word}</Pill>} />
+      <DrawerRow icon={<ServerIcon />} tone={link.tone} title={k.host} detail={`As ${k.name}`} open={open} onToggle={toggle} trailing={<Pill tone={link.tone}>{link.word}</Pill>} />
       {trouble && (
         <div className="kos-reason">
           <p title={link.detail}>{link.detail}</p>
@@ -251,6 +254,10 @@ function KosCard({ k, open, toggle, act }: { k: KosState; open: boolean; toggle:
               {needsPairing(k) ? (
                 <button type="button" className="btn btn--primary btn--sm" onClick={() => setPairing(true)}>
                   Pair again
+                </button>
+              ) : k.held ? (
+                <button type="button" className="btn btn--primary btn--sm" onClick={() => void act({ type: "connect", id: k.id })}>
+                  Connect
                 </button>
               ) : (
                 <button type="button" className="btn btn--sm" onClick={() => void act({ type: "connect", id: k.id })}>
