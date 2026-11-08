@@ -122,7 +122,7 @@ import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
 import type { SuggestionStore } from "../improve/store.js";
 import { AfterTurn, EMBED_MS } from "./afterturn.js";
-import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF, type FixRequest } from "./caretaker.js";
+import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF, reachesAll, type FixRequest } from "./caretaker.js";
 import { Decisions, type DecisionResult } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
 import { GuardedTools, finishedAfterStop } from "./guarded.js";
@@ -4028,6 +4028,11 @@ export class Kernel {
     }
     // What a mention shows, this chat's tools could read: an artifact is fenced to its owner's chats either way.
     const reach = this.mentionReach(conversationId, who.owner);
+    // KOS's own records (schedules, approvals, chats, blobs) as this chat's tools list them: all of them at the root and in
+    // Maintenance; a project's chat its project's, a blob's thread its own, and of anyone else's no more than a list shows.
+    const everything = !reach.blob && reachesAll(reach.project);
+    const ownChat = (id: string | null | undefined): boolean =>
+      everything || (!!id && (id === conversationId || (reach.project !== undefined && this.conversations.get(id)?.projectSlug === reach.project)));
     for (const ref of refs) {
       if (ref.kind === "tab") {
         // A page someone has open. Named with how to get to it, since the
@@ -4080,6 +4085,10 @@ export class Kernel {
           parts.push(`Schedule ${ref.id}: not found.`);
           continue;
         }
+        if (!everything && !(job.projectSlug && job.projectSlug === reach.project) && !(reach.blob && job.agent === reach.blob.name)) {
+          parts.push(`Schedule "${job.name}" (id ${job.id}): ${job.schedule}, type ${job.type}, ${job.enabled ? "enabled" : "disabled"}. Not this chat's, so what it runs is not shown.`);
+          continue;
+        }
         // What it does, not just when. Anyone asked to repair a job had to
         // go and query the table for its actions before they could start.
         parts.push(
@@ -4102,12 +4111,14 @@ export class Kernel {
         // A blob: what it is for and where it is spoken to, so a
         // chat can hand it work or point the owner at its thread.
         const role = this.roles.get(ref.id);
+        // Its brief to the root, its own thread and the project that made it; to anyone else, what blobs.list says of it.
+        const whole = role && (everything || reach.blob?.name === role.name || (!reach.blob && role.project !== undefined && role.project === reach.project));
         parts.push(
           role
             ? [
                 `Blob "${role.name}", a standing helper (its thread is @chat:[${agentConversationId(role.name)}]): ${role.description}.`,
                 role.schedule ? `Runs on ${role.schedule}.` : "Runs only when dispatched or spoken to.",
-                `Brief: ${role.brief.slice(0, 400)}`,
+                whole ? `Brief: ${role.brief.slice(0, 400)}` : "Its brief is its own; dispatch to it with blobs.dispatch.",
               ].join(" ")
             : `Blob ${ref.id}: there is no blobs/${ref.id}/blob.md.`,
         );
@@ -4144,6 +4155,10 @@ export class Kernel {
           parts.push(`Approval #${ref.id}: not found.`);
           continue;
         }
+        if (!ownChat(action.conversationId)) {
+          parts.push(`Approval #${action.id}: not shown; it was asked in a chat that is not this one's to read.`);
+          continue;
+        }
         const what = summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id));
         const fate =
           action.status === "pending"
@@ -4155,9 +4170,11 @@ export class Kernel {
       if (ref.kind === "chat") {
         const chat = this.conversations.get(ref.id);
         parts.push(
-          chat
-            ? `Chat "${chat.title}" (${chat.id})${chat.brief ? `: ${chat.brief}` : ""}`
-            : `Chat ${ref.id}: not found.`,
+          !chat
+            ? `Chat ${ref.id}: not found.`
+            : ownChat(chat.id)
+              ? `Chat "${chat.title}" (${chat.id})${chat.brief ? `: ${chat.brief}` : ""}`
+              : `Chat ${ref.id}: not shown; it is not this chat's to read.`,
         );
         continue;
       }

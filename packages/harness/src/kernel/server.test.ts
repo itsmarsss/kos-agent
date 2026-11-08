@@ -1339,6 +1339,32 @@ describe("handleApiRequest", () => {
       expect(guest).toMatch(/Not shown, since a guest named them/);
     });
 
+    it("shows a project's chat or a blob's thread KOS's own records only as its tools reach them, and the root all of them", () => {
+      kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "NOTER-BRIEF", memory: "own" });
+      kernel.roles.write({ name: "locker", description: "Locks", brief: "LOCKER-BRIEF", memory: "own", project: "vault" });
+      const theirs = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Vault chat", projectSlug: "vault", brief: "VAULT-CHAT-BRIEF" });
+      const mine = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Shelf chat", projectSlug: "shelf", brief: "SHELF-CHAT-BRIEF" });
+      const job = kernel.crons.create({ name: "rotate", schedule: "0 3 * * *", type: "self_prompt", prompt: "ROTATE-PROMPT", enabled: true, projectSlug: "vault" });
+      const asked = kernel.approvals.enqueue({ tool: "files.read", args: { path: "VAULT-KEY" }, riskTier: "risky", conversationId: theirs.id });
+      const resolve = (text: string, conversationId: string): string =>
+        (kernel as unknown as { resolveMentions: (t: string, c: string, w: { guest: boolean; owner: boolean }) => string | null }).resolveMentions(text, conversationId, { guest: false, owner: true }) ?? "";
+      const named = `@schedule:${job.id} @approval:${asked.id} @chat:[${theirs.id}] @blob:locker @blob:noter @chat:[${mine.id}]`;
+      // Another project's chat: the schedule as cron.list has it, nothing of the approval, the chat or a blob's brief.
+      const fenced = resolve(named, mine.id);
+      for (const hidden of ["ROTATE-PROMPT", "VAULT-KEY", "VAULT-CHAT-BRIEF", "LOCKER-BRIEF", "NOTER-BRIEF"]) expect(fenced, hidden).not.toContain(hidden);
+      expect(fenced).toMatch(/Schedule "rotate" \(id \d+\): 0 3 \* \* \*, type self_prompt, enabled\. Not this chat's/);
+      expect(fenced).toContain("SHELF-CHAT-BRIEF");
+      // A blob's thread: its own brief, nobody else's.
+      const thread = resolve(named, kernel.ensureAgentConversation("noter").id);
+      expect(thread).toContain("NOTER-BRIEF");
+      for (const hidden of ["ROTATE-PROMPT", "VAULT-KEY", "VAULT-CHAT-BRIEF", "LOCKER-BRIEF", "SHELF-CHAT-BRIEF"]) expect(thread, hidden).not.toContain(hidden);
+      // The project's own chat sees its own; the owner's root chat, everything.
+      const own = resolve(named, theirs.id);
+      for (const shown of ["ROTATE-PROMPT", "VAULT-KEY", "VAULT-CHAT-BRIEF", "LOCKER-BRIEF"]) expect(own, shown).toContain(shown);
+      const root = resolve(named, kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mine" }).id);
+      for (const shown of ["ROTATE-PROMPT", "VAULT-KEY", "VAULT-CHAT-BRIEF", "LOCKER-BRIEF", "NOTER-BRIEF", "SHELF-CHAT-BRIEF"]) expect(root, shown).toContain(shown);
+    });
+
     it("gives a guest's turn no artifact or file tool, so a guest never reaches the root's reach over a blob's artifacts", () => {
       expect(GUEST_TOOLS.filter((t) => t.startsWith("artifacts.") || t.startsWith("files.") || t === "pages.write")).toEqual([]);
     });
