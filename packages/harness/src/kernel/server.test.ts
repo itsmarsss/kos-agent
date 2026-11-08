@@ -1267,6 +1267,24 @@ describe("handleApiRequest", () => {
       expect(saved.status).toBe(200);
     });
 
+    it("gives a blob's artifact no tables, keeps it the blob's through an edit, and keeps it when the blob goes", async () => {
+      kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+      const rec = kernel.pages.writeHtml({ blob: "noter" }, { id: "notes", kind: "doc", title: "Notes", html: "<article data-doc><h1>Notes</h1><p>one</p></article>" });
+      // A blob's turn reaches no tables, so neither does what it makes, even a project's it works beside.
+      for (const sql of ["SELECT title FROM shelf_books", "SELECT token FROM vault_keys"]) {
+        const read = await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/query", body: { sql } });
+        expect(read.status).toBe(403);
+      }
+      const saved = await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/save", body: { edit: { doc: "<h1>Notes</h1><p>two</p>" }, base: rec.updatedAt } });
+      expect(saved.status).toBe(200);
+      expect(saved.body).toMatchObject({ blob: "noter", projectSlug: null });
+      // Removed, its file goes and its folder stays with the work in it, as its files do: the artifact is still listed as its.
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/agents/delete", body: { name: "noter" } })).status).toBe(200);
+      const list = (await handleApiRequest(kernel, { method: "GET", path: "/api/pages", body: {} })).body as { id: string; blob?: string }[];
+      expect(list.find((p) => p.id === "notes")?.blob).toBe("noter");
+      expect(kernel.pages.get("notes")?.kind).toBe("html");
+    });
+
     /*
      * A page query and a headline are the agent's SQL, run whenever the owner
      * looks. One that never ends held the server's only thread, and with it

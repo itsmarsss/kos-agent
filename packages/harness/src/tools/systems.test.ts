@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -245,6 +245,9 @@ describe("systems.migrate risk", () => {
     }
     expect((await registry.execute("artifacts.write", { project: slug, id: "beds2", title: "B", html: "<h1>B</h1>" })).isError).toBe(true);
     expect((await registry.execute("artifacts.write", { id: "beds", title: "Mine now", html: "<h1>B</h1>" })).content).toMatch(/Garden's artifacts are not its to change/);
+    // The page the refused write named stays as it was, where it was.
+    const beds = (): string => readFileSync(join(root, `projects/${slug}/pages/beds.html`), "utf8");
+    expect(beds()).toContain("<h1>Beds</h1>");
     const listed = (JSON.parse((await registry.execute("artifacts.list", {})).content) as { id: string }[]).map((r) => r.id).sort();
     expect(listed).toEqual(["memo", "notes"]);
 
@@ -254,6 +257,9 @@ describe("systems.migrate risk", () => {
     expect(theirs.isError).toBe(true);
     expect(theirs.content).toMatch(/This chat is the blob roster's, so the blob noter's artifacts are not its to read.*blobs.dispatch to noter/);
     expect((await registry.execute("artifacts.write", { id: "notes", title: "Taken", html: "<h1>x</h1>" })).isError).toBe(true);
+    const notes = (): string => readFileSync(join(root, "blobs/noter/artifacts/notes.html"), "utf8");
+    expect(notes()).toContain("<h1>Notes</h1>");
+    expect(existsSync(join(root, "blobs/roster/artifacts/notes.html"))).toBe(false);
     expect((JSON.parse((await registry.execute("artifacts.list", {})).content) as { id: string }[]).map((r) => r.id)).not.toContain("notes");
 
     // Nor does a project's chat.
@@ -261,12 +267,21 @@ describe("systems.migrate risk", () => {
     callerProject = slug;
     expect((await registry.execute("artifacts.get", { id: "notes" })).content).toMatch(/This chat is Garden's, so the blob noter's artifacts are not its to read/);
     expect((await registry.execute("artifacts.rollback", { id: "notes", version: 1 })).isError).toBe(true);
+    expect((await registry.execute("artifacts.write", { project: slug, id: "notes", title: "Ours", html: "<h1>y</h1>" })).content).toMatch(/the blob noter's artifacts are not its to change/);
+    expect((await registry.execute("artifacts.write", { id: "notes", title: "Ours", html: "<h1>y</h1>" })).isError).toBe(true);
+    expect(notes()).toContain("<h1>Notes</h1>");
+    expect(existsSync(join(root, `projects/${slug}/pages/notes.html`))).toBe(false);
     expect((JSON.parse((await registry.execute("artifacts.list", {})).content) as { id: string }[]).map((r) => r.id)).not.toContain("notes");
 
     // KOS at the root reaches a blob's, as it reaches a blob's files.
     callerProject = undefined;
-    expect((await registry.execute("artifacts.get", { id: "notes" })).isError).toBe(false);
+    const kept = JSON.parse((await registry.execute("artifacts.get", { id: "notes" })).content) as { record: { title: string; blob?: string } };
+    expect(kept.record).toMatchObject({ title: "Notes", blob: "noter" });
     expect((JSON.parse((await registry.execute("artifacts.list", {})).content) as { id: string }[]).map((r) => r.id)).toContain("notes");
+    expect(beds()).toContain("<h1>Beds</h1>");
+    // Maintenance reaches it too, as it reaches every project's.
+    callerProject = "maintenance";
+    expect((await registry.execute("artifacts.history", { id: "notes" })).isError).toBe(false);
   });
 
   it("keeps a rewritten artifact in its project unless told to move it", async () => {
