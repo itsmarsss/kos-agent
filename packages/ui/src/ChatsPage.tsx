@@ -694,9 +694,15 @@ export function ChatsPage({
   const owned = useOwnedArtifacts(railOwner, inline);
   // Another project, blob or thread: the thread is what shows, not the artifact open before, once its editing is finished.
   const viewer = useRef<ViewerHandle>(null);
+  const shown = useRef(inline);
+  useEffect(() => {
+    shown.current = inline;
+  }, [inline]);
   useEffect(() => {
     let stale = false;
-    void (viewer.current?.settle() ?? Promise.resolve()).then(() => !stale && setInline(undefined));
+    // Closed only if it is still the one being finished: one opened during the wait stays.
+    const settling = shown.current;
+    void (viewer.current?.settle() ?? Promise.resolve()).then(() => !stale && setInline((now) => (now === settling ? undefined : now)));
     return () => {
       stale = true;
     };
