@@ -10,6 +10,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./artifacts": {
+      "types": "./dist/artifacts.d.ts",
+      "default": "./dist/artifacts.js"
+    },
     "./blobmotion": {
       "types": "./dist/blobmotion.d.ts",
       "default": "./dist/blobmotion.js"

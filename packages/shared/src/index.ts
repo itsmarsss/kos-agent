@@ -132,10 +132,13 @@ export { COLOURS, EASE, FLOAT_SHADOW, RADII, SPRING, TYPE, type ColourToken } fr
 export { listAt, startsList, type MdList, type MdListItem } from "./lists.js";
 export {
   BRIDGE_SCRIPT,
+  FIT_KINDS,
+  FRAME_HEIGHT_MAX,
   GUARD_SCRIPT,
   PAGE_CSP,
   PAGE_GUARD_CSP,
   WRAPPER_CSP,
+  fitsContent,
   pageDocument,
   splitHtml,
   tokenRule,
@@ -153,6 +156,7 @@ export {
   WORKSPACE_SCOPE,
   artifactAssets,
   isArtifactKind,
+  DOC_EDIT_MAX,
   sheetErrors,
   sheetTables,
   type ArtifactEdit,

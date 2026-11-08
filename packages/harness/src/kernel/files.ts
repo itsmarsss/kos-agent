@@ -247,7 +247,7 @@ function managed(ws: Workspace, requestPath: unknown): { rel: string; abs: strin
   const rel = relative(requestPath).replace(/\/+$/, "");
   if (rel === "." || rel === "") throw new Error("the workspace itself cannot be moved or removed");
   const top = rel.split("/")[0]!;
-  if (RESERVED.has(top)) throw new Error(`${top} is the workspace's own; leave it be`);
+  if (RESERVED.has(top.toLowerCase())) throw new Error(`${top} is the workspace's own; leave it be`);
   return { rel, abs: ws.resolve(rel) };
 }
 

@@ -1,6 +1,7 @@
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { tokenize } from "../memory/facts.js";
+import { saidText } from "../models/types.js";
 import { reachesAll } from "../kernel/caretaker.js";
 import { conversationKind, isFixed, type Conversation, type ConversationStore } from "../kernel/conversations.js";
 import type { CongregationMember } from "../kernel/progress.js";
@@ -176,11 +177,7 @@ function spokenTurns(
 ): Array<{ role: string; text: string }> {
   const out: Array<{ role: string; text: string }> = [];
   for (const message of sessions.get(id)) {
-    const text = message.content
-      .filter((b) => b.type === "text")
-      .map((b) => (b as { text: string }).text)
-      .join("")
-      .trim();
+    const text = saidText(message.content).trim();
     if (text) out.push({ role: message.role === "user" ? "owner" : "kos", text });
   }
   return out;

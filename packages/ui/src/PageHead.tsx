@@ -1,3 +1,4 @@
+import { Count } from "@kos/kit";
 import { type ReactElement, type ReactNode } from "react";
 
 /**
@@ -13,11 +14,14 @@ import { type ReactElement, type ReactNode } from "react";
  */
 export function PageHead({
   title,
+  count,
   subtitle,
   search,
   actions,
 }: {
   title: string;
+  /** How many the page holds, beside its title. */
+  count?: number;
   subtitle?: string;
   /** A search box, where the page has something worth searching. */
   search?: ReactNode;
@@ -27,7 +31,10 @@ export function PageHead({
   return (
     <header className="list-head">
       <div className="list-head-titles">
-        <h1 className="list-title">{title}</h1>
+        <h1 className="list-title">
+          {title}
+          {count !== undefined && <Count n={count} />}
+        </h1>
         {subtitle && <p className="list-sub">{subtitle}</p>}
       </div>
       {(search || actions) && (

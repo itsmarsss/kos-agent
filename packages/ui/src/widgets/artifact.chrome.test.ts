@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { GUARD_SCRIPT, pageDocument, wrapperDocument } from "@kos/shared";
+import { DONE_MS, REVEAL_MS, ownerIn, revealAllowed, saveAllowed } from "./frameheight.js";
 
 /**
  * Every way out of a page's frame, tried in a real Chrome. Each attempt aims
@@ -225,9 +226,16 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     requests.length = 0;
     await send("Page.navigate", { url: `${base}${path}` });
     await new Promise((r) => setTimeout(r, 1300));
-    const title = (await send("Runtime.evaluate", { expression: "document.title", returnByValue: true })).result as { value?: string } | undefined;
-    const said = (await send("Runtime.evaluate", { expression: "document.body.dataset.said || ''", returnByValue: true })).result as { value?: string } | undefined;
-    return { alive: title?.value === "alive", requests: [...requests], ...(said?.value ? { said: said.value } : {}) };
+    const read = async (expression: string): Promise<string | undefined> =>
+      ((await send("Runtime.evaluate", { expression, returnByValue: true })).result as { value?: string } | undefined)?.value;
+    // A census is slow on a busy machine: wait for it, up to a bound, rather than guess how long it takes.
+    const counting = frame.includes("const TAGS =");
+    for (let waited = 0; counting && !(await read("document.body.dataset.said || ''")) && waited < 10_000; waited += 200) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    const title = await read("document.title");
+    const said = await read("document.body.dataset.said || ''");
+    return { alive: title === "alive", requests: [...requests], ...(said ? { said } : {}) };
   }
 
   const page = (code: string): string => pageDocument({ html: attempt(`const XHTML = "${XHTML}"; ${code}`), tokens: {}, mode: "dark", css: "", libraries: [] });
@@ -290,6 +298,137 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       expect(stun.packets).toEqual([]);
     }, 20_000);
   });
+
+  /*
+   * The bridge's side of a page as tall as its content, against a stand-in
+   * for the dashboard that applies each report as it comes (the dashboard's
+   * own hold on the height, heightGate, is tested in ArtifactPage.test): the
+   * report is the content's height, the page then has no scrollbar of its
+   * own, and a link to a place on it, pressed by a real pointer, reports
+   * where the place is.
+   */
+  it("reports a page's content height, which leaves no scroll inside once applied, and a #link reports its place", async () => {
+    const html = `<style>body{margin:0}</style><a id="go" href="#end" style="display:block;height:40px">jump</a><div style="height:2600px"></div><h2 id="end" style="margin:0;height:60px">end</h2><script>
+      addEventListener("message", (e) => { if (e.data === "probe") top.postMessage({ probe: { scroll: document.scrollingElement.scrollHeight, client: document.scrollingElement.clientHeight, wide: document.scrollingElement.scrollWidth > innerWidth, view: innerHeight } }, "*"); });
+    </script>`;
+    const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [], kind: "page" }));
+    pages.set("/fit", `<!doctype html><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:600px;height:300px" srcdoc="${frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe><div style="height:2000px"></div><script>
+      const f = document.getElementById("f");
+      addEventListener("message", (e) => {
+        const page = f.contentWindow.frames[0], m = e.data || {};
+        if (e.source !== page) return;
+        if (m.__kos === "height") {
+          f.style.height = Math.min(m.height, 50000) + "px";
+          document.body.dataset.heights = String(Number(document.body.dataset.heights || 0) + 1);
+          if (m.reveal && navigator.userActivation.isActive) scrollTo({ top: f.getBoundingClientRect().top + scrollY + m.reveal.top });
+        }
+        if (m.probe) document.body.dataset.probe = JSON.stringify(m.probe);
+      });
+    </script></body>`);
+    await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
+    await send("Page.navigate", { url: `${base}/fit` });
+    await new Promise((r) => setTimeout(r, 1200));
+    const value = async (expression: string): Promise<unknown> => ((await send("Runtime.evaluate", { expression, returnByValue: true })).result as { value?: unknown } | undefined)?.value;
+    await value(`document.getElementById("f").contentWindow.frames[0].postMessage("probe", "*")`);
+    await new Promise((r) => setTimeout(r, 300));
+    const probe = JSON.parse(String(await value("document.body.dataset.probe || '{}'"))) as { scroll?: number; client?: number; wide?: boolean };
+    expect(await value(`document.getElementById("f").getBoundingClientRect().height`)).toBe(2700);
+    // No scroll inside: the page's document is exactly as tall as its frame.
+    expect(probe.scroll).toBe(probe.client);
+    expect(probe.client).toBe(2700);
+    expect(probe.wide).toBe(false);
+    // It settles: a report or two, not a loop.
+    expect(Number(await value("document.body.dataset.heights"))).toBeLessThanOrEqual(3);
+    expect(await value("scrollY")).toBe(0);
+    for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: 20, y: 20, button: "left", clickCount: 1 });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(await value("scrollY")).toBe(2640);
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 20_000);
+
+  /*
+   * The doc editor, on the doc's runtime as the dashboard inlines it, typed
+   * into by a real keyboard: markdown at a line's start, bold around words,
+   * a block from the "/" menu, then a save of its own through kos.save once
+   * the typing stops, which the bridge sends only at the owner's hand.
+   */
+  it("edits a doc in place, markdown and the slash menu, and saves on its own through the bridge", async () => {
+    const { build } = await import("esbuild");
+    const bundled = await build({ entryPoints: [join(import.meta.dirname, "../../pagelib/doc.ts")], bundle: true, write: false, format: "iife", target: "chrome120", charset: "ascii", logLevel: "silent" });
+    const runtime = bundled.outputFiles[0]!.text;
+    const html = `<article data-doc><p><br></p><h2>Next</h2></article>`;
+    const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [runtime], kind: "doc" }));
+    // The dashboard's own checks, as ArtifactPage makes them (frameheight.ts), run here in the browser.
+    const checks = `const REVEAL_MS = ${REVEAL_MS}, DONE_MS = ${DONE_MS}; const ownerIn = ${ownerIn.toString()}; const saveAllowed = ${saveAllowed.toString()}; const revealAllowed = ${revealAllowed.toString()};`;
+    pages.set("/doc", `<!doctype html><body style="margin:0"><button id="elsewhere">elsewhere</button><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:800px;height:560px" srcdoc="${frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe><script>
+      ${checks}
+      const f = document.getElementById("f");
+      let gestureAt = -Infinity, ports = 0;
+      addEventListener("message", (e) => {
+        const page = f.contentWindow.frames[0], m = e.data || {};
+        if (e.source !== page) return;
+        // The bridge's channel for the owner's presses and keys, taken once as ArtifactPage takes it.
+        if (m.__kos === "gestures") { ports += 1; document.body.dataset.ports = String(ports); if (ports === 1) e.ports[0].onmessage = () => { gestureAt = performance.now(); document.body.dataset.gestures = String(Number(document.body.dataset.gestures || 0) + 1); }; return; }
+        // The dashboard's edit bar: Edit once the doc says it can be edited.
+        if (m.__kos === "edit" && !m.editing && !document.body.dataset.asked) { document.body.dataset.asked = "1"; page.postMessage({ __kos: "edit-do", action: "edit" }, "*"); }
+        if (m.__kos !== "call" || m.method !== "save") return;
+        // What the dashboard checks before it relays a save: the owner's hand in this frame, as the browser reports it here.
+        document.body.dataset.active = String(saveAllowed(f, undefined));
+        document.body.dataset.reveal = String(revealAllowed(f, gestureAt));
+        document.body.dataset.saves = String(Number(document.body.dataset.saves || 0) + 1);
+        document.body.dataset.saved = m.args.edit.doc;
+        page.postMessage({ __kos: "reply", id: m.id, result: {} }, "*");
+      });
+    </script></body>`);
+    await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
+    await send("Page.navigate", { url: `${base}/doc` });
+    await new Promise((r) => setTimeout(r, 1200));
+    const value = async (expression: string): Promise<unknown> => ((await send("Runtime.evaluate", { expression, returnByValue: true, userGesture: false })).result as { value?: unknown } | undefined)?.value;
+    // Before the owner touches it, nothing is theirs: no hand in the frame, no press over the channel, which came once.
+    expect(await value("ownerIn(f)")).toBe(false);
+    expect(await value("document.body.dataset.ports")).toBe("1");
+    expect(await value("document.body.dataset.gestures || '0'")).toBe("0");
+    const key = async (k: string): Promise<void> => {
+      const enter = k === "Enter";
+      await send("Input.dispatchKeyEvent", { type: "keyDown", key: k, text: enter ? "\r" : k, ...(enter ? { code: "Enter", windowsVirtualKeyCode: 13 } : {}) });
+      await send("Input.dispatchKeyEvent", { type: "keyUp", key: k, ...(enter ? { code: "Enter", windowsVirtualKeyCode: 13 } : {}) });
+    };
+    const type = async (text: string): Promise<void> => {
+      for (const k of text) await key(k);
+    };
+    // Into the first line, as the owner would (below the dashboard's own button).
+    for (const t of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type: t, x: 200, y: 70, button: "left", clickCount: 1 });
+    await new Promise((r) => setTimeout(r, 200));
+    // The press is the owner's hand in the frame, and the frame's channel told the dashboard of it, just now.
+    expect(await value("ownerIn(f)")).toBe(true);
+    expect(Number(await value("document.body.dataset.gestures"))).toBeGreaterThan(0);
+    expect(await value("revealAllowed(f, gestureAt)")).toBe(true);
+    await type("## Water");
+    await key("Enter");
+    await type("it is **wet** now");
+    await key("Enter");
+    await type("/div");
+    await new Promise((r) => setTimeout(r, 100));
+    await key("Enter");
+    await new Promise((r) => setTimeout(r, 2000));
+    const saved = String(await value("document.body.dataset.saved || ''"));
+    expect(saved).toContain("<h2>Water</h2>");
+    expect(saved).toMatch(/<p>it is(&nbsp;| )<strong>wet<\/strong>(&nbsp;| )now<\/p><hr><h2>Next<\/h2>/);
+    expect(saved).toContain("<hr>");
+    expect(saved).not.toContain("/div");
+    expect(saved).not.toContain("contenteditable");
+    // One save for the run of typing, not one a key; and the owner's hand was still counted when it went, here and in the frame (whose bridge refuses one without it).
+    expect(Number(await value("document.body.dataset.saves"))).toBe(1);
+    expect(await value("document.body.dataset.active")).toBe("true");
+    // Two seconds on, the press is too long ago for a jump to scroll the dashboard.
+    expect(await value("revealAllowed(f, gestureAt)")).toBe(false);
+    // A press on the dashboard itself takes the hand out of the frame.
+    for (const t of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type: t, x: 20, y: 8, button: "left", clickCount: 1 });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(await value("ownerIn(f)")).toBe(false);
+    expect(await value("saveAllowed(f, undefined)")).toBe(false);
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
 
   it("lets no way out send a single request, with the page running each time", async () => {
     const results: Record<string, Run> = {};

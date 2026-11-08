@@ -8,6 +8,7 @@ import { artifactGuide } from "../systems/artifactguide.js";
 import { ARTIFACT_KINDS, WORKSPACE_SCOPE, isArtifactKind } from "@kos/shared";
 import { MAINTENANCE_SLUG, reachable, type Reach } from "./fence.js";
 import { reachOf } from "./sql.js";
+import { ownerOfRecord, type PageOwner, type PageStore } from "../systems/pages.js";
 
 /**
  * Systems tools: project creation, guarded migrate, and artifacts. These are
@@ -28,7 +29,7 @@ function writeDescription(canCheck: boolean): string {
     canCheck
       ? "Read artifacts.guide({ kind }) first, every time: it says how KOS artifacts are designed, the structure each kind's runtime reads, the fonts, and what the frame refuses. Then write, check once with artifacts.check, fix what it reports in one pass, and finish."
       : "Read artifacts.guide({ kind }) first, every time: it says how KOS artifacts are designed, the structure each kind's runtime reads, the fonts, and what the frame refuses. This KOS has no Chrome, so artifacts.check is not available: write once, carefully, and finish.",
-    `project is the project whose data it shows. Omit it for a new workspace artifact that belongs to no project (a memo, a deck from notes); it then has no tables or files to read. Rewriting an existing id without project keeps it where it is; name a project, or "${WORKSPACE_SCOPE}", only to move it. If a project fits but does not exist, call systems.project_create first; never file an artifact under an unrelated project because it exists.`,
+    `project is the project whose data it shows. Omit it for a new workspace artifact that belongs to no project (a memo, a deck from notes); it then has no tables or files to read. In a blob's own thread, an artifact written without project is the blob's own, kept with its files, and like a workspace one it reads no tables. Rewriting an existing id without project keeps it where it is; name a project, or "${WORKSPACE_SCOPE}", only to move it. If a project fits but does not exist, call systems.project_create first; never file an artifact under an unrelated project because it exists.`,
     "title is a short specific name, not a caption; description is one sentence saying what it is for.",
   ].join("\n");
 }
@@ -55,17 +56,73 @@ function refuseOutsideReach(project: string, reach: Reach): void {
 export const ARTIFACT_TOOLS = ["artifacts.write", "artifacts.list", "artifacts.get", "artifacts.history", "artifacts.rollback", "artifacts.guide", "artifacts.check"] as const;
 
 /**
- * A project's artifacts are its own chats' to read and change, as its tables
- * are: those chats, the turn that made the project, and Maintenance. A chat
- * at the root has no project, so it reaches workspace artifacts only, which
- * belong to no project and so to any chat, and hands a project's to it.
+ * Whose artifacts a chat may read and change. A project's are its own chats',
+ * as its tables are: those chats, the turn that made the project, and
+ * Maintenance. A blob's are its own thread's, as its folder is its own: no
+ * project's chat reaches them, nor another blob's, while the owner's own
+ * chats at the root and Maintenance reach them as they reach a blob's files.
+ * A blob is told apart by its id, so a blob made under a removed one's name
+ * reaches none of what the removed one made, and what a removed blob made is
+ * kept for the owner: KOS reads it but no longer changes it. A blob's thread
+ * reaches its own and the workspace's, never a project's. The workspace's
+ * belong to no one, so to any chat.
  */
-function refuseOtherProjectsPage(project: string | null, reach: Reach, what: "change" | "read" = "change"): void {
-  if (project === null || reach.project === MAINTENANCE_SLUG || reachable(reach).includes(project)) return;
+export function whyNot(owner: PageOwner, reach: Reach, what: "change" | "read", removed: (blobId: string) => boolean): string | undefined {
+  if (owner === null) return undefined;
+  if (typeof owner === "object" && what === "change" && removed(owner.id)) {
+    return `The blob ${owner.blob} that made it was removed, so what it made is kept for the owner as it is: its artifacts`;
+  }
+  if (reach.project === MAINTENANCE_SLUG) return undefined;
   const name = (slug: string): string => reach.projects.find((p) => p.slug === slug)?.name ?? slug;
-  const here = reach.project ? `This chat is ${name(reach.project)}'s` : "This chat belongs to no project";
-  throw new Error(`${here}, so ${name(project)}'s artifacts are not its to ${what}. Hand the work to ${name(project)}'s own chat with chats.handoff to @project:${project}.`);
+  const here = reach.project ? `This chat is ${name(reach.project)}'s` : reach.blob ? `This chat is the blob ${reach.blob.name}'s` : undefined;
+  if (typeof owner === "string") {
+    if (!reach.blob && reachable(reach).includes(owner)) return undefined;
+    return `${here ?? "This chat belongs to no project"}, so ${name(owner)}'s artifacts`;
+  }
+  // A blob's: its own thread, and the owner's own chats at the root, which reach blob files too.
+  if (reach.blob?.id === owner.id || (!reach.project && !reach.blob && reach.owner)) return undefined;
+  return `${here ?? "This chat"}, so the blob ${owner.blob}'s artifacts`;
 }
+
+const handTo = (owner: PageOwner, reach: Reach, removed: (blobId: string) => boolean): string =>
+  typeof owner === "string"
+    ? ` Hand the work to ${reach.projects.find((p) => p.slug === owner)?.name ?? owner}'s own chat with chats.handoff to @project:${owner}.`
+    : owner && !removed(owner.id)
+      ? ` Ask the blob with blobs.dispatch to ${owner.blob}.`
+      : "";
+
+/**
+ * Why a chat may not reach the artifact a workspace path is part of (its
+ * file, a version or a capture), or undefined when it may or the path is no
+ * artifact's: files.* and an @file mention keep the same fence as the
+ * artifacts tools, rather than being a way round it.
+ */
+export function artifactFileRefusal(pages: PageStore, path: string, reach: Reach, what: "change" | "read"): string | undefined {
+  const record = pages.recordAt(path);
+  if (!record) return undefined;
+  const owner = ownerOfRecord(record);
+  const removed = (blobId: string): boolean => pages.blobIds.removed(blobId);
+  const why = whyNot(owner, reach, what, removed);
+  return why ? `${path} is part of the artifact ${record.id}; ${why} are not this chat's to ${what}.${handTo(owner, reach, removed)}` : undefined;
+}
+
+/**
+ * Why a chat may not take a whole folder (rm, mv, cp): the first artifact
+ * under it, by its rows, whose owner the chat may not reach. Undefined when
+ * it may reach every one, or none is there.
+ */
+export function artifactFolderRefusal(pages: PageStore, folder: string, reach: Reach, what: "change" | "read"): string | undefined {
+  const removed = (blobId: string): boolean => pages.blobIds.removed(blobId);
+  for (const record of pages.recordsUnder(folder)) {
+    const owner = ownerOfRecord(record);
+    const why = whyNot(owner, reach, what, removed);
+    if (why) return `${folder} holds the artifact ${record.id}; ${why} are not this chat's to ${what}.${handTo(owner, reach, removed)}`;
+  }
+  return undefined;
+}
+
+/** Who a new artifact from this chat belongs to when it names none: a blob's thread makes its own; anywhere else, the workspace. */
+const defaultOwner = (reach: Reach): PageOwner => (reach.blob && !reach.project ? { blob: reach.blob.name, id: reach.blob.id } : null);
 
 function defineSystemsTools(ctx: ModuleContext): void {
   const services = requireServices(ctx);
@@ -73,6 +130,11 @@ function defineSystemsTools(ctx: ModuleContext): void {
   if (!manifest || !migrator || !pages) {
     throw new Error("systems module requires manifest, migrator, and pages services");
   }
+  const removed = (blobId: string): boolean => pages.blobIds.removed(blobId);
+  const refuseOtherOwnersPage = (owner: PageOwner, reach: Reach, what: "change" | "read" = "change"): void => {
+    const why = whyNot(owner, reach, what, removed);
+    if (why) throw new Error(`${why} are not its to ${what}.${handTo(owner, reach, removed)}`);
+  };
 
   ctx.registerTool(
     {
@@ -257,20 +319,26 @@ function defineSystemsTools(ctx: ModuleContext): void {
       const reach = reachOf(ctx);
       // Ids are shared across projects, and a write upserts by id: the artifact it would replace is checked too,
       // or one project could take another's by naming it as its own.
+      // One id names one artifact: a spec whose own id differs would be written under that one, past this check.
       const spec = input.spec as { id?: unknown } | undefined;
-      const id = typeof input.id === "string" ? input.id : typeof spec?.id === "string" ? spec.id : undefined;
-      const replaced = id ? pages.get(id) : undefined;
-      if (replaced) refuseOtherProjectsPage(replaced.record.projectSlug, reach);
+      const specId = typeof spec?.id === "string" ? spec.id : undefined;
+      const inputId = typeof input.id === "string" ? input.id : undefined;
+      if (specId !== undefined && inputId !== undefined && specId !== inputId) throw new Error(`id "${inputId}" and spec.id "${specId}" differ; an artifact has one id, so give both the same`);
+      const id = inputId ?? specId;
+      const replaced = id ? pages.record(id) : undefined;
+      if (replaced) refuseOtherOwnersPage(ownerOfRecord(replaced), reach);
       // A rewrite stays where it is unless told to move: a model leaves project out when it means "the same one".
       const named = typeof input.project === "string" && input.project !== "" ? input.project : input.project === null ? WORKSPACE_SCOPE : undefined;
-      const project = named === undefined ? (replaced?.record.projectSlug ?? null) : named === WORKSPACE_SCOPE ? null : named;
-      refuseOtherProjectsPage(project, reach);
+      const owner: PageOwner = named === undefined ? (replaced ? ownerOfRecord(replaced) : defaultOwner(reach)) : named === WORKSPACE_SCOPE ? null : named;
+      refuseOtherOwnersPage(owner, reach);
+      // The store holds the line too: it replaces only the row this check passed, and moves it only from there.
+      const from = replaced ? { from: ownerOfRecord(replaced) } : {};
       if (input.spec !== undefined && input.html === undefined) {
-        if (project === null) throw new Error("a widget spec page needs a project; write html instead");
-        return JSON.stringify(pages.write(project, input.spec));
+        if (typeof owner !== "string") throw new Error("a widget spec page needs a project; write html instead");
+        return JSON.stringify(pages.write(owner, input.spec, from));
       }
       const { project: _project, spec: _spec, ...page } = input;
-      const record = pages.writeHtml(project, page);
+      const record = pages.writeHtml(owner, page, from);
       return JSON.stringify({ ...record, next: checkArtifact ? `Check it once: artifacts.check({ id: "${record.id}" }).` : undefined });
     },
     { floor: "safe" },
@@ -288,8 +356,8 @@ function defineSystemsTools(ctx: ModuleContext): void {
     async (input) => {
       if (!checkArtifact) throw new Error("this KOS cannot check artifacts: it has no Chrome to render them in");
       const id = str(input, "id");
-      const page = pages.get(id);
-      if (page) refuseOtherProjectsPage(page.record.projectSlug, reachOf(ctx), "read");
+      const record = pages.record(id);
+      if (record) refuseOtherOwnersPage(ownerOfRecord(record), reachOf(ctx), "read");
       return checkArtifact(id);
     },
     { floor: "safe" },
@@ -309,7 +377,9 @@ function defineSystemsTools(ctx: ModuleContext): void {
     },
     (input) => {
       const project = typeof input.project === "string" && input.project ? input.project : undefined;
-      return JSON.stringify(pages.list(project === WORKSPACE_SCOPE ? null : project));
+      const reach = reachOf(ctx);
+      // Only what this chat may read: a blob's from a project's chat or another blob's is left out, and a blob's turn sees its own and the workspace's.
+      return JSON.stringify(pages.list(project === WORKSPACE_SCOPE ? null : project).filter((r) => (r.blob === undefined && !reach.blob) || whyNot(ownerOfRecord(r), reach, "read", removed) === undefined));
     },
     { floor: "safe" },
     { tags: ["systems"] },
@@ -330,7 +400,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
     (input) => {
       const got = pages.get(str(input, "id"));
       if (!got) throw new Error(`artifact not found: ${input.id}`);
-      refuseOtherProjectsPage(got.record.projectSlug, reachOf(ctx), "read");
+      refuseOtherOwnersPage(ownerOfRecord(got.record), reachOf(ctx), "read");
       return JSON.stringify(got.kind === "html" ? { record: got.record, page: got.page } : { record: got.record, spec: got.spec });
     },
     { floor: "safe" },
@@ -345,8 +415,8 @@ function defineSystemsTools(ctx: ModuleContext): void {
     },
     (input) => {
       const id = str(input, "id");
-      const page = pages.get(id);
-      if (page) refuseOtherProjectsPage(page.record.projectSlug, reachOf(ctx), "read");
+      const record = pages.record(id);
+      if (record) refuseOtherOwnersPage(ownerOfRecord(record), reachOf(ctx), "read");
       return JSON.stringify(pages.history(id));
     },
     { floor: "safe" },
@@ -361,8 +431,8 @@ function defineSystemsTools(ctx: ModuleContext): void {
     },
     (input) => {
       const id = str(input, "id");
-      const page = pages.get(id);
-      if (page) refuseOtherProjectsPage(page.record.projectSlug, reachOf(ctx));
+      const record = pages.record(id);
+      if (record) refuseOtherOwnersPage(ownerOfRecord(record), reachOf(ctx));
       return JSON.stringify(pages.rollback(id, Number(input.version)));
     },
     { floor: "safe" },

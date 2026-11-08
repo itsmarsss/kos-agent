@@ -48,7 +48,7 @@ import { applyResolution, describeReview } from "../memory/resolve.js";
 import type { ReviewItem } from "../memory/review.js";
 import { parseFaceLook, ROLE_NAME, type Role, type RoleRecord } from "../agents/roles.js";
 import type { BlobJob } from "../tools/agents.js";
-import type { ModelMessage } from "../models/types.js";
+import { saidText, type ModelMessage } from "../models/types.js";
 import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
 import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
@@ -692,6 +692,7 @@ export async function handleApiRequest(
       error,
       what: typeof body.what === "string" ? body.what.slice(0, 40) : "job",
       ...(typeof body.ref === "string" ? { ref: body.ref.slice(0, 60) } : {}),
+      byOwner: true,
     });
     return ok(started);
   }
@@ -1426,18 +1427,33 @@ export async function handleApiRequest(
    * a refusal is answered plainly and logged. `save` is the owner's edit to a
    * doc or a sheet, kept as its next version.
    */
-  const bridgeCall = /^\/api\/pages\/([^/]+)\/(query|write|file|save|history|rollback)$/.exec(path);
+  // One kept version of an HTML artifact, to preview before restoring it.
+  const versionGet = method === "GET" ? /^\/api\/pages\/([^/]+)\/versions\/(\d+)$/.exec(path) : null;
+  if (versionGet) {
+    const page = kernel.pages.version(decodeURIComponent(versionGet[1]!), Number(versionGet[2]));
+    return page ? ok(page) : { status: 404, body: { error: "no such version" } };
+  }
+  const bridgeCall = /^\/api\/pages\/([^/]+)\/(query|write|file|save|history|rollback|delete)$/.exec(path);
   if (bridgeCall) {
     const id = decodeURIComponent(bridgeCall[1]!);
     const verb = bridgeCall[2]!;
+    // What a removed blob made is the owner's to keep or let go; nothing else is deleted from here. By its row, so one whose file went is let go too.
+    if (verb === "delete" && method === "POST") {
+      // A blob whose folder was deleted by hand is removed now, not at the next boot.
+      kernel.roles.retireDeleted();
+      const record = kernel.pages.record(id);
+      if (!record) return { status: 404, body: { error: "page not found" } };
+      if (!record.blobRemoved) return { status: 403, body: { error: "only what a removed blob made is deleted here" } };
+      return ok({ deleted: kernel.pages.remove(id) });
+    }
     const got = kernel.pages.get(id);
     if (!got) return { status: 404, body: { error: "page not found" } };
     if (verb === "history" && method === "GET") return ok(kernel.pages.history(id));
     if (verb === "rollback" && method === "POST") {
       try {
-        return ok(kernel.pages.rollback(id, Number(body.version)));
+        return ok(kernel.pages.rollback(id, Number(body.version), body.base));
       } catch (err) {
-        return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+        return { status: err instanceof EditConflict ? 409 : 400, body: { error: err instanceof Error ? err.message : String(err) } };
       }
     }
     if (method !== "POST" || got.kind !== "html" || (verb !== "query" && verb !== "write" && verb !== "file" && verb !== "save")) return { status: 404, body: { error: "not found" } };
@@ -1455,6 +1471,8 @@ export async function handleApiRequest(
    * show the capture or ask for a fresh one.
    */
   if (method === "GET" && path === "/api/artifacts") {
+    // So what a hand-deleted blob made reads as a removed blob's, with its Delete, without a reboot.
+    kernel.roles.retireDeleted();
     return ok(
       kernel.pages.list().map((record) => {
         const at = captureTime(kernel.pages.capturesDir(record.id));
@@ -1607,6 +1625,7 @@ export async function handleApiRequest(
         // nothing on either engine, so the model answers from the context it
         // was handed and cannot act on the workspace from the side.
         allow: [],
+        owner: true,
         ...(contextId ? { contextFrom: contextId } : {}),
         ...(prior.length ? { priorTurns: prior } : {}),
       });
@@ -1647,6 +1666,7 @@ export async function handleApiRequest(
           await kernel.handleProjectTurn(sessionId.slice("project:".length), text, {
             channel: "dashboard",
             attachments,
+            owner: true,
           }),
         );
       }
@@ -1655,11 +1675,13 @@ export async function handleApiRequest(
           await kernel.handleOrchestratorTurn(text, {
             channel: "dashboard",
             attachments,
+            owner: true,
           }),
         );
       }
       return ok(
-        await kernel.handleMessage(text, { sessionId, userId, attachments }),
+        // Only the owner holds the API, from the dashboard, the extension or a device: their own words.
+        await kernel.handleMessage(text, { sessionId, userId, attachments, owner: true }),
       );
     } catch (err) {
       // An attachment we cannot send is the caller's problem to fix, not a
@@ -1679,6 +1701,7 @@ export async function handleApiRequest(
         await kernel.handleOrchestratorTurn(text, {
           channel: "dashboard",
           attachments: parseAttachments(body.attachments),
+          owner: true,
         }),
       );
     } catch (err) {
@@ -2499,7 +2522,8 @@ export async function handleApiRequest(
     });
     kernel.manifest.touchProject(slug);
     if (task) {
-      void kernel.dispatchTo(created.id, task).catch((err: unknown) => {
+      // The owner's own words, typed as the new chat's task.
+      void kernel.dispatchTo(created.id, task, undefined, { attended: true, owner: true }).catch((err: unknown) => {
         console.error(`agent ${created.id}: ${err instanceof Error ? err.message : String(err)}`);
       });
     }
@@ -2630,6 +2654,7 @@ export async function handleApiRequest(
     try {
       return ok(
         await kernel.rewind(id, index, {
+          owner: true,
           ...(typeof body.text === "string" ? { text: body.text } : {}),
           ...(typeof body.forkTitle === "string" ? { forkTitle: body.forkTitle } : {}),
         }),
@@ -3012,11 +3037,7 @@ function transcriptOf(
 ): Array<{ role: "you" | "kos"; text: string }> {
   const out: Array<{ role: "you" | "kos"; text: string }> = [];
   for (const message of kernel.sessions.get(id)) {
-    const text = message.content
-      .filter((b) => b.type === "text")
-      .map((b) => (b as { text: string }).text)
-      .join("")
-      .trim();
+    const text = saidText(message.content).trim();
     if (text === "") continue;
     out.push({ role: message.role === "user" ? "you" : "kos", text });
   }

@@ -59,6 +59,12 @@ export interface InboundMessage {
    */
   context?: string;
   /**
+   * What others said in the room since the chat last heard it: kept beside
+   * the words as untrusted room talk, so a later turn still knows it, and
+   * never read as the words themselves.
+   */
+  roomTalk?: string;
+  /**
    * Adapter-private handle (e.g. Discord Message) for reactions/edits.
    * Runtime must not inspect this; only the adapter's acknowledge() may.
    */
