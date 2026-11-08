@@ -427,6 +427,9 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     perform: (a, ctx) => perform(chat, session, a.action, a.input, ctx.waits, ctx.signal),
     why: (err) => (err instanceof DeviceError ? refusalText(err, hub.takeEnding(chat)) : err instanceof Error ? err.message : String(err)),
     betweenMs: BETWEEN_MS,
+    // A wait ends at Stop; a device call, once sent, cannot be taken back.
+    cancels: (a) => a.action === "wait",
+    place: "on the device",
   });
 
   /**

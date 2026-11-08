@@ -20,6 +20,7 @@ function surface(log: string[] = []): RunAdapter<string> {
       return `did ${a}`;
     },
     afterFailure: async () => " The page now offers: @e1 Next.",
+    place: "on the page",
   };
 }
 
@@ -48,9 +49,17 @@ describe("the shared runner", () => {
     const run = runActions(surface(log), ["a", "hang", "b"], { signal: stop.signal });
     await pause(5);
     stop.abort();
-    await expect(run).rejects.toThrow("Done: did a. Stopped by the owner during step 2.");
+    await expect(run).rejects.toThrow("Done: did a. Stopped by the owner; step 2 may have finished on the page.");
     expect(log).toEqual(["a", "hang"]);
     await expect(runActions(surface(), ["a"], { signal: stop.signal })).rejects.toThrow("Stopped by the owner before step 1.");
+  });
+
+  it("says a step Stop cancels was stopped during it, and claims no more for one it could not", async () => {
+    const stop = new AbortController();
+    const run = runActions({ ...surface(), cancels: (a) => a === "hang" }, ["hang"], { signal: stop.signal });
+    await pause(5);
+    stop.abort();
+    await expect(run).rejects.toThrow(/^Stopped by the owner during step 1\.$/);
   });
 
   it("lands Stop in the pause between actions", async () => {

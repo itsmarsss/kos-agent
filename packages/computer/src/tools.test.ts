@@ -276,6 +276,19 @@ describe("the computer tools", () => {
     await expect(turnStop.run(stop.signal, () => never.call("computer.act", { action: "wait", duration: 60 }))).rejects.toThrow(/Stopped by the owner before step 1/);
   });
 
+  it("claim no more than that a device call Stop answered may have finished", async () => {
+    const stop = new AbortController();
+    const { call, pair } = setup();
+    const fake = pair();
+    await call("computer.start", { task: "t" });
+    // A click the device never answers: Stop is all that ends the wait on it.
+    fake.answers.delete("pointer.click");
+    const ran = turnStop.run(stop.signal, () => call("computer.act", { action: "left_click", coordinate: [10, 20] }));
+    await new Promise((r) => setTimeout(r, 5));
+    stop.abort();
+    await expect(ran).rejects.toThrow(/^Stopped by the owner; step 1 may have finished on the device\.$/);
+  });
+
   it("end a wait at once on Stop, the kill switch or the session ending", async () => {
     // A sleep that never ends on its own: only an interruption ends the wait.
     const { call, pair, stop, halts, hub } = setup({ sleep: () => new Promise<void>(() => undefined) });

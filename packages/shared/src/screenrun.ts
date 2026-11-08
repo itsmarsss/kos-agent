@@ -56,6 +56,14 @@ export interface RunAdapter<A> {
   afterFailure?(): Promise<string>;
   /** A pause after each action but the last, so each lands before the next. */
   betweenMs?: number;
+  /**
+   * Whether the owner's Stop ends this action where it is. One that cannot be
+   * taken back once sent (a device call) may still finish after the run has
+   * answered, and the run says so. Absent, none can.
+   */
+  cancels?(action: A): boolean;
+  /** Where an action that was not cancelled may still finish, for the run's words: "on the device". */
+  place: string;
 }
 
 export interface RunOptions {
@@ -81,8 +89,16 @@ export class RunError extends Error {
   }
 }
 
-/** Why a run stopped where the owner pressed Stop. */
+/** Why a run stopped where the owner pressed Stop, before the step at `index` began. */
 export const stoppedAt = (index: number): string => `Stopped by the owner before step ${index + 1}.`;
+
+/**
+ * Why a run stopped when the owner pressed Stop while the step at `index` was
+ * under way: ended there when Stop cancels it, else no more than that it may
+ * have finished, since nothing waits to hear.
+ */
+export const stoppedDuring = (index: number, cancelled: boolean, place: string): string =>
+  cancelled ? `Stopped by the owner during step ${index + 1}.` : `Stopped by the owner; step ${index + 1} may have finished ${place}.`;
 
 /** A pause that ends at once when the signal aborts. */
 export function pause(ms: number, signal?: AbortSignal): Promise<void> {
@@ -138,7 +154,7 @@ export async function runActions<A>(adapter: RunAdapter<A>, raw: unknown[], opti
     try {
       done.push(await adapter.perform(action, { ...(signal ? { signal } : {}), waits, index }));
     } catch (err) {
-      if (signal?.aborted) throw new RunError(done, stoppedAt(index).replace("before", "during"));
+      if (signal?.aborted) throw new RunError(done, stoppedDuring(index, adapter.cancels?.(action) ?? false, adapter.place));
       const why = adapter.why?.(err) ?? (err instanceof Error ? err.message : String(err));
       const more = (await adapter.afterFailure?.().catch(() => "")) ?? "";
       throw new RunError(done, `Step ${index + 1} (${adapter.name(action)}) failed: ${why.replace(/\.$/, "")}.${more}`);

@@ -137,6 +137,7 @@ export {
   pause,
   runActions,
   stoppedAt,
+  stoppedDuring,
   type ActThen,
   type ActionContext,
   type RunAdapter,

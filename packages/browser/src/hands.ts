@@ -167,6 +167,9 @@ function webSteps(page: Page): RunAdapter<Step> {
       }
       return page.step(step, signal);
     },
+    // A pause ends at Stop; a step on the page goes on to its own end.
+    cancels: (step) => "wait" in step && typeof step.wait === "number",
+    place: "in the page",
     afterFailure: async () => {
       const notes = page.takeNotes();
       const now = await page.index().catch(() => undefined);
