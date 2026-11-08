@@ -251,6 +251,9 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
   /** Chats whose session was started to last past the turn, by its id. */
   const kept = new Map<string, string>();
 
+  /** A chat's refusal by the owner this turn, in words: a session is not asked for unasked again until the turn ends. */
+  const denied = new Map<string, string>();
+
   /** How many turns each chat has ended: a session granted once its turn is over is given back. */
   const ended = new Map<string, number>();
 
@@ -312,7 +315,10 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
    * A session started unasked by a tool, written to the audit log as the
    * start it stands for (computer.start, chrome.start), as one asked for is.
    */
-  const unasked = async <T>(tool: string, args: Record<string, unknown>, work: () => Promise<T>): Promise<T> => {
+  const unasked = async <T>(chat: string, tool: string, args: Record<string, unknown>, work: () => Promise<T>): Promise<T> => {
+    // Said no to already this turn: not asked again by a later call of the same turn.
+    const no = denied.get(chat);
+    if (no) throw new Error(no);
     const record = (result: string, isError: boolean): void => deps.audit?.({ tool, args: { ...args, unasked: true }, result, isError, riskTier: "safe" });
     try {
       const done = await work();
@@ -391,6 +397,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       settling.delete(chat);
       session = await ask({ conversation: chat, device, task: input.task, requester: deps.titleOf(chat), minutes: input.minutes ?? settings.askMinutes, maxEdge: SCREEN_EDGE, ...(input.app ? { app: input.app } : {}), ...(signal ? { signal } : {}) });
     } catch (err) {
+      if (err instanceof DeviceError && err.code === "denied") denied.set(chat, refusalText(err));
       throw new Error(refusalText(err));
     }
     if (input.keep) kept.set(chat, session.id);
@@ -416,7 +423,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     if (said === undefined) throw new Error("This turn is not the owner speaking in the KOS for Mac window, so no session starts unasked: call computer.start, which the owner allows on the Mac.");
     if (hub.consentOf(mac.device) === "kos") throw new Error("This Mac starts sessions through KOS's approvals, not on the Mac: call computer.start first.");
     const start = { task: intent ?? (said ? `"${said}"` : "what you asked in the KOS window"), device: mac.device, ...(mac.app ? { app: mac.app } : {}) };
-    return unasked("computer.start", start, () => beginComputer(chat, start, turnStop.getStore()));
+    return unasked(chat, "computer.start", start, () => beginComputer(chat, start, turnStop.getStore()));
   };
 
   /** A session in the owner's Chrome: asked of the owner there, and the tabs it was handed learned. */
@@ -433,6 +440,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     try {
       session = await ask({ conversation: chat, device, task: input.task, requester: deps.titleOf(chat), minutes: input.minutes ?? settings.askMinutes, ...(signal ? { signal } : {}) });
     } catch (err) {
+      if (err instanceof DeviceError && err.code === "denied") denied.set(chat, refusalText(err));
       throw new Error(refusalText(err));
     }
     if (input.keep) kept.set(chat, session.id);
@@ -465,7 +473,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     if (hub.consentOf(chrome) === "kos") throw new Error("This Chrome starts sessions through KOS's approvals, not in the Chrome: call chrome.start first. KOS's own browser is not used for the side panel's chat.");
     try {
       const start = { task: said ? `"${said}"` : "what you asked in the side panel", chrome };
-      await unasked("chrome.start", start, () => beginChrome(chat, start, signal));
+      await unasked(chat, "chrome.start", start, () => beginChrome(chat, start, signal));
     } catch (err) {
       throw new Error(`${err instanceof Error ? err.message : String(err)} KOS's own browser is not used for the side panel's chat: tell the owner it could not work in their tab.`);
     }
@@ -829,6 +837,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
   /** A turn over: the sessions it started end with it, unless they were kept. */
   const turnEnded = (chat: string): void => {
     ended.set(chat, (ended.get(chat) ?? 0) + 1);
+    denied.delete(chat);
     shown.forget(chat);
     const session = hub.sessionOf(chat);
     if (!session) return;

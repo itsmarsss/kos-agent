@@ -435,6 +435,18 @@ describe("a turn from the KOS for Mac window", () => {
     expect(textOf(seen)).not.toMatch(/Nothing else was done/);
   });
 
+  it("asks once a turn: after the owner says no, a later act is refused in the same words until the turn ends", async () => {
+    const { call, pair, endTurn } = setup({ mac: () => ({ device: fake.id }), from: { surface: "mac", said: "look" } });
+    const fake = pair();
+    fake.answers.set("session.begin", () => ({ ok: true, result: { granted: false } }));
+    await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/did not allow the session/);
+    await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/did not allow the session.*Do not ask again/);
+    expect(fake.calls.filter((c) => c.method === "session.begin")).toHaveLength(1);
+    endTurn("c1");
+    await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/did not allow/);
+    expect(fake.calls.filter((c) => c.method === "session.begin")).toHaveLength(2);
+  });
+
   it("starts nothing for a turn in the window's chat that is not the owner speaking there", async () => {
     for (const from of [undefined, { surface: "dashboard", said: "look at my screen" }, { surface: "dispatch", said: "look at my screen" }]) {
       const { call, pair } = setup({ mac: () => ({ device: fake.id }), ...(from ? { from } : {}) });
