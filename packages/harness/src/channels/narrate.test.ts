@@ -72,11 +72,18 @@ describe("a short story", () => {
   it("keeps the last steps under a line counting the rest", () => {
     expect(shortStory(steps(8))).toBe(steps(8));
     const told = shortStory(`I'll start.\n${steps(30)}\nAlmost there.`).split("\n");
-    expect(told[0]).toBe("› 22 earlier steps");
-    expect(told.slice(1)).toEqual([...steps(30).split("\n").slice(22), "Almost there."]);
+    expect(told.slice(0, 2)).toEqual(["I'll start.", "› 22 earlier steps"]);
+    expect(told.slice(2)).toEqual([...steps(30).split("\n").slice(22), "Almost there."]);
     // A folded run counts as all its steps.
     expect(shortStory(`› Look\n› Look\n› Look\n${steps(8)}`).split("\n")[0]).toBe("› 3 earlier steps");
     expect(shortStory(`› Look\n${steps(8)}`).split("\n")[0]).toBe("› 1 earlier step");
+  });
+
+  it("keeps the agent's own words from before the steps it keeps", () => {
+    // What the agent said it would do is not a step, and is never folded away.
+    const told = shortStory(`${steps(5)}\nI'm going to delete the old builds.\n${steps(10, (i) => `Later ${i}`)}`).split("\n");
+    expect(told).toEqual(["› 5 earlier steps", "I'm going to delete the old builds.", "› 2 earlier steps", ...steps(8, (i) => `Later ${i + 2}`).split("\n")]);
+    expect(shortStory(`…Said first.\n${steps(3)}`)).toBe(`› Earlier steps\nSaid first.\n${steps(3)}`);
   });
 
   it("says when steps before an already cut story are uncounted", () => {
