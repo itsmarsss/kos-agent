@@ -383,6 +383,47 @@ describe("systems.migrate risk", () => {
     expect((await registry.execute("files.read", { path: "blobs/noter/blob.md" })).isError).toBe(false);
   });
 
+  it("holds the fence through a change of case, which opens the same file on a case-insensitive disk", async () => {
+    const { slug } = JSON.parse((await registry.execute("systems.project_create", { name: "Garden", type: "tracker" })).content) as { slug: string };
+    const other = (JSON.parse((await registry.execute("systems.project_create", { name: "Vault", type: "tracker" })).content) as { slug: string }).slug;
+    await registry.execute("artifacts.write", { project: other, id: "keys", title: "Keys", html: "<h1>Keys</h1>" });
+    roles.write({ name: "noter", description: "Notes", brief: "Work.", memory: "own" });
+    callerBlob = "noter";
+    await registry.execute("artifacts.write", { id: "notes", title: "Notes", html: "<h1>Notes</h1>" });
+    callerBlob = undefined;
+    made = new Set();
+    callerProject = slug;
+    // Refused by the path's own words, whether or not this disk would open it.
+    for (const path of [
+      "Blobs/noter/artifacts/notes.html",
+      "blobs/NOTER/Artifacts/NOTES.HTML",
+      "blobs/noter/artifacts/.History/Notes/1.json",
+      `PROJECTS/${other}/Pages/Keys.html`,
+      `projects/${other}/pages/.CAPTURES/keys`,
+    ]) {
+      for (const [tool, args] of [
+        ["files.read", { path }],
+        ["files.write", { path, content: "x" }],
+        ["files.rm", { path }],
+      ] as const) {
+        const res = await registry.execute(tool, args);
+        expect(res.isError, `${tool} ${path}`).toBe(true);
+        expect(res.content, `${tool} ${path}`).toMatch(/part of the artifact (notes|keys)/);
+      }
+    }
+    for (const path of ["Blobs/Noter", `Projects/${other.toUpperCase()}/PAGES`]) {
+      const res = await registry.execute("files.rm", { path });
+      expect(res.isError, path).toBe(true);
+      expect(res.content).toMatch(/holds the artifact/);
+    }
+    for (const path of [".KOS/results/x.json", "./.Kos/x"]) {
+      const res = await registry.execute("files.write", { path, content: "x" });
+      expect(res.isError, path).toBe(true);
+      expect(res.content).toMatch(/KOS's own state/);
+    }
+    expect(readFileSync(join(root, "blobs/noter/artifacts/notes.html"), "utf8")).toContain("<h1>Notes</h1>");
+  });
+
   it("refuses a folder taken whole when it holds an artifact the chat may not reach, by the rows under it", async () => {
     const { slug } = JSON.parse((await registry.execute("systems.project_create", { name: "Garden", type: "tracker" })).content) as { slug: string };
     await registry.execute("artifacts.write", { project: slug, id: "beds", title: "Beds", html: "<h1>Beds</h1>" });

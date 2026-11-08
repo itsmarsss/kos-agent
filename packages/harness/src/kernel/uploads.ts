@@ -99,7 +99,7 @@ export function uploadDirAnywhere(dir: string): string {
   const rel = posix.normalize(clean);
   if (rel === "." || rel === "" || rel.startsWith("../") || rel === "..") throw new Error(`${dir} is not inside the workspace`);
   const top = rel.split("/")[0]!;
-  if (RESERVED.has(top)) throw new Error(`${top} is the workspace's own; nothing is uploaded there`);
+  if (RESERVED.has(top.toLowerCase())) throw new Error(`${top} is the workspace's own; nothing is uploaded there`);
   return rel;
 }
 

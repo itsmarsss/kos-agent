@@ -19,7 +19,7 @@ import {
 
 import { ROLE_NAME, RoleStore } from "../agents/roles.js";
 import type { Db } from "../store/db.js";
-import type { Workspace } from "../store/workspace.js";
+import { foldedPath, type Workspace } from "../store/workspace.js";
 import { projectTable } from "./identifiers.js";
 import type { ProjectManifest } from "./manifest.js";
 import { withDocText } from "./artifactedit.js";
@@ -166,6 +166,9 @@ const ownerOfRow = (r: Row): PageOwner => (r.blob && r.blob_id ? { blob: r.blob,
 /** Who a record belongs to. */
 export const ownerOfRecord = (r: PageRecord): PageOwner => (r.blob && r.blobId ? { blob: r.blob, id: r.blobId } : r.projectSlug);
 
+/** A stored path as a fence compares it: forward slashes, lower case. */
+const fold = (path: string): string => path.split("\\").join("/").toLowerCase();
+
 /** Where an artifact's file lives: its project's pages folder, its blob's artifacts folder beside its files, or the workspace's. */
 const folderOf = (owner: PageOwner): string => {
   const project = projectOf(owner);
@@ -254,33 +257,38 @@ export class PageStore {
   /**
    * The artifact a workspace path is part of: its file, or a version or
    * capture of it under its owner's folder. Undefined for any other path,
-   * a folder's own file that is no artifact's included.
+   * a folder's own file that is no artifact's included. Matched with the
+   * path folded (foldedPath) and the id in any case, so `Blobs/x/Artifacts/`
+   * is the folder it opens on a case-insensitive disk, and refused as one.
    */
   recordAt(path: string): PageRecord | undefined {
-    const parts = path.replace(/\\/g, "/").split("/").filter((p) => p !== "" && p !== ".");
+    const parts = foldedPath(this.workspace.root, path).split("/").filter((p) => p !== "");
     const at = parts[0] === "projects" && parts[2] === "pages" ? 3 : parts[0] === "blobs" && parts[2] === "artifacts" ? 3 : parts[0] === "artifacts" ? 1 : -1;
     if (at < 0 || parts.length <= at) return undefined;
     const rest = parts.slice(at);
     const id = rest[0] === ".history" || rest[0] === ".captures" ? rest[1] : rest.length === 1 ? rest[0]!.replace(/\.(html|json)$/, "") : undefined;
-    const row = id ? this.row(id) : undefined;
-    if (!row || folderOf(ownerOfRow(row)) !== parts.slice(0, at).join("/")) return undefined;
-    return recordOf(row);
+    if (!id) return undefined;
+    const folder = parts.slice(0, at).join("/");
+    const rows = this.db.prepare(`SELECT ${COLS} FROM ${FROM} WHERE p.id = ? COLLATE NOCASE`).all(id) as Row[];
+    const row = rows.find((r) => fold(folderOf(ownerOfRow(r))) === folder);
+    return row ? recordOf(row) : undefined;
   }
 
   /**
    * Every artifact with a file, version or capture under a workspace folder:
    * read from the rows, not by walking the folder, so a folder operation
    * (an rm, an mv, a cp of `blobs/noter` or `projects/x/pages`) is held to
-   * whose artifacts it would take with it. The workspace's root holds them all.
+   * whose artifacts it would take with it. The workspace's root holds them
+   * all. Compared folded, as recordAt compares a file.
    */
   recordsUnder(folder: string): PageRecord[] {
-    const prefix = folder.replace(/\\/g, "/").split("/").filter((p) => p !== "" && p !== ".").join("/");
+    const prefix = foldedPath(this.workspace.root, folder);
     const under = (path: string): boolean => prefix === "" || path === prefix || path.startsWith(`${prefix}/`);
     const rows = this.db.prepare(`SELECT ${COLS} FROM ${FROM}`).all() as Row[];
     return rows
       .filter((r) => {
-        const dir = folderOf(ownerOfRow(r)).split("\\").join("/");
-        return under(r.path) || [".history", ".captures"].some((sub) => under(`${dir}/${sub}/${r.id}`));
+        const dir = fold(folderOf(ownerOfRow(r)));
+        return under(fold(r.path)) || [".history", ".captures"].some((sub) => under(`${dir}/${sub}/${r.id.toLowerCase()}`));
       })
       .map(recordOf);
   }

@@ -8,7 +8,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, relative, sep } from "node:path";
+import { dirname, relative } from "node:path";
 
 import { isOffice, officeNote, officeText } from "../files/office.js";
 import { isPdf, pdfText } from "../files/pdftext.js";
@@ -16,7 +16,7 @@ import { isPdf, pdfText } from "../files/pdftext.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { SAFE, type ToolRisk } from "../risk/tiers.js";
-import type { Workspace } from "../store/workspace.js";
+import { foldedPath, type Workspace } from "../store/workspace.js";
 import { reachOf } from "./sql.js";
 import { artifactFileRefusal, artifactFolderRefusal } from "./systems.js";
 
@@ -51,6 +51,11 @@ const rmRisk: ToolRisk = {
   escalate: (input) => (outsideScratch(optStr(input, "path") ?? "") ? "outside the scratch folder" : false),
 };
 
+/** A path under KOS's own state, .kos/, in any case: `.KOS` is the same folder on a case-insensitive disk. */
+export function isKosState(ws: Workspace, path: string): boolean {
+  return foldedPath(ws.root, path).split("/")[0] === ".kos";
+}
+
 /**
  * A path the file tools may use: anything in the jail but KOS's own state
  * under .kos/, which holds results set aside from other chats and other
@@ -58,8 +63,7 @@ const rmRisk: ToolRisk = {
  */
 function usable(ws: Workspace, path: string): string {
   const abs = ws.resolve(path);
-  const rel = relative(ws.root, abs).split(sep);
-  if (rel[0] === ".kos") throw new Error(".kos is KOS's own state and is not read or changed with files.*; a result set aside in this chat comes back with context.recall");
+  if (isKosState(ws, relative(ws.root, abs))) throw new Error(".kos is KOS's own state and is not read or changed with files.*; a result set aside in this chat comes back with context.recall");
   return abs;
 }
 

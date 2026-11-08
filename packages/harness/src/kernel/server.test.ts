@@ -1306,6 +1306,10 @@ describe("handleApiRequest", () => {
       expect(there).not.toContain("NOTE-BODY");
       expect(there).toMatch(/Page notes: not shown; This chat is Shelf's, so the blob noter's artifacts are not this chat's to read/);
       expect(there).toMatch(/File blobs\/noter\/artifacts\/notes.html: not shown/);
+      // A change of case is the same file on a case-insensitive disk, and refused on any.
+      const cased = resolve("@file:Blobs/noter/Artifacts/NOTES.html @file:blobs/noter/artifacts/.History/notes/1.json", chat.id, owner);
+      expect(cased).not.toContain("NOTE-BODY");
+      expect(cased.match(/not shown; .*part of the artifact notes/g)).toHaveLength(2);
       // The blob's own thread, and the owner's own chat at the root, see it.
       expect(resolve("@page:notes", kernel.ensureAgentConversation("noter").id, owner)).toContain("NOTE-BODY");
       const mine = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mine" });
@@ -1314,6 +1318,7 @@ describe("handleApiRequest", () => {
       expect(resolve("@page:notes", mine.id, { guest: false, attended: false })).not.toContain("NOTE-BODY");
       // KOS's own state is never shown.
       expect(resolve("@file:.kos/secret.txt", mine.id, owner)).not.toContain("KOS-STATE");
+      for (const path of [".KOS/secret.txt", "notes/../.Kos/secret.txt"]) expect(resolve(`@file:${path}`, mine.id, owner)).toMatch(/KOS's own state and is not shown/);
       // A guest's words show nothing of the owner's, even in the project's own chat.
       const guest = resolve("@page:shelf @file:projects/shelf/pages/shelf.html @page:notes @file:notes.txt", chat.id, { guest: true, attended: false });
       expect(guest).not.toContain("<p>books</p>");

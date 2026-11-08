@@ -45,6 +45,7 @@ import type { BuiltinFeature } from "../modules/builtins.js";
 import { MODULES_KEY, parseModuleSettings, withBuiltinEnabled } from "../modules/workspace.js";
 import { bootKernel, callerBlobOf } from "./boot.js";
 import { artifactFileRefusal, whyNot } from "../tools/systems.js";
+import { isKosState } from "../tools/files.js";
 import type { Reach } from "../tools/fence.js";
 import { ORCHESTRATOR_BRIEF } from "./orchestration.js";
 export { ORCHESTRATOR_BRIEF } from "./orchestration.js";
@@ -4129,7 +4130,7 @@ export class Kernel {
       }
       try {
         // As files.read reads it: never KOS's own state, and an artifact's file only from its owner's chats.
-        if (/^(\.\/)*\.kos(\/|$)/.test(ref.id.replace(/\\/g, "/"))) throw new Error(".kos is KOS's own state and is not shown");
+        if (isKosState(this.workspace, ref.id)) throw new Error(".kos is KOS's own state and is not shown");
         const why = artifactFileRefusal(this.pages, ref.id, reach, "read");
         if (why) throw new Error(`not shown; ${why}`);
         const file = readWorkspaceFile(this.workspace, ref.id);
