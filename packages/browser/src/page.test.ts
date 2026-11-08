@@ -64,3 +64,50 @@ describe("KOS's own world in a page", () => {
     }
   });
 });
+
+describe("a Stop part way through a step", () => {
+  /** A page with one element at every selector, a box at the top left, under nothing. */
+  const shop = (more: Record<string, Handler> = {}): ReturnType<typeof tab> =>
+    tab({
+      "Page.getFrameTree": () => FRAME,
+      "Runtime.evaluate": () => ({ result: { objectId: "el", value: "complete" } }),
+      "DOM.describeNode": () => ({ node: { backendNodeId: 10 } }),
+      "DOM.getContentQuads": () => ({ quads: [[0, 0, 20, 0, 20, 20, 0, 20]] }),
+      "DOM.getNodeForLocation": () => ({ backendNodeId: 10 }),
+      ...more,
+    });
+
+  it("lets go of the button of a drag stopped between its press and its release", async () => {
+    const stop = new AbortController();
+    const { session, calls } = shop({
+      "Input.dispatchMouseEvent": (p) => {
+        if (p["type"] === "mouseMoved" && p["buttons"] === 1) stop.abort();
+        return {};
+      },
+    });
+    const page = new Page(session);
+    await page.ready();
+    await expect(page.step({ drag: { from: "#card", to: "#done" } }, stop.signal)).rejects.toBeInstanceOf(Stopped);
+    const mouse = calls.filter((c) => c.method === "Input.dispatchMouseEvent").map((c) => c.params["type"]);
+    expect(mouse.indexOf("mouseReleased")).toBeGreaterThan(mouse.indexOf("mousePressed"));
+    expect(calls.at(-1)).toEqual({ method: "Input.setInterceptDrags", params: { enabled: false } });
+  });
+
+  it("releases what a command no longer waited for brings back, once it does", async () => {
+    let answer: (r: Record<string, unknown>) => void = () => undefined;
+    const { session, calls } = shop({
+      "Runtime.evaluate": (p) =>
+        String(p["expression"]).includes("present") ? new Promise((r) => (answer = r)) : { result: { objectId: "el", value: "complete" } },
+    });
+    const page = new Page(session);
+    await page.ready();
+    const stop = new AbortController();
+    const waiting = page.step({ wait: { text: "never there" } }, stop.signal);
+    await new Promise((r) => setTimeout(r, 20));
+    stop.abort();
+    await expect(waiting).rejects.toBeInstanceOf(Stopped);
+    answer({ result: { objectId: "late" } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls.filter((c) => c.method === "Runtime.releaseObject")).toEqual([{ method: "Runtime.releaseObject", params: { objectId: "late" } }]);
+  });
+});

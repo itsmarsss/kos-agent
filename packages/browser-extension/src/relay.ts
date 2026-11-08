@@ -39,6 +39,7 @@ export const COMMANDS: ReadonlySet<string> = new Set([
   "Runtime.callFunctionOn",
   "Runtime.evaluate",
   "Runtime.getProperties",
+  "Runtime.releaseObject",
   "Runtime.releaseObjectGroup",
 ]);
 

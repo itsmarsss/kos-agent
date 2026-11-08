@@ -684,21 +684,30 @@ export class Page {
     const b = await this.point(toNode, to);
     this.dragged = undefined;
     await this.send("Input.setInterceptDrags", { enabled: true }).catch(() => undefined);
+    let held: { x: number; y: number } | undefined;
     try {
       await this.mouse("mouseMoved", a);
+      held = a;
       await this.mouse("mousePressed", a, { button: "left", buttons: 1, clickCount: 1 });
       for (let i = 1; i <= DRAG_STEPS; i++) {
         const t = i / DRAG_STEPS;
-        await this.mouse("mouseMoved", { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, { button: "left", buttons: 1 });
+        held = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+        await this.mouse("mouseMoved", held, { button: "left", buttons: 1 });
         await this.pause(16);
       }
       if (this.dragged) {
         for (const type of ["dragEnter", "dragOver", "drop"]) await this.send("Input.dispatchDragEvent", { type, x: b.x, y: b.y, data: this.dragged, modifiers: 0 }, INPUT_MS);
       }
       await this.mouse("mouseReleased", b, { button: "left", clickCount: 1 });
+      held = undefined;
     } finally {
       this.dragged = undefined;
-      await this.send("Input.setInterceptDrags", { enabled: false }).catch(() => undefined);
+      // Cut short between the press and the release (a Stop, a failure), the button is let go of where the pointer is, not left held on the page.
+      if (held) {
+        const letGo = this.mouseCall("mouseReleased", held, { button: "left", clickCount: 1 });
+        await this.session.send(letGo.method, letGo.params, INPUT_MS).catch(() => undefined);
+      }
+      await this.session.send("Input.setInterceptDrags", { enabled: false }).catch(() => undefined);
     }
   }
 
@@ -936,16 +945,44 @@ export class Page {
     return this.guard(this.session.send(method, params, timeoutMs));
   }
 
-  /** Work in flight, given up once the owner presses Stop. */
+  /** Work in flight, given up once the owner presses Stop; what it brings back after is let go of, not left for the page to hold. */
   private guard<T>(work: Promise<T>): Promise<T> {
     const stop = this.stop;
     if (!stop) return work;
     return new Promise<T>((resolve, reject) => {
-      const onStop = (): void => reject(new Stopped());
+      let settled = false;
+      const onStop = (): void => {
+        if (settled) return;
+        settled = true;
+        reject(new Stopped());
+        void work.then((r) => this.letGo(r), () => undefined);
+      };
       if (stop.aborted) onStop();
       stop.addEventListener("abort", onStop, { once: true });
-      work.then(resolve, reject).finally(() => stop.removeEventListener("abort", onStop));
+      work
+        .then(
+          (r) => {
+            settled = true;
+            resolve(r);
+          },
+          (err: unknown) => {
+            settled = true;
+            reject(err);
+          },
+        )
+        .finally(() => stop.removeEventListener("abort", onStop));
     });
+  }
+
+  /** The page objects in answers no one waited for, released one by one: the group they were made in may be another call's by now. */
+  private letGo(answer: unknown): void {
+    for (const one of Array.isArray(answer) ? answer : [answer]) {
+      if (typeof one !== "object" || one === null) continue;
+      const r = one as { result?: { objectId?: unknown }; object?: { objectId?: unknown } };
+      for (const objectId of [r.result?.objectId, r.object?.objectId]) {
+        if (typeof objectId === "string") void this.session.send("Runtime.releaseObject", { objectId }).catch(() => undefined);
+      }
+    }
   }
 
   /** A pause in a step, cut short by Stop. */

@@ -75,9 +75,10 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   for the page to show what it brought. Requests are dated by the
   browser's clock, so one heard late is not taken for the step's. So a
   run needs no waits of its own after clicks, and a page that never stops
-  talking does not hold every step. Stop ends the step under way: a wait is woken, a command still
-  out is no longer waited for, no further one is sent, and the run says
-  it was stopped.
+  talking does not hold every step. Stop ends the step under way: a wait
+  is woken, a command still out is no longer waited for (what it brings
+  back later is released), no further one is sent, a drag lets go of the
+  button, and the run says it was stopped.
 - **Never hanging.** Every wait has a deadline and ends in an answer: a
   page still loading at twenty seconds is handed back as it is, said to
   be still loading. A dialog is answered the moment it opens (an alert
