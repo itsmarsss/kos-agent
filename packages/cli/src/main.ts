@@ -215,6 +215,7 @@ async function localRepl(kernel: Kernel): Promise<void> {
       try {
         const res = await kernel.handleMessage(line, {
           sessionId: primarySessionId(kernel.profile.ownerId),
+          owner: true,
         });
         console.log(res.reply || "(no reply)");
       } catch (err) {
@@ -764,6 +765,7 @@ async function main(): Promise<void> {
       }
       const res = await kernel.handleMessage(rest.join(" "), {
         sessionId: primarySessionId(kernel.profile.ownerId),
+        owner: true,
       });
       console.log(res.reply || "(no reply)");
     } else if (OFFLINE_COMMANDS.has(command)) {

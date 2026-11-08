@@ -2,7 +2,7 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { isSqlDestructive } from "../risk/rules.js";
 import type { Db } from "../store/db.js";
-import { isAttended } from "../kernel/caller.js";
+import { isAttended, isOwnerTurn } from "../kernel/caller.js";
 import { fence, isKernelTable, MAINTENANCE_SLUG, ownedBy, ownerOf, reachable, tableNames, type Reach } from "./fence.js";
 
 /**
@@ -101,7 +101,7 @@ export function reachOf(ctx: ModuleContext): Reach {
   return {
     project: ctx.services?.callerProject?.(),
     blob: ctx.services?.callerBlob?.(),
-    owner: isAttended() && !ctx.services?.callerConversation?.()?.startsWith("cron:"),
+    owner: isAttended() && isOwnerTurn() && !ctx.services?.callerConversation?.()?.startsWith("cron:"),
     projects: (ctx.services?.manifest?.list() ?? []).map((p) => ({ slug: p.slug, name: p.name })),
     made: ctx.services?.turnMade?.made() ?? [],
   };

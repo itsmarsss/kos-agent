@@ -11,7 +11,7 @@ import { ProjectManifest } from "../systems/manifest.js";
 import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { RoleStore } from "../agents/roles.js";
-import { attendance } from "../kernel/caller.js";
+import { attendance, ownership } from "../kernel/caller.js";
 import { filesModule } from "./files.js";
 import { systemsModule } from "./systems.js";
 
@@ -33,11 +33,16 @@ describe("systems.migrate risk", () => {
   let roles: RoleStore;
   // What the running turn made: the kernel opens it per turn and drops it at the end.
   let made = new Set<string>();
+  // The registry's own execute, run as no turn in particular.
+  let execute: ToolRegistry["execute"];
 
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "kos-systems-"));
     ws = Workspace.open(root);
     registry = new ToolRegistry();
+    // A call here is the owner's own turn's, as one from the dashboard is, unless a test says otherwise.
+    execute = registry.execute.bind(registry);
+    registry.execute = (name, input) => ownership.run(true, () => execute(name, input));
     const manifest = new ProjectManifest(ws.db);
     const migrator = new Migrator(ws.db, manifest);
     const pages = new PageStore(ws.db, ws, manifest);
@@ -354,6 +359,9 @@ describe("systems.migrate risk", () => {
     // A turn the owner did not start (a schedule's run, a guest in a channel) is not the owner's own chat.
     const unattended = await attendance.run(false, () => registry.execute("artifacts.get", { id: "notes" }));
     expect(unattended.isError).toBe(true);
+    // Nor a turn whose door never said it was the owner's: work passed on, a caller that forgot.
+    const unsaid = await ownership.run(false, () => execute("artifacts.get", { id: "notes" }));
+    expect(unsaid.isError).toBe(true);
     caller = "cron:7";
     expect((await registry.execute("artifacts.get", { id: "notes" })).isError).toBe(true);
   });

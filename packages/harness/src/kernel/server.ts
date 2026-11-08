@@ -692,6 +692,7 @@ export async function handleApiRequest(
       error,
       what: typeof body.what === "string" ? body.what.slice(0, 40) : "job",
       ...(typeof body.ref === "string" ? { ref: body.ref.slice(0, 60) } : {}),
+      byOwner: true,
     });
     return ok(started);
   }
@@ -1618,6 +1619,7 @@ export async function handleApiRequest(
         // nothing on either engine, so the model answers from the context it
         // was handed and cannot act on the workspace from the side.
         allow: [],
+        owner: true,
         ...(contextId ? { contextFrom: contextId } : {}),
         ...(prior.length ? { priorTurns: prior } : {}),
       });
@@ -1658,6 +1660,7 @@ export async function handleApiRequest(
           await kernel.handleProjectTurn(sessionId.slice("project:".length), text, {
             channel: "dashboard",
             attachments,
+            owner: true,
           }),
         );
       }
@@ -1666,11 +1669,13 @@ export async function handleApiRequest(
           await kernel.handleOrchestratorTurn(text, {
             channel: "dashboard",
             attachments,
+            owner: true,
           }),
         );
       }
       return ok(
-        await kernel.handleMessage(text, { sessionId, userId, attachments }),
+        // Only the owner holds the API, from the dashboard, the extension or a device: their own words.
+        await kernel.handleMessage(text, { sessionId, userId, attachments, owner: true }),
       );
     } catch (err) {
       // An attachment we cannot send is the caller's problem to fix, not a
@@ -1690,6 +1695,7 @@ export async function handleApiRequest(
         await kernel.handleOrchestratorTurn(text, {
           channel: "dashboard",
           attachments: parseAttachments(body.attachments),
+          owner: true,
         }),
       );
     } catch (err) {
@@ -2510,7 +2516,8 @@ export async function handleApiRequest(
     });
     kernel.manifest.touchProject(slug);
     if (task) {
-      void kernel.dispatchTo(created.id, task).catch((err: unknown) => {
+      // The owner's own words, typed as the new chat's task.
+      void kernel.dispatchTo(created.id, task, undefined, { attended: true, owner: true }).catch((err: unknown) => {
         console.error(`agent ${created.id}: ${err instanceof Error ? err.message : String(err)}`);
       });
     }
@@ -2641,6 +2648,7 @@ export async function handleApiRequest(
     try {
       return ok(
         await kernel.rewind(id, index, {
+          owner: true,
           ...(typeof body.text === "string" ? { text: body.text } : {}),
           ...(typeof body.forkTitle === "string" ? { forkTitle: body.forkTitle } : {}),
         }),

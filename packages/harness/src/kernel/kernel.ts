@@ -97,7 +97,7 @@ import { DB_FILENAME, Workspace } from "../store/workspace.js";
 import { InstanceConfig } from "../systems/config.js";
 import { ProjectManifest } from "../systems/manifest.js";
 import { describeActive, describeProject, type ProjectSchema } from "../systems/schema.js";
-import { caller } from "./caller.js";
+import { caller, isAttended, isOwnerTurn } from "./caller.js";
 import {
   deleteProject as cascadeDeleteProject,
   type DeleteProjectResult,
@@ -122,7 +122,7 @@ import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
 import type { SuggestionStore } from "../improve/store.js";
 import { AfterTurn, EMBED_MS } from "./afterturn.js";
-import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF } from "./caretaker.js";
+import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF, type FixRequest } from "./caretaker.js";
 import { Decisions, type DecisionResult } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
 import { GuardedTools, finishedAfterStop } from "./guarded.js";
@@ -749,6 +749,15 @@ export class Kernel {
        * memory salience pass.
        */
       origin?: "owner" | "system";
+      /**
+       * The owner's own message started this turn: set by the door that took
+       * it from the owner (the dashboard, the CLI, a surface they speak on),
+       * never by the harness. Absent is not the owner's: a schedule, a guest,
+       * a resumed approval or work passed on reaches only what any turn does.
+       */
+      owner?: boolean;
+      /** Whether anyone could answer a prompt: the sender's, for work passed on. Absent, it follows origin. */
+      attended?: boolean;
       /** Surface this turn arrived on, so the reply can be shaped for it. */
       channel?: string;
       /**
@@ -815,7 +824,7 @@ export class Kernel {
       const own = this.conversations.get(sessionId)?.toolAllow ?? null;
       const reach = own ? GUEST_TOOLS.filter((t) => own.some((a) => t === a || t.startsWith(`${a}.`))) : [...GUEST_TOOLS];
       const { attachments: sent, grant: _grant, ...rest } = opts;
-      opts = { ...rest, origin: "system", allow: reach, ...(sent?.length ? { guestFiles: sent.map((a) => a.name) } : {}) };
+      opts = { ...rest, origin: "system", owner: false, allow: reach, ...(sent?.length ? { guestFiles: sent.map((a) => a.name) } : {}) };
     }
     // What came with the message is kept as files first, in the folder of
     // whatever the chat belongs to and before a PDF is turned into text, so
@@ -885,6 +894,8 @@ export class Kernel {
     opts: {
       noSession?: boolean;
       origin?: "owner" | "system";
+      owner?: boolean;
+      attended?: boolean;
       channel?: string;
       grant?: string[];
       allow?: string[];
@@ -909,6 +920,11 @@ export class Kernel {
     {
       const runId = this.runs.start("chat");
       const turnId = String(runId);
+      // Who this turn is to the fences: attended unless the harness started it
+      // or the sender was not, the owner's only when the door that took the
+      // owner's own message said so.
+      const attended = opts.attended ?? opts.origin !== "system";
+      const owner = attended && opts.owner === true && opts.origin !== "system" && !opts.guest && !sessionId.startsWith("cron:");
       const stop = this.stopFor(sessionId, turnId);
       const previousConversation = this.currentConversationId;
       this.currentConversationId = sessionId;
@@ -971,7 +987,8 @@ export class Kernel {
           turnId,
           signal: stop.signal,
           // A schedule's prompt, a blob's own timer, a guest: the owner did not start this one.
-          attended: opts.origin !== "system",
+          attended,
+          owner,
           heard: () => this.hear(sessionId, mark),
           onQueued: (action) => suspend?.(action),
           // null is unrestricted; an array is the exact scope, empty included.
@@ -1007,7 +1024,7 @@ export class Kernel {
         // here so the agent gets the file's contents or the page's spec
         // rather than a string it has to go and look up, and so a name that
         // no longer exists says so instead of being silently ignored.
-        const mentioned = this.resolveMentions(text, conversation?.id, { guest: opts.guest !== undefined, attended: opts.origin !== "system" });
+        const mentioned = this.resolveMentions(text, conversation?.id, { guest: opts.guest !== undefined, owner });
         // Where this message's files now live, so the model refers to them
         // by path and anything else can open them later.
         const keptNote = opts.kept?.length
@@ -1688,7 +1705,7 @@ export class Kernel {
    */
   async handleOrchestratorTurn(
     text: string,
-    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[] } = {},
+    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; owner?: boolean } = {},
   ): Promise<HandleResult & { conversationId: string }> {
     const id = this.ensureOrchestratorConversation().id;
     const res = await this.handleMessage(text, {
@@ -1703,6 +1720,7 @@ export class Kernel {
       ...(opts.guest ? { guest: opts.guest } : {}),
       ...(opts.room ? { room: opts.room } : {}),
       ...(opts.members?.length ? { members: opts.members } : {}),
+      ...(opts.owner ? { owner: true } : {}),
     });
     return { ...res, conversationId: id };
   }
@@ -1757,7 +1775,8 @@ export class Kernel {
         ? `What is asked of you now: ${ask}`
         : "Nothing is asked of you now. Keep this for when the owner picks it up here, and say in one line that you have it.",
     ].join("\n");
-    void this.dispatchTo(target.id, text, input.from)
+    // The owner's own hand-off, from the dashboard, is theirs; an agent's is its turn's, read from the call making it.
+    void this.dispatchTo(target.id, text, input.from, input.by === "owner" ? { attended: true, owner: true } : undefined)
       .then((res) => {
         if (input.from) this.noteIn(input.from, `${target.title} answered: ${res.reply.slice(0, 600)}`);
       })
@@ -2273,7 +2292,7 @@ export class Kernel {
   async handleProjectTurn(
     slug: string,
     text: string,
-    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[] } = {},
+    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; owner?: boolean } = {},
   ): Promise<HandleResult & { conversationId: string }> {
     const id = this.ensureProjectConversation(slug).id;
     const res = await this.handleMessage(text, {
@@ -2288,12 +2307,13 @@ export class Kernel {
       ...(opts.guest ? { guest: opts.guest } : {}),
       ...(opts.room ? { room: opts.room } : {}),
       ...(opts.members?.length ? { members: opts.members } : {}),
+      ...(opts.owner ? { owner: true } : {}),
     });
     return { ...res, conversationId: id };
   }
 
   /** Open a chat to work out why something failed. The dashboard calls this. */
-  startFix(input: { label: string; error: string; what: string; ref?: string }): Promise<{ conversationId: string; title: string; prompt: string }> {
+  startFix(input: FixRequest): Promise<{ conversationId: string; title: string; prompt: string }> {
     return this.caretaker.startFix(input);
   }
 
@@ -2315,6 +2335,13 @@ export class Kernel {
     text: string,
     /** The chat sending it; the one whose tool is running, unless said. */
     by?: string,
+    /**
+     * Who the sender's turn was to the fences, which the turn it starts is
+     * no more than: read from the call that sends it unless said, so a
+     * guest's or a schedule's turn handing work on hands on none of the
+     * owner's reach. A door outside any turn (the dashboard) says so itself.
+     */
+    as: { attended: boolean; owner: boolean } = { attended: isAttended(), owner: isOwnerTurn() },
   ): Promise<{ reply: string; conversationId: string }> {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) throw new Error(`no such conversation: ${conversationId}`);
@@ -2332,6 +2359,8 @@ export class Kernel {
     const turn = (): Promise<HandleResult> =>
       this.runTurn(text, conversation.userId, conversation.id, {
         channel: "dispatch",
+        attended: as.attended,
+        owner: as.owner,
         ...(from ? { from } : {}),
         ...(trail.length ? { trail } : {}),
         ...(orchestrates ? { grant: projectChat ? PROJECT_ORCHESTRATOR_GRANT : [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS], allow: [...ORCHESTRATOR_SCOPE] } : {}),
@@ -2456,6 +2485,8 @@ export class Kernel {
     conversationId: string,
     userId: string,
     channel: string,
+    /** The owner typed it, not a guest: what it starts is the owner's own turn. */
+    owner = false,
   ): Promise<CommandResult> {
     const history = this.sessions.get(conversationId);
     const current = this.conversations.get(conversationId);
@@ -2514,7 +2545,7 @@ export class Kernel {
         }
         // Not awaited: a retry is a whole turn, and the surface watches it
         // run the way it watches any other.
-        void this.rewind(conversationId, said - 1).catch((err: unknown) => {
+        void this.rewind(conversationId, said - 1, { owner }).catch((err: unknown) => {
           console.error(`retry in ${conversationId}: ${err instanceof Error ? err.message : String(err)}`);
         });
         return { reply: "Asking it again." };
@@ -2558,7 +2589,7 @@ export class Kernel {
         if (!found) return { reply: `No chat matches “${command.target}”. \`/agents\` lists them.` };
         if (found.id === conversationId) return { reply: "That is this chat. Just say it." };
         if (this.killSwitch.halted) return { reply: "KOS is halted; nothing is dispatched until it resumes." };
-        void this.dispatchTo(found.id, command.task, conversationId).catch((err: unknown) => {
+        void this.dispatchTo(found.id, command.task, conversationId, { attended: true, owner }).catch((err: unknown) => {
           console.error(`dispatch to ${found.id}: ${err instanceof Error ? err.message : String(err)}`);
         });
         return { reply: `Handed to “${found.title}”: ${command.task}` };
@@ -2650,7 +2681,7 @@ export class Kernel {
     if (!command) return null;
 
     const result = needsKernel(command)
-      ? await this.runKernelCommand(command, conversationId, userId, channel)
+      ? await this.runKernelCommand(command, conversationId, userId, channel, true)
       : runChatCommand(command, {
           conversations: this.conversations,
           channel,
@@ -2829,6 +2860,8 @@ export class Kernel {
       ...(input.guest ? { guest: input.guest } : {}),
       ...(input.room ? { room: input.room } : {}),
       ...(input.members?.length ? { members: input.members } : {}),
+      // A surface hands on the owner's own words, and names a guest's as theirs.
+      ...(input.guest ? {} : { owner: true }),
     };
     if (conversation.id === orchestratorId(this.profile.ownerId)) return this.handleOrchestratorTurn(input.text, opts);
     if (conversation.id.startsWith("project:")) return this.handleProjectTurn(conversation.id.slice("project:".length), input.text, opts);
@@ -2861,7 +2894,7 @@ export class Kernel {
       const result: CommandResult = input.contained && command.kind === "project"
         ? { reply: "This chat keeps to its own conversations, so a project starts on the dashboard: say /project there." }
         : needsKernel(command)
-        ? await this.runKernelCommand(command, conversation.id, input.userId, input.channel)
+        ? await this.runKernelCommand(command, conversation.id, input.userId, input.channel, !input.guest)
         : runChatCommand(command, {
             conversations: this.conversations,
             channel: input.channel,
@@ -2887,6 +2920,7 @@ export class Kernel {
         sessionId: thread.id,
         channel: input.channel,
         ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+        ...(input.guest ? { guest: input.guest } : { owner: true }),
         ...(input.room ? { room: input.room } : {}),
         ...(input.members?.length ? { members: input.members } : {}),
         ...(input.context ? { context: input.context } : {}),
@@ -2927,6 +2961,7 @@ export class Kernel {
         ? { grant: [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS] }
         : {}),
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+      ...(input.guest ? { guest: input.guest } : { owner: true }),
     });
     return { ...res, conversationId: conversation.id, isCommand: false };
   }
@@ -3021,6 +3056,8 @@ export class Kernel {
     waitForApproval?: boolean;
     /** False when the owner did not start the turn. */
     attended?: boolean;
+    /** True for the owner's own turn alone. */
+    owner?: boolean;
     /** The owner's words said since the last call, for the model with this call's result. */
     heard?: () => string | undefined;
     /** The turn's stop. */
@@ -3062,6 +3099,7 @@ export class Kernel {
       ...(opts.grant?.length ? { grant: opts.grant } : {}),
       ...(opts.waitForApproval === false ? { waitForApproval: false } : {}),
       ...(opts.attended === false ? { attended: false } : {}),
+      ...(opts.owner === true ? { owner: true } : {}),
       onQueued: (action) => {
         opts.onQueued?.(action);
         this.onApprovalRequested?.(action);
@@ -3970,7 +4008,7 @@ export class Kernel {
    * Only what was actually named: this is the owner pointing at something, so
    * it is worth the prompt space, unlike everything else in the workspace.
    */
-  private resolveMentions(text: string, conversationId: string | undefined, who: { guest: boolean; attended: boolean }): string | null {
+  private resolveMentions(text: string, conversationId: string | undefined, who: { guest: boolean; owner: boolean }): string | null {
     const refs = parseMentions(text);
     // A #word that names no channel is a word, not a dead reference.
     const channels = this.discord
@@ -3985,7 +4023,7 @@ export class Kernel {
       return parts.length ? ["## Referenced in this message", ...parts].join("\n\n") : null;
     }
     // What a mention shows, this chat's tools could read: an artifact is fenced to its owner's chats either way.
-    const reach = this.mentionReach(conversationId, who.attended);
+    const reach = this.mentionReach(conversationId, who.owner);
     for (const ref of refs) {
       if (ref.kind === "tab") {
         // A page someone has open. Named with how to get to it, since the
@@ -4149,13 +4187,13 @@ export class Kernel {
   }
 
   /** Who a chat is to the fences, for what its mentions may show: as reachOf has it for the same chat's tool calls. */
-  private mentionReach(conversationId: string | undefined, attended: boolean): Reach {
+  private mentionReach(conversationId: string | undefined, owner: boolean): Reach {
     const projectSlug = conversationId ? this.conversations.get(conversationId)?.projectSlug ?? undefined : undefined;
     return {
       project: projectSlug,
       blob: callerBlobOf(conversationId, this.conversations, this.roles),
       projects: this.manifest.list().map((p) => ({ slug: p.slug, name: p.name })),
-      owner: attended && !conversationId?.startsWith("cron:"),
+      owner: owner && !conversationId?.startsWith("cron:"),
     };
   }
 
@@ -4259,6 +4297,8 @@ export class Kernel {
     void this.handleMessage(waiting.text, {
       sessionId: fork.id,
       userId: source.userId,
+      // Asked on the dashboard; the words are the owner's unless a guest or a chat sent them.
+      owner: !waiting.origin?.from,
       ...(waiting.attachments.length ? { attachments: waiting.attachments } : {}),
     });
     return fork.id;
@@ -4267,7 +4307,8 @@ export class Kernel {
   async rewind(
     sessionId: string,
     userTurnIndex: number,
-    opts: { text?: string; forkTitle?: string } = {},
+    /** owner: the owner's own hand asked for it, from a door of theirs. */
+    opts: { text?: string; forkTitle?: string; owner?: boolean } = {},
   ): Promise<HandleResult & { conversationId: string }> {
     const source = this.conversations.get(sessionId);
     if (!source) throw new Error(`no such conversation: ${sessionId}`);
@@ -4326,6 +4367,8 @@ export class Kernel {
     const res = await this.handleMessage(said, {
       sessionId: target,
       userId: source.userId,
+      // The owner's again only if it was theirs, or the words are new ones of theirs: not a guest's or a chat's sent again.
+      owner: opts.owner === true && (opts.text !== undefined || !original?.origin?.from),
       ...(carried.length ? { attachments: [] } : {}),
     });
     // Re-attach by hand: handleMessage builds its own user message, and the

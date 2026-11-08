@@ -5,7 +5,7 @@ import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
 import { injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
-import { attendance, caller, turn, turnStop } from "./caller.js";
+import { attendance, caller, ownership, turn, turnStop } from "./caller.js";
 
 export interface GuardedToolsDeps {
   /** A big result set aside as it comes back: whole with its handle, or its start and an outline when huge (in an SDK query). */
@@ -41,6 +41,8 @@ export interface GuardedToolsDeps {
   turnId?: string;
   /** False when the owner did not start this turn (a schedule, a guest); see `attendance`. */
   attended?: boolean;
+  /** True for the owner's own turn alone; see `ownership`. */
+  owner?: boolean;
   /**
    * The turn's stop. Once it aborts, a call that is running answers at once
    * (what it started is told through `turnStop`, and its own end is still
@@ -289,6 +291,7 @@ export class GuardedTools implements ToolBox {
     // Every handler runs inside the caller store, so a tool that asks which
     // conversation is calling gets this one, not whichever turn started last.
     const attended = this.deps.attended !== false;
+    const owner = attended && this.deps.owner === true;
     const { turnId, signal } = this.deps;
     const stoppable = (n: string, i: Record<string, unknown>): Promise<ToolExecution> =>
       signal ? turnStop.run(signal, () => registry.execute(n, i)) : registry.execute(n, i);
@@ -296,7 +299,7 @@ export class GuardedTools implements ToolBox {
       turnId ? turn.run(turnId, () => stoppable(n, i)) : stoppable(n, i);
     const run = (n: string, i: Record<string, unknown>): Promise<ToolExecution> => {
       started.ran = true;
-      return attendance.run(attended, () => (conversationId ? caller.run(conversationId, () => inTurn(n, i)) : inTurn(n, i)));
+      return attendance.run(attended, () => ownership.run(owner, () => (conversationId ? caller.run(conversationId, () => inTurn(n, i)) : inTurn(n, i))));
     };
 
     const repeated = this.repeatGuard(name, called);
