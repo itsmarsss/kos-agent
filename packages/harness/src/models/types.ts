@@ -131,6 +131,8 @@ export interface MessageFrom {
   kind: "guest" | "chat" | "schedule";
   name: string;
   id?: string;
+  /** A chat's words passed on by the owner's own turn or hand: theirs again when sent again. */
+  owner?: true;
 }
 
 /**

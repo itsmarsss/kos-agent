@@ -139,6 +139,14 @@ describe("who a turn is, by where it came from", () => {
     seen.delete(target.id);
     await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/handoff", body: { from: from.id, to: target.id, brief: "the brief", ask: "go" } });
     expect(await settle(target.id)).toEqual(owner);
+    // Sent again from the dashboard, the owner's own handoff is still theirs; an agent's is not made theirs by it.
+    const handedAt = kernel.sessions.get(target.id).filter((m) => m.role === "user" && m.content.some((b) => b.type === "text")).length - 1;
+    seen.delete(target.id);
+    await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/rewind", body: { sessionId: target.id, index: handedAt } });
+    expect(await settle(target.id)).toEqual(owner);
+    seen.delete(target.id);
+    await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/rewind", body: { sessionId: target.id, index: handedAt - 1 } });
+    expect(await settle(target.id)).toEqual(attendedOnly);
   });
 
   it("reads @mentions in the owner's words and never in what the room said beside them", async () => {

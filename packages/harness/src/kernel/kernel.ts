@@ -2376,7 +2376,9 @@ export class Kernel {
     if (!conversation) throw new Error(`no such conversation: ${conversationId}`);
     // Read now, not in the lane: by the time the turn runs, the caller's tool is long over.
     const sender = by ?? this.callerConversationId;
-    const from: MessageFrom | undefined = sender ? { kind: "chat", id: sender, name: this.nameOf(sender) } : undefined;
+    // Marked when the owner's own turn or hand passed it on, so sending it again from the dashboard is theirs again.
+    const byOwner = as.attended && as.owner;
+    const from: MessageFrom | undefined = sender ? { kind: "chat", id: sender, name: this.nameOf(sender), ...(byOwner ? { owner: true as const } : {}) } : undefined;
     const trail = this.trailTo(conversationId, sender);
     // A sub-agent is never granted the chats tools, so a dispatched turn
     // cannot dispatch again and there is no recursion to bound. A project's
@@ -4357,7 +4359,7 @@ export class Kernel {
       sessionId: fork.id,
       userId: source.userId,
       // Asked on the dashboard; the words are the owner's unless a guest or a chat sent them.
-      ...(guest ? { guest } : { owner: !from }),
+      ...(guest ? { guest } : { owner: !from || from.owner === true }),
       ...(waiting.attachments.length ? { attachments: waiting.attachments } : {}),
     });
     return fork.id;
@@ -4429,7 +4431,8 @@ export class Kernel {
       ...(guest
         ? { guest, ...(original?.origin?.via ? { channel: original.origin.via } : {}), ...(original?.origin?.room ? { room: original.origin.room } : {}) }
         : // The owner's again only if it was theirs, or the words are new ones of theirs: not a chat's sent again.
-          { owner: opts.owner === true && (opts.text !== undefined || !from) }),
+          // A chat's words passed on at the owner's own hand (their handoff, their /dispatch) are theirs again.
+          { owner: opts.owner === true && (opts.text !== undefined || !from || from.owner === true) }),
       ...(carried.length ? { attachments: [] } : {}),
     });
     // Re-attach by hand: handleMessage builds its own user message, and the
