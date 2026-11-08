@@ -257,6 +257,50 @@ describe("GuardedTools", () => {
     expect(res.content).toMatch(/Do not try it again/);
   });
 
+  describe("a call whose session is readied first", () => {
+    const browserContext = { browser: { prefix: "browser.", strict: ["browser.eval"] } };
+
+    it("readies a call before it is judged, so its ask shows where it runs", async () => {
+      const order: string[] = [];
+      registry.register({ name: "browser.act", description: "a", inputSchema: { type: "object" } }, () => "ran", RISKY);
+      const call = guarded({
+        prepare: async () => void order.push("prepare"),
+        pictureFor: async () => (order.push("picture"), "SU1H"),
+        permissionContext: () => browserContext,
+      }).execute("browser.act", {});
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      expect(order).toEqual(["prepare", "picture"]);
+      approvals.approve(approvals.pending()[0]!.id, "owner");
+      expect((await call).content).toBe("ran");
+    });
+
+    it("asks about a strict tool first, and asks for no session when the owner says no", async () => {
+      const prepared: string[] = [];
+      registry.register({ name: "browser.eval", description: "e", inputSchema: { type: "object" } }, () => "ran", RISKY);
+      const tools = (): GuardedTools => guarded({ prepare: async (t) => void prepared.push(t), permissionContext: () => browserContext });
+      const refused = tools().execute("browser.eval", { code: "1" });
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      approvals.deny(approvals.pending()[0]!.id, "owner");
+      expect((await refused).content).toMatch(/not approved/);
+      expect(prepared).toEqual([]);
+      // Allowed, the session is asked for, then it runs.
+      const allowed = tools().execute("browser.eval", { code: "2" });
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      expect(prepared).toEqual([]);
+      approvals.approve(approvals.pending()[0]!.id, "owner");
+      expect((await allowed).content).toBe("ran");
+      expect(prepared).toEqual(["browser.eval"]);
+    });
+
+    it("asks for no session for a risky call a turn only queues", async () => {
+      const prepared: string[] = [];
+      registry.register({ name: "browser.act", description: "a", inputSchema: { type: "object" } }, () => "ran", RISKY);
+      const res = await guarded({ waitForApproval: false, prepare: async (t) => void prepared.push(t), permissionContext: () => browserContext }).execute("browser.act", {});
+      expect(res.content).toMatch(/Queued for approval/);
+      expect(prepared).toEqual([]);
+    });
+  });
+
   it("treats silence as a refusal rather than waiting forever", async () => {
     registry.register(
       { name: "danger", description: "d", inputSchema: { type: "object" } },

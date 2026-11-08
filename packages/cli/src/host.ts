@@ -345,6 +345,8 @@ export async function runHost(options: HostOptions): Promise<void> {
     halted: () => kernel.killSwitch.halted,
     face: () => kernel.kosDrawing(),
     panels: { chrome: panelDeps("chrome", chromeChat), mac: panelDeps("mac", macChat) },
+    // A session started unasked is written down as the start it stands for.
+    audit: (entry) => void kernel.audit.record(entry),
   });
 
   // KOS's Chrome answers on 9225; a second KOS on the machine names another port.

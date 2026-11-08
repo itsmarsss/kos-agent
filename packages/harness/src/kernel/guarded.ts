@@ -332,17 +332,35 @@ export class GuardedTools implements ToolBox {
     const refused = registry.refusal(name, called);
     if (refused) return { content: refused, isError: true };
 
-    // Readied before it is judged: a browser call from the side panel is judged on the owner's tab, once the owner let KOS have it.
-    const unready = this.deps.prepare ? await within(() => this.deps.prepare!(name)).catch((err: unknown) => (err instanceof Error ? err.message : String(err))) : undefined;
-    if (unready) return { content: unready, isError: true };
-    // A Stop while the owner was being asked: the turn has answered, and nothing runs for it now.
-    if (signal?.aborted) return { content: STOPPED_RESULT, isError: true };
-
     // Judged, asked about and run as stamped: what the owner says yes to is
     // what runs, and the call can check it still holds.
     const input = registry.stamp(name, called);
 
     const assessment = registry.classify(name, input);
+
+    /*
+     * Readied before it is judged on where it runs: a browser call from the
+     * side panel is judged on the owner's tab, once the owner let KOS have
+     * it. Not for a call that cannot run now whatever the session: a risky
+     * one in a turn that only queues, or one of the strict tools, which no
+     * rule covers and which the owner is asked about first, so a no there
+     * never follows a prompt for a session.
+     */
+    const ready = async (): Promise<ToolExecution | undefined> => {
+      const unready = this.deps.prepare ? await within(() => this.deps.prepare!(name)).catch((err: unknown) => (err instanceof Error ? err.message : String(err))) : undefined;
+      if (unready) return { content: unready, isError: true };
+      // A Stop while the owner was being asked: the turn has answered, and nothing runs for it now.
+      if (signal?.aborted) return { content: STOPPED_RESULT, isError: true };
+      return undefined;
+    };
+    const queuesOnly = assessment.tier === "risky" && this.deps.waitForApproval === false;
+    const strict = assessment.tier === "risky" && this.deps.permissionContext?.(name)?.browser?.strict?.includes(name) === true;
+    if (!queuesOnly && !strict) {
+      const refused = await ready();
+      if (refused) return refused;
+    }
+    /** Readied once the owner said yes, for a call that was asked about before it was readied. */
+    const readyNow = (): Promise<ToolExecution | undefined> => (strict || queuesOnly ? ready() : Promise.resolve(undefined));
 
     if (assessment.tier === "risky") {
       /*
@@ -355,6 +373,8 @@ export class GuardedTools implements ToolBox {
        */
       const context = this.deps.permissionContext?.(name);
       if (this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) || this.deps.autoApproves?.(name, context)) {
+        const unready = await readyNow();
+        if (unready) return unready;
         const allowedResult = await run(name, injectSecrets(input, secrets));
         audit.record({
           tool: name,
@@ -449,6 +469,8 @@ export class GuardedTools implements ToolBox {
         };
       }
 
+      const unready = await readyNow();
+      if (unready) return unready;
       const approvedInput = injectSecrets(input, secrets);
       const approvedResult = await run(name, approvedInput);
       audit.record({

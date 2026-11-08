@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { attendance, openDatabase, origin, ownership, type ModuleContext, type ToolRisk } from "@kos/harness";
+import { attendance, openDatabase, origin, ownership, type AuditEntry, type ModuleContext, type ToolRisk } from "@kos/harness";
 
 import { OwnerChrome } from "./chrome.js";
 import { FakeDevice } from "./device.fixture.js";
@@ -19,7 +19,7 @@ import { computerModule } from "./tools.js";
 const hostPrivate = generateKeyPairSync("ed25519").privateKey;
 type Handler = (input: Record<string, unknown>) => unknown;
 
-function setup(opts: { panel?: () => string | undefined } = {}) {
+function setup(opts: { panel?: () => string | undefined; audit?: (entry: AuditEntry) => void } = {}) {
   const hub = new DeviceHub({
     store: new DeviceStore(openDatabase(":memory:")),
     hostKey: { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) },
@@ -37,7 +37,7 @@ function setup(opts: { panel?: () => string | undefined } = {}) {
     },
     unregisterTool: (name) => tools.delete(name),
   };
-  const mod = computerModule({ hub, chrome, caller: () => "c1", titleOf: (id) => (id === "c1" ? "Shopping" : id), settleMs: 0, sleep: async () => undefined, ...(opts.panel ? { panelChrome: opts.panel } : {}) });
+  const mod = computerModule({ hub, chrome, caller: () => "c1", titleOf: (id) => (id === "c1" ? "Shopping" : id), settleMs: 0, sleep: async () => undefined, ...(opts.panel ? { panelChrome: opts.panel } : {}), ...(opts.audit ? { audit: opts.audit } : {}) });
   void mod.activate(ctx);
   /** A paired Chrome, connected: the extension's hello, and its answers. */
   const pairChrome = (name = "Chrome on macOS"): FakeDevice => {
@@ -60,7 +60,8 @@ const flush = async (): Promise<void> => {
 describe("the side panel's chat in the owner's Chrome", () => {
   it("starts its session unasked only for the owner's own words in the panel, showing them as the task", async () => {
     let device: string | undefined;
-    const { hub, pairChrome, mod } = setup({ panel: () => device });
+    const audited: AuditEntry[] = [];
+    const { hub, pairChrome, mod } = setup({ panel: () => device, audit: (e) => void audited.push(e) });
     const fake = pairChrome();
     device = fake.id;
     const as = (from: { surface: string; said: string } | undefined, owner = true) => () =>
@@ -73,6 +74,8 @@ describe("the side panel's chat in the owner's Chrome", () => {
     await as({ surface: "chrome", said: "buy this mug" })();
     expect(fake.calls.find((c) => c.method === "session.begin")?.params).toMatchObject({ task: '"buy this mug"' });
     expect(hub.sessionOf("c1")).toBeDefined();
+    // Written down as the start it stands for, as chrome.start is.
+    expect(audited).toEqual([expect.objectContaining({ tool: "chrome.start", args: { task: '"buy this mug"', chrome: fake.id, unasked: true }, isError: false })]);
   });
 });
 

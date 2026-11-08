@@ -1,7 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 
-import { requireServices, type ApiExtension, type BrowserElsewhere, type KosModule } from "@kos/harness";
+import { requireServices, type ApiExtension, type AuditEntry, type BrowserElsewhere, type KosModule } from "@kos/harness";
 import type { FaceDrawing } from "@kos/shared";
 
 import { OwnerChrome } from "./chrome.js";
@@ -34,6 +34,8 @@ export interface ComputerUseOptions {
   face(): FaceDrawing;
   /** The chat each device panel shows, read when it is shown: the Chrome side panel's, and the KOS for Mac window's. */
   panels: { chrome: PanelDeps; mac: PanelDeps };
+  /** The audit log, for a session started unasked. */
+  audit?(entry: AuditEntry): void;
 }
 
 export interface ComputerUse {
@@ -79,6 +81,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         chrome,
         caller: options.caller,
         titleOf: options.titleOf,
+        ...(options.audit ? { audit: options.audit } : {}),
         panelChrome: (conversation) => panel.deviceOf(conversation),
         panelMac: (conversation) => {
           const device = mac.deviceOf(conversation);

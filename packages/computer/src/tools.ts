@@ -1,5 +1,5 @@
 import { fenced } from "@kos/browser";
-import { isAttended, ownWordsOn, turnStop, type KosModule, type ModuleContext, type ToolRisk } from "@kos/harness";
+import { isAttended, ownWordsOn, turnStop, type AuditEntry, type KosModule, type ModuleContext, type ToolRisk } from "@kos/harness";
 import { ScreenMemory, UNCHANGED, WAIT_BUDGET_MS, abortable, actionsOf, doneText, hasActions, runActions, type RunAdapter, type WaitBudget } from "@kos/shared";
 
 import type { OwnerChrome } from "./chrome.js";
@@ -54,6 +54,8 @@ export interface ComputerToolsDeps {
   onStop?(handler: (conversation: string) => void): () => void;
   /** Subscribe to a chat starting afresh (a turn, or a fresh query of one), which has not seen the last picture. */
   onFresh?(handler: (conversation: string) => void): () => void;
+  /** The audit log: a session started unasked is written there as the start it stands for. */
+  audit?(entry: AuditEntry): void;
   /** How long the screen is given to settle after an action before the picture. */
   settleMs?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -306,6 +308,22 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     return line.length > SAID_MAX ? `${line.slice(0, SAID_MAX - 1)}…` : line;
   };
 
+  /**
+   * A session started unasked by a tool, written to the audit log as the
+   * start it stands for (computer.start, chrome.start), as one asked for is.
+   */
+  const unasked = async <T>(tool: string, args: Record<string, unknown>, work: () => Promise<T>): Promise<T> => {
+    const record = (result: string, isError: boolean): void => deps.audit?.({ tool, args: { ...args, unasked: true }, result, isError, riskTier: "safe" });
+    try {
+      const done = await work();
+      record(typeof done === "string" ? done : done && typeof done === "object" && "text" in done ? String((done as { text: unknown }).text) : "started", false);
+      return done;
+    } catch (err) {
+      record(err instanceof Error ? err.message : String(err), true);
+      throw err;
+    }
+  };
+
   /** Work the owner did not start may use a device only where they allowed it. */
   const mayUse = (what: string): void => {
     if (!isAttended() && !hub.settings().unattended) {
@@ -397,7 +415,8 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     const said = spokenOn(MAC_PANEL.name);
     if (said === undefined) throw new Error("This turn is not the owner speaking in the KOS for Mac window, so no session starts unasked: call computer.start, which the owner allows on the Mac.");
     if (hub.consentOf(mac.device) === "kos") throw new Error("This Mac starts sessions through KOS's approvals, not on the Mac: call computer.start first.");
-    return beginComputer(chat, { task: intent ?? (said ? `"${said}"` : "what you asked in the KOS window"), device: mac.device, ...(mac.app ? { app: mac.app } : {}) }, turnStop.getStore());
+    const start = { task: intent ?? (said ? `"${said}"` : "what you asked in the KOS window"), device: mac.device, ...(mac.app ? { app: mac.app } : {}) };
+    return unasked("computer.start", start, () => beginComputer(chat, start, turnStop.getStore()));
   };
 
   /** A session in the owner's Chrome: asked of the owner there, and the tabs it was handed learned. */
@@ -445,7 +464,8 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     if (said === undefined) throw new Error("This turn is not the owner speaking in the Chrome side panel, so no session starts unasked: call chrome.start, which the owner allows in their Chrome. KOS's own browser is not used for the side panel's chat.");
     if (hub.consentOf(chrome) === "kos") throw new Error("This Chrome starts sessions through KOS's approvals, not in the Chrome: call chrome.start first. KOS's own browser is not used for the side panel's chat.");
     try {
-      await beginChrome(chat, { task: said ? `"${said}"` : "what you asked in the side panel", chrome }, signal);
+      const start = { task: said ? `"${said}"` : "what you asked in the side panel", chrome };
+      await unasked("chrome.start", start, () => beginChrome(chat, start, signal));
     } catch (err) {
       throw new Error(`${err instanceof Error ? err.message : String(err)} KOS's own browser is not used for the side panel's chat: tell the owner it could not work in their tab.`);
     }
