@@ -21,7 +21,7 @@ import {
   type TextChannel,
   type Webhook,
 } from "discord.js";
-import { CHANNEL_TOKEN, detailLines, summarizeAction, withUnixTimes } from "@kos/shared";
+import { CHANNEL_TOKEN, detailLines, stepActions, summarizeAction, withUnixTimes } from "@kos/shared";
 
 import { isReadable, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
@@ -164,7 +164,22 @@ function cut(line: string, max: number): string {
 
 const CODE_FENCE = "```";
 
+/** The longest an approval card's text may run, leaving room for the line saying where it came from. */
+const CARD_MAX = 1900;
+/** The file every step rides in when a card cannot hold them all. */
+const STEPS_FILE = "steps.txt";
+
+/** An approval card: its text, and every step as a file when the text cannot hold them. */
+export interface ApprovalCard {
+  content: string;
+  files?: { attachment: Buffer; name: string }[];
+}
+
 export function approvalText(req: ApprovalRequest): string {
+  return approvalCard(req).content;
+}
+
+export function approvalCard(req: ApprovalRequest): ApprovalCard {
   // The sentence the ask belongs to, first: what KOS was saying when it
   // reached for the tool. A card that opens with the command alone is a
   // prompt to click yes blind.
@@ -172,29 +187,51 @@ export function approvalText(req: ApprovalRequest): string {
   // Who is asking, in the headline: "Recap needs your OK", not a bare command.
   const asks = req.asker ? `**${escapeMarkdown(req.asker.name)} needs your OK**` : "**Needs your OK**";
   if (req.tool === undefined) {
-    return noPreviews([...said, `${asks} · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n"));
+    return { content: noPreviews([...said, `${asks} · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n")) };
   }
   const args = req.args ?? {};
-  const { head, body } = splitSummary(summarizeAction(req.tool, args, req.names));
+  const summary = summarizeAction(req.tool, args, req.names);
+  // A step said by its purpose is the model's sentence, not a verb and its
+  // thing: split on its colon, "Note: just closing the popup" took the whole
+  // line as the command and the keys it would press never showed. Its
+  // actions are the code instead, each on its own line, every one of them:
+  // the yes is for those, not for the model's account of them.
+  const actions = stepActions(req.tool, args);
+  const { head, body } = actions ? { head: summary } : splitSummary(summary);
   // The command itself, or failing that the arguments, in a code block: a
   // `--include=*.ts` that turned italic was a command you could not read
   // back, and an approval you cannot read is not one you can give.
-  const code = body
-    ? [cut(body, CODE_MAX)]
-    : detailLines(req.tool, args, req.names)
-        .slice(1)
-        .filter((l) => !l.startsWith("…"))
-        .slice(0, 3)
-        .map((l) => cut(l, DETAIL_MAX));
+  const code =
+    actions ??
+    (body
+      ? [cut(body, CODE_MAX)]
+      : detailLines(req.tool, args, req.names)
+          .slice(1)
+          .filter((l) => !l.startsWith("…"))
+          .slice(0, 3)
+          .map((l) => cut(l, DETAIL_MAX)));
   const small = [`${req.tool} · #${req.id}`, ...(req.reason ? [req.reason] : [])].join(" · ");
-  return noPreviews(
-    [
-      ...said,
-      `${asks} · ${escapeMarkdown(head)}`,
-      ...(code.length ? [CODE_FENCE, ...code.map((l) => l.split(CODE_FENCE).join("'''")), CODE_FENCE] : []),
-      `-# ${small}`,
-    ].join("\n"),
-  );
+  const text = (shown: string[], more?: string): string =>
+    noPreviews(
+      [
+        ...said,
+        `${asks} · ${escapeMarkdown(head)}`,
+        ...(shown.length ? [CODE_FENCE, ...shown.map((l) => l.split(CODE_FENCE).join("'''")), CODE_FENCE] : []),
+        ...(more ? [`-# ${more}`] : []),
+        `-# ${small}`,
+      ].join("\n"),
+    );
+  const whole = text(code);
+  if (!actions || whole.length <= CARD_MAX) return { content: whole };
+  // More steps than a message holds: as many as fit, and every one of them
+  // in a file on the card, so none is approved unseen.
+  let shown = actions.length;
+  const more = (n: number): string => `${actions.length - n} more step${actions.length - n === 1 ? "" : "s"}; every one is in ${STEPS_FILE}`;
+  while (shown > 0 && text(actions.slice(0, shown), more(shown)).length > CARD_MAX) shown -= 1;
+  return {
+    content: text(actions.slice(0, shown), more(shown)),
+    files: [{ attachment: Buffer.from(`${actions.join("\n")}\n`, "utf8"), name: STEPS_FILE }],
+  };
 }
 
 /** What a settled prompt becomes: one small line saying how it went. */
@@ -2244,12 +2281,14 @@ export class DiscordAdapter implements ChannelAdapter {
     );
 
     const summary = req.tool !== undefined ? summarizeAction(req.tool, req.args ?? {}, req.names) : req.text;
+    const card = approvalCard(req);
+    // The page a browser action is aimed at, when there is one: the thing
+    // being approved, rather than a description of it.
+    const files = [...(req.picture ? [{ attachment: Buffer.from(req.picture, "base64"), name: "page.jpg" }] : []), ...(card.files ?? [])];
     const payload: AskPayload = {
-      content: approvalText(req),
+      content: card.content,
       components: [row],
-      // The page a browser action is aimed at, when there is one: the thing
-      // being approved, rather than a description of it.
-      ...(req.picture ? { files: [{ attachment: Buffer.from(req.picture, "base64"), name: "page.jpg" }] } : {}),
+      ...(files.length ? { files } : {}),
     };
     // In a server every ask is in #needs-you, the one place to see all that
     // waits, and also where its chat is read when it has a channel or a
