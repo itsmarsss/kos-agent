@@ -72,9 +72,101 @@ const COMPUTER_CLICKS: Record<string, string> = {
   triple_click: "Triple-click",
 };
 
-/** A point as the tools take one, [x, y], in words. */
-function at(v: unknown): string {
-  return Array.isArray(v) && v.length === 2 ? `(${v.map((n) => fmtVal(n)).join(", ")})` : "";
+/** At most this many parts in a step's line; the rest are counted. */
+const MAX_PARTS = 4;
+/** A single action this short may follow the step's purpose, in parentheses. */
+const SHORT_MECHANICS = 24;
+
+const lowerFirst = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
+const upperFirst = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** A name the formatter does not know, as words: "hold_key" is "Hold key". */
+const itself = (name: string): string => upperFirst(name.replace(/_/g, " ").trim());
+
+/** One action of a step: the words it reads as, and the action as the model wrote it. */
+interface Part {
+  words: string;
+  raw: unknown;
+}
+
+/** The same value, whatever order its keys were written in. */
+function same(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object" || Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  return ka.length === kb.length && ka.every((k) => same((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+}
+
+/**
+ * The parts of one step as a line: repeats folded ("press Tab ×3"), the
+ * first few said and the rest counted, so a long run stays readable. Only
+ * the same action repeated folds: two clicks that read alike but land in
+ * different places are two clicks.
+ */
+function joinParts(parts: Part[], cap = MAX_PARTS): string {
+  const folded: string[] = [];
+  let run = 0;
+  for (const [i, part] of parts.entries()) {
+    run += 1;
+    const next = parts[i + 1];
+    if (next && same(next.raw, part.raw)) continue;
+    folded.push(run > 1 ? `${part.words} ×${run}` : part.words);
+    run = 0;
+  }
+  const said = folded.length > cap ? folded.slice(0, cap - 1) : folded;
+  const rest = folded.length - said.length;
+  const line = said.map((p, i) => (i === 0 ? p : lowerFirst(p))).join(", ");
+  return rest ? `${line} and ${rest} more` : line;
+}
+
+/**
+ * What a step is for, as the model said it, ahead of how it does it. One
+ * short action follows in parentheses; anything more is the step's detail,
+ * for a surface that shows one.
+ */
+function withIntent(intent: unknown, parts: Part[]): string {
+  const purpose = typeof intent === "string" ? intent.replace(/\s+/g, " ").trim().replace(/\.$/, "") : "";
+  if (!purpose) return joinParts(parts);
+  const head = upperFirst(truncate(purpose, 80));
+  const only = parts.length === 1 ? parts[0]!.words : "";
+  return only && only.length <= SHORT_MECHANICS ? `${head} (${lowerFirst(only)})` : head;
+}
+
+/** One computer action in words. Coordinates name nothing the owner can see, so they are left out. */
+function computerAction(a: Record<string, unknown>): string {
+  const action = typeof a.action === "string" ? a.action : "";
+  const click = COMPUTER_CLICKS[action];
+  if (click) return `${click}${typeof a.text === "string" && a.text ? ` holding ${a.text}` : ""}`;
+  switch (action) {
+    case "":
+      return "Use the computer";
+    case "screenshot":
+      return "Look at the screen";
+    case "zoom":
+      return "Look closer at part of the screen";
+    case "mouse_move":
+      return "Move the pointer";
+    case "left_click_drag":
+      return "Drag";
+    case "scroll":
+      return `Scroll ${fmtVal(a.scroll_direction ?? "down")}${typeof a.scroll_amount === "number" ? ` ${a.scroll_amount}` : ""}`;
+    case "type":
+      return `Type “${fmtVal(a.text)}”`;
+    case "key":
+      return `Press ${fmtVal(a.text)}`;
+    case "wait":
+      return `Wait ${fmtVal(a.duration ?? 1)}s`;
+    default:
+      return itself(action);
+  }
+}
+
+/** The actions of one computer.act call, one or a batch, each in words. */
+function computerParts(a: Record<string, unknown>): Part[] {
+  if (!Array.isArray(a.actions)) return [{ words: computerAction(a), raw: a }];
+  const parts = a.actions.map((item) => ({ words: computerAction(item && typeof item === "object" ? (item as Record<string, unknown>) : {}), raw: item as unknown }));
+  return parts.length ? parts : [{ words: "Use the computer", raw: null }];
 }
 
 /** A computer step as what it does on the screen; a device id names nothing the owner knows, so it is left out. */
@@ -85,29 +177,90 @@ function computerStep(tool: string, a: Record<string, unknown>): string {
     const device = typeof a.device === "string" && !a.device.startsWith("dev_") ? a.device : "a computer";
     return `Use ${device}: ${fmtVal(a.task)}`;
   }
-  const action = typeof a.action === "string" ? a.action : "";
-  const click = COMPUTER_CLICKS[action];
-  if (click) return `${click} at ${at(a.coordinate)}${typeof a.text === "string" && a.text ? ` holding ${a.text}` : ""}`;
-  switch (action) {
-    case "screenshot":
-      return "Look at the screen";
-    case "zoom":
-      return "Look closer at part of the screen";
-    case "mouse_move":
-      return `Move the pointer to ${at(a.coordinate)}`;
-    case "left_click_drag":
-      return `Drag from ${at(a.start_coordinate)} to ${at(a.coordinate)}`;
-    case "scroll":
-      return `Scroll ${fmtVal(a.scroll_direction ?? "down")}${typeof a.scroll_amount === "number" ? ` ${a.scroll_amount}` : ""}`;
+  if (tool === "computer.act") return withIntent(a.intent, computerParts(a));
+  return itself(tool.slice("computer.".length)) || "Use the computer";
+}
+
+/** A browser.act target in words: the text it names, a selector as written, nothing for a @ref. */
+function targetWords(v: unknown): string {
+  const t = v && typeof v === "object" ? ((v as Record<string, unknown>)["target"] ?? (v as Record<string, unknown>)["selector"]) : v;
+  if (typeof t !== "string" || !t || t.startsWith("@")) return "";
+  const text = /^text=(.+)$/.exec(t)?.[1] ?? /:has-text\(['"](.+)['"]\)/.exec(t)?.[1];
+  return text ? ` “${truncate(text, 40)}”` : ` ${truncate(t, 40)}`;
+}
+
+/** One browser.act step in words. */
+function browserStep(s: Record<string, unknown>): string {
+  const key = Object.keys(s)[0] ?? "";
+  const v = s[key];
+  const field = (name: string): unknown => (v && typeof v === "object" ? (v as Record<string, unknown>)[name] : undefined);
+  switch (key) {
+    case "click":
+      return `Click${targetWords(v)}`;
+    case "dblclick":
+      return `Double-click${targetWords(v)}`;
+    case "rightclick":
+      return `Right-click${targetWords(v)}`;
+    case "hover":
+      return `Point at${targetWords(v) || " something"}`;
+    case "drag":
+      return "Drag";
+    case "fill":
+      return `Fill in “${fmtVal(field("text"))}”`;
     case "type":
-      return `Type “${fmtVal(a.text)}”`;
-    case "key":
-      return `Press ${fmtVal(a.text)}`;
+      return `Type “${fmtVal(field("text"))}”`;
+    case "press":
+      return `Press ${fmtVal(v)}`;
+    case "select": {
+      const values = field("values");
+      return `Choose ${fmtVal(Array.isArray(values) ? values.join(", ") : values)}`;
+    }
+    case "check":
+      return `Tick${targetWords(v)}`;
+    case "uncheck":
+      return `Untick${targetWords(v)}`;
+    case "scroll":
+      return v === "up" || v === "down" ? `Scroll ${v}` : `Scroll to${targetWords(v) || " something"}`;
+    case "open":
+      return `Open ${fmtVal(v)}`;
+    case "go":
+      return v === "reload" ? "Reload the page" : `Go ${fmtVal(v)}`;
     case "wait":
-      return `Wait ${fmtVal(a.duration ?? 1)}s`;
+      return typeof field("text") === "string" ? `Wait for “${fmtVal(field("text"))}”` : "Wait";
+    case "dialog":
+      return v === "accept" ? "Accept the dialog" : "Dismiss the dialog";
+    case "":
+      return "Act on the page";
     default:
-      return `On the computer: ${fmtVal(action)}`;
+      return itself(key);
   }
+}
+
+/** The steps of one browser.act call, each in words. */
+function browserParts(a: Record<string, unknown>): Part[] {
+  const steps = Array.isArray(a.steps) ? a.steps : [];
+  const parts = steps.map((s) => ({ words: browserStep(s && typeof s === "object" ? (s as Record<string, unknown>) : {}), raw: s as unknown }));
+  return parts.length ? parts : [{ words: "Act on the page", raw: null }];
+}
+
+/**
+ * How a step does what its line says, when the line says what it is for
+ * instead: every action of a computer.act or browser.act that carries an
+ * intent, in order, none folded and none left out, since an approval is
+ * given for these and not for the model's account of them. Undefined where
+ * the line already is the mechanics.
+ */
+export function stepActions(tool: string, args: string | Record<string, unknown>): string[] | undefined {
+  const a = parseArgs(args);
+  if (typeof a.intent !== "string" || !a.intent.trim()) return undefined;
+  if (tool === "computer.act") return computerParts(a).map((p) => p.words);
+  if (tool === "browser.act") return browserParts(a).map((p) => p.words);
+  return undefined;
+}
+
+/** stepActions as one line. */
+export function stepMechanics(tool: string, args: string | Record<string, unknown>): string | undefined {
+  return stepActions(tool, args)?.map((w, i) => (i === 0 ? w : lowerFirst(w))).join(", ");
 }
 
 /** One-line summary for a tool + args, with names for the ids the caller can name. */
@@ -303,17 +456,7 @@ export function summarizeAction(
   if (tool === "browser.use_tab") return `Switch to tab ${fmtVal(a.tab)}`;
   if (tool === "browser.new_tab") return a.url !== undefined ? `Open a new tab at ${fmtVal(a.url)}` : "Open a new tab";
   if (tool === "browser.watch") return `Watch ${fmtVal(a.name ?? a.url)} for change`;
-  if (tool === "browser.act") {
-    const steps = Array.isArray(a.steps) ? (a.steps as Record<string, unknown>[]) : [];
-    const said = steps.slice(0, 4).map((s) => {
-      const key = Object.keys(s)[0] ?? "step";
-      const v = s[key];
-      const target = v && typeof v === "object" ? ((v as Record<string, unknown>)["target"] ?? (v as Record<string, unknown>)["selector"]) : undefined;
-      const what = typeof v === "string" ? v : typeof v === "number" ? `${v}ms` : typeof target === "string" ? target : "";
-      return `${key}${what ? ` ${what}` : ""}`;
-    });
-    return `On the page: ${said.join(", ")}${steps.length > 4 ? `, +${steps.length - 4} more` : ""}`;
-  }
+  if (tool === "browser.act") return withIntent(a.intent, browserParts(a));
   // The old engine's actions, as transcripts from before KOS drove the
   // browser itself still hold them.
   const browser = /^mcp\.[^.]+\.agent_browser_(.+)$/.exec(tool);
@@ -370,6 +513,10 @@ export function detailLines(
   const lines: string[] = [];
   // Prefer a short summary line first.
   lines.push(summarizeAction(tool, a, names));
+  // A step said by its purpose keeps how it does it in view: an approval
+  // is given for the clicks, not for the model's account of them.
+  const mechanics = stepMechanics(tool, a);
+  if (mechanics) lines.push(mechanics);
   const keys = Object.keys(a).slice(0, MAX_FIELDS);
   for (const k of keys) {
     // The id as written, and its name beside it where one is known.

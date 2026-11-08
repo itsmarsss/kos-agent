@@ -561,6 +561,24 @@ describe("handleApiRequest", () => {
     expect(res.body).toEqual({ halted: false });
   });
 
+  it("sends a step's actions beside the model's account of it, wherever an ask is listed", async () => {
+    const args = { intent: "Note: just closing the popup", actions: [{ action: "type", text: "hunter2" }, { action: "key", text: "cmd+q" }] };
+    kernel.approvals.enqueue({ tool: "computer.act", args, riskTier: "risky" });
+    kernel.approvals.enqueue({ tool: "files.rm", args: { path: "x" }, riskTier: "risky" });
+    type Listed = { summary: string; mechanics?: string };
+    const lists = [
+      (await handleApiRequest(kernel, { method: "GET", path: "/api/approvals" })).body as Listed[],
+      ((await handleApiRequest(kernel, { method: "GET", path: "/api/inbox" })).body as { approvals: Listed[] }).approvals,
+      ((await handleApiRequest(kernel, { method: "GET", path: "/api/home" })).body as { approvals: Listed[] }).approvals,
+    ];
+    for (const list of lists) {
+      expect(list[0]).toMatchObject({ summary: "Note: just closing the popup", mechanics: "Type “hunter2”, press cmd+q" });
+      // Where the summary already is the action, there is nothing beside it.
+      expect(list[1]).toMatchObject({ summary: "Delete x" });
+      expect(list[1]).not.toHaveProperty("mechanics");
+    }
+  });
+
   it("lists and resolves approvals", async () => {
     kernel.approvals.enqueue({ tool: "files.read", args: { path: "x" }, riskTier: "risky" });
     const list = await handleApiRequest(kernel, { method: "GET", path: "/api/approvals" });

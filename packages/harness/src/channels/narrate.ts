@@ -37,7 +37,7 @@ export class TurnNarrator {
       case "tool-end": {
         if (!event.isError) return false;
         const last = this.lines.length - 1;
-        if (last >= 0 && this.lines[last]!.startsWith(STEP_MARK)) this.lines[last] = `${this.lines[last]} (failed)`;
+        if (last >= 0 && this.lines[last]!.startsWith(STEP_MARK)) this.lines[last] = `${this.lines[last]!.trimEnd()} (failed)`;
         return true;
       }
       case "turn-end":
@@ -81,4 +81,56 @@ function tail(text: string, max: number): string {
   const cut = text.slice(-max);
   const atLine = cut.indexOf("\n");
   return `…${atLine > 0 && atLine < 120 ? cut.slice(atLine + 1) : cut}`;
+}
+
+/** How many step lines a short story keeps; the ones before are counted. */
+const KEEP_STEPS = 8;
+/** A step line longer than this is cut, so eight of them stay well inside a message. */
+const STEP_LINE_MAX = 160;
+
+/**
+ * A story short enough to read at a glance, for a surface that redraws one
+ * message: a run of the same step is one line with "×N", a step that runs
+ * long is cut, and only the last few steps are kept, the ones before
+ * counted where they were. The agent's own words are all kept, wherever
+ * they fall: "I'm going to delete the old builds" is the line the owner
+ * most needs, and steps are what fold and cap, not what was said. A story
+ * that came already cut ("…") counts its earlier steps as at least so many.
+ */
+export function shortStory(story: string, keep = KEEP_STEPS): string {
+  const cut = story.startsWith("…");
+  const lines: { text: string; times: number; step: boolean }[] = [];
+  for (const line of (cut ? story.slice(1) : story).split("\n")) {
+    // Folded on the whole line, before any of it is cut: two fills that
+    // share their first hundred and sixty characters are two fills.
+    const step = line.startsWith(STEP_MARK);
+    const last = lines[lines.length - 1];
+    if (last && step && last.text === line) last.times += 1;
+    else lines.push({ text: line, times: 1, step });
+  }
+  const steps = lines.filter((l) => l.step);
+  const first = steps.length > keep ? lines.indexOf(steps[steps.length - keep]!) : 0;
+  const out: string[] = [];
+  let dropped = 0;
+  // Before a story that came cut there were steps nobody counted.
+  let uncounted = cut;
+  const count = (): void => {
+    if (dropped || uncounted) {
+      const n = dropped ? `${dropped}${uncounted ? "+" : ""} earlier step${dropped === 1 && !uncounted ? "" : "s"}` : "Earlier steps";
+      out.push(`${STEP_MARK}${n}`);
+    }
+    dropped = 0;
+    uncounted = false;
+  };
+  for (const [i, l] of lines.entries()) {
+    if (i < first && l.step) {
+      dropped += l.times;
+      continue;
+    }
+    count();
+    const text = l.step && l.text.length > STEP_LINE_MAX ? `${l.text.slice(0, STEP_LINE_MAX - 1)}…` : l.text;
+    out.push(l.times > 1 ? `${text} ×${l.times}` : text);
+  }
+  count();
+  return out.join("\n");
 }

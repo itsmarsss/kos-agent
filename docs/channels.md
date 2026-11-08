@@ -14,7 +14,9 @@ reads as a sentence and not a bare command; iMessage and SMS prompts and
 the dashboard's Inbox carry the same words. While a turn runs, a silent
 "thinking…" line stands in for it, as KOS or as the blob, and becomes the
 story of the turn, the words said and the steps taken, redrawn as they
-happen, so the card for an approval never lands first. When the answer
+happen, so the card for an approval never lands first. A long story
+keeps its last eight steps under a line counting the earlier ones, and a
+run of the same step is one line with ×N. When the answer
 comes, as its own message, the story stays as the record of what was
 done; a turn that told nothing takes its line down. Nothing reacts to
 your message. A turn that stops to ask you says "waiting on you" and keeps

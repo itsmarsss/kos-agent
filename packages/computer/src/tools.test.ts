@@ -11,6 +11,7 @@ import { DeviceStore } from "./store.js";
 import { computerModule } from "./tools.js";
 
 type Handler = (input: Record<string, unknown>) => unknown;
+type ToolSpec = Parameters<ModuleContext["registerTool"]>[0];
 type Result = string | { text: string; images?: { mediaType: string; data: string }[] };
 
 const hostPrivate = generateKeyPairSync("ed25519").privateKey;
@@ -23,13 +24,13 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void> 
     beginTimeoutMs: 200,
     callTimeoutMs: 200,
   });
-  const tools = new Map<string, { handler: Handler; risk: ToolRisk | undefined }>();
+  const tools = new Map<string, { spec: ToolSpec; handler: Handler; risk: ToolRisk | undefined }>();
   const halts: (() => void)[] = [];
   const stops: ((chat: string) => void)[] = [];
   const freshes: ((chat: string) => void)[] = [];
   const ctx: ModuleContext = {
     registerTool: (def, handler, risk) => {
-      tools.set(def.name, { handler: handler as Handler, risk });
+      tools.set(def.name, { spec: def, handler: handler as Handler, risk });
     },
     unregisterTool: (name) => tools.delete(name),
   };
@@ -162,6 +163,20 @@ describe("the computer tools", () => {
     const looked = await call("computer.act", { then: "none", actions: [{ action: "key", text: "Tab" }, { action: "screenshot" }] });
     expect(fake.calls.slice(shown).map((c) => c.method)).toEqual(["keys.press", "screen.capture"]);
     expect(textOf(looked)).toMatch(/^Pressed Tab\. The screen/);
+  });
+
+  it("take an intent the owner reads as the step, for one action or a run", async () => {
+    const { tools, call, pair } = setup();
+    const fake = pair();
+    const act = tools.get("computer.act")!;
+    const schema = act.spec.inputSchema as { properties: Record<string, { type: string }>; required?: string[] };
+    expect(schema.properties.intent).toMatchObject({ type: "string" });
+    expect(schema.required ?? []).not.toContain("intent");
+    expect(act.spec.description).toMatch(/`intent`/);
+    await call("computer.start", { task: "t" });
+    await call("computer.act", { intent: "open the Quizzes tab", action: "left_click", coordinate: [10, 20] });
+    await call("computer.act", { intent: "search for it", actions: [{ action: "type", text: "milk" }, { action: "key", text: "Return" }] });
+    expect(fake.calls.map((c) => c.method)).toContain("keys.press");
   });
 
   it("let a computer that settles its own pictures do so, and keep the fixed wait for one that does not", async () => {

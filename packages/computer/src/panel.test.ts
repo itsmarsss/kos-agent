@@ -321,6 +321,13 @@ describe("a Chrome's side panel", () => {
       rule: { tool: "browser.*", scope: "your-chrome:shop.example", project: null },
     });
     expect(chrome.calls.at(-1)).toEqual({ method: "chat.ask", params: { approval: { id: "10", tool: "browser.act", args: '{"steps":[]}', why: "Clicking Buy.", always: "Always on shop.example" } } });
+    // A step said by its purpose carries its actions, in full, beside the arguments cut to fit.
+    const actions = Array.from({ length: 10 }, (_, i) => ({ action: "type", text: `${i} ${"x".repeat(80)}` }));
+    await panel.requestApproval("owner", { id: "11", text: "x", tool: "computer.act", args: { intent: "Note: just closing the popup", actions }, asker: { name: "Chrome", conversationId: "chrome:owner" } });
+    const sent = (chrome.calls.at(-1)?.params as { approval: { args: string; mechanics: string } }).approval;
+    expect(sent.args.endsWith("…")).toBe(true);
+    expect(sent.mechanics.split(", type").length).toBe(10);
+    expect(sent.mechanics.startsWith("Type “0 xxx")).toBe(true);
     const decided: unknown[] = [];
     panel.onApproval((d) => void decided.push(d));
     chrome.event("chat.decide", { approval: "10", approved: true, remember: true });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { TurnNarrator } from "./narrate.js";
+import { shortStory, TurnNarrator } from "./narrate.js";
 
 /**
  * The owner should read what the agent is doing in the order it does it:
@@ -47,5 +47,53 @@ describe("narrating a turn", () => {
     expect(shown.endsWith("Step number 79 of the long walk")).toBe(true);
     // Cut at a line, not mid-word, when a line break is near.
     expect(shown.split("\n")[1]!.startsWith("› ")).toBe(true);
+  });
+});
+
+describe("a short story", () => {
+  const steps = (n: number, say = (i: number) => `Step ${i}`): string => Array.from({ length: n }, (_, i) => `› ${say(i + 1)}`).join("\n");
+
+  it("folds a run of the same step into one line", () => {
+    expect(shortStory("› Look at the screen\n› Look at the screen\n› Look at the screen\n› Click (failed)\n› Look at the screen")).toBe(
+      "› Look at the screen ×3\n› Click (failed)\n› Look at the screen",
+    );
+    // The agent's words between two like steps keep them apart.
+    expect(shortStory("› Look\nStill loading.\n› Look")).toBe("› Look\nStill loading.\n› Look");
+  });
+
+  it("folds only steps that are the same whole line", () => {
+    const fill = (end: string): string => `› Fill in “${"p".repeat(200)}${end}”`;
+    const told = shortStory(`${fill("one")}\n${fill("two")}`).split("\n");
+    expect(told).toHaveLength(2);
+    expect(told.every((l) => !l.includes("×"))).toBe(true);
+    expect(shortStory(`${fill("one")}\n${fill("one")}`)).toBe(`${fill("one").slice(0, 159)}… ×2`);
+  });
+
+  it("keeps the last steps under a line counting the rest", () => {
+    expect(shortStory(steps(8))).toBe(steps(8));
+    const told = shortStory(`I'll start.\n${steps(30)}\nAlmost there.`).split("\n");
+    expect(told.slice(0, 2)).toEqual(["I'll start.", "› 22 earlier steps"]);
+    expect(told.slice(2)).toEqual([...steps(30).split("\n").slice(22), "Almost there."]);
+    // A folded run counts as all its steps.
+    expect(shortStory(`› Look\n› Look\n› Look\n${steps(8)}`).split("\n")[0]).toBe("› 3 earlier steps");
+    expect(shortStory(`› Look\n${steps(8)}`).split("\n")[0]).toBe("› 1 earlier step");
+  });
+
+  it("keeps the agent's own words from before the steps it keeps", () => {
+    // What the agent said it would do is not a step, and is never folded away.
+    const told = shortStory(`${steps(5)}\nI'm going to delete the old builds.\n${steps(10, (i) => `Later ${i}`)}`).split("\n");
+    expect(told).toEqual(["› 5 earlier steps", "I'm going to delete the old builds.", "› 2 earlier steps", ...steps(8, (i) => `Later ${i + 2}`).split("\n")]);
+    expect(shortStory(`…Said first.\n${steps(3)}`)).toBe(`› Earlier steps\nSaid first.\n${steps(3)}`);
+  });
+
+  it("says when steps before an already cut story are uncounted", () => {
+    expect(shortStory(`…${steps(10)}`).split("\n")[0]).toBe("› 2+ earlier steps");
+    expect(shortStory(`…${steps(3)}`)).toBe(`› Earlier steps\n${steps(3)}`);
+  });
+
+  it("stays well inside a message however long the steps run", () => {
+    const long = shortStory(steps(200, (i) => `Type ${i} “${"x".repeat(300)}”`));
+    expect(long.split("\n")).toHaveLength(9);
+    expect(long.length).toBeLessThan(1500);
   });
 });

@@ -18,6 +18,7 @@ import {
   boundKeyOf,
   webhookNameFor,
   approvalCustomIds,
+  approvalCard,
   approvalText,
   noPreviews,
   settledText,
@@ -248,6 +249,10 @@ describe("the answer a turn shaped", () => {
     expect(edits[4]).toEqual({ content: "Cleared two stale builds." });
     expect(edits).toHaveLength(5);
     expect(storyText("x".repeat(3000)).length).toBe(1900);
+    // A long run reads as its last steps, repeats folded, under a count of the rest.
+    const run = ["› Look at the screen", "› Look at the screen", ...Array.from({ length: 20 }, (_, i) => `› Step ${i + 1}`)].join("\n");
+    expect(storyText(run)).toBe(["-# › 14 earlier steps", ...Array.from({ length: 8 }, (_, i) => `-# › Step ${i + 13}`)].join("\n"));
+    expect(storyText("› Look at the screen\n› Look at the screen")).toBe("-# › Look at the screen ×2");
     // A reference in the story links as it does in the answer, so the same
     // name is not a token in one message and a link in the next.
     expect(storyText("Reading it.\n› Read @page:home", "https://kos.example")).toBe("Reading it.\n-# › Read [home](<https://kos.example/#/page/home>)");
@@ -536,6 +541,50 @@ describe("the approval prompt", () => {
     expect(lines[4]).toBe("-# systems.project_delete · #5");
   });
 
+  it("shows every action of a step said by its purpose, whatever the purpose says", () => {
+    // A colon in the model's words once took the line as a verb and its
+    // command: the head said "Note", the block the rest of the sentence,
+    // and the keys it would press were nowhere on the card.
+    const text = approvalText({
+      id: "21",
+      text: "x",
+      tool: "computer.act",
+      args: { intent: "Note: just closing the popup", actions: [{ action: "type", text: "hunter2" }, { action: "key", text: "cmd+q" }] },
+    });
+    expect(text.split("\n")).toEqual(["**Needs your OK** · Note: just closing the popup", "```", "Type “hunter2”", "Press cmd+q", "```", "-# computer.act · #21"]);
+    // Repeats are each said: an approval folds nothing.
+    const tabs = approvalText({ id: "22", text: "x", tool: "browser.act", args: { intent: "move on", steps: [{ press: "Tab" }, { press: "Tab" }] } });
+    expect(tabs).toContain("```\nPress Tab\nPress Tab\n```");
+  });
+
+  it("reads the model's words literally: no ping, no link, no bold", () => {
+    const card = approvalText({
+      id: "24",
+      text: "x",
+      tool: "browser.act",
+      args: { intent: "**Safe** [close the popup](https://evil.example) @everyone <@&42>", steps: [{ click: "@e1" }] },
+      why: "# Heads up @here, see [the docs](https://evil.example)",
+    });
+    const [why, head] = card.split("\n");
+    expect(head).toBe("**Needs your OK** · \\*\\*Safe\\*\\* \\[close the popup\\]\\(<https://evil.example>\\) \\@everyone \\<\\@&42\\> \\(click\\)");
+    expect(why).toBe("> \\# Heads up \\@here, see \\[the docs\\]\\(<https://evil.example>\\)");
+    expect(settledText("approved", "**Done** @everyone", "24")).toBe("-# ✅ Approved · \\*\\*Done\\*\\* \\@everyone");
+    // A step line in the story too, its references still linked.
+    expect(storyText("› **Open** [it](https://evil.example) @everyone <@&42> @page:home", "https://kos.example")).toBe(
+      "-# › \\*\\*Open\\*\\* \\[it\\]\\(<https://evil.example>\\) \\@everyone \\<\\@&42\\> [home](<https://kos.example/#/page/home>)",
+    );
+  });
+
+  it("puts every step in a file when the card cannot hold them", () => {
+    const steps = Array.from({ length: 20 }, (_, i) => ({ fill: { target: `@e${i}`, text: `${i} ${"x".repeat(150)}` } }));
+    const card = approvalCard({ id: "23", text: "x", tool: "browser.act", args: { intent: "fill the form", steps } });
+    expect(card.content.length).toBeLessThanOrEqual(1900);
+    expect(card.content).toMatch(/-# \d+ more steps; every one is in steps\.txt/);
+    const file = card.files?.[0];
+    expect(file?.name).toBe("steps.txt");
+    expect(file?.attachment.toString("utf8").trim().split("\n")).toHaveLength(20);
+  });
+
   it("settles with the verb and the thing in inline code", () => {
     expect(settledText("approved", "Run: rm -rf build (in /w)", "12")).toBe("-# ✅ Approved · Run `rm -rf build (in /w)`");
     expect(settledText("denied", undefined, "7")).toBe("-# ❌ Denied · #7");
@@ -578,6 +627,29 @@ describe("the approval prompt", () => {
   });
 });
 
+describe("who a message may ping", () => {
+  it("pings nobody by default, whatever the words say", () => {
+    const adapter = new DiscordAdapter({ token: "t" });
+    const options = (adapter as unknown as { client: { options: { allowedMentions?: unknown } } }).client.options;
+    expect(options.allowedMentions).toEqual({ parse: [] });
+  });
+
+  it("lets a reply ping the member it names, and no one else", async () => {
+    const payloads: Record<string, unknown>[] = [];
+    const adapter = new DiscordAdapter({ token: "t" });
+    (adapter as unknown as { membersSeen: Map<string, string> }).membersSeen.set("amy", "111");
+    (adapter as unknown as { client: { users: unknown } }).client = {
+      users: { fetch: async () => ({ send: async (p: Record<string, unknown>) => { payloads.push(p); return {}; } }) },
+    };
+    await adapter.send("owner-id", { text: "Ask @amy, not @everyone or <@&42> or <@999>." });
+    expect(payloads[0]?.content).toBe("Ask <@111>, not @everyone or <@&42> or <@999>.");
+    expect(payloads[0]?.allowedMentions).toEqual({ parse: [], users: ["111"] });
+    // Naming no one, the message keeps the client's default of nobody.
+    await adapter.send("owner-id", { text: "@everyone look" });
+    expect(payloads[1]).not.toHaveProperty("allowedMentions");
+  });
+});
+
 describe("a prompt with a picture", () => {
   it("attaches the page the action is aimed at", async () => {
     const payloads: Record<string, unknown>[] = [];
@@ -590,8 +662,10 @@ describe("a prompt with a picture", () => {
     expect(files).toHaveLength(1);
     expect(files[0]?.name).toBe("page.jpg");
     expect(files[0]?.attachment.toString("utf8")).toBe("PIC");
-    expect(String(payloads[0]?.content)).toContain("click @e5");
-    expect(String(payloads[0]?.content)).toContain("on shop.example");
+    // The step as it reads, and the step as given, under it.
+    const lines = String(payloads[0]?.content).split("\n");
+    expect(lines.slice(0, 4)).toEqual(["**Needs your OK** · Click", "```", 'steps: [{"click":"@e5"}]', "```"]);
+    expect(lines[4]).toBe("-# browser.act · #7 · on shop.example");
   });
 });
 
@@ -1306,8 +1380,9 @@ describe("DiscordAdapter authorization", () => {
     await presence!.update("› get_current_time on time");
     await presence!.update("› get_current_time on time\nNearly midnight.");
     expect(edited).toEqual([
-      ["m1", { content: "-# › get_current_time on time" }],
-      ["m1", { content: "-# › get_current_time on time\nNearly midnight." }],
+      // A step's markup is literal: the underscores read as written.
+      ["m1", { content: "-# › get\\_current\\_time on time" }],
+      ["m1", { content: "-# › get\\_current\\_time on time\nNearly midnight." }],
     ]);
     await presence!.complete({ text: "It is 23:42.", from: verity });
     expect(viaHook[1]).toEqual({ content: "It is 23:42.", username: "Verity" });

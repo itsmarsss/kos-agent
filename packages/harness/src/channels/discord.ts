@@ -17,20 +17,21 @@ import {
   type ButtonInteraction,
   type Interaction,
   type Message,
+  type MessageMentionOptions,
   type ModalSubmitInteraction,
   type TextChannel,
   type Webhook,
 } from "discord.js";
-import { CHANNEL_TOKEN, detailLines, summarizeAction, withUnixTimes } from "@kos/shared";
+import { CHANNEL_TOKEN, detailLines, stepActions, summarizeAction, withUnixTimes } from "@kos/shared";
 
 import { isReadable, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
 import { OWNER_ONLY, type Guest } from "./types.js";
 import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
-import { linkMentions, linkPaths, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
+import { linkMentions, linkPaths, literal, literalWords, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
 import { tablesToCode } from "./tables.js";
-import { STEP_MARK } from "./narrate.js";
+import { shortStory, STEP_MARK } from "./narrate.js";
 import { MESSAGE_LIMITS } from "./types.js";
 import type {
   ApprovalHandler,
@@ -111,19 +112,25 @@ function withTimes(text: string, timezone?: string): string {
   return outsideCode(text, (part) => withUnixTimes(part, timezone));
 }
 
-/** A turn's story as Discord shows it: the agent's words plain, its steps small, the files a step names linked. */
+/** A turn's story as Discord shows it: its last steps small under a count of the rest, the agent's words plain, the files a step names linked. */
 export function storyText(status: string, dashboardUrl?: string, timezone?: string, labelOf?: LabelOf): string {
   // References in the story link where they link in the answer, or the
   // same name reads as a token in one place and a link in the other.
-  return noPreviews(linkMentions(withTimes(status, timezone), dashboardUrl, labelOf))
+  // A step line is the model's account of a step, read as it is: its
+  // markup made literal, so it cannot ping, shout or hide a link.
+  const story = shortStory(status)
+    .split("\n")
+    .map((line) => (line.startsWith(STEP_MARK) ? `${STEP_MARK}${literalWords(line.slice(STEP_MARK.length))}` : line))
+    .join("\n");
+  return noPreviews(linkMentions(withTimes(story, timezone), dashboardUrl, labelOf))
     .split("\n")
     .map((line) => (line.startsWith(STEP_MARK) ? `-# ${linkPaths(line, dashboardUrl)}` : line))
     .join("\n")
     .slice(0, 1900);
 }
 
-/** A bare url, not already in angle brackets and not the target of a masked link. */
-const BARE_URL = /(?<![<(])https?:\/\/[^\s<>()\]]+/g;
+/** A bare url, not already in angle brackets and not the target of a masked link; a bracket made literal is neither. */
+const BARE_URL = /(?:(?<![<(])|(?<=\\[<(]))https?:\/\/[^\s<>()\]\\]+/g;
 /** A masked link whose target is not yet in angle brackets. */
 const MASKED_LINK = /\]\((https?:\/\/[^\s<>()]+)\)/g;
 
@@ -139,11 +146,6 @@ const MASKED_LINK = /\]\((https?:\/\/[^\s<>()]+)\)/g;
  */
 export function noPreviews(text: string): string {
   return outsideCode(text, (part) => part.replace(MASKED_LINK, "](<$1>)").replace(BARE_URL, "<$&>"));
-}
-
-/** Discord's formatting characters, made literal. */
-function escapeMarkdown(text: string): string {
-  return text.replace(/([*_~`|\\])/g, "\\$1");
 }
 
 /**
@@ -164,37 +166,76 @@ function cut(line: string, max: number): string {
 
 const CODE_FENCE = "```";
 
+/** The longest an approval card's text may run, leaving room for the line saying where it came from. */
+const CARD_MAX = 1900;
+/** The file every step rides in when a card cannot hold them all. */
+const STEPS_FILE = "steps.txt";
+
+/** An approval card: its text, and every step as a file when the text cannot hold them. */
+export interface ApprovalCard {
+  content: string;
+  files?: { attachment: Buffer; name: string }[];
+}
+
 export function approvalText(req: ApprovalRequest): string {
+  return approvalCard(req).content;
+}
+
+export function approvalCard(req: ApprovalRequest): ApprovalCard {
   // The sentence the ask belongs to, first: what KOS was saying when it
   // reached for the tool. A card that opens with the command alone is a
   // prompt to click yes blind.
-  const said = req.why?.trim() ? [`> ${cut(req.why.trim().replace(/\s*\n+\s*/g, " "), WHY_MAX)}`] : [];
+  // The model's words, all of it, so made literal: a masked link or a
+  // mention in them reads as written and does nothing.
+  const said = req.why?.trim() ? [`> ${literal(cut(req.why.trim().replace(/\s*\n+\s*/g, " "), WHY_MAX))}`] : [];
   // Who is asking, in the headline: "Recap needs your OK", not a bare command.
-  const asks = req.asker ? `**${escapeMarkdown(req.asker.name)} needs your OK**` : "**Needs your OK**";
+  const asks = req.asker ? `**${literal(req.asker.name)} needs your OK**` : "**Needs your OK**";
   if (req.tool === undefined) {
-    return noPreviews([...said, `${asks} · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n"));
+    return { content: noPreviews([...said, `${asks} · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n")) };
   }
   const args = req.args ?? {};
-  const { head, body } = splitSummary(summarizeAction(req.tool, args, req.names));
+  const summary = summarizeAction(req.tool, args, req.names);
+  // A step said by its purpose is the model's sentence, not a verb and its
+  // thing: split on its colon, "Note: just closing the popup" took the whole
+  // line as the command and the keys it would press never showed. Its
+  // actions are the code instead, each on its own line, every one of them:
+  // the yes is for those, not for the model's account of them.
+  const actions = stepActions(req.tool, args);
+  const { head, body } = actions ? { head: summary } : splitSummary(summary);
   // The command itself, or failing that the arguments, in a code block: a
   // `--include=*.ts` that turned italic was a command you could not read
   // back, and an approval you cannot read is not one you can give.
-  const code = body
-    ? [cut(body, CODE_MAX)]
-    : detailLines(req.tool, args, req.names)
-        .slice(1)
-        .filter((l) => !l.startsWith("…"))
-        .slice(0, 3)
-        .map((l) => cut(l, DETAIL_MAX));
+  const code =
+    actions ??
+    (body
+      ? [cut(body, CODE_MAX)]
+      : detailLines(req.tool, args, req.names)
+          .slice(1)
+          .filter((l) => !l.startsWith("…"))
+          .slice(0, 3)
+          .map((l) => cut(l, DETAIL_MAX)));
   const small = [`${req.tool} · #${req.id}`, ...(req.reason ? [req.reason] : [])].join(" · ");
-  return noPreviews(
-    [
-      ...said,
-      `${asks} · ${escapeMarkdown(head)}`,
-      ...(code.length ? [CODE_FENCE, ...code.map((l) => l.split(CODE_FENCE).join("'''")), CODE_FENCE] : []),
-      `-# ${small}`,
-    ].join("\n"),
-  );
+  const text = (shown: string[], more?: string): string =>
+    noPreviews(
+      [
+        ...said,
+        `${asks} · ${literal(head)}`,
+        ...(shown.length ? [CODE_FENCE, ...shown.map((l) => l.split(CODE_FENCE).join("'''")), CODE_FENCE] : []),
+        ...(more ? [`-# ${more}`] : []),
+        `-# ${small}`,
+      ].join("\n"),
+    );
+  const whole = text(code);
+  if (!actions || whole.length <= CARD_MAX) return { content: whole };
+  // More steps than a message holds: as many as fit, and every one of them
+  // in a file on the card, so none is approved unseen.
+  let shown = actions.length;
+  const more = (n: number): string => `${actions.length - n} more step${actions.length - n === 1 ? "" : "s"}; every one is in ${STEPS_FILE}`;
+  while (shown > 0 && text(actions.slice(0, shown), more(shown)).length > CARD_MAX) shown -= 1;
+  return {
+    content: text(actions.slice(0, shown), more(shown)),
+    files: [{ attachment: Buffer.from(`${actions.join("\n")}\n`, "utf8"), name: STEPS_FILE }],
+  };
 }
 
 /** What a settled prompt becomes: one small line saying how it went. */
@@ -202,7 +243,7 @@ export function settledText(outcome: ApprovalOutcome, summary: string | undefine
   const mark = outcome === "approved" ? "✅ Approved" : outcome === "expired" ? "⌛ Lapsed" : "❌ Denied";
   if (!summary) return `-# ${mark} · #${id}`;
   const { head, body } = splitSummary(summary);
-  return noPreviews(`-# ${mark} · ${escapeMarkdown(head)}${body ? ` \`${cut(body.replace(/`/g, "'"), 80)}\`` : ""}`);
+  return noPreviews(`-# ${mark} · ${literal(head)}${body ? ` \`${cut(body.replace(/`/g, "'"), 80)}\`` : ""}`);
 }
 
 /** Encode the approve/deny button ids for a pending action. */
@@ -841,6 +882,11 @@ export class DiscordAdapter implements ChannelAdapter {
         GatewayIntentBits.GuildMessageReactions,
       ],
       partials: [Partials.Channel, Partials.Message, Partials.Reaction],
+      // Nothing KOS posts pings anyone unless it means to: the words in a
+      // message are the model's, and "@everyone" or a role written there is
+      // text, not a call on the whole server. A reply that names a member
+      // allows that member alone (see pings).
+      allowedMentions: { parse: [] },
     });
     /*
      * A gateway error is a log line, not the end of the host.
@@ -1806,13 +1852,18 @@ export class DiscordAdapter implements ChannelAdapter {
 
     const payloadFor = (msg: OutboundMessage): {
       content?: string;
+      allowedMentions?: MessageMentionOptions;
       embeds?: EmbedBuilder[];
       components?: ActionRowBuilder<ButtonBuilder>[];
-    } => ({
-      ...(taggedText(msg) ? { content: this.words(taggedText(msg)).slice(0, 2000) } : {}),
-      ...(msg.card ? { embeds: [buildCard(msg.card, { from: msg.from, named: !msg.text, dashboardUrl: this.dashboardUrl, timezone: this.timezone, labelOf: this.labelOf })] } : {}),
-      ...(msg.buttons?.length ? { components: buildButtons(msg.buttons) } : {}),
-    });
+    } => {
+      const content = taggedText(msg) ? this.words(taggedText(msg)).slice(0, 2000) : undefined;
+      return {
+        ...(content ? { content } : {}),
+        ...this.pings(content),
+        ...(msg.card ? { embeds: [buildCard(msg.card, { from: msg.from, named: !msg.text, dashboardUrl: this.dashboardUrl, timezone: this.timezone, labelOf: this.labelOf })] } : {}),
+        ...(msg.buttons?.length ? { components: buildButtons(msg.buttons) } : {}),
+      };
+    };
 
     const respond: PressResponder = {
       openForm: async (modal) => {
@@ -2020,6 +2071,17 @@ export class DiscordAdapter implements ChannelAdapter {
     });
   }
 
+  /**
+   * Who a message may ping, past the client's own default of nobody: the
+   * members seen before that it names, and not a role, not everyone.
+   * Nothing to add when it names none.
+   */
+  private pings(content: string | undefined): { allowedMentions?: MessageMentionOptions } {
+    const seen = new Set(this.membersSeen.values());
+    const users = [...new Set([...(content ?? "").matchAll(/<@!?(\d+)>/g)].map((m) => m[1]!).filter((id) => seen.has(id)))];
+    return users.length ? { allowedMentions: { parse: [], users } } : {};
+  }
+
   /** "@name" as `<@id>` for a member seen before, so a reply naming someone pings them; a @kind: reference is not a name. */
   private memberMentions(text: string): string {
     if (this.membersSeen.size === 0) return text;
@@ -2085,6 +2147,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private async deliver(
     post: (payload: {
       content?: string;
+      allowedMentions?: MessageMentionOptions;
       embeds?: EmbedBuilder[];
       components?: ActionRowBuilder<ButtonBuilder>[];
       files?: { attachment: Buffer; name: string }[];
@@ -2120,6 +2183,7 @@ export class DiscordAdapter implements ChannelAdapter {
       const last = i === Math.max(chunks.length, 1) - 1;
       posted = await post({
         ...(chunks[i] ? { content: chunks[i] } : {}),
+        ...this.pings(chunks[i]),
         ...(last && embeds.length ? { embeds } : {}),
         ...(last && components.length ? { components } : {}),
         ...(last && files.length ? { files: files.map((f) => ({ attachment: f.attachment, name: f.name })) } : {}),
@@ -2248,12 +2312,14 @@ export class DiscordAdapter implements ChannelAdapter {
     );
 
     const summary = req.tool !== undefined ? summarizeAction(req.tool, req.args ?? {}, req.names) : req.text;
+    const card = approvalCard(req);
+    // The page a browser action is aimed at, when there is one: the thing
+    // being approved, rather than a description of it.
+    const files = [...(req.picture ? [{ attachment: Buffer.from(req.picture, "base64"), name: "page.jpg" }] : []), ...(card.files ?? [])];
     const payload: AskPayload = {
-      content: approvalText(req),
+      content: card.content,
       components: [row],
-      // The page a browser action is aimed at, when there is one: the thing
-      // being approved, rather than a description of it.
-      ...(req.picture ? { files: [{ attachment: Buffer.from(req.picture, "base64"), name: "page.jpg" }] } : {}),
+      ...(files.length ? { files } : {}),
     };
     // In a server every ask is in #needs-you, the one place to see all that
     // waits, and also where its chat is read when it has a channel or a

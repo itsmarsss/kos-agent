@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
 import { summarizeAction } from "@kos/shared";
-import { CloseIcon, Count, Empty, Face, IconButton, moodOf, RefChip, StatusDot, type Tone } from "@kos/kit";
+import { AskSteps, CloseIcon, Count, Empty, Face, IconButton, moodOf, RefChip, StatusDot, type Tone } from "@kos/kit";
 
 import { titleOf } from "./AgentEditor.js";
 import type { AgentInfo, FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
@@ -146,7 +146,8 @@ export function Panel({
               {rows.slice(0, limit).map((a) => (
                 <li key={a.id} className="panel-approval">
                   <span className="panel-row-main">
-                    {summarizeAction(a.tool, a.args)}
+                    {a.summary ?? summarizeAction(a.tool, a.args)}
+                    <AskSteps mechanics={a.mechanics} tool={a.tool} args={a.args} />
                     <code className="panel-approval-tool">{a.tool}</code>
                   </span>
                   {/* Decided here rather than somewhere else: this panel

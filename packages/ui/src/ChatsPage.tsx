@@ -9,8 +9,8 @@ import {
 } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { summarizeAction } from "@kos/shared";
-import { ArchiveIcon, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, WorkingDots, WrenchIcon } from "@kos/kit";
+import { stepMechanics, summarizeAction } from "@kos/shared";
+import { ArchiveIcon, AskSteps, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { Decision } from "./Decision.js";
 import { VoiceInput } from "./VoiceInput.js";
@@ -173,6 +173,27 @@ function prettyArgs(args: string): string {
   } catch {
     return args;
   }
+}
+
+/**
+ * An ask waiting outside any tool card: what it is about to do, first.
+ * "risky tool" was the whole card once, and the command it wanted to run
+ * was nowhere. The steps sit under the words, the reason is a tag, the
+ * arguments a fold.
+ */
+export function LooseAsk({ ask: a }: { ask: PendingAction }): ReactElement {
+  return (
+    <div className="loose-approval-main">
+      <code>{a.tool}</code>
+      <span className="loose-approval-what">{a.summary ?? summarizeAction(a.tool, a.args)}</span>
+      <AskSteps mechanics={a.mechanics} tool={a.tool} args={a.args} />
+      {a.reason && <span className="loose-approval-why">{a.reason}</span>}
+      <details className="loose-approval-details">
+        <summary>Arguments</summary>
+        <pre>{prettyArgs(a.args)}</pre>
+      </details>
+    </div>
+  );
 }
 
 function relative(ts: number): string {
@@ -438,7 +459,8 @@ export function ChatsPage({
       ...(slug ? { project: slug } : {}),
       approvals: approvals.map((a) => ({
         id: a.id,
-        label: a.summary ?? summarizeAction(a.tool, a.args),
+        // The steps beside the model's words for them: /approve is a yes too.
+        label: [a.summary ?? summarizeAction(a.tool, a.args), a.mechanics ?? stepMechanics(a.tool, a.args)].filter(Boolean).join(" · "),
         here: a.conversationId === activeId,
       })),
     };
@@ -2339,18 +2361,7 @@ export function ChatsPage({
                   exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.12 } }}
                   transition={spring}
                 >
-                  <div className="loose-approval-main">
-                    {/* What it is about to do, first: "risky tool" was the
-                        whole card, and the command it wanted to run was
-                        nowhere. The reason is a tag, the arguments a fold. */}
-                    <code>{a.tool}</code>
-                    <span className="loose-approval-what">{a.summary ?? summarizeAction(a.tool, a.args)}</span>
-                    {a.reason && <span className="loose-approval-why">{a.reason}</span>}
-                    <details className="loose-approval-details">
-                      <summary>Arguments</summary>
-                      <pre>{prettyArgs(a.args)}</pre>
-                    </details>
-                  </div>
+                  <LooseAsk ask={a} />
                   <div className="loose-approval-actions">
                     <Decision
                       id={a.id}

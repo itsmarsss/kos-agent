@@ -91,6 +91,7 @@ tool rows to one chip.
 | Model and mode chips | `ModelPicker.tsx`, `.composer-engine` | `ModelChoice`, `AutoChoice` in `panel.tsx`, on the one capsule rule | `Chip(..., opens:)` menus in `ChatView.swift` |
 | Send | `.send` with kit `SendIcon`, Stop while a turn runs | `.send` with kit `SendIcon` | `KOSButtonStyle(..., round: 30)` with `arrow.right` (Controls) |
 | Approval | `Decision.tsx` (Approve, Always, Deny) | `AskCard` in `panel.tsx` | `AskCard` (`ChatView.swift`) |
+| An ask's steps | kit `AskSteps` under the summary: every action a step said by its purpose takes, on the row, wrapped, never cut (Inbox, Needs you, a build's terminal, a chat's loose ask) | kit `AskSteps` in `AskCard` | the `mechanics` line in `AskCard` (`ChatView.swift`) |
 | What the chat is beside | | `TabBar` in `panel.tsx` (the tab, a status pill) | `AppCard` (`ChatView.swift`, the app in front) |
 | Chat switcher | the chats rail | `ChatSwitcher` in `panel.tsx` | `Switcher` (`ChatView.swift`) |
 | Message actions | `MessageActions.tsx` (kit `IconButton`s) | | |

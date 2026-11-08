@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { m } from "motion/react";
 import { summarizeAction } from "@kos/shared";
 
-import { ChevronDown, ChevronRight, ease, spring, StatusDot, useDismiss } from "@kos/kit";
+import { AskSteps, ChevronDown, ChevronRight, ease, spring, StatusDot, useDismiss } from "@kos/kit";
 
 import { api, type BuildRecord, type PendingAction } from "./api.js";
 import { Decision } from "./Decision.js";
@@ -350,8 +350,9 @@ export function AgentTerminal({
             {waiting.map((a) => (
               <div className="term-ask" key={a.id}>
                 <span className="term-ask-text">
-                  <code>{a.tool}</code> {summarizeAction(a.tool, a.args)}
+                  <code>{a.tool}</code> {a.summary ?? summarizeAction(a.tool, a.args)}
                   {a.reason && <span className="term-ask-why"> · {a.reason}</span>}
+                  <AskSteps mechanics={a.mechanics} tool={a.tool} args={a.args} />
                 </span>
                 <Decision id={a.id} deciding={deciding} onDecide={onDecide} small />
               </div>
