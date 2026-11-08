@@ -205,13 +205,14 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
             "A target is a @ref from the last look, a CSS selector, or a text selector: button:has-text('Submit'), text=Submit. " +
             "Each step already waits for what it set off: a page it opened, the network going quiet. So do not add wait steps " +
             "after clicks or keys; each one is time the owner watches. Wait only for something you know is slow, and then for what " +
-            "you expect, {wait: {text}}, rather than a number. Put a whole sequence you can foresee (answer, then submit, then " +
-            "next) in one call. A click the page covers (a bar at its edge, a banner) is tried with the target in the middle of " +
+            "you expect, {wait: {text}}, rather than a number. Put a whole sequence you can foresee in one call: every field of a " +
+            "form and then its submit, or answer, then submit, then next. The run stops at a step that fails and says so, so " +
+            "nothing is gained by looking in between. A click the page covers (a bar at its edge, a banner) is tried with the target in the middle of " +
             "the view and on other parts of it; only one covered everywhere is refused, naming what is in the way. Steps that only " +
             "look or move (open, go, hover, scroll, wait, dialog) run at once; the rest ask the owner unless the site is trusted. " +
             "If a step fails, the run stops and says what was done, why, and what the page offers now. `then` as for browser.visit: " +
             '"snapshot" or "read" when the words on the page are enough, which is quicker; "look" (the default) when how it looks ' +
-            "matters: the index, and the picture when the page changed since your last one, words when it did not. " +
+            "matters (a page that has not changed since your last picture is said in words). " +
             'Say what the call is for in `intent`, a few words the owner reads as the step, like "open the Quizzes tab": without it ' +
             "they see only clicks and refs.",
           inputSchema: {
