@@ -232,6 +232,10 @@ export interface FoundControl {
   /** Links of the same label after this one, folded into it. */
   more?: number;
   frame?: string;
+  /** The frame is still loading its page: there is nothing of it to read yet. */
+  loading?: true;
+  /** An element whose shadow root may be closed to scripts, KOS's among them: asked of the browser, not read. */
+  closed?: true;
 }
 
 /**
@@ -239,7 +243,11 @@ export interface FoundControl {
  * would announce (its role, label, state and value, as Chrome's
  * accessibility tree says them), through open shadow roots and the frames
  * this document can reach. A frame it cannot reach is marked where it sits,
- * to be read on its own. Links of one label fold into the first; at most
+ * to be read on its own, and so is one still loading its page and an
+ * element that may hold a shadow root closed to scripts, to be said as not
+ * read. A control a page marks as presentation is kept when it can still be
+ * focused, as a reader keeps it; what an element owns by aria-owns is read
+ * as inside it. Links of one label fold into the first; at most
  * `max` controls of each dialog and of the page are kept, and `total` says
  * how many there were. The answer is the elements, in order, with what was
  * found about them as JSON under `kos`, so their nodes can be asked for in
@@ -252,6 +260,7 @@ export function controls(scope: string | null, max: number): Element[] {
   /** Roles named by their own words when nothing else names them. */
   const FROM_CONTENT = new Set(["button", "link", "tab", "option", "menuitem", "menuitemcheckbox", "menuitemradio", "treeitem", "checkbox", "radio", "switch"]);
   const FRAMES_MAX = 8;
+  const CLOSED_MAX = 8;
   const squash = (s: string): string => s.replace(/\s+/g, " ").trim();
 
   /** Not drawn, or kept from readers: what is inside it is not on the page. */
@@ -261,7 +270,11 @@ export function controls(scope: string | null, max: number): Element[] {
   };
   const roleOf = (el: Element): string => {
     const explicit = (el.getAttribute("role") ?? "").trim().split(/\s+/)[0]?.toLowerCase();
-    if (explicit) return explicit;
+    // Presentation on something that can be focused is ignored, as a reader ignores it.
+    if (explicit && !((explicit === "none" || explicit === "presentation") && (el.hasAttribute("tabindex") || CONTROLS.has(nativeRole(el))))) return explicit;
+    return nativeRole(el);
+  };
+  function nativeRole(el: Element): string {
     switch (el.localName) {
       case "a":
       case "area":
@@ -305,7 +318,7 @@ export function controls(scope: string | null, max: number): Element[] {
       default:
         return "";
     }
-  };
+  }
   /** An element's words as a reader hears them: rendered text, pictures by their alt, fields left out. */
   const wordsOf = (root: Element): string => {
     const parts: string[] = [];
@@ -422,6 +435,18 @@ export function controls(scope: string | null, max: number): Element[] {
   const links = new Map<string, FoundControl>();
   let total = 0;
   let frames = 0;
+  let closed = 0;
+  /** What elements own by aria-owns, read where their owner is and not where they sit. */
+  const owned = new Map<Element, Element[]>();
+  const ownedBy = new Set<Element>();
+  for (const owner of Array.from(document.querySelectorAll("[aria-owns]"))) {
+    const kids = (owner.getAttribute("aria-owns") ?? "")
+      .split(/\s+/)
+      .map((id) => (id ? document.getElementById(id) : null))
+      .filter((k): k is HTMLElement => k !== null && k !== owner && !k.contains(owner) && !ownedBy.has(k));
+    for (const k of kids) ownedBy.add(k);
+    if (kids.length) owned.set(owner, kids);
+  }
   const add = (el: Element, role: string, dialog: string | undefined): void => {
     const name = nameOf(el, role);
     if (role === "link" && !name) return;
@@ -443,8 +468,8 @@ export function controls(scope: string | null, max: number): Element[] {
     items.push(item);
     els.push(el);
   };
-  const visit = (el: Element, dialog: string | undefined): void => {
-    if (away(el)) return;
+  const visit = (el: Element, dialog: string | undefined, owner = false): void => {
+    if ((ownedBy.has(el) && !owner) || away(el)) return;
     const role = roleOf(el);
     if (role === "dialog" || role === "alertdialog") dialog = byIds(el, "aria-labelledby") || squash(el.getAttribute("aria-label") ?? "") || role;
     if (el.localName === "iframe" || el.localName === "frame") {
@@ -454,12 +479,20 @@ export function controls(scope: string | null, max: number): Element[] {
       } catch {
         inner = null;
       }
-      if (inner?.documentElement) visit(inner.documentElement, dialog);
+      const src = (el as HTMLIFrameElement).src || "about:blank";
+      // The blank document a frame holds until its page comes is not its page.
+      const loading = inner !== null && inner.URL === "about:blank" && !src.startsWith("about:");
+      if (inner?.documentElement && !loading) visit(inner.documentElement, dialog);
       else if (frames++ < FRAMES_MAX) {
-        items.push({ role: "", name: "", states: [], frame: (el as HTMLIFrameElement).src || "about:blank", ...(dialog !== undefined ? { dialog } : {}) });
+        items.push({ role: "", name: "", states: [], frame: src, ...(loading ? { loading: true as const } : {}), ...(dialog !== undefined ? { dialog } : {}) });
         els.push(el);
       }
       return;
+    }
+    if (!el.shadowRoot && el.localName.includes("-") && el.matches(":defined") && closed < CLOSED_MAX) {
+      closed++;
+      items.push({ role: "", name: "", states: [], closed: true });
+      els.push(el);
     }
     if (CONTROLS.has(role) && el.checkVisibility({ visibilityProperty: true })) add(el, role, dialog);
     if (el instanceof HTMLSelectElement) {
@@ -468,6 +501,7 @@ export function controls(scope: string | null, max: number): Element[] {
     }
     const kids = el.localName === "slot" ? (el as HTMLSlotElement).assignedElements({ flatten: true }) : Array.from((el.shadowRoot ?? el).children);
     for (const kid of kids) visit(kid, dialog);
+    for (const kid of owned.get(el) ?? []) visit(kid, dialog, true);
   };
   const root = scope ? document.querySelector(scope) : document.documentElement;
   if (!root) return Object.assign([], { kos: JSON.stringify({ missing: true }) });

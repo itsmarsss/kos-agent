@@ -102,7 +102,7 @@ export async function seeAfter(tab: Tab, then: Then, scope?: string): Promise<Se
   const more = index.total > index.lines.filter((l) => l.includes("@")).length ? ` (some of ${index.total}; then: "snapshot" lists all, scope narrows)` : "";
   const list = index.lines.length ? `Can be acted on${more}:\n${fenced(index.lines.join("\n"))}` : `Nothing to act on was found; then: "snapshot" or "read" may show more.`;
   return {
-    text: `${head}${lines(page.takeNotes().join("\n"))}${shot ? "" : "(no picture of the tab was available)\n"}${list}${unreadNote(look.unread)}`,
+    text: `${head}${lines(page.takeNotes().join("\n"))}${shot ? "" : "(no picture of the tab was available)\n"}${list}${unreadNote(look.unread)}${closedNote(look.closed ?? 0)}`,
     images: shot ? [{ mediaType: "image/jpeg", data: shot }] : [],
     url,
   };
@@ -112,6 +112,11 @@ function unreadNote(hosts: string[]): string {
   if (hosts.length === 0) return "";
   const unique = [...new Set(hosts)];
   return `\n(Not read: ${unique.length === 1 ? "an embedded frame" : `${unique.length} embedded frames`} from ${unique.join(", ")}; the picture shows ${unique.length === 1 ? "it" : "them"}.)`;
+}
+
+function closedNote(count: number): string {
+  if (count === 0) return "";
+  return `\n(Not read: ${count === 1 ? "a part of the page" : `${count} parts of the page`} closed to scripts; the picture shows ${count === 1 ? "it" : "them"}, and a snapshot reads ${count === 1 ? "it" : "them"}.)`;
 }
 
 /** Up to four pages, one after another, each looked at as `then` says. */

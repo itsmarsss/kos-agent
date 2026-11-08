@@ -38,8 +38,16 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   costs what its first sixty controls do, not its whole tree: rendered
   controls only, through open shadow roots and the frames it can reach;
   a frame of another origin is read in a world of its own, side by side
-  with the rest, and one in another process is named as unread. A dialog's
-  controls come first, since a page with one open is waiting on it. A ref
+  with the rest, and one in another process, or still loading its page,
+  is named as unread, as is a part of the page in a closed shadow root,
+  which no script reaches (the outline reads it). A control the page marks
+  as presentation is kept when it can still be focused, and what an element
+  owns by `aria-owns` is read inside it, as a reader does. Text a page draws
+  with CSS (`::before`, `::after`) is not read into a name: a control named
+  only by an icon font or generated content shows unnamed, where the
+  outline would name it. A dialog's controls come first, under the start
+  of its name (60 characters), since a page with one open is waiting on
+  it. A ref
   stays the same for the same element while its document lives. The
   outline (`then: "snapshot"`) is Chrome's accessibility tree, everything
   on the page, and so is the index on a KOS for Chrome too old to make a

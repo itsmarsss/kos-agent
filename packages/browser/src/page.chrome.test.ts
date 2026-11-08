@@ -68,6 +68,17 @@ const HIDDEN = page(
 
 const NEXT = page("Next", `<main><p>The next page.</p></main>`);
 
+/** What a reader would say that a page alone does not show: a closed shadow root, a frame still loading, presentation that cannot hide a control, aria-owns. */
+const FIDELITY = page(
+  "Fidelity",
+  `<button>First</button><div aria-owns="late"></div><button>Second</button>
+<button role="none">Still a button</button><div role="presentation" tabindex="0">Not a control</div>
+<x-closed></x-closed>
+<iframe src="/never" style="width:200px;height:60px"></iframe>
+<button id="late">Late</button>
+<script>customElements.define('x-closed', class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: 'closed' }).innerHTML = '<button>Inside closed</button>'; } });</script>`,
+);
+
 /** A search that asks the server a moment after the typing stops, as most do. */
 const SEARCH = page(
   "Search",
@@ -114,6 +125,8 @@ document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<but
   const answer = (req: IncomingMessage, res: ServerResponse): void => {
     const url = req.url ?? "/";
     const html = (body: string): void => void res.writeHead(200, { "content-type": "text/html" }).end(body);
+    // A frame's page that never comes.
+    if (url === "/never") return;
     if (url === "/data") return void setTimeout(() => res.end("Arrived from the server"), 300);
     if (url === "/api/late") return void setTimeout(() => res.writeHead(200, { "access-control-allow-origin": "*" }).end("Arrived from another site"), 400);
     if (url.startsWith("/search")) return void setTimeout(() => res.end(`Results for ${new URL(url, base).searchParams.get("q")}`), 100);
@@ -127,7 +140,7 @@ document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<but
     if (url.startsWith("/beacon") || url.startsWith("/pixel")) return void res.writeHead(204).end();
     if (url === "/api/settings") return void setTimeout(() => res.writeHead(200, { "content-type": "application/json" }).end('{"user":"Ada"}'), 200);
     if (url === "/inner") return html(page("Inner", `<button onclick="parent.postMessage('inner ' + location.port, '*')">Inner button</button>`));
-    const pages: Record<string, string> = { "/elsewhere": elsewhere(), "/finder": SEARCH, "/waiting": SLOW, "/fetched": FETCHED, "/chatty": CHATTY, "/stepped": STEPPED, "/app": SPA, "/big": BIG, "/hidden": HIDDEN, "/next": NEXT, "/framed": framed() };
+    const pages: Record<string, string> = { "/elsewhere": elsewhere(), "/fidelity": FIDELITY, "/finder": SEARCH, "/waiting": SLOW, "/fetched": FETCHED, "/chatty": CHATTY, "/stepped": STEPPED, "/app": SPA, "/big": BIG, "/hidden": HIDDEN, "/next": NEXT, "/framed": framed() };
     html(pages[url] ?? page("Start", `<a id=go href="/next">Next</a>`));
   };
 
@@ -267,6 +280,14 @@ document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<but
     expect(await tab.page.evaluate("document.title")).toBe(`inner ${new URL(otherBase).port}`);
     const outline = await look(tab, "snapshot");
     expect(outline.text).toContain('button "Inner button"');
+  });
+
+  it("reads what a page owns where it owns it, keeps a control marked as presentation, and says what it could not read", async () => {
+    const seen = await visit(tab, [`${base}/fidelity`], { then: "look" });
+    const lines = seen.text.split("\n").filter((l) => /@e\d+/.test(l)).map((l) => l.replace(/ @e\d+.*/, ""));
+    expect(lines).toEqual(['button "First"', 'button "Late"', 'button "Second"', 'button "Still a button"']);
+    expect(seen.text).toContain("Not read: a part of the page closed to scripts");
+    expect(seen.text).toMatch(/Not read: an embedded frame from 127\.0\.0\.1:\d+/);
   });
 
   it("looks only inside a scope, and says when nothing matches it", async () => {

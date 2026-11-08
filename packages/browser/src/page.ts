@@ -180,6 +180,8 @@ export interface Look {
   index: PageIndex;
   /** Embedded frames that could not be read, by host. */
   unread: string[];
+  /** Parts of the page closed to scripts (closed shadow roots), not read. */
+  closed?: number;
 }
 
 export class Page {
@@ -410,7 +412,7 @@ export class Page {
   async index(scope?: string): Promise<Look> {
     this.freshDocument();
     const found = await this.found(this.mainFrame, scope ?? null, { left: FRAMES_MAX });
-    if (found) return { index: indexOf(found.controls, found.total, this.refs), unread: found.unread };
+    if (found) return { index: indexOf(found.controls, found.total, this.refs), unread: found.unread, ...(found.closed ? { closed: found.closed } : {}) };
     // No world of KOS's own on this tab (a KOS for Chrome from before there was one): the tree it was read from before.
     const { nodes, unread } = await this.nodes(scope);
     const { controls, total } = controlsOf(nodes);
@@ -1016,7 +1018,7 @@ export class Page {
    * own world, side by side. Undefined when the frame has no world of KOS's
    * own to look from. `frames` is how many more frames may be read.
    */
-  private async found(frame: string, scope: string | null, frames: { left: number }, again = true): Promise<{ controls: Control[]; total: number; unread: string[] } | undefined> {
+  private async found(frame: string, scope: string | null, frames: { left: number }, again = true): Promise<{ controls: Control[]; total: number; unread: string[]; closed: number } | undefined> {
     const context = await this.world(frame);
     if (context === undefined) return undefined;
     let answer: Record<string, unknown>;
@@ -1042,12 +1044,20 @@ export class Page {
     const meta = JSON.parse(String(byName.get("kos")?.value ?? "{}")) as { items?: inpage.FoundControl[]; total?: number; missing?: boolean };
     if (meta.missing) throw new Error(`nothing on the page matches ${scope}`);
     const items = meta.items ?? [];
-    const described = items.length ? await this.many(items.map((_, i) => ({ method: "DOM.describeNode", params: { objectId: byName.get(String(i))?.objectId ?? "" } })), true) : [];
-    const nodes = described.map((d) => (d instanceof Error ? undefined : (d["node"] as { backendNodeId?: number; frameId?: string } | undefined)));
+    // An element that may hold a closed shadow root is asked of the browser, which sees through it.
+    const describe = (item: inpage.FoundControl, i: number): Call => ({
+      method: "DOM.describeNode",
+      params: { objectId: byName.get(String(i))?.objectId ?? "", ...(item.closed ? { depth: 1, pierce: true } : {}) },
+    });
+    const described = items.length ? await this.many(items.map(describe), true) : [];
+    type Described = { backendNodeId?: number; frameId?: string; shadowRoots?: { shadowRootType?: string }[] };
+    const nodes = described.map((d) => (d instanceof Error ? undefined : (d["node"] as Described | undefined)));
+    let closed = items.filter((item, i) => item.closed && nodes[i]?.shadowRoots?.some((r) => r.shadowRootType === "closed")).length;
     // The frames it could not reach, read beside one another.
     const inner = await Promise.all(
       items.map(async (item, i) => {
         if (item.frame === undefined) return undefined;
+        if (item.loading) return { missed: item.frame };
         const id = nodes[i]?.frameId;
         if (!id || frames.left <= 0) return { missed: item.frame };
         frames.left--;
@@ -1068,13 +1078,14 @@ export class Page {
         controls.push(...from.controls.map((c) => (c.dialog === undefined && item.dialog !== undefined ? { ...c, dialog: item.dialog } : c)));
         unread.push(...from.unread);
         total += from.total;
+        closed += from.closed;
         continue;
       }
       const node = nodes[i]?.backendNodeId;
-      if (node === undefined) continue;
+      if (node === undefined || item.closed) continue;
       controls.push({ node, role: item.role, name: item.name, states: item.states, ...(item.value !== undefined ? { value: item.value } : {}), ...(item.dialog !== undefined ? { dialog: item.dialog } : {}), ...(item.more ? { more: item.more } : {}) });
     }
-    return { controls, total, unread };
+    return { controls, total, unread, closed };
   }
 
   /** The accessibility tree of the page and of the frames in it that live in its process, as one. */
