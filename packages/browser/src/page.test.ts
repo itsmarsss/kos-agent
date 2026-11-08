@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { Page, Stopped, type Session } from "./page.js";
+import { BrowserClock, Page, Stopped, type Session } from "./page.js";
 
 type Handler = (params: Record<string, unknown>) => Promise<Record<string, unknown>> | Record<string, unknown>;
 
@@ -109,5 +109,20 @@ describe("a Stop part way through a step", () => {
     answer({ result: { objectId: "late" } });
     await new Promise((r) => setTimeout(r, 0));
     expect(calls.filter((c) => c.method === "Runtime.releaseObject")).toEqual([{ method: "Runtime.releaseObject", params: { objectId: "late" } }]);
+  });
+});
+
+describe("the browser's clock", () => {
+  it("dates a request heard late by when the browser sent it, and reads the clock afresh after a sleep", () => {
+    const clock = new BrowserClock();
+    // Heard 20 ms after the browser sent it, then one heard 500 ms late: dated when it was sent, not when heard.
+    expect(clock.date(1_000, 1_020)).toBe(1_020);
+    expect(clock.date(2_000, 2_520)).toBe(2_020);
+    // The computer sleeps an hour; the clock the browser dates by stands still meanwhile. A request sent on waking is new, not an hour old.
+    const woke = 2_520 + 3_600_000;
+    expect(clock.date(3_000, woke + 10)).toBe(woke + 10);
+    expect(clock.date(3_100, woke + 120)).toBe(woke + 110);
+    // Nothing is dated after it was heard, whatever the browser says.
+    expect(clock.date(3_300, woke + 200)).toBe(woke + 200);
   });
 });

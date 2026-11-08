@@ -571,11 +571,9 @@ async function relayAll(params: Record<string, unknown>, origin: string): Promis
 async function relayOne(s: Session, tab: number, method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   checkCommand(method, args, overlayWorlds.get(tab));
   stillIn(s, tab);
-  // Not a look, a click or a word on a hidden site, and no way there. The address kept is the tab's only while
-  // the debugger hears it change; a tab let go of may have gone anywhere since.
-  const url = (attached.has(tab) ? tabUrls.get(tab) : undefined) ?? (await chrome.tabs.get(tab).catch(() => undefined))?.url ?? "";
+  // Not a look, a click or a word on a hidden site, and no way there.
+  await refuseHidden(tab);
   stillIn(s, tab);
-  if (isHidden(url, settings.hiddenSites)) throw hiddenError(url);
   if (method === "Page.navigate" && isHidden(str(args["url"]), settings.hiddenSites)) throw hiddenError(str(args["url"]));
   if (s.paused && (isInput(method) || method === "Page.navigate")) throw new CallError("paused", "the owner has taken over this tab; wait for them to hand it back");
   await attach(tab);
@@ -589,17 +587,52 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
   if (method === "Input.dispatchMouseEvent" && typeof args["x"] === "number" && typeof args["y"] === "number") {
     void toOverlays(tab, `window.__kos && window.__kos.point(${args["x"]}, ${args["y"]}, ${args["type"] === "mousePressed"})`, 300);
   }
+  let answer: Record<string, unknown>;
   try {
-    if (method === "Page.captureScreenshot") return await picture(tab, args);
-    const answer = ((await chrome.debugger.sendCommand({ tabId: tab }, method, args)) as Record<string, unknown> | undefined) ?? {};
+    if (method === "Page.navigateToHistoryEntry") await refuseHiddenEntry(tab, args["entryId"]);
+    if (method === "Page.captureScreenshot") answer = await picture(tab, args);
+    else answer = ((await chrome.debugger.sendCommand({ tabId: tab }, method, args)) as Record<string, unknown> | undefined) ?? {};
     // A navigation answers before its page is in; the next command waits for it, so it is checked against where the tab went.
     if (method === "Page.navigate" && typeof answer["loaderId"] === "string" && !answer["errorText"]) await committed(tab, answer["loaderId"]);
-    return answer;
   } catch (err) {
+    if (err instanceof CallError) throw err;
     // Cut off by the session ending or the tab taken back, which is the answer, not the debugger's words for it.
     stillIn(s, tab);
+    // Nor a word of a page cut off by going to a hidden site.
+    await refuseHidden(tab);
     throw new CallError("cdp", err instanceof Error ? err.message : String(err));
   }
+  // Checked again once answered: a page that went to a hidden site while the command ran (a click, a reload, a redirect) gives KOS nothing of it.
+  await refuseHidden(tab);
+  if (method === "Page.getNavigationHistory") return withoutHidden(answer);
+  return answer;
+}
+
+/**
+ * Refused when the tab is on a hidden site, or on its way to one: by the
+ * address the debugger last heard while it is on the tab, and by Chrome's,
+ * which is all there is for a tab let go of (it may have gone anywhere
+ * since).
+ */
+async function refuseHidden(tab: number): Promise<void> {
+  const t = await chrome.tabs.get(tab).catch(() => undefined);
+  for (const url of [attached.has(tab) ? tabUrls.get(tab) : undefined, t?.url, t?.pendingUrl]) {
+    if (url && isHidden(url, settings.hiddenSites)) throw hiddenError(url);
+  }
+}
+
+/** Refused when the history entry a command would go back or forward to is on a hidden site. */
+async function refuseHiddenEntry(tab: number, entryId: unknown): Promise<void> {
+  const history = (await chrome.debugger.sendCommand({ tabId: tab }, "Page.getNavigationHistory", {})) as { entries?: { id?: unknown; url?: unknown }[] } | undefined;
+  const url = history?.entries?.find((e) => e.id === entryId)?.url;
+  if (typeof url === "string" && isHidden(url, settings.hiddenSites)) throw hiddenError(url);
+}
+
+/** A tab's history with the entries on hidden sites nameless: there, and nothing more. */
+function withoutHidden(history: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(history["entries"])) return history;
+  const entries = (history["entries"] as Record<string, unknown>[]).map((e) => (typeof e["url"] === "string" && isHidden(e["url"], settings.hiddenSites) ? { ...e, url: "", userTypedURL: "", title: "Hidden from KOS" } : e));
+  return { ...history, entries };
 }
 
 /** How long a navigation's answer waits for its page to come in, at most. */

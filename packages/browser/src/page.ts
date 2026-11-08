@@ -124,6 +124,28 @@ const FRAMES_MAX = 8;
 /** Objects made for one call, released after it. */
 const GROUP = "kos-hands";
 
+/** How much later than the clocks' last reading a request may be heard before they are taken to have moved apart. */
+const CLOCK_SLIP_MS = 2_000;
+
+/**
+ * A browser's clock read against this one: the least of when a thing was
+ * heard less when the browser says it happened, so one heard late is not
+ * taken for one just begun. Read afresh when a thing is heard far later
+ * than that says, as after the computer slept (the clock the browser dates
+ * events by stands still meanwhile) or a clock was set: kept, the old
+ * reading would date every request since long ago.
+ */
+export class BrowserClock {
+  private offset = Infinity;
+
+  /** When by this clock a thing happened that the browser dates `at` (ms by its own), heard `now`. */
+  date(at: number, now: number): number {
+    const lag = now - at;
+    if (lag < this.offset || lag > this.offset + CLOCK_SLIP_MS) this.offset = lag;
+    return Math.min(now, at + this.offset);
+  }
+}
+
 type CallArg = { value: unknown } | { objectId: string };
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -210,12 +232,8 @@ export class Page {
   private working = 0;
   /** When a message last came in on one of the page's sockets. */
   private socketAt = 0;
-  /**
-   * The browser's clock to this one: the least of when an event was heard
-   * less when the browser says it happened. A request is dated by the
-   * browser, so one heard late is not taken for one the action started.
-   */
-  private offset = Infinity;
+  /** The browser's clock, read against this one: a request is dated by the browser, so one heard late is not taken for one the action started. */
+  private readonly clock = new BrowserClock();
   /** How to answer the next dialog, when a step said. */
   private answer: { accept: boolean; text?: string } | null = null;
   /** What a drag the page started would carry, while a drag of the hands' is under way. */
@@ -267,9 +285,6 @@ export class Page {
   /** An event from the tab's session. */
   handle(event: CdpEvent): void {
     const p = event.params;
-    if (typeof p["timestamp"] === "number" && (event.method.startsWith("Network.") || event.method === "Page.lifecycleEvent")) {
-      this.offset = Math.min(this.offset, this.now() - p["timestamp"] * 1000);
-    }
     switch (event.method) {
       case "Page.frameStartedLoading":
         if (p["frameId"] === this.mainFrame) {
@@ -306,7 +321,7 @@ export class Page {
       case "Network.requestWillBeSent": {
         const url = (p["request"] as { url?: string } | undefined)?.url ?? "";
         const type = String(p["type"] ?? "");
-        if (DATA.has(type) || (AWAITED.has(type) && siteOf(url) === this.site)) this.requested(String(p["requestId"]), url, p["timestamp"]);
+        if (DATA.has(type) || (AWAITED.has(type) && siteOf(url) === this.site)) this.requested(String(p["requestId"]), url, p["wallTime"] ?? p["timestamp"]);
         break;
       }
       case "Network.webSocketFrameReceived":
@@ -607,9 +622,9 @@ export class Page {
     return last;
   }
 
-  /** A request the page's answer may wait on began, `timestamp` by the browser's clock when it says. */
-  private requested(id: string, url: string, timestamp: unknown): void {
-    const t = typeof timestamp === "number" && Number.isFinite(this.offset) ? Math.min(this.now(), timestamp * 1000 + this.offset) : this.now();
+  /** A request the page's answer may wait on began, `sent` in seconds by the browser's clock when it says. */
+  private requested(id: string, url: string, sent: unknown): void {
+    const t = typeof sent === "number" && Number.isFinite(sent) ? this.clock.date(sent * 1000, this.now()) : this.now();
     const pattern = url.replace(/[?#].*$/, "");
     this.inflight.set(id, { at: t, pattern });
     const times = (this.asked.get(pattern) ?? []).filter((a) => t - a.at < POLL_WINDOW_MS);
