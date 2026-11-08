@@ -3,8 +3,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { SaveConflict, api, type PageSummary } from "../api.js";
-import { ArtifactPage, fixRequest, type ArtifactHandle } from "./ArtifactPage.js";
-import { FRAME_HEIGHT_MIN, heightGate } from "./frameheight.js";
+import { ArtifactPage, SETTLE_MS, fixRequest, type ArtifactHandle } from "./ArtifactPage.js";
+import { DONE_MS, FRAME_HEIGHT_MIN, REVEAL_MS, heightGate } from "./frameheight.js";
 import { FRAME_HEIGHT_MAX, GUARD_SCRIPT, PAGE_CSP, PAGE_GUARD_CSP, WRAPPER_CSP, pageDocument, splitHtml, wrapperDocument } from "@kos/shared";
 
 beforeAll(() => {
@@ -101,7 +101,7 @@ describe("the page's frame", () => {
 
   it("relays a save only while the owner's hand is on it, made on the version opened", async () => {
     const save = vi.spyOn(api, "savePage").mockResolvedValue({ ...record, updatedAt: 2 });
-    const { pageWin } = await frame();
+    const { el, pageWin } = await frame();
     const replies = vi.spyOn(pageWin, "postMessage");
     const edit = { doc: "<p>mine</p>" };
     hand(false);
@@ -110,7 +110,13 @@ describe("the page's frame", () => {
     });
     expect(save).not.toHaveBeenCalled();
     expect(replies).toHaveBeenCalledWith(expect.objectContaining({ __kos: "reply", id: 4, error: expect.stringMatching(/comes from the owner/) as unknown }), "*");
+    // A gesture elsewhere on the dashboard is not a hand in this frame.
     hand(true);
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "call", id: 8, method: "save", args: { edit } } }));
+    });
+    expect(save).not.toHaveBeenCalled();
+    vi.spyOn(document, "activeElement", "get").mockReturnValue(el);
     await act(async () => {
       window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "call", id: 5, method: "save", args: { edit } } }));
       await Promise.resolve();
@@ -127,8 +133,9 @@ describe("the page's frame", () => {
   it("says when a save lost to a newer version, and offers to reload", async () => {
     vi.spyOn(api, "savePage").mockRejectedValue(new SaveConflict("This artifact changed after it was opened."));
     const reload = vi.fn();
-    const { pageWin } = await frame(reload);
+    const { el, pageWin } = await frame(reload);
     hand(true);
+    vi.spyOn(document, "activeElement", "get").mockReturnValue(el);
     await act(async () => {
       window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "call", id: 7, method: "save", args: { edit: { doc: "x" } } } }));
       await Promise.resolve();
@@ -215,6 +222,7 @@ describe("the page's frame", () => {
     const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
     Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
     const before = el.getAttribute("srcdoc");
+    vi.spyOn(document, "activeElement", "get").mockReturnValue(el);
     act(() => {
       window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "call", id: 4, method: "save", args: { edit: { doc: "<p>new</p>" } } } }));
     });
@@ -250,6 +258,17 @@ describe("a frame as tall as its page", () => {
         window.dispatchEvent(new MessageEvent("message", { source: from as Window, data }));
       });
     return { el, pageWin, say };
+  }
+
+  /** The bridge's channel for the owner's presses, handed over as the bridge does; returns a press. */
+  async function gestureChannel(say: (data: unknown) => void): Promise<() => Promise<void>> {
+    const channel = new MessageChannel();
+    act(() => void window.dispatchEvent(new MessageEvent("message", { source: document.querySelector<HTMLIFrameElement>("iframe.artifact-frame")!.contentWindow!.frames[0]!, data: { __kos: "gestures" }, ports: [channel.port2] })));
+    void say;
+    return async () => {
+      channel.port1.postMessage(0);
+      await new Promise((r) => setTimeout(r, 20));
+    };
   }
 
   it("takes the height its page reports, so the dashboard scrolls and the frame does not", async () => {
@@ -309,13 +328,38 @@ describe("a frame as tall as its page", () => {
     say({ __kos: "height", height: 3000, reveal: { top: 1500, bottom: 1540, block: "start" } });
     expect(scrolled).not.toHaveBeenCalled();
     const focus = vi.spyOn(document, "activeElement", "get").mockReturnValue(el);
+    // The hand is in the frame, but no press or key came over the bridge's channel: a page jumping on its own moves nothing.
+    say({ __kos: "height", height: 3000, reveal: { top: 1500, bottom: 1540, block: "start" } });
+    expect(scrolled).not.toHaveBeenCalled();
+    const press = await gestureChannel(say);
+    await press();
     say({ __kos: "height", height: 3000, reveal: { top: 1500, bottom: 1540, block: "start" } });
     // Where the frame sits, plus where the place sits on it, less a little room.
     expect(scrolled).toHaveBeenLastCalledWith({ top: 40 + 120 + 1500 - 16, behavior: "smooth" });
     // A place past the frame's end is held to it.
     say({ __kos: "height", height: 3000, reveal: { top: 1e9, block: "start" } });
     expect(scrolled).toHaveBeenLastCalledWith({ top: 40 + 120 + 3000 - 16, behavior: "smooth" });
+    // Long after the press, a jump is the page's own again.
+    const calls = scrolled.mock.calls.length;
+    vi.spyOn(performance, "now").mockReturnValue(performance.now() + REVEAL_MS + 100);
+    say({ __kos: "height", height: 3000, reveal: { top: 10, block: "start" } });
+    expect(scrolled).toHaveBeenCalledTimes(calls);
     focus.mockRestore();
+  });
+
+  it("takes the bridge's gesture channel once, so a page's own channel claims nothing", async () => {
+    const { el, say } = await frame();
+    say({ __kos: "height", height: 3000 });
+    vi.spyOn(el, "getBoundingClientRect").mockReturnValue({ top: 0, bottom: 3000, height: 3000, left: 0, right: 800, width: 800, x: 0, y: 0, toJSON: () => ({}) });
+    const scrolled = vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+    hand(true);
+    vi.spyOn(document, "activeElement", "get").mockReturnValue(el);
+    await gestureChannel(say);
+    // A second channel, sent by the page's own code after the bridge's, is ignored.
+    const forged = await gestureChannel(say);
+    await forged();
+    say({ __kos: "height", height: 3000, reveal: { top: 100, block: "start" } });
+    expect(scrolled).not.toHaveBeenCalled();
   });
 
   it("shows an older version to look at only: no save, write or ask from it", async () => {
@@ -369,6 +413,80 @@ describe("a frame as tall as its page", () => {
     say({ __kos: "edit", editing: false, pending: false, status: "Saved", bad: false });
     await settling;
     expect(done).toBe(true);
+  });
+});
+
+describe("a doc's saves, which are the owner's", () => {
+  // The doc's runtime is not loaded here: the edit messages are what the frame hears, whatever the kind.
+  const page = { id: "budget", title: "Budget", html: "<p>hi</p>" };
+  const hand = (isActive: boolean): void => {
+    Object.defineProperty(navigator, "userActivation", { value: { isActive, hasBeenActive: isActive }, configurable: true });
+  };
+
+  async function frame(): Promise<{ handle: { current: ArtifactHandle | null }; pageWin: Window; say: (data: unknown) => void; save: (id: number) => void }> {
+    const handle: { current: ArtifactHandle | null } = { current: null };
+    render(<ArtifactPage ref={handle} record={record} page={page} />);
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
+    const save = (id: number): void => say({ __kos: "call", id, method: "save", args: { edit: { doc: `<p>${id}</p>` } } });
+    return { handle, pageWin, say, save };
+  }
+
+  it("relays a save just after the dashboard's own Done, with no hand in the frame, and never after Discard, Undo or Edit", async () => {
+    const saved = vi.spyOn(api, "savePage").mockResolvedValue({ ...record, updatedAt: 2 });
+    hand(false);
+    const { say, save } = await frame();
+    say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
+    // A page saving on its own, the owner's hand nowhere: refused.
+    save(1);
+    expect(saved).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    save(2);
+    expect(saved).toHaveBeenCalledTimes(1);
+    for (const name of ["Discard", "Undo"]) {
+      fireEvent.click(screen.getByRole("button", { name }));
+      save(3);
+      expect(saved, name).toHaveBeenCalledTimes(1);
+    }
+    say({ __kos: "edit", editing: false, pending: false, status: "", bad: false });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    save(4);
+    expect(saved).toHaveBeenCalledTimes(1);
+    // Done, and then too long: the window has passed.
+    say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    vi.spyOn(performance, "now").mockReturnValue(performance.now() + DONE_MS + 100);
+    save(5);
+    expect(saved).toHaveBeenCalledTimes(1);
+  });
+
+  it("finishes editing before the frame goes, its save allowed though the gesture has passed, and holds the frame no longer than the cap", async () => {
+    const saved = vi.spyOn(api, "savePage").mockResolvedValue({ ...record, updatedAt: 2 });
+    hand(false);
+    const { handle, say, save } = await frame();
+    say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
+    const settling = handle.current!.settle();
+    save(6);
+    expect(saved).toHaveBeenCalledTimes(1);
+    say({ __kos: "edit", editing: false, pending: false, status: "Saved", bad: false });
+    await settling;
+    // A page that says it is editing and never finishes holds nothing past the cap.
+    vi.useFakeTimers();
+    try {
+      say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
+      let done = false;
+      const held = handle.current!.settle().then(() => (done = true));
+      await vi.advanceTimersByTimeAsync(SETTLE_MS - 10);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(20);
+      await held;
+      expect(done).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

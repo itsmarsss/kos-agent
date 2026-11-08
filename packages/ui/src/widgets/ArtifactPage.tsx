@@ -5,7 +5,7 @@ import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, 
 
 import { SaveConflict, api, type PageSummary } from "../api.js";
 import { fitsContent, pageDocument, tokenRule, wrapperDocument } from "@kos/shared";
-import { heightGate, ownerIn, revealInDashboard, type HeightGate, type Reveal } from "./frameheight.js";
+import { heightGate, ownerIn, revealAllowed, revealInDashboard, saveAllowed, type EditTold, type HeightGate, type Reveal } from "./frameheight.js";
 
 /**
  * An HTML page, the way a Claude artifact is shown: the agent's document in a
@@ -140,8 +140,8 @@ interface EditState {
   bad: boolean;
 }
 
-/** How long settle waits on a doc to save before letting the frame go anyway. */
-const SETTLE_MS = 6000;
+/** How long settle waits on a doc to save before letting the frame go anyway: a page saying it is editing cannot hold the dashboard. */
+export const SETTLE_MS = 2500;
 
 export interface ArtifactPageProps {
   record: PageSummary;
@@ -172,6 +172,10 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     editRef.current = edit;
   }, [edit]);
   const settled = useRef<(() => void)[]>([]);
+  // What the dashboard last told the doc's editing to do: a save just after its own Done is the owner's.
+  const sent = useRef<EditTold | undefined>(undefined);
+  // When the owner last pressed or typed in the frame, as the frame's own capture says over a channel the page never holds.
+  const gestures = useRef<{ port?: MessagePort; at: number }>({ at: Number.NEGATIVE_INFINITY });
   // Made once, lazily, then again for each new document.
   const gate = useRef<HeightGate>(null);
   if (gate.current === null) gate.current = heightGate();
@@ -195,6 +199,10 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     setError(undefined);
     setConflict(undefined);
     setDoc(undefined);
+    // A new document hands over a new channel: the old one is closed, and the first the new one sends is taken.
+    gestures.current.port?.close();
+    gestures.current = { at: Number.NEGATIVE_INFINITY };
+    sent.current = undefined;
     const { scripts, fonts } = artifactAssets(page);
     void Promise.all([Promise.all(scripts.map(library)), fontCss(fonts)])
       .then(([libraries, faces]) => {
@@ -239,7 +247,17 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         const next = gate.current?.accept((m as { height?: unknown }).height, owner);
         if (next !== undefined) setHeight(next);
         const reveal = (m as { reveal?: Reveal }).reveal;
-        if (reveal && typeof reveal === "object" && owner) revealInDashboard(frame.current, reveal);
+        if (reveal && typeof reveal === "object" && revealAllowed(frame.current, gestures.current.at)) revealInDashboard(frame.current, reveal);
+        return;
+      }
+      // The bridge's channel for the owner's presses and keys, sent before any of the page's own code runs: the first is the one.
+      if (m.__kos === "gestures") {
+        const port = e.ports[0];
+        if (gestures.current.port || !port) return;
+        gestures.current.port = port;
+        port.onmessage = () => {
+          gestures.current.at = performance.now();
+        };
         return;
       }
       // A doc's editing, for the edit bar above the frame.
@@ -269,8 +287,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         return;
       }
       if (m.method === "save") {
-        // A save is the owner's edit, so it comes with the owner's hand: a page saving on its own is refused here.
-        if (!navigator.userActivation?.isActive) return reply(m.id, { error: "a save comes from the owner: press Save, or edit a cell" });
+        // A save is the owner's edit, so it comes with the owner's hand in this frame, or just after the dashboard's own Done.
+        if (!saveAllowed(frame.current, sent.current)) return reply(m.id, { error: "a save comes from the owner: press Save, or edit a cell" });
         api.savePage(record.id, args.edit, base.current).then(
           (saved) => {
             base.current = saved.updatedAt;
@@ -340,16 +358,29 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     [chat],
   );
 
-  const editDo = useCallback((action: "edit" | "done" | "discard" | "undo" | "redo") => pageWindow()?.postMessage({ __kos: "edit-do", action }, "*"), [pageWindow]);
+  const editDo = useCallback(
+    (action: EditTold["action"]) => {
+      sent.current = { action, at: performance.now() };
+      pageWindow()?.postMessage({ __kos: "edit-do", action }, "*");
+    },
+    [pageWindow],
+  );
   const settle = useCallback((): Promise<void> => {
     const now = editRef.current;
     if (!now || (!now.editing && !now.pending)) return Promise.resolve();
     editDo("done");
     return new Promise((resolve) => {
-      settled.current.push(resolve);
-      setTimeout(resolve, SETTLE_MS);
+      const timer = setTimeout(finish, SETTLE_MS);
+      function finish(): void {
+        clearTimeout(timer);
+        settled.current = settled.current.filter((f) => f !== finish);
+        resolve();
+      }
+      settled.current.push(finish);
     });
   }, [editDo]);
+  // The channel goes with the frame.
+  useEffect(() => () => gestures.current.port?.close(), []);
   useImperativeHandle(ref, () => ({ present, settle }), [present, settle]);
 
   // Where the dashboard's view is over a page as tall as its content, for a doc's contents to follow: numbers only, once a frame.

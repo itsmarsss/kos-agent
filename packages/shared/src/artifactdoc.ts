@@ -151,8 +151,20 @@ export function tokenRule(tokens: Record<string, string>, mode: "light" | "dark"
  * holds a height; then a jump scrolls inside it too. While the frame is not
  * the height reported, the report is sent again, backing off, so a height
  * the shell set aside is asked for once the page settles.
+ *
+ * Before any of the page's own code runs, the bridge hands the shell a
+ * channel of its own and tells it over that channel each time the owner
+ * presses or types in the frame (trusted events only, caught first). The
+ * page never holds the channel, so it cannot claim a press; the shell lets
+ * a jump scroll the dashboard only just after one. A save is the shell's to
+ * allow, not the page's: it is relayed while the owner's hand is in the
+ * frame, or just after the shell's own Done.
  */
 export const BRIDGE_SCRIPT = `(function(){
+var gestures=new MessageChannel(),gport=gestures.port1,tell=MessagePort.prototype.postMessage,apply=Reflect.apply,listen=EventTarget.prototype.addEventListener;
+top.postMessage({__kos:"gestures"},"*",[gestures.port2]);
+function stamp(e){if(e.isTrusted)apply(tell,gport,[0])}
+apply(listen,window,["pointerdown",stamp,true]);apply(listen,window,["keydown",stamp,true]);
 var seq=0,waiting={},themeFns=[],refreshFns=[],mode=document.documentElement.dataset.mode||"dark";
 var root=document.documentElement,fit=${JSON.stringify(FIT_KINDS)}.indexOf(root.dataset.kind||"page")>=0,last=-1,timer=0,retry=0,wait=500,into=Element.prototype.scrollIntoView;
 function inner(){return root.scrollHeight>innerHeight+1}
@@ -184,7 +196,7 @@ query:function(sql,params){return call("query",{sql:sql,params:params})},
 write:function(table,op,values,key){return call("write",{table:table,op:op,values:values,key:key}).then(function(r){refreshFns.forEach(function(f){try{f()}catch(err){report(err&&err.message||err)}});return r})},
 files:Object.freeze({read:function(path){return call("file",{path:path})}}),
 ask:function(text){return call("ask",{text:String(text)})},
-save:function(edit){var u=navigator.userActivation;if(u&&!u.isActive)return Promise.reject(new Error("a save comes from the owner: press Save, or edit a cell"));return call("save",{edit:edit})},
+save:function(edit){return call("save",{edit:edit})},
 present:function(){top.postMessage({__kos:"present"},"*")},
 onTheme:function(f){themeFns.push(f)},
 refresh:function(f){refreshFns.push(f)}

@@ -96,6 +96,37 @@ const clamp = (v: unknown, lo: number, hi: number): number => (typeof v === "num
  */
 export const ownerIn = (frame: Element): boolean => document.activeElement === frame && navigator.userActivation?.isActive === true;
 
+/** How soon after the owner's press or key in the frame a jump on its page may scroll the dashboard. */
+export const REVEAL_MS = 500;
+/**
+ * How long after the dashboard itself sent Done a doc's save is still the
+ * owner's: the doc waits out the gap between saves (2.1 s) before it sends
+ * the one Done asked for, so a second would refuse the save Done made.
+ */
+export const DONE_MS = 2500;
+
+/** What the dashboard last told a doc's editing to do, and when (performance.now()). */
+export interface EditTold {
+  action: "edit" | "done" | "discard" | "undo" | "redo";
+  at: number;
+}
+
+/**
+ * Whether a jump on the page may scroll the dashboard: the owner's hand is
+ * in the frame, and they pressed or typed in it a moment ago, as the frame's
+ * own capture of trusted events says over a channel the page never holds.
+ */
+export const revealAllowed = (frame: Element, gestureAt: number, now: number = performance.now()): boolean => ownerIn(frame) && now - gestureAt >= 0 && now - gestureAt <= REVEAL_MS;
+
+/**
+ * Whether a page's kos.save is the owner's: their hand is in the frame, or
+ * the dashboard's own Done (pressed, or sent to finish before the frame goes)
+ * asked for it a moment ago. After Discard, Undo or Edit from the dashboard,
+ * nothing but the owner's hand in the frame saves.
+ */
+export const saveAllowed = (frame: Element, told: EditTold | undefined, now: number = performance.now()): boolean =>
+  ownerIn(frame) || (told?.action === "done" && now - told.at >= 0 && now - told.at <= DONE_MS);
+
 /**
  * Scroll the dashboard to a place on a frame's page. A frame as tall as its
  * page has no scroll of its own, so a jump within it (a #id link, the
