@@ -24,6 +24,7 @@ import {
   conversationEvents,
   conversationKind,
   mentionsOf,
+  withFrames,
   parseModelSettings,
   createDashboardServer,
   createDashboardSocket,
@@ -297,7 +298,9 @@ export async function runHost(options: HostOptions): Promise<void> {
       const made = kernel.conversationFor(channel, kernel.profile.ownerId);
       return { id: made.id, title: kernel.titleOf(made.id) };
     },
-    events: (id) => conversationEvents(kernel.sessions.get(id)),
+    // With each step's picture marked, as the dashboard's thread has them.
+    events: (id) => withFrames(conversationEvents(kernel.sessions.get(id)), kernel.frames.listFor(id)),
+    picture: (frameId) => kernel.frames.shown(frameId),
     waiting: (id) => kernel.approvals.pending().filter((a) => a.conversationId === id).map(approvalRequest),
     // The panel's own chats, as /chats there lists them: the surface's stream and the chats made from it, nothing else of the owner's.
     chats: () =>
