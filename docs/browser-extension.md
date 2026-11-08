@@ -160,7 +160,14 @@ pair route may be read from any origin: the code is the proof.
 | `tabs.open` | `session`, `url?` | `tab` |
 | `tabs.close` | `session`, `tab` | `{}` |
 | `cdp.send` | `session`, `tab`, `method`, `params?` | the command's result |
-| `cdp.batch` | `session`, `tab`, `calls [{ method, params? }]` (1 to 100), `parallel?` | `results [{ result } or { error { code, message } }]`: in order, up to the first that fails, or all side by side when `parallel`; each checked as `cdp.send` checks one |
+| `cdp.batch` | `session`, `tab`, `calls [{ method, params? }]` (1 to 100), `parallel?` | `results [{ result } or { error { code, message } }]`: in order, up to the first that fails, or all side by side when `parallel`; each checked as `cdp.send` checks one, as it is sent |
+
+A batch is refused as a whole, with nothing after sent, when at any
+command in it the owner has taken the tab over (`paused`), the session has
+ended (`no_session`) or the tab was taken back (`tab`); a command that goes
+to a hidden site, or comes after a navigation to one, is refused on its own
+(`hidden_site`). `Page.navigate` answers once its page is in, so what comes
+next is checked against where the tab went.
 
 `Page.captureScreenshot` takes one parameter of the extension's own,
 `maxEdge`: the picture's longer side, in pixels. A tab's events go to KOS

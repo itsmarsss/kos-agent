@@ -100,6 +100,8 @@ interface Asked {
 
 /** Commands in one batch, at most. */
 const BATCH_MAX = 100;
+/** Refusals that are the whole batch's answer, met at any command in it. */
+const WHOLE_BATCH = new Set(["paused", "no_session", "tab"]);
 /** The id the selection script is registered under. */
 const SELECTION_SCRIPT = "kos-selection";
 /** As much of a page's text as the panel's chat reads in one go. */
@@ -129,6 +131,10 @@ const attached = new Set<number>();
 const overlays = new Map<number, Set<number>>();
 /** Each KOS tab's address as it changes, so one on a hidden site tells KOS nothing. */
 const tabUrls = new Map<number, string>();
+/** Each KOS tab's main document, by its loader, as the debugger last heard it commit. */
+const loaders = new Map<number, string>();
+/** Waits on a navigation to commit, woken at each one. */
+const commits = new Set<() => void>();
 /** Each KOS tab's requests passed on to KOS that have not ended. */
 const openRequests = new Map<number, Set<string>>();
 const consents = new Map<string, Asked>();
@@ -329,6 +335,12 @@ function tabOf(s: Session, params: Record<string, unknown>): number {
   return tab;
 }
 
+/** The session still the live one, and the tab still in it: either can go while a call waits (Stop, the owner taking the tab back). */
+function stillIn(s: Session, tab: number): void {
+  if (session !== s) throw new CallError("no_session", "no session is live in this Chrome");
+  if (!s.tabs.has(tab)) throw new CallError("tab", "that tab is not one KOS was given");
+}
+
 function hiddenError(url: string): CallError {
   return new CallError("hidden_site", `${new URL(url).host} is hidden from KOS in this Chrome`);
 }
@@ -447,8 +459,10 @@ async function end(reason: EndReason): Promise<void> {
     }),
   );
   attached.clear();
+  for (const wake of [...commits]) wake();
   overlays.clear();
   tabUrls.clear();
+  loaders.clear();
   openRequests.clear();
   beside = undefined;
   tell("session.ended", { session: ended.info.id, reason });
@@ -524,7 +538,8 @@ async function relay(params: Record<string, unknown>, origin: string): Promise<R
  * that failed would land somewhere else), or side by side when `parallel`
  * says they do not depend on one another. Each answer is `{ result }` or
  * `{ error }`; those not sent after a failure are left out. The owner having
- * taken the tab over refuses the whole batch.
+ * taken the tab over, the session ending or the tab taken back, at any point
+ * in it, refuses the whole batch: nothing after is sent.
  */
 async function relayAll(params: Record<string, unknown>, origin: string): Promise<Record<string, unknown>> {
   const s = live(params, origin);
@@ -535,8 +550,8 @@ async function relayAll(params: Record<string, unknown>, origin: string): Promis
     try {
       return { result: await relayOne(s, tab, str(call["method"]), record(call["params"])) };
     } catch (err) {
-      // The owner taking over is the whole batch's answer, as it is a lone command's: KOS waits for them.
-      if (err instanceof CallError && err.code === "paused") throw err;
+      // The owner taking over is the whole batch's answer, as it is a lone command's: KOS waits for them. So is the session or the tab gone.
+      if (err instanceof CallError && WHOLE_BATCH.has(err.code)) throw err;
       return { error: { code: err instanceof CallError ? err.code : "cdp", message: err instanceof Error ? err.message : String(err) } };
     }
   };
@@ -552,13 +567,20 @@ async function relayAll(params: Record<string, unknown>, origin: string): Promis
 
 async function relayOne(s: Session, tab: number, method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   checkCommand(method, args);
+  stillIn(s, tab);
   // Not a look, a click or a word on a hidden site, and no way there. The address kept is the tab's only while
   // the debugger hears it change; a tab let go of may have gone anywhere since.
   const url = (attached.has(tab) ? tabUrls.get(tab) : undefined) ?? (await chrome.tabs.get(tab).catch(() => undefined))?.url ?? "";
+  stillIn(s, tab);
   if (isHidden(url, settings.hiddenSites)) throw hiddenError(url);
   if (method === "Page.navigate" && isHidden(str(args["url"]), settings.hiddenSites)) throw hiddenError(str(args["url"]));
   if (s.paused && (isInput(method) || method === "Page.navigate")) throw new CallError("paused", "the owner has taken over this tab; wait for them to hand it back");
   await attach(tab);
+  // Let go of meanwhile: not held on to for a session that has gone.
+  if (session !== s || !s.tabs.has(tab)) {
+    if (!session?.tabs.has(tab) && attached.delete(tab)) await chrome.debugger.detach({ tabId: tab }).catch(() => undefined);
+    stillIn(s, tab);
+  }
   if (isInput(method)) s.dispatching(method, args, Date.now());
   // KOS's pointer, shown where its hands are about to act.
   if (method === "Input.dispatchMouseEvent" && typeof args["x"] === "number" && typeof args["y"] === "number") {
@@ -566,10 +588,36 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
   }
   try {
     if (method === "Page.captureScreenshot") return await picture(tab, args);
-    return ((await chrome.debugger.sendCommand({ tabId: tab }, method, args)) as Record<string, unknown> | undefined) ?? {};
+    const answer = ((await chrome.debugger.sendCommand({ tabId: tab }, method, args)) as Record<string, unknown> | undefined) ?? {};
+    // A navigation answers before its page is in; the next command waits for it, so it is checked against where the tab went.
+    if (method === "Page.navigate" && typeof answer["loaderId"] === "string" && !answer["errorText"]) await committed(tab, answer["loaderId"]);
+    return answer;
   } catch (err) {
+    // Cut off by the session ending or the tab taken back, which is the answer, not the debugger's words for it.
+    stillIn(s, tab);
     throw new CallError("cdp", err instanceof Error ? err.message : String(err));
   }
+}
+
+/** How long a navigation's answer waits for its page to come in, at most. */
+const COMMIT_WAIT_MS = 5_000;
+
+/** Until the tab's main frame holds the document `loader`, the tab is let go of, or the most worth waiting has gone. */
+function committed(tab: number, loader: string): Promise<void> {
+  const there = (): boolean => loaders.get(tab) === loader || !attached.has(tab);
+  if (there()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer);
+      commits.delete(check);
+      resolve();
+    };
+    const check = (): void => {
+      if (there()) done();
+    };
+    const timer = setTimeout(done, COMMIT_WAIT_MS);
+    commits.add(check);
+  });
 }
 
 /** How long a tab on screen may take to hand over the frame Chrome drew. */
@@ -734,7 +782,11 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     return;
   }
   const frame = p["frame"] as { url?: unknown; parentId?: unknown } | undefined;
-  if (method === "Page.frameNavigated" && frame && !frame.parentId && typeof frame.url === "string") tabUrls.set(tab, frame.url);
+  if (method === "Page.frameNavigated" && frame && !frame.parentId && typeof frame.url === "string") {
+    tabUrls.set(tab, frame.url);
+    loaders.set(tab, String((frame as { loaderId?: unknown }).loaderId ?? ""));
+    for (const wake of [...commits]) wake();
+  }
   if (fromHidden(tab, p)) return;
   const open = openRequests.get(tab) ?? new Set<string>();
   openRequests.set(tab, open);
@@ -748,7 +800,9 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   attached.delete(tab);
   overlays.delete(tab);
   tabUrls.delete(tab);
+  loaders.delete(tab);
   openRequests.delete(tab);
+  for (const wake of [...commits]) wake();
   // Closing Chrome's debugging bar is the owner saying stop.
   if (reason === "canceled_by_user") void end("detached");
 });
@@ -762,6 +816,7 @@ chrome.tabs.onUpdated.addListener((tab, change, info) => {
 /** A tab gone from Chrome, closed or replaced by another (a page Chrome loaded ahead swapped in). */
 function gone(tab: number): void {
   tabUrls.delete(tab);
+  loaders.delete(tab);
   openRequests.delete(tab);
   selections.delete(tab);
   if (tab === beside) beside = undefined;
@@ -928,8 +983,10 @@ async function hand(tab: number, give: boolean): Promise<void> {
       tell("tab.closed", { session: session.info.id, tab: String(tab) });
       overlays.delete(tab);
       tabUrls.delete(tab);
+      loaders.delete(tab);
       openRequests.delete(tab);
       if (attached.delete(tab)) await chrome.debugger.detach({ tabId: tab }).catch(() => undefined);
+      for (const wake of [...commits]) wake();
     }
   }
   await saveHanded();
