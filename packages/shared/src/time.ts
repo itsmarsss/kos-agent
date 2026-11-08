@@ -160,6 +160,19 @@ export function formatTime(seconds: number, style: TimeStyle = "f", timeZone?: s
   }
 }
 
+/**
+ * A moment as the hover card over a time says it, in the reader's own
+ * locale and zone: the date in full, then "at" and the time on the locale's
+ * own 12- or 24-hour clock. ["Friday, November 20, 2026", "at 11:59 PM"].
+ */
+export function timeCard(seconds: number, locale?: string, timeZone?: string): [string, string] {
+  const at = new Date(seconds * 1000);
+  const zone = timeZone ? { timeZone } : {};
+  const date = new Intl.DateTimeFormat(locale, { ...zone, weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const clock = new Intl.DateTimeFormat(locale, { ...zone, timeStyle: "short" });
+  return [date.format(at), `at ${clock.format(at)}`];
+}
+
 /** The style a token asked for, or the default. */
 export function styleOf(letter: string | undefined): TimeStyle {
   return (letter ?? "f") as TimeStyle;
