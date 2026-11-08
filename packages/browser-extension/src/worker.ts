@@ -9,7 +9,7 @@ import { iconPixels } from "./icon.js";
 import { installOverlay, type OverlayState } from "./overlay.js";
 import { readPage } from "./page.js";
 import { adding, readPairings, removing, replacedBy, type Paired } from "./pairings.js";
-import { CallError, PROTOCOL, toBase64 } from "./protocol.js";
+import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
 import { checkCommand, forwards, isInput, isWebUrl } from "./relay.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, asksFirst, isHidden, readSettings, siteOf, type ExtensionSettings } from "./settings.js";
@@ -528,30 +528,76 @@ async function relay(params: Record<string, unknown>, origin: string): Promise<R
   }
 }
 
+/** How long a tab on screen may take to hand over the frame Chrome drew. */
+const FRAME_WAIT_MS = 400;
+/** Frames being taken, by tab: a second picture asked for meanwhile is the same one. */
+const framing = new Map<number, Promise<string | undefined>>();
+
 /**
  * A picture of a tab, without touching what the owner sees. Asked for with a
- * clip and a scale, Chrome draws the page again at that size for the
- * picture, which on a tab the owner is looking at flashes on every look. So
- * the tab is taken as it is, and the picture cut and made smaller here.
+ * clip and a scale, Chrome draws the page again at that size, which on a tab
+ * the owner is looking at flashes on every look. So a tab on screen is taken
+ * from the frame Chrome already drew, made small as it is taken; one that is
+ * not on screen draws no frames, and is captured as it is and made smaller
+ * here. `maxEdge` is the relay's own, not the protocol's: the picture's
+ * longer side.
  */
 async function picture(tab: number, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const format = args["format"] === "png" ? "png" : "jpeg";
-  const quality = typeof args["quality"] === "number" ? Math.min(100, Math.max(1, args["quality"])) : 80;
-  const shot = (await chrome.debugger.sendCommand({ tabId: tab }, "Page.captureScreenshot", { format, ...(format === "jpeg" ? { quality: 95 } : {}) })) as { data?: string };
-  const clip = args["clip"] as { x?: number; y?: number; width?: number; height?: number; scale?: number } | undefined;
-  if (!shot.data || !clip?.width || !clip.height) return shot;
-  const metrics = (await chrome.debugger.sendCommand({ tabId: tab }, "Page.getLayoutMetrics", {})) as { cssVisualViewport?: { clientWidth?: number } };
-  const image = await createImageBitmap(await (await fetch(`data:image/${format};base64,${shot.data}`)).blob());
-  // Device pixels to the page's own: two on a Retina screen.
-  const ratio = image.width / (metrics.cssVisualViewport?.clientWidth || image.width);
-  const scale = clip.scale ?? 1;
-  const width = Math.max(1, Math.round(clip.width * scale));
-  const height = Math.max(1, Math.round(clip.height * scale));
-  const canvas = new OffscreenCanvas(width, height);
-  canvas.getContext("2d")!.drawImage(image, (clip.x ?? 0) * ratio, (clip.y ?? 0) * ratio, clip.width * ratio, clip.height * ratio, 0, 0, width, height);
+  const quality = typeof args["quality"] === "number" ? Math.min(100, Math.max(1, Math.round(args["quality"]))) : 80;
+  const edge = typeof args["maxEdge"] === "number" && args["maxEdge"] > 0 ? Math.round(args["maxEdge"]) : 0;
+  if (format === "jpeg" && edge && (await onScreen(tab))) {
+    const data = await frameOf(tab, quality, edge);
+    if (data) return { data };
+  }
+  const send = (method: string, params: Record<string, unknown>): Promise<unknown> => chrome.debugger.sendCommand({ tabId: tab }, method, params);
+  const shot = (await send("Page.captureScreenshot", { format, ...(format === "jpeg" ? { quality } : {}), optimizeForSpeed: true })) as { data?: string };
+  if (!shot.data || !edge) return shot;
+  const image = await createImageBitmap(new Blob([fromBase64(shot.data)], { type: `image/${format}` }));
+  const scale = edge / Math.max(image.width, image.height);
+  if (scale >= 1) {
+    image.close();
+    return shot;
+  }
+  const canvas = new OffscreenCanvas(Math.max(1, Math.round(image.width * scale)), Math.max(1, Math.round(image.height * scale)));
+  canvas.getContext("2d")!.drawImage(image, 0, 0, canvas.width, canvas.height);
   image.close();
   const blob = await canvas.convertToBlob({ type: `image/${format}`, quality: quality / 100 });
   return { data: toBase64(new Uint8Array(await blob.arrayBuffer())) };
+}
+
+/** Whether the tab is drawn: in front in its window, and its window not hidden or folded away. */
+async function onScreen(tab: number): Promise<boolean> {
+  const seen = (await chrome.debugger.sendCommand({ tabId: tab }, "Runtime.evaluate", { expression: "document.visibilityState", returnByValue: true }).catch(() => undefined)) as
+    | { result?: { value?: unknown } }
+    | undefined;
+  return seen?.result?.value === "visible";
+}
+
+/** The frame Chrome draws next of the tab, at most `edge` on its longer side, from a cast started and stopped for it. */
+function frameOf(tab: number, quality: number, edge: number): Promise<string | undefined> {
+  const taking = framing.get(tab);
+  if (taking) return taking;
+  const send = (method: string, params: Record<string, unknown> = {}): Promise<unknown> => chrome.debugger.sendCommand({ tabId: tab }, method, params);
+  const taken = new Promise<string | undefined>((resolve) => {
+    const done = (data: string | undefined): void => {
+      clearTimeout(timer);
+      chrome.debugger.onEvent.removeListener(heard);
+      void send("Page.stopScreencast").catch(() => undefined);
+      resolve(data);
+    };
+    const heard = (source: chrome.debugger.Debuggee, method: string, params?: object): void => {
+      if (source.tabId !== tab || method !== "Page.screencastFrame") return;
+      const frame = (params ?? {}) as { data?: string; sessionId?: number };
+      void send("Page.screencastFrameAck", { sessionId: frame.sessionId }).catch(() => undefined);
+      done(frame.data || undefined);
+    };
+    const timer = setTimeout(() => done(undefined), FRAME_WAIT_MS);
+    chrome.debugger.onEvent.addListener(heard);
+    send("Page.startScreencast", { format: "jpeg", quality, maxWidth: edge, maxHeight: edge, everyNthFrame: 1 }).catch(() => done(undefined));
+  }).finally(() => framing.delete(tab));
+  framing.set(tab, taken);
+  return taken;
 }
 
 /** Whether a tab's event would tell KOS of a hidden site: the tab is on one, or the event is a way to one. */

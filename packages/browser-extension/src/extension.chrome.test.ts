@@ -301,11 +301,18 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     const overlay = await cdp("Runtime.evaluate", { expression: "(() => { const o = document.querySelector('kos-overlay'); return o ? o.getAttribute('aria-hidden') : 'none'; })()", returnByValue: true });
     expect(overlay["result"]).toMatchObject({ result: { value: "true" } });
     expect(await call("tabs.list", { session: "s1" })).toMatchObject({ ok: true, result: { tabs: [{ id: tab, title: "Shop" }] } });
-    // A picture asked for smaller comes back smaller, taken without drawing the page again (which flashed the owner's tab).
+    // A picture asked for smaller comes back that size on its longer side, in one call, taken without drawing the page again (which flashed the owner's tab).
     const metrics = (await cdp("Page.getLayoutMetrics"))["result"] as { cssVisualViewport: { clientWidth: number; clientHeight: number } };
     const { clientWidth: w, clientHeight: h } = metrics.cssVisualViewport;
-    const shot = (await cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, clip: { x: 0, y: 0, width: w, height: h, scale: 0.5 } }))["result"] as { data: string };
-    expect(jpegSize(shot.data)).toEqual({ width: Math.round(w * 0.5), height: Math.round(h * 0.5) });
+    const edge = Math.round(Math.max(w, h) / 2);
+    const shot = (await cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, maxEdge: edge }))["result"] as { data: string };
+    const size = jpegSize(shot.data);
+    expect(Math.max(size.width, size.height)).toBe(edge);
+    expect(size.width / size.height).toBeCloseTo(w / h, 1);
+    // Asked again before the first is in, it is the same picture.
+    const [a, b] = await Promise.all([cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, maxEdge: edge }), cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, maxEdge: edge })]);
+    expect(jpegSize((a["result"] as { data: string }).data)).toEqual(size);
+    expect(jpegSize((b["result"] as { data: string }).data)).toEqual(size);
   }, 30_000);
 
   it("knows its own click from the owner's, and the owner's takes the tab over", async () => {
