@@ -166,7 +166,7 @@ describe("a step's pictures on a device's chat", () => {
   it("marks each step with its frame and draws the newest four pictures with the chat, with their sites", async () => {
     const many: Record<number, { image: string; site?: string }> = {};
     for (let i = 1; i <= 6; i++) many[i] = { image: `P${i}`, ...(i === 6 ? { site: "shop.test" } : {}) };
-    const { panel, pair, setChat } = setup({ pictures: many });
+    const { pair, setChat } = setup({ pictures: many });
     const one = pair();
     const tool = (n: number): ChatEvent => ({ kind: "tool", name: "browser.act", summary: `Step ${n}`, args: {}, result: "ok", frameId: n });
     setChat({ id: "chrome:owner", title: "Chrome" }, [

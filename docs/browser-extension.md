@@ -164,8 +164,8 @@ beside it when the chat asks.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `chat.show` | `conversation` (or null), `title`, `messages [{ role, text?, files?, steps? }]`, `notice? { text, from? }` | `{}` |
-| `chat.status` | `conversation`, `said?` (the owner's words the turn is for), `taken?` (KOS has those words, said at once; ones said elsewhere are drawn on their way), `story?` (the turn's steps so far, `› ` before each; null when done), `error?` | `{}` |
+| `chat.show` | `conversation` (or null), `title`, `messages [{ role, text?, files?, steps? [{ summary, failed?, frame? }] }]`, `notice? { text, from? }`, `pictures? { <frame id>: <base64 JPEG> }` (the newest four steps' pictures), `sites? { <frame id>: <host> }` (the page each shows) | `{}` |
+| `chat.status` | `conversation`, `said?` (the owner's words the turn is for), `taken?` (KOS has those words, said at once; ones said elsewhere are drawn on their way), `story?` (the turn's steps so far, `› ` before each; null when done), `error?`, `frame? { id, image, mediaType, site? }` (what a step just saw, sent on its own to every device of the kind; a device never draws one whose `site` is on its hidden list) | `{}` |
 | `chat.ask` | `approval { id, tool, args?, why?, reason? }` | `{}` |
 | `chat.settled` | `approval`, `outcome` (`approved`, `denied`, `expired`) | `{}` |
 | `chat.chats` | `chats [{ id, title, updatedAt }]`, `current` | `{}` |
