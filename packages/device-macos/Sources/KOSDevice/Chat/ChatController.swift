@@ -106,7 +106,7 @@ final class ChatController {
         model.status(taken: p.taken ?? false, story: p.story, error: p.error, said: p.said, conversation: p.conversation)
       case .ask:
         let a = try call.params(ChatAsk.self).approval
-        model.ask(.init(id: a.id, tool: a.tool, args: a.args, why: a.why, reason: a.reason, always: a.always))
+        model.ask(.init(id: a.id, tool: a.tool, args: a.args, mechanics: a.mechanics, why: a.why, reason: a.reason, always: a.always))
       case .settled:
         model.settled(try call.params(ChatSettled.self).approval)
       case .chats:

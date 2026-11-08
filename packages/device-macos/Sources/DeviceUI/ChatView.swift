@@ -466,6 +466,10 @@ private struct AskCard: View {
     Card(tone: Theme.warn, padding: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)) {
       SectionLabel("KOS asks to run")
       Text(ask.tool).font(.kos(.dense, .semibold, design: .monospaced))
+      // The actions the yes is for, whole: the arguments under them are cut at eight lines.
+      if let mechanics = ask.mechanics {
+        Text(mechanics).font(.kos(.detail)).fixedSize(horizontal: false, vertical: true)
+      }
       if let why = ask.why ?? ask.reason {
         Text(why).font(.kos(.detail)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
       }

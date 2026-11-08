@@ -1,6 +1,6 @@
 import { CHAT_COMMANDS, KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { BoltIcon, ChevronDown, Chips, CloseIcon, Collapse, ComposeIcon, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, SendIcon, spring, StepsIcon, type Tone, useDismiss, WorkingDots } from "@kos/kit";
+import { AskSteps, BoltIcon, ChevronDown, Chips, CloseIcon, Collapse, ComposeIcon, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, SendIcon, spring, StepsIcon, type Tone, useDismiss, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
@@ -29,6 +29,8 @@ interface Approval {
   id: string;
   tool: string;
   args?: string;
+  /** Every action a step said by its purpose takes, which the arguments, cut to fit, may not reach. */
+  mechanics?: string;
   why?: string;
   reason?: string;
   /** What a remembered yes covers, as its button says it ("Always on shop.example"), when it can be remembered. */
@@ -851,6 +853,7 @@ function AskCard({ approval, decide }: { approval: Approval; decide: (approved: 
     <m.section className="card ask-card" layout {...enter}>
       <p className="label">KOS asks to run</p>
       <strong className="mono">{approval.tool}</strong>
+      <AskSteps mechanics={approval.mechanics} />
       {approval.why && <p className="hint">{approval.why}</p>}
       {approval.args && <pre className="args">{approval.args}</pre>}
       <div className="row">

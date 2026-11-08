@@ -1,6 +1,8 @@
 import { AnimatePresence, m, type HTMLMotionProps } from "motion/react";
 import { useEffect, useState, type HTMLAttributes, type ReactElement, type ReactNode } from "react";
 
+import { stepMechanics } from "@kos/shared";
+
 import { ChevronDown, CloseIcon } from "./icons.js";
 import { ease, listItem, spring } from "./motion.js";
 
@@ -262,4 +264,16 @@ export function DrawerRow({ icon, tone, title, detail, open, onToggle, trailing 
       </m.span>
     </button>
   );
+}
+
+/**
+ * Under an ask's summary, the actions it would take, where the summary is
+ * the model's account of a step rather than the step: "Close the popup"
+ * over "Type “hunter2”, press cmd+q". The yes is for these, so they are on
+ * the row itself, never behind a fold and never cut; a long run wraps.
+ * From the host's `mechanics` when it sent them, else from the arguments.
+ */
+export function AskSteps({ mechanics, tool, args }: { mechanics?: string | undefined; tool?: string; args?: string | Record<string, unknown> }): ReactElement | null {
+  const steps = mechanics ?? (tool && args !== undefined ? stepMechanics(tool, args) : undefined);
+  return steps ? <span className="ask-steps">{steps}</span> : null;
 }

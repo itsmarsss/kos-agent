@@ -26,6 +26,14 @@ struct ChatTests {
     #expect(show.notice?.said == "/new")
   }
 
+  @Test func readsAnAsksStepsBesideItsArguments() throws {
+    let raw = ##"{"t":"call","id":5,"method":"chat.ask","params":{"approval":{"id":"11","tool":"computer.act","args":"{\"intent\":\"Note: just closing the popup\"}","mechanics":"Type “hunter2”, press cmd+q"}}}"##
+    let ask = try call(raw).params(ChatAsk.self).approval
+    #expect(ask.mechanics == "Type “hunter2”, press cmd+q")
+    let plain = try call(#"{"t":"call","id":6,"method":"chat.ask","params":{"approval":{"id":"12","tool":"files.rm","args":"{}"}}}"#).params(ChatAsk.self).approval
+    #expect(plain.mechanics == nil)
+  }
+
   @Test func tellsAStoryFromADoneTurnFromNothingSaid() throws {
     let going = try call(#"{"t":"call","id":1,"method":"chat.status","params":{"conversation":null,"story":"› Look"}}"#).params(ChatStatus.self)
     let done = try call(#"{"t":"call","id":2,"method":"chat.status","params":{"story":null}}"#).params(ChatStatus.self)

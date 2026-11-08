@@ -6,7 +6,8 @@ import { dirname, extname, join, normalize, relative, resolve, sep } from "node:
 import { parseHomeLayout,
   CHAT_COMMANDS,
 } from "@kos/shared";
-import { summarizeAction } from "@kos/shared";
+import { stepMechanics, summarizeAction } from "@kos/shared";
+import type { PendingAction } from "../ops/approvals.js";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
 import { DREAM_JOB, MEMORY_JOB, OBSERVE_JOB } from "../memory/job.js";
@@ -264,6 +265,21 @@ function conversationLabeller(
  * one, so the inbox can say "KOS is on it" rather than offer to start a
  * second look at the same thing.
  */
+/**
+ * A pending ask as every approval surface draws it: who asks, the action in
+ * words with its ids named, and, where those words are the model's account
+ * of a step, the actions it would take. A yes is given for those.
+ */
+function pendingView(kernel: Kernel, a: PendingAction): PendingAction & { asker?: string; summary: string; mechanics?: string } {
+  const mechanics = stepMechanics(a.tool, a.args);
+  return {
+    ...a,
+    asker: kernel.askerOf(a.conversationId)?.name,
+    summary: summarizeAction(a.tool, a.args, (kind, id) => kernel.labelFor(kind, id)),
+    ...(mechanics ? { mechanics } : {}),
+  };
+}
+
 function withFixes(
   kernel: Kernel,
   failing: FailingJob[],
@@ -813,12 +829,7 @@ export async function handleApiRequest(
     const keep = kernel.behaviour().approvalExpiryHours * 3_600_000;
     // With the ids named, so the inbox says #leetcode where the arguments say an id.
     return ok(
-      kernel.approvals.pending().map((a) => ({
-        ...a,
-        asker: kernel.askerOf(a.conversationId)?.name,
-        expiresAt: a.requestedAt + keep,
-        summary: summarizeAction(a.tool, a.args, (kind, id) => kernel.labelFor(kind, id)),
-      })),
+      kernel.approvals.pending().map((a) => ({ ...pendingView(kernel, a), expiresAt: a.requestedAt + keep })),
     );
   }
 
@@ -2156,7 +2167,8 @@ export async function handleApiRequest(
       // different build's log.
       approvals: kernel.approvals
         .pending()
-        .filter((a) => build.waitingOn.includes(a.id)),
+        .filter((a) => build.waitingOn.includes(a.id))
+        .map((a) => pendingView(kernel, a)),
     });
   }
 
@@ -2267,7 +2279,7 @@ export async function handleApiRequest(
    */
   if (method === "GET" && path === "/api/inbox") {
     return ok({
-      approvals: kernel.approvals.pending().map((a) => ({ ...a, asker: kernel.askerOf(a.conversationId)?.name })),
+      approvals: kernel.approvals.pending().map((a) => pendingView(kernel, a)),
       // With what each claim says: a key alone is not something to decide on.
       decisions: kernel.review.pending().map((i) => describeReview(kernel.facts, kernel.profile.ownerId, i)),
       failures: withFixes(kernel, kernel.health.report().failing),
@@ -2302,7 +2314,7 @@ export async function handleApiRequest(
       // Everything the panels draw from, in one round trip: home is the first
       // thing loaded and eight separate requests to render it is eight chances
       // to see it assemble itself.
-      approvals: kernel.approvals.pending().map((a) => ({ ...a, asker: kernel.askerOf(a.conversationId)?.name })),
+      approvals: kernel.approvals.pending().map((a) => pendingView(kernel, a)),
       agents: kernel.builds.list().slice(0, 8),
       // The blobs as the Blobs page lists them, so a glance here
       // says what each is up to without opening that page.

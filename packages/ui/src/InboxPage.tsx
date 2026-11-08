@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { summarizeAction } from "@kos/shared";
 
-import { Count, Empty, Tag } from "@kos/kit";
+import { AskSteps, Count, Empty, Tag } from "@kos/kit";
 
 import { api, type DecidedAction, type FailingJob, type InboxData } from "./api.js";
 import { Decision } from "./Decision.js";
@@ -118,6 +118,7 @@ export function InboxPage({
                   {a.asker && <span className="inbox-asker">{a.asker} asks</span>}
                   {a.why && <span className="inbox-said">{a.why}</span>}
                   {a.summary ?? summarizeAction(a.tool, a.args)}
+                  <AskSteps mechanics={a.mechanics} tool={a.tool} args={a.args} />
                   <code className="panel-approval-tool">{a.tool}</code>
                   {a.reason && <span className="inbox-why">{a.reason}</span>}
                   {a.picture && <img className="approval-pic" src={`/api/approvals/${a.id}/picture`} alt="The page this would act on" />}

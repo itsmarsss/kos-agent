@@ -89,6 +89,16 @@ describe("an approval as plain lines", () => {
     // Raised from nowhere in particular, it is KOS's own voice and no headline.
     expect(approvalLines({ id: "9", text: "Approve x?", why: "Doing x." })).toEqual(["KOS: Doing x.", "Approve x?"]);
   });
+
+  it("says the action, and every step of one said by its purpose", () => {
+    const args = { intent: "Note: just closing the popup", actions: [{ action: "type", text: "hunter2" }, { action: "key", text: "cmd+q" }] };
+    expect(approvalLines({ id: "9", text: "Approve computer.act?", tool: "computer.act", args })).toEqual([
+      "Approve computer.act?",
+      "Note: just closing the popup",
+      "Steps: Type “hunter2”, press cmd+q",
+    ]);
+    expect(approvalLines({ id: "9", text: "Approve files.rm?", tool: "files.rm", args: { path: "a.txt" } })).toEqual(["Approve files.rm?", "Delete a.txt"]);
+  });
 });
 
 describe("saying why iMessage could not start", () => {

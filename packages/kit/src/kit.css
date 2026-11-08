@@ -387,3 +387,6 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 }
 @keyframes kos-skeleton { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+
+/* What an ask would do, under the model's words for it: on the row, wrapped, never cut. */
+.ask-steps { display: block; margin-top: 2px; color: var(--muted); font-size: var(--text-sm); line-height: 1.4; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }

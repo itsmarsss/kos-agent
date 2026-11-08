@@ -12,6 +12,7 @@ import {
   type TurnPresence,
   type UserMapping,
 } from "@kos/harness";
+import { stepMechanics } from "@kos/shared";
 
 import type { DeviceHub, DeviceKind } from "./hub.js";
 import type { DeviceEvent, PanelMessage, PanelMethod } from "./protocol.js";
@@ -468,11 +469,24 @@ export const CHROME_PANEL: PanelPlace = { name: "chrome", kind: "browser", title
 /** The KOS for Mac window, floating over the owner's apps on their Mac. */
 export const MAC_PANEL: PanelPlace = { name: "mac", kind: "computer", title: "Mac", beside: appNote };
 
-/** An approval as the panel shows it: the tool, what it would be given, and why. */
+/**
+ * An approval as the panel shows it: the tool, what it would be given, and
+ * why; and for a step said by its purpose, every action it takes, which the
+ * arguments, cut to fit, may not reach.
+ */
 function approvalOf(req: ApprovalRequest): Record<string, unknown> {
   const args = argsText(req.args);
   const always = req.rule ? alwaysWords(req.rule.scope) : undefined;
-  return { id: req.id, tool: req.tool ?? "", ...(args ? { args } : {}), ...(req.why ? { why: req.why } : {}), ...(req.reason ? { reason: req.reason } : {}), ...(always ? { always } : {}) };
+  const mechanics = req.tool && req.args !== undefined ? stepMechanics(req.tool, req.args) : undefined;
+  return {
+    id: req.id,
+    tool: req.tool ?? "",
+    ...(args ? { args } : {}),
+    ...(mechanics ? { mechanics } : {}),
+    ...(req.why ? { why: req.why } : {}),
+    ...(req.reason ? { reason: req.reason } : {}),
+    ...(always ? { always } : {}),
+  };
 }
 
 /** What a remembered yes covers, as a button says it: the site, the folder, the table, the program. */

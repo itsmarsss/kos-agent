@@ -65,6 +65,8 @@ export interface PendingAction {
   reason: string | null;
   /** The action in words, with the ids named by the server; the page's own summary only when absent. */
   summary?: string;
+  /** What the action does, step by step, when the summary is the model's account of it. */
+  mechanics?: string;
   /** The conversation that asked, so a decision can be taken where it lives. */
   conversationId: string | null;
   requestedAt: number;

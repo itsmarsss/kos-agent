@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { timesInWords } from "@kos/shared";
+import { stepMechanics, summarizeAction, timesInWords } from "@kos/shared";
 
 import { ThreadReader, type ThreadMessage } from "./imessagedb.js";
 import type {
@@ -149,15 +149,21 @@ function renderBody(msg: OutboundMessage): string {
 
 /**
  * An approval as plain lines, for a surface with no buttons: who is asking,
- * what they were saying, the action, the reason. The reply instruction is
- * the surface's own, since each reads decisions in its own words.
+ * what they were saying, the action in words and, where those words are
+ * the model's account of a step, every action it takes, then the reason.
+ * The reply instruction is the surface's own, since each reads decisions in
+ * its own words.
  */
 export function approvalLines(req: ApprovalRequest): string[] {
   const who = req.asker?.name ?? "KOS";
+  const args = req.args ?? {};
+  const mechanics = req.tool !== undefined ? stepMechanics(req.tool, args) : undefined;
   return [
     ...(req.asker ? [`${who} needs your OK.`] : []),
     ...(req.why?.trim() ? [`${who}: ${req.why.trim()}`] : []),
     req.text,
+    ...(req.tool !== undefined ? [summarizeAction(req.tool, args, req.names)] : []),
+    ...(mechanics ? [`Steps: ${mechanics}`] : []),
     ...(req.reason ? [req.reason] : []),
   ];
 }

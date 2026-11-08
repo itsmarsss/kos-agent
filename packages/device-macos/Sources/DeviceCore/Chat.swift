@@ -83,6 +83,8 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
   public let id: String
   public let tool: String
   public let args: String?
+  /// Every action a step said by its purpose takes, which the arguments, cut to fit, may not reach.
+  public let mechanics: String?
   public let why: String?
   public let reason: String?
   /// What a remembered yes covers, as its button says it, when one may be.

@@ -31,15 +31,18 @@ public final class ChatModel: ObservableObject {
     public let id: String
     public let tool: String
     public let args: String?
+    /// What the step does, action by action, when its words are the model's account of it.
+    public let mechanics: String?
     public let why: String?
     public let reason: String?
     /// The words of a yes that is remembered, when one may be.
     public let always: String?
 
-    public init(id: String, tool: String, args: String? = nil, why: String? = nil, reason: String? = nil, always: String? = nil) {
+    public init(id: String, tool: String, args: String? = nil, mechanics: String? = nil, why: String? = nil, reason: String? = nil, always: String? = nil) {
       self.id = id
       self.tool = tool
       self.args = args
+      self.mechanics = mechanics
       self.why = why
       self.reason = reason
       self.always = always
