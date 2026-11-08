@@ -943,9 +943,9 @@ export class DiscordAdapter implements ChannelAdapter {
       channel: this.name,
       senderId: message.author.id,
       text: this.membersInWords(this.channelsNamed(this.withoutOwnMention(message.content)), members) + note,
-      // Beside the words, not in them: told to the turn, and never read for
+      // Beside the words, not in them: kept as room talk, and never read for
       // @mentions, which would show others' words what the owner's turn reaches.
-      ...(unheard ? { context: unheard } : {}),
+      ...(unheard ? { roomTalk: unheard } : {}),
       room,
       ...(members.length ? { members } : {}),
       ...(attachments.length ? { attachments } : {}),

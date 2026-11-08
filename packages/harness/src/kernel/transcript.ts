@@ -1,6 +1,6 @@
 import { summarizeAction } from "@kos/shared";
 
-import type { MessageOrigin, ModelMessage } from "../models/types.js";
+import { saidText, type MessageOrigin, type ModelMessage } from "../models/types.js";
 import { parseQueuedApproval } from "./guarded.js";
 import type { EarlierHistory } from "./session.js";
 
@@ -114,11 +114,7 @@ function approvalNote(text: string): string | null {
 }
 
 function textOf(content: ModelMessage["content"]): string {
-  return content
-    .filter((b) => b.type === "text")
-    .map((b) => (b as { text: string }).text)
-    .join("")
-    .trim();
+  return saidText(content).trim();
 }
 
 /**
@@ -165,6 +161,8 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
       }
 
       if (block.type === "text") {
+        // Room talk kept beside a guest-room message is the model's context, not a line anyone typed here.
+        if (block.guestContext) continue;
         const text = block.text.trim();
         if (text) {
           const note = message.role === "user" ? approvalNote(text) : null;

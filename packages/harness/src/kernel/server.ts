@@ -48,7 +48,7 @@ import { applyResolution, describeReview } from "../memory/resolve.js";
 import type { ReviewItem } from "../memory/review.js";
 import { parseFaceLook, ROLE_NAME, type Role, type RoleRecord } from "../agents/roles.js";
 import type { BlobJob } from "../tools/agents.js";
-import type { ModelMessage } from "../models/types.js";
+import { saidText, type ModelMessage } from "../models/types.js";
 import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
 import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
@@ -3033,11 +3033,7 @@ function transcriptOf(
 ): Array<{ role: "you" | "kos"; text: string }> {
   const out: Array<{ role: "you" | "kos"; text: string }> = [];
   for (const message of kernel.sessions.get(id)) {
-    const text = message.content
-      .filter((b) => b.type === "text")
-      .map((b) => (b as { text: string }).text)
-      .join("")
-      .trim();
+    const text = saidText(message.content).trim();
     if (text === "") continue;
     out.push({ role: message.role === "user" ? "you" : "kos", text });
   }
