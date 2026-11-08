@@ -1437,14 +1437,16 @@ export async function handleApiRequest(
   if (bridgeCall) {
     const id = decodeURIComponent(bridgeCall[1]!);
     const verb = bridgeCall[2]!;
+    // What a removed blob made is the owner's to keep or let go; nothing else is deleted from here. By its row, so one whose file went is let go too.
+    if (verb === "delete" && method === "POST") {
+      const record = kernel.pages.record(id);
+      if (!record) return { status: 404, body: { error: "page not found" } };
+      if (!record.blobRemoved) return { status: 403, body: { error: "only what a removed blob made is deleted here" } };
+      return ok({ deleted: kernel.pages.remove(id) });
+    }
     const got = kernel.pages.get(id);
     if (!got) return { status: 404, body: { error: "page not found" } };
     if (verb === "history" && method === "GET") return ok(kernel.pages.history(id));
-    // What a removed blob made is the owner's to keep or let go; nothing else is deleted from here.
-    if (verb === "delete" && method === "POST") {
-      if (!got.record.blobRemoved) return { status: 403, body: { error: "only what a removed blob made is deleted here" } };
-      return ok({ deleted: kernel.pages.remove(id) });
-    }
     if (verb === "rollback" && method === "POST") {
       try {
         return ok(kernel.pages.rollback(id, Number(body.version), body.base));

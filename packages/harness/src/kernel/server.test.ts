@@ -1291,6 +1291,19 @@ describe("handleApiRequest", () => {
       expect(kernel.pages.get("notes")).toBeUndefined();
     });
 
+    it("lets the owner delete a removed blob's artifact whose file is already gone, by its row", async () => {
+      kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+      kernel.pages.writeHtml({ blob: "noter", id: kernel.roles.identity("noter")! }, { id: "notes", title: "Notes", html: "<p>n</p>" });
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/agents/delete", body: { name: "noter" } })).status).toBe(200);
+      rmSync(join(root, "blobs/noter/artifacts/notes.html"));
+      expect(kernel.pages.get("notes")).toBeUndefined();
+      const res = await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} });
+      expect(res).toMatchObject({ status: 200, body: { deleted: true } });
+      expect(kernel.pages.record("notes")).toBeUndefined();
+      expect(existsSync(join(root, "blobs/noter/artifacts/.history/notes"))).toBe(false);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(404);
+    });
+
     it("shows a mentioned artifact or its file only where the chat's tools could read it, and nothing to a guest", () => {
       kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
       kernel.pages.writeHtml({ blob: "noter", id: kernel.roles.identity("noter")! }, { id: "notes", title: "Notes", html: "<p>NOTE-BODY</p>" });

@@ -632,12 +632,13 @@ export class PageStore {
     return this.write(projectSlug, JSON.parse(v.body));
   }
 
+  /** Remove an artifact, its row, file, versions and captures: whatever of them is still there. */
   remove(id: string): boolean {
-    const got = this.get(id);
-    if (!got) return false;
-    const abs = this.workspace.resolve(got.record.path);
+    const record = this.record(id);
+    if (!record) return false;
+    const abs = this.workspace.resolve(record.path);
     if (existsSync(abs)) unlinkSync(abs);
-    rmSync(this.historyDir(ownerOfRecord(got.record), id), { recursive: true, force: true });
+    rmSync(this.historyDir(ownerOfRecord(record), id), { recursive: true, force: true });
     rmSync(this.capturesDir(id), { recursive: true, force: true });
     this.db.prepare(`DELETE FROM pages WHERE id = ?`).run(id);
     return true;
