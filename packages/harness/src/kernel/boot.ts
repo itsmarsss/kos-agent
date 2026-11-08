@@ -71,7 +71,7 @@ import { ObservationStore } from "../memory/observations.js";
 import { CallerStore } from "../memory/callers.js";
 import { PageLog } from "../memory/pages.js";
 import { ReviewQueue } from "../memory/review.js";
-import { RoleStore } from "../agents/roles.js";
+import { agentConversationId, RoleStore } from "../agents/roles.js";
 import { createAgentsModule } from "../tools/agents.js";
 import { createDiscordModule } from "../tools/discord.js";
 import { BEHAVIOUR_DEFAULTS } from "./behaviour.js";
@@ -120,6 +120,21 @@ const DEFAULT_BACKUP_CRON = "0 3 * * *";
  * Anthropic-only .env still gets real semantic recall; the hashing provider is
  * a lexical last resort, not a semantic one, and callers say so.
  */
+/**
+ * The blob whose own thread is making a call: the call is in `agent:<name>`,
+ * and a blob of that name is living. Told by the thread's id, not by its
+ * having no project: a blob's chat in a project works for the project, and
+ * is still not the blob's own thread once that project is deleted. A
+ * removed blob's thread is nobody's, and a blob made later under its name
+ * has a new id, so it reaches nothing the removed one made.
+ */
+export function callerBlobOf(conversationId: string | undefined, conversations: Pick<ConversationStore, "get">, roles: Pick<RoleStore, "identity">): { name: string; id: string } | undefined {
+  const role = conversationId ? conversations.get(conversationId)?.role : undefined;
+  if (!role || conversationId !== agentConversationId(role)) return undefined;
+  const id = roles.identity(role);
+  return id ? { name: role, id } : undefined;
+}
+
 function pickEmbedder(secrets: SecretsRegistry): EmbeddingProvider {
   const openai = secrets.get("openai");
   if (openai) {
@@ -260,12 +275,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       const id = kernelRef?.callerConversationId;
       return (id && conversations.get(id)?.projectSlug) || undefined;
     },
-    // A blob's own turn: its thread, or a chat of its with no project. Inside a project it works for the project.
-    callerBlob: () => {
-      const id = kernelRef?.callerConversationId;
-      const c = id ? conversations.get(id) : undefined;
-      return (c && !c.projectSlug && c.role) || undefined;
-    },
+    callerBlob: () => callerBlobOf(kernelRef?.callerConversationId, conversations, roles),
     callerConversation: () => kernelRef?.callerConversationId ?? undefined,
     turnMade,
     // Always wired. Without a channel this used to be absent, so `notify`

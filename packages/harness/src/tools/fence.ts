@@ -30,6 +30,7 @@ import type { Db } from "../store/db.js";
 
 export const KERNEL_TABLES = new Set([
   "audit_log",
+  "blob_ids",
   "browser_frames",
   "button_routes",
   "chat_sessions",
@@ -116,8 +117,10 @@ export function ownerOf(table: string, projects: readonly Owner[]): Owner | unde
 /** Who is asking: the project the chat belongs to, none at the root, and every project so an owner can be named. */
 export interface Reach {
   project: string | undefined;
-  /** The blob whose own turn this is; it reaches no tables, and only its own artifacts. */
-  blob?: string | undefined;
+  /** The blob whose own thread this is, by name and id; it reaches no tables, and only its own artifacts. */
+  blob?: { name: string; id: string } | undefined;
+  /** The owner started this turn in a chat of their own: not a schedule's run, a guest's words, or work passed on. */
+  owner?: boolean;
   projects: readonly Owner[];
   /**
    * Projects this turn made, which it may build as their own chats do. A chat

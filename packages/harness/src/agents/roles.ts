@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { shapeWordOf } from "@kos/shared";
 
 import type { Workspace } from "../store/workspace.js";
+import { BlobIds } from "../systems/blobids.js";
 
 /**
  * A role: a blob, the standing helper KOS makes from a sentence.
@@ -279,7 +280,22 @@ export const ROLE_FILE = "blob.md";
  * when met.
  */
 export class RoleStore {
-  constructor(private readonly workspace: Workspace) {}
+  constructor(
+    private readonly workspace: Workspace,
+    /** Each blob's id, which a later blob of the same name never inherits. */
+    readonly ids: BlobIds = new BlobIds(workspace.db),
+  ) {}
+
+  /**
+   * The id of the blob living under this name, or undefined when there is
+   * none. A blob whose file is gone, however it went, is removed: its id is
+   * retired here, so a blob made under the name later gets a new one.
+   */
+  identity(name: string): string | undefined {
+    if (this.exists(name)) return this.ids.ensure(name);
+    if (ROLE_NAME.test(name)) this.ids.retire(name);
+    return undefined;
+  }
 
   private dir(): string {
     return this.workspace.resolve(AGENTS_DIR);
@@ -423,6 +439,7 @@ export class RoleStore {
     const path = this.pathOf(role.name);
     const abs = this.workspace.resolve(path);
     writeFileSync(abs, text, "utf8");
+    this.ids.ensure(role.name);
     return { ...parseRole(text, role.name), path, folder: this.folderOf(role.name), updatedAt: statSync(abs).mtimeMs };
   }
 
@@ -434,6 +451,7 @@ export class RoleStore {
     if (!this.exists(name)) return false;
     this.adopt(name);
     rmSync(this.workspace.resolve(this.pathOf(name)));
+    this.ids.retire(name);
     const folder = this.workspace.resolve(this.folderOf(name));
     if (existsSync(folder) && readdirSync(folder).length === 0) rmSync(folder, { recursive: true });
     return true;

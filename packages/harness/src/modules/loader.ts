@@ -43,8 +43,8 @@ export interface ModuleServices {
   crons?: CronStore;
   /** The project the calling conversation belongs to, read at call time; undefined at the root. */
   callerProject?: () => string | undefined;
-  /** The blob whose own thread is asking (its thread, or a chat of its outside any project); undefined otherwise. */
-  callerBlob?: () => string | undefined;
+  /** The blob whose own thread is asking, by name and id; undefined anywhere else. */
+  callerBlob?: () => { name: string; id: string } | undefined;
   /** The calling conversation's id, read at call time. */
   callerConversation?: () => string | undefined;
   /** Projects the calling turn made, which it alone may build; dropped when the turn ends. */

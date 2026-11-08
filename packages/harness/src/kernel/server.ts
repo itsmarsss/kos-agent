@@ -1432,13 +1432,18 @@ export async function handleApiRequest(
     const page = kernel.pages.version(decodeURIComponent(versionGet[1]!), Number(versionGet[2]));
     return page ? ok(page) : { status: 404, body: { error: "no such version" } };
   }
-  const bridgeCall = /^\/api\/pages\/([^/]+)\/(query|write|file|save|history|rollback)$/.exec(path);
+  const bridgeCall = /^\/api\/pages\/([^/]+)\/(query|write|file|save|history|rollback|delete)$/.exec(path);
   if (bridgeCall) {
     const id = decodeURIComponent(bridgeCall[1]!);
     const verb = bridgeCall[2]!;
     const got = kernel.pages.get(id);
     if (!got) return { status: 404, body: { error: "page not found" } };
     if (verb === "history" && method === "GET") return ok(kernel.pages.history(id));
+    // What a removed blob made is the owner's to keep or let go; nothing else is deleted from here.
+    if (verb === "delete" && method === "POST") {
+      if (!got.record.blobRemoved) return { status: 403, body: { error: "only what a removed blob made is deleted here" } };
+      return ok({ deleted: kernel.pages.remove(id) });
+    }
     if (verb === "rollback" && method === "POST") {
       try {
         return ok(kernel.pages.rollback(id, Number(body.version), body.base));

@@ -10,6 +10,7 @@ import { Kernel, orchestratorId } from "./kernel.js";
 import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { RATES_KEY } from "../ops/spend.js";
 import { cronSessionId } from "./session.js";
+import { caller } from "./caller.js";
 import { handleApiRequest, withFrames } from "./server.js";
 
 const stub: Inference = {
@@ -1269,7 +1270,7 @@ describe("handleApiRequest", () => {
 
     it("gives a blob's artifact no tables, keeps it the blob's through an edit, and keeps it when the blob goes", async () => {
       kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
-      const rec = kernel.pages.writeHtml({ blob: "noter" }, { id: "notes", kind: "doc", title: "Notes", html: "<article data-doc><h1>Notes</h1><p>one</p></article>" });
+      const rec = kernel.pages.writeHtml({ blob: "noter", id: kernel.roles.identity("noter")! }, { id: "notes", kind: "doc", title: "Notes", html: "<article data-doc><h1>Notes</h1><p>one</p></article>" });
       // A blob's turn reaches no tables, so neither does what it makes, even a project's it works beside.
       for (const sql of ["SELECT title FROM shelf_books", "SELECT token FROM vault_keys"]) {
         const read = await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/query", body: { sql } });
@@ -1278,11 +1279,37 @@ describe("handleApiRequest", () => {
       const saved = await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/save", body: { edit: { doc: "<h1>Notes</h1><p>two</p>" }, base: rec.updatedAt } });
       expect(saved.status).toBe(200);
       expect(saved.body).toMatchObject({ blob: "noter", projectSlug: null });
-      // Removed, its file goes and its folder stays with the work in it, as its files do: the artifact is still listed as its.
+      // A living blob's is not deleted from the dashboard.
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(403);
+      // Removed, its file goes and its folder stays with the work in it: the artifact is kept, marked as a removed blob's.
       expect((await handleApiRequest(kernel, { method: "POST", path: "/api/agents/delete", body: { name: "noter" } })).status).toBe(200);
-      const list = (await handleApiRequest(kernel, { method: "GET", path: "/api/pages", body: {} })).body as { id: string; blob?: string }[];
-      expect(list.find((p) => p.id === "notes")?.blob).toBe("noter");
-      expect(kernel.pages.get("notes")?.kind).toBe("html");
+      const list = (await handleApiRequest(kernel, { method: "GET", path: "/api/artifacts", body: {} })).body as { id: string; blob?: string; blobRemoved?: boolean }[];
+      expect(list.find((p) => p.id === "notes")).toMatchObject({ blob: "noter", blobRemoved: true });
+      // The owner can still restore it, and delete it.
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/rollback", body: { version: 1 } })).status).toBe(200);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(200);
+      expect(kernel.pages.get("notes")).toBeUndefined();
+    });
+
+    it("knows a blob's own thread by its id, not by its having no project", async () => {
+      kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+      const write = (conversationId: string, id: string) => caller.run(conversationId, () => kernel.registry.execute("artifacts.write", { id, title: id, html: `<h1>${id}</h1>` }));
+      const home = kernel.ensureAgentConversation("noter");
+      expect((await write(home.id, "own")).isError).toBe(false);
+      expect(kernel.pages.record("own")).toMatchObject({ blob: "noter", blobId: kernel.roles.identity("noter") });
+      // Its chat in a project works for the project, and is still not its own thread once the project is deleted.
+      const there = kernel.spawnAgent("noter", "shelf");
+      kernel.deleteProject("shelf");
+      expect(kernel.conversations.get(there.id)).toMatchObject({ projectSlug: null, role: "noter" });
+      expect((await write(there.id, "after")).isError).toBe(false);
+      expect(kernel.pages.record("after")?.blob).toBeUndefined();
+      // Removed, its thread is nobody's: what it writes is not the old blob's, and a new noter is a new owner.
+      kernel.roles.remove("noter");
+      expect((await write(home.id, "orphan")).isError).toBe(false);
+      expect(kernel.pages.record("orphan")?.blob).toBeUndefined();
+      kernel.roles.write({ name: "noter", description: "Again", brief: "Again.", memory: "own" });
+      const again = await caller.run(home.id, () => kernel.registry.execute("artifacts.get", { id: "own" }));
+      expect(again.isError).toBe(true);
     });
 
     /*

@@ -346,28 +346,93 @@ describe("PageStore HTML pages", () => {
     }
   });
 
+  it("gives a blob's rows from before blob ids the living blob's id, or a retired one when the blob is gone", () => {
+    const old = mkdtempSync(join(tmpdir(), "kos-pages-ids-"));
+    try {
+      const w = Workspace.open(old);
+      w.db.exec(`CREATE TABLE pages (id TEXT PRIMARY KEY, project_slug TEXT NOT NULL, title TEXT NOT NULL, path TEXT NOT NULL, updated_at INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT 'spec', meta TEXT, blob TEXT)`);
+      w.db.prepare(`INSERT INTO pages VALUES ('a', '', 'A', 'blobs/noter/artifacts/a.html', 1, 'html', '{}', 'noter'), ('b', '', 'B', 'blobs/gone/artifacts/b.html', 2, 'html', '{}', 'gone'), ('c', 'budget', 'C', 'projects/budget/pages/c.html', 3, 'html', '{}', NULL)`).run();
+      mkdirSync(join(old, "blobs/noter"), { recursive: true });
+      const roles = new RoleStore(w);
+      roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+      const store = new PageStore(w.db, w, new ProjectManifest(w.db));
+      const cols = (w.db.prepare(`PRAGMA table_info(pages)`).all() as { name: string }[]).map((c) => c.name);
+      expect(cols).toContain("blob_id");
+      expect((w.db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'pages'`).all() as { name: string }[]).map((r) => r.name)).toContain("pages_blob_id");
+      const byId = new Map(store.list().map((r) => [r.id, r]));
+      expect(byId.get("a")).toMatchObject({ blob: "noter", blobId: roles.identity("noter") });
+      expect(byId.get("a")?.blobRemoved).toBeUndefined();
+      // The blob that made b is gone: its work is kept, under an id no blob made later holds.
+      expect(byId.get("b")).toMatchObject({ blob: "gone", blobRemoved: true });
+      roles.write({ name: "gone", description: "Back", brief: "Back.", memory: "own" });
+      expect(roles.identity("gone")).not.toBe(byId.get("b")?.blobId);
+      expect(byId.get("c")?.blob).toBeUndefined();
+      // Opening it again changes nothing.
+      new PageStore(w.db, w, new ProjectManifest(w.db));
+      expect(store.list().find((r) => r.id === "a")?.blobId).toBe(byId.get("a")?.blobId);
+      w.close();
+    } finally {
+      rmSync(old, { recursive: true, force: true });
+    }
+  });
+
   it("keeps a blob's artifacts in its folder, apart from the workspace's, and with its folder when the blob goes", () => {
-    const rec = pages.writeHtml({ blob: "noter" }, { id: "n", kind: "doc", title: "Notes", html: "<article data-doc><h1>N</h1><p>x</p></article>" });
-    expect(rec).toMatchObject({ projectSlug: null, blob: "noter", path: "blobs/noter/artifacts/n.html" });
+    const roles = new RoleStore(ws);
+    roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+    const noter = { blob: "noter", id: roles.identity("noter")! };
+    const rec = pages.writeHtml(noter, { id: "n", kind: "doc", title: "Notes", html: "<article data-doc><h1>N</h1><p>x</p></article>" });
+    expect(rec).toMatchObject({ projectSlug: null, blob: "noter", blobId: noter.id, path: "blobs/noter/artifacts/n.html" });
+    expect(rec.blobRemoved).toBeUndefined();
     pages.writeHtml(null, { id: "w", title: "W", html: "<p>w</p>" });
-    expect(pages.list({ blob: "noter" }).map((r) => r.id)).toEqual(["n"]);
+    expect(pages.list(noter).map((r) => r.id)).toEqual(["n"]);
     expect(pages.list(null).map((r) => r.id)).toEqual(["w"]);
     // Its history lives beside it, and an edit or a restore keeps it the blob's.
     expect(existsSync(join(root, "blobs/noter/artifacts/.history/n/1.json"))).toBe(true);
     expect(pages.applyEdit("n", { doc: "<h1>N</h1><p>y</p>" }, rec.updatedAt).blob).toBe("noter");
-    expect(pages.rollback("n", 1).blob).toBe("noter");
-    expect(() => pages.writeHtml({ blob: "../x" }, { id: "z", title: "Z", html: "<p>" })).toThrow(/not a blob's name/);
+    expect(pages.rollback("n", 1).blobId).toBe(noter.id);
+    expect(() => pages.writeHtml({ blob: "../x", id: "x" }, { id: "z", title: "Z", html: "<p>" })).toThrow(/not a blob's name/);
     // The blob is removed: its file goes, its folder stays with the work in it, artifacts and all, as its files do.
-    const roles = new RoleStore(ws);
-    roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
     expect(roles.remove("noter")).toBe(true);
     expect(existsSync(join(root, "blobs/noter/blob.md"))).toBe(false);
     expect(existsSync(join(root, "blobs/noter/artifacts/n.html"))).toBe(true);
-    expect(pages.list({ blob: "noter" }).map((r) => r.id)).toEqual(["n"]);
-    // Moved to the workspace, it takes its history.
-    pages.writeHtml(null, { id: "n", title: "Notes", html: "<p>moved</p>" });
+    expect(pages.list(noter).map((r) => [r.id, r.blobRemoved])).toEqual([["n", true]]);
+    // The owner can still restore it, where it is.
+    expect(pages.rollback("n", 2)).toMatchObject({ blobId: noter.id, blobRemoved: true });
+    // A blob made again under the name is a new owner: none of the old one's is its.
+    roles.write({ name: "noter", description: "Keeps notes again", brief: "You keep notes.", memory: "own" });
+    const again = { blob: "noter", id: roles.identity("noter")! };
+    expect(again.id).not.toBe(noter.id);
+    expect(pages.list(again)).toEqual([]);
+    expect(() => pages.writeHtml(again, { id: "n", kind: "doc", title: "Mine", html: "<article data-doc><h1>M</h1></article>" })).toThrow(/is the blob noter's, so it is not written as the blob noter's/);
+    expect(pages.get("n")?.record.blobId).toBe(noter.id);
+    // Moved to the workspace, by a caller that checked it, it takes its history.
+    pages.writeHtml(null, { id: "n", title: "Notes", html: "<p>moved</p>" }, { from: noter });
     expect(existsSync(join(root, "artifacts/.history/n/1.json"))).toBe(true);
     expect(pages.get("n")?.record.blob).toBeUndefined();
+  });
+
+  it("takes a blob whose name has an underscore, as a blob's name may", () => {
+    const roles = new RoleStore(ws);
+    roles.write({ name: "price_watch", description: "Watches prices", brief: "Watch.", memory: "own" });
+    const rec = pages.writeHtml({ blob: "price_watch", id: roles.identity("price_watch")! }, { id: "pw", title: "Prices", html: "<p>p</p>" });
+    expect(rec.path).toBe("blobs/price_watch/artifacts/pw.html");
+  });
+
+  it("never lets a write take another owner's artifact by naming its id, unless the caller checked whose it was", () => {
+    const roles = new RoleStore(ws);
+    roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+    const noter = { blob: "noter", id: roles.identity("noter")! };
+    pages.writeHtml(noter, { id: "notes", title: "Notes", html: "<p>notes</p>" });
+    pages.writeHtml("diary", { id: "theirs", title: "Theirs", html: "<p>theirs</p>" });
+    const spec = (id: string) => ({ id, title: "Taken", widgets: [{ type: "markdown", content: "x" }] });
+    for (const id of ["notes", "theirs"]) {
+      expect(() => pages.write("budget", spec(id))).toThrow(/so it is not written as project budget's/);
+      expect(() => pages.writeHtml("budget", { id, title: "Taken", html: "<p>x</p>" })).toThrow(/not written as project budget's/);
+      // A caller naming the wrong owner as checked is refused too.
+      expect(() => pages.writeHtml("budget", { id, title: "Taken", html: "<p>x</p>" }, { from: "budget" })).toThrow(/not written/);
+    }
+    expect(pages.get("notes")).toMatchObject({ record: { title: "Notes", blobId: noter.id }, page: { html: "<p>notes</p>" } });
+    expect(pages.get("theirs")).toMatchObject({ record: { title: "Theirs", projectSlug: "diary" }, page: { html: "<p>theirs</p>" } });
   });
 
   it("refuses the owner's restore made on an older version, as an edit is refused", () => {
@@ -458,7 +523,8 @@ describe("PageStore HTML pages", () => {
 
     it("moves an artifact between a project and the workspace with its history", () => {
       pages.writeHtml("budget", { id: "move", title: "Move", html: "<p>1</p>" });
-      pages.writeHtml(null, { id: "move", title: "Move", html: "<p>2</p>" });
+      expect(() => pages.writeHtml(null, { id: "move", title: "Move", html: "<p>2</p>" })).toThrow(/is project budget's/);
+      pages.writeHtml(null, { id: "move", title: "Move", html: "<p>2</p>" }, { from: "budget" });
       expect(existsSync(join(root, "projects/budget/pages/move.html"))).toBe(false);
       expect(pages.history("move").map((v) => v.version)).toEqual([1, 2]);
       pages.rollback("move", 1);

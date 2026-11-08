@@ -10,6 +10,8 @@ import { Workspace } from "../store/workspace.js";
 import { ProjectManifest } from "../systems/manifest.js";
 import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
+import { RoleStore } from "../agents/roles.js";
+import { attendance } from "../kernel/caller.js";
 import { systemsModule } from "./systems.js";
 
 /**
@@ -25,7 +27,9 @@ describe("systems.migrate risk", () => {
   // The chat calling, and the project it belongs to: the chat that makes a project may build it.
   let caller = "c1";
   let callerProject: string | undefined;
+  // The blob whose thread is calling, by name; its id is the living blob's, as the kernel reads it.
   let callerBlob: string | undefined;
+  let roles: RoleStore;
   // What the running turn made: the kernel opens it per turn and drops it at the end.
   let made = new Set<string>();
 
@@ -36,6 +40,7 @@ describe("systems.migrate risk", () => {
     const manifest = new ProjectManifest(ws.db);
     const migrator = new Migrator(ws.db, manifest);
     const pages = new PageStore(ws.db, ws, manifest);
+    roles = new RoleStore(ws, pages.blobIds);
     const ctx = toolRegistryContext(registry, {
       workspace: ws,
       db: ws.db,
@@ -45,7 +50,10 @@ describe("systems.migrate risk", () => {
       pages,
       callerConversation: () => caller,
       callerProject: () => callerProject,
-      callerBlob: () => callerBlob,
+      callerBlob: () => {
+        const id = callerBlob ? roles.identity(callerBlob) : undefined;
+        return callerBlob && id ? { name: callerBlob, id } : undefined;
+      },
       turnMade: { note: (slug) => made.add(slug), made: () => [...made] },
       checkArtifact: (id) => Promise.resolve({ text: `checked ${id}` }),
     });
@@ -227,6 +235,7 @@ describe("systems.migrate risk", () => {
     expect((await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1>" })).isError).toBe(false);
     made = new Set();
 
+    for (const name of ["noter", "roster"]) roles.write({ name, description: name, brief: "Work.", memory: "own" });
     // From the blob's own thread, an artifact with no project is the blob's own, in its folder.
     callerBlob = "noter";
     const own = JSON.parse((await registry.execute("artifacts.write", { id: "notes", title: "Notes", html: "<h1>Notes</h1>" })).content) as { blob?: string; projectSlug: string | null; path: string };
@@ -282,6 +291,70 @@ describe("systems.migrate risk", () => {
     // Maintenance reaches it too, as it reaches every project's.
     callerProject = "maintenance";
     expect((await registry.execute("artifacts.history", { id: "notes" })).isError).toBe(false);
+  });
+
+  it("refuses a write whose spec names another owner's artifact under an id of its own", async () => {
+    const { slug } = JSON.parse((await registry.execute("systems.project_create", { name: "Garden", type: "tracker" })).content) as { slug: string };
+    const other = JSON.parse((await registry.execute("systems.project_create", { name: "Shed", type: "tracker" })).content) as { slug: string };
+    await registry.execute("artifacts.write", { project: other.slug, id: "tools", title: "Tools", html: "<h1>Tools</h1>" });
+    roles.write({ name: "noter", description: "Notes", brief: "Work.", memory: "own" });
+    callerBlob = "noter";
+    await registry.execute("artifacts.write", { id: "notes", title: "Notes", html: "<h1>Notes</h1>" });
+    callerBlob = undefined;
+    made = new Set();
+    callerProject = slug;
+    const spec = (id: string) => ({ id, title: "Taken", widgets: [{ type: "markdown", content: "x" }] });
+    for (const target of ["notes", "tools"]) {
+      const res = await registry.execute("artifacts.write", { project: slug, id: "mine", spec: spec(target) });
+      expect(res.isError).toBe(true);
+      expect(res.content).toMatch(/id "mine" and spec.id "\w+" differ/);
+      // Named by the spec alone, the fence sees it and the store holds it too.
+      expect((await registry.execute("artifacts.write", { project: slug, spec: spec(target) })).isError).toBe(true);
+    }
+    expect(readFileSync(join(root, "blobs/noter/artifacts/notes.html"), "utf8")).toContain("<h1>Notes</h1>");
+    expect(readFileSync(join(root, `projects/${other.slug}/pages/tools.html`), "utf8")).toContain("<h1>Tools</h1>");
+    expect(existsSync(join(root, `projects/${slug}/pages/notes.json`))).toBe(false);
+    expect(existsSync(join(root, `projects/${slug}/pages/tools.json`))).toBe(false);
+    // The same id twice is one artifact, and writes.
+    expect((await registry.execute("artifacts.write", { project: slug, id: "mine", spec: spec("mine") })).isError).toBe(false);
+  });
+
+  it("keeps a removed blob's artifacts from a blob made again under its name, and from KOS's changes", async () => {
+    roles.write({ name: "noter", description: "Notes", brief: "Work.", memory: "own" });
+    callerBlob = "noter";
+    await registry.execute("artifacts.write", { id: "notes", title: "Notes", html: "<h1>Notes</h1>" });
+    roles.remove("noter");
+    // Its old thread is no blob's own any more: as a root chat it may read, not change.
+    expect((await registry.execute("artifacts.get", { id: "notes" })).isError).toBe(false);
+    expect((await registry.execute("artifacts.rollback", { id: "notes", version: 1 })).content).toMatch(/The blob noter that made it was removed.*not its to change/);
+    // Made again, from the root or a project's chat, it is a new owner.
+    for (const project of [undefined, "garden"]) {
+      if (project) await registry.execute("systems.project_create", { name: "Garden", type: "tracker" });
+      callerProject = project;
+      callerBlob = undefined;
+      roles.remove("noter");
+      roles.write({ name: "noter", description: "Notes again", brief: "Work.", memory: "own" });
+      callerProject = undefined;
+      callerBlob = "noter";
+      for (const tool of ["artifacts.get", "artifacts.history", "artifacts.check"]) expect((await registry.execute(tool, { id: "notes" })).isError, tool).toBe(true);
+      expect((await registry.execute("artifacts.write", { id: "notes", title: "Mine", html: "<h1>x</h1>" })).isError).toBe(true);
+      expect((await registry.execute("artifacts.rollback", { id: "notes", version: 1 })).isError).toBe(true);
+      expect((JSON.parse((await registry.execute("artifacts.list", {})).content) as { id: string }[]).map((r) => r.id)).not.toContain("notes");
+    }
+    expect(readFileSync(join(root, "blobs/noter/artifacts/notes.html"), "utf8")).toContain("<h1>Notes</h1>");
+  });
+
+  it("opens a blob's artifacts at the root only to the owner's own turn, not a schedule's or a guest's", async () => {
+    roles.write({ name: "noter", description: "Notes", brief: "Work.", memory: "own" });
+    callerBlob = "noter";
+    await registry.execute("artifacts.write", { id: "notes", title: "Notes", html: "<h1>Notes</h1>" });
+    callerBlob = undefined;
+    expect((await registry.execute("artifacts.get", { id: "notes" })).isError).toBe(false);
+    // A turn the owner did not start (a schedule's run, a guest in a channel) is not the owner's own chat.
+    const unattended = await attendance.run(false, () => registry.execute("artifacts.get", { id: "notes" }));
+    expect(unattended.isError).toBe(true);
+    caller = "cron:7";
+    expect((await registry.execute("artifacts.get", { id: "notes" })).isError).toBe(true);
   });
 
   it("keeps a rewritten artifact in its project unless told to move it", async () => {
