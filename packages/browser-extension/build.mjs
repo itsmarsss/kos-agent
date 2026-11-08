@@ -16,8 +16,8 @@ const root = dirname(fileURLToPath(import.meta.url));
 const dist = join(root, "dist");
 mkdirSync(dist, { recursive: true });
 for (const file of readdirSync(join(root, "static"))) copyFileSync(join(root, "static", file), join(dist, file));
-// The kit's look, which the pages load before their own.
-copyFileSync(join(root, "node_modules", "@kos", "kit", "src", "kit.css"), join(dist, "kit.css"));
+// The kit's look and its scrollbars, which the pages load before their own.
+for (const sheet of ["kit.css", "scrollbars.css"]) copyFileSync(join(root, "node_modules", "@kos", "kit", "src", sheet), join(dist, sheet));
 
 // KaTeX's stylesheet and the fonts it names, for the formulas in KOS's replies. Chrome takes the woff2 of each.
 const katex = join(root, "node_modules", "katex", "dist");

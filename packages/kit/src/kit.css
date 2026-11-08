@@ -423,3 +423,17 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 
 /* What an ask would do, under the model's words for it: on the row, wrapped, never cut. */
 .ask-steps { display: block; margin-top: 2px; color: var(--muted); font-size: var(--text-sm); line-height: 1.4; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+
+/* —— overlay scrollbars (OverlayScroll.ts): the native bar hidden, a thin thumb laid over the edge —— */
+.kos-scroll { scrollbar-width: none; }
+.kos-scroll::-webkit-scrollbar { display: none; }
+/* A 12px grip, its bar drawn inside at the right; above the page's own layers, under its menus and sheets. */
+.kos-thumb { position: fixed; z-index: 25; top: 0; left: 0; width: 12px; opacity: 0; pointer-events: none; touch-action: none; transition: opacity 280ms ease; }
+.kos-thumb::before { content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 6px; border-radius: 999px; background: color-mix(in srgb, var(--text) 28%, transparent); transition: width 140ms ease, background 140ms ease; }
+.kos-thumb[data-shown] { opacity: 1; pointer-events: auto; transition-duration: 120ms; }
+.kos-thumb[data-none] { display: none; }
+.kos-thumb:hover::before,
+.kos-thumb[data-dragging]::before { width: 8px; background: color-mix(in srgb, var(--text) 45%, transparent); }
+@media (prefers-reduced-motion: reduce) {
+  .kos-thumb, .kos-thumb::before { transition: none; }
+}

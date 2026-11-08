@@ -1,0 +1,26 @@
+/*
+ * The apps' scrollbars where the overlay thumb (OverlayScroll.ts) is not
+ * laid: the platform default is a light grey slab that belongs to a
+ * different application. Ours is a 6px lane that stays empty until the
+ * pointer is over the thing that scrolls, then shows a thin line at the
+ * edge, as the platform's own overlay bars do. Chrome drops the ::-webkit
+ * parts the moment scrollbar-width is set (its "thin" is an 11px slab), so
+ * the two-value form is for browsers without them. The apps load this; an
+ * artifact's frame does not, since its scrolling is the page's own.
+ */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+}
+::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+/* Chrome repaints a scrollbar only when the bar itself changes, never for
+   its thumb alone, so the hover touches the bar too, in a colour no eye
+   can see. */
+:hover::-webkit-scrollbar { background: rgb(0 0 0 / 0.001); }
+:hover::-webkit-scrollbar-thumb { background: var(--line-strong); }
+::-webkit-scrollbar-thumb:hover { background: var(--faint); }
+::-webkit-scrollbar-corner { background: transparent; }

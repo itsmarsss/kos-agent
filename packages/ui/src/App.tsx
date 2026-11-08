@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgentFaces, AlertIcon, CheckIcon, Chips, ease, faceDataUrl, KOS_SEED, KosLook, lookOf, spring, StatusDot } from "@kos/kit";
+import { AgentFaces, AlertIcon, CheckIcon, Chips, ease, faceDataUrl, KOS_SEED, KosLook, lookOf, overlayScroll, spring, StatusDot } from "@kos/kit";
 
 import {
   type FailingJob,
@@ -81,6 +81,8 @@ export function App(): React.ReactElement {
     parseRoute(window.location.hash),
   );
   const [status, setStatus] = useState<Status | null>(null);
+  // The page's own scrolling, the main column's on most pages, under the overlay thumb the chats and settings panes have.
+  useEffect(() => overlayScroll(document.documentElement), []);
   const [approvals, setApprovals] = useState<PendingAction[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [crons, setCrons] = useState<CronJob[]>([]);

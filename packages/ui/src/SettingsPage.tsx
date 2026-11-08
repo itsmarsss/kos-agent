@@ -1,5 +1,5 @@
 import { m } from "motion/react";
-import { CloseIcon, ease, Empty, Field, IconButton, KOS_SEED, Pill, RefChip, Switch, Tag } from "@kos/kit";
+import { CloseIcon, ease, Empty, Field, IconButton, KOS_SEED, Pill, RefChip, Switch, Tag, useOverlayScroll } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -333,6 +333,8 @@ export function SettingsPage({
   const [found, setFound] = useState<{ label: string; n: number } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
+  const paneScroll = useOverlayScroll(paneRef);
+  const railScroll = useOverlayScroll<HTMLElement>();
   const jump = (hit: SettingHit): void => {
     setActive(hit.section);
     setQuery("");
@@ -676,7 +678,7 @@ export function SettingsPage({
 
   return (
     <div className="settings-page">
-      <nav className="set-rail" aria-label="Settings sections">
+      <nav className="set-rail" aria-label="Settings sections" ref={railScroll}>
         <div className="set-search">
           <input
             ref={searchRef}
@@ -747,7 +749,7 @@ export function SettingsPage({
 
       {/* Keyed on the tab, so moving between them is a change you can follow
           rather than one frame replaced by another. */}
-      <div className="set-pane-scroll" ref={paneRef}>
+      <div className="set-pane-scroll" ref={paneScroll}>
       <m.div
         className="set-pane"
         key={active}

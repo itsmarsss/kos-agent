@@ -1,6 +1,6 @@
 import { CHAT_COMMANDS, KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { AskSteps, BoltIcon, ChevronDown, Chips, CloseIcon, Collapse, ComposeIcon, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, SendIcon, spring, StepsIcon, type Tone, useDismiss, WorkingDots } from "@kos/kit";
+import { AskSteps, BoltIcon, ChevronDown, Chips, CloseIcon, Collapse, ComposeIcon, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, SendIcon, spring, StepsIcon, type Tone, useDismiss, useOverlayScroll, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
@@ -654,6 +654,7 @@ function Thread({
   quotes: Map<string, string>;
 }): ReactElement {
   const scroller = useRef<HTMLDivElement>(null);
+  const scroll = useOverlayScroll(scroller);
   const pinned = useRef(true);
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -685,7 +686,7 @@ function Thread({
   return (
     <div
       className="thread"
-      ref={scroller}
+      ref={scroll}
       onScroll={(e) => {
         const el = e.currentTarget;
         pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
