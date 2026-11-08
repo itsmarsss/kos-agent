@@ -1,5 +1,6 @@
 import {
   cloneElement,
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -22,7 +23,8 @@ const ARROW_INSET = 12;
 /** What the card hands the element it points at. */
 export interface TooltipAnchorProps {
   ref: Ref<HTMLElement>;
-  tabIndex: number;
+  /** Out of the tab order, so a long chat is not a tab stop per time; absent inside a link or button. */
+  tabIndex: number | undefined;
   "aria-describedby": string | undefined;
   onPointerEnter: (event: PointerEvent<HTMLElement>) => void;
   onPointerLeave: (event: PointerEvent<HTMLElement>) => void;
@@ -49,8 +51,11 @@ interface Spot {
 /**
  * A small card over what it explains, as Discord shows a time.
  *
- * It opens at once under the pointer or on keyboard focus, and a tap toggles
- * it where there is no pointer to hover; a press away, a scroll or Escape
+ * It opens at once under the pointer, and a tap toggles it where there is no
+ * pointer to hover. It is no tab stop of its own, since a long chat would be
+ * one per time, but focus that lands on it another way (a screen reader, a
+ * script) opens it, as does focus on a link or button it sits inside, which
+ * it then leaves the only focusable one; a press away, a scroll or Escape
  * closes it. It sits above its element, below when there is no room above,
  * and inside the window side to side, its arrow on the element. It is drawn
  * at the body, so a bubble that clips its overflow does not cut it off.
@@ -63,6 +68,24 @@ export function Tooltip({ tip, children }: TooltipProps): ReactElement {
   const card = useRef<HTMLDivElement>(null);
   // A tap focuses before it clicks; the click alone decides, so the focus is not taken as a keyboard's.
   const tapping = useRef(false);
+  // The link or button the element sits inside, which takes focus in its place.
+  const [host, setHost] = useState<HTMLElement | null>(null);
+
+  useLayoutEffect(() => {
+    setHost(anchor.current?.parentElement?.closest<HTMLElement>("a[href], button") ?? null);
+  }, []);
+
+  useEffect(() => {
+    if (!host) return undefined;
+    const show = (): void => setOpen(true);
+    const hide = (): void => setOpen(false);
+    host.addEventListener("focus", show);
+    host.addEventListener("blur", hide);
+    return () => {
+      host.removeEventListener("focus", show);
+      host.removeEventListener("blur", hide);
+    };
+  }, [host]);
 
   // Escape is heard last and passed on: a card the pointer merely rests on must not
   // swallow the Escape meant for the preview, drawer or dialog it sits in.
@@ -91,7 +114,7 @@ export function Tooltip({ tip, children }: TooltipProps): ReactElement {
 
   const anchorProps: TooltipAnchorProps = {
     ref: anchor,
-    tabIndex: 0,
+    tabIndex: host ? undefined : -1,
     "aria-describedby": open ? id : undefined,
     onPointerEnter: (event) => {
       if (!touch(event)) setOpen(true);

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { timeCard } from "@kos/shared";
 
 import { Markdown } from "./Markdown.js";
+import { Tooltip } from "./Tooltip.js";
 
 /** 2026-11-21 04:59 UTC: late on Friday the 20th in Toronto. */
 const SECONDS = Date.UTC(2026, 10, 21, 4, 59) / 1000;
@@ -25,7 +26,8 @@ describe("the time's hover card", () => {
   it("opens at once on hover, with the date over the time, and wires itself to the chip", () => {
     const time = chip();
     expect(time.hasAttribute("title")).toBe(false);
-    expect(time.tabIndex).toBe(0);
+    // No tab stop per time in a long chat.
+    expect(time.tabIndex).toBe(-1);
     expect(card()).toBeNull();
     expect(time.hasAttribute("aria-describedby")).toBe(false);
 
@@ -40,7 +42,24 @@ describe("the time's hover card", () => {
     expect(card()).toBeNull();
   });
 
-  it("opens on keyboard focus and closes on blur or Escape", () => {
+  it("inside a link, leaves the link the one focusable element and opens on its focus", () => {
+    render(
+      <a href="https://example.com">
+        see{" "}
+        <Tooltip tip="the card">
+          <span className="inner">soon</span>
+        </Tooltip>
+      </a>,
+    );
+    const link = document.querySelector<HTMLElement>("a")!;
+    expect(document.querySelector(".inner")?.hasAttribute("tabindex")).toBe(false);
+    act(() => link.focus());
+    expect(card()?.textContent).toBe("the card");
+    act(() => link.blur());
+    expect(card()).toBeNull();
+  });
+
+  it("opens on focus that lands on it and closes on blur or Escape", () => {
     const time = chip();
     act(() => time.focus());
     expect(card()).not.toBeNull();
