@@ -8,7 +8,7 @@ import { Lines } from "./lines.js";
 import { linkWords, needsPairing, type LineOf } from "./linkwords.js";
 import { installOverlay } from "./overlay.js";
 import { adding, readPairings, removing, replacedBy, type Paired } from "./pairings.js";
-import { checkCommand, forwarded, isWebUrl } from "./relay.js";
+import { checkCommand, forwarded, isWebUrl, Worlds } from "./relay.js";
 import { Session } from "./session.js";
 import { DEFAULTS, DEFAULT_HIDDEN, asksFirst, isHidden, readSettings, siteOf } from "./settings.js";
 
@@ -83,40 +83,73 @@ describe("what reaches a tab", () => {
     expect(() => checkCommand("Page.createIsolatedWorld", { frameId: "f", worldName: "kos-hands", grantUniveralAccess: true })).toThrow(CallError);
   });
 
-  it("runs no script of KOS's in the overlay's world", () => {
-    const overlay = { ids: new Set([7]), unique: new Set(["u7"]) };
-    expect(() => checkCommand("Runtime.evaluate", { expression: "1", contextId: 3 }, overlay)).not.toThrow();
-    expect(() => checkCommand("Runtime.evaluate", { expression: "1" }, overlay)).not.toThrow();
-    expect(() => checkCommand("Runtime.evaluate", { expression: "kosOverlay('{\"kind\":\"handback\"}')", contextId: 7 }, overlay)).toThrow(/overlay/);
-    expect(() => checkCommand("Runtime.evaluate", { expression: "1", uniqueContextId: "u7" }, overlay)).toThrow(/overlay/);
-    expect(() => checkCommand("Runtime.callFunctionOn", { functionDeclaration: "() => 1", executionContextId: 7 }, overlay)).toThrow(/overlay/);
+  /** A tab's worlds as Chrome told of them: the page's (3, u3), KOS's hands' (5), the overlay's (7, u7) and another extension's (8). */
+  const tabWorlds = (): Worlds => {
+    const worlds = new Worlds();
+    worlds.made({ id: 3, uniqueId: "u3", name: "", auxData: { isDefault: true } });
+    worlds.made({ id: 5, uniqueId: "u5", name: "kos-hands", auxData: { isDefault: false } });
+    worlds.made({ id: 7, uniqueId: "u7", name: "kos", auxData: { isDefault: false } });
+    worlds.made({ id: 8, uniqueId: "u8", name: "Some Extension", auxData: { isDefault: false } });
+    return worlds;
+  };
+
+  it("runs KOS's script only in the page's world and its hands', never the overlay's", () => {
+    const worlds = tabWorlds();
+    expect(() => worlds.check({ expression: "1", contextId: 3 })).not.toThrow();
+    expect(() => worlds.check({ expression: "1", contextId: 5 })).not.toThrow();
+    expect(() => worlds.check({ expression: "1" })).not.toThrow();
+    expect(() => worlds.check({ expression: "kosOverlay('{\"kind\":\"handback\"}')", contextId: 7 })).toThrow(/overlay/);
+    expect(() => worlds.check({ expression: "1", uniqueContextId: "u7" })).toThrow(/overlay/);
+    expect(() => worlds.check({ functionDeclaration: "() => 1", executionContextId: 7 })).toThrow(/overlay/);
+    expect(() => worlds.check({ expression: "1", contextId: 8 })).toThrow(/neither the page's nor KOS's own/);
+    expect(worlds.isOverlay(7)).toBe(true);
+    expect(worlds.isOverlay(3)).toBe(false);
+  });
+
+  it("refuses a world it has not heard Chrome make, and says one gone is gone", () => {
+    const worlds = tabWorlds();
+    // An overlay made a moment before the worker heard of it is refused, not let through as not known to be the overlay's.
+    expect(worlds.heard({ contextId: 9 })).toBe(false);
+    expect(() => worlds.check({ expression: "1", contextId: 9 })).toThrow(/not one Chrome has said this tab holds/);
+    expect(() => worlds.check({ objectId: "4087261833316862514.9.1" })).toThrow(/not one Chrome has said this tab holds/);
+    expect(() => worlds.check({ expression: "1", uniqueContextId: "u9" })).toThrow(/not one Chrome has said this tab holds/);
+    worlds.made({ id: 9, name: "kos-hands" });
+    expect(worlds.heard({ contextId: 9 })).toBe(true);
+    expect(() => worlds.check({ expression: "1", contextId: 9 })).not.toThrow();
+    // Gone with its document: heard of, and refused at once as Chrome would.
+    worlds.destroyed(9);
+    expect(worlds.heard({ contextId: 9 })).toBe(true);
+    expect(() => worlds.check({ contextId: 9 })).toThrow(expect.objectContaining({ code: "cdp", message: expect.stringMatching(/gone/) }));
+    worlds.cleared();
+    expect(() => worlds.check({ contextId: 3 })).toThrow(/gone/);
+    expect(() => worlds.check({ uniqueContextId: "u3" })).toThrow(/not one Chrome has said/);
   });
 
   it("reads each name a command may give a world by alone, so one cannot hide another", () => {
-    const overlay = { ids: new Set([7]), unique: new Set(["u7"]) };
+    const worlds = tabWorlds();
     // callFunctionOn reads executionContextId and ignores contextId: a string there once let the overlay's id through.
-    expect(() => checkCommand("Runtime.callFunctionOn", { functionDeclaration: "() => 1", contextId: "x", executionContextId: 7 }, overlay)).toThrow(/overlay/);
-    expect(() => checkCommand("Runtime.callFunctionOn", { functionDeclaration: "() => 1", contextId: 3, executionContextId: 7 }, overlay)).toThrow(/overlay/);
-    expect(() => checkCommand("Runtime.evaluate", { expression: "1", contextId: 3, uniqueContextId: "u7" }, overlay)).toThrow(/overlay/);
-    expect(() => checkCommand("Runtime.callFunctionOn", { functionDeclaration: "() => 1", uniqueContextId: "u7" }, overlay)).toThrow(/overlay/);
+    expect(() => worlds.check({ functionDeclaration: "() => 1", contextId: "x", executionContextId: 7 })).toThrow(CallError);
+    expect(() => worlds.check({ functionDeclaration: "() => 1", contextId: 3, executionContextId: 7 })).toThrow(/overlay/);
+    expect(() => worlds.check({ expression: "1", contextId: 3, uniqueContextId: "u7" })).toThrow(/overlay/);
+    expect(() => worlds.check({ functionDeclaration: "() => 1", uniqueContextId: "u7" })).toThrow(/overlay/);
     // A name of the wrong type is refused rather than passed on to be read some other way.
-    expect(() => checkCommand("Runtime.evaluate", { expression: "1", contextId: "7" }, overlay)).toThrow(CallError);
-    expect(() => checkCommand("Runtime.evaluate", { expression: "1", uniqueContextId: 7 })).toThrow(CallError);
-    expect(() => checkCommand("Runtime.evaluate", { expression: "1", contextId: 3, uniqueContextId: "u3" }, overlay)).not.toThrow();
+    expect(() => worlds.check({ expression: "1", contextId: "7" })).toThrow(CallError);
+    expect(() => worlds.check({ expression: "1", uniqueContextId: 7 })).toThrow(CallError);
+    expect(() => worlds.check({ expression: "1", contextId: 3, uniqueContextId: "u3" })).not.toThrow();
   });
 
-  it("makes and reaches no object in the overlay's world", () => {
-    const overlay = { ids: new Set([7]), unique: new Set(["u7"]) };
+  it("makes and reaches no object outside the page's world and its hands'", () => {
+    const worlds = tabWorlds();
     // A node resolved into the overlay's world is an object there, which a function called on it would run in.
-    expect(() => checkCommand("DOM.resolveNode", { backendNodeId: 5, executionContextId: 7 }, overlay)).toThrow(/overlay/);
-    expect(() => checkCommand("DOM.resolveNode", { backendNodeId: 5, executionContextId: 3, objectGroup: "kos" }, overlay)).not.toThrow();
-    expect(() => checkCommand("DOM.resolveNode", { backendNodeId: 5 }, overlay)).not.toThrow();
-    // An object's id names its world (isolate.world.object): one of the overlay's is refused for every command that takes one.
-    for (const method of ["Runtime.callFunctionOn", "Runtime.getProperties", "Runtime.releaseObject", "DOM.describeNode", "DOM.focus", "DOM.getContentQuads"]) {
-      expect(() => checkCommand(method, { objectId: "-4087261833316862514.7.12", functionDeclaration: "function () { kosOverlay('{\"kind\":\"handback\"}') }" }, overlay)).toThrow(/overlay/);
-      expect(() => checkCommand(method, { objectId: "4087261833316862514.3.12", functionDeclaration: "function () {}" }, overlay)).not.toThrow();
-    }
-    expect(() => checkCommand("Runtime.callFunctionOn", { objectId: 7, functionDeclaration: "function () {}" }, overlay)).toThrow(CallError);
+    expect(() => worlds.check({ backendNodeId: 5, executionContextId: 7 })).toThrow(/overlay/);
+    expect(() => worlds.check({ backendNodeId: 5, executionContextId: 3, objectGroup: "kos" })).not.toThrow();
+    expect(() => worlds.check({ backendNodeId: 5 })).not.toThrow();
+    // An object's id names its world (isolate.world.object): one of the overlay's is refused, whatever command takes it.
+    expect(() => worlds.check({ objectId: "-4087261833316862514.7.12", functionDeclaration: "function () { kosOverlay('{\"kind\":\"handback\"}') }" })).toThrow(/overlay/);
+    expect(() => worlds.check({ objectId: "4087261833316862514.3.12", functionDeclaration: "function () {}" })).not.toThrow();
+    expect(() => worlds.check({ objectId: "4087261833316862514.5.12" })).not.toThrow();
+    expect(() => worlds.check({ objectId: 7, functionDeclaration: "function () {}" })).toThrow(CallError);
+    expect(() => worlds.check({ objectId: "not-an-id" })).toThrow(/names no world/);
   });
 
   it("tells KOS only what its hands listen for", () => {

@@ -79,7 +79,8 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   while a request the step started is still coming, and a step that ends
   with one still open says the page may still be loading. Typing and keys
   give at least 400 ms, for a field that searches a moment after the
-  typing stops; once a request ends or a socket message comes, 60 ms more
+  typing stops, paid once for fields filled in turn (a type, fill, select
+  or check next leaves it to that step); once a request ends or a socket message comes, 60 ms more
   for the page to show what it brought. Requests are dated by the
   browser's clock, so one heard late is not taken for the step's. So a
   run needs no waits of its own after clicks, and a page that never stops

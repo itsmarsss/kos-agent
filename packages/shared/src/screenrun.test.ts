@@ -31,6 +31,13 @@ describe("the shared runner", () => {
     expect(log).toEqual(["a", "b"]);
   });
 
+  it("tells each action which one follows it, and the last that none does", async () => {
+    const nexts: Array<string | undefined> = [];
+    const adapter: RunAdapter<string> = { ...surface(), perform: async (a, { next }) => (nexts.push(next), `did ${a}`) };
+    await runActions(adapter, ["fill", "fill", "click"]);
+    expect(nexts).toEqual(["fill", "click", undefined]);
+  });
+
   it("checks every action before the first runs, so a bad run never half-happens", async () => {
     const log: string[] = [];
     await expect(runActions(surface(log), ["a", 7])).rejects.toThrow(/step 2: must be a word/);

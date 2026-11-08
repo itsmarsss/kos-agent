@@ -168,7 +168,7 @@ function webSteps(page: Page): RunAdapter<Step> {
   return {
     parse: (raw, i) => parseStep(raw, i),
     name: (step) => Object.keys(step)[0] ?? "step",
-    perform: async (step, { signal, waits }) => {
+    perform: async (step, { signal, waits, next }) => {
       // A pause is the runner's: drawn from the call's one budget, and over when the owner stops it.
       if ("wait" in step && typeof step.wait === "number") {
         const ms = waits.take(step.wait);
@@ -186,7 +186,7 @@ function webSteps(page: Page): RunAdapter<Step> {
           waits.refund(ms - (Date.now() - from));
         }
       }
-      return page.step(step, signal);
+      return page.step(step, signal, next);
     },
     // Every step ends where it is at Stop: a pause, and a step on the page, which Page.step aborts.
     cancels: () => true,

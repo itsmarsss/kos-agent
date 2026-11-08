@@ -44,10 +44,12 @@ export class WaitBudget {
   }
 }
 
-export interface ActionContext {
+export interface ActionContext<A = unknown> {
   /** The owner's Stop: an adapter that can stop the action in flight listens to it. */
   signal?: AbortSignal;
   waits: WaitBudget;
+  /** The action after this one in the run, if any: a step can leave a wait to the one that follows. */
+  next?: A;
 }
 
 export interface RunAdapter<A> {
@@ -56,7 +58,7 @@ export interface RunAdapter<A> {
   /** The action's name in a failure line: "click", "left_click". */
   name(action: A): string;
   /** Do it; what was done, in words. */
-  perform(action: A, ctx: ActionContext): Promise<string>;
+  perform(action: A, ctx: ActionContext<A>): Promise<string>;
   /** Why an action failed, in words for the model; the error's message when absent. */
   why?(err: unknown): string;
   /** What to add to a failure, such as what the page offers now. */
@@ -161,7 +163,8 @@ export async function runActions<A>(adapter: RunAdapter<A>, raw: unknown[], opti
     if (signal?.aborted) throw new RunError(done, stoppedAt(index));
     if (options.deadlineMs !== undefined && now() - start > options.deadlineMs) throw new RunError(done, `Ran out of time before step ${index + 1}.`);
     try {
-      done.push(await adapter.perform(action, { ...(signal ? { signal } : {}), waits }));
+      const next = actions[index + 1];
+      done.push(await adapter.perform(action, { ...(signal ? { signal } : {}), waits, ...(next === undefined ? {} : { next }) }));
     } catch (err) {
       if (signal?.aborted) throw new RunError(done, stoppedDuring(index, adapter.cancels?.(action) ?? false, adapter.place));
       const why = adapter.why?.(err) ?? (err instanceof Error ? err.message : String(err));
