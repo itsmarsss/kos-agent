@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { attendance, openDatabase, type ModuleContext, type ToolRisk } from "@kos/harness";
 
-import { OwnerChrome, relayLine, type Relay } from "./chrome.js";
+import { jpegEdge, OwnerChrome, relayLine, type Relay } from "./chrome.js";
 import { FakeDevice } from "./device.fixture.js";
 import { DeviceHub } from "./hub.js";
 import { DeviceError } from "./link.js";
@@ -128,6 +128,29 @@ describe("a Chrome paired through the extension", () => {
     // A navigation it heard about moves the tab's address, and so its site.
     fake.event("cdp.event", { session: sent[0]!["session"], tab: "88", method: "Page.frameNavigated", params: { frame: { id: "F", url: "https://shop.example/checkout" } } });
     expect(chrome.siteOf("c1")).toBe("shop.example");
+  });
+
+  it("pictures a tab at the size asked, and asks an extension that sends the tab's whole size to draw it small", async () => {
+    /** A JPEG as far as its frame header, which is all its size needs. */
+    const jpeg = (width: number, height: number): string =>
+      Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, height >> 8, height & 255, width >> 8, width & 255, 3, ...Array(12).fill(0)]).toString("base64");
+    for (const old of [false, true]) {
+      const { chrome, tools, pairChrome } = setup();
+      const fake = pairChrome();
+      fake.answers.set("cdp.send", (p) => {
+        const params = (p["params"] ?? {}) as { maxEdge?: number; clip?: { width: number; height: number; scale: number } };
+        if (p["method"] === "Page.getLayoutMetrics") return { ok: true, result: { cssVisualViewport: { clientWidth: 2048, clientHeight: 1280 } } };
+        if (p["method"] !== "Page.captureScreenshot") return { ok: true, result: {} };
+        if (params.clip) return { ok: true, result: { data: jpeg(Math.round(params.clip.width * params.clip.scale), Math.round(params.clip.height * params.clip.scale)) } };
+        return { ok: true, result: { data: old ? jpeg(2048, 1280) : jpeg(params.maxEdge!, Math.round((params.maxEdge! * 1280) / 2048)) } };
+      });
+      await attendance.run(true, () => tools.get("chrome.start")!({ task: "look" }));
+      await chrome.tab("c1");
+      for (let i = 0; i < 2; i++) expect(jpegEdge((await chrome.picture("c1", 1024))!)).toBe(1024);
+      const shots = fake.calls.filter((c) => c.method === "cdp.send" && (c.params["method"] === "Page.captureScreenshot" || c.params["method"] === "Page.getLayoutMetrics"));
+      // A new extension: one call a picture. An old one: found out once, then asked to draw it small.
+      expect(shots.length).toBe(old ? 5 : 2);
+    }
   });
 
   it("waits while the owner has taken over, and goes on when they hand it back", async () => {

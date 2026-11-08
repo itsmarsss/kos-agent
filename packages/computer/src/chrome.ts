@@ -32,6 +32,8 @@ interface Borrowed {
   tabs: Map<string, Kept>;
   current?: string;
   pages: Map<string, Page>;
+  /** The extension sends pictures the size of the tab: one from before it made them small itself. */
+  fullPictures?: boolean;
 }
 
 /** How long an agent waits for the owner to hand a tab back. */
@@ -92,6 +94,18 @@ export function relayLine(relay: Relay, tab: string): TabSession {
     return out;
   };
   return { send, batch };
+}
+
+/** A JPEG's longer side, from its frame header near the start; 0 when there is none to read. */
+export function jpegEdge(base64: string): number {
+  const b = Buffer.from(base64.slice(0, 16_384), "base64");
+  for (let i = 2; i + 9 < b.length; ) {
+    if (b[i] !== 0xff) return 0;
+    const marker = b[i + 1]!;
+    if (marker >= 0xc0 && marker <= 0xc3) return Math.max(b.readUInt16BE(i + 5), b.readUInt16BE(i + 7));
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  return 0;
 }
 
 function hostOf(url: string): string | undefined {
@@ -251,13 +265,25 @@ export class OwnerChrome implements BrowserElsewhere {
   /**
    * The tab as it looks, small enough to send, through the extension: one
    * call, the extension making it this size (`maxEdge` is its own, not the
-   * protocol's) without drawing the owner's page again.
+   * protocol's) without drawing the owner's page again. An extension from
+   * before that sends it the size of the tab, which is seen by its size, and
+   * from then on it is asked to draw the page small, as it was before.
    */
   private async capture(conversation: string, tab: string, maxEdge: number = PICTURE.edge): Promise<string | undefined> {
-    const shot = await this.hub
-      .act(conversation, "cdp.send", { tab, method: "Page.captureScreenshot", params: { format: "jpeg", quality: PICTURE.quality, maxEdge } }, 20_000)
-      .catch(() => ({}) as Record<string, unknown>);
-    return typeof shot["data"] === "string" && shot["data"] ? shot["data"] : undefined;
+    const send = (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> =>
+      this.hub.act(conversation, "cdp.send", { tab, method, params }, 20_000).catch(() => ({}) as Record<string, unknown>);
+    const dataOf = (shot: Record<string, unknown>): string | undefined => (typeof shot["data"] === "string" && shot["data"] ? shot["data"] : undefined);
+    const b = this.held.get(conversation);
+    if (!b?.fullPictures) {
+      const data = dataOf(await send("Page.captureScreenshot", { format: "jpeg", quality: PICTURE.quality, maxEdge }));
+      if (!data || jpegEdge(data) <= maxEdge) return data;
+      if (b) b.fullPictures = true;
+    }
+    const metrics = await send("Page.getLayoutMetrics");
+    const view = (metrics["cssVisualViewport"] ?? metrics["layoutViewport"] ?? {}) as { clientWidth?: number; clientHeight?: number };
+    const [width, height] = [view.clientWidth ?? 0, view.clientHeight ?? 0];
+    const scale = Math.min(1, maxEdge / Math.max(width, height, 1));
+    return dataOf(await send("Page.captureScreenshot", { format: "jpeg", quality: PICTURE.quality, ...(width && height ? { clip: { x: 0, y: 0, width, height, scale } } : {}) }));
   }
 
   /** What the extension tells: a page's events for its hands, tabs closing, tabs handed. */
