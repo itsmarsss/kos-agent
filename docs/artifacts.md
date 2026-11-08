@@ -222,14 +222,15 @@ the artifact's `.captures/<id>/`.
 ## The Artifacts page
 
 Artifacts on the dashboard's nav is a gallery of every artifact across
-projects and the workspace, newest first. Its head holds the count, a search
-over titles, descriptions and projects, and New artifact, which opens KOS's
+projects, blobs and the workspace, newest first. Its head holds the count, a
+search over titles, descriptions and owners, and New artifact, which opens KOS's
 root chat with "Make a " in the composer for the owner to finish. Under it,
 the kinds as chips with how many each holds (one row that scrolls sideways
-on a phone), the project, and Recent or By project: one grid, or a section
-per project with the workspace's own last. A card is a 16:10 capture cropped
-from the top, the title, one line of description, the kind, the project's
-mark and name, and when it changed. While the list loads the grid is drawn
+on a phone), the owner (Everyone's, the workspace, each project, each blob),
+and Recent or By project: one grid, or a section per owner with the
+workspace's own last. A card is a 16:10 capture cropped from the top, the
+title, one line of description, the kind, the owner's mark and name (a
+project's mark, or a blob's face), and when it changed. While the list loads the grid is drawn
 as skeleton cards; with nothing made it says so, beside New artifact.
 
 The thumbnail is the capture `artifacts.check` keeps, in the dashboard's
@@ -243,20 +244,28 @@ still waiting. An older widget-spec page is listed too, marked as one; it
 has no capture, and its viewer offers Convert with KOS, which asks its
 project's chat to rewrite it as an HTML artifact under the same id.
 
-Opening one shows it full size under a head with its title, kind, project
+Opening one shows it full size under a head with its title, kind, owner
 and when it changed, and its actions: History (a drawer of every version,
 newest first, each older one with Preview, which shows that version in place
 with nothing in it saved, written or asked, and Restore, which like an edit
 names the version it was made on and is refused with a 409 when one was
-saved since), Open in project, Present
+saved since), Open and the owner's name (its project's page, or its blob's),
+Present
 for a deck (the frame goes full screen and tells the deck to present), and Edit
 with KOS (the owner says what should change, and it goes to the chat that
-owns the artifact: the project's, or KOS at the root).
+owns the artifact: the project's, the blob's thread, or KOS at the root).
 
 The same viewer shows an artifact opened from its project (`#/page/<id>`),
 and in place of the chat when one is picked from the Artifacts list beside a
 project's or a blob's chat (`ArtifactRail.tsx`): what that project or blob
-owns, each one's kind, title and when it changed. On a narrow window the list folds into one row under the chat.
+owns and nothing else (a blob's list is its own, not those of the projects it
+works in), each one's kind, title and when it changed. On a narrow window the
+list folds into one row under the chat. The list is read when the page opens,
+when the artifact open in place closes, and when a turn ends, since a turn is
+what makes one. Another thread, project or blob shows its thread again, not
+the artifact open before. Edit with KOS there goes to the owning thread and
+shows it; History, Restore and the owner's edits work as on the Artifacts
+page, and an older widget page opens on its own page.
 
 ### Drawn as part of the page
 
