@@ -325,8 +325,12 @@ export class Page {
 
   // Acting.
 
-  /** One step on the page; what was done, in words. */
-  async step(step: Step): Promise<string> {
+  /**
+   * One step on the page; what was done, in words. `_signal` is the owner's
+   * Stop: the shared runner hands it over, and the step it is under way in
+   * finishes, bounded by its own limits, before the run stops.
+   */
+  async step(step: Step, _signal?: AbortSignal): Promise<string> {
     await this.waitForOwner();
     if ("open" in step) {
       const went = await this.goto(step.open);

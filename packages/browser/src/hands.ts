@@ -153,13 +153,6 @@ export function stepsOf(raw: unknown): Step[] {
   return steps.map((s, i) => parseStep(s, i));
 }
 
-/**
- * A page that can stop the step in flight when told. The transport that
- * aborts a CDP call lives with the page; one that does not take the signal
- * yet finishes its step, bounded by its own limits, and the run stops after.
- */
-type Stoppable = { step(step: Step, options?: { signal?: AbortSignal }): Promise<string> };
-
 /** A page's steps as the shared runner does them, over CDP, direct or through the extension. */
 function webSteps(page: Page): RunAdapter<Step> {
   return {
@@ -172,7 +165,7 @@ function webSteps(page: Page): RunAdapter<Step> {
         await pause(ms, signal);
         return ms < step.wait ? `waited ${ms}ms (one call waits at most ${WAIT_BUDGET_MS / 1000}s in all)` : `waited ${ms}ms`;
       }
-      return (page as unknown as Stoppable).step(step, signal ? { signal } : {});
+      return page.step(step, signal);
     },
     afterFailure: async () => {
       const notes = page.takeNotes();

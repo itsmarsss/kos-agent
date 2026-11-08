@@ -4,16 +4,16 @@ import { act, type Tab } from "./hands.js";
 import type { Page } from "./page.js";
 
 /** A page that counts its round trips: where it is, and what a look asks of it. */
-function fakeTab(urls: string[], onStep: () => void = () => undefined) {
+function fakeTab(urls: string[], onStep: (signal?: AbortSignal) => void = () => undefined) {
   const asked = { whereAmI: 0, index: 0, capture: 0, steps: 0 };
   let at = 0;
   const page = {
     run: <T>(work: () => Promise<T>) => work(),
     ready: async () => undefined,
     release: async () => undefined,
-    step: async () => {
+    step: async (_step: unknown, signal?: AbortSignal) => {
       asked.steps++;
-      onStep();
+      onStep(signal);
       at = Math.min(at + 1, urls.length - 1);
       return "Clicked Next";
     },
@@ -62,5 +62,13 @@ describe("a run of steps", () => {
     await expect(act(tab, steps, "look", stop.signal)).rejects.toThrow(/^Done: Clicked Next\. Stopped by the owner before step 2\.$/);
     expect(asked.steps).toBe(1);
     expect(asked.capture).toBe(0);
+  });
+
+  it("hands the owner's Stop to the step under way, as the page's own second argument", async () => {
+    const stop = new AbortController();
+    const given: (AbortSignal | undefined)[] = [];
+    const { tab } = fakeTab(["http://shop.test/1"], (signal) => given.push(signal));
+    await act(tab, [{ click: "@e1" }] as never[], "none", stop.signal);
+    expect(given).toEqual([stop.signal]);
   });
 });
