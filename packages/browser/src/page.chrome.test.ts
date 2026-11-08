@@ -174,6 +174,17 @@ document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<but
     expect(done.text).toContain("Settings for Ada");
   });
 
+  it("ends a step under way when the owner presses Stop, and works on after", async () => {
+    await visit(tab, [`${base}/fetched`], { then: "none" });
+    const stop = new AbortController();
+    setTimeout(() => stop.abort(), 900);
+    const stopped = await timed(() => act(tab, stepsOf([{ click: "#go" }, { wait: { text: "never there" } }, { click: "#go" }]), "look", stop.signal).catch((err: Error) => err.message));
+    expect(stopped.value).toBe("Done: clicked #go. Stopped by the owner during step 2.");
+    expect(stopped.ms).toBeLessThan(2_000);
+    const after = await act(tab, stepsOf([{ click: "#go" }]), "read");
+    expect(after.text).toContain("Arrived from the server");
+  });
+
   it("indexes a big page quickly, capped, with refs that act", async () => {
     await visit(tab, [`${base}/big`], { then: "none" });
     await look(tab);

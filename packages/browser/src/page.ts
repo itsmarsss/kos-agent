@@ -106,6 +106,13 @@ type CallArg = { value: unknown } | { objectId: string };
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/** What a step in flight meets once the owner has pressed Stop. */
+export class Stopped extends Error {
+  constructor() {
+    super("stopped by the owner");
+  }
+}
+
 function exceptionText(details: unknown): string {
   const d = details as { exception?: { description?: string; value?: unknown }; text?: string } | undefined;
   const first = d?.exception?.description?.split("\n")[0];
@@ -179,6 +186,8 @@ export class Page {
   private prepared: Promise<void> | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly wakers = new Set<() => void>();
+  /** The owner's Stop, for the step in flight. */
+  private stop: AbortSignal | undefined;
   /** Elements resolved for this call, by node, and the document they were resolved in. */
   private objects = { loader: "", ids: new Map<number, string>() };
 
@@ -280,18 +289,18 @@ export class Page {
     if (this.crashed) {
       this.crashed = false;
       const [before, since] = [this.life.loader, this.now()];
-      await this.session.send("Page.reload", {});
+      await this.send("Page.reload", {});
       await this.settle(before, since);
       this.heard.push("The tab had crashed, and was loaded again.");
     }
   }
 
   private async prepare(): Promise<void> {
-    await this.session.send("Page.enable");
-    await this.session.send("Page.setLifecycleEventsEnabled", { enabled: true });
-    await this.session.send("Network.enable");
-    await this.session.send("Inspector.enable").catch(() => undefined);
-    const tree = await this.session.send("Page.getFrameTree");
+    await this.send("Page.enable");
+    await this.send("Page.setLifecycleEventsEnabled", { enabled: true });
+    await this.send("Network.enable");
+    await this.send("Inspector.enable").catch(() => undefined);
+    const tree = await this.send("Page.getFrameTree");
     const frame = (tree["frameTree"] as { frame?: { id?: string; loaderId?: string; url?: string } } | undefined)?.frame;
     this.mainFrame = frame?.id ?? "";
     this.site = siteOf(frame?.url ?? "");
@@ -311,7 +320,7 @@ export class Page {
   async goto(url: string, until: "dom" | "load" = "dom"): Promise<{ stillLoading: boolean }> {
     let answer: Record<string, unknown>;
     try {
-      answer = await this.session.send("Page.navigate", { url }, this.limits.domMs);
+      answer = await this.send("Page.navigate", { url }, this.limits.domMs);
     } catch (err) {
       if (err instanceof Error && err.message.endsWith("timed out")) return { stillLoading: true };
       throw err;
@@ -332,14 +341,14 @@ export class Page {
   async go(where: "back" | "forward" | "reload"): Promise<boolean> {
     const [before, since] = [this.life.loader, this.now()];
     if (where === "reload") {
-      await this.session.send("Page.reload", {});
+      await this.send("Page.reload", {});
     } else {
-      const history = await this.session.send("Page.getNavigationHistory");
+      const history = await this.send("Page.getNavigationHistory");
       const entries = (history["entries"] as { id: number }[] | undefined) ?? [];
       const at = typeof history["currentIndex"] === "number" ? history["currentIndex"] : -1;
       const entry = entries[at + (where === "back" ? -1 : 1)];
       if (!entry) return false;
-      await this.session.send("Page.navigateToHistoryEntry", { entryId: entry.id });
+      await this.send("Page.navigateToHistoryEntry", { entryId: entry.id });
     }
     await this.settle(before, since);
     return true;
@@ -383,7 +392,7 @@ export class Page {
 
   /** A script run in the page, top-level await allowed; its answer as text. */
   async evaluate(code: string): Promise<string> {
-    const answer = await this.session.send(
+    const answer = await this.send(
       "Runtime.evaluate",
       { expression: code, replMode: true, awaitPromise: true, returnByValue: true, userGesture: true, timeout: EVAL_MS, objectGroup: GROUP },
       EVAL_MS + 2_000,
@@ -397,8 +406,21 @@ export class Page {
 
   // Acting.
 
-  /** One step on the page; what was done, in words. */
-  async step(step: Step): Promise<string> {
+  /**
+   * One step on the page; what was done, in words. Once `signal` aborts, the
+   * step ends where it is: a wait is woken, a command still out is no longer
+   * waited for, and no further one is sent. It throws Stopped.
+   */
+  async step(step: Step, signal?: AbortSignal): Promise<string> {
+    this.stop = signal;
+    try {
+      return await this.perform(step);
+    } finally {
+      this.stop = undefined;
+    }
+  }
+
+  private async perform(step: Step): Promise<string> {
     await this.waitForOwner();
     if ("open" in step) {
       const went = await this.goto(step.open);
@@ -425,7 +447,7 @@ export class Page {
     if ("hover" in step) {
       const at = await this.point(await this.element(step.hover), step.hover);
       await this.mouse("mouseMoved", at);
-      await sleep(150);
+      await this.pause(150);
       return `hovered over ${step.hover}`;
     }
     if ("fill" in step) {
@@ -516,21 +538,22 @@ export class Page {
   private async domQuiet(grace: number, ms: number): Promise<boolean> {
     const context = await this.world(this.mainFrame);
     if (context === undefined) {
-      await sleep(Math.min(grace, ms));
+      await this.pause(Math.min(grace, ms));
       return true;
     }
     const wait = Math.max(1, Math.round(ms));
     try {
-      const got = await this.session.send(
+      const got = await this.send(
         "Runtime.evaluate",
         { expression: `(${inpage.domQuiet.toString()})(${DOM_QUIET_MS}, ${grace}, ${wait})`, contextId: context, awaitPromise: true, returnByValue: true },
         wait + EVAL_MS,
       );
       return (got["result"] as { value?: unknown } | undefined)?.value === true;
-    } catch {
+    } catch (err) {
+      if (err instanceof Stopped) throw err;
       // The document went (a navigation) or its world did: made again when next asked for.
       this.worlds.delete(this.mainFrame);
-      await sleep(Math.min(50, ms));
+      await this.pause(Math.min(50, ms));
       return false;
     }
   }
@@ -539,7 +562,7 @@ export class Page {
   private world(frame: string): Promise<number | undefined> {
     let made = this.worlds.get(frame);
     if (!made) {
-      made = this.session.send("Page.createIsolatedWorld", { frameId: frame, worldName: WORLD }).then(
+      made = this.send("Page.createIsolatedWorld", { frameId: frame, worldName: WORLD }).then(
         (r) => (typeof r["executionContextId"] === "number" ? r["executionContextId"] : undefined),
         () => undefined,
       );
@@ -567,31 +590,31 @@ export class Page {
     const a = await this.reachable(fromNode, from);
     const b = await this.point(toNode, to);
     this.dragged = undefined;
-    await this.session.send("Input.setInterceptDrags", { enabled: true }).catch(() => undefined);
+    await this.send("Input.setInterceptDrags", { enabled: true }).catch(() => undefined);
     try {
       await this.mouse("mouseMoved", a);
       await this.mouse("mousePressed", a, { button: "left", buttons: 1, clickCount: 1 });
       for (let i = 1; i <= DRAG_STEPS; i++) {
         const t = i / DRAG_STEPS;
         await this.mouse("mouseMoved", { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, { button: "left", buttons: 1 });
-        await sleep(16);
+        await this.pause(16);
       }
       if (this.dragged) {
-        for (const type of ["dragEnter", "dragOver", "drop"]) await this.session.send("Input.dispatchDragEvent", { type, x: b.x, y: b.y, data: this.dragged, modifiers: 0 }, INPUT_MS);
+        for (const type of ["dragEnter", "dragOver", "drop"]) await this.send("Input.dispatchDragEvent", { type, x: b.x, y: b.y, data: this.dragged, modifiers: 0 }, INPUT_MS);
       }
       await this.mouse("mouseReleased", b, { button: "left", clickCount: 1 });
     } finally {
       this.dragged = undefined;
-      await this.session.send("Input.setInterceptDrags", { enabled: false }).catch(() => undefined);
+      await this.send("Input.setInterceptDrags", { enabled: false }).catch(() => undefined);
     }
   }
 
   /** Text into a field: in place of what is there, or after it. A field that ignores typing is set directly. */
   private async write(node: number, label: string, text: string, replace: boolean): Promise<void> {
     const field = (await this.nodeVia(node, inpage.editableOf)) ?? node;
-    await this.session.send("DOM.focus", { backendNodeId: field }).catch(() => this.click(field, label));
+    await this.send("DOM.focus", { backendNodeId: field }).catch(() => this.click(field, label));
     await this.call(field, replace ? inpage.selectAll : inpage.caretToEnd);
-    if (text) await this.session.send("Input.insertText", { text }, INPUT_MS);
+    if (text) await this.send("Input.insertText", { text }, INPUT_MS);
     else if (replace) await this.key(parseKeys("Backspace"));
     if (!replace) return;
     const now = await this.call<string | null>(field, inpage.valueOf);
@@ -624,17 +647,17 @@ export class Page {
     if (where === "up" || where === "down") {
       const view = await this.viewport();
       await this.mouse("mouseWheel", { x: view.width / 2, y: view.height / 2 }, { deltaX: 0, deltaY: (where === "down" ? 1 : -1) * Math.round(view.height * 0.8) });
-      await sleep(250);
+      await this.pause(250);
       return `scrolled ${where}`;
     }
     const node = await this.element(where);
-    await this.session.send("DOM.scrollIntoViewIfNeeded", { backendNodeId: node });
+    await this.send("DOM.scrollIntoViewIfNeeded", { backendNodeId: node });
     return `scrolled to ${where}`;
   }
 
   private async wait(what: Extract<Step, { wait: unknown }>["wait"]): Promise<string> {
     if (typeof what === "number") {
-      await sleep(what);
+      await this.pause(what);
       return `waited ${what}ms`;
     }
     const [kind, value] = "text" in what ? (["text", what.text] as const) : "selector" in what ? (["selector", what.selector] as const) : (["gone", what.gone] as const);
@@ -642,7 +665,7 @@ export class Page {
     const end = this.now() + WAIT_FOR_MS;
     while (this.now() < end) {
       if (await this.value<boolean>(check, 3_000).catch(() => false)) return kind === "gone" ? `"${value}" went` : `"${value}" appeared`;
-      await sleep(200);
+      await this.pause(200);
     }
     throw new Error(`waited ${WAIT_FOR_MS / 1000}s and ${JSON.stringify(value)} ${kind === "gone" ? "is still there" : "never appeared"}`);
   }
@@ -659,7 +682,7 @@ export class Page {
     }
     const byText = textSelector(target);
     const expression = byText ? `(${inpage.byText.toString()})(${JSON.stringify(byText.base)}, ${JSON.stringify(byText.text)})` : `document.querySelector(${JSON.stringify(target)})`;
-    const found = await this.session.send("Runtime.evaluate", { expression, objectGroup: GROUP }, EVAL_MS);
+    const found = await this.send("Runtime.evaluate", { expression, objectGroup: GROUP }, EVAL_MS);
     if (found["exceptionDetails"]) throw new Error(`${target} is not a selector I can use: ${exceptionText(found["exceptionDetails"])}`);
     const objectId = (found["result"] as { objectId?: string } | undefined)?.objectId;
     if (!objectId) throw new Error(`nothing on the page matches ${target}`);
@@ -667,7 +690,7 @@ export class Page {
   }
 
   private async backendOf(objectId: string): Promise<number> {
-    const described = await this.session.send("DOM.describeNode", { objectId });
+    const described = await this.send("DOM.describeNode", { objectId });
     const node = (described["node"] as { backendNodeId?: number } | undefined)?.backendNodeId;
     if (node === undefined) throw new Error("the element has no node");
     return node;
@@ -678,7 +701,7 @@ export class Page {
     if (this.objects.loader !== this.life.loader) this.objects = { loader: this.life.loader, ids: new Map() };
     const known = this.objects.ids.get(node);
     if (known) return known;
-    const resolved = await this.session.send("DOM.resolveNode", { backendNodeId: node, objectGroup: GROUP }).catch(() => undefined);
+    const resolved = await this.send("DOM.resolveNode", { backendNodeId: node, objectGroup: GROUP }).catch(() => undefined);
     const objectId = (resolved?.["object"] as { objectId?: string } | undefined)?.objectId;
     if (!objectId) throw new Error("that element is gone from the page (it changed); take a fresh look");
     this.objects.ids.set(node, objectId);
@@ -688,7 +711,7 @@ export class Page {
   /** A page-side function run on an element, its answer by value. */
   private async call<T>(node: number, fn: (this: Element, ...args: never[]) => unknown, args: CallArg[] = []): Promise<T> {
     const objectId = await this.objectOf(node);
-    const answer = await this.session.send(
+    const answer = await this.send(
       "Runtime.callFunctionOn",
       { objectId, functionDeclaration: fn.toString(), arguments: args, returnByValue: true, awaitPromise: true },
       EVAL_MS,
@@ -700,14 +723,14 @@ export class Page {
   /** A page-side function run on an element that answers with another element, or with none. */
   private async nodeVia(node: number, fn: (this: Element) => Element | null): Promise<number | undefined> {
     const objectId = await this.objectOf(node);
-    const answer = await this.session.send("Runtime.callFunctionOn", { objectId, functionDeclaration: fn.toString(), objectGroup: GROUP }, EVAL_MS);
+    const answer = await this.send("Runtime.callFunctionOn", { objectId, functionDeclaration: fn.toString(), objectGroup: GROUP }, EVAL_MS);
     const other = (answer["result"] as { objectId?: string } | undefined)?.objectId;
     return other ? this.backendOf(other) : undefined;
   }
 
   /** An expression in the page, its answer by value. */
   private async value<T>(expression: string, timeoutMs = EVAL_MS): Promise<T> {
-    const answer = await this.session.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, timeoutMs);
+    const answer = await this.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, timeoutMs);
     if (answer["exceptionDetails"]) throw new Error(exceptionText(answer["exceptionDetails"]));
     return (answer["result"] as { value?: T } | undefined)?.value as T;
   }
@@ -755,7 +778,7 @@ export class Page {
    * which covers the whole page.
    */
   private async blocker(node: number, at: { x: number; y: number }): Promise<number | undefined> {
-    const hit = await this.session
+    const hit = await this
       .send("DOM.getNodeForLocation", { x: Math.round(at.x), y: Math.round(at.y), includeUserAgentShadowDOM: false, ignorePointerEventsNone: false })
       .catch(() => undefined);
     const top = hit?.["backendNodeId"] as number | undefined;
@@ -766,7 +789,7 @@ export class Page {
 
   /** Other places on an element to press, inside its edges: its quarters, then near its corners. */
   private async spots(node: number): Promise<{ x: number; y: number }[]> {
-    const got = await this.session.send("DOM.getContentQuads", { backendNodeId: node }).catch(() => ({}) as Record<string, unknown>);
+    const got = await this.send("DOM.getContentQuads", { backendNodeId: node }).catch(() => ({}) as Record<string, unknown>);
     const quad = ((got["quads"] as number[][] | undefined) ?? [])[0];
     if (!quad) return [];
     const xs = [quad[0]!, quad[2]!, quad[4]!, quad[6]!];
@@ -810,7 +833,31 @@ export class Page {
 
   /** Commands in order (or side by side), in one round trip where the session can. */
   private many(calls: Call[], parallel = false): Promise<(Record<string, unknown> | Error)[]> {
-    return this.session.batch ? this.session.batch(calls, parallel, INPUT_MS) : sendEach((m, p, t) => this.session.send(m, p, t), calls, parallel, INPUT_MS);
+    if (this.session.batch) return this.guard(this.session.batch(calls, parallel, INPUT_MS));
+    return sendEach((m, p, t) => this.send(m, p, t), calls, parallel, INPUT_MS);
+  }
+
+  /** A command to the tab, no longer waited for once the owner presses Stop, and not sent after. */
+  private send(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> {
+    if (this.stop?.aborted) return Promise.reject(new Stopped());
+    return this.guard(this.session.send(method, params, timeoutMs));
+  }
+
+  /** Work in flight, given up once the owner presses Stop. */
+  private guard<T>(work: Promise<T>): Promise<T> {
+    const stop = this.stop;
+    if (!stop) return work;
+    return new Promise<T>((resolve, reject) => {
+      const onStop = (): void => reject(new Stopped());
+      if (stop.aborted) onStop();
+      stop.addEventListener("abort", onStop, { once: true });
+      work.then(resolve, reject).finally(() => stop.removeEventListener("abort", onStop));
+    });
+  }
+
+  /** A pause in a step, cut short by Stop. */
+  private pause(ms: number): Promise<void> {
+    return this.guard(sleep(ms));
   }
 
   /** Commands in order, the first error thrown. */
@@ -820,7 +867,7 @@ export class Page {
   }
 
   private async viewport(): Promise<{ width: number; height: number }> {
-    const metrics = await this.session.send("Page.getLayoutMetrics");
+    const metrics = await this.send("Page.getLayoutMetrics");
     const view = (metrics["cssVisualViewport"] ?? metrics["layoutViewport"] ?? {}) as { clientWidth?: number; clientHeight?: number };
     return { width: view.clientWidth ?? 1280, height: view.clientHeight ?? 800 };
   }
@@ -844,7 +891,7 @@ export class Page {
     if (context === undefined) return undefined;
     let answer: Record<string, unknown>;
     try {
-      answer = await this.session.send(
+      answer = await this.send(
         "Runtime.evaluate",
         { expression: `(${inpage.controls.toString()})(${JSON.stringify(scope)}, ${INDEX_MAX})`, contextId: context, objectGroup: GROUP },
         EVAL_MS,
@@ -860,7 +907,7 @@ export class Page {
       throw new Error(`the page could not be read: ${exceptionText(answer["exceptionDetails"])}`);
     }
     const objectId = (answer["result"] as { objectId?: string } | undefined)?.objectId;
-    const props = objectId ? await this.session.send("Runtime.getProperties", { objectId, ownProperties: true }) : {};
+    const props = objectId ? await this.send("Runtime.getProperties", { objectId, ownProperties: true }) : {};
     const byName = new Map(((props["result"] as { name: string; value?: { value?: unknown; objectId?: string } }[] | undefined) ?? []).map((p) => [p.name, p.value]));
     const meta = JSON.parse(String(byName.get("kos")?.value ?? "{}")) as { items?: inpage.FoundControl[]; total?: number; missing?: boolean };
     if (meta.missing) throw new Error(`nothing on the page matches ${scope}`);
@@ -903,7 +950,7 @@ export class Page {
   /** The accessibility tree of the page and of the frames in it that live in its process, as one. */
   private async nodes(scope?: string): Promise<{ nodes: AxNode[]; unread: string[] }> {
     this.freshDocument();
-    const [whole, tree] = await Promise.all([this.session.send("Accessibility.getFullAXTree", {}, AX_MS), this.session.send("Page.getFrameTree")]);
+    const [whole, tree] = await Promise.all([this.send("Accessibility.getFullAXTree", {}, AX_MS), this.send("Page.getFrameTree")]);
     const nodes = (whole["nodes"] as AxNode[] | undefined) ?? [];
     const unread: string[] = [];
     const frames = childFrames(tree["frameTree"]).slice(0, FRAMES_MAX);
@@ -911,8 +958,8 @@ export class Page {
       frames.map(async (frame) => {
         try {
           const [owner, inner] = await Promise.all([
-            this.session.send("DOM.getFrameOwner", { frameId: frame.id }),
-            this.session.send("Accessibility.getFullAXTree", { frameId: frame.id }, AX_MS),
+            this.send("DOM.getFrameOwner", { frameId: frame.id }),
+            this.send("Accessibility.getFullAXTree", { frameId: frame.id }, AX_MS),
           ]);
           return { owner: owner["backendNodeId"], inner: (inner["nodes"] as AxNode[] | undefined) ?? [] };
         } catch {
@@ -943,11 +990,11 @@ export class Page {
 
   /** Every node inside what a selector names, through shadow roots and frames. */
   private async scopeNodes(scope: string): Promise<Set<number>> {
-    const found = await this.session.send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(scope)})`, objectGroup: GROUP }, EVAL_MS);
+    const found = await this.send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(scope)})`, objectGroup: GROUP }, EVAL_MS);
     if (found["exceptionDetails"]) throw new Error(`${scope} is not a selector I can use: ${exceptionText(found["exceptionDetails"])}`);
     const objectId = (found["result"] as { objectId?: string } | undefined)?.objectId;
     if (!objectId) throw new Error(`nothing on the page matches ${scope}`);
-    const described = await this.session.send("DOM.describeNode", { objectId, depth: -1, pierce: true });
+    const described = await this.send("DOM.describeNode", { objectId, depth: -1, pierce: true });
     const out = new Set<number>();
     const visit = (n: unknown): void => {
       const node = n as { backendNodeId?: number; children?: unknown[]; shadowRoots?: unknown[]; contentDocument?: unknown } | undefined;
@@ -964,6 +1011,7 @@ export class Page {
   private onDialog(type: string, message: string): void {
     const chosen = this.answer ?? { accept: type === "alert" || type === "beforeunload" };
     this.answer = null;
+    // Answered whatever else is under way, Stop included: an open dialog holds every later command on the tab.
     void this.session
       .send("Page.handleJavaScriptDialog", { accept: chosen.accept, ...(chosen.text !== undefined ? { promptText: chosen.text } : {}) })
       .catch(() => undefined);
@@ -972,20 +1020,23 @@ export class Page {
     this.heard.push(`A ${type === "beforeunload" ? "leave-this-page" : type} dialog${said}, and ${how}.`);
   }
 
+  /** Until `ok`, or `ms` has gone (false); a Stop ends it at once. */
   private waitUntil(ok: () => boolean, ms: number): Promise<boolean> {
     if (ok()) return Promise.resolve(true);
-    return new Promise((resolve) => {
-      const done = (v: boolean): void => {
-        clearTimeout(timer);
-        this.wakers.delete(check);
-        resolve(v);
-      };
-      const check = (): void => {
-        if (ok()) done(true);
-      };
-      const timer = setTimeout(() => done(false), ms);
-      this.wakers.add(check);
-    });
+    return this.guard(
+      new Promise((resolve) => {
+        const done = (v: boolean): void => {
+          clearTimeout(timer);
+          this.wakers.delete(check);
+          resolve(v);
+        };
+        const check = (): void => {
+          if (ok()) done(true);
+        };
+        const timer = setTimeout(() => done(false), ms);
+        this.wakers.add(check);
+      }),
+    );
   }
 }
 
