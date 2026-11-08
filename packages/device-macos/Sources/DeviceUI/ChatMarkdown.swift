@@ -212,9 +212,10 @@ public func chatInline(_ text: String, size: CGFloat = KOSType.body.rawValue) ->
   source = source.replacingOccurrences(of: #"@([a-z]+):\[([^\]\n]+)\]"#, with: "[$2](\(referenceScheme):$1)", options: .regularExpression)
   source = source.replacingOccurrences(of: #"@([a-z]+):([\w.:/-]*\w)"#, with: "[$1 $2](\(referenceScheme):$1)", options: .regularExpression)
   // A time, <t:1760845320:R>, as its words on this Mac's clock, marked for the grey chip; never inside a code span.
+  // One in a link's words is plain words there.
   source = outsideCode(source) { part in
-    var out = part
-    for found in ChatTime.tokens(in: part).reversed() {
+    var out = timesInLinkWords(part)
+    for found in ChatTime.tokens(in: out).reversed() {
       out.replaceSubrange(found.range, with: "[\(ChatTime.words(found.date, style: found.style))](\(timeScheme):\(Int(found.date.timeIntervalSince1970)))")
     }
     return out
@@ -272,7 +273,74 @@ private let timeScheme = "kos-time"
 
 /// A line with `change` applied to what is outside its `code spans`.
 private func outsideCode(_ text: String, _ change: (String) -> String) -> String {
-  text.components(separatedBy: "`").enumerated().map { i, part in i.isMultiple(of: 2) ? change(part) : part }.joined(separator: "`")
+  codeSpans(text).map { $0.code ? $0.text : change($0.text) }.joined()
+}
+
+/// A line cut at its code spans as CommonMark reads them: a run of backticks opens one, the next run of the same
+/// length closes it, and a run nothing closes is literal, so one stray backtick leaves the rest of the line as it is.
+/// A backslash keeps the character after it literal outside a span. Each piece says whether it is a span, backticks and all.
+func codeSpans(_ text: String) -> [(text: String, code: Bool)] {
+  let chars = Array(text)
+  func run(at start: Int) -> Int {
+    var end = start
+    while end < chars.count, chars[end] == "`" { end += 1 }
+    return end - start
+  }
+  var pieces: [(text: String, code: Bool)] = []
+  var plain = ""
+  var i = 0
+  while i < chars.count {
+    if chars[i] == "\\", i + 1 < chars.count {
+      plain += String(chars[i...i + 1])
+      i += 2
+      continue
+    }
+    guard chars[i] == "`" else {
+      plain.append(chars[i])
+      i += 1
+      continue
+    }
+    let length = run(at: i)
+    var j = i + length
+    var close: Int?
+    while j < chars.count {
+      guard chars[j] == "`" else {
+        j += 1
+        continue
+      }
+      let found = run(at: j)
+      if found == length {
+        close = j
+        break
+      }
+      j += found
+    }
+    guard let close else {
+      plain += String(chars[i..<i + length])
+      i += length
+      continue
+    }
+    if !plain.isEmpty { pieces.append((plain, false)) }
+    plain = ""
+    pieces.append((String(chars[i..<close + length]), true))
+    i = close + length
+  }
+  if !plain.isEmpty { pieces.append((plain, false)) }
+  return pieces
+}
+
+/// A link's words and where it goes, `[see this](https://...)`, which a time inside must not break.
+private let linkPattern = #"\[([^\[\]\n]*)\]\(([^()\s]+)\)"#
+
+/// A line with each time inside a link's words as plain words: a chip is a link of its own, and one inside another breaks it.
+private func timesInLinkWords(_ text: String) -> String {
+  guard let re = try? NSRegularExpression(pattern: linkPattern) else { return text }
+  var out = text
+  for m in re.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+    guard let words = Range(m.range(at: 1), in: text) else { continue }
+    out.replaceSubrange(words, with: ChatTime.inWords(String(text[words])))
+  }
+  return out
 }
 
 /// The hover text for a line's times, as the dashboard's card says each; a time inside a code span is no time.

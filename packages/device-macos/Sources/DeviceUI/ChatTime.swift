@@ -94,7 +94,16 @@ public enum ChatTime {
     }
   }
 
-  /// The hover text for a line's times, a card each, or nothing when it has none.
+  /// A line with each time as its words, for where a chip cannot go.
+  static func inWords(_ text: String, now: Date = Date()) -> String {
+    var out = text
+    for found in tokens(in: text).reversed() {
+      out.replaceSubrange(found.range, with: words(found.date, style: found.style, now: now))
+    }
+    return out
+  }
+
+    /// The hover text for a line's times, a card each, or nothing when it has none.
   public static func help(for text: String) -> String? {
     let cards = tokens(in: text).map { card($0.date) }.map { "\($0.date)\n\($0.time)" }
     return cards.isEmpty ? nil : cards.joined(separator: "\n\n")

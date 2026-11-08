@@ -70,5 +70,34 @@ struct ChatMarkdownTests {
     #expect(us.time.replacingOccurrences(of: "\u{202F}", with: " ") == "at 11:59 PM")
     #expect(ChatTime.card(late, locale: Locale(identifier: "en_GB"), zone: toronto).time == "at 23:59")
   }
-}
 
+  @Test func readsCodeSpansAsCommonMarkDoes() {
+    let soon = Int(Date().timeIntervalSince1970) + 3 * 3600
+    let token = "<t:\(soon):R>"
+    // Same-length runs open and close a span; a double run holds a single backtick.
+    #expect(codeSpans("a `x` b").map(\.code) == [false, true, false])
+    #expect(codeSpans("``a ` \(token)`` b").map(\.text) == ["``a ` \(token)``", " b"])
+    #expect(String(chatInline("``a ` \(token)``").characters).contains(token))
+    // A run nothing closes is literal, and the line goes on as words.
+    #expect(codeSpans("it's a ` mark, due \(token)").map(\.code) == [false])
+    let stray = String(chatInline("it's a ` mark, due \(token)").characters)
+    #expect(stray.contains("in 3 hours") && !stray.contains(token))
+    #expect(timesHelpText("it's a ` mark, due \(token)") != nil)
+    // A longer run is not closed by a shorter one.
+    #expect(codeSpans("``a` \(token)").map(\.code) == [false])
+    // An escaped backtick opens nothing.
+    #expect(codeSpans("\\`not code\\` \(token)").map(\.code) == [false])
+  }
+
+  @Test func saysATimeInALinksWordsAsPlainWordsInsideTheLink() throws {
+    let soon = Int(Date().timeIntervalSince1970) + 3 * 3600
+    let styled = chatInline("[see <t:\(soon):R>](https://example.com) or <t:\(soon):R>")
+    #expect(String(styled.characters).hasPrefix("see in 3 hours"))
+    let links = styled.runs.compactMap(\.link)
+    #expect(links.count == 1 && links.allSatisfy { $0.absoluteString == "https://example.com" })
+    let linked = styled.runs.filter { $0.link != nil }.map { String(styled[$0.range].characters) }.joined()
+    #expect(linked == "see in 3 hours")
+    // The time outside the link is still a chip: the line ends on its words, not the token.
+    #expect(String(styled.characters).hasSuffix("in 3 hours\u{2009}"))
+  }
+}
