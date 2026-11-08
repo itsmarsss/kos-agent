@@ -135,6 +135,8 @@ const overlayWorlds = new Map<number, { ids: Set<number>; unique: Set<string> }>
 const tabUrls = new Map<number, string>();
 /** Each KOS tab's main document, by its loader, as the debugger last heard it commit. */
 const loaders = new Map<number, string>();
+/** Each KOS tab's main frame, by its id. */
+const mainFrames = new Map<number, string>();
 /** Waits on a navigation to commit, woken at each one. */
 const commits = new Set<() => void>();
 /** Each KOS tab's requests passed on to KOS that have not ended. */
@@ -465,6 +467,7 @@ async function end(reason: EndReason): Promise<void> {
   overlays.clear();
   tabUrls.clear();
   loaders.clear();
+  mainFrames.clear();
   overlayWorlds.clear();
   openRequests.clear();
   beside = undefined;
@@ -524,6 +527,11 @@ async function attach(tab: number): Promise<void> {
   const send = (method: string, params: Record<string, unknown> = {}): Promise<unknown> => chrome.debugger.sendCommand({ tabId: tab }, method, params);
   await send("Runtime.enable");
   await send("Page.enable");
+  // Where the tab is, from its page: Chrome's word for it, asked before the debugger heard anything, may be from before a navigation.
+  const tree = (await send("Page.getFrameTree").catch(() => undefined)) as { frameTree?: { frame?: { id?: unknown; url?: unknown } } } | undefined;
+  const main = tree?.frameTree?.frame;
+  if (typeof main?.url === "string") tabUrls.set(tab, main.url);
+  if (typeof main?.id === "string") mainFrames.set(tab, main.id);
   await send("Runtime.addBinding", { name: BINDING, executionContextName: WORLD });
   await send("Page.addScriptToEvaluateOnNewDocument", { source: `(${installOverlay.toString()})()`, worldName: WORLD, runImmediately: true });
 }
@@ -836,11 +844,17 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     overlayWorlds.delete(tab);
     return;
   }
-  const frame = p["frame"] as { url?: unknown; parentId?: unknown } | undefined;
+  const frame = p["frame"] as { id?: unknown; url?: unknown; parentId?: unknown; loaderId?: unknown } | undefined;
   if (method === "Page.frameNavigated" && frame && !frame.parentId && typeof frame.url === "string") {
     tabUrls.set(tab, frame.url);
-    loaders.set(tab, String((frame as { loaderId?: unknown }).loaderId ?? ""));
+    loaders.set(tab, String(frame.loaderId ?? ""));
+    if (typeof frame.id === "string") mainFrames.set(tab, frame.id);
     for (const wake of [...commits]) wake();
+  }
+  // A route the page changed to itself (pushState): the main frame's moves the tab's address, and is passed on; a frame's within it is not.
+  if (method === "Page.navigatedWithinDocument") {
+    if (p["frameId"] !== mainFrames.get(tab)) return;
+    if (typeof p["url"] === "string") tabUrls.set(tab, p["url"]);
   }
   if (fromHidden(tab, p)) return;
   const open = openRequests.get(tab) ?? new Set<string>();
@@ -856,6 +870,7 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   overlays.delete(tab);
   tabUrls.delete(tab);
   loaders.delete(tab);
+  mainFrames.delete(tab);
   overlayWorlds.delete(tab);
   openRequests.delete(tab);
   for (const wake of [...commits]) wake();
@@ -873,6 +888,7 @@ chrome.tabs.onUpdated.addListener((tab, change, info) => {
 function gone(tab: number): void {
   tabUrls.delete(tab);
   loaders.delete(tab);
+  mainFrames.delete(tab);
   overlayWorlds.delete(tab);
   openRequests.delete(tab);
   selections.delete(tab);
@@ -1041,6 +1057,7 @@ async function hand(tab: number, give: boolean): Promise<void> {
       overlays.delete(tab);
       tabUrls.delete(tab);
       loaders.delete(tab);
+      mainFrames.delete(tab);
       overlayWorlds.delete(tab);
       openRequests.delete(tab);
       if (attached.delete(tab)) await chrome.debugger.detach({ tabId: tab }).catch(() => undefined);

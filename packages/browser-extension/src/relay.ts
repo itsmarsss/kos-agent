@@ -55,6 +55,7 @@ const EVENTS: ReadonlySet<string> = new Set([
   "Page.frameStoppedLoading",
   "Page.javascriptDialogOpening",
   "Page.lifecycleEvent",
+  "Page.navigatedWithinDocument",
 ]);
 
 /** Addresses a tab may be sent to: the web, and a blank page. */
