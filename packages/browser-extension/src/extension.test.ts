@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import { isPrivatePath, kosAddress, parsePairing, socketUrl } from "./address.js";
 import { CallError, deviceProof, fromBase64, hostProof, readFrame, toBase64 } from "./protocol.js";
+import { said } from "./link.js";
+import { linkWords, needsPairing, type LineOf } from "./linkwords.js";
 import { installOverlay } from "./overlay.js";
 import { adding, readPairings, removing, replacedBy } from "./pairings.js";
 import { checkCommand, forwards, isWebUrl } from "./relay.js";
@@ -159,5 +161,30 @@ describe("the KOS this Chrome is paired with", () => {
     expect(adding(again, [home, work])).toEqual([again, work]);
     expect(adding({ ...work, url: home.url }, [home, work])).toEqual([{ ...work, url: home.url }]);
     expect(removing("d1", [home, work])).toEqual([work]);
+  });
+});
+
+describe("a KOS's line in words", () => {
+  const line = (over: Partial<LineOf>): LineOf => ({ host: "127.0.0.1:4317", name: "Chrome on macOS", link: "online", held: false, askFirst: true, ...over });
+
+  it("says KOS's own reason for turning this Chrome away, as a sentence, and a fallback when it gave none", () => {
+    expect(said("unknown device: KOS has no device by this id; pair again", "x")).toBe("Unknown device: KOS has no device by this id; pair again.");
+    expect(said("removed from KOS", "x")).toBe("Removed from KOS.");
+    expect(said("Already a sentence.", "x")).toBe("Already a sentence.");
+    expect(said("  ", "KOS gave no reason.")).toBe("KOS gave no reason.");
+  });
+
+  it("names each state precisely, and offers pairing again only where that is the fix", () => {
+    expect(linkWords(line({}))).toEqual({ word: "Connected", tone: "ok", detail: "As Chrome on macOS · asks here first" });
+    expect(linkWords(line({ link: "connecting" })).word).toBe("Connecting");
+    expect(linkWords(line({ link: "offline" }))).toMatchObject({ word: "Can't reach KOS", detail: "No answer from 127.0.0.1:4317. Trying again." });
+    const unpaired = line({ link: "unpaired", detail: "Bad signature: not signed by the key this device paired with; pair again." });
+    expect(linkWords(unpaired)).toMatchObject({ word: "Not paired", tone: "danger", detail: unpaired.detail });
+    expect(needsPairing(unpaired)).toBe(true);
+    expect(linkWords(line({ link: "refused", detail: "Another copy of this extension connected to KOS in its place." })).word).toBe("Refused");
+    expect(needsPairing(line({ link: "refused" }))).toBe(false);
+    // Held by the owner, whatever its line last was: paused, and nothing to pair.
+    expect(linkWords(line({ link: "unpaired", held: true })).word).toBe("Paused");
+    expect(needsPairing(line({ link: "unpaired", held: true }))).toBe(false);
   });
 });

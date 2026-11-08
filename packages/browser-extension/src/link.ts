@@ -7,11 +7,13 @@ import { CallError, PROTOCOL, deviceProof, hostProof, readFrame } from "./protoc
 /**
  * The extension's connection to KOS: dialled out, both keys proved, then
  * KOS's calls answered and the extension's events told. Kept up on its own:
- * a dropped connection is dialled again, later each time, except when KOS
- * says it does not know this extension any more.
+ * a dropped connection is dialled again, later each time. A line KOS turned
+ * away is said with KOS's own reason: "unpaired" when KOS does not take this
+ * Chrome's pairing (an id it does not know, a key it did not pair), else
+ * "refused".
  */
 
-export type LinkState = "connecting" | "online" | "offline" | "refused";
+export type LinkState = "connecting" | "online" | "offline" | "unpaired" | "refused";
 
 /** Who allows a session: the owner here, or that KOS's approval queue. */
 export type Consent = "device" | "kos";
@@ -42,6 +44,13 @@ const RETRY_MAX_MS = 30_000;
 const UNAUTHORIZED = 4003;
 const REPLACED = 4009;
 
+/** KOS's reason for closing, as a sentence ("unknown device: ..." reads "Unknown device: ..."), or `otherwise` when it gave none. */
+export function said(reason: string, otherwise: string): string {
+  const text = reason.trim();
+  if (!text) return otherwise;
+  return `${text[0]!.toUpperCase()}${text.slice(1)}${/[.!?]$/.test(text) ? "" : "."}`;
+}
+
 export class Link {
   private ws: WebSocket | null = null;
   private ours = "";
@@ -57,9 +66,12 @@ export class Link {
     return this.welcomed;
   }
 
+  /** Dial now, unless a line is up or being dialled: a wait for the next try is cut short. */
   start(): void {
     this.stopped = false;
-    if (this.ws || this.redial) return;
+    if (this.ws) return;
+    clearTimeout(this.redial);
+    this.redial = undefined;
     this.dial();
   }
 
@@ -106,8 +118,9 @@ export class Link {
       this.ws = null;
       this.welcomed = false;
       clearInterval(this.ping);
-      if (event.code === UNAUTHORIZED) return this.options.onState("refused", "KOS does not know this extension any more. Pair it again.");
+      if (event.code === UNAUTHORIZED) return this.options.onState("unpaired", said(event.reason, "KOS does not take this Chrome's pairing any more. Pair again."));
       if (event.code === REPLACED) return this.options.onState("refused", "Another copy of this extension connected to KOS in its place.");
+      if (event.code >= 4000 && event.reason) return this.options.onState("refused", said(event.reason, ""));
       this.options.onState("offline");
       if (this.stopped) return;
       const wait = Math.min(RETRY_MAX_MS, 1_000 * 2 ** this.retry++);

@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 
 import { kosAddress, parsePairing } from "./address.js";
 import { CHOICES, isHidden, siteOf, type Takeover } from "./settings.js";
+import { linkWords, needsPairing } from "./linkwords.js";
 import { ask, minutesLeft, minutesWords } from "./pages.js";
 import type { KosState, PopupState } from "./worker.js";
 
@@ -20,13 +21,6 @@ import type { KosState, PopupState } from "./worker.js";
  * change.
  */
 
-const LINK: Record<string, { word: string; tone: Tone }> = {
-  online: { word: "Connected", tone: "ok" },
-  connecting: { word: "Connecting", tone: "accent" },
-  offline: { word: "Offline", tone: "warn" },
-  refused: { word: "Not connected", tone: "danger" },
-};
-const linkOf = (k: KosState): { word: string; tone: Tone } => (k.held ? { word: "Disconnected", tone: "muted" } : (LINK[k.link] ?? { word: k.link, tone: "muted" }));
 const connected = (k: KosState): boolean => k.link === "online" && !k.held;
 
 function mood(s: PopupState | undefined): BlobMood {
@@ -69,24 +63,19 @@ function Popup(): ReactElement {
   const [page, setPage] = useState<"home" | "settings">("home");
   const live = state?.session && !state.session.paused;
   const best = state?.kos.find(connected) ?? state?.kos[0];
-  const pill: { word: string; tone: Tone } = !state?.kos.length
-    ? { word: "Not paired", tone: "muted" }
-    : live
-      ? { word: "In use", tone: "accent" }
-      : best && connected(best)
-        ? { word: "Ready", tone: "ok" }
-        : best
-          ? linkOf(best)
-          : { word: "Not paired", tone: "muted" };
+  // The head says what the card of the KOS it shows says, or that a session has this Chrome.
+  const pill: { word: string; tone: Tone } = state?.session ? (live ? { word: "Working", tone: "accent" } : { word: "Paused", tone: "warn" }) : best ? linkWords(best) : { word: "Not paired", tone: "muted" };
   return (
     <>
       <header className="head">
-        <Face seed={KOS_SEED} size={36} mood={mood(state)} drawing={state?.session?.face ?? best?.face} label="KOS" />
+        <Face seed={KOS_SEED} size={40} mood={mood(state)} drawing={state?.session?.face ?? best?.face} label="KOS" />
         <div className="head-text">
           <strong>KOS for Chrome</strong>
-          <span className="sub">Only in sessions you allow.</span>
+          <span className="head-status">
+            <Pill tone={pill.tone}>{pill.word}</Pill>
+            {best && <span className="sub">{state && state.kos.length > 1 ? `${best.host} and ${state.kos.length - 1} more` : best.host}</span>}
+          </span>
         </div>
-        <Pill tone={pill.tone}>{pill.word}</Pill>
         <span className="head-actions">
           <AnimatePresence initial={false}>
             {page === "home" && state?.kos.length ? (
@@ -231,7 +220,7 @@ function KosSection({ state, act }: { state: PopupState; act: Act }): ReactEleme
         ))}
         {pairing && (
           <m.div key="pair" layout variants={listItem} initial="hidden" animate="show" exit="exit">
-            <PairCard first={!state.kos.length} cancel={() => setAdding(false)} act={act} />
+            <PairForm first={!state.kos.length} cancel={() => setAdding(false)} act={act} />
           </m.div>
         )}
       </AnimatePresence>
@@ -247,12 +236,34 @@ function KosCard({ k, open, toggle, act }: { k: KosState; open: boolean; toggle:
     const t = setTimeout(() => setArmed(false), 3_000);
     return () => clearTimeout(t);
   }, [armed]);
-  const link = linkOf(k);
+  const [pairing, setPairing] = useState(false);
+  const link = linkWords(k);
   const on = connected(k);
-  const summary = on ? `As ${k.name} · ${k.askFirst ? "asks here first" : "its approvals decide"}` : k.held ? "Not connected. The pairing stays." : (k.detail ?? `${link.word}.`);
+  const trouble = !on && !k.held && k.link !== "connecting";
   return (
     <div className="card">
-      <DrawerRow icon={<ServerIcon />} tone={on ? "ok" : link.tone} title={k.host} detail={summary} open={open} onToggle={toggle} trailing={on ? undefined : <Pill tone={link.tone}>{link.word}</Pill>} />
+      <DrawerRow icon={<ServerIcon />} tone={link.tone} title={k.host} detail={on || k.held ? link.detail : `As ${k.name}`} open={open} onToggle={toggle} trailing={<Pill tone={link.tone}>{link.word}</Pill>} />
+      {trouble && (
+        <div className="kos-reason">
+          <p title={link.detail}>{link.detail}</p>
+          {!pairing && (
+            <div className="row row--start">
+              {needsPairing(k) ? (
+                <button type="button" className="btn btn--primary btn--sm" onClick={() => setPairing(true)}>
+                  Pair again
+                </button>
+              ) : (
+                <button type="button" className="btn btn--sm" onClick={() => void act({ type: "connect", id: k.id })}>
+                  Try now
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      <Collapse open={pairing}>
+        <PairForm again={k} cancel={() => setPairing(false)} act={act} />
+      </Collapse>
       <Collapse open={open}>
         <hr className="rule" />
         <div className="setting">
@@ -286,11 +297,6 @@ function KosCard({ k, open, toggle, act }: { k: KosState; open: boolean; toggle:
           <button type="button" className={k.held ? "btn btn--primary" : "btn btn--ghost"} onClick={() => void act({ type: k.held ? "connect" : "disconnect", id: k.id })} title={k.held ? undefined : "This KOS sees this Chrome offline until you connect again; the pairing stays."}>
             {k.held ? "Connect" : "Disconnect"}
           </button>
-          {!k.held && (k.link === "offline" || k.link === "refused") && (
-            <button type="button" className="btn" onClick={() => void act({ type: "connect", id: k.id })}>
-              Reconnect
-            </button>
-          )}
         </div>
         <div className="row">
           <a className="link grow" href={k.url} target="_blank" rel="noopener">
@@ -317,16 +323,19 @@ function KosCard({ k, open, toggle, act }: { k: KosState; open: boolean; toggle:
 /**
  * Pairing, as KOS for Mac asks for it: the KOS's address and its code, or the
  * pairing link pasted whole, which fills both in; this Chrome's name beside
- * the code; a line saying how it is going beside the buttons.
+ * the code; a line saying how it is going beside the buttons. `again` is a
+ * pairing KOS no longer takes, paired anew in its own card: its address and
+ * name filled in, and the new pairing in its place.
  */
-function PairCard({ first, cancel, act }: { first: boolean; cancel: () => void; act: Act }): ReactElement {
+function PairForm({ first = false, again, cancel, act }: { first?: boolean; again?: KosState; cancel: () => void; act: Act }): ReactElement {
   const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? "";
-  const [address, setAddress] = useState("");
+  const [address, setAddress] = useState(again?.url ?? "");
   const [code, setCode] = useState("");
-  const [name, setName] = useState(`Chrome${platform ? ` on ${platform}` : ""}`);
+  const [name, setName] = useState(again?.name ?? `Chrome${platform ? ` on ${platform}` : ""}`);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ text: string; failed?: boolean }>();
-  const read = (text: string): void => {
+  /** What was typed or pasted in a field; a pairing link, in either, fills in both. */
+  const read = (text: string, set: (text: string) => void): void => {
     if (text.trim().startsWith("kos-device:")) {
       try {
         const link = parsePairing(text);
@@ -337,7 +346,7 @@ function PairCard({ first, cancel, act }: { first: boolean; cancel: () => void; 
         setNote({ text: err instanceof Error ? err.message : String(err), failed: true });
       }
     }
-    setAddress(text);
+    set(text);
   };
   // That KOS's Devices page, once the address reads as one, where its pairing code is made.
   const devices = ((): string | undefined => {
@@ -364,10 +373,16 @@ function PairCard({ first, cancel, act }: { first: boolean; cancel: () => void; 
     })();
   };
   return (
-    <form className="card" onSubmit={submit}>
-      <strong>{first ? "Pair with your KOS" : "Pair with another KOS"}</strong>
+    <form className={again ? "pair-form pair-form--again" : "card pair-form"} onSubmit={submit}>
+      <strong>{again ? `Pair again with ${again.host}` : first ? "Pair with your KOS" : "Pair with another KOS"}</strong>
       <div className="hint-row">
-        <p className="hint">{first ? "From KOS: Settings, Devices, Add a device. Paste its link here." : "From that KOS: Settings, Devices, Add a device. Pairing one already here replaces it."}</p>
+        <p className="hint">
+          {again
+            ? "From that KOS: Settings, Devices, Add a device. Paste its link or its code here; this pairing takes the old one's place."
+            : first
+              ? "From KOS: Settings, Devices, Add a device. Paste its link here."
+              : "From that KOS: Settings, Devices, Add a device. Pairing one already here replaces it."}
+        </p>
         {devices && (
           <a className="link" href={devices} target="_blank" rel="noreferrer">
             Devices
@@ -375,11 +390,11 @@ function PairCard({ first, cancel, act }: { first: boolean; cancel: () => void; 
         )}
       </div>
       <Field label="KOS address or pairing link">
-        <input className="mono" type="text" placeholder="https://kos.example.ts.net" spellCheck={false} autoComplete="off" value={address} onChange={(e) => read(e.target.value)} autoFocus={!first} />
+        <input className="mono" type="text" placeholder="https://kos.example.ts.net" spellCheck={false} autoComplete="off" value={address} onChange={(e) => read(e.target.value, setAddress)} autoFocus={!first && !again} />
       </Field>
       <div className="pair-fields">
         <Field label="Code">
-          <input className="mono" type="text" placeholder="K7QX-M2PA" spellCheck={false} autoComplete="off" value={code} onChange={(e) => setCode(e.target.value)} />
+          <input className="mono" type="text" placeholder="K7QX-M2PA" spellCheck={false} autoComplete="off" value={code} onChange={(e) => read(e.target.value, setCode)} />
         </Field>
         <Field label="This Chrome's name in KOS">
           <input type="text" placeholder="Chrome on macOS" spellCheck={false} value={name} onChange={(e) => setName(e.target.value)} />

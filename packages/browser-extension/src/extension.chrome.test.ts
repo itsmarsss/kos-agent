@@ -108,6 +108,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
   let device: WebSocket | undefined;
   let popup = "";
   const unpaired = new Set<string>();
+  const forgotten = new Set<string>();
   const events: { name: string; data: Record<string, unknown> }[] = [];
   const replies = new Map<number, (r: Record<string, unknown>) => void>();
   let nextCall = 1;
@@ -138,8 +139,9 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
         req.on("data", (c) => (body += c));
         req.on("end", () => {
           const pair = JSON.parse(body) as { code: string; publicKey: string; platform: string };
-          // One code per KOS this server plays: the first, and the second it is by another name.
-          const id = pair.code === "TEST-CODE" ? "dev_test" : pair.code === "TEST-TWO" ? "dev_two" : undefined;
+          // One code per pairing this server plays: the first KOS, the second it is by another name, and two for pairing again.
+          const codes: Record<string, string> = { "TEST-CODE": "dev_test", "TEST-TWO": "dev_two", "TEST-THREE": "dev_three", "TEST-AGAIN": "dev_again" };
+          const id = codes[pair.code];
           if (!id || pair.platform !== "chrome") return void res.writeHead(403).end("{}");
           keys.set(id, rawKey(Buffer.from(pair.publicKey, "base64")));
           if (id === "dev_test") deviceKey = keys.get(id);
@@ -159,6 +161,8 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
         const m = JSON.parse(raw.toString()) as Record<string, unknown>;
         if (m["t"] === "hello") {
           const id = String(m["device"]);
+          // A device this KOS has forgotten, turned away as the real one does, its reason in the close.
+          if (forgotten.has(id)) return ws.close(4003, "unknown device: KOS has no device by this id; pair again");
           const key = keys.get(id);
           const ok = key && verify(null, Buffer.from(deviceProof(challenge, id)), key, Buffer.from(String(m["signature"]), "base64"));
           if (!ok) return ws.close(4003, "not a paired device");
@@ -425,4 +429,41 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     await until(() => unpaired.has("dev_test"));
     expect(unpaired.has("dev_test")).toBe(true);
   });
+
+  it("says why KOS turned it away, in KOS's words, and pairs again from the card with a key of its own", async () => {
+    type Line = { id: string; url: string; link: string; detail?: string };
+    const kos = async (): Promise<Line[]> => ((await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "state" })`)) as { value: { kos: Line[] } }).value.kos;
+    const link = `kos-device://pair?url=${encodeURIComponent(base)}&code=test-three`;
+    await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "pair", link: ${JSON.stringify(link)}, name: "Test Chrome" })`);
+    await until(() => lines.has("dev_three"));
+    // KOS forgets it while it is away; at its next hello it is told why.
+    forgotten.add("dev_three");
+    lines.get("dev_three")!.close(1001, "KOS is stopping");
+    const reason = "Unknown device: KOS has no device by this id; pair again.";
+    for (let i = 0; i < 100 && (await kos())[0]?.link !== "unpaired"; i++) await until(() => false, 100);
+    expect((await kos())[0]).toMatchObject({ id: "dev_three", link: "unpaired", detail: reason });
+
+    await devtools.send("Page.reload", {}, popup);
+    await devtools.loaded(popup);
+    const shown = async (js: string): Promise<unknown> => {
+      for (let i = 0; i < 50 && !(await devtools.evaluate(popup, `!!(${js})`)); i++) await until(() => false, 100);
+      return devtools.evaluate(popup, js);
+    };
+    expect(await shown("document.querySelector('.kos-reason p')?.textContent")).toBe(reason);
+    expect(await devtools.evaluate(popup, "document.querySelector('.kos-reason p').title")).toBe(reason);
+    expect(await devtools.evaluate(popup, "document.querySelector('.head .pill').textContent")).toBe("Not paired");
+    await devtools.evaluate(popup, "[...document.querySelectorAll('.kos-reason button')].find((b) => b.textContent === 'Pair again').click()");
+    expect(await shown("document.querySelector('.pair-form--again input.mono')?.value")).toBe(base);
+    await devtools.evaluate(
+      popup,
+      `(() => { const code = document.querySelectorAll('.pair-form--again input.mono')[1]; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(code, 'test-again'); code.dispatchEvent(new Event('input', { bubbles: true })); setTimeout(() => document.querySelector('.pair-form--again button[type=submit]').click(), 50); })()`,
+    );
+    await until(() => lines.has("dev_again"));
+    expect(lines.has("dev_again")).toBe(true);
+    // A new key, not the one the forgotten pairing had: a KOS that still held the old one would refuse it as already paired.
+    const raw = (id: string): string => keys.get(id)!.export({ format: "der", type: "spki" }).toString("base64");
+    expect(raw("dev_again")).not.toBe(raw("dev_three"));
+    for (let i = 0; i < 50 && (await kos())[0]?.link !== "online"; i++) await until(() => false, 100);
+    expect((await kos()).map((k) => [k.id, k.link])).toEqual([["dev_again", "online"]]);
+  }, 40_000);
 });
