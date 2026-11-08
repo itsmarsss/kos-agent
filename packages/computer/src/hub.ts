@@ -101,7 +101,7 @@ export class DeviceHub {
   private readonly endings = new Map<string, EndReason | "offline" | "removed">();
   private readonly listeners = new Set<() => void>();
   private readonly deviceListeners = new Set<DeviceListener>();
-  /** When each refused device id was last logged. */
+  /** When each refused device id was last logged, for each check it failed. */
   private readonly refusalsLogged = new Map<string, number>();
 
   constructor(private readonly deps: HubDeps) {
@@ -161,13 +161,14 @@ export class DeviceHub {
     });
   }
 
-  /** A hello turned away, said in the host's log once a minute per device id, so a device that cannot get in is not silent. */
+  /** A hello turned away, said in the host's log once a minute per device id and check, so a device that cannot get in is not silent. */
   private refused({ device, app, check }: Refusal): void {
     const now = this.now();
     for (const [id, at] of this.refusalsLogged) if (now - at >= REFUSAL_LOG_MS) this.refusalsLogged.delete(id);
     // Many ids at once is a flood, not a device to diagnose: the first ones said are enough.
-    if (this.refusalsLogged.has(device) || this.refusalsLogged.size >= MAX_REFUSALS_LOGGED) return;
-    this.refusalsLogged.set(device, now);
+    const key = `${device}\n${check}`;
+    if (this.refusalsLogged.has(key) || this.refusalsLogged.size >= MAX_REFUSALS_LOGGED) return;
+    this.refusalsLogged.set(key, now);
     const line = `devices: refused ${loggable(device)} (${loggable(app.platform, 20)} ${loggable(app.version, 20)} on ${loggable(app.os, 40)}): ${check}`;
     (this.deps.log ?? ((l: string) => console.error(l)))(line);
   }
