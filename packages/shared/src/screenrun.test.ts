@@ -75,7 +75,7 @@ describe("the shared runner", () => {
   it("shares one wait budget across a call", async () => {
     expect(await runActions(surface(), ["wait:50000", "wait:50000", "wait:1"])).toEqual(["waited 50000ms", "waited 10000ms", "waited 0ms"]);
     const budget = new WaitBudget(100);
-    expect([budget.take(60), budget.take(60), budget.left]).toEqual([60, 40, 0]);
+    expect([budget.take(60), budget.take(60), budget.take(1)]).toEqual([60, 40, 0]);
   });
 
   it("runs out of time at its deadline", async () => {

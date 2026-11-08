@@ -162,7 +162,6 @@ function computerAction(a: Record<string, unknown>): string {
   }
 }
 
-
 /** A computer step as what it does on the screen; a device id names nothing the owner knows, so it is left out. */
 function computerStep(tool: string, a: Record<string, unknown>): string {
   // Gone from the tools, but kept in transcripts from before start chose the device itself.

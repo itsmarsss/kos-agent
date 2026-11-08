@@ -29,18 +29,12 @@ export class WaitBudget {
     this.leftMs -= granted;
     return granted;
   }
-
-  get left(): number {
-    return this.leftMs;
-  }
 }
 
 export interface ActionContext {
   /** The owner's Stop: an adapter that can stop the action in flight listens to it. */
   signal?: AbortSignal;
   waits: WaitBudget;
-  /** Where the action is in the run, from 0. */
-  index: number;
 }
 
 export interface RunAdapter<A> {
@@ -152,7 +146,7 @@ export async function runActions<A>(adapter: RunAdapter<A>, raw: unknown[], opti
     if (signal?.aborted) throw new RunError(done, stoppedAt(index));
     if (options.deadlineMs !== undefined && now() - start > options.deadlineMs) throw new RunError(done, `Ran out of time before step ${index + 1}.`);
     try {
-      done.push(await adapter.perform(action, { ...(signal ? { signal } : {}), waits, index }));
+      done.push(await adapter.perform(action, { ...(signal ? { signal } : {}), waits }));
     } catch (err) {
       if (signal?.aborted) throw new RunError(done, stoppedDuring(index, adapter.cancels?.(action) ?? false, adapter.place));
       const why = adapter.why?.(err) ?? (err instanceof Error ? err.message : String(err));
