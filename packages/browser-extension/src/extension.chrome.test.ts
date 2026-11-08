@@ -366,9 +366,21 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(await cdp("Runtime.callFunctionOn", { objectId: theirs, functionDeclaration: handback })).toMatchObject(refused);
     expect(await cdp("Runtime.getProperties", { objectId: theirs })).toMatchObject(refused);
     // Each name a command may give its world is read alone: a string in one does not let the overlay's id through in another.
-    expect(await cdp("Runtime.callFunctionOn", { functionDeclaration: handback, contextId: "x", executionContextId: overlay.id })).toMatchObject(refused);
+    expect(await cdp("Runtime.callFunctionOn", { functionDeclaration: handback, contextId: "x", executionContextId: overlay.id })).toMatchObject({ error: expect.objectContaining({ code: "method" }) });
+    expect(await cdp("Runtime.callFunctionOn", { functionDeclaration: handback, contextId: 1, executionContextId: overlay.id })).toMatchObject(refused);
     expect(await cdp("Runtime.evaluate", { expression: `(${handback})()`, uniqueContextId: overlay.uniqueId })).toMatchObject(refused);
     expect(await cdp("Runtime.callFunctionOn", { functionDeclaration: handback, uniqueContextId: overlay.uniqueId })).toMatchObject(refused);
+    // Only worlds Chrome has said it made, the page's and the hands': one it has not, or one another made (here this test, as an extension would), is refused.
+    const unknown = { error: expect.objectContaining({ code: "method", message: expect.stringMatching(/not one Chrome has said this tab holds/) }) };
+    expect(await cdp("Runtime.evaluate", { expression: "1", contextId: 999_999 })).toMatchObject(unknown);
+    expect(await cdp("Runtime.getProperties", { objectId: "1.999999.1" })).toMatchObject(unknown);
+    const another = ((await devtools.send("Page.createIsolatedWorld", { frameId, worldName: "another" }, page)) as { executionContextId: number }).executionContextId;
+    expect(await cdp("Runtime.evaluate", { expression: "1", contextId: another })).toMatchObject({ error: expect.objectContaining({ code: "method", message: expect.stringMatching(/neither the page's nor KOS's own/) }) });
+    // The page's own world, by its id, and a hands' world used the moment it is made.
+    const main = contexts().find((c) => c.auxData?.isDefault && c.auxData.frameId === frameId)!;
+    expect(await cdp("Runtime.evaluate", { expression: "document.title", contextId: main.id, returnByValue: true })).toMatchObject({ ok: true, result: { result: { value: "Shop" } } });
+    const fresh = ((await cdp("Page.createIsolatedWorld", { frameId, worldName: "kos-hands" }))["result"] as { executionContextId: number }).executionContextId;
+    expect(await cdp("Runtime.evaluate", { expression: "document.title", contextId: fresh, returnByValue: true })).toMatchObject({ ok: true, result: { result: { value: "Shop" } } });
     await until(() => false, 300);
     expect(events.some((e) => e.name === "session.resumed" || e.name === "session.ended")).toBe(false);
     await devtools.send("Target.detachFromTarget", { sessionId: page });

@@ -10,7 +10,7 @@ import { installOverlay, type OverlayState } from "./overlay.js";
 import { readPage } from "./page.js";
 import { adding, readPairings, removing, replacedBy, type Paired } from "./pairings.js";
 import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
-import { checkCommand, forwarded, isInput, isWebUrl } from "./relay.js";
+import { checkCommand, forwarded, isInput, isWebUrl, OVERLAY_WORLD as WORLD, Worlds } from "./relay.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, asksFirst, isHidden, readSettings, siteOf, type ExtensionSettings } from "./settings.js";
 
@@ -110,7 +110,6 @@ const PANEL_CALLS = new Set(["chat.show", "chat.status", "chat.ask", "chat.settl
 /** What a panel asks its KOS for, passed on as it is: the chats to switch to, a switch, the models, a model. */
 const PANEL_ASKS: Record<string, string> = { list: "chat.list", switch: "chat.switch", models: "chat.models", model: "chat.model", auto: "chat.auto", mentions: "chat.mentions" };
 
-const WORLD = "kos";
 const BINDING = "kosOverlay";
 const GROUP = "KOS";
 
@@ -129,8 +128,10 @@ const handed = new Set<number>();
 const attached = new Set<number>();
 /** Each tab's overlay, by the world it runs in. */
 const overlays = new Map<number, Set<number>>();
-/** Each tab's worlds named as the overlay's, as Chrome made them: only these speak for the overlay, and KOS runs no script in them. */
-const overlayWorlds = new Map<number, { ids: Set<number>; unique: Set<string> }>();
+/** Each tab's worlds, as Chrome said it made them: KOS's script runs only in the page's and its hands', and only the overlay's speak for the overlay. */
+const worldsOf = new Map<number, Worlds>();
+/** Waits on a world being made, woken at each one. */
+const worldsMade = new Set<() => void>();
 /** Each KOS tab's address as it changes, so one on a hidden site tells KOS nothing. */
 const tabUrls = new Map<number, string>();
 /** Each KOS tab's main document, by its loader, as the debugger last heard it commit. */
@@ -468,7 +469,7 @@ async function end(reason: EndReason): Promise<void> {
   tabUrls.clear();
   loaders.clear();
   mainFrames.clear();
-  overlayWorlds.clear();
+  worldsOf.clear();
   openRequests.clear();
   beside = undefined;
   tell("session.ended", { session: ended.info.id, reason });
@@ -517,14 +518,26 @@ async function openTab(url: string): Promise<number> {
   return tab.id!;
 }
 
+/** Each tab's attach under way: a command sent meanwhile waits for it, so the tab's worlds are known before any command names one. */
+const attaching = new Map<number, Promise<void>>();
+
 /** A tab under KOS's hands: the debugger on it, and the overlay in a world of its own. */
-async function attach(tab: number): Promise<void> {
-  if (attached.has(tab)) return;
+function attach(tab: number): Promise<void> {
+  let under = attaching.get(tab);
+  if (under) return under;
+  if (attached.has(tab)) return Promise.resolve();
+  under = attachNow(tab).finally(() => attaching.delete(tab));
+  attaching.set(tab, under);
+  return under;
+}
+
+async function attachNow(tab: number): Promise<void> {
   await chrome.debugger.attach({ tabId: tab }, "1.3");
   attached.add(tab);
   const t = await chrome.tabs.get(tab).catch(() => undefined);
   if (t?.url) tabUrls.set(tab, t.url);
   const send = (method: string, params: Record<string, unknown> = {}): Promise<unknown> => chrome.debugger.sendCommand({ tabId: tab }, method, params);
+  // First, so each world already in the tab (the page's, the overlay's) is heard of before KOS's first command.
   await send("Runtime.enable");
   await send("Page.enable");
   // Where the tab is, from its page: Chrome's word for it, asked before the debugger heard anything, may be from before a navigation.
@@ -577,7 +590,7 @@ async function relayAll(params: Record<string, unknown>, origin: string): Promis
 }
 
 async function relayOne(s: Session, tab: number, method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  checkCommand(method, args, overlayWorlds.get(tab));
+  checkCommand(method, args);
   stillIn(s, tab);
   // Not a look, a click or a word on a hidden site, and no way there.
   await refuseHidden(tab);
@@ -590,6 +603,7 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
     if (!session?.tabs.has(tab) && attached.delete(tab)) await chrome.debugger.detach({ tabId: tab }).catch(() => undefined);
     stillIn(s, tab);
   }
+  await reachable(tab, args);
   if (isInput(method)) s.dispatching(method, args, Date.now());
   // KOS's pointer, shown where its hands are about to act.
   if (method === "Input.dispatchMouseEvent" && typeof args["x"] === "number" && typeof args["y"] === "number") {
@@ -662,6 +676,29 @@ function committed(tab: number, loader: string): Promise<void> {
     const timer = setTimeout(done, COMMIT_WAIT_MS);
     commits.add(check);
   });
+}
+
+/** How long a command naming a world Chrome has not said it made waits to hear of it: one KOS just made may be told a moment after. */
+const WORLD_WAIT_MS = 200;
+
+/** Refused unless each world a command names is the tab's page's or KOS's hands', one just made waited for a moment. */
+async function reachable(tab: number, args: Record<string, unknown>): Promise<void> {
+  const of = (): Worlds => worldsOf.get(tab) ?? new Worlds();
+  if (!of().heard(args)) {
+    await new Promise<void>((resolve) => {
+      const done = (): void => {
+        clearTimeout(timer);
+        worldsMade.delete(check);
+        resolve();
+      };
+      const check = (): void => {
+        if (of().heard(args) || !attached.has(tab)) done();
+      };
+      const timer = setTimeout(done, WORLD_WAIT_MS);
+      worldsMade.add(check);
+    });
+  }
+  of().check(args);
 }
 
 /** How long a tab on screen may take to hand over the frame Chrome drew. */
@@ -819,29 +856,13 @@ async function fromOverlay(tab: number, world: number, payload: string): Promise
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
   const tab = source.tabId;
-  if (tab === undefined || !session?.tabs.has(tab)) return;
+  if (tab === undefined || !attached.has(tab)) return;
   const p = (params ?? {}) as Record<string, unknown>;
+  if (heardWorld(tab, method, p)) return;
+  if (!session?.tabs.has(tab)) return;
   if (method === "Runtime.bindingCalled") {
     const world = Number(p["executionContextId"]);
-    if (p["name"] === BINDING && overlayWorlds.get(tab)?.ids.has(world)) void fromOverlay(tab, world, str(p["payload"]));
-    return;
-  }
-  if (method === "Runtime.executionContextCreated") {
-    const context = (p["context"] ?? {}) as { id?: unknown; uniqueId?: unknown; name?: unknown };
-    if (context.name !== WORLD || typeof context.id !== "number") return;
-    const worlds = overlayWorlds.get(tab) ?? { ids: new Set<number>(), unique: new Set<string>() };
-    overlayWorlds.set(tab, worlds);
-    worlds.ids.add(context.id);
-    if (typeof context.uniqueId === "string") worlds.unique.add(context.uniqueId);
-    return;
-  }
-  if (method === "Runtime.executionContextDestroyed") {
-    overlayWorlds.get(tab)?.ids.delete(Number(p["executionContextId"]));
-    if (typeof p["executionContextUniqueId"] === "string") overlayWorlds.get(tab)?.unique.delete(p["executionContextUniqueId"]);
-    return;
-  }
-  if (method === "Runtime.executionContextsCleared") {
-    overlayWorlds.delete(tab);
+    if (p["name"] === BINDING && worldsOf.get(tab)?.isOverlay(world)) void fromOverlay(tab, world, str(p["payload"]));
     return;
   }
   const frame = p["frame"] as { id?: unknown; url?: unknown; parentId?: unknown; loaderId?: unknown } | undefined;
@@ -863,6 +884,29 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   if (passed) tell("cdp.event", { session: session.info.id, tab: String(tab), method, params: passed });
 });
 
+/** A world made in a tab or gone from it, kept; false for any other event. */
+function heardWorld(tab: number, method: string, p: Record<string, unknown>): boolean {
+  const known = (): Worlds => {
+    const tabWorlds = worldsOf.get(tab) ?? new Worlds();
+    worldsOf.set(tab, tabWorlds);
+    return tabWorlds;
+  };
+  if (method === "Runtime.executionContextCreated") {
+    known().made(record(p["context"]));
+    for (const wake of [...worldsMade]) wake();
+    return true;
+  }
+  if (method === "Runtime.executionContextDestroyed") {
+    known().destroyed(Number(p["executionContextId"]), typeof p["executionContextUniqueId"] === "string" ? p["executionContextUniqueId"] : undefined);
+    return true;
+  }
+  if (method === "Runtime.executionContextsCleared") {
+    known().cleared();
+    return true;
+  }
+  return false;
+}
+
 chrome.debugger.onDetach.addListener((source, reason) => {
   const tab = source.tabId;
   if (tab === undefined) return;
@@ -871,7 +915,7 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   tabUrls.delete(tab);
   loaders.delete(tab);
   mainFrames.delete(tab);
-  overlayWorlds.delete(tab);
+  worldsOf.delete(tab);
   openRequests.delete(tab);
   for (const wake of [...commits]) wake();
   // Closing Chrome's debugging bar is the owner saying stop.
@@ -889,7 +933,7 @@ function gone(tab: number): void {
   tabUrls.delete(tab);
   loaders.delete(tab);
   mainFrames.delete(tab);
-  overlayWorlds.delete(tab);
+  worldsOf.delete(tab);
   openRequests.delete(tab);
   selections.delete(tab);
   if (tab === beside) beside = undefined;
@@ -1058,7 +1102,7 @@ async function hand(tab: number, give: boolean): Promise<void> {
       tabUrls.delete(tab);
       loaders.delete(tab);
       mainFrames.delete(tab);
-      overlayWorlds.delete(tab);
+      worldsOf.delete(tab);
       openRequests.delete(tab);
       if (attached.delete(tab)) await chrome.debugger.detach({ tabId: tab }).catch(() => undefined);
       for (const wake of [...commits]) wake();
