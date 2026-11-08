@@ -135,7 +135,7 @@ export class OwnerChrome implements BrowserElsewhere {
 
   private borrowed(conversation: string): Borrowed {
     const session = this.session(conversation);
-    if (!session) throw new Error("this chat is not working in the owner's Chrome; chrome.start asks for it");
+    if (!session) throw new Error("this chat has no session in the owner's Chrome; chrome.start asks for one (from the side panel, the first browser call does)");
     let b = this.held.get(conversation);
     if (!b || b.session !== session.id) {
       b = { session: session.id, tabs: new Map(), pages: new Map() };

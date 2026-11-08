@@ -10,7 +10,7 @@ import { loadHostKey } from "./keys.js";
 import { CHROME_PANEL, DevicePanel, MAC_PANEL, type PanelDeps } from "./panel.js";
 import { deviceRoutes, deviceSocketServer } from "./routes.js";
 import { DeviceStore } from "./store.js";
-import { COMPUTER_MANIFEST, computerModule } from "./tools.js";
+import { COMPUTER_MANIFEST, computerModule, type ComputerModule } from "./tools.js";
 
 /**
  * Computer use, as one thing a host plugs in: a module for the kernel to
@@ -52,7 +52,7 @@ export interface ComputerUse {
 export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   let hub: DeviceHub | undefined;
   let chrome: OwnerChrome | undefined;
-  let active: KosModule | undefined;
+  let active: ComputerModule | undefined;
   let unfaced: (() => void) | undefined;
   const sockets = deviceSocketServer(() => (active ? hub : undefined));
   const panel = new DevicePanel(CHROME_PANEL, options.panels.chrome);
@@ -80,6 +80,12 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         caller: options.caller,
         titleOf: options.titleOf,
         panelChrome: (conversation) => panel.deviceOf(conversation),
+        panelMac: (conversation) => {
+          const device = mac.deviceOf(conversation);
+          const app = mac.appOf(conversation);
+          return device ? { device, ...(app ? { app } : {}) } : undefined;
+        },
+        saidIn: (conversation) => panel.saidIn(conversation) ?? mac.saidIn(conversation),
         ...(events
           ? {
               onHalt: (handler: () => void) => events.on("halt:changed", (e) => (e.halted ? handler() : undefined)),
@@ -88,6 +94,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
                 const offs = [events.on("turn:start", (e) => handler(e.conversationId)), events.on("query:fresh", (e) => handler(e.conversationId))];
                 return () => offs.forEach((off) => off());
               },
+              onTurnEnd: (handler: (conversation: string) => void) => events.on("turn:end", (e) => handler(e.conversationId)),
             }
           : {}),
       });
@@ -107,6 +114,12 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   // Before the module is active there is no session, so no chat is in the owner's Chrome.
   const elsewhere: BrowserElsewhere = {
     active: (c) => (active && chrome ? chrome.active(c) : false),
+    // The side panel's chat browses in the owner's Chrome even before its session starts: never in KOS's own.
+    claims: (c) => active !== undefined && panel.deviceOf(c) !== undefined,
+    ensure: async (c) => {
+      if (!active) throw new Error("Computer use is off, so the owner's Chrome cannot be reached; KOS's own browser is not used for the side panel's chat.");
+      await active.beginPanelChrome(c);
+    },
     tab: (c) => chrome!.tab(c),
     tabs: (c) => chrome?.tabs(c) ?? [],
     tabsOf: (c) => chrome?.tabsOf(c) ?? [],
