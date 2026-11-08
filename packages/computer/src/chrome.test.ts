@@ -3,9 +3,10 @@ import { describe, expect, it } from "vitest";
 
 import { attendance, openDatabase, type ModuleContext, type ToolRisk } from "@kos/harness";
 
-import { OwnerChrome } from "./chrome.js";
+import { OwnerChrome, relayLine, type Relay } from "./chrome.js";
 import { FakeDevice } from "./device.fixture.js";
 import { DeviceHub } from "./hub.js";
+import { DeviceError } from "./link.js";
 import { rawPublicKey } from "./keys.js";
 import { DeviceStore } from "./store.js";
 import { computerModule } from "./tools.js";
@@ -195,5 +196,52 @@ describe("a Chrome beside a computer", () => {
     expect([...tools.keys()].sort()).toEqual(["chrome.end", "chrome.page", "chrome.start", "computer.act", "computer.devices", "computer.end", "computer.start"]);
     await expect(attendance.run(true, () => tools.get("computer.start")!({ task: "x", device: "Chrome on macOS" }))).rejects.toThrow(/is the owner's Chrome, not a computer; chrome.start/);
     expect(await tools.get("computer.devices")!({})).toMatch(/Chrome on macOS \(dev_[^)]+\): the owner's own Chrome, through KOS for Chrome; chrome.start works in it \(it is not KOS's own browser\)/);
+  });
+});
+
+describe("a tab's commands through the extension", () => {
+  const calls = (n: number) => Array.from({ length: n }, (_, i) => ({ method: "DOM.describeNode", params: { objectId: String(i) } }));
+  /** The extension as it answers: a batch with each command's answer, or one command. */
+  const extension = (old = false) => {
+    const sent: { method: string; params: Record<string, unknown> }[] = [];
+    const relay: Relay = async (method, params) => {
+      sent.push({ method, params });
+      if (method === "cdp.batch") {
+        if (old) throw new DeviceError("bad_request", "cdp.batch is not something this extension does");
+        const asked = params["calls"] as { params: { objectId: string } }[];
+        if (asked.length > 100) throw new DeviceError("bad_request", "a batch is 1 to 100 commands");
+        return { results: asked.map((c) => ({ result: { node: { backendNodeId: Number(c.params.objectId) } } })) };
+      }
+      return { node: { backendNodeId: Number((params["params"] as { objectId: string }).objectId) } };
+    };
+    return { sent, line: relayLine(relay, "88") };
+  };
+
+  it("sends a long batch a hundred at a time, its answers in order, and keeps batching", async () => {
+    const { sent, line } = extension();
+    const answers = await line.batch!(calls(250), true);
+    expect(sent.map((s) => (s.params["calls"] as unknown[]).length)).toEqual([100, 100, 50]);
+    expect(answers.map((a) => (a as { node: { backendNodeId: number } }).node.backendNodeId)).toEqual(Array.from({ length: 250 }, (_, i) => i));
+    await line.batch!(calls(2), true);
+    expect(sent.at(-1)?.method).toBe("cdp.batch");
+  });
+
+  it("sends an extension from before batches one command at a time, told by the method it does not have", async () => {
+    const { sent, line } = extension(true);
+    const answers = await line.batch!(calls(3), false);
+    expect(answers).toEqual([0, 1, 2].map((n) => ({ node: { backendNodeId: n } })));
+    expect(sent.map((s) => s.method)).toEqual(["cdp.batch", "cdp.send", "cdp.send", "cdp.send"]);
+    await line.batch!(calls(2), false);
+    expect(sent.slice(4).map((s) => s.method)).toEqual(["cdp.send", "cdp.send"]);
+  });
+
+  it("does not take another refusal for an old extension", async () => {
+    const relay: Relay = async (method) => {
+      if (method === "cdp.batch") throw new DeviceError("bad_request", "session required");
+      return {};
+    };
+    const line = relayLine(relay, "88");
+    await expect(line.batch!(calls(2), false)).rejects.toThrow("session required");
+    await expect(line.batch!(calls(2), false)).rejects.toThrow("session required");
   });
 });

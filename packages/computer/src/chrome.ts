@@ -38,6 +38,61 @@ interface Borrowed {
 const HOLD_WAIT_MS = 10 * 60_000;
 /** Time for a command's round trip through the extension, beyond the command's own. */
 const RELAY_SLACK_MS = 5_000;
+/** Commands in one cdp.batch, at most (BATCH_MAX in the extension's worker). */
+const BATCH_MAX = 100;
+
+/** A call to the extension on the conversation's line: a method, its params, and how long its answer may take. */
+export type Relay = (method: "cdp.send" | "cdp.batch", params: Record<string, unknown>, timeoutMs: number) => Promise<Record<string, unknown>>;
+
+/** The extension's answer to a method it does not have: one from before batches. */
+function unknownMethod(err: unknown): boolean {
+  return err instanceof DeviceError && err.code === "bad_request" && /is not something this extension does/.test(err.message);
+}
+
+/**
+ * A tab's commands, through the extension: one at a time, or several in one
+ * round trip, a hundred at most to each. An extension from before batches
+ * says it has no such method, and is sent them one by one from then on.
+ */
+export function relayLine(relay: Relay, tab: string): TabSession {
+  const send = (method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> =>
+    relay("cdp.send", { tab, method, params: params ?? {} }, (timeoutMs ?? 15_000) + RELAY_SLACK_MS);
+  let batches = true;
+  const chunk = async (calls: Call[], parallel: boolean, timeoutMs?: number): Promise<(Record<string, unknown> | Error)[]> => {
+    const answer = await relay("cdp.batch", { tab, calls: calls.map((c) => ({ method: c.method, params: c.params ?? {} })), parallel }, (timeoutMs ?? 15_000) * Math.max(1, parallel ? 1 : calls.length) + RELAY_SLACK_MS);
+    const results = Array.isArray(answer["results"]) ? (answer["results"] as { result?: Record<string, unknown>; error?: { code?: string; message?: string } }[]) : [];
+    return calls.map((_, i) => {
+      const r = results[i];
+      if (!r) return new Error(`not sent: ${results.find((x) => x.error)?.error?.message ?? "the batch was cut short"}`);
+      return r.error ? new DeviceError(r.error.code ?? "cdp", r.error.message ?? "the command failed") : (r.result ?? {});
+    });
+  };
+  const batch = async (calls: Call[], parallel: boolean, timeoutMs?: number): Promise<(Record<string, unknown> | Error)[]> => {
+    const out: (Record<string, unknown> | Error)[] = [];
+    for (let i = 0; i < calls.length; i += BATCH_MAX) {
+      const part = calls.slice(i, i + BATCH_MAX);
+      // In order, nothing after a command that failed is sent.
+      const failed = parallel ? undefined : out.find((r) => r instanceof Error);
+      if (failed) {
+        out.push(...part.map(() => new Error(`not sent: ${failed.message}`)));
+        continue;
+      }
+      if (!batches) {
+        out.push(...(await sendEach(send, part, parallel, timeoutMs)));
+        continue;
+      }
+      try {
+        out.push(...(await chunk(part, parallel, timeoutMs)));
+      } catch (err) {
+        if (!unknownMethod(err)) throw err;
+        batches = false;
+        out.push(...(await sendEach(send, part, parallel, timeoutMs)));
+      }
+    }
+    return out;
+  };
+  return { send, batch };
+}
 
 function hostOf(url: string): string | undefined {
   try {
@@ -164,39 +219,13 @@ export class OwnerChrome implements BrowserElsewhere {
   private pageOf(conversation: string, b: Borrowed, tab: string): Page {
     let page = b.pages.get(tab);
     if (!page) {
-      page = new Page(this.line(conversation, tab), { gate: () => this.whileOwnerHas(conversation) });
+      page = new Page(
+        relayLine((method, params, timeoutMs) => this.hub.act(conversation, method, params, timeoutMs), tab),
+        { gate: () => this.whileOwnerHas(conversation) },
+      );
       b.pages.set(tab, page);
     }
     return page;
-  }
-
-  /**
-   * A tab's commands, through the extension: one at a time, or several in
-   * one round trip. An extension from before batches is sent them one by one.
-   */
-  private line(conversation: string, tab: string): TabSession {
-    const send = (method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> =>
-      this.hub.act(conversation, "cdp.send", { tab, method, params: params ?? {} }, (timeoutMs ?? 15_000) + RELAY_SLACK_MS);
-    let batches = true;
-    const oneByOne = (calls: Call[], parallel: boolean, timeoutMs?: number): Promise<(Record<string, unknown> | Error)[]> => sendEach(send, calls, parallel, timeoutMs);
-    const batch = async (calls: Call[], parallel: boolean, timeoutMs?: number): Promise<(Record<string, unknown> | Error)[]> => {
-      if (!batches) return oneByOne(calls, parallel, timeoutMs);
-      let answer: Record<string, unknown>;
-      try {
-        answer = await this.hub.act(conversation, "cdp.batch", { tab, calls: calls.map((c) => ({ method: c.method, params: c.params ?? {} })), parallel }, (timeoutMs ?? 15_000) * Math.max(1, parallel ? 1 : calls.length) + RELAY_SLACK_MS);
-      } catch (err) {
-        if (!(err instanceof DeviceError && err.code === "bad_request")) throw err;
-        batches = false;
-        return oneByOne(calls, parallel, timeoutMs);
-      }
-      const results = Array.isArray(answer["results"]) ? (answer["results"] as { result?: Record<string, unknown>; error?: { code?: string; message?: string } }[]) : [];
-      return calls.map((_, i) => {
-        const r = results[i];
-        if (!r) return new Error(`not sent: ${results.find((x) => x.error)?.error?.message ?? "the batch was cut short"}`);
-        return r.error ? new DeviceError(r.error.code ?? "cdp", r.error.message ?? "the command failed") : (r.result ?? {});
-      });
-    };
-    return { send, batch };
   }
 
   /** Until the owner hands the Chrome back: at once when they have not taken it. True when it waited. */
