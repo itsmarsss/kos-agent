@@ -613,11 +613,17 @@ export class Page {
     }
   }
 
-  /** When a request the action `since` started last ended, as one its answer waits on (not a poll, nor a long one); -Infinity if none has. */
+  /**
+   * When a request the action `since` started last ended, as an answer the
+   * page will draw: not a long one, and to an address the page had not
+   * asked lately. One it had (a poll, a search asked again at each word) is
+   * waited out as before, with no time added to draw it. -Infinity if none.
+   */
   private answered(since: number): number {
     let last = -Infinity;
     for (const { at, pattern, end } of this.ended) {
-      if (at >= since && end - at < STALE_REQUEST_MS && end > last && !this.polled(pattern, since, end)) last = end;
+      if (at < since || end - at >= STALE_REQUEST_MS || end <= last) continue;
+      if (!(this.asked.get(pattern) ?? []).some((a) => a.at < at && at - a.at < POLL_WINDOW_MS)) last = end;
     }
     return last;
   }
