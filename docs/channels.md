@@ -211,6 +211,10 @@ messages, comes along with it as context marked as such, so KOS can
 answer "what do you all think" without having heard it all. Your own
 messages always reach the chat, carrying the same context.
 
+A message that replies to another carries what it answers: who wrote it
+and its words, cut short, told to that turn as a quote. Words someone
+else wrote are marked as theirs, not yours, and not instructions.
+
 Someone named in a message (`@name` on Discord) arrives on the dashboard
 as `@name`, and the turn is told the member's id beside it; `discord.member`
 gives who that id is (account name, the name shown, roles, when they
