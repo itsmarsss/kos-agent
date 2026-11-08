@@ -19,12 +19,18 @@ public final class ChatModel: ObservableObject {
   public struct Step: Equatable, Sendable {
     public let summary: String
     public let failed: Bool
+    /// The frame id of what it saw, when it kept a picture.
+    public let frame: Int?
 
-    public init(summary: String, failed: Bool = false) {
+    public init(summary: String, failed: Bool = false, frame: Int? = nil) {
       self.summary = summary
       self.failed = failed
+      self.frame = frame
     }
   }
+
+  /// How many step pictures the window keeps; the oldest go first.
+  public static let picturesKept = 40
 
   /// An approval to decide here.
   public struct Ask: Equatable, Identifiable, Sendable {
@@ -112,6 +118,12 @@ public final class ChatModel: ObservableObject {
   private var takenWords: String?
   /// The running turn's steps, "› " before each.
   @Published public private(set) var story: String?
+  /// What the running turn's steps saw, by frame id, oldest first.
+  @Published public private(set) var liveFrames: [Int] = []
+  /// The steps' pictures, JPEG by frame id: sent as each step ran, and with the chat as it stands.
+  @Published public private(set) var pictures: [Int: Data] = [:]
+  /// The order pictures came in, so the oldest go first past the cap.
+  private var pictureOrder: [Int] = []
   @Published public private(set) var asks: [Ask] = []
   @Published public private(set) var chats: [Pick] = []
   @Published public private(set) var models: Models?
@@ -174,8 +186,13 @@ public final class ChatModel: ObservableObject {
   // MARK: KOS
 
   /// The chat as KOS says it stands now.
-  public func show(conversation: String?, title: String, lines: [Line], notice: (text: String, from: String?, waiting: Bool)? = nil, auto: Bool = false) {
+  public func show(conversation: String?, title: String, lines: [Line], notice: (text: String, from: String?, waiting: Bool)? = nil, auto: Bool = false, pictures: [Int: String] = [:]) {
     let fresh = conversation != self.conversation && self.conversation != nil
+    if fresh {
+      self.pictures = [:]
+      pictureOrder = []
+    }
+    for (id, image) in pictures.sorted(by: { $0.key < $1.key }) { keepPicture(id, image) }
     let said = lines.compactMap { line -> String? in
       if case .you(let text, _) = line { return text }
       return nil
@@ -190,7 +207,10 @@ public final class ChatModel: ObservableObject {
     }()
     let answered = sending.isEmpty && (notice != nil || !lastIsYours)
     working = !sending.isEmpty || (working && !answered)
-    if answered { story = nil }
+    if answered {
+      story = nil
+      liveFrames = []
+    }
     if fresh { asks = [] }
     self.conversation = conversation
     self.title = title
@@ -204,6 +224,7 @@ public final class ChatModel: ObservableObject {
       self.error = error
       working = false
       self.story = nil
+      liveFrames = []
       // What was waiting was never taken: it goes back to the owner.
       if !sending.isEmpty {
         draft = sending.joined(separator: "\n")
@@ -231,9 +252,30 @@ public final class ChatModel: ObservableObject {
     case .some(.none):
       working = false
       self.story = nil
+      liveFrames = []
     case .none:
       break
     }
+  }
+
+  /// A step's picture as the running turn takes it, in `conversation`: kept, and shown under its steps.
+  public func frame(_ id: Int, image: String, conversation: String? = nil) {
+    guard conversation == self.conversation, keepPicture(id, image) else { return }
+    liveFrames = liveFrames.filter { $0 != id } + [id]
+  }
+
+  /// The pictures of these frame ids that the window has, in order.
+  public func picturesOf(_ frames: [Int?]) -> [(id: Int, data: Data)] {
+    frames.compactMap { id in id.flatMap { id in pictures[id].map { (id, $0) } } }
+  }
+
+  @discardableResult
+  private func keepPicture(_ id: Int, _ image: String) -> Bool {
+    guard let data = Data(base64Encoded: image), !data.isEmpty else { return false }
+    pictures[id] = data
+    pictureOrder = pictureOrder.filter { $0 != id } + [id]
+    while pictureOrder.count > Self.picturesKept { pictures[pictureOrder.removeFirst()] = nil }
+    return true
   }
 
   /// The owner's latest words, and the lines after them.
@@ -281,6 +323,9 @@ public final class ChatModel: ObservableObject {
     notices = []
     working = false
     story = nil
+    liveFrames = []
+    pictures = [:]
+    pictureOrder = []
     asks = []
     chats = []
     models = nil
@@ -293,6 +338,7 @@ public final class ChatModel: ObservableObject {
     error = why
     working = false
     story = nil
+    liveFrames = []
     if !sending.isEmpty {
       draft = sending.joined(separator: "\n")
       sending = []

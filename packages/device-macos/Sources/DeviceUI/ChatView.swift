@@ -110,11 +110,11 @@ public struct ChatView: View {
             EmptyChat(paired: model.paired, silent: model.silent, online: model.online, ask: model.say)
           }
           ForEach(model.items) { item in
-            ItemView(item: item)
+            ItemView(item: item, model: model)
           }
           if model.working {
             let running = model.running
-            if !running.steps.isEmpty { Steps(steps: running.steps, live: true) }
+            if !running.steps.isEmpty { Steps(steps: running.steps, live: true, pictures: model.picturesOf(model.liveFrames)) }
             if !running.words.isEmpty { ChatMarkdown(running.words).foregroundStyle(Theme.muted) }
           }
           // At the foot for as long as the turn runs: words after the steps are not the end of the work.
@@ -314,11 +314,12 @@ private struct EmptyChat: View {
 /// One thing in the thread.
 private struct ItemView: View {
   let item: ChatModel.Item
+  @ObservedObject var model: ChatModel
 
   var body: some View {
     switch item {
     case .line(_, let line):
-      LineView(line: line)
+      LineView(line: line, model: model)
     case .notice(_, let notice):
       VStack(alignment: .leading, spacing: 2) {
         // Who answered, when it was not KOS itself, in the violet a passed-on sender is named in.
@@ -333,6 +334,7 @@ private struct ItemView: View {
 
 private struct LineView: View {
   let line: ChatModel.Line
+  @ObservedObject var model: ChatModel
 
   var body: some View {
     switch line {
@@ -343,7 +345,7 @@ private struct LineView: View {
     case .note(let text):
       Text(text).font(.kos(.tiny)).foregroundStyle(Theme.faint).multilineTextAlignment(.center).frame(maxWidth: .infinity)
     case .steps(let steps):
-      Steps(steps: steps)
+      Steps(steps: steps, pictures: model.picturesOf(steps.map(\.frame)))
     }
   }
 }
@@ -373,9 +375,11 @@ private struct Bubble: View {
 }
 
 /// A turn's tool calls, folded to one chip that opens to them; live, the step it is on, in the accent.
+/// Under it, what the steps saw, as the dashboard and the side panel show it.
 private struct Steps: View {
   let steps: [ChatModel.Step]
   var live = false
+  var pictures: [(id: Int, data: Data)] = []
   @State private var open = false
 
   private var label: String {
@@ -408,6 +412,29 @@ private struct Steps: View {
         }
         .padding(.leading, 6)
         .transition(.opacity.combined(with: .move(edge: .top)))
+      }
+      if !pictures.isEmpty {
+        FlowPictures(pictures: pictures)
+      }
+    }
+  }
+}
+
+/// The steps' pictures in rows that wrap, the newest last; the one pressed opens full width under them.
+private struct FlowPictures: View {
+  let pictures: [(id: Int, data: Data)]
+  @State private var open: Int?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      LazyVGrid(columns: [GridItem(.adaptive(minimum: StepPicture.small, maximum: StepPicture.small), spacing: 6, alignment: .leading)], alignment: .leading, spacing: 6) {
+        ForEach(pictures, id: \.id) { picture in
+          StepPicture(picture.data) { withAnimation(Theme.spring) { open = open == picture.id ? nil : picture.id } }
+        }
+      }
+      if let open, let picture = pictures.first(where: { $0.id == open }) {
+        StepPicture(picture.data, open: true) { withAnimation(Theme.spring) { self.open = nil } }
+          .transition(.opacity)
       }
     }
   }
