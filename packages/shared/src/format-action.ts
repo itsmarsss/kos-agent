@@ -162,22 +162,17 @@ function computerAction(a: Record<string, unknown>): string {
   }
 }
 
-/** The actions of one computer.act call, one or a batch, each in words. */
-function computerParts(a: Record<string, unknown>): Part[] {
-  if (!Array.isArray(a.actions)) return [{ words: computerAction(a), raw: a }];
-  const parts = a.actions.map((item) => ({ words: computerAction(item && typeof item === "object" ? (item as Record<string, unknown>) : {}), raw: item as unknown }));
-  return parts.length ? parts : [{ words: "Use the computer", raw: null }];
-}
 
 /** A computer step as what it does on the screen; a device id names nothing the owner knows, so it is left out. */
 function computerStep(tool: string, a: Record<string, unknown>): string {
+  // Gone from the tools, but kept in transcripts from before start chose the device itself.
   if (tool === "computer.devices") return "List the paired computers";
   if (tool === "computer.end") return "Give the computer back";
   if (tool === "computer.start") {
     const device = typeof a.device === "string" && !a.device.startsWith("dev_") ? a.device : "a computer";
     return `Use ${device}: ${fmtVal(a.task)}`;
   }
-  if (tool === "computer.act") return withIntent(a.intent, computerParts(a));
+  if (tool === "computer.act") return withIntent(a.intent, actParts(tool, a));
   return itself(tool.slice("computer.".length)) || "Use the computer";
 }
 
@@ -236,11 +231,21 @@ function browserStep(s: Record<string, unknown>): string {
   }
 }
 
-/** The steps of one browser.act call, each in words. */
-function browserParts(a: Record<string, unknown>): Part[] {
-  const steps = Array.isArray(a.steps) ? a.steps : [];
-  const parts = steps.map((s) => ({ words: browserStep(s && typeof s === "object" ? (s as Record<string, unknown>) : {}), raw: s as unknown }));
-  return parts.length ? parts : [{ words: "Act on the page", raw: null }];
+/**
+ * The actions of one computer.act or browser.act call, each in words, by one
+ * rule for both: the call's `actions` (or `steps`, the browser's older name
+ * for them), or a computer's single action. Every surface's step line, its
+ * mechanics and the narrator are made from these.
+ */
+function actParts(tool: string, a: Record<string, unknown>): Part[] {
+  const computer = tool === "computer.act";
+  const list = Array.isArray(a.actions) ? a.actions : Array.isArray(a.steps) ? a.steps : computer ? [a] : [];
+  const words = (item: unknown): string => {
+    const action = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    return computer ? computerAction(action) : browserStep(action);
+  };
+  const parts = list.map((item) => ({ words: words(item), raw: item as unknown }));
+  return parts.length ? parts : [{ words: computer ? "Use the computer" : "Act on the page", raw: null }];
 }
 
 /**
@@ -253,9 +258,7 @@ function browserParts(a: Record<string, unknown>): Part[] {
 export function stepActions(tool: string, args: string | Record<string, unknown>): string[] | undefined {
   const a = parseArgs(args);
   if (typeof a.intent !== "string" || !a.intent.trim()) return undefined;
-  if (tool === "computer.act") return computerParts(a).map((p) => p.words);
-  if (tool === "browser.act") return browserParts(a).map((p) => p.words);
-  return undefined;
+  return tool === "computer.act" || tool === "browser.act" ? actParts(tool, a).map((p) => p.words) : undefined;
 }
 
 /** stepActions as one line. */
@@ -456,7 +459,7 @@ export function summarizeAction(
   if (tool === "browser.use_tab") return `Switch to tab ${fmtVal(a.tab)}`;
   if (tool === "browser.new_tab") return a.url !== undefined ? `Open a new tab at ${fmtVal(a.url)}` : "Open a new tab";
   if (tool === "browser.watch") return `Watch ${fmtVal(a.name ?? a.url)} for change`;
-  if (tool === "browser.act") return withIntent(a.intent, browserParts(a));
+  if (tool === "browser.act") return withIntent(a.intent, actParts(tool, a));
   // The old engine's actions, as transcripts from before KOS drove the
   // browser itself still hold them.
   const browser = /^mcp\.[^.]+\.agent_browser_(.+)$/.exec(tool);
