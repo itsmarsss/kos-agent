@@ -176,10 +176,12 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const sent = useRef<EditTold | undefined>(undefined);
   /*
    * When the owner last pressed or typed in the frame, as the frame's own
-   * capture says over a channel the page never holds; and when they last
-   * saved (or the document loaded), so a Done finishes only what their hand began.
+   * capture says over a channel the page never holds; when they last saved
+   * (or the document loaded), so a Done finishes only what their hand began;
+   * and the frame of the document before, whose page is still running until
+   * it goes and whose channel is never taken for the new one's.
    */
-  const gestures = useRef<{ port?: MessagePort; at: number; since: number }>({ at: Number.NEGATIVE_INFINITY, since: 0 });
+  const gestures = useRef<{ port?: MessagePort; at: number; since: number; stale?: HTMLIFrameElement | null }>({ at: Number.NEGATIVE_INFINITY, since: 0 });
   // Made once, lazily, then again for each new document.
   const gate = useRef<HeightGate>(null);
   if (gate.current === null) gate.current = heightGate();
@@ -205,7 +207,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     setDoc(undefined);
     // A new document hands over a new channel: the old one is closed, and the first the new one sends is taken.
     gestures.current.port?.close();
-    gestures.current = { at: Number.NEGATIVE_INFINITY, since: performance.now() };
+    gestures.current = { at: Number.NEGATIVE_INFINITY, since: performance.now(), stale: frame.current };
     sent.current = undefined;
     const { scripts, fonts } = artifactAssets(page);
     void Promise.all([Promise.all(scripts.map(library)), fontCss(fonts)])
@@ -255,9 +257,10 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         return;
       }
       // The bridge's channel for the owner's presses and keys, sent before any of the page's own code runs: the first is the one.
+      // Only from the frame now holding this document: the one before it, still running until it goes, claims nothing.
       if (m.__kos === "gestures") {
         const port = e.ports[0];
-        if (gestures.current.port || !port) return;
+        if (gestures.current.port || !port || frame.current === gestures.current.stale) return;
         gestures.current.port = port;
         port.onmessage = () => {
           gestures.current.at = performance.now();
