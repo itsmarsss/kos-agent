@@ -111,6 +111,57 @@ tools loaded up front, cached after the first call.
 - **Time limits.** Outlines wait 15 s and recall embeddings 10 s at most;
   past that the turn goes on without them.
 
+## The web's tool layer
+
+KOS's own browser and KOS for Chrome were slow below the model: every step
+slept 100 ms and then waited for 350 ms of network quiet, up to 2.5 s; every
+look read the whole accessibility tree (12 MB on a page of 3,000 rows) to
+keep 60 controls; and the extension took each picture at full size and q95
+and made it smaller itself. Measured on the same machine, main against the
+branch, each figure a median:
+
+| Where | What | main | branch |
+| --- | --- | --- | --- |
+| KOS's browser | one step on a still page | about 460 ms | about 150 ms |
+| KOS's browser | an 11-step form, one call | 5.53 s | 2.00 s |
+| KOS's browser | a click on a page that polls every 300 ms | 2.65 s | 0.30 s |
+| KOS's browser | a look at the 3,000-row page | 366 ms | 76 ms |
+| KOS for Chrome | a click on a still page | 483 ms | 169 ms |
+| KOS for Chrome | a click on the polling page | 2.66 s | 0.30 s |
+| KOS for Chrome | five clicks then a look, one call | 2.48 s, 47 round trips | 0.85 s, 37 |
+| KOS for Chrome | a look at the 3,000-row page | 827 ms, 12.2 MB in | 29 ms, 75 KB |
+| KOS for Chrome | a picture on a Retina screen | 101 ms, 71 KB | 17 ms, 51 KB |
+
+Through a scratch KOS on the SDK engine, every task right on both, the
+tool time of each task (the model's time moves too much to compare in one
+run): browser-form 6.2 s to 2.6 s, chrome-form 6.0 s to 2.4 s, chrome-big
+2.5 s to 0.9 s; browser-example and chrome-example were already under a
+second. The KOS for Chrome rows play KOS to a real extension in a headless
+Chrome at twice the pixels, as `extension.chrome.test.ts` does.
+
+What changed (`packages/browser`, the extension's worker):
+
+- **Settling** waits for the document to go still (a MutationObserver in a
+  world of KOS's own, out of the page's sight) and for the page's own
+  documents, scripts and data, not for pictures, beacons, sockets, streams
+  or anything open over a second. At most 800 ms after any navigation.
+- **The index** is found by the page in one call (`inpage.controls`), with
+  only what is kept sent back; frames of another origin are read side by
+  side. The outline still reads the accessibility tree, its frames side by
+  side.
+- **Pictures** are 1024 on the long side at q60 on every web surface
+  (`PICTURE`), the Mac's long side. The extension takes a tab on screen
+  from the frame Chrome drew, through a one-frame screencast made that
+  size; a clip with a scale redraws the owner's page, which flashed. An
+  approval shows the picture the agent last saw its page by, when it is
+  under 30 s old.
+- **The relay** checks each command against the tab's address kept as it
+  changes, not asked of Chrome each time; takes several commands in one
+  round trip (`cdp.batch`: a click's moves and presses, a key with what is
+  held, the nodes of a look); and passes on only the network events
+  settling reads, without headers.
+- **Stop** ends a web step under way, as on the Mac.
+
 ## Not done
 
 - **JPEG quality.** KOS for Mac encodes at 0.8; 0.6 would roughly halve the
@@ -120,5 +171,5 @@ tools loaded up front, cached after the first call.
   keeps its own copy of the conversation, apart from KOS's transcript.
 - **Timing on the owner's Mac.** The benchmark's Mac is a fake with a real
   page for a screen; the owner's own sessions are the next measurement.
-- **Settling after an action.** A step's tool time is about 0.75 s, of which
-  0.45 s is the fixed settle; it is a tenth of a step at most.
+- **The frame strip** keeps a step's own picture at its full size; making it
+  smaller needs an image encoder on the host.
