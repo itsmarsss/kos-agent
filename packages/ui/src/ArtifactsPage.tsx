@@ -71,7 +71,7 @@ function useDashboardTheme(): "light" | "dark" {
 type Grouping = "recent" | "project";
 const GROUPINGS: readonly ChipOption<Grouping>[] = [
   ["recent", "Recent"],
-  ["project", "By project"],
+  ["project", "By owner"],
 ];
 
 /** What New artifact starts the root chat with, for the owner to finish. */
@@ -208,7 +208,7 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
       <PageHead
         title="Artifacts"
         {...(list ? { count: list.length } : {})}
-        subtitle="The pages, docs, decks and sheets KOS has made, across projects and the workspace."
+        subtitle="The pages, docs, decks and sheets KOS has made, across projects, blobs and the workspace."
         search={
           <input
             className="list-search"

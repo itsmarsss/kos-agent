@@ -68,7 +68,7 @@ describe("the Artifacts page", () => {
     answer(ART);
     await waitFor(() => expect(titles()).toHaveLength(4));
     expect(screen.queryByRole("list", { name: "Loading artifacts" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "By project" }));
+    fireEvent.click(screen.getByRole("button", { name: "By owner" }));
     const inGroup = (name: string): string[] => within(screen.getByRole("list", { name })).getAllByRole("button").map((b) => b.querySelector(".artifact-card-title")?.textContent ?? "");
     expect(inGroup("Household budget")).toEqual(["Spending board", "Ledger"]);
     // The workspace's own come last.

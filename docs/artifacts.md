@@ -227,7 +227,7 @@ search over titles, descriptions and owners, and New artifact, which opens KOS's
 root chat with "Make a " in the composer for the owner to finish. Under it,
 the kinds as chips with how many each holds (one row that scrolls sideways
 on a phone), the owner (Everyone's, the workspace, each project, each blob),
-and Recent or By project: one grid, or a section per owner with the
+and Recent or By owner: one grid, or a section per owner with the
 workspace's own last. A card is a 16:10 capture cropped from the top, the
 title, one line of description, the kind, the owner's mark and name (a
 project's mark, or a blob's face), and when it changed. While the list loads the grid is drawn

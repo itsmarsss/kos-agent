@@ -1128,7 +1128,7 @@ export const api = {
     if (!res.ok) throw new Error(await readError(res, path));
     return (await res.json()) as PageSummary;
   },
-  /** Every artifact, across projects and the workspace, with when it was last captured. */
+  /** Every artifact, across projects, blobs and the workspace, with when it was last captured. */
   artifacts: () => get<ArtifactSummary[]>("/api/artifacts"),
   /** Render an artifact and keep its captures: the gallery's thumbnail. */
   checkArtifact: (id: string) => post<{ findings: { kind: string; text: string }[]; capturedAt?: number }>(`/api/artifacts/${encodeURIComponent(id)}/check`),
