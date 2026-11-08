@@ -158,7 +158,28 @@ describe("a session started unasked on the owner's device", () => {
   });
 });
 
-describe("a step whose screen had not changed", () => {
+/** A model that calls each tool in turn, one a reply, then answers. */
+function inTurn(tools: string[]): Inference {
+  let i = 0;
+  return {
+    async generate() {
+      const tool = tools[i++];
+      if (!tool) return ended("done");
+      return { content: [{ type: "tool_use", id: `t${i}`, name: tool, input: {} }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+    },
+  };
+}
+
+/** A tool, put in place of any of that name, answering each call in turn with the next of `answers`. */
+function answering(kernel: Kernel, name: string, answers: (string | { text: string; images: { mediaType: string; data: string }[] })[]): void {
+  let i = 0;
+  kernel.registry.unregister(name);
+  kernel.registry.register({ name, description: "t", inputSchema: { type: "object" } }, () => answers[Math.min(i++, answers.length - 1)]!);
+}
+
+const jpeg = (data: string) => ({ mediaType: "image/jpeg", data });
+
+describe("the picture kept after a step", () => {
   let root: string;
   let kernel: Kernel;
 
@@ -167,23 +188,68 @@ describe("a step whose screen had not changed", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("shows the chat's last kept picture again, and takes no second capture", async () => {
-    const { inference } = oneCall("browser.tabs", {});
+  async function boot(tools: string[], chrome: BrowserElsewhere): Promise<string> {
     root = mkdtempSync(join(tmpdir(), "kos-frames-"));
-    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference, profileOverrides: { name: "Kenny", timezone: "UTC" } });
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: inTurn(tools), profileOverrides: { name: "Kenny", timezone: "UTC" } });
+    kernel.setBrowserElsewhere(chrome);
+    return kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Shop" }).id;
+  }
+
+  /** Each frame of the chat, oldest first: its picture and site. */
+  const framesOf = (chat: string) => kernel.frames.listFor(chat).map((f) => ({ picture: kernel.frames.pictureOf(f.id), site: f.site, tool: f.tool }));
+  const settled = () => new Promise((r) => setTimeout(r, 20));
+
+  it("unchanged, is the very picture last shown, with no second capture", async () => {
     let captures = 0;
-    const chrome = ownerChrome({ starts: true });
-    kernel.setBrowserElsewhere({ ...chrome, picture: async () => (captures++, "TEFURVNU") });
-    // The tab's look said in words: nothing changed since the last picture.
-    kernel.registry.unregister("browser.tabs");
-    kernel.registry.register({ name: "browser.tabs", description: "t", inputSchema: { type: "object" } }, () => `In the owner's Chrome.\n${UNCHANGED}`);
-    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Shop" }).id;
-    kernel.frames.add({ conversationId: chat, tool: "browser.look", picture: "RkFSTElFUg==" });
+    const chat = await boot(["browser.look", "browser.tabs"], { ...ownerChrome({ starts: true }), picture: async () => (captures++, "TEFURVNU") });
+    answering(kernel, "browser.look", [{ text: "In the owner's Chrome.", images: [jpeg("RkFSTElFUg==")] }]);
+    answering(kernel, "browser.tabs", [`In the owner's Chrome.\n${UNCHANGED}`]);
     await kernel.handleMessage("is it still there?", { sessionId: chat, owner: true });
-    await new Promise((r) => setTimeout(r, 10));
+    await settled();
     expect(captures).toBe(0);
-    const frames = kernel.frames.listFor(chat);
-    expect(frames).toHaveLength(2);
-    expect(kernel.frames.pictureOf(frames[1]!.id)).toBe("RkFSTElFUg==");
+    expect(framesOf(chat)).toEqual([
+      { picture: "RkFSTElFUg==", site: "shop.example", tool: "browser.look" },
+      { picture: "RkFSTElFUg==", site: "shop.example", tool: "browser.tabs" },
+    ]);
+  });
+
+  it("unchanged on the computer, is the computer's last picture, not a frame the browser took since", async () => {
+    const chat = await boot(["computer.look", "browser.tabs", "computer.look"], { ...ownerChrome({ starts: true }), picture: async () => "QlJPV1NFUg==" });
+    answering(kernel, "computer.look", [{ text: "The screen.", images: [jpeg("U0NSRUVO")] }, UNCHANGED]);
+    answering(kernel, "browser.tabs", ["In the owner's Chrome."]);
+    await kernel.handleMessage("and the screen?", { sessionId: chat, owner: true });
+    await settled();
+    const frames = framesOf(chat);
+    expect(frames).toContainEqual({ picture: "QlJPV1NFUg==", site: "shop.example", tool: "browser.tabs" });
+    expect(frames.filter((f) => f.tool === "computer.look")).toEqual([
+      { picture: "U0NSRUVO", site: null, tool: "computer.look" },
+      { picture: "U0NSRUVO", site: null, tool: "computer.look" },
+    ]);
+  });
+
+  it("unchanged on one site, is that site's picture under its own name, not another's taken since", async () => {
+    let site = "a.example";
+    const chat = await boot(["browser.look", "browser.tabs", "browser.look"], {
+      ...ownerChrome({ starts: true }),
+      siteOf: () => site,
+      picture: async () => "Qg==",
+    });
+    let looks = 0;
+    kernel.registry.unregister("browser.look");
+    kernel.registry.register({ name: "browser.look", description: "t", inputSchema: { type: "object" } }, () =>
+      looks++ === 0 ? { text: "A.", images: [jpeg("QQ==")] } : UNCHANGED,
+    );
+    kernel.registry.unregister("browser.tabs");
+    kernel.registry.register({ name: "browser.tabs", description: "t", inputSchema: { type: "object" } }, () => {
+      site = "b.example";
+      setTimeout(() => (site = "a.example"), 5);
+      return "Went to B and back.";
+    });
+    await kernel.handleMessage("look again", { sessionId: chat, owner: true });
+    await settled();
+    expect(framesOf(chat).filter((f) => f.tool === "browser.look")).toEqual([
+      { picture: "QQ==", site: "a.example", tool: "browser.look" },
+      { picture: "QQ==", site: "a.example", tool: "browser.look" },
+    ]);
   });
 });

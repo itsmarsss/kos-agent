@@ -6,7 +6,7 @@ import { PressRoutes } from "../channels/presses.js";
 import type { Asker, ConversationSeed, Guest, OutboundMessage, Sender } from "../channels/types.js";
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
-import { ToolRegistry } from "../agent/registry.js";
+import { ToolRegistry, type ToolExecution } from "../agent/registry.js";
 import { type CronActionResult, runCronJob, type CronExecResult } from "../cron/executor.js";
 import { CronStore } from "../cron/store.js";
 import type { McpModule } from "../tools/mcp.js";
@@ -17,6 +17,8 @@ import { toolUse } from "./caller.js";
 
 /** KOS's browser tools: they act on the caller's tab and share its site trust. */
 const BROWSER_PREFIX = "browser.";
+/** Chats and surfaces whose last shown frame is remembered, at most. */
+const SHOWN_KEPT = 256;
 /** Of those, never trusted by site: a script in the page, and the ask for the owner's hands. */
 const BROWSER_STRICT = ["browser.eval", "browser.handoff"];
 /** A tab nobody has used this long is closed; checked this often. */
@@ -501,6 +503,12 @@ export class Kernel {
   readonly frames: FrameStore;
   /** Each conversation's last picture of its page, for its approvals. */
   private readonly seen = new SeenPages();
+  /**
+   * Per chat and surface (the browser, the computer), the frame its last
+   * picture shown to the chat was kept as: what a look that found the screen
+   * unchanged shows again, rather than the chat's newest frame of any kind.
+   */
+  private readonly shownFrames = new Map<string, number>();
   /** Pages watched for change, and what each said last time. */
   readonly watches: PageWatchStore;
   private idleSweep: ReturnType<typeof setInterval> | null = null;
@@ -3160,8 +3168,7 @@ export class Kernel {
       },
       onExecuted: (tool, result) => {
         this.afterToolRan(tool);
-        // The last picture a call answered with: where its page ended up (a visit to several pages answers with each).
-        this.keepFrame(tool, opts.conversationId, result.images?.at(-1)?.data, result.content.includes(UNCHANGED));
+        this.keepFrame(tool, opts.conversationId, result);
         this.bus.emit({ kind: "tool:end", tool, isError: result.isError === true, conversationId: opts.conversationId ?? null });
         // A call that ends after its turn was stopped has no live view left to
         // end; told now, it would land in whatever turn the chat runs next.
@@ -3733,50 +3740,57 @@ export class Kernel {
 
   /**
    * After a step that looked, its picture, kept with the call's id so the
-   * thread can show what the agent saw under the step that saw it: the one
-   * the step answered with, since the stored history keeps none. A browser
-   * step that answered without one gets a small picture of its tab, taken in
-   * the background: the step has run, and the reply should not wait on it.
+   * thread can show what the agent saw under the step that saw it: the last
+   * one the step answered with, where its page ended up, since the stored
+   * history keeps none. A browser step that answered without one gets a
+   * small picture of its tab, taken in the background: the step has run,
+   * and the reply should not wait on it.
    */
-  private keepFrame(tool: string, conversationId?: string, picture?: string, unchanged = false): void {
+  private keepFrame(tool: string, conversationId: string | undefined, result: ToolExecution): void {
     if (!conversationId) return;
     const toolUseId = toolUse.getStore();
     const browser = this.browserContext(tool, conversationId) !== undefined;
+    const surface = `${conversationId}\0${browser ? "browser" : tool.split(".")[0]}`;
     const away = this.away(conversationId);
-    // A browser frame says which site it shows, read as it is kept: a surface leaves out one the owner hid.
+    // A browser frame says which site it shows: a surface leaves out one the owner hid.
     const siteNow = (): string | undefined => (browser ? (away ? away.siteOf(conversationId) : this.browser.siteOf(conversationId)) : undefined);
-    const keep = (picture: string, site = siteNow()): void => {
+    const keep = (picture: string, site: string | undefined): number => {
       const frame = this.frames.add({ conversationId, ...(toolUseId ? { toolUseId } : {}), tool, picture, ...(site ? { site } : {}) });
       this.progress.emit({ kind: "frame", conversationId, tool, frameId: frame.id, ...(toolUseId ? { toolUseId } : {}), ...(site ? { site } : {}) });
+      return frame.id;
     };
+    const picture = result.images?.at(-1)?.data;
     // A step whose screen had not changed since the last picture shows that
-    // one again, with no capture taken; for an approval, the agent's last
-    // picture of its page still stands where it was taken.
-    if (!picture && unchanged) {
-      const site = siteNow();
-      if (browser) this.seen.still(conversationId, this.spotOf(conversationId), site);
-      const last = this.frames.lastPicture(conversationId);
-      if (last) keep(last, site);
+    // one again, with no capture taken: the very frame that picture was kept
+    // as on this surface, with its own site; for an approval, the agent's
+    // last picture of its page still stands where it was taken.
+    if (!picture && result.content.includes(UNCHANGED)) {
+      if (browser) this.seen.still(conversationId, this.spotOf(conversationId), siteNow());
+      const id = this.shownFrames.get(surface);
+      const last = id === undefined ? undefined : this.frames.shown(id);
+      if (last) keep(last.image, last.site);
       return;
     }
     // A step that answered with a picture is kept by that one. A browser step
     // took a second, smaller capture as well, on the same line to the tab as
     // the next step, which waited behind it, most of all on the owner's
     // Chrome, where every capture crosses to the extension and back.
-    if (picture || !browser) {
-      if (!picture) return;
+    if (picture) {
       const site = siteNow();
-      keep(picture, site);
+      this.shownFrames.delete(surface);
+      this.shownFrames.set(surface, keep(picture, site));
+      if (this.shownFrames.size > SHOWN_KEPT) this.shownFrames.delete(this.shownFrames.keys().next().value!);
       if (browser) this.seen.saw(conversationId, picture, this.spotOf(conversationId), site);
       return;
     }
+    if (!browser) return;
     // A browser call that answered without a picture may have changed the page: the last one no longer stands for it.
     this.seen.forget(conversationId);
     const tab = this.browser.tabOf(conversationId);
     if (!away && !tab) return;
     void (away ? away.picture(conversationId, 640) : this.browser.capture(tab!, 640))
       .then((picture) => {
-        if (picture) keep(picture);
+        if (picture) keep(picture, siteNow());
       })
       .catch(() => undefined);
   }
