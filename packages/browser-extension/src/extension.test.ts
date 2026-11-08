@@ -125,8 +125,9 @@ describe("what reaches a tab", () => {
     expect(forwarded("Network.responseReceivedExtraInfo", {}, open)).toBeUndefined();
     expect(forwarded("Runtime.consoleAPICalled", {}, open)).toBeUndefined();
     // Of the network, only the requests a page's answer waits on, without their headers, and the end of only those.
-    const sent = { requestId: "1", type: "Fetch", timestamp: 812.5, request: { url: "https://shop.example/api", headers: { cookie: "x" } }, initiator: { type: "script" } };
-    expect(forwarded("Network.requestWillBeSent", sent, open)).toEqual({ requestId: "1", type: "Fetch", timestamp: 812.5, request: { url: "https://shop.example/api" } });
+    // Dated by both the browser's clocks: the one that stands still while the computer sleeps, and the wall's.
+    const sent = { requestId: "1", type: "Fetch", timestamp: 812.5, wallTime: 1_762_600_000.25, request: { url: "https://shop.example/api", headers: { cookie: "x" } }, initiator: { type: "script" } };
+    expect(forwarded("Network.requestWillBeSent", sent, open)).toStrictEqual({ requestId: "1", type: "Fetch", timestamp: 812.5, wallTime: 1_762_600_000.25, request: { url: "https://shop.example/api" } });
     expect(forwarded("Network.requestWillBeSent", { requestId: "2", type: "Image", request: { url: "https://shop.example/a.png" } }, open)).toBeUndefined();
     expect(forwarded("Network.loadingFinished", { requestId: "2" }, open)).toBeUndefined();
     expect(forwarded("Network.loadingFinished", { requestId: "1", encodedDataLength: 9 }, open)).toEqual({ requestId: "1" });

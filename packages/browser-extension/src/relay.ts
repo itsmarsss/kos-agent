@@ -143,7 +143,7 @@ export function forwarded(method: string, params: Record<string, unknown>, open:
     open.delete(id);
     open.add(id);
     if (open.size > OPEN_MAX) open.delete(open.values().next().value!);
-    return { requestId: id, type: params["type"], timestamp: params["timestamp"], request: { url: (params["request"] as { url?: unknown } | undefined)?.url } };
+    return { requestId: id, type: params["type"], timestamp: params["timestamp"], wallTime: params["wallTime"], request: { url: (params["request"] as { url?: unknown } | undefined)?.url } };
   }
   if (method === "Network.loadingFinished" || method === "Network.loadingFailed") return open.delete(id) ? { requestId: id } : undefined;
   return params;
