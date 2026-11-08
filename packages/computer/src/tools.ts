@@ -130,10 +130,10 @@ const TOUCH = { region: { x: 0, y: 0, width: 1, height: 1 } };
 
 const COMPUTER_TOOLS = ["computer.devices", "computer.start", "computer.act", "computer.end"];
 const CHROME_TOOLS = ["chrome.start", "chrome.end", "chrome.page"];
-/** As much of a page as chrome.page hands the model first: its outline and its start. */
-const PAGE_OUTLINE = 2_000;
-/** As much as one read further into the page hands over. */
-const PAGE_PART = 8_000;
+/** As much of a page as chrome.page hands the model first: its outline and its start, enough for most questions about it. */
+const PAGE_OUTLINE = 4_000;
+/** As much as one read further into the page hands over: a long article is summed up in two or three reads. */
+const PAGE_PART = 12_000;
 /** Headings an outline names, at most. */
 const HEADINGS_MAX = 24;
 /** The Chrome may first ask the owner to let KOS read pages, and waits up to five minutes for them. */
