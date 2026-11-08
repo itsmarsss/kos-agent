@@ -32,7 +32,7 @@ import {
   type KeptPrompts,
   type PromptRef,
 } from "./discord.js";
-import type { ApprovalDecision, ButtonPress, InboundMessage } from "./types.js";
+import { OWNER_ONLY, type ApprovalDecision, type ButtonPress, type InboundMessage } from "./types.js";
 
 describe("discord approval customId codec", () => {
   it("encodes approve and deny ids for a pending action", () => {
@@ -1594,7 +1594,7 @@ describe("DiscordAdapter authorization", () => {
     // the prompt keeps its buttons so the owner can still decide
     expect(button.update).not.toHaveBeenCalled();
     expect(button.reply).toHaveBeenCalledWith(
-      expect.objectContaining({ content: "Not authorized." }),
+      expect.objectContaining({ content: OWNER_ONLY }),
     );
     vi.restoreAllMocks();
   });
@@ -1757,7 +1757,7 @@ describe("Run now from Discord", () => {
     edits.length = 0;
     await adapter.receiveInteraction(press("someone-else"));
     expect(ran).toEqual([5]);
-    expect(edits).toEqual(["reply:Not authorized."]);
+    expect(edits).toEqual(["reply:Only the owner can do this."]);
   });
 });
 
@@ -1866,5 +1866,38 @@ describe("what Run now tells the owner", () => {
       reply: async () => undefined,
     } as unknown as Interaction);
     expect(edits).toEqual(["Could not run it: the queue is closed"]);
+  });
+});
+
+describe("a guest's slash commands", () => {
+  it("are the owner's alone, even in a room opened to guests", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id", guestsAllowed: (key) => key === "project:club" });
+    adapter.setAuthorizer((senderId) => senderId === "owner-id");
+    const stopped: string[] = [];
+    adapter.onCommand({
+      list: () => [{ id: "c1", title: "Private", kind: "chat" }],
+      jobs: () => [{ id: 7, name: "Morning brief", enabled: true }],
+      current: () => undefined,
+      target: () => undefined,
+      home: () => "h",
+      stop: (id) => {
+        stopped.push(id);
+        return true;
+      },
+      create: () => ({ id: "x", title: "x" }),
+    });
+    const open = { id: "c1", isThread: () => false, topic: "kos:project:club · Club", isSendable: () => true };
+    for (const commandName of ["chats", "stop", "run", "new"]) {
+      const reply = vi.fn(async () => undefined);
+      const respond = vi.fn(async () => undefined);
+      const base = { isButton: () => false, commandName, user: { id: "u1" }, guildId: "g1", channel: open, options: { data: [], getFocused: () => "" }, reply, respond, deferReply: vi.fn(), editReply: vi.fn() };
+      await adapter.receiveInteraction({ ...base, isAutocomplete: () => false, isChatInputCommand: () => true } as unknown as Interaction);
+      expect(reply, commandName).toHaveBeenCalledWith({ content: OWNER_ONLY, flags: MessageFlags.Ephemeral });
+      expect(base.deferReply).not.toHaveBeenCalled();
+      // Nor are the owner's chats or jobs offered as completions.
+      await adapter.receiveInteraction({ ...base, isAutocomplete: () => true, isChatInputCommand: () => false } as unknown as Interaction);
+      expect(respond).not.toHaveBeenCalled();
+    }
+    expect(stopped).toEqual([]);
   });
 });

@@ -26,7 +26,7 @@ import { CHANNEL_TOKEN, detailLines, summarizeAction, withUnixTimes } from "@kos
 import { isReadable, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
-import type { Guest } from "./types.js";
+import { OWNER_ONLY, type Guest } from "./types.js";
 import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
 import { linkMentions, linkPaths, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
 import { tablesToCode } from "./tables.js";
@@ -1669,7 +1669,7 @@ export class DiscordAdapter implements ChannelAdapter {
       if (!this.commands) return;
       if (!this.isAuthorized(interaction.user.id)) {
         await interaction.reply({
-          content: "Not authorized.",
+          content: OWNER_ONLY,
           flags: MessageFlags.Ephemeral,
         });
         return;
@@ -1703,7 +1703,7 @@ export class DiscordAdapter implements ChannelAdapter {
     // alone; a guest cannot fire a job.
     if (interaction.customId.startsWith(CRON_PREFIX)) {
       if (!this.isAuthorized(interaction.user.id)) {
-        await interaction.reply({ content: "Not authorized.", flags: MessageFlags.Ephemeral }).catch(() => undefined);
+        await interaction.reply({ content: OWNER_ONLY, flags: MessageFlags.Ephemeral }).catch(() => undefined);
         return;
       }
       const id = Number(interaction.customId.slice(CRON_PREFIX.length));
@@ -1720,7 +1720,7 @@ export class DiscordAdapter implements ChannelAdapter {
       if (!this.isAuthorized(interaction.user.id) && !guest) {
         try {
           await interaction.reply({
-            content: "Not authorized.",
+            content: OWNER_ONLY,
             flags: MessageFlags.Ephemeral,
           });
         } catch {
@@ -1748,7 +1748,7 @@ export class DiscordAdapter implements ChannelAdapter {
       );
       try {
         await interaction.reply({
-          content: "Not authorized.",
+          content: OWNER_ONLY,
           flags: MessageFlags.Ephemeral,
         });
       } catch {
