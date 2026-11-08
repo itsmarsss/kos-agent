@@ -3759,7 +3759,8 @@ export class Kernel {
       this.progress.emit({ kind: "frame", conversationId, tool, frameId: frame.id, ...(toolUseId ? { toolUseId } : {}), ...(site ? { site } : {}) });
       return frame.id;
     };
-    const picture = result.images?.at(-1)?.data;
+    // A visit whose last page had no picture answers with an earlier page's: none stands for where it ended.
+    const picture = result.endUnseen ? undefined : result.images?.at(-1)?.data;
     // A step whose screen had not changed since the last picture shows that
     // one again, with no capture taken: the very frame that picture was kept
     // as on this surface, with its own site; for an approval, the agent's
@@ -3783,6 +3784,8 @@ export class Kernel {
       if (browser) this.seen.saw(conversationId, picture, this.spotOf(conversationId), site);
       return;
     }
+    // Pictures shown with no frame kept for the last of them: an unchanged look later has none to show again.
+    if (result.images?.length) this.shownFrames.delete(surface);
     if (!browser) return;
     // A browser call that answered without a picture may have changed the page: the last one no longer stands for it.
     this.seen.forget(conversationId);

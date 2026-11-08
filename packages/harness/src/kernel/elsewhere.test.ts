@@ -171,7 +171,7 @@ function inTurn(tools: string[]): Inference {
 }
 
 /** A tool, put in place of any of that name, answering each call in turn with the next of `answers`. */
-function answering(kernel: Kernel, name: string, answers: (string | { text: string; images: { mediaType: string; data: string }[] })[]): void {
+function answering(kernel: Kernel, name: string, answers: (string | { text: string; images: { mediaType: string; data: string }[]; endUnseen?: boolean })[]): void {
   let i = 0;
   kernel.registry.unregister(name);
   kernel.registry.register({ name, description: "t", inputSchema: { type: "object" } }, () => answers[Math.min(i++, answers.length - 1)]!);
@@ -251,5 +251,13 @@ describe("the picture kept after a step", () => {
       { picture: "QQ==", site: "a.example", tool: "browser.look" },
       { picture: "QQ==", site: "a.example", tool: "browser.look" },
     ]);
+  });
+
+  it("is none of an earlier page when a visit's last page had no picture: the tab is pictured afresh", async () => {
+    const chat = await boot(["browser.visit"], { ...ownerChrome({ starts: true }), picture: async () => "TEFTVA==" });
+    answering(kernel, "browser.visit", [{ text: "Opened two.", images: [jpeg("RklSU1Q=")], endUnseen: true }]);
+    await kernel.handleMessage("open both", { sessionId: chat, owner: true });
+    await settled();
+    expect(framesOf(chat)).toEqual([{ picture: "TEFTVA==", site: "shop.example", tool: "browser.visit" }]);
   });
 });

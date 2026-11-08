@@ -124,7 +124,7 @@ function urlsOf(input: Record<string, unknown>): string[] {
 }
 
 function answer(seen: Seen): string | Seen {
-  return seen.images.length ? { text: seen.text, images: seen.images } : seen.text;
+  return seen.images.length ? { text: seen.text, images: seen.images, ...(seen.endUnseen ? { endUnseen: true } : {}) } : seen.text;
 }
 
 export function createBrowserModule(deps: BrowserToolsDeps): KosModule {

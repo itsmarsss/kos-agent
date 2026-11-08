@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { act, type Tab } from "./hands.js";
+import { act, visit, type Tab } from "./hands.js";
 import type { Page } from "./page.js";
 
 /** A page that counts its round trips: where it is, and what a look asks of it. */
@@ -95,5 +95,22 @@ describe("a run of steps", () => {
       await act(tab, Array.from({ length: 6 }, () => ({ wait: { text: "Done" } })) as never[], "none");
       expect(limits.every((ms) => ms >= 14_900)).toBe(true);
     });
+  });
+});
+
+describe("a visit to several pages", () => {
+  it("says it ended on a page it has no picture of when the last capture failed", async () => {
+    const { tab } = fakeTab(["http://shop.test/1"]);
+    const page = tab.page as unknown as { goto: (url: string) => Promise<{ stillLoading: boolean }> };
+    page.goto = async () => ({ stillLoading: false });
+    let captures = 0;
+    const failing: Tab = { page: tab.page, capture: async () => (++captures === 2 ? undefined : "SU1H") };
+    const seen = await visit(failing, ["http://shop.test/1", "http://shop.test/2"], { then: "look" });
+    expect(seen.images).toHaveLength(1);
+    expect(seen.endUnseen).toBe(true);
+    captures = 0;
+    const whole = await visit({ page: tab.page, capture: async () => "SU1H" }, ["http://shop.test/1", "http://shop.test/2"], { then: "look" });
+    expect(whole.images).toHaveLength(2);
+    expect(whole.endUnseen).toBeUndefined();
   });
 });

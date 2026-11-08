@@ -29,6 +29,8 @@ export interface Seen {
   images: { mediaType: "image/jpeg"; data: string }[];
   /** Where the tab was when it was seen, when the look asked. */
   url?: string;
+  /** The call ended on a page it has no picture of: its last picture, if any, is of an earlier one. */
+  endUnseen?: boolean;
 }
 
 /** A tab as the hands use it: its page, and a picture of it. */
@@ -141,17 +143,19 @@ export async function visit(tab: Tab, urls: string[], options: { then: Then; sco
     await tab.page.ready();
     const parts: string[] = [];
     const images: Seen["images"] = [];
+    let lastSeen = false;
     try {
       for (const url of targets) {
         const went = await tab.page.goto(url, options.until ?? "dom");
         const seen = await seeAfter(tab, options.then, options.scope, options);
         parts.push(`Opened ${url}${went.stillLoading ? " (still loading at the deadline; it may fill in on another look)" : ""}\n${seen.text}`.trim());
         images.push(...seen.images);
+        lastSeen = seen.images.length > 0;
       }
     } finally {
       await tab.page.release();
     }
-    return { text: parts.join("\n\n"), images };
+    return { text: parts.join("\n\n"), images, ...(images.length && !lastSeen ? { endUnseen: true } : {}) };
   });
 }
 
