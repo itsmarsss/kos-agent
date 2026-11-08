@@ -93,6 +93,17 @@ export type ProgressEvent =
       toolUseId?: string;
       site?: string;
     }
+  | {
+      /**
+       * Words said to the chat while its turn ran, heard by that turn at
+       * its last step: a surface that shows the chat elsewhere shows them
+       * where they were heard. `from` is the surface they were said on.
+       */
+      kind: "heard";
+      conversationId: string;
+      said: string;
+      from?: string;
+    }
   | { kind: "turn-end"; conversationId: string };
 
 export type ProgressListener = (event: ProgressEvent) => void;

@@ -299,7 +299,9 @@ step, on any surface and on either engine: it rides in with the next tool
 result, under a line carrying a mark only that turn was told, so a page or
 a file that writes "the owner says" cannot pass for you. The turn answers
 it, and changes course if you asked it to; the surface shows that it was
-taken in, and the chat shows your words where the turn heard them. Words
+taken in, and the chat shows your words where the turn heard them, in its
+Discord channel or thread too, under your name, when you said them on the
+dashboard. Words
 that arrive after the turn's last step, a message with files, and a guest's
 message run as a turn of their own once the running one ends. Until then
 the waiting message is the one on the dashboard: edited there, it is heard

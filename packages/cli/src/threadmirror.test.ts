@@ -172,3 +172,14 @@ describe("a mirrored story kept for a restart", () => {
     expect(closed).toBe(1);
   });
 });
+
+describe("words steered into a running turn from the dashboard", () => {
+  it("posts them in the thread under the owner's name, and leaves Discord's own words alone", async () => {
+    const h = harness();
+    h.mirror.onProgress({ kind: "heard", conversationId: "c-thread", said: "use the red one", from: "dashboard" });
+    h.mirror.onProgress({ kind: "heard", conversationId: "c-thread", said: "said on discord", from: "discord" });
+    h.mirror.onProgress({ kind: "heard", conversationId: "c-nowhere", said: "no thread" });
+    await h.mirror.settle();
+    expect(h.posts).toEqual([{ target: "t1", text: "use the red one", from: "Owner" }]);
+  });
+});

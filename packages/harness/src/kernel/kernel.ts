@@ -480,7 +480,7 @@ export class Kernel {
   /** News for a chat mid-turn, written in when the turn ends. */
   private readonly heldNotes = new Map<string, string[]>();
   /** What the owner said to a chat while its turn ran, waiting for that turn's next step. */
-  private readonly steered = new Map<string, { id: number; taken: (how: Heard) => void }[]>();
+  private readonly steered = new Map<string, { id: number; channel?: string; taken: (how: Heard) => void }[]>();
   /**
    * What the owner said to start each running turn of theirs, and the event
    * those words were logged as once a claim has cited them.
@@ -918,7 +918,7 @@ export class Kernel {
     let parked: number | undefined;
     if (useSession && this.working.has(sessionId) && opts.origin !== "system" && !opts.attachments?.length && !opts.guest && !opts.contextFrom && !opts.context && !opts.roomTalk) {
       const waiting = this.pending.add(sessionId, text, [], originOf(opts), flagsOf(opts));
-      const how = await new Promise<Heard>((taken) => this.steered.set(sessionId, [...(this.steered.get(sessionId) ?? []), { id: waiting, taken }]));
+      const how = await new Promise<Heard>((taken) => this.steered.set(sessionId, [...(this.steered.get(sessionId) ?? []), { id: waiting, ...(opts.channel ? { channel: opts.channel } : {}), taken }]));
       if (how === "heard") return { reply: "", halted: false, sessionId, steered: true };
       if (how === "dropped") return dropped;
       // The turn ended before hearing it: it runs as a turn of its own, and
@@ -1720,6 +1720,8 @@ export class Kernel {
       this.pending.take(w.id);
       words.push(row.text);
       w.taken("heard");
+      // Shown where the chat is mirrored, as the owner's, where the turn heard them.
+      this.progress.emit({ kind: "heard", conversationId: sessionId, said: row.text, ...(w.channel ? { from: w.channel } : {}) });
     }
     return words.length ? ownerWords(mark, words) : undefined;
   }

@@ -189,7 +189,7 @@ describe("Kernel", () => {
       async generate(_t, r) {
         requests.push(r);
         if (requests.length === 1) {
-          seconds.push(kernel.handleMessage("use the blue one", { sessionId: chat }));
+          seconds.push(kernel.handleMessage("use the blue one", { sessionId: chat, channel: "dashboard" }));
           seconds.push(kernel.handleMessage("never mind this", { sessionId: chat }));
           await new Promise((done) => setTimeout(done, 30));
           // Edited and dropped on the dashboard while the step runs.
@@ -202,6 +202,8 @@ describe("Kernel", () => {
       },
     });
     chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Paint" }).id;
+    const heard: unknown[] = [];
+    kernel.progress.subscribe((e) => void (e.kind === "heard" && heard.push(e)));
     expect((await kernel.handleMessage("paint it", { sessionId: chat })).reply).toBe("Red it is.");
     expect(await seconds[0]).toMatchObject({ steered: true });
     expect(await seconds[1]).toMatchObject({ reply: "", dropped: true });
@@ -211,6 +213,8 @@ describe("Kernel", () => {
     expect(sent).not.toContain("use the blue one");
     expect(sent).not.toContain("never mind this");
     expect(kernel.pending.forConversation(chat)).toEqual([]);
+    // Told as heard, for a surface showing the chat elsewhere; the dropped words are not.
+    expect(heard).toEqual([{ kind: "heard", conversationId: chat, said: "use the red one", from: "dashboard" }]);
   });
 
   it("runs words said too late for a step as a turn of their own", async () => {

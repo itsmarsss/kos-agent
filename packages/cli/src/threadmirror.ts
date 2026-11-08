@@ -110,6 +110,21 @@ export class ThreadMirror {
     if (event.kind === "turn-start") void this.run(conv, () => this.start(event));
     else if (event.kind === "tool-start" || event.kind === "tool-end" || event.kind === "delta") void this.run(conv, () => this.step(conv, event));
     else if (event.kind === "turn-end") void this.run(conv, () => this.finish(conv));
+    else if (event.kind === "heard") void this.run(conv, () => this.heard(event));
+  }
+
+  /**
+   * Words said on the dashboard while the turn ran, heard by it mid-turn:
+   * posted in the thread under the owner's name, where the turn heard them.
+   * Said on Discord, they are there already.
+   */
+  private async heard(event: Extract<ProgressEvent, { kind: "heard" }>): Promise<void> {
+    if (event.from === "discord" || !event.said.trim()) return;
+    const target = this.tracked.get(event.conversationId)?.target ?? this.deps.targetFor(event.conversationId);
+    if (!target) return;
+    const owner = await this.deps.ownerSender();
+    const text = owner ? event.said.trim() : `${event.said.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard`;
+    await this.deps.postIn(target, { text, ...(owner ? { from: owner } : {}) });
   }
 
   /**
