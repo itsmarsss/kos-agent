@@ -157,6 +157,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
       // A page made of frames, as SmartBook is: the overlay must leave every one of them when the session ends.
       // A link that goes on to another site, one the owner may hide.
       if (req.url === "/away") return void res.writeHead(302, { location: `${base.replace("127.0.0.1", "localhost")}/secret` }).end();
+      if (req.url === "/link") return void res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Link</title><a href='/away' style='display:block;margin:80px;padding:20px'>Away</a>");
       if (req.url === "/framed") return void res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Framed</title><iframe src='/inner' style='width:400px;height:200px'></iframe>");
       res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Shop</title><button id='buy' style='margin:80px;padding:20px'>Buy</button>");
     });
@@ -464,14 +465,37 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
       expect(await call("cdp.send", { session: "h2", tab, method: "Runtime.evaluate", params: { expression: "document.title", returnByValue: true } })).toMatchObject({ ok: true, result: { result: { value: "Shop" } } });
     }, 30_000);
 
-    it("stops a batch whose page goes to a hidden site part way, before the next command", async () => {
+    it("stops a batch whose page goes to a hidden site part way, giving nothing of where it went", async () => {
       try {
         const done = (await batch("h2", [{ method: "Page.navigate", params: { url: `${base}/away` } }, title]))["result"] as { results: Record<string, unknown>[] };
-        expect(done.results).toEqual([{ result: expect.objectContaining({ frameId: expect.any(String) }) }, { error: expect.objectContaining({ code: "hidden_site" }) }]);
+        expect(done.results).toEqual([{ error: expect.objectContaining({ code: "hidden_site" }) }]);
       } finally {
         await devtools.send("Page.navigate", { url: `${base}/mine` }, owners);
         await devtools.loaded(owners);
       }
+    }, 30_000);
+
+    it("gives KOS nothing of a page a click took to a hidden site, while a command ran or after", async () => {
+      const cdp = (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> => call("cdp.send", { session: "h2", tab, method, params });
+      try {
+        await devtools.send("Page.navigate", { url: `${base}/link` }, owners);
+        await devtools.loaded(owners);
+        for (const type of ["mousePressed", "mouseReleased"]) expect(await cdp("Input.dispatchMouseEvent", { type, x: 120, y: 110, button: "left", clickCount: 1 })).toMatchObject({ ok: true });
+        // A look begun as the click takes the page away, answered once the tab is on the hidden site: refused, not its answer.
+        expect((await cdp("Runtime.evaluate", { expression: "new Promise((r) => setTimeout(() => r(document.title), 1500))", awaitPromise: true, returnByValue: true }))["error"]).toMatchObject({ code: "hidden_site" });
+        expect((await cdp("Page.captureScreenshot", { format: "jpeg", quality: 60 }))["error"]).toMatchObject({ code: "hidden_site" });
+        expect((await cdp("Runtime.evaluate", { expression: "document.title", returnByValue: true }))["error"]).toMatchObject({ code: "hidden_site" });
+      } finally {
+        await devtools.send("Page.navigate", { url: `${base}/mine` }, owners);
+        await devtools.loaded(owners);
+      }
+      // The tab's history names no hidden site, and goes back to none.
+      const { entries } = (await cdp("Page.getNavigationHistory"))["result"] as { entries: { id: number; url: string; title: string }[] };
+      expect(entries.some((e) => e.url.includes("localhost"))).toBe(false);
+      const hidden = entries.find((e) => e.title === "Hidden from KOS");
+      expect(hidden).toMatchObject({ url: "" });
+      expect((await cdp("Page.navigateToHistoryEntry", { entryId: hidden!.id }))["error"]).toMatchObject({ code: "hidden_site" });
+      expect(await cdp("Runtime.evaluate", { expression: "location.pathname", returnByValue: true })).toMatchObject({ ok: true, result: { result: { value: "/mine" } } });
     }, 30_000);
 
     it("refuses the rest of a batch once the owner takes the tab over part way", async () => {
