@@ -1,5 +1,5 @@
 import { PICTURE, Page, sendEach, type Call, type Session as TabSession, type Tab } from "@kos/browser";
-import type { BrowserElsewhere, TabInfo } from "@kos/harness";
+import type { BrowserElsewhere, PageSpot, TabInfo } from "@kos/harness";
 
 import { kindOf, type DeviceHub, type Session } from "./hub.js";
 import { DeviceError } from "./link.js";
@@ -34,6 +34,10 @@ interface Borrowed {
   pages: Map<string, Page>;
   /** The extension sends pictures the size of the tab: one from before it made them small itself. */
   fullPictures?: boolean;
+  /** How often the page has moved under the agent: navigated, taken over, handed back. */
+  moved: number;
+  /** Whether the owner had the Chrome when last heard. */
+  paused?: boolean;
 }
 
 /** How long an agent waits for the owner to hand a tab back. */
@@ -124,7 +128,15 @@ export class OwnerChrome implements BrowserElsewhere {
     hub.onDeviceEvent((device, event, session) => this.heard(device, event, session));
     hub.onChange(() => {
       // A session gone takes its tabs with it; a waiting hand is woken to find out.
-      for (const [conversation, b] of this.held) if (this.hub.sessionOf(conversation)?.id !== b.session) this.held.delete(conversation);
+      for (const [conversation, b] of this.held) {
+        const session = this.hub.sessionOf(conversation);
+        if (session?.id !== b.session) this.held.delete(conversation);
+        // The owner taking the Chrome over, or handing it back, may have changed any page in it.
+        else if (session.paused !== b.paused) {
+          b.paused = session.paused;
+          b.moved++;
+        }
+      }
       for (const wake of [...this.wakers]) wake();
     });
   }
@@ -186,6 +198,11 @@ export class OwnerChrome implements BrowserElsewhere {
     return b.current;
   }
 
+  spot(conversation: string): PageSpot | undefined {
+    const b = this.held.get(conversation);
+    return b?.current ? { tab: b.current, url: b.tabs.get(b.current)?.url ?? "", moved: b.moved } : undefined;
+  }
+
   siteOf(conversation: string): string | undefined {
     const b = this.held.get(conversation);
     const url = b?.current ? b.tabs.get(b.current)?.url : undefined;
@@ -207,7 +224,7 @@ export class OwnerChrome implements BrowserElsewhere {
     if (!session) throw new Error("this chat is not working in the owner's Chrome; chrome.start asks for it");
     let b = this.held.get(conversation);
     if (!b || b.session !== session.id) {
-      b = { session: session.id, tabs: new Map(), pages: new Map() };
+      b = { session: session.id, tabs: new Map(), pages: new Map(), moved: 0 };
       this.held.set(conversation, b);
     }
     return b;
@@ -315,7 +332,10 @@ export class OwnerChrome implements BrowserElsewhere {
     if (method === "Page.frameNavigated") {
       const frame = params["frame"] as { parentId?: string; url?: string } | undefined;
       const kept = b.tabs.get(tab);
-      if (frame && !frame.parentId && kept && typeof frame.url === "string") kept.url = frame.url;
+      if (frame && !frame.parentId && kept && typeof frame.url === "string") {
+        kept.url = frame.url;
+        b.moved++;
+      }
     }
     b.pages.get(tab)?.handle({ method, params });
   }

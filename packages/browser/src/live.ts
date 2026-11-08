@@ -290,6 +290,8 @@ export class BrowserLive {
   private readonly pages = new Map<string, Page>();
   /** Tabs the owner has taken, each by which of their windows. */
   private readonly held = new Map<string, string>();
+  /** How often each tab's page has moved under its agent: navigated, taken by the owner, let go. */
+  private readonly moves = new Map<string, number>();
   /** Agents waiting on a held tab, woken when it is let go. */
   private readonly waiters = new Map<string, Set<() => void>>();
   private keeping: ReturnType<typeof setInterval> | null = null;
@@ -398,6 +400,7 @@ export class BrowserLive {
   hold(tab: string, holder: string): void {
     if (!this.targets.has(tab)) throw new Error("no such tab");
     this.held.set(tab, holder);
+    this.moved(tab);
     this.emitTabs();
   }
 
@@ -412,7 +415,18 @@ export class BrowserLive {
     for (const [tab, by] of [...this.held]) if (by === holder) this.letGo(tab);
   }
 
+  private moved(tab: string): void {
+    this.moves.set(tab, (this.moves.get(tab) ?? 0) + 1);
+  }
+
+  /** Where a conversation's tab is, and how often its page has moved under it. */
+  spot(conversationId: string): { tab: string; url: string; moved: number } | undefined {
+    const tab = this.tabOf(conversationId);
+    return tab ? { tab, url: this.targets.get(tab)?.url ?? "", moved: this.moves.get(tab) ?? 0 } : undefined;
+  }
+
   private letGo(tab: string): void {
+    this.moved(tab);
     this.held.delete(tab);
     const waiting = this.waiters.get(tab);
     this.waiters.delete(tab);
@@ -809,11 +823,15 @@ export class BrowserLive {
         }
         return;
       }
+      case "Page.navigatedWithinDocument":
+        if (event.params["frameId"] && event.sessionId) for (const [tab, s] of this.sessions) if (s === event.sessionId && event.params["frameId"] === tab) this.moved(tab);
+        return;
       case "Page.frameNavigated": {
         // A cross-site navigation swaps the renderer under the cast, and the
         // cast dies quietly with it. Started again for the new page.
         const frame = event.params["frame"] as Record<string, unknown> | undefined;
         if (!event.sessionId || !frame || frame["parentId"]) return;
+        for (const [tab, s] of this.sessions) if (s === event.sessionId) this.moved(tab);
         const navigated = [...this.watches].find(([, w]) => w.sessionId === event.sessionId);
         if (navigated) void this.recast(navigated[0], navigated[1]);
         return;
