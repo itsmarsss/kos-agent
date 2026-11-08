@@ -33,6 +33,7 @@ export {
   type KeptPrompts,
   type PromptRef,
   type RoomCursors,
+  type KeptStories,
 } from "./discord.js";
 export {
   ChannelRuntime,

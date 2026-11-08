@@ -27,7 +27,7 @@ import { CHANNEL_TOKEN, detailLines, stepActions, summarizeAction, withUnixTimes
 import { isReadable, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
-import { OWNER_ONLY, OWNER_THREAD_PREFIX, type Guest } from "./types.js";
+import { INTERRUPTED_LINE, OWNER_ONLY, OWNER_THREAD_PREFIX, type Guest } from "./types.js";
 import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
 import { linkMentions, linkPaths, literal, literalWords, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
 import { tablesToCode } from "./tables.js";
@@ -398,6 +398,16 @@ export interface DiscordAdapterOptions {
   onConnected?: () => Promise<void> | void;
   /** The last message taken in each room, kept across restarts, so catch-up reads only what came after. */
   cursors?: RoomCursors;
+  /** Where each running turn's story line is, so one a restart cut short can say so. */
+  keptStories?: KeptStories;
+}
+
+/** The story lines of turns still running, by message, kept across restarts. */
+export interface KeptStories {
+  add(ref: PromptRef): void;
+  remove(messageId: string): void;
+  /** All of them, let go as they are handed over. */
+  take(): PromptRef[];
 }
 
 /** The last message taken in each room (a bound channel, a thread, the owner's DM), by the room's id. */
@@ -857,6 +867,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly senderOf?: (conversationId: string) => Sender | undefined;
   private readonly onConnected?: () => Promise<void> | void;
   private readonly cursors?: RoomCursors;
+  private readonly keptStories?: KeptStories;
   /** Messages already taken, newest last, so none runs twice. */
   private readonly seen = new Set<string>();
   private readonly threadBindings?: () => Record<string, string>;
@@ -899,6 +910,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.senderOf) this.senderOf = options.senderOf;
     if (options.onConnected) this.onConnected = options.onConnected;
     if (options.cursors) this.cursors = options.cursors;
+    if (options.keptStories) this.keptStories = options.keptStories;
     if (options.threadBindings) this.threadBindings = options.threadBindings;
     if (options.keptPrompts) this.keptPrompts = options.keptPrompts;
     if (options.timezone) this.timezone = options.timezone;
@@ -1016,6 +1028,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (!this.commandsRegistered) {
       this.commandsRegistered = true;
       void this.registerCommands();
+      await this.settleInterrupted();
     }
     await this.flushOutbox();
     await this.onConnected?.();
@@ -1427,9 +1440,9 @@ export class DiscordAdapter implements ChannelAdapter {
    * bot otherwise. The answer is its own message, posted after. Nothing when
    * the target cannot be posted in.
    */
-  async openStory(targetId: string, from?: Sender): Promise<{ edit(text: string): Promise<void>; remove(): Promise<void> } | undefined> {
+  async openStory(targetId: string, from?: Sender): Promise<{ edit(text: string): Promise<void>; remove(): Promise<void>; close(): void } | undefined> {
     const channel = (await this.client.channels.fetch(targetId).catch(() => null)) as
-      | { id: string; isThread?: () => boolean; parent?: { id: string } | null; isSendable?: () => boolean; send?: (p: unknown) => Promise<{ edit: (p: unknown) => Promise<unknown>; delete: () => Promise<unknown> }> }
+      | { id: string; isThread?: () => boolean; parent?: { id: string } | null; isSendable?: () => boolean; send?: (p: unknown) => Promise<{ id?: string; edit: (p: unknown) => Promise<unknown>; delete: () => Promise<unknown> }> }
       | null;
     if (!channel?.send || (channel.isSendable && !channel.isSendable())) return undefined;
     const via = from ? await this.webhookFor(channel, from).catch(() => undefined) : undefined;
@@ -1437,13 +1450,16 @@ export class DiscordAdapter implements ChannelAdapter {
       const thread = via.threadId ? { threadId: via.threadId } : {};
       const said = await via.hook.send({ content: THINKING, flags: MessageFlags.SuppressNotifications, username: from.name, ...thread }).catch(() => undefined);
       if (said) {
+        const close = this.keepStory({ channelId: via.threadId && channel.parent ? channel.parent.id : channel.id, messageId: said.id, webhookId: via.hook.id, ...thread });
         return {
+          close,
           edit: async (text: string) => {
             const content = storyText(text, this.dashboardUrl, this.timezone, this.labelOf);
             if (!content.trim()) return;
             await via.hook.editMessage(said.id, { content, ...thread }).catch(() => undefined);
           },
           remove: async () => {
+            close();
             await via.hook.deleteMessage(said.id, via.threadId).catch(() => undefined);
           },
         };
@@ -1451,13 +1467,16 @@ export class DiscordAdapter implements ChannelAdapter {
     }
     const posted = await channel.send({ content: THINKING, flags: MessageFlags.SuppressNotifications }).catch(() => undefined);
     if (!posted) return undefined;
+    const close = this.keepStory(typeof (posted as { id?: unknown }).id === "string" ? { channelId: channel.id, messageId: (posted as { id: string }).id } : undefined);
     return {
+      close,
       edit: async (text: string) => {
         const content = storyText(text, this.dashboardUrl, this.timezone, this.labelOf);
         if (!content.trim()) return;
         await posted.edit({ content }).catch(() => undefined);
       },
       remove: async () => {
+        close();
         await posted.delete().catch(() => undefined);
       },
     };
@@ -2394,25 +2413,30 @@ export class DiscordAdapter implements ChannelAdapter {
     interface Story {
       edit(content: string): Promise<unknown>;
       remove(): Promise<unknown>;
+      ref: PromptRef;
     }
     const tell = async (content: string): Promise<Story | undefined> => {
       const silent = { content, flags: MessageFlags.SuppressNotifications as const };
-      const via = from ? await this.webhookFor(message.channel as Parameters<DiscordAdapter["webhookFor"]>[0], from).catch(() => undefined) : undefined;
+      const where = message.channel as Parameters<DiscordAdapter["webhookFor"]>[0];
+      const via = from ? await this.webhookFor(where, from).catch(() => undefined) : undefined;
       if (via && from) {
         const thread = via.threadId ? { threadId: via.threadId } : {};
         const posted = await via.hook.send({ ...silent, username: from.name, ...thread });
         return {
           edit: (next) => via.hook.editMessage(posted.id, { content: next, ...thread }),
           remove: () => via.hook.deleteMessage(posted.id, via.threadId),
+          ref: { channelId: via.threadId && where.parent ? where.parent.id : where.id, messageId: posted.id, webhookId: via.hook.id, ...thread },
         };
       }
       if (!channel?.send) return undefined;
-      const posted = (await channel.send(silent)) as { edit: (payload: { content: string }) => Promise<unknown>; delete: () => Promise<unknown> };
-      return { edit: (next) => posted.edit({ content: next }), remove: () => posted.delete() };
+      const posted = (await channel.send(silent)) as { id: string; edit: (payload: { content: string }) => Promise<unknown>; delete: () => Promise<unknown> };
+      return { edit: (next) => posted.edit({ content: next }), remove: () => posted.delete(), ref: { channelId: where.id, messageId: posted.id } };
     };
     // Up before the turn starts, so it is always the first thing after the
     // question; a line that could not be posted is no reason to hold the turn.
     const story = await tell(THINKING).catch(() => undefined);
+    // Kept while the turn runs, so a restart that cuts it short can say so on it.
+    const close = this.keepStory(story?.ref);
     let told = false;
     const settle = async (): Promise<void> => {
       if (story && !told) await story.remove().catch(() => undefined);
@@ -2425,7 +2449,10 @@ export class DiscordAdapter implements ChannelAdapter {
         told = true;
         await story.edit(content);
       },
-      complete: async (answer: OutboundMessage) => {
+      close,
+      complete: async (answer: OutboundMessage, how?: { waiting?: boolean }) => {
+        // A turn waiting on the owner goes on telling this story; the runtime closes it when it ends.
+        if (!how?.waiting) close();
         await settle();
         // Answered on KOS's return: said under it, so a late answer reads as one.
         const reply = msg.late ? { ...answer, text: `${answer.text}\n-# sent while KOS was offline` } : answer;
@@ -2440,6 +2467,7 @@ export class DiscordAdapter implements ChannelAdapter {
         }
       },
       fail: async (err: string) => {
+        close();
         await settle();
         const text = noPreviews(`❌ ${err.slice(0, 1900)}`);
         try {
@@ -2449,6 +2477,35 @@ export class DiscordAdapter implements ChannelAdapter {
         }
       },
     };
+  }
+
+  /** Keep a story's place until it closes; the returned close lets it go, once. */
+  private keepStory(ref: PromptRef | undefined): () => void {
+    if (!ref || !this.keptStories) return () => undefined;
+    this.keptStories.add(ref);
+    let open = true;
+    return () => {
+      if (!open) return;
+      open = false;
+      this.keptStories?.remove(ref.messageId);
+    };
+  }
+
+  /**
+   * Stories a restart cut short, said so: each is the record of a turn that
+   * will not finish, and left as it was it read as one still running.
+   */
+  private async settleInterrupted(): Promise<void> {
+    for (const ref of this.keptStories?.take() ?? []) {
+      try {
+        const room = (await this.client.channels.fetch(ref.threadId ?? ref.channelId)) as unknown as { messages?: { fetch: (id: string) => Promise<{ content: string }> } } | null;
+        const was = (await room?.messages?.fetch(ref.messageId))?.content ?? "";
+        const content = !was.trim() || was === THINKING ? INTERRUPTED_LINE : `${was}\n${INTERRUPTED_LINE}`;
+        await this.editKept(ref, { content: content.slice(-2000), embeds: [], components: [] });
+      } catch {
+        // Deleted, or out of reach: nothing left to correct.
+      }
+    }
   }
 
   async requestApproval(recipientId: string, req: ApprovalRequest): Promise<void> {

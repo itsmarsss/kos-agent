@@ -31,6 +31,7 @@ import {
   runNowReply,
   type RunNowOutcome,
   type KeptPrompts,
+  type KeptStories,
   type PromptRef,
 } from "./discord.js";
 import { OWNER_ONLY, type ApprovalDecision, type ButtonPress, type InboundMessage } from "./types.js";
@@ -2133,5 +2134,52 @@ describe("catching up after a drop or a restart", () => {
     const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner", text: "hi", late: true, native: message });
     await presence!.complete({ text: "done" });
     expect(posted.at(-1)).toEqual({ content: "done\n-# sent while KOS was offline" });
+  });
+});
+
+describe("a turn a restart cut short", () => {
+  function keptIn(): { stories: KeptStories; refs: Map<string, PromptRef> } {
+    const refs = new Map<string, PromptRef>();
+    return {
+      refs,
+      stories: {
+        add: (ref) => void refs.set(ref.messageId, ref),
+        remove: (id) => void refs.delete(id),
+        take: () => {
+          const all = [...refs.values()];
+          refs.clear();
+          return all;
+        },
+      },
+    };
+  }
+
+  it("keeps a turn's story line while it runs and lets it go when the turn ends", async () => {
+    const { stories, refs } = keptIn();
+    const message = { author: { id: "owner", bot: false }, guild: null, content: "hi", channel: { id: "dm1", send: async () => ({ id: "s1", edit: async () => undefined, delete: async () => undefined }) } } as unknown as Message;
+    const adapter = new DiscordAdapter({ token: "t", keptStories: stories });
+    const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner", text: "hi", native: message });
+    expect([...refs.values()]).toEqual([{ channelId: "dm1", messageId: "s1" }]);
+    // Waiting on the owner: the story goes on, so it is still kept.
+    await presence!.complete({ text: "Waiting on you" }, { waiting: true });
+    expect(refs.size).toBe(1);
+    presence!.close?.();
+    expect(refs.size).toBe(0);
+  });
+
+  it("says so on each story left open, at the first connection after the restart", async () => {
+    const { stories, refs } = keptIn();
+    refs.set("s1", { channelId: "dm1", messageId: "s1" });
+    refs.set("s2", { channelId: "dm1", messageId: "s2" });
+    const edits: Record<string, string> = {};
+    const said: Record<string, string> = { s1: "-# Read notes.md", s2: "-# thinking…" };
+    const room = { messages: { fetch: async (id: string) => ({ content: said[id], edit: async (p: { content: string }) => void (edits[id] = p.content) }) } };
+    const adapter = new DiscordAdapter({ token: "t", keptStories: stories });
+    (adapter as unknown as { client: unknown }).client = { isReady: () => true, channels: { fetch: async () => room }, application: { commands: { set: async () => undefined } } };
+    await adapter.onUp();
+    expect(edits).toEqual({ s1: "-# Read notes.md\n-# interrupted by a restart", s2: "-# interrupted by a restart" });
+    expect(refs.size).toBe(0);
+    await adapter.onUp();
+    expect(Object.keys(edits)).toHaveLength(2);
   });
 });

@@ -14,6 +14,7 @@ import {
   type KeptPrompts,
   type PromptRef,
   type RoomCursors,
+  type KeptStories,
   IMessageAdapter,
   describeStartFailure,
   SmsAdapter,
@@ -202,6 +203,26 @@ export function roomCursorsIn(settings: { get<T>(key: string): T | undefined; se
       settings.set(ROOM_CURSORS_KEY, { ...now, [room]: id });
     },
     rooms: () => Object.keys(all()),
+  };
+}
+
+/** The key the story lines of running turns are kept under. */
+const KEPT_STORIES_KEY = "discord.stories";
+
+/** The story lines of turns still running, in the workspace's settings, so a restart can say it cut them short. */
+export function keptStoriesIn(settings: { get<T>(key: string): T | undefined; set(key: string, value: unknown): void }): KeptStories {
+  const all = (): Record<string, PromptRef> => settings.get<Record<string, PromptRef>>(KEPT_STORIES_KEY) ?? {};
+  return {
+    add: (ref) => settings.set(KEPT_STORIES_KEY, { ...all(), [ref.messageId]: ref }),
+    remove: (messageId) => {
+      const { [messageId]: _gone, ...rest } = all();
+      settings.set(KEPT_STORIES_KEY, rest);
+    },
+    take: () => {
+      const refs = Object.values(all());
+      settings.set(KEPT_STORIES_KEY, {});
+      return refs;
+    },
   };
 }
 
@@ -471,6 +492,9 @@ export async function runHost(options: HostOptions): Promise<void> {
     },
   });
 
+  // A turn the last process was running when it stopped is said to be cut
+  // short in its chat, before any surface can start a turn of its own.
+  kernel.markInterrupted();
   // Off unless the owner set an interval; the timer re-reads it, so turning
   // it on in settings does not need a restart.
   kernel.startHeartbeat();
@@ -591,6 +615,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       keptPrompts: keptPromptsIn(kernel),
       // What each room last said to KOS, so what was said while it was away is caught up.
       cursors: roomCursorsIn(kernel.settings),
+      // Each running turn's story line, so one a restart cut short says so.
+      keptStories: keptStoriesIn(kernel.settings),
       threadBindings: () => kernel.threadBindings(),
       timezone: kernel.profile.timezone,
       labelOf: (kind, id) => kernel.labelFor(kind, id),
@@ -993,6 +1019,9 @@ export async function runHost(options: HostOptions): Promise<void> {
    * the job was marked failing, the caretaker opened a fix chat for it, and
    * the chat found nothing wrong, at a model turn's cost, on every restart.
    */
+  // What was waiting behind a turn when the last process stopped runs now,
+  // or is named in its chat to send again.
+  kernel.replayQueued();
   kernel.startCron();
   // A job whose moment passed while nothing was running did not happen and
   // said nothing. At most one run each, however many were missed.

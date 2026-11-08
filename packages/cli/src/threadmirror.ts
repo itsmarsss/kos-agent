@@ -22,6 +22,8 @@ import { TurnNarrator, type MessageFrom, type OutboundMessage, type ProgressEven
 export interface Story {
   edit(text: string): Promise<void>;
   remove(): Promise<void>;
+  /** The turn is over: a surface that kept the line for a restart lets it go. */
+  close?(): void;
 }
 
 /** The turn:said event the host hands the mirror, so it can post the answer and finalize the story. */
@@ -127,6 +129,7 @@ export class ThreadMirror {
       if (t.story) {
         const steps = t.narrator.renderSteps();
         await (steps.trim() ? t.story.edit(steps) : t.story.remove());
+        t.story.close?.();
       }
       if (said.reply.trim()) {
         const from = this.deps.senderFor(said.conversationId);
@@ -197,6 +200,7 @@ export class ThreadMirror {
     if (t.story) {
       const steps = t.narrator.renderSteps();
       await (steps.trim() ? t.story.edit(steps) : t.story.remove());
+      t.story.close?.();
     }
   }
 }

@@ -3,7 +3,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
-import { OWNER_THREAD_PREFIX, type Asker, type ConversationSeed, type Guest, type OutboundMessage, type Sender } from "../channels/types.js";
+import { INTERRUPTED_LINE, OWNER_THREAD_PREFIX, type Asker, type ConversationSeed, type Guest, type OutboundMessage, type Sender } from "../channels/types.js";
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry, type ToolExecution } from "../agent/registry.js";
@@ -82,7 +82,7 @@ import { type RouteSummary } from "../models/router.js";
 import { SpendStore } from "../ops/spend.js";
 import { BuildRegistry } from "../builds/registry.js";
 import { sitesBaseUrl } from "../sites/server.js";
-import { PendingMessages, type PendingMessage } from "./pending.js";
+import { PendingMessages, type PendingFlags, type PendingMessage } from "./pending.js";
 import { applyModelSettings, type ModelSettings } from "../models/settings.js";
 import { SettingsStore } from "../store/settings.js";
 import { ModuleLoader, type KosModule, type LoadReport } from "../modules/loader.js";
@@ -213,6 +213,9 @@ export const CHANNEL_AUDIENCE_KEY = "discord.audience";
 export const CHANNEL_LISTEN_KEY = "discord.listen";
 /** Which Discord thread stands for which chat. */
 export const THREAD_BINDINGS_KEY = "discord.threads";
+/** Chats with a turn running, kept so a restart can say which it cut short. */
+const OPEN_TURNS_KEY = "turns.open";
+
 /** The face the Discord bot wears, as a hash of the PNG, so it is set again only when the look changes. */
 export const WORN_FACE_KEY = "discord.face";
 
@@ -306,6 +309,12 @@ const guestNamed = (guest: Guest): string => `[${guest.name}, a guest in the cha
 function withoutGuestName(text: string, guest: Guest | undefined): string {
   const named = guest ? guestNamed(guest) : undefined;
   return named && text.startsWith(named) ? text.slice(named.length) : text;
+}
+
+/** Who a waiting message's turn is to the fences, kept with it so a restart runs it as that. */
+function flagsOf(opts: PendingFlags): PendingFlags {
+  const keys = ["owner", "attended", "origin", "channel", "grant", "allow", "guest", "room", "members", "context", "roomTalk", "via", "from"] as const;
+  return Object.fromEntries(keys.filter((k) => opts[k] !== undefined).map((k) => [k, opts[k]])) as PendingFlags;
 }
 
 export const GUEST_TOOLS = ["sql", "discord.react", "discord.reactions", "discord.messages", "discord.member", "notify", "chats.handoff"];
@@ -839,6 +848,8 @@ export class Kernel {
       contextFrom?: string;
       /** Earlier asides in this side thread, so a follow-up keeps its context. */
       priorTurns?: ModelMessage[];
+      /** Left waiting by the last process and run now: nothing on its surface is waiting to post the answer. */
+      replayed?: boolean;
     } = {},
   ): Promise<HandleResult> {
     if (this.killSwitch.halted) {
@@ -906,7 +917,7 @@ export class Kernel {
     const dropped: HandleResult = { reply: "", halted: false, sessionId, dropped: true };
     let parked: number | undefined;
     if (useSession && this.working.has(sessionId) && opts.origin !== "system" && !opts.attachments?.length && !opts.guest && !opts.contextFrom && !opts.context && !opts.roomTalk) {
-      const waiting = this.pending.add(sessionId, text, [], originOf(opts));
+      const waiting = this.pending.add(sessionId, text, [], originOf(opts), flagsOf(opts));
       const how = await new Promise<Heard>((taken) => this.steered.set(sessionId, [...(this.steered.get(sessionId) ?? []), { id: waiting, taken }]));
       if (how === "heard") return { reply: "", halted: false, sessionId, steered: true };
       if (how === "dropped") return dropped;
@@ -920,7 +931,7 @@ export class Kernel {
         text = row.text;
       }
     } else if (useSession && this.queue.depthOf(sessionId) > 0) {
-      parked = this.pending.add(sessionId, text, opts.attachments ?? [], originOf(opts));
+      parked = this.pending.add(sessionId, text, opts.attachments ?? [], originOf(opts), flagsOf(opts));
     }
 
     return this.queue.enqueue(async () => {
@@ -971,6 +982,7 @@ export class Kernel {
       /** An aside: borrow this chat's history and identity, record nothing. */
       contextFrom?: string;
       priorTurns?: ModelMessage[];
+      replayed?: boolean;
     },
   ): Promise<HandleResult> {
     {
@@ -985,6 +997,7 @@ export class Kernel {
       const previousConversation = this.currentConversationId;
       this.currentConversationId = sessionId;
       this.working.add(sessionId);
+      this.openTurn(sessionId, true);
       if (this.buildsWhatItMakes(sessionId, opts.guest !== undefined)) this.turnMade.begin(sessionId, turnId);
       this.failed.delete(sessionId);
       // Where this work has been, for as long as the turn runs: a handoff
@@ -1327,7 +1340,7 @@ export class Kernel {
                 sessionId,
                 ...(opts.origin === "system" ? [] : [text]),
               );
-              this.said(sessionId, text, reply, opts.origin ?? "owner", opts.channel, opts.kept ?? [], resumed, opts.guest ? undefined : opts.from);
+              this.said(sessionId, text, reply, opts.origin ?? "owner", opts.channel, opts.kept ?? [], resumed || opts.replayed === true, opts.guest ? undefined : opts.from);
             }
             /*
              * One row per model the call actually used.
@@ -1414,7 +1427,7 @@ export class Kernel {
               ...(opts.origin ? { origin: opts.origin } : {}),
               ...(opts.channel ? { channel: opts.channel } : {}),
               ...(opts.kept?.length ? { kept: opts.kept } : {}),
-              ...(resumed ? { resumed: true } : {}),
+              ...(resumed || opts.replayed ? { resumed: true } : {}),
               ...(opts.from && !opts.guest ? { from: opts.from } : {}),
               runId,
               useSession,
@@ -1727,6 +1740,7 @@ export class Kernel {
   private endTurn(sessionId: string, turnId?: string): void {
     if (turnId) this.turnMade.end(sessionId, turnId);
     this.working.delete(sessionId);
+    this.openTurn(sessionId, false);
     // Words the turn never reached a step to hear run as a turn of their own.
     for (const w of this.steered.get(sessionId) ?? []) w.taken("left");
     this.steered.delete(sessionId);
@@ -1744,6 +1758,63 @@ export class Kernel {
     if (held) {
       this.heldNotes.delete(sessionId);
       for (const text of held) this.writeNote(sessionId, text);
+    }
+  }
+
+  /** Kept across restarts: which chats have a turn running, so one a restart cut short is said to be. */
+  private openTurn(sessionId: string, open: boolean): void {
+    const now = this.settings.get<Record<string, number>>(OPEN_TURNS_KEY) ?? {};
+    if (open === sessionId in now) return;
+    const { [sessionId]: _was, ...rest } = now;
+    this.settings.set(OPEN_TURNS_KEY, open ? { ...rest, [sessionId]: Date.now() } : rest);
+  }
+
+  /**
+   * At boot: each chat whose turn the last process was running when it
+   * stopped is told so, in a line of its own, rather than left looking as
+   * if the turn had simply said nothing.
+   */
+  markInterrupted(): string[] {
+    const open = Object.keys(this.settings.get<Record<string, number>>(OPEN_TURNS_KEY) ?? {});
+    this.settings.set(OPEN_TURNS_KEY, {});
+    for (const id of open) this.noteIn(id, INTERRUPTED_LINE);
+    return open;
+  }
+
+  /**
+   * What the last process left waiting, after boot. The owner's own words,
+   * sent attended, run in order, each as it was going to; a guest's run as
+   * that guest's, never as the owner's. Anything else (a schedule's, work
+   * passed on, a row from before flags were kept) is not run on its own:
+   * its chat is told what was not run, to send again.
+   */
+  replayQueued(): void {
+    const byChat = new Map<string, PendingMessage[]>();
+    for (const row of this.pending.leftover()) byChat.set(row.conversationId, [...(byChat.get(row.conversationId) ?? []), row]);
+    for (const [conversationId, rows] of byChat) {
+      const userId = this.conversations.get(conversationId)?.userId ?? this.profile.ownerId;
+      const runs: { text: string; opts: Parameters<Kernel["handleMessage"]>[1] }[] = [];
+      const notRun: string[] = [];
+      for (const row of rows) {
+        this.pending.remove(row.id);
+        const f = row.flags;
+        const files = row.attachments.length ? { attachments: row.attachments } : {};
+        const base = { sessionId: conversationId, userId, replayed: true, ...files };
+        if (f?.guest) {
+          const where = { ...(f.channel ? { channel: f.channel } : {}), ...(f.room ? { room: f.room } : {}), ...(f.roomTalk ? { roomTalk: f.roomTalk } : {}) };
+          runs.push({ text: withoutGuestName(row.text, f.guest), opts: { ...base, ...where, guest: f.guest } });
+        } else if (f?.owner === true && f.attended !== false && f.origin !== "system") {
+          runs.push({ text: row.text, opts: { ...base, ...f } });
+        } else {
+          notRun.push(row.text);
+        }
+      }
+      if (notRun.length) {
+        const quoted = notRun.map((t) => `> ${t.replace(/\s+/g, " ").slice(0, 200)}`).join("\n");
+        this.noteIn(conversationId, `${notRun.length} queued message${notRun.length === 1 ? " was" : "s were"} not run after a restart; resend?\n${quoted}`);
+      }
+      // One after another, in the order they were sent.
+      void runs.reduce<Promise<unknown>>((prev, r) => prev.then(() => this.handleMessage(r.text, r.opts).catch(() => undefined)), Promise.resolve());
     }
   }
 

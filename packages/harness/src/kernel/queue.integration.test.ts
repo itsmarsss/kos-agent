@@ -295,4 +295,45 @@ describe("a message sent while a turn is running", () => {
     expect(await third).toMatchObject({ dropped: true });
     expect(asked).toBe(2);
   });
+
+  it("runs what a restart left waiting as whoever sent it, in order, and names in the chat what it will not run", async () => {
+    const id = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Left" }).id;
+    const ana = { id: "a1", name: "Ana" };
+    kernel.pending.add(id, "owner words", [], { via: "discord" }, { owner: true, channel: "discord" });
+    kernel.pending.add(id, "[Ana, a guest in the channel] guest words", [], { via: "discord", from: { kind: "guest", name: "Ana", id: "a1" } }, { guest: ana, owner: false, origin: "system", channel: "discord" });
+    kernel.pending.add(id, "a schedule's", [], undefined, { origin: "system" });
+    kernel.pending.add(id, "from before flags");
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, inference: held });
+    const said: { text: string; origin: string; channel: string | null; resumed?: boolean }[] = [];
+    kernel.bus.on("turn:said", (e) => void said.push({ text: e.text, origin: e.origin, channel: e.channel, ...(e.resumed ? { resumed: true } : {}) }));
+    kernel.replayQueued();
+    expect(kernel.pending.forConversation(id)).toEqual([]);
+    await drain();
+    // The owner's as the owner's, the guest's as the guest's and never as the owner's; both go back to Discord.
+    expect(said).toEqual([
+      { text: "owner words", origin: "owner", channel: "discord", resumed: true },
+      { text: "[Ana, a guest in the channel] guest words", origin: "system", channel: "discord", resumed: true },
+    ]);
+    expect(asked).toBe(2);
+    const notes = kernel.sessions.get(id).filter((m) => m.role === "assistant").flatMap((m) => m.content.flatMap((b) => (b.type === "text" ? [b.text] : [])));
+    expect(notes[0]).toBe("2 queued messages were not run after a restart; resend?\n> a schedule's\n> from before flags");
+  });
+
+  it("says in a chat that a restart cut its turn short", async () => {
+    const id = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Cut" }).id;
+    const turn = kernel.handleMessage("long one", { sessionId: id });
+    await new Promise((r) => setTimeout(r, 20));
+    // The process stops here; the next one finds the turn still open.
+    const open = kernel.settings.get<Record<string, number>>("turns.open");
+    expect(Object.keys(open ?? {})).toEqual([id]);
+    kernel.close();
+    release.forEach((fn) => fn());
+    await turn.catch(() => undefined);
+    kernel = await Kernel.boot({ rootDir: root, inference: held });
+    expect(kernel.markInterrupted()).toEqual([id]);
+    const last = kernel.sessions.get(id).at(-1);
+    expect(last).toMatchObject({ role: "assistant", content: [{ type: "text", text: "-# interrupted by a restart" }] });
+    expect(kernel.markInterrupted()).toEqual([]);
+  });
 });

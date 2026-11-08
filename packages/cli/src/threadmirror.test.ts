@@ -157,3 +157,18 @@ describe("mirroring a turn's story into a thread", () => {
     expect(h.posts.map((p) => p.text)).toEqual(["why did this say Task 4?", "Because it was due."]);
   });
 });
+
+describe("a mirrored story kept for a restart", () => {
+  it("is let go once the turn's story is told", async () => {
+    let closed = 0;
+    const story: Story = { edit: async () => undefined, remove: async () => undefined, close: () => void (closed += 1) };
+    const h = harness({ openStory: async () => story });
+    h.mirror.onProgress(start("c-thread"));
+    h.mirror.onProgress(toolStart("c-thread"));
+    await h.mirror.settle();
+    expect(closed).toBe(0);
+    h.mirror.onSaid({ conversationId: "c-thread", text: "do the thing", reply: "Done.", origin: "owner", channel: null }, async () => undefined);
+    await h.mirror.settle();
+    expect(closed).toBe(1);
+  });
+});

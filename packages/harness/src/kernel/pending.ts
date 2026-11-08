@@ -1,4 +1,5 @@
-import type { MessageOrigin } from "../models/types.js";
+import type { Guest } from "../channels/types.js";
+import type { MessageFrom, MessageOrigin, MessageRoom } from "../models/types.js";
 import type { Db } from "../store/db.js";
 import type { Attachment } from "./attachments.js";
 
@@ -28,6 +29,25 @@ export interface PendingMessage {
    * Discord reads as one on the dashboard too.
    */
   origin?: MessageOrigin;
+  /** Who it was to the fences when it was sent, so a restart runs it as that and no more. */
+  flags?: PendingFlags;
+}
+
+/** What a waiting message's turn was going to be run as: whose it was, and what it could reach. */
+export interface PendingFlags {
+  owner?: boolean;
+  attended?: boolean;
+  origin?: "owner" | "system";
+  channel?: string;
+  grant?: string[];
+  allow?: string[];
+  guest?: Guest;
+  room?: MessageRoom;
+  members?: { id: string; name: string }[];
+  context?: string;
+  roomTalk?: string;
+  via?: string;
+  from?: MessageFrom;
 }
 
 const SCHEMA = `
@@ -37,7 +57,8 @@ CREATE TABLE IF NOT EXISTS pending_messages (
   text TEXT NOT NULL,
   attachments_json TEXT NOT NULL DEFAULT '[]',
   created_at INTEGER NOT NULL,
-  origin_json TEXT
+  origin_json TEXT,
+  flags_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pending_messages_conversation
   ON pending_messages (conversation_id, id);
@@ -50,6 +71,7 @@ interface Row {
   attachments_json: string;
   created_at: number;
   origin_json: string | null;
+  flags_json: string | null;
 }
 
 function parsed<T>(json: string | null, fallback: T): T {
@@ -65,6 +87,7 @@ function parsed<T>(json: string | null, fallback: T): T {
 
 function toMessage(row: Row): PendingMessage {
   const origin = parsed<MessageOrigin | undefined>(row.origin_json, undefined);
+  const flags = parsed<PendingFlags | undefined>(row.flags_json, undefined);
   return {
     id: row.id,
     conversationId: row.conversation_id,
@@ -72,33 +95,42 @@ function toMessage(row: Row): PendingMessage {
     attachments: parsed<Attachment[]>(row.attachments_json, []),
     createdAt: row.created_at,
     ...(origin ? { origin } : {}),
+    ...(flags ? { flags } : {}),
   };
 }
 
 export class PendingMessages {
+  /** The newest row a previous process left. */
+  private readonly bootLast: number;
+
   constructor(
     private readonly db: Db,
     private readonly now: () => number = Date.now,
   ) {
     this.db.exec(SCHEMA);
-    // A table made before the origin column learns it; the rows are cleared
-    // below anyway, so nothing old needs a value.
+    // A table made before these columns learns them; a row from before has
+    // no flags, so a restart announces it rather than running it.
     const columns = new Set((this.db.prepare(`PRAGMA table_info(pending_messages)`).all() as { name: string }[]).map((c) => c.name));
     if (!columns.has("origin_json")) this.db.exec(`ALTER TABLE pending_messages ADD COLUMN origin_json TEXT`);
-    // Anything left from a previous process was never going to run: its queue
-    // died with it. Clearing on boot stops a crash mid-turn from leaving a
-    // message showing as waiting forever.
-    this.db.exec(`DELETE FROM pending_messages`);
+    if (!columns.has("flags_json")) this.db.exec(`ALTER TABLE pending_messages ADD COLUMN flags_json TEXT`);
+    // What a previous process left waiting: its queue died with it, but the
+    // messages did not. Kept for the kernel to run or announce after boot.
+    this.bootLast = (this.db.prepare(`SELECT MAX(id) AS id FROM pending_messages`).get() as { id: number | null }).id ?? 0;
+  }
+
+  /** What was still waiting when this process started, oldest first. */
+  leftover(): PendingMessage[] {
+    return (this.db.prepare(`SELECT * FROM pending_messages WHERE id <= ? ORDER BY id`).all(this.bootLast) as Row[]).map(toMessage);
   }
 
   /** Park a message. Returns its id so the turn can claim it. */
-  add(conversationId: string, text: string, attachments: Attachment[] = [], origin?: MessageOrigin): number {
+  add(conversationId: string, text: string, attachments: Attachment[] = [], origin?: MessageOrigin, flags?: PendingFlags): number {
     const info = this.db
       .prepare(
-        `INSERT INTO pending_messages (conversation_id, text, attachments_json, created_at, origin_json)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO pending_messages (conversation_id, text, attachments_json, created_at, origin_json, flags_json)
+         VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(conversationId, text, JSON.stringify(attachments), this.now(), origin ? JSON.stringify(origin) : null);
+      .run(conversationId, text, JSON.stringify(attachments), this.now(), origin ? JSON.stringify(origin) : null, flags ? JSON.stringify(flags) : null);
     return Number(info.lastInsertRowid);
   }
 

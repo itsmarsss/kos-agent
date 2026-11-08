@@ -16,6 +16,9 @@ export interface ConversationSeed {
   threadId?: string;
 }
 
+/** Said on a turn's story, and in its chat, when a restart cut the turn short. */
+export const INTERRUPTED_LINE = "-# interrupted by a restart";
+
 /** A chat made from a thread the owner started on Discord is this and the thread's id. */
 export const OWNER_THREAD_PREFIX = "discord:thread:";
 
@@ -356,6 +359,8 @@ export interface TurnPresence {
    */
   complete(reply: OutboundMessage, how?: { waiting?: boolean; heard?: boolean }): Promise<void>;
   fail(message: string): Promise<void>;
+  /** Optional: the turn is over and its story is told; a surface that keeps it for a restart lets it go. */
+  close?(): void;
 }
 
 export type MessageHandler = (msg: InboundMessage) => Promise<void> | void;

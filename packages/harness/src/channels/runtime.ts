@@ -263,6 +263,7 @@ export class ChannelRuntime {
       timer = undefined;
       if (narrator.worthShowing()) show(narrator.renderSteps());
       await last;
+      presence.close?.();
     };
     // The story ends itself when the turn does: a turn that suspended on an
     // approval answered "waiting on you" long before its last step, and the
