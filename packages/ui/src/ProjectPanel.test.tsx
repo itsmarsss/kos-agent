@@ -53,7 +53,7 @@ function open(over: Partial<ProjectDetail> = {}, files: { name: string; size: nu
   const h: Handlers = { onOpen: vi.fn(), onOpenFile: vi.fn(), onChanged: vi.fn(), onError: vi.fn() };
   const { onOpen, ...rest } = h;
   const d = detail(over);
-  render(<ProjectPanel slug={slug} {...rest} rail={<ArtifactRail items={d.pages} home={slug} projects={[]} onOpen={(a) => onOpen(a.id)} />} />);
+  render(<ProjectPanel slug={slug} {...rest} rail={<ArtifactRail items={d.pages} onOpen={(a) => onOpen(a.id)} />} />);
   return h;
 }
 

@@ -225,7 +225,7 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
         <div className="artifacts-bar">
           <Chips options={kinds} selected={kind} onChoose={setKind} label="Kind" small scroll />
           <div className="artifacts-bar-end">
-            {owners.length > 2 && <Select value={project} options={owners} onChange={setProject} label="Project" />}
+            {owners.length > 2 && <Select value={project} options={owners} onChange={setProject} label="Owner" />}
             <Chips options={GROUPINGS} selected={grouping} onChoose={setGrouping} label="Group" small />
           </div>
         </div>
@@ -303,7 +303,7 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
 }
 
 /** KOS's own chat at the root, where a message with no chat named goes: the profile's owner id is fixed. */
-const ROOT_CHAT = "primary:owner";
+export const ROOT_CHAT = "primary:owner";
 
 /** Who an artifact belongs to: a project, a blob, or the workspace (null). */
 export type ArtifactOwner = { project: string } | { blob: string } | null;
@@ -458,7 +458,7 @@ export function ArtifactViewer({
             </button>
             {whose && onOpenOwner && (
               <button type="button" className="btn btn--ghost btn--sm" onClick={() => void settle().then(() => onOpenOwner(whose))}>
-                {"blob" in whose ? `Open ${whose.blob}` : "Open in project"}
+                Open {owner}
               </button>
             )}
             {record.artifactKind === "deck" && !older && (

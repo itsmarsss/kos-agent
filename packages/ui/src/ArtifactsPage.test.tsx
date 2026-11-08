@@ -130,7 +130,7 @@ describe("the Artifacts page", () => {
     render(<ArtifactsPage projects={[...projects, { slug: "workspace", name: "Office" } as Project]} onOpen={() => undefined} />);
     await waitFor(() => expect(titles()).toHaveLength(5));
     const choose = (label: string): void => {
-      fireEvent.click(screen.getByRole("button", { name: "Project" }));
+      fireEvent.click(screen.getByRole("button", { name: "Owner" }));
       fireEvent.click(screen.getByRole("option", { name: label }));
     };
     choose("Office");
@@ -146,11 +146,11 @@ describe("the Artifacts page", () => {
     render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
     await waitFor(() => expect(titles()).toHaveLength(5));
     expect(within(screen.getByText("Noter's notes").closest("button")!).getByText("noter")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Project" }));
+    fireEvent.click(screen.getByRole("button", { name: "Owner" }));
     fireEvent.click(screen.getByRole("option", { name: "noter" }));
     expect(titles()).toEqual(["Noter's notes"]);
     // The workspace's own are not a blob's.
-    fireEvent.click(screen.getByRole("button", { name: "Project" }));
+    fireEvent.click(screen.getByRole("button", { name: "Owner" }));
     fireEvent.click(screen.getByRole("option", { name: "Workspace" }));
     expect(titles()).toEqual(["Q4 brief", "Garden pitch"]);
   });
@@ -238,7 +238,7 @@ describe("one artifact, full size", () => {
     fireEvent.click(within(third[1]!).getByRole("button", { name: "Restore" }));
     fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Restore" })).getByRole("button", { name: "Restore" }));
     expect((await screen.findByText(/changed after it was opened/)).textContent).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Open in project" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Household budget" }));
     await waitFor(() => expect(toProject).toHaveBeenCalledWith({ project: "budget" }));
     expect(screen.queryByRole("button", { name: "Present" })).toBeNull();
   });

@@ -7254,9 +7254,6 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .artifact-rail-row .tile { width: 28px; height: 28px; }
 .artifact-rail-row .tile svg { width: 15px; height: 15px; }
 .artifact-rail-row .line-text strong { font-size: var(--text-base); font-weight: 500; }
-.artifact-rail-owner { display: inline-flex; align-items: center; gap: 5px; flex: none; max-width: 40%; color: var(--faint); font-size: var(--text-xs); }
-.artifact-rail-owner > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.artifact-rail-owner .project-mark { width: 14px; height: 14px; font-size: 8.5px; border-radius: 4px; flex: none; }
 /* Under the chat when the panel beside it is folded away (a narrow window, a phone). */
 .artifact-strip { display: none; border-top: 1px solid var(--line); padding: 0.5rem 0.25rem 0; }
 .artifact-strip .collapse-body { padding-top: 0.4rem; max-height: 40dvh; overflow-y: auto; }

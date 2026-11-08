@@ -1,36 +1,65 @@
 import { Card, Collapse, DrawerRow, Empty, NavIcon } from "@kos/kit";
 import { relativeWords } from "@kos/shared";
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 
-import type { PageSummary, Project } from "./api.js";
+import { api, type PageSummary } from "./api.js";
 import { KIND_WORD } from "./ArtifactsPage.js";
-import { ProjectMark } from "./ProjectMark.js";
+import { onTurnEnd } from "./progress.js";
 
 /**
- * The artifacts a project or a blob has, beside its chat: each one's kind,
- * title and when it changed, opening in place on a click. One that belongs
- * to another project (a blob works across several) says whose it is. Beside
- * the chat on a wide screen; on a narrow one, a row under the chat that
- * opens to the same list.
+ * The artifacts a project or a blob owns, beside its chat: each one's kind,
+ * title and when it changed, opening in place on a click. Beside the chat on
+ * a wide screen; on a narrow one, a row under the chat that opens to the same
+ * list.
  */
 
+/** Whose rail it is: a project's, by its slug, or a blob's, by its name. */
+export type RailOwner = { project: string } | { blob: string };
+
+/** What an owner owns: a blob's own, or a project's that no blob owns. */
+export const ownedBy = (owner: RailOwner, a: Pick<PageSummary, "projectSlug" | "blob">): boolean =>
+  "blob" in owner ? a.blob === owner.blob : a.projectSlug === owner.project && !a.blob;
+
+/**
+ * An owner's artifacts, newest first. Read when the owner changes, when
+ * `again` does (what is open in place was closed or changed), and when a turn
+ * ends, since a turn is what makes one.
+ */
+export function useOwnedArtifacts(owner: RailOwner | undefined, again?: unknown): PageSummary[] {
+  const [items, setItems] = useState<PageSummary[]>([]);
+  const key = owner ? ("blob" in owner ? `blob:${owner.blob}` : `project:${owner.project}`) : "";
+  // Another owner's list is not shown while this one's is read.
+  useEffect(() => setItems([]), [key]);
+  useEffect(() => {
+    if (!owner) return;
+    let stale = false;
+    const read = (): void =>
+      void api
+        .artifacts()
+        .then((list) => !stale && setItems(list.filter((a) => ownedBy(owner, a)).sort((a, b) => b.updatedAt - a.updatedAt)))
+        .catch(() => undefined);
+    read();
+    const stop = onTurnEnd(read);
+    return () => {
+      stale = true;
+      stop();
+    };
+  }, [key, again]);
+  return items;
+}
 
 export interface ArtifactRailProps {
   items: PageSummary[];
-  /** The project the rail is beside; an artifact of any other says whose it is. */
-  home?: string;
-  projects: Project[];
   /** The artifact open in place now, marked in the list. */
   open?: string;
   onOpen: (item: PageSummary) => void;
 }
 
-function Rows({ items, home, projects, open, onOpen }: ArtifactRailProps): ReactElement {
+function Rows({ items, open, onOpen }: ArtifactRailProps): ReactElement {
   if (items.length === 0) return <Empty inline>No artifacts yet. Ask KOS for a doc, a deck, a sheet or a page.</Empty>;
   return (
     <ul className="artifact-rail" aria-label="Artifacts">
       {items.map((a) => {
-        const owner = a.projectSlug && a.projectSlug !== home ? projects.find((p) => p.slug === a.projectSlug) : undefined;
         const kind = a.kind === "html" ? KIND_WORD[a.artifactKind] : "Widget page";
         return (
           <li key={a.id}>
@@ -44,12 +73,6 @@ function Rows({ items, home, projects, open, onOpen }: ArtifactRailProps): React
                   {kind}, {relativeWords(Math.round(a.updatedAt / 1000))}
                 </span>
               </span>
-              {a.projectSlug && a.projectSlug !== home && (
-                <span className="artifact-rail-owner" title={`In ${owner?.name ?? a.projectSlug}`}>
-                  <ProjectMark slug={a.projectSlug} name={owner?.name ?? a.projectSlug} colour={owner?.colour} />
-                  <span>{owner?.name ?? a.projectSlug}</span>
-                </span>
-              )}
             </button>
           </li>
         );

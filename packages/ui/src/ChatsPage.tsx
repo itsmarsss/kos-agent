@@ -23,8 +23,8 @@ import { Gutter } from "./Gutter.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { ProjectPanel } from "./ProjectPanel.js";
-import { ArtifactRail, ArtifactStrip } from "./ArtifactRail.js";
-import { ArtifactViewer } from "./ArtifactsPage.js";
+import { ArtifactRail, ArtifactStrip, type RailOwner, useOwnedArtifacts } from "./ArtifactRail.js";
+import { ArtifactViewer, ROOT_CHAT, chatIdOf } from "./ArtifactsPage.js";
 import { RailGroup, useRailFolds } from "./RailGroup.js";
 import {
   api,
@@ -165,8 +165,6 @@ export interface ChatsPageProps {
   onPrefilled?: () => void;
 }
 
-/** How often the artifacts beside a project's or a blob's chat are read again. */
-const OWNED_POLL_MS = 15_000;
 
 /** A tool's arguments as the owner can read them: the JSON laid out, or the string as it came. */
 function prettyArgs(args: string): string {
@@ -685,27 +683,15 @@ export function ChatsPage({
    * place of the thread. A blob owns what its own thread makes, as it owns
    * its folder; a project, what its chats make.
    */
-  const [owned, setOwned] = useState<PageSummary[]>([]);
   const [inline, setInline] = useState<string>();
   const projectSlug = project?.slug;
   const agentName = agent?.name;
-  // Read when the page opens, when what is open in place changes, and every so often, so one KOS makes shows up.
-  useEffect(() => {
-    if (!projectSlug && !agentName) return;
-    let stale = false;
-    const mine = (a: PageSummary): boolean => (agentName ? a.blob === agentName : a.projectSlug === projectSlug && !a.blob);
-    const read = (): void =>
-      void api
-        .artifacts()
-        .then((list) => !stale && setOwned(list.filter(mine).sort((a, b) => b.updatedAt - a.updatedAt)))
-        .catch(() => undefined);
-    read();
-    const every = setInterval(() => document.visibilityState === "visible" && read(), OWNED_POLL_MS);
-    return () => {
-      stale = true;
-      clearInterval(every);
-    };
-  }, [projectSlug, agentName, inline]);
+  const railOwner = useMemo<RailOwner | undefined>(
+    () => (agentName ? { blob: agentName } : projectSlug ? { project: projectSlug } : undefined),
+    [agentName, projectSlug],
+  );
+  // Read again when what was open in place closes, since the owner may have edited it there.
+  const owned = useOwnedArtifacts(railOwner, inline);
   // Another project, blob or thread: the thread is what shows, not the artifact open before.
   useEffect(() => setInline(undefined), [projectSlug, agentName, activeId]);
   const openOwned = (a: PageSummary): void => {
@@ -713,7 +699,7 @@ export function ChatsPage({
     if (a.kind !== "html") (project ?? agent)?.onOpenPage(a.id);
     else setInline(a.id);
   };
-  const railProps = { items: owned, ...(project ? { home: project.slug } : {}), projects, ...(inline ? { open: inline } : {}), onOpen: openOwned };
+  const railProps = { items: owned, ...(inline ? { open: inline } : {}), onOpen: openOwned };
 
   const q = query.trim().toLowerCase();
   const matches = (c: Conversation): boolean => !q || c.title.toLowerCase().includes(q);
@@ -1915,10 +1901,9 @@ export function ChatsPage({
               backLabel="← Back to the chat"
               onBack={() => setInline(undefined)}
               onOpenChat={(owner) => {
-                // The chat it went to is this one: back to it. Otherwise that chat.
-                if (owner && (("project" in owner && owner.project === projectSlug) || ("blob" in owner && owner.blob === agentName))) setInline(undefined);
-                else if (owner && "project" in owner) onOpenProject(owner.project);
-                else onOpen(owner ? `agent:${owner.blob}` : "primary:owner");
+                // The thread the request went to: the project's, the blob's, or KOS at the root.
+                setInline(undefined);
+                onOpen(chatIdOf(owner) ?? ROOT_CHAT);
               }}
             />
           </div>
