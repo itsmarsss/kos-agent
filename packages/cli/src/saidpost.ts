@@ -68,13 +68,13 @@ export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
     if (said.from) {
       // Passed on by a chat or a schedule: under that sender's name and
       // face; the line says only that it was passed on.
-      await deps.postIn(target, { text: `${said.text.trim()}\n-# passed on`, from: deps.speakerFor(said.from), ...attached });
+      await deps.postIn(target, { text: `${said.text.trim()}\n-# passed on`, from: deps.speakerFor(said.from), silent: true, ...attached });
     } else {
       // As the owner, under their own name and picture; quoted by the bot
       // only when the owner cannot be looked up.
       const owner = await deps.ownerSender();
       const text = owner ? said.text.trim() : `${said.text.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard`;
-      await deps.postIn(target, { text, ...(owner ? { from: owner } : {}), ...attached });
+      await deps.postIn(target, { text, ...(owner ? { from: owner } : {}), silent: true, ...attached });
     }
   }
   if (said.reply.trim()) await deps.postIn(target, { text: said.reply, ...(from ? { from } : {}) });

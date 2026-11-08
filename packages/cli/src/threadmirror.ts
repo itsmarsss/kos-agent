@@ -124,7 +124,7 @@ export class ThreadMirror {
     if (!target) return;
     const owner = await this.deps.ownerSender();
     const text = owner ? event.said.trim() : `${event.said.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard`;
-    await this.deps.postIn(target, { text, ...(owner ? { from: owner } : {}) });
+    await this.deps.postIn(target, { text, ...(owner ? { from: owner } : {}), silent: true });
   }
 
   /**
@@ -173,12 +173,12 @@ export class ThreadMirror {
     const passed = event.origin?.from;
     if (passed && (passed.kind === "chat" || passed.kind === "schedule")) {
       // Passed on by a chat or a schedule: under that sender's name, the line saying only that it was passed on.
-      await this.deps.postIn(target, { text: `${event.said.trim()}\n-# passed on`, from: this.deps.speakerFor(passed), ...(files.length ? { files } : {}) });
+      await this.deps.postIn(target, { text: `${event.said.trim()}\n-# passed on`, from: this.deps.speakerFor(passed), silent: true, ...(files.length ? { files } : {}) });
     } else {
       // The owner's own words, under their name and picture; quoted by the bot when they cannot be looked up.
       const owner = await this.deps.ownerSender();
       const text = owner ? event.said.trim() : `${event.said.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard`;
-      await this.deps.postIn(target, { text, ...(owner ? { from: owner } : {}), ...(files.length ? { files } : {}) });
+      await this.deps.postIn(target, { text, ...(owner ? { from: owner } : {}), silent: true, ...(files.length ? { files } : {}) });
     }
     this.tracked.set(conv, { target, narrator: new TurnNarrator(), storyTried: false, lastDrawn: 0 });
   }

@@ -2320,3 +2320,14 @@ describe("a channel or thread gone from Discord", () => {
     expect(adapter.mirrorTarget("chat-9", {})).toBeUndefined();
   });
 });
+
+describe("a silent message", () => {
+  it("goes out with notifications suppressed", async () => {
+    const sent: Record<string, unknown>[] = [];
+    const adapter = new DiscordAdapter({ token: "t" });
+    (adapter as unknown as { client: unknown }).client = { channels: { fetch: async () => ({ id: "c1", isSendable: () => true, send: async (p: Record<string, unknown>) => void sent.push(p) }) } };
+    await adapter.postIn("c1", { text: "mine", silent: true });
+    await adapter.postIn("c1", { text: "answer" });
+    expect(sent).toEqual([{ content: "mine", flags: MessageFlags.SuppressNotifications }, { content: "answer" }]);
+  });
+});

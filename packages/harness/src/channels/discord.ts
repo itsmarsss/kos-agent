@@ -2458,6 +2458,7 @@ export class DiscordAdapter implements ChannelAdapter {
       embeds?: EmbedBuilder[];
       components?: ActionRowBuilder<ButtonBuilder>[];
       files?: { attachment: Buffer; name: string }[];
+      flags?: MessageFlags.SuppressNotifications;
     }) => Promise<unknown>,
     msg: OutboundMessage,
     { tagged = true }: { tagged?: boolean } = {},
@@ -2494,6 +2495,7 @@ export class DiscordAdapter implements ChannelAdapter {
         ...(last && embeds.length ? { embeds } : {}),
         ...(last && components.length ? { components } : {}),
         ...(last && files.length ? { files: files.map((f) => ({ attachment: f.attachment, name: f.name })) } : {}),
+        ...(msg.silent ? { flags: MessageFlags.SuppressNotifications } : {}),
       });
     }
     const id = (posted as { id?: unknown } | undefined)?.id;

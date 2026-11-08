@@ -183,3 +183,15 @@ describe("words steered into a running turn from the dashboard", () => {
     expect(h.posts).toEqual([{ target: "t1", text: "use the red one", from: "Owner" }]);
   });
 });
+
+describe("the owner's own words mirrored into a thread", () => {
+  it("go up without a notification, while the answer does notify", async () => {
+    const posted: { text: string; silent?: boolean }[] = [];
+    const h = harness({ postIn: async (_t, msg) => void posted.push({ text: msg.text, ...(msg.silent ? { silent: true } : {}) }) });
+    h.mirror.onProgress(start("c-thread", { from: "dashboard", origin: undefined }));
+    h.mirror.onProgress({ kind: "heard", conversationId: "c-thread", said: "and the red one", from: "dashboard" });
+    h.mirror.onSaid({ conversationId: "c-thread", text: "do the thing", reply: "Done.", origin: "owner", channel: null }, async () => undefined);
+    await h.mirror.settle();
+    expect(posted).toEqual([{ text: "do the thing", silent: true }, { text: "and the red one", silent: true }, { text: "Done." }]);
+  });
+});

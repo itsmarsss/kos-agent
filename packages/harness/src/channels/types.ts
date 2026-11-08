@@ -226,6 +226,8 @@ export interface OutboundMessage {
   card?: MessageCard;
   buttons?: MessageButton[];
   from?: Sender;
+  /** Posted without a notification: the owner's own words shown back to them, which nobody needs to be buzzed for. */
+  silent?: boolean;
 }
 
 /**

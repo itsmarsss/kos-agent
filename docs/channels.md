@@ -100,7 +100,8 @@ a webhook's profile can carry none.
 A thread or channel is the chat it stands for, not only a door into it:
 a turn taken on the dashboard, by a schedule or by a dispatch shows there
 too, your words under your own name and picture (through a webhook, so
-Discord tags them as the app's), the
+Discord tags them as the app's, and without a notification, since they
+are your own), the
 files you attached uploaded under them, and the answer as KOS or as the
 blob under its own name. A message another chat passed on (a handoff, a
 dispatch, a project's goal) shows under that chat's name with KOS's face,
