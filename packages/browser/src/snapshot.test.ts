@@ -72,6 +72,13 @@ describe("the index of a page", () => {
     expect(indexOf(page, new Refs()).lines).toEqual(['In the dialog "Cookies":', '  button "Accept all" @e2', "On the page:", 'button "Subscribe" @e1']);
   });
 
+  it("heads a dialog with the start of its name, however it was read", () => {
+    const long = "We use cookies to give you the best experience on our site, and to show you ads";
+    const lines = indexOfControls([{ node: 4, role: "button", name: "Accept all", states: [], dialog: long }], 1, new Refs()).lines;
+    expect(lines[0]).toBe(`In the dialog "${long.slice(0, 59)}…":`);
+    expect(lines[1]).toBe('  button "Accept all" @e1');
+  });
+
   it("caps the list, and says how many there were", () => {
     const many = tree([["1", null, "RootWebArea", "Many"], ...Array.from({ length: 80 }, (_, i) => [`b${i}`, "1", "button", `B${i}`, 100 + i] as [string, string, string, string, number])]);
     const { lines, total } = indexOf(many, new Refs(), 60);

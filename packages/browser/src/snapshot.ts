@@ -89,6 +89,9 @@ const HOLLOW = new Set(["generic", "none", "presentation", "group", "LayoutTable
 /** Never shown: the page itself, and the pieces Chrome splits text into. */
 const UNSEEN = new Set(["RootWebArea", "InlineTextBox", "LineBreak"]);
 
+/** How much of a dialog's name heads its controls: a dialog named by its whole text says it all once. */
+const DIALOG_NAME_MAX = 60;
+
 /** Roles whose controls are what the page is waiting on, so they come first. */
 const MODAL = new Set(["dialog", "alertdialog"]);
 
@@ -165,7 +168,7 @@ function walk(nodes: AxNode[]): Walked[] {
     seen.add(node.nodeId);
     const role = text(node.role, 40);
     const shown = !node.ignored && role !== "" && !UNSEEN.has(role) && !(HOLLOW.has(role) && !text(node.name, 1));
-    const inside = !node.ignored && MODAL.has(role) ? text(node.name, 60) || role : dialog;
+    const inside = !node.ignored && MODAL.has(role) ? text(node.name, DIALOG_NAME_MAX) || role : dialog;
     if (shown) out.push({ node, role, depth, ...(inside !== undefined ? { dialog: inside } : {}) });
     for (const id of node.childIds ?? []) {
       const child = byId.get(id);
@@ -238,7 +241,7 @@ export function indexOf(controls: Control[], total: number, refs: Refs, max = IN
   const ordered: string[] = [];
   for (const [dialog, lines] of groups) {
     if (!dialog) continue;
-    ordered.push(`In the dialog ${quoted(dialog)}:`, ...lines.map((l) => `  ${l}`));
+    ordered.push(`In the dialog ${quoted(clip(dialog, DIALOG_NAME_MAX))}:`, ...lines.map((l) => `  ${l}`));
   }
   const page = groups.get("") ?? [];
   if (ordered.length && page.length) ordered.push("On the page:");
