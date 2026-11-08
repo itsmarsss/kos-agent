@@ -363,10 +363,10 @@ describe("the computer tools", () => {
 
 describe("a turn from the KOS for Mac window", () => {
   it("starts its session on that Mac with its first act, offering the app in front, and does nothing it has not seen", async () => {
-    let mac: { device: string; app?: string } | undefined;
-    const { call, pair, hub } = setup({ mac: () => mac, said: "export this deck" });
+    const at: { mac?: { device: string; app?: string } } = {};
+    const { call, pair, hub } = setup({ mac: () => at.mac, said: "export this deck" });
     const fake = pair();
-    mac = { device: fake.id, app: "Keynote" };
+    at.mac = { device: fake.id, app: "Keynote" };
     const first = await call("computer.act", { action: "left_click", coordinate: [10, 20] });
     expect(fake.calls[0]).toMatchObject({ method: "session.begin", params: { task: '"export this deck"', target: { app: "Keynote" }, maxEdge: 1024 } });
     expect(fake.calls.map((c) => c.method)).not.toContain("pointer.click");
@@ -379,22 +379,22 @@ describe("a turn from the KOS for Mac window", () => {
   });
 
   it("says the intent as the task, answers a first screenshot with the screen alone, and starts nothing outside the window's chat", async () => {
-    let mac: { device: string; app?: string } | undefined;
-    const { call, pair } = setup({ mac: () => mac });
+    const at: { mac?: { device: string; app?: string } } = {};
+    const { call, pair } = setup({ mac: () => at.mac });
     const fake = pair();
     await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/computer\.start first/);
     expect(fake.calls).toEqual([]);
-    mac = { device: fake.id };
+    at.mac = { device: fake.id };
     const seen = await call("computer.act", { intent: "see what is open", action: "screenshot" });
     expect(fake.calls[0]).toMatchObject({ method: "session.begin", params: { task: "see what is open" } });
     expect(textOf(seen)).not.toMatch(/Nothing else was done/);
   });
 
   it("keeps the consent it needs: a Mac that leaves sessions to KOS's approvals, or work the owner did not start, is refused", async () => {
-    let mac: { device: string; app?: string } | undefined;
-    const { call, pair } = setup({ mac: () => mac });
+    const at: { mac?: { device: string; app?: string } } = {};
+    const { call, pair } = setup({ mac: () => at.mac });
     const fake = pair();
-    mac = { device: fake.id };
+    at.mac = { device: fake.id };
     await expect(attendance.run(false, () => call("computer.act", { action: "screenshot" }))).rejects.toThrow(/did not start/);
     fake.send({ t: "state", consent: "kos" });
     await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/through KOS's approvals.*computer\.start first/);
