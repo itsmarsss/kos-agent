@@ -1458,14 +1458,19 @@ describe("DiscordAdapter authorization", () => {
     await adapter.receiveMessage(from(open, { id: "owner-id", username: "marsss" }, "hi all"));
     expect(seen[2]?.guest).toBeUndefined();
     // A guest's press in the open room comes through marked; a stranger's elsewhere is refused.
-    const pressed = { ...fakeButton("u1", `${PRESS_PREFIX}tok9`), channel: open, member: { displayName: "Ana B" } } as unknown as Interaction;
+    const pressed = { ...fakeButton("u1", `${PRESS_PREFIX}tok9`), channel: open, guildId: "g1", member: { displayName: "Ana B" } } as unknown as Interaction;
     await adapter.receiveInteraction(pressed);
     // Named with the room's own chat, which is all a guest's press may reach.
     expect(presses).toEqual([{ buttonId: "", label: "Ship it", token: "tok9", pressedBy: "u1", guest: { id: "u1", name: "Ana B" }, room: "project:club" }]);
-    await adapter.receiveInteraction({ ...fakeButton("u2", `${PRESS_PREFIX}tok9`), channel: thread, member: null } as unknown as Interaction);
+    await adapter.receiveInteraction({ ...fakeButton("u2", `${PRESS_PREFIX}tok9`), channel: thread, guildId: "g1", member: null } as unknown as Interaction);
     expect(presses[1]).toMatchObject({ guest: { id: "u2" }, room: "discord:thread:t1" });
-    const refused = { ...fakeButton("u1", `${PRESS_PREFIX}tok9`), channel: shut } as unknown as Interaction;
+    const refused = { ...fakeButton("u1", `${PRESS_PREFIX}tok9`), channel: shut, guildId: "g1" } as unknown as Interaction;
     await adapter.receiveInteraction(refused);
+    expect(presses).toHaveLength(2);
+    // A room in another server whose topic says the same, or one with no server at all, has no guests of KOS's.
+    for (const guildId of ["g2", null]) {
+      await adapter.receiveInteraction({ ...fakeButton("u1", `${PRESS_PREFIX}tok9`), channel: open, guildId, member: { displayName: "Ana B" } } as unknown as Interaction);
+    }
     expect(presses).toHaveLength(2);
     // The owner's press is no guest's, and names no room.
     await adapter.receiveInteraction({ ...fakeButton("owner-id", `${PRESS_PREFIX}tok9`), channel: open } as unknown as Interaction);

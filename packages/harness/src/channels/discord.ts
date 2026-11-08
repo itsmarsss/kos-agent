@@ -958,11 +958,13 @@ export class DiscordAdapter implements ChannelAdapter {
 
   /**
    * The member who wrote or pressed, as a guest, when the room (the channel,
-   * or a thread's parent) is one KOS opened to guests; nobody otherwise.
+   * or a thread's parent) is one KOS opened to guests in the owner's server;
+   * nobody otherwise. A topic is anyone's to write in a server of their own.
    */
-  private guestIn(from: { author?: { id: string; username: string; globalName?: string | null }; user?: { id: string; username: string; globalName?: string | null }; member?: { displayName?: string } | null; channel: unknown }): Guest | undefined {
+  private guestIn(from: { author?: { id: string; username: string; globalName?: string | null }; user?: { id: string; username: string; globalName?: string | null }; member?: { displayName?: string } | null; channel: unknown; guildId?: string | null; guild?: { id: string } | null }): Guest | undefined {
     const who = from.author ?? from.user;
     if (!who) return undefined;
+    if (!this.guildId || (from.guildId ?? from.guild?.id) !== this.guildId) return undefined;
     const key = this.roomKeyOf(from.channel);
     if (!key || !this.guestsAllowed?.(key)) return undefined;
     return { id: who.id, name: from.member?.displayName ?? who.globalName ?? who.username };
