@@ -26,8 +26,14 @@ server. The device always connects out, so nothing listens on it.
 3. Grant Screen Recording and Accessibility when it asks.
 
 Then any chat can ask: "on my laptop, open the Figma file from yesterday".
-The device asks you to allow the session, for how long, and the session
-starts.
+`computer.start` picks the computer when one fits (or the one named; when
+several could be meant it says what is paired), the device asks you to
+allow the session, for how long, and the session starts with its first
+picture. From the KOS for Mac window no start is needed: the chat's first
+`computer.act` asks for the session on that Mac, offering the app in front
+first, and answers with the screen. A session ends with the turn that
+started it; `keep` on `computer.start` holds it until `computer.end` or its
+time.
 
 While KOS is in control:
 
@@ -35,7 +41,13 @@ While KOS is in control:
 - its cursor glides to each point, marked as KOS's;
 - `computer.act` takes one action or, as `actions`, a short run of them
   (click a field, type, press Return) with one picture at the end, so a
-  sequence it can see through costs one round trip;
+  sequence it can see through costs one round trip. The run is the same
+  runner `browser.act` uses: Stop between actions and inside the one in
+  flight, one wait budget of a minute a call, and "Done: ... Step 3 (click)
+  failed: why." when it stops part way;
+- the picture after an act goes only when the screen changed since the
+  chat's last one; otherwise it is said in words, on the Mac and in a tab
+  alike;
 - each step says what it is for in a few words (`intent`, "open the
   Quizzes tab"), which is the step's line wherever steps are listed; how
   it does it (click, type "BU354", press Return) is the line when there
@@ -232,8 +244,8 @@ it nor the other way round.
 "bundle"?, "title"? }`, the app in front of the window and its front
 window's title; `{ "kind": "hidden" }`, an app the owner hid from KOS,
 named no further; or `{ "kind": "none" }`. The turn is told that app is
-what "this" means, and that `computer.start` on that Mac, naming the app,
-asks to see it or work in it. The window never takes the front from that
+what "this" means, and that its first `computer.act` asks to see it or work
+in it, on that Mac, offering that app's window first. The window never takes the front from that
 app, so it stays what the owner was looking at.
 
 ### Events

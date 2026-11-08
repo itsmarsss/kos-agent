@@ -21,7 +21,8 @@ hands `@kos/browser` drives its own Chrome with.
    paste the link, press Pair. It shows Connected.
 4. Ask from any chat: "in my Chrome, ...". KOS calls `chrome.start`, the
    extension asks you in a window of its own, and while the session lasts
-   that chat's browser tools work in your Chrome; `chrome.end` gives it back.
+   that chat's browser tools work in your Chrome. The session ends with the
+   turn (`keep` holds it until `chrome.end` or its time).
 
 To give KOS a tab you are on, click the KOS icon there and press Give this
 tab to KOS. The extension needs no access to your sites to work in a tab: it
@@ -43,14 +44,19 @@ line you can open, and an approval the chat asks for is decided in place.
 - **Reading the page.** Each message says which tab it was said beside,
   so "this page" is that tab and not one of KOS's own pages, and KOS reads
   it with `chrome.page` when your words are about it: its address, title,
-  what you selected and its text. Only the panel's chat can, only while the panel is
+  what you selected, its headings and the first 2,000 characters of its
+  text, then more on asking (`from`). Only the panel's chat can, only while the panel is
   open on that chat, and never on a hidden site. The first time, the panel
   asks you to let KOS read pages (Chrome's grant, one press); Not now, or no
   answer in your wait, is a no that KOS hears and says.
-- **Working in the tab.** When the chat needs to act, `chrome.start` asks in
-  the panel, not in a window, and the session works in the tab beside it,
-  where you are looking, instead of in KOS's own window. Speak from another
-  tab while it lasts and KOS works there instead. The border, the bar, Take
+- **Working in the tab.** The chat's first browser call asks in the panel,
+  not in a window, and the session works in the tab beside it, where you
+  are looking; no `chrome.start` call is needed. It never falls back to
+  KOS's own browser: a session that cannot start refuses the call, and the
+  chat says why. A Chrome set to leave sessions to KOS's approvals is the
+  one exception, started by `chrome.start` so those approvals gate it.
+  Speak from another tab while it lasts and KOS works there instead. The
+  session ends with the turn. The border, the bar, Take
   over and Stop are the same as any session's, and Take over and Stop are
   in the panel too.
 - **Switching chats.** The chat's name under KOS opens the panel's own

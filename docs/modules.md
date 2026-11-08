@@ -148,8 +148,10 @@ KOS drives a Chrome of its own, through @kos/browser (see
 [browser.md](browser.md)); it is not an MCP server. `browser.visit` opens
 a page and hands back a picture of it with an index of what can be acted
 on, each control with a ref that stays the same while the page does;
-`browser.act` runs a list of steps (click, fill, type, press, select,
-check, hover, scroll, wait, back, a dialog's answer) and looks again;
+`browser.act` runs a list of steps as `actions` (`steps`, the older name,
+is still taken: click, fill, type, press, select, check, hover, scroll,
+wait, back, a dialog's answer) through the runner `computer.act` shares,
+and looks again, with the picture only when the page changed;
 `browser.look` looks without doing anything; `browser.eval` runs script in
 the page. They share the site trust of the caller's tab: looking is safe,
 acting asks until the site is trusted, and a script asks every time. Only
