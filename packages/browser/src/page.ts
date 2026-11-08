@@ -2,7 +2,7 @@ import type { CdpEvent } from "./cdp.js";
 import * as inpage from "./inpage.js";
 import { parseKeys, type KeyPress } from "./keys.js";
 import { controlsOf, indexOf, INDEX_MAX, Refs, treeOf, type AxNode, type Control, type PageIndex } from "./snapshot.js";
-import type { Step } from "./steps.js";
+import { WAIT_FOR_MS, type Step } from "./steps.js";
 
 /**
  * One tab's hands.
@@ -66,9 +66,10 @@ export interface PageOptions {
   /**
    * Waited on before each call and each step: while the owner has taken the
    * tab, the agent's hands wait for them to let go. True when it waited, so
-   * the agent is told the page may have changed under it.
+   * the agent is told the page may have changed under it. Once `signal`
+   * aborts, the wait is dropped.
    */
-  gate?: () => Promise<boolean>;
+  gate?: (signal?: AbortSignal) => Promise<boolean>;
 }
 /** After an action: how long a navigation it started may take. */
 const SETTLE_NAV_MS = 10_000;
@@ -88,6 +89,8 @@ const SETTLE_BUSY_MS = 2_500;
  * after the last of them.
  */
 const TYPED_MS = 400;
+/** The most one look for what a wait waits for may take. */
+const PROBE_MS = 3_000;
 /**
  * Steps that pay that floor: one of these next, the floor is left to it. A
  * pick or a tick between pays none, so the typing before it pays its own.
@@ -126,8 +129,6 @@ const EVAL_MS = 10_000;
 const DRAG_STEPS = 8;
 const AX_MS = 20_000;
 const INPUT_MS = 10_000;
-/** How long a wait for text or an element may take. */
-const WAIT_FOR_MS = 15_000;
 /** How much of a page's text, or of a script's answer, is handed back. */
 const READ_MAX = 24_000;
 /** Embedded frames read into a look, at most. */
@@ -261,7 +262,7 @@ export class Page {
 
   private readonly limits: PageLimits;
   private readonly now: () => number;
-  private readonly gate: () => Promise<boolean>;
+  private readonly gate: (signal?: AbortSignal) => Promise<boolean>;
 
   constructor(
     private readonly session: Session,
@@ -272,12 +273,16 @@ export class Page {
     this.gate = options.gate ?? (async () => false);
   }
 
-  /** Calls on one tab, one at a time: two at once would act on each other's page. */
-  run<T>(work: () => Promise<T>): Promise<T> {
+  /**
+   * Calls on one tab, one at a time: two at once would act on each other's
+   * page. Once `signal` aborts, a call still waiting for the owner to let go
+   * of the tab gives up its turn, and the next call has it.
+   */
+  run<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     const gated = async (): Promise<T> => {
       this.working++;
       try {
-        await this.waitForOwner();
+        await this.waitForOwner(signal);
         return await work();
       } finally {
         this.working--;
@@ -288,9 +293,9 @@ export class Page {
     return next;
   }
 
-  /** While the owner has the tab, nothing; once they let go, a word that the page may have changed. */
-  private async waitForOwner(): Promise<void> {
-    if (await this.gate()) this.heard.push("The owner had this tab and has let go; what is on it may have changed, so look before acting on it.");
+  /** While the owner has the tab, nothing; once they let go, a word that the page may have changed. A Stop ends the wait. */
+  private async waitForOwner(stop = this.stop): Promise<void> {
+    if (await this.guard(this.gate(stop), stop)) this.heard.push("The owner had this tab and has let go; what is on it may have changed, so look before acting on it.");
   }
 
   /** An event from the tab's session. */
@@ -828,12 +833,14 @@ export class Page {
     }
     const [kind, value] = "text" in what ? (["text", what.text] as const) : "selector" in what ? (["selector", what.selector] as const) : (["gone", what.gone] as const);
     const check = `(${inpage.present.toString()})(${JSON.stringify(kind)}, ${JSON.stringify(value)})`;
-    const end = this.now() + WAIT_FOR_MS;
+    const limit = what.ms ?? WAIT_FOR_MS;
+    const end = this.now() + limit;
     while (this.now() < end) {
-      if (await this.value<boolean>(check, 3_000).catch(() => false)) return kind === "gone" ? `"${value}" went` : `"${value}" appeared`;
+      // Each probe bounded by what is left, so a page slow to answer does not carry the wait past its grant.
+      if (await this.value<boolean>(check, Math.max(1, Math.min(PROBE_MS, end - this.now()))).catch(() => false)) return kind === "gone" ? `"${value}" went` : `"${value}" appeared`;
       await this.pause(200);
     }
-    throw new Error(`waited ${WAIT_FOR_MS / 1000}s and ${JSON.stringify(value)} ${kind === "gone" ? "is still there" : "never appeared"}`);
+    throw new Error(`waited ${limit / 1000}s and ${JSON.stringify(value)} ${kind === "gone" ? "is still there" : "never appeared"}`);
   }
 
   // The parts.
@@ -1010,8 +1017,7 @@ export class Page {
   }
 
   /** Work in flight, given up once the owner presses Stop; what it brings back after is let go of, not left for the page to hold. */
-  private guard<T>(work: Promise<T>): Promise<T> {
-    const stop = this.stop;
+  private guard<T>(work: Promise<T>, stop = this.stop): Promise<T> {
     if (!stop) return work;
     return new Promise<T>((resolve, reject) => {
       let settled = false;

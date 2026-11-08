@@ -27,6 +27,35 @@ struct ChatModelTests {
     #expect(model.story == nil)
   }
 
+  /// A step's picture shows under the running steps, stays with the chat by its frame id, and the oldest go past the cap.
+  @Test func keepsStepPicturesLiveAndInTheChat() {
+    let model = ChatModel()
+    let abc = Data("ABC".utf8).base64EncodedString()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [.you("look", files: [])])
+    model.status(taken: false, story: .some("› Look at the screen"), error: nil)
+    model.frame(3, image: abc, conversation: "mac:owner")
+    // Another chat's, and one that is not a picture, are not kept.
+    model.frame(4, image: abc, conversation: "cm1:owner")
+    model.frame(5, image: "not base64!", conversation: "mac:owner")
+    #expect(model.liveFrames == [3])
+    #expect(model.picturesOf([3, nil, 4]).map(\.id) == [3])
+    #expect(model.story == "› Look at the screen")
+    // The answer lands: the live pictures go, the chat's steps keep theirs by id.
+    model.show(conversation: "mac:owner", title: "Mac", lines: [.you("look", files: []), .steps([.init(summary: "Look at the screen", frame: 3)]), .kos("A deck.")])
+    #expect(model.liveFrames.isEmpty)
+    #expect(model.picturesOf([3]).first?.data == Data("ABC".utf8))
+    // The chat's own newest pictures are kept too, and only the newest past the cap.
+    var sent: [Int: String] = [:]
+    for i in 100..<(100 + ChatModel.picturesKept + 2) { sent[i] = abc }
+    model.show(conversation: "mac:owner", title: "Mac", lines: [], pictures: sent)
+    #expect(model.pictures.count == ChatModel.picturesKept)
+    #expect(model.pictures[3] == nil)
+    #expect(model.pictures[100 + ChatModel.picturesKept + 1] != nil)
+    // Another chat starts with none.
+    model.show(conversation: "cm1:owner", title: "Trip", lines: [])
+    #expect(model.pictures.isEmpty)
+  }
+
   /// Words after the steps are not the end of the turn: its foot says it works until the turn ends.
   @Test func aRunningTurnKeepsItsFootAfterWords() {
     let model = ChatModel()

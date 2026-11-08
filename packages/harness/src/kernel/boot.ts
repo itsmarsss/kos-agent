@@ -1,4 +1,5 @@
 import { findChrome } from "@kos/browser";
+import { ScreenMemory } from "@kos/shared";
 import { PressRoutes } from "../channels/presses.js";
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
@@ -279,6 +280,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     callerBlob: () => callerBlobOf(kernelRef?.callerConversationId, conversations, roles),
     callerConversation: () => kernelRef?.callerConversationId ?? undefined,
     turnMade,
+    // One memory of what each chat was last shown, for every screen surface.
+    screens: new ScreenMemory(),
     // Always wired. Without a channel this used to be absent, so `notify`
     // threw and every unattended job that ended in "tell me" lost its
     // message. The fallback puts it where the owner already looks.

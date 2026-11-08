@@ -267,6 +267,21 @@ export function DrawerRow({ icon, tone, title, detail, open, onToggle, trailing 
 }
 
 /**
+ * What a step saw (a tab, a screen): small under the step, larger on a
+ * press, smaller again on another. One piece wherever steps are shown, so
+ * the dashboard's thread and KOS for Chrome's side panel show a step's
+ * picture the same way.
+ */
+export function StepPicture({ src, alt = "What this step saw" }: { src: string; alt?: string }): ReactElement {
+  const [open, setOpen] = useState(false);
+  return (
+    <button type="button" className={`step-picture${open ? " is-open" : ""}`} onClick={() => setOpen((v) => !v)} title={open ? "Smaller" : alt} aria-expanded={open}>
+      <img src={src} alt={alt} loading="lazy" />
+    </button>
+  );
+}
+
+/**
  * Under an ask's summary, the actions it would take, where the summary is
  * the model's account of a step rather than the step: "Close the popup"
  * over "Type “hunter2”, press cmd+q". The yes is for these, so they are on

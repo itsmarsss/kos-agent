@@ -5,7 +5,7 @@ import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
 import { injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
-import { attendance, caller, ownership, turn, turnStop } from "./caller.js";
+import { attendance, caller, origin, ownership, turn, turnStop, type TurnOrigin } from "./caller.js";
 
 export interface GuardedToolsDeps {
   /** A big result set aside as it comes back: whole with its handle, or its start and an outline when huge (in an SDK query). */
@@ -43,6 +43,8 @@ export interface GuardedToolsDeps {
   attended?: boolean;
   /** True for the owner's own turn alone; see `ownership`. */
   owner?: boolean;
+  /** The surface the turn's words arrived on, and those words; see `origin`. */
+  origin?: TurnOrigin;
   /**
    * The turn's stop. Once it aborts, a call that is running answers at once
    * (what it started is told through `turnStop`, and its own end is still
@@ -84,6 +86,13 @@ export interface GuardedToolsDeps {
   onFinishedAfterStop?: (tool: string, result: ToolExecution) => void;
   /** Called as a call begins, so a reader can see the step it is on. */
   onStarted?: (tool: string, input: Record<string, unknown>) => void;
+  /**
+   * Made ready before a call is judged, in the caller's context: a session
+   * its tool needs, started where the owner allows it (the side panel's
+   * Chrome), so the call is judged against where it will run. Words saying
+   * why it cannot be readied refuse the call.
+   */
+  prepare?: (tool: string) => Promise<string | undefined>;
   /** Called as a call's tool begins to run, past any approval; what it answers is called once the tool has ended. */
   running?: (tool: string) => (() => void) | undefined;
   /** Called once the owner has decided about a queued call. */
@@ -295,15 +304,17 @@ export class GuardedTools implements ToolBox {
     const attended = this.deps.attended !== false;
     const owner = attended && this.deps.owner === true;
     const { turnId, signal } = this.deps;
-    const stoppable = (n: string, i: Record<string, unknown>): Promise<ToolExecution> =>
-      signal ? turnStop.run(signal, () => registry.execute(n, i)) : registry.execute(n, i);
-    const inTurn = (n: string, i: Record<string, unknown>): Promise<ToolExecution> =>
-      turnId ? turn.run(turnId, () => stoppable(n, i)) : stoppable(n, i);
+    const stoppable = <T>(work: () => Promise<T>): Promise<T> => (signal ? turnStop.run(signal, work) : work());
+    const inTurn = <T>(work: () => Promise<T>): Promise<T> => (turnId ? turn.run(turnId, () => stoppable(work)) : stoppable(work));
+    const from = this.deps.origin;
+    const placed = <T>(work: () => Promise<T>): Promise<T> => (from ? origin.run(from, work) : work());
+    const within = <T>(work: () => Promise<T>): Promise<T> =>
+      attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work)))));
     const run = async (n: string, i: Record<string, unknown>): Promise<ToolExecution> => {
       started.ran = true;
       const ended = this.deps.running?.(n);
       try {
-        return await attendance.run(attended, () => ownership.run(owner, () => (conversationId ? caller.run(conversationId, () => inTurn(n, i)) : inTurn(n, i))));
+        return await within(() => registry.execute(n, i));
       } finally {
         ended?.();
       }
@@ -334,6 +345,30 @@ export class GuardedTools implements ToolBox {
 
     const assessment = registry.classify(name, input);
 
+    /*
+     * Readied before it is judged on where it runs: a browser call from the
+     * side panel is judged on the owner's tab, once the owner let KOS have
+     * it. Not for a call that cannot run now whatever the session: a risky
+     * one in a turn that only queues, or one of the strict tools, which no
+     * rule covers and which the owner is asked about first, so a no there
+     * never follows a prompt for a session.
+     */
+    const ready = async (): Promise<ToolExecution | undefined> => {
+      const unready = this.deps.prepare ? await within(() => this.deps.prepare!(name)).catch((err: unknown) => (err instanceof Error ? err.message : String(err))) : undefined;
+      if (unready) return { content: unready, isError: true };
+      // A Stop while the owner was being asked: the turn has answered, and nothing runs for it now.
+      if (signal?.aborted) return { content: STOPPED_RESULT, isError: true };
+      return undefined;
+    };
+    const queuesOnly = assessment.tier === "risky" && this.deps.waitForApproval === false;
+    const strict = assessment.tier === "risky" && this.deps.permissionContext?.(name)?.browser?.strict?.includes(name) === true;
+    if (!queuesOnly && !strict) {
+      const refused = await ready();
+      if (refused) return refused;
+    }
+    /** Readied once the owner said yes, for a call that was asked about before it was readied. */
+    const readyNow = (): Promise<ToolExecution | undefined> => (strict || queuesOnly ? ready() : Promise.resolve(undefined));
+
     if (assessment.tier === "risky") {
       /*
        * Already decided.
@@ -345,6 +380,8 @@ export class GuardedTools implements ToolBox {
        */
       const context = this.deps.permissionContext?.(name);
       if (this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) || this.deps.autoApproves?.(name, context)) {
+        const unready = await readyNow();
+        if (unready) return unready;
         const allowedResult = await run(name, injectSecrets(input, secrets));
         audit.record({
           tool: name,
@@ -439,6 +476,8 @@ export class GuardedTools implements ToolBox {
         };
       }
 
+      const unready = await readyNow();
+      if (unready) return unready;
       const approvedInput = injectSecrets(input, secrets);
       const approvedResult = await run(name, approvedInput);
       audit.record({

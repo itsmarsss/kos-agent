@@ -58,6 +58,18 @@ describe("progress handover", () => {
     expect(result.current["c1"]?.said).toBeUndefined();
   });
 
+  it("puts a step's picture on the latest step of its tool, as the transcript will", () => {
+    const { result } = renderHook(() => useProgress());
+    deliver({ kind: "turn-start", conversationId: "c1" });
+    deliver({ kind: "tool-start", conversationId: "c1", tool: "browser.act", summary: "Open the form" });
+    deliver({ kind: "tool-end", conversationId: "c1", tool: "browser.act", isError: false });
+    deliver({ kind: "tool-start", conversationId: "c1", tool: "browser.act", summary: "Fill it in" });
+    deliver({ kind: "tool-start", conversationId: "c1", tool: "files.ls", summary: "List ." });
+    deliver({ kind: "frame", conversationId: "c1", tool: "browser.act", frameId: 7 });
+    const steps = result.current.c1?.steps ?? [];
+    expect(steps.map((s) => (s.kind === "tool" ? s.frameId : null))).toEqual([undefined, 7, undefined]);
+  });
+
   it("keeps a finished turn's steps until the transcript takes over", () => {
     const { result } = renderHook(() => useProgress());
     deliver({ kind: "turn-start", conversationId: "c1" });

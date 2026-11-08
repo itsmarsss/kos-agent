@@ -1,10 +1,11 @@
 import { CHAT_COMMANDS, KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { AskSteps, BoltIcon, ChevronDown, Chips, CloseIcon, Collapse, ComposeIcon, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, SendIcon, spring, StepsIcon, type Tone, useDismiss, useOverlayScroll, WorkingDots } from "@kos/kit";
+import { AskSteps, BoltIcon, ChevronDown, Chips, CloseIcon, Collapse, ComposeIcon, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, SendIcon, spring, StepPicture, StepsIcon, type Tone, useDismiss, useOverlayScroll, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
 
+import { frameOf, keep, pictureSrc, picturesOf, showable, type Pictured } from "./frames.js";
 import { linkWords } from "./linkwords.js";
 import { isHidden } from "./settings.js";
 import { ask, minutesLeft, minutesWords } from "./pages.js";
@@ -24,7 +25,14 @@ type Line =
   | { role: "you"; text: string; files?: string[] }
   | { role: "kos"; text: string }
   | { role: "note"; text: string }
-  | { role: "steps"; steps: { summary: string; failed?: true }[] };
+  | { role: "steps"; steps: Step[] };
+
+/** A step of a turn, with the frame id of what it saw when it kept a picture. */
+interface Step {
+  summary: string;
+  failed?: true;
+  frame?: number;
+}
 
 interface Approval {
   id: string;
@@ -67,6 +75,10 @@ interface Chat {
   unsent?: string;
   /** This chat acts in the owner's Chrome without asking each step. */
   auto: boolean;
+  /** The steps' pictures, by frame id: sent as each step ran, and with the chat as it stands. */
+  pictures: Map<number, Pictured>;
+  /** The pictures of each turn on the go, by the owner's words it is about. */
+  live: { said?: string; frames: number[] }[];
 }
 
 /** A chat the panel may switch to. */
@@ -97,7 +109,7 @@ interface ReadAsk {
   host: string;
 }
 
-const EMPTY: Chat = { conversation: null, title: "Chrome", lines: [], sending: [], working: false, extras: [], stories: [], asks: [], auto: false };
+const EMPTY: Chat = { conversation: null, title: "Chrome", lines: [], sending: [], working: false, extras: [], stories: [], asks: [], auto: false, pictures: new Map(), live: [] };
 /** How long a KOS has to show the chat once the panel opens, and to take the owner's words once sent. */
 const SHOW_MS = 6_000;
 const TAKE_MS = 12_000;
@@ -158,7 +170,7 @@ function useChat(windowId: number | undefined, online: boolean): {
   const giveBack = (why: string): void => {
     heardBack();
     setError(why);
-    setChat((c) => ({ ...c, working: false, stories: [], sending: [], ...(c.sending.length ? { unsent: c.sending.join("\n") } : {}) }));
+    setChat((c) => ({ ...c, working: false, stories: [], live: [], sending: [], ...(c.sending.length ? { unsent: c.sending.join("\n") } : {}) }));
   };
 
   useEffect(() => {
@@ -194,6 +206,8 @@ function useChat(windowId: number | undefined, online: boolean): {
         case "chat.status":
           heardBack();
           if (typeof message["error"] === "string") setError(message["error"]);
+          // A step's picture, on its own: the story it belongs to is told apart.
+          if (message["frame"] !== undefined) return setChat((c) => framed(c, message));
           if (message["taken"] === true) return setChat((c) => took(c, message));
           return setChat((c) => storied(c, message));
         case "chat.chats":
@@ -312,7 +326,8 @@ function shown(c: Chat, message: Record<string, unknown>): Chat {
     sending,
     extras,
     working: sending.length > 0 || (c.working && !answered),
-    ...(answered ? { stories: [] } : {}),
+    pictures: keep(fresh ? new Map() : c.pictures, picturesOf(message)),
+    ...(answered ? { stories: [], live: [] } : {}),
     ...(fresh ? { asks: [] } : {}),
   };
 }
@@ -340,7 +355,7 @@ function storied(c: Chat, message: Record<string, unknown>): Chat {
   const story = message["story"];
   const said = typeof message["said"] === "string" ? message["said"] : undefined;
   // A failed turn: what is still waiting was never taken, and goes back to the owner.
-  if (typeof message["error"] === "string") return { ...c, working: false, stories: [], sending: [], ...(c.sending.length ? { unsent: c.sending.join("\n") } : {}) };
+  if (typeof message["error"] === "string") return { ...c, working: false, stories: [], live: [], sending: [], ...(c.sending.length ? { unsent: c.sending.join("\n") } : {}) };
   if (typeof story !== "string") return { ...c, working: false };
   const after = anchorOf(c, said);
   // The steps a finished turn already shows, told once more as it closed: nothing new.
@@ -348,6 +363,17 @@ function storied(c: Chat, message: Record<string, unknown>): Chat {
   const next: Extra = { after, text: story, ...(said !== undefined ? { said } : {}) };
   const others = c.stories.filter((x) => (said !== undefined ? x.said !== said : x.after !== after));
   return { ...c, working: true, stories: [...others, next] };
+}
+
+/** A step's picture as the turn takes it: kept, and shown with the story of the words it is about. */
+function framed(c: Chat, message: Record<string, unknown>): Chat {
+  const frame = frameOf(message);
+  if (!frame || message["conversation"] !== c.conversation) return c;
+  const said = typeof message["said"] === "string" ? message["said"] : undefined;
+  const at = c.live.findIndex((x) => x.said === said);
+  const entry = at >= 0 ? c.live[at]! : { ...(said !== undefined ? { said } : {}), frames: [] };
+  const next = { ...entry, frames: [...entry.frames.filter((id) => id !== frame[0]), frame[0]] };
+  return { ...c, pictures: keep(c.pictures, [frame]), live: at >= 0 ? c.live.map((x, i) => (i === at ? next : x)) : [...c.live, next] };
 }
 
 /** The owner's words in order, said and on their way: what a story or a notice is placed under. */
@@ -494,7 +520,9 @@ function Panel(): ReactElement {
         <Silent />
       ) : (
         <>
-          <Thread chat={chat} online={online} send={send} answer={answer} reads={reads} answerRead={answerRead} quotes={quotes} />
+          <Pictures.Provider value={{ cache: chat.pictures, hidden: state?.settings.hiddenSites ?? [] }}>
+            <Thread chat={chat} online={online} send={send} answer={answer} reads={reads} answerRead={answerRead} quotes={quotes} />
+          </Pictures.Provider>
           <AnimatePresence>
             {error && (
               <m.p className="error panel-error" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={ease}>
@@ -667,7 +695,7 @@ function Thread({
   const words = yourWords(chat);
   const placed = (x: Extra): number => (x.said !== undefined && words.includes(x.said) ? words.lastIndexOf(x.said) + 1 : x.after);
   const after = (n: number): void => {
-    chat.stories.forEach((x, i) => (placed(x) === n ? items.push(<Story key={`story${i}-${n}`} text={x.text} />) : undefined));
+    chat.stories.forEach((x, i) => (placed(x) === n ? items.push(<Story key={`story${i}-${n}`} text={x.text} frames={chat.live.find((l) => l.said === x.said)?.frames ?? []} />) : undefined));
     chat.extras.forEach((x, i) => (placed(x) === n ? items.push(<Extra key={`x${i}`} extra={x} />) : undefined));
   };
   chat.lines.forEach((line, i) => {
@@ -763,8 +791,28 @@ function LineView({ line, pending, quote }: { line: Line; pending?: boolean; quo
   }
 }
 
-/** The steps a turn took, folded to a count; open to read them. */
-function Steps({ steps, live }: { steps: { summary: string; failed?: true }[]; live?: boolean }): ReactElement {
+/** The pictures the chat holds, and the sites the owner hid here, whose pictures are never drawn. */
+const Pictures = createContext<{ cache: ReadonlyMap<number, Pictured>; hidden: readonly string[] }>({ cache: new Map(), hidden: [] });
+
+/** What the steps saw, each small under them and larger on a press, as on the dashboard; none from a hidden site. */
+function StepPictures({ frames }: { frames: (number | undefined)[] }): ReactElement | null {
+  const { cache, hidden } = useContext(Pictures);
+  const shown = frames.flatMap((id) => {
+    const p = id !== undefined ? cache.get(id) : undefined;
+    return showable(p, hidden) ? [{ id: id!, p }] : [];
+  });
+  if (!shown.length) return null;
+  return (
+    <div className="step-pictures">
+      {shown.map(({ id, p }) => (
+        <StepPicture key={id} src={pictureSrc(p)} />
+      ))}
+    </div>
+  );
+}
+
+/** The steps a turn took, folded to a count; open to read them. Under them, what they saw. */
+function Steps({ steps, live, frames }: { steps: Step[]; live?: boolean; frames?: number[] }): ReactElement {
   const [open, setOpen] = useState(false);
   const failed = steps.filter((s) => s.failed).length;
   return (
@@ -790,6 +838,7 @@ function Steps({ steps, live }: { steps: { summary: string; failed?: true }[]; l
           ))}
         </ol>
       </Collapse>
+      <StepPictures frames={frames ?? steps.map((s) => s.frame)} />
     </m.div>
   );
 }
@@ -826,14 +875,14 @@ function Working({ stories, since, waiting }: { stories: Extra[]; since: number 
 }
 
 /** The running turn: its steps so far, and what KOS is saying between them. */
-function Story({ text }: { text: string }): ReactElement {
+function Story({ text, frames }: { text: string; frames: number[] }): ReactElement {
   // A long story comes as its tail, cut mid-line after a "…": that first line is a fragment.
   const lines = (text.startsWith("…") ? text.split("\n").slice(1) : text.split("\n")).filter((l) => l.trim());
   const steps = lines.filter((l) => l.startsWith(STEP)).map((l) => ({ summary: l.slice(STEP.length).replace(/ \(failed\)$/, ""), ...(l.endsWith(" (failed)") ? { failed: true as const } : {}) }));
   const words = lines.filter((l) => !l.startsWith(STEP)).join("\n");
   return (
     <>
-      {steps.length > 0 && <Steps steps={steps} live />}
+      {steps.length > 0 && <Steps steps={steps} live frames={frames} />}
       {words && (
         <m.div className="msg msg--kos msg--live" layout="position" {...enter}>
           <Markdown text={words} />

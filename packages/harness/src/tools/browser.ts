@@ -1,6 +1,7 @@
-import { STEPS_MAX, VISIT_MAX, act, evaluate, look, stepsOf, touchesPage, urlFor, visit, type Seen, type Tab, type Then } from "@kos/browser";
+import { STEPS_MAX, VISIT_MAX, act, evaluate, look, stepsOf, touchesPage, urlFor, visit, type SeeOptions, type Seen, type Tab, type Then } from "@kos/browser";
+import { ScreenMemory, actionsOf } from "@kos/shared";
 
-import { turnStop } from "../kernel/caller.js";
+import { caller, turnStop } from "../kernel/caller.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import type { WatchLook } from "../ops/watches.js";
 import { RISKY, SAFE } from "../risk/tiers.js";
@@ -44,11 +45,21 @@ export interface PageSpot {
   tab: string;
   url: string;
   moved: number;
+  /** The session the tab is driven in, where one is: a new session on the same tab is not the page last seen. */
+  session?: string;
 }
 
 export interface BrowserElsewhere {
   /** Whether the conversation is working in it now. */
   active(conversationId: string): boolean;
+  /**
+   * Whether the conversation's browser is this one even before its session
+   * starts: the chat of KOS for Chrome's side panel, whose "this tab" is the
+   * owner's. Its browser calls never fall back to KOS's own browser.
+   */
+  claims?(conversationId: string): boolean;
+  /** Start the conversation's session here, unasked by any tool, or say why it cannot; `signal` is the turn's Stop, which withdraws the ask. */
+  ensure?(conversationId: string, signal?: AbortSignal): Promise<void>;
   /** Where the conversation's tab there is, if it has one. */
   spot(conversationId: string): PageSpot | undefined;
   /** The conversation's tab there, opened when it has none. */
@@ -60,7 +71,7 @@ export interface BrowserElsewhere {
   /** The host of the conversation's tab there, for its site's trust. */
   siteOf(conversationId: string): string | undefined;
   /** A picture of the conversation's tab there, if it has one. */
-  picture(conversationId: string, maxWidth: number): Promise<string | undefined>;
+  picture(conversationId: string, maxEdge: number): Promise<string | undefined>;
   /** What it is, in words for a result: "the owner's Chrome (Chrome on macOS)". */
   describe(conversationId: string): string;
 }
@@ -89,10 +100,11 @@ export interface BrowserToolsDeps {
  */
 const WHERE =
   "These tools work in KOS's own browser: a Chrome that KOS runs on its own host, which the owner watches in the dashboard's " +
-  "Browser window. It is not the owner's Chrome. While this chat holds the owner's Chrome (chrome.start, KOS for Chrome), " +
-  "they work there instead, until chrome.end. Each result says which browser it ran in. When the owner says my Chrome, my " +
-  "browser or the browser device, they mean their own Chrome: chrome.start, not these alone.";
-const WHERE_SHORT = "In KOS's own browser, or in the owner's Chrome while chrome.start holds it; the result says which.";
+  "Browser window. It is not the owner's Chrome. In the chat of KOS for Chrome's side panel they work in the owner's Chrome, " +
+  "in the tab beside the panel, from the first call of a turn the owner said there (they allow it there; any other turn calls chrome.start), and never in KOS's own; elsewhere, while " +
+  "this chat holds the owner's Chrome (chrome.start), they work there instead. Each result says which browser it ran in. When " +
+  "the owner says my Chrome, my browser or the browser device, they mean their own Chrome: chrome.start, not these alone.";
+const WHERE_SHORT = "In KOS's own browser, or in the owner's Chrome from its side panel or while chrome.start holds it; the result says which.";
 
 const THEN = { type: "string", enum: ["look", "snapshot", "read", "none"] };
 
@@ -114,10 +126,28 @@ function urlsOf(input: Record<string, unknown>): string[] {
 }
 
 function answer(seen: Seen): string | Seen {
-  return seen.images.length ? { text: seen.text, images: seen.images } : seen.text;
+  return seen.images.length ? { text: seen.text, images: seen.images, ...(seen.endUnseen ? { endUnseen: true } : {}) } : seen.text;
 }
 
 export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
+  /**
+   * The last picture each chat was shown, so a page that has not changed
+   * since goes as words and its index: the kernel's one memory for every
+   * screen surface once active, so a computer's picture is never mistaken
+   * for the page's.
+   */
+  let memory = new ScreenMemory();
+  /** A look the chat asked for: its picture goes whatever, and is the one later looks are told from. */
+  const always = (): SeeOptions => {
+    const chat = caller.getStore();
+    return chat ? { unchanged: (image) => (memory.showing(chat, image), false) } : {};
+  };
+  /** A look after an act: a picture only when the page changed since the last one. */
+  const ifChanged = (): SeeOptions => {
+    const chat = caller.getStore();
+    return chat ? { unchanged: (image) => memory.unchanged(chat, image) } : {};
+  };
+  let unsubscribe: (() => void)[] = [];
   /** A result, said to have happened where it did. */
   const placed = (seen: Seen): string | Seen => {
     const where = deps.where?.();
@@ -143,7 +173,15 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         { kind: "tool", name: "browser.watch", version: "1.0.0" },
       ],
     },
+    deactivate() {
+      for (const off of unsubscribe) off();
+      unsubscribe = [];
+    },
     async activate(ctx: ModuleContext) {
+      // A new turn or query has not seen the last picture, so the next look sends it whole.
+      memory = ctx.services?.screens ?? memory;
+      const events = ctx.events;
+      if (events) unsubscribe = [events.on("turn:start", (e) => memory.forget(e.conversationId)), events.on("query:fresh", (e) => memory.forget(e.conversationId))];
       ctx.registerTool(
         {
           name: "browser.visit",
@@ -168,7 +206,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         },
         async (input) => {
           const scope = str(input, "scope");
-          return placed(await visit(await deps.tab(), urlsOf(input), { then: thenOf(input, "look"), ...(scope ? { scope } : {}), until: input["wait"] === "load" ? "load" : "dom" }));
+          return placed(await visit(await deps.tab(), urlsOf(input), { then: thenOf(input, "look"), ...(scope ? { scope } : {}), until: input["wait"] === "load" ? "load" : "dom", ...always() }));
         },
         SAFE,
       );
@@ -178,7 +216,8 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           name: "browser.act",
           description:
             `${WHERE_SHORT} ` +
-            "Do several things on the current page in one call, in order, then see the page as it is afterwards. Each step is one " +
+            "Do several things on the current page in one call, in order, then see the page as it is afterwards. `actions` is the " +
+            "list (`steps` is its older name, still taken). Each is one " +
             "of {click: target}, {dblclick: target}, {rightclick: target}, {drag: {from: target, to: target}} (a slider, a card " +
             "into a column, a file onto a drop zone), {fill: {target, text}} (replaces what is there), {type: {target, text}} (adds to it), " +
             '{press: "Enter" | "Meta+a" | ...}, {select: {target, values}}, {check: target}, {uncheck: target}, {hover: target}, ' +
@@ -187,29 +226,30 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
             "A target is a @ref from the last look, a CSS selector, or a text selector: button:has-text('Submit'), text=Submit. " +
             "Each step already waits for what it set off: a page it opened, the network going quiet. So do not add wait steps " +
             "after clicks or keys; each one is time the owner watches. Wait only for something you know is slow, and then for what " +
-            "you expect, {wait: {text}}, rather than a number. Put a whole sequence you can foresee (answer, then submit, then " +
-            "next) in one call. A click the page covers (a bar at its edge, a banner) is tried with the target in the middle of " +
+            "you expect, {wait: {text}}, rather than a number. Put a whole sequence you can foresee in one call: every field of a " +
+            "form and then its submit, or answer, then submit, then next. The run stops at a step that fails and says so, so " +
+            "nothing is gained by looking in between. A click the page covers (a bar at its edge, a banner) is tried with the target in the middle of " +
             "the view and on other parts of it; only one covered everywhere is refused, naming what is in the way. Steps that only " +
             "look or move (open, go, hover, scroll, wait, dialog) run at once; the rest ask the owner unless the site is trusted. " +
             "If a step fails, the run stops and says what was done, why, and what the page offers now. `then` as for browser.visit: " +
-            '"snapshot" or "read" when the words on the page are enough, which is quicker; "look" when how it looks matters. ' +
+            '"snapshot" or "read" when the words on the page are enough, which is quicker; "look" (the default) when how it looks ' +
+            "matters (a page that has not changed since your last picture is said in words). " +
             'Say what the call is for in `intent`, a few words the owner reads as the step, like "open the Quizzes tab": without it ' +
             "they see only clicks and refs.",
           inputSchema: {
             type: "object",
             properties: {
-              steps: { type: "array", items: { type: "object" }, minItems: 1, maxItems: STEPS_MAX },
+              actions: { type: "array", items: { type: "object" }, minItems: 1, maxItems: STEPS_MAX, description: "the steps in order, each one key" },
               then: THEN,
               intent: { type: "string", description: "What these steps do, in a few words the owner will read, like 'open the Quizzes tab' or 'search for the engagement form'." },
             },
-            required: ["steps"],
           },
         },
         async (input) => {
-          const steps = stepsOf(input["steps"]);
+          const steps = stepsOf(actionsOf(input, STEPS_MAX));
           const tab = await deps.tab();
           const before = new Set(deps.mine?.() ?? []);
-          const seen = await act(tab, steps, thenOf(input, "look"), turnStop.getStore());
+          const seen = await act(tab, steps, thenOf(input, "look"), turnStop.getStore(), ifChanged());
           const opened = (deps.mine?.() ?? []).filter((t) => !before.has(t));
           const note = opened.length ? `\nIt opened ${opened.length === 1 ? `a tab, ${opened[0]}` : `tabs ${opened.join(", ")}`}; browser.use_tab works there.` : "";
           return placed({ ...seen, text: `${seen.text}${note}` });
@@ -228,7 +268,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
             'browser.visit gives. `then: "snapshot"` for the whole outline instead, `then: "read"` for its text; `scope` narrows either.',
           inputSchema: { type: "object", properties: { then: THEN, scope: { type: "string" } } },
         },
-        async (input) => placed(await look(await deps.tab(), thenOf(input, "look"), str(input, "scope"))),
+        async (input) => placed(await look(await deps.tab(), thenOf(input, "look"), str(input, "scope"), always())),
         SAFE,
       );
 
@@ -324,7 +364,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           if (!tab) throw new Error("tab required");
           if (!deps.useTab) throw new Error("no browser to switch tabs in");
           await deps.useTab(tab);
-          const seen = await look(await deps.tab(), thenOf(input, "look"));
+          const seen = await look(await deps.tab(), thenOf(input, "look"), undefined, always());
           return placed({ ...seen, text: `Now on tab ${tab}.\n${seen.text}`.trim() });
         },
         SAFE,
@@ -346,7 +386,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           const url = raw ? urlFor(raw) : undefined;
           const id = await deps.newTab();
           if (!url) return placedText(`Opened tab ${id}; it is blank, and yours.`);
-          const seen = await visit(await deps.tab(), [url], { then: thenOf(input, "look") });
+          const seen = await visit(await deps.tab(), [url], { then: thenOf(input, "look"), ...always() });
           return placed({ ...seen, text: `Opened tab ${id}.\n${seen.text}`.trim() });
         },
         SAFE,

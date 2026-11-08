@@ -26,8 +26,25 @@ server. The device always connects out, so nothing listens on it.
 3. Grant Screen Recording and Accessibility when it asks.
 
 Then any chat can ask: "on my laptop, open the Figma file from yesterday".
-The device asks you to allow the session, for how long, and the session
-starts.
+`computer.devices` says what is paired and online, asking nobody.
+`computer.start` picks the computer when one fits (or the one named; when
+several could be meant, or the one there is is offline, it says what is
+paired), the device asks you to allow the session, for how long, and the
+session starts with its first picture. When you speak in the KOS for Mac
+window no start is needed: the turn's first `computer.act` asks for the
+session on that Mac, offering the app in front first and showing your words
+(or the call's `intent`) as the task, and answers with the screen. Any other
+turn in that chat (typed on the dashboard, a dispatch, a schedule, a resumed
+approval) calls `computer.start`, and after a no the turn does not ask again.
+Stop while the device is asking withdraws the ask: a yes given after it, or
+after the turn ended, is given back at once.
+
+A session your own turn started belongs to its chat and lasts until its
+time, the device's idle limit, `computer.end`, you closing the chat window,
+or the kill switch, so an approval decided later still finds it. One that
+other work started (a schedule, a dispatch, a guest) ends with its turn,
+unless `keep` on `computer.start` holds it. A start KOS made unasked is in
+the audit log as `computer.start` or `chrome.start`.
 
 While KOS is in control:
 
@@ -35,7 +52,18 @@ While KOS is in control:
 - its cursor glides to each point, marked as KOS's;
 - `computer.act` takes one action or, as `actions`, a short run of them
   (click a field, type, press Return) with one picture at the end, so a
-  sequence it can see through costs one round trip;
+  sequence it can see through costs one round trip. The run is the same
+  runner `browser.act` uses: Stop between actions and inside the one in
+  flight, one wait budget of a minute a call for every wait in it (a pause,
+  a wait for words on a page, the settle before the picture), none past the
+  run's deadline, and "Done: ... Step 3 (click) failed: why." when it stops
+  part way. Stop in a step a device cannot take back says no more than
+  "step 3 may have finished on the device";
+- the picture after an act goes only when the screen changed since the
+  chat's last one, on any surface (one memory per chat, forgotten when a
+  turn, a fresh query or a screen subagent starts); otherwise it is said in
+  words, on the Mac and in a tab alike, and the step's picture is the last
+  one kept;
 - each step says what it is for in a few words (`intent`, "open the
   Quizzes tab"), which is the step's line wherever steps are listed; how
   it does it (click, type "BU354", press Return) is the line when there
@@ -224,7 +252,8 @@ in its menu): the side panel's chat, on the Mac. It takes the side panel's
 calls but `page.read` (`chat.show`, `chat.status`, `chat.ask`,
 `chat.settled`, `chat.chats`, `chat.models`) and sends its events
 (`chat.open`, `chat.send`, `chat.decide`, `chat.list`, `chat.switch`,
-`chat.models`, `chat.model`, `chat.auto`). Its chats are the `mac`
+`chat.models`, `chat.model`, and `chat.auto`). Hiding the window leaves a
+session its chat holds running, so KOS can work the screen. Its chats are the `mac`
 surface's, as the panel's are `chrome`'s, and a Chrome's words never reach
 it nor the other way round.
 
@@ -232,8 +261,8 @@ it nor the other way round.
 "bundle"?, "title"? }`, the app in front of the window and its front
 window's title; `{ "kind": "hidden" }`, an app the owner hid from KOS,
 named no further; or `{ "kind": "none" }`. The turn is told that app is
-what "this" means, and that `computer.start` on that Mac, naming the app,
-asks to see it or work in it. The window never takes the front from that
+what "this" means, and that its first `computer.act` asks to see it or work
+in it, on that Mac, offering that app's window first. The window never takes the front from that
 app, so it stays what the owner was looking at.
 
 ### Events

@@ -15,11 +15,20 @@ public enum ChatMethod: String, CaseIterable, Sendable {
 public struct ChatStep: Decodable, Equatable, Sendable {
   public let summary: String
   public let failed: Bool?
+  /// The frame id of what the step saw, when it kept a picture.
+  public let frame: Int?
 
-  public init(summary: String, failed: Bool? = nil) {
+  public init(summary: String, failed: Bool? = nil, frame: Int? = nil) {
     self.summary = summary
     self.failed = failed
+    self.frame = frame
   }
+}
+
+/// What a step just saw, sent as the turn runs: its frame id and the picture, base64 JPEG.
+public struct ChatFrame: Decodable, Equatable, Sendable {
+  public let id: Int
+  public let image: String
 }
 
 /// One entry in the chat: the owner's words, KOS's, a note, or the steps a turn took.
@@ -54,6 +63,8 @@ public struct ChatShow: Decodable, Equatable, Sendable {
   public let notice: ChatNotice?
   /// Whether this chat acts without asking each step.
   public let auto: Bool?
+  /// The newest steps' pictures, base64 JPEG by frame id.
+  public let pictures: [String: String]?
 }
 
 /// A turn as it goes: taken, its steps so far, done, or failed.
@@ -65,8 +76,10 @@ public struct ChatStatus: Decodable, Equatable, Sendable {
   public let error: String?
   /// The turn's steps so far; `.some(nil)` when KOS said null, the turn done; nil when it said nothing of them.
   public let story: String??
+  /// A step's picture, sent on its own as the step lands.
+  public let frame: ChatFrame?
 
-  enum CodingKeys: String, CodingKey { case conversation, said, taken, error, story }
+  enum CodingKeys: String, CodingKey { case conversation, said, taken, error, story, frame }
 
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -75,6 +88,7 @@ public struct ChatStatus: Decodable, Equatable, Sendable {
     taken = try c.decodeIfPresent(Bool.self, forKey: .taken)
     error = try c.decodeIfPresent(String.self, forKey: .error)
     story = c.contains(.story) ? .some(try c.decodeIfPresent(String.self, forKey: .story)) : nil
+    frame = try c.decodeIfPresent(ChatFrame.self, forKey: .frame)
   }
 }
 

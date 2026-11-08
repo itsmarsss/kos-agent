@@ -145,6 +145,15 @@ describe("computer steps", () => {
   it("keep the mechanics in the detail an approval shows", () => {
     expect(detailLines("computer.act", { ...batch, intent: "search for it" }).slice(0, 2)).toEqual(["Search for it", "Click, type “BU354”, press Return"]);
   });
+
+  it("are said by one rule for a computer and a page: `actions` on both, `steps` the page's older name", () => {
+    const page = [{ fill: { target: "@e2", text: "jane" } }, { click: "@e5" }];
+    expect(summarizeAction("browser.act", { actions: page })).toBe(summarizeAction("browser.act", { steps: page }));
+    expect(summarizeAction("browser.act", { actions: page })).toBe("Fill in “jane”, click");
+    expect(stepActions("browser.act", { intent: "sign in", actions: page })).toEqual(["Fill in “jane”", "Click"]);
+    expect(stepMechanics("browser.act", { intent: "sign in", actions: [...page, { click: "@e5" }, { click: "@e5" }] })).toBe("Fill in “jane”, click, click, click");
+    expect(summarizeAction("browser.act", { actions: [] })).toBe("Act on the page");
+  });
 });
 
 describe("summaries for the rest of the toolkit", () => {

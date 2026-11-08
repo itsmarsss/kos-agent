@@ -31,6 +31,14 @@ describe("the last picture of a conversation's page", () => {
     expect(seenAt().picture("c1", { ...at, moved: 4 }, "shop.example")).toBeUndefined();
   });
 
+  it("does not stand in a new session on the same tab and address, whose count starts again", () => {
+    const seen = new SeenPages(() => 0);
+    seen.run("c1")();
+    seen.saw("c1", "PICTURE", { tab: "77", url: "https://shop.example/cart", moved: 0, session: "s1" }, "shop.example");
+    expect(seen.picture("c1", { tab: "77", url: "https://shop.example/cart", moved: 0, session: "s2" }, "shop.example")).toBeUndefined();
+    expect(seen.picture("c1", { tab: "77", url: "https://shop.example/cart", moved: 0, session: "s1" }, "shop.example")).toBe("PICTURE");
+  });
+
   it("goes stale", () => {
     const now = { t: 0 };
     const seen = seenAt(now);
@@ -62,5 +70,27 @@ describe("the last picture of a conversation's page", () => {
     seen.run("c2")();
     seen.saw("c2", "OTHER", at, "shop.example");
     expect(seen.picture("c2", at, "shop.example")).toBe("OTHER");
+  });
+
+  it("stands again, taken now, after a look that found the screen unchanged, but only where it was taken", () => {
+    const now = { t: 0 };
+    const seen = seenAt(now);
+    now.t = 20_000;
+    seen.run("c1")();
+    seen.still("c1", at, "shop.example");
+    now.t = 45_000;
+    expect(seen.picture("c1", at, "shop.example")).toBe("PICTURE");
+    seen.run("c1")();
+    seen.still("c1", { ...at, moved: 4 }, "shop.example");
+    expect(seen.picture("c1", { ...at, moved: 4 }, "shop.example")).toBeUndefined();
+    expect(seen.picture("c1", at, "shop.example")).toBeUndefined();
+  });
+
+  it("is not vouched for by an unchanged look once a call answered without a picture", () => {
+    const seen = seenAt();
+    seen.run("c1")();
+    seen.forget("c1");
+    seen.still("c1", at, "shop.example");
+    expect(seen.picture("c1", at, "shop.example")).toBeUndefined();
   });
 });

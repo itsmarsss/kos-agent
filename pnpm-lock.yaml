@@ -24,7 +24,11 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.0)(jsdom@29.1.1)(lightningcss@1.32.0)
 
-  packages/browser: {}
+  packages/browser:
+    dependencies:
+      '@kos/shared':
+        specifier: workspace:*
+        version: link:../shared
 
   packages/browser-extension:
     devDependencies:

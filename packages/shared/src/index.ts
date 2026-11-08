@@ -123,6 +123,26 @@ export {
   type Lobe,
 } from "./blob.js";
 export type { ActionNames } from "./format-action.js";
+export {
+  UNCHANGED,
+  WAIT_BUDGET_MS,
+  RunError,
+  ScreenMemory,
+  WaitBudget,
+  abortable,
+  actionsOf,
+  digestOf,
+  doneText,
+  hasActions,
+  pause,
+  runActions,
+  stoppedAt,
+  stoppedDuring,
+  type ActThen,
+  type ActionContext,
+  type RunAdapter,
+  type RunOptions,
+} from "./screenrun.js";
 export { TIME_TOKEN, formatTime, instantOf, relativeWords, styleOf, timeCard, timesInWords, withUnixTimes, type TimeStyle } from "./time.js";
 export { pathsIn, type PathPart } from "./workspacepath.js";
 export { CHANNEL_TOKEN, channelNamesIn } from "./channel.js";

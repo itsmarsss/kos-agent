@@ -31,12 +31,39 @@ describe("the frame store", () => {
     const a = frames.add({ conversationId: "c1", toolUseId: "tu_1", tool: "browser.visit", picture: "AAAA" });
     const b = frames.add({ conversationId: "c1", tool: "browser.act", picture: "BBBB" });
     frames.add({ conversationId: "c2", toolUseId: "tu_9", tool: "browser.visit", picture: "CCCC" });
-    expect(a).toEqual({ id: 1, conversationId: "c1", toolUseId: "tu_1", tool: "browser.visit", createdAt: 1 });
+    expect(a).toEqual({ id: 1, conversationId: "c1", toolUseId: "tu_1", tool: "browser.visit", site: null, createdAt: 1 });
     expect(b.toolUseId).toBeNull();
     expect(frames.pictureOf(a.id)).toBe("AAAA");
     expect(frames.pictureOf(99)).toBeUndefined();
     expect(frames.listFor("c1").map((f) => f.id)).toEqual([1, 2]);
     expect([...frames.byToolUse("c1")]).toEqual([["tu_1", 1]]);
+  });
+
+  it("keeps the site a browser frame shows, and none for a screen", () => {
+    const web = frames.add({ conversationId: "c1", tool: "browser.act", picture: "AAAA", site: "example.com" });
+    const screen = frames.add({ conversationId: "c1", tool: "computer.act", picture: "BBBB" });
+    expect(web.site).toBe("example.com");
+    expect(frames.shown(web.id)).toEqual({ image: "AAAA", site: "example.com" });
+    expect(frames.shown(screen.id)).toEqual({ image: "BBBB" });
+    expect(frames.shown(99)).toBeUndefined();
+  });
+
+  it("adds the site column to a table made before it, keeping the frames there", () => {
+    const old = mkdtempSync(join(tmpdir(), "kos-frames-old-"));
+    const w = Workspace.open(old);
+    try {
+      w.db.exec(`CREATE TABLE browser_frames (id INTEGER PRIMARY KEY, conversation_id TEXT NOT NULL, tool_use_id TEXT, tool TEXT NOT NULL, created_at INTEGER NOT NULL, picture TEXT NOT NULL)`);
+      w.db.prepare(`INSERT INTO browser_frames (conversation_id, tool, created_at, picture) VALUES ('c1', 'browser.visit', 1, 'OLD')`).run();
+      const store = new FrameStore(w.db);
+      expect(store.get(1)?.site).toBeNull();
+      expect(store.pictureOf(1)).toBe("OLD");
+      expect(store.add({ conversationId: "c1", tool: "browser.act", picture: "NEW", site: "a.test" }).site).toBe("a.test");
+      // Opening it again does not add the column twice.
+      expect(() => new FrameStore(w.db)).not.toThrow();
+    } finally {
+      w.close();
+      rmSync(old, { recursive: true, force: true });
+    }
   });
 
   it("lets a conversation's oldest go past the cap", () => {

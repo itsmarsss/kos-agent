@@ -21,8 +21,18 @@ export type Step =
   | { check: string }
   | { uncheck: string }
   | { scroll: string }
-  | { wait: number | { text: string } | { selector: string } | { gone: string } }
+  | { wait: number | WaitFor }
   | { dialog: { accept: boolean; text?: string } };
+
+/**
+ * A wait for something on the page: words to appear, an element, or words to
+ * go. `ms` is the most it may take, handed down from the call's one budget;
+ * the page's own limit when absent. Never read from the model's input.
+ */
+export type WaitFor = ({ text: string } | { selector: string } | { gone: string }) & { ms?: number };
+
+/** The longest one wait for something on the page takes. */
+export const WAIT_FOR_MS = 15_000;
 
 export const STEP_KEYS = ["open", "go", "click", "dblclick", "rightclick", "drag", "hover", "fill", "type", "press", "select", "check", "uncheck", "scroll", "wait", "dialog"] as const;
 
@@ -35,10 +45,13 @@ export const WAIT_MAX_MS = 30_000;
 /**
  * Whether a run of steps does anything to the page. Decided on the raw
  * input, before the steps are parsed, so a shape the parser would refuse
- * counts as touching: an unreadable step never runs unasked.
+ * counts as touching: an unreadable step never runs unasked. The steps are
+ * `actions`, or `steps` by their older name; a call giving both is refused
+ * when it runs, and counts as touching here.
  */
 export function touchesPage(input: Record<string, unknown>): boolean {
-  const steps = input["steps"];
+  if (input["actions"] !== undefined && input["steps"] !== undefined) return true;
+  const steps = input["actions"] ?? input["steps"];
   if (!Array.isArray(steps) || steps.length === 0) return true;
   return steps.some((s) => {
     if (!s || typeof s !== "object" || Array.isArray(s)) return true;

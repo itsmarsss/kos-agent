@@ -11,6 +11,8 @@ import { classifyRisk, SAFE, type RiskAssessment, type ToolRisk } from "../risk/
 export interface ToolOutput {
   text: string;
   images?: ToolImage[];
+  /** The call ended somewhere its last picture is not of: a visit whose last page had none. */
+  endUnseen?: boolean;
 }
 
 export type ToolHandler = (
@@ -46,6 +48,8 @@ export interface ToolExecution {
   isError: boolean;
   /** Pictures that came with the result, kept apart from the words. */
   images?: ToolImage[];
+  /** The call ended somewhere its last picture is not of. */
+  endUnseen?: boolean;
 }
 
 
@@ -155,7 +159,7 @@ export class ToolRegistry {
     try {
       const out = await tool.handler(input);
       if (typeof out === "string") return { content: out, isError: false };
-      return { content: out.text, isError: false, ...(out.images?.length ? { images: out.images } : {}) };
+      return { content: out.text, isError: false, ...(out.images?.length ? { images: out.images } : {}), ...(out.endUnseen ? { endUnseen: true } : {}) };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { content: `tool error: ${message}`, isError: true };

@@ -200,7 +200,7 @@ export class OwnerChrome implements BrowserElsewhere {
 
   spot(conversation: string): PageSpot | undefined {
     const b = this.held.get(conversation);
-    return b?.current ? { tab: b.current, url: b.tabs.get(b.current)?.url ?? "", moved: b.moved } : undefined;
+    return b?.current ? { tab: b.current, url: b.tabs.get(b.current)?.url ?? "", moved: b.moved, session: b.session } : undefined;
   }
 
   siteOf(conversation: string): string | undefined {
@@ -221,7 +221,7 @@ export class OwnerChrome implements BrowserElsewhere {
 
   private borrowed(conversation: string): Borrowed {
     const session = this.session(conversation);
-    if (!session) throw new Error("this chat is not working in the owner's Chrome; chrome.start asks for it");
+    if (!session) throw new Error("this chat has no session in the owner's Chrome; chrome.start asks for one (from the side panel, the first browser call does)");
     let b = this.held.get(conversation);
     if (!b || b.session !== session.id) {
       b = { session: session.id, tabs: new Map(), pages: new Map(), moved: 0 };

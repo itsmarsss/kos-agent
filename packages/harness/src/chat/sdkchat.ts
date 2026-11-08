@@ -134,6 +134,8 @@ export interface SdkChatOptions {
   picturesPerQuery?: number;
   /** Told as the turn carries on in a fresh query, before it starts. */
   onFreshQuery?: () => void;
+  /** Told as the turn hands screen work to a subagent, whose context has seen no picture, before it starts. */
+  onScreenAgent?: () => void;
   /**
    * The model the screen steps run on, as a subagent the turn hands them to.
    * Unset, the turn does its screen work itself, as before.
@@ -561,6 +563,11 @@ export async function runSdkChat(
         // A subagent's frames carry the call that started it. Its words are its
         // report to the turn, not the turn's reply; its thinking still shows.
         const inSubagent = typeof m["parent_tool_use_id"] === "string";
+
+        // The turn handing work to a subagent: told before the subagent's first call.
+        if (!inSubagent && said?.content?.some((b) => typeof b === "object" && b !== null && (b as { type?: unknown }).type === "tool_use" && HANDOFF_TOOLS.includes(String((b as { name?: unknown }).name)))) {
+          options.onScreenAgent?.();
+        }
 
         // A tool's answer, back with the model: the moment a full query can end
         // without losing the step it just took.

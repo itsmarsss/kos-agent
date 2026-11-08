@@ -79,6 +79,20 @@ export type ProgressEvent =
       conversationId: string;
       members: CongregationMember[];
     }
+  | {
+      /**
+       * A picture of what a step saw (a tab, a screen), kept as a frame:
+       * every surface that shows the turn shows it under that step. `site`
+       * is the host of the page a browser frame shows, so a surface can
+       * leave out a site the owner hid there; a screen's frame has none.
+       */
+      kind: "frame";
+      conversationId: string;
+      tool: string;
+      frameId: number;
+      toolUseId?: string;
+      site?: string;
+    }
   | { kind: "turn-end"; conversationId: string };
 
 export type ProgressListener = (event: ProgressEvent) => void;

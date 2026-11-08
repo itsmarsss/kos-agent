@@ -54,6 +54,36 @@ export function isOwnerTurn(): boolean {
 }
 
 /**
+ * Where the turn making the current call came from: the surface its words
+ * arrived on ("chrome" for KOS for Chrome's side panel, "mac" for the KOS
+ * for Mac window) and those words. A tool that starts something on the
+ * owner's own device unasked reads it, so only the owner's words said there
+ * do: not a turn typed into the same chat on the dashboard, a dispatch, a
+ * schedule or a resumed approval. Absent outside a turn a surface carried.
+ */
+export interface TurnOrigin {
+  surface: string;
+  said: string;
+}
+
+export const origin = new AsyncLocalStorage<TurnOrigin>();
+
+/** The surface and words of the turn making the current call, when a surface carried it. */
+export function turnOrigin(): TurnOrigin | undefined {
+  return origin.getStore();
+}
+
+/**
+ * The owner's own words, when the current call's turn is them speaking on
+ * `surface` and nothing else: the one turn that may start a session on that
+ * device without a tool asking for it. Undefined for every other turn.
+ */
+export function ownWordsOn(surface: string): string | undefined {
+  const from = origin.getStore();
+  return isOwnerTurn() && isAttended() && from?.surface === surface ? from.said : undefined;
+}
+
+/**
  * Which turn is making the current call, beside its conversation. A chat can
  * have two turns alive at once (one suspended on an approval, one answering
  * the next message), and what a turn may reach can belong to that turn alone.

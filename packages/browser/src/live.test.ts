@@ -462,6 +462,23 @@ describe("the owner taking a tab", () => {
     expect(live.tabs().find((t) => t.id === tab)).not.toHaveProperty("held");
   });
 
+  it("no longer shows the tab waiting once the agent waiting on it is stopped", async () => {
+    const { live } = setup();
+    const tab = await live.tabFor("c1");
+    const page = await live.page(tab);
+    await page.ready();
+    live.hold(tab, "window-1");
+    const stop = new AbortController();
+    const work = page.run(async () => "never", stop.signal);
+    await flush();
+    expect(live.tabs().find((t) => t.id === tab)).toMatchObject({ held: true, waiting: true });
+    stop.abort();
+    await expect(work).rejects.toThrow();
+    await flush();
+    expect(live.tabs().find((t) => t.id === tab)).toMatchObject({ held: true });
+    expect(live.tabs().find((t) => t.id === tab)).not.toHaveProperty("waiting");
+  });
+
   it("lets go of what a window held when it closes, and tells an agent that waited too long", async () => {
     const chrome = new FakeChrome();
     const live = new BrowserLive({

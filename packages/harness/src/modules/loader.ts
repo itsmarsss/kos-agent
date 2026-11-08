@@ -1,4 +1,4 @@
-import { capabilityKey, type ModuleManifest } from "@kos/shared";
+import { capabilityKey, type ModuleManifest, type ScreenMemory } from "@kos/shared";
 
 import type { ToolDef } from "../models/types.js";
 import type { ToolRisk } from "../risk/tiers.js";
@@ -47,6 +47,12 @@ export interface ModuleServices {
   callerBlob?: () => { name: string; id: string } | undefined;
   /** The calling conversation's id, read at call time. */
   callerConversation?: () => string | undefined;
+  /**
+   * What each chat was last shown of a screen, one memory for every surface
+   * (KOS's browser, the owner's Chrome, a computer), so a look on one is never
+   * said unchanged against a picture of another.
+   */
+  screens?: ScreenMemory;
   /** Projects the calling turn made, which it alone may build; dropped when the turn ends. */
   turnMade?: { note(slug: string): void; made(): string[] };
 }

@@ -289,7 +289,14 @@ export class DeviceHub {
 
   /** Ask the owner, on the device, for a session; resolves when they answer. */
   /** `app`, when given, is the app KOS would work in: the owner sees its window offered first, and picks. */
-  async begin(input: { conversation: string; device: Device; task: string; requester: string; minutes: number; app?: string; maxEdge?: number }): Promise<Session> {
+  /**
+   * A session asked of the owner on the device. Once `signal` aborts (the
+   * owner pressed Stop in the chat that asks) the ask is answered at once
+   * as stopped, and a yes the owner gives after that is given back on the
+   * device straight away: nobody is left to use it.
+   */
+  async begin(input: { conversation: string; device: Device; task: string; requester: string; minutes: number; app?: string; maxEdge?: number; signal?: AbortSignal }): Promise<Session> {
+    if (input.signal?.aborted) throw new DeviceError("stopped", "the owner pressed Stop before the session was asked for");
     if (this.deps.halted()) throw new DeviceError("halted", "KOS is halted by the kill switch");
     const held = this.sessionOf(input.conversation);
     if (held) {
@@ -306,7 +313,7 @@ export class DeviceHub {
 
     const id = `ses_${randomBytes(9).toString("base64url")}`;
     const minutes = Math.max(1, Math.min(MAX_ASK_MINUTES, Math.round(input.minutes)));
-    const result = await link.call(
+    const asked = link.call(
       "session.begin",
       // The chat's id lets the device link the owner straight to the chat that is asking.
       {
@@ -316,7 +323,11 @@ export class DeviceHub {
       },
       this.deps.beginTimeoutMs ?? BEGIN_TIMEOUT_MS,
     );
-    const grant = browser ? readBrowserGrant(result) : readGrant(result);
+    const readOf = (result: Record<string, unknown>): Grant | undefined => (browser ? readBrowserGrant(result) : readGrant(result));
+    const result = await untilStopped(asked, input.signal, (late) => {
+      if (readOf(late)) void link.call("session.end", { session: id }, 5_000).catch(() => undefined);
+    });
+    const grant = readOf(result);
     if (!grant) throw new DeviceError("denied", "the owner did not allow it on the device");
     const session: Session = {
       id,
@@ -445,6 +456,30 @@ function missingPermissions(p: Permissions | undefined): string | undefined {
   if (!p.screen) return "Screen Recording";
   if (!p.input) return "Accessibility";
   return undefined;
+}
+
+/**
+ * The device's answer, or a stop the moment the signal aborts. An answer
+ * that comes after the stop goes to `late`, so a session granted then can
+ * be given back.
+ */
+function untilStopped(asked: Promise<Record<string, unknown>>, signal: AbortSignal | undefined, late: (result: Record<string, unknown>) => void): Promise<Record<string, unknown>> {
+  if (!signal) return asked;
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => reject(new DeviceError("stopped", "the owner pressed Stop before the session was allowed"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    asked.then(
+      (result) => {
+        signal.removeEventListener("abort", onAbort);
+        if (signal.aborted) late(result);
+        else resolve(result);
+      },
+      (err: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(err);
+      },
+    );
+  });
 }
 
 /** A browser's grant: its time, and no screen; what it shares is its tabs. */

@@ -273,3 +273,8 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .panel-error { margin: 0 14px; }
 
 .chat-head .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* What a turn's steps saw (kit StepPicture), under the steps chip: the newest last, each larger on a press. */
+.step-pictures { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.step-pictures .step-picture { margin: 0; width: 9.5rem; }
+.step-pictures .step-picture.is-open { width: 100%; }

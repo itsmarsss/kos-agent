@@ -19,6 +19,8 @@ export class FakeDevice {
   /** Each face KOS sent, oldest first. */
   readonly faces: Record<string, unknown>[] = [];
   readonly answers = new Map<string, Answer>();
+  /** Calls with no scripted answer, by method, newest last: answered later with `answer`. */
+  private readonly unanswered = new Map<string, unknown[]>();
   welcome: { name: string; signature: string } | undefined;
   closed: { code: number; reason: string } | undefined;
   state: DeviceState = { consent: "device", permissions: { screen: true, input: true }, displays: [{ id: 1, width: 1512, height: 982, scale: 2, main: true }] };
@@ -82,6 +84,13 @@ export class FakeDevice {
     this.send({ t: "event", name, data });
   }
 
+  /** Answer the oldest call of `method` that had no scripted answer, as the device would once the owner decides. */
+  answer(method: string, result: Record<string, unknown>): void {
+    const id = this.unanswered.get(method)?.shift();
+    if (id === undefined) throw new Error(`no ${method} waiting for an answer`);
+    this.send({ t: "reply", id, ok: true, result });
+  }
+
   welcomeVerifies(hostKey: string): boolean {
     return !!this.welcome && verifyText(hostKey, hostProof(this.nonce, this.id), this.welcome.signature);
   }
@@ -96,6 +105,7 @@ export class FakeDevice {
       const params = msg.params as Record<string, unknown>;
       this.calls.push({ method, params });
       const answer = this.answers.get(method);
+      if (!answer) this.unanswered.set(method, [...(this.unanswered.get(method) ?? []), msg.id]);
       // Answered on the next tick, as a network reply would be.
       queueMicrotask(() => {
         if (!answer) return;

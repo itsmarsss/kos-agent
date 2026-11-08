@@ -40,13 +40,18 @@ final class ChatController {
     model.switchTo = { [weak self] id in self?.tell(.switchTo(conversation: id)) }
     model.chooseModel = { [weak self] choice in self?.tell(.model(choice)) }
     model.setAuto = { [weak self] on in self?.tell(.auto(on)) }
-    model.close = { [weak self] in self?.window.orderOut(nil) }
+    model.close = { [weak self] in self?.close() }
   }
 
   var isOpen: Bool { window.isVisible }
 
   func toggle() {
-    if isOpen { window.orderOut(nil) } else { open() }
+    if isOpen { close() } else { open() }
+  }
+
+  /// The window put away: a session its chat holds goes on, so KOS can work the screen behind it.
+  private func close() {
+    window.orderOut(nil)
   }
 
   func open() {
@@ -99,10 +104,16 @@ final class ChatController {
         model.silent = false
         model.show(
           conversation: p.conversation, title: p.title, lines: p.messages.compactMap(Self.line),
-          notice: p.notice.map { ($0.text, $0.from, $0.waiting ?? false) }, auto: p.auto ?? false)
+          notice: p.notice.map { ($0.text, $0.from, $0.waiting ?? false) }, auto: p.auto ?? false,
+          pictures: Dictionary(uniqueKeysWithValues: (p.pictures ?? [:]).compactMap { k, v in Int(k).map { ($0, v) } }))
       case .status:
         let p = try call.params(ChatStatus.self)
         heardBack()
+        // A step's picture comes on its own: the turn's story is told apart, and is not ended by it.
+        if let frame = p.frame {
+          model.frame(frame.id, image: frame.image, conversation: p.conversation)
+          return try? Outbound.reply(id: call.id, result: EmptyResult())
+        }
         model.status(taken: p.taken ?? false, story: p.story, error: p.error, said: p.said, conversation: p.conversation)
       case .ask:
         let a = try call.params(ChatAsk.self).approval
@@ -130,7 +141,7 @@ final class ChatController {
     case "you": return .you(m.text ?? "", files: m.files ?? [])
     case "kos": return m.text.map { .kos($0) }
     case "note": return m.text.map { .note($0) }
-    case "steps": return .steps((m.steps ?? []).map { .init(summary: $0.summary, failed: $0.failed ?? false) })
+    case "steps": return .steps((m.steps ?? []).map { .init(summary: $0.summary, failed: $0.failed ?? false, frame: $0.frame) })
     default: return nil
     }
   }

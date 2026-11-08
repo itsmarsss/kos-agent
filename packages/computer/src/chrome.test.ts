@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { attendance, openDatabase, type ModuleContext, type ToolRisk } from "@kos/harness";
+import { attendance, openDatabase, origin, ownership, type AuditEntry, type ModuleContext, type ToolRisk } from "@kos/harness";
 
 import { jpegEdge, OwnerChrome, relayLine, type Relay } from "./chrome.js";
 import { FakeDevice } from "./device.fixture.js";
@@ -20,7 +20,7 @@ import { computerModule } from "./tools.js";
 const hostPrivate = generateKeyPairSync("ed25519").privateKey;
 type Handler = (input: Record<string, unknown>) => unknown;
 
-function setup() {
+function setup(opts: { panel?: () => string | undefined; audit?: (entry: AuditEntry) => void } = {}) {
   const hub = new DeviceHub({
     store: new DeviceStore(openDatabase(":memory:")),
     hostKey: { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) },
@@ -38,7 +38,8 @@ function setup() {
     },
     unregisterTool: (name) => tools.delete(name),
   };
-  void computerModule({ hub, chrome, caller: () => "c1", titleOf: (id) => (id === "c1" ? "Shopping" : id), settleMs: 0, sleep: async () => undefined }).activate(ctx);
+  const mod = computerModule({ hub, chrome, caller: () => "c1", titleOf: (id) => (id === "c1" ? "Shopping" : id), settleMs: 0, sleep: async () => undefined, ...(opts.panel ? { panelChrome: opts.panel } : {}), ...(opts.audit ? { audit: opts.audit } : {}) });
+  void mod.activate(ctx);
   /** A paired Chrome, connected: the extension's hello, and its answers. */
   const pairChrome = (name = "Chrome on macOS"): FakeDevice => {
     const fake = new FakeDevice();
@@ -50,12 +51,34 @@ function setup() {
     fake.hello({ app: { version: "0.1.0", platform: "chrome", os: "macOS" }, permissions: { tabs: true }, displays: [] });
     return fake;
   };
-  return { hub, chrome, tools, risks, pairChrome };
+  return { hub, chrome, tools, risks, pairChrome, mod };
 }
 
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 };
+
+describe("the side panel's chat in the owner's Chrome", () => {
+  it("starts its session unasked only for the owner's own words in the panel, showing them as the task", async () => {
+    const at: { device?: string } = {};
+    const audited: AuditEntry[] = [];
+    const { hub, pairChrome, mod } = setup({ panel: () => at.device, audit: (e) => void audited.push(e) });
+    const fake = pairChrome();
+    at.device = fake.id;
+    const as = (from: { surface: string; said: string } | undefined, owner = true) => () =>
+      ownership.run(owner, () => (from ? origin.run(from, () => mod.beginPanelChrome("c1")) : mod.beginPanelChrome("c1")));
+    // Typed into the same chat on the dashboard, passed on by a chat, or no surface at all: chrome.start is the way.
+    for (const turn of [as({ surface: "dashboard", said: "buy it" }), as({ surface: "dispatch", said: "buy it" }), as(undefined), as({ surface: "chrome", said: "buy it" }, false)]) {
+      await expect(turn()).rejects.toThrow(/not the owner speaking in the Chrome side panel.*chrome\.start/);
+    }
+    expect(fake.calls.filter((c) => c.method === "session.begin")).toEqual([]);
+    await as({ surface: "chrome", said: "buy this mug" })();
+    expect(fake.calls.find((c) => c.method === "session.begin")?.params).toMatchObject({ task: '"buy this mug"' });
+    expect(hub.sessionOf("c1")).toBeDefined();
+    // Written down as the start it stands for, as chrome.start is.
+    expect(audited).toEqual([expect.objectContaining({ tool: "chrome.start", args: { task: '"buy this mug"', chrome: fake.id, unasked: true }, isError: false })]);
+  });
+});
 
 describe("a Chrome paired through the extension", () => {
   it("connects with a browser's hello, and is answered when it pings", async () => {
@@ -95,7 +118,7 @@ describe("a Chrome paired through the extension", () => {
     await expect(attendance.run(false, () => tools.get("chrome.start")!({ task: "check the cart" }))).rejects.toThrow(/did not start/);
     const said = (await attendance.run(true, () => tools.get("chrome.start")!({ task: "check the cart" }))) as string;
     expect(fake.calls.find((c) => c.method === "session.begin")?.params).toMatchObject({ task: "check the cart", requester: "Shopping" });
-    expect(said).toMatch(/^Working in the owner's Chrome \(Chrome on macOS\) for 1[45] minutes\. Your browser\.\* tools act there now, not in KOS's own browser/);
+    expect(said).toMatch(/^Working in the owner's Chrome \(Chrome on macOS\) until this turn ends\. Your browser\.\* tools act there now, not in KOS's own browser/);
     expect(chrome.describe("c1")).toBe("the owner's Chrome (Chrome on macOS)");
     expect(said).toContain("Tabs the owner handed you: Cart");
     expect(hub.sessionOf("c1")?.target).toEqual({ kind: "tabs" });
@@ -130,7 +153,7 @@ describe("a Chrome paired through the extension", () => {
     expect(chrome.siteOf("c1")).toBe("shop.example");
     // And says its page moved under the agent, as the owner taking the Chrome over and handing it back does.
     const moved = chrome.spot("c1")!;
-    expect(moved).toMatchObject({ tab: "88", url: "https://shop.example/checkout" });
+    expect(moved).toMatchObject({ tab: "88", url: "https://shop.example/checkout", session: sent[0]!["session"] });
     fake.event("session.paused", { session: sent[0]!["session"], reason: "owner" });
     fake.event("session.resumed", { session: sent[0]!["session"] });
     expect(chrome.spot("c1")!.moved).toBe(moved.moved + 2);
@@ -227,7 +250,6 @@ describe("a Chrome beside a computer", () => {
     mac.hello();
     expect([...tools.keys()].sort()).toEqual(["chrome.end", "chrome.page", "chrome.start", "computer.act", "computer.devices", "computer.end", "computer.start"]);
     await expect(attendance.run(true, () => tools.get("computer.start")!({ task: "x", device: "Chrome on macOS" }))).rejects.toThrow(/is the owner's Chrome, not a computer; chrome.start/);
-    expect(await tools.get("computer.devices")!({})).toMatch(/Chrome on macOS \(dev_[^)]+\): the owner's own Chrome, through KOS for Chrome; chrome.start works in it \(it is not KOS's own browser\)/);
   });
 });
 

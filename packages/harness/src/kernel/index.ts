@@ -1,5 +1,5 @@
 export { GuardedTools, type GuardedToolsDeps } from "./guarded.js";
-export { attendance, isAttended, isOwnerTurn, ownership, turnStop } from "./caller.js";
+export { attendance, isAttended, isOwnerTurn, origin, ownWordsOn, ownership, turnOrigin, turnStop, type TurnOrigin } from "./caller.js";
 export {
   ensureProfile,
   loadProfile,
@@ -22,6 +22,7 @@ export {
   createDashboardServer,
   handleApiRequest,
   mentionsOf,
+  withFrames,
   type ApiExtension,
   type ApiRequest,
   type ApiResponse,
