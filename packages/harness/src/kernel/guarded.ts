@@ -84,6 +84,13 @@ export interface GuardedToolsDeps {
   onFinishedAfterStop?: (tool: string, result: ToolExecution) => void;
   /** Called as a call begins, so a reader can see the step it is on. */
   onStarted?: (tool: string, input: Record<string, unknown>) => void;
+  /**
+   * Made ready before a call is judged, in the caller's context: a session
+   * its tool needs, started where the owner allows it (the side panel's
+   * Chrome), so the call is judged against where it will run. Words saying
+   * why it cannot be readied refuse the call.
+   */
+  prepare?: (tool: string) => Promise<string | undefined>;
   /** Called once the owner has decided about a queued call. */
   onDecided?: (action: PendingAction, status: string) => void;
   /** How long to hold a suspended turn before treating silence as refusal. */
@@ -293,13 +300,13 @@ export class GuardedTools implements ToolBox {
     const attended = this.deps.attended !== false;
     const owner = attended && this.deps.owner === true;
     const { turnId, signal } = this.deps;
-    const stoppable = (n: string, i: Record<string, unknown>): Promise<ToolExecution> =>
-      signal ? turnStop.run(signal, () => registry.execute(n, i)) : registry.execute(n, i);
-    const inTurn = (n: string, i: Record<string, unknown>): Promise<ToolExecution> =>
-      turnId ? turn.run(turnId, () => stoppable(n, i)) : stoppable(n, i);
+    const stoppable = <T>(work: () => Promise<T>): Promise<T> => (signal ? turnStop.run(signal, work) : work());
+    const inTurn = <T>(work: () => Promise<T>): Promise<T> => (turnId ? turn.run(turnId, () => stoppable(work)) : stoppable(work));
+    const within = <T>(work: () => Promise<T>): Promise<T> =>
+      attendance.run(attended, () => ownership.run(owner, () => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work))));
     const run = (n: string, i: Record<string, unknown>): Promise<ToolExecution> => {
       started.ran = true;
-      return attendance.run(attended, () => ownership.run(owner, () => (conversationId ? caller.run(conversationId, () => inTurn(n, i)) : inTurn(n, i))));
+      return within(() => registry.execute(n, i));
     };
 
     const repeated = this.repeatGuard(name, called);
@@ -320,6 +327,10 @@ export class GuardedTools implements ToolBox {
     // ask would only invite the owner to open a gate the harness keeps shut.
     const refused = registry.refusal(name, called);
     if (refused) return { content: refused, isError: true };
+
+    // Readied before it is judged: a browser call from the side panel is judged on the owner's tab, once the owner let KOS have it.
+    const unready = this.deps.prepare ? await within(() => this.deps.prepare!(name)).catch((err: unknown) => (err instanceof Error ? err.message : String(err))) : undefined;
+    if (unready) return { content: unready, isError: true };
 
     // Judged, asked about and run as stamped: what the owner says yes to is
     // what runs, and the call can check it still holds.

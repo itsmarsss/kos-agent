@@ -3129,6 +3129,7 @@ export class Kernel {
       ...(opts.signal ? { signal: opts.signal } : {}),
       permissions: this.permissions,
       permissionContext: (tool) => this.browserContext(tool, opts.conversationId),
+      prepare: (tool) => this.readyBrowser(tool, opts.conversationId),
       ...(opts.heard ? { heard: opts.heard } : {}),
       autoApproves: (tool, context) => opts.conversationId !== undefined && this.actsWithoutAsking(opts.conversationId) && actsInYourChrome(tool, context),
       pictureFor: (tool) => this.browserPicture(tool, opts.conversationId),
@@ -3437,9 +3438,31 @@ export class Kernel {
     this.elsewhere = place;
   }
 
-  /** The browser a conversation is working in, when it is not KOS's own. */
+  /**
+   * The browser a conversation is working in, when it is not KOS's own: one
+   * it holds a session in, or the owner's Chrome for the side panel's chat,
+   * which never falls back to KOS's own browser.
+   */
   private away(conversationId: string | undefined): BrowserElsewhere | undefined {
-    return conversationId && this.elsewhere?.active(conversationId) ? this.elsewhere : undefined;
+    if (!conversationId || !this.elsewhere) return undefined;
+    return this.elsewhere.active(conversationId) || this.elsewhere.claims?.(conversationId) ? this.elsewhere : undefined;
+  }
+
+  /**
+   * A browser call from the side panel's chat, its session started first,
+   * where the owner allows it in their Chrome: the call is then judged, and
+   * pictured for an approval, on the tab it will act in. A session that
+   * cannot start refuses the call rather than run it in KOS's own browser.
+   */
+  private async readyBrowser(tool: string, conversationId?: string): Promise<string | undefined> {
+    const place = this.elsewhere;
+    if (!tool.startsWith(BROWSER_PREFIX) || !conversationId || !place?.claims?.(conversationId) || place.active(conversationId)) return undefined;
+    try {
+      await place.ensure?.(conversationId);
+      return undefined;
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
   }
 
   /**

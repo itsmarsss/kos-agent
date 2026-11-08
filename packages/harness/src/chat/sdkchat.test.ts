@@ -91,7 +91,7 @@ describe("joining what was said across steps", () => {
 });
 
 describe("screen work handed to its own model", () => {
-  const names = ["files.read", "computer.devices", "computer.start", "computer.act", "chrome.page", "chrome.start", "browser.act"];
+  const names = ["files.read", "computer.start", "computer.act", "chrome.page", "chrome.start", "browser.act"];
 
   it("keeps everything with the turn when no screen model is set", () => {
     expect(screenSplit(names, undefined)).toEqual({ main: names.map(sdkName) });
@@ -99,7 +99,7 @@ describe("screen work handed to its own model", () => {
 
   it("gives the screen tools to the screen agent alone, and the reads to both", () => {
     const split = screenSplit(names, { model: "claude-sonnet-5-5", effort: "low" });
-    expect(split.main).toEqual(["files.read", "computer.devices", "chrome.page"].map(sdkName).concat(["Task", "Agent"]));
+    expect(split.main).toEqual(["files.read", "chrome.page"].map(sdkName).concat(["Task", "Agent"]));
     expect(split.agent).toEqual({ tools: names.filter((n) => n !== "files.read").map(sdkName), model: "claude-sonnet-5-5", effort: "low" });
   });
 
