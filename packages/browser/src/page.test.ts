@@ -137,6 +137,38 @@ describe("the time a page is given after typing", () => {
     await act({ page, capture: async () => undefined }, stepsOf(fills), "none");
     expect(graces).toEqual([150, 150, 150, 150, 400]);
   });
+
+  it("is paid by the typing itself when a tick comes between it and a click", async () => {
+    const graces: number[] = [];
+    const quiet = `(${inpage.domQuiet.toString()})(`;
+    let ticked = false;
+    const { session } = tab({
+      "Page.getFrameTree": () => FRAME,
+      "Page.createIsolatedWorld": () => ({ executionContextId: 9 }),
+      "Runtime.evaluate": (p) => {
+        const expression = String(p["expression"]);
+        if (!expression.startsWith(quiet)) return { result: { objectId: "el", value: "complete" } };
+        graces.push(Number(expression.slice(quiet.length).split(",")[1]));
+        return { result: { value: true } };
+      },
+      "DOM.describeNode": () => ({ node: { backendNodeId: 10 } }),
+      "DOM.resolveNode": () => ({ object: { objectId: "el" } }),
+      "DOM.getContentQuads": () => ({ quads: [[0, 0, 10, 0, 10, 10, 0, 10]] }),
+      "DOM.getNodeForLocation": () => ({ backendNodeId: 10 }),
+      "Input.dispatchMouseEvent": (p) => {
+        if (p["type"] === "mouseReleased") ticked = true;
+        return {};
+      },
+      "Runtime.callFunctionOn": (p) => {
+        if (String(p["functionDeclaration"]) === inpage.checkedOf.toString()) return { result: { value: ticked } };
+        return { result: p["returnByValue"] ? { value: "x" } : {} };
+      },
+    });
+    const page = new Page(session);
+    await act({ page, capture: async () => undefined }, stepsOf([{ fill: { target: "#q", text: "x" } }, { check: "#box" }, { click: "#go" }]), "none");
+    // The fill, then the tick's click, then the click: the floor once, after the typing and so before the click.
+    expect(graces).toEqual([400, 150, 150]);
+  });
 });
 
 describe("the browser's clock", () => {
