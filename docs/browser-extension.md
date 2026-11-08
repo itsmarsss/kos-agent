@@ -135,7 +135,11 @@ session, unattended work off unless allowed. In addition:
 - **Not the overlay.** The bar's Take over, Hand back and Stop reach the
   extension from the overlay's own world, and only from the worlds Chrome
   made under its name; KOS may make one world of its own, `kos-hands`, with
-  no more reach than the page, and runs no script in the overlay's.
+  no more reach than the page. Its script runs, and its objects are made
+  or reached, only in the page's own worlds and its hands', each one
+  Chrome has told the extension it made; any other world, the overlay's
+  among them, is refused, and so is one not heard of (a world just made
+  is waited for, up to 200 ms).
 - **Only the web.** A navigation goes to http, https or a blank page; a
   file, `chrome:` or an extension's page is refused.
 - **Asking is the owner's, per KOS.** With Ask before each session off for a
