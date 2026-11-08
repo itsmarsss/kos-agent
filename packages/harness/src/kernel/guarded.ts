@@ -370,6 +370,8 @@ export class GuardedTools implements ToolBox {
         ...(rule ? { rule } : {}),
         ...(picture ? { picture } : {}),
         ...(why ? { why } : {}),
+        owner,
+        attended,
       });
       this.deps.onQueued?.(action);
 

@@ -2,6 +2,7 @@ import type { PendingAction } from "../ops/approvals.js";
 import { SHARED_LANE } from "../ops/queue.js";
 import { injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
+import { attendance, ownership } from "./caller.js";
 import { primarySessionId } from "./session.js";
 
 /**
@@ -120,7 +121,12 @@ export class Decisions {
     }
 
     const result = await d.queue.enqueue(async () => {
-      const r = await d.inConversation(action.conversationId, () => d.registry.execute(action.tool, injectSecrets(stored, d.secrets)));
+      // Run as the turn that asked would have: the owner's reach only if it was the owner's own turn.
+      const r = await attendance.run(action.attended, () =>
+        ownership.run(action.owner && action.attended, () =>
+          d.inConversation(action.conversationId, () => d.registry.execute(action.tool, injectSecrets(stored, d.secrets))),
+        ),
+      );
       d.audit.record({ tool: action.tool, args: stored, result: r.content, isError: r.isError, riskTier: "risky", userId: by });
       if (!r.isError) d.onToolRan(action.tool);
       return r;

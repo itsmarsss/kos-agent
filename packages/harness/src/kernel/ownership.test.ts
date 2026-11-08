@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -155,5 +155,77 @@ describe("who a turn is, by where it came from", () => {
       // Still told to the turn, as words.
       expect(sent, conversationId).toContain("bo: see @file:notes/theirs.md");
     }
+  });
+});
+
+/**
+ * What only the owner's own turns reach, a blob's artifact from a chat at the
+ * root, carried through an approval nobody is waiting on any more: run as the
+ * turn that asked, no more and no less.
+ */
+describe("an orphaned approval, run as the turn that asked", () => {
+  let root: string;
+  const kernels: Kernel[] = [];
+  const NOTE = "blobs/noter/artifacts/notes.html";
+
+  /** A kernel whose model asks for each scripted call in turn, then says ok. */
+  const boot = async (calls: { name: string; input: Record<string, unknown> }[] = []): Promise<Kernel> => {
+    const script = [...calls];
+    const inference: Inference = {
+      async generate() {
+        const call = script.shift();
+        return call
+          ? { content: [{ type: "tool_use", id: `t${script.length}`, name: call.name, input: call.input }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" }
+          : { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    };
+    const kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference, chrome: { port: 1, exists: () => false } });
+    kernels.push(kernel);
+    return kernel;
+  };
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-orphan-"));
+  });
+
+  afterEach(() => {
+    for (const k of kernels.splice(0)) k.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const blobArtifact = (kernel: Kernel): void => {
+    kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+    kernel.pages.writeHtml({ blob: "noter", id: kernel.roles.identity("noter")! }, { id: "notes", title: "Notes", html: "<p>n</p>" });
+  };
+
+  it("keeps the owner's reach for a chat at the root, across a restart", async () => {
+    const first = await boot([{ name: "files.rm", input: { path: NOTE } }]);
+    blobArtifact(first);
+    const chat = first.conversations.create({ userId: first.profile.ownerId, title: "Mine" });
+    await handleApiRequest(first, { method: "POST", path: "/api/message", body: { sessionId: chat.id, text: "remove the notes page" } });
+    await vi.waitFor(() => expect(first.approvals.pending()).toHaveLength(1));
+    const asked = first.approvals.pending()[0]!;
+    expect(asked).toMatchObject({ tool: "files.rm", conversationId: chat.id, owner: true, attended: true });
+
+    // The host restarts under it: nobody is waiting on the row any more.
+    first.close();
+    kernels.splice(0);
+    const after = await boot();
+    const res = await after.approve(asked.id);
+    expect(res).toMatchObject({ ok: true, isError: false, message: "ok" });
+    expect(existsSync(join(root, NOTE))).toBe(false);
+  });
+
+  it("gives a guest's orphaned approval none of it", async () => {
+    const kernel = await boot();
+    blobArtifact(kernel);
+    const guest = await kernel.handleChannelTurn({ text: "hello", userId: "g1", channel: "discord", guest: { id: "g1", name: "Sam" } });
+    await vi.waitFor(() => expect(kernel.busyConversations()).not.toContain(guest.conversationId));
+    // As the guarded toolbox queues it for a guest's turn: neither the owner's nor attended.
+    const asked = kernel.approvals.enqueue({ tool: "files.rm", args: { path: NOTE }, riskTier: "risky", conversationId: guest.conversationId, owner: false, attended: false });
+    const res = await kernel.approve(asked.id);
+    expect(res).toMatchObject({ ok: true, isError: true });
+    expect(res.message).toMatch(/blob noter's artifacts are not this chat's to change/);
+    expect(existsSync(join(root, NOTE))).toBe(true);
   });
 });
