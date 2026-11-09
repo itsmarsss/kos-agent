@@ -1,4 +1,4 @@
-import type { FaceDrawing, ThemeMode } from "@kos/shared";
+import type { DashboardTheme, FaceDrawing } from "@kos/shared";
 
 import { socketUrl } from "./address.js";
 import { nonce, sign, verify } from "./keys.js";
@@ -36,7 +36,7 @@ export interface LinkOptions {
   /** KOS's face, decided there, as it is now and whenever the owner changes it. */
   onFace: (face: FaceDrawing) => void;
   /** The dashboard's theme, as it is now and whenever the owner changes it. */
-  onTheme: (mode: ThemeMode) => void;
+  onTheme: (theme: DashboardTheme) => void;
 }
 
 /** How often the extension says it is still there, which also keeps its worker awake. */
@@ -168,7 +168,7 @@ export class Link {
       return;
     }
     if (frame.t === "face" && this.welcomed) return this.options.onFace(frame.face);
-    if (frame.t === "theme" && this.welcomed) return this.options.onTheme(frame.mode);
+    if (frame.t === "theme" && this.welcomed) return this.options.onTheme(frame.theme);
     // Calls are answered side by side: a long one must not hold the frames after it.
     if (frame.t === "call" && this.welcomed) void this.answer(frame.id, frame.method, frame.params);
   }

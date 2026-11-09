@@ -55,9 +55,13 @@ describe("the protocol", () => {
     expect(readFrame(JSON.stringify({ t: "face", face: { ...face, shape: { ...face.shape, lobes: [{ k: 2.5, amp: 0.1, phase: 0 }] } } }))).toBeUndefined();
     expect(readFrame("not json")).toBeUndefined();
     // The dashboard's theme: one of its three modes, or a frame to ignore.
-    for (const mode of ["light", "dark", "system"]) expect(readFrame(JSON.stringify({ t: "theme", mode }))).toEqual({ t: "theme", mode });
+    for (const mode of ["light", "dark", "system"]) expect(readFrame(JSON.stringify({ t: "theme", mode }))).toEqual({ t: "theme", theme: { mode } });
     expect(readFrame('{"t":"theme","mode":"dashboard"}')).toBeUndefined();
     expect(readFrame('{"t":"theme"}')).toBeUndefined();
+    // With the palette a dashboard draws it in, when KOS has one; a palette that is not one is dropped, the mode kept.
+    expect(readFrame('{"t":"theme","mode":"system","drawn":"dark"}')).toEqual({ t: "theme", theme: { mode: "system", drawn: "dark" } });
+    expect(readFrame('{"t":"theme","mode":"system","drawn":"system"}')).toEqual({ t: "theme", theme: { mode: "system" } });
+    expect(readFrame('{"t":"theme","drawn":"dark"}')).toBeUndefined();
   });
 });
 
@@ -258,9 +262,14 @@ describe("the owner's settings", () => {
     expect(themeOf("dashboard", "light")).toBe("light");
     expect(themeOf("dashboard", undefined)).toBe("system");
     expect(themeOf("dashboard", "sepia")).toBe("system");
+    expect(themeOf("dashboard", { mode: "system" })).toBe("system");
+    // The dashboard as it is drawn: set to System in a browser forced dark, dark here whatever this computer's appearance.
+    expect(themeOf("dashboard", { mode: "system", drawn: "dark" })).toBe("dark");
+    expect(themeOf("dashboard", { mode: "light", drawn: "light" })).toBe("light");
     // Its own choice: what KOS sends does not change it.
     expect(themeOf("dark", "light")).toBe("dark");
     expect(themeOf("system", "light")).toBe("system");
+    expect(themeOf("system", { mode: "system", drawn: "dark" })).toBe("system");
   });
 
   it("hides a site with every subdomain, however the owner typed it", () => {
@@ -291,15 +300,17 @@ describe("the KOS this Chrome is paired with", () => {
     expect(readPairings([{ ...home, face }], undefined)).toEqual([{ ...home, face }]);
     expect(readPairings([{ ...home, face: { fill: 1 } }], undefined)).toEqual([home]);
     // So is its dashboard's theme, each KOS its own.
-    expect(readPairings([{ ...home, theme: "light" }, { ...work, theme: "sepia" }], undefined)).toEqual([{ ...home, theme: "light" }, work]);
+    expect(readPairings([{ ...home, theme: { mode: "system", drawn: "dark" } }, { ...work, theme: { mode: "sepia" } }], undefined)).toEqual([{ ...home, theme: { mode: "system", drawn: "dark" } }, work]);
+    // A bare mode, as an older version kept it, is that mode without a palette.
+    expect(readPairings([{ ...home, theme: "light" }], undefined)).toEqual([{ ...home, theme: { mode: "light" } }]);
   });
 
   it("speaks of the KOS at work, else the first that is on, else the first paired, whichever spoke last", () => {
-    const list = [{ ...home, theme: "light" as const }, { ...work, theme: "dark" as const }];
-    expect(shownOf(list, "d2", () => true)?.theme).toBe("dark");
-    expect(shownOf(list, undefined, (id) => id === "d2")?.theme).toBe("dark");
-    expect(shownOf(list, undefined, () => true)?.theme).toBe("light");
-    expect(shownOf(list, undefined, () => false)?.theme).toBe("light");
+    const list = [{ ...home, theme: { mode: "light" as const } }, { ...work, theme: { mode: "dark" as const } }];
+    expect(shownOf(list, "d2", () => true)?.theme?.mode).toBe("dark");
+    expect(shownOf(list, undefined, (id) => id === "d2")?.theme?.mode).toBe("dark");
+    expect(shownOf(list, undefined, () => true)?.theme?.mode).toBe("light");
+    expect(shownOf(list, undefined, () => false)?.theme?.mode).toBe("light");
     expect(shownOf(list, "gone", () => true)).toBeUndefined();
     expect(shownOf([], undefined, () => true)).toBeUndefined();
   });

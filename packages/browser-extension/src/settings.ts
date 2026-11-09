@@ -10,7 +10,7 @@
  * here, so a bad value is the default rather than a surprise.
  */
 
-import { isThemeMode, type ThemeMode } from "@kos/shared/design";
+import { readDashboardTheme, type ThemeMode } from "@kos/shared/design";
 
 /** What of the owner's own hand on a KOS tab pauses KOS: clicks and keys (the default, as on the Mac), or scrolling too. */
 export type Takeover = "anyInput" | "clicksAndKeys";
@@ -20,13 +20,19 @@ export type ThemeChoice = "dashboard" | ThemeMode;
 
 export const THEME_CHOICES: readonly ThemeChoice[] = ["dashboard", "light", "dark", "system"];
 
-/** Where the worker keeps the mode of the KOS the toolbar speaks of, in chrome.storage.local, for the pages to follow. */
+/** Where the worker keeps the dashboard theme of the KOS the toolbar speaks of, in chrome.storage.local, for the pages to follow. */
 export const SENT_THEME_KEY = "dashboardTheme";
 
-/** The mode a choice draws, given what KOS last sent: the system's before anything has been. */
+/**
+ * The mode a choice draws, given what KOS last sent. The dashboard's is the
+ * palette it is drawn in when KOS has heard one, so "system" there is the
+ * dashboard's browser's, not this one's; else its mode, and the system's
+ * before anything has been sent.
+ */
 export function themeOf(choice: ThemeChoice, sent: unknown): ThemeMode {
   if (choice !== "dashboard") return choice;
-  return isThemeMode(sent) ? sent : "system";
+  const theme = readDashboardTheme(sent);
+  return theme?.drawn ?? theme?.mode ?? "system";
 }
 
 export interface ExtensionSettings {

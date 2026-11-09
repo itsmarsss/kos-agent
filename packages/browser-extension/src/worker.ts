@@ -1,4 +1,4 @@
-import { KOS_SEED, drawingOf, eyeAt, isThemeMode, lookOf, outline, smoothPath, type FaceDrawing, type ThemeMode } from "@kos/shared";
+import { KOS_SEED, drawingOf, eyeAt, lookOf, outline, readDashboardTheme, smoothPath, type DashboardTheme, type FaceDrawing } from "@kos/shared";
 
 import { kosAddress, parsePairing, type Pairing } from "./address.js";
 import { forgetKeys, keepKeys, keysFor, newKeys, publicKey } from "./keys.js";
@@ -64,8 +64,8 @@ export interface PopupState {
   session: { task: string; requester: string; until: number; paused: boolean; kos?: string; beside?: number; conversation?: string; face: FaceDrawing } | null;
   handed: number[];
   settings: Omit<ExtensionSettings, "askFirst">;
-  /** The dashboard's theme as the KOS the toolbar speaks of last sent it; none before it has. */
-  dashboardTheme?: ThemeMode;
+  /** The dashboard's theme and its palette as the KOS the toolbar speaks of last sent them; none before it has. */
+  dashboardTheme?: DashboardTheme;
 }
 
 export interface ConsentRequest {
@@ -131,7 +131,7 @@ const GROUP = "KOS";
 let pairings: Paired[] = [];
 let settings: ExtensionSettings = DEFAULTS;
 /** The dashboard's theme of the KOS the toolbar speaks of, as the pages are told it; none before that KOS has sent one. */
-let sentTheme: ThemeMode | undefined;
+let sentTheme: DashboardTheme | undefined;
 /** KOS the owner disconnected, kept across the worker's sleeps. */
 let held = new Set<string>();
 const linkStates = new Map<string, { state: LinkState; detail?: string }>();
@@ -192,7 +192,7 @@ async function load(): Promise<void> {
     note(`moved the one pairing, ${hostOf(pairings[0]!)}, into the list`);
   }
   settings = readSettings(local["settings"]);
-  if (isThemeMode(local[SENT_THEME_KEY])) sentTheme = local[SENT_THEME_KEY];
+  sentTheme = readDashboardTheme(local[SENT_THEME_KEY]);
   held = new Set(Array.isArray(local["held"]) ? (local["held"] as unknown[]).filter((v): v is string => typeof v === "string") : []);
   const kept = await chrome.storage.session.get(["handed", "bar"]);
   for (const tab of Array.isArray(kept["handed"]) ? (kept["handed"] as number[]) : []) handed.add(tab);
@@ -225,20 +225,24 @@ async function showFace(id: string, face: FaceDrawing): Promise<void> {
 }
 
 /** A KOS's dashboard theme, kept with its pairing; drawn when it is the KOS the toolbar speaks of. */
-async function keepTheme(id: string, mode: ThemeMode): Promise<void> {
-  if (!pairingOf(id) || pairingOf(id)!.theme === mode) return;
-  pairings = pairings.map((p) => (p.device === id ? { ...p, theme: mode } : p));
+async function keepTheme(id: string, theme: DashboardTheme): Promise<void> {
+  if (!pairingOf(id) || sameTheme(pairingOf(id)!.theme, theme)) return;
+  pairings = pairings.map((p) => (p.device === id ? { ...p, theme } : p));
   await savePairings();
   await showTheme();
 }
 
 /** The theme of the KOS the toolbar speaks of, told the pages to follow when set to, and the page KOS works in at once. */
 async function showTheme(): Promise<void> {
-  const mode = pairingOf(shownKos())?.theme;
-  if (sentTheme === mode) return;
-  sentTheme = mode;
-  await (mode ? chrome.storage.local.set({ [SENT_THEME_KEY]: mode }) : chrome.storage.local.remove(SENT_THEME_KEY));
+  const theme = pairingOf(shownKos())?.theme;
+  if (sameTheme(sentTheme, theme)) return;
+  sentTheme = theme;
+  await (theme ? chrome.storage.local.set({ [SENT_THEME_KEY]: theme }) : chrome.storage.local.remove(SENT_THEME_KEY));
   await paint();
+}
+
+function sameTheme(a: DashboardTheme | undefined, b: DashboardTheme | undefined): boolean {
+  return a?.mode === b?.mode && a?.drawn === b?.drawn;
 }
 
 /** Every KOS's line, up unless the owner held it; with `unpairedToo`, one KOS no longer takes is tried again too. */
@@ -272,7 +276,7 @@ const lines = new Lines<Link>({
       hello: () => hello(p.device),
       onCall: (method, params) => answer(method, params, p.device),
       onFace: (face) => void showFace(p.device, face),
-      onTheme: (mode) => void keepTheme(p.device, mode),
+      onTheme: (theme) => void keepTheme(p.device, theme),
       onState: (state, detail) => lineState(p, state, detail),
     }),
   wanted: (id) => !!pairingOf(id) && !held.has(id),
