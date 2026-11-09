@@ -62,7 +62,7 @@ export class Link {
   private retry = 0;
   private ping: ReturnType<typeof setInterval> | undefined;
   private redial: ReturnType<typeof setTimeout> | undefined;
-  /** Frames are read in the order they came: a welcome still being verified holds the face and theme sent after it. */
+  /** Frames are read in the order they came: a welcome still being verified holds the face and theme sent after it. Calls are only started in order. */
   private inbox: Promise<void> = Promise.resolve();
 
   constructor(private readonly options: LinkOptions) {}
@@ -169,13 +169,16 @@ export class Link {
     }
     if (frame.t === "face" && this.welcomed) return this.options.onFace(frame.face);
     if (frame.t === "theme" && this.welcomed) return this.options.onTheme(frame.mode);
-    if (frame.t === "call" && this.welcomed) {
-      try {
-        this.send({ t: "reply", id: frame.id, ok: true, result: await this.options.onCall(frame.method, frame.params) });
-      } catch (err) {
-        const code = err instanceof CallError ? err.code : "internal";
-        this.send({ t: "reply", id: frame.id, ok: false, error: { code, message: err instanceof Error ? err.message : String(err) } });
-      }
+    // Calls are answered side by side: a long one must not hold the frames after it.
+    if (frame.t === "call" && this.welcomed) void this.answer(frame.id, frame.method, frame.params);
+  }
+
+  private async answer(id: number, method: string, params: Record<string, unknown>): Promise<void> {
+    try {
+      this.send({ t: "reply", id, ok: true, result: await this.options.onCall(method, params) });
+    } catch (err) {
+      const code = err instanceof CallError ? err.code : "internal";
+      this.send({ t: "reply", id, ok: false, error: { code, message: err instanceof Error ? err.message : String(err) } });
     }
   }
 }

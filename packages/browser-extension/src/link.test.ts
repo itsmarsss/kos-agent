@@ -85,4 +85,26 @@ describe("a KOS's line, read in order", () => {
     warn.mockRestore();
     link.stop();
   });
+
+  it("answers calls side by side, so a long one does not hold the frames after it", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const themes: ThemeMode[] = [];
+    let finish: () => void = () => undefined;
+    const link = new Link({ url: "http://127.0.0.1:4317", device: "dev_a", hostKey: "k", keys: {} as CryptoKeyPair, hello: () => ({}) as Hello, onCall: (method) => (method === "slow" ? new Promise((r) => (finish = () => r({ done: true }))) : Promise.resolve({ quick: true })), onState: () => undefined, onFace: () => undefined, onTheme: (m) => void themes.push(m) });
+    link.start();
+    const ws = FakeSocket.made[0]!;
+    ws.frame({ t: "challenge", protocol: PROTOCOL, nonce: "theirs" });
+    ws.frame({ t: "welcome", name: "KOS", signature: "s" });
+    await vi.waitFor(() => expect(ws.sent.length).toBe(1));
+    await new Promise((r) => setTimeout(r, 0));
+    settle(true);
+    ws.frame({ t: "call", id: 1, method: "slow", params: {} });
+    ws.frame({ t: "call", id: 2, method: "quick", params: {} });
+    ws.frame({ t: "theme", mode: "dark" });
+    await vi.waitFor(() => expect(themes).toEqual(["dark"]));
+    await vi.waitFor(() => expect(ws.sent.some((f) => JSON.parse(f).id === 2)).toBe(true));
+    finish();
+    await vi.waitFor(() => expect(ws.sent.some((f) => JSON.parse(f).id === 1)).toBe(true));
+    link.stop();
+  });
 });
