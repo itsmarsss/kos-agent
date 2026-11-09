@@ -63,8 +63,6 @@ let drawnNow: DrawnTheme | undefined;
 let drawnKept: DrawnTheme | undefined;
 let report: ((drawn: DrawnTheme) => Promise<{ drawn: DrawnTheme }>) | null = null;
 let reportTimer: ReturnType<typeof setTimeout> | undefined;
-/** When this tab last reported, so an unchanged palette is said again only now and then. */
-let reportedAt = -Infinity;
 
 /** How long a change waits before it is reported, so a flurry of them is one report. */
 export const DRAWN_REPORT_MS = 500;
@@ -72,13 +70,15 @@ export const DRAWN_REPORT_MS = 500;
 /**
  * How often an open tab says its palette again when KOS already has it:
  * only to keep the report fresh, well inside the ten minutes KOS holds one
- * before devices draw the mode instead.
+ * before devices draw the mode instead. A hidden tab keeps saying it, and
+ * a browser that throttles a hidden tab's timers to once a minute still
+ * fires this one in time.
  */
 export const DRAWN_HEARTBEAT_MS = 3 * 60_000;
 
-/** A palette KOS does not have, or the one it has from this tab, due to be said again. */
+/** A palette KOS does not have, due to be said. */
 function due(): boolean {
-  return drawnNow !== undefined && (drawnNow !== drawnKept || Date.now() - reportedAt >= DRAWN_HEARTBEAT_MS);
+  return drawnNow !== undefined && drawnNow !== drawnKept;
 }
 
 function reportSoon(): void {
@@ -88,29 +88,53 @@ function reportSoon(): void {
 
 async function reportNow(): Promise<void> {
   reportTimer = undefined;
-  const drawn = drawnNow;
-  if (!report || !drawn || !due()) return;
+  if (due()) await say(drawnNow!);
+}
+
+async function say(drawn: DrawnTheme): Promise<void> {
+  if (!report) return;
   try {
     drawnKept = (await report(drawn)).drawn;
-    reportedAt = Date.now();
   } catch {
-    // Unsaid this time; the next change or poll reports it again.
+    // Unsaid this time; the next change, poll or heartbeat says it again.
   }
+}
+
+/**
+ * The heartbeat: what KOS has is read first, since a hidden tab hears no
+ * poll and another dashboard may have reported since. This tab's palette
+ * is said again when KOS still has it, or has none; another dashboard's is
+ * left alone.
+ */
+async function beat(read: () => Promise<DrawnTheme | undefined>): Promise<void> {
+  if (!report || drawnNow === undefined || drawnNow !== drawnKept) return;
+  try {
+    drawnKept = await read();
+  } catch {
+    return;
+  }
+  if (drawnKept === undefined || drawnKept === drawnNow) await say(drawnNow);
 }
 
 /**
  * Report the palette this tab draws in to KOS, now and on every change of
  * it: a choice of theme here or in another tab, or the browser's own
  * appearance under "system". Only a palette that differs from what KOS
- * last said is reported, and changes close together are reported once;
- * one KOS has from this tab is said again on the poll every
- * DRAWN_HEARTBEAT_MS, so it does not go stale while the tab is open.
+ * last said is reported, and changes close together are reported once.
+ * One KOS has from this tab is said again every DRAWN_HEARTBEAT_MS, on a
+ * timer of its own rather than the status poll, which a hidden tab skips,
+ * so it does not go stale while the tab is open.
  */
-export function reportDrawnTheme(send: (drawn: DrawnTheme) => Promise<{ drawn: DrawnTheme }>): () => void {
+export function reportDrawnTheme(
+  send: (drawn: DrawnTheme) => Promise<{ drawn: DrawnTheme }>,
+  read: () => Promise<DrawnTheme | undefined>,
+): () => void {
   report = send;
   reportSoon();
+  const heartbeat = setInterval(() => void beat(read), DRAWN_HEARTBEAT_MS);
   return () => {
     report = null;
+    clearInterval(heartbeat);
     clearTimeout(reportTimer);
     reportTimer = undefined;
   };
@@ -120,11 +144,11 @@ export function reportDrawnTheme(send: (drawn: DrawnTheme) => Promise<{ drawn: D
  * What KOS says a dashboard draws in, from the status poll. Another
  * dashboard's palette is not answered, so two dashboards never trade
  * reports. Nothing (none reported, or the last report went stale) is
- * answered with this tab's, and this tab's own with a heartbeat now and then.
+ * answered with this tab's.
  */
 export function heardDrawnTheme(drawn: DrawnTheme | undefined): void {
   drawnKept = drawn;
-  if (drawn === undefined || drawn === drawnNow) reportSoon();
+  if (drawn === undefined) reportSoon();
 }
 
 /** Show a theme in this tab and keep it as this browser's copy; the workspace is told apart, by whoever chose it. */

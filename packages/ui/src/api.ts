@@ -1299,7 +1299,8 @@ export const api = {
   /** KOS's own face, kept in the workspace. */
   kosFace: () => get<{ face: FaceLook }>("/api/settings/face"),
   saveKosFace: (face: FaceLook) => post<{ face: FaceLook }>("/api/settings/face", { face }),
-  /** The dashboard's theme, kept in the workspace and told to every device. */
+  /** The dashboard's theme, kept in the workspace and told to every device, and the palette a dashboard last reported drawing it in. */
+  theme: () => get<{ theme: Theme; drawn?: DrawnTheme }>("/api/settings/theme"),
   saveTheme: (theme: Theme) => post<{ theme: Theme }>("/api/settings/theme", { theme }),
   /** The palette this tab draws the theme in, for the devices that follow the dashboard. */
   saveDrawnTheme: (drawn: DrawnTheme) => post<{ drawn: DrawnTheme }>("/api/settings/theme/drawn", { drawn }),
