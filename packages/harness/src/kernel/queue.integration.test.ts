@@ -352,6 +352,30 @@ describe("a message sent while a turn is running", () => {
     expect(again).toMatchObject([{ text: "again", guest: ana, guestFiles: ["a.png"] }]);
   });
 
+  it("keeps when a queued message was sent, and judges it by that after a restart, not by when it was queued", async () => {
+    const id = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Late" }).id;
+    const sentAt = Date.now() - 11 * 60_000;
+    const first = kernel.handleMessage("first", { sessionId: id, origin: "system" });
+    await new Promise((r) => setTimeout(r, 20));
+    const second = kernel.handleMessage("second", { sessionId: id, origin: "system", sentAt });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(kernel.pending.forConversation(id).map((r) => r.flags?.sentAt)).toEqual([sentAt]);
+    await drain(first, second);
+    // Queued a moment ago, sent eleven minutes ago: told, not run.
+    kernel.pending.add(id, "caught up late", [], { via: "discord" }, { owner: true, channel: "discord", sentAt });
+    kernel.pending.add(id, "sent just now", [], { via: "discord" }, { owner: true, channel: "discord", sentAt: Date.now() });
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, inference: held });
+    const ran: string[] = [];
+    const real = kernel.handleMessage.bind(kernel);
+    kernel.handleMessage = (text, opts = {}) => (ran.push(text), real(text, opts));
+    kernel.replayQueued();
+    await drain();
+    expect(ran).toEqual(["sent just now"]);
+    const notes = kernel.sessions.get(id).filter((m) => m.role === "assistant").flatMap((m) => m.content.flatMap((b) => (b.type === "text" ? [b.text] : [])));
+    expect(notes).toContain("1 queued message was not run after a restart; resend?\n> caught up late");
+  });
+
   it("says in a chat that a restart cut its turn short", async () => {
     const id = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Cut" }).id;
     const turn = kernel.handleMessage("long one", { sessionId: id });

@@ -53,6 +53,8 @@ export interface PendingFlags {
   maxIterations?: number;
   /** Files a guest sent, by name: named to the turn, never kept. */
   guestFiles?: string[];
+  /** When the surface says it was sent, in ms: a restart judges its age by this, not by when it was queued. */
+  sentAt?: number;
 }
 
 const SCHEMA = `

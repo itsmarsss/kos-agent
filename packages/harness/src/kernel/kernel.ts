@@ -323,7 +323,7 @@ export function notRunNote(said: string[]): string {
 
 /** Who a waiting message's turn is to the fences, kept with it so a restart runs it as that. */
 function flagsOf(opts: PendingFlags): PendingFlags {
-  const keys = ["owner", "attended", "origin", "channel", "grant", "allow", "guest", "room", "members", "context", "roomTalk", "via", "from", "trail", "maxIterations", "guestFiles"] as const;
+  const keys = ["owner", "attended", "origin", "channel", "grant", "allow", "guest", "room", "members", "context", "roomTalk", "via", "from", "trail", "maxIterations", "guestFiles", "sentAt"] as const;
   return Object.fromEntries(keys.filter((k) => opts[k] !== undefined).map((k) => [k, opts[k]])) as PendingFlags;
 }
 
@@ -850,6 +850,8 @@ export class Kernel {
       trail?: string[];
       /** Files a guest sent, by name: not kept, not read, only named to the turn. */
       guestFiles?: string[];
+      /** When the surface says it was sent, in ms, kept if it waits so a restart judges its age by it. */
+      sentAt?: number;
       /**
        * An aside (/btw): answer with this conversation's history as context,
        * but record nothing into it. Pair with noSession and a sessionId of
@@ -1818,7 +1820,8 @@ export class Kernel {
         const f = row.flags;
         const files = row.attachments.length ? { attachments: row.attachments } : {};
         const base = { sessionId: conversationId, userId, replayed: true, ...files };
-        if (row.createdAt < lateBy) {
+        // As old as when it was sent, where the surface said: a message caught up late was queued later still.
+        if ((f?.sentAt ?? row.createdAt) < lateBy) {
           notRun.push(row.text);
         } else if (f?.guest) {
           // A room shut to guests since: their words wait for the owner to send again, not run.
@@ -1882,7 +1885,7 @@ export class Kernel {
    */
   async handleOrchestratorTurn(
     text: string,
-    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; context?: string; roomTalk?: string; owner?: boolean } = {},
+    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; context?: string; roomTalk?: string; owner?: boolean; sentAt?: number } = {},
   ): Promise<HandleResult & { conversationId: string }> {
     const id = this.ensureOrchestratorConversation().id;
     const res = await this.handleMessage(text, {
@@ -1900,6 +1903,7 @@ export class Kernel {
       ...(opts.context ? { context: opts.context } : {}),
       ...(opts.roomTalk ? { roomTalk: opts.roomTalk } : {}),
       ...(opts.owner ? { owner: true } : {}),
+      ...(opts.sentAt !== undefined ? { sentAt: opts.sentAt } : {}),
     });
     return { ...res, conversationId: id };
   }
@@ -2471,7 +2475,7 @@ export class Kernel {
   async handleProjectTurn(
     slug: string,
     text: string,
-    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; context?: string; roomTalk?: string; owner?: boolean } = {},
+    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; context?: string; roomTalk?: string; owner?: boolean; sentAt?: number } = {},
   ): Promise<HandleResult & { conversationId: string }> {
     const id = this.ensureProjectConversation(slug).id;
     const res = await this.handleMessage(text, {
@@ -2489,6 +2493,7 @@ export class Kernel {
       ...(opts.context ? { context: opts.context } : {}),
       ...(opts.roomTalk ? { roomTalk: opts.roomTalk } : {}),
       ...(opts.owner ? { owner: true } : {}),
+      ...(opts.sentAt !== undefined ? { sentAt: opts.sentAt } : {}),
     });
     return { ...res, conversationId: id };
   }
@@ -3094,7 +3099,7 @@ export class Kernel {
   /** A turn in a bound conversation, through the door that gives it its reach. */
   private boundTurn(
     conversation: Conversation,
-    input: { text: string; userId: string; channel: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; context?: string; roomTalk?: string },
+    input: { text: string; userId: string; channel: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; context?: string; roomTalk?: string; sentAt?: number },
   ): Promise<HandleResult> {
     const opts = {
       channel: input.channel,
@@ -3107,6 +3112,7 @@ export class Kernel {
       ...(input.roomTalk ? { roomTalk: input.roomTalk } : {}),
       // A surface hands on the owner's own words, and names a guest's as theirs.
       ...(input.guest ? {} : { owner: true }),
+      ...(input.sentAt !== undefined ? { sentAt: input.sentAt } : {}),
     };
     if (conversation.id === orchestratorId(this.profile.ownerId)) return this.handleOrchestratorTurn(input.text, opts);
     if (conversation.id.startsWith("project:")) return this.handleProjectTurn(conversation.id.slice("project:".length), input.text, opts);
@@ -3227,6 +3233,7 @@ export class Kernel {
         : {}),
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       ...(input.guest ? { guest: input.guest } : { owner: true }),
+      ...(input.sentAt !== undefined ? { sentAt: input.sentAt } : {}),
     });
     return { ...res, conversationId: conversation.id, isCommand: false };
   }
