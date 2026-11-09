@@ -235,6 +235,31 @@ struct SelectionTests {
     #expect(fake.sets("AXEnhancedUserInterface").isEmpty)
   }
 
+  /// A code editor is never asked for its tree, which it would take for a screen reader: nothing comes in.
+  @Test(arguments: [
+    "com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.vscodium",
+    "com.todesktop.230313mzl4w4u92", "com.exafunction.windsurf",
+  ])
+  func aCodeEditorIsNeverAskedForItsTree(bundle: String) {
+    let fake = Fake()
+    fake.settable = ["AXManualAccessibility", "AXEnhancedUserInterface"]
+    let (read, paused) = read(fake, SelectionApp(pid: 8, bundle: bundle, chromiumBased: true))
+    #expect(read == .nothing)
+    #expect(paused == 0)
+    #expect(fake.sets.isEmpty)
+  }
+
+  /// A code editor whose tree is already on is read as it is.
+  @Test func aCodeEditorWithItsTreeOnIsRead() {
+    let fake = Fake()
+    fake.settable = ["AXManualAccessibility"]
+    fake.attributes = [0: ["AXManualAccessibility": true, "AXFocusedUIElement": 1], 1: ["AXSelectedText": "let x = 1"]]
+    let (read, paused) = read(fake, SelectionApp(pid: 8, bundle: "com.microsoft.VSCode", chromiumBased: true))
+    #expect(read == .text("let x = 1"))
+    #expect(paused == 0)
+    #expect(fake.sets.isEmpty)
+  }
+
   /// Only a Chromium browser is enhanced: in an Electron app it can change how windows move.
   @Test func anElectronAppIsNeverEnhanced() {
     let fake = Fake()

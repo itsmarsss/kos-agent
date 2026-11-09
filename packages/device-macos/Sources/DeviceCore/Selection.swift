@@ -53,7 +53,8 @@ public enum SelectionRead: Equatable, Sendable {
 /// Chromium and Electron apps keep their tree off until asked for it, so in
 /// one of those a first read that finds nothing asks (AXManualAccessibility,
 /// and for a Chromium browser that does not take it,
-/// AXEnhancedUserInterface), reads once more, and turns it off again. The
+/// AXEnhancedUserInterface), reads once more, and turns it off again; a code
+/// editor is never asked, and read only when its tree is already on. The
 /// selection is the focused element's, else one of its parents' (a web area
 /// around a focused link), as text or as a marker range, else the first in
 /// the focused window, looked for within a bound and a time budget. Never a
@@ -78,6 +79,15 @@ public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable
       "com.microsoft.edgemac", "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev", "com.microsoft.edgemac.Canary",
       "com.vivaldi.Vivaldi", "com.operasoftware.Opera", "com.operasoftware.OperaGX",
       "company.thebrowser.Browser", "company.thebrowser.dia",
+    ]
+  }
+
+  /// Code editors on Electron that watch for an assistive technology and may switch to a screen reader mode, or say
+  /// one was detected, each time their tree is turned on: read only when it already is, never asked for it.
+  static var editors: Set<String> {
+    [
+      "com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.vscodium",
+      "com.todesktop.230313mzl4w4u92", "com.exafunction.windsurf",
     ]
   }
 
@@ -149,9 +159,11 @@ public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable
 
   private var inTime: Bool { now() < deadline }
 
-  /// Only an app built on Chromium is asked for its tree: in any other the flags do nothing, or change how it behaves.
+  /// Only an app built on Chromium is asked for its tree: in any other the flags do nothing, or change how it
+  /// behaves. A code editor is never asked.
   private func opensItsTree(_ app: SelectionApp) -> Bool {
-    app.chromiumBased || app.bundle.map(Self.chromium.contains) == true
+    guard app.bundle.map(Self.editors.contains) != true else { return false }
+    return app.chromiumBased || app.bundle.map(Self.chromium.contains) == true
   }
 
   /// Each flag off, asked twice; one the app would not take back is kept to be put back later.

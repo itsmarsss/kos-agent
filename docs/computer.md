@@ -338,8 +338,12 @@ apps keep their Accessibility tree off until asked, so when the first look
 finds nothing in one, KOS for Mac briefly turns its tree on
 (`AXManualAccessibility`, or `AXEnhancedUserInterface` in a Chromium browser
 that does not take it), gives it 200 ms to build, reads again and turns it
-off. While it is on the app sees an assistive technology: VS Code, for one,
-may detect it and offer, or switch to, its screen reader optimized mode.
+off. While it is on the app sees an assistive technology. Code editors on
+Electron watch for that and may switch to a screen reader mode, or say one
+was detected, each time it is turned on, so in VS Code, VS Code Insiders,
+VSCodium, Cursor and Windsurf it is never turned on: their selection comes
+in only when their tree is already on (a screen reader, or the owner's own
+setting), and otherwise nothing comes in, with no hint.
 
 ### Events
 
