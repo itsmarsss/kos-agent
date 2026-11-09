@@ -1,5 +1,6 @@
 import AppKit
 import DeviceCore
+import DeviceUI
 
 /// The one place the app's look is set: the owner's choice here, over the
 /// theme the dashboard of the KOS the app speaks of last sent.
@@ -23,11 +24,7 @@ final class AppearanceModel {
   var mode: ThemeMode { choice.mode(sent: sent) }
 
   private func apply() {
-    let name: NSAppearance.Name? = switch mode {
-    case .light: .aqua
-    case .dark: .darkAqua
-    case .system: nil
-    }
+    let name = mode.appearanceName
     guard NSApp.appearance?.name != name else { return }
     NSApp.appearance = name.flatMap(NSAppearance.init(named:))
   }

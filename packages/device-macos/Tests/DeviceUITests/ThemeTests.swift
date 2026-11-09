@@ -1,4 +1,5 @@
 import AppKit
+import DeviceCore
 import SwiftUI
 import Testing
 
@@ -51,5 +52,13 @@ struct ThemeTests {
     #expect(NSAppearance(named: .accessibilityHighContrastDarkAqua)?.isDark == true)
     #expect(NSAppearance(named: .accessibilityHighContrastAqua)?.isDark == false)
     #expect(NSAppearance(named: .aqua)?.isDark == false)
+  }
+
+  /// What AppearanceModel sets the app in: light and dark their own, system none, so macOS's own shows through.
+  @Test func eachThemeSetsTheAppearanceItNames() {
+    #expect(ThemeMode.light.appearanceName == .aqua)
+    #expect(ThemeMode.dark.appearanceName == .darkAqua)
+    #expect(ThemeMode.system.appearanceName == nil)
+    #expect(ThemeChoice.dashboard.mode(sent: .dark).appearanceName.flatMap(NSAppearance.init(named:))?.isDark == true)
   }
 }

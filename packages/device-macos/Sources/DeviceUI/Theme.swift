@@ -1,4 +1,5 @@
 import AppKit
+import DeviceCore
 import SwiftUI
 
 /// KOS's design tokens, so KOS for Mac reads as KOS (docs/design.md).
@@ -154,5 +155,16 @@ extension NSAppearance {
   public var isDark: Bool {
     bestMatch(from: [.aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua])
       .map { $0 == .darkAqua || $0 == .accessibilityHighContrastDarkAqua } ?? false
+  }
+}
+
+extension ThemeMode {
+  /// The appearance the app is set in for this theme: none for `system`, so AppKit follows macOS's own as it changes.
+  public var appearanceName: NSAppearance.Name? {
+    switch self {
+    case .light: .aqua
+    case .dark: .darkAqua
+    case .system: nil
+    }
   }
 }
