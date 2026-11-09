@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { opensElsewhere } from "@kos/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
@@ -10,7 +11,7 @@ import { PermissionStore, actsInYourChrome } from "../ops/permissions.js";
 import { RISKY } from "../risk/tiers.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { caller, isAttended, isOwnerTurn, turnStop } from "./caller.js";
+import { caller, isAttended, isOwnerTurn, onSite, turnStop } from "./caller.js";
 import { GuardedTools, STOPPED_RESULT, finishedAfterStop, type GuardedToolsDeps } from "./guarded.js";
 
 describe("GuardedTools", () => {
@@ -72,6 +73,18 @@ describe("GuardedTools", () => {
     const tools = guarded({ conversationId: "c1", whyFor: (id) => (id === "c1" ? "I'll clear the build folder so the rebuild is clean. " : undefined), waitForApproval: false });
     await tools.execute("danger", { x: 1 });
     expect(approvals.pending()[0]?.why).toBe("I'll clear the build folder so the rebuild is clean.");
+    // Nothing holds for this one, so it lapses with the inbox, not the approval window.
+    expect(approvals.pending()[0]?.waits).toBe(false);
+  });
+
+  it("marks the ask of a turn that holds for the answer, attended or not", async () => {
+    registry.register({ name: "danger", description: "d", inputSchema: { type: "object" } }, () => "done", { floor: "risky" });
+    const stop = new AbortController();
+    const asking = guarded({ conversationId: "c1", attended: false, signal: stop.signal }).execute("danger", { x: 1 });
+    await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+    expect(approvals.pending()[0]).toMatchObject({ attended: false, waits: true });
+    stop.abort();
+    await asking;
   });
 
   it("runs a chat's actions in the owner's Chrome without asking when the owner set it so, and nothing else", async () => {
@@ -93,6 +106,35 @@ describe("GuardedTools", () => {
     expect(approvals.pending().map((a) => a.tool)).toEqual(["browser.eval", "files.rm"]);
     // KOS's own browser is not the owner's Chrome.
     expect(actsInYourChrome("browser.act", { browser: { prefix: "browser.", strict: [] } })).toBe(false);
+  });
+
+  it("holds a yes given for a site to that site: each run is told it, and one opening another site asks", async () => {
+    registry.register({ name: "browser.act", description: "d", inputSchema: { type: "object" } }, () => `on ${onSite.getStore() ?? "any site"}`, { floor: "risky" });
+    const yours = { browser: { prefix: "browser.", site: "shop.example", strict: [], yours: true } };
+    let auto: boolean | "site" = "site";
+    const permissions = new PermissionStore(ws.db);
+    const tools = guarded({
+      conversationId: "c1",
+      waitForApproval: false,
+      permissions,
+      projectSlug: () => undefined,
+      permissionContext: () => yours,
+      autoApproves: () => auto,
+      leavesSite: (_tool, input, site) => opensElsewhere(input, site),
+    });
+    // The session's "this site": the run is held to it.
+    expect((await tools.execute("browser.act", { actions: [{ click: "@e1" }, { click: "@e2" }] })).content).toBe("on shop.example");
+    // Setting out for another site is asked about before anything runs.
+    const away = await tools.execute("browser.act", { actions: [{ open: "https://bank.example/transfer" }, { click: "@e1" }] });
+    expect(away.content).toMatch(/Queued for approval/);
+    // An "Always on this site" rule holds the same way.
+    auto = false;
+    permissions.add({ tool: "browser.*", scope: "your-chrome:shop.example", project: null });
+    expect((await tools.execute("browser.act", { actions: [{ click: "@e3" }] })).content).toBe("on shop.example");
+    expect((await tools.execute("browser.act", { actions: [{ open: "bank.example" }] })).content).toMatch(/Queued for approval/);
+    // A chat set to Auto acts anywhere.
+    auto = true;
+    expect((await tools.execute("browser.act", { actions: [{ open: "bank.example" }, { click: "@e4" }] })).content).toBe("on any site");
   });
 
   it("runs a risky call the owner already decided, without asking", async () => {

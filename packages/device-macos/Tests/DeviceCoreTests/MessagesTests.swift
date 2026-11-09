@@ -109,6 +109,19 @@ struct MessagesTests {
     #expect(body["t"] as? String == "event")
     #expect(body["name"] as? String == "session.ended")
     #expect(body["data"] as? [String: String] == ["session": "s1", "reason": "idle"])
+    let scrolled = try json(Outbound.event(.sessionScrolled, data: SessionScrolledEvent(session: "s1")))
+    #expect(scrolled["name"] as? String == "session.scrolled")
+    #expect(scrolled["data"] as? [String: String] == ["session": "s1"])
+  }
+
+  @Test func aLapsedOrWithdrawnAskIsAnAnswerThatSaysWhy() throws {
+    for reason in [SessionNotGrantedResult.Reason.unanswered, .withdrawn] {
+      let body = try json(Outbound.reply(id: 1, result: SessionNotGrantedResult(reason: reason)))
+      #expect(body["ok"] as? Bool == true)
+      let result = try #require(body["result"] as? [String: Any])
+      #expect(result["granted"] as? Bool == false)
+      #expect(result["reason"] as? String == reason.rawValue)
+    }
   }
 
   @Test func theBeginAnswerSaysGranted() throws {

@@ -10,7 +10,7 @@
  * the default rather than a surprise.
  */
 
-/** What of the owner's own hand on a KOS tab pauses KOS. */
+/** What of the owner's own hand on a KOS tab pauses KOS: clicks and keys (the default, as on the Mac), or scrolling too. */
 export type Takeover = "anyInput" | "clicksAndKeys";
 
 export interface ExtensionSettings {
@@ -44,7 +44,7 @@ export const DEFAULTS: ExtensionSettings = {
   longestMinutes: 120,
   promptWaitSeconds: 60,
   idleMinutes: 5,
-  takeover: "anyInput",
+  takeover: "clicksAndKeys",
   connectOnStart: true,
   timeOnIcon: true,
   hiddenSites: DEFAULT_HIDDEN,
@@ -64,7 +64,7 @@ export function readSettings(raw: unknown): ExtensionSettings {
     longestMinutes: oneOf(CHOICES.longestMinutes, r["longestMinutes"], DEFAULTS.longestMinutes),
     promptWaitSeconds: oneOf(CHOICES.promptWaitSeconds, r["promptWaitSeconds"], DEFAULTS.promptWaitSeconds),
     idleMinutes: oneOf(CHOICES.idleMinutes, r["idleMinutes"], DEFAULTS.idleMinutes),
-    takeover: r["takeover"] === "clicksAndKeys" ? "clicksAndKeys" : "anyInput",
+    takeover: r["takeover"] === "anyInput" ? "anyInput" : "clicksAndKeys",
     connectOnStart: typeof r["connectOnStart"] === "boolean" ? r["connectOnStart"] : DEFAULTS.connectOnStart,
     timeOnIcon: typeof r["timeOnIcon"] === "boolean" ? r["timeOnIcon"] : DEFAULTS.timeOnIcon,
     hiddenSites: [...new Set(sites)],

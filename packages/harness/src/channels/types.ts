@@ -1,5 +1,5 @@
 import type { Attachment } from "../kernel/attachments.js";
-import type { MessageRoom } from "../models/types.js";
+import type { MessageRoom, Quote } from "../models/types.js";
 
 /**
  * Channel adapters connect KOS to messaging surfaces (Discord first, SMS later,
@@ -87,6 +87,14 @@ export interface InboundMessage {
    * kept, since it is true of the moment rather than of the conversation.
    */
   context?: string;
+  /**
+   * The context says only where the words were said (the tab or app beside
+   * a device's chat), so it rides with them when they are taken into a turn
+   * already running, rather than holding them until that turn ends.
+   */
+  contextRides?: true;
+  /** What the owner quoted with the words (text selected on a page) and where from: kept with the message, never as their words. */
+  quote?: Quote;
   /**
    * What others said in the room since the chat last heard it: kept beside
    * the words as untrusted room talk, so a later turn still knows it, and
@@ -338,6 +346,8 @@ export interface ApprovalRequest {
   /** Structured or JSON args. */
   args?: string | Record<string, unknown>;
   reason?: string | null;
+  /** When it lapses if nobody decides, epoch ms: a turn waiting on it takes the silence as a no then. */
+  expiresAt?: number;
   /** A picture of what it would act on, base64 JPEG, for surfaces that can show one. */
   picture?: string;
   /** What the agent said just before it asked, in its own words. */

@@ -90,6 +90,18 @@ struct SessionsTests {
     _ = try sessions.authorize("s1", from: home, now: start)
   }
 
+  @Test func aScrollIsToldOnceUntilKOSLooksAgain() throws {
+    var sessions = try liveSessions()
+    #expect(sessions.scroll() == "s1")
+    #expect(sessions.scroll() == nil)
+    sessions.looked()
+    #expect(sessions.scroll() == "s1")
+    // While the owner has control, a scroll is theirs; handing back already makes KOS look again.
+    sessions.looked()
+    _ = sessions.pause()
+    #expect(sessions.scroll() == nil)
+  }
+
   @Test func endsAtItsTimeLimit() throws {
     var sessions = try liveSessions(minutes: 5)
     _ = try sessions.authorize("s1", from: home, now: start.addingTimeInterval(170))
@@ -115,6 +127,25 @@ struct SessionsTests {
     _ = sessions.pause()
     _ = sessions.resume(now: start.addingTimeInterval(170))
     #expect(sessions.due(start.addingTimeInterval(200)) == nil)
+  }
+
+  /// KOS waits for the owner to hand it back: a pause is not idle, however long; its time limit still holds.
+  @Test func aPausedSessionIsNeverIdle() throws {
+    var sessions = try liveSessions(minutes: 30)
+    _ = sessions.pause()
+    #expect(sessions.due(start.addingTimeInterval(20 * 60)) == nil)
+    #expect(sessions.due(start.addingTimeInterval(30 * 60)) == .expired)
+    _ = sessions.resume(now: start.addingTimeInterval(20 * 60))
+    #expect(sessions.due(start.addingTimeInterval(23 * 60)) == .idle)
+  }
+
+  /// KOS withdrew the ask as the owner allowed it: the yes on its way starts nothing.
+  @Test func aWithdrawnAskGrantsNothing() throws {
+    var sessions = Sessions()
+    try sessions.ask("s1", from: home)
+    sessions.deny("s1")
+    #expect(code { _ = try sessions.grant("s1", task: "t", requester: "r", minutes: 5, space: space, now: start) } == .noSession)
+    #expect(sessions.live == nil)
   }
 
   @Test func endingSaysWhatEnded() throws {

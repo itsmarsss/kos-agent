@@ -61,7 +61,7 @@ export interface KosState {
 export interface PopupState {
   kos: KosState[];
   /** `kos` names the KOS it is for when there are several; `beside` is the tab beside the side panel it works in. */
-  session: { task: string; requester: string; until: number; paused: boolean; kos?: string; beside?: number; face: FaceDrawing } | null;
+  session: { task: string; requester: string; until: number; paused: boolean; kos?: string; beside?: number; conversation?: string; face: FaceDrawing } | null;
   handed: number[];
   settings: Omit<ExtensionSettings, "askFirst">;
 }
@@ -79,6 +79,19 @@ export interface ConsentRequest {
   kos?: string;
   /** The face of the KOS that asks. */
   face: FaceDrawing;
+  /** Asked in a side panel beside a web page: its site, which the owner may let the session act on without asking each step. */
+  site?: string;
+  /** When the ask lapses unanswered, epoch ms. */
+  expiresAt: number;
+}
+
+/** The owner's answer to an ask, or why there was none: they did not answer in time, or KOS took the ask back. */
+interface Decided {
+  allowed: boolean;
+  minutes: number;
+  /** Allowed with the site's steps unasked for this session. */
+  site?: boolean;
+  why?: "unanswered" | "withdrawn";
 }
 
 /** A side panel open in a window: the KOS it talks to, and the chat it shows. */
@@ -92,7 +105,7 @@ interface Panel {
 interface Asked {
   request: ConsentRequest;
   origin: string;
-  answer: (a: { allowed: boolean; minutes: number }) => void;
+  answer: (a: Decided) => void;
   window?: number;
   /** Asked in a side panel rather than a window of its own. */
   panel?: Panel;
@@ -222,7 +235,7 @@ function lineState(p: Paired, state: LinkState, detail?: string): void {
   // A session lives on its connection: its KOS gone, KOS's hands gone; an ask it made is withdrawn.
   if (state !== "online" && state !== "connecting" && owner === id) {
     if (session) void end("host");
-    for (const asked of consents.values()) if (asked.origin === id) asked.answer({ allowed: false, minutes: 0 });
+    for (const asked of consents.values()) if (asked.origin === id) asked.answer({ allowed: false, minutes: 0, why: "withdrawn" });
   }
 }
 
@@ -282,6 +295,8 @@ async function badge(): Promise<void> {
   await chrome.action.setBadgeText({ text });
   await chrome.action.setBadgeBackgroundColor({ color: session?.paused ? "#e6b84d" : "#7c9cff" });
   await chrome.action.setBadgeTextColor({ color: "#0b0e14" });
+  // The panels hear a session start, pause, resume or end as it happens.
+  for (const panel of panels) panel.port.postMessage({ type: "state", state: popupState() });
 }
 
 /** An event for the KOS whose session it is. */
@@ -296,10 +311,17 @@ async function answer(method: string, params: Record<string, unknown>, origin: s
   switch (method) {
     case "session.begin":
       return begin(params, origin);
-    case "session.end":
+    case "session.end": {
+      // An ask KOS takes back (the owner pressed Stop in the chat): the prompt comes down, and the ask is answered as withdrawn.
+      const asked = consents.get(str(params["session"]));
+      if (asked?.origin === origin) {
+        asked.answer({ allowed: false, minutes: 0, why: "withdrawn" });
+        return {};
+      }
       live(params, origin);
       await end("host");
       return {};
+    }
     case "tabs.list":
       live(params, origin);
       return { tabs: await listTabs() };
@@ -360,6 +382,9 @@ async function begin(params: Record<string, unknown>, origin: string): Promise<R
   const panel = conversation ? [...panels].find((p) => p.kos === origin && p.conversation === conversation) : undefined;
   try {
     const asked = Math.min(settings.longestMinutes, Math.max(1, Math.round(Number(params["minutes"]) || 15)));
+    // Asked in the panel beside a web page: that page's site may be let act without asking.
+    const front = panel ? await besideTab(panel) : undefined;
+    const site = front?.url ? new URL(front.url).host : undefined;
     const request: ConsentRequest = {
       id,
       task: str(params["task"]) || "a task",
@@ -369,16 +394,20 @@ async function begin(params: Record<string, unknown>, origin: string): Promise<R
       waitMs: settings.promptWaitSeconds * 1000,
       ...(kosName(origin) ? { kos: kosName(origin)! } : {}),
       face: faceOf(origin),
+      ...(site ? { site } : {}),
+      expiresAt: Date.now() + settings.promptWaitSeconds * 1000,
     };
     note(`${hostOf(pairingOf(origin) ?? { url: origin })} asks for ${asked} min, from ${request.requester}`);
     let minutes = asked;
+    let alone: string | undefined;
     if (asksFirst(settings, origin)) {
       const decided = await askOwner(request, origin, panel);
       if (!decided.allowed) {
-        note("not allowed");
-        return { granted: false };
+        note(decided.why === "withdrawn" ? "the ask was withdrawn" : decided.why === "unanswered" ? "not answered" : "not allowed");
+        return { granted: false, ...(decided.why ? { reason: decided.why } : {}) };
       }
       minutes = decided.minutes;
+      if (decided.site && site) alone = site;
     }
     // The line may have gone while the owner decided.
     if (!links.get(origin)?.online) throw new CallError("no_session", "KOS went away before the session started");
@@ -401,17 +430,17 @@ async function begin(params: Record<string, unknown>, origin: string): Promise<R
     }, 1_000);
     note(`live for ${minutes} min`);
     await badge();
-    return { granted: true, until: session.info.until };
+    return { granted: true, until: session.info.until, ...(alone ? { auto: { site: alone } } : {}) };
   } finally {
     if (!session) owner = undefined;
   }
 }
 
 /** The owner asked, in the side panel the chat is in or a window of the extension's own; no answer in the owner's wait is no. */
-function askOwner(request: ConsentRequest, origin: string, panel?: Panel): Promise<{ allowed: boolean; minutes: number }> {
+function askOwner(request: ConsentRequest, origin: string, panel?: Panel): Promise<Decided> {
   return new Promise((resolve) => {
     let settled = false;
-    const settle = (a: { allowed: boolean; minutes: number }): void => {
+    const settle = (a: Decided): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -421,7 +450,7 @@ function askOwner(request: ConsentRequest, origin: string, panel?: Panel): Promi
       asked?.panel?.port.postMessage({ type: "consent.done", id: request.id });
       resolve(a);
     };
-    const timer = setTimeout(() => settle({ allowed: false, minutes: 0 }), request.waitMs);
+    const timer = setTimeout(() => settle({ allowed: false, minutes: 0, why: "unanswered" }), request.waitMs);
     const entry: Asked = { request, origin, answer: settle, ...(panel ? { panel } : {}) };
     consents.set(request.id, entry);
     if (panel) {
@@ -433,7 +462,7 @@ function askOwner(request: ConsentRequest, origin: string, panel?: Panel): Promi
       .then((win) => {
         entry.window = win?.id;
       })
-      .catch(() => settle({ allowed: false, minutes: 0 }));
+      .catch(() => settle({ allowed: false, minutes: 0, why: "unanswered" }));
   });
 }
 
@@ -800,7 +829,7 @@ async function paint(): Promise<void> {
 
 async function pause(): Promise<void> {
   if (!session || session.paused) return;
-  session.paused = true;
+  session.pause();
   tell("session.paused", { session: session.info.id, reason: "owner" });
   note("paused: the owner took over");
   await Promise.all([paint(), badge()]);
@@ -808,7 +837,7 @@ async function pause(): Promise<void> {
 
 async function resume(): Promise<void> {
   if (!session?.paused) return;
-  session.paused = false;
+  session.resume(Date.now());
   tell("session.resumed", { session: session.info.id });
   note("resumed");
   await Promise.all([paint(), badge()]);
@@ -829,7 +858,8 @@ async function fromOverlay(tab: number, world: number, payload: string): Promise
     case "input":
       // The owner may scroll a KOS tab freely, if they said so.
       if (settings.takeover === "clicksAndKeys" && message["type"] === "wheel") return;
-      if (session && !session.paused && session.isOwners(message as unknown as PageInput, Date.now())) await pause();
+      // A click or a key takes over at once; a scroll just after they allowed it or handed it back is their hand still letting go.
+      if (session && !session.paused && session.takesOver(message as unknown as PageInput, Date.now())) await pause();
       return;
     case "place": {
       const x = Number(message["x"]);
@@ -848,10 +878,21 @@ async function fromOverlay(tab: number, world: number, payload: string): Promise
     case "handback":
       return resume();
     case "stop":
-      return end("owner");
+      return stopByOwner();
     default:
       return;
   }
+}
+
+/**
+ * The owner's Stop on the bar, in the popup or in the side panel: the
+ * chat the session is for is told to stop its turn too, then the session
+ * ends as theirs to end.
+ */
+async function stopByOwner(): Promise<void> {
+  const chat = session?.info.conversation;
+  if (chat) tell("chat.stop", { chat });
+  await end("owner");
 }
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
@@ -974,6 +1015,7 @@ function popupState(): PopupState {
           paused: session.paused,
           ...(kosName(owner) ? { kos: kosName(owner)! } : {}),
           ...(beside !== undefined ? { beside } : {}),
+          ...(session.info.conversation ? { conversation: session.info.conversation } : {}),
           face: faceOf(owner),
         }
       : null,
@@ -1162,18 +1204,14 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
       // Which tab the words were said beside, so "this page" means it; a hidden site only as hidden.
       const [front] = await chrome.tabs.query({ active: true, windowId: panel.window });
       const url = front?.url ?? "";
-      // With what the owner selected there, when the panel sends it along and
-      // it is still what the page holds: not a stale chip from a page gone.
-      const offered = str(message["selection"]).trim();
-      const selection = front?.id !== undefined && offered && offered === selectionOf(front.id).trim() ? offered : "";
-      const where = !front
-        ? undefined
-        : !/^https?:\/\//.test(url)
-          ? { kind: "other" }
-          : isHidden(url, settings.hiddenSites)
-            ? { kind: "hidden" }
-            : { kind: "page", url, title: front.title ?? "", ...(selection ? { selection } : {}) };
-      link.event("chat.send", { text, ...(where ? { beside: where } : {}) });
+      const web = /^https?:\/\//.test(url);
+      const hidden = web && isHidden(url, settings.hiddenSites);
+      // What the owner selected there, as a quote from that page, when the panel
+      // sends it along and it is still what the page holds: not a stale chip from a page gone.
+      const offered = str(record(message["quote"])["text"]).trim();
+      const quoted = web && !hidden && front?.id !== undefined && offered && offered === selectionOf(front.id).trim() ? offered : "";
+      const where = !front ? undefined : !web ? { kind: "other" } : hidden ? { kind: "hidden" } : { kind: "page", url, title: front.title ?? "" };
+      link.event("chat.send", { text, ...(where ? { beside: where } : {}), ...(quoted ? { quote: { text: quoted, from: url } } : {}) });
       return;
     }
     case "decide":
@@ -1198,9 +1236,22 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
       const asked = consents.get(str(message["id"]));
       if (asked?.panel !== panel) return;
       const minutes = Math.min(settings.longestMinutes, Math.max(1, Math.round(Number(message["minutes"]) || 0)));
-      asked.answer({ allowed: message["allowed"] === true && minutes > 0, minutes });
+      asked.answer({ allowed: message["allowed"] === true && minutes > 0, minutes, ...(message["site"] === true ? { site: true } : {}) });
       return;
     }
+    case "stop": {
+      // Stop in the panel: the chat's turn, its session and any ask for one, all at once.
+      const link = panel.kos ? links.get(panel.kos) : undefined;
+      if (panel.conversation) link?.event("chat.stop", { chat: panel.conversation });
+      // Said to KOS first, so the ask it takes back is not read as a no; then the prompt comes down here at once.
+      for (const asked of consents.values()) if (asked.panel === panel) asked.answer({ allowed: false, minutes: 0, why: "withdrawn" });
+      if (session && owner === panel.kos && session.info.conversation === panel.conversation) await end("owner");
+      return;
+    }
+    case "take":
+      return pause();
+    case "handback":
+      return resume();
     default:
       return;
   }
@@ -1263,8 +1314,10 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onDisconnect.addListener(() => {
     panels.delete(panel);
     // An ask in a panel that closed has no one to answer it: no.
-    for (const asked of consents.values()) if (asked.panel === panel) asked.answer({ allowed: false, minutes: 0 });
+    for (const asked of consents.values()) if (asked.panel === panel) asked.answer({ allowed: false, minutes: 0, why: "unanswered" });
     for (const asked of reads.values()) if (asked.panel === panel) asked.answer(false);
+    // The window's last panel gone: what was selected there is no one's to send.
+    if (![...panels].some((p) => p.window === panel.window)) void forgetSelections(panel.window);
   });
 });
 
@@ -1278,6 +1331,11 @@ let canRead = false;
 function selectionOf(tab: number): string {
   const frames = [...(selections.get(tab)?.values() ?? [])];
   return frames.sort((a, b) => b.at - a.at)[0]?.text ?? "";
+}
+
+/** What was selected in a window's tabs, forgotten: its last panel closed. */
+async function forgetSelections(window: number): Promise<void> {
+  for (const tab of await chrome.tabs.query({ windowId: window }).catch(() => [])) if (tab.id !== undefined) selections.delete(tab.id);
 }
 
 /** The selection on a window's tab in front, to the panels open in that window; nothing from a hidden site. */
@@ -1319,7 +1377,9 @@ void ready.then(watchSelections).catch(() => undefined);
 async function watchFront(panel: Panel): Promise<void> {
   const [front] = await chrome.tabs.query({ active: true, windowId: panel.window });
   if (front?.id === undefined || !/^https?:\/\//.test(front.url ?? "") || isHidden(front.url ?? "", settings.hiddenSites)) return;
-  // Put in, or asked again where it is in already: either way the page says what is selected now.
+  // Read fresh: what was heard before may be from a selection long gone. Put in, or asked again where it is in
+  // already, every frame holding a selection says so and the top frame says what it holds, even nothing.
+  selections.delete(front.id);
   if (canRead) await chrome.scripting.executeScript({ target: { tabId: front.id, allFrames: true }, files: ["selection.js"] }).catch(() => undefined);
   void tellSelection(panel.window, front.id);
 }
@@ -1383,7 +1443,7 @@ chrome.runtime.onMessage.addListener((message: Record<string, unknown>, sender, 
         await resume();
         return popupState();
       case "stop":
-        await end("owner");
+        await stopByOwner();
         return popupState();
       case "log":
         return recent();
@@ -1407,7 +1467,7 @@ chrome.runtime.onMessage.addListener((message: Record<string, unknown>, sender, 
 });
 
 chrome.windows.onRemoved.addListener((windowId) => {
-  for (const asked of consents.values()) if (asked.window === windowId) asked.answer({ allowed: false, minutes: 0 });
+  for (const asked of consents.values()) if (asked.window === windowId) asked.answer({ allowed: false, minutes: 0, why: "unanswered" });
 });
 
 // Chrome opening: every KOS waits for Connect, if the owner said so.

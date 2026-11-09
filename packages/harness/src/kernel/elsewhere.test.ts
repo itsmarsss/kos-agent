@@ -103,6 +103,21 @@ describe("a browser call from the side panel's chat", () => {
     expect(kernel.browserWhere()).toBe("the owner's Chrome (Chrome on macOS)");
   });
 
+  it.each([
+    ["a step on the site the owner allowed with the session", "browser.act", { action: "click", ref: "e1" }, "shop.example", false],
+    ["a step on any other site", "browser.act", { action: "click", ref: "e1" }, "bank.example", true],
+    ["a strict tool, even on that site", "browser.eval", { expression: "1" }, "shop.example", true],
+  ] as const)("asks or not for %s", async (_what, tool, input, allowed, asks) => {
+    const { inference } = oneCall(tool, input);
+    kernel = await boot(inference);
+    kernel.setBrowserElsewhere({ ...ownerChrome({ starts: true }), actsAlone: (_c, site) => site === allowed });
+    const turn = kernel.handleMessage("go to the cart");
+    await new Promise((r) => setTimeout(r, 60));
+    expect(kernel.approvals.pending().length > 0).toBe(asks);
+    kernel.stop("chat:owner");
+    await turn;
+  });
+
   it("leaves every other tool alone", async () => {
     const { inference } = oneCall("files.ls", { path: "." });
     kernel = await boot(inference);

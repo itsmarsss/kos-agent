@@ -26,6 +26,8 @@ export interface EnqueueInput {
   /** Whether the turn that asked was the owner's own, and attended: what an orphaned approval runs as. */
   owner?: boolean;
   attended?: boolean;
+  /** The asking turn holds for the answer, so the ask lapses with the approval window rather than the inbox's hours. */
+  waits?: boolean;
 }
 
 export interface PendingAction {
@@ -53,6 +55,17 @@ export interface PendingAction {
    */
   owner: boolean;
   attended: boolean;
+  /** Whether a turn held for the answer: its ask lapses with the approval window, not the inbox's. False for a row from before. */
+  waits: boolean;
+}
+
+/**
+ * When an ask lapses, for a card to count down to: a turn held for the
+ * answer gives up after the approval window; an ask nothing waits on (a
+ * schedule's, a build's) stays in the inbox for its hours.
+ */
+export function approvalExpiry(action: Pick<PendingAction, "requestedAt" | "waits">, windows: { approvalMinutes: number; approvalExpiryHours: number }): number {
+  return action.requestedAt + (action.waits ? windows.approvalMinutes * 60_000 : windows.approvalExpiryHours * 3_600_000);
 }
 
 const SCHEMA = `
@@ -88,6 +101,7 @@ interface Row {
   why: string | null;
   owner: number;
   attended: number;
+  waits: number;
 }
 
 function toAction(row: Row): PendingAction {
@@ -106,6 +120,7 @@ function toAction(row: Row): PendingAction {
     why: row.why ?? null,
     owner: row.owner === 1,
     attended: row.attended === 1,
+    waits: row.waits === 1,
     decidedAt: row.decided_at,
     decidedBy: row.decided_by,
   };
@@ -164,6 +179,9 @@ export class ApprovalQueue {
     if (!columns.some((c) => c.name === "attended")) {
       this.db.exec(`ALTER TABLE pending_actions ADD COLUMN attended INTEGER NOT NULL DEFAULT 0`);
     }
+    if (!columns.some((c) => c.name === "waits")) {
+      this.db.exec(`ALTER TABLE pending_actions ADD COLUMN waits INTEGER NOT NULL DEFAULT 0`);
+    }
   }
 
   /** The picture queued with an action, if one was: base64 JPEG. */
@@ -177,8 +195,8 @@ export class ApprovalQueue {
     const args = this.secrets ? this.secrets.redact(argsJson) : argsJson;
     const info = this.db
       .prepare(
-        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why, owner, attended)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why, owner, attended, waits)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.tool,
@@ -193,6 +211,7 @@ export class ApprovalQueue {
         input.why?.trim() ? input.why.trim() : null,
         input.owner === true ? 1 : 0,
         input.attended === true ? 1 : 0,
+        input.waits === true ? 1 : 0,
       );
     return this.get(Number(info.lastInsertRowid))!;
   }

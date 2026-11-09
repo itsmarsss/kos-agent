@@ -28,7 +28,11 @@ export interface Session {
   /** What the owner shared: the screen, or one window. */
   target: Target;
   paused: boolean;
+  /** The owner scrolled since KOS last saw the whole screen: a coordinate from that picture may land on something else now. */
+  scrolled?: boolean;
   startedAt: number;
+  /** The site the owner let this session act on without asking each step, when they did. */
+  site?: string;
 }
 
 /** A paired device as the dashboard and the agent are told of it. */
@@ -61,6 +65,8 @@ export interface HubDeps {
   /** How long the owner has to answer on the device, plus the trip. */
   beginTimeoutMs?: number;
   callTimeoutMs?: number;
+  /** How long an action waits for the owner to hand a session back. */
+  handBackWaitMs?: number;
 }
 
 /** A computer running KOS for Mac, or a Chrome running KOS for Chrome. */
@@ -86,6 +92,8 @@ export class PairError extends Error {
 const BEGIN_TIMEOUT_MS = 315_000;
 const CALL_TIMEOUT_MS = 20_000;
 const PANEL_TIMEOUT_MS = 10_000;
+/** How long KOS waits for the owner to hand back a session they took over, on any device. */
+export const HAND_BACK_WAIT_MS = 5 * 60_000;
 /** A device refused again and again is logged once in this long. */
 const REFUSAL_LOG_MS = 60_000;
 const MAX_REFUSALS_LOGGED = 100;
@@ -101,6 +109,9 @@ export class DeviceHub {
   private readonly endings = new Map<string, EndReason | "offline" | "removed">();
   private readonly listeners = new Set<() => void>();
   private readonly deviceListeners = new Set<DeviceListener>();
+  private readonly endListeners = new Set<(session: Session, why: EndReason | "offline" | "removed") => void>();
+  /** Sessions being asked for on a device, by conversation: withdrawn by Stop. */
+  private readonly asks = new Map<string, { device: string; session: string; withdraw: () => void }>();
   /** When each refused device id was last logged, for each check it failed. */
   private readonly refusalsLogged = new Map<string, number>();
 
@@ -118,6 +129,12 @@ export class DeviceHub {
 
   private changed(): void {
     for (const l of this.listeners) l();
+  }
+
+  /** Told of each session that ends, and why. */
+  onEnded(listener: (session: Session, why: EndReason | "offline" | "removed") => void): () => void {
+    this.endListeners.add(listener);
+    return () => this.endListeners.delete(listener);
   }
 
   /** Told of each event a device sends that is not about a session's life. */
@@ -216,6 +233,7 @@ export class DeviceHub {
     if (!session) return;
     if (event.name === "session.paused") session.paused = true;
     else if (event.name === "session.resumed") session.paused = false;
+    else if (event.name === "session.scrolled") session.scrolled = true;
     // The owner gave it more time on the device.
     else if (event.name === "session.extended" && typeof event.data.until === "number" && event.data.until > session.until) session.until = event.data.until;
     else if (event.name === "session.ended") this.drop(session, endReason(event.data.reason));
@@ -223,8 +241,9 @@ export class DeviceHub {
   }
 
   private drop(session: Session, why: EndReason | "offline" | "removed"): void {
-    this.sessions.delete(session.id);
+    if (!this.sessions.delete(session.id)) return;
     this.endings.set(session.conversation, why);
+    for (const l of [...this.endListeners]) l(session, why);
   }
 
   list(): DeviceStatus[] {
@@ -287,13 +306,13 @@ export class DeviceHub {
     return why;
   }
 
-  /** Ask the owner, on the device, for a session; resolves when they answer. */
-  /** `app`, when given, is the app KOS would work in: the owner sees its window offered first, and picks. */
   /**
-   * A session asked of the owner on the device. Once `signal` aborts (the
-   * owner pressed Stop in the chat that asks) the ask is answered at once
-   * as stopped, and a yes the owner gives after that is given back on the
-   * device straight away: nobody is left to use it.
+   * A session asked of the owner on the device. `app`, when given, is the
+   * app KOS would work in: the owner sees its window offered first. Once
+   * `signal` aborts (the owner pressed Stop in the chat that asks), or the
+   * ask is withdrawn, it is answered at once as stopped, the device is told
+   * to take the prompt down, and a yes given after that is given back on
+   * the device straight away: nobody is left to use it.
    */
   async begin(input: { conversation: string; device: Device; task: string; requester: string; minutes: number; app?: string; maxEdge?: number; signal?: AbortSignal }): Promise<Session> {
     if (input.signal?.aborted) throw new DeviceError("stopped", "the owner pressed Stop before the session was asked for");
@@ -310,6 +329,7 @@ export class DeviceHub {
     if (missing) throw new DeviceError("permission", `${input.device.name} has not granted ${missing} to KOS for Mac yet`);
     const other = [...this.sessions.values()].find((s) => s.device === input.device.id);
     if (other) throw new DeviceError("busy", `${input.device.name} is in use by another chat`);
+    if (this.asks.has(input.conversation)) throw new DeviceError("busy", "this chat is already asking the owner for a session");
 
     const id = `ses_${randomBytes(9).toString("base64url")}`;
     const minutes = Math.max(1, Math.min(MAX_ASK_MINUTES, Math.round(input.minutes)));
@@ -323,12 +343,31 @@ export class DeviceHub {
       },
       this.deps.beginTimeoutMs ?? BEGIN_TIMEOUT_MS,
     );
+    const giveBack = (): void => void link.call("session.end", { session: id }, 5_000).catch(() => undefined);
+    // Stopped or withdrawn: the device takes its prompt down, and the ask is answered here at once.
+    const stop = new AbortController();
+    const onAbort = (): void => stop.abort();
+    input.signal?.addEventListener("abort", onAbort, { once: true });
+    stop.signal.addEventListener("abort", giveBack, { once: true });
+    this.asks.set(input.conversation, { device: input.device.id, session: id, withdraw: () => stop.abort() });
+    this.changed();
     const readOf = (result: Record<string, unknown>): Grant | undefined => (browser ? readBrowserGrant(result) : readGrant(result));
-    const result = await untilStopped(asked, input.signal, (late) => {
-      if (readOf(late)) void link.call("session.end", { session: id }, 5_000).catch(() => undefined);
-    });
+    let result: Record<string, unknown>;
+    try {
+      result = await untilStopped(asked, stop.signal, (late) => {
+        if (readOf(late)) giveBack();
+      });
+    } finally {
+      input.signal?.removeEventListener("abort", onAbort);
+      this.asks.delete(input.conversation);
+      this.changed();
+    }
     const grant = readOf(result);
-    if (!grant) throw new DeviceError("denied", "the owner did not allow it on the device");
+    if (!grant) {
+      if (result.reason === "unanswered") throw new DeviceError("unanswered", "the owner did not answer the ask on the device in time");
+      if (result.reason === "withdrawn") throw new DeviceError("stopped", "the ask was taken down on the device before the owner answered");
+      throw new DeviceError("denied", "the owner did not allow it on the device");
+    }
     const session: Session = {
       id,
       device: input.device.id,
@@ -339,11 +378,53 @@ export class DeviceHub {
       target: grant.target,
       paused: false,
       startedAt: this.now(),
+      ...(grant.site ? { site: grant.site } : {}),
     };
     this.sessions.set(id, session);
     this.endings.delete(input.conversation);
     this.changed();
     return session;
+  }
+
+  /** Whether the owner is being asked, on a device, for a session for this conversation. */
+  asking(conversation: string): boolean {
+    return this.asks.has(conversation);
+  }
+
+  /** Take down the conversation's ask on its device: answered as stopped here, the prompt withdrawn there. */
+  withdraw(conversation: string): boolean {
+    const ask = this.asks.get(conversation);
+    ask?.withdraw();
+    return ask !== undefined;
+  }
+
+  /**
+   * Until the owner hands the conversation's session back: at once when they
+   * have not taken it over. True when it waited. A wait the owner does not
+   * end in time is refused as `held`; the session ending, as `no_session`;
+   * Stop, as `stopped_in_control`: not the `stopped` of an ask, since a
+   * session was started and is now over.
+   */
+  untilHandedBack(conversation: string, signal?: AbortSignal): Promise<boolean> {
+    if (!this.sessionOf(conversation)?.paused) return Promise.resolve(false);
+    return new Promise((resolve, reject) => {
+      const done = (err?: DeviceError): void => {
+        clearTimeout(timer);
+        off();
+        signal?.removeEventListener("abort", stopped);
+        if (err) reject(err);
+        else resolve(true);
+      };
+      const stopped = (): void => done(new DeviceError("stopped_in_control", "the owner pressed Stop while they had control"));
+      const timer = setTimeout(() => done(new DeviceError("held", "the owner kept control and did not hand it back")), this.deps.handBackWaitMs ?? HAND_BACK_WAIT_MS);
+      const off = this.onChange(() => {
+        const session = this.sessionOf(conversation);
+        if (!session) done(new DeviceError("no_session", "the session ended while the owner had control"));
+        else if (!session.paused) done();
+      });
+      signal?.addEventListener("abort", stopped, { once: true });
+      if (signal?.aborted) stopped();
+    });
   }
 
   /** Something done in the conversation's session; the device's result. */
@@ -355,13 +436,17 @@ export class DeviceHub {
     const session = this.sessionOf(conversation);
     if (!session) throw new DeviceError("no_session", "no session");
     if (session.paused) throw new DeviceError("paused", "the owner has taken over");
+    // Only a look goes ahead on a screen the owner scrolled: an action would be aimed by a picture that no longer holds.
+    if (session.scrolled && method !== "screen.capture") throw new DeviceError("scrolled", "the owner scrolled; look again before acting");
     const link = this.links.get(session.device);
     if (!link?.ready) {
       this.drop(session, "offline");
       throw new DeviceError("offline", "the device went offline");
     }
     try {
-      return await link.call(method, { ...params, session: session.id }, timeoutMs ?? this.deps.callTimeoutMs ?? CALL_TIMEOUT_MS);
+      const result = await link.call(method, { ...params, session: session.id }, timeoutMs ?? this.deps.callTimeoutMs ?? CALL_TIMEOUT_MS);
+      if (method === "screen.capture" && params["region"] === undefined) session.scrolled = false;
+      return result;
     } catch (err) {
       if (err instanceof DeviceError && err.code === "no_session") this.drop(session, "host");
       if (err instanceof DeviceError && err.code === "paused") session.paused = true;
@@ -463,11 +548,11 @@ function missingPermissions(p: Permissions | undefined): string | undefined {
  * that comes after the stop goes to `late`, so a session granted then can
  * be given back.
  */
-function untilStopped(asked: Promise<Record<string, unknown>>, signal: AbortSignal | undefined, late: (result: Record<string, unknown>) => void): Promise<Record<string, unknown>> {
-  if (!signal) return asked;
+function untilStopped(asked: Promise<Record<string, unknown>>, signal: AbortSignal, late: (result: Record<string, unknown>) => void): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const onAbort = (): void => reject(new DeviceError("stopped", "the owner pressed Stop before the session was allowed"));
     signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
     asked.then(
       (result) => {
         signal.removeEventListener("abort", onAbort);
@@ -485,7 +570,8 @@ function untilStopped(asked: Promise<Record<string, unknown>>, signal: AbortSign
 /** A browser's grant: its time, and no screen; what it shares is its tabs. */
 function readBrowserGrant(result: Record<string, unknown>): Grant | undefined {
   if (result.granted !== true || typeof result.until !== "number") return undefined;
-  return { granted: true, until: result.until, space: { width: 0, height: 0 }, target: { kind: "tabs" } };
+  const site = typeof result.auto === "object" && result.auto !== null ? (result.auto as Record<string, unknown>).site : undefined;
+  return { granted: true, until: result.until, space: { width: 0, height: 0 }, target: { kind: "tabs" }, ...(typeof site === "string" && site ? { site } : {}) };
 }
 
 function readGrant(result: Record<string, unknown>): Grant | undefined {

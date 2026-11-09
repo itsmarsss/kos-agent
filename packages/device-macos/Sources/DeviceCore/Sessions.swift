@@ -32,6 +32,8 @@ public struct LiveSession: Equatable, Sendable {
   public fileprivate(set) var space: Space
   public fileprivate(set) var paused = false
   public fileprivate(set) var lastActivity: Date
+  /// The owner scrolled since KOS last saw the whole screen, and KOS was told.
+  public fileprivate(set) var scrolled = false
 }
 
 /// The one session this device may be in, and every rule about it.
@@ -112,7 +114,7 @@ public struct Sessions: Sendable {
       throw DeviceError(.noSession, "No live session with that id.")
     }
     if due(now) != nil { throw DeviceError(.noSession, "The session is over.") }
-    if session.paused { throw DeviceError(.paused, "The owner took over. Wait for them to resume it on this Mac.") }
+    if session.paused { throw DeviceError(.paused, "The owner took over. Wait for them to hand it back on this Mac.") }
     session.lastActivity = now
     phase = .live(session)
     return session
@@ -124,6 +126,22 @@ public struct Sessions: Sendable {
     session.paused = true
     phase = .live(session)
     return session.id
+  }
+
+  /// The owner scrolled while KOS works: the session's id the first time since KOS last looked, so KOS is told once
+  /// that the picture it has no longer holds. Nothing when there is no running session or KOS was told already.
+  public mutating func scroll() -> String? {
+    guard case .live(var session) = phase, !session.paused, !session.scrolled else { return nil }
+    session.scrolled = true
+    phase = .live(session)
+    return session.id
+  }
+
+  /// KOS saw the whole screen again: a later scroll is news.
+  public mutating func looked() {
+    guard case .live(var session) = phase, session.scrolled else { return }
+    session.scrolled = false
+    phase = .live(session)
   }
 
   /// The owner gave it back. Idle time starts again from now.
@@ -149,11 +167,11 @@ public struct Sessions: Sendable {
     }
   }
 
-  /// Why the live session should end now, if it should.
+  /// Why the live session should end now, if it should. Paused, it is not idle: KOS waits for the owner to hand it back.
   public func due(_ now: Date) -> EndReason? {
     guard let session = live else { return nil }
     if now >= session.until { return .expired }
-    if now.timeIntervalSince(session.lastActivity) >= idleLimit { return .idle }
+    if !session.paused && now.timeIntervalSince(session.lastActivity) >= idleLimit { return .idle }
     return nil
   }
 

@@ -2,7 +2,7 @@ import AppKit
 import DeviceUI
 import SwiftUI
 
-/// The bar at the top of the screen: KOS is using this Mac, for what, with Pause and Stop.
+/// The bar at the top of the screen: KOS is using this Mac, for what, with Take over and Stop.
 ///
 /// A non-activating panel, so pressing its buttons never takes focus from
 /// the app KOS is working in. It keeps out of KOS's way: before KOS points

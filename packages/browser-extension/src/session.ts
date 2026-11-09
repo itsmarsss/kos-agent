@@ -35,6 +35,12 @@ interface Dispatched {
   key?: string;
 }
 
+/**
+ * How long after the owner allows a session, or hands it back, a scroll of
+ * theirs is not taken for a takeover: their hand is still leaving the
+ * trackpad. A click or a key is never let pass, as on the Mac.
+ */
+export const GRACE_MS = 3_000;
 /** How long KOS's own input is remembered, to be told from the owner's. */
 const ECHO_MS = 1_500;
 /** How far, in CSS pixels, the page's report of a click may be from where KOS aimed it. */
@@ -43,8 +49,10 @@ const ECHO_SLACK = 2;
 export class Session {
   /** Tabs that are the session's: the ones it opened, and the ones the owner handed it. */
   readonly tabs = new Set<number>();
-  paused = false;
+  private held = false;
   private lastCall: number;
+  /** Until when the owner's hand is theirs alone: just after they allowed it or handed it back. */
+  private graceUntil: number;
   private readonly echoes: Dispatched[] = [];
 
   constructor(
@@ -52,16 +60,40 @@ export class Session {
     now: number,
   ) {
     this.lastCall = now;
+    this.graceUntil = now + GRACE_MS;
+  }
+
+  /** Whether the owner has taken it over. */
+  get paused(): boolean {
+    return this.held;
+  }
+
+  /** The owner takes it over: its idle clock stops, since KOS is waiting on them, not idle. */
+  pause(): void {
+    this.held = true;
+  }
+
+  /** The owner hands it back: the idle clock starts again from now, and their hand is not a takeover for a moment. */
+  resume(now: number): void {
+    this.held = false;
+    this.lastCall = now;
+    this.graceUntil = now + GRACE_MS;
   }
 
   touch(now: number): void {
     this.lastCall = now;
   }
 
-  /** Why the session is over at `now`, if it is. */
+  /** Whether the page's report of input now is the owner taking over: theirs, not KOS's, and not a scroll in the grace after they allowed it or handed it back. */
+  takesOver(input: PageInput, now: number): boolean {
+    if (!this.isOwners(input, now)) return false;
+    return input.type !== "wheel" || now >= this.graceUntil;
+  }
+
+  /** Why the session is over at `now`, if it is. Paused, it is never idle. */
   over(now: number, idleMs: number): EndReason | undefined {
     if (now >= this.info.until) return "expired";
-    if (now - this.lastCall >= idleMs) return "idle";
+    if (!this.held && now - this.lastCall >= idleMs) return "idle";
     return undefined;
   }
 

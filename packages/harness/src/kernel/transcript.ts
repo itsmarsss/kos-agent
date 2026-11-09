@@ -1,6 +1,6 @@
 import { summarizeAction } from "@kos/shared";
 
-import { saidText, type MessageOrigin, type ModelMessage } from "../models/types.js";
+import { saidText, type MessageOrigin, type ModelMessage, type Quote } from "../models/types.js";
 import { parseQueuedApproval } from "./guarded.js";
 import type { EarlierHistory } from "./session.js";
 
@@ -42,6 +42,8 @@ export type ChatEvent =
       attachments?: Attachment[];
       /** Where it came from, when not typed here by the owner: the surface and room, a guest, a schedule, the chat that sent it. */
       origin?: MessageOrigin;
+      /** What the owner quoted with it (text selected on a page), and where from: shown with their words, never as them. */
+      quote?: Quote;
     }
   | {
       kind: "tool";
@@ -80,9 +82,12 @@ const MAX_RESULT = 2000;
  * owner speaking.
  */
 const OWNER_LINE = "[the owner, while you work · ";
+/** Under the owner's words, where they were when they said them (the tab or app beside a device's chat): not their words. */
+const WHERE_LINE = "[where the owner said that · ";
 
-export function ownerWords(mark: string, words: string[]): string {
-  return words.map((w) => `\n\n${OWNER_LINE}${mark}]\n${w}`).join("");
+/** The owner's words, each with where it was said when the surface says so. */
+export function ownerWords(mark: string, words: { text: string; where?: string }[]): string {
+  return words.map((w) => `\n\n${OWNER_LINE}${mark}]\n${w.text}${w.where ? `\n\n${WHERE_LINE}${mark}]\n${w.where}` : ""}`).join("");
 }
 
 /** A tool's result, and the owner's words that rode in after it. */
@@ -92,7 +97,7 @@ export function splitOwnerWords(content: string): { content: string; said: strin
   const said = content
     .slice(at)
     .split(/\n\n\[the owner, while you work · [0-9a-z]+\]\n/)
-    .map((w) => w.trim())
+    .map((w) => w.split(/\n\n\[where the owner said that · [0-9a-z]+\]\n/)[0]!.trim())
     .filter(Boolean);
   return { content: content.slice(0, at), said };
 }
@@ -163,6 +168,12 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
       if (block.type === "text") {
         // Room talk kept beside a guest-room message is the model's context, not a line anyone typed here.
         if (block.guestContext) continue;
+        // A quote goes with the owner's words it came with.
+        if (block.quote) {
+          const last = events.at(-1);
+          if (last?.kind === "message" && last.role === "you") last.quote = { text: block.quote.text, from: block.quote.from };
+          continue;
+        }
         const text = block.text.trim();
         if (text) {
           const note = message.role === "user" ? approvalNote(text) : null;

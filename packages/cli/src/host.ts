@@ -21,6 +21,7 @@ import {
   verifyTwilioSignature,
   Kernel,
   activeOwnChat,
+  approvalExpiry,
   connectChannel,
   MODEL_SETTINGS_KEY,
   conversationEvents,
@@ -324,6 +325,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       tool: action.tool,
       args: action.args,
       reason: action.reason,
+      expiresAt: approvalExpiry(action, kernel.behaviour()),
       // The card names what the ids are: #leetcode, not 1561643942586351626.
       names: (kind: string, id: string) => kernel.labelFor(kind, id),
       ...(picture ? { picture } : {}),
@@ -403,6 +405,8 @@ export async function runHost(options: HostOptions): Promise<void> {
     panels: { chrome: panelDeps("chrome", chromeChat), mac: panelDeps("mac", macChat) },
     // A session started unasked is written down as the start it stands for.
     audit: (entry) => void kernel.audit.record(entry),
+    // The owner's Stop on a device stops the chat's turn, as the dashboard's does.
+    stopTurn: (id) => kernel.stop(id),
   });
 
   // KOS's Chrome answers on 9225; a second KOS on the machine names another port.

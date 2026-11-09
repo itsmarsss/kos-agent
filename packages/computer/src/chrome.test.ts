@@ -58,6 +58,20 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 };
 
+describe("a session the owner allowed with one site's steps unasked", () => {
+  it("acts alone on that site only, for that session only", async () => {
+    const { hub, chrome, pairChrome } = setup();
+    const fake = pairChrome();
+    fake.answers.set("session.begin", () => ({ ok: true, result: { granted: true, until: Date.now() + 60_000, auto: { site: "shop.example" } } }));
+    await hub.begin({ conversation: "c1", device: hub.find(fake.id)!, task: "t", requester: "r", minutes: 5 });
+    expect(chrome.actsAlone("c1", "shop.example")).toBe(true);
+    expect(chrome.actsAlone("c1", "bank.example")).toBe(false);
+    expect(chrome.actsAlone("c2", "shop.example")).toBe(false);
+    hub.end("c1");
+    expect(chrome.actsAlone("c1", "shop.example")).toBe(false);
+  });
+});
+
 describe("the side panel's chat in the owner's Chrome", () => {
   it("starts its session unasked only for the owner's own words in the panel, showing them as the task", async () => {
     const at: { device?: string } = {};

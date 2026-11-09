@@ -1,7 +1,7 @@
 import AppKit
 import DeviceCore
 
-/// The menu bar item: where KOS for Mac stands with each KOS, the live session with Pause and Stop, and the window.
+/// The menu bar item: where KOS for Mac stands with each KOS, the live session with Take over and Stop, and the window.
 @MainActor
 final class StatusMenu: NSObject, NSMenuDelegate {
   struct Snapshot {
@@ -78,9 +78,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
     if let session = now.session {
       menu.addItem(.separator())
-      let task = session.paused ? "Paused: \(session.task)" : "Using this Mac: \(session.task)"
+      let task = session.paused ? "Paused, you have control: \(session.task)" : "Using this Mac: \(session.task)"
       menu.addItem(info(now.sessionKOS.map { "\(task), for \($0)" } ?? task))
-      menu.addItem(action(session.paused ? "Resume" : "Pause", session.paused ? #selector(resume) : #selector(pause)))
+      menu.addItem(action(session.paused ? "Hand back" : "Take over", session.paused ? #selector(resume) : #selector(pause)))
       menu.addItem(action("Give it 15 more minutes", #selector(extend)))
       menu.addItem(action("Stop", #selector(stop)))
     }

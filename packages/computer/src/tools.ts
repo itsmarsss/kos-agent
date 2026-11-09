@@ -54,6 +54,12 @@ export interface ComputerToolsDeps {
   onHalt?(handler: () => void): () => void;
   /** Subscribe to the owner pressing Stop in a chat; the handler is told which. */
   onStop?(handler: (conversation: string) => void): () => void;
+  /** Stop every live turn in a chat, as the owner's Stop does; false when none was running. */
+  stopTurn?(conversation: string): boolean;
+  /** Whether a chat's steps on the screen each ask the owner first: the KOS for Mac window's chat, set to Ask. */
+  asksEachStep?(conversation: string): boolean;
+  /** Subscribe to the owner's words reaching a chat's running turn mid-way: a no they gave may no longer stand. */
+  onHeard?(handler: (conversation: string) => void): () => void;
   /** Subscribe to a chat starting afresh (a turn, or a fresh query of one), which has not seen the last picture. */
   onFresh?(handler: (conversation: string) => void): () => void;
   /** The audit log: a session started unasked is written there as the start it stands for. */
@@ -99,6 +105,12 @@ interface DeviceAction {
 
 /** The computer behind a module, for the kernel's browser tools to start a session in the owner's Chrome. */
 export interface ComputerModule extends KosModule {
+  /**
+   * The owner pressed Stop on a device for a chat: its turn stops, its
+   * session ends on any device, an ask in flight is withdrawn, and the rest
+   * of the turn does not ask again.
+   */
+  stopped(conversation: string): void;
   /** A session in the Chrome whose side panel this chat is, started unasked by the chat's first browser call. */
   beginPanelChrome(conversation: string, signal?: AbortSignal): Promise<void>;
   /** The owner left a chat on a device of this kind (switched the panel to another chat): its session there ends. */
@@ -106,6 +118,10 @@ export interface ComputerModule extends KosModule {
 }
 
 const SETTLE_MS = 450;
+/** What the rest of a turn the owner stopped on a device is told when it would ask for a session again. */
+const STOPPED_TEXT = "The owner pressed Stop. Do not start a session again unless they say so; tell them where you stopped.";
+/** The actions that only look or wait, which ask nobody even in a chat set to Ask. */
+const LOOKS = new Set(["screenshot", "zoom", "wait"]);
 /** As much of the owner's words as a session's prompt shows for a task KOS did not write. */
 const SAID_MAX = 120;
 /**
@@ -165,13 +181,21 @@ export function refusalText(err: unknown, ending?: string): string {
     case "no_session":
       return `No session on a computer in this chat${ending ? ` (the last one ended: ${endingText(ending)})` : ""}. Call computer.start first; when the owner spoke in the KOS for Mac window, computer.act starts one itself.`;
     case "paused":
-      return "The owner has taken over on the computer. Stop here: they resume it there, or tell you what they want. Do not retry.";
+      return "The owner took control partway. The next call waits for them to hand it back, then shows you the screen; act on what it shows.";
+    case "scrolled":
+      return "The owner scrolled the screen partway, so the last picture no longer holds. Look again before acting.";
+    case "held":
+      return "The owner kept control and did not hand it back. Stop here and tell them where you stopped.";
     case "secure_input":
       return "A password field has focus. KOS does not type there; ask the owner to enter it themselves.";
     case "hidden_app":
       return "That app is hidden from KOS on this computer, so KOS cannot see or act on it.";
     case "denied":
       return "The owner did not allow the session on the computer. Do not ask again unless they say so.";
+    case "unanswered":
+      return "The owner did not answer the ask on the device in time, so no session started. Do not ask again unless they say so; tell them what you needed it for.";
+    case "stopped_in_control":
+      return "The owner stopped while they had control; the session is over. Do not start another unless they say so; tell them where you stopped.";
     case "stopped":
       return "The ask ended (Stop, or its turn was over) before the owner allowed the session, so none was started.";
     default:
@@ -281,8 +305,27 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     return `for ${left} minute${left === 1 ? "" : "s"}, past this turn, until ${end}, its time, or the owner leaving this chat on the device`;
   };
 
-  /** A chat's refusal by the owner this turn, in words: a session is not asked for unasked again until the turn ends. */
+  /**
+   * A chat's no from the owner this turn (a refusal, a silence, a Stop), in
+   * words: no session is asked for again, by a tool or unasked, until the
+   * owner says something more to the turn or it ends.
+   */
   const denied = new Map<string, string>();
+
+  /** Chats told no this turn: a session never starts unasked again in it, whatever the owner said since; a start tool asks them. */
+  const refusedThisTurn = new Set<string>();
+
+  /** A no or a silence on the device, kept so nothing asks again until the owner speaks. */
+  const remember = (chat: string, err: unknown): void => {
+    if (!(err instanceof DeviceError && (err.code === "denied" || err.code === "unanswered"))) return;
+    denied.set(chat, refusalText(err));
+    refusedThisTurn.add(chat);
+  };
+
+  /** A session about to start unasked, refused in a turn the owner already said no in: only a start tool, which asks them, may follow. */
+  const unaskedAllowed = (chat: string, tool: string): void => {
+    if (refusedThisTurn.has(chat)) throw new Error(`The owner said no to a session earlier this turn, so none starts unasked. If they have since said to go ahead, call ${tool}, which asks them.`);
+  };
 
   /** How many turns each chat has ended: a session granted once its turn is over is given back. */
   const ended = new Map<string, number>();
@@ -293,6 +336,9 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
    * once the turn has ended is given back too: nobody is left to use it.
    */
   const ask = async (input: Parameters<DeviceHub["begin"]>[0]): Promise<Session> => {
+    // Said no to, left unanswered, or stopped already this turn: not asked again.
+    const no = denied.get(input.conversation);
+    if (no) throw new Error(no);
     const signal = input.signal;
     const turns = ended.get(input.conversation) ?? 0;
     const session = await hub.begin(input);
@@ -351,9 +397,6 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
    * start it stands for (computer.start, chrome.start), as one asked for is.
    */
   const unasked = async <T>(chat: string, tool: string, args: Record<string, unknown>, work: () => Promise<T>): Promise<T> => {
-    // Said no to already this turn: not asked again by a later call of the same turn.
-    const no = denied.get(chat);
-    if (no) throw new Error(no);
     const record = (result: string, isError: boolean): void => deps.audit?.({ tool, args: { ...args, unasked: true }, result, isError, riskTier: "safe" });
     try {
       const done = await work();
@@ -415,6 +458,24 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     why: "works in the owner's own Chrome, signed in as them",
   };
 
+  /**
+   * A step on the screen asks nobody, unless the KOS for Mac window's chat
+   * is set to Ask: then each one that does more than look goes to KOS's
+   * approvals, once a session is live (the first call only starts one, and
+   * the Mac asks for that itself).
+   */
+  const actRisk: ToolRisk = {
+    floor: "safe",
+    escalate: (input) => {
+      const chat = deps.caller();
+      if (!chat || !hub.sessionOf(chat) || !deps.asksEachStep?.(chat)) return false;
+      const steps = hasActions(input) && Array.isArray(input.actions) ? (input.actions as unknown[]) : [input];
+      const acts = steps.some((a) => typeof a !== "object" || a === null || !LOOKS.has(String((a as Record<string, unknown>).action)));
+      return acts ? "this chat is set to Ask: each step on the screen asks first" : false;
+    },
+    why: "works the owner's screen: moves the pointer and types",
+  };
+
   /** The Mac whose window the calling chat is, by id. */
   function macOf(): string | undefined {
     const chat = deps.caller();
@@ -437,7 +498,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       settling.delete(chat);
       session = await ask({ conversation: chat, device, task: input.task, requester: deps.titleOf(chat), minutes: input.minutes ?? settings.askMinutes, maxEdge: SCREEN_EDGE, ...(input.app ? { app: input.app } : {}), ...(signal ? { signal } : {}) });
     } catch (err) {
-      if (err instanceof DeviceError && err.code === "denied") denied.set(chat, refusalText(err));
+      remember(chat, err);
       // Offline: what is paired and on, so the next step can be the right one without asking.
       throw new Error(err instanceof DeviceError && err.code === "offline" ? `${refusalText(err)}. Paired:\n${pairedText()}` : refusalText(err));
     }
@@ -462,6 +523,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     const said = spokenOn(MAC_PANEL.name);
     if (said === undefined) throw new Error("This turn is not the owner speaking in the KOS for Mac window, so no session starts unasked: call computer.start, which the owner allows on the Mac.");
     if (hub.consentOf(mac.device) === "kos") throw new Error("This Mac starts sessions through KOS's approvals, not on the Mac: call computer.start first.");
+    unaskedAllowed(chat, "computer.start");
     const start = { task: intent ?? (said ? `"${said}"` : "what you asked in the KOS window"), device: mac.device, ...(mac.app ? { app: mac.app } : {}) };
     return unasked(chat, "computer.start", start, () => beginComputer(chat, start, turnStop.getStore()));
   };
@@ -480,7 +542,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     try {
       session = await ask({ conversation: chat, device, task: input.task, requester: deps.titleOf(chat), minutes: input.minutes ?? settings.askMinutes, ...(signal ? { signal } : {}) });
     } catch (err) {
-      if (err instanceof DeviceError && err.code === "denied") denied.set(chat, refusalText(err));
+      remember(chat, err);
       throw new Error(err instanceof DeviceError && err.code === "offline" ? `${refusalText(err)}. Paired:\n${pairedText()}` : refusalText(err));
     }
     const lasting = lasts(chat, session, input.keep);
@@ -510,6 +572,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     const said = spokenOn(CHROME_PANEL.name);
     if (said === undefined) throw new Error("This turn is not the owner speaking in the Chrome side panel, so no session starts unasked: call chrome.start, which the owner allows in their Chrome. KOS's own browser is not used for the side panel's chat.");
     if (hub.consentOf(chrome) === "kos") throw new Error("This Chrome starts sessions through KOS's approvals, not in the Chrome: call chrome.start first. KOS's own browser is not used for the side panel's chat.");
+    unaskedAllowed(chat, "chrome.start");
     try {
       const start = { task: said ? `"${said}"` : "what you asked in the side panel", chrome };
       await unasked(chat, "chrome.start", start, () => beginChrome(chat, start, signal));
@@ -664,6 +727,10 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
             const note = "Nothing else was done: you had not seen this screen. Act on this picture.";
             return typeof begun === "string" ? `${begun} ${note}` : { ...begun, text: `${begun.text} ${note}` };
           }
+          // The owner has control: wait for them to hand it back, then show what they left rather than act on a screen nobody has seen.
+          if (hub.sessionOf(chat)?.paused && (await hub.untilHandedBack(chat, turnStop.getStore()))) return await look(chat, "The owner had control; look again before acting. Nothing else was done.", undefined, 0, true);
+          // The owner scrolled since the last picture: its coordinates no longer hold, so the screen as it is now instead.
+          if (hub.sessionOf(chat)?.scrolled) return await look(chat, "The owner scrolled; look again before acting. Nothing else was done.", undefined, 0, true);
           const session = hub.sessionOf(chat);
           if (!session) throw new DeviceError("no_session", "no session");
           const lookAfter = input.then !== "none";
@@ -685,7 +752,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
           throw err;
         }
       },
-      { floor: "safe" },
+      actRisk,
     );
 
     ctx.registerTool(
@@ -893,6 +960,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
   const turnEnded = (chat: string): void => {
     ended.set(chat, (ended.get(chat) ?? 0) + 1);
     denied.delete(chat);
+    refusedThisTurn.delete(chat);
     shown.forget(chat);
     const session = hub.sessionOf(chat);
     if (!session) return;
@@ -902,8 +970,25 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     hub.end(chat);
   };
 
+  /** The owner's Stop on a device: everything the chat holds or asks for there ends, and the turn with it. */
+  const stopped = (chat: string): void => {
+    denied.set(chat, STOPPED_TEXT);
+    refusedThisTurn.add(chat);
+    hub.withdraw(chat);
+    passing.delete(chat);
+    settling.delete(chat);
+    shown.forget(chat);
+    hub.end(chat);
+    // No turn to stop: nothing is left to remember it for, and the next turn may ask.
+    if (!deps.stopTurn?.(chat)) {
+      denied.delete(chat);
+      refusedThisTurn.delete(chat);
+    }
+  };
+
   return {
     manifest: COMPUTER_MANIFEST,
+    stopped,
     beginPanelChrome: (chat, signal) => beginPanelChrome(chat, signal),
     left: (chat, kind) => {
       const session = hub.sessionOf(chat);
@@ -937,6 +1022,10 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
         // A new turn or query has not seen the last picture, so the next one is sent whole.
         ...(deps.onFresh ? [deps.onFresh((chat) => shown.forget(chat))] : []),
         ...(deps.onTurnEnd ? [deps.onTurnEnd(turnEnded)] : []),
+        // The owner said more to the turn ("ok, allow it now"): a start tool may ask them again.
+        ...(deps.onHeard ? [deps.onHeard((chat) => denied.delete(chat))] : []),
+        // A session the owner ended on the device mid-turn is their Stop.
+        hub.onEnded((session, why) => (why === "owner" ? stopped(session.conversation) : undefined)),
       ];
     },
     deactivate() {

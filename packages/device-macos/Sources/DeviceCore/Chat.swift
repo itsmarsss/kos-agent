@@ -10,6 +10,7 @@ public enum ChatMethod: String, CaseIterable, Sendable {
   case settled = "chat.settled"
   case chats = "chat.chats"
   case models = "chat.models"
+  case mentions = "chat.mentions"
 }
 
 public struct ChatStep: Decodable, Equatable, Sendable {
@@ -58,6 +59,8 @@ public struct ChatNotice: Decodable, Equatable, Sendable {
 /// The chat as it stands.
 public struct ChatShow: Decodable, Equatable, Sendable {
   public let conversation: String?
+  /// The chat it shows, by id: the same as `conversation`, and named so by every chat call.
+  public let chat: String?
   public let title: String
   public let messages: [ChatMessage]
   public let notice: ChatNotice?
@@ -67,9 +70,16 @@ public struct ChatShow: Decodable, Equatable, Sendable {
   public let pictures: [String: String]?
 }
 
+/// What a running turn waits on the owner for: a session asked on this Mac, or an approval.
+public enum ChatWaiting: String, Decodable, Equatable, Sendable {
+  case consent, approval
+}
+
 /// A turn as it goes: taken, its steps so far, done, or failed.
 public struct ChatStatus: Decodable, Equatable, Sendable {
   public let conversation: String?
+  /// The chat the turn is in, by id.
+  public let chat: String?
   /// Which of the owner's messages the turn is for.
   public let said: String?
   public let taken: Bool?
@@ -78,18 +88,29 @@ public struct ChatStatus: Decodable, Equatable, Sendable {
   public let story: String??
   /// A step's picture, sent on its own as the step lands.
   public let frame: ChatFrame?
+  /// The turn is held on the owner's answer.
+  public let waiting: ChatWaiting?
+  /// The owner took the Mac over, and the turn waits for it back.
+  public let held: Bool?
 
-  enum CodingKeys: String, CodingKey { case conversation, said, taken, error, story, frame }
+  enum CodingKeys: String, CodingKey { case conversation, chat, said, taken, error, story, frame, waiting, held }
 
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     conversation = try c.decodeIfPresent(String.self, forKey: .conversation)
+    chat = try c.decodeIfPresent(String.self, forKey: .chat)
     said = try c.decodeIfPresent(String.self, forKey: .said)
     taken = try c.decodeIfPresent(Bool.self, forKey: .taken)
     error = try c.decodeIfPresent(String.self, forKey: .error)
     story = c.contains(.story) ? .some(try c.decodeIfPresent(String.self, forKey: .story)) : nil
     frame = try c.decodeIfPresent(ChatFrame.self, forKey: .frame)
+    // A wait this window does not know of is still a wait.
+    waiting = try c.decodeIfPresent(String.self, forKey: .waiting).map { ChatWaiting(rawValue: $0) ?? .approval }
+    held = try c.decodeIfPresent(Bool.self, forKey: .held)
   }
+
+  /// The chat the turn is in, by either name.
+  public var turnChat: String? { chat ?? conversation }
 }
 
 /// An approval to decide in the window: the tool, what it would be given, and why.
@@ -103,6 +124,8 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
   public let reason: String?
   /// What a remembered yes covers, as its button says it, when one may be.
   public let always: String?
+  /// When it is decided for the owner if they do not, epoch milliseconds.
+  public let expiresAt: Double?
 }
 
 public struct ChatAsk: Decodable, Equatable, Sendable {
@@ -125,6 +148,20 @@ public struct ChatItem: Decodable, Equatable, Sendable {
 public struct ChatChats: Decodable, Equatable, Sendable {
   public let chats: [ChatItem]
   public let current: String?
+}
+
+/// Something an @ can name, as KOS's index answers it.
+public struct ChatMention: Decodable, Equatable, Sendable {
+  public let kind: String
+  public let id: String
+  public let label: String
+  public let hint: String?
+}
+
+/// What an @ the owner is typing may name.
+public struct ChatMentions: Decodable, Equatable, Sendable {
+  public let q: String
+  public let mentions: [ChatMention]
 }
 
 /// What answers: the model, the ones it may be changed to, or an engine that chooses its own.
@@ -159,10 +196,25 @@ public enum Beside: Encodable, Equatable, Sendable {
   private enum Keys: String, CodingKey { case kind, name, bundle, title }
 }
 
+/// What the owner selected in the app in front, sent once with their words: the words, and where they are from.
+public struct Quote: Encodable, Equatable, Sendable {
+  public let text: String
+  public let from: String
+
+  public init(text: String, from: String) {
+    self.text = text
+    self.from = from
+  }
+}
+
 /// What the window tells KOS: it opened, the owner's words, a decision, and what to show next.
 public enum ChatEvent: Sendable {
   case open
-  case send(text: String, beside: Beside)
+  case send(text: String, beside: Beside, quote: Quote? = nil)
+  /// Stop the chat's turn, its sessions on this Mac and any ask for one.
+  case stop
+  /// What an @ may name, by the start of it.
+  case mentions(String)
   case decide(approval: String, approved: Bool, remember: Bool)
   case list
   case switchTo(conversation: String)
@@ -174,7 +226,9 @@ public enum ChatEvent: Sendable {
   public func frame() throws -> Data {
     switch self {
     case .open: return try Outbound.chatEvent("chat.open", data: Empty())
-    case .send(let text, let beside): return try Outbound.chatEvent("chat.send", data: Send(text: text, beside: beside))
+    case .send(let text, let beside, let quote): return try Outbound.chatEvent("chat.send", data: Send(text: text, beside: beside, quote: quote))
+    case .stop: return try Outbound.chatEvent("chat.stop", data: Empty())
+    case .mentions(let q): return try Outbound.chatEvent("chat.mentions", data: Mentions(q: q))
     case .decide(let approval, let approved, let remember):
       return try Outbound.chatEvent("chat.decide", data: Decide(approval: approval, approved: approved, remember: remember ? true : nil))
     case .list: return try Outbound.chatEvent("chat.list", data: Empty())
@@ -189,7 +243,9 @@ public enum ChatEvent: Sendable {
   private struct Send: Encodable {
     let text: String
     let beside: Beside
+    let quote: Quote?
   }
+  private struct Mentions: Encodable { let q: String }
   private struct Decide: Encodable {
     let approval: String
     let approved: Bool

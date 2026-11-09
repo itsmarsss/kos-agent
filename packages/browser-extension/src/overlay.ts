@@ -88,7 +88,7 @@ export function installOverlay(): void {
     if (!host || !title || !text || !take || !left) return;
     host.dataset["paused"] = state.paused ? "1" : "";
     host.dataset["folded"] = state.folded ? "1" : "";
-    title.textContent = state.paused ? "Paused. You have this tab." : "KOS is using this tab";
+    title.textContent = state.paused ? "Paused, you have control" : "KOS is using this tab";
     text.textContent = state.task || "working";
     left.textContent = minutes();
     take.textContent = state.paused ? "Hand back" : "Take over";

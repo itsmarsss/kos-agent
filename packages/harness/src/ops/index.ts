@@ -10,6 +10,7 @@ export {
 } from "./runs.js";
 export {
   ApprovalQueue,
+  approvalExpiry,
   gateToolCall,
   type ApprovalStatus,
   type EnqueueInput,

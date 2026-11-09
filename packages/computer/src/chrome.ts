@@ -40,8 +40,6 @@ interface Borrowed {
   paused?: boolean;
 }
 
-/** How long an agent waits for the owner to hand a tab back. */
-const HOLD_WAIT_MS = 10 * 60_000;
 /** Time for a command's round trip through the extension, beyond the command's own. */
 const RELAY_SLACK_MS = 5_000;
 /** Commands in one cdp.batch, at most (BATCH_MAX in the extension's worker). */
@@ -122,12 +120,11 @@ function hostOf(url: string): string | undefined {
 
 export class OwnerChrome implements BrowserElsewhere {
   private readonly held = new Map<string, Borrowed>();
-  private readonly wakers = new Set<() => void>();
 
   constructor(private readonly hub: DeviceHub) {
     hub.onDeviceEvent((device, event, session) => this.heard(device, event, session));
     hub.onChange(() => {
-      // A session gone takes its tabs with it; a waiting hand is woken to find out.
+      // A session gone takes its tabs with it.
       for (const [conversation, b] of this.held) {
         const session = this.hub.sessionOf(conversation);
         if (session?.id !== b.session) this.held.delete(conversation);
@@ -137,7 +134,6 @@ export class OwnerChrome implements BrowserElsewhere {
           b.moved++;
         }
       }
-      for (const wake of [...this.wakers]) wake();
     });
   }
 
@@ -203,6 +199,10 @@ export class OwnerChrome implements BrowserElsewhere {
     return b?.current ? { tab: b.current, url: b.tabs.get(b.current)?.url ?? "", moved: b.moved, session: b.session } : undefined;
   }
 
+  actsAlone(conversation: string, site: string): boolean {
+    return this.session(conversation)?.site === site;
+  }
+
   siteOf(conversation: string): string | undefined {
     const b = this.held.get(conversation);
     const url = b?.current ? b.tabs.get(b.current)?.url : undefined;
@@ -252,7 +252,7 @@ export class OwnerChrome implements BrowserElsewhere {
     if (!page) {
       page = new Page(
         relayLine((method, params, timeoutMs) => this.hub.act(conversation, method, params, timeoutMs), tab),
-        { gate: () => this.whileOwnerHas(conversation) },
+        { gate: (signal) => this.whileOwnerHas(conversation, signal) },
       );
       b.pages.set(tab, page);
     }
@@ -260,23 +260,16 @@ export class OwnerChrome implements BrowserElsewhere {
   }
 
   /** Until the owner hands the Chrome back: at once when they have not taken it. True when it waited. */
-  private whileOwnerHas(conversation: string): Promise<boolean> {
-    if (!this.session(conversation)?.paused) return Promise.resolve(false);
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.wakers.delete(check);
-        reject(new Error("the owner has taken over in their Chrome and has not handed it back; tell them what you were doing, or try later"));
-      }, HOLD_WAIT_MS);
-      const check = (): void => {
-        const session = this.session(conversation);
-        if (session?.paused) return;
-        clearTimeout(timer);
-        this.wakers.delete(check);
-        if (session) resolve(true);
-        else reject(new Error("the session in the owner's Chrome ended"));
-      };
-      this.wakers.add(check);
-    });
+  private async whileOwnerHas(conversation: string, signal?: AbortSignal): Promise<boolean> {
+    if (!this.session(conversation)) return false;
+    try {
+      return await this.hub.untilHandedBack(conversation, signal);
+    } catch (err) {
+      if (!(err instanceof DeviceError)) throw err;
+      if (err.code === "held") throw new Error("The owner kept control of their Chrome and did not hand it back. Stop here and tell them where you stopped.");
+      if (err.code === "stopped_in_control") throw new Error("The owner pressed Stop while they had their Chrome.");
+      throw new Error("The session in the owner's Chrome ended while they had it.");
+    }
   }
 
   /**

@@ -16,6 +16,7 @@ public enum CallMethod: String, CaseIterable, Sendable {
 public enum EventName: String, Sendable {
   case sessionPaused = "session.paused"
   case sessionResumed = "session.resumed"
+  case sessionScrolled = "session.scrolled"
   case sessionExtended = "session.extended"
   case sessionEnded = "session.ended"
 }
@@ -105,6 +106,21 @@ public struct SessionBeginResult: Encodable, Sendable {
   }
 }
 
+/// A session the owner did not grant without saying no: they let the ask lapse, or it was taken down before they answered.
+/// An answer, not an error, as KOS for Chrome gives it, so KOS remembers it for what it was.
+public struct SessionNotGrantedResult: Encodable, Sendable {
+  public enum Reason: String, Encodable, Sendable {
+    case unanswered, withdrawn
+  }
+
+  public let granted = false
+  public let reason: Reason
+
+  public init(reason: Reason) {
+    self.reason = reason
+  }
+}
+
 /// What a session works in, as KOS is told.
 public struct TargetInfo: Encodable, Equatable, Sendable {
   public let kind: String
@@ -179,6 +195,15 @@ public struct SessionPausedEvent: Encodable, Sendable {
 }
 
 public struct SessionResumedEvent: Encodable, Sendable {
+  public let session: String
+
+  public init(session: String) {
+    self.session = session
+  }
+}
+
+/// The owner scrolled while KOS works: a coordinate in KOS's last picture may land on something else now.
+public struct SessionScrolledEvent: Encodable, Sendable {
   public let session: String
 
   public init(session: String) {

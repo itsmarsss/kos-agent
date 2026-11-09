@@ -10,7 +10,7 @@ struct ChatModelTests {
   @Test func wordsWaitUntilTheChatHasThemAndTheTurnEndsWithAnAnswer() {
     let model = ChatModel()
     var sent: [String] = []
-    model.send = { sent.append($0) }
+    model.send = { text, _ in sent.append(text) }
     model.say("  what is this?  ")
     model.say("/new")
     #expect(sent == ["what is this?", "/new"])
@@ -188,5 +188,141 @@ struct ChatModelTests {
     model.ask(.init(id: "8", tool: "files.rm"))
     model.show(conversation: "cm1:owner", title: "Trip", lines: [])
     #expect(model.asks.isEmpty)
+  }
+
+  /// Words said while a turn runs get their own story: neither overwrites the other, and each sits under its own words.
+  @Test func eachTurnKeepsItsOwnStoryUnderItsWords() {
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [.you("count the books", files: [])])
+    model.status(taken: false, story: .some("› Run a query"), error: nil, said: "count the books", conversation: "mac:owner")
+    model.say("and the shelves")
+    model.status(taken: true, story: nil, error: nil, said: "and the shelves", conversation: "mac:owner")
+    model.status(taken: false, story: .some("Noted, after this."), error: nil, said: "and the shelves", conversation: "mac:owner")
+    model.status(taken: false, story: .some("› Run a query\n› Count rows"), error: nil, said: "count the books", conversation: "mac:owner")
+    #expect(model.stories.map(\.said) == ["count the books", "and the shelves"])
+    #expect(model.stories.first?.text == "› Run a query\n› Count rows")
+    #expect(model.items.map(\.id) == ["l0", "t0", "s0", "t1"])
+    // Its frames stay with it.
+    let abc = Data("ABC".utf8).base64EncodedString()
+    model.frame(4, image: abc, said: "count the books", conversation: "mac:owner")
+    #expect(model.liveFrames(of: "count the books") == [4])
+    #expect(model.liveFrames(of: "and the shelves").isEmpty)
+    // The first is done; the second still runs, and the foot stays.
+    model.status(taken: false, story: .some(nil), error: nil, said: "count the books", conversation: "mac:owner")
+    #expect(model.stories.map(\.said) == ["and the shelves"])
+    #expect(model.working)
+    #expect(model.liveFrames.isEmpty)
+  }
+
+  /// A turn in another chat says nothing here: not its story, not its end, not its error.
+  @Test func anotherChatsTurnIsNotDrawn() {
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [.you("look", files: [])])
+    model.status(taken: false, story: .some("› Look"), error: nil, said: "look", conversation: "mac:owner")
+    model.status(taken: false, story: .some("› Elsewhere"), error: nil, said: "other", conversation: "cm1:owner")
+    model.status(taken: false, story: .some(nil), error: nil, said: "look", conversation: "cm1:owner")
+    model.status(taken: false, story: nil, error: "halted", conversation: "cm1:owner")
+    #expect(model.story == "› Look")
+    #expect(model.working)
+    #expect(model.error == nil)
+  }
+
+  /// A session asked for on the owner's screen holds the turn on them: the foot waits, with no clock, until it is answered.
+  @Test func aSessionAskedOnTheScreenWaitsOnTheOwner() {
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [.you("tidy the deck", files: [])])
+    model.status(taken: false, story: .some("› Use Studio MacBook: Keynote"), error: nil, said: "tidy the deck", conversation: "mac:owner")
+    #expect(model.footLive)
+    model.consent = .init(task: "Tidy the deck", until: Date().addingTimeInterval(60))
+    #expect(model.foot == "Waiting on you")
+    #expect(!model.footLive)
+    #expect(model.busy)
+    model.consent = nil
+    // KOS says so too, before the Mac's own prompt is known here, and the wait ends with the turn.
+    model.status(taken: false, story: .some("› Use Studio MacBook: Keynote"), error: nil, said: "tidy the deck", conversation: "mac:owner", waiting: .consent)
+    #expect(model.foot == "Waiting on you")
+    model.status(taken: false, story: .some(nil), error: nil, said: "tidy the deck", conversation: "mac:owner", waiting: .consent)
+    #expect(model.waiting == nil)
+    #expect(model.foot == nil)
+    #expect(!model.busy)
+  }
+
+  /// The owner took the Mac over: the chat says they have it, without a clock, and waits for it back.
+  @Test func aTurnHeldByTheOwnerSaysTheyHaveControl() {
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [.you("fill the form", files: [])])
+    model.status(taken: false, story: .some("› Click Name"), error: nil, said: "fill the form", conversation: "mac:owner")
+    model.session = .working
+    #expect(!model.heldByOwner)
+    model.session = .paused
+    #expect(model.heldByOwner)
+    #expect(model.foot == "Paused, you have control")
+    #expect(!model.footLive)
+    model.session = .working
+    model.status(taken: false, story: .some("› Click Name"), error: nil, said: "fill the form", conversation: "mac:owner", held: true)
+    #expect(model.heldByOwner)
+    // A held turn with nothing running locally still shows, and a session alone is something to stop.
+    model.status(taken: false, story: .some(nil), error: nil, said: "fill the form", conversation: "mac:owner")
+    #expect(!model.held)
+    #expect(model.busy)
+    var stopped = 0
+    var handed = 0
+    model.stop = { stopped += 1 }
+    model.handBack = { handed += 1 }
+    model.session = .paused
+    #expect(model.foot == "Paused, you have control")
+    model.handBack()
+    model.stop()
+    #expect(handed == 1 && stopped == 1)
+  }
+
+  /// The box's button stops whatever this chat has going: a turn, a session, an ask for one; and only then.
+  @Test func theBoxStopsWhileSomethingGoes() {
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [])
+    #expect(!model.busy)
+    model.say("look")
+    #expect(model.busy)
+    model.status(taken: false, story: .some(nil), error: nil)
+    #expect(!model.busy)
+    model.session = .working
+    #expect(model.busy)
+    model.session = nil
+    model.consent = .init(task: "Look", until: Date())
+    #expect(model.busy)
+  }
+
+  /// What the owner selected goes once, with their next words and not with a command, and is not offered again until they select something else.
+  @Test func aSelectionGoesOnceWithTheNextWords() {
+    let model = ChatModel()
+    var sent: [(String, ChatModel.Quote?)] = []
+    model.send = { sent.append(($0, $1)) }
+    let teh = ChatModel.Quote(text: "teh cat", from: "Notes: Draft")
+    model.selected(teh)
+    #expect(model.quote == teh)
+    model.say("/new")
+    #expect(sent.last?.1 == nil)
+    #expect(model.quote == teh)
+    model.say("fix the typo")
+    #expect(sent.last?.1 == teh)
+    #expect(model.quote == nil)
+    // Read afresh: the same words are not offered again, other words are.
+    model.selected(teh)
+    #expect(model.quote == nil)
+    model.selected(.init(text: "the dog", from: "Notes: Draft"))
+    #expect(model.quote?.text == "the dog")
+    model.putQuoteAside()
+    model.selected(.init(text: "the dog", from: "Notes: Draft"))
+    #expect(model.quote == nil)
+    model.selected(nil)
+    #expect(model.quote == nil)
+  }
+
+  /// An ask that times out counts down to it, as the prompt on the screen does.
+  @Test func anAskCountsDownToItsTimeout() {
+    let now = Date(timeIntervalSince1970: 1_000)
+    #expect(secondsLeft(until: now.addingTimeInterval(41.2), now: now) == "42s")
+    #expect(secondsLeft(until: now.addingTimeInterval(125), now: now) == "2m 05s")
+    #expect(secondsLeft(until: now.addingTimeInterval(-3), now: now) == "0s")
   }
 }

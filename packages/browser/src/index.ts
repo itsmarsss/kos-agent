@@ -2,7 +2,7 @@ export { CdpClient, type CdpEvent, type CdpListener, type CdpSocket } from "./cd
 export { ChromeHost, chromeArgs, findChrome, type ChromeLaunch, type ChromeOptions, type ChromeState } from "./chrome.js";
 export { KEEP_DAYS, keptSessionCookies, type CdpCookie } from "./cookies.js";
 export { downloadsFolder, safeName, settleDownload, uniquePath } from "./downloads.js";
-export { PICTURE, STEPS_MAX, VISIT_MAX, act, evaluate, fenced, look, readAt, seeAfter, stepsOf, urlFor, visit, type SeeOptions, type Seen, type Tab, type Then } from "./hands.js";
+export { PICTURE, STEPS_MAX, VISIT_MAX, act, evaluate, fenced, leftSite, look, opensElsewhere, readAt, seeAfter, stepsOf, urlFor, visit, type ActOptions, type SeeOptions, type Seen, type Tab, type Then } from "./hands.js";
 export { parseKeys, type KeyPress } from "./keys.js";
 export {
   BrowserLive,

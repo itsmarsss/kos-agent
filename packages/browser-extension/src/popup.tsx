@@ -148,7 +148,7 @@ function SessionCard({ session, act }: { session: NonNullable<PopupState["sessio
     <m.section className="card card--live" data-paused={session.paused || undefined} layout variants={listItem} initial="hidden" animate="show" exit="exit">
       <div className="session-head">
         <StatusDot state={session.paused ? "needs-you" : "working"} label={session.paused ? "Paused" : "Working"} />
-        <strong>{session.paused ? "Paused. You have control." : "KOS is using this Chrome"}</strong>
+        <strong>{session.paused ? "Paused, you have control" : "KOS is using this Chrome"}</strong>
         <span className="hint">{minutesLeft(session.until)}</span>
       </div>
       <p className="quote">{session.task}</p>

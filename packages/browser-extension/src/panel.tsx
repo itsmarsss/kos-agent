@@ -1,6 +1,6 @@
 import { CHAT_COMMANDS, KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { AskSteps, BoltIcon, ChevronDown, Chips, CloseIcon, Collapse, ComposeIcon, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, SendIcon, spring, StepPicture, StepsIcon, type Tone, useDismiss, useOverlayScroll, WorkingDots } from "@kos/kit";
+import { AskSteps, BoltIcon, ChevronDown, Chips, CloseIcon, Collapse, ComposeIcon, Countdown, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, QuoteLine, SendIcon, spring, StepPicture, StepsIcon, StopIcon, type Tone, useDismiss, useOverlayScroll, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
@@ -21,8 +21,14 @@ import type { ConsentRequest, KosState, PopupState } from "./worker.js";
  * said to, and the words come back to be sent again.
  */
 
+/** What the owner quoted with their words, and where from. */
+interface Quote {
+  text: string;
+  from: string;
+}
+
 type Line =
-  | { role: "you"; text: string; files?: string[] }
+  | { role: "you"; text: string; files?: string[]; quote?: Quote }
   | { role: "kos"; text: string }
   | { role: "note"; text: string }
   | { role: "steps"; steps: Step[] };
@@ -44,6 +50,8 @@ interface Approval {
   reason?: string;
   /** What a remembered yes covers, as its button says it ("Always on shop.example"), when it can be remembered. */
   always?: string;
+  /** When it lapses if nobody decides, epoch ms. */
+  expiresAt?: number;
 }
 
 /** Something said in the chat's run that is not in its words, kept after the exchange it came in. */
@@ -79,6 +87,10 @@ interface Chat {
   pictures: Map<number, Pictured>;
   /** The pictures of each turn on the go, by the owner's words it is about. */
   live: { said?: string; frames: number[] }[];
+  /** What KOS says the chat waits on: the owner allowing a session, or deciding an approval. */
+  waiting?: "consent" | "approval";
+  /** The owner has control of the chat's session: KOS waits for them to hand it back. */
+  held: boolean;
 }
 
 /** A chat the panel may switch to. */
@@ -109,15 +121,14 @@ interface ReadAsk {
   host: string;
 }
 
-const EMPTY: Chat = { conversation: null, title: "Chrome", lines: [], sending: [], working: false, extras: [], stories: [], asks: [], auto: false, pictures: new Map(), live: [] };
+const EMPTY: Chat = { conversation: null, title: "Chrome", lines: [], sending: [], working: false, extras: [], stories: [], asks: [], auto: false, pictures: new Map(), live: [], held: false };
 /** How long a KOS has to show the chat once the panel opens, and to take the owner's words once sent. */
 const SHOW_MS = 6_000;
 const TAKE_MS = 12_000;
 const STEP = "› ";
 const yours = (lines: Line[]): number => lines.filter((l) => l.role === "you").length;
 
-/** The line to the worker: the chat as it comes, and what the panel says back. */
-/** Where a message's quote is kept: its chat and its words. */
+/** Where a quote is kept while its words are on their way: its chat and its words. */
 function quoteKey(conversation: string | null, said: string): string {
   return `${conversation ?? ""}\n${said}`;
 }
@@ -135,8 +146,10 @@ function useChat(windowId: number | undefined, online: boolean): {
   selection: string;
   /** What an @ being typed can name, for the words typed after it. */
   mentions: { q: string; list: Mention[] };
-  /** What each of the owner's messages was sent about, by its words: shown above it. */
+  /** What each of the owner's messages on its way was sent about, by its words: shown above it until the chat has it. */
   quotes: Map<string, string>;
+  /** The extension's state as it last said it: the session, and each KOS's line. */
+  worker: PopupState | undefined;
   say: (message: Record<string, unknown>) => void;
   send: (text: string, selection?: string) => void;
   answer: (message: Record<string, unknown>) => void;
@@ -152,6 +165,7 @@ function useChat(windowId: number | undefined, online: boolean): {
   const [reads, setReads] = useState<ReadAsk[]>([]);
   const [selection, setSelection] = useState("");
   const [mentions, setMentions] = useState<{ q: string; list: Mention[] }>({ q: "", list: [] });
+  const [worker, setWorker] = useState<PopupState>();
   // What each message was said about, by chat and words: a Map, so no message text can be a key it already holds.
   const [quotes, setQuotes] = useState<Map<string, string>>(() => new Map());
   const quotedIn = useRef<string | null>(null);
@@ -190,26 +204,39 @@ function useChat(windowId: number | undefined, online: boolean): {
     };
     const heard = (message: Record<string, unknown>): void => {
       switch (message["type"]) {
-        case "kos":
-          chosen.current = (message["id"] as string | null) ?? null;
-          setKos(chosen.current);
+        case "kos": {
+          const id = (message["id"] as string | null) ?? null;
+          // The same KOS found again after the worker slept: the chat stays as it was until it is drawn again.
+          if (id === chosen.current && id !== null) return;
+          chosen.current = id;
+          setKos(id);
           setChat(EMPTY);
           setShownOnce(false);
           setSilent(false);
           setModels(undefined);
           return;
+        }
+        case "state":
+          return setWorker(message["state"] as PopupState);
         case "chat.show":
           heardBack();
           setShownOnce(true);
           setSilent(false);
           return setChat((c) => shown(c, message));
         case "chat.status":
-          heardBack();
-          if (typeof message["error"] === "string") setError(message["error"]);
-          // A step's picture, on its own: the story it belongs to is told apart.
-          if (message["frame"] !== undefined) return setChat((c) => framed(c, message));
-          if (message["taken"] === true) return setChat((c) => took(c, message));
-          return setChat((c) => storied(c, message));
+          return setChat((c) => {
+            // Another chat's, from a turn the owner moved away from: not drawn over this one.
+            if (!isShown(c, message)) return c;
+            heardBack();
+            if (typeof message["error"] === "string") setError(message["error"]);
+            const s = stated(c, message);
+            // A step's picture, on its own: the story it belongs to is told apart.
+            if (message["frame"] !== undefined) return framed(s, message);
+            if (message["taken"] === true) return took(s, message);
+            // The state alone: what the chat waits on, and who holds it.
+            if (!STATUS_WORDS.some((k) => k in message)) return s;
+            return storied(s, message);
+          });
         case "chat.chats":
           return setChats((message["chats"] as ChatItem[]) ?? []);
         case "chat.models":
@@ -225,7 +252,7 @@ function useChat(windowId: number | undefined, online: boolean): {
           return setMentions({ q: String(message["q"] ?? ""), list: (message["mentions"] as Mention[]) ?? [] });
         case "chat.ask": {
           const approval = message["approval"] as Approval;
-          return setChat((c) => ({ ...c, asks: [...c.asks.filter((a) => a.id !== approval.id), approval] }));
+          return setChat((c) => (isShown(c, message) ? { ...c, asks: [...c.asks.filter((a) => a.id !== approval.id), approval] } : c));
         }
         case "chat.settled":
           return setChat((c) => ({ ...c, asks: c.asks.filter((a) => a.id !== message["approval"]) }));
@@ -272,7 +299,7 @@ function useChat(windowId: number | undefined, online: boolean): {
       setChat((c) => ({ ...c, sending: said.startsWith("/") ? c.sending : [...c.sending, said], working: true, unsent: undefined }));
       clearTimeout(taking.current);
       taking.current = setTimeout(() => giveBack("KOS did not take that. It may be an older KOS without the side panel, or not reachable now; your words are back in the box."), TAKE_MS);
-      say({ type: "send", text: said, ...(about ? { selection: about } : {}) });
+      say({ type: "send", text: said, ...(about ? { quote: { text: about } } : {}) });
     },
     [say],
   );
@@ -299,7 +326,22 @@ function useChat(windowId: number | undefined, online: boolean): {
     },
     [say],
   );
-  return { chat, kos, error, silent, chats, models, reads, selection, mentions, quotes, say, send, answer, answerRead };
+  return { chat, kos, error, silent, chats, models, reads, selection, mentions, quotes, worker, say, send, answer, answerRead };
+}
+
+/** What a status may say beyond the chat's state: one with none of these says the state alone. */
+const STATUS_WORDS = ["said", "taken", "story", "error", "frame"];
+
+/** Whether a call from KOS is about the chat shown: one it names as another chat is not. */
+function isShown(c: Chat, message: Record<string, unknown>): boolean {
+  const about = message["chat"];
+  return typeof about !== "string" || c.conversation === null || about === c.conversation;
+}
+
+/** The chat's state as a status says it: what it waits on, and whether the owner holds it. A status without them clears them. */
+function stated(c: Chat, message: Record<string, unknown>): Chat {
+  const waiting = message["waiting"] === "consent" || message["waiting"] === "approval" ? message["waiting"] : undefined;
+  return { ...c, waiting, held: message["held"] === true };
 }
 
 /** The chat as KOS says it stands now: the owner's words that arrived leave the waiting ones, and a finished turn's steps are in the chat itself. */
@@ -436,7 +478,8 @@ function useReading(): { can: boolean; allow: () => void } {
   return { can, allow: () => void chrome.permissions.request({ origins: ["<all_urls>"] }).then(setCan) };
 }
 
-function useWorkerState(): PopupState | undefined {
+/** The extension's state: as the worker pushes it on each change to a session, and read now and then for the rest. */
+function useWorkerState(pushed: PopupState | undefined): PopupState | undefined {
   const [state, setState] = useState<PopupState>();
   useEffect(() => {
     const read = (): void => void ask<PopupState>({ type: "state" }).then(setState, () => undefined);
@@ -444,24 +487,34 @@ function useWorkerState(): PopupState | undefined {
     const timer = setInterval(read, 2_000);
     return () => clearInterval(timer);
   }, []);
+  useEffect(() => {
+    if (pushed) setState(pushed);
+  }, [pushed]);
   return state;
 }
 
 function Panel(): ReactElement {
   const [windowId, setWindowId] = useState<number>();
   useEffect(() => void chrome.windows.getCurrent().then((w) => setWindowId(w.id)), []);
-  const state = useWorkerState();
   const tab = useTab(windowId);
   const reading = useReading();
   const [kosId, setKosId] = useState<string | null>(null);
+  const [online, setOnline] = useState(false);
+  const { chat, kos, error, silent, chats, models, reads, selection, mentions, quotes, worker, say, send, answer, answerRead } = useChat(windowId, online);
+  const state = useWorkerState(worker);
   const k = state?.kos.find((x) => x.id === kosId);
-  const online = !!k && k.link === "online" && !k.held;
-  const { chat, kos, error, silent, chats, models, reads, selection, mentions, quotes, say, send, answer, answerRead } = useChat(windowId, online);
+  useEffect(() => setOnline(!!k && k.link === "online" && !k.held), [k]);
+  // The chat's own session in this Chrome, whichever tab is beside the panel.
+  const session = state?.session && chat.conversation !== null && state.session.conversation === chat.conversation ? state.session : undefined;
+  const held = chat.held || session?.paused === true;
+  // Something to stop: a turn running, a session at work, or an ask up for one.
+  const busy = chat.working || chat.consent !== undefined || session !== undefined;
+  const stop = (): void => say({ type: "stop" });
   useEffect(() => setKosId(kos), [kos]);
   const [switching, setSwitching] = useState(false);
   const titleRef = useRef<HTMLButtonElement>(null);
   const usable = online && !silent;
-  const mood: BlobMood = !online ? "asleep" : chat.asks.length || chat.consent || reads.length ? "needs-you" : chat.working ? "working" : "idle";
+  const mood: BlobMood = !online ? "asleep" : chat.asks.length || chat.consent || reads.length || chat.waiting || held ? "needs-you" : chat.working ? "working" : "idle";
   return (
     <div className="panel">
       <header className="chat-head">
@@ -513,7 +566,7 @@ function Panel(): ReactElement {
           )}
         </AnimatePresence>
       </header>
-      <TabBar tab={tab} state={state} reading={reading} />
+      <TabBar tab={tab} state={state} reading={reading} session={session} say={say} />
       {!state?.kos.length ? (
         <Unpaired />
       ) : silent ? (
@@ -521,7 +574,7 @@ function Panel(): ReactElement {
       ) : (
         <>
           <Pictures.Provider value={{ cache: chat.pictures, hidden: state?.settings.hiddenSites ?? [] }}>
-            <Thread chat={chat} online={online} send={send} answer={answer} reads={reads} answerRead={answerRead} quotes={quotes} />
+            <Thread chat={chat} online={online} send={send} answer={answer} reads={reads} answerRead={answerRead} quotes={quotes} held={held} say={say} />
           </Pictures.Provider>
           <AnimatePresence>
             {error && (
@@ -534,6 +587,8 @@ function Panel(): ReactElement {
             online={online}
             k={k}
             send={send}
+            busy={busy}
+            stop={stop}
             unsent={chat.unsent}
             models={models}
             chooseModel={(model) => say({ type: "model", model })}
@@ -561,16 +616,17 @@ function KosPicker({ all, chosen, choose }: { all: KosState[]; chosen: string | 
   );
 }
 
-/** The tab beside the panel: what it is, and what KOS may do in it. */
-function TabBar({ tab, state, reading }: { tab: chrome.tabs.Tab | undefined; state: PopupState | undefined; reading: { can: boolean; allow: () => void } }): ReactElement | null {
+/** The tab beside the panel: what it is, what KOS may do in it, and the chat's session with Take over, Hand back and Stop wherever it works. */
+function TabBar({ tab, state, reading, session, say }: { tab: chrome.tabs.Tab | undefined; state: PopupState | undefined; reading: { can: boolean; allow: () => void }; session: PopupState["session"] | undefined; say: (m: Record<string, unknown>) => void }): ReactElement | null {
   if (!tab) return null;
   const url = tab.url ?? "";
   const web = /^https?:\/\//.test(url);
   const host = web ? new URL(url).host : "";
   const hidden = web && !!state && isHidden(url, state.settings.hiddenSites);
-  const session = state?.session;
-  const here = session?.beside !== undefined && session.beside === tab.id;
-  const pill: [string, Tone] = !web ? ["Not a web page", "muted"] : hidden ? ["Hidden from KOS", "muted"] : here ? [session.paused ? "You have it" : "KOS is working", session.paused ? "warn" : "accent"] : reading.can ? ["KOS can read", "ok"] : ["Not read", "muted"];
+  const here = !!session;
+  // The pill speaks of this tab: KOS at work in it, or the owner holding the chat's session wherever it is.
+  const live = here && (session.paused || session.beside === tab.id);
+  const pill: [string, Tone] = !web ? ["Not a web page", "muted"] : hidden ? ["Hidden from KOS", "muted"] : live ? [session.paused ? "You have it" : "KOS is working", session.paused ? "warn" : "accent"] : reading.can ? ["KOS can read", "ok"] : ["Not read", "muted"];
   return (
     <section className="tabbar" data-live={here || undefined}>
       <div className="line">
@@ -583,10 +639,10 @@ function TabBar({ tab, state, reading }: { tab: chrome.tabs.Tab | undefined; sta
       </div>
       <Collapse open={here}>
         <div className="row">
-          <button type="button" className="btn btn--sm" onClick={() => void ask({ type: session?.paused ? "handback" : "take" })}>
+          <button type="button" className="btn btn--sm" onClick={() => say({ type: session?.paused ? "handback" : "take" })}>
             {session?.paused ? "Hand back" : "Take over"}
           </button>
-          <button type="button" className="btn btn--sm btn--danger" onClick={() => void ask({ type: "stop" })}>
+          <button type="button" className="btn btn--sm btn--danger" onClick={() => say({ type: "stop" })}>
             Stop
           </button>
         </div>
@@ -671,6 +727,8 @@ function Thread({
   reads,
   answerRead,
   quotes,
+  held,
+  say,
 }: {
   chat: Chat;
   online: boolean;
@@ -678,8 +736,11 @@ function Thread({
   answer: (m: Record<string, unknown>) => void;
   reads: ReadAsk[];
   answerRead: (id: string, granted: boolean) => void;
-  /** What each of the owner's messages was sent about, shown above it. */
+  /** What each of the owner's messages on its way was sent about, shown above it. */
   quotes: Map<string, string>;
+  /** The owner has control of the chat's session. */
+  held: boolean;
+  say: (m: Record<string, unknown>) => void;
 }): ReactElement {
   const scroller = useRef<HTMLDivElement>(null);
   const scroll = useOverlayScroll(scroller);
@@ -703,12 +764,13 @@ function Thread({
       if (seen > 0 || i > 0) after(seen);
       seen++;
     }
-    items.push(<LineView key={`l${i}`} line={line} quote={line.role === "you" ? quotes.get(quoteKey(chat.conversation, line.text)) : undefined} />);
+    items.push(<LineView key={`l${i}`} line={line} />);
   });
   chat.sending.forEach((text, i) => {
     after(seen);
     seen++;
-    items.push(<LineView key={`s${i}-${text.slice(0, 16)}`} line={{ role: "you", text }} quote={quotes.get(quoteKey(chat.conversation, text))} pending />);
+    const quoted = quotes.get(quoteKey(chat.conversation, text));
+    items.push(<LineView key={`s${i}-${text.slice(0, 16)}`} line={{ role: "you", text, ...(quoted ? { quote: { text: quoted, from: "" } } : {}) }} pending />);
   });
   after(seen);
   return (
@@ -739,12 +801,16 @@ function Thread({
       {/* At the foot for as long as the turn runs, whatever came last: words
           after the steps are not the end of the work. Gone the moment it ends,
           as the dashboard's is, not faded out over the answer. */}
-      {chat.working && <Working stories={chat.stories} since={chat.taken?.at} waiting={chat.asks.length > 0 || chat.consent !== undefined || reads.length > 0} />}
+      {held ? (
+        <Held say={say} />
+      ) : (
+        (chat.working || chat.waiting) && <Working stories={chat.stories} since={chat.taken?.at} waiting={chat.waiting !== undefined || chat.asks.length > 0 || chat.consent !== undefined || reads.length > 0} />
+      )}
       <AnimatePresence>
         {chat.asks.map((a) => (
           <AskCard key={`ask${a.id}`} approval={a} decide={(approved, remember) => answer({ type: "decide", approval: a.id, approved, ...(remember ? { remember: true } : {}) })} />
         ))}
-        {chat.consent && <ConsentCard key={`consent${chat.consent.id}`} request={chat.consent} answer={(allowed, minutes) => answer({ type: "consent.answer", id: chat.consent!.id, allowed, minutes })} />}
+        {chat.consent && <ConsentCard key={`consent${chat.consent.id}`} request={chat.consent} answer={(allowed, minutes, site) => answer({ type: "consent.answer", id: chat.consent!.id, allowed, minutes, ...(site ? { site: true } : {}) })} />}
         {reads.map((r) => (
           <ReadCard key={`read${r.id}`} ask={r} answer={(granted) => answerRead(r.id, granted)} />
         ))}
@@ -755,12 +821,12 @@ function Thread({
 
 const enter = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0 }, transition: spring };
 
-function LineView({ line, pending, quote }: { line: Line; pending?: boolean; quote?: string | undefined }): ReactElement {
+function LineView({ line, pending }: { line: Line; pending?: boolean }): ReactElement {
   switch (line.role) {
     case "you":
       return (
         <m.div className="msg msg--you" data-pending={pending || undefined} layout="position" {...enter}>
-          {quote && <p className="msg-quote">{quote.length > 220 ? `${quote.slice(0, 220)}…` : quote}</p>}
+          {line.quote && <QuoteLine text={line.quote.text} {...(line.quote.from ? { from: line.quote.from } : {})} />}
           {line.text && <Markdown text={line.text} />}
           {line.files?.length ? (
             <div className="files">
@@ -874,6 +940,22 @@ function Working({ stories, since, waiting }: { stories: Extra[]; since: number 
   );
 }
 
+/** The chat's session in the owner's hands: KOS waits for them, and they hand it back or stop it here. */
+function Held({ say }: { say: (m: Record<string, unknown>) => void }): ReactElement {
+  return (
+    <m.div className="working working--held" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={ease}>
+      <HandIcon size={12} />
+      <span className="working-what">Paused, you have control</span>
+      <button type="button" className="btn btn--sm" onClick={() => say({ type: "handback" })}>
+        Hand back
+      </button>
+      <button type="button" className="btn btn--sm btn--danger" onClick={() => say({ type: "stop" })}>
+        Stop
+      </button>
+    </m.div>
+  );
+}
+
 /** The running turn: its steps so far, and what KOS is saying between them. */
 function Story({ text, frames }: { text: string; frames: number[] }): ReactElement {
   // A long story comes as its tail, cut mid-line after a "…": that first line is a fragment.
@@ -901,25 +983,30 @@ function Extra({ extra }: { extra: Extra }): ReactElement {
   );
 }
 
+/** An approval, as the dashboard's: what it would run, why, what it is asked for, and Approve, Always, Deny in that order. */
 function AskCard({ approval, decide }: { approval: Approval; decide: (approved: boolean, remember?: boolean) => void }): ReactElement {
   return (
     <m.section className="card ask-card" layout {...enter}>
-      <p className="label">KOS asks to run</p>
+      <div className="ask-card-head">
+        <p className="label">KOS asks to run</p>
+        {approval.expiresAt !== undefined && <Countdown until={approval.expiresAt} />}
+      </div>
       <strong className="mono">{approval.tool}</strong>
       <AskSteps mechanics={approval.mechanics} />
       {approval.why && <p className="hint">{approval.why}</p>}
+      {approval.reason && <p className="hint ask-reason">Asked because it {approval.reason}.</p>}
       {approval.args && <pre className="args">{approval.args}</pre>}
       <div className="row">
-        <button type="button" className="btn" onClick={() => decide(false)}>
-          Deny
+        <button type="button" className="btn btn--primary" onClick={() => decide(true)}>
+          Approve
         </button>
         {approval.always && (
           <button type="button" className="btn" title="Approve, and stop asking for this" onClick={() => decide(true, true)}>
             {approval.always}
           </button>
         )}
-        <button type="button" className="btn btn--primary" onClick={() => decide(true)}>
-          Approve
+        <button type="button" className="btn" onClick={() => decide(false)}>
+          Deny
         </button>
       </div>
     </m.section>
@@ -951,21 +1038,37 @@ function ReadCard({ ask: read, answer }: { ask: ReadAsk; answer: (granted: boole
   );
 }
 
-function ConsentCard({ request, answer }: { request: ConsentRequest; answer: (allowed: boolean, minutes: number) => void }): ReactElement {
+/**
+ * KOS asks to work in the tab beside the panel: for how long, and whether
+ * its steps on this site may go unasked for this session, so the first one
+ * is not a second prompt. Running script in a page and the other strict
+ * tools ask either way.
+ */
+function ConsentCard({ request, answer }: { request: ConsentRequest; answer: (allowed: boolean, minutes: number, site: boolean) => void }): ReactElement {
   const [minutes, setMinutes] = useState(request.minutes);
+  const [alone, setAlone] = useState(false);
   const choices = [...new Set([5, 15, 30, 60, 120].filter((v) => v <= Math.min(request.longest, Math.max(request.minutes, 5))).concat(request.minutes))].sort((a, b) => a - b);
   return (
     <m.section className="card ask-card ask-card--consent" layout {...enter}>
-      <p className="label">KOS wants to work in this tab</p>
+      <div className="ask-card-head">
+        <p className="label">KOS wants to work in this tab</p>
+        <Countdown until={request.expiresAt} />
+      </div>
       <p className="quote">{request.task}</p>
       <Chips options={choices.map((v) => [v, minutesWords(v)])} selected={minutes} onChoose={setMinutes} />
+      {request.site && (
+        <label className="check">
+          <input type="checkbox" checked={alone} onChange={(e) => setAlone(e.target.checked)} />
+          <span>And act on {request.site} this session without asking</span>
+        </label>
+      )}
       <p className="hint">It works in the tab beside this panel, with a border on it. Click or type there to take over; Stop ends it.</p>
       <div className="row">
-        <button type="button" className="btn" onClick={() => answer(false, 0)}>
-          Deny
-        </button>
-        <button type="button" className="btn btn--primary" autoFocus onClick={() => answer(true, minutes)}>
+        <button type="button" className="btn btn--primary" autoFocus onClick={() => answer(true, minutes, alone)}>
           Allow
+        </button>
+        <button type="button" className="btn" onClick={() => answer(false, 0, false)}>
+          Deny
         </button>
       </div>
     </m.section>
@@ -976,6 +1079,8 @@ function Composer({
   online,
   k,
   send,
+  busy,
+  stop,
   unsent,
   models,
   chooseModel,
@@ -988,6 +1093,9 @@ function Composer({
   online: boolean;
   k: KosState | undefined;
   send: (t: string, selection?: string) => void;
+  /** A turn, a session or an ask is on the go: the button is Stop. */
+  busy: boolean;
+  stop: () => void;
   unsent: string | undefined;
   models: Models | undefined;
   chooseModel: (model: string) => void;
@@ -1044,6 +1152,12 @@ function Composer({
     requestAnimationFrame(() => box.current?.setSelectionRange(at, at));
   };
   const keys = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    // Cmd or Ctrl with Enter stops, as on the dashboard; Enter alone sends, which a running turn takes in.
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      if (busy) stop();
+      return;
+    }
     if (options.length && !e.nativeEvent.isComposing) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -1108,9 +1222,15 @@ function Composer({
       <div className="composer-foot">
         <ModelChoice models={models} choose={chooseModel} />
         {online && <AutoChoice on={auto} set={setAuto} />}
-        <m.button type="button" className="send" aria-label="Send" disabled={!online || !text.trim()} onClick={go} whileTap={{ scale: 0.97 }} transition={spring}>
-          <SendIcon size={15} />
-        </m.button>
+        {busy && online ? (
+          <m.button type="button" className="send send--stop" aria-label="Stop" title="Stop (Cmd+Enter)" onClick={stop} whileTap={{ scale: 0.97 }} transition={spring}>
+            <StopIcon />
+          </m.button>
+        ) : (
+          <m.button type="button" className="send" aria-label="Send" title="Send (Enter)" disabled={!online || !text.trim()} onClick={go} whileTap={{ scale: 0.97 }} transition={spring}>
+            <SendIcon size={15} />
+          </m.button>
+        )}
       </div>
     </div>
   );

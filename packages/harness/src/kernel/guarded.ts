@@ -5,7 +5,7 @@ import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
 import { injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
-import { attendance, caller, origin, ownership, turn, turnStop, type TurnOrigin } from "./caller.js";
+import { attendance, caller, onSite, origin, ownership, turn, turnStop, type TurnOrigin } from "./caller.js";
 
 export interface GuardedToolsDeps {
   /** A big result set aside as it comes back: whole with its handle, or its start and an outline when huge (in an SDK query). */
@@ -61,8 +61,14 @@ export interface GuardedToolsDeps {
   permissionContext?: (tool: string) => PermissionContext | undefined;
   /** What the owner said since the last call, while this turn runs: handed to the model with this call's result. */
   heard?: () => string | undefined;
-  /** The owner set this chat to act without asking, for this call: runs as a remembered decision does. */
-  autoApproves?: (tool: string, context?: PermissionContext) => boolean;
+  /**
+   * The owner let this call run without asking, as a remembered decision
+   * does: true anywhere (the chat is set to Auto), "site" only on the site
+   * its tab is on now (a session allowed for this site's steps).
+   */
+  autoApproves?: (tool: string, context?: PermissionContext) => boolean | "site";
+  /** Whether a call allowed on `site` alone sets out for another, so it is asked about instead. */
+  leavesSite?: (tool: string, input: Record<string, unknown>, site: string) => boolean;
   /** A picture of what a call would act on, for the approval; base64 JPEG. */
   pictureFor?: (tool: string, input: Record<string, unknown>) => Promise<string | undefined>;
   /**
@@ -310,11 +316,11 @@ export class GuardedTools implements ToolBox {
     const placed = <T>(work: () => Promise<T>): Promise<T> => (from ? origin.run(from, work) : work());
     const within = <T>(work: () => Promise<T>): Promise<T> =>
       attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work)))));
-    const run = async (n: string, i: Record<string, unknown>): Promise<ToolExecution> => {
+    const run = async (n: string, i: Record<string, unknown>, site?: string): Promise<ToolExecution> => {
       started.ran = true;
       const ended = this.deps.running?.(n);
       try {
-        return await within(() => registry.execute(n, i));
+        return await within(() => (site ? onSite.run(site, () => registry.execute(n, i)) : registry.execute(n, i)));
       } finally {
         ended?.();
       }
@@ -379,10 +385,15 @@ export class GuardedTools implements ToolBox {
        * shows it ran as risky.
        */
       const context = this.deps.permissionContext?.(name);
-      if (this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) || this.deps.autoApproves?.(name, context)) {
+      const auto = this.deps.autoApproves?.(name, context) ?? false;
+      const ruled = auto !== true && this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true;
+      // A yes kept for a site holds on that site alone: the run checks each step against it, and one setting out elsewhere asks.
+      const bound = auto !== true && (ruled || auto === "site") ? context?.browser?.site : undefined;
+      const allowed = auto === true || ((ruled || auto === "site") && !(bound !== undefined && this.deps.leavesSite?.(name, input, bound) === true));
+      if (allowed) {
         const unready = await readyNow();
         if (unready) return unready;
-        const allowedResult = await run(name, injectSecrets(input, secrets));
+        const allowedResult = await run(name, injectSecrets(input, secrets), bound);
         audit.record({
           tool: name,
           args: input,
@@ -416,6 +427,7 @@ export class GuardedTools implements ToolBox {
         ...(why ? { why } : {}),
         owner,
         attended,
+        waits: this.deps.waitForApproval !== false,
       });
       this.deps.onQueued?.(action);
 

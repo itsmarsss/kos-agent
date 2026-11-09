@@ -118,7 +118,7 @@ export interface Reply {
   error?: { code: ErrorCode | string; message: string };
 }
 
-export type EventName = "session.paused" | "session.resumed" | "session.extended" | "session.ended";
+export type EventName = "session.paused" | "session.resumed" | "session.scrolled" | "session.extended" | "session.ended";
 
 export type EndReason = "owner" | "expired" | "idle" | "quit" | "host" | "window" | "detached";
 
@@ -155,7 +155,7 @@ export type PanelMethod = "chat.show" | "chat.status" | "chat.ask" | "chat.settl
 
 /** One line of the panel's chat: the owner's words, KOS's, a note, or the steps a turn took. */
 export type PanelMessage =
-  | { role: "you"; text: string; files?: string[] }
+  | { role: "you"; text: string; files?: string[]; quote?: { text: string; from: string } }
   | { role: "kos"; text: string }
   | { role: "note"; text: string }
   | { role: "steps"; steps: { summary: string; failed?: true; frame?: number }[] };
@@ -190,6 +190,8 @@ export interface Grant {
   until: number;
   space: Size;
   target: Target;
+  /** A Chrome's: the site the owner let the session act on without asking each step. */
+  site?: string;
 }
 
 /** What `screen.capture` answers. */

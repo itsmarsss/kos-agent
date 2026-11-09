@@ -36,6 +36,8 @@ export interface ComputerUseOptions {
   panels: { chrome: PanelDeps; mac: PanelDeps };
   /** The audit log, for a session started unasked. */
   audit?(entry: AuditEntry): void;
+  /** Stop every live turn in a chat, as the owner's Stop does; false when none was running. */
+  stopTurn?(conversation: string): boolean;
 }
 
 export interface ComputerUse {
@@ -62,6 +64,9 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   // The owner leaving a chat on a device ends the session that chat holds there.
   panel.onLeave((c) => active?.left(c, "browser"));
   mac.onLeave((c) => active?.left(c, "computer"));
+  // The owner's Stop on either device: the chat's turn, its sessions and its asks end.
+  panel.onStop((c) => active?.stopped(c));
+  mac.onStop((c) => active?.stopped(c));
 
   const module: KosModule = {
     manifest: COMPUTER_MANIFEST,
@@ -85,6 +90,9 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         caller: options.caller,
         titleOf: options.titleOf,
         ...(options.audit ? { audit: options.audit } : {}),
+        ...(options.stopTurn ? { stopTurn: options.stopTurn } : {}),
+        // The KOS for Mac window's chat set to Ask: each step on the screen asks first.
+        asksEachStep: (conversation) => mac.asksEachStep(conversation),
         panelChrome: (conversation) => panel.deviceOf(conversation),
         panelMac: (conversation) => {
           const device = mac.deviceOf(conversation);
@@ -100,6 +108,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
                 return () => offs.forEach((off) => off());
               },
               onTurnEnd: (handler: (conversation: string) => void) => events.on("turn:end", (e) => handler(e.conversationId)),
+              onHeard: (handler: (conversation: string) => void) => events.on("turn:heard", (e) => handler(e.conversationId)),
             }
           : {}),
       });
@@ -132,6 +141,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
     newTab: (c) => chrome!.newTab(c),
     spot: (c) => chrome?.spot(c),
     siteOf: (c) => chrome?.siteOf(c),
+    actsAlone: (c, site) => chrome?.actsAlone(c, site) ?? false,
     picture: async (c, w) => chrome?.picture(c, w),
     describe: (c) => chrome?.describe(c) ?? "the owner's Chrome",
   };

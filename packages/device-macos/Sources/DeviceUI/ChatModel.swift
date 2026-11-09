@@ -43,8 +43,13 @@ public final class ChatModel: ObservableObject {
     public let reason: String?
     /// The words of a yes that is remembered, when one may be.
     public let always: String?
+    /// When it times out if the owner does not answer, when it does.
+    public let expires: Date?
 
-    public init(id: String, tool: String, args: String? = nil, mechanics: String? = nil, why: String? = nil, reason: String? = nil, always: String? = nil) {
+    public init(
+      id: String, tool: String, args: String? = nil, mechanics: String? = nil, why: String? = nil, reason: String? = nil, always: String? = nil,
+      expires: Date? = nil
+    ) {
       self.id = id
       self.tool = tool
       self.args = args
@@ -52,6 +57,7 @@ public final class ChatModel: ObservableObject {
       self.why = why
       self.reason = reason
       self.always = always
+      self.expires = expires
     }
   }
 
@@ -94,6 +100,43 @@ public final class ChatModel: ObservableObject {
 
   public enum Session: Equatable, Sendable { case working, paused }
 
+  /// What a turn waits on the owner for, as KOS says it.
+  public enum Wait: String, Equatable, Sendable { case consent, approval }
+
+  /// What the owner selected in the app in front: its words, and the app and window they are from.
+  public struct Quote: Equatable, Sendable {
+    public let text: String
+    public let from: String
+
+    public init(text: String, from: String) {
+      self.text = text
+      self.from = from
+    }
+  }
+
+  /// A session asked for on this Mac's screen by this chat: what for, and when it says no by itself.
+  public struct Consent: Equatable, Sendable {
+    public let task: String
+    public let until: Date
+
+    public init(task: String, until: Date) {
+      self.task = task
+      self.until = until
+    }
+  }
+
+  /// A turn's steps so far, "› " before each, and the owner's words it is about, when KOS said.
+  public struct Story: Equatable, Sendable {
+    public let said: String?
+    public let text: String
+  }
+
+  /// The frame ids a turn on the go saw, oldest first, by the words it is about.
+  public struct Live: Equatable, Sendable {
+    public let said: String?
+    public var frames: [Int]
+  }
+
   /// What was answered outside the chat's words, placed after the owner's `after`th message.
   public struct Notice: Equatable, Sendable {
     public let after: Int
@@ -116,10 +159,10 @@ public final class ChatModel: ObservableObject {
   @Published public private(set) var workingSince: Date?
   /// The words of the turn KOS last took: a turn queued behind another starts its own clock.
   private var takenWords: String?
-  /// The running turn's steps, "› " before each.
-  @Published public private(set) var story: String?
-  /// What the running turn's steps saw, by frame id, oldest first.
-  @Published public private(set) var liveFrames: [Int] = []
+  /// The story of each turn on the go, under the words it is about: one running, and one said meanwhile.
+  @Published public private(set) var stories: [Story] = []
+  /// What each turn on the go saw, by the words it is about.
+  @Published public private(set) var live: [Live] = []
   /// The steps' pictures, JPEG by frame id: sent as each step ran, and with the chat as it stands.
   @Published public private(set) var pictures: [Int: Data] = [:]
   /// The order pictures came in, so the oldest go first past the cap.
@@ -130,15 +173,33 @@ public final class ChatModel: ObservableObject {
   @Published public private(set) var auto = false
   @Published public var error: String?
   /// What the box holds: typed, or words KOS never took, given back.
-  @Published public var draft = ""
+  @Published public var draft = "" {
+    didSet { if draft != oldValue { typed() } }
+  }
+  /// What an @ may name, as KOS last answered it, for the start of it asked.
+  @Published public private(set) var mentionsFor = ""
+  @Published public private(set) var mentions: [ChatMenus.Mention] = []
+  /// The token the owner closed the menu on, so it stays closed until they type on.
+  @Published public private(set) var menuClosedAt: String?
+  private var mentionAsk: Task<Void, Never>?
+  /// What the owner has selected in the app in front, to go once with their next words unless they put it aside.
+  @Published public private(set) var quote: Quote?
+  /// The selection put aside or sent: not offered again until the owner selects something else.
+  private var quoteSetAside: String?
   /// The app in front of the window, which "this" means: its name, or nil for none.
   @Published public var beside: String?
   /// That app's front window, by its title, when macOS says it.
   @Published public var besideTitle: String?
   /// The app in front is one the owner hid from KOS.
   @Published public var besideHidden = false
-  /// A session KOS has on this Mac, working or paused for the owner: what the app card says of the app in front.
+  /// This chat's session on this Mac, working or paused for the owner: what the app card says of the app in front.
   @Published public var session: Session?
+  /// This chat's ask for a session, up on the owner's screen.
+  @Published public var consent: Consent?
+  /// What KOS says the running turn waits on the owner for.
+  @Published public private(set) var waiting: Wait?
+  /// KOS says the owner has the Mac, and the turn waits for it back.
+  @Published public private(set) var held = false
   /// Whether this Mac is paired with any KOS at all.
   @Published public var paired = false
   @Published public var online = false
@@ -152,7 +213,9 @@ public final class ChatModel: ObservableObject {
   @Published public var face: FaceLook = .kos
 
   /// What the owner does, for the app to send on.
-  public var send: (String) -> Void = { _ in }
+  public var send: (_ text: String, _ quote: Quote?) -> Void = { _, _ in }
+  /// The box has the owner's attention: what they selected in the app in front is read afresh.
+  public var readSelection: () -> Void = {}
   public var decide: (_ approval: String, _ approved: Bool, _ remember: Bool) -> Void = { _, _, _ in }
   public var list: () -> Void = {}
   public var switchTo: (String) -> Void = { _ in }
@@ -160,6 +223,12 @@ public final class ChatModel: ObservableObject {
   public var setAuto: (Bool) -> Void = { _ in }
   public var close: () -> Void = {}
   public var chooseKOS: (String) -> Void = { _ in }
+  /// What an @ may name, by the start of it.
+  public var askMentions: (String) -> Void = { _ in }
+  /// Stop this chat's turn, its session and any ask for one.
+  public var stop: () -> Void = {}
+  /// Give the Mac back to KOS after taking it over.
+  public var handBack: () -> Void = {}
 
   public init() {}
 
@@ -170,9 +239,27 @@ public final class ChatModel: ObservableObject {
     let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !said.isEmpty else { return }
     error = nil
-    if !said.hasPrefix("/") { sending.append(said) }
+    // A command is about the chat, not the app: it goes without the selection, which waits for the next words.
+    let command = said.hasPrefix("/")
+    let quoted = command ? nil : quote
+    if !command { sending.append(said) }
+    if let quoted {
+      quoteSetAside = quoted.text
+      quote = nil
+    }
     working = true
-    send(said)
+    send(said, quoted)
+  }
+
+  /// What the owner has selected now, read afresh: nothing, or what they put aside or sent, offers nothing.
+  public func selected(_ fresh: Quote?) {
+    quote = fresh.flatMap { $0.text == quoteSetAside ? nil : $0 }
+  }
+
+  /// The chip's ×: the selection stays out until the owner selects something else.
+  public func putQuoteAside() {
+    quoteSetAside = quote?.text
+    quote = nil
   }
 
   /// An approval answered: its card goes at once, and a yes goes on working.
@@ -208,8 +295,8 @@ public final class ChatModel: ObservableObject {
     let answered = sending.isEmpty && (notice != nil || !lastIsYours)
     working = !sending.isEmpty || (working && !answered)
     if answered {
-      story = nil
-      liveFrames = []
+      stories = []
+      live = []
     }
     if fresh { asks = [] }
     self.conversation = conversation
@@ -219,12 +306,18 @@ public final class ChatModel: ObservableObject {
   }
 
   /// A turn as it goes, for the owner's words `said` in `conversation`. `story` is `.some(nil)` when KOS said the turn is done.
-  public func status(taken: Bool, story: String??, error: String?, said: String? = nil, conversation: String? = nil) {
+  /// Another chat's turn is not this one's: nothing of it is drawn.
+  public func status(
+    taken: Bool, story: String??, error: String?, said: String? = nil, conversation: String? = nil, waiting: Wait? = nil, held: Bool = false
+  ) {
+    if let conversation, conversation != self.conversation { return }
+    self.waiting = error == nil && story != .some(nil) ? waiting : nil
+    self.held = error == nil && story != .some(nil) && held
     if let error {
       self.error = error
       working = false
-      self.story = nil
-      liveFrames = []
+      stories = []
+      live = []
       // What was waiting was never taken: it goes back to the owner.
       if !sending.isEmpty {
         draft = sending.joined(separator: "\n")
@@ -234,7 +327,7 @@ public final class ChatModel: ObservableObject {
     }
     if taken {
       // Words said somewhere else (on the dashboard, in a Chrome) show here on their way, as if typed here.
-      guard let said, conversation == self.conversation else { return }
+      guard let said, conversation != nil else { return }
       if !sending.contains(said) && !awaiting(said) { sending.append(said) }
       working = true
       if said != takenWords {
@@ -247,22 +340,40 @@ public final class ChatModel: ObservableObject {
     case .some(.some(let steps)):
       // The steps of a turn the chat already shows answered, told once more as it closed: nothing new.
       if sending.isEmpty, let said, answered(said) { return }
-      self.story = steps
+      // Each turn keeps its own: one said meanwhile does not overwrite the one running.
+      let next = Story(said: said, text: steps)
+      if let at = stories.firstIndex(where: { $0.said == said }) { stories[at] = next } else { stories.append(next) }
       working = true
     case .some(.none):
-      working = false
-      self.story = nil
-      liveFrames = []
+      // That turn is done; one still going keeps the foot.
+      stories.removeAll { said == nil || $0.said == said }
+      live.removeAll { said == nil || $0.said == said }
+      working = !stories.isEmpty
     case .none:
       break
     }
   }
 
-  /// A step's picture as the running turn takes it, in `conversation`: kept, and shown under its steps.
-  public func frame(_ id: Int, image: String, conversation: String? = nil) {
+  /// A step's picture as the turn on `said` takes it, in `conversation`: kept, and shown under its steps.
+  public func frame(_ id: Int, image: String, said: String? = nil, conversation: String? = nil) {
     guard conversation == self.conversation, keepPicture(id, image) else { return }
-    liveFrames = liveFrames.filter { $0 != id } + [id]
+    if let at = live.firstIndex(where: { $0.said == said }) {
+      live[at].frames = live[at].frames.filter { $0 != id } + [id]
+    } else {
+      live.append(Live(said: said, frames: [id]))
+    }
   }
+
+  /// What every turn on the go saw, oldest first.
+  public var liveFrames: [Int] { live.flatMap(\.frames) }
+
+  /// What the turn on `said` saw.
+  public func liveFrames(of said: String?) -> [Int] {
+    live.first { $0.said == said }?.frames ?? []
+  }
+
+  /// The latest turn's steps so far.
+  public var story: String? { stories.last?.text }
 
   /// The pictures of these frame ids that the window has, in order.
   public func picturesOf(_ frames: [Int?]) -> [(id: Int, data: Data)] {
@@ -296,6 +407,50 @@ public final class ChatModel: ObservableObject {
     after(said)?.contains { if case .kos = $0 { return true } else { return false } } ?? false
   }
 
+  // MARK: The / and @ menus
+
+  /// How long the box waits on a pause in typing an @ before it asks KOS what it may name.
+  static let mentionPause: Duration = .milliseconds(120)
+
+  /// The menu open on what is typed at the end of the box, and its options; nil when there is none.
+  public var menu: (token: ChatMenus.Token, options: [ChatMenus.Option])? {
+    guard let token = ChatMenus.token(in: draft), token.raw != menuClosedAt else { return nil }
+    let options: [ChatMenus.Option]
+    switch token.kind {
+    case .command: options = ChatMenus.commands(token.q)
+    case .mention: options = token.q == mentionsFor ? mentions.map(ChatMenus.option) : []
+    }
+    return options.isEmpty ? nil : (token, options)
+  }
+
+  /// What was picked in the menu, in place of what was typed.
+  public func take(_ option: ChatMenus.Option) {
+    guard let token = ChatMenus.token(in: draft) else { return }
+    draft = ChatMenus.take(option, for: token, in: draft)
+  }
+
+  /// Escape: the menu stays closed until the owner types on.
+  public func closeMenu() {
+    menuClosedAt = ChatMenus.token(in: draft)?.raw
+  }
+
+  /// What an @ may name, as KOS answered for the start of it.
+  public func mentions(_ list: [ChatMenus.Mention], for q: String) {
+    mentionsFor = q
+    mentions = list
+  }
+
+  private func typed() {
+    menuClosedAt = nil
+    mentionAsk?.cancel()
+    guard let token = ChatMenus.token(in: draft), token.kind == .mention else { return }
+    mentionAsk = Task { [weak self] in
+      try? await Task.sleep(for: Self.mentionPause)
+      guard !Task.isCancelled else { return }
+      self?.askMentions(token.q)
+    }
+  }
+
   public func ask(_ approval: Ask) {
     asks = asks.filter { $0.id != approval.id } + [approval]
   }
@@ -322,8 +477,10 @@ public final class ChatModel: ObservableObject {
     sending = []
     notices = []
     working = false
-    story = nil
-    liveFrames = []
+    stories = []
+    live = []
+    waiting = nil
+    held = false
     pictures = [:]
     pictureOrder = []
     asks = []
@@ -337,8 +494,8 @@ public final class ChatModel: ObservableObject {
   public func giveBack(_ why: String) {
     error = why
     working = false
-    story = nil
-    liveFrames = []
+    stories = []
+    live = []
     if !sending.isEmpty {
       draft = sending.joined(separator: "\n")
       sending = []
@@ -358,28 +515,42 @@ public final class ChatModel: ObservableObject {
     return conversation == nil ? "A chat beside your apps" : title
   }
 
-  /// The running turn's story, as the thread draws it: the steps so far, and what KOS is saying after them.
+  /// The latest turn's story, as the thread draws it: the steps so far, and what KOS is saying after them.
   public var running: (steps: [Step], words: String) {
-    guard let story else { return ([], "") }
+    story.map(Self.read) ?? ([], "")
+  }
+
+  /// A story as the thread draws it: the steps so far, and what KOS is saying after them.
+  public static func read(_ story: String) -> (steps: [Step], words: String) {
     // A long story comes as its tail, cut mid-line after a "…": that first line is a fragment.
     let all = story.components(separatedBy: "\n")
     let lines = (story.hasPrefix("…") ? Array(all.dropFirst()) : all).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-    let steps = lines.filter { $0.hasPrefix(Self.stepMark) }.map { line -> Step in
-      let summary = String(line.dropFirst(Self.stepMark.count))
+    let steps = lines.filter { $0.hasPrefix(stepMark) }.map { line -> Step in
+      let summary = String(line.dropFirst(stepMark.count))
       let failed = summary.hasSuffix(" (failed)")
       return Step(summary: failed ? String(summary.dropLast(" (failed)".count)) : summary, failed: failed)
     }
-    return (steps, lines.filter { !$0.hasPrefix(Self.stepMark) }.joined(separator: "\n"))
+    return (steps, lines.filter { !$0.hasPrefix(stepMark) }.joined(separator: "\n"))
   }
 
-  /// An ask is up: the running turn is held on the owner, and its foot says so with no dots and no clock.
-  public var waitingOnOwner: Bool { !asks.isEmpty }
+  /// An approval or a session ask is up: the running turn is held on the owner, and its foot says so with no dots and no clock.
+  public var waitingOnOwner: Bool { !asks.isEmpty || consent != nil || waiting != nil }
+
+  /// The owner took the Mac over from this chat's turn: it waits for them to hand it back.
+  public var heldByOwner: Bool { held || session == .paused }
+
+  /// Something of this chat's is going: a turn, a session, or an ask for one. The box's button stops it.
+  public var busy: Bool { working || session != nil || consent != nil }
+
+  /// The foot counts the turn's time: it is not waiting on the owner.
+  public var footLive: Bool { !waitingOnOwner && !heldByOwner }
 
   /// What the running turn's foot says it is at, for as long as it runs, whatever came last; nil once it ends.
-  /// Waiting on you while an ask is up, thinking before it has shown anything, its latest step while that is
-  /// the last thing told, else working.
+  /// Paused while the owner has the Mac, waiting on you while an ask is up, thinking before it has shown anything,
+  /// its latest step while that is the last thing told, else working.
   public var foot: String? {
-    guard working else { return nil }
+    guard working || heldByOwner || consent != nil else { return nil }
+    if heldByOwner { return "Paused, you have control" }
     if waitingOnOwner { return "Waiting on you" }
     guard let story else { return "Thinking" }
     let last = story.components(separatedBy: "\n").last { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
@@ -395,22 +566,35 @@ public final class ChatModel: ObservableObject {
     case line(Int, Line)
     case notice(Int, Notice)
     case sending(Int, String)
+    case story(Int, Story)
 
     public var id: String {
       switch self {
       case .line(let i, _): return "l\(i)"
       case .notice(let i, _): return "n\(i)"
       case .sending(let i, _): return "s\(i)"
+      case .story(let i, _): return "t\(i)"
       }
     }
   }
 
-  /// The chat's words, with each notice after the owner's message it answers, then the words still on their way.
+  /// The chat's words and the words still on their way, with each turn's story and each notice after the exchange it is about.
   public var items: [Item] {
     var out: [Item] = []
     var yours = 0
     var placed = Set<Int>()
+    var told = Set<Int>()
+    let words = lines.compactMap { line -> String? in
+      if case .you(let text, _) = line { return text }
+      return nil
+    } + sending
+    // A story goes after the exchange its words began, or after the latest when they are not there.
+    let anchors = stories.map { story in story.said.flatMap { words.lastIndex(of: $0) }.map { $0 + 1 } ?? words.count }
     let place = { (upTo: Int) in
+      for (i, story) in self.stories.enumerated() where anchors[i] <= upTo && !told.contains(i) {
+        out.append(.story(i, story))
+        told.insert(i)
+      }
       for (i, notice) in self.notices.enumerated() where notice.after <= upTo && !placed.contains(i) {
         out.append(.notice(i, notice))
         placed.insert(i)
@@ -423,8 +607,12 @@ public final class ChatModel: ObservableObject {
       }
       out.append(.line(i, line))
     }
+    for (i, text) in sending.enumerated() {
+      place(yours)
+      yours += 1
+      out.append(.sending(i, text))
+    }
     place(Int.max)
-    for (i, text) in sending.enumerated() { out.append(.sending(i, text)) }
     return out
   }
 }
