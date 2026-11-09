@@ -24,6 +24,8 @@
   .live-dots i { animation: none; opacity: 0.7; }
 }
 .live-elapsed { color: var(--faint); font-variant-numeric: tabular-nums; }
+.countdown { color: var(--faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.countdown[data-soon] { color: var(--warn); }
 
 /* —— references written into a message —— */
 .chip-ref {

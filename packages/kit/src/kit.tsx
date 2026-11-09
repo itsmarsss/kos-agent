@@ -216,6 +216,21 @@ export function Elapsed({ since }: { since: number }): ReactElement {
   return <span className="live-elapsed">{formatElapsed(now - since)}</span>;
 }
 
+/**
+ * How long an ask has before it lapses on its own, ticking each second:
+ * "lapses in 42s", then "lapsing" once its time is up. The approvals and
+ * session asks of both device chats show it on the card.
+ */
+export function Countdown({ until, lead = "lapses in" }: { until: number; lead?: string }): ReactElement {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const left = until - now;
+  return <span className="countdown" data-soon={left < 15_000 || undefined}>{left > 0 ? `${lead} ${formatElapsed(left)}` : "lapsing"}</span>;
+}
+
 /** A small uppercase head over what it labels, with an action at its right. */
 export function Section({ label, action, children }: { label: string; action?: ReactNode; children: ReactNode }): ReactElement {
   return (
