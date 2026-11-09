@@ -54,6 +54,7 @@ final class DeviceController {
     injector.onKeys = { [weak overlay] in overlay?.typing() }
     injector.quick = { [weak settings] in settings?.pace == .quick }
     owner.onOwnerInput = { [weak self] in self?.pause() }
+    owner.onOwnerScroll = { [weak self] in self?.scrolled() }
     owner.isFromKOS = { [weak injector] event in injector?.posted(event) ?? false }
     overlay.onPause = { [weak self] in self?.pause() }
     overlay.onResume = { [weak self] in self?.resume() }
@@ -298,6 +299,12 @@ final class DeviceController {
     onChange?()
   }
 
+  /// The owner scrolled and kept KOS working: KOS hears it, and looks again before its next action.
+  func scrolled() {
+    guard let id = sessions.scroll() else { return }
+    emit(.sessionScrolled, SessionScrolledEvent(session: id), to: sessions.origin)
+  }
+
   func resume() {
     guard let id = sessions.resume(now: Date()) else { return }
     Log.session.notice("resumed")
@@ -346,7 +353,9 @@ final class DeviceController {
     case .screenCapture:
       let p = try call.params(CaptureParams.self)
       let session = try authorize(p.session, from: origin, needs: .screen)
-      return try await capture(session, region: p.region, settle: p.settle)
+      let picture = try await capture(session, region: p.region, settle: p.settle)
+      if p.region == nil { sessions.looked() }
+      return picture
 
     case .pointerMove:
       let p = try call.params(MoveParams.self)

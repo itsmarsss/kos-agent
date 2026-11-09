@@ -307,6 +307,7 @@ Device: `{ "t": "event", "name": "session.paused", "data": { "session": "...", "
 | --- | --- |
 | `session.paused` | `session`, `reason` (`owner`: they clicked or typed) |
 | `session.resumed` | `session` |
+| `session.scrolled` | `session` (the owner scrolled without taking over; sent once until KOS takes a whole-screen picture, and until then KOS acts on nothing but a look) |
 | `session.extended` | `session`, `until` (the owner gave it more time on the device) |
 | `session.ended` | `session`, `reason` (`owner`, `expired`, `idle`, `quit`, `host`, `window`) |
 

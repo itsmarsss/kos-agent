@@ -400,6 +400,36 @@ describe("the computer tools", () => {
     expect(fake.calls.map((c) => c.method)).not.toContain("pointer.click");
   });
 
+  it("after the owner scrolls, show the screen as it is now rather than act on the old picture", async () => {
+    const { call, pair, hub } = setup();
+    const fake = pair();
+    await call("computer.start", { task: "t" });
+    const session = fake.calls[0]!.params.session as string;
+    fake.event("session.scrolled", { session });
+    const seen = await call("computer.act", { action: "left_click", coordinate: [5, 5] });
+    expect(textOf(seen)).toMatch(/^The owner scrolled; look again before acting\. Nothing else was done\./);
+    expect(typeof seen !== "string" && seen.images).toHaveLength(1);
+    expect(fake.calls.map((c) => c.method)).not.toContain("pointer.click");
+    // Seen again, the next click goes ahead.
+    expect(hub.sessionOf("c1")?.scrolled).toBe(false);
+    await call("computer.act", { action: "left_click", coordinate: [5, 5] });
+    expect(fake.calls.map((c) => c.method)).toContain("pointer.click");
+  });
+
+  it("stop a run part way when the owner scrolls during it", async () => {
+    const { call, pair } = setup();
+    const fake = pair();
+    await call("computer.start", { task: "t" });
+    const session = fake.calls[0]!.params.session as string;
+    fake.answers.set("pointer.click", () => {
+      fake.event("session.scrolled", { session });
+      return { ok: true, result: { cursor: { x: 5, y: 5 } } };
+    });
+    const run = call("computer.act", { actions: [{ action: "left_click", coordinate: [5, 5] }, { action: "left_click", coordinate: [9, 9] }] });
+    await expect(run).rejects.toThrow(/Step 2 \(left_click\) failed: The owner scrolled the screen partway.*Look again before acting/);
+    expect(fake.calls.filter((c) => c.method === "pointer.click")).toHaveLength(1);
+  });
+
   it("on the owner's Stop from a device: withdraw the ask, stop the turn, and ask nothing more that turn", async () => {
     const stopped: string[] = [];
     const { call, pair, module, endTurn, hub } = setup({ stopTurn: (chat) => (stopped.push(chat), true) });

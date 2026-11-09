@@ -109,6 +109,9 @@ struct MessagesTests {
     #expect(body["t"] as? String == "event")
     #expect(body["name"] as? String == "session.ended")
     #expect(body["data"] as? [String: String] == ["session": "s1", "reason": "idle"])
+    let scrolled = try json(Outbound.event(.sessionScrolled, data: SessionScrolledEvent(session: "s1")))
+    #expect(scrolled["name"] as? String == "session.scrolled")
+    #expect(scrolled["data"] as? [String: String] == ["session": "s1"])
   }
 
   @Test func theBeginAnswerSaysGranted() throws {

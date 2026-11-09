@@ -16,6 +16,7 @@ public enum CallMethod: String, CaseIterable, Sendable {
 public enum EventName: String, Sendable {
   case sessionPaused = "session.paused"
   case sessionResumed = "session.resumed"
+  case sessionScrolled = "session.scrolled"
   case sessionExtended = "session.extended"
   case sessionEnded = "session.ended"
 }
@@ -179,6 +180,15 @@ public struct SessionPausedEvent: Encodable, Sendable {
 }
 
 public struct SessionResumedEvent: Encodable, Sendable {
+  public let session: String
+
+  public init(session: String) {
+    self.session = session
+  }
+}
+
+/// The owner scrolled while KOS works: a coordinate in KOS's last picture may land on something else now.
+public struct SessionScrolledEvent: Encodable, Sendable {
   public let session: String
 
   public init(session: String) {

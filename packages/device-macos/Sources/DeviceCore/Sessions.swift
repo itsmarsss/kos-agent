@@ -32,6 +32,8 @@ public struct LiveSession: Equatable, Sendable {
   public fileprivate(set) var space: Space
   public fileprivate(set) var paused = false
   public fileprivate(set) var lastActivity: Date
+  /// The owner scrolled since KOS last saw the whole screen, and KOS was told.
+  public fileprivate(set) var scrolled = false
 }
 
 /// The one session this device may be in, and every rule about it.
@@ -124,6 +126,22 @@ public struct Sessions: Sendable {
     session.paused = true
     phase = .live(session)
     return session.id
+  }
+
+  /// The owner scrolled while KOS works: the session's id the first time since KOS last looked, so KOS is told once
+  /// that the picture it has no longer holds. Nothing when there is no running session or KOS was told already.
+  public mutating func scroll() -> String? {
+    guard case .live(var session) = phase, !session.paused, !session.scrolled else { return nil }
+    session.scrolled = true
+    phase = .live(session)
+    return session.id
+  }
+
+  /// KOS saw the whole screen again: a later scroll is news.
+  public mutating func looked() {
+    guard case .live(var session) = phase, session.scrolled else { return }
+    session.scrolled = false
+    phase = .live(session)
   }
 
   /// The owner gave it back. Idle time starts again from now.

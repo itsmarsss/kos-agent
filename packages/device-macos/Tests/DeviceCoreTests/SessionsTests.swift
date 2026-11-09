@@ -90,6 +90,18 @@ struct SessionsTests {
     _ = try sessions.authorize("s1", from: home, now: start)
   }
 
+  @Test func aScrollIsToldOnceUntilKOSLooksAgain() throws {
+    var sessions = try liveSessions()
+    #expect(sessions.scroll() == "s1")
+    #expect(sessions.scroll() == nil)
+    sessions.looked()
+    #expect(sessions.scroll() == "s1")
+    // While the owner has control, a scroll is theirs; handing back already makes KOS look again.
+    sessions.looked()
+    _ = sessions.pause()
+    #expect(sessions.scroll() == nil)
+  }
+
   @Test func endsAtItsTimeLimit() throws {
     var sessions = try liveSessions(minutes: 5)
     _ = try sessions.authorize("s1", from: home, now: start.addingTimeInterval(170))

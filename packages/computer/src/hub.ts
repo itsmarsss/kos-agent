@@ -28,6 +28,8 @@ export interface Session {
   /** What the owner shared: the screen, or one window. */
   target: Target;
   paused: boolean;
+  /** The owner scrolled since KOS last saw the whole screen: a coordinate from that picture may land on something else now. */
+  scrolled?: boolean;
   startedAt: number;
   /** The site the owner let this session act on without asking each step, when they did. */
   site?: string;
@@ -231,6 +233,7 @@ export class DeviceHub {
     if (!session) return;
     if (event.name === "session.paused") session.paused = true;
     else if (event.name === "session.resumed") session.paused = false;
+    else if (event.name === "session.scrolled") session.scrolled = true;
     // The owner gave it more time on the device.
     else if (event.name === "session.extended" && typeof event.data.until === "number" && event.data.until > session.until) session.until = event.data.until;
     else if (event.name === "session.ended") this.drop(session, endReason(event.data.reason));
@@ -432,13 +435,17 @@ export class DeviceHub {
     const session = this.sessionOf(conversation);
     if (!session) throw new DeviceError("no_session", "no session");
     if (session.paused) throw new DeviceError("paused", "the owner has taken over");
+    // Only a look goes ahead on a screen the owner scrolled: an action would be aimed by a picture that no longer holds.
+    if (session.scrolled && method !== "screen.capture") throw new DeviceError("scrolled", "the owner scrolled; look again before acting");
     const link = this.links.get(session.device);
     if (!link?.ready) {
       this.drop(session, "offline");
       throw new DeviceError("offline", "the device went offline");
     }
     try {
-      return await link.call(method, { ...params, session: session.id }, timeoutMs ?? this.deps.callTimeoutMs ?? CALL_TIMEOUT_MS);
+      const result = await link.call(method, { ...params, session: session.id }, timeoutMs ?? this.deps.callTimeoutMs ?? CALL_TIMEOUT_MS);
+      if (method === "screen.capture" && params["region"] === undefined) session.scrolled = false;
+      return result;
     } catch (err) {
       if (err instanceof DeviceError && err.code === "no_session") this.drop(session, "host");
       if (err instanceof DeviceError && err.code === "paused") session.paused = true;

@@ -180,6 +180,8 @@ export function refusalText(err: unknown, ending?: string): string {
       return `No session on a computer in this chat${ending ? ` (the last one ended: ${endingText(ending)})` : ""}. Call computer.start first; when the owner spoke in the KOS for Mac window, computer.act starts one itself.`;
     case "paused":
       return "The owner took control partway. The next call waits for them to hand it back, then shows you the screen; act on what it shows.";
+    case "scrolled":
+      return "The owner scrolled the screen partway, so the last picture no longer holds. Look again before acting.";
     case "held":
       return "The owner kept control and did not hand it back. Stop here and tell them where you stopped.";
     case "secure_input":
@@ -707,6 +709,8 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
           }
           // The owner has control: wait for them to hand it back, then show what they left rather than act on a screen nobody has seen.
           if (hub.sessionOf(chat)?.paused && (await hub.untilHandedBack(chat, turnStop.getStore()))) return await look(chat, "The owner had control; look again before acting. Nothing else was done.", undefined, 0, true);
+          // The owner scrolled since the last picture: its coordinates no longer hold, so the screen as it is now instead.
+          if (hub.sessionOf(chat)?.scrolled) return await look(chat, "The owner scrolled; look again before acting. Nothing else was done.", undefined, 0, true);
           const session = hub.sessionOf(chat);
           if (!session) throw new DeviceError("no_session", "no session");
           const lookAfter = input.then !== "none";

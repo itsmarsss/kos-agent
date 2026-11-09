@@ -8,7 +8,8 @@ import DeviceUI
 /// to travel as far as a deliberate move does first: a nudge, or a hand
 /// coming off the trackpad, paused the very first live session a moment
 /// after Allow. A scroll is reading along, not taking over, unless the owner
-/// chose any move. For a few seconds after the owner hands control over
+/// chose any move; it still moves what KOS last saw, so it is told
+/// (`onOwnerScroll`) and KOS looks again before it acts. For a few seconds after the owner hands control over
 /// (Allow, Hand back) the pointer is not watched at all. What takes over is
 /// the owner's choice (`Takeover`).
 @MainActor
@@ -23,6 +24,8 @@ final class OwnerInputMonitor {
   private var travelStarted = Date.distantPast
 
   var onOwnerInput: (() -> Void)?
+  /// The owner scrolled without taking over.
+  var onOwnerScroll: (() -> Void)?
   /// Whether an event is KOS's own, posted by the injector.
   var isFromKOS: (CGEvent) -> Bool = { _ in false }
 
@@ -56,7 +59,7 @@ final class OwnerInputMonitor {
     if let raw = event.cgEvent, isFromKOS(raw) { return }
     switch event.type {
     case .scrollWheel:
-      if takeover.scrollTakesOver { onOwnerInput?() }
+      if takeover.scrollTakesOver { onOwnerInput?() } else { onOwnerScroll?() }
     case .mouseMoved, .leftMouseDragged, .rightMouseDragged:
       guard let travel = takeover.travel else { return }
       let now = Date()
