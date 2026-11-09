@@ -2411,6 +2411,29 @@ describe("catching up after a drop or a restart", () => {
     expect(heard).toHaveLength(2);
   });
 
+  it("moves the cursor past a message once it is handed over, so a restart mid-turn does not run it twice", async () => {
+    const dm = room("dm1", [{ id: "701", author: "owner" }, { id: "702", author: "owner" }]);
+    const cursors: Record<string, string> = { dm1: "700" };
+    const before = adapterOver({ dm1: dm.channel }, cursors);
+    let release!: () => void;
+    const running = new Promise<void>((done) => (release = done));
+    let handedOver!: () => void;
+    const handed = new Promise<void>((done) => (handedOver = done));
+    before.adapter.onMessage(async () => {
+      handedOver();
+      await running;
+    });
+    const first = before.adapter.catchUp();
+    await handed;
+    expect(cursors.dm1).toBe("701");
+    // The restart: a new process reads on from the cursor, past the turn it cut short.
+    const after = adapterOver({ dm1: dm.channel }, cursors);
+    await after.adapter.catchUp();
+    expect(after.heard.map((m) => m.text)).toEqual(["said 702"]);
+    release();
+    await first;
+  });
+
   it("marks a message a resumed gateway replays live as late when it was sent long ago", async () => {
     const dm = room("dm1", [{ id: "601", author: "owner", at: Date.now() - 15 * 60_000 }, { id: "602", author: "owner" }]);
     const { adapter, heard } = adapterOver({ dm1: dm.channel }, {});
