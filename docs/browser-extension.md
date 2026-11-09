@@ -23,9 +23,10 @@ hands `@kos/browser` drives its own Chrome with.
    extension asks you in a window of its own, and while the session lasts
    that chat's browser tools work in your Chrome. A session your own turn
    started belongs to the chat and lasts until its time, the idle limit,
-   `chrome.end`, you switching the panel to another chat, disconnect, or
-   the kill switch; one other work started (a schedule, a dispatch) ends with
-   its turn unless `keep`.
+   `chrome.end`, you switching the panel to another chat (once a turn still
+   running in the one you left has ended), Stop, disconnect, or the kill
+   switch; one other work started (a schedule, a dispatch) ends with its turn
+   unless `keep`.
 
 To give KOS a tab you are on, click the KOS icon there and press Give this
 tab to KOS. The extension needs no access to your sites to work in a tab: it
@@ -57,22 +58,43 @@ line you can open, and an approval the chat asks for is decided in place.
   the task, and the session works in the tab beside it, where you are
   looking; no `chrome.start` call is needed. Any other turn in that chat
   (one typed on the dashboard, a dispatch, a schedule, a resumed approval)
-  calls `chrome.start`. After a no, the turn does not ask again. It never falls back to
+  calls `chrome.start`. The ask shows how long it waits, and offers to let
+  the session act on the tab's site without asking each step, so the first
+  step is not a second prompt (running script in a page and the other strict
+  tools still ask). After a no, an ask left unanswered (told to KOS as not
+  answered), or Stop, the turn does not ask again. It never falls back to
   KOS's own browser: a session that cannot start refuses the call, and the
   chat says why. A Chrome set to leave sessions to KOS's approvals is the
   one exception, started by `chrome.start` so those approvals gate it.
   Speak from another tab while it lasts and KOS works there instead. The
   session lasts for the chat, as above. The border, the bar, Take
-  over and Stop are the same as any session's, and Take over and Stop are
-  in the panel too.
+  over and Stop are the same as any session's, and Take over, Hand back and
+  Stop are in the panel too, whichever tab is beside it.
+- **Stop.** While the chat has a turn running, a session at work or an ask
+  up, the send button is Stop (Cmd+Enter too): it stops the turn as the
+  dashboard's does, ends the chat's session and takes down any ask. The
+  bar's and the popup's Stop do the same for the session's chat. Words
+  typed while a turn runs are taken into it at its next step, with the tab
+  they were said beside, as on the dashboard.
+- **The foot.** Under the chat, the turn's dots, what it is at and its
+  clock; "Waiting on you", with neither, while KOS asks you to allow a
+  session or decide an approval; "Paused, you have control", with Hand
+  back and Stop, while you hold the chat's session. KOS says each as it
+  changes. An approval reads as the dashboard's (Approve, Always, Deny),
+  with why KOS asks and how long until it lapses.
 - **Switching chats.** The chat's name under KOS opens the panel's own
   chats, newest first, with New chat on top. The panel is a place of its
   own: its chats are the ones made in it, and /chats and /switch there move
-  among those alone.
+  among those alone. A turn still running in the chat you left goes on as
+  that chat's: its steps and pictures are not drawn in the one you moved
+  to, and it keeps working in your Chrome until it ends.
 - **What you select.** Text you highlight on the page beside the panel
-  shows above the box and goes with your next message, as what it is about;
-  × leaves it out. It is read only on pages KOS may read, never on a hidden
-  site, and only by the panel in that window.
+  shows above the box and goes with your next message as a quote from that
+  page; × leaves it out. The quote is kept with your message and shown with
+  it here and on the dashboard, but it is not your words. It is read only on
+  pages KOS may read, never on a hidden site, only by a panel open in that
+  window, fresh each time a panel opens, and forgotten when the window's
+  last panel closes.
 - **/ and @.** Typing / lists the commands, @ the things KOS can name
   (projects, pages, files, chats, schedules), from the index the dashboard's
   @ menu asks; what you name shows as a chip in your message.
@@ -121,8 +143,10 @@ While KOS works in your Chrome:
   by the extension;
 - Chrome's own bar says the extension is debugging the tab, as it does for
   any extension that drives one;
-- clicking or typing in one of its tabs yourself takes it over: KOS waits
-  until you press **Hand back**;
+- clicking or typing in one of its tabs yourself takes it over (scrolling
+  does not, unless you set it to in Settings, nor does anything in the 3
+  seconds after you press Allow or Hand back): KOS waits up to five minutes
+  for you to press **Hand back**, and the idle limit does not run meanwhile;
 - acting on a page asks you, trusted per site apart from KOS's own Chrome
   (a site trusted there is asked about again here, where you are signed in);
   in the side panel an approval offers **Always on** the site, and the
@@ -202,9 +226,9 @@ beside it when the chat asks.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `chat.show` | `conversation` (or null), `title`, `messages [{ role, text?, files?, steps? [{ summary, failed?, frame? }] }]`, `notice? { text, from? }`, `pictures? { <frame id>: <base64 JPEG> }` (the newest four steps' pictures), `sites? { <frame id>: <host> }` (the page each shows) | `{}` |
-| `chat.status` | `conversation`, `said?` (the owner's words the turn is for), `taken?` (KOS has those words, said at once; ones said elsewhere are drawn on their way), `story?` (the turn's steps so far, `› ` before each; null when done), `error?`, `frame? { id, image, mediaType, site? }` (what a step just saw, sent on its own to every device of the kind; a device never draws one whose `site` is on its hidden list) | `{}` |
-| `chat.ask` | `approval { id, tool, args?, why?, reason? }` | `{}` |
+| `chat.show` | `chat` and `conversation` (the chat shown, or null), `title`, `messages [{ role, text?, files?, quote? { text, from }, steps? [{ summary, failed?, frame? }] }]`, `notice? { text, from? }`, `pictures? { <frame id>: <base64 JPEG> }` (the newest four steps' pictures), `sites? { <frame id>: <host> }` (the page each shows) | `{}` |
+| `chat.status` | `chat` and `conversation` (the chat the turn runs in, learned when it starts, never the one the panel moved to), `waiting?` (`consent`: a device asks the owner for this chat's session; `approval`: an approval waits), `held` (the owner has control of its session), `said?` (the owner's words the turn is for), `taken?` (KOS has those words, said at once; ones said elsewhere are drawn on their way), `story?` (the turn's steps so far, `› ` before each; null when done), `error?`, `frame? { id, image, mediaType, site? }` (what a step just saw, with `said`, sent on its own to every device of the kind; a device never draws one whose `site` is on its hidden list) | `{}` |
+| `chat.ask` | `chat`, `approval { id, tool, args?, mechanics?, why?, reason?, always?, expiresAt? }` (`expiresAt`: when it lapses unanswered, epoch ms) | `{}` |
 | `chat.settled` | `approval`, `outcome` (`approved`, `denied`, `expired`) | `{}` |
 | `chat.chats` | `chats [{ id, title, updatedAt }]`, `current` | `{}` |
 | `chat.models` | `current`, `choices`, `fixed?` (an engine that chooses its own), `error?` | `{}` |
@@ -215,7 +239,19 @@ The KOS for Mac chat window takes the same calls and sends the same
 events, but reads no page ([computer.md](computer.md), the chat window).
 
 A message's `role` is `you`, `kos`, `note`, or `steps` with `steps [{
-summary, failed? }]`. `page.read` is refused with `no_panel` unless a panel
+summary, failed? }]`. Every status carries the chat's `waiting` and `held`
+as they stand, and a status without them clears them; one with none of
+`said`, `taken`, `story`, `error` or `frame` says the state alone, and is
+sent whenever it changes. A device draws no status or ask whose `chat` is
+not the chat it shows.
+
+`session.begin` answers as on a Mac. Granted in the panel with the site's
+steps unasked, it says `auto { site }`, the host of the tab beside it:
+KOS's approvals then let that session's steps on that site through without
+asking, as Auto does for the chat, and the strict tools still ask. Not
+granted, `reason` is `unanswered` (the owner's wait ran out, or the panel
+closed) or `withdrawn` (KOS sent `session.end` for the ask, or Stop was
+pressed in the panel); none is a no. `page.read` is refused with `no_panel` unless a panel
 on that KOS shows that chat, `url` off the web and `hidden_site`; without
 the grant to read pages it asks in the panel and waits up to the owner's
 wait, then reads or answers `permission`. KOS refuses it itself under the
@@ -230,10 +266,11 @@ Events, besides `session.paused`, `session.resumed` and `session.ended`
 | `tab.closed` | `session`, `tab` |
 | `tab.handed` | `tab`, `url`, `title`, `focus?` (sent outside a session too; `focus` when the owner spoke from the side panel beside it) |
 | `chat.open` | `{}`: a panel opened on this KOS, and asks to be shown the chat |
-| `chat.send` | `text`: the owner's words in the panel; `beside?`: the tab they were said beside, `{ kind: "page", url, title, selection? }`, `{ kind: "hidden" }` or `{ kind: "other" }` (not a web page), told to that turn and not kept |
+| `chat.send` | `text`: the owner's words in the panel; `beside?`: the tab they were said beside, `{ kind: "page", url, title }`, `{ kind: "hidden" }` or `{ kind: "other" }` (not a web page), told to that turn (and taken into a running one with the words) and not kept; `quote? { text, from }`: what they selected on that page and its address, kept with the message |
+| `chat.stop` | `chat?`: the owner pressed Stop for that chat, or the one shown: its turn stops, its sessions end on every device, an ask for one is withdrawn, and the rest of the turn asks for none |
 | `chat.decide` | `approval`, `approved` |
 | `chat.list` | `{}`: asks for `chat.chats` |
-| `chat.switch` | `conversation`: the panel continues that chat, and is shown it; a session the chat it left holds ends |
+| `chat.switch` | `conversation`: the panel continues that chat, and is shown it; a session the chat it left holds ends, once a turn running there ends |
 | `chat.models` | `{}`: asks for `chat.models` |
 | `chat.model` | `model`: KOS answers with it from now on, as the dashboard's picker sets it |
 | `chat.mentions` | `q`, `kind?`: asks what an @ can name |

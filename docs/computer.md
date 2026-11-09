@@ -35,13 +35,31 @@ window no start is needed: the turn's first `computer.act` asks for the
 session on that Mac, offering the app in front first and showing your words
 (or the call's `intent`) as the task, and answers with the screen. Any other
 turn in that chat (typed on the dashboard, a dispatch, a schedule, a resumed
-approval) calls `computer.start`, and after a no the turn does not ask again.
-Stop while the device is asking withdraws the ask: a yes given after it, or
-after the turn ended, is given back at once.
+approval) calls `computer.start`. After a no, an ask left unanswered (told to
+the model as not answered, not as a no), or the owner's Stop, the turn does
+not ask again. Stop while the device is asking withdraws the ask: KOS sends
+`session.end` for it, the device takes the prompt down, and a yes given after
+it, or after the turn ended, is given back at once.
+
+**Stop.** The Stop in either device's chat (the send button while a turn, a
+session or an ask is on the go, or Cmd+Enter), and the Stop on the bar, stop
+the chat's turn as the dashboard's does, end its session on any device and
+withdraw any ask for one; the rest of that turn asks for no session again.
+The owner ending a session on the device while a turn runs is the same Stop.
+
+**Ask and Auto.** The KOS for Mac window's mode chip is honoured: in Ask (the
+default) each `computer.act` call that does more than look (a screenshot, a
+zoom, a wait) goes to KOS's approvals once a session is live; in Auto it does
+not. The first call of a turn only starts the session, which the Mac asks for
+itself, so it is never asked twice.
 
 A session your own turn started belongs to its chat and lasts until its
-time, the device's idle limit, `computer.end`, you closing the chat window,
-or the kill switch, so an approval decided later still finds it. One that
+time, the device's idle limit, `computer.end`, you switching the chat window
+to another chat (once a turn still running in the one you left has ended),
+Stop, or the kill switch, so an approval decided later still finds it. A turn
+keeps its own chat however the window is switched meanwhile: its steps and
+pictures are told as that chat's, and its browser and screen calls stay on
+that device. One that
 other work started (a schedule, a dispatch, a guest) ends with its turn,
 unless `keep` on `computer.start` holds it. A start KOS made unasked is in
 the audit log as `computer.start` or `chrome.start`.
@@ -69,9 +87,13 @@ While KOS is in control:
   it does it (click, type "BU354", press Return) is the line when there
   is no intent, and the step's detail on the dashboard when there is.
   Coordinates are never in the line;
-- a bar at the top says what it is doing, with Pause and Stop;
-- touching the mouse, trackpad or keyboard pauses it at once, and only you
-  resume it, on the device;
+- a bar at the top says what it is doing, with Take over and Stop;
+- your own click or key pauses it at once; scrolling and small pointer moves
+  do not, nor does anything in the 3 seconds after you press Allow or Hand
+  back. Only you hand it back, on the device or in its chat ("Paused, you
+  have control", with Hand back and Stop). KOS waits up to five minutes for
+  you: handed back, it looks again before acting; kept, it stops and tells
+  you where it was. The device's idle limit does not run while you have it;
 - it does not type while a password field has focus;
 - apps on the device's hidden list (password managers by default) are blanked
   from what it sees, and it cannot act on them.
@@ -226,7 +248,7 @@ that window alone (whatever covers it), every call lands in it after it is
 brought to the front, and the session ends (`window`) if it closes. The
 answer's `target` says which was shared.
 
-`session.begin` is answered when the owner decides, or when the prompt's wait (60 s unless the owner set it) runs out, as `denied`.
+`session.begin` is answered when the owner decides, or when the prompt's wait (60 s unless the owner set it) runs out. Not granted, it is `{ granted: false, reason? }`: no reason is the owner's no, `unanswered` the wait running out, `withdrawn` KOS taking the ask back. KOS takes an ask back by sending `session.end` with the ask's session id while the device is asking; the device takes its prompt down and answers `withdrawn`.
 `minutes` is what KOS asks for; the owner may choose less. `requester` is the
 asking chat's title and `conversation` its id, so the device can link the
 owner to it on the dashboard (`<KOS address>/#/chats/<id>`).
@@ -250,9 +272,13 @@ Key names: letters, digits, `return`, `tab`, `space`, `escape`, `backspace`,
 KOS for Mac floats a chat window over the owner's apps (⌥⌘K, or Chat with KOS
 in its menu): the side panel's chat, on the Mac. It takes the side panel's
 calls but `page.read` (`chat.show`, `chat.status`, `chat.ask`,
-`chat.settled`, `chat.chats`, `chat.models`) and sends its events
-(`chat.open`, `chat.send`, `chat.decide`, `chat.list`, `chat.switch`,
-`chat.models`, `chat.model`, and `chat.auto`). Hiding the window leaves a
+`chat.settled`, `chat.chats`, `chat.models`, `chat.mentions`) and sends its
+events (`chat.open`, `chat.send`, `chat.stop`, `chat.decide`, `chat.list`,
+`chat.switch`, `chat.models`, `chat.model`, `chat.mentions` and `chat.auto`),
+as [browser-extension.md](browser-extension.md) lists them: every status says
+which chat it is about (`chat`), what that chat waits on (`waiting`) and
+whether the owner holds its session (`held`), and a device draws none for a
+chat it does not show. Hiding the window leaves a
 session its chat holds running, so KOS can work the screen. Its chats are the `mac`
 surface's, as the panel's are `chrome`'s, and a Chrome's words never reach
 it nor the other way round.
@@ -263,7 +289,11 @@ window's title; `{ "kind": "hidden" }`, an app the owner hid from KOS,
 named no further; or `{ "kind": "none" }`. The turn is told that app is
 what "this" means, and that its first `computer.act` asks to see it or work
 in it, on that Mac, offering that app's window first. The window never takes the front from that
-app, so it stays what the owner was looking at.
+app, so it stays what the owner was looking at. Said while a turn runs, the
+words and where they were said are taken into that turn at its next step, as
+on the dashboard. `quote? { text, from }` is what the owner quoted with
+their words; it is kept with the message and shown with it, and never read
+as their words.
 
 ### Events
 
@@ -271,14 +301,14 @@ Device: `{ "t": "event", "name": "session.paused", "data": { "session": "...", "
 
 | Event | Data |
 | --- | --- |
-| `session.paused` | `session`, `reason` (`owner`: they touched the mouse or keyboard) |
+| `session.paused` | `session`, `reason` (`owner`: they clicked or typed) |
 | `session.resumed` | `session` |
 | `session.extended` | `session`, `until` (the owner gave it more time on the device) |
 | `session.ended` | `session`, `reason` (`owner`, `expired`, `idle`, `quit`, `host`, `window`) |
 
 ### Errors
 
-`no_session`, `paused`, `busy` (another session is live), `denied`,
+`no_session`, `paused`, `busy` (another session is live, or this chat is already asking), `denied`,
 `permission` (Screen Recording or Accessibility not granted), `secure_input`
 (a password field has focus), `hidden_app` (the target is on the hidden list),
 `bad_request`, `internal`.
