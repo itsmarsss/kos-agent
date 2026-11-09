@@ -346,6 +346,8 @@ export interface ApprovalRequest {
   /** Structured or JSON args. */
   args?: string | Record<string, unknown>;
   reason?: string | null;
+  /** When it lapses if nobody decides, epoch ms: a turn waiting on it takes the silence as a no then. */
+  expiresAt?: number;
   /** A picture of what it would act on, base64 JPEG, for surfaces that can show one. */
   picture?: string;
   /** What the agent said just before it asked, in its own words. */

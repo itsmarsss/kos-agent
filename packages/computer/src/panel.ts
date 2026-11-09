@@ -472,7 +472,9 @@ export class DevicePanel implements ChannelAdapter {
         return;
       }
       case "chat.stop": {
-        const chat = this.deps.current()?.id;
+        // The chat named, when it is one of this panel's; else the one it shows.
+        const named = typeof data["chat"] === "string" ? data["chat"] : undefined;
+        const chat = named === undefined ? this.deps.current()?.id : this.isOwnChat(named) ? named : undefined;
         if (chat) this.stopping?.(chat);
         return;
       }
@@ -524,6 +526,11 @@ export class DevicePanel implements ChannelAdapter {
     } catch (err) {
       await this.tell(device, "chat.models", { current: "", choices: [], error: err instanceof Error ? err.message : String(err) });
     }
+  }
+
+  /** A chat of this panel's own: the one it shows, one a turn from it runs in, or one it may switch to. */
+  private isOwnChat(id: string): boolean {
+    return id === this.deps.current()?.id || this.turns.has(id) || (this.deps.chats?.().some((c) => c.id === id) ?? false);
   }
 
   /** A device of the kind this panel is drawn on: a Chrome's words are never the Mac window's, nor the other way round. */
@@ -671,6 +678,7 @@ function approvalOf(req: ApprovalRequest): Record<string, unknown> {
     ...(req.why ? { why: req.why } : {}),
     ...(req.reason ? { reason: req.reason } : {}),
     ...(always ? { always } : {}),
+    ...(req.expiresAt !== undefined ? { expiresAt: req.expiresAt } : {}),
   };
 }
 

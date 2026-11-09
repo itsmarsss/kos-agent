@@ -390,8 +390,11 @@ describe("a Chrome's side panel", () => {
     chrome.event("chat.stop", {});
     setChat({ id: "chrome:owner", title: "Chrome" });
     chrome.event("chat.stop", {});
+    // A chat named: one of the panel's own, never another of the owner's.
+    chrome.event("chat.stop", { chat: "cm1:owner" });
+    chrome.event("chat.stop", { chat: "project:secret" });
     await flush();
-    expect(stopped).toEqual(["chrome:owner"]);
+    expect(stopped).toEqual(["chrome:owner", "cm1:owner"]);
   });
 
   it("keeps a turn to its own chat when the owner switches away mid-turn, and its session until the turn ends", async () => {
@@ -478,8 +481,9 @@ describe("a Chrome's side panel", () => {
       why: "Clicking Buy.",
       asker: { name: "Chrome", conversationId: "chrome:owner" },
       rule: { tool: "browser.*", scope: "your-chrome:shop.example", project: null },
+      expiresAt: 1_800_000,
     });
-    expect(chrome.calls.filter((c) => c.method === "chat.ask").at(-1)).toEqual({ method: "chat.ask", params: { chat: "chrome:owner", approval: { id: "10", tool: "browser.act", args: '{"steps":[]}', why: "Clicking Buy.", always: "Always on shop.example" } } });
+    expect(chrome.calls.filter((c) => c.method === "chat.ask").at(-1)).toEqual({ method: "chat.ask", params: { chat: "chrome:owner", approval: { id: "10", tool: "browser.act", args: '{"steps":[]}', why: "Clicking Buy.", always: "Always on shop.example", expiresAt: 1_800_000 } } });
     // A step said by its purpose carries its actions, in full, beside the arguments cut to fit.
     const actions = Array.from({ length: 10 }, (_, i) => ({ action: "type", text: `${i} ${"x".repeat(80)}` }));
     await panel.requestApproval("owner", { id: "11", text: "x", tool: "computer.act", args: { intent: "Note: just closing the popup", actions }, asker: { name: "Chrome", conversationId: "chrome:owner" } });
