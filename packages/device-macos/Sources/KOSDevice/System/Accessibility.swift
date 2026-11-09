@@ -1,11 +1,11 @@
 import ApplicationServices
 import DeviceCore
 
-/// SelectionAccess over the system's Accessibility API.
-@MainActor
+/// SelectionAccess over the system's Accessibility API, used from the selection reader's own queue.
 final class Accessibility: SelectionAccess {
-  /// How long an app is given to answer each question: one that does not is not waited on.
-  private static let timeout: Float = 0.25
+  /// How long an app is given to answer each question: one that does not is not waited on. Under the read's budget,
+  /// so one question that hangs cannot spend it all.
+  private static let timeout: Float = 0.1
 
   private(set) var answering = true
 
@@ -42,6 +42,10 @@ final class Accessibility: SelectionAccess {
 
   func children(of element: AXUIElement) -> [AXUIElement] {
     (copy(kAXChildrenAttribute, of: element) as? [AXUIElement] ?? []).map(timed)
+  }
+
+  func running(_ pid: Int32) -> Bool {
+    kill(pid, 0) == 0 || errno == EPERM
   }
 
   private func copy(_ attribute: String, of element: AXUIElement) -> CFTypeRef? {

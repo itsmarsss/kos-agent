@@ -38,8 +38,12 @@ final class ChatController {
   private var front = FrontTracker<NSRunningApplication> { $0.processIdentifier == ProcessInfo.processInfo.processIdentifier }
   private var frontWatch: NSObjectProtocol?
   private let selection = SelectionReader(Accessibility())
-  private var reading: Task<Void, Never>?
+  /// Where the selection is read, off the main thread: an app slow to answer holds this queue, not the windows.
+  private let selectionQueue = DispatchQueue(label: "kos.selection", qos: .userInitiated)
+  private var reading = false
   private var readAgain = false
+  /// Set as the window opens: its first read is made whatever the last one found.
+  private var openRead = false
   /// The owner was told once that without Accessibility the window cannot bring in what they select.
   private var toldAccess = false
 
@@ -76,7 +80,8 @@ final class ChatController {
   func open() {
     made = true
     noteFront()
-    // Up first, then read: becoming key reads it too, and the newer read wins.
+    // One read for the opening: becoming key, this, and the box taking focus all ask, and only the first reads.
+    openRead = true
     window.present()
     readSelection()
     refresh(asking: true)
@@ -279,31 +284,42 @@ final class ChatController {
   }
 
   /// How long an app that was just asked for its Accessibility tree is given to build it.
-  private static let treeWait: UInt64 = 200_000_000
+  private static let treeWait: TimeInterval = 0.2
   private static let accessHint = "Allow Accessibility for KOS for Mac, in System Settings, Privacy & Security, to bring in what you select."
 
-  /// What the owner selected in the app beside the window (SelectionReader). Never from a password field, nor from
-  /// an app they hid from KOS. Asked again while a read is going (the window up, then the box focused), it reads
-  /// once more after it, so the newest answer is shown and an app building its tree is not read half built.
+  /// What the owner selected in the app beside the window (SelectionReader), read on its own queue. Never from a
+  /// password field, nor from an app they hid from KOS. The opening reads; asked again after (the box focused), it
+  /// reads only when the app or its focused element changed, and asked while a read is going, once more after it.
   private func readSelection() {
-    guard reading == nil else {
+    guard !reading else {
       readAgain = true
       return
     }
     guard let app = frontApp() else { return model.selected(nil) }
     let target = SelectionApp(pid: app.processIdentifier, bundle: app.bundleIdentifier)
     let hidden = isHidden(app.bundleIdentifier)
-    reading = Task { [weak self] in
-      guard let self else { return }
-      let read = await selection.read(target, hidden: hidden, secureInput: { Targets.passwordFieldHasFocus }) {
-        try? await Task.sleep(nanoseconds: Self.treeWait)
+    let onlyIfChanged = !openRead
+    openRead = false
+    reading = true
+    let reader = selection
+    let wait = Self.treeWait
+    selectionQueue.async { [weak self] in
+      let read = reader.read(target, hidden: hidden, onlyIfChanged: onlyIfChanged, secureInput: { Targets.passwordFieldHasFocus }) {
+        Thread.sleep(forTimeInterval: wait)
       }
-      reading = nil
-      guard !readAgain else {
-        readAgain = false
-        return readSelection()
+      DispatchQueue.main.async {
+        MainActor.assumeIsolated { self?.read(read, from: app) }
       }
-      show(read, from: app)
+    }
+  }
+
+  /// A read came back: shown unless nothing changed, then made again if it was asked for meanwhile.
+  private func read(_ read: SelectionRead?, from app: NSRunningApplication) {
+    reading = false
+    if let read { show(read, from: app) }
+    if readAgain {
+      readAgain = false
+      readSelection()
     }
   }
 

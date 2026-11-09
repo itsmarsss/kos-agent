@@ -2,10 +2,11 @@ import Foundation
 
 /// What the chat window reads the owner's selection through: Accessibility, behind a seam so its rules are tested.
 ///
-/// Attribute names are Accessibility's own (AXFocusedUIElement, AXSelectedText).
-@MainActor
-public protocol SelectionAccess {
-  associatedtype Element
+/// Attribute names are Accessibility's own (AXFocusedUIElement, AXSelectedText). Not tied to the main actor:
+/// Accessibility calls are safe on any thread, and a read is made away from the main one so a slow app does not
+/// hold the Mac's windows.
+public protocol SelectionAccess: AnyObject {
+  associatedtype Element: Equatable
   /// Accessibility is allowed for this app: without it nothing can be read.
   var trusted: Bool { get }
   /// False once the app being read has stopped answering, so nothing more is asked of it.
@@ -50,14 +51,17 @@ public enum SelectionRead: Equatable, Sendable {
 /// read alone) and reads once more. The selection is the focused element's,
 /// else one of its parents' (a web area around a focused link), as text or
 /// as a marker range, else the first in the focused window, looked for
-/// within a bound. Never a hidden app's, a password field's, or while secure
-/// input is on.
-@MainActor
-public final class SelectionReader<Access: SelectionAccess> {
+/// within a bound and a time budget. Never a hidden app's, a password
+/// field's, or while secure input is on.
+///
+/// Not tied to an actor: each reader is used from one serial queue.
+public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable {
   public static var limit: Int { 4_000 }
   /// How far up from the focused element, and how many elements of the window, are looked through.
   static var parents: Int { 8 }
   static var walked: Int { 300 }
+  /// How long the questions of one read may take in all, the wait for a tree apart.
+  static var budget: TimeInterval { 0.15 }
 
   /// Browsers on Chromium, which answer AXEnhancedUserInterface where AXManualAccessibility is not taken.
   static var chromium: Set<String> {
@@ -72,21 +76,36 @@ public final class SelectionReader<Access: SelectionAccess> {
   static var enhanced: String { "AXEnhancedUserInterface" }
 
   private let access: Access
+  private let now: () -> TimeInterval
+  /// When the current read must stop asking.
+  private var deadline: TimeInterval = 0
+  /// What the last read was of: the app, and the element focused in it then.
+  private var last: (pid: Int32, focused: Access.Element?)?
   /// The apps that took AXManualAccessibility: it stays on in them, so they are not asked and waited on again.
   private var opened: Set<Int32> = []
 
-  public init(_ access: Access) {
+  public init(_ access: Access, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
     self.access = access
+    self.now = now
   }
 
-  /// `secureInput` is asked again after the wait; `pause` is the wait for an app to build its tree.
-  public func read(_ app: SelectionApp, hidden: Bool, secureInput: () -> Bool, pause: () async -> Void) async -> SelectionRead {
-    guard !hidden else { return .refused }
-    guard access.trusted else { return .untrusted }
-    guard !secureInput() else { return .refused }
+  /// `secureInput` is asked again after the wait; `pause` is the wait for an app to build its tree, blocking this
+  /// reader's queue. With `onlyIfChanged`, nil when the app and its focused element are those of the last read, so
+  /// one opening of the window reads once however often it is asked.
+  public func read(
+    _ app: SelectionApp, hidden: Bool, onlyIfChanged: Bool = false, secureInput: () -> Bool, pause: () -> Void
+  ) -> SelectionRead? {
+    guard !hidden, access.trusted, !secureInput() else {
+      last = nil
+      return hidden || access.trusted ? .refused : .untrusted
+    }
+    deadline = now() + Self.budget
     let root = access.application(app.pid)
-    if let found = look(in: root) { return found }
-    guard access.answering else { return .nothing }
+    let focused = access.element("AXFocusedUIElement", of: root)
+    if onlyIfChanged, let last, last.pid == app.pid, last.focused == focused { return nil }
+    last = (app.pid, focused)
+    if let found = look(in: root, focused: focused) { return found }
+    guard access.answering, inTime else { return .nothing }
 
     var asked = false
     var restore = false
@@ -102,25 +121,29 @@ public final class SelectionReader<Access: SelectionAccess> {
     guard asked else { return .nothing }
     // Off again as it was: some apps animate their windows differently while it is on.
     defer { if restore { _ = access.set(Self.enhanced, false, on: root) } }
-    await pause()
+    let paused = now()
+    pause()
+    deadline += now() - paused
     guard !secureInput() else { return .refused }
-    return look(in: root) ?? .nothing
+    return look(in: root, focused: access.element("AXFocusedUIElement", of: root)) ?? .nothing
   }
 
+  private var inTime: Bool { now() < deadline }
+
   /// The selection, a refusal for a password field, or nil for none found.
-  private func look(in root: Access.Element) -> SelectionRead? {
-    if let focused = access.element("AXFocusedUIElement", of: root) {
+  private func look(in root: Access.Element, focused: Access.Element?) -> SelectionRead? {
+    if let focused {
       if secure(focused) { return .refused }
       var at: Access.Element? = focused
       for _ in 0..<Self.parents {
-        guard let element = at, access.answering else { break }
+        guard let element = at, access.answering, inTime else { break }
         if let text = selected(element) { return .text(text) }
         let role = access.string("AXRole", of: element)
         if role == "AXWindow" || role == "AXApplication" { break }
         at = access.element("AXParent", of: element)
       }
     }
-    guard access.answering, let window = access.element("AXFocusedWindow", of: root) else { return nil }
+    guard access.answering, inTime, let window = access.element("AXFocusedWindow", of: root) else { return nil }
     return walk(window).map { .text($0) }
   }
 
@@ -128,7 +151,7 @@ public final class SelectionReader<Access: SelectionAccess> {
   private func walk(_ window: Access.Element) -> String? {
     var queue = [window]
     var seen = 0
-    while !queue.isEmpty, seen < Self.walked, access.answering {
+    while !queue.isEmpty, seen < Self.walked, access.answering, inTime {
       let element = queue.removeFirst()
       seen += 1
       if secure(element) { continue }

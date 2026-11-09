@@ -30,7 +30,8 @@ enum Targets {
   }
 
   /// macOS turns secure input on while a password field has focus, and keeps keystrokes from other apps' eyes.
-  static var passwordFieldHasFocus: Bool {
+  /// Asked from any thread: the selection is read off the main one.
+  nonisolated static var passwordFieldHasFocus: Bool {
     IsSecureEventInputEnabled()
   }
 }
