@@ -107,6 +107,7 @@ export class DeviceHub {
   private readonly endings = new Map<string, EndReason | "offline" | "removed">();
   private readonly listeners = new Set<() => void>();
   private readonly deviceListeners = new Set<DeviceListener>();
+  private readonly endListeners = new Set<(session: Session, why: EndReason | "offline" | "removed") => void>();
   /** Sessions being asked for on a device, by conversation: withdrawn by Stop. */
   private readonly asks = new Map<string, { device: string; session: string; withdraw: () => void }>();
   /** When each refused device id was last logged, for each check it failed. */
@@ -126,6 +127,12 @@ export class DeviceHub {
 
   private changed(): void {
     for (const l of this.listeners) l();
+  }
+
+  /** Told of each session that ends, and why. */
+  onEnded(listener: (session: Session, why: EndReason | "offline" | "removed") => void): () => void {
+    this.endListeners.add(listener);
+    return () => this.endListeners.delete(listener);
   }
 
   /** Told of each event a device sends that is not about a session's life. */
@@ -231,8 +238,9 @@ export class DeviceHub {
   }
 
   private drop(session: Session, why: EndReason | "offline" | "removed"): void {
-    this.sessions.delete(session.id);
+    if (!this.sessions.delete(session.id)) return;
     this.endings.set(session.conversation, why);
+    for (const l of [...this.endListeners]) l(session, why);
   }
 
   list(): DeviceStatus[] {

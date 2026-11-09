@@ -19,13 +19,14 @@ const hostPrivate = generateKeyPairSync("ed25519").privateKey;
 /** The owner speaking on a surface: what a call in that turn is under. */
 type Spoken = { surface: string; said: string };
 
-function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>; mac?: () => { device: string; app?: string } | undefined; from?: Spoken } = {}) {
+function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>; mac?: () => { device: string; app?: string } | undefined; from?: Spoken; stopTurn?: (chat: string) => boolean; asksEachStep?: (chat: string) => boolean } = {}) {
   const hub = new DeviceHub({
     store: new DeviceStore(openDatabase(":memory:")),
     hostKey: { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) },
     halted: () => false,
     beginTimeoutMs: 200,
     callTimeoutMs: 200,
+    handBackWaitMs: 30,
   });
   const tools = new Map<string, { spec: ToolSpec; handler: Handler; risk: ToolRisk | undefined }>();
   const halts: (() => void)[] = [];
@@ -60,6 +61,8 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>;
       return () => undefined;
     },
     ...(opts.mac ? { panelMac: () => opts.mac!() } : {}),
+    ...(opts.stopTurn ? { stopTurn: opts.stopTurn } : {}),
+    ...(opts.asksEachStep ? { asksEachStep: opts.asksEachStep } : {}),
     settleMs: opts.settleMs ?? 0,
     sleep: opts.sleep ?? (async () => undefined),
   });
@@ -377,9 +380,82 @@ describe("the computer tools", () => {
     await expect(call("computer.act", { action: "type", text: "hunter2" })).rejects.toThrow(/password field has focus/);
     const session = (fake.calls[0]!.params.session as string);
     fake.event("session.paused", { session, reason: "owner" });
-    await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/taken over.*Do not retry/);
+    await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/kept control.*tell them where you stopped/);
     fake.event("session.ended", { session, reason: "owner" });
     await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/the owner stopped it/);
+  });
+
+  it("wait while the owner has control, then show the screen they left without acting on it", async () => {
+    const { call, pair } = setup();
+    const fake = pair();
+    await call("computer.start", { task: "t" });
+    const session = fake.calls[0]!.params.session as string;
+    fake.event("session.paused", { session, reason: "owner" });
+    const acting = call("computer.act", { action: "left_click", coordinate: [5, 5] });
+    await new Promise((r) => setTimeout(r, 5));
+    fake.event("session.resumed", { session });
+    const seen = await acting;
+    expect(textOf(seen)).toMatch(/^The owner had control; look again before acting\. Nothing else was done\./);
+    expect(typeof seen !== "string" && seen.images).toHaveLength(1);
+    expect(fake.calls.map((c) => c.method)).not.toContain("pointer.click");
+  });
+
+  it("on the owner's Stop from a device: withdraw the ask, stop the turn, and ask nothing more that turn", async () => {
+    const stopped: string[] = [];
+    const { call, pair, module, endTurn, hub } = setup({ stopTurn: (chat) => (stopped.push(chat), true) });
+    const fake = pair();
+    fake.answers.delete("session.begin");
+    const asked = call("computer.start", { task: "t" });
+    await new Promise((r) => setTimeout(r, 5));
+    module.stopped("c1");
+    await expect(asked).rejects.toThrow(/none was started/);
+    expect(stopped).toEqual(["c1"]);
+    expect(fake.calls.map((c) => c.method)).toEqual(["session.begin", "session.end"]);
+    await expect(call("computer.start", { task: "t" })).rejects.toThrow(/owner pressed Stop.*Do not start a session again/);
+    endTurn("c1");
+    fake.answers.set("session.begin", () => ({ ok: true, result: { granted: true, until: Date.now() + 60_000, space: { width: 100, height: 100 } } }));
+    await call("computer.start", { task: "t" });
+    expect(hub.sessionOf("c1")).toBeDefined();
+  });
+
+  it("take the owner ending the session on the device mid-turn as their Stop, and a stop with no turn running as nothing to remember", async () => {
+    let running = true;
+    const stopped: string[] = [];
+    const { call, pair } = setup({ stopTurn: (chat) => (stopped.push(chat), running) });
+    const fake = pair();
+    await call("computer.start", { task: "t" });
+    fake.event("session.ended", { session: fake.calls[0]!.params.session, reason: "owner" });
+    expect(stopped).toEqual(["c1"]);
+    await expect(call("computer.start", { task: "t" })).rejects.toThrow(/owner pressed Stop/);
+    running = false;
+    const { call: call2, pair: pair2, module: module2 } = setup({ stopTurn: () => running });
+    pair2();
+    module2.stopped("c1");
+    await call2("computer.start", { task: "t" });
+  });
+
+  it("remember an ask the owner never answered for the rest of the turn, as not answered", async () => {
+    const { call, pair } = setup();
+    const fake = pair();
+    fake.answers.set("session.begin", () => ({ ok: true, result: { granted: false, reason: "unanswered" } }));
+    await expect(call("computer.start", { task: "t" })).rejects.toThrow(/did not answer the ask/);
+    await expect(call("computer.start", { task: "t" })).rejects.toThrow(/did not answer the ask/);
+    expect(fake.calls.filter((c) => c.method === "session.begin")).toHaveLength(1);
+  });
+
+  it("ask before each step that does more than look in a chat set to Ask, once a session is live", async () => {
+    let ask = true;
+    const { call, pair, tools } = setup({ asksEachStep: () => ask });
+    pair();
+    const escalate = tools.get("computer.act")!.risk!.escalate!;
+    expect(escalate({ action: "left_click", coordinate: [1, 1] })).toBe(false);
+    await call("computer.start", { task: "t" });
+    expect(escalate({ action: "left_click", coordinate: [1, 1] })).toMatch(/set to Ask/);
+    expect(escalate({ actions: [{ action: "screenshot" }, { action: "type", text: "x" }] })).toMatch(/set to Ask/);
+    expect(escalate({ action: "screenshot" })).toBe(false);
+    expect(escalate({ action: "zoom", region: [0, 0, 5, 5] })).toBe(false);
+    ask = false;
+    expect(escalate({ action: "left_click", coordinate: [1, 1] })).toBe(false);
   });
 
   it("ask for the owner's default length, and refuse work the owner did not start unless allowed", async () => {

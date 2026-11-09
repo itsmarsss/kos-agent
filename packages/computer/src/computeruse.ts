@@ -36,6 +36,8 @@ export interface ComputerUseOptions {
   panels: { chrome: PanelDeps; mac: PanelDeps };
   /** The audit log, for a session started unasked. */
   audit?(entry: AuditEntry): void;
+  /** Stop every live turn in a chat, as the owner's Stop does; false when none was running. */
+  stopTurn?(conversation: string): boolean;
 }
 
 export interface ComputerUse {
@@ -85,6 +87,9 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         caller: options.caller,
         titleOf: options.titleOf,
         ...(options.audit ? { audit: options.audit } : {}),
+        ...(options.stopTurn ? { stopTurn: options.stopTurn } : {}),
+        // The KOS for Mac window's chat set to Ask: each step on the screen asks first.
+        asksEachStep: (conversation) => mac.deviceOf(conversation) !== undefined && !(options.panels.mac.auto?.(conversation) ?? false),
         panelChrome: (conversation) => panel.deviceOf(conversation),
         panelMac: (conversation) => {
           const device = mac.deviceOf(conversation);
