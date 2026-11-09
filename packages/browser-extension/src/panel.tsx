@@ -1,6 +1,6 @@
 import { CHAT_COMMANDS, KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { AskSteps, BoltIcon, ChevronDown, Chips, CloseIcon, Collapse, ComposeIcon, Countdown, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, QuoteLine, SendIcon, spring, StepPicture, StepsIcon, StopIcon, type Tone, useDismiss, useOverlayScroll, WorkingDots } from "@kos/kit";
+import { AskSteps, BoltIcon, ChevronDown, Chips, Collapse, ComposeIcon, Countdown, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, QuoteLine, SendIcon, spring, StepPicture, StepsIcon, StopIcon, type Tone, useDismiss, useOverlayScroll, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
@@ -21,7 +21,7 @@ import type { ConsentRequest, KosState, PopupState } from "./worker.js";
  * said to, and the words come back to be sent again.
  */
 
-/** What the owner quoted with their words, and where from. */
+/** What the owner quoted with their words, and where from: a page's address once sent, its site while selected. */
 interface Quote {
   text: string;
   from: string;
@@ -129,6 +129,8 @@ const STEP = "› ";
 const yours = (lines: Line[]): number => lines.filter((l) => l.role === "you").length;
 
 /** Where a quote is kept while its words are on their way: its chat and its words. */
+const NO_QUOTE: Quote = { text: "", from: "" };
+
 function quoteKey(conversation: string | null, said: string): string {
   return `${conversation ?? ""}\n${said}`;
 }
@@ -142,16 +144,16 @@ function useChat(windowId: number | undefined, online: boolean): {
   chats: ChatItem[];
   models: Models | undefined;
   reads: ReadAsk[];
-  /** What the owner has selected on the page beside the panel, as it is now. */
-  selection: string;
+  /** What the owner has selected on the page beside the panel, as it is now, and the page's site. */
+  selection: Quote;
   /** What an @ being typed can name, for the words typed after it. */
   mentions: { q: string; list: Mention[] };
   /** What each of the owner's messages on its way was sent about, by its words: shown above it until the chat has it. */
-  quotes: Map<string, string>;
+  quotes: Map<string, Quote>;
   /** The extension's state as it last said it: the session, and each KOS's line. */
   worker: PopupState | undefined;
   say: (message: Record<string, unknown>) => void;
-  send: (text: string, selection?: string) => void;
+  send: (text: string, selection?: Quote) => void;
   answer: (message: Record<string, unknown>) => void;
   answerRead: (id: string, granted: boolean) => void;
 } {
@@ -163,11 +165,11 @@ function useChat(windowId: number | undefined, online: boolean): {
   const [chats, setChats] = useState<ChatItem[]>([]);
   const [models, setModels] = useState<Models>();
   const [reads, setReads] = useState<ReadAsk[]>([]);
-  const [selection, setSelection] = useState("");
+  const [selection, setSelection] = useState<Quote>(NO_QUOTE);
   const [mentions, setMentions] = useState<{ q: string; list: Mention[] }>({ q: "", list: [] });
   const [worker, setWorker] = useState<PopupState>();
   // What each message was said about, by chat and words: a Map, so no message text can be a key it already holds.
-  const [quotes, setQuotes] = useState<Map<string, string>>(() => new Map());
+  const [quotes, setQuotes] = useState<Map<string, Quote>>(() => new Map());
   const quotedIn = useRef<string | null>(null);
   useEffect(() => {
     quotedIn.current = chat.conversation;
@@ -255,7 +257,7 @@ function useChat(windowId: number | undefined, online: boolean): {
         case "read.done":
           return setReads((r) => r.filter((x) => x.id !== message["id"]));
         case "selection":
-          return setSelection(String(message["text"] ?? ""));
+          return setSelection({ text: String(message["text"] ?? ""), from: String(message["from"] ?? "") });
         case "chat.mentions":
           return setMentions({ q: String(message["q"] ?? ""), list: (message["mentions"] as Mention[]) ?? [] });
         case "chat.ask": {
@@ -298,7 +300,7 @@ function useChat(windowId: number | undefined, online: boolean): {
     port.current?.postMessage(message);
   }, []);
   const send = useCallback(
-    (text: string, about?: string) => {
+    (text: string, about?: Quote) => {
       const said = text.trim();
       if (!said) return;
       if (about) setQuotes((q) => new Map(q).set(quoteKey(quotedIn.current, said), about));
@@ -307,7 +309,7 @@ function useChat(windowId: number | undefined, online: boolean): {
       setChat((c) => ({ ...c, sending: said.startsWith("/") ? c.sending : [...c.sending, said], working: true, unsent: undefined }));
       clearTimeout(taking.current);
       taking.current = setTimeout(() => giveBack("KOS did not take that. It may be an older KOS without the side panel, or not reachable now; your words are back in the box."), TAKE_MS);
-      say({ type: "send", text: said, ...(about ? { quote: { text: about } } : {}) });
+      say({ type: "send", text: said, ...(about ? { quote: { text: about.text } } : {}) });
     },
     [say],
   );
@@ -745,7 +747,7 @@ function Thread({
   reads: ReadAsk[];
   answerRead: (id: string, granted: boolean) => void;
   /** What each of the owner's messages on its way was sent about, shown above it. */
-  quotes: Map<string, string>;
+  quotes: Map<string, Quote>;
   /** The owner has control of the chat's session. */
   held: boolean;
   say: (m: Record<string, unknown>) => void;
@@ -778,7 +780,7 @@ function Thread({
     after(seen);
     seen++;
     const quoted = quotes.get(quoteKey(chat.conversation, text));
-    items.push(<LineView key={`s${i}-${text.slice(0, 16)}`} line={{ role: "you", text, ...(quoted ? { quote: { text: quoted, from: "" } } : {}) }} pending />);
+    items.push(<LineView key={`s${i}-${text.slice(0, 16)}`} line={{ role: "you", text, ...(quoted ? { quote: quoted } : {}) }} pending />);
   });
   after(seen);
   return (
@@ -834,7 +836,7 @@ function LineView({ line, pending }: { line: Line; pending?: boolean }): ReactEl
     case "you":
       return (
         <m.div className="msg msg--you" data-pending={pending || undefined} layout="position" {...enter}>
-          {line.quote && <QuoteLine text={line.quote.text} {...(line.quote.from ? { from: line.quote.from } : {})} />}
+          {line.quote && <QuoteLine text={line.quote.text} from={line.quote.from} />}
           {line.text && <Markdown text={line.text} />}
           {line.files?.length ? (
             <div className="files">
@@ -1100,7 +1102,7 @@ function Composer({
 }: {
   online: boolean;
   k: KosState | undefined;
-  send: (t: string, selection?: string) => void;
+  send: (t: string, selection?: Quote) => void;
   /** A turn, a session or an ask is on the go: the button is Stop. */
   busy: boolean;
   stop: () => void;
@@ -1111,7 +1113,7 @@ function Composer({
   auto: boolean;
   setAuto: (on: boolean) => void;
   /** What the owner has selected on the page, sent along unless they put it aside. */
-  selection: string;
+  selection: Quote;
   mentions: { q: string; list: Mention[] };
   askMentions: (q: string) => void;
 }): ReactElement {
@@ -1123,7 +1125,7 @@ function Composer({
   /** The selection the owner put aside, or sent: hidden until they select something else. */
   const [setAside, setSetAside] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
-  const quoting = selection && selection !== setAside ? selection : "";
+  const quoting = selection.text && selection.text !== setAside ? selection : undefined;
   const token = tokenAt(text, caret);
   const options = !token || token.raw === closedAt ? [] : token.kind === "command" ? commandsFor(token.q) : token.q === mentions.q ? mentions.list.map(mentionOption) : [];
   useEffect(() => {
@@ -1146,7 +1148,7 @@ function Composer({
     // A command is about the chat, not the page: it goes without the selection.
     const about = quoting && !text.trim().startsWith("/") ? quoting : undefined;
     send(text, about);
-    if (about) setSetAside(about);
+    if (about) setSetAside(about.text);
     setText("");
     setCaret(0);
   };
@@ -1204,11 +1206,8 @@ function Composer({
       </AnimatePresence>
       <AnimatePresence initial={false}>
         {quoting && (
-          <m.div className="quote-chip" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={ease} title="What you selected on the page goes with your message">
-            <span className="quote-chip-text">{quoting.length > 160 ? `${quoting.slice(0, 160)}…` : quoting}</span>
-            <IconButton tone="bare" label="Leave the selection out" title="Leave it out" onClick={() => setSetAside(quoting)}>
-              <CloseIcon size={10} title="" />
-            </IconButton>
+          <m.div className="composer-quote" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={ease}>
+            <QuoteLine text={quoting.text} from={quoting.from} label="Selected text" lines={2} onRemove={() => setSetAside(quoting.text)} />
           </m.div>
         )}
       </AnimatePresence>
