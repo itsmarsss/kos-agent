@@ -85,6 +85,7 @@ export function connectChannel(
         ...(ctx.members?.length ? { members: ctx.members } : {}),
         ...(ctx.context ? { context: ctx.context } : {}),
         ...(ctx.contextRides ? { contextRides: true } : {}),
+        ...(ctx.quote ? { quote: ctx.quote } : {}),
         ...(ctx.roomTalk ? { roomTalk: ctx.roomTalk } : {}),
         ...(ctx.late ? { late: true } : {}),
         ...(ctx.sentAt !== undefined ? { sentAt: ctx.sentAt } : {}),

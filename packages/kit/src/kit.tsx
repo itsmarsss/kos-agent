@@ -282,6 +282,19 @@ export function StepPicture({ src, alt = "What this step saw" }: { src: string; 
 }
 
 /**
+ * What the owner quoted with a message (text they selected on a page), at
+ * the top of their bubble: the quote, cut to a few lines, and where it came
+ * from on hover. The dashboard's thread and both device chats draw it.
+ */
+export function QuoteLine({ text, from, max = 220 }: { text: string; from?: string; max?: number }): ReactElement {
+  return (
+    <p className="msg-quote" title={from ? `Quoted from ${from}` : undefined}>
+      {text.length > max ? `${text.slice(0, max)}…` : text}
+    </p>
+  );
+}
+
+/**
  * Under an ask's summary, the actions it would take, where the summary is
  * the model's account of a step rather than the step: "Close the popup"
  * over "Type “hunter2”, press cmd+q". The yes is for these, so they are on

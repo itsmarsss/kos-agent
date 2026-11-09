@@ -155,7 +155,7 @@ export type PanelMethod = "chat.show" | "chat.status" | "chat.ask" | "chat.settl
 
 /** One line of the panel's chat: the owner's words, KOS's, a note, or the steps a turn took. */
 export type PanelMessage =
-  | { role: "you"; text: string; files?: string[] }
+  | { role: "you"; text: string; files?: string[]; quote?: { text: string; from: string } }
   | { role: "kos"; text: string }
   | { role: "note"; text: string }
   | { role: "steps"; steps: { summary: string; failed?: true; frame?: number }[] };

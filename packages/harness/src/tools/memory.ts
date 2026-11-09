@@ -591,7 +591,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
   const KEEP_EXCHANGES = 4;
   const turnText = (m: ModelMessage): string =>
     m.content
-      .map((b) => (b.type === "text" ? (b.guestContext ? "" : b.text) : b.type === "tool_use" ? `[called ${b.name} ${JSON.stringify(b.input).slice(0, 200)}]` : b.type === "tool_result" ? `[result${b.isError ? " (error)" : ""}: ${(typeof b.content === "string" ? b.content : JSON.stringify(b.content)).slice(0, 300)}]` : ""))
+      .map((b) => (b.type === "text" ? (b.guestContext || b.quote ? "" : b.text) : b.type === "tool_use" ? `[called ${b.name} ${JSON.stringify(b.input).slice(0, 200)}]` : b.type === "tool_result" ? `[result${b.isError ? " (error)" : ""}: ${(typeof b.content === "string" ? b.content : JSON.stringify(b.content)).slice(0, 300)}]` : ""))
       .filter(Boolean)
       .join("\n");
 

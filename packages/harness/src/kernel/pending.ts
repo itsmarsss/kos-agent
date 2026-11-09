@@ -1,5 +1,5 @@
 import type { Guest } from "../channels/types.js";
-import type { MessageFrom, MessageOrigin, MessageRoom } from "../models/types.js";
+import type { MessageFrom, MessageOrigin, MessageRoom, Quote } from "../models/types.js";
 import type { Db } from "../store/db.js";
 import type { Attachment } from "./attachments.js";
 
@@ -47,6 +47,8 @@ export interface PendingFlags {
   context?: string;
   /** The context only says where it was said, so it rides with the words into a running turn. */
   contextRides?: boolean;
+  /** What the owner quoted with the words, kept with them when they run. */
+  quote?: Quote;
   roomTalk?: string;
   via?: string;
   from?: MessageFrom;

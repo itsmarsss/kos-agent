@@ -1,5 +1,5 @@
 import type { Attachment } from "../kernel/attachments.js";
-import type { MessageRoom } from "../models/types.js";
+import type { MessageRoom, Quote } from "../models/types.js";
 
 /**
  * Channel adapters connect KOS to messaging surfaces (Discord first, SMS later,
@@ -93,6 +93,8 @@ export interface InboundMessage {
    * already running, rather than holding them until that turn ends.
    */
   contextRides?: true;
+  /** What the owner quoted with the words (text selected on a page) and where from: kept with the message, never as their words. */
+  quote?: Quote;
   /**
    * What others said in the room since the chat last heard it: kept beside
    * the words as untrusted room talk, so a later turn still knows it, and

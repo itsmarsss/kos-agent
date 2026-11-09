@@ -423,6 +423,7 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 
 /* What an ask would do, under the model's words for it: on the row, wrapped, never cut. */
 /* —— a step's picture (StepPicture): small under its step, larger on a press —— */
+.msg-quote { margin: 0 0 6px; padding-left: 8px; border-left: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); color: var(--muted); font-size: var(--text-sm); white-space: normal; overflow-wrap: anywhere; }
 .step-picture { display: block; margin: 4px 0 6px; padding: 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); cursor: zoom-in; overflow: hidden; width: 11rem; max-width: 100%; }
 .step-picture img { display: block; width: 100%; height: auto; }
 .step-picture.is-open { width: min(40rem, 100%); cursor: zoom-out; }

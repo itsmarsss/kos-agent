@@ -15,6 +15,18 @@ export interface TextBlock {
    * untrusted room talk, and never read as what the owner said.
    */
   guestContext?: true;
+  /**
+   * What the owner quoted with the message (text they selected on a page,
+   * and where): kept with it and shown with it, sent to the model as the
+   * page's words, and never read as what the owner said.
+   */
+  quote?: Quote;
+}
+
+/** Words the owner quoted with a message, and where they came from (a page's address, an app). */
+export interface Quote {
+  text: string;
+  from: string;
 }
 
 export interface ToolUseBlock {
@@ -227,7 +239,7 @@ export function isGuestContext(block: ContentBlock): boolean {
 /** A message's own words: its text, without any room talk riding beside it. */
 export function saidText(content: ContentBlock[], separator = ""): string {
   return content
-    .filter((b): b is TextBlock => b.type === "text" && !b.guestContext)
+    .filter((b): b is TextBlock => b.type === "text" && !b.guestContext && !b.quote)
     .map((b) => b.text)
     .join(separator);
 }

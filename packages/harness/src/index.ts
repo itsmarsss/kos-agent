@@ -58,5 +58,5 @@ export { SettingsStore } from "./store/settings.js";
 export { TurnNarrator, STEP_MARK } from "./channels/narrate.js";
 export type { ProgressEvent, ProgressListener } from "./kernel/progress.js";
 export type { Sender } from "./channels/types.js";
-export type { MessageFrom, MessageOrigin, MessageRoom } from "./models/types.js";
+export type { MessageFrom, MessageOrigin, MessageRoom, Quote } from "./models/types.js";
 export type { Attachment } from "./kernel/attachments.js";

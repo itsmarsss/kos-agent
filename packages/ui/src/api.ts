@@ -551,6 +551,8 @@ export type ChatEvent =
       attachments?: { name: string; src?: string; text?: string; path?: string }[];
       /** Where it came from, when not typed here by the owner. */
       origin?: MessageOrigin;
+      /** What the owner quoted with it (text selected on a page), and where from. */
+      quote?: { text: string; from: string };
     }
   | {
       kind: "tool";
