@@ -62,3 +62,78 @@ struct ThemeTests {
     #expect(ThemeChoice.dashboard.mode(sent: .dark).appearanceName.flatMap(NSAppearance.init(named:))?.isDark == true)
   }
 }
+
+/// A window already open follows a change of the app's appearance, as AppearanceModel makes when the dashboard's
+/// theme arrives: drawn as a window opened in the new one is, and nothing like it was.
+@MainActor
+@Suite("Theme follows", .serialized)
+struct ThemeFollowsTests {
+  private func pixels(_ host: NSView) -> [UInt8] {
+    let w = Int(host.bounds.width), h = Int(host.bounds.height)
+    guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+          let context = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return [] }
+    host.layer?.render(in: context)
+    guard let data = context.data else { return [] }
+    return Array(UnsafeBufferPointer(start: data.assumingMemoryBound(to: UInt8.self), count: w * h * 4))
+  }
+
+  /// The share of pixels that differ by more than a step of rounding.
+  private func apart(_ a: [UInt8], _ b: [UInt8]) -> Double {
+    guard a.count == b.count, !a.isEmpty else { return 1 }
+    var differ = 0
+    for i in stride(from: 0, to: a.count, by: 4) where (0..<3).contains(where: { abs(Int(a[i + $0]) - Int(b[i + $0])) > 8 }) {
+      differ += 1
+    }
+    return Double(differ) / Double(a.count / 4)
+  }
+
+  /// Opened as the app would open it: no appearance of its own, so the app's shows through.
+  private func open<V: View>(_ view: V, _ size: CGSize) -> (NSView, NSWindow) {
+    let host = NSHostingView(rootView: view)
+    host.frame = CGRect(origin: .zero, size: size)
+    let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.contentView = host
+    settle(window)
+    return (host, window)
+  }
+
+  /// A turn of the run loop and a display pass, as the app's run loop gives a window, not a redraw forced on it.
+  private func settle(_ window: NSWindow) {
+    RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+    window.displayIfNeeded()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+  }
+
+  private func follows<V: View>(_ make: () -> V, _ size: CGSize) {
+    let app = NSApplication.shared
+    let was = app.appearance
+    defer { app.appearance = was }
+    for (from, to) in [(NSAppearance.Name.aqua, NSAppearance.Name.darkAqua), (.darkAqua, .aqua)] {
+      app.appearance = NSAppearance(named: from)
+      let (host, window) = open(make(), size)
+      let before = pixels(host)
+      app.appearance = NSAppearance(named: to)
+      settle(window)
+      let after = pixels(host)
+      let fresh = pixels(open(make(), size).0)
+      #expect(apart(after, fresh) < 0.01, "\(V.self) did not redraw in \(to.rawValue)")
+      #expect(apart(after, before) > 0.5, "\(V.self) kept its look from \(from.rawValue)")
+    }
+  }
+
+  @Test func anOpenHomeWindowFollows() {
+    follows({ HomeView(model: HomeModel()) }, CGSize(width: HomeView.width, height: HomeView.height))
+  }
+
+  @Test func anOpenChatWindowFollows() {
+    follows({ () -> ChatView in
+      let model = ChatModel()
+      model.paired = true
+      model.online = true
+      model.beside = "Keynote"
+      model.show(conversation: "c", title: "Q3", lines: [.you("What still needs numbers?", files: []), .kos("Slides **4** and 7.")])
+      return ChatView(model: model)
+    }, ChatView.size)
+  }
+}
