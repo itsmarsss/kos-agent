@@ -2404,6 +2404,16 @@ describe("catching up after a drop or a restart", () => {
     expect(heard).toHaveLength(2);
   });
 
+  it("marks a message a resumed gateway replays live as late when it was sent long ago", async () => {
+    const dm = room("dm1", [{ id: "601", author: "owner", at: Date.now() - 15 * 60_000 }, { id: "602", author: "owner" }]);
+    const { adapter, heard } = adapterOver({ dm1: dm.channel }, {});
+    for (const message of dm.messages) await adapter.receiveMessage(message);
+    expect(heard.map((m) => [m.text, m.late, m.sentAt])).toEqual([
+      ["said 601", true, dm.messages[0]!.createdTimestamp],
+      ["said 602", undefined, undefined],
+    ]);
+  });
+
   it("posts the note on a stale batch as one plain silent line, with no story and no offline mark", async () => {
     const posted: unknown[] = [];
     const message = { author: { id: "owner", bot: false }, guild: null, content: "hi", channel: { send: async (p: unknown) => void posted.push(p) } } as unknown as Message;

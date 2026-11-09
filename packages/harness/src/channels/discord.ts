@@ -1396,9 +1396,12 @@ export class DiscordAdapter implements ChannelAdapter {
     // Where catch-up starts reading this room from, after a drop or a restart.
     if (message.id && message.channel?.id) this.cursors?.advance(message.channel.id, message.id);
     const replyingTo = await this.repliedTo(message, guest !== undefined);
+    // Late whichever way it came: a resumed gateway replays live what it
+    // missed, and a message from long ago is told, not run, as in catch-up.
+    const late = how.late || (typeof message.createdTimestamp === "number" && Date.now() - message.createdTimestamp > LATE_RUN_MS);
     await this.messageHandler?.({
       channel: this.name,
-      ...(how.late ? { late: true, sentAt: message.createdTimestamp } : {}),
+      ...(late ? { late: true, sentAt: message.createdTimestamp } : {}),
       // What a reply answers rides beside the words, told to this turn and quoted, never as the sender's own.
       ...(replyingTo ? { context: replyingTo } : {}),
       senderId: message.author.id,
