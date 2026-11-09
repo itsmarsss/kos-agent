@@ -3,20 +3,32 @@ import Testing
 
 @Suite("Theme")
 struct ThemeModeTests {
-  static let sent: [DashboardTheme?] = [nil] + ThemeMode.allCases.flatMap { mode in
-    ([nil] + DrawnTheme.allCases.map(Optional.some)).map { DashboardTheme(mode: mode, drawn: $0) }
+  /// What the dashboard may have sent (or nothing), and what Same as dashboard draws for it, written out.
+  static let dashboard: [(DashboardTheme?, ThemeMode)] = [
+    (nil, .system),
+    (DashboardTheme(mode: .light), .light),
+    (DashboardTheme(mode: .light, drawn: .light), .light),
+    (DashboardTheme(mode: .light, drawn: .dark), .dark),
+    (DashboardTheme(mode: .dark), .dark),
+    (DashboardTheme(mode: .dark, drawn: .light), .light),
+    (DashboardTheme(mode: .dark, drawn: .dark), .dark),
+    (DashboardTheme(mode: .system), .system),
+    (DashboardTheme(mode: .system, drawn: .light), .light),
+    (DashboardTheme(mode: .system, drawn: .dark), .dark),
+  ]
+
+  /// Same as dashboard draws as the dashboard looks: its palette, else its mode, else macOS's.
+  @Test(arguments: dashboard)
+  func sameAsDashboardDrawsWhatItWasSent(sent: DashboardTheme?, expected: ThemeMode) {
+    #expect(ThemeChoice.dashboard.mode(sent: sent) == expected, "\(String(describing: sent)) sent")
   }
 
-  /// Every choice here, against every theme and palette the dashboard may have sent (or none).
-  @Test(arguments: ThemeChoice.allCases, sent)
-  func theChoiceHereThenTheDashboardsThenMacOS(choice: ThemeChoice, sent: DashboardTheme?) {
-    let expected: ThemeMode = switch choice {
-    case .light: .light
-    case .dark: .dark
-    case .system: .system
-    case .dashboard: sent?.drawn?.mode ?? sent?.mode ?? .system
+  /// Light, Dark and System here ignore whatever the dashboard sent.
+  @Test(arguments: [(ThemeChoice.light, ThemeMode.light), (.dark, .dark), (.system, .system)])
+  func theChoiceHereWinsOverTheDashboard(choice: ThemeChoice, expected: ThemeMode) {
+    for (sent, _) in Self.dashboard {
+      #expect(choice.mode(sent: sent) == expected, "\(choice) with \(String(describing: sent)) sent")
     }
-    #expect(choice.mode(sent: sent) == expected, "\(choice) with \(String(describing: sent)) sent")
   }
 
   @Test func followingTheDashboardBeforeItHasSentAThemeIsFollowingMacOS() {

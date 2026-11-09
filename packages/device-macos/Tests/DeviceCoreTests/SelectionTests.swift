@@ -245,13 +245,49 @@ struct SelectionTests {
       0: ["AXFocusedUIElement": 1, "AXFocusedWindow": 10],
       1: ["AXRole": "AXButton", "AXParent": 10],
       10: ["AXRole": "AXWindow"],
-      11: ["AXRole": "AXSecureTextField", "AXSelectedText": "hunter2"],
+      11: ["AXRole": "AXTextField", "AXSubrole": "AXSecureTextField", "AXSelectedText": "hunter2"],
       12: ["AXRole": "AXGroup"],
       13: ["AXRole": "AXStaticText", "AXSelectedText": "found it"],
     ]
     fake.children = [10: [11, 12], 12: [13]]
     let (read, _) = read(fake, notes)
     #expect(read == .text("found it"))
+  }
+
+  /// What is inside a password field is passed over with it, never read.
+  @Test func aPasswordFieldsChildrenAreSkipped() {
+    let fake = Fake()
+    fake.attributes = [
+      0: ["AXFocusedWindow": 10],
+      10: ["AXRole": "AXWindow"],
+      11: ["AXRole": "AXTextField", "AXSubrole": "AXSecureTextField"],
+      12: ["AXRole": "AXStaticText", "AXSelectedText": "hunter2"],
+    ]
+    fake.children = [10: [11], 11: [12]]
+    #expect(read(fake, notes).0 == .nothing)
+  }
+
+  /// The focused element and seven of its parents are looked through, and no more.
+  @Test func eightParentsAreLookedThrough() {
+    for (depth, expected) in [(7, SelectionRead.text("in reach")), (8, .nothing)] {
+      let fake = Fake()
+      fake.attributes = [0: ["AXFocusedUIElement": 1]]
+      for id in 1...10 { fake.attributes[id] = ["AXRole": "AXGroup", "AXParent": id + 1] }
+      fake.attributes[1 + depth]?["AXSelectedText"] = "in reach"
+      #expect(read(fake, notes).0 == expected, "selection \(depth) parents up")
+    }
+  }
+
+  /// The window walk looks at 300 elements, and no more.
+  @Test func threeHundredElementsAreWalked() {
+    for (at, expected) in [(300, SelectionRead.text("in reach")), (301, .nothing)] {
+      let fake = Fake()
+      fake.attributes = [0: ["AXFocusedWindow": 1]]
+      // A window of 400, the window itself the first element seen.
+      fake.children = [1: Array(2...400)]
+      fake.attributes[at] = ["AXSelectedText": "in reach"]
+      #expect(read(fake, notes).0 == expected, "selection at element \(at)")
+    }
   }
 
   @Test func aLongSelectionIsCut() {
@@ -283,6 +319,17 @@ struct SelectionTests {
       later.attributes = [0: ["AXFocusedUIElement": 1], 1: ["AXSelectedText": "hunter2"]]
     })
     #expect(read == .refused)
+  }
+
+  /// Chrome's enhanced mode is off again when secure input turned on during the wait.
+  @Test func enhancedIsRestoredWhenSecureInputRefusesAfterTheWait() {
+    let fake = Fake()
+    fake.settable = ["AXEnhancedUserInterface"]
+    var secure = false
+    let (read, paused) = read(fake, chrome, secure: { secure }, pause: { secure = true })
+    #expect(read == .refused)
+    #expect(paused == 1)
+    #expect(fake.sets("AXEnhancedUserInterface") == [true, false])
   }
 
   @Test func aHiddenAppIsNeverRead() {

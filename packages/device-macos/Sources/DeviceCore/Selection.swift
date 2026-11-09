@@ -174,7 +174,7 @@ public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable
     return walk(window).map { .text($0) }
   }
 
-  /// The first selection in the window, breadth first, password fields passed over.
+  /// The first selection in the window, breadth first, password fields and what is in them passed over.
   private func walk(_ window: Access.Element) -> String? {
     var queue = [window]
     var seen = 0
