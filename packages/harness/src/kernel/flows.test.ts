@@ -2130,7 +2130,8 @@ describe("KOS end-to-end flows", () => {
     const c = kernel.conversations.create({ userId: "owner", title: "Ev" });
     await kernel.handleMessage("write a.txt", { sessionId: c.id });
     // What was said rides between the tool and the end, for a surface that shows the chat elsewhere.
-    expect(kinds).toEqual(["turn:start", "tool:end", "turn:said", "turn:end"]);
+    // The chat being made is told first, for a surface to lay it out.
+    expect(kinds).toEqual(["chat:created", "turn:start", "tool:end", "turn:said", "turn:end"]);
     kinds.length = 0;
     const action = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "a.txt" }, riskTier: "risky" });
     await kernel.deny(action.id, "owner");

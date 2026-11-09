@@ -5,9 +5,11 @@ import type { ProgressEvent } from "../kernel/progress.js";
 import type { ToolRegistry } from "../agent/registry.js";
 import { SingleOwnerMapping, type UserMapping } from "./identity.js";
 import { TurnNarrator } from "./narrate.js";
+import { BindingGoneError } from "./types.js";
 import type {
   ApprovalDecision,
   ApprovalOutcome,
+  ApprovalSettled,
   ChannelAdapter,
   ConversationSeed,
   Guest,
@@ -39,6 +41,11 @@ export interface TurnContext {
   context?: string;
   /** What others said in the room in between, kept beside the words. */
   roomTalk?: string;
+  /** Sent while KOS was away, and when: too old, it is not run. */
+  late?: boolean;
+  sentAt?: number;
+  /** Several such, too old to run, for one note to list. */
+  missed?: string[];
 }
 
 /** Handles one user turn and returns the reply text. */
@@ -51,10 +58,12 @@ export interface TurnContext {
  * is waiting on an approval and will carry on behind the answer, so the
  * story is kept open until it ends rather than closed with this reply.
  */
-export type TurnHandler = (ctx: TurnContext) => Promise<string | (OutboundMessage & { suspended?: boolean; steered?: boolean })>;
+export type TurnHandler = (ctx: TurnContext) => Promise<string | (OutboundMessage & { suspended?: boolean; steered?: boolean; dropped?: boolean })>;
 
 /** Said where a message was taken into the turn already running, whose answer answers it too. */
 export const STEERED_LINE = "-# taken in by the turn already running";
+/** Said where a waiting message was dropped, or forked away, before its turn came. */
+export const DROPPED_LINE = "-# dropped";
 
 export interface DecisionContext {
   /** KOS user the decider resolved to. */
@@ -67,8 +76,8 @@ export interface DecisionContext {
   remember?: boolean;
 }
 
-/** Handles an approve/deny decision that already passed the identity gate. */
-export type DecisionHandler = (ctx: DecisionContext) => Promise<void> | void;
+/** Handles an approve/deny decision that already passed the identity gate, and says how the ask went. */
+export type DecisionHandler = (ctx: DecisionContext) => Promise<ApprovalSettled | void> | ApprovalSettled | void;
 
 /** An inbound event from a sender the identity mapping does not recognize. */
 export interface RejectedInbound {
@@ -261,6 +270,7 @@ export class ChannelRuntime {
       timer = undefined;
       if (narrator.worthShowing()) show(narrator.renderSteps());
       await last;
+      presence.close?.();
     };
     // The story ends itself when the turn does: a turn that suspended on an
     // approval answered "waiting on you" long before its last step, and the
@@ -284,7 +294,7 @@ export class ChannelRuntime {
     return this.identity.resolve(channel, senderId) ?? null;
   }
 
-  private async decide(decision: ApprovalDecision): Promise<void> {
+  private async decide(decision: ApprovalDecision): Promise<ApprovalSettled | void> {
     const channel = this.adapter.name;
     const userId = this.resolve(channel, decision.deciderId);
     if (userId === null) {
@@ -297,7 +307,7 @@ export class ChannelRuntime {
       return;
     }
     try {
-      await this.handleDecision?.({
+      return await this.handleDecision?.({
         userId,
         channel,
         deciderId: decision.deciderId,
@@ -363,9 +373,18 @@ export class ChannelRuntime {
         ...(msg.context ? { context: msg.context } : {}),
         ...(msg.roomTalk ? { roomTalk: msg.roomTalk } : {}),
         ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
+        ...(msg.late ? { late: true } : {}),
+        ...(msg.sentAt !== undefined ? { sentAt: msg.sentAt } : {}),
+        ...(msg.missed?.length ? { missed: msg.missed } : {}),
         ...guest,
       });
-      const { suspended = false, steered = false, ...message } = typeof answer === "string" ? { text: answer } : answer;
+      const { suspended = false, steered = false, dropped = false, ...message } = typeof answer === "string" ? { text: answer } : answer;
+      // Dropped while it waited: its line says so, and nothing answers it.
+      if (dropped) {
+        await story?.end();
+        if (presence) await presence.update(DROPPED_LINE);
+        return;
+      }
       // Heard by the turn already running: its answer is the answer, and here it is only said that it was heard.
       if (steered) {
         await story?.end();
@@ -401,11 +420,13 @@ export class ChannelRuntime {
        * took the host down with it. There is nowhere left to report to by
        * this point, so it goes to the log and the process stays up.
        */
+      // A room bound to something gone is told so, in the kernel's words.
+      const said = err instanceof BindingGoneError ? err.message : this.errorReply;
       try {
         if (presence) {
-          await presence.fail(this.errorReply);
+          await presence.fail(said);
         } else {
-          await this.adapter.send(msg.senderId, { text: this.errorReply });
+          await this.adapter.send(msg.senderId, { text: said });
         }
       } catch (err) {
         console.error(

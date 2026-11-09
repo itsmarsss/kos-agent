@@ -12,6 +12,12 @@ export interface ConnectChannelOptions {
    * public surface; omitting it trusts every sender (in-process adapters only).
    */
   identity?: UserMapping;
+  /**
+   * Whether a chat's answers are already shown somewhere of its own on this
+   * surface (a channel or thread it is mirrored into): a decision's resumed
+   * answer lands there, and is not also sent to the owner here.
+   */
+  answeredElsewhere?: (conversationId: string) => boolean;
 }
 
 /**
@@ -39,6 +45,8 @@ export function connectChannel(
     const addressed = ctx.text ? kernel.addressedAgent(ctx.text) : undefined;
     return addressed ? agentConversationId(addressed.name) : (ctx.conversationId ?? kernel.conversationFor(ctx.channel, ctx.userId, ctx.conversationKey).id);
   };
+  // Asks decided from this surface, so a second press says so rather than naming the dashboard.
+  const decidedHere = new Set<number>();
   return new ChannelRuntime({
     adapter,
     ownerRecipientId: options.ownerRecipientId,
@@ -77,6 +85,9 @@ export function connectChannel(
         ...(ctx.members?.length ? { members: ctx.members } : {}),
         ...(ctx.context ? { context: ctx.context } : {}),
         ...(ctx.roomTalk ? { roomTalk: ctx.roomTalk } : {}),
+        ...(ctx.late ? { late: true } : {}),
+        ...(ctx.sentAt !== undefined ? { sentAt: ctx.sentAt } : {}),
+        ...(ctx.missed?.length ? { missed: ctx.missed } : {}),
         ...(adapter.contained ? { contained: true } : {}),
       });
       // The owner asked from this surface and the answer lands on it, so
@@ -87,6 +98,8 @@ export function connectChannel(
       // its story until the rest of it has run.
       // Taken into the turn already running here: that turn answers it.
       if (res.steered) return { text: "", steered: true };
+      // Dropped or forked away on the dashboard while it waited.
+      if (res.dropped) return { text: "", dropped: true };
       const waiting = res.suspended ? { suspended: true as const } : {};
       if (res.from && res.reply) return { text: res.reply, from: res.from, ...waiting };
       return res.suspended ? { text: res.reply || "(no reply)", ...waiting } : res.reply || "(no reply)";
@@ -104,21 +117,40 @@ export function connectChannel(
      * failure contradicts the prompt, which is left claiming the action is
      * running.
      */
+    /*
+     * The prompt is labelled as soon as the decision is recorded, from the
+     * row itself; the action and the turn it resumes run after, which can
+     * take minutes, and a press is answered within seconds or not at all.
+     */
     handleDecision: async (ctx) => {
       const id = Number(ctx.pendingId);
-      let text: string | undefined;
-      if (ctx.approved) {
-        const res = await kernel.approve(id, undefined, { remember: ctx.remember === true });
-        if (res.reply) text = res.reply;
-        else if (res.isError) text = `Approved #${id} failed: ${res.message}`;
-        // A row that was already gone was never settled in place either, so
-        // silence here would be a press that did nothing and said nothing.
-        else if (!res.ok) text = res.message;
-      } else {
-        const res = await kernel.deny(id);
-        text = res.reply ?? (res.ok ? undefined : res.message);
+      // The answer after the decision shows where the chat is mirrored, so it is not sent here twice.
+      const action = kernel.approvals.get(id);
+      // Settled already: said as it went, and where, not decided again.
+      if (action && action.status !== "pending") return { outcome: action.status, already: true, ...(decidedHere.has(id) ? { here: true } : {}) };
+      const chat = action?.conversationId;
+      const mirrored = chat ? options.answeredElsewhere?.(chat) === true : false;
+      // Recorded before the first await inside: read back at once, below.
+      const run = ctx.approved ? kernel.approve(id, undefined, { remember: ctx.remember === true }) : kernel.deny(id);
+      const recorded = kernel.approvals.get(id)?.status;
+      const done = run
+        .then(async (res) => {
+          let text: string | undefined;
+          if (res.reply !== undefined) text = mirrored ? undefined : res.reply;
+          else if (ctx.approved && res.isError) text = `Approved #${id} failed: ${res.message}`;
+          // A row that was already gone was never settled in place either, so
+          // silence here would be a press that did nothing and said nothing.
+          else if (!res.ok) text = res.message;
+          if (text) await adapter.send(options.ownerRecipientId, { text });
+        })
+        .catch((err: unknown) => console.error(`[channels] approval #${id} failed after it was recorded: ${err instanceof Error ? err.message : String(err)}`));
+      // Nothing was decided: no outcome to label, only what went wrong to say.
+      if (recorded === undefined || recorded === "pending") {
+        await done;
+        return;
       }
-      if (text) await adapter.send(options.ownerRecipientId, { text });
+      decidedHere.add(id);
+      return { outcome: recorded, done };
     },
   });
 }

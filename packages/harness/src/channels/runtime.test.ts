@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ModelResponse } from "../models/types.js";
 import type { ProgressEvent } from "../kernel/progress.js";
@@ -9,6 +9,7 @@ import {
   type UserMapping,
 } from "./identity.js";
 import { InMemoryAdapter } from "./memory.js";
+import { BindingGoneError } from "./types.js";
 import {
   ChannelRuntime,
   createAgentTurnHandler,
@@ -317,6 +318,27 @@ describe("telling the turn's story on a surface with a presence", () => {
     await adapter.receive({ channel: "memory", senderId: "u1", text: "stop after the second one" });
     expect(adapter.completed).toEqual([{ text: "-# taken in by the turn already running" }]);
     expect(adapter.sent).toEqual([]);
+  });
+
+  it("says a waiting message was dropped, and answers nothing, when it was dropped before its turn", async () => {
+    const adapter = new InMemoryAdapter();
+    adapter.withPresence = true;
+    const runtime = new ChannelRuntime({ adapter, handleTurn: async () => ({ text: "", dropped: true }) });
+    await runtime.start();
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "the second thing" });
+    expect(adapter.shown.at(-1)).toBe("-# dropped");
+    expect(adapter.completed).toEqual([]);
+    expect(adapter.sent).toEqual([]);
+  });
+
+  it("says a room's binding is gone in the kernel's words, not that something went wrong", async () => {
+    const adapter = new InMemoryAdapter();
+    adapter.withPresence = true;
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const runtime = new ChannelRuntime({ adapter, handleTurn: async () => { throw new BindingGoneError("no project called garden; this channel is bound to one that is gone"); } });
+    await runtime.start();
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "hi" });
+    expect(adapter.completed).toEqual([{ text: "failed: no project called garden; this channel is bound to one that is gone" }]);
   });
 
   it("shows nothing for a turn that takes no step", async () => {

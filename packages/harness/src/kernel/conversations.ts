@@ -209,6 +209,25 @@ export class ConversationStore {
     this.removedListeners.push(listener);
   }
 
+  /** Told when a chat is made: a project's or a blob's is a channel to lay out at once. */
+  private readonly createdListeners: ((id: string) => void)[] = [];
+
+  onCreated(listener: (id: string) => void): void {
+    this.createdListeners.push(listener);
+  }
+
+  /** Told when a chat's title changes, however it changed, so what stands for it elsewhere is named the same. */
+  private readonly renamedListeners: ((id: string, title: string) => void)[] = [];
+
+  onRenamed(listener: (id: string, title: string) => void): void {
+    this.renamedListeners.push(listener);
+  }
+
+  private renamed(id: string, was: string | undefined, now: string | undefined): void {
+    if (now === undefined || was === now) return;
+    for (const listener of this.renamedListeners) listener(id, now);
+  }
+
   constructor(
     private readonly db: Db,
     private readonly now: () => number = Date.now,
@@ -263,7 +282,7 @@ export class ConversationStore {
       readAt: null,
     };
     const { readAt: _unread, ...columns } = row;
-    this.db
+    const inserted = this.db
       .prepare(
         `INSERT INTO conversations (id, user_id, title, channel, created_at, updated_at, archived, brief, tool_allow, project_slug, role)
          VALUES (@id, @userId, @title, @channel, @createdAt, @updatedAt, 0, @brief, @toolAllow, @projectSlug, @role)
@@ -273,6 +292,7 @@ export class ConversationStore {
         ...columns,
         toolAllow: row.toolAllow === null ? null : JSON.stringify(row.toolAllow),
       });
+    if (inserted.changes > 0) for (const listener of this.createdListeners) listener(id);
     return this.get(id) ?? row;
   }
 
@@ -304,10 +324,13 @@ export class ConversationStore {
   rename(id: string, title: string): Conversation | undefined {
     const clean = title.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE);
     if (clean === "") return this.get(id);
+    const was = this.get(id)?.title;
     this.db
       .prepare(`UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?`)
       .run(clean, this.now(), id);
-    return this.get(id);
+    const now = this.get(id);
+    this.renamed(id, was, now?.title);
+    return now;
   }
 
   /** Bump ordering, and adopt a title if the conversation is still unnamed. */
@@ -326,6 +349,7 @@ export class ConversationStore {
     this.db
       .prepare(`UPDATE conversations SET updated_at = ?, title = ? WHERE id = ?`)
       .run(this.now(), title, id);
+    this.renamed(id, current.title, title);
   }
 
   /** Change what this conversation is for, or what it may reach. */

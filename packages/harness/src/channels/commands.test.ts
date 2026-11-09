@@ -230,3 +230,26 @@ describe("picking a job for /run", () => {
     expect(jobNamed(ctx, undefined)).toBeUndefined();
   });
 });
+
+describe("a slash command typed in a bound channel or thread", () => {
+  it("stops the room's chat, not the one the DM points at", () => {
+    const ctx = ctxWith(chats, "a");
+    runCommand(ctx, "stop", undefined, "b");
+    expect(ctx.stopped).toEqual(["b"]);
+    runCommand(ctx, "stop");
+    expect(ctx.stopped).toEqual(["b", "a"]);
+  });
+
+  it("marks the room's chat as the current one in the list", () => {
+    const value = runCommand(ctxWith(chats, "a"), "chats", undefined, "b").card!.fields![0]!.value;
+    expect(value).toContain("→ 3js shooter");
+    expect(value).not.toContain("→ Book CRM");
+  });
+
+  it("says that a move made there moves the DM, not the room", () => {
+    const ctx = ctxWith(chats, "a");
+    expect(runCommand(ctx, "target", "b", "a").card!.footer).toMatch(/moves your DMs; this channel stays with its own chat$/);
+    expect(ctx.pointed).toBe("b");
+    expect(runCommand(ctx, "target", "a").card!.footer).not.toMatch(/moves your DMs/);
+  });
+});

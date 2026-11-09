@@ -10,6 +10,7 @@ import { Kernel, orchestratorId } from "./kernel.js";
 import type { Conversation } from "./conversations.js";
 import { isKernelTable } from "../tools/fence.js";
 import { SurfaceDownError, type NotifyPayload } from "../tools/notify.js";
+import { BindingGoneError } from "../channels/types.js";
 import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { toPdf } from "../tools/pdf.js";
 import { bodyHexOf } from "@kos/shared";
@@ -179,6 +180,44 @@ describe("Kernel", () => {
     expect(events.find((e) => e.kind === "tool")).toMatchObject({ result: expect.not.stringContaining("are you stuck") });
   });
 
+  it("hears words said mid-turn as they were edited while waiting, and not at all once dropped", async () => {
+    const step: ModelResponse = { content: [{ type: "tool_use", id: "t1", name: "files.write", input: { path: "scratch/a.txt", content: "a" } }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+    const said = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    const requests: GenerateRequest[] = [];
+    const seconds: Promise<{ reply: string; steered?: boolean; dropped?: boolean }>[] = [];
+    let chat = "";
+    kernel = await boot({
+      async generate(_t, r) {
+        requests.push(r);
+        if (requests.length === 1) {
+          seconds.push(kernel.handleMessage("use the blue one", { sessionId: chat, channel: "dashboard" }));
+          seconds.push(kernel.handleMessage("never mind this", { sessionId: chat }));
+          await new Promise((done) => setTimeout(done, 30));
+          // Edited and dropped on the dashboard while the step runs.
+          const [blue, never] = kernel.pending.forConversation(chat);
+          kernel.pending.edit(blue!.id, "use the red one");
+          kernel.pending.remove(never!.id);
+          return step;
+        }
+        return said("Red it is.");
+      },
+    });
+    chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Paint" }).id;
+    const heard: unknown[] = [];
+    kernel.progress.subscribe((e) => void (e.kind === "heard" && heard.push(e)));
+    expect((await kernel.handleMessage("paint it", { sessionId: chat })).reply).toBe("Red it is.");
+    expect(await seconds[0]).toMatchObject({ steered: true });
+    expect(await seconds[1]).toMatchObject({ reply: "", dropped: true });
+    expect(requests).toHaveLength(2);
+    const sent = JSON.stringify(requests[1]);
+    expect(sent).toContain("use the red one");
+    expect(sent).not.toContain("use the blue one");
+    expect(sent).not.toContain("never mind this");
+    expect(kernel.pending.forConversation(chat)).toEqual([]);
+    // Told as heard, for a surface showing the chat elsewhere; the dropped words are not.
+    expect(heard).toEqual([{ kind: "heard", conversationId: chat, said: "use the red one", from: "dashboard" }]);
+  });
+
   it("runs words said too late for a step as a turn of their own", async () => {
     const said = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
     let calls = 0;
@@ -323,7 +362,7 @@ describe("Kernel", () => {
     expect(inProject).toMatchObject({ conversationId: `project:${garden.slug}`, reply: "In the garden." });
     expect(JSON.stringify(kernel.sessions.get(`project:${garden.slug}`))).toContain("what's growing");
     // A thread under it is a new chat of the project, titled as the thread, kept for the next message.
-    const inThread = await kernel.handleChannelTurn({ text: "seeds?", userId: "owner", channel: "discord", conversationId: "discord:thread:t9", newIn: { projectSlug: garden.slug, title: "Seeds" } });
+    const inThread = await kernel.handleChannelTurn({ text: "seeds?", userId: "owner", channel: "discord", conversationId: "discord:thread:t9", newIn: { projectSlug: garden.slug, title: "Seeds", threadId: "t9" } });
     expect(inThread.conversationId).toBe("discord:thread:t9");
     expect(kernel.conversations.get("discord:thread:t9")).toMatchObject({ title: "Seeds", projectSlug: garden.slug, channel: "discord" });
     // A blob's channel runs the blob's own thread, and the answer is tagged as its own.
@@ -347,9 +386,11 @@ describe("Kernel", () => {
     const gardenPlan = plan.find((c) => c.key === `project:${garden.slug}`)!;
     expect(gardenPlan).toMatchObject({ name: "my-garden", topic: `kos:project:${garden.slug} · My Garden`, category: "Projects", audience: "owner" });
     expect(gardenPlan.threads).toEqual([{ conversationId: "discord:thread:t9", title: "Seeds" }]);
+    // The owner's own thread is bound to the chat made from it, so no second thread is made for it.
+    expect(kernel.threadBindings()).toEqual({ t9: "discord:thread:t9" });
     // A thread KOS made is remembered as its chat.
-    kernel.bindThread("t42", "discord:thread:t9");
-    expect(kernel.threadBindings()).toEqual({ t42: "discord:thread:t9" });
+    kernel.bindThread("t42", "agent:recap");
+    expect(kernel.threadBindings()).toEqual({ t9: "discord:thread:t9", t42: "agent:recap" });
     expect(plan.every((c) => /^[a-z0-9-]+$/.test(c.name))).toBe(true);
     // Everything is the owner's alone until they say otherwise, one channel at a time; KOS's own and the approvals always.
     expect(plan.every((c) => c.audience === "owner")).toBe(true);
@@ -359,6 +400,39 @@ describe("Kernel", () => {
     expect(kernel.surfaceChannels().find((c) => c.key === `project:${garden.slug}`)?.audience).toBe("everyone");
     kernel.setChannelAudience(`project:${garden.slug}`, "owner");
     expect(kernel.channelAudiences()).toEqual({});
+  });
+
+  it("finds a chat bound to a thread KOS made beside the owner's own, and rebinds it to the owner's without deleting either", async () => {
+    kernel = await boot(stubInference([]));
+    const garden = kernel.standUpProject({ name: "Garden", type: "tracker" });
+    // Before the owner's thread was bound: a chat from it, and a second thread the layout made for that chat.
+    kernel.conversations.create({ id: "discord:thread:t1", userId: "owner", title: "Seeds", channel: "discord", projectSlug: garden.slug });
+    kernel.bindThread("k9", "discord:thread:t1");
+    // One that is right already, and an ordinary chat with KOS's thread, are left alone.
+    kernel.conversations.create({ id: "discord:thread:t2", userId: "owner", title: "Soil", channel: "discord" });
+    kernel.bindThread("t2", "discord:thread:t2");
+    kernel.bindThread("k8", "ordinary");
+    // A message there now does not add a second binding: that is the helper's to fix.
+    kernel.boundConversation("discord:thread:t1", "owner", "discord", { title: "Seeds", threadId: "t1" });
+    expect(kernel.ownerThreadDuplicates()).toEqual([{ conversationId: "discord:thread:t1", title: "Seeds", ownerThread: "t1", madeThreads: ["k9"] }]);
+    expect(kernel.threadBindings()).toEqual({ k9: "discord:thread:t1", t2: "discord:thread:t2", k8: "ordinary" });
+    expect(kernel.rebindOwnerThreads()).toHaveLength(1);
+    expect(kernel.threadBindings()).toEqual({ t2: "discord:thread:t2", k8: "ordinary", t1: "discord:thread:t1" });
+    expect(kernel.ownerThreadDuplicates()).toEqual([]);
+  });
+
+  it("never makes a deleted chat again from a stale binding, and says a room's binding is gone in so many words", async () => {
+    kernel = await boot(stubInference([]));
+    const seed = { title: "Seeds", threadId: "t1" };
+    kernel.boundConversation("discord:thread:t1", "owner", "discord", seed);
+    kernel.conversations.remove("discord:thread:t1");
+    expect(() => kernel.boundConversation("discord:thread:t1", "owner", "discord", seed)).toThrow(BindingGoneError);
+    expect(kernel.conversations.get("discord:thread:t1")).toBeUndefined();
+    // A channel bound by topic to a chat id that is gone makes nothing either.
+    expect(() => kernel.boundConversation("c-deleted:owner", "owner", "discord")).toThrow(/bound to a chat that is gone/);
+    expect(() => kernel.boundConversation("project:gone", "owner", "discord")).toThrow(BindingGoneError);
+    // A new thread of the owner's still makes its chat.
+    expect(kernel.boundConversation("discord:thread:t2", "owner", "discord", { title: "Soil", threadId: "t2" }).title).toBe("Soil");
   });
 
   it("tells the bus what each turn said, and where the words came in", async () => {

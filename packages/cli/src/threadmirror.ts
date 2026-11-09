@@ -22,6 +22,8 @@ import { TurnNarrator, type MessageFrom, type OutboundMessage, type ProgressEven
 export interface Story {
   edit(text: string): Promise<void>;
   remove(): Promise<void>;
+  /** The turn is over: a surface that kept the line for a restart lets it go. */
+  close?(): void;
 }
 
 /** The turn:said event the host hands the mirror, so it can post the answer and finalize the story. */
@@ -108,6 +110,21 @@ export class ThreadMirror {
     if (event.kind === "turn-start") void this.run(conv, () => this.start(event));
     else if (event.kind === "tool-start" || event.kind === "tool-end" || event.kind === "delta") void this.run(conv, () => this.step(conv, event));
     else if (event.kind === "turn-end") void this.run(conv, () => this.finish(conv));
+    else if (event.kind === "heard") void this.run(conv, () => this.heard(event));
+  }
+
+  /**
+   * Words said on the dashboard while the turn ran, heard by it mid-turn:
+   * posted in the thread under the owner's name, where the turn heard them.
+   * Said on Discord, they are there already.
+   */
+  private async heard(event: Extract<ProgressEvent, { kind: "heard" }>): Promise<void> {
+    if (event.from === "discord" || !event.said.trim()) return;
+    const target = this.tracked.get(event.conversationId)?.target ?? this.deps.targetFor(event.conversationId);
+    if (!target) return;
+    const owner = await this.deps.ownerSender();
+    const text = owner ? event.said.trim() : `${event.said.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard`;
+    await this.deps.postIn(target, { text, ...(owner ? { from: owner } : {}), silent: true });
   }
 
   /**
@@ -127,6 +144,7 @@ export class ThreadMirror {
       if (t.story) {
         const steps = t.narrator.renderSteps();
         await (steps.trim() ? t.story.edit(steps) : t.story.remove());
+        t.story.close?.();
       }
       if (said.reply.trim()) {
         const from = this.deps.senderFor(said.conversationId);
@@ -155,12 +173,12 @@ export class ThreadMirror {
     const passed = event.origin?.from;
     if (passed && (passed.kind === "chat" || passed.kind === "schedule")) {
       // Passed on by a chat or a schedule: under that sender's name, the line saying only that it was passed on.
-      await this.deps.postIn(target, { text: `${event.said.trim()}\n-# passed on`, from: this.deps.speakerFor(passed), ...(files.length ? { files } : {}) });
+      await this.deps.postIn(target, { text: `${event.said.trim()}\n-# passed on`, from: this.deps.speakerFor(passed), silent: true, ...(files.length ? { files } : {}) });
     } else {
       // The owner's own words, under their name and picture; quoted by the bot when they cannot be looked up.
       const owner = await this.deps.ownerSender();
       const text = owner ? event.said.trim() : `${event.said.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard`;
-      await this.deps.postIn(target, { text, ...(owner ? { from: owner } : {}), ...(files.length ? { files } : {}) });
+      await this.deps.postIn(target, { text, ...(owner ? { from: owner } : {}), silent: true, ...(files.length ? { files } : {}) });
     }
     this.tracked.set(conv, { target, narrator: new TurnNarrator(), storyTried: false, lastDrawn: 0 });
   }
@@ -197,6 +215,7 @@ export class ThreadMirror {
     if (t.story) {
       const steps = t.narrator.renderSteps();
       await (steps.trim() ? t.story.edit(steps) : t.story.remove());
+      t.story.close?.();
     }
   }
 }

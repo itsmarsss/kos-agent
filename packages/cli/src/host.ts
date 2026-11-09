@@ -13,6 +13,8 @@ import {
   DiscordAdapter,
   type KeptPrompts,
   type PromptRef,
+  type RoomCursors,
+  type KeptStories,
   IMessageAdapter,
   describeStartFailure,
   SmsAdapter,
@@ -44,6 +46,7 @@ type PanelSurface = "chrome" | "mac";
 
 import { envFilePath } from "./env.js";
 import { ThreadMirror } from "./threadmirror.js";
+import { postSaid, type SaidDeps } from "./saidpost.js";
 import { claimHandle, type HandleClaim } from "./imessagelock.js";
 import { clearDaemonState, writeDaemonState } from "./state.js";
 
@@ -144,6 +147,29 @@ function keepRunning(): void {
   });
 }
 
+/**
+ * The surface a message goes out on, when it is wired and up. A surface
+ * named that is not wired here is an error; one wired but down (Discord
+ * logging in, or dropped by its gateway) is the surface-down path, which
+ * leaves a message for the owner on the dashboard instead.
+ */
+export function surfaceUp(surfaces: Map<string, () => ChannelAdapter | undefined>, surface: string, named: boolean): ChannelAdapter {
+  const up = (name: string): ChannelAdapter | undefined => {
+    const wired = surfaces.get(name)?.();
+    return wired && wired.connected?.() !== false ? wired : undefined;
+  };
+  const connected = [...surfaces.keys()].filter((name) => up(name));
+  if (named && !surfaces.has(surface)) throw new Error(`no ${surface} surface here. Connected: ${connected.join(", ") || "none"}.`);
+  const send = up(surface);
+  if (!send) throw new SurfaceDownError(surface, connected);
+  return send;
+}
+
+/** The dashboard as Discord links to it: KOS_PUBLIC_URL when set, this host otherwise. */
+export function dashboardUrlFor(host: string, port: number): string {
+  return process.env.KOS_PUBLIC_URL?.trim() || `http://${host === "0.0.0.0" ? "localhost" : host}:${port}`;
+}
+
 /** The key the open asks' Discord cards are kept under, by approval id. */
 const KEPT_PROMPTS_KEY = "discord.prompts";
 /** An ask lapses well within this; a record older is let go. */
@@ -164,6 +190,48 @@ function keptPromptsIn(kernel: Kernel): KeptPrompts {
     delete: (id) => {
       const { [id]: _gone, ...rest } = all();
       save(rest);
+    },
+  };
+}
+
+/** The key the last message taken in each Discord room is kept under. */
+const ROOM_CURSORS_KEY = "discord.cursors";
+
+/** Where catch-up starts in each room, in the workspace's settings so a restart knows. */
+export function roomCursorsIn(settings: { get<T>(key: string): T | undefined; set(key: string, value: unknown): void }): RoomCursors {
+  const all = (): Record<string, string> => settings.get<Record<string, string>>(ROOM_CURSORS_KEY) ?? {};
+  return {
+    get: (room) => all()[room],
+    advance: (room, id) => {
+      const now = all();
+      const at = now[room];
+      if (at && BigInt(at) >= BigInt(id)) return;
+      settings.set(ROOM_CURSORS_KEY, { ...now, [room]: id });
+    },
+    rooms: () => Object.keys(all()),
+    drop: (room) => {
+      const { [room]: _gone, ...rest } = all();
+      settings.set(ROOM_CURSORS_KEY, rest);
+    },
+  };
+}
+
+/** The key the story lines of running turns are kept under. */
+const KEPT_STORIES_KEY = "discord.stories";
+
+/** The story lines of turns still running, in the workspace's settings, so a restart can say it cut them short. */
+export function keptStoriesIn(settings: { get<T>(key: string): T | undefined; set(key: string, value: unknown): void }): KeptStories {
+  const all = (): Record<string, PromptRef> => settings.get<Record<string, PromptRef>>(KEPT_STORIES_KEY) ?? {};
+  return {
+    add: (ref) => settings.set(KEPT_STORIES_KEY, { ...all(), [ref.messageId]: ref }),
+    remove: (messageId) => {
+      const { [messageId]: _gone, ...rest } = all();
+      settings.set(KEPT_STORIES_KEY, rest);
+    },
+    take: () => {
+      const refs = Object.values(all());
+      settings.set(KEPT_STORIES_KEY, {});
+      return refs;
     },
   };
 }
@@ -203,20 +271,8 @@ export async function runHost(options: HostOptions): Promise<void> {
   const notify =
     (creds && wantDiscord) || sms
       ? async (payload: NotifyPayload) => {
-          const wanted = payload.target.surface;
-          const connected = [...surfaces.keys()].filter((name) =>
-            surfaces.get(name)!(),
-          );
-          if (wanted && !surfaces.has(wanted)) {
-            throw new Error(
-              `no ${wanted} surface here. Connected: ${connected.join(", ") || "none"}.`,
-            );
-          }
-          // No surface named means wherever the owner already is: the
-          // first one wired.
-          const surface = wanted ?? defaultSurface;
-          const send = surfaces.get(surface)?.();
-          if (!send) throw new SurfaceDownError(surface, connected);
+          const surface = payload.target.surface ?? defaultSurface;
+          const send = surfaceUp(surfaces, surface, payload.target.surface !== undefined);
           const msg = {
             text: payload.text,
             ...(payload.card ? { card: payload.card } : {}),
@@ -446,6 +502,9 @@ export async function runHost(options: HostOptions): Promise<void> {
     },
   });
 
+  // A turn the last process was running when it stopped is said to be cut
+  // short in its chat, before any surface can start a turn of its own.
+  kernel.markInterrupted();
   // Off unless the owner set an interval; the timer re-reads it, so turning
   // it on in settings does not need a restart.
   kernel.startHeartbeat();
@@ -553,17 +612,33 @@ export async function runHost(options: HostOptions): Promise<void> {
   else console.log("ui: not built (pnpm -C packages/ui build); API only");
 
   if (wantDiscord && creds) {
+    // Where a reference in a reply, or a chat a slash command names, links
+    // to: the public URL when there is one; otherwise this host, which is
+    // right on the machine it runs on.
+    const dashboardUrl = dashboardUrlFor(options.host, options.port);
     adapter = new DiscordAdapter({
       token: creds.token,
       ownerId: creds.ownerId,
-      // Where a reference in a reply links to. The public URL when there is
-      // one; otherwise this host, which is right on the machine it runs on.
-      dashboardUrl: process.env.KOS_PUBLIC_URL?.trim() || `http://${options.host === "0.0.0.0" ? "localhost" : options.host}:${options.port}`,
+      dashboardUrl,
       ...(creds.guildId ? { guildId: creds.guildId } : {}),
       // Which thread stands for which chat: the kernel keeps it, the adapter asks.
       threadOf: (threadId) => kernel.threadBindings()[threadId],
       // Each open ask's cards, kept in the workspace so a restart still settles both.
       keptPrompts: keptPromptsIn(kernel),
+      // What each room last said to KOS, so what was said while it was away is caught up.
+      cursors: roomCursorsIn(kernel.settings),
+      // Each running turn's story line, so one a restart cut short says so.
+      keptStories: keptStoriesIn(kernel.settings),
+      // A thread deleted on Discord lets its chat go; it gets a new one on next use.
+      onGone: (id) => {
+        if (kernel.threadBindings()[id]) kernel.unbindThread(id);
+      },
+      // The owner renamed a chat's thread on Discord: the chat takes the name.
+      onThreadRenamed: (threadId, name) => {
+        const id = kernel.threadBindings()[threadId];
+        const chat = id ? kernel.conversations.get(id) : undefined;
+        if (chat && chat.title !== name) kernel.conversations.rename(chat.id, name);
+      },
       threadBindings: () => kernel.threadBindings(),
       timezone: kernel.profile.timezone,
       labelOf: (kind, id) => kernel.labelFor(kind, id),
@@ -594,6 +669,13 @@ export async function runHost(options: HostOptions): Promise<void> {
       listenOf: (key) => kernel.channelListening()[key] ?? "always",
       // Who speaks from a chat, so a blob's story in its channel is the blob's.
       senderOf: (conversationId) => kernel.senderFor(conversationId),
+      // Back from a drop: an ask made while the gateway was down, or whose
+      // card never went out, gets one now.
+      onConnected: async () => {
+        for (const action of kernel.approvals.pending()) {
+          if (!adapter!.hasCard(String(action.id))) await adapter!.requestApproval(creds.ownerId, approvalRequest(action)).catch(() => undefined);
+        }
+      },
     });
     /*
      * A button KOS sent comes back as a message.
@@ -640,10 +722,8 @@ export async function runHost(options: HostOptions): Promise<void> {
         kernel.conversations.setActive(adapter!.name, kernel.profile.ownerId, id),
       home: () => surfaceSessionId(adapter!.name, kernel.profile.ownerId),
       stop: (id) => kernel.stop(id),
-      // Where to read a thread. The dashboard is on this machine, so this is
-      // a link the owner can actually follow from Discord on the same one.
-      link: (id) =>
-        `http://${options.host}:${options.port}/#/chats/${encodeURIComponent(id)}`,
+      // Where to read a thread: the same dashboard the replies link to.
+      link: (id) => `${dashboardUrl.replace(/\/+$/, "")}/#/chats/${encodeURIComponent(id)}`,
       create: (title) => {
         const made = kernel.conversations.create({
           userId: kernel.profile.ownerId,
@@ -663,6 +743,8 @@ export async function runHost(options: HostOptions): Promise<void> {
     );
     runtime = connectChannel(adapter, kernel, {
       ownerRecipientId: creds.ownerId,
+      // A chat with a channel or thread gets its answers there, a decision's included.
+      answeredElsewhere: (conversationId) => adapter?.mirrorTarget(conversationId, kernel.threadBindings()) !== undefined,
       // The sender->user table, seeded from config: only the configured Discord
       // account maps to a KOS user, so every other DM and button click is
       // dropped. Multi-user is more rows here, not a code change.
@@ -719,8 +801,15 @@ export async function runHost(options: HostOptions): Promise<void> {
           if (first) console.error(`Discord: could not set the server up: ${err instanceof Error ? err.message : String(err)}`);
         }
       };
-      await sync(true);
-      setInterval(() => void sync(false), 5 * 60_000).unref();
+      // One layout at a time: two at once would each make the channel the other is making.
+      let laying: Promise<void> = Promise.resolve();
+      const syncOnce = (first: boolean): Promise<void> => (laying = laying.then(() => sync(first)));
+      await syncOnce(true);
+      setInterval(() => void syncOnce(false), 5 * 60_000).unref();
+      // A project or a blob made now has its channel now, not at the next look.
+      kernel.bus.on("chat:created", ({ conversationId }) => {
+        if (/^(project|agent):/.test(conversationId)) void syncOnce(false);
+      });
       /*
        * The server shows every exchange, wherever it happened, as it happens.
        * A turn taken on the dashboard, handed off, or dispatched by an
@@ -731,6 +820,15 @@ export async function runHost(options: HostOptions): Promise<void> {
        * is left to the presence running it; a scheduled job posts its one
        * result under its own name through the handler below.
        */
+      /** The files that came with words, read back from where the kernel kept them; one that is gone is dropped. */
+      const keptFiles = (files: { name: string; path: string }[]) =>
+        files.flatMap((f) => {
+          try {
+            return [{ name: f.name, mediaType: "application/octet-stream", data: readFileSync(kernel.workspace.resolve(f.path)).toString("base64"), path: f.path }];
+          } catch {
+            return [];
+          }
+        });
       const mirror = new ThreadMirror({
         targetFor: (conv) => adapter?.mirrorTarget(conv, kernel.threadBindings()),
         projectOf: (conv) => {
@@ -746,19 +844,24 @@ export async function runHost(options: HostOptions): Promise<void> {
         speakerFor: (from) => kernel.speakerFor(from),
         ownerSender: () => adapter!.ownerSender(),
         senderFor: (conv) => kernel.senderFor(conv),
-        filesFor: (files) =>
-          files.flatMap((f) => {
-            try {
-              return [{ name: f.name, mediaType: "application/octet-stream", data: readFileSync(kernel.workspace.resolve(f.path)).toString("base64"), path: f.path }];
-            } catch {
-              return [];
-            }
-          }),
+        filesFor: keptFiles,
         postIn: (target, msg) => adapter!.postIn(target, msg),
         openStory: (target, from) => adapter!.openStory(target, from),
         warn: (message) => console.warn(`[discord] thread mirror: ${message}`),
       });
       kernel.progress.subscribe((event) => mirror.onProgress(event));
+      const saidDeps: SaidDeps = {
+        targetFor: (conv) => adapter?.mirrorTarget(conv, kernel.threadBindings()),
+        jobOf: (conv) => (conv.startsWith("cron:") ? kernel.crons.get(Number(conv.slice("cron:".length))) : undefined),
+        ensureThread: (key, conv, title) => adapter!.ensureThread(key, conv, title),
+        bindThread: (threadId, conv) => kernel.bindThread(threadId, conv),
+        senderFor: (conv) => kernel.senderFor(conv),
+        speakerFor: (from) => kernel.speakerFor(from),
+        ownerSender: () => adapter!.ownerSender(),
+        filesFor: keptFiles,
+        postIn: (target, msg) => adapter!.postIn(target, msg),
+        sendOwner: (msg) => adapter!.send(creds.ownerId, msg),
+      };
       /*
        * A turn's exchange, told once it has happened. The mirror handles the
        * turns it has been narrating in a thread (it posts the answer and
@@ -767,68 +870,7 @@ export async function runHost(options: HostOptions): Promise<void> {
        */
       kernel.bus.on("turn:said", (said) => {
         if (!adapter) return;
-        mirror.onSaid(said, async () => {
-          if (!adapter) return;
-        // A turn from Discord is answered by the presence that took it; one
-        // that waited on an approval was answered "waiting on you" there, and
-        // the answer after the decision has only this way back.
-        if (said.channel === "discord" && !said.resumed) return;
-        // A scheduled run of a project's job shows in the project's channel,
-        // under the job's name: a daily post is what a schedule is for.
-        const job = said.conversationId.startsWith("cron:") ? kernel.crons.get(Number(said.conversationId.slice("cron:".length))) : undefined;
-        // Only a run the harness started gets the run format. Anything the
-        // owner says in a job's thread is a conversation, told by the mirror.
-        if (job && said.origin === "system") {
-          /*
-           * A scheduled run goes to the job's own thread: the same
-           * conversation the dashboard shows its runs in, so the two stay in
-           * sync and the project channel stays the orchestrator's. A job made
-           * since the last layout gets its thread now; failing that, the
-           * project's channel. The nudge itself reaches the owner through the
-           * job's notify, not this record.
-           */
-          let where = adapter.mirrorTarget(said.conversationId, kernel.threadBindings());
-          if (!where && job.projectSlug) {
-            where = await adapter.ensureThread(`project:${job.projectSlug}`, said.conversationId, job.name).catch(() => undefined);
-            if (where) kernel.bindThread(where, said.conversationId);
-          }
-          where ??= job.projectSlug ? adapter.mirrorTarget(`project:${job.projectSlug}`, kernel.threadBindings()) : undefined;
-          // The result, with a Run now button so the owner can fire the job
-          // again from here; it runs the same path the dashboard's Run now does.
-          if (where && said.reply.trim()) await adapter.postIn(where, { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] });
-          return;
-        }
-        const target = adapter.mirrorTarget(said.conversationId, kernel.threadBindings());
-        if (!target) return;
-        const from = kernel.senderFor(said.conversationId);
-        if (said.origin === "owner" && said.text.trim() && said.channel !== "discord") {
-          // The files that came with the words go too, read back from where
-          // the kernel kept them; one that is gone is simply not shown.
-          const files = said.files.flatMap((f) => {
-            try {
-              return [{ name: f.name, mediaType: "application/octet-stream", data: readFileSync(kernel.workspace.resolve(f.path)).toString("base64"), path: f.path }];
-            } catch {
-              return [];
-            }
-          });
-          if (said.from) {
-            // Passed on by a chat or a schedule: under that sender's name and
-            // face, which say who; the line says only what they cannot, that
-            // it was passed on. A dispatched message is asked as the owner,
-            // so it used to wear the owner's name and picture here.
-            const speaker = kernel.speakerFor(said.from);
-            await adapter.postIn(target, { text: `${said.text.trim()}\n-# passed on`, from: speaker, ...(files.length ? { files } : {}) });
-          } else {
-            // As the owner, under their own name and picture, so the thread
-            // reads as the conversation it is; quoted by the bot only when the
-            // owner cannot be looked up.
-            const owner = await adapter.ownerSender();
-            const text = owner ? said.text.trim() : `${said.text.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard`;
-            await adapter.postIn(target, { text, ...(owner ? { from: owner } : {}), ...(files.length ? { files } : {}) });
-          }
-        }
-        if (said.reply.trim()) await adapter.postIn(target, { text: said.reply, ...(from ? { from } : {}) });
-        });
+        mirror.onSaid(said, () => postSaid(said, saidDeps));
       });
       // A slash command typed on the dashboard is a small line in the chat's
       // channel or thread, with the first line of what it answered.
@@ -839,9 +881,17 @@ export async function runHost(options: HostOptions): Promise<void> {
         const answer = ran.reply.trim().split("\n")[0] ?? "";
         await adapter.postIn(target, { text: `-# \`${ran.text.replace(/`/g, "'")}\` · you, on the dashboard${answer ? `\n-# ${answer.slice(0, 300)}` : ""}` });
       });
+      // A chat renamed anywhere names its thread the same.
+      kernel.bus.on("chat:renamed", async ({ conversationId, title }) => {
+        const threadId = Object.entries(kernel.threadBindings()).find(([, id]) => id === conversationId)?.[0];
+        if (!threadId || !adapter) return;
+        await adapter.renameThread(threadId, title).catch((err: unknown) => console.warn(`[discord] thread ${threadId} not renamed: ${err instanceof Error ? err.message : String(err)}`));
+      });
       // A chat deleted on the dashboard takes its thread with it.
       kernel.bus.on("chat:deleted", async ({ conversationId }) => {
         if (!adapter) return;
+        // A channel bound to it by topic is let go too, so it cannot make the chat again.
+        await adapter.unbindChannel(conversationId).catch((err: unknown) => console.warn(`[discord] channel for ${conversationId} not let go: ${err instanceof Error ? err.message : String(err)}`));
         const threadId = Object.entries(kernel.threadBindings()).find(([, id]) => id === conversationId)?.[0];
         if (!threadId) return;
         await adapter.deleteThread(threadId).catch((err: unknown) => {
@@ -959,6 +1009,9 @@ export async function runHost(options: HostOptions): Promise<void> {
    * the job was marked failing, the caretaker opened a fix chat for it, and
    * the chat found nothing wrong, at a model turn's cost, on every restart.
    */
+  // What was waiting behind a turn when the last process stopped runs now,
+  // or is named in its chat to send again.
+  kernel.replayQueued();
   kernel.startCron();
   // A job whose moment passed while nothing was running did not happen and
   // said nothing. At most one run each, however many were missed.

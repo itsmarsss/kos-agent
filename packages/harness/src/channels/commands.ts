@@ -179,11 +179,22 @@ export function runCommand(
   ctx: SlashContext,
   name: string,
   argument?: string,
+  /** The chat the room it was typed in is bound to, when not the DM: what /stop stops and /chats marks. */
+  room?: string,
 ): SlashReply {
+  const reply = answer(ctx, name, argument, room);
+  // Where the DM sends is not where this room sends: said, so a move made here is not read as moving the room.
+  if (room && (name === "target" || name === "here" || name === "new") && reply.card) {
+    reply.card.footer = `${reply.card.footer ? `${reply.card.footer} · ` : ""}moves your DMs; this channel stays with its own chat`;
+  }
+  return reply;
+}
+
+function answer(ctx: SlashContext, name: string, argument: string | undefined, room: string | undefined): SlashReply {
   switch (name) {
     case "target": {
       // Nothing picked is a question, not a mistake: show the list.
-      if (!argument) return runCommand(ctx, "chats");
+      if (!argument) return answer(ctx, "chats", undefined, room);
       const found = ctx.list().find((c) => c.id === argument);
       if (!found) {
         return {
@@ -233,7 +244,7 @@ export function runCommand(
           },
         };
       }
-      const current = ctx.current();
+      const current = room ?? ctx.current();
       const shown = chats.slice(0, LISTED);
       /*
        * One fenced block, not a pill each.
@@ -262,7 +273,8 @@ export function runCommand(
     }
 
     case "stop": {
-      const where = ctx.current() ?? ctx.home();
+      // The chat of the room it was typed in; the DM's current one otherwise.
+      const where = room ?? ctx.current() ?? ctx.home();
       const chat = ctx.list().find((c) => c.id === where);
       const asked = ctx.stop(where);
       return {

@@ -795,9 +795,12 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   // A chat deleted anywhere (the dashboard, chats.delete) is announced, so
   // the thread that stood for it on Discord goes with it.
   const kernel = kernelRef;
+  kernel.conversations.onCreated((id) => kernel.bus.emit({ kind: "chat:created", conversationId: id }));
+  kernel.conversations.onRenamed((id, title) => kernel.bus.emit({ kind: "chat:renamed", conversationId: id, title }));
   kernel.conversations.onRemoved((id) => {
     // A chat's kept results go with it.
     shelf.forget(id);
+    kernel.rememberGone(id);
     kernel.bus.emit({ kind: "chat:deleted", conversationId: id });
   });
   return kernelRef;

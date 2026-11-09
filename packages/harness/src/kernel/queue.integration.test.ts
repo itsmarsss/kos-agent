@@ -20,10 +20,13 @@ describe("a message sent while a turn is running", () => {
   let root: string;
   let kernel: Kernel;
   let release: (() => void)[] = [];
+  /** How many times the model was asked: what actually ran. */
+  let asked = 0;
 
   /** A model that answers only when the test lets it. */
   const held: Inference = {
     generate: async (): Promise<ModelResponse> => {
+      asked += 1;
       await new Promise<void>((resolve) => release.push(resolve));
       return {
         content: [{ type: "text", text: "answered" }],
@@ -36,6 +39,7 @@ describe("a message sent while a turn is running", () => {
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "kos-queue-"));
     release = [];
+    asked = 0;
     kernel = await Kernel.boot({ rootDir: root, inference: held });
   });
 
@@ -227,5 +231,165 @@ describe("a message sent while a turn is running", () => {
       expect(kernel.conversations.get(forkId)?.title).toContain("fork");
       await finish();
     });
+  });
+
+  /** Let every turn there is run to the end. */
+  const drain = async (...turns: Promise<unknown>[]): Promise<void> => {
+    for (let i = 0; i < 5; i += 1) {
+      release.forEach((fn) => fn());
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    await Promise.all(turns);
+  };
+
+  /** A turn running in a chat of its own, and a second message waiting behind it. */
+  const waitingBehind = async (): Promise<{ id: string; first: Promise<unknown>; second: Promise<{ dropped?: boolean }>; row: number }> => {
+    const id = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Queue" }).id;
+    const first = kernel.handleMessage("first", { sessionId: id });
+    await new Promise((r) => setTimeout(r, 20));
+    const second = kernel.handleMessage("second", { sessionId: id });
+    await new Promise((r) => setTimeout(r, 20));
+    return { id, first, second, row: kernel.pending.forConversation(id)[0]!.id };
+  };
+
+  it("runs a waiting message as it was edited, not as it was sent", async () => {
+    const { id, first, second, row } = await waitingBehind();
+    expect(kernel.pending.edit(row, "second, edited")).toBe(true);
+    await drain(first, second);
+    expect(history(id)).toEqual(["first", "second, edited"]);
+    expect(asked).toBe(2);
+  });
+
+  it("does not run a waiting message that was dropped, and says it was dropped", async () => {
+    const { id, first, second, row } = await waitingBehind();
+    expect(kernel.pending.remove(row)).toBe(true);
+    await drain(first, second);
+    expect(await second).toMatchObject({ reply: "", dropped: true });
+    expect(history(id)).toEqual(["first"]);
+    expect(asked).toBe(1);
+  });
+
+  it("runs a forked message once, in the fork, and not again where it was waiting", async () => {
+    const { id, first, second, row } = await waitingBehind();
+    const fork = await kernel.forkPending(kernel.pending.get(row)!);
+    await drain(first, second);
+    expect(await second).toMatchObject({ dropped: true });
+    expect(history(id)).toEqual(["first"]);
+    expect(history(fork).filter((t) => t === "second")).toHaveLength(1);
+    expect(asked).toBe(2);
+  });
+
+  it("runs one parked behind another queued turn as edited, and skips it when dropped", async () => {
+    const id = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Queue" }).id;
+    // A schedule's turn is never steered: these queue behind the running one.
+    const first = kernel.handleMessage("first", { sessionId: id, origin: "system" });
+    await new Promise((r) => setTimeout(r, 20));
+    const second = kernel.handleMessage("second", { sessionId: id, origin: "system" });
+    const third = kernel.handleMessage("third", { sessionId: id, origin: "system" });
+    await new Promise((r) => setTimeout(r, 20));
+    const [two, three] = kernel.pending.forConversation(id);
+    kernel.pending.edit(two!.id, "second, edited");
+    kernel.pending.remove(three!.id);
+    await drain(first, second, third);
+    expect(history(id)).toEqual(["first", "second, edited"]);
+    expect(await third).toMatchObject({ dropped: true });
+    expect(asked).toBe(2);
+  });
+
+  it("runs what a restart left waiting as whoever sent it, in order, and names in the chat what it will not run", async () => {
+    const id = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Left" }).id;
+    const ana = { id: "a1", name: "Ana" };
+    kernel.pending.add(id, "owner words", [], { via: "discord" }, { owner: true, channel: "discord" });
+    kernel.pending.add(id, "[Ana, a guest in the channel] guest words", [], { via: "discord", from: { kind: "guest", name: "Ana", id: "a1" } }, { guest: ana, owner: false, origin: "system", channel: "discord" });
+    kernel.pending.add(id, "a schedule's", [], undefined, { origin: "system" });
+    kernel.pending.add(id, "from before flags");
+    // The room is still open to guests, so the guest's runs.
+    kernel.setChannelAudience(id, "guests");
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, inference: held });
+    const said: { text: string; origin: string; channel: string | null; resumed?: boolean }[] = [];
+    kernel.bus.on("turn:said", (e) => void said.push({ text: e.text, origin: e.origin, channel: e.channel, ...(e.resumed ? { resumed: true } : {}) }));
+    kernel.replayQueued();
+    expect(kernel.pending.forConversation(id)).toEqual([]);
+    await drain();
+    // The owner's as the owner's, the guest's as the guest's and never as the owner's; both go back to Discord.
+    expect(said).toEqual([
+      { text: "owner words", origin: "owner", channel: "discord", resumed: true },
+      { text: "[Ana, a guest in the channel] guest words", origin: "system", channel: "discord", resumed: true },
+    ]);
+    expect(asked).toBe(2);
+    const notes = kernel.sessions.get(id).filter((m) => m.role === "assistant").flatMap((m) => m.content.flatMap((b) => (b.type === "text" ? [b.text] : [])));
+    expect(notes[0]).toBe("2 queued messages were not run after a restart; resend?\n> a schedule's\n> from before flags");
+  });
+
+  it("keeps every flag of what it runs after a restart, and announces what waited too long or a shut room's guest", async () => {
+    const id = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Left" }).id;
+    const ana = { id: "a1", name: "Ana" };
+    kernel.pending.add(id, "handed on", [], { via: "discord" }, { owner: true, channel: "discord", trail: ["chat-a"], maxIterations: 40 });
+    kernel.pending.add(id, "[Ana, a guest in the channel] guest words", [], undefined, { guest: ana, owner: false, origin: "system", channel: "discord", guestFiles: ["a.png"] });
+    const old = kernel.pending.add(id, "an hour ago", [], undefined, { owner: true, channel: "discord" });
+    (kernel.pending as unknown as { db: { prepare: (q: string) => { run: (...a: unknown[]) => unknown } } }).db.prepare(`UPDATE pending_messages SET created_at = ? WHERE id = ?`).run(Date.now() - 3_600_000, old);
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, inference: held });
+    const ran: { text: string; opts: Record<string, unknown> }[] = [];
+    const real = kernel.handleMessage.bind(kernel);
+    kernel.handleMessage = (text, opts = {}) => (ran.push({ text, opts: opts as Record<string, unknown> }), real(text, opts));
+    kernel.replayQueued();
+    await drain();
+    expect(ran.map((r) => [r.text, r.opts.trail, r.opts.maxIterations])).toEqual([["handed on", ["chat-a"], 40]]);
+    const notes = kernel.sessions.get(id).filter((m) => m.role === "assistant").flatMap((m) => m.content.flatMap((b) => (b.type === "text" ? [b.text] : [])));
+    expect(notes[0]).toBe("2 queued messages were not run after a restart; resend?\n> [Ana, a guest in the channel] guest words\n> an hour ago");
+    // Open to guests again, a fresh guest row runs as the guest's, with the files it named.
+    kernel.setChannelAudience(id, "guests");
+    kernel.pending.add(id, "[Ana, a guest in the channel] again", [], undefined, { guest: ana, owner: false, origin: "system", channel: "discord", guestFiles: ["a.png"] });
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, inference: held });
+    const again: Record<string, unknown>[] = [];
+    const next = kernel.handleMessage.bind(kernel);
+    kernel.handleMessage = (text, opts = {}) => (again.push({ text, ...(opts as Record<string, unknown>) }), next(text, opts));
+    kernel.replayQueued();
+    await drain();
+    expect(again).toMatchObject([{ text: "again", guest: ana, guestFiles: ["a.png"] }]);
+  });
+
+  it("keeps when a queued message was sent, and judges it by that after a restart, not by when it was queued", async () => {
+    const id = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Late" }).id;
+    const sentAt = Date.now() - 11 * 60_000;
+    const first = kernel.handleMessage("first", { sessionId: id, origin: "system" });
+    await new Promise((r) => setTimeout(r, 20));
+    const second = kernel.handleMessage("second", { sessionId: id, origin: "system", sentAt });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(kernel.pending.forConversation(id).map((r) => r.flags?.sentAt)).toEqual([sentAt]);
+    await drain(first, second);
+    // Queued a moment ago, sent eleven minutes ago: told, not run.
+    kernel.pending.add(id, "caught up late", [], { via: "discord" }, { owner: true, channel: "discord", sentAt });
+    kernel.pending.add(id, "sent just now", [], { via: "discord" }, { owner: true, channel: "discord", sentAt: Date.now() });
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, inference: held });
+    const ran: string[] = [];
+    const real = kernel.handleMessage.bind(kernel);
+    kernel.handleMessage = (text, opts = {}) => (ran.push(text), real(text, opts));
+    kernel.replayQueued();
+    await drain();
+    expect(ran).toEqual(["sent just now"]);
+    const notes = kernel.sessions.get(id).filter((m) => m.role === "assistant").flatMap((m) => m.content.flatMap((b) => (b.type === "text" ? [b.text] : [])));
+    expect(notes).toContain("1 queued message was not run after a restart; resend?\n> caught up late");
+  });
+
+  it("says in a chat that a restart cut its turn short", async () => {
+    const id = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Cut" }).id;
+    const turn = kernel.handleMessage("long one", { sessionId: id });
+    await new Promise((r) => setTimeout(r, 20));
+    // The process stops here; the next one finds the turn still open.
+    const open = kernel.settings.get<Record<string, number>>("turns.open");
+    expect(Object.keys(open ?? {})).toEqual([id]);
+    kernel.close();
+    release.forEach((fn) => fn());
+    await turn.catch(() => undefined);
+    kernel = await Kernel.boot({ rootDir: root, inference: held });
+    expect(kernel.markInterrupted()).toEqual([id]);
+    const last = kernel.sessions.get(id).at(-1);
+    expect(last).toMatchObject({ role: "assistant", content: [{ type: "text", text: "-# interrupted by a restart" }] });
+    expect(kernel.markInterrupted()).toEqual([]);
   });
 });

@@ -8,7 +8,9 @@ can show.
 
 Direct messages from one account. Buttons for approvals and for whatever
 KOS offers; forms for answers that are not fixed. Slash commands are
-answered by the host without a model turn. An approval card opens with
+answered by the host without a model turn; typed in a bound channel or
+thread, `/stop` stops that room's chat and `/chats` marks it, while
+`/target`, `/here` and `/new` still move only where your DMs go, and say so. An approval card opens with
 what KOS was saying when it reached for the tool, quoted, so the ask
 reads as a sentence and not a bare command; iMessage and SMS prompts and
 the dashboard's Inbox carry the same words. While a turn runs, a silent
@@ -23,7 +25,9 @@ your message. A turn that stops to ask you says "waiting on you" and keeps
 its story open: the steps after your decision are added to it, and the
 answer lands under them when the turn ends. Waiting is not working: the
 chat takes your next message meanwhile, and when you decide, the first
-turn finishes and its answer goes on the end. A message sent while a turn
+turn finishes and its answer goes on the end: in the DM for a turn asked
+in the DM, in the channel or thread for one asked there, and only there,
+a decision taken after a restart included. A message sent while a turn
 is still running there says "queued" at once, and runs next; its line
 tells only its own turn's story once that begins. On the dashboard a
 message that waits shows what came with it by name, and one that has just
@@ -65,10 +69,23 @@ orchestrator, "Garden orchestrator", and in a thread as that agent, by
 its title, both wearing KOS's face through one webhook; a blob in a
 project answers as itself. Each channel is bound to its conversation by the
 `kos:…` line in its topic, so the binding is readable and a channel you
-rename stays bound; a thread KOS made is bound by id, since threads have
+rename stays bound. A project or blob renamed in KOS renames its channel
+and topic at the next layout, but leaves a name you gave the channel
+yourself, and Discord's limit of two renames in ten minutes is waited out
+rather than fought: a topic KOS changes counts toward it too, and an edit
+Discord would hold is left for a later layout rather than holding this
+one, so a new channel is never kept waiting behind a rename; a chat renamed anywhere renames its thread, and a
+thread you rename on Discord retitles its chat; a thread KOS made is bound by id, since threads have
 no topic. A thread you start yourself under a project's channel is a new
-chat in that project, titled as the thread; one under `#kos` is a chat at
-the root; one under a blob's channel is the blob's thread. Channels
+chat in that project, titled as the thread, and that thread is bound to it
+by id the same way, so the layout never makes a second thread for it; one
+under `#kos` is a chat at the root; one under a blob's channel is the
+blob's thread. A thread someone else started is talk in its channel's
+chat, under that channel's rules for guests, and never a chat of yours;
+renaming it renames nothing in KOS. A chat made that way before the binding may also have a
+thread KOS made beside it: `GET /api/discord/thread-duplicates` lists
+them, and `POST /api/discord/thread-duplicates/rebind` binds each to your
+thread alone, leaving KOS's thread on Discord for you to remove. Channels
 without a `kos:` topic are yours and KOS stays out of them, as it does
 with anyone else's messages in its own.
 
@@ -76,8 +93,12 @@ An ask from a chat you read in a channel or thread is asked there too, so
 the question sits in the conversation it belongs to. It comes from whoever
 you are talking to there, through its own webhook, the way its answers
 come; in `#needs-you` KOS asks as itself. The two cards are one ask: decide
-on either, or on the dashboard, and both settle, a restart of KOS between
-the ask and the answer included. An approval named in a
+on either, or on the dashboard, and both settle (a card pressed after the
+ask was decided says how it went and where, "Already decided: Approved"
+for a press here, "Already decided on the dashboard: Denied" for one
+there, rather than what was pressed), a restart of KOS between the ask and
+the answer included. A card is labelled as soon as the decision is
+recorded; the approved action and the answer it leads to follow. An approval named in a
 reply, `@approval:290`, links to it on the dashboard, waiting or decided.
 A bound channel's topic carries a link to its chat on the dashboard, since
 a webhook's profile can carry none.
@@ -85,7 +106,8 @@ a webhook's profile can carry none.
 A thread or channel is the chat it stands for, not only a door into it:
 a turn taken on the dashboard, by a schedule or by a dispatch shows there
 too, your words under your own name and picture (through a webhook, so
-Discord tags them as the app's), the
+Discord tags them as the app's, and without a notification, since they
+are your own), the
 files you attached uploaded under them, and the answer as KOS or as the
 blob under its own name. A message another chat passed on (a handoff, a
 dispatch, a project's goal) shows under that chat's name with KOS's face,
@@ -106,9 +128,14 @@ copy. The turn is told the path, so it refers to the file by `@file:` and
 any later turn, chat or blob can open it with `files.read`.
 
 The categories, channels and threads are made when the host starts and
-kept in step every few minutes, so a new project, blob or chat appears
-without a restart; a channel under the wrong category is moved; the layout deletes nothing, a chat you delete takes its thread with
-it, and a thread archives itself when its chat goes quiet
+kept in step every few minutes, so a new chat appears without a restart,
+and a new project or blob has its channel the moment it is made; a channel under the wrong category is moved; the layout deletes nothing, a chat you delete takes its thread with
+it and lets go of a channel bound to it (its topic back to plain words),
+and is never made again from either; a channel or thread you delete on
+Discord is let go, and made again where it is needed: a chat's thread the
+next time it speaks, a project's or blob's channel at the next layout. A
+message in the channel of a project or blob that is gone is told so,
+"this channel is bound to one that is gone", and a thread archives itself when its chat goes quiet
 and comes back when spoken to. The bot needs Manage Channels and Manage
 Webhooks on the server, and the message content intent. DMs keep working
 as before.
@@ -189,6 +216,10 @@ something it said reaches it; what members said in between, up to twenty
 messages, comes along with it as context marked as such, so KOS can
 answer "what do you all think" without having heard it all. Your own
 messages always reach the chat, carrying the same context.
+
+A message that replies to another carries what it answers: who wrote it
+and its words, cut short, told to that turn as a quote. Words someone
+else wrote are marked as theirs, not yours, and not instructions.
 
 Someone named in a message (`@name` on Discord) arrives on the dashboard
 as `@name`, and the turn is told the member's id beside it; `discord.member`
@@ -288,9 +319,14 @@ step, on any surface and on either engine: it rides in with the next tool
 result, under a line carrying a mark only that turn was told, so a page or
 a file that writes "the owner says" cannot pass for you. The turn answers
 it, and changes course if you asked it to; the surface shows that it was
-taken in, and the chat shows your words where the turn heard them. Words
+taken in, and the chat shows your words where the turn heard them, in its
+Discord channel or thread too, under your name, when you said them on the
+dashboard. Words
 that arrive after the turn's last step, a message with files, and a guest's
-message run as a turn of their own once the running one ends.
+message run as a turn of their own once the running one ends. Until then
+the waiting message is the one on the dashboard: edited there, it is heard
+or run as edited; dropped or forked away, it does not run in this chat,
+and its line on Discord says "dropped".
 
 ## Where a message goes
 
@@ -299,7 +335,45 @@ surface. A surface that is wired but not connected at that moment (Discord
 still logging in, or dropped by the gateway) is not an error: a message for
 you is left in the primary chat on the dashboard and the turn is told so.
 A message for a channel or another person has nowhere else to go, so that
-one fails.
+one fails. What a running turn sends meanwhile, an answer, a card, a post
+mirrored into a thread, waits and goes out in order once Discord is back,
+and an ask still waiting with no card anywhere gets one then. Up and down
+are what the gateway's shard events last said. A send is a web request
+rather than the gateway, so one that fails on the network (a name that
+will not resolve, a dropped socket, a timeout, a 5xx) waits the same way
+and goes again, first, on the reconnect or after half a minute. Files
+wait up to 25 MB in all; past that a message waits as its words, which say
+what was not kept. A channel or thread found gone when what waited for it
+goes out is let go, as it would have been live, and the log says so. A dropped
+gateway is one line in the log when it drops, one a minute while it stays
+down, and one when it is back.
+
+What you said on Discord while KOS was away, stopped or dropped, is read
+when it is back: in the DM and in every channel and thread it last heard
+in, oldest first, through the same gates as if it had come live, so a
+guest's words are still a guest's. It reads only what came after the
+last message it heard there, three rooms at a time, and only after a new
+session: a resumed one is replayed its missed events by Discord. It reads
+at most the last fifty messages and six hours of each, and says so there
+when it left some out; a room quiet for longer than that, or no longer
+bound, is let go until it next speaks;
+an answer to one of them says "sent while KOS was offline" under it. What
+is more than ten minutes old by then, the owner's or a guest's, is not
+run: the room gets one note listing it ("These were sent while KOS was
+offline and not run: ... Reply to run them."), and so does its chat on the
+dashboard.
+Nothing is run twice, however it arrives.
+
+A restart in the middle of a turn is said where the turn was: its story
+on Discord, the line that would have become the record of what was done,
+ends "interrupted by a restart", and its chat on the dashboard says the
+same. What was waiting behind a turn when KOS stopped is not lost: your
+own messages run, in order, once KOS is back, as they were going to, and
+a guest's runs as that guest's while the room is still open to guests,
+each answered where it was asked; anything else waiting (a schedule's,
+work another chat passed on, a guest's in a room shut since, or anything
+that waited more than ten minutes) is named in its chat for you to send
+again.
 
 No link KOS sends on Discord unfurls: every URL goes out in angle
 brackets, so Discord draws no preview card for it and its crawler does not

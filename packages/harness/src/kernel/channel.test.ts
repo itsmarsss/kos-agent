@@ -178,6 +178,80 @@ describe("connectChannel", () => {
     expect(after.filter((t) => /^Approved @approval:\d+\.$/.test(t))).toEqual([]);
   });
 
+  it("after a restart, sends a decision's answer here only when the chat has no channel or thread of its own", async () => {
+    for (const mirrored of [false, true]) {
+      await boot(stub(riskyScript()));
+      await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });
+      const pendingId = adapter.approvalsRequested[0]!.req.id;
+      const chat = kernel.approvals.get(Number(pendingId))!.conversationId!;
+      // A new process: nothing is waiting on the ask, so the decision resumes the chat itself.
+      await runtime.stop();
+      kernel.close();
+      adapter = new InMemoryAdapter();
+      kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: stub([{ content: [{ type: "text", text: "Deleted it." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" }]) });
+      const asked: string[] = [];
+      runtime = connectChannel(adapter, kernel, { ownerRecipientId: "owner", answeredElsewhere: (id) => (asked.push(id), mirrored) });
+      await runtime.start();
+      await adapter.decide({ id: pendingId, approved: true, deciderId: "owner" });
+      expect(asked).toEqual([chat]);
+      expect(adapter.sent.map((m) => m.msg.text)).toEqual(mirrored ? [] : ["Deleted it."]);
+      kernel.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("says how an ask already went when it is pressed after being decided elsewhere, and decides nothing", async () => {
+    await boot(stub(riskyScript()));
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });
+    const pendingId = adapter.approvalsRequested[0]!.req.id;
+    await kernel.deny(Number(pendingId));
+    const before = adapter.sent.length;
+    const settled: unknown[] = [];
+    // Straight to the runtime's sink, as the adapter's press does.
+    const decide = (runtime as unknown as { decide: (d: unknown) => Promise<unknown> }).decide.bind(runtime);
+    settled.push(await decide({ id: pendingId, approved: true, deciderId: "owner" }));
+    expect(settled).toEqual([{ outcome: "denied", already: true }]);
+    expect(kernel.approvals.get(Number(pendingId))?.status).toBe("denied");
+    expect(adapter.sent.length).toBe(before);
+  });
+
+  it("reports the recorded decision before the action and the resumed turn have run, and a second press as decided here", async () => {
+    await boot(stub(riskyScript()));
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });
+    const pendingId = adapter.approvalsRequested[0]!.req.id;
+    // A new process: nothing waits on the ask, so the decision runs the action and resumes the chat itself.
+    await runtime.stop();
+    kernel.close();
+    adapter = new InMemoryAdapter();
+    let reply!: () => void;
+    const slow: Inference = {
+      generate: () =>
+        new Promise((r) => {
+          reply = () => r({ content: [{ type: "text", text: "Deleted it." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+        }),
+    };
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: slow });
+    runtime = connectChannel(adapter, kernel, { ownerRecipientId: "owner" });
+    await runtime.start();
+    const decide = (runtime as unknown as { decide: (d: unknown) => Promise<{ outcome: string; already?: boolean; here?: boolean; done?: Promise<void> } | undefined> }).decide.bind(runtime);
+    const first = await decide({ id: pendingId, approved: true, deciderId: "owner" });
+    expect(first).toMatchObject({ outcome: "approved" });
+    expect(first?.done).toBeInstanceOf(Promise);
+    expect(adapter.sent).toEqual([]);
+    expect(await decide({ id: pendingId, approved: false, deciderId: "owner" })).toEqual({ outcome: "approved", already: true, here: true });
+    await new Promise((r) => setTimeout(r, 20));
+    reply();
+    await first?.done;
+    expect(adapter.sent.map((m) => m.msg.text)).toEqual(["Deleted it."]);
+  });
+
+  it("reports nothing decided, never approved, when the ask is not there", async () => {
+    await boot(stub(riskyScript()));
+    const decide = (runtime as unknown as { decide: (d: unknown) => Promise<unknown> }).decide.bind(runtime);
+    expect(await decide({ id: "999", approved: true, deciderId: "owner" })).toBeUndefined();
+    expect(adapter.sent.map((m) => m.msg.text)).toEqual(["no pending action #999"]);
+  });
+
   it("still speaks up when the decision could not be applied", async () => {
     // Nothing was settled in place for a row that is not there, so silence
     // would be a press that did nothing and said nothing.

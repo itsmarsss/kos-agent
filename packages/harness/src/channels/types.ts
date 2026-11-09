@@ -12,7 +12,36 @@ import type { MessageRoom } from "../models/types.js";
 export interface ConversationSeed {
   projectSlug?: string;
   title?: string;
+  /** The surface's thread the owner started, which the chat stands for from then on: bound, so none is made beside it. */
+  threadId?: string;
 }
+
+/**
+ * A room bound to a chat, project or blob that no longer exists. Its
+ * message is said to whoever spoke there, since it is the answer: "this
+ * channel is bound to one that is gone", not "something went wrong".
+ */
+export class BindingGoneError extends Error {
+  override name = "BindingGoneError";
+}
+
+/** A channel's name for a title, the way the layout names one: "My Garden" is my-garden. */
+export function channelName(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 90) || "channel";
+}
+
+/** Said on a turn's story, and in its chat, when a restart cut the turn short. */
+export const INTERRUPTED_LINE = "-# interrupted by a restart";
+
+/** A chat made from a thread the owner started on Discord is this and the thread's id. */
+export const OWNER_THREAD_PREFIX = "discord:thread:";
+/**
+ * How old a message read on KOS's return may be and still run. Older, it is
+ * not run: what was asked an hour ago may no longer be wanted, and it would
+ * run with the owner's full reach on nobody's say-so now. Its room and its
+ * chat are told, to send again.
+ */
+export const LATE_RUN_MS = 10 * 60_000;
 
 export interface InboundMessage {
   /** Adapter name that received the message, e.g. "discord". */
@@ -64,6 +93,12 @@ export interface InboundMessage {
    * never read as the words themselves.
    */
   roomTalk?: string;
+  /** Sent while KOS was away and read on its return: the answer says so. */
+  late?: boolean;
+  /** When it was sent, in ms: a late message older than LATE_RUN_MS is not run. */
+  sentAt?: number;
+  /** Read on return and too old to run: what each said, for one note to list. The rest of the message is the newest of them. */
+  missed?: string[];
   /**
    * Adapter-private handle (e.g. Discord Message) for reactions/edits.
    * Runtime must not inspect this; only the adapter's acknowledge() may.
@@ -202,6 +237,8 @@ export interface OutboundMessage {
   card?: MessageCard;
   buttons?: MessageButton[];
   from?: Sender;
+  /** Posted without a notification: the owner's own words shown back to them, which nobody needs to be buzzed for. */
+  silent?: boolean;
 }
 
 /**
@@ -349,12 +386,27 @@ export interface TurnPresence {
    */
   complete(reply: OutboundMessage, how?: { waiting?: boolean; heard?: boolean }): Promise<void>;
   fail(message: string): Promise<void>;
+  /** Optional: the turn is over and its story is told; a surface that keeps it for a restart lets it go. */
+  close?(): void;
 }
 
 export type MessageHandler = (msg: InboundMessage) => Promise<void> | void;
+/** How an ask went once a decision on it was taken: as decided, or as it already had been elsewhere. */
+export interface ApprovalSettled {
+  outcome: ApprovalOutcome;
+  already?: boolean;
+  /** Already decided, and on this surface rather than the dashboard. */
+  here?: boolean;
+  /**
+   * The approved action and the turn it resumes, still running once the
+   * decision is recorded: the prompt is labelled first, then this is waited.
+   */
+  done?: Promise<void>;
+}
+
 export type ApprovalHandler = (
   decision: ApprovalDecision,
-) => Promise<void> | void;
+) => Promise<ApprovalSettled | void> | ApprovalSettled | void;
 export type ButtonPressHandler = (
   press: ButtonPress,
   respond: PressResponder,
@@ -384,6 +436,12 @@ export interface ChannelAdapter {
   readonly contained?: boolean;
   start(): Promise<void>;
   stop(): Promise<void>;
+  /**
+   * Optional: whether the surface can reach anyone right now. Wired but not
+   * connected (logging in, dropped by its gateway) is not an error: a
+   * message for the owner is left on the dashboard instead.
+   */
+  connected?(): boolean;
   onMessage(handler: MessageHandler): void;
   send(recipientId: string, msg: OutboundMessage): Promise<void>;
   /**

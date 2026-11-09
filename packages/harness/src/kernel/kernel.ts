@@ -3,7 +3,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
-import type { Asker, ConversationSeed, Guest, OutboundMessage, Sender } from "../channels/types.js";
+import { BindingGoneError, INTERRUPTED_LINE, LATE_RUN_MS, OWNER_THREAD_PREFIX, channelName, type Asker, type ConversationSeed, type Guest, type OutboundMessage, type Sender } from "../channels/types.js";
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry, type ToolExecution } from "../agent/registry.js";
@@ -82,7 +82,7 @@ import { type RouteSummary } from "../models/router.js";
 import { SpendStore } from "../ops/spend.js";
 import { BuildRegistry } from "../builds/registry.js";
 import { sitesBaseUrl } from "../sites/server.js";
-import { PendingMessages, type PendingMessage } from "./pending.js";
+import { PendingMessages, type PendingFlags, type PendingMessage } from "./pending.js";
 import { applyModelSettings, type ModelSettings } from "../models/settings.js";
 import { SettingsStore } from "../store/settings.js";
 import { ModuleLoader, type KosModule, type LoadReport } from "../modules/loader.js";
@@ -194,7 +194,12 @@ export interface HandleResult {
   suspended?: boolean;
   /** Taken into the turn already running in this chat, whose answer answers it too. */
   steered?: boolean;
+  /** Dropped or forked away while it waited, so it did not run here. */
+  dropped?: boolean;
 }
+
+/** What became of words said while a turn ran: heard by it, left for a turn of their own, or dropped while they waited. */
+type Heard = "heard" | "left" | "dropped";
 
 /** How long a button KOS sent stays pressable. */
 /** Owner settings for build sub-agents. */
@@ -208,6 +213,12 @@ export const CHANNEL_AUDIENCE_KEY = "discord.audience";
 export const CHANNEL_LISTEN_KEY = "discord.listen";
 /** Which Discord thread stands for which chat. */
 export const THREAD_BINDINGS_KEY = "discord.threads";
+/** Chats made from the owner's threads and deleted since, newest last, at most so many. */
+const GONE_CHATS_KEY = "discord.gone";
+const GONE_CHATS_MAX = 500;
+/** Chats with a turn running, kept so a restart can say which it cut short. */
+const OPEN_TURNS_KEY = "turns.open";
+
 /** The face the Discord bot wears, as a hash of the PNG, so it is set again only when the look changes. */
 export const WORN_FACE_KEY = "discord.face";
 
@@ -301,6 +312,19 @@ const guestNamed = (guest: Guest): string => `[${guest.name}, a guest in the cha
 function withoutGuestName(text: string, guest: Guest | undefined): string {
   const named = guest ? guestNamed(guest) : undefined;
   return named && text.startsWith(named) ? text.slice(named.length) : text;
+}
+
+/** What a room and its chat are told of messages sent while KOS was away and too old to run. */
+export function notRunNote(said: string[]): string {
+  const shown = said.slice(0, 5).map((t) => `> ${t.replace(/\s+/g, " ").trim().slice(0, 120)}`);
+  const more = said.length > shown.length ? `\n> and ${said.length - shown.length} more` : "";
+  return `${said.length === 1 ? "This was" : "These were"} sent while KOS was offline and not run:\n${shown.join("\n")}${more}\nReply to run ${said.length === 1 ? "it" : "them"}.`;
+}
+
+/** Who a waiting message's turn is to the fences, kept with it so a restart runs it as that. */
+function flagsOf(opts: PendingFlags): PendingFlags {
+  const keys = ["owner", "attended", "origin", "channel", "grant", "allow", "guest", "room", "members", "context", "roomTalk", "via", "from", "trail", "maxIterations", "guestFiles", "sentAt"] as const;
+  return Object.fromEntries(keys.filter((k) => opts[k] !== undefined).map((k) => [k, opts[k]])) as PendingFlags;
 }
 
 export const GUEST_TOOLS = ["sql", "discord.react", "discord.reactions", "discord.messages", "discord.member", "notify", "chats.handoff"];
@@ -466,7 +490,7 @@ export class Kernel {
   /** News for a chat mid-turn, written in when the turn ends. */
   private readonly heldNotes = new Map<string, string[]>();
   /** What the owner said to a chat while its turn ran, waiting for that turn's next step. */
-  private readonly steered = new Map<string, { text: string; taken: (took: boolean) => void }[]>();
+  private readonly steered = new Map<string, { id: number; channel?: string; taken: (how: Heard) => void }[]>();
   /**
    * What the owner said to start each running turn of theirs, and the event
    * those words were logged as once a claim has cited them.
@@ -826,6 +850,8 @@ export class Kernel {
       trail?: string[];
       /** Files a guest sent, by name: not kept, not read, only named to the turn. */
       guestFiles?: string[];
+      /** When the surface says it was sent, in ms, kept if it waits so a restart judges its age by it. */
+      sentAt?: number;
       /**
        * An aside (/btw): answer with this conversation's history as context,
        * but record nothing into it. Pair with noSession and a sessionId of
@@ -834,6 +860,8 @@ export class Kernel {
       contextFrom?: string;
       /** Earlier asides in this side thread, so a follow-up keeps its context. */
       priorTurns?: ModelMessage[];
+      /** Left waiting by the last process and run now: nothing on its surface is waiting to post the answer. */
+      replayed?: boolean;
     } = {},
   ): Promise<HandleResult> {
     if (this.killSwitch.halted) {
@@ -892,19 +920,40 @@ export class Kernel {
      * it waiting. A turn that ends before another step leaves it to run as a
      * turn of its own, as everything said mid-turn used to.
      */
+    /*
+     * While it waits, the row is the message: edited on the dashboard, it
+     * runs as edited; dropped or forked away, it does not run here at all.
+     * So what runs is read back from the row when its moment comes, on
+     * both paths, rather than the words as they were sent.
+     */
+    const dropped: HandleResult = { reply: "", halted: false, sessionId, dropped: true };
+    let parked: number | undefined;
     if (useSession && this.working.has(sessionId) && opts.origin !== "system" && !opts.attachments?.length && !opts.guest && !opts.contextFrom && !opts.context && !opts.roomTalk) {
-      const waiting = this.pending.add(sessionId, text, [], originOf(opts));
-      const took = await new Promise<boolean>((taken) => this.steered.set(sessionId, [...(this.steered.get(sessionId) ?? []), { text, taken }]));
-      this.pending.take(waiting);
-      if (took) return { reply: "", halted: false, sessionId, steered: true };
+      const waiting = this.pending.add(sessionId, text, [], originOf(opts), flagsOf(opts));
+      const how = await new Promise<Heard>((taken) => this.steered.set(sessionId, [...(this.steered.get(sessionId) ?? []), { id: waiting, ...(opts.channel ? { channel: opts.channel } : {}), taken }]));
+      if (how === "heard") return { reply: "", halted: false, sessionId, steered: true };
+      if (how === "dropped") return dropped;
+      // The turn ended before hearing it: it runs as a turn of its own, and
+      // waits as it is when another is queued ahead of it.
+      if (this.queue.depthOf(sessionId) > 0) parked = waiting;
+      else {
+        const row = this.pending.get(waiting);
+        if (!row) return dropped;
+        this.pending.take(waiting);
+        text = row.text;
+      }
+    } else if (useSession && this.queue.depthOf(sessionId) > 0) {
+      parked = this.pending.add(sessionId, text, opts.attachments ?? [], originOf(opts), flagsOf(opts));
     }
-    const parked =
-      useSession && this.queue.depthOf(sessionId) > 0
-        ? this.pending.add(sessionId, text, opts.attachments ?? [], originOf(opts))
-        : undefined;
 
-    return this.queue.enqueue(() => {
-      if (parked !== undefined) this.pending.take(parked);
+    return this.queue.enqueue(async () => {
+      if (parked !== undefined) {
+        const row = this.pending.get(parked);
+        if (!row) return dropped;
+        this.pending.take(parked);
+        // A guest's words stay named as theirs, however they were edited.
+        text = opts.guest ? `${guestNamed(opts.guest)}${withoutGuestName(row.text, opts.guest)}` : row.text;
+      }
       return this.runTurn(text, userId, sessionId, opts);
     }, sessionId);
   }
@@ -945,6 +994,7 @@ export class Kernel {
       /** An aside: borrow this chat's history and identity, record nothing. */
       contextFrom?: string;
       priorTurns?: ModelMessage[];
+      replayed?: boolean;
     },
   ): Promise<HandleResult> {
     {
@@ -959,6 +1009,7 @@ export class Kernel {
       const previousConversation = this.currentConversationId;
       this.currentConversationId = sessionId;
       this.working.add(sessionId);
+      this.openTurn(sessionId, true);
       if (this.buildsWhatItMakes(sessionId, opts.guest !== undefined)) this.turnMade.begin(sessionId, turnId);
       this.failed.delete(sessionId);
       // Where this work has been, for as long as the turn runs: a handoff
@@ -1301,7 +1352,7 @@ export class Kernel {
                 sessionId,
                 ...(opts.origin === "system" ? [] : [text]),
               );
-              this.said(sessionId, text, reply, opts.origin ?? "owner", opts.channel, opts.kept ?? [], resumed, opts.guest ? undefined : opts.from);
+              this.said(sessionId, text, reply, opts.origin ?? "owner", opts.channel, opts.kept ?? [], resumed || opts.replayed === true, opts.guest ? undefined : opts.from);
             }
             /*
              * One row per model the call actually used.
@@ -1388,7 +1439,7 @@ export class Kernel {
               ...(opts.origin ? { origin: opts.origin } : {}),
               ...(opts.channel ? { channel: opts.channel } : {}),
               ...(opts.kept?.length ? { kept: opts.kept } : {}),
-              ...(resumed ? { resumed: true } : {}),
+              ...(resumed || opts.replayed ? { resumed: true } : {}),
               ...(opts.from && !opts.guest ? { from: opts.from } : {}),
               runId,
               useSession,
@@ -1662,13 +1713,29 @@ export class Kernel {
     }
   }
 
-  /** What the owner said to a chat since its turn's last step, under this turn's mark; each told it was heard. */
+  /**
+   * What the owner said to a chat since its turn's last step, under this
+   * turn's mark; each told it was heard. Read from its waiting row, so an
+   * edit counts and one dropped meanwhile is not heard at all.
+   */
   private hear(sessionId: string, mark: string): string | undefined {
     const waiting = this.steered.get(sessionId);
     if (!waiting?.length) return undefined;
     this.steered.delete(sessionId);
-    for (const w of waiting) w.taken(true);
-    return ownerWords(mark, waiting.map((w) => w.text));
+    const words: string[] = [];
+    for (const w of waiting) {
+      const row = this.pending.get(w.id);
+      if (!row) {
+        w.taken("dropped");
+        continue;
+      }
+      this.pending.take(w.id);
+      words.push(row.text);
+      w.taken("heard");
+      // Shown where the chat is mirrored, as the owner's, where the turn heard them.
+      this.progress.emit({ kind: "heard", conversationId: sessionId, said: row.text, ...(w.channel ? { from: w.channel } : {}) });
+    }
+    return words.length ? ownerWords(mark, words) : undefined;
   }
 
   /**
@@ -1687,8 +1754,9 @@ export class Kernel {
   private endTurn(sessionId: string, turnId?: string): void {
     if (turnId) this.turnMade.end(sessionId, turnId);
     this.working.delete(sessionId);
+    this.openTurn(sessionId, false);
     // Words the turn never reached a step to hear run as a turn of their own.
-    for (const w of this.steered.get(sessionId) ?? []) w.taken(false);
+    for (const w of this.steered.get(sessionId) ?? []) w.taken("left");
     this.steered.delete(sessionId);
     if (turnId) {
       const stops = this.stops.get(sessionId);
@@ -1704,6 +1772,78 @@ export class Kernel {
     if (held) {
       this.heldNotes.delete(sessionId);
       for (const text of held) this.writeNote(sessionId, text);
+    }
+  }
+
+  /** Kept across restarts: which chats have a turn running, so one a restart cut short is said to be. */
+  private openTurn(sessionId: string, open: boolean): void {
+    // A turn that ends after the store closed has no record to change.
+    if (this.closed) return;
+    const now = this.settings.get<Record<string, number>>(OPEN_TURNS_KEY) ?? {};
+    if (open === sessionId in now) return;
+    const { [sessionId]: _was, ...rest } = now;
+    this.settings.set(OPEN_TURNS_KEY, open ? { ...rest, [sessionId]: Date.now() } : rest);
+  }
+
+  /**
+   * At boot: each chat whose turn the last process was running when it
+   * stopped is told so, in a line of its own, rather than left looking as
+   * if the turn had simply said nothing.
+   */
+  markInterrupted(): string[] {
+    const open = Object.keys(this.settings.get<Record<string, number>>(OPEN_TURNS_KEY) ?? {});
+    this.settings.set(OPEN_TURNS_KEY, {});
+    for (const id of open) this.noteIn(id, INTERRUPTED_LINE);
+    return open;
+  }
+
+  /**
+   * What the last process left waiting, after boot. The owner's own words,
+   * sent attended, run in order, each as it was going to; a guest's run as
+   * that guest's, never as the owner's, and only while the room is still
+   * open to guests. Anything else (a schedule's, work passed on, a row from
+   * before flags were kept, anything waiting longer than a late message may
+   * and still run) is not run on its own: its chat is told what was not
+   * run, to send again.
+   */
+  replayQueued(): void {
+    const byChat = new Map<string, PendingMessage[]>();
+    for (const row of this.pending.leftover()) byChat.set(row.conversationId, [...(byChat.get(row.conversationId) ?? []), row]);
+    const lateBy = Date.now() - LATE_RUN_MS;
+    const audiences = this.channelAudiences();
+    for (const [conversationId, rows] of byChat) {
+      const userId = this.conversations.get(conversationId)?.userId ?? this.profile.ownerId;
+      const runs: { text: string; opts: Parameters<Kernel["handleMessage"]>[1] }[] = [];
+      const notRun: string[] = [];
+      for (const row of rows) {
+        this.pending.remove(row.id);
+        const f = row.flags;
+        const files = row.attachments.length ? { attachments: row.attachments } : {};
+        const base = { sessionId: conversationId, userId, replayed: true, ...files };
+        // As old as when it was sent, where the surface said: a message caught up late was queued later still.
+        if ((f?.sentAt ?? row.createdAt) < lateBy) {
+          notRun.push(row.text);
+        } else if (f?.guest) {
+          // A room shut to guests since: their words wait for the owner to send again, not run.
+          if (audiences[conversationId] !== "guests") {
+            notRun.push(row.text);
+            continue;
+          }
+          const where = { ...(f.channel ? { channel: f.channel } : {}), ...(f.room ? { room: f.room } : {}), ...(f.roomTalk ? { roomTalk: f.roomTalk } : {}) };
+          const kept = { ...(f.trail ? { trail: f.trail } : {}), ...(f.maxIterations ? { maxIterations: f.maxIterations } : {}), ...(f.guestFiles ? { guestFiles: f.guestFiles } : {}) };
+          runs.push({ text: withoutGuestName(row.text, f.guest), opts: { ...base, ...where, ...kept, guest: f.guest } });
+        } else if (f?.owner === true && f.attended !== false && f.origin !== "system") {
+          runs.push({ text: row.text, opts: { ...base, ...f } });
+        } else {
+          notRun.push(row.text);
+        }
+      }
+      if (notRun.length) {
+        const quoted = notRun.map((t) => `> ${t.replace(/\s+/g, " ").slice(0, 200)}`).join("\n");
+        this.noteIn(conversationId, `${notRun.length} queued message${notRun.length === 1 ? " was" : "s were"} not run after a restart; resend?\n${quoted}`);
+      }
+      // One after another, in the order they were sent.
+      void runs.reduce<Promise<unknown>>((prev, r) => prev.then(() => this.handleMessage(r.text, r.opts).catch(() => undefined)), Promise.resolve());
     }
   }
 
@@ -1745,7 +1885,7 @@ export class Kernel {
    */
   async handleOrchestratorTurn(
     text: string,
-    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; context?: string; roomTalk?: string; owner?: boolean } = {},
+    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; context?: string; roomTalk?: string; owner?: boolean; sentAt?: number } = {},
   ): Promise<HandleResult & { conversationId: string }> {
     const id = this.ensureOrchestratorConversation().id;
     const res = await this.handleMessage(text, {
@@ -1763,6 +1903,7 @@ export class Kernel {
       ...(opts.context ? { context: opts.context } : {}),
       ...(opts.roomTalk ? { roomTalk: opts.roomTalk } : {}),
       ...(opts.owner ? { owner: true } : {}),
+      ...(opts.sentAt !== undefined ? { sentAt: opts.sentAt } : {}),
     });
     return { ...res, conversationId: id };
   }
@@ -2334,7 +2475,7 @@ export class Kernel {
   async handleProjectTurn(
     slug: string,
     text: string,
-    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; context?: string; roomTalk?: string; owner?: boolean } = {},
+    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; context?: string; roomTalk?: string; owner?: boolean; sentAt?: number } = {},
   ): Promise<HandleResult & { conversationId: string }> {
     const id = this.ensureProjectConversation(slug).id;
     const res = await this.handleMessage(text, {
@@ -2352,6 +2493,7 @@ export class Kernel {
       ...(opts.context ? { context: opts.context } : {}),
       ...(opts.roomTalk ? { roomTalk: opts.roomTalk } : {}),
       ...(opts.owner ? { owner: true } : {}),
+      ...(opts.sentAt !== undefined ? { sentAt: opts.sentAt } : {}),
     });
     return { ...res, conversationId: id };
   }
@@ -2774,23 +2916,81 @@ export class Kernel {
     if (id === orchestratorId(this.profile.ownerId)) return this.ensureOrchestratorConversation();
     if (id.startsWith("project:")) {
       const slug = id.slice("project:".length);
-      if (!this.manifest.get(slug)) throw new Error(`no project called ${slug}; this channel is bound to one that is gone`);
+      if (!this.manifest.get(slug)) throw new BindingGoneError(`no project called ${slug}; this channel is bound to one that is gone`);
       return this.ensureProjectConversation(slug);
     }
     if (id.startsWith("agent:")) {
       const name = id.slice("agent:".length);
-      if (!this.roles.get(name)) throw new Error(`no blob called ${name}; this channel is bound to one that is gone`);
+      if (!this.roles.get(name)) throw new BindingGoneError(`no blob called ${name}; this channel is bound to one that is gone`);
       return this.ensureAgentConversation(name);
     }
     const existing = this.conversations.get(id);
-    if (existing) return existing;
-    return this.conversations.create({
+    // The owner's own thread is the chat's thread: bound, so the layout and
+    // the mirror use it and never make a second one beside it. One bound to
+    // a thread KOS made before is left for rebindOwnerThreads.
+    const bindOwn = (): void => {
+      if (seed.threadId && !Object.values(this.threadBindings()).includes(id)) this.bindThread(seed.threadId, id);
+    };
+    if (existing) {
+      bindOwn();
+      return existing;
+    }
+    // Only the owner's own new thread makes a chat here, and never one
+    // deleted before: a stale topic or binding makes nothing again.
+    if (!id.startsWith(OWNER_THREAD_PREFIX) || this.goneChats().includes(id)) {
+      throw new BindingGoneError("this channel is bound to a chat that is gone");
+    }
+    const made = this.conversations.create({
       id,
       userId,
       title: seed.title?.trim() || "Thread",
       channel,
       ...(seed.projectSlug ? { projectSlug: seed.projectSlug } : {}),
     });
+    bindOwn();
+    return made;
+  }
+
+  /** Chats made from a thread of the owner's and deleted since, so a message there does not make them again. */
+  goneChats(): string[] {
+    return this.settings.get<string[]>(GONE_CHATS_KEY) ?? [];
+  }
+
+  /** A deleted chat a surface room could make again, remembered as gone. */
+  rememberGone(id: string): void {
+    if (!id.startsWith(OWNER_THREAD_PREFIX) || this.closed) return;
+    this.settings.set(GONE_CHATS_KEY, [...this.goneChats().filter((g) => g !== id), id].slice(-GONE_CHATS_MAX));
+  }
+
+  /**
+   * Chats made from a thread the owner started that are also bound to a
+   * thread KOS made for them: the duplicate the layout made before the
+   * owner's thread was bound. A dry run; rebindOwnerThreads fixes them.
+   */
+  ownerThreadDuplicates(): { conversationId: string; title: string; ownerThread: string; madeThreads: string[] }[] {
+    const bindings = Object.entries(this.threadBindings());
+    return this.conversations
+      .list(this.profile.ownerId, { includeArchived: true })
+      .filter((c) => c.id.startsWith(OWNER_THREAD_PREFIX))
+      .flatMap((c) => {
+        const ownerThread = c.id.slice(OWNER_THREAD_PREFIX.length);
+        const madeThreads = bindings.filter(([thread, bound]) => bound === c.id && thread !== ownerThread).map(([thread]) => thread);
+        return madeThreads.length ? [{ conversationId: c.id, title: c.title, ownerThread, madeThreads }] : [];
+      });
+  }
+
+  /**
+   * Bind each such chat to the owner's thread alone. The threads KOS made
+   * are only let go here, never deleted: they stay on Discord until the
+   * owner removes them.
+   */
+  rebindOwnerThreads(): ReturnType<Kernel["ownerThreadDuplicates"]> {
+    const found = this.ownerThreadDuplicates();
+    for (const d of found) {
+      for (const thread of d.madeThreads) this.unbindThread(thread);
+      this.bindThread(d.ownerThread, d.conversationId);
+    }
+    return found;
   }
 
   /**
@@ -2803,7 +3003,7 @@ export class Kernel {
    * (threadBindings), since threads carry no topic.
    */
   surfaceChannels(): SurfaceChannel[] {
-    const slug = (text: string): string => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 90) || "channel";
+    const slug = channelName;
     const audiences = this.channelAudiences();
     const of = (key: string): Audience => audiences[key] ?? "owner";
     const chats = this.conversations.list(this.profile.ownerId);
@@ -2899,7 +3099,7 @@ export class Kernel {
   /** A turn in a bound conversation, through the door that gives it its reach. */
   private boundTurn(
     conversation: Conversation,
-    input: { text: string; userId: string; channel: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; context?: string; roomTalk?: string },
+    input: { text: string; userId: string; channel: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom; members?: { id: string; name: string }[]; context?: string; roomTalk?: string; sentAt?: number },
   ): Promise<HandleResult> {
     const opts = {
       channel: input.channel,
@@ -2912,6 +3112,7 @@ export class Kernel {
       ...(input.roomTalk ? { roomTalk: input.roomTalk } : {}),
       // A surface hands on the owner's own words, and names a guest's as theirs.
       ...(input.guest ? {} : { owner: true }),
+      ...(input.sentAt !== undefined ? { sentAt: input.sentAt } : {}),
     };
     if (conversation.id === orchestratorId(this.profile.ownerId)) return this.handleOrchestratorTurn(input.text, opts);
     if (conversation.id.startsWith("project:")) return this.handleProjectTurn(conversation.id.slice("project:".length), input.text, opts);
@@ -2933,10 +3134,24 @@ export class Kernel {
     roomTalk?: string;
     /** The surface keeps to its own chats: its commands list and move among those alone. */
     contained?: boolean;
+    /** Sent while KOS was away, and when, in ms. */
+    late?: boolean;
+    sentAt?: number;
+    /** Several sent while away and too old to run, for one note to list. */
+    missed?: string[];
   }): Promise<HandleResult & { conversationId: string; isCommand: boolean; from?: Sender }> {
     const conversation = input.conversationId
       ? this.boundConversation(input.conversationId, input.userId, input.channel, input.newIn)
       : this.conversationFor(input.channel, input.userId, input.conversationKey);
+
+    // Said while KOS was away, long enough ago that it may no longer be
+    // wanted: not run, whoever said it. The room and the chat are told, to
+    // send again; sent again it is said now, and runs.
+    if (input.late && input.sentAt !== undefined && Date.now() - input.sentAt > LATE_RUN_MS) {
+      const note = notRunNote(input.missed?.length ? input.missed : [input.text]);
+      this.noteIn(conversation.id, note);
+      return { reply: note, halted: false, conversationId: conversation.id, isCommand: false };
+    }
 
     // The commands act on the owner's chat and what it runs, so a guest has
     // none of them but help: anything else a guest types is ordinary words.
@@ -3018,6 +3233,7 @@ export class Kernel {
         : {}),
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       ...(input.guest ? { guest: input.guest } : { owner: true }),
+      ...(input.sentAt !== undefined ? { sentAt: input.sentAt } : {}),
     });
     return { ...res, conversationId: conversation.id, isCommand: false };
   }
