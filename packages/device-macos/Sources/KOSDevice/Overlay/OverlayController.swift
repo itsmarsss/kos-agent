@@ -2,7 +2,7 @@ import AppKit
 import DeviceUI
 
 /// Everything the owner sees while KOS has the computer: the border and
-/// KOS's cursor on the session's display, and the bar with Pause and Stop.
+/// KOS's cursor on the session's display, and the bar with Take over and Stop.
 /// Up for the whole session and gone when it ends.
 @MainActor
 final class OverlayController {

@@ -117,6 +117,16 @@ struct SessionsTests {
     #expect(sessions.due(start.addingTimeInterval(200)) == nil)
   }
 
+  /// KOS waits for the owner to hand it back: a pause is not idle, however long; its time limit still holds.
+  @Test func aPausedSessionIsNeverIdle() throws {
+    var sessions = try liveSessions(minutes: 30)
+    _ = sessions.pause()
+    #expect(sessions.due(start.addingTimeInterval(20 * 60)) == nil)
+    #expect(sessions.due(start.addingTimeInterval(30 * 60)) == .expired)
+    _ = sessions.resume(now: start.addingTimeInterval(20 * 60))
+    #expect(sessions.due(start.addingTimeInterval(23 * 60)) == .idle)
+  }
+
   @Test func endingSaysWhatEnded() throws {
     var sessions = try liveSessions()
     #expect(sessions.end() == "s1")

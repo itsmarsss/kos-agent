@@ -29,13 +29,13 @@ public enum LoginState: Equatable {
   case needsApproval
 }
 
-/// What of the owner's own hand pauses KOS.
+/// What of the owner's own hand takes the Mac over from KOS. A click or a key always does.
 public enum Takeover: String, CaseIterable, Sendable {
-  /// Any movement of the pointer, however small.
+  /// Any movement of the pointer, however small, and a scroll.
   case anyMove
-  /// A move as far as a deliberate one goes; a nudge does not.
+  /// A move as far as a deliberate one goes; a nudge or a scroll does not.
   case deliberate
-  /// Only a click, a scroll or a key; moving the pointer never pauses.
+  /// Only a click or a key; moving the pointer and scrolling never do.
   case clicksAndKeys
 
   public var label: String {
@@ -45,6 +45,19 @@ public enum Takeover: String, CaseIterable, Sendable {
     case .clicksAndKeys: return "Clicks and keys"
     }
   }
+
+  /// How far the pointer travels, within half a second, before it is the owner
+  /// taking over. Nothing: moving it never does.
+  public var travel: CGFloat? {
+    switch self {
+    case .anyMove: return 6
+    case .deliberate: return 40
+    case .clicksAndKeys: return nil
+    }
+  }
+
+  /// Whether a scroll is the owner taking over: reading along as KOS works is not.
+  public var scrollTakesOver: Bool { self == .anyMove }
 }
 
 /// How KOS moves the pointer: so the owner can follow it, or quickly.

@@ -199,7 +199,7 @@ final class DeviceController {
     } else {
       overlay.show(display: id, task: task, until: session.until, face: faceOf(origin))
     }
-    owner.start(grace: Self.handOverGrace, travel: OwnerInputMonitor.travel(for: settings.takeover))
+    owner.start(grace: Self.handOverGrace, takeover: settings.takeover)
     ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated { self?.tick() }
     }
@@ -477,7 +477,7 @@ final class DeviceController {
 
   private func interruption(for id: String) -> DeviceError? {
     guard let session = sessions.live, session.id == id else { return DeviceError(.noSession, "The session ended.") }
-    return session.paused ? DeviceError(.paused, "The owner took over. Wait for them to resume it on this Mac.") : nil
+    return session.paused ? DeviceError(.paused, "The owner took over. Wait for them to hand it back on this Mac.") : nil
   }
 
   private func globalPoint(_ x: Double, _ y: Double, in session: LiveSession) throws -> CGPoint {

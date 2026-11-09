@@ -112,7 +112,7 @@ public struct Sessions: Sendable {
       throw DeviceError(.noSession, "No live session with that id.")
     }
     if due(now) != nil { throw DeviceError(.noSession, "The session is over.") }
-    if session.paused { throw DeviceError(.paused, "The owner took over. Wait for them to resume it on this Mac.") }
+    if session.paused { throw DeviceError(.paused, "The owner took over. Wait for them to hand it back on this Mac.") }
     session.lastActivity = now
     phase = .live(session)
     return session
@@ -149,11 +149,11 @@ public struct Sessions: Sendable {
     }
   }
 
-  /// Why the live session should end now, if it should.
+  /// Why the live session should end now, if it should. Paused, it is not idle: KOS waits for the owner to hand it back.
   public func due(_ now: Date) -> EndReason? {
     guard let session = live else { return nil }
     if now >= session.until { return .expired }
-    if now.timeIntervalSince(session.lastActivity) >= idleLimit { return .idle }
+    if !session.paused && now.timeIntervalSince(session.lastActivity) >= idleLimit { return .idle }
     return nil
   }
 
