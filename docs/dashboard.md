@@ -337,7 +337,9 @@ Grouped by what you came to do.
   load, on a change of theme and on a change of the browser's appearance,
   once per half second at most and only when it differs from what the
   status last said, so a device set to the dashboard looks as it does; with
-  several open, the latest report wins; density; KOS's face: its colour, eyes and gait, kept in the workspace so
+  several open, the latest report wins; a tab KOS has it from says it again
+  every three minutes on the status poll to keep it fresh, and says it at
+  once when the status has none (KOS lets a report go after ten minutes); density; KOS's face: its colour, eyes and gait, kept in the workspace so
   every screen and the tab icon agree).
 - **Extensions**: Skills (all of them, or one project's own, scripts,
   prompt skills, promoted, or switched off; a script says whether it is

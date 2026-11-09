@@ -63,23 +63,38 @@ let drawnNow: DrawnTheme | undefined;
 let drawnKept: DrawnTheme | undefined;
 let report: ((drawn: DrawnTheme) => Promise<{ drawn: DrawnTheme }>) | null = null;
 let reportTimer: ReturnType<typeof setTimeout> | undefined;
+/** When this tab last reported, so an unchanged palette is said again only now and then. */
+let reportedAt = -Infinity;
 
 /** How long a change waits before it is reported, so a flurry of them is one report. */
 export const DRAWN_REPORT_MS = 500;
 
+/**
+ * How often an open tab says its palette again when KOS already has it:
+ * only to keep the report fresh, well inside the ten minutes KOS holds one
+ * before devices draw the mode instead.
+ */
+export const DRAWN_HEARTBEAT_MS = 3 * 60_000;
+
+/** A palette KOS does not have, or the one it has from this tab, due to be said again. */
+function due(): boolean {
+  return drawnNow !== undefined && (drawnNow !== drawnKept || Date.now() - reportedAt >= DRAWN_HEARTBEAT_MS);
+}
+
 function reportSoon(): void {
-  if (!report || reportTimer !== undefined || drawnNow === drawnKept) return;
+  if (!report || reportTimer !== undefined || !due()) return;
   reportTimer = setTimeout(() => void reportNow(), DRAWN_REPORT_MS);
 }
 
 async function reportNow(): Promise<void> {
   reportTimer = undefined;
   const drawn = drawnNow;
-  if (!report || !drawn || drawn === drawnKept) return;
+  if (!report || !drawn || !due()) return;
   try {
     drawnKept = (await report(drawn)).drawn;
+    reportedAt = Date.now();
   } catch {
-    // Unsaid this time; the next change reports it again.
+    // Unsaid this time; the next change or poll reports it again.
   }
 }
 
@@ -87,7 +102,9 @@ async function reportNow(): Promise<void> {
  * Report the palette this tab draws in to KOS, now and on every change of
  * it: a choice of theme here or in another tab, or the browser's own
  * appearance under "system". Only a palette that differs from what KOS
- * last said is reported, and changes close together are reported once.
+ * last said is reported, and changes close together are reported once;
+ * one KOS has from this tab is said again on the poll every
+ * DRAWN_HEARTBEAT_MS, so it does not go stale while the tab is open.
  */
 export function reportDrawnTheme(send: (drawn: DrawnTheme) => Promise<{ drawn: DrawnTheme }>): () => void {
   report = send;
@@ -99,9 +116,15 @@ export function reportDrawnTheme(send: (drawn: DrawnTheme) => Promise<{ drawn: D
   };
 }
 
-/** What KOS says a dashboard last drew in, from the status poll; hearing it reports nothing, so two dashboards never trade reports. */
+/**
+ * What KOS says a dashboard draws in, from the status poll. Another
+ * dashboard's palette is not answered, so two dashboards never trade
+ * reports. Nothing (none reported, or the last report went stale) is
+ * answered with this tab's, and this tab's own with a heartbeat now and then.
+ */
 export function heardDrawnTheme(drawn: DrawnTheme | undefined): void {
   drawnKept = drawn;
+  if (drawn === undefined || drawn === drawnNow) reportSoon();
 }
 
 /** Show a theme in this tab and keep it as this browser's copy; the workspace is told apart, by whoever chose it. */

@@ -232,7 +232,11 @@ browser, which need not agree with the device's: a Chrome forced dark draws
 System dark on a Mac in light. The dashboard reports it
 (`POST /api/settings/theme/drawn`, [dashboard.md](dashboard.md)); with several
 dashboards open, the latest report wins. Choosing light or dark sets `drawn`
-to the same at once, since either is drawn as itself.
+to the same at once, since either is drawn as itself, and that never goes
+stale. Under system, a report holds for ten minutes: an open dashboard says
+it again every few minutes to keep it fresh, and once no dashboard has for
+ten, KOS sends the theme without `drawn`, so a device draws `mode` rather
+than the palette of a dashboard that has closed.
 
 A device keeps its own choice of theme locally: "dashboard", the default,
 draws as the dashboard looks, `drawn` when it was sent, else `mode` ("system"

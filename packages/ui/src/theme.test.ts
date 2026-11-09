@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { chooseTheme, DRAWN_REPORT_MS, followOtherTabs, heardDrawnTheme, isDensity, isTheme, readTheme, reconcileTheme, reportDrawnTheme, resolveTheme, showTheme, THEME_KEY, themeStamp } from "./theme.js";
+import { chooseTheme, DRAWN_HEARTBEAT_MS, DRAWN_REPORT_MS, followOtherTabs, heardDrawnTheme, isDensity, isTheme, readTheme, reconcileTheme, reportDrawnTheme, resolveTheme, showTheme, THEME_KEY, themeStamp } from "./theme.js";
 
 afterEach(() => {
   localStorage.clear();
@@ -153,6 +153,41 @@ describe("the palette this tab reports drawing in", () => {
     showTheme("dark");
     await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
     expect(sent).toHaveLength(3);
+    chrome.restore();
+    vi.useRealTimers();
+  });
+
+  it("is said again now and then while KOS has it, and when KOS has none, never over another dashboard's", async () => {
+    vi.useFakeTimers();
+    const chrome = browser(false);
+    const sent: string[] = [];
+    const send = vi.fn(async (drawn: "light" | "dark") => (sent.push(drawn), { drawn }));
+    heardDrawnTheme(undefined);
+    showTheme("system");
+    const stop = reportDrawnTheme(send);
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark"]);
+    // Polls that hear it back are no news until the heartbeat is due.
+    heardDrawnTheme("dark");
+    await vi.advanceTimersByTimeAsync(DRAWN_HEARTBEAT_MS - DRAWN_REPORT_MS - 1);
+    heardDrawnTheme("dark");
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark"]);
+    // Due: the next poll says it again, only to keep it fresh.
+    await vi.advanceTimersByTimeAsync(1);
+    heardDrawnTheme("dark");
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark", "dark"]);
+    // Another dashboard's palette is never answered, however long since this tab said its own.
+    await vi.advanceTimersByTimeAsync(DRAWN_HEARTBEAT_MS);
+    heardDrawnTheme("light");
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark", "dark"]);
+    // KOS has none (the last report went stale): this tab's is said at once.
+    heardDrawnTheme(undefined);
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark", "dark", "dark"]);
+    stop();
     chrome.restore();
     vi.useRealTimers();
   });
