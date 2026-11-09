@@ -45,6 +45,8 @@ export interface PendingFlags {
   room?: MessageRoom;
   members?: { id: string; name: string }[];
   context?: string;
+  /** The context only says where it was said, so it rides with the words into a running turn. */
+  contextRides?: boolean;
   roomTalk?: string;
   via?: string;
   from?: MessageFrom;

@@ -465,7 +465,8 @@ export class DevicePanel implements ChannelAdapter {
         this.last = device;
         this.lastBeside = data["beside"];
         const named = this.hub?.list().find((d) => d.id === device)?.name ?? device;
-        void this.messages?.({ channel: this.name, senderId: device, text, context: this.place.beside(data["beside"], named) });
+        // Where they were says only that, so it rides with words a running turn takes in.
+        void this.messages?.({ channel: this.name, senderId: device, text, context: this.place.beside(data["beside"], named), contextRides: true });
         return;
       }
       case "chat.stop": {

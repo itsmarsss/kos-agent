@@ -39,6 +39,8 @@ export interface TurnContext {
   members?: { id: string; name: string }[];
   /** Where it was said, for this turn alone. */
   context?: string;
+  /** That context only says where: it rides with the words into a turn already running. */
+  contextRides?: true;
   /** What others said in the room in between, kept beside the words. */
   roomTalk?: string;
   /** Sent while KOS was away, and when: too old, it is not run. */
@@ -371,6 +373,7 @@ export class ChannelRuntime {
         ...(msg.room ? { room: msg.room } : {}),
         ...(msg.members?.length ? { members: msg.members } : {}),
         ...(msg.context ? { context: msg.context } : {}),
+        ...(msg.contextRides ? { contextRides: true as const } : {}),
         ...(msg.roomTalk ? { roomTalk: msg.roomTalk } : {}),
         ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
         ...(msg.late ? { late: true } : {}),

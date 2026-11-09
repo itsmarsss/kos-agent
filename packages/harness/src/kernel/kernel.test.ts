@@ -180,6 +180,36 @@ describe("Kernel", () => {
     expect(events.find((e) => e.kind === "tool")).toMatchObject({ result: expect.not.stringContaining("are you stuck") });
   });
 
+  it("hears words said beside a device's chat mid-turn with where they were said, but not as their words", async () => {
+    const step: ModelResponse = { content: [{ type: "tool_use", id: "t1", name: "files.write", input: { path: "scratch/a.txt", content: "a" } }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+    const said = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    const requests: GenerateRequest[] = [];
+    let second: Promise<{ reply: string; steered?: boolean }> | undefined;
+    let other: Promise<{ reply: string; steered?: boolean }> | undefined;
+    let chat = "";
+    kernel = await boot({
+      async generate(_t, r) {
+        requests.push(r);
+        if (requests.length === 1) {
+          second = kernel.handleMessage("use the blue one", { sessionId: chat, context: "Said beside their tab at https://shop.test/mugs", contextRides: true });
+          // A context that is more than where: still held for a turn of its own.
+          other = kernel.handleMessage("and this?", { sessionId: chat, context: "Replying to a message by Sam" });
+          await new Promise((done) => setTimeout(done, 30));
+          return step;
+        }
+        return said("Blue it is.");
+      },
+    });
+    chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mugs" }).id;
+    await kernel.handleMessage("pick a mug", { sessionId: chat });
+    expect(await second).toMatchObject({ steered: true });
+    expect((await other)?.steered).toBeUndefined();
+    const sent = JSON.stringify(requests[1]);
+    expect(sent).toMatch(/while you work · [0-9a-f]{8}\]\\nuse the blue one\\n\\n\[where the owner said that · [0-9a-f]{8}\]\\nSaid beside their tab at https:\/\/shop.test\/mugs/);
+    const events = conversationEvents(kernel.sessions.get(chat));
+    expect(events.filter((e) => e.kind === "message" && e.role === "you").map((e) => (e as { text: string }).text)).toEqual(["pick a mug", "use the blue one", "and this?"]);
+  });
+
   it("hears words said mid-turn as they were edited while waiting, and not at all once dropped", async () => {
     const step: ModelResponse = { content: [{ type: "tool_use", id: "t1", name: "files.write", input: { path: "scratch/a.txt", content: "a" } }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
     const said = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });

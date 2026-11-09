@@ -88,6 +88,12 @@ export interface InboundMessage {
    */
   context?: string;
   /**
+   * The context says only where the words were said (the tab or app beside
+   * a device's chat), so it rides with them when they are taken into a turn
+   * already running, rather than holding them until that turn ends.
+   */
+  contextRides?: true;
+  /**
    * What others said in the room since the chat last heard it: kept beside
    * the words as untrusted room talk, so a later turn still knows it, and
    * never read as the words themselves.
