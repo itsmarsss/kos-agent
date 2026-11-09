@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { GAITS } from "./blobmotion.js";
-import { COLOURS, FLOAT_SHADOW, RADII, SPRING, TYPE, type ColourToken } from "./design.js";
+import { COLOURS, FLOAT_SHADOW, isThemeMode, LIGHT_COLOURS, RADII, resolveThemeMode, SPRING, TYPE, type ColourToken } from "./design.js";
 import { KOS_SEED, drawingOf, lookOf } from "./face.js";
 
 /**
@@ -18,6 +18,11 @@ function roots(css: string): string[] {
   return [...css.matchAll(/(^|\n):root \{[^}]*\}/g)].map((m) => m[0]);
 }
 
+/** The light palette's block: `:root[data-theme="light"]`. */
+function lightRoot(css: string): string {
+  return /(^|\n):root\[data-theme="light"\] \{[^}]*\}/.exec(css)?.[0] ?? "";
+}
+
 /** A custom property as declared in a block, or nothing. */
 function declared(block: string, name: string): string | undefined {
   return new RegExp(`--${name}:\\s*([^;]+);`).exec(block)?.[1]?.trim();
@@ -27,6 +32,8 @@ const STYLESHEETS = {
   dashboard: read("../../ui/src/styles.css"),
   extension: read("../../browser-extension/static/kos.css"),
 };
+/** The stylesheets that draw the light palette too. */
+const LIGHT_SHEETS = { dashboard: STYLESHEETS.dashboard };
 const KIT = read("../../kit/src/kit.css");
 const OVERLAY = read("../../browser-extension/src/overlay.ts");
 const SWIFT = read("../../device-macos/Sources/DeviceUI/Theme.swift");
@@ -64,6 +71,22 @@ describe("the design tokens", () => {
       }
     });
   }
+
+  for (const [surface, css] of Object.entries(LIGHT_SHEETS)) {
+    it(`are the ${surface}'s light colours`, () => {
+      const block = lightRoot(css);
+      expect(block, `${surface} has a light palette`).toContain("color-scheme: light");
+      for (const [token, hex] of Object.entries(LIGHT_COLOURS)) expect(declared(block, token)?.toLowerCase(), `${surface} light --${token}`).toBe(hex);
+    });
+  }
+
+  it("say which palette a mode lands on", () => {
+    expect(resolveThemeMode("system", true)).toBe("light");
+    expect(resolveThemeMode("system", false)).toBe("dark");
+    expect(resolveThemeMode("light", false)).toBe("light");
+    expect(resolveThemeMode("dark", true)).toBe("dark");
+    expect(["light", "dark", "system", "dashboard", 1, undefined].map(isThemeMode)).toEqual([true, true, true, false, false, false]);
+  });
 
   it("cover every token the kit's stylesheet uses, in both apps", () => {
     // A var() with a fallback, or one the kit sets itself (a tone a rule passes down), needs no app to declare it.

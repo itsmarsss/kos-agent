@@ -26,6 +26,47 @@ export const COLOURS = {
 
 export type ColourToken = keyof typeof COLOURS;
 
+/**
+ * The light palette: the same roles, chosen for paper rather than flipped
+ * from the dark set. The accent and the state colours go darker so they
+ * clear 4.5:1 on white, and text on them turns white in step.
+ */
+export const LIGHT_COLOURS: Record<ColourToken, string> = {
+  bg: "#f4f5f8",
+  panel: "#ffffff",
+  "panel-2": "#eceef3",
+  line: "#dde1e8",
+  "line-strong": "#bfc6d3",
+  text: "#161a22",
+  muted: "#58607a",
+  faint: "#8089a0",
+  accent: "#3558d6",
+  "accent-lit": "#2a47b8",
+  "on-accent": "#ffffff",
+  violet: "#7b4fd6",
+  ok: "#0f6e45",
+  warn: "#7d5400",
+  danger: "#cf3b47",
+};
+
+/**
+ * How KOS is drawn: one palette, or whichever the system asks for. The
+ * dashboard's choice is KOS's own setting, told to every device, which may
+ * follow it or keep its own.
+ */
+export type ThemeMode = "light" | "dark" | "system";
+
+export const THEME_MODES: readonly ThemeMode[] = ["light", "dark", "system"];
+
+export function isThemeMode(v: unknown): v is ThemeMode {
+  return v === "light" || v === "dark" || v === "system";
+}
+
+/** The palette a mode lands on, given whether the system prefers light. */
+export function resolveThemeMode(mode: ThemeMode, prefersLight: boolean): "light" | "dark" {
+  return mode === "system" ? (prefersLight ? "light" : "dark") : mode;
+}
+
 /** Corner radii, in px. */
 export const RADII = { xs: 4, sm: 7, md: 10, lg: 14 } as const;
 
