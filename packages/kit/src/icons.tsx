@@ -294,6 +294,13 @@ export const ChatIcon = ({ size = 15 }: IconProps = {}): ReactElement => (
   </Glyph>
 );
 
+/** Quoted words: lines of text with a rule at their side, as a quote is set. */
+export const QuoteIcon = ({ size = 12 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <path d="M17 6H3M21 12H8M21 18H8M3 12v6" />
+  </Glyph>
+);
+
 export const CloseIcon = ({ size = 14, title = "Close" }: IconProps = {}): ReactElement => (
   <Icon title={title} size={size}>
     <path d="M6 6l12 12M18 6L6 18" />

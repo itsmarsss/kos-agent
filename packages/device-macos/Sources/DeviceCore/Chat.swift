@@ -38,12 +38,15 @@ public struct ChatMessage: Decodable, Equatable, Sendable {
   public let text: String?
   public let files: [String]?
   public let steps: [ChatStep]?
+  /// What the owner quoted with their words, from a page or an app.
+  public let quote: Quote?
 
-  public init(role: String, text: String? = nil, files: [String]? = nil, steps: [ChatStep]? = nil) {
+  public init(role: String, text: String? = nil, files: [String]? = nil, steps: [ChatStep]? = nil, quote: Quote? = nil) {
     self.role = role
     self.text = text
     self.files = files
     self.steps = steps
+    self.quote = quote
   }
 }
 
@@ -196,8 +199,9 @@ public enum Beside: Encodable, Equatable, Sendable {
   private enum Keys: String, CodingKey { case kind, name, bundle, title }
 }
 
-/// What the owner selected in the app in front, sent once with their words: the words, and where they are from.
-public struct Quote: Encodable, Equatable, Sendable {
+/// What the owner selected in the app in front, sent once with their words and kept with them: the words, and where
+/// they are from.
+public struct Quote: Codable, Equatable, Sendable {
   public let text: String
   public let from: String
 

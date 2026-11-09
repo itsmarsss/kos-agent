@@ -54,7 +54,7 @@ those to this table by hand.
 | `WorkingDots` | KOS at work: the foot of a running turn, under whatever it showed last, until the turn ends | kit | kit | `Working` (`ChatView.swift`) |
 | `Elapsed` | How long a turn has run, ticking: `formatElapsed` says it (45s, 3m 20s, 1h 4m) | kit | kit | `elapsedWords` (Controls) |
 | `Countdown` | How long an ask has before it lapses, ticking ("lapses in 42s"), in the warning tone for its last 15 s | kit | kit (`AskCard`, `ConsentCard`) | |
-| `QuoteLine` | What the owner quoted with a message, at the top of their bubble, where it came from on hover | kit (the thread's bubble) | kit (`.msg--you`) | |
+| `QuoteLine` | What the owner quoted with their words, on a soft tint with a hairline edge: a head with `QuoteIcon`, a label and where it came from (a page's site by `quoteSource`, an app's name), then the words in quotes cut to `lines` by line-clamp, the whole in a `Tooltip` when cut. `label` and `onRemove` make it the composer's attachment ("Selected text", its × a bare `IconButton`); bare, it heads the owner's bubble | kit (`.quoted`; the thread's bubble) | kit (the composer's `.composer-quote`, `.msg--you`) | `QuoteCard` (Controls), in the composer and `Bubble` |
 | `Face` | KOS's face, or a blob's; `KosLook`/`useKosLook` and `AgentFaces` give the looks, `lookOf`, `moodOf`, `faceLookOf`, `faceDataUrl` read them | kit | kit (`drawing`, as a KOS sends it) | `KOSFace` (`KOSFace.swift`) with `FaceLook` |
 | `Field` | A label, the control, then a hint or an error; `badge`, `meta`; `Req` marks it required | kit; a setting in a list is `FieldRow` (`ui/src/kit.tsx`), whose words open on a click | kit (the popup's pairing); a setting row is `Setting`/`Toggle` in `popup.tsx` | `KOSField`, and `SwitchRow` for a setting (Controls) |
 | `ConfirmButton` | A delete that asks once, beside itself | `ui/src/kit.tsx` | | |
@@ -99,7 +99,7 @@ tool rows to one chip.
 | What the chat is beside | | `TabBar` in `panel.tsx` (the tab, a status pill) | `AppCard` (`ChatView.swift`, the app in front) |
 | Chat switcher | the chats rail | `ChatSwitcher` in `panel.tsx` | `Switcher` (`ChatView.swift`) |
 | Message actions | `MessageActions.tsx` (kit `IconButton`s) | | |
-| A quoted selection | kit `QuoteLine` in the owner's bubble | `.quote-chip` in `panel.tsx`, its × a bare kit `IconButton`; once sent, kit `QuoteLine` | |
+| A quoted selection | kit `QuoteLine` in the owner's bubble | kit `QuoteLine` labelled "Selected text" with the site the worker sends, two lines, over the box; once sent, kit `QuoteLine` in `.msg--you` | `QuoteCard` labelled "Selected text" with the app, two lines, over the box; once sent, `QuoteCard` in `Bubble` |
 
 ## Names the two web apps no longer share
 

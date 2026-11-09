@@ -1338,11 +1338,12 @@ async function forgetSelections(window: number): Promise<void> {
   for (const tab of await chrome.tabs.query({ windowId: window }).catch(() => [])) if (tab.id !== undefined) selections.delete(tab.id);
 }
 
-/** The selection on a window's tab in front, to the panels open in that window; nothing from a hidden site. */
+/** The selection on a window's tab in front, and the site it is on, to the panels open in that window; nothing from a hidden site. */
 async function tellSelection(window: number, tab: number): Promise<void> {
   const url = (await chrome.tabs.get(tab).catch(() => undefined))?.url ?? "";
   const text = isHidden(url, settings.hiddenSites) ? "" : selectionOf(tab);
-  for (const panel of panels) if (panel.window === window) panel.port.postMessage({ type: "selection", text });
+  const from = (text && siteOf(url)) || "";
+  for (const panel of panels) if (panel.window === window) panel.port.postMessage({ type: "selection", text, from });
 }
 
 /** What a page's selection script said: kept only while a panel is open in its window, never from a hidden site or frame. */

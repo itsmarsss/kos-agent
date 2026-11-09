@@ -10,7 +10,7 @@ import Foundation
 @MainActor
 public final class ChatModel: ObservableObject {
   public enum Line: Equatable {
-    case you(String, files: [String])
+    case you(String, files: [String], quote: Quote? = nil)
     case kos(String)
     case note(String)
     case steps([Step])
@@ -281,7 +281,7 @@ public final class ChatModel: ObservableObject {
     }
     for (id, image) in pictures.sorted(by: { $0.key < $1.key }) { keepPicture(id, image) }
     let said = lines.compactMap { line -> String? in
-      if case .you(let text, _) = line { return text }
+      if case .you(let text, _, _) = line { return text }
       return nil
     }
     sending = fresh ? [] : sending.filter { !said.contains($0) }
@@ -392,7 +392,7 @@ public final class ChatModel: ObservableObject {
   /// The owner's latest words, and the lines after them.
   private func after(_ said: String) -> ArraySlice<Line>? {
     guard let at = lines.lastIndex(where: { if case .you = $0 { return true } else { return false } }),
-      case .you(let text, _) = lines[at], text == said
+      case .you(let text, _, _) = lines[at], text == said
     else { return nil }
     return lines[(at + 1)...]
   }
@@ -585,7 +585,7 @@ public final class ChatModel: ObservableObject {
     var placed = Set<Int>()
     var told = Set<Int>()
     let words = lines.compactMap { line -> String? in
-      if case .you(let text, _) = line { return text }
+      if case .you(let text, _, _) = line { return text }
       return nil
     } + sending
     // A story goes after the exchange its words began, or after the latest when they are not there.
