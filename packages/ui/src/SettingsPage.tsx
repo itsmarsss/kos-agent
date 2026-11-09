@@ -16,7 +16,7 @@ import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
 import { matchesSkillView, skillViews } from "./skillviews.js";
 import { McpAdd, SkillsAdd } from "./ExtensionBrowser.js";
-import { isDensity, isTheme, readDensity, readTheme, setDensity, setTheme, type Density, type Theme } from "./theme.js";
+import { isDensity, isTheme, readDensity, setDensity, showTheme, useTheme, type Density } from "./theme.js";
 import { SpendPanel } from "./SpendPanel.js";
 import { DevicesPanel } from "./DevicesPanel.js";
 import { GROUPS, SECTIONS, SETTINGS, isSettingsSection, searchSettings, type SettingEntry, type SettingHit, type SettingsSection } from "./settingsindex.js";
@@ -303,7 +303,8 @@ export function SettingsPage({
   const [data, setData] = useState<SettingsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [active, setActiveState] = useState<SectionId>(isSettingsSection(section) ? section : "you");
-  const [theme, setThemeState] = useState<Theme>(readTheme);
+  const theme = useTheme();
+  const [themeNote, setThemeNote] = useState<string | null>(null);
   /** KOS's face, from the workspace; saved as it is changed. */
   const [kosFace, setKosFace] = useState<FaceLook>({});
   const [kosFaceNote, setKosFaceNote] = useState<string | null>(null);
@@ -1148,9 +1149,9 @@ export function SettingsPage({
         {active === "appearance" && (
           <Section
             title="Appearance"
-            blurb="How this browser shows KOS. Kept here, not in the workspace, so a phone and a desk can differ."
+            blurb="How KOS looks. The theme is KOS's own: every tab of the dashboard, and every device set to follow it, draws it. Density is this browser's."
           >
-            <Field group className="set-field" label="Theme" hint="Dark is the default. System follows the device and changes with it.">
+            <Field group className="set-field" label="Theme" hint="System is the default, and follows each device's own appearance. KOS for Chrome and KOS for Mac follow this unless set otherwise there." {...(themeNote ? { error: themeNote } : {})}>
               <Select
                 className="set-select"
                 label="Theme"
@@ -1161,10 +1162,10 @@ export function SettingsPage({
                   { value: "system", label: "System" },
                 ]}
                 onChange={(v) => {
-                  if (isTheme(v)) {
-                    setTheme(v);
-                    setThemeState(v);
-                  }
+                  if (!isTheme(v)) return;
+                  setThemeNote(null);
+                  showTheme(v);
+                  api.saveTheme(v).catch((e: unknown) => setThemeNote(`Not saved to KOS: ${e instanceof Error ? e.message : String(e)}`));
                 }}
               />
             </Field>

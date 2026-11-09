@@ -1,39 +1,42 @@
+import { useSyncExternalStore } from "react";
+
+import { isThemeMode, resolveThemeMode, type ThemeMode } from "@kos/shared";
+
 /**
  * Dark, light, or whatever the system says.
  *
- * Kept in this browser rather than in the workspace: which palette suits a
- * screen is a property of the screen, and the same owner on a phone in the
- * sun and a desk at night wants different answers. Dark is the default, as it
- * always was; nothing changes for anyone who never opens the setting.
+ * KOS's own setting, kept in the workspace (`/api/settings/theme`): every
+ * device that follows the dashboard draws it, and every tab of the
+ * dashboard follows a change made in another. This browser keeps a copy
+ * so the first paint is already right, and the status poll reconciles it
+ * with the workspace's. System is the default.
  */
 
-export type Theme = "dark" | "light" | "system";
+export type Theme = ThemeMode;
+export const isTheme = isThemeMode;
+export const resolveTheme = resolveThemeMode;
 
 export const THEME_KEY = "kos.theme";
 
-export function isTheme(v: unknown): v is Theme {
-  return v === "dark" || v === "light" || v === "system";
-}
-
-export function readTheme(): Theme {
+/** The copy this browser keeps, or nothing when it keeps none. */
+export function readStoredTheme(): Theme | undefined {
   try {
     const v = localStorage.getItem(THEME_KEY);
-    return isTheme(v) ? v : "dark";
+    return isTheme(v) ? v : undefined;
   } catch {
-    return "dark";
+    return undefined;
   }
 }
 
-/** The palette a choice lands on, given what the system prefers. */
-export function resolveTheme(theme: Theme, prefersLight: boolean): "dark" | "light" {
-  if (theme === "system") return prefersLight ? "light" : "dark";
-  return theme;
+export function readTheme(): Theme {
+  return readStoredTheme() ?? "system";
 }
 
 const query = (): MediaQueryList | null =>
   typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: light)") : null;
 
 let following: (() => void) | null = null;
+const listeners = new Set<() => void>();
 
 /** Put the palette on the document, and keep following the system while asked to. */
 export function applyTheme(theme: Theme): void {
@@ -50,13 +53,46 @@ export function applyTheme(theme: Theme): void {
   }
 }
 
-export function setTheme(theme: Theme): void {
+/** Show a theme in this tab and keep it as this browser's copy; the workspace is told apart, by whoever chose it. */
+export function showTheme(theme: Theme): void {
   try {
-    localStorage.setItem(THEME_KEY, theme);
+    if (localStorage.getItem(THEME_KEY) !== theme) localStorage.setItem(THEME_KEY, theme);
   } catch {
     // A browser that refuses storage still gets the palette for this visit.
   }
   applyTheme(theme);
+  for (const listener of listeners) listener();
+}
+
+/**
+ * The workspace's theme, from the status poll, made this tab's. Before the
+ * owner has chosen one there, a choice this browser kept from before is
+ * the owner's choice, so it is saved.
+ */
+export function reconcileTheme(kept: Theme | undefined, save: (theme: Theme) => unknown): void {
+  if (kept) {
+    if (kept !== readStoredTheme()) showTheme(kept);
+    return;
+  }
+  const local = readStoredTheme();
+  if (local) save(local);
+}
+
+/** Another tab of this browser changed the theme: this one follows at once, before its next poll. */
+export function followOtherTabs(): () => void {
+  const heard = (e: StorageEvent): void => {
+    if (e.key === THEME_KEY && isTheme(e.newValue)) showTheme(e.newValue);
+  };
+  addEventListener("storage", heard);
+  return () => removeEventListener("storage", heard);
+}
+
+/** The theme this tab shows, kept current whoever changed it. */
+export function useTheme(): Theme {
+  return useSyncExternalStore((change) => {
+    listeners.add(change);
+    return () => listeners.delete(change);
+  }, readTheme);
 }
 
 /**
