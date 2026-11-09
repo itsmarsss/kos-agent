@@ -178,7 +178,6 @@ public struct ConsentView: View {
     .padding(Theme.gutter)
     .frame(width: model.targets.count > 1 ? 420 : 380)
     .background(Theme.bg)
-    .environment(\.colorScheme, .dark)
   }
 }
 

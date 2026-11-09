@@ -718,7 +718,7 @@ public func elapsedWords(_ seconds: TimeInterval) -> String {
   return "\(minutes / 60)h \(minutes % 60)m"
 }
 
-/// A text field on a dark well, with its label above it when it has one.
+/// A text field on the page's own well, with its label above it when it has one.
 public struct KOSField: View {
   private let label: String?
   private let placeholder: String
@@ -758,6 +758,8 @@ public struct KOSSwitch: View {
   }
 
   @State private var hovering = false
+  /// Off, the knob is the page's light: the text's in dark, the panel's white in light, as a switch on paper is.
+  private static let offKnob = Color(dark: Theme.Dark.text, light: Theme.Light.panel)
 
   public var body: some View {
     Button {
@@ -767,7 +769,7 @@ public struct KOSSwitch: View {
         .fill(isOn ? (hovering ? Theme.accentLit : Theme.accent) : (hovering ? Theme.faint : Theme.lineStrong))
         .frame(width: 34, height: 20)
         .overlay(alignment: isOn ? .trailing : .leading) {
-          Circle().fill(isOn ? Theme.onAccent : Theme.text).frame(width: 14, height: 14).padding(3)
+          Circle().fill(isOn ? Theme.onAccent : Self.offKnob).frame(width: 14, height: 14).padding(3)
         }
         .animation(Theme.hover, value: isOn)
         .animation(Theme.hover, value: hovering)

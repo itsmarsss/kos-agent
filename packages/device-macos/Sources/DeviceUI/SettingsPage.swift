@@ -1,3 +1,4 @@
+import DeviceCore
 import SwiftUI
 
 /// The owner's settings for this Mac, behind the gear: how long KOS may stay,
@@ -47,6 +48,10 @@ struct SettingsPage: View {
       }
       KOSSection("App") {
         Card {
+          setting("Theme", themeDetail) {
+            KOSChoices(ThemeChoice.allCases.map { ($0, $0.label) }, selected: model.theme, choose: model.actions.setTheme)
+          }
+          Hairline()
           SwitchRow("Open at login", loginDetail, isOn: model.openAtLogin != .off, set: model.actions.setOpenAtLogin)
           if model.openAtLogin == .needsApproval {
             HStack(spacing: 6) {
@@ -94,6 +99,14 @@ struct SettingsPage: View {
     VStack(alignment: .leading, spacing: 8) {
       RowText(title, detail)
       control()
+    }
+  }
+
+  private var themeDetail: String {
+    switch model.theme {
+    case .dashboard: return "Light or dark as KOS's dashboard is set, so the two look alike."
+    case .light, .dark: return "This app's own, whatever the dashboard is set to."
+    case .system: return "Follows macOS, light by day and dark at night if it is set to Auto."
     }
   }
 
