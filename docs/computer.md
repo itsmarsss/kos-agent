@@ -218,21 +218,30 @@ keeps the last face of each KOS it pairs with, draws that KOS by it, and
 draws the default face for a KOS that has sent none. A device that does not
 know the frame ignores it.
 
-After the face, and again whenever the owner changes it on the dashboard, KOS
-sends the dashboard's theme, KOS's own setting (`appearance.theme`, light,
-dark or system, "system" until the owner chooses):
+After the face, and again whenever either changes, KOS sends the dashboard's
+theme, KOS's own setting (`appearance.theme`, light, dark or system, "system"
+until the owner chooses), and `drawn`, the palette a dashboard last reported
+drawing it in (`appearance.drawn`, light or dark), once one has:
 
 ```json
-{ "t": "theme", "mode": "light" }
+{ "t": "theme", "mode": "system", "drawn": "dark" }
 ```
 
+`drawn` is how the dashboard looks, "system" read in the dashboard's own
+browser, which need not agree with the device's: a Chrome forced dark draws
+System dark on a Mac in light. The dashboard reports it
+(`POST /api/settings/theme/drawn`, [dashboard.md](dashboard.md)); with several
+dashboards open, the latest report wins. Choosing light or dark sets `drawn`
+to the same at once, since either is drawn as itself.
+
 A device keeps its own choice of theme locally: "dashboard", the default,
-draws the mode it was last sent ("system" being the device's own appearance)
-and the device's appearance before any arrives; "light", "dark" or "system"
-ignore the frame. Paired with several KOS, a device keeps each one's mode and
-draws that of the KOS whose session is at work, else the first connected,
-else the first paired. Nothing KOS sends changes that choice. A device that does
-not know the frame ignores it.
+draws as the dashboard looks, `drawn` when it was sent, else `mode` ("system"
+then being the device's own appearance), and the device's appearance before
+any frame arrives; "light", "dark" or "system" ignore the frame. Paired with
+several KOS, a device keeps each one's theme and draws that of the KOS whose
+session is at work, else the first connected, else the first paired. Nothing
+KOS sends changes that choice. A device that does not know the frame ignores
+it, and one that does not know `drawn` draws `mode`.
 
 When the owner unpairs the device on the device, it sends `{ "t": "unpair" }`
 before it hangs up. KOS forgets it, as Remove on the dashboard does: any

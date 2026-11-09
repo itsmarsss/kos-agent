@@ -331,7 +331,13 @@ Grouped by what you came to do.
   cap), Behaviour (fix failures on its own, steps per turn, unattended
   limits, background memory extraction, how sure the tidy job must be to
   settle a memory question alone), Appearance (dark, light or system, KOS's own, which
-  every tab and every device following the dashboard draws; density; KOS's face: its colour, eyes and gait, kept in the workspace so
+  every tab and every device following the dashboard draws; each tab
+  reports the palette it draws in, System read in its browser, to
+  `POST /api/settings/theme/drawn` (`{ "drawn": "light" | "dark" }`) on
+  load, on a change of theme and on a change of the browser's appearance,
+  once per half second at most and only when it differs from what the
+  status last said, so a device set to the dashboard looks as it does; with
+  several open, the latest report wins; density; KOS's face: its colour, eyes and gait, kept in the workspace so
   every screen and the tab icon agree).
 - **Extensions**: Skills (all of them, or one project's own, scripts,
   prompt skills, promoted, or switched off; a script says whether it is
