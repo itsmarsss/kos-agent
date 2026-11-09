@@ -411,6 +411,25 @@ struct SelectionTests {
     #expect(reader.read(chrome, hidden: false, secureInput: { false }) {} == .text("the cat"))
   }
 
+  /// What is learned of an app is learned once while it runs, and anew for a pid used again after it quits.
+  @Test func perProcessIsLearnedOnceUntilTheAppQuits() {
+    var known = PerProcess<Bool>()
+    var looked = 0
+    let learn = { (found: Bool) in { () -> Bool in
+      looked += 1
+      return found
+    } }
+    let first = known.value(for: 8, learn: learn(true))
+    let again = known.value(for: 8, learn: learn(false))
+    let other = known.value(for: 9, learn: learn(false))
+    #expect(first && again && !other)
+    #expect(looked == 2)
+    known.forget(8)
+    let anew = known.value(for: 8, learn: learn(false))
+    #expect(!anew)
+    #expect(looked == 3)
+  }
+
   /// "This" is the app in front, or while KOS for Mac is, the one the owner was in before it.
   @Test func theAppBesideIsTheLastOtherThanThisOne() {
     var front = FrontTracker<String> { $0 == "kos" }

@@ -221,3 +221,23 @@ public struct FrontTracker<App> {
     front.flatMap { isMine($0) ? last : $0 }
   }
 }
+
+/// Something learned of a running app once, by its pid, and forgotten as it quits, so a pid used again is asked anew.
+public struct PerProcess<Value> {
+  private var known: [Int32: Value] = [:]
+
+  public init() {}
+
+  /// What is known of the app, else what `learn` finds, kept.
+  public mutating func value(for pid: Int32, learn: () -> Value) -> Value {
+    if let value = known[pid] { return value }
+    let value = learn()
+    known[pid] = value
+    return value
+  }
+
+  /// The app quit.
+  public mutating func forget(_ pid: Int32) {
+    known[pid] = nil
+  }
+}

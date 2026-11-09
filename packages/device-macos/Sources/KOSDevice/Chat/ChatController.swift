@@ -39,6 +39,9 @@ final class ChatController {
   /// The app the owner was in, watched from launch so it is known when the window first opens over KOS for Mac's own.
   private var front = FrontTracker<NSRunningApplication> { $0.processIdentifier == ProcessInfo.processInfo.processIdentifier }
   private var frontWatch: NSObjectProtocol?
+  private var quitWatch: NSObjectProtocol?
+  /// Whether each running app is built on Chromium, looked up in its bundle once rather than on every read.
+  private var chromium = PerProcess<Bool>()
   private let selection = SelectionReader(Accessibility())
   /// Where the selection is read, off the main thread: an app slow to answer holds this queue, not the windows.
   private let selectionQueue = DispatchQueue(label: "kos.selection", qos: .userInitiated)
@@ -273,6 +276,12 @@ final class ChatController {
         if self.made { self.noteFront() }
       }
     }
+    quitWatch = NSWorkspace.shared.notificationCenter.addObserver(
+      forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
+    ) { [weak self] note in
+      guard let pid = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier else { return }
+      MainActor.assumeIsolated { self?.chromium.forget(pid) }
+    }
   }
 
   private func noteFront() {
@@ -298,7 +307,7 @@ final class ChatController {
       return
     }
     guard let app = frontApp() else { return model.selected(nil) }
-    let target = SelectionApp(pid: app.processIdentifier, bundle: app.bundleIdentifier, chromiumBased: Self.chromiumBased(app))
+    let target = SelectionApp(pid: app.processIdentifier, bundle: app.bundleIdentifier, chromiumBased: chromium.value(for: app.processIdentifier) { Self.chromiumBased(app) })
     let hidden = isHidden(app.bundleIdentifier)
     let onlyIfChanged = !openRead
     openRead = false
