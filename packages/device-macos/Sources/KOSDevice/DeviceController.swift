@@ -251,7 +251,9 @@ final class DeviceController {
     guard sessions.owns(origin) else { return EmptyResult() }
     switch sessions.phase {
     case .asking(let id) where id == ref.session:
+      // Withdrawn as the owner pressed Allow: the yes on its way grants nothing.
       consent.cancel()
+      sessions.deny(id)
     case .live(let session) where session.id == ref.session:
       end(nil)
     default:
