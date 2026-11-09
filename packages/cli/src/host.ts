@@ -209,6 +209,10 @@ export function roomCursorsIn(settings: { get<T>(key: string): T | undefined; se
       settings.set(ROOM_CURSORS_KEY, { ...now, [room]: id });
     },
     rooms: () => Object.keys(all()),
+    drop: (room) => {
+      const { [room]: _gone, ...rest } = all();
+      settings.set(ROOM_CURSORS_KEY, rest);
+    },
   };
 }
 

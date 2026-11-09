@@ -2161,9 +2161,10 @@ describe("a failure that is the network", () => {
 describe("catching up after a drop or a restart", () => {
   const HOUR = 3_600_000;
   interface Said { id: string; author: string; at?: number; bot?: boolean }
-  function room(id: string, said: Said[], extra: Record<string, unknown> = {}): { channel: Record<string, unknown>; posted: string[]; messages: Message[] } {
+  function room(id: string, said: Said[], extra: Record<string, unknown> = {}): { channel: Record<string, unknown>; posted: string[]; messages: Message[]; reads: { limit: number; after?: string }[] } {
     const posted: string[] = [];
-    const channel: Record<string, unknown> = { id, ...extra, send: async (p: { content: string }) => void posted.push(p.content) };
+    const reads: { limit: number; after?: string }[] = [];
+    const channel: Record<string, unknown> = { id, ...(extra.topic !== undefined ? { guildId: "g1" } : {}), ...extra, send: async (p: { content: string }) => void posted.push(p.content) };
     const messages = said.map(
       (m) =>
         ({
@@ -2177,8 +2178,16 @@ describe("catching up after a drop or a restart", () => {
           channel,
         }) as unknown as Message,
     );
-    channel.messages = { fetch: async () => new Map(messages.map((m) => [m.id, m])) };
-    return { channel, posted, messages };
+    // As Discord answers: after an id, the oldest that follow it; otherwise the newest.
+    channel.messages = {
+      fetch: async (o: { limit: number; after?: string }) => {
+        reads.push(o);
+        const sorted = [...messages].sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
+        const page = o.after ? sorted.filter((m) => BigInt(m.id) > BigInt(o.after!)).slice(0, o.limit) : sorted.slice(-o.limit);
+        return new Map(page.map((m) => [m.id, m]));
+      },
+    };
+    return { channel, posted, messages, reads };
   }
   function adapterOver(rooms: Record<string, Record<string, unknown>>, cursors: Record<string, string>, guests = false): { adapter: DiscordAdapter; heard: InboundMessage[] } {
     const adapter = new DiscordAdapter({
@@ -2191,6 +2200,7 @@ describe("catching up after a drop or a restart", () => {
           if (!cursors[r] || BigInt(cursors[r]!) < BigInt(id)) cursors[r] = id;
         },
         rooms: () => Object.keys(cursors),
+        drop: (r) => void delete cursors[r],
       },
     });
     (adapter as unknown as { client: unknown }).client = { user: { id: "bot" }, channels: { fetch: async (id: string) => rooms[id] } };
@@ -2280,6 +2290,60 @@ describe("catching up after a drop or a restart", () => {
     await presence!.update("thinking");
     await presence!.complete({ text: "This was sent while KOS was offline and not run" });
     expect(posted).toEqual([{ content: "This was sent while KOS was offline and not run", flags: MessageFlags.SuppressNotifications }]);
+  });
+
+  it("reads only what came after the cursor, and lets go of a room quiet past the window or no longer bound", async () => {
+    const recent = String(BigInt(Date.now() - 1_420_070_400_000 - 60_000) << 22n);
+    const dm = room("dm1", [{ id: "101", author: "owner" }]);
+    const quiet = room("dm2", []);
+    const lately = room("dm3", []);
+    const unbound = room("c4", [{ id: "201", author: "owner" }], { topic: "just a channel" });
+    const cursors: Record<string, string> = { dm1: "100", dm2: "100", dm3: recent, c4: "200" };
+    const { adapter, heard } = adapterOver({ dm1: dm.channel, dm2: quiet.channel, dm3: lately.channel, c4: unbound.channel }, cursors);
+    await adapter.catchUp();
+    expect(dm.reads).toEqual([{ limit: 50, after: "100" }]);
+    expect(heard.map((m) => m.text)).toEqual(["said 101"]);
+    expect(unbound.reads).toEqual([]);
+    expect(cursors).toEqual({ dm1: "101", dm3: recent });
+  });
+
+  it("reads at most three rooms at once", async () => {
+    let reading = 0;
+    let most = 0;
+    const rooms: Record<string, Record<string, unknown>> = {};
+    const cursors: Record<string, string> = {};
+    for (let i = 0; i < 7; i += 1) {
+      rooms[`dm${i}`] = {
+        id: `dm${i}`,
+        messages: {
+          fetch: async () => {
+            most = Math.max(most, ++reading);
+            await new Promise((r) => setTimeout(r, 5));
+            reading -= 1;
+            return new Map();
+          },
+        },
+      };
+      cursors[`dm${i}`] = "100";
+    }
+    const { adapter } = adapterOver(rooms, cursors);
+    await adapter.catchUp();
+    expect(most).toBe(3);
+  });
+
+  it("catches up after a new session, but not after a resumed one, which Discord replays itself", async () => {
+    const adapter = new DiscordAdapter({ token: "t" });
+    const client = (adapter as unknown as { client: Record<string, unknown> & { emit: (e: string, ...a: unknown[]) => boolean } }).client;
+    Object.assign(client, { login: async () => "", channels: { fetch: async () => null } });
+    const caught = vi.spyOn(adapter, "catchUp").mockResolvedValue();
+    await adapter.start();
+    const settle = (): Promise<void> => (adapter as unknown as { upChain: Promise<void> }).upChain;
+    client.emit("shardResume", 0);
+    await settle();
+    expect(caught).not.toHaveBeenCalled();
+    client.emit("shardReady", 0);
+    await settle();
+    expect(caught).toHaveBeenCalledTimes(1);
   });
 
   it("says under a late answer that it was sent while KOS was away", async () => {

@@ -94,6 +94,15 @@ const SEEN_MAX = 2000;
 /** At most this many messages per room are caught up after a drop, and none older than the window. */
 const CATCH_UP_MAX = 50;
 const CATCH_UP_WINDOW_MS = 6 * 3_600_000;
+/** How many rooms are read at once on the way back, so a server of them is not one burst of requests. */
+const CATCH_UP_AT_ONCE = 3;
+/** Discord's epoch, which a snowflake's time counts from. */
+const DISCORD_EPOCH = 1_420_070_400_000n;
+
+/** When a Discord id was made, in ms. */
+function snowflakeAt(id: string): number {
+  return Number((BigInt(id) >> 22n) + DISCORD_EPOCH);
+}
 /** Discord lets a channel's name or topic change this many times in the window. */
 const RENAMES_PER_WINDOW = 2;
 const RENAME_WINDOW_MS = 10 * 60_000;
@@ -431,6 +440,8 @@ export interface RoomCursors {
   /** Moved forward only: an older id leaves it where it is. */
   advance(roomId: string, messageId: string): void;
   rooms(): string[];
+  /** Let a room go: quiet past the catch-up window, or no longer bound. */
+  drop(roomId: string): void;
 }
 
 /** An ask's card as sent: its words, its buttons, and the page it is about when there is one. */
@@ -547,7 +558,7 @@ interface AdminGuild {
 /** As much of a channel as reading and reacting touch. */
 interface ReadableChannel {
   messages: {
-    fetch: ((id: string) => Promise<ReadableMessage>) & ((options: { limit: number; before?: string }) => Promise<Map<string, ReadableMessage>>);
+    fetch: ((id: string) => Promise<ReadableMessage>) & ((options: { limit: number; before?: string; after?: string }) => Promise<Map<string, ReadableMessage>>);
   };
 }
 
@@ -1095,11 +1106,13 @@ export class DiscordAdapter implements ChannelAdapter {
       void this.receiveMessage(message);
     });
 
-    // Up: at login, after a new session, and after a resumed one. Each time,
-    // what waited is sent and what was missed is read.
-    for (const event of [Events.ClientReady, Events.ShardReady, Events.ShardResume] as const) {
+    // Up: at login, after a new session, and after a resumed one. Each time
+    // what waited is sent; after a new session what was missed is read. A
+    // resumed session is replayed its missed events by Discord itself.
+    for (const event of [Events.ClientReady, Events.ShardReady] as const) {
       this.client.on(event, () => void this.onUp());
     }
+    this.client.on(Events.ShardResume, () => void this.onUp({ catchUp: false }));
 
     this.client.on(Events.InteractionCreate, (interaction: Interaction) => {
       void this.receiveInteraction(interaction);
@@ -1122,10 +1135,10 @@ export class DiscordAdapter implements ChannelAdapter {
    * The gateway is up. One at a time: the ready and the shard's ready both
    * come at login, and a second pass only finds what the first left.
    */
-  onUp(): Promise<void> {
+  onUp(how: { catchUp?: boolean } = {}): Promise<void> {
     this.gatewayUp = true;
     this.downLog.up();
-    this.upChain = this.upChain.then(() => this.afterUp()).catch((err: unknown) => {
+    this.upChain = this.upChain.then(() => this.afterUp(how.catchUp !== false)).catch((err: unknown) => {
       console.warn(`[discord] after reconnecting: ${err instanceof Error ? err.message : String(err)}`);
     });
     return this.upChain;
@@ -1134,7 +1147,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private upChain: Promise<void> = Promise.resolve();
   private commandsRegistered = false;
 
-  private async afterUp(): Promise<void> {
+  private async afterUp(catchUp: boolean): Promise<void> {
     /*
      * Registered once the connection is up, because it needs the bot's own
      * id. Global rather than per guild: KOS is talked to in a DM, and a DM
@@ -1149,7 +1162,7 @@ export class DiscordAdapter implements ChannelAdapter {
     await this.onConnected?.();
     // Not awaited: catch-up runs whole turns, and the next drop's sends
     // should not wait behind them.
-    void this.catchUp();
+    if (catchUp) void this.catchUp();
   }
 
   /**
@@ -1160,11 +1173,13 @@ export class DiscordAdapter implements ChannelAdapter {
    */
   async catchUp(): Promise<void> {
     if (!this.cursors) return;
-    await Promise.all(
-      this.cursors.rooms().map((room) =>
-        this.catchUpIn(room).catch((err: unknown) => console.warn(`[discord] catch-up in ${room}: ${err instanceof Error ? err.message : String(err)}`)),
-      ),
-    );
+    const rooms = this.cursors.rooms();
+    const reader = async (): Promise<void> => {
+      for (let room = rooms.shift(); room !== undefined; room = rooms.shift()) {
+        await this.catchUpIn(room).catch((err: unknown) => console.warn(`[discord] catch-up in ${room}: ${err instanceof Error ? err.message : String(err)}`));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CATCH_UP_AT_ONCE, rooms.length) }, reader));
   }
 
   private async catchUpIn(roomId: string): Promise<void> {
@@ -1181,16 +1196,30 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly catchingUp = new Set<string>();
 
   private async readMissed(roomId: string, since: string): Promise<void> {
-    const room = (await this.client.channels.fetch(roomId).catch(() => null)) as (ReadableChannel & { send?: (p: unknown) => Promise<unknown> }) | null;
-    if (!room || !("messages" in room)) return;
-    const fetched = [...(await room.messages.fetch({ limit: CATCH_UP_MAX })).values()] as unknown as Message[];
+    const room = (await this.client.channels.fetch(roomId).catch(() => null)) as (ReadableChannel & { send?: (p: unknown) => Promise<unknown>; guildId?: string | null }) | null;
+    if (!room) return;
+    // A room nothing there would be heard in any more: not read, and let go.
+    if (!("messages" in room) || (room.guildId && !bindingOf(room as unknown as Parameters<typeof bindingOf>[0], this.threadOf))) {
+      this.cursors?.drop(roomId);
+      return;
+    }
+    const read = async (options: { limit: number; after?: string }): Promise<Message[]> => [...(await room.messages.fetch(options)).values()] as unknown as Message[];
+    // Only what came after the cursor; a page that is full has more behind
+    // it, and then the newest page is what is read, the gap said below.
+    let fetched = await read({ limit: CATCH_UP_MAX, after: since });
+    const full = fetched.length >= CATCH_UP_MAX;
+    if (full) fetched = await read({ limit: CATCH_UP_MAX });
     const after = fetched.filter((m) => BigInt(m.id) > BigInt(since)).sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
-    if (after.length === 0) return;
     const oldest = Date.now() - CATCH_UP_WINDOW_MS;
+    if (after.length === 0) {
+      // Quiet since before the window: nothing to keep a place for. It comes back when the room next speaks.
+      if (snowflakeAt(since) < oldest) this.cursors?.drop(roomId);
+      return;
+    }
     const said = (m: Message): boolean => !m.author.bot && !m.system;
     const recent = after.filter((m) => m.createdTimestamp >= oldest);
     // More than one fetch's worth after the cursor, or some of it too old.
-    const capped = (fetched.length >= CATCH_UP_MAX && after.length === fetched.length) || after.some((m) => m.createdTimestamp < oldest && said(m));
+    const capped = (full && after.length === fetched.length) || after.some((m) => m.createdTimestamp < oldest && said(m));
     this.cursors?.advance(roomId, after.at(-1)!.id);
     const missed = recent.filter((m) => said(m) && !this.seen.has(m.id));
     if (capped && missed.length) {

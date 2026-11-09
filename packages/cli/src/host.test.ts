@@ -62,6 +62,8 @@ describe("roomCursorsIn", () => {
     cursors.advance("t1", "5");
     expect(cursors.get("dm1")).toBe("1000000000000000002");
     expect(cursors.rooms()).toEqual(["dm1", "t1"]);
+    cursors.drop("t1");
+    expect(cursors.rooms()).toEqual(["dm1"]);
   });
 });
 

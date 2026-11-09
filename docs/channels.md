@@ -344,8 +344,12 @@ down, and one when it is back.
 What you said on Discord while KOS was away, stopped or dropped, is read
 when it is back: in the DM and in every channel and thread it last heard
 in, oldest first, through the same gates as if it had come live, so a
-guest's words are still a guest's. It reads at most the last fifty
-messages and six hours of each, and says so there when it left some out;
+guest's words are still a guest's. It reads only what came after the
+last message it heard there, three rooms at a time, and only after a new
+session: a resumed one is replayed its missed events by Discord. It reads
+at most the last fifty messages and six hours of each, and says so there
+when it left some out; a room quiet for longer than that, or no longer
+bound, is let go until it next speaks;
 an answer to one of them says "sent while KOS was offline" under it. What
 is more than ten minutes old by then, the owner's or a guest's, is not
 run: the room gets one note listing it ("These were sent while KOS was
