@@ -424,6 +424,28 @@ struct SelectionTests {
     #expect(fake.clock < 0.2)
   }
 
+  /// The budget holds going up from the focused element too: an app slow on each question is left part way up,
+  /// with a selection a free app gives five parents up never reached, nor its tree asked for.
+  @Test func theBudgetStopsTheParentWalk() {
+    for (cost, expected) in [(0.0, SelectionRead.text("five up")), (0.02, .nothing)] {
+      let fake = Fake()
+      fake.settable = ["AXManualAccessibility"]
+      fake.cost = cost
+      fake.attributes = [0: ["AXFocusedUIElement": 1]]
+      for id in 1...10 { fake.attributes[id] = ["AXRole": "AXGroup", "AXParent": id + 1] }
+      fake.attributes[6]?["AXSelectedText"] = "five up"
+      let (read, paused) = read(fake, slack)
+      #expect(read == expected, "at \(cost) s a question")
+      #expect(paused == 0)
+      #expect(fake.sets.isEmpty)
+      if cost > 0 {
+        // Stopped within one element (four questions) of the 0.15 s budget, before the fifth parent.
+        #expect(fake.clock < 0.15 + 4 * cost)
+        #expect(fake.asked < 3 + 4 * 5)
+      }
+    }
+  }
+
   /// The wait for a tree is not spent from the budget: after it the read is given its own time again.
   @Test func theWaitIsNotSpentFromTheBudget() {
     let fake = Fake()
