@@ -240,7 +240,7 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .ask-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .ask-reason { font-size: var(--text-sm); }
 .check { display: flex; align-items: flex-start; gap: 6px; color: var(--text); font-size: var(--text-base); cursor: pointer; }
-.check input { margin: 2px 0 0; accent-color: var(--accent); }
+.check input { flex: none; width: auto; margin: 2px 0 0; padding: 0; accent-color: var(--accent); box-shadow: none; }
 .args { margin: 0; padding: 8px; max-height: 140px; overflow: auto; border-radius: var(--r-sm); background: var(--bg); font: 11.5px/1.4 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .empty-state { margin: auto; padding: 24px; max-width: 300px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
