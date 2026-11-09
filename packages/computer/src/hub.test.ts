@@ -383,6 +383,8 @@ describe("a session", () => {
     const begin = () => hub.begin({ conversation: "c1", device: hub.find(undefined)!, task: "t", requester: "r", minutes: 5 });
     fake.answers.set("session.begin", () => ({ ok: true, result: { granted: false, reason: "unanswered" } }));
     await expect(begin()).rejects.toMatchObject({ code: "unanswered" });
+    fake.answers.set("session.begin", () => ({ ok: true, result: { granted: false, reason: "withdrawn" } }));
+    await expect(begin()).rejects.toMatchObject({ code: "stopped" });
     fake.answers.set("session.begin", () => ({ ok: true, result: { granted: false } }));
     await expect(begin()).rejects.toMatchObject({ code: "denied" });
   });

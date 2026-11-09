@@ -362,6 +362,7 @@ export class DeviceHub {
     const grant = readOf(result);
     if (!grant) {
       if (result.reason === "unanswered") throw new DeviceError("unanswered", "the owner did not answer the ask on the device in time");
+      if (result.reason === "withdrawn") throw new DeviceError("stopped", "the ask was taken down on the device before the owner answered");
       throw new DeviceError("denied", "the owner did not allow it on the device");
     }
     const session: Session = {
