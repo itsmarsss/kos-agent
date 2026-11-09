@@ -58,8 +58,6 @@ export const LIGHT_COLOURS: Record<ColourToken, string> = {
  */
 export type ThemeMode = "light" | "dark" | "system";
 
-export const THEME_MODES: readonly ThemeMode[] = ["light", "dark", "system"];
-
 export function isThemeMode(v: unknown): v is ThemeMode {
   return v === "light" || v === "dark" || v === "system";
 }
