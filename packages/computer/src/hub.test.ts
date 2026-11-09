@@ -403,7 +403,7 @@ describe("a session", () => {
     const stop = new AbortController();
     const stopped = hub.untilHandedBack("c1", stop.signal);
     stop.abort();
-    await expect(stopped).rejects.toMatchObject({ code: "stopped" });
+    await expect(stopped).rejects.toMatchObject({ code: "stopped_in_control" });
     const ending = hub.untilHandedBack("c1");
     fake.event("session.ended", { session: session.id, reason: "owner" });
     await expect(ending).rejects.toMatchObject({ code: "no_session" });

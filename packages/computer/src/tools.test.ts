@@ -435,6 +435,21 @@ describe("the computer tools", () => {
     expect(fake.calls.filter((c) => c.method === "pointer.click")).toHaveLength(1);
   });
 
+  it("say the session is over when Stop comes while the owner has control, not that none was started", async () => {
+    const { call, pair } = setup();
+    const fake = pair();
+    await call("computer.start", { task: "t" });
+    const session = fake.calls[0]!.params.session as string;
+    fake.event("session.paused", { session, reason: "owner" });
+    const stop = new AbortController();
+    const acting = turnStop.run(stop.signal, () => call("computer.act", { action: "left_click", coordinate: [5, 5] }));
+    await new Promise((r) => setTimeout(r, 5));
+    stop.abort();
+    const refused = await acting.then(() => "", (err: unknown) => (err instanceof Error ? err.message : String(err)));
+    expect(refused).toMatch(/^The owner stopped while they had control; the session is over\./);
+    expect(refused).not.toMatch(/none was started/);
+  });
+
   it("on the owner's Stop from a device: withdraw the ask, stop the turn, and ask nothing more that turn", async () => {
     const stopped: string[] = [];
     const { call, pair, module, endTurn, hub } = setup({ stopTurn: (chat) => (stopped.push(chat), true) });

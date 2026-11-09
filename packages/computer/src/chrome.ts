@@ -267,7 +267,7 @@ export class OwnerChrome implements BrowserElsewhere {
     } catch (err) {
       if (!(err instanceof DeviceError)) throw err;
       if (err.code === "held") throw new Error("The owner kept control of their Chrome and did not hand it back. Stop here and tell them where you stopped.");
-      if (err.code === "stopped") throw new Error("The owner pressed Stop while they had their Chrome.");
+      if (err.code === "stopped_in_control") throw new Error("The owner pressed Stop while they had their Chrome.");
       throw new Error("The session in the owner's Chrome ended while they had it.");
     }
   }

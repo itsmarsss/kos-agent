@@ -194,6 +194,8 @@ export function refusalText(err: unknown, ending?: string): string {
       return "The owner did not allow the session on the computer. Do not ask again unless they say so.";
     case "unanswered":
       return "The owner did not answer the ask on the device in time, so no session started. Do not ask again unless they say so; tell them what you needed it for.";
+    case "stopped_in_control":
+      return "The owner stopped while they had control; the session is over. Do not start another unless they say so; tell them where you stopped.";
     case "stopped":
       return "The ask ended (Stop, or its turn was over) before the owner allowed the session, so none was started.";
     default:

@@ -402,7 +402,8 @@ export class DeviceHub {
    * Until the owner hands the conversation's session back: at once when they
    * have not taken it over. True when it waited. A wait the owner does not
    * end in time is refused as `held`; the session ending, as `no_session`;
-   * Stop, as `stopped`.
+   * Stop, as `stopped_in_control`: not the `stopped` of an ask, since a
+   * session was started and is now over.
    */
   untilHandedBack(conversation: string, signal?: AbortSignal): Promise<boolean> {
     if (!this.sessionOf(conversation)?.paused) return Promise.resolve(false);
@@ -414,7 +415,7 @@ export class DeviceHub {
         if (err) reject(err);
         else resolve(true);
       };
-      const stopped = (): void => done(new DeviceError("stopped", "the owner pressed Stop while they had control"));
+      const stopped = (): void => done(new DeviceError("stopped_in_control", "the owner pressed Stop while they had control"));
       const timer = setTimeout(() => done(new DeviceError("held", "the owner kept control and did not hand it back")), this.deps.handBackWaitMs ?? HAND_BACK_WAIT_MS);
       const off = this.onChange(() => {
         const session = this.sessionOf(conversation);
