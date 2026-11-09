@@ -86,6 +86,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     chat.faceOf = { origin in Self.face(of: origin) }
     chat.isHidden = { [unowned self] bundle in settings.isHidden(bundle) }
     chat.model.handBack = { [unowned self] in controller.resume() }
+    chat.model.stop = { [unowned self] in stopChat() }
+    controller.onOwnerStop = { [unowned self] origin, conversation in
+      if chat.isMine(origin: origin, conversation: conversation) { chat.tellStop() }
+    }
     chat.model.chooseKOS = { [unowned self] id in
       chatKOS = id
       chat.refresh(asking: true)
@@ -315,6 +319,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       SessionSummary(
         task: live.task, requester: live.requester, kos: pairings.count > 1 ? origin.map(Self.name) : nil,
         chat: live.conversation.flatMap { id in try? origin?.kosAddress().chat(id) }, until: live.until, paused: live.paused)
+    }
+  }
+
+  /// The chat's Stop: a session or an ask of this chat's ends here at once, and KOS stops the turn either way.
+  private func stopChat() {
+    let origin = controller.liveOrigin ?? controller.asking?.origin
+    let conversation = controller.live?.conversation ?? controller.asking?.conversation
+    if let origin, chat.isMine(origin: origin, conversation: conversation) {
+      controller.stop()
+    } else {
+      chat.tellStop()
     }
   }
 

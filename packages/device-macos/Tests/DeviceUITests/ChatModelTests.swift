@@ -275,4 +275,20 @@ struct ChatModelTests {
     model.stop()
     #expect(handed == 1 && stopped == 1)
   }
+
+  /// The box's button stops whatever this chat has going: a turn, a session, an ask for one; and only then.
+  @Test func theBoxStopsWhileSomethingGoes() {
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [])
+    #expect(!model.busy)
+    model.say("look")
+    #expect(model.busy)
+    model.status(taken: false, story: .some(nil), error: nil)
+    #expect(!model.busy)
+    model.session = .working
+    #expect(model.busy)
+    model.session = nil
+    model.consent = .init(task: "Look", until: Date())
+    #expect(model.busy)
+  }
 }

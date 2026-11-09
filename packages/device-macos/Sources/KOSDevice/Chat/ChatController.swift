@@ -144,11 +144,8 @@ final class ChatController {
 
   /// The session and the ask, as the window shows them: only when they are this chat's, on the KOS it talks to.
   private func scope() {
-    let mine = { (origin: String, conversation: String?) in
-      origin == self.talkingTo && conversation != nil && conversation == self.model.conversation
-    }
-    let session = self.session.flatMap { mine($0.origin, $0.conversation) ? $0 : nil }
-    let asking = self.asking.flatMap { mine($0.origin, $0.conversation) ? $0 : nil }
+    let session = self.session.flatMap { isMine(origin: $0.origin, conversation: $0.conversation) ? $0 : nil }
+    let asking = self.asking.flatMap { isMine(origin: $0.origin, conversation: $0.conversation) ? $0 : nil }
     model.session = session.map { $0.paused ? .paused : .working }
     model.consent = asking.map { ChatModel.Consent(task: $0.task, until: $0.until) }
   }
@@ -175,6 +172,16 @@ final class ChatController {
         self?.model.giveBack("KOS did not take that. It may be a KOS without the Mac window, or not reachable now; your words are back in the box.")
       }
     }
+  }
+
+  /// Whether a session or an ask, by the KOS and chat it is for, is this window's chat's.
+  func isMine(origin: String, conversation: String?) -> Bool {
+    origin == talkingTo && conversation != nil && conversation == model.conversation
+  }
+
+  /// KOS stops the chat's turn, ends its sessions here and withdraws any ask for one.
+  func tellStop() {
+    tell(.stop)
   }
 
   private func heardBack() {

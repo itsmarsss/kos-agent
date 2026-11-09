@@ -23,6 +23,8 @@ final class DeviceController {
   var kosName: (String) -> String? = { _ in nil }
   /// A KOS's face, as it last sent it.
   var faceOf: (String) -> FaceLook = { _ in .kos }
+  /// The owner stopped the session or the ask, by the KOS and the chat it was for: that chat's turn stops too.
+  var onOwnerStop: ((String, String?) -> Void)?
 
   private var sessions = Sessions()
   private var display: CGDirectDisplayID?
@@ -299,7 +301,12 @@ final class DeviceController {
     onChange?()
   }
 
+  /// The owner's Stop, from the bar, the menu or the chat: the session or the ask ends here at once.
   func stop() {
+    if let origin = sessions.origin {
+      let conversation = sessions.live?.conversation ?? asking?.conversation
+      onOwnerStop?(origin, conversation)
+    }
     end(.owner)
   }
 

@@ -185,13 +185,25 @@ public struct ChatView: View {
         .fixedSize()
         .help(model.auto ? "KOS works on this Mac without asking each step" : "KOS asks before each step on this Mac")
         Spacer(minLength: 4)
-        Button(action: sendDraft) {
-          Image(systemName: "arrow.right").font(.kos(.dense, .bold))
+        // While this chat has something going, the button stops it; words typed meanwhile still go with Return.
+        if model.busy {
+          Button(action: model.stop) {
+            Image(systemName: "stop.fill").font(.kos(.small, .bold))
+          }
+          .buttonStyle(KOSButtonStyle(.danger, round: 30))
+          .disabled(!model.usable)
+          .keyboardShortcut(.return, modifiers: .command)
+          .accessibilityLabel("Stop")
+          .help("Stop KOS: the turn, and its session on this Mac")
+        } else {
+          Button(action: sendDraft) {
+            Image(systemName: "arrow.right").font(.kos(.dense, .bold))
+          }
+          .buttonStyle(KOSButtonStyle(.primary, round: 30))
+          .disabled(!canSend)
+          .keyboardShortcut(.return, modifiers: .command)
+          .accessibilityLabel("Send")
         }
-        .buttonStyle(KOSButtonStyle(.primary, round: 30))
-        .disabled(!canSend)
-        .keyboardShortcut(.return, modifiers: .command)
-        .accessibilityLabel("Send")
       }
     }
     .padding(EdgeInsets(top: 7, leading: 11, bottom: 7, trailing: 7))
