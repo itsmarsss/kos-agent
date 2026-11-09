@@ -41,6 +41,11 @@ export interface TurnContext {
   context?: string;
   /** What others said in the room in between, kept beside the words. */
   roomTalk?: string;
+  /** Sent while KOS was away, and when: too old, it is not run. */
+  late?: boolean;
+  sentAt?: number;
+  /** Several such, too old to run, for one note to list. */
+  missed?: string[];
 }
 
 /** Handles one user turn and returns the reply text. */
@@ -368,6 +373,9 @@ export class ChannelRuntime {
         ...(msg.context ? { context: msg.context } : {}),
         ...(msg.roomTalk ? { roomTalk: msg.roomTalk } : {}),
         ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
+        ...(msg.late ? { late: true } : {}),
+        ...(msg.sentAt !== undefined ? { sentAt: msg.sentAt } : {}),
+        ...(msg.missed?.length ? { missed: msg.missed } : {}),
         ...guest,
       });
       const { suspended = false, steered = false, dropped = false, ...message } = typeof answer === "string" ? { text: answer } : answer;

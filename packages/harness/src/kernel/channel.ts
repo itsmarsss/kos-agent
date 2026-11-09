@@ -83,6 +83,9 @@ export function connectChannel(
         ...(ctx.members?.length ? { members: ctx.members } : {}),
         ...(ctx.context ? { context: ctx.context } : {}),
         ...(ctx.roomTalk ? { roomTalk: ctx.roomTalk } : {}),
+        ...(ctx.late ? { late: true } : {}),
+        ...(ctx.sentAt !== undefined ? { sentAt: ctx.sentAt } : {}),
+        ...(ctx.missed?.length ? { missed: ctx.missed } : {}),
         ...(adapter.contained ? { contained: true } : {}),
       });
       // The owner asked from this surface and the answer lands on it, so

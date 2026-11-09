@@ -344,7 +344,11 @@ when it is back: in the DM and in every channel and thread it last heard
 in, oldest first, through the same gates as if it had come live, so a
 guest's words are still a guest's. It reads at most the last fifty
 messages and six hours of each, and says so there when it left some out;
-an answer to one of them says "sent while KOS was offline" under it.
+an answer to one of them says "sent while KOS was offline" under it. What
+is more than ten minutes old by then, the owner's or a guest's, is not
+run: the room gets one note listing it ("These were sent while KOS was
+offline and not run: ... Reply to run them."), and so does its chat on the
+dashboard.
 Nothing is run twice, however it arrives.
 
 A restart in the middle of a turn is said where the turn was: its story

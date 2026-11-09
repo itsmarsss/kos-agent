@@ -35,6 +35,13 @@ export const INTERRUPTED_LINE = "-# interrupted by a restart";
 
 /** A chat made from a thread the owner started on Discord is this and the thread's id. */
 export const OWNER_THREAD_PREFIX = "discord:thread:";
+/**
+ * How old a message read on KOS's return may be and still run. Older, it is
+ * not run: what was asked an hour ago may no longer be wanted, and it would
+ * run with the owner's full reach on nobody's say-so now. Its room and its
+ * chat are told, to send again.
+ */
+export const LATE_RUN_MS = 10 * 60_000;
 
 export interface InboundMessage {
   /** Adapter name that received the message, e.g. "discord". */
@@ -88,6 +95,10 @@ export interface InboundMessage {
   roomTalk?: string;
   /** Sent while KOS was away and read on its return: the answer says so. */
   late?: boolean;
+  /** When it was sent, in ms: a late message older than LATE_RUN_MS is not run. */
+  sentAt?: number;
+  /** Read on return and too old to run: what each said, for one note to list. The rest of the message is the newest of them. */
+  missed?: string[];
   /**
    * Adapter-private handle (e.g. Discord Message) for reactions/edits.
    * Runtime must not inspect this; only the adapter's acknowledge() may.

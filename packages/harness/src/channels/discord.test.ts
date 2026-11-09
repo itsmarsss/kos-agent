@@ -2219,6 +2219,36 @@ describe("catching up after a drop or a restart", () => {
     expect(stale.posted).toHaveLength(1);
   });
 
+  it("hands what is over ten minutes old over as one note to tell, not run, and runs the newer as live", async () => {
+    const MIN = 60_000;
+    const said = [
+      { id: "501", author: "owner", at: Date.now() - 40 * MIN },
+      { id: "502", author: "ana", at: Date.now() - 30 * MIN },
+      { id: "503", author: "bot", bot: true, at: Date.now() - 20 * MIN },
+      { id: "504", author: "owner", at: Date.now() - 2 * MIN },
+    ];
+    const open = room("c1", said, { topic: "kos:project:garden · Garden" });
+    const { adapter, heard } = adapterOver({ c1: open.channel }, { c1: "500" }, true);
+    await adapter.catchUp();
+    expect(heard.map((m) => [m.text, m.missed, m.late, m.sentAt, m.guest?.id])).toEqual([
+      ["said 502", ["said 501", "ana: said 502"], true, said[1]!.at, "ana"],
+      ["said 504", undefined, true, said[3]!.at, undefined],
+    ]);
+    // Read once: nothing of it is run or told again.
+    await adapter.catchUp();
+    expect(heard).toHaveLength(2);
+  });
+
+  it("posts the note on a stale batch as one plain silent line, with no story and no offline mark", async () => {
+    const posted: unknown[] = [];
+    const message = { author: { id: "owner", bot: false }, guild: null, content: "hi", channel: { send: async (p: unknown) => void posted.push(p) } } as unknown as Message;
+    const adapter = new DiscordAdapter({ token: "t" });
+    const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner", text: "hi", late: true, missed: ["hi"], native: message });
+    await presence!.update("thinking");
+    await presence!.complete({ text: "This was sent while KOS was offline and not run" });
+    expect(posted).toEqual([{ content: "This was sent while KOS was offline and not run", flags: MessageFlags.SuppressNotifications }]);
+  });
+
   it("says under a late answer that it was sent while KOS was away", async () => {
     const posted: unknown[] = [];
     const message = { author: { id: "owner", bot: false }, guild: null, content: "hi", channel: { send: async (p: unknown) => { posted.push(p); return { edit: async () => undefined, delete: async () => undefined }; } } } as unknown as Message;

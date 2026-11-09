@@ -27,7 +27,7 @@ import { CHANNEL_TOKEN, detailLines, stepActions, summarizeAction, withUnixTimes
 import { isReadable, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
-import { INTERRUPTED_LINE, OWNER_ONLY, OWNER_THREAD_PREFIX, channelName, type Guest } from "./types.js";
+import { INTERRUPTED_LINE, LATE_RUN_MS, OWNER_ONLY, OWNER_THREAD_PREFIX, channelName, type Guest } from "./types.js";
 import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
 import { linkMentions, linkPaths, literal, literalWords, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
 import { tablesToCode } from "./tables.js";
@@ -1198,7 +1198,42 @@ export class DiscordAdapter implements ChannelAdapter {
         .send?.({ content: `-# KOS was offline; only the last ${missed.length} message${missed.length === 1 ? "" : "s"} here, from the last ${CATCH_UP_WINDOW_MS / 3_600_000} hours at most, are answered`, flags: MessageFlags.SuppressNotifications })
         .catch(() => undefined);
     }
-    for (const message of missed) await this.receiveMessage(message, { late: true });
+    // Old enough that it may no longer be wanted: told, not run. Newer runs as it would have live.
+    const lateBy = Date.now() - LATE_RUN_MS;
+    await this.notRun(missed.filter((m) => m.createdTimestamp < lateBy));
+    for (const message of missed.filter((m) => m.createdTimestamp >= lateBy)) await this.receiveMessage(message, { late: true });
+  }
+
+  /**
+   * Messages read on return and too old to run, through the same gates as
+   * live: those that would have been heard go to the harness as one, the
+   * newest carrying a list of them all, for one note in the room and the
+   * chat rather than a turn each.
+   */
+  private async notRun(messages: Message[]): Promise<void> {
+    const heard: { message: Message; guest?: Guest; binding?: ChannelBinding }[] = [];
+    for (const message of messages) {
+      if (this.seen.has(message.id)) continue;
+      this.markSeen(message.id);
+      const admitted = this.admitted(message);
+      if (admitted) heard.push({ message, ...admitted });
+    }
+    const last = heard.at(-1);
+    if (!last) return;
+    const words = (m: Message): string => this.channelsNamed(this.withoutOwnMention(m.content)).trim() || "(no words)";
+    await this.messageHandler?.({
+      channel: this.name,
+      late: true,
+      sentAt: last.message.createdTimestamp,
+      missed: heard.map((h) => (h.guest ? `${h.guest.name}: ${words(h.message)}` : words(h.message))),
+      senderId: last.message.author.id,
+      text: words(last.message),
+      room: this.roomOf(last.message),
+      ...(last.binding ? { conversationId: last.binding.conversationId } : {}),
+      ...(last.binding?.newIn ? { newIn: last.binding.newIn } : {}),
+      ...(last.guest ? { guest: last.guest } : {}),
+      native: last.message,
+    });
   }
 
   /** Gateway MessageCreate handler. Internal; separated for tests. */
@@ -1208,43 +1243,13 @@ export class DiscordAdapter implements ChannelAdapter {
     // reads the same messages from the history.
     if (message.id) {
       if (this.seen.has(message.id)) return;
-      this.seen.add(message.id);
-      if (this.seen.size > SEEN_MAX) this.seen.delete(this.seen.values().next().value!);
+      this.markSeen(message.id);
     }
-    // A Discord system message is not something anyone said: starting a
-    // thread, pinning, a join. The "thread created" one carries the thread's
-    // name as its content, so without this KOS read "Test" as a question and
-    // answered it. Only a plain message or a reply is a turn.
-    if (message.system) return;
-    // In a server, only the owner's server, only its bound channels, and
-    // only the owner: anyone else in the channel is read as the room's
-    // own talk, which KOS stays out of.
-    let binding: ChannelBinding | undefined;
-    let guest: Guest | undefined;
+    const admitted = this.admitted(message);
+    if (!admitted) return;
+    const { binding, guest } = admitted;
     /** What was said in a mention-gated room since its chat last heard, when this message is one it hears. */
-    let unheard = "";
-    if (message.guild) {
-      if (!this.guildId || message.guild.id !== this.guildId) return;
-      // Not the owner: a guest's words, in a room opened to guests; silence anywhere else.
-      if (!this.isAuthorized(message.author.id)) {
-        guest = this.guestIn(message);
-        if (!guest) return;
-      }
-      binding = bindingOf(message.channel as Parameters<typeof bindingOf>[0], this.threadOf);
-      if (!binding) return;
-      // A room that reaches its chat only when KOS is addressed: a guest's
-      // message that does not address it goes unheard, and one that does
-      // carries what was said there in between. The owner is always heard.
-      const key = this.roomKeyOf(message.channel);
-      if (key && this.listenOf?.(key) === "mention") {
-        if (guest && !this.addressed(message)) return;
-        unheard = await this.unheardIn(message);
-      }
-    } else if (!this.isAuthorized(message.author.id)) {
-      // Log for the owner, stay silent to the sender.
-      console.warn(`[discord] ignored DM from unknown sender ${message.author.id}`);
-      return;
-    }
+    const unheard = admitted.gated ? await this.unheardIn(message) : "";
     const { attachments, skipped } = await collectAttachments(message);
     // A file KOS cannot read is said out loud rather than dropped, so the
     // owner is not left asking about a picture it was never shown.
@@ -1253,10 +1258,7 @@ export class DiscordAdapter implements ChannelAdapter {
       : "";
 
     // Where it was said, for the dashboard to say so under the words.
-    const where = message.channel as { id: string; name?: string | null; isThread?: () => boolean };
-    const room: MessageRoom = message.guild
-      ? { kind: where.isThread?.() ? "thread" : "channel", id: where.id, ...(where.name ? { name: where.name } : {}) }
-      : { kind: "dm" };
+    const room = this.roomOf(message);
     // Who the words name: Discord writes <@id>; the dashboard and the turn
     // get @name, with the id told to the turn beside it.
     const members = this.membersNamed(message);
@@ -1267,7 +1269,7 @@ export class DiscordAdapter implements ChannelAdapter {
     const replyingTo = await this.repliedTo(message, guest !== undefined);
     await this.messageHandler?.({
       channel: this.name,
-      ...(how.late ? { late: true } : {}),
+      ...(how.late ? { late: true, sentAt: message.createdTimestamp } : {}),
       // What a reply answers rides beside the words, told to this turn and quoted, never as the sender's own.
       ...(replyingTo ? { context: replyingTo } : {}),
       senderId: message.author.id,
@@ -1283,6 +1285,55 @@ export class DiscordAdapter implements ChannelAdapter {
       ...(guest ? { guest } : {}),
       native: message,
     });
+  }
+
+  private markSeen(id: string): void {
+    this.seen.add(id);
+    if (this.seen.size > SEEN_MAX) this.seen.delete(this.seen.values().next().value!);
+  }
+
+  /**
+   * Whether a message is one KOS hears, and as whose: in a server, only the
+   * owner's server, only its bound channels, and only the owner or a guest
+   * of a room opened to guests; anyone else in the channel is the room's own
+   * talk, which KOS stays out of. `gated` when the room hears only when
+   * addressed, so the words carry what was said in between.
+   */
+  private admitted(message: Message): { binding?: ChannelBinding; guest?: Guest; gated: boolean } | undefined {
+    if (message.author.bot) return undefined;
+    // A Discord system message is not something anyone said: starting a
+    // thread, pinning, a join. The "thread created" one carries the thread's
+    // name as its content, so without this KOS read "Test" as a question and
+    // answered it. Only a plain message or a reply is a turn.
+    if (message.system) return undefined;
+    if (!message.guild) {
+      if (this.isAuthorized(message.author.id)) return { gated: false };
+      // Log for the owner, stay silent to the sender.
+      console.warn(`[discord] ignored DM from unknown sender ${message.author.id}`);
+      return undefined;
+    }
+    if (!this.guildId || message.guild.id !== this.guildId) return undefined;
+    // Not the owner: a guest's words, in a room opened to guests; silence anywhere else.
+    let guest: Guest | undefined;
+    if (!this.isAuthorized(message.author.id)) {
+      guest = this.guestIn(message);
+      if (!guest) return undefined;
+    }
+    const binding = bindingOf(message.channel as Parameters<typeof bindingOf>[0], this.threadOf);
+    if (!binding) return undefined;
+    // A room that reaches its chat only when KOS is addressed: a guest's
+    // message that does not address it goes unheard. The owner is always heard.
+    const key = this.roomKeyOf(message.channel);
+    const gated = key !== undefined && this.listenOf?.(key) === "mention";
+    if (gated && guest && !this.addressed(message)) return undefined;
+    return { binding, ...(guest ? { guest } : {}), gated };
+  }
+
+  /** Where a message was said, for the dashboard to say so under the words. */
+  private roomOf(message: Message): MessageRoom {
+    if (!message.guild) return { kind: "dm" };
+    const where = message.channel as { id: string; name?: string | null; isThread?: () => boolean };
+    return { kind: where.isThread?.() ? "thread" : "channel", id: where.id, ...(where.name ? { name: where.name } : {}) };
   }
 
   /**
@@ -2616,6 +2667,14 @@ export class DiscordAdapter implements ChannelAdapter {
     const inbound = msg.native;
     if (!inbound || typeof inbound !== "object") return undefined;
     const message = inbound as Message;
+    // Too old to run: the one note there is goes up as a plain, silent line, with no story before it.
+    if (msg.missed?.length) {
+      const room = message.channel as { send?: (payload: unknown) => Promise<unknown> } | undefined;
+      const say = async (text: string): Promise<void> => {
+        if (room?.send) await this.deliver((payload) => room.send!(payload), { text, silent: true });
+      };
+      return { update: async () => undefined, complete: (answer) => say(answer.text ?? ""), fail: say };
+    }
 
     // Into the same DM the question came from, without quoting it: a
     // reply reference adds a "replying to" line to every answer.

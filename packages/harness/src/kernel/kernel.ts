@@ -3,7 +3,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
-import { BindingGoneError, INTERRUPTED_LINE, OWNER_THREAD_PREFIX, channelName, type Asker, type ConversationSeed, type Guest, type OutboundMessage, type Sender } from "../channels/types.js";
+import { BindingGoneError, INTERRUPTED_LINE, LATE_RUN_MS, OWNER_THREAD_PREFIX, channelName, type Asker, type ConversationSeed, type Guest, type OutboundMessage, type Sender } from "../channels/types.js";
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry, type ToolExecution } from "../agent/registry.js";
@@ -312,6 +312,13 @@ const guestNamed = (guest: Guest): string => `[${guest.name}, a guest in the cha
 function withoutGuestName(text: string, guest: Guest | undefined): string {
   const named = guest ? guestNamed(guest) : undefined;
   return named && text.startsWith(named) ? text.slice(named.length) : text;
+}
+
+/** What a room and its chat are told of messages sent while KOS was away and too old to run. */
+export function notRunNote(said: string[]): string {
+  const shown = said.slice(0, 5).map((t) => `> ${t.replace(/\s+/g, " ").trim().slice(0, 120)}`);
+  const more = said.length > shown.length ? `\n> and ${said.length - shown.length} more` : "";
+  return `${said.length === 1 ? "This was" : "These were"} sent while KOS was offline and not run:\n${shown.join("\n")}${more}\nReply to run ${said.length === 1 ? "it" : "them"}.`;
 }
 
 /** Who a waiting message's turn is to the fences, kept with it so a restart runs it as that. */
@@ -3109,10 +3116,24 @@ export class Kernel {
     roomTalk?: string;
     /** The surface keeps to its own chats: its commands list and move among those alone. */
     contained?: boolean;
+    /** Sent while KOS was away, and when, in ms. */
+    late?: boolean;
+    sentAt?: number;
+    /** Several sent while away and too old to run, for one note to list. */
+    missed?: string[];
   }): Promise<HandleResult & { conversationId: string; isCommand: boolean; from?: Sender }> {
     const conversation = input.conversationId
       ? this.boundConversation(input.conversationId, input.userId, input.channel, input.newIn)
       : this.conversationFor(input.channel, input.userId, input.conversationKey);
+
+    // Said while KOS was away, long enough ago that it may no longer be
+    // wanted: not run, whoever said it. The room and the chat are told, to
+    // send again; sent again it is said now, and runs.
+    if (input.late && input.sentAt !== undefined && Date.now() - input.sentAt > LATE_RUN_MS) {
+      const note = notRunNote(input.missed?.length ? input.missed : [input.text]);
+      this.noteIn(conversation.id, note);
+      return { reply: note, halted: false, conversationId: conversation.id, isCommand: false };
+    }
 
     // The commands act on the owner's chat and what it runs, so a guest has
     // none of them but help: anything else a guest types is ordinary words.
