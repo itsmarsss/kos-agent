@@ -70,6 +70,8 @@ export interface BrowserElsewhere {
   newTab(conversationId: string): Promise<string>;
   /** The host of the conversation's tab there, for its site's trust. */
   siteOf(conversationId: string): string | undefined;
+  /** Whether the owner let the conversation's session act on this site without asking each step, when they allowed it. */
+  actsAlone?(conversationId: string, site: string): boolean;
   /** A picture of the conversation's tab there, if it has one. */
   picture(conversationId: string, maxEdge: number): Promise<string | undefined>;
   /** What it is, in words for a result: "the owner's Chrome (Chrome on macOS)". */

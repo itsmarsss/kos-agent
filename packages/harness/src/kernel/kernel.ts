@@ -3385,7 +3385,7 @@ export class Kernel {
       permissionContext: (tool) => this.browserContext(tool, opts.conversationId),
       prepare: (tool) => this.readyBrowser(tool, opts.conversationId, opts.signal),
       ...(opts.heard ? { heard: opts.heard } : {}),
-      autoApproves: (tool, context) => opts.conversationId !== undefined && this.actsWithoutAsking(opts.conversationId) && actsInYourChrome(tool, context),
+      autoApproves: (tool, context) => opts.conversationId !== undefined && this.actsAloneOn(opts.conversationId, context?.browser?.site) && actsInYourChrome(tool, context),
       pictureFor: (tool) => this.browserPicture(tool, opts.conversationId),
       running: (tool) => (opts.conversationId && tool.startsWith(BROWSER_PREFIX) ? this.seen.run(opts.conversationId) : undefined),
       projectSlug: () =>
@@ -3667,6 +3667,16 @@ export class Kernel {
    */
   actsWithoutAsking(conversationId: string): boolean {
     return this.chatsActingAlone().includes(conversationId);
+  }
+
+  /**
+   * Whether a chat acts in the owner's Chrome without asking each step on
+   * this site: the chat is set to Auto, or the owner allowed its session
+   * with this site's steps unasked. The strict tools ask either way.
+   */
+  private actsAloneOn(conversationId: string, site: string | undefined): boolean {
+    if (this.actsWithoutAsking(conversationId)) return true;
+    return site !== undefined && this.away(conversationId)?.actsAlone?.(conversationId, site) === true;
   }
 
   setActsWithoutAsking(conversationId: string, on: boolean): void {

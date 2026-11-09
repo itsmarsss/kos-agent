@@ -199,6 +199,10 @@ export class OwnerChrome implements BrowserElsewhere {
     return b?.current ? { tab: b.current, url: b.tabs.get(b.current)?.url ?? "", moved: b.moved, session: b.session } : undefined;
   }
 
+  actsAlone(conversation: string, site: string): boolean {
+    return this.session(conversation)?.site === site;
+  }
+
   siteOf(conversation: string): string | undefined {
     const b = this.held.get(conversation);
     const url = b?.current ? b.tabs.get(b.current)?.url : undefined;
