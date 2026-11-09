@@ -147,7 +147,7 @@ describe("a step's pictures on a device's chat", () => {
     panel.watch({ kind: "frame", conversationId: "chrome:owner", tool: "browser.act", frameId: 99 });
     await flush();
     const framed = (d: { calls: { method: string; params: Record<string, unknown> }[] }) => d.calls.filter((c) => c.method === "chat.status" && c.params["frame"]).map((c) => c.params);
-    const expected = [{ conversation: "chrome:owner", said: "fill the form", frame: { id: 5, image: "P5", mediaType: "image/jpeg", site: "shop.test" } }];
+    const expected = [{ chat: "chrome:owner", conversation: "chrome:owner", waiting: "approval", held: false, said: "fill the form", frame: { id: 5, image: "P5", mediaType: "image/jpeg", site: "shop.test" } }];
     expect(framed(one)).toEqual(expected);
     expect(framed(two)).toEqual(expected);
     // A Mac is not a Chrome's panel: it is never sent the Chrome chat's pictures.
@@ -260,16 +260,19 @@ describe("a Chrome's side panel", () => {
     ]);
     chrome.event("chat.open", {});
     await flush();
-    expect(chrome.calls.slice(-2)).toEqual([
-      { method: "chat.show", params: { conversation: "chrome:owner", title: "Chrome", messages: [{ role: "you", text: "hi" }, { role: "kos", text: "Hello." }], auto: false } },
+    const state = { chat: "chrome:owner", conversation: "chrome:owner", waiting: "approval", held: false };
+    expect(chrome.calls.slice(-3)).toEqual([
+      { method: "chat.show", params: { chat: "chrome:owner", conversation: "chrome:owner", title: "Chrome", messages: [{ role: "you", text: "hi" }, { role: "kos", text: "Hello." }], auto: false } },
       // What the chat is still waiting on, for a panel opened after it was asked.
-      { method: "chat.ask", params: { approval: { id: "3", tool: "files.write", why: "Saving the list." } } },
+      { method: "chat.ask", params: { chat: "chrome:owner", approval: { id: "3", tool: "files.write", why: "Saving the list." } } },
+      // And its state: the foot says it waits on the owner.
+      { method: "chat.status", params: state },
     ]);
     const presence = await panel.acknowledge({ channel: "chrome", senderId: chrome.id, text: "/new" });
     // Taken at once, so the panel knows someone has its words before any step is told.
-    expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { conversation: "chrome:owner", said: "/new", taken: true } });
+    expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { ...state, said: "/new", taken: true } });
     await presence.update("› Read the page");
-    expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { conversation: "chrome:owner", said: "/new", story: "› Read the page" } });
+    expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { ...state, said: "/new", story: "› Read the page" } });
     await presence.complete({ text: "Hello." });
     expect(chrome.calls.at(-1)?.params["notice"]).toBeUndefined();
     await presence.complete({ text: "Started a new chat.", from: { name: "recap" } });
@@ -278,7 +281,7 @@ describe("a Chrome's side panel", () => {
     expect(chrome.calls.at(-1)?.params["notice"]).toEqual({ text: "Waiting on you: files.write needs approval.", waiting: true, said: "/new" });
     await presence.fail("KOS hit an error.");
     expect(chrome.calls.slice(-2).map((c) => c.method)).toEqual(["chat.status", "chat.show"]);
-    expect(chrome.calls.at(-2)?.params).toEqual({ conversation: "chrome:owner", said: "/new", story: null, error: "KOS hit an error." });
+    expect(chrome.calls.at(-2)?.params).toEqual({ ...state, said: "/new", story: null, error: "KOS hit an error." });
   });
 
   it("tells a turn taken elsewhere as it goes, as Discord's thread is told it", async () => {
@@ -292,17 +295,18 @@ describe("a Chrome's side panel", () => {
     panel.watch({ kind: "tool-start", conversationId: "chrome:owner", tool: "chrome.page", summary: "Read the page" });
     panel.watch({ kind: "tool-end", conversationId: "chrome:owner", tool: "chrome.page", isError: false });
     await flush();
+    const state = { chat: "chrome:owner", conversation: "chrome:owner", waiting: "approval", held: false };
     expect(status()).toEqual([
       // The owner's words at once, then each step as it is taken.
-      { conversation: "chrome:owner", said: "compare these mugs", taken: true },
-      { conversation: "chrome:owner", said: "compare these mugs", story: "› Read the page" },
+      { ...state, said: "compare these mugs", taken: true },
+      { ...state, said: "compare these mugs", story: "› Read the page" },
     ]);
-    // A panel opened mid-turn is told the turn so far, after the chat.
+    // A panel opened mid-turn is told the turn so far, after the chat, and then its state.
     chrome.event("chat.open", {});
     await flush();
     await flush();
-    expect(chrome.calls.slice(-3).map((c) => c.method)).toEqual(["chat.ask", "chat.status", "chat.status"]);
-    expect(status().slice(-2)).toEqual(status().slice(0, 2));
+    expect(chrome.calls.slice(-4).map((c) => c.method)).toEqual(["chat.ask", "chat.status", "chat.status", "chat.status"]);
+    expect(status().slice(-3, -1)).toEqual(status().slice(0, 2));
     setChat({ id: "chrome:owner", title: "Mug check" }, [
       { kind: "message", role: "you", text: "compare these mugs" },
       { kind: "message", role: "kos", text: "The 12 oz." },
@@ -311,8 +315,8 @@ describe("a Chrome's side panel", () => {
     await flush();
     // Done, then the chat as the turn left it.
     expect(chrome.calls.slice(-2)).toEqual([
-      { method: "chat.status", params: { conversation: "chrome:owner", said: "compare these mugs", story: null } },
-      { method: "chat.show", params: { conversation: "chrome:owner", title: "Mug check", messages: [{ role: "you", text: "compare these mugs" }, { role: "kos", text: "The 12 oz." }], auto: false } },
+      { method: "chat.status", params: { ...state, said: "compare these mugs", story: null } },
+      { method: "chat.show", params: { chat: "chrome:owner", conversation: "chrome:owner", title: "Mug check", messages: [{ role: "you", text: "compare these mugs" }, { role: "kos", text: "The 12 oz." }], auto: false } },
     ]);
   });
 
@@ -349,7 +353,7 @@ describe("a Chrome's side panel", () => {
     expect(chrome.calls.length).toBe(before);
     chrome.event("chat.switch", { conversation: "cm1:owner" });
     await flush();
-    expect(chrome.calls.at(-1)).toMatchObject({ method: "chat.show", params: { conversation: "cm1:owner", title: "Trip plan" } });
+    expect(chrome.calls.find((c, i) => i >= before && c.method === "chat.show")).toMatchObject({ params: { chat: "cm1:owner", conversation: "cm1:owner", title: "Trip plan" } });
   });
 
   it("hears the owner leave a chat by switching, not by closing the panel", async () => {
@@ -366,6 +370,74 @@ describe("a Chrome's side panel", () => {
     chrome.event("chat.close", { conversation: "cm1:owner" });
     await flush();
     expect(left).toEqual(["chrome:owner"]);
+  });
+
+  it("hears Stop for the chat the panel shows", async () => {
+    const { pair, setChat, panel } = setup();
+    const chrome = pair();
+    const stopped: string[] = [];
+    panel.onStop((c) => void stopped.push(c));
+    chrome.event("chat.stop", {});
+    setChat({ id: "chrome:owner", title: "Chrome" });
+    chrome.event("chat.stop", {});
+    await flush();
+    expect(stopped).toEqual(["chrome:owner"]);
+  });
+
+  it("keeps a turn to its own chat when the owner switches away mid-turn, and its session until the turn ends", async () => {
+    const { pair, setChat, panel } = setup();
+    const chrome = pair();
+    const left: string[] = [];
+    panel.onLeave((c) => void left.push(c));
+    panel.onMessage(() => undefined);
+    setChat({ id: "chrome:owner", title: "Chrome" });
+    chrome.event("chat.open", {});
+    chrome.event("chat.send", { text: "fill the form" });
+    await flush();
+    const presence = await panel.acknowledge({ channel: "chrome", senderId: chrome.id, text: "fill the form" });
+    panel.watch({ kind: "turn-start", conversationId: "chrome:owner", said: "fill the form", from: "chrome" });
+    chrome.event("chat.switch", { conversation: "cm1:owner" });
+    await flush();
+    // Still that Chrome's chat for the turn, so its browser calls go to the owner's Chrome, not KOS's own.
+    expect(panel.deviceOf("chrome:owner")).toBe(chrome.id);
+    expect(left).toEqual([]);
+    const before = chrome.calls.length;
+    await presence.update("› Typed the name");
+    await presence.complete({ text: "Done." });
+    const after = chrome.calls.slice(before);
+    // Its story says whose it is, and the old chat is never drawn over the one the owner moved to.
+    expect(after.map((c) => [c.method, c.params["chat"]])).toEqual([["chat.status", "chrome:owner"]]);
+    panel.watch({ kind: "turn-end", conversationId: "chrome:owner" });
+    await flush();
+    expect(left).toEqual(["chrome:owner"]);
+    expect(panel.deviceOf("chrome:owner")).toBeUndefined();
+  });
+
+  it("pushes what the chat waits on and who holds it as they change, once each", async () => {
+    const { pair, setChat, hub } = setup();
+    const chrome = pair();
+    setChat({ id: "cm1:owner", title: "Trip plan" });
+    chrome.answers.delete("session.begin");
+    // A status that says nothing but the state.
+    const states = () => chrome.calls.filter((c) => c.method === "chat.status" && !["said", "taken", "story", "error", "frame"].some((k) => k in c.params)).map((c) => c.params);
+    const asked = hub.begin({ conversation: "cm1:owner", device: hub.find(undefined)!, task: "t", requester: "r", minutes: 5 });
+    await flush();
+    expect(states()).toEqual([{ chat: "cm1:owner", conversation: "cm1:owner", waiting: "consent", held: false }]);
+    chrome.answer("session.begin", { granted: true, until: Date.now() + 60_000 });
+    const session = await asked;
+    await flush();
+    chrome.event("session.paused", { session: session.id, reason: "owner" });
+    await flush();
+    chrome.event("session.paused", { session: session.id, reason: "owner" });
+    await flush();
+    chrome.event("session.resumed", { session: session.id });
+    await flush();
+    expect(states()).toEqual([
+      { chat: "cm1:owner", conversation: "cm1:owner", waiting: "consent", held: false },
+      { chat: "cm1:owner", conversation: "cm1:owner", held: false },
+      { chat: "cm1:owner", conversation: "cm1:owner", held: true },
+      { chat: "cm1:owner", conversation: "cm1:owner", held: false },
+    ]);
   });
 
   it("says which model answers, changes it, and says when it cannot", async () => {
@@ -397,11 +469,11 @@ describe("a Chrome's side panel", () => {
       asker: { name: "Chrome", conversationId: "chrome:owner" },
       rule: { tool: "browser.*", scope: "your-chrome:shop.example", project: null },
     });
-    expect(chrome.calls.at(-1)).toEqual({ method: "chat.ask", params: { approval: { id: "10", tool: "browser.act", args: '{"steps":[]}', why: "Clicking Buy.", always: "Always on shop.example" } } });
+    expect(chrome.calls.filter((c) => c.method === "chat.ask").at(-1)).toEqual({ method: "chat.ask", params: { chat: "chrome:owner", approval: { id: "10", tool: "browser.act", args: '{"steps":[]}', why: "Clicking Buy.", always: "Always on shop.example" } } });
     // A step said by its purpose carries its actions, in full, beside the arguments cut to fit.
     const actions = Array.from({ length: 10 }, (_, i) => ({ action: "type", text: `${i} ${"x".repeat(80)}` }));
     await panel.requestApproval("owner", { id: "11", text: "x", tool: "computer.act", args: { intent: "Note: just closing the popup", actions }, asker: { name: "Chrome", conversationId: "chrome:owner" } });
-    const sent = (chrome.calls.at(-1)?.params as { approval: { args: string; mechanics: string } }).approval;
+    const sent = (chrome.calls.filter((c) => c.method === "chat.ask").at(-1)?.params as { approval: { args: string; mechanics: string } }).approval;
     expect(sent.args.endsWith("…")).toBe(true);
     expect(sent.mechanics.split(", type").length).toBe(10);
     expect(sent.mechanics.startsWith("Type “0 xxx")).toBe(true);
@@ -416,7 +488,7 @@ describe("a Chrome's side panel", () => {
       { id: "11", approved: false, deciderId: chrome.id },
     ]);
     await panel.settleApproval("10", "approved");
-    expect(chrome.calls.at(-1)).toEqual({ method: "chat.settled", params: { approval: "10", outcome: "approved" } });
+    expect(chrome.calls.filter((c) => c.method === "chat.settled").at(-1)).toEqual({ method: "chat.settled", params: { approval: "10", outcome: "approved" } });
   });
 
   it("keeps to its own chats, names what an @ can, and sets Auto before the first words", async () => {

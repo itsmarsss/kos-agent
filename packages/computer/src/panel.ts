@@ -108,6 +108,15 @@ interface Running {
   timer?: ReturnType<typeof setTimeout>;
 }
 
+/** What a chat is waiting on and who holds its session, as every status says it. */
+interface ChatState {
+  waiting?: "consent" | "approval";
+  held: boolean;
+}
+
+/** A chat waiting on nothing, its session (if any) KOS's. */
+const CALM = JSON.stringify({ held: false });
+
 export class DevicePanel implements ChannelAdapter {
   readonly name: string;
   /** A place of its own: its chats are the ones made here, and it moves among those alone. */
@@ -121,10 +130,22 @@ export class DevicePanel implements ChannelAdapter {
   /** Where they were when they last spoke there: the app a session started unasked offers first. */
   private lastBeside: unknown;
   private running: Running | undefined;
+  /**
+   * Turns running in this panel's chats, by chat, with the device whose
+   * words started each: the chat stays that device's for the turn, whatever
+   * the panel is switched to meanwhile.
+   */
+  private readonly turns = new Map<string, { device?: string }>();
+  /** Chats the owner left on a device while a turn ran in them: their session ends with that turn. */
+  private readonly leftMidTurn = new Set<string>();
   /** The chat last shown on the devices, to hear the owner leave it. */
   private shownChat: string | undefined;
   /** Told the chat the owner left on a device: switched the panel to another. Closing or hiding it is not leaving. */
   private leaving: ((conversation: string) => void) | undefined;
+  /** Told the chat the owner pressed Stop for on a device. */
+  private stopping: ((conversation: string) => void) | undefined;
+  /** The state each chat's devices were last told, so a change is told once. */
+  private readonly told = new Map<string, string>();
 
   constructor(
     private readonly place: PanelPlace,
@@ -137,7 +158,17 @@ export class DevicePanel implements ChannelAdapter {
   attach(hub: DeviceHub | undefined): void {
     this.unsubscribe?.();
     this.hub = hub;
-    this.unsubscribe = hub?.onDeviceEvent((device, event) => this.heard(device, event));
+    if (!hub) {
+      this.unsubscribe = undefined;
+      return;
+    }
+    const offEvents = hub.onDeviceEvent((device, event) => this.heard(device, event));
+    // An ask going up or down on a device, the owner taking over or handing back: told as it happens.
+    const offChange = hub.onChange(() => this.tellState());
+    this.unsubscribe = () => {
+      offEvents();
+      offChange();
+    };
   }
 
   async start(): Promise<void> {}
@@ -159,8 +190,14 @@ export class DevicePanel implements ChannelAdapter {
     return { resolve: (channel, sender) => (channel === this.name && this.isMine(sender) ? ownerId : null) };
   }
 
-  /** The device whose panel a chat is, when it is the panel's chat and the owner spoke there. */
+  /**
+   * The device whose panel a chat is: the one whose words started the turn
+   * running in it, or, between turns, the one the owner last spoke from
+   * while the panel shows that chat.
+   */
   deviceOf(conversation: string): string | undefined {
+    const speaker = this.turns.get(conversation)?.device;
+    if (speaker && this.isMine(speaker)) return speaker;
     return this.last && this.isMine(this.last) && conversation === this.deps.current()?.id ? this.last : undefined;
   }
 
@@ -177,11 +214,23 @@ export class DevicePanel implements ChannelAdapter {
     this.leaving = handler;
   }
 
-  /** The chat the panel shows now: one other than the last shown means the owner left that one. */
+  /** Hear the owner press Stop on a device, for the chat it shows. */
+  onStop(handler: (conversation: string) => void): void {
+    this.stopping = handler;
+  }
+
+  /**
+   * The chat the panel shows now: one other than the last shown means the
+   * owner left that one. A turn still running there keeps its session until
+   * it ends.
+   */
   private follow(): void {
     const now = this.deps.current()?.id;
-    if (this.shownChat && now !== this.shownChat) this.leaving?.(this.shownChat);
+    const left = this.shownChat;
     this.shownChat = now;
+    if (!left || now === left) return;
+    if (this.turns.has(left)) this.leftMidTurn.add(left);
+    else this.leaving?.(left);
   }
 
   /** A decision's outcome, or a resumed turn's answer: every open panel is shown the chat with it. */
@@ -191,33 +240,38 @@ export class DevicePanel implements ChannelAdapter {
 
   /** An approval the panel's chat asked for, to decide in the panel. Any other chat's is not the panel's to show. */
   async requestApproval(_recipient: string, req: ApprovalRequest): Promise<void> {
-    if (!req.asker || req.asker.conversationId !== this.deps.current()?.id) return;
-    await this.everyDevice("chat.ask", { approval: approvalOf(req) });
+    const chat = req.asker?.conversationId;
+    if (!chat || chat !== this.deps.current()?.id) return;
+    await this.everyDevice("chat.ask", { chat, approval: approvalOf(req) });
+    this.tellState();
   }
 
   async settleApproval(id: string, outcome: ApprovalOutcome): Promise<void> {
     await this.everyDevice("chat.settled", { approval: id, outcome });
+    this.tellState();
   }
 
   /**
-   * The turn's story in the panel as it goes. Each says which chat it is: a
-   * chat's first turn makes it, and the page beside the panel is read for
-   * that chat alone, so the panel learns it before the first read.
+   * The turn's story in the panel as it goes. Each says which chat it is
+   * about: the one the turn runs in, learned once it has one (a chat's first
+   * turn makes it), never the one the panel moved to meanwhile.
    */
   async acknowledge(msg: InboundMessage): Promise<TurnPresence> {
     const device = msg.senderId;
+    let chat: string | undefined;
+    const chatOf = (): string | undefined => (chat ??= this.deps.current()?.id);
     // Each says which of the owner's messages it is about: two can be on the go at once, one running and one said meanwhile.
-    const status = async (params: Record<string, unknown>): Promise<void> => void (await this.tell(device, "chat.status", { conversation: this.deps.current()?.id ?? null, said: msg.text, ...params }));
+    const status = async (params: Record<string, unknown>): Promise<void> => void (await this.tell(device, "chat.status", this.statusOf(chatOf(), { said: msg.text, ...params })));
     // Taken: the panel stops waiting to hear that anyone has its words.
     await status({ taken: true });
     return {
       update: (story) => status({ story }),
       // A wait on the owner, or words the running turn took in: true until the chat moves on.
-      complete: (reply, how) => this.show(device, reply, how?.waiting === true || how?.heard === true, msg.text),
+      complete: (reply, how) => this.showFor(chatOf(), device, reply, how?.waiting === true || how?.heard === true, msg.text),
       // Said, then the chat as it stands: the owner's words may be in it or not, and the panel tells which.
       fail: async (message) => {
         await status({ story: null, error: message });
-        await this.show(device);
+        await this.showFor(chatOf(), device);
       },
     };
   }
@@ -230,33 +284,44 @@ export class DevicePanel implements ChannelAdapter {
    * nothing here until it was over, then the words and the answer at once.
    */
   watch(event: ProgressEvent): void {
+    const id = event.conversationId;
+    if (event.kind === "turn-end") return this.turnEnded(id);
     const chat = this.deps.current();
-    if (!chat || event.conversationId !== chat.id) return;
     if (event.kind === "turn-start") {
-      this.quiet();
       const speaker = event.from === this.name ? this.last : undefined;
-      this.running = { conversation: chat.id, narrator: new TurnNarrator(), shownAt: 0, ...(event.said ? { said: event.said } : {}), ...(speaker ? { speaker } : {}) };
-      if (event.said) void this.everyDevice("chat.status", { conversation: chat.id, said: event.said, taken: true }, speaker);
+      // The owner's words from one of this panel's devices: the chat is that device's until the turn ends.
+      if (event.from === this.name) this.turns.set(id, speaker ? { device: speaker } : {});
+      if (!chat || id !== chat.id) return;
+      this.quiet();
+      this.running = { conversation: id, narrator: new TurnNarrator(), shownAt: 0, ...(event.said ? { said: event.said } : {}), ...(speaker ? { speaker } : {}) };
+      if (event.said) void this.everyDevice("chat.status", this.statusOf(id, { said: event.said, taken: true }), speaker);
       return;
     }
     const running = this.running;
-    if (!running || running.conversation !== chat.id) return;
-    if (event.kind === "turn-end") {
-      this.quiet();
-      // The chat as the turn left it goes to the speaker too: a turn that waited on a decision made elsewhere was never answered there.
-      void this.everyDevice("chat.status", { conversation: chat.id, ...this.about(running), story: null }, running.speaker).then(() => this.everyDevice("chat.show", this.drawn()));
-      return;
-    }
+    if (!running || running.conversation !== id) return;
     if (event.kind === "frame") {
       // To every device of the kind, the speaker too: its presence carries words, not pictures.
       const shown = this.deps.picture?.(event.frameId);
       if (shown) {
         const frame = { id: event.frameId, image: shown.image, mediaType: "image/jpeg", ...(shown.site ? { site: shown.site } : {}) };
-        void this.everyDevice("chat.status", { conversation: chat.id, ...this.about(running), frame });
+        void this.everyDevice("chat.status", this.statusOf(id, { ...this.about(running), frame }));
       }
       return;
     }
     if (running.narrator.take(event)) this.narrate(running, event.kind !== "delta");
+  }
+
+  /** A turn over in one of the panel's chats: its story closes, and a session it kept past a switch away ends. */
+  private turnEnded(id: string): void {
+    this.turns.delete(id);
+    if (this.leftMidTurn.delete(id) && id !== this.deps.current()?.id) this.leaving?.(id);
+    const running = this.running;
+    if (running?.conversation !== id) return;
+    this.quiet();
+    // The chat as the turn left it goes to the speaker too: a turn that waited on a decision made elsewhere was never answered there.
+    void this.everyDevice("chat.status", this.statusOf(id, { ...this.about(running), story: null }), running.speaker).then(() =>
+      id === this.deps.current()?.id ? this.everyDevice("chat.show", this.drawn()) : undefined,
+    );
   }
 
   /** The running turn's story, a step at once and words at most every so often. */
@@ -265,7 +330,7 @@ export class DevicePanel implements ChannelAdapter {
     const tell = (): void => {
       running.timer = undefined;
       running.shownAt = Date.now();
-      void this.everyDevice("chat.status", { conversation: running.conversation, ...this.about(running), story: running.narrator.render() }, running.speaker);
+      void this.everyDevice("chat.status", this.statusOf(running.conversation, { ...this.about(running), story: running.narrator.render() }), running.speaker);
     };
     const due = NARRATE_EVERY_MS - (Date.now() - running.shownAt);
     if (now || due <= 0) {
@@ -286,6 +351,35 @@ export class DevicePanel implements ChannelAdapter {
   }
 
   /**
+   * What a chat is waiting on (a device asking for a session, an approval)
+   * and whether the owner holds its session: on every status, so a device
+   * never draws a state that went.
+   */
+  private stateOf(chat: string): ChatState {
+    const waiting = this.hub?.asking(chat) ? "consent" : (this.deps.waiting?.(chat).length ?? 0) > 0 ? "approval" : undefined;
+    return { ...(waiting ? { waiting } : {}), held: this.hub?.sessionOf(chat)?.paused === true };
+  }
+
+  /** A status about a chat: which one, its state, and what it says. */
+  private statusOf(chat: string | undefined, params: Record<string, unknown>): Record<string, unknown> {
+    return { chat: chat ?? null, conversation: chat ?? null, ...(chat ? this.stateOf(chat) : { held: false }), ...params };
+  }
+
+  /** The state of the chats the devices show or a turn runs in, told to them when it changed, as a status that says nothing else. */
+  private tellState(): void {
+    const chats = new Set([this.deps.current()?.id, this.running?.conversation].filter((c): c is string => c !== undefined));
+    for (const [chat] of this.told) if (!chats.has(chat)) this.told.delete(chat);
+    for (const chat of chats) {
+      const state = this.stateOf(chat);
+      const key = JSON.stringify(state);
+      // Nothing waited on and nobody holding it is where every chat starts: not news until it was otherwise.
+      if ((this.told.get(chat) ?? CALM) === key) continue;
+      this.told.set(chat, key);
+      void this.everyDevice("chat.status", { chat, conversation: chat, ...state });
+    }
+  }
+
+  /**
    * The chat as it stands, to one device or every one that is on. What was
    * answered and is not in the chat's words (a command's answer, a blob's, a
    * turn waiting on the owner) goes with it as a notice; a wait is marked, so
@@ -296,6 +390,12 @@ export class DevicePanel implements ChannelAdapter {
     const params = this.drawn(said, waiting, about);
     if (device) await this.tell(device, "chat.show", params);
     else await this.everyDevice("chat.show", params);
+  }
+
+  /** A turn's chat as it ended, while the devices still show it; one the owner moved away from is not drawn over the one they are in. */
+  private async showFor(chat: string | undefined, device: string, said?: OutboundMessage, waiting = false, about?: string): Promise<void> {
+    if (chat && chat !== this.deps.current()?.id) return;
+    await this.show(device, said, waiting, about);
   }
 
   /** What chat.show carries: the chat, and what was answered outside its words. */
@@ -310,6 +410,7 @@ export class DevicePanel implements ChannelAdapter {
         : undefined;
     const shown = this.picturesOf(messages);
     return {
+      chat: chat?.id ?? null,
       conversation: chat?.id ?? null,
       title: chat?.title ?? this.place.title,
       messages,
@@ -337,15 +438,18 @@ export class DevicePanel implements ChannelAdapter {
     return { ...(Object.keys(pictures).length ? { pictures } : {}), ...(Object.keys(sites).length ? { sites } : {}) };
   }
 
-  /** A panel just opened: the chat, whatever in it is waiting on the owner, and the turn running in it so far. */
+  /** A panel opened, or moved to another chat: the chat, whatever in it is waiting on the owner, and the turn running in it so far. */
   private async opened(device: string): Promise<void> {
     await this.show(device);
     const chat = this.deps.current();
-    for (const req of chat ? (this.deps.waiting?.(chat.id) ?? []) : []) await this.tell(device, "chat.ask", { approval: approvalOf(req) });
+    if (!chat) return;
+    for (const req of this.deps.waiting?.(chat.id) ?? []) await this.tell(device, "chat.ask", { chat: chat.id, approval: approvalOf(req) });
     const running = this.running;
-    if (!chat || running?.conversation !== chat.id) return;
-    if (running.said) await this.tell(device, "chat.status", { conversation: chat.id, said: running.said, taken: true });
-    if (running.narrator.worthShowing()) await this.tell(device, "chat.status", { conversation: chat.id, ...this.about(running), story: running.narrator.render() });
+    if (running?.conversation === chat.id) {
+      if (running.said) await this.tell(device, "chat.status", this.statusOf(chat.id, { said: running.said, taken: true }));
+      if (running.narrator.worthShowing()) await this.tell(device, "chat.status", this.statusOf(chat.id, { ...this.about(running), story: running.narrator.render() }));
+    }
+    await this.tell(device, "chat.status", this.statusOf(chat.id, {}));
   }
 
   private heard(device: string, event: DeviceEvent): void {
@@ -362,6 +466,11 @@ export class DevicePanel implements ChannelAdapter {
         this.lastBeside = data["beside"];
         const named = this.hub?.list().find((d) => d.id === device)?.name ?? device;
         void this.messages?.({ channel: this.name, senderId: device, text, context: this.place.beside(data["beside"], named) });
+        return;
+      }
+      case "chat.stop": {
+        const chat = this.deps.current()?.id;
+        if (chat) this.stopping?.(chat);
         return;
       }
       case "chat.decide":
@@ -382,7 +491,7 @@ export class DevicePanel implements ChannelAdapter {
         void this.tell(device, "chat.chats", { chats: this.deps.chats?.() ?? [], current: this.deps.current()?.id ?? null });
         return;
       case "chat.switch":
-        if (typeof data["conversation"] === "string" && this.deps.switchTo?.(data["conversation"])) void this.show(device);
+        if (typeof data["conversation"] === "string" && this.deps.switchTo?.(data["conversation"])) void this.opened(device);
         return;
       case "chat.models":
         void this.modelsTo(device, () => this.deps.models?.());

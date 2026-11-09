@@ -64,6 +64,9 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   // The owner leaving a chat on a device ends the session that chat holds there.
   panel.onLeave((c) => active?.left(c, "browser"));
   mac.onLeave((c) => active?.left(c, "computer"));
+  // The owner's Stop on either device: the chat's turn, its sessions and its asks end.
+  panel.onStop((c) => active?.stopped(c));
+  mac.onStop((c) => active?.stopped(c));
 
   const module: KosModule = {
     manifest: COMPUTER_MANIFEST,
