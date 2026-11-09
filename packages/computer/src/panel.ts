@@ -96,6 +96,12 @@ const MAX_ARGS = 600;
 const PICTURES_SHOWN = 4;
 /** How often a running turn's words may be redrawn on a device; a step is told at once. */
 const NARRATE_EVERY_MS = 1_200;
+/**
+ * The longest a turn is kept as running here without hearing it end: past
+ * the longest an ask can hold a turn (a day), a turn still listed lost its
+ * end, and is forgotten as if it had ended.
+ */
+const TURN_KEPT_MS = 25 * 60 * 60_000;
 
 /** A turn running in the panel's chat, as the devices are told it. */
 interface Running {
@@ -136,7 +142,7 @@ export class DevicePanel implements ChannelAdapter {
    * words started each: the chat stays that device's for the turn, whatever
    * the panel is switched to meanwhile.
    */
-  private readonly turns = new Map<string, { device?: string }>();
+  private readonly turns = new Map<string, { device?: string; since: number }>();
   /** Chats the owner left on a device while a turn ran in them: their session ends with that turn. */
   private readonly leftMidTurn = new Set<string>();
   /** The chat last shown on the devices, to hear the owner leave it. */
@@ -232,15 +238,18 @@ export class DevicePanel implements ChannelAdapter {
 
   /**
    * The chat the panel shows now: one other than the last shown means the
-   * owner left that one. A turn still running there keeps its session until
-   * it ends.
+   * owner left that one. A turn still working there keeps its session until
+   * it ends; one held on an approval is not working, and could hold the
+   * session the owner walked away from for as long as the ask lasts, so its
+   * session ends now.
    */
   private follow(): void {
     const now = this.deps.current()?.id;
     const left = this.shownChat;
     this.shownChat = now;
     if (!left || now === left) return;
-    if (this.turns.has(left)) this.leftMidTurn.add(left);
+    const held = (this.deps.waiting?.(left).length ?? 0) > 0;
+    if (this.turns.has(left) && !held) this.leftMidTurn.add(left);
     else this.leaving?.(left);
   }
 
@@ -299,9 +308,10 @@ export class DevicePanel implements ChannelAdapter {
     if (event.kind === "turn-end") return this.turnEnded(id);
     const chat = this.deps.current();
     if (event.kind === "turn-start") {
+      this.forgetLost();
       const speaker = event.from === this.name ? this.last : undefined;
       // The owner's words from one of this panel's devices: the chat is that device's until the turn ends.
-      if (event.from === this.name) this.turns.set(id, speaker ? { device: speaker } : {});
+      if (event.from === this.name) this.turns.set(id, { ...(speaker ? { device: speaker } : {}), since: Date.now() });
       if (!chat || id !== chat.id) return;
       this.quiet();
       this.running = { conversation: id, narrator: new TurnNarrator(), shownAt: 0, ...(event.said ? { said: event.said } : {}), ...(speaker ? { speaker } : {}) };
@@ -320,6 +330,12 @@ export class DevicePanel implements ChannelAdapter {
       return;
     }
     if (running.narrator.take(event)) this.narrate(running, event.kind !== "delta");
+  }
+
+  /** Turns kept as running past any wait they could be in: their end was never heard, so they end here. */
+  private forgetLost(): void {
+    const now = Date.now();
+    for (const [id, turn] of [...this.turns]) if (now - turn.since > TURN_KEPT_MS) this.turnEnded(id);
   }
 
   /** A turn over in one of the panel's chats: its story closes, and a session it kept past a switch away ends. */

@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { attendance, openDatabase, type ChatEvent, type InboundMessage, type ModuleContext } from "@kos/harness";
 
@@ -32,10 +32,11 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
   let events: ChatEvent[] = [];
   let model = "gpt-5.5";
   const acting = new Set<string>();
+  const held = new Set(["chrome:owner"]);
   const panel = new DevicePanel(opts.place ?? CHROME_PANEL, {
     current: () => chat,
     events: () => events,
-    waiting: (c) => (c === "chrome:owner" ? [{ id: "3", text: "Approve x?", tool: "files.write", why: "Saving the list." }] : []),
+    waiting: (c) => (held.has(c) ? [{ id: "3", text: "Approve x?", tool: "files.write", why: "Saving the list." }] : []),
     chats: () => [
       { id: "chrome:owner", title: "Chrome", updatedAt: 2 },
       { id: "cm1:owner", title: "Trip plan", updatedAt: 1 },
@@ -90,6 +91,7 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
       caller = c;
     },
     setAuto: (c: string, on: boolean) => void (on ? acting.add(c) : acting.delete(c)),
+    setHeld: (c: string, on: boolean) => void (on ? held.add(c) : held.delete(c)),
   };
 }
 
@@ -399,7 +401,8 @@ describe("a Chrome's side panel", () => {
   });
 
   it("keeps a turn to its own chat when the owner switches away mid-turn, and its session until the turn ends", async () => {
-    const { pair, setChat, panel } = setup();
+    const { pair, setChat, panel, setHeld } = setup();
+    setHeld("chrome:owner", false);
     const chrome = pair();
     const left: string[] = [];
     panel.onLeave((c) => void left.push(c));
@@ -446,6 +449,45 @@ describe("a Chrome's side panel", () => {
     setAuto("mac:owner", false);
     panel.watch({ kind: "turn-end", conversationId: "mac:owner" });
     expect(panel.asksEachStep("mac:owner")).toBe(false);
+  });
+
+  it("ends the session of a chat the owner leaves while its turn is held on an approval, not when the ask lapses", async () => {
+    const { pair, setChat, panel } = setup();
+    const chrome = pair();
+    const left: string[] = [];
+    panel.onLeave((c) => void left.push(c));
+    panel.onMessage(() => undefined);
+    setChat({ id: "chrome:owner", title: "Chrome" });
+    chrome.event("chat.open", {});
+    chrome.event("chat.send", { text: "buy the mug" });
+    await flush();
+    panel.watch({ kind: "turn-start", conversationId: "chrome:owner", said: "buy the mug", from: "chrome" });
+    // The turn waits on the owner's yes (the fixture's chat has one waiting), and the owner moves on.
+    chrome.event("chat.switch", { conversation: "cm1:owner" });
+    await flush();
+    expect(left).toEqual(["chrome:owner"]);
+    panel.watch({ kind: "turn-end", conversationId: "chrome:owner" });
+    expect(left).toEqual(["chrome:owner"]);
+  });
+
+  it("forgets a turn whose end it never heard once it has outlived any wait", async () => {
+    const { pair, setChat, panel } = setup({ place: MAC_PANEL });
+    const mac = pair("macos");
+    panel.onMessage(() => undefined);
+    setChat({ id: "mac:owner", title: "Mac" });
+    mac.event("chat.open", {});
+    mac.event("chat.send", { text: "tidy" });
+    await flush();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    try {
+      panel.watch({ kind: "turn-start", conversationId: "mac:owner", said: "tidy", from: "mac" });
+      expect(panel.asksEachStep("mac:owner")).toBe(true);
+      clock.mockReturnValue(1_000 + 26 * 60 * 60_000);
+      panel.watch({ kind: "turn-start", conversationId: "cm1:owner", said: "elsewhere", from: "dashboard" });
+      expect(panel.asksEachStep("mac:owner")).toBe(false);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("pushes what the chat waits on and who holds it as they change, once each", async () => {
