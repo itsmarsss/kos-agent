@@ -355,10 +355,12 @@ A restart in the middle of a turn is said where the turn was: its story
 on Discord, the line that would have become the record of what was done,
 ends "interrupted by a restart", and its chat on the dashboard says the
 same. What was waiting behind a turn when KOS stopped is not lost: your
-own messages run, in order, once KOS is back, and a guest's runs as that
-guest's, each answered where it was asked; anything else waiting (a
-schedule's, work another chat passed on) is named in its chat for you to
-send again.
+own messages run, in order, once KOS is back, as they were going to, and
+a guest's runs as that guest's while the room is still open to guests,
+each answered where it was asked; anything else waiting (a schedule's,
+work another chat passed on, a guest's in a room shut since, or anything
+that waited more than ten minutes) is named in its chat for you to send
+again.
 
 No link KOS sends on Discord unfurls: every URL goes out in angle
 brackets, so Discord draws no preview card for it and its crawler does not

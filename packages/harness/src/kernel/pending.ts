@@ -48,6 +48,11 @@ export interface PendingFlags {
   roomTalk?: string;
   via?: string;
   from?: MessageFrom;
+  /** The chats this work passed through, so a replayed handoff cannot pass it on forever. */
+  trail?: string[];
+  maxIterations?: number;
+  /** Files a guest sent, by name: named to the turn, never kept. */
+  guestFiles?: string[];
 }
 
 const SCHEMA = `

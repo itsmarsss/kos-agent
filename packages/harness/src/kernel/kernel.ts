@@ -323,7 +323,7 @@ export function notRunNote(said: string[]): string {
 
 /** Who a waiting message's turn is to the fences, kept with it so a restart runs it as that. */
 function flagsOf(opts: PendingFlags): PendingFlags {
-  const keys = ["owner", "attended", "origin", "channel", "grant", "allow", "guest", "room", "members", "context", "roomTalk", "via", "from"] as const;
+  const keys = ["owner", "attended", "origin", "channel", "grant", "allow", "guest", "room", "members", "context", "roomTalk", "via", "from", "trail", "maxIterations", "guestFiles"] as const;
   return Object.fromEntries(keys.filter((k) => opts[k] !== undefined).map((k) => [k, opts[k]])) as PendingFlags;
 }
 
@@ -1798,13 +1798,17 @@ export class Kernel {
   /**
    * What the last process left waiting, after boot. The owner's own words,
    * sent attended, run in order, each as it was going to; a guest's run as
-   * that guest's, never as the owner's. Anything else (a schedule's, work
-   * passed on, a row from before flags were kept) is not run on its own:
-   * its chat is told what was not run, to send again.
+   * that guest's, never as the owner's, and only while the room is still
+   * open to guests. Anything else (a schedule's, work passed on, a row from
+   * before flags were kept, anything waiting longer than a late message may
+   * and still run) is not run on its own: its chat is told what was not
+   * run, to send again.
    */
   replayQueued(): void {
     const byChat = new Map<string, PendingMessage[]>();
     for (const row of this.pending.leftover()) byChat.set(row.conversationId, [...(byChat.get(row.conversationId) ?? []), row]);
+    const lateBy = Date.now() - LATE_RUN_MS;
+    const audiences = this.channelAudiences();
     for (const [conversationId, rows] of byChat) {
       const userId = this.conversations.get(conversationId)?.userId ?? this.profile.ownerId;
       const runs: { text: string; opts: Parameters<Kernel["handleMessage"]>[1] }[] = [];
@@ -1814,9 +1818,17 @@ export class Kernel {
         const f = row.flags;
         const files = row.attachments.length ? { attachments: row.attachments } : {};
         const base = { sessionId: conversationId, userId, replayed: true, ...files };
-        if (f?.guest) {
+        if (row.createdAt < lateBy) {
+          notRun.push(row.text);
+        } else if (f?.guest) {
+          // A room shut to guests since: their words wait for the owner to send again, not run.
+          if (audiences[conversationId] !== "guests") {
+            notRun.push(row.text);
+            continue;
+          }
           const where = { ...(f.channel ? { channel: f.channel } : {}), ...(f.room ? { room: f.room } : {}), ...(f.roomTalk ? { roomTalk: f.roomTalk } : {}) };
-          runs.push({ text: withoutGuestName(row.text, f.guest), opts: { ...base, ...where, guest: f.guest } });
+          const kept = { ...(f.trail ? { trail: f.trail } : {}), ...(f.maxIterations ? { maxIterations: f.maxIterations } : {}), ...(f.guestFiles ? { guestFiles: f.guestFiles } : {}) };
+          runs.push({ text: withoutGuestName(row.text, f.guest), opts: { ...base, ...where, ...kept, guest: f.guest } });
         } else if (f?.owner === true && f.attended !== false && f.origin !== "system") {
           runs.push({ text: row.text, opts: { ...base, ...f } });
         } else {

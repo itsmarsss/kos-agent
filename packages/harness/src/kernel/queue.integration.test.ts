@@ -303,6 +303,8 @@ describe("a message sent while a turn is running", () => {
     kernel.pending.add(id, "[Ana, a guest in the channel] guest words", [], { via: "discord", from: { kind: "guest", name: "Ana", id: "a1" } }, { guest: ana, owner: false, origin: "system", channel: "discord" });
     kernel.pending.add(id, "a schedule's", [], undefined, { origin: "system" });
     kernel.pending.add(id, "from before flags");
+    // The room is still open to guests, so the guest's runs.
+    kernel.setChannelAudience(id, "guests");
     kernel.close();
     kernel = await Kernel.boot({ rootDir: root, inference: held });
     const said: { text: string; origin: string; channel: string | null; resumed?: boolean }[] = [];
@@ -318,6 +320,36 @@ describe("a message sent while a turn is running", () => {
     expect(asked).toBe(2);
     const notes = kernel.sessions.get(id).filter((m) => m.role === "assistant").flatMap((m) => m.content.flatMap((b) => (b.type === "text" ? [b.text] : [])));
     expect(notes[0]).toBe("2 queued messages were not run after a restart; resend?\n> a schedule's\n> from before flags");
+  });
+
+  it("keeps every flag of what it runs after a restart, and announces what waited too long or a shut room's guest", async () => {
+    const id = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Left" }).id;
+    const ana = { id: "a1", name: "Ana" };
+    kernel.pending.add(id, "handed on", [], { via: "discord" }, { owner: true, channel: "discord", trail: ["chat-a"], maxIterations: 40 });
+    kernel.pending.add(id, "[Ana, a guest in the channel] guest words", [], undefined, { guest: ana, owner: false, origin: "system", channel: "discord", guestFiles: ["a.png"] });
+    const old = kernel.pending.add(id, "an hour ago", [], undefined, { owner: true, channel: "discord" });
+    (kernel.pending as unknown as { db: { prepare: (q: string) => { run: (...a: unknown[]) => unknown } } }).db.prepare(`UPDATE pending_messages SET created_at = ? WHERE id = ?`).run(Date.now() - 3_600_000, old);
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, inference: held });
+    const ran: { text: string; opts: Record<string, unknown> }[] = [];
+    const real = kernel.handleMessage.bind(kernel);
+    kernel.handleMessage = (text, opts = {}) => (ran.push({ text, opts: opts as Record<string, unknown> }), real(text, opts));
+    kernel.replayQueued();
+    await drain();
+    expect(ran.map((r) => [r.text, r.opts.trail, r.opts.maxIterations])).toEqual([["handed on", ["chat-a"], 40]]);
+    const notes = kernel.sessions.get(id).filter((m) => m.role === "assistant").flatMap((m) => m.content.flatMap((b) => (b.type === "text" ? [b.text] : [])));
+    expect(notes[0]).toBe("2 queued messages were not run after a restart; resend?\n> [Ana, a guest in the channel] guest words\n> an hour ago");
+    // Open to guests again, a fresh guest row runs as the guest's, with the files it named.
+    kernel.setChannelAudience(id, "guests");
+    kernel.pending.add(id, "[Ana, a guest in the channel] again", [], undefined, { guest: ana, owner: false, origin: "system", channel: "discord", guestFiles: ["a.png"] });
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, inference: held });
+    const again: Record<string, unknown>[] = [];
+    const next = kernel.handleMessage.bind(kernel);
+    kernel.handleMessage = (text, opts = {}) => (again.push({ text, ...(opts as Record<string, unknown>) }), next(text, opts));
+    kernel.replayQueued();
+    await drain();
+    expect(again).toMatchObject([{ text: "again", guest: ana, guestFiles: ["a.png"] }]);
   });
 
   it("says in a chat that a restart cut its turn short", async () => {
