@@ -7,7 +7,7 @@ import { Link, said, type Hello, type LinkState } from "./link.js";
 import { Lines } from "./lines.js";
 import { linkWords, needsPairing, type LineOf } from "./linkwords.js";
 import { installOverlay } from "./overlay.js";
-import { adding, readPairings, removing, replacedBy, type Paired } from "./pairings.js";
+import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
 import { checkCommand, forwarded, isWebUrl, Worlds } from "./relay.js";
 import { GRACE_MS, Session } from "./session.js";
 import { DEFAULTS, DEFAULT_HIDDEN, asksFirst, isHidden, readSettings, siteOf, themeOf } from "./settings.js";
@@ -288,6 +288,18 @@ describe("the KOS this Chrome is paired with", () => {
     const face = drawingOf(lookOf(KOS_SEED, { shape: "cloud" }));
     expect(readPairings([{ ...home, face }], undefined)).toEqual([{ ...home, face }]);
     expect(readPairings([{ ...home, face: { fill: 1 } }], undefined)).toEqual([home]);
+    // So is its dashboard's theme, each KOS its own.
+    expect(readPairings([{ ...home, theme: "light" }, { ...work, theme: "sepia" }], undefined)).toEqual([{ ...home, theme: "light" }, work]);
+  });
+
+  it("speaks of the KOS at work, else the first that is on, else the first paired, whichever spoke last", () => {
+    const list = [{ ...home, theme: "light" as const }, { ...work, theme: "dark" as const }];
+    expect(shownOf(list, "d2", () => true)?.theme).toBe("dark");
+    expect(shownOf(list, undefined, (id) => id === "d2")?.theme).toBe("dark");
+    expect(shownOf(list, undefined, () => true)?.theme).toBe("light");
+    expect(shownOf(list, undefined, () => false)?.theme).toBe("light");
+    expect(shownOf(list, "gone", () => true)).toBeUndefined();
+    expect(shownOf([], undefined, () => true)).toBeUndefined();
   });
 
   it("adds another KOS after the rest, and pairing one again replaces it in place", () => {

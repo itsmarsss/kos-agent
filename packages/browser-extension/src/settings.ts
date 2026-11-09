@@ -20,7 +20,7 @@ export type ThemeChoice = "dashboard" | ThemeMode;
 
 export const THEME_CHOICES: readonly ThemeChoice[] = ["dashboard", "light", "dark", "system"];
 
-/** Where the worker keeps the mode the last KOS to speak sent, in chrome.storage.local. */
+/** Where the worker keeps the mode of the KOS the toolbar speaks of, in chrome.storage.local, for the pages to follow. */
 export const SENT_THEME_KEY = "dashboardTheme";
 
 /** The mode a choice draws, given what KOS last sent: the system's before anything has been. */

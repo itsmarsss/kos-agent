@@ -128,9 +128,10 @@ it does on the dashboard (the same code, `@kos/shared/blobmotion`):
   Copy log.
 - **The theme.** Same as dashboard (the default), Light, Dark or System,
   kept in this Chrome (`chrome.storage.local`). Same as dashboard draws the
-  mode the last KOS to speak sent (`{ "t": "theme" }`,
-  [computer.md](computer.md)), and this computer's appearance before any
-  has; System is this computer's appearance (`prefers-color-scheme`),
+  mode a KOS sent (`{ "t": "theme" }`, [computer.md](computer.md)), kept
+  with each pairing: that of the KOS whose session is at work, else the
+  first connected, else the first paired, as the toolbar icon picks its
+  face; and this computer's appearance before that KOS has sent one; System is this computer's appearance (`prefers-color-scheme`),
   whatever the dashboard says. The popup, the side panel and the consent
   window wear it before their first paint (`theme.js`, a classic script in
   each page's head, from the pages' own copy of the last answer) and change

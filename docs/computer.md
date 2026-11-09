@@ -229,7 +229,9 @@ dark or system, "system" until the owner chooses):
 A device keeps its own choice of theme locally: "dashboard", the default,
 draws the mode it was last sent ("system" being the device's own appearance)
 and the device's appearance before any arrives; "light", "dark" or "system"
-ignore the frame. Nothing KOS sends changes that choice. A device that does
+ignore the frame. Paired with several KOS, a device keeps each one's mode and
+draws that of the KOS whose session is at work, else the first connected,
+else the first paired. Nothing KOS sends changes that choice. A device that does
 not know the frame ignores it.
 
 When the owner unpairs the device on the device, it sends `{ "t": "unpair" }`

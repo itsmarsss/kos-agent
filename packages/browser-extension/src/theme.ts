@@ -3,11 +3,12 @@
  * panel, the consent window) before their first paint, and kept current.
  *
  * The owner's choice in Settings, "Same as dashboard" by default, which
- * draws the mode the last KOS to speak sent (`{ t: "theme" }`), and the
- * system's appearance before any has. A classic script in each page's head,
- * so the palette is on before anything is drawn: this page's copy of the
- * last answer first, at once, then what is stored, and again whenever the
- * setting or the dashboard changes, in every page open.
+ * draws the mode sent (`{ t: "theme" }`) by the KOS the toolbar speaks of,
+ * and the system's appearance before that KOS has sent one. A classic
+ * script in each page's head, so the palette is on before anything is
+ * drawn: this page's copy of the last answer first, at once, then what is
+ * stored, and again whenever the setting or the dashboard changes, in every
+ * page open.
  */
 
 import { isThemeMode, resolveThemeMode, type ThemeMode } from "@kos/shared";

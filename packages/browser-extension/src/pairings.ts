@@ -7,7 +7,7 @@
  * second line to the same KOS.
  */
 
-import { readDrawing, type FaceDrawing } from "@kos/shared";
+import { isThemeMode, readDrawing, type FaceDrawing, type ThemeMode } from "@kos/shared";
 
 export interface Paired {
   url: string;
@@ -18,6 +18,8 @@ export interface Paired {
   name: string;
   /** That KOS's face, as it last sent it. */
   face?: FaceDrawing;
+  /** That KOS's dashboard theme, as it last sent it. */
+  theme?: ThemeMode;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -35,17 +37,17 @@ export function kosOf(p: Pick<Paired, "url">): string {
   }
 }
 
-/** A stored pairing with its face read, or without one that does not read. */
-function withFace(p: Paired): Paired {
-  const { face: kept, ...rest } = p;
-  const face = readDrawing(kept);
-  return face ? { ...rest, face } : rest;
+/** A stored pairing with its face and theme read, or without either that does not read. */
+function withLook(p: Paired): Paired {
+  const { face: keptFace, theme, ...rest } = p;
+  const face = readDrawing(keptFace);
+  return { ...rest, ...(face ? { face } : {}), ...(isThemeMode(theme) ? { theme } : {}) };
 }
 
 /** The pairings stored: the list, or the one pairing an older version kept. */
 export function readPairings(list: unknown, one: unknown): Paired[] {
-  if (Array.isArray(list)) return list.filter(isPaired).map(withFace);
-  return isPaired(one) ? [withFace(one)] : [];
+  if (Array.isArray(list)) return list.filter(isPaired).map(withLook);
+  return isPaired(one) ? [withLook(one)] : [];
 }
 
 /** The pairings `next` takes the place of: the same KOS, or the same device id. */
@@ -63,4 +65,14 @@ export function adding(next: Paired, list: readonly Paired[]): Paired[] {
 
 export function removing(device: string, list: readonly Paired[]): Paired[] {
   return list.filter((p) => p.device !== device);
+}
+
+/**
+ * The KOS the toolbar, the pages and the bar speak of, as KOS for Mac picks
+ * the one its window does: the one at work, else the first that is on, else
+ * the first paired.
+ */
+export function shownOf(list: readonly Paired[], atWork: string | undefined, isOn: (device: string) => boolean): Paired | undefined {
+  if (atWork !== undefined) return list.find((p) => p.device === atWork);
+  return list.find((p) => isOn(p.device)) ?? list[0];
 }

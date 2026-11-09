@@ -8,7 +8,7 @@ import { note, recent } from "./log.js";
 import { iconPixels } from "./icon.js";
 import { installOverlay, type OverlayState } from "./overlay.js";
 import { readPage } from "./page.js";
-import { adding, readPairings, removing, replacedBy, type Paired } from "./pairings.js";
+import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
 import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
 import { checkCommand, forwarded, isInput, isWebUrl, OVERLAY_WORLD as WORLD, Worlds } from "./relay.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
@@ -64,7 +64,7 @@ export interface PopupState {
   session: { task: string; requester: string; until: number; paused: boolean; kos?: string; beside?: number; conversation?: string; face: FaceDrawing } | null;
   handed: number[];
   settings: Omit<ExtensionSettings, "askFirst">;
-  /** The dashboard's theme as the last KOS to speak sent it; none before one has. */
+  /** The dashboard's theme as the KOS the toolbar speaks of last sent it; none before it has. */
   dashboardTheme?: ThemeMode;
 }
 
@@ -130,7 +130,7 @@ const GROUP = "KOS";
 
 let pairings: Paired[] = [];
 let settings: ExtensionSettings = DEFAULTS;
-/** The mode the last KOS to speak sent for the dashboard's theme; none before one has. */
+/** The dashboard's theme of the KOS the toolbar speaks of, as the pages are told it; none before that KOS has sent one. */
 let sentTheme: ThemeMode | undefined;
 /** KOS the owner disconnected, kept across the worker's sleeps. */
 let held = new Set<string>();
@@ -224,11 +224,20 @@ async function showFace(id: string, face: FaceDrawing): Promise<void> {
   if (owner === id) await paint();
 }
 
-/** The dashboard's theme, kept for the pages to follow when set to, and on the page KOS works in at once. */
-async function showTheme(mode: ThemeMode): Promise<void> {
+/** A KOS's dashboard theme, kept with its pairing; drawn when it is the KOS the toolbar speaks of. */
+async function keepTheme(id: string, mode: ThemeMode): Promise<void> {
+  if (!pairingOf(id) || pairingOf(id)!.theme === mode) return;
+  pairings = pairings.map((p) => (p.device === id ? { ...p, theme: mode } : p));
+  await savePairings();
+  await showTheme();
+}
+
+/** The theme of the KOS the toolbar speaks of, told the pages to follow when set to, and the page KOS works in at once. */
+async function showTheme(): Promise<void> {
+  const mode = pairingOf(shownKos())?.theme;
   if (sentTheme === mode) return;
   sentTheme = mode;
-  await chrome.storage.local.set({ [SENT_THEME_KEY]: mode });
+  await (mode ? chrome.storage.local.set({ [SENT_THEME_KEY]: mode }) : chrome.storage.local.remove(SENT_THEME_KEY));
   await paint();
 }
 
@@ -263,7 +272,7 @@ const lines = new Lines<Link>({
       hello: () => hello(p.device),
       onCall: (method, params) => answer(method, params, p.device),
       onFace: (face) => void showFace(p.device, face),
-      onTheme: (mode) => void showTheme(mode),
+      onTheme: (mode) => void keepTheme(p.device, mode),
       onState: (state, detail) => lineState(p, state, detail),
     }),
   wanted: (id) => !!pairingOf(id) && !held.has(id),
@@ -284,7 +293,7 @@ function badgeText(): string {
 /** The KOS the toolbar speaks of, as the popup does: the one at work, else the first that is on, else the first paired. */
 function shownKos(): string | undefined {
   if (session) return owner;
-  return (pairings.find((p) => linkStates.get(p.device)?.state === "online" && !held.has(p.device)) ?? pairings[0])?.device;
+  return shownOf(pairings, undefined, (id) => linkStates.get(id)?.state === "online" && !held.has(id))?.device;
 }
 
 const OWN_FACE = JSON.stringify(drawingOf(lookOf(KOS_SEED)));
@@ -303,6 +312,7 @@ async function paintIcon(): Promise<void> {
 }
 
 async function badge(): Promise<void> {
+  await showTheme();
   await paintIcon().catch((err: unknown) => note(`the icon was not drawn: ${err instanceof Error ? err.message : String(err)}`));
   const text = badgeText();
   badgeShown = text;
@@ -1092,6 +1102,7 @@ async function unpair(id: string): Promise<void> {
   // Its key goes with it; the one key an older version shared goes once no pairing is left to use it.
   await forgetKeys(id, !pairings.length);
   note(`unpaired from ${p ? hostOf(p) : id}`);
+  await badge();
 }
 
 /** That KOS sees this Chrome offline until Connect; a session it holds ends with its line. */
