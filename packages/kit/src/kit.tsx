@@ -1,10 +1,11 @@
 import { AnimatePresence, m, type HTMLMotionProps } from "motion/react";
-import { useEffect, useState, type HTMLAttributes, type ReactElement, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type HTMLAttributes, type ReactElement, type ReactNode } from "react";
 
 import { stepMechanics } from "@kos/shared";
 
-import { ChevronDown, CloseIcon } from "./icons.js";
+import { ChevronDown, CloseIcon, QuoteIcon } from "./icons.js";
 import { ease, listItem, spring } from "./motion.js";
+import { Tooltip } from "./Tooltip.js";
 
 /**
  * The small pieces the dashboard and KOS for Chrome are both made of, in
@@ -296,16 +297,56 @@ export function StepPicture({ src, alt = "What this step saw" }: { src: string; 
   );
 }
 
+/** Where a quote came from, as a person names it: a page's site, or the app's name as the Mac gave it. */
+export function quoteSource(from: string): string {
+  return /^https?:\/\/(?:www\.)?([^/:?#]+)/i.exec(from)?.[1] ?? from;
+}
+
 /**
- * What the owner quoted with a message (text they selected on a page), at
- * the top of their bubble: the quote, cut to a few lines, and where it came
- * from on hover. The dashboard's thread and both device chats draw it.
+ * What the owner quoted with their words (text they selected on a page or
+ * in an app): a small head with the quote mark, a label and where it came
+ * from, then the words in quotes, cut to a few lines, on a soft tint. In the
+ * composer it is the attachment going with the next message, `label`led and
+ * with `onRemove` as its ×; in the owner's bubble, what went with it. Cut
+ * short, the whole of it is in a Tooltip. The dashboard's thread and both
+ * device chats draw it; KOS for Mac's is `QuoteCard`.
  */
-export function QuoteLine({ text, from, max = 220 }: { text: string; from?: string; max?: number }): ReactElement {
-  return (
-    <p className="msg-quote" title={from ? `Quoted from ${from}` : undefined}>
-      {text.length > max ? `${text.slice(0, max)}…` : text}
+export function QuoteLine({ text, from, label, lines = 3, onRemove }: { text: string; from?: string; label?: string; lines?: number; onRemove?: () => void }): ReactElement {
+  const box = useRef<HTMLDivElement>(null);
+  const [cut, setCut] = useState(false);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return undefined;
+    const measure = (): void => {
+      const words = el.firstElementChild;
+      setCut(!!words && words.scrollHeight > words.clientHeight + 1);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [text, lines]);
+  const source = from ? quoteSource(from) : "";
+  const words = (
+    <p className="quoted-text" style={{ WebkitLineClamp: lines }}>
+      {text}
     </p>
+  );
+  return (
+    <div className={`quoted${onRemove ? " quoted--chip" : ""}`}>
+      <div className="quoted-head">
+        <QuoteIcon />
+        <span className="quoted-label">{label ?? (source || "Quoted")}</span>
+        {label && source && <span className="quoted-from">{source}</span>}
+        {onRemove && (
+          <IconButton tone="bare" label="Leave the selection out" title="Leave it out" onClick={onRemove}>
+            <CloseIcon size={10} title="" />
+          </IconButton>
+        )}
+      </div>
+      <div ref={box}>{cut ? <Tooltip tip={<span className="quoted-tip">{text}</span>}>{words}</Tooltip> : words}</div>
+    </div>
   );
 }
 
