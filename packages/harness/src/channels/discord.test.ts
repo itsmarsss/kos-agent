@@ -2558,7 +2558,7 @@ describe("a slash command in a room", () => {
 });
 
 describe("renames", () => {
-  function server(channels: Record<string, unknown>[], refuse?: () => boolean): { adapter: DiscordAdapter; edits: { id: string; edit: Record<string, unknown> }[]; made: string[] } {
+  function server(channels: Record<string, unknown>[], refuse?: (id: string) => boolean): { adapter: DiscordAdapter; edits: { id: string; edit: Record<string, unknown> }[]; made: string[] } {
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1" });
     const edits: { id: string; edit: Record<string, unknown> }[] = [];
     const made: string[] = [];
@@ -2568,7 +2568,7 @@ describe("renames", () => {
         const live = { type: ChannelType.GuildText, parentId: "cat", ...c } as Record<string, unknown>;
         live.edit = async (e: Record<string, unknown>) => {
           // As discord.js refuses an edit Discord would hold for minutes.
-          if (refuse?.()) throw Object.assign(new Error("rate limited"), { timeToReset: 540_000, route: "/channels/:id", method: "PATCH" });
+          if (refuse?.(String(live.id))) throw Object.assign(new Error("rate limited"), { timeToReset: 540_000, route: "/channels/:id", method: "PATCH" });
           edits.push({ id: String(live.id), edit: e });
           Object.assign(live, e);
         };
@@ -2622,6 +2622,58 @@ describe("renames", () => {
     limited = false;
     await adapter.sync([plan("Veg Patch")]);
     expect(edits).toEqual([{ id: "c1", edit: { name: "veg-patch", topic: "kos:project:garden · Veg Patch" } }]);
+  });
+
+  it("counts only the edits Discord made toward its limit", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      let refusals = 2;
+      const { adapter, edits } = server([{ id: "c1", name: "garden", topic: "kos:project:garden · Garden" }], () => refusals-- > 0);
+      for (const title of ["A", "A", "A", "B"]) await adapter.sync([plan(title)]);
+      expect(edits.map((e) => e.edit.name)).toEqual(["a", "b"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("takes a let-go channel back at the next layout when Discord holds its topic, and makes no second one", async () => {
+    let limited = true;
+    const { adapter, edits, made } = server([{ id: "c1", name: "garden", topic: "Garden" }], () => limited);
+    const fresh = { key: "project:shed", name: "shed", topic: "kos:project:shed · Shed", category: "Projects" };
+    const first = await adapter.sync([plan("Garden"), fresh]);
+    expect(made).toEqual(["shed"]);
+    expect(first.kept).toEqual([]);
+    limited = false;
+    const second = await adapter.sync([plan("Garden")]);
+    expect(made).toEqual(["shed"]);
+    expect(second.kept).toEqual(["garden"]);
+    expect(edits).toEqual([{ id: "c1", edit: { topic: "kos:project:garden · Garden" } }]);
+  });
+
+  it("binds a chat to the new channel before letting the old go, and keeps it where it was when Discord holds the new one", async () => {
+    let held = new Set(["c2"]);
+    const { adapter, edits } = server(
+      [
+        { id: "c1", name: "garden", topic: "kos:project:garden · Garden" },
+        { id: "c2", name: "plot", topic: "My plot" },
+      ],
+      (id) => held.has(id),
+    );
+    await expect(adapter.bind("plot", "project:garden", "Garden")).rejects.toThrow(/holding edits to #plot.*the chat stays where it was; try again/);
+    expect(edits).toEqual([]);
+    const boundIds = (adapter as unknown as { boundIds: Map<string, string> }).boundIds;
+    await adapter.sync([plan("Garden")]);
+    expect(boundIds.get("project:garden")).toBe("c1");
+    // The new one taken, the old one held: the chat is the new one's, and the old is let go at the next layout.
+    held = new Set(["c1"]);
+    await adapter.bind("plot", "project:garden", "Garden");
+    expect(edits).toEqual([{ id: "c2", edit: { topic: "kos:project:garden · Garden" } }]);
+    const layout = await adapter.sync([plan("Garden")]);
+    expect(layout.kept).toEqual(["plot"]);
+    held = new Set();
+    await adapter.sync([plan("Garden")]);
+    expect(edits.at(-1)).toEqual({ id: "c1", edit: { topic: "Garden" } });
   });
 
   it("counts letting a channel go toward Discord's limit, and lets it go at a later layout when past it", async () => {
