@@ -317,4 +317,12 @@ struct ChatModelTests {
     model.selected(nil)
     #expect(model.quote == nil)
   }
+
+  /// An ask that times out counts down to it, as the prompt on the screen does.
+  @Test func anAskCountsDownToItsTimeout() {
+    let now = Date(timeIntervalSince1970: 1_000)
+    #expect(secondsLeft(until: now.addingTimeInterval(41.2), now: now) == "42s")
+    #expect(secondsLeft(until: now.addingTimeInterval(125), now: now) == "2m 05s")
+    #expect(secondsLeft(until: now.addingTimeInterval(-3), now: now) == "0s")
+  }
 }

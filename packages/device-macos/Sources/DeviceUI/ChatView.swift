@@ -643,6 +643,14 @@ private struct AskCard: View {
         Button("Approve") { answer(ask.id, true, false) }.buttonStyle(KOSButtonStyle(.primary))
         if let always = ask.always { Button(always) { answer(ask.id, true, true) }.buttonStyle(KOSButtonStyle(.secondary)).help("Approve, and stop asking for this") }
         Button("Deny") { answer(ask.id, false, false) }.buttonStyle(KOSButtonStyle(.danger))
+        if let expires = ask.expires {
+          Spacer(minLength: 4)
+          TimelineView(.periodic(from: .now, by: 1)) { context in
+            Text("Times out in \(secondsLeft(until: expires, now: context.date))")
+              .font(.kos(.detail).monospacedDigit())
+              .foregroundStyle(Theme.faint)
+          }
+        }
       }
     }
   }

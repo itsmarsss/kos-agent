@@ -130,7 +130,9 @@ final class ChatController {
           waiting: p.waiting.flatMap { ChatModel.Wait(rawValue: $0.rawValue) }, held: p.held ?? false)
       case .ask:
         let a = try call.params(ChatAsk.self).approval
-        model.ask(.init(id: a.id, tool: a.tool, args: a.args, mechanics: a.mechanics, why: a.why, reason: a.reason, always: a.always))
+        model.ask(.init(
+          id: a.id, tool: a.tool, args: a.args, mechanics: a.mechanics, why: a.why, reason: a.reason, always: a.always,
+          expires: a.expiresAt.map { Date(timeIntervalSince1970: $0 / 1000) }))
       case .settled:
         model.settled(try call.params(ChatSettled.self).approval)
       case .chats:

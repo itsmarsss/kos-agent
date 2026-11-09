@@ -43,8 +43,13 @@ public final class ChatModel: ObservableObject {
     public let reason: String?
     /// The words of a yes that is remembered, when one may be.
     public let always: String?
+    /// When it times out if the owner does not answer, when it does.
+    public let expires: Date?
 
-    public init(id: String, tool: String, args: String? = nil, mechanics: String? = nil, why: String? = nil, reason: String? = nil, always: String? = nil) {
+    public init(
+      id: String, tool: String, args: String? = nil, mechanics: String? = nil, why: String? = nil, reason: String? = nil, always: String? = nil,
+      expires: Date? = nil
+    ) {
       self.id = id
       self.tool = tool
       self.args = args
@@ -52,6 +57,7 @@ public final class ChatModel: ObservableObject {
       self.why = why
       self.reason = reason
       self.always = always
+      self.expires = expires
     }
   }
 
