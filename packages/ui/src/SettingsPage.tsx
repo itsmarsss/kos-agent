@@ -16,7 +16,7 @@ import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
 import { matchesSkillView, skillViews } from "./skillviews.js";
 import { McpAdd, SkillsAdd } from "./ExtensionBrowser.js";
-import { isDensity, isTheme, readDensity, setDensity, showTheme, useTheme, type Density } from "./theme.js";
+import { chooseTheme, isDensity, isTheme, readDensity, setDensity, useTheme, type Density } from "./theme.js";
 import { SpendPanel } from "./SpendPanel.js";
 import { DevicesPanel } from "./DevicesPanel.js";
 import { GROUPS, SECTIONS, SETTINGS, isSettingsSection, searchSettings, type SettingEntry, type SettingHit, type SettingsSection } from "./settingsindex.js";
@@ -1164,8 +1164,7 @@ export function SettingsPage({
                 onChange={(v) => {
                   if (!isTheme(v)) return;
                   setThemeNote(null);
-                  showTheme(v);
-                  api.saveTheme(v).catch((e: unknown) => setThemeNote(`Not saved to KOS: ${e instanceof Error ? e.message : String(e)}`));
+                  chooseTheme(v, api.saveTheme).catch((e: unknown) => setThemeNote(`Not saved to KOS: ${e instanceof Error ? e.message : String(e)}`));
                 }}
               />
             </Field>

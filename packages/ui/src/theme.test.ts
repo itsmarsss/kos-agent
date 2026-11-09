@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { followOtherTabs, isDensity, isTheme, readTheme, reconcileTheme, resolveTheme, showTheme, THEME_KEY } from "./theme.js";
+import { chooseTheme, followOtherTabs, isDensity, isTheme, readTheme, reconcileTheme, resolveTheme, showTheme, THEME_KEY, themeStamp } from "./theme.js";
 
 afterEach(() => {
   localStorage.clear();
@@ -58,5 +58,40 @@ describe("the theme kept in the workspace", () => {
     dispatchEvent(new StorageEvent("storage", { key: THEME_KEY, newValue: "sepia" }));
     expect(document.documentElement.dataset["theme"]).toBe("light");
     stop();
+  });
+
+  it("passes over a status asked for before the owner's latest choice here was saved, and saves the choices in order", async () => {
+    showTheme("dark");
+    const saved: string[] = [];
+    const asked: (() => void)[] = [];
+    const save = (theme: string): Promise<void> => new Promise((r) => void asked.push(() => (saved.push(theme), r())));
+    const answer = async (): Promise<void> => {
+      await vi.waitFor(() => expect(asked.length).toBeGreaterThan(0));
+      asked.shift()!();
+    };
+    const before = themeStamp();
+    const first = chooseTheme("light", save);
+    const second = chooseTheme("system", save);
+    // Asked before the choices, or while they are saved: older than them.
+    reconcileTheme("dark", vi.fn(), before);
+    reconcileTheme("dark", vi.fn(), themeStamp());
+    expect(readTheme()).toBe("system");
+    await answer();
+    await first;
+    // The second is saved only after the first was answered, so KOS keeps the last chosen.
+    expect(saved).toEqual(["light"]);
+    await answer();
+    await second;
+    expect(saved).toEqual(["light", "system"]);
+    // A status asked for once both were saved is the workspace's own again.
+    reconcileTheme("dark", vi.fn(), themeStamp());
+    expect(readTheme()).toBe("dark");
+  });
+
+  it("goes back to the workspace's when a choice was not saved", async () => {
+    showTheme("dark");
+    await expect(chooseTheme("light", () => Promise.reject(new Error("offline")))).rejects.toThrow("offline");
+    reconcileTheme("dark", vi.fn(), themeStamp());
+    expect(readTheme()).toBe("dark");
   });
 });

@@ -64,12 +64,34 @@ export function showTheme(theme: Theme): void {
   for (const listener of listeners) listener();
 }
 
+/** The owner's choices made in this tab, and those of them KOS has not yet answered. */
+let choices = 0;
+let unsaved = 0;
+let saving: Promise<unknown> = Promise.resolve();
+
+/** Where this tab's choices stand, taken as a status is asked for: -1 while one is still being saved. */
+export function themeStamp(): number {
+  return unsaved ? -1 : choices;
+}
+
+/** The owner chose a theme here: shown at once, and saved after any choice before it, so the last one chosen is the one kept. */
+export function chooseTheme(theme: Theme, save: (theme: Theme) => Promise<unknown>): Promise<void> {
+  choices++;
+  unsaved++;
+  showTheme(theme);
+  const saved = saving.then(() => save(theme)).finally(() => void unsaved--);
+  saving = saved.catch(() => undefined);
+  return saved.then(() => undefined);
+}
+
 /**
- * The workspace's theme, from the status poll, made this tab's. Before the
- * owner has chosen one there, a choice this browser kept from before is
- * the owner's choice, so it is saved.
+ * The workspace's theme, from the status poll, made this tab's. A status
+ * asked for before the owner's latest choice here was saved is older than
+ * it, and passed over. Before the owner has chosen one there, a choice this
+ * browser kept from before is the owner's choice, so it is saved.
  */
-export function reconcileTheme(kept: Theme | undefined, save: (theme: Theme) => unknown): void {
+export function reconcileTheme(kept: Theme | undefined, save: (theme: Theme) => unknown, stamp = themeStamp()): void {
+  if (stamp < 0 || stamp !== themeStamp()) return;
   if (kept) {
     if (kept !== readStoredTheme()) showTheme(kept);
     return;
