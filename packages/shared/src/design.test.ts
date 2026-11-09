@@ -33,7 +33,7 @@ const STYLESHEETS = {
   extension: read("../../browser-extension/static/kos.css"),
 };
 /** The stylesheets that draw the light palette too. */
-const LIGHT_SHEETS = { dashboard: STYLESHEETS.dashboard };
+const LIGHT_SHEETS = STYLESHEETS;
 const KIT = read("../../kit/src/kit.css");
 const OVERLAY = read("../../browser-extension/src/overlay.ts");
 const SWIFT = read("../../device-macos/Sources/DeviceUI/Theme.swift");
@@ -102,6 +102,15 @@ describe("the design tokens", () => {
     for (const token of ["accent", "violet", "warn", "danger"] as const) {
       expect(declared(host, token)?.toLowerCase(), `overlay --${token}`).toBe(COLOURS[token]);
     }
+  });
+
+  it("are the light colours of the bar the extension draws into a page", () => {
+    const light = /const light = `([^`]*)`/.exec(OVERLAY)?.[1] ?? "";
+    for (const token of ["accent", "violet", "warn", "danger"] as const) {
+      expect(declared(light, token)?.toLowerCase(), `overlay light --${token}`).toBe(LIGHT_COLOURS[token]);
+    }
+    expect(OVERLAY).toContain(':host([data-theme="light"]) { ${light} }');
+    expect(OVERLAY).toContain('@media (prefers-color-scheme: light) { :host([data-theme="system"]) { ${light} } }');
   });
 
   it("are KOS for Mac's colours, corners and spring, and its overlay's", () => {

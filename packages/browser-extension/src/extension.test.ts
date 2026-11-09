@@ -10,7 +10,7 @@ import { installOverlay } from "./overlay.js";
 import { adding, readPairings, removing, replacedBy, type Paired } from "./pairings.js";
 import { checkCommand, forwarded, isWebUrl, Worlds } from "./relay.js";
 import { GRACE_MS, Session } from "./session.js";
-import { DEFAULTS, DEFAULT_HIDDEN, asksFirst, isHidden, readSettings, siteOf } from "./settings.js";
+import { DEFAULTS, DEFAULT_HIDDEN, asksFirst, isHidden, readSettings, siteOf, themeOf } from "./settings.js";
 
 /**
  * The parts of the extension that keep the owner's Chrome theirs: where it
@@ -54,6 +54,10 @@ describe("the protocol", () => {
     expect(readFrame(JSON.stringify({ t: "face", face: { ...face, fill: "blue" } }))).toBeUndefined();
     expect(readFrame(JSON.stringify({ t: "face", face: { ...face, shape: { ...face.shape, lobes: [{ k: 2.5, amp: 0.1, phase: 0 }] } } }))).toBeUndefined();
     expect(readFrame("not json")).toBeUndefined();
+    // The dashboard's theme: one of its three modes, or a frame to ignore.
+    for (const mode of ["light", "dark", "system"]) expect(readFrame(JSON.stringify({ t: "theme", mode }))).toEqual({ t: "theme", mode });
+    expect(readFrame('{"t":"theme","mode":"dashboard"}')).toBeUndefined();
+    expect(readFrame('{"t":"theme"}')).toBeUndefined();
   });
 });
 
@@ -244,6 +248,19 @@ describe("the owner's settings", () => {
     expect(asksFirst(s, "dev_new")).toBe(true);
   });
 
+  it("draws the dashboard's theme unless the owner chose this Chrome's own", () => {
+    expect(DEFAULTS.theme).toBe("dashboard");
+    expect(readSettings({ theme: "light" }).theme).toBe("light");
+    expect(readSettings({ theme: "sepia" }).theme).toBe("dashboard");
+    // Following the dashboard: what KOS last sent, the system's before anything was.
+    expect(themeOf("dashboard", "light")).toBe("light");
+    expect(themeOf("dashboard", undefined)).toBe("system");
+    expect(themeOf("dashboard", "sepia")).toBe("system");
+    // Its own choice: what KOS sends does not change it.
+    expect(themeOf("dark", "light")).toBe("dark");
+    expect(themeOf("system", "light")).toBe("system");
+  });
+
   it("hides a site with every subdomain, however the owner typed it", () => {
     expect(siteOf("https://www.Chase.com/login?x=1")).toBe("chase.com");
     expect(siteOf("*.bank.example")).toBe("bank.example");
@@ -398,7 +415,7 @@ describe("a line KOS closes", () => {
     vi.stubGlobal("WebSocket", FakeSocket);
     FakeSocket.made = [];
     const states: [LinkState, string | undefined][] = [];
-    const link = new Link({ url: "http://127.0.0.1:4317", device: "dev_a", hostKey: "k", keys: {} as CryptoKeyPair, hello: () => ({}) as Hello, onCall: async () => ({}), onFace: () => undefined, onState: (s, d) => void states.push([s, d]) });
+    const link = new Link({ url: "http://127.0.0.1:4317", device: "dev_a", hostKey: "k", keys: {} as CryptoKeyPair, hello: () => ({}) as Hello, onCall: async () => ({}), onFace: () => undefined, onTheme: () => undefined, onState: (s, d) => void states.push([s, d]) });
     link.start();
     FakeSocket.made[0]!.onclose!({ code, reason });
     vi.advanceTimersByTime(1_000);

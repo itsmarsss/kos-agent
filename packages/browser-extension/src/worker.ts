@@ -1,4 +1,4 @@
-import { KOS_SEED, drawingOf, eyeAt, lookOf, outline, smoothPath, type FaceDrawing } from "@kos/shared";
+import { KOS_SEED, drawingOf, eyeAt, isThemeMode, lookOf, outline, smoothPath, type FaceDrawing, type ThemeMode } from "@kos/shared";
 
 import { kosAddress, parsePairing, type Pairing } from "./address.js";
 import { forgetKeys, keepKeys, keysFor, newKeys, publicKey } from "./keys.js";
@@ -12,7 +12,7 @@ import { adding, readPairings, removing, replacedBy, type Paired } from "./pairi
 import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
 import { checkCommand, forwarded, isInput, isWebUrl, OVERLAY_WORLD as WORLD, Worlds } from "./relay.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
-import { DEFAULTS, asksFirst, isHidden, readSettings, siteOf, type ExtensionSettings } from "./settings.js";
+import { DEFAULTS, SENT_THEME_KEY, asksFirst, isHidden, readSettings, siteOf, themeOf, type ExtensionSettings } from "./settings.js";
 
 /**
  * The extension's worker: paired with one KOS or several, it answers each
@@ -64,6 +64,8 @@ export interface PopupState {
   session: { task: string; requester: string; until: number; paused: boolean; kos?: string; beside?: number; conversation?: string; face: FaceDrawing } | null;
   handed: number[];
   settings: Omit<ExtensionSettings, "askFirst">;
+  /** The dashboard's theme as the last KOS to speak sent it; none before one has. */
+  dashboardTheme?: ThemeMode;
 }
 
 export interface ConsentRequest {
@@ -128,6 +130,8 @@ const GROUP = "KOS";
 
 let pairings: Paired[] = [];
 let settings: ExtensionSettings = DEFAULTS;
+/** The mode the last KOS to speak sent for the dashboard's theme; none before one has. */
+let sentTheme: ThemeMode | undefined;
 /** KOS the owner disconnected, kept across the worker's sleeps. */
 let held = new Set<string>();
 const linkStates = new Map<string, { state: LinkState; detail?: string }>();
@@ -180,7 +184,7 @@ const kosName = (id: string | undefined): string | undefined => (pairings.length
 
 // Kept across the worker's sleeps: pairings, settings and who is held in local storage, the handed tabs and KOS's window in session storage.
 async function load(): Promise<void> {
-  const local = await chrome.storage.local.get(["pairings", "paired", "settings", "held"]);
+  const local = await chrome.storage.local.get(["pairings", "paired", "settings", "held", SENT_THEME_KEY]);
   pairings = readPairings(local["pairings"], local["paired"]);
   if (!Array.isArray(local["pairings"]) && pairings.length) {
     await chrome.storage.local.set({ pairings });
@@ -188,6 +192,7 @@ async function load(): Promise<void> {
     note(`moved the one pairing, ${hostOf(pairings[0]!)}, into the list`);
   }
   settings = readSettings(local["settings"]);
+  if (isThemeMode(local[SENT_THEME_KEY])) sentTheme = local[SENT_THEME_KEY];
   held = new Set(Array.isArray(local["held"]) ? (local["held"] as unknown[]).filter((v): v is string => typeof v === "string") : []);
   const kept = await chrome.storage.session.get(["handed", "bar"]);
   for (const tab of Array.isArray(kept["handed"]) ? (kept["handed"] as number[]) : []) handed.add(tab);
@@ -217,6 +222,14 @@ async function showFace(id: string, face: FaceDrawing): Promise<void> {
   await savePairings();
   await badge();
   if (owner === id) await paint();
+}
+
+/** The dashboard's theme, kept for the pages to follow when set to, and on the page KOS works in at once. */
+async function showTheme(mode: ThemeMode): Promise<void> {
+  if (sentTheme === mode) return;
+  sentTheme = mode;
+  await chrome.storage.local.set({ [SENT_THEME_KEY]: mode });
+  await paint();
 }
 
 /** Every KOS's line, up unless the owner held it; with `unpairedToo`, one KOS no longer takes is tried again too. */
@@ -250,6 +263,7 @@ const lines = new Lines<Link>({
       hello: () => hello(p.device),
       onCall: (method, params) => answer(method, params, p.device),
       onFace: (face) => void showFace(p.device, face),
+      onTheme: (mode) => void showTheme(mode),
       onState: (state, detail) => lineState(p, state, detail),
     }),
   wanted: (id) => !!pairingOf(id) && !held.has(id),
@@ -818,6 +832,7 @@ function overlayState(): OverlayState {
     paused: session?.paused ?? false,
     until: session?.info.until ?? 0,
     face: { fill: face.fill, ink: face.ink, eyes: face.eyes, body: smoothPath(outline(face.shape)) },
+    theme: themeOf(settings.theme, sentTheme),
     ...barPlace,
   };
 }
@@ -1021,6 +1036,7 @@ function popupState(): PopupState {
       : null,
     handed: [...handed],
     settings: shown,
+    ...(sentTheme ? { dashboardTheme: sentTheme } : {}),
   };
 }
 
@@ -1107,6 +1123,7 @@ async function changeSettings(patch: Record<string, unknown>): Promise<void> {
   settings = readSettings({ ...settings, ...patch, askFirst: settings.askFirst });
   await saveSettings();
   await badge();
+  await paint();
   void connectAll(true);
 }
 

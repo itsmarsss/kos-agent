@@ -34,6 +34,8 @@ export interface OverlayState {
   folded?: boolean;
   /** The face of the KOS at work: its colours, its eyes, and its outline as a path in a 100-unit box. */
   face?: { fill: string; ink: string; eyes: string; body: string };
+  /** The palette the bar is drawn in: the extension's theme, "system" being the page's own appearance. */
+  theme?: "light" | "dark" | "system";
 }
 
 export function installOverlay(): void {
@@ -88,6 +90,7 @@ export function installOverlay(): void {
     if (!host || !title || !text || !take || !left) return;
     host.dataset["paused"] = state.paused ? "1" : "";
     host.dataset["folded"] = state.folded ? "1" : "";
+    host.dataset["theme"] = state.theme ?? "dark";
     title.textContent = state.paused ? "Paused, you have control" : "KOS is using this tab";
     text.textContent = state.task || "working";
     left.textContent = minutes();
@@ -113,21 +116,30 @@ export function installOverlay(): void {
     // since this function runs in the page on its own; extension.test.ts keeps
     // them in step. The KOS at work sends its own, outline and all, with the state.
     const kos = { fill: "#3585ed", ink: "#141d29" };
+    // The light palette, the dashboard's light tokens: on its own choice, or on the page's light appearance under "system".
+    // The bar is opaque, edged in its tone and shadowed either way, so it reads on a light site and a dark one alike.
+    const light = `--accent: #3558d6; --violet: #7b4fd6; --warn: #7d5400; --danger: #cf3b47;
+        --bar: rgba(255, 255, 255, 0.97); --ink: #161a22; --sub: #58607a; --btn: #eceef3; --btn-line: #dde1e8; --btn-line-lit: #bfc6d3;
+        --btn-lit: #dde1e8; --cast: rgba(16, 24, 40, 0.2);`;
     shadow.innerHTML = `<style>
-      :host { --accent: #7c9cff; --violet: #a57cff; --warn: #e6b84d; --danger: #f07178; --tone: var(--accent); }
+      :host { --accent: #7c9cff; --violet: #a57cff; --warn: #e6b84d; --danger: #f07178; --tone: var(--accent);
+        --bar: rgba(18, 21, 28, 0.96); --ink: #e7ebf3; --sub: #8b93a7; --btn: #181c26; --btn-line: #262b36; --btn-line-lit: #3a4150;
+        --btn-lit: rgba(38, 43, 54, 0.7); --cast: rgba(0, 0, 0, 0.35); }
+      :host([data-theme="light"]) { ${light} }
+      @media (prefers-color-scheme: light) { :host([data-theme="system"]) { ${light} } }
       :host([data-paused="1"]) { --tone: var(--warn); }
       .glow { position: fixed; inset: 0; pointer-events: none; border-radius: 6px;
-        box-shadow: inset 0 0 0 2px var(--accent), inset 0 0 24px 4px rgba(124, 156, 255, 0.4);
+        box-shadow: inset 0 0 0 2px var(--accent), inset 0 0 24px 4px color-mix(in srgb, var(--accent) 40%, transparent);
         animation: sweep 3.2s ease-in-out infinite; }
-      :host([data-paused="1"]) .glow { box-shadow: inset 0 0 0 2px var(--warn), inset 0 0 18px 2px rgba(230, 184, 77, 0.35); animation: none; }
-      @keyframes sweep { 50% { box-shadow: inset 0 0 0 2px var(--violet), inset 0 0 28px 6px rgba(165, 124, 255, 0.42); } }
+      :host([data-paused="1"]) .glow { box-shadow: inset 0 0 0 2px var(--warn), inset 0 0 18px 2px color-mix(in srgb, var(--warn) 35%, transparent); animation: none; }
+      @keyframes sweep { 50% { box-shadow: inset 0 0 0 2px var(--violet), inset 0 0 28px 6px color-mix(in srgb, var(--violet) 42%, transparent); } }
       .bar { position: fixed; right: 14px; bottom: 14px; pointer-events: auto; display: flex; align-items: center; gap: 12px;
         max-width: min(480px, calc(100vw - 28px)); height: 48px; padding: 0 8px 0 12px; border-radius: 999px; cursor: grab; user-select: none;
         touch-action: none;
-        background: rgba(18, 21, 28, 0.96); color: #e7ebf3; font: 12.5px/1.25 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        background: var(--bar); color: var(--ink); font: 12.5px/1.25 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
         -webkit-font-smoothing: antialiased;
         border: 1px solid color-mix(in srgb, var(--tone) 55%, transparent);
-        box-shadow: 0 0 12px color-mix(in srgb, var(--tone) 35%, transparent), 0 8px 24px rgba(0, 0, 0, 0.35); }
+        box-shadow: 0 0 12px color-mix(in srgb, var(--tone) 35%, transparent), 0 8px 24px var(--cast); }
       .bar.dragging { cursor: grabbing; }
       :host([data-folded="1"]) .bar { gap: 0; padding: 0 11px; opacity: 0.85; }
       :host([data-folded="1"]) .bar:hover { opacity: 1; }
@@ -141,18 +153,18 @@ export function installOverlay(): void {
       .face i { position: relative; width: 3px; height: 6px; border-radius: 2px; background: var(--ink); margin-top: -2px; }
       .face[data-eyes="round"] i { width: 4px; height: 4px; }
       .face b { position: absolute; right: -2px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%; background: var(--tone);
-        box-shadow: 0 0 0 1.5px #12151c; animation: beat 1.8s ease-in-out infinite; }
+        box-shadow: 0 0 0 1.5px var(--bar); animation: beat 1.8s ease-in-out infinite; }
       :host([data-paused="1"]) .face b { animation: none; }
       @keyframes beat { 50% { opacity: 0.35; } }
       .words { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
       .title { font-weight: 600; white-space: nowrap; }
-      .sub { display: flex; min-width: 0; color: #8b93a7; font-size: 11px; white-space: nowrap; }
+      .sub { display: flex; min-width: 0; color: var(--sub); font-size: 11px; white-space: nowrap; }
       .text { overflow: hidden; text-overflow: ellipsis; max-width: 230px; }
       button { all: unset; cursor: pointer; padding: 6px 13px; border-radius: 999px; font-weight: 600; white-space: nowrap;
-        border: 1px solid #262b36; background: #181c26; transition: background 140ms ease, border-color 140ms ease; }
-      button:hover { border-color: #3a4150; background: rgba(38, 43, 54, 0.7); }
-      button.stop { color: var(--danger); background: rgba(240, 113, 120, 0.1); border-color: rgba(240, 113, 120, 0.25); }
-      button.stop:hover { background: rgba(240, 113, 120, 0.17); border-color: rgba(240, 113, 120, 0.45); }
+        border: 1px solid var(--btn-line); background: var(--btn); transition: background 140ms ease, border-color 140ms ease; }
+      button:hover { border-color: var(--btn-line-lit); background: var(--btn-lit); }
+      button.stop { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); border-color: color-mix(in srgb, var(--danger) 25%, transparent); }
+      button.stop:hover { background: color-mix(in srgb, var(--danger) 17%, transparent); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
       .cursor { position: fixed; left: 0; top: 0; width: 22px; height: 22px; pointer-events: none; opacity: 0; transform: translate(-100px, -100px);
         transition: transform 180ms cubic-bezier(0.32, 0.72, 0, 1), opacity 240ms ease; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45)); }
       .cursor.shown { opacity: 1; }

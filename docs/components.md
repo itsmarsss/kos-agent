@@ -20,13 +20,16 @@ them, so it keeps the same pieces under the same names in Swift.
 | What | Shared source | Dashboard | KOS for Chrome | KOS for Mac |
 | --- | --- | --- | --- | --- |
 | Colours, corners, spring, shadow | `shared/src/design.ts` (`COLOURS`, `RADII`, `SPRING`, `FLOAT_SHADOW`) | `:root` in `ui/src/styles.css` | `:root` in `static/kos.css` | `Theme` in `Theme.swift` |
+| Light palette | `LIGHT_COLOURS` in `design.ts` | `:root[data-theme="light"]` in `styles.css` | `:root[data-theme="light"]` in `kos.css`; the page bar's `light` in `overlay.ts` | |
+| Theme mode | `ThemeMode`, `resolveThemeMode` in `design.ts`: light, dark or system, KOS's own setting (`appearance.theme`) | `theme.ts` (`useTheme`, `showTheme`, `reconcileTheme`), Settings, Appearance | `theme.ts` marks each page, `themeOf` in `settings.ts`; Settings, Appearance adds Same as dashboard | |
 | Type scale | `TYPE` in `design.ts` (`--text-xs` to `--text-2xl`) | `--text-*` | `--text-*` | `KOSType` in `Theme.swift` (title 17, body 15, table 14, dense 13, control 12.5, detail 12, small 11.5, tiny 11, the label's size too); `Font.kos(_:_:)` sets one |
 | Hover, press, tints | | 140 ms, 0.97, 14% | the same | `Theme.hover`, `Theme.press`, `Theme.tint`, `Theme.edge` |
 | Hints and empty lines | | `--muted` at `--text-base` (`.hint`, `.empty-text`, `.empty-line`, `.set-hint`) | the same | `Theme.muted` |
 | Motion presets | `kit/src/motion.ts` (`spring`, `ease`, `listItem`, `stagger`, `card`) | from the kit | from the kit | `Theme.spring` |
 
 `design.test.ts` fails when the colours, corners, spring or shadow drift
-in either stylesheet or in `Theme.swift` and `Palette.swift`, when the
+in either stylesheet or in `Theme.swift` and `Palette.swift`, when either
+stylesheet's light palette or the page bar's drifts from `LIGHT_COLOURS`, when the
 two stylesheets' `--text-*` steps drift from `TYPE`, or when either
 stylesheet stops declaring a token `kit.css` uses. It does not hold
 `KOSType`, the motion presets or the hover, press and tint values; keep

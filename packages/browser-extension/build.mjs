@@ -53,10 +53,11 @@ await build({
   minify: true,
   logLevel: "warning",
 });
-// What a page reports of the owner's selection: a classic script in a scope of its own, so putting it in twice is harmless.
+// What a page reports of the owner's selection, and the theme each page of the extension wears before its first paint:
+// classic scripts, each in a scope of its own, so putting one in twice is harmless.
 await build({
-  entryPoints: [join(root, "src", "selection.ts")],
-  outfile: join(dist, "selection.js"),
+  entryPoints: [join(root, "src", "selection.ts"), join(root, "src", "theme.ts")],
+  outdir: dist,
   bundle: true,
   format: "iife",
   platform: "browser",
