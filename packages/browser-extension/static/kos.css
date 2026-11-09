@@ -231,10 +231,16 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 /* At work before there is a step to show: the dashboard's dots and the word, as its live line has them. */
 .working { align-self: flex-start; display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 4px 2px; color: var(--muted); font-size: var(--text-base); }
 .working-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.working--held { flex-wrap: wrap; color: var(--warn); }
+.working--held .btn { margin-left: 2px; }
 
 /* What waits on the owner: an approval, an ask to work in this tab. */
 .ask-card { align-self: stretch; border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 .ask-card--consent, .ask-card--read { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.ask-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ask-reason { font-size: var(--text-sm); }
+.check { display: flex; align-items: flex-start; gap: 6px; color: var(--text); font-size: var(--text-base); cursor: pointer; }
+.check input { margin: 2px 0 0; accent-color: var(--accent); }
 .args { margin: 0; padding: 8px; max-height: 140px; overflow: auto; border-radius: var(--r-sm); background: var(--bg); font: 11.5px/1.4 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .empty-state { margin: auto; padding: 24px; max-width: 300px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
@@ -269,6 +275,8 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .send { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--accent); color: var(--on-accent); cursor: pointer; transition: background 140ms ease; }
 .send:hover:not(:disabled) { background: var(--accent-lit); }
 .send:disabled { background: var(--line); color: var(--faint); cursor: default; }
+.send--stop { background: color-mix(in srgb, var(--danger) 17%, transparent); color: var(--danger); }
+.send--stop:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 27%, transparent); }
 .panel-error { margin: 0 14px; }
 
 .chat-head .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

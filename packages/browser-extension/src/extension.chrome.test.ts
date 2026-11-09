@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
 
 import { deviceProof, hostProof } from "./protocol.js";
+import { GRACE_MS } from "./session.js";
 
 /**
  * The extension in a real Chrome, against a KOS played here: paired, both
@@ -393,7 +394,8 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     for (const type of ["mousePressed", "mouseReleased"]) await cdp("Input.dispatchMouseEvent", { type, x: 120, y: 110, button: "left", clickCount: 1 });
     await until(() => false, 500);
     expect(events.some((e) => e.name === "session.paused")).toBe(false);
-    // The owner's: straight to the page, not through KOS.
+    // The owner's, once the moment after they allowed it has passed: straight to the page, not through KOS.
+    await until(() => false, GRACE_MS);
     const page = await devtools.attach((u) => u.endsWith("/shop"));
     for (const type of ["mousePressed", "mouseReleased"]) await devtools.send("Input.dispatchMouseEvent", { type, x: 300, y: 300, button: "left", clickCount: 1 }, page);
     await until(() => events.some((e) => e.name === "session.paused"));
@@ -525,6 +527,8 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     }, 30_000);
 
     it("refuses the rest of a batch once the owner takes the tab over part way", async () => {
+      // Past the moment after the last hand back, when the owner's hand is not yet a takeover.
+      await until(() => false, GRACE_MS);
       const running = batch("h2", [slow(600), { method: "Input.dispatchMouseEvent", params: { type: "mouseMoved", x: 5, y: 5 } }]);
       await until(() => false, 200);
       for (const type of ["mousePressed", "mouseReleased"]) await devtools.send("Input.dispatchMouseEvent", { type, x: 300, y: 300, button: "left", clickCount: 1 }, owners);
@@ -579,12 +583,25 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(await devtools.evaluate(panel, `${card}.textContent`)).toContain("127.0.0.1");
     await devtools.evaluate(panel, `${card}.querySelector('.btn').click()`);
     expect((await read)["error"]).toMatchObject({ code: "permission", message: "the owner did not let KOS read pages in this Chrome" });
-    // The panel's chat asks for a session: asked in the panel, no window of its own, and granted for the tab beside it.
+    // An ask KOS takes back while the owner is asked: answered as withdrawn, not as a no. (The card leaves by an animation,
+    // which a page in a tab behind others never runs, so the newest card is the one asked about from here on.)
+    const consentCard = "[...document.querySelectorAll('.ask-card--consent')].at(-1)";
+    const withdrawn = call("session.begin", { session: "p0", task: "add the mug", requester: "Chrome", conversation: "chrome:owner", minutes: 15 });
+    for (let i = 0; i < 100 && !(await devtools.evaluate(panel, `!!${consentCard}`)); i++) await until(() => false, 100);
+    expect(await call("session.end", { session: "p0" })).toMatchObject({ ok: true });
+    expect(await withdrawn).toMatchObject({ ok: true, result: { granted: false, reason: "withdrawn" } });
+    // The panel's chat asks for a session: asked in the panel, no window of its own, with how long it waits, and granted for the
+    // tab beside it, its site's steps unasked when the owner says so.
     const begun = call("session.begin", { session: "p1", task: "add the mug", requester: "Chrome", conversation: "chrome:owner", minutes: 15 });
-    for (let i = 0; i < 100 && !(await devtools.evaluate(panel, "!!document.querySelector('.ask-card--consent')")); i++) await until(() => false, 100);
+    const cards = (): Promise<unknown> => devtools.evaluate(panel, "document.querySelectorAll('.ask-card--consent').length");
+    const before = (await cards()) as number;
+    for (let i = 0; i < 100 && ((await cards()) as number) <= before; i++) await until(() => false, 100);
     expect(await text()).toContain("add the mug");
-    await devtools.evaluate(panel, "document.querySelector('.ask-card--consent .btn--primary').click()");
-    expect(await begun).toMatchObject({ ok: true, result: { granted: true } });
+    expect(await devtools.evaluate(panel, `${consentCard}.querySelector('.countdown').textContent`)).toMatch(/^lapses in (\d+s|1m 0s)$/);
+    expect(await devtools.evaluate(panel, `${consentCard}.querySelector('.check').textContent`)).toBe(`And act on ${new URL(base).host} this session without asking`);
+    await devtools.evaluate(panel, `${consentCard}.querySelector('.check input').click()`);
+    await devtools.evaluate(panel, `${consentCard}.querySelector('.btn--primary').click()`);
+    expect(await begun).toMatchObject({ ok: true, result: { granted: true, auto: { site: new URL(base).host } } });
     const listed = (await call("tabs.list", { session: "p1" }))["result"] as { tabs: { url: string; focus?: boolean; handed?: boolean }[] };
     expect(listed.tabs).toEqual([expect.objectContaining({ url: `${base}/beside`, focus: true, handed: true })]);
     expect(await call("session.end", { session: "p1" })).toMatchObject({ ok: true });
@@ -594,11 +611,28 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     for (let i = 0; i < 50 && !(await devtools.evaluate(panel, `!!${foot}?.querySelector('.live-dots')`)); i++) await until(() => false, 100);
     expect(await devtools.evaluate(panel, `${foot}?.innerText ?? ''`)).toMatch(/^Working\s*\d+s$/);
     expect(await text()).toContain("Checking the prices now.");
-    // Held on an approval, the turn is the owner's to move: it says so, with no dots and no clock.
-    expect(await call("chat.ask", { approval: { id: "a1", tool: "shell.run" } })).toMatchObject({ ok: true });
+    // While it runs the send button is Stop, which stops the chat's turn.
+    expect(await devtools.evaluate(panel, "document.querySelector('.send')?.getAttribute('aria-label')")).toBe("Stop");
+    await devtools.evaluate(panel, "document.querySelector('.send--stop').click()");
+    await until(() => events.some((e) => e.name === "chat.stop"));
+    expect(events.find((e) => e.name === "chat.stop")?.data).toEqual({ chat: "chrome:owner" });
+    // Another chat's status, from a turn the owner moved away from, is not drawn here.
+    expect(await call("chat.status", { chat: "cm1:owner", conversation: "cm1:owner", said: "elsewhere", story: "› Not here" })).toMatchObject({ ok: true });
+    await until(() => false, 200);
+    expect(await text()).not.toContain("Not here");
+    // Held on an approval, the turn is the owner's to move: it says so, with no dots and no clock, and Approve comes first.
+    expect(await call("chat.ask", { approval: { id: "a1", tool: "shell.run", reason: "runs a program", expiresAt: Date.now() + 60_000 } })).toMatchObject({ ok: true });
     for (let i = 0; i < 50 && (await devtools.evaluate(panel, `!!${foot}?.querySelector('.live-dots')`)); i++) await until(() => false, 100);
     expect(await devtools.evaluate(panel, `${foot}?.innerText ?? ''`)).toBe("Waiting on you");
+    expect(await devtools.evaluate(panel, "[...document.querySelectorAll('.ask-card:not(.ask-card--consent):not(.ask-card--read) .row .btn')].map((b) => b.textContent)")).toEqual(["Approve", "Deny"]);
+    expect(await text()).toContain("Asked because it runs a program.");
+    expect(await devtools.evaluate(panel, "document.querySelector('.ask-card .countdown')?.textContent")).toMatch(/^lapses in (59|60|1m 0)s$/);
     expect(await call("chat.settled", { approval: "a1" })).toMatchObject({ ok: true });
+    // The owner holds the chat's session: the foot says so, with Hand back and Stop.
+    expect(await call("chat.status", { chat: "chrome:owner", conversation: "chrome:owner", held: true })).toMatchObject({ ok: true });
+    for (let i = 0; i < 50 && !(await devtools.evaluate(panel, "!!document.querySelector('.working--held')")); i++) await until(() => false, 100);
+    expect(await devtools.evaluate(panel, "document.querySelector('.working--held').innerText")).toMatch(/Paused, you have control\s*Hand back\s*Stop/);
+    expect(await call("chat.status", { chat: "chrome:owner", conversation: "chrome:owner", held: false })).toMatchObject({ ok: true });
     for (let i = 0; i < 50 && !(await devtools.evaluate(panel, `!!${foot}?.querySelector('.live-dots')`)); i++) await until(() => false, 100);
     expect(await devtools.evaluate(panel, `${foot}?.innerText ?? ''`)).toMatch(/^Working\s*\d+s$/);
     // Words queued behind it, taken once it is done: the next turn counts from its own start.
@@ -608,7 +642,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(await call("chat.status", { conversation: "chrome:owner", taken: true, said: "And the shipping?" })).toMatchObject({ ok: true });
     await until(() => false, 200);
     expect(await elapsed()).toBeLessThan(2);
-    expect(await call("chat.status", { conversation: "chrome:owner" })).toMatchObject({ ok: true });
+    expect(await call("chat.status", { conversation: "chrome:owner", story: null })).toMatchObject({ ok: true });
     for (let i = 0; i < 50 && (await devtools.evaluate(panel, `!!${foot}`)); i++) await until(() => false, 100);
     expect(await devtools.evaluate(panel, `!!${foot}`)).toBe(false);
     // The queued words answered, so none is left on its way for the next test.

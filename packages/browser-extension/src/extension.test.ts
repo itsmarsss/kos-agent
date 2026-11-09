@@ -9,7 +9,7 @@ import { linkWords, needsPairing, type LineOf } from "./linkwords.js";
 import { installOverlay } from "./overlay.js";
 import { adding, readPairings, removing, replacedBy, type Paired } from "./pairings.js";
 import { checkCommand, forwarded, isWebUrl, Worlds } from "./relay.js";
-import { Session } from "./session.js";
+import { GRACE_MS, Session } from "./session.js";
 import { DEFAULTS, DEFAULT_HIDDEN, asksFirst, isHidden, readSettings, siteOf } from "./settings.js";
 
 /**
@@ -181,6 +181,25 @@ describe("a session", () => {
     expect(session.over(10_000, 5_000)).toBe("expired");
   });
 
+  it("never idles while the owner has it, and starts its idle clock again when they hand it back", () => {
+    const session = new Session(info, 0);
+    session.pause();
+    expect(session.over(9_000, 5_000)).toBeUndefined();
+    session.resume(9_000);
+    expect(session.over(9_500, 5_000)).toBeUndefined();
+    expect(session.over(10_000, 5_000)).toBe("expired");
+  });
+
+  it("does not take the owner's hand for a takeover in the moment after they allow it or hand it back", () => {
+    const session = new Session(info, 0);
+    expect(session.inGrace(GRACE_MS - 1)).toBe(true);
+    expect(session.inGrace(GRACE_MS)).toBe(false);
+    session.pause();
+    session.resume(5_000);
+    expect(session.inGrace(5_000 + GRACE_MS - 1)).toBe(true);
+    expect(session.inGrace(5_000 + GRACE_MS)).toBe(false);
+  });
+
   it("knows KOS's own clicks and keys when the page reports them, and the owner's when it did not send them", () => {
     const session = new Session(info, 0);
     session.dispatching("Input.dispatchMouseEvent", { type: "mousePressed", x: 100.5, y: 40 }, 0);
@@ -208,6 +227,10 @@ describe("the look", () => {
 describe("the owner's settings", () => {
   it("reads what was stored, and is the default for anything missing or not a choice", () => {
     expect(readSettings(undefined)).toEqual(DEFAULTS);
+    // Clicks and keys take a tab over; scrolling does not, unless the owner says so.
+    expect(DEFAULTS.takeover).toBe("clicksAndKeys");
+    expect(readSettings({ takeover: "anyInput" }).takeover).toBe("anyInput");
+    expect(readSettings({ takeover: "wheel" }).takeover).toBe("clicksAndKeys");
     const s = readSettings({ longestMinutes: 240, promptWaitSeconds: 7, idleMinutes: 3, takeover: "clicksAndKeys", timeOnIcon: false, askFirst: { dev_a: false, dev_b: "no" } });
     expect(s).toMatchObject({ longestMinutes: 240, promptWaitSeconds: 60, idleMinutes: 3, takeover: "clicksAndKeys", connectOnStart: true, timeOnIcon: false, askFirst: { dev_a: false } });
     expect(asksFirst(s, "dev_a")).toBe(false);
