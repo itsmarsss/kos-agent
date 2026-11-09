@@ -387,6 +387,25 @@ describe("handleApiRequest", () => {
     kernel.roles.remove("research");
   });
 
+  it("keeps the dashboard's theme in the workspace, tells devices of a change and carries it on the status", async () => {
+    const get = async (path: string): Promise<unknown> => (await handleApiRequest(kernel, { method: "GET", path })).body;
+    expect(await get("/api/settings/theme")).toEqual({ theme: "system", chosen: false });
+    expect(await get("/api/status")).not.toHaveProperty("theme");
+    const told: string[] = [];
+    const off = kernel.bus.on("theme:changed", (e) => void told.push(e.theme));
+    const set = (theme: unknown) => handleApiRequest(kernel, { method: "POST", path: "/api/settings/theme", body: { theme } });
+    expect((await set("light")).body).toEqual({ theme: "light" });
+    // The same choice again is no news to a device.
+    await set("light");
+    for (const bad of ["dashboard", "blue", 1, undefined]) expect((await set(bad)).status, String(bad)).toBe(400);
+    await set("dark");
+    off();
+    expect(told).toEqual(["light", "dark"]);
+    expect(kernel.theme()).toBe("dark");
+    expect(await get("/api/settings/theme")).toEqual({ theme: "dark", chosen: true });
+    expect(await get("/api/status")).toMatchObject({ theme: "dark" });
+  });
+
   it("lists, writes, runs and removes standing agents for the Agents page", async () => {
     const empty = (await handleApiRequest(kernel, { method: "GET", path: "/api/agents" })).body as { agents: unknown[]; invalid: unknown[] };
     expect(empty).toEqual({ agents: [], invalid: [] });
