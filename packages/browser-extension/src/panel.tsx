@@ -192,7 +192,15 @@ function useChat(windowId: number | undefined, online: boolean): {
     let stopped = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const open = (): void => {
-      const p = chrome.runtime.connect({ name: "panel" });
+      // Reloaded or updated, the extension leaves this page behind: its old
+      // runtime connects to nothing again, so the page loads itself afresh.
+      if (!chrome.runtime?.id) return location.reload();
+      let p: chrome.runtime.Port;
+      try {
+        p = chrome.runtime.connect({ name: "panel" });
+      } catch {
+        return location.reload();
+      }
       port.current = p;
       p.onMessage.addListener((message: Record<string, unknown>) => heard(message));
       // The worker sleeps and wakes; the panel finds it again.
