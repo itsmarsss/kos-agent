@@ -2371,12 +2371,19 @@ describe("catching up after a drop or a restart", () => {
   });
 
   it("reads at most fifty and six hours of a room, and says so there when it left some", async () => {
-    const many = Array.from({ length: 50 }, (_, i) => ({ id: String(1000 + i), author: "owner" }));
+    const many = Array.from({ length: 51 }, (_, i) => ({ id: String(1000 + i), author: "owner" }));
     const busy = room("dm1", many);
     const a = adapterOver({ dm1: busy.channel }, { dm1: "10" });
     await a.adapter.catchUp();
     expect(a.heard).toHaveLength(50);
+    expect(a.heard[0]!.text).toBe("said 1001");
     expect(busy.posted).toEqual(["-# KOS was offline; only the last 50 messages here, from the last 6 hours at most, are answered"]);
+    // Exactly fifty is all of it: taken, and nothing said of a gap.
+    const fifty = room("dm1", many.slice(0, 50));
+    const all = adapterOver({ dm1: fifty.channel }, { dm1: "10" });
+    await all.adapter.catchUp();
+    expect(all.heard).toHaveLength(50);
+    expect(fifty.posted).toEqual([]);
     const stale = room("dm1", [{ id: "401", author: "owner", at: Date.now() - 7 * HOUR }, { id: "402", author: "owner" }]);
     const b = adapterOver({ dm1: stale.channel }, { dm1: "400" });
     await b.adapter.catchUp();
@@ -2433,7 +2440,7 @@ describe("catching up after a drop or a restart", () => {
     const cursors: Record<string, string> = { dm1: "100", dm2: "100", dm3: recent, c4: "200" };
     const { adapter, heard } = adapterOver({ dm1: dm.channel, dm2: quiet.channel, dm3: lately.channel, c4: unbound.channel }, cursors);
     await adapter.catchUp();
-    expect(dm.reads).toEqual([{ limit: 50, after: "100" }]);
+    expect(dm.reads).toEqual([{ limit: 51, after: "100" }]);
     expect(heard.map((m) => m.text)).toEqual(["said 101"]);
     expect(unbound.reads).toEqual([]);
     expect(cursors).toEqual({ dm1: "101", dm3: recent });

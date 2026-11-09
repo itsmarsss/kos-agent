@@ -1298,10 +1298,11 @@ export class DiscordAdapter implements ChannelAdapter {
       return;
     }
     const read = async (options: { limit: number; after?: string }): Promise<Message[]> => [...(await room.messages.fetch(options)).values()] as unknown as Message[];
-    // Only what came after the cursor; a page that is full has more behind
-    // it, and then the newest page is what is read, the gap said below.
-    let fetched = await read({ limit: CATCH_UP_MAX, after: since });
-    const full = fetched.length >= CATCH_UP_MAX;
+    // Only what came after the cursor, and one more: a page past the cap has
+    // more behind it, and then the newest page is what is read, the gap said
+    // below. Exactly the cap is all there was.
+    let fetched = await read({ limit: CATCH_UP_MAX + 1, after: since });
+    const full = fetched.length > CATCH_UP_MAX;
     if (full) fetched = await read({ limit: CATCH_UP_MAX });
     const after = fetched.filter((m) => BigInt(m.id) > BigInt(since)).sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
     const oldest = Date.now() - CATCH_UP_WINDOW_MS;
