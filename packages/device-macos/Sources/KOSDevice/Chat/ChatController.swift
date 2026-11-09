@@ -39,7 +39,8 @@ final class ChatController {
   private static let showWithin: TimeInterval = 6
 
   init() {
-    model.send = { [weak self] text in self?.say(text) }
+    model.send = { [weak self] text, quote in self?.say(text, quote: quote) }
+    model.readSelection = { [weak self] in self?.readSelection() }
     model.decide = { [weak self] id, approved, remember in self?.tell(.decide(approval: id, approved: approved, remember: remember)) }
     model.list = { [weak self] in self?.tell(.list) }
     model.switchTo = { [weak self] id in self?.tell(.switchTo(conversation: id)) }
@@ -65,6 +66,7 @@ final class ChatController {
     watchFront()
     noteFront()
     window.present()
+    readSelection()
     refresh(asking: true)
   }
 
@@ -170,8 +172,8 @@ final class ChatController {
 
   // MARK: The owner
 
-  private func say(_ text: String) {
-    tell(.send(text: text, beside: beside()))
+  private func say(_ text: String, quote: ChatModel.Quote?) {
+    tell(.send(text: text, beside: beside(), quote: quote.map { Quote(text: $0.text, from: $0.from) }))
     // KOS says it has the words at once; nothing back in a while is a KOS that cannot talk here.
     taking?.invalidate()
     taking = Timer.scheduledTimer(withTimeInterval: Self.takeWithin, repeats: false) { [weak self] _ in
@@ -250,6 +252,36 @@ final class ChatController {
     model.besideHidden = hidden
     // A hidden app's window title stays on the Mac and out of the window both.
     model.besideTitle = hidden ? nil : app.flatMap { Self.windowTitle(of: $0.processIdentifier) }
+  }
+
+  /// The longest selection sent, as the side panel cuts a page's.
+  private static let quoteLimit = 4_000
+
+  /// What the owner selected in the app in front, read through Accessibility from its focused element. Never from a
+  /// password field, nor from an app they hid from KOS.
+  private func readSelection() {
+    guard let app = frontApp(), !isHidden(app.bundleIdentifier), !Targets.passwordFieldHasFocus else { return model.selected(nil) }
+    let element = AXUIElementCreateApplication(app.processIdentifier)
+    // An app that does not answer is not waited on.
+    AXUIElementSetMessagingTimeout(element, 0.25)
+    guard let focused = Self.attribute(element, kAXFocusedUIElementAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID() else {
+      return model.selected(nil)
+    }
+    let field = focused as! AXUIElement
+    let secure = kAXSecureTextFieldSubrole as String
+    if Self.attribute(field, kAXSubroleAttribute) as? String == secure || Self.attribute(field, kAXRoleAttribute) as? String == secure {
+      return model.selected(nil)
+    }
+    let text = (Self.attribute(field, kAXSelectedTextAttribute) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !text.isEmpty else { return model.selected(nil) }
+    let name = app.localizedName ?? app.bundleIdentifier ?? "an app"
+    let from = Self.windowTitle(of: app.processIdentifier).map { "\(name): \($0)" } ?? name
+    model.selected(.init(text: String(text.prefix(Self.quoteLimit)), from: from))
+  }
+
+  private static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+    var value: CFTypeRef?
+    return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
   }
 
   /// The front window of an app, by its title, when macOS will say it.

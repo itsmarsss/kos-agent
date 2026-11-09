@@ -146,6 +146,7 @@ public struct ChatView: View {
   private var composer: some View {
     VStack(alignment: .leading, spacing: 4) {
       if let menu = model.menu { CommandMenu(options: menu.options, picked: picked, take: model.take) }
+      if let quote = model.quote { QuoteChip(quote: quote, putAside: model.putQuoteAside) }
       TextField("", text: $model.draft, axis: .vertical)
         .textFieldStyle(.plain)
         .lineLimit(1...6)
@@ -153,11 +154,12 @@ public struct ChatView: View {
         .disabled(!model.usable)
         .onSubmit(sendDraft)
         .onChange(of: model.menu?.token.raw) { picked = 0 }
+        .onChange(of: typing) { if typing { model.readSelection() } }
         .onKeyPress(keys: [.upArrow, .downArrow, .tab, .escape]) { press in menuKey(press.key) }
         // The hint drawn here, not as the field's own: in the faint grey, on one line, cut at its end, as the dashboard's.
         .overlay(alignment: .topLeading) {
           if model.draft.isEmpty {
-            Text("Message KOS, / for commands, @ to name things")
+            Text(model.quote == nil ? "Message KOS, / for commands, @ to name things" : "Ask about the selection")
               .foregroundStyle(Theme.faint)
               .lineLimit(1)
               .truncationMode(.tail)
@@ -245,6 +247,27 @@ public struct ChatView: View {
     let words = model.draft
     model.draft = ""
     model.say(words)
+  }
+}
+
+/// What the owner selected in the app in front, going with their next words: its words, where from, and × to leave it out.
+private struct QuoteChip: View {
+  let quote: ChatModel.Quote
+  let putAside: () -> Void
+
+  var body: some View {
+    HStack(alignment: .top, spacing: 8) {
+      Rectangle().fill(Theme.accent.opacity(0.6)).frame(width: 2)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(quote.from).font(.kos(.tiny, .semibold)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
+        Text(quote.text).font(.kos(.detail)).foregroundStyle(Theme.text).lineLimit(2).truncationMode(.tail)
+      }
+      Spacer(minLength: 4)
+      IconButton(symbol: "xmark", label: "Leave the selection out", bare: true, action: putAside)
+    }
+    .fixedSize(horizontal: false, vertical: true)
+    .padding(.vertical, 2)
+    .help("What you selected goes with your message")
   }
 }
 

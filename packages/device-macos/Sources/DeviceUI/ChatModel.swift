@@ -97,6 +97,17 @@ public final class ChatModel: ObservableObject {
   /// What a turn waits on the owner for, as KOS says it.
   public enum Wait: String, Equatable, Sendable { case consent, approval }
 
+  /// What the owner selected in the app in front: its words, and the app and window they are from.
+  public struct Quote: Equatable, Sendable {
+    public let text: String
+    public let from: String
+
+    public init(text: String, from: String) {
+      self.text = text
+      self.from = from
+    }
+  }
+
   /// A session asked for on this Mac's screen by this chat: what for, and when it says no by itself.
   public struct Consent: Equatable, Sendable {
     public let task: String
@@ -165,6 +176,10 @@ public final class ChatModel: ObservableObject {
   /// The token the owner closed the menu on, so it stays closed until they type on.
   @Published public private(set) var menuClosedAt: String?
   private var mentionAsk: Task<Void, Never>?
+  /// What the owner has selected in the app in front, to go once with their next words unless they put it aside.
+  @Published public private(set) var quote: Quote?
+  /// The selection put aside or sent: not offered again until the owner selects something else.
+  private var quoteSetAside: String?
   /// The app in front of the window, which "this" means: its name, or nil for none.
   @Published public var beside: String?
   /// That app's front window, by its title, when macOS says it.
@@ -192,7 +207,9 @@ public final class ChatModel: ObservableObject {
   @Published public var face: FaceLook = .kos
 
   /// What the owner does, for the app to send on.
-  public var send: (String) -> Void = { _ in }
+  public var send: (_ text: String, _ quote: Quote?) -> Void = { _, _ in }
+  /// The box has the owner's attention: what they selected in the app in front is read afresh.
+  public var readSelection: () -> Void = {}
   public var decide: (_ approval: String, _ approved: Bool, _ remember: Bool) -> Void = { _, _, _ in }
   public var list: () -> Void = {}
   public var switchTo: (String) -> Void = { _ in }
@@ -216,9 +233,27 @@ public final class ChatModel: ObservableObject {
     let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !said.isEmpty else { return }
     error = nil
-    if !said.hasPrefix("/") { sending.append(said) }
+    // A command is about the chat, not the app: it goes without the selection, which waits for the next words.
+    let command = said.hasPrefix("/")
+    let quoted = command ? nil : quote
+    if !command { sending.append(said) }
+    if let quoted {
+      quoteSetAside = quoted.text
+      quote = nil
+    }
     working = true
-    send(said)
+    send(said, quoted)
+  }
+
+  /// What the owner has selected now, read afresh: nothing, or what they put aside or sent, offers nothing.
+  public func selected(_ fresh: Quote?) {
+    quote = fresh.flatMap { $0.text == quoteSetAside ? nil : $0 }
+  }
+
+  /// The chip's ×: the selection stays out until the owner selects something else.
+  public func putQuoteAside() {
+    quoteSetAside = quote?.text
+    quote = nil
   }
 
   /// An approval answered: its card goes at once, and a yes goes on working.

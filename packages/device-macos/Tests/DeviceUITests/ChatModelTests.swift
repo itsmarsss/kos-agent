@@ -10,7 +10,7 @@ struct ChatModelTests {
   @Test func wordsWaitUntilTheChatHasThemAndTheTurnEndsWithAnAnswer() {
     let model = ChatModel()
     var sent: [String] = []
-    model.send = { sent.append($0) }
+    model.send = { text, _ in sent.append(text) }
     model.say("  what is this?  ")
     model.say("/new")
     #expect(sent == ["what is this?", "/new"])
@@ -290,5 +290,31 @@ struct ChatModelTests {
     model.session = nil
     model.consent = .init(task: "Look", until: Date())
     #expect(model.busy)
+  }
+
+  /// What the owner selected goes once, with their next words and not with a command, and is not offered again until they select something else.
+  @Test func aSelectionGoesOnceWithTheNextWords() {
+    let model = ChatModel()
+    var sent: [(String, ChatModel.Quote?)] = []
+    model.send = { sent.append(($0, $1)) }
+    let teh = ChatModel.Quote(text: "teh cat", from: "Notes: Draft")
+    model.selected(teh)
+    #expect(model.quote == teh)
+    model.say("/new")
+    #expect(sent.last?.1 == nil)
+    #expect(model.quote == teh)
+    model.say("fix the typo")
+    #expect(sent.last?.1 == teh)
+    #expect(model.quote == nil)
+    // Read afresh: the same words are not offered again, other words are.
+    model.selected(teh)
+    #expect(model.quote == nil)
+    model.selected(.init(text: "the dog", from: "Notes: Draft"))
+    #expect(model.quote?.text == "the dog")
+    model.putQuoteAside()
+    model.selected(.init(text: "the dog", from: "Notes: Draft"))
+    #expect(model.quote == nil)
+    model.selected(nil)
+    #expect(model.quote == nil)
   }
 }
