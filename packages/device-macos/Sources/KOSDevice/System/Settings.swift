@@ -42,6 +42,8 @@ final class Settings {
     static let pace = "pace"
     static let sounds = "sounds"
     static let timeInMenuBar = "timeInMenuBar"
+    static let theme = "theme"
+    static let themeByKOS = "themeByKOS"
   }
 
   static let promptWaitChoices = [30, 60, 120, 300]
@@ -57,6 +59,7 @@ final class Settings {
       Key.askFirst: true, Key.hiddenApps: Self.defaultHiddenApps, Key.longest: Durations.defaultLongest,
       Key.promptWait: 60, Key.idle: 3, Key.connect: true,
       Key.takeover: Takeover.deliberate.rawValue, Key.pace: Pace.shown.rawValue, Key.sounds: true, Key.timeInMenuBar: true,
+      Key.theme: ThemeChoice.dashboard.rawValue,
     ])
   }
 
@@ -82,6 +85,34 @@ final class Settings {
     var map = askFirstByKOS
     map[kos] = nil
     defaults.set(map, forKey: Key.askFirstByKOS)
+    var themes = themeByKOS
+    themes[kos] = nil
+    defaults.set(themes, forKey: Key.themeByKOS)
+  }
+
+  /// How the owner set this app to look: as the dashboard is, or a theme of its own.
+  var theme: ThemeChoice {
+    get { defaults.string(forKey: Key.theme).flatMap(ThemeChoice.init(rawValue:)) ?? .dashboard }
+    set { flag(newValue.rawValue, Key.theme) }
+  }
+
+  /// The theme `kos`'s dashboard last sent, kept so the app opens in it before that KOS answers.
+  func theme(of kos: String) -> ThemeMode? {
+    themeByKOS[kos].flatMap(ThemeMode.init(rawValue:))
+  }
+
+  /// Kept when it is new; false when it is the one already kept. Not the owner's setting, so no onChange.
+  @discardableResult
+  func keep(theme: ThemeMode, of kos: String) -> Bool {
+    var themes = themeByKOS
+    guard themes[kos] != theme.rawValue else { return false }
+    themes[kos] = theme.rawValue
+    defaults.set(themes, forKey: Key.themeByKOS)
+    return true
+  }
+
+  private var themeByKOS: [String: String] {
+    defaults.dictionary(forKey: Key.themeByKOS) as? [String: String] ?? [:]
   }
 
   private var askFirstByKOS: [String: Bool] {

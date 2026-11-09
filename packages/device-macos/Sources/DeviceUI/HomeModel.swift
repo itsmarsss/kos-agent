@@ -1,4 +1,5 @@
 import AppKit
+import DeviceCore
 import SwiftUI
 
 /// What KOS for Mac's window shows, filled by the app. The view only reads it
@@ -65,6 +66,17 @@ public enum Pace: String, CaseIterable, Sendable {
   case shown, quick
 
   public var label: String { self == .shown ? "Show each move" : "Quick" }
+}
+
+extension ThemeChoice {
+  public var label: String {
+    switch self {
+    case .dashboard: return "Same as dashboard"
+    case .light: return "Light"
+    case .dark: return "Dark"
+    case .system: return "System"
+    }
+  }
 }
 
 public enum Grant: CaseIterable, Hashable {
@@ -190,6 +202,7 @@ public struct HomeActions {
   public var setPace: (Pace) -> Void = { _ in }
   public var setSounds: (Bool) -> Void = { _ in }
   public var setTimeInMenuBar: (Bool) -> Void = { _ in }
+  public var setTheme: (ThemeChoice) -> Void = { _ in }
   /// This run's log onto the clipboard, to send.
   public var copyLog: () -> Void = {}
 
@@ -236,6 +249,7 @@ public final class HomeModel: ObservableObject {
   @Published public var pace: Pace = .shown
   @Published public var sounds = true
   @Published public var timeInMenuBar = true
+  @Published public var theme: ThemeChoice = .dashboard
   /// The log was just copied: the button says so for a moment.
   @Published public var logCopied = false
   public var longestChoices = [15, 30, 60, 120, 240, 480]

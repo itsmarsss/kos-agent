@@ -19,7 +19,7 @@ them, so it keeps the same pieces under the same names in Swift.
 
 | What | Shared source | Dashboard | KOS for Chrome | KOS for Mac |
 | --- | --- | --- | --- | --- |
-| Colours, corners, spring, shadow | `shared/src/design.ts` (`COLOURS`, `RADII`, `SPRING`, `FLOAT_SHADOW`) | `:root` in `ui/src/styles.css` | `:root` in `static/kos.css` | `Theme` in `Theme.swift` |
+| Colours, corners, spring, shadow | `shared/src/design.ts` (`COLOURS`, `RADII`, `SPRING`, `FLOAT_SHADOW`) | `:root` in `ui/src/styles.css` | `:root` in `static/kos.css` | `Theme` in `Theme.swift`: each token the dark palette's or the light one's by the appearance it is drawn in, which `AppearanceModel` sets for the whole app (Settings, Theme) |
 | Type scale | `TYPE` in `design.ts` (`--text-xs` to `--text-2xl`) | `--text-*` | `--text-*` | `KOSType` in `Theme.swift` (title 17, body 15, table 14, dense 13, control 12.5, detail 12, small 11.5, tiny 11, the label's size too); `Font.kos(_:_:)` sets one |
 | Hover, press, tints | | 140 ms, 0.97, 14% | the same | `Theme.hover`, `Theme.press`, `Theme.tint`, `Theme.edge` |
 | Hints and empty lines | | `--muted` at `--text-base` (`.hint`, `.empty-text`, `.empty-line`, `.set-hint`) | the same | `Theme.muted` |

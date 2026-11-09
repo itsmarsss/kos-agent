@@ -92,6 +92,7 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     model.pace = settings.pace
     model.sounds = settings.sounds
     model.timeInMenuBar = settings.timeInMenuBar
+    model.theme = settings.theme
     let login: LoginState = switch LaunchAtLogin.state {
     case .on: .on
     case .off: .off
@@ -225,7 +226,6 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     }
     window.title = "KOS for Mac"
     window.isMovableByWindowBackground = true
-    window.appearance = NSAppearance(named: .darkAqua)
     window.backgroundColor = NSColor(Theme.bg)
     window.isReleasedWhenClosed = false
     window.delegate = self

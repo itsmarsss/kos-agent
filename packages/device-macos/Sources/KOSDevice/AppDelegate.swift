@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private lazy var controller = DeviceController(settings: settings, overlay: overlay)
   private lazy var menu = StatusMenu { [unowned self] in snapshot() }
   private lazy var home = HomeWindow(settings: settings)
+  /// Set at launch, before any window, so the first one opens in the owner's theme.
+  private var appearance: AppearanceModel?
   private let chat = ChatController()
   /// The KOS the chat window talks to: chosen once, and kept while it is paired.
   private var chatKOS: String?
@@ -36,7 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     controller.chatLink = { [unowned self] origin, id in try? pairing(origin)?.kosAddress().chat(id) }
     controller.kosName = { [unowned self] origin in pairings.count > 1 ? pairing(origin).map(Self.name) : nil }
     controller.faceOf = { origin in Self.face(of: origin) }
+    appearance = AppearanceModel(choice: settings.theme)
     settings.onChange = { [unowned self] in
+      appearance?.choice = settings.theme
       reportStateIfChanged()
       home.refreshSystem()
       changed()
@@ -63,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     model.actions.setPace = { [unowned self] in settings.pace = $0 }
     model.actions.setSounds = { [unowned self] in settings.sounds = $0 }
     model.actions.setTimeInMenuBar = { [unowned self] in settings.timeInMenuBar = $0 }
+    model.actions.setTheme = { [unowned self] in settings.theme = $0 }
     model.actions.setOpenAtLogin = { [unowned self] on in
       if let refused = LaunchAtLogin.set(on) { alert("macOS did not change it.", refused) }
       home.refreshSystem()
@@ -176,6 +181,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     line.onRemoved = { [unowned self] in forget(id, sayRemoved: true) }
     line.onFace = { [unowned self] face in
       if FaceStore.keep(face, for: id) { changed() }
+    }
+    line.onTheme = { [unowned self] mode in
+      if settings.keep(theme: mode, of: id) { changed() }
     }
     line.onStatus = { [unowned self] status in
       if case .connected = status { lastState[id] = currentState(for: id) }
@@ -315,6 +323,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // The KOS at work, else the first that is connected, else the first there is: the one the window speaks of.
     let shown = origin ?? pairings.first { lines[$0.deviceId]?.isProven == true } ?? pairings.first
     model.face = shown.map { Self.face(of: $0.deviceId) } ?? .kos
+    // The look follows the same KOS: the dashboard the owner would compare it with.
+    appearance?.sent = shown.flatMap { settings.theme(of: $0.deviceId) }
     chat.session = controller.live.map { live in (controller.liveOrigin ?? "", live.conversation, live.paused) }
     chat.asking = controller.asking.map { ($0.origin, $0.conversation, $0.task, $0.until) }
     model.session = controller.live.map { live in
