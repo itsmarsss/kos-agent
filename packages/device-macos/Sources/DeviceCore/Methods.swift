@@ -106,6 +106,21 @@ public struct SessionBeginResult: Encodable, Sendable {
   }
 }
 
+/// A session the owner did not grant without saying no: they let the ask lapse, or it was taken down before they answered.
+/// An answer, not an error, as KOS for Chrome gives it, so KOS remembers it for what it was.
+public struct SessionNotGrantedResult: Encodable, Sendable {
+  public enum Reason: String, Encodable, Sendable {
+    case unanswered, withdrawn
+  }
+
+  public let granted = false
+  public let reason: Reason
+
+  public init(reason: Reason) {
+    self.reason = reason
+  }
+}
+
 /// What a session works in, as KOS is told.
 public struct TargetInfo: Encodable, Equatable, Sendable {
   public let kind: String

@@ -116,7 +116,7 @@ final class DeviceController {
 
   // MARK: Session
 
-  private func begin(_ params: SessionBeginParams, from origin: String) async throws -> SessionBeginResult {
+  private func begin(_ params: SessionBeginParams, from origin: String) async throws -> any Encodable {
     try Durations.validate(params.minutes)
     let edge = params.maxEdge ?? Limits.defaultMaxEdge
     guard Limits.maxEdgeRange.contains(edge) else {
@@ -163,11 +163,11 @@ final class DeviceController {
       case .unanswered:
         Log.session.notice("nobody answered")
         sessions.deny(params.session)
-        throw DeviceError(.denied, "Nobody answered on this Mac in time.")
+        return SessionNotGrantedResult(reason: .unanswered)
       case .withdrawn:
         Log.session.notice("withdrawn before an answer")
         sessions.deny(params.session)
-        throw DeviceError(.noSession, "The request was withdrawn.")
+        return SessionNotGrantedResult(reason: .withdrawn)
       }
     } else {
       // The owner chose, on this Mac, to let KOS's approval queue decide: the window KOS named, if open, else the screen.
