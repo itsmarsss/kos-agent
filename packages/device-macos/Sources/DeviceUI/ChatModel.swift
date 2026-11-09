@@ -94,6 +94,18 @@ public final class ChatModel: ObservableObject {
 
   public enum Session: Equatable, Sendable { case working, paused }
 
+  /// A turn's steps so far, "› " before each, and the owner's words it is about, when KOS said.
+  public struct Story: Equatable, Sendable {
+    public let said: String?
+    public let text: String
+  }
+
+  /// The frame ids a turn on the go saw, oldest first, by the words it is about.
+  public struct Live: Equatable, Sendable {
+    public let said: String?
+    public var frames: [Int]
+  }
+
   /// What was answered outside the chat's words, placed after the owner's `after`th message.
   public struct Notice: Equatable, Sendable {
     public let after: Int
@@ -116,10 +128,10 @@ public final class ChatModel: ObservableObject {
   @Published public private(set) var workingSince: Date?
   /// The words of the turn KOS last took: a turn queued behind another starts its own clock.
   private var takenWords: String?
-  /// The running turn's steps, "› " before each.
-  @Published public private(set) var story: String?
-  /// What the running turn's steps saw, by frame id, oldest first.
-  @Published public private(set) var liveFrames: [Int] = []
+  /// The story of each turn on the go, under the words it is about: one running, and one said meanwhile.
+  @Published public private(set) var stories: [Story] = []
+  /// What each turn on the go saw, by the words it is about.
+  @Published public private(set) var live: [Live] = []
   /// The steps' pictures, JPEG by frame id: sent as each step ran, and with the chat as it stands.
   @Published public private(set) var pictures: [Int: Data] = [:]
   /// The order pictures came in, so the oldest go first past the cap.
@@ -208,8 +220,8 @@ public final class ChatModel: ObservableObject {
     let answered = sending.isEmpty && (notice != nil || !lastIsYours)
     working = !sending.isEmpty || (working && !answered)
     if answered {
-      story = nil
-      liveFrames = []
+      stories = []
+      live = []
     }
     if fresh { asks = [] }
     self.conversation = conversation
@@ -219,12 +231,14 @@ public final class ChatModel: ObservableObject {
   }
 
   /// A turn as it goes, for the owner's words `said` in `conversation`. `story` is `.some(nil)` when KOS said the turn is done.
+  /// Another chat's turn is not this one's: nothing of it is drawn.
   public func status(taken: Bool, story: String??, error: String?, said: String? = nil, conversation: String? = nil) {
+    if let conversation, conversation != self.conversation { return }
     if let error {
       self.error = error
       working = false
-      self.story = nil
-      liveFrames = []
+      stories = []
+      live = []
       // What was waiting was never taken: it goes back to the owner.
       if !sending.isEmpty {
         draft = sending.joined(separator: "\n")
@@ -234,7 +248,7 @@ public final class ChatModel: ObservableObject {
     }
     if taken {
       // Words said somewhere else (on the dashboard, in a Chrome) show here on their way, as if typed here.
-      guard let said, conversation == self.conversation else { return }
+      guard let said, conversation != nil else { return }
       if !sending.contains(said) && !awaiting(said) { sending.append(said) }
       working = true
       if said != takenWords {
@@ -247,22 +261,40 @@ public final class ChatModel: ObservableObject {
     case .some(.some(let steps)):
       // The steps of a turn the chat already shows answered, told once more as it closed: nothing new.
       if sending.isEmpty, let said, answered(said) { return }
-      self.story = steps
+      // Each turn keeps its own: one said meanwhile does not overwrite the one running.
+      let next = Story(said: said, text: steps)
+      if let at = stories.firstIndex(where: { $0.said == said }) { stories[at] = next } else { stories.append(next) }
       working = true
     case .some(.none):
-      working = false
-      self.story = nil
-      liveFrames = []
+      // That turn is done; one still going keeps the foot.
+      stories.removeAll { said == nil || $0.said == said }
+      live.removeAll { said == nil || $0.said == said }
+      working = !stories.isEmpty
     case .none:
       break
     }
   }
 
-  /// A step's picture as the running turn takes it, in `conversation`: kept, and shown under its steps.
-  public func frame(_ id: Int, image: String, conversation: String? = nil) {
+  /// A step's picture as the turn on `said` takes it, in `conversation`: kept, and shown under its steps.
+  public func frame(_ id: Int, image: String, said: String? = nil, conversation: String? = nil) {
     guard conversation == self.conversation, keepPicture(id, image) else { return }
-    liveFrames = liveFrames.filter { $0 != id } + [id]
+    if let at = live.firstIndex(where: { $0.said == said }) {
+      live[at].frames = live[at].frames.filter { $0 != id } + [id]
+    } else {
+      live.append(Live(said: said, frames: [id]))
+    }
   }
+
+  /// What every turn on the go saw, oldest first.
+  public var liveFrames: [Int] { live.flatMap(\.frames) }
+
+  /// What the turn on `said` saw.
+  public func liveFrames(of said: String?) -> [Int] {
+    live.first { $0.said == said }?.frames ?? []
+  }
+
+  /// The latest turn's steps so far.
+  public var story: String? { stories.last?.text }
 
   /// The pictures of these frame ids that the window has, in order.
   public func picturesOf(_ frames: [Int?]) -> [(id: Int, data: Data)] {
@@ -322,8 +354,8 @@ public final class ChatModel: ObservableObject {
     sending = []
     notices = []
     working = false
-    story = nil
-    liveFrames = []
+    stories = []
+    live = []
     pictures = [:]
     pictureOrder = []
     asks = []
@@ -337,8 +369,8 @@ public final class ChatModel: ObservableObject {
   public func giveBack(_ why: String) {
     error = why
     working = false
-    story = nil
-    liveFrames = []
+    stories = []
+    live = []
     if !sending.isEmpty {
       draft = sending.joined(separator: "\n")
       sending = []
@@ -358,18 +390,22 @@ public final class ChatModel: ObservableObject {
     return conversation == nil ? "A chat beside your apps" : title
   }
 
-  /// The running turn's story, as the thread draws it: the steps so far, and what KOS is saying after them.
+  /// The latest turn's story, as the thread draws it: the steps so far, and what KOS is saying after them.
   public var running: (steps: [Step], words: String) {
-    guard let story else { return ([], "") }
+    story.map(Self.read) ?? ([], "")
+  }
+
+  /// A story as the thread draws it: the steps so far, and what KOS is saying after them.
+  public static func read(_ story: String) -> (steps: [Step], words: String) {
     // A long story comes as its tail, cut mid-line after a "…": that first line is a fragment.
     let all = story.components(separatedBy: "\n")
     let lines = (story.hasPrefix("…") ? Array(all.dropFirst()) : all).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-    let steps = lines.filter { $0.hasPrefix(Self.stepMark) }.map { line -> Step in
-      let summary = String(line.dropFirst(Self.stepMark.count))
+    let steps = lines.filter { $0.hasPrefix(stepMark) }.map { line -> Step in
+      let summary = String(line.dropFirst(stepMark.count))
       let failed = summary.hasSuffix(" (failed)")
       return Step(summary: failed ? String(summary.dropLast(" (failed)".count)) : summary, failed: failed)
     }
-    return (steps, lines.filter { !$0.hasPrefix(Self.stepMark) }.joined(separator: "\n"))
+    return (steps, lines.filter { !$0.hasPrefix(stepMark) }.joined(separator: "\n"))
   }
 
   /// An ask is up: the running turn is held on the owner, and its foot says so with no dots and no clock.
@@ -395,22 +431,35 @@ public final class ChatModel: ObservableObject {
     case line(Int, Line)
     case notice(Int, Notice)
     case sending(Int, String)
+    case story(Int, Story)
 
     public var id: String {
       switch self {
       case .line(let i, _): return "l\(i)"
       case .notice(let i, _): return "n\(i)"
       case .sending(let i, _): return "s\(i)"
+      case .story(let i, _): return "t\(i)"
       }
     }
   }
 
-  /// The chat's words, with each notice after the owner's message it answers, then the words still on their way.
+  /// The chat's words and the words still on their way, with each turn's story and each notice after the exchange it is about.
   public var items: [Item] {
     var out: [Item] = []
     var yours = 0
     var placed = Set<Int>()
+    var told = Set<Int>()
+    let words = lines.compactMap { line -> String? in
+      if case .you(let text, _) = line { return text }
+      return nil
+    } + sending
+    // A story goes after the exchange its words began, or after the latest when they are not there.
+    let anchors = stories.map { story in story.said.flatMap { words.lastIndex(of: $0) }.map { $0 + 1 } ?? words.count }
     let place = { (upTo: Int) in
+      for (i, story) in self.stories.enumerated() where anchors[i] <= upTo && !told.contains(i) {
+        out.append(.story(i, story))
+        told.insert(i)
+      }
       for (i, notice) in self.notices.enumerated() where notice.after <= upTo && !placed.contains(i) {
         out.append(.notice(i, notice))
         placed.insert(i)
@@ -423,8 +472,12 @@ public final class ChatModel: ObservableObject {
       }
       out.append(.line(i, line))
     }
+    for (i, text) in sending.enumerated() {
+      place(yours)
+      yours += 1
+      out.append(.sending(i, text))
+    }
     place(Int.max)
-    for (i, text) in sending.enumerated() { out.append(.sending(i, text)) }
     return out
   }
 }

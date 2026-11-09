@@ -112,11 +112,6 @@ public struct ChatView: View {
           ForEach(model.items) { item in
             ItemView(item: item, model: model)
           }
-          if model.working {
-            let running = model.running
-            if !running.steps.isEmpty { Steps(steps: running.steps, live: true, pictures: model.picturesOf(model.liveFrames)) }
-            if !running.words.isEmpty { ChatMarkdown(running.words).foregroundStyle(Theme.muted) }
-          }
           // At the foot for as long as the turn runs: words after the steps are not the end of the work.
           if let foot = model.foot { Working(what: foot, since: model.workingSince ?? Date(), live: !model.waitingOnOwner) }
           ForEach(model.asks) { ask in AskCard(ask: ask, answer: model.answer) }
@@ -128,7 +123,7 @@ public struct ChatView: View {
         .textSelection(.enabled)
       }
       .onChange(of: model.items.count) { reader.scrollTo("end", anchor: .bottom) }
-      .onChange(of: model.story) { reader.scrollTo("end", anchor: .bottom) }
+      .onChange(of: model.stories) { reader.scrollTo("end", anchor: .bottom) }
       .onChange(of: model.asks.count) { reader.scrollTo("end", anchor: .bottom) }
       .onAppear { reader.scrollTo("end", anchor: .bottom) }
     }
@@ -328,6 +323,11 @@ private struct ItemView: View {
       }
     case .sending(_, let text):
       Bubble(text: text, files: []).opacity(0.6)
+    case .story(_, let story):
+      // A turn on the go: its steps so far, live, and what KOS is saying after them.
+      let told = ChatModel.read(story.text)
+      if !told.steps.isEmpty { Steps(steps: told.steps, live: true, pictures: model.picturesOf(model.liveFrames(of: story.said))) }
+      if !told.words.isEmpty { ChatMarkdown(told.words).foregroundStyle(Theme.muted) }
     }
   }
 }

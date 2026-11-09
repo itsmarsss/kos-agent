@@ -189,4 +189,41 @@ struct ChatModelTests {
     model.show(conversation: "cm1:owner", title: "Trip", lines: [])
     #expect(model.asks.isEmpty)
   }
+
+  /// Words said while a turn runs get their own story: neither overwrites the other, and each sits under its own words.
+  @Test func eachTurnKeepsItsOwnStoryUnderItsWords() {
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [.you("count the books", files: [])])
+    model.status(taken: false, story: .some("› Run a query"), error: nil, said: "count the books", conversation: "mac:owner")
+    model.say("and the shelves")
+    model.status(taken: true, story: nil, error: nil, said: "and the shelves", conversation: "mac:owner")
+    model.status(taken: false, story: .some("Noted, after this."), error: nil, said: "and the shelves", conversation: "mac:owner")
+    model.status(taken: false, story: .some("› Run a query\n› Count rows"), error: nil, said: "count the books", conversation: "mac:owner")
+    #expect(model.stories.map(\.said) == ["count the books", "and the shelves"])
+    #expect(model.stories.first?.text == "› Run a query\n› Count rows")
+    #expect(model.items.map(\.id) == ["l0", "t0", "s0", "t1"])
+    // Its frames stay with it.
+    let abc = Data("ABC".utf8).base64EncodedString()
+    model.frame(4, image: abc, said: "count the books", conversation: "mac:owner")
+    #expect(model.liveFrames(of: "count the books") == [4])
+    #expect(model.liveFrames(of: "and the shelves").isEmpty)
+    // The first is done; the second still runs, and the foot stays.
+    model.status(taken: false, story: .some(nil), error: nil, said: "count the books", conversation: "mac:owner")
+    #expect(model.stories.map(\.said) == ["and the shelves"])
+    #expect(model.working)
+    #expect(model.liveFrames.isEmpty)
+  }
+
+  /// A turn in another chat says nothing here: not its story, not its end, not its error.
+  @Test func anotherChatsTurnIsNotDrawn() {
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [.you("look", files: [])])
+    model.status(taken: false, story: .some("› Look"), error: nil, said: "look", conversation: "mac:owner")
+    model.status(taken: false, story: .some("› Elsewhere"), error: nil, said: "other", conversation: "cm1:owner")
+    model.status(taken: false, story: .some(nil), error: nil, said: "look", conversation: "cm1:owner")
+    model.status(taken: false, story: nil, error: "halted", conversation: "cm1:owner")
+    #expect(model.story == "› Look")
+    #expect(model.working)
+    #expect(model.error == nil)
+  }
 }

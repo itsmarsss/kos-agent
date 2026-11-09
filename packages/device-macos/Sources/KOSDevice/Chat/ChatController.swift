@@ -103,7 +103,7 @@ final class ChatController {
         showing = nil
         model.silent = false
         model.show(
-          conversation: p.conversation, title: p.title, lines: p.messages.compactMap(Self.line),
+          conversation: p.chat ?? p.conversation, title: p.title, lines: p.messages.compactMap(Self.line),
           notice: p.notice.map { ($0.text, $0.from, $0.waiting ?? false) }, auto: p.auto ?? false,
           pictures: Dictionary(uniqueKeysWithValues: (p.pictures ?? [:]).compactMap { k, v in Int(k).map { ($0, v) } }))
       case .status:
@@ -111,10 +111,10 @@ final class ChatController {
         heardBack()
         // A step's picture comes on its own: the turn's story is told apart, and is not ended by it.
         if let frame = p.frame {
-          model.frame(frame.id, image: frame.image, conversation: p.conversation)
+          model.frame(frame.id, image: frame.image, said: p.said, conversation: p.turnChat)
           return try? Outbound.reply(id: call.id, result: EmptyResult())
         }
-        model.status(taken: p.taken ?? false, story: p.story, error: p.error, said: p.said, conversation: p.conversation)
+        model.status(taken: p.taken ?? false, story: p.story, error: p.error, said: p.said, conversation: p.turnChat)
       case .ask:
         let a = try call.params(ChatAsk.self).approval
         model.ask(.init(id: a.id, tool: a.tool, args: a.args, mechanics: a.mechanics, why: a.why, reason: a.reason, always: a.always))
