@@ -15,9 +15,9 @@ import { DeviceStore } from "./store.js";
 const hostPrivate = generateKeyPairSync("ed25519").privateKey;
 const hostKey = { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) };
 
-function setup(over: { halted?: () => boolean; face?: () => FaceDrawing } = {}) {
+function setup(over: { halted?: () => boolean; face?: () => FaceDrawing; handBackWaitMs?: number } = {}) {
   const store = new DeviceStore(openDatabase(":memory:"));
-  const hub = new DeviceHub({ store, hostKey, halted: over.halted ?? (() => false), log: () => undefined, beginTimeoutMs: 200, callTimeoutMs: 200, ...(over.face ? { face: over.face } : {}) });
+  const hub = new DeviceHub({ store, hostKey, halted: over.halted ?? (() => false), log: () => undefined, beginTimeoutMs: 200, callTimeoutMs: 200, ...(over.face ? { face: over.face } : {}), ...(over.handBackWaitMs ? { handBackWaitMs: over.handBackWaitMs } : {}) });
   return { store, hub };
 }
 
@@ -355,6 +355,56 @@ describe("a session", () => {
     expect(hub.sessionOf("c1")).toBeUndefined();
     expect(fake.closed?.code).toBe(CLOSE.unauthorized);
     expect(other.closed).toBeUndefined();
+  });
+
+  it("is asked for while the hub says so, and a withdrawn ask takes the prompt down and gives back a late yes", async () => {
+    const { hub } = setup();
+    const fake = await online(hub);
+    fake.answers.delete("session.begin");
+    const asked = hub.begin({ conversation: "c1", device: hub.find(undefined)!, task: "t", requester: "r", minutes: 5 });
+    const failed = asked.catch((err: unknown) => err);
+    await settle();
+    expect(hub.asking("c1")).toBe(true);
+    expect(hub.withdraw("c1")).toBe(true);
+    expect(await failed).toMatchObject({ code: "stopped" });
+    expect(hub.asking("c1")).toBe(false);
+    const id = fake.calls[0]!.params["session"];
+    expect(fake.calls.filter((c) => c.method === "session.end")).toEqual([{ method: "session.end", params: { session: id } }]);
+    fake.answer("session.begin", { granted: true, until: Date.now() + 60_000, space: { width: 10, height: 10 } });
+    await settle();
+    expect(fake.calls.filter((c) => c.method === "session.end")).toHaveLength(2);
+    expect(hub.sessionOf("c1")).toBeUndefined();
+    expect(hub.withdraw("c1")).toBe(false);
+  });
+
+  it("tells an ask the owner never answered from one they refused", async () => {
+    const { hub } = setup();
+    const fake = await online(hub);
+    const begin = () => hub.begin({ conversation: "c1", device: hub.find(undefined)!, task: "t", requester: "r", minutes: 5 });
+    fake.answers.set("session.begin", () => ({ ok: true, result: { granted: false, reason: "unanswered" } }));
+    await expect(begin()).rejects.toMatchObject({ code: "unanswered" });
+    fake.answers.set("session.begin", () => ({ ok: true, result: { granted: false } }));
+    await expect(begin()).rejects.toMatchObject({ code: "denied" });
+  });
+
+  it("waits for the owner to hand it back, and says when they kept it, it ended, or Stop came first", async () => {
+    const { hub } = setup({ handBackWaitMs: 40 });
+    const fake = await online(hub);
+    const session = await hub.begin({ conversation: "c1", device: hub.find(undefined)!, task: "t", requester: "r", minutes: 5 });
+    expect(await hub.untilHandedBack("c1")).toBe(false);
+    fake.event("session.paused", { session: session.id, reason: "owner" });
+    const back = hub.untilHandedBack("c1");
+    fake.event("session.resumed", { session: session.id });
+    expect(await back).toBe(true);
+    fake.event("session.paused", { session: session.id, reason: "owner" });
+    await expect(hub.untilHandedBack("c1")).rejects.toMatchObject({ code: "held" });
+    const stop = new AbortController();
+    const stopped = hub.untilHandedBack("c1", stop.signal);
+    stop.abort();
+    await expect(stopped).rejects.toMatchObject({ code: "stopped" });
+    const ending = hub.untilHandedBack("c1");
+    fake.event("session.ended", { session: session.id, reason: "owner" });
+    await expect(ending).rejects.toMatchObject({ code: "no_session" });
   });
 
   it("is stopped from the dashboard, and goes with a device that is unpaired", async () => {

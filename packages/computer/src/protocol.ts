@@ -190,6 +190,8 @@ export interface Grant {
   until: number;
   space: Size;
   target: Target;
+  /** A Chrome's: the site the owner let the session act on without asking each step. */
+  site?: string;
 }
 
 /** What `screen.capture` answers. */
