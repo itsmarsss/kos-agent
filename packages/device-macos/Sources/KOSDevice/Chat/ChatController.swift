@@ -22,7 +22,11 @@ final class ChatController {
   var session: (origin: String, conversation: String?, paused: Bool)? { didSet { scope() } }
   var asking: (origin: String, conversation: String?, task: String, until: Date)? { didSet { scope() } }
 
-  private lazy var window = ChatWindow(model: model)
+  private lazy var window: ChatWindow = {
+    let window = ChatWindow(model: model)
+    window.onKey = { [weak self] in self?.readSelection() }
+    return window
+  }()
   /// Whether the window was ever made: stepping aside does not make one.
   private var made = false
   private var talkingTo: String?
@@ -30,8 +34,14 @@ final class ChatController {
   private var taking: Timer?
   /// Set while the window waits for a KOS that is on to show the chat.
   private var showing: Timer?
-  private var lastFront: NSRunningApplication?
+  /// The app the owner was in, watched from launch so it is known when the window first opens over KOS for Mac's own.
+  private var front = FrontTracker<NSRunningApplication> { $0.processIdentifier == ProcessInfo.processInfo.processIdentifier }
   private var frontWatch: NSObjectProtocol?
+  private let selection = SelectionReader(Accessibility())
+  private var reading: Task<Void, Never>?
+  private var readAgain = false
+  /// The owner was told once that without Accessibility the window cannot bring in what they select.
+  private var toldAccess = false
 
   /// How long the window waits to hear that KOS has the owner's words before it gives them back.
   private static let takeWithin: TimeInterval = 12
@@ -48,6 +58,8 @@ final class ChatController {
     model.setAuto = { [weak self] on in self?.tell(.auto(on)) }
     model.askMentions = { [weak self] q in self?.tell(.mentions(q)) }
     model.close = { [weak self] in self?.close() }
+    watchFront()
+    front.note(NSWorkspace.shared.frontmostApplication)
   }
 
   var isOpen: Bool { window.isVisible }
@@ -63,8 +75,8 @@ final class ChatController {
 
   func open() {
     made = true
-    watchFront()
     noteFront()
+    // Up first, then read: becoming key reads it too, and the newer read wins.
     window.present()
     readSelection()
     refresh(asking: true)
@@ -195,7 +207,7 @@ final class ChatController {
   /// front, so the keys land there. AppKit gives a window the keyboard only by activating another app, never by
   /// telling the window to resign it. Waits a moment for the switch; the caller still refuses if it did not happen.
   func yieldKeys() async {
-    guard made, window.isKeyWindow, let app = lastFront, !app.isTerminated else { return }
+    guard made, window.isKeyWindow, let app = front.last, !app.isTerminated else { return }
     NSApp.yieldActivation(to: app)
     app.activate()
     var waited = 0
@@ -238,8 +250,7 @@ final class ChatController {
   }
 
   private func frontApp() -> NSRunningApplication? {
-    let front = NSWorkspace.shared.frontmostApplication
-    return front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? lastFront : front
+    front.beside(front: NSWorkspace.shared.frontmostApplication)
   }
 
   /// The window says which app "this" is, and follows the owner as they move between apps.
@@ -251,15 +262,15 @@ final class ChatController {
       let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
       MainActor.assumeIsolated {
         guard let self else { return }
-        if let app, app.processIdentifier != ProcessInfo.processInfo.processIdentifier { self.lastFront = app }
-        self.noteFront()
+        self.front.note(app)
+        if self.made { self.noteFront() }
       }
     }
   }
 
   private func noteFront() {
+    front.note(NSWorkspace.shared.frontmostApplication)
     let app = frontApp()
-    if let app, app.processIdentifier != ProcessInfo.processInfo.processIdentifier { lastFront = app }
     model.beside = app?.localizedName
     let hidden = app.map { isHidden($0.bundleIdentifier) } ?? false
     model.besideHidden = hidden
@@ -267,34 +278,46 @@ final class ChatController {
     model.besideTitle = hidden ? nil : app.flatMap { Self.windowTitle(of: $0.processIdentifier) }
   }
 
-  /// The longest selection sent, as the side panel cuts a page's.
-  private static let quoteLimit = 4_000
+  /// How long an app that was just asked for its Accessibility tree is given to build it.
+  private static let treeWait: UInt64 = 200_000_000
+  private static let accessHint = "Allow Accessibility for KOS for Mac, in System Settings, Privacy & Security, to bring in what you select."
 
-  /// What the owner selected in the app in front, read through Accessibility from its focused element. Never from a
-  /// password field, nor from an app they hid from KOS.
+  /// What the owner selected in the app beside the window (SelectionReader). Never from a password field, nor from
+  /// an app they hid from KOS. Asked again while a read is going (the window up, then the box focused), it reads
+  /// once more after it, so the newest answer is shown and an app building its tree is not read half built.
   private func readSelection() {
-    guard let app = frontApp(), !isHidden(app.bundleIdentifier), !Targets.passwordFieldHasFocus else { return model.selected(nil) }
-    let element = AXUIElementCreateApplication(app.processIdentifier)
-    // An app that does not answer is not waited on.
-    AXUIElementSetMessagingTimeout(element, 0.25)
-    guard let focused = Self.attribute(element, kAXFocusedUIElementAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID() else {
-      return model.selected(nil)
+    guard reading == nil else {
+      readAgain = true
+      return
     }
-    let field = focused as! AXUIElement
-    let secure = kAXSecureTextFieldSubrole as String
-    if Self.attribute(field, kAXSubroleAttribute) as? String == secure || Self.attribute(field, kAXRoleAttribute) as? String == secure {
-      return model.selected(nil)
+    guard let app = frontApp() else { return model.selected(nil) }
+    let target = SelectionApp(pid: app.processIdentifier, bundle: app.bundleIdentifier)
+    let hidden = isHidden(app.bundleIdentifier)
+    reading = Task { [weak self] in
+      guard let self else { return }
+      let read = await selection.read(target, hidden: hidden, secureInput: { Targets.passwordFieldHasFocus }) {
+        try? await Task.sleep(nanoseconds: Self.treeWait)
+      }
+      reading = nil
+      guard !readAgain else {
+        readAgain = false
+        return readSelection()
+      }
+      show(read, from: app)
     }
-    let text = (Self.attribute(field, kAXSelectedTextAttribute) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    guard !text.isEmpty else { return model.selected(nil) }
-    let name = app.localizedName ?? app.bundleIdentifier ?? "an app"
-    let from = Self.windowTitle(of: app.processIdentifier).map { "\(name): \($0)" } ?? name
-    model.selected(.init(text: String(text.prefix(Self.quoteLimit)), from: from))
   }
 
-  private static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
-    var value: CFTypeRef?
-    return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
+  private func show(_ read: SelectionRead, from app: NSRunningApplication) {
+    if read == .untrusted, !toldAccess {
+      toldAccess = true
+      model.hint = Self.accessHint
+    } else if read != .untrusted {
+      model.hint = nil
+    }
+    guard case .text(let text) = read else { return model.selected(nil) }
+    let name = app.localizedName ?? app.bundleIdentifier ?? "an app"
+    let from = Self.windowTitle(of: app.processIdentifier).map { "\(name): \($0)" } ?? name
+    model.selected(.init(text: text, from: from))
   }
 
   /// The front window of an app, by its title, when macOS will say it.

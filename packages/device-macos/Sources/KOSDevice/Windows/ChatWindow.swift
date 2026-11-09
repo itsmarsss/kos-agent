@@ -9,6 +9,8 @@ import SwiftUI
 @MainActor
 final class ChatWindow: NSPanel {
   private static let place = "KOSChatWindow"
+  /// The window took the keyboard: what the owner selected is read again.
+  var onKey: (() -> Void)?
 
   init(model: ChatModel) {
     super.init(
@@ -37,6 +39,11 @@ final class ChatWindow: NSPanel {
   }
 
   override var canBecomeKey: Bool { true }
+
+  override func becomeKey() {
+    super.becomeKey()
+    onKey?()
+  }
 
   func present() {
     orderFrontRegardless()
