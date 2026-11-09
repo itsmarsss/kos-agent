@@ -72,7 +72,9 @@ project answers as itself. Each channel is bound to its conversation by the
 rename stays bound. A project or blob renamed in KOS renames its channel
 and topic at the next layout, but leaves a name you gave the channel
 yourself, and Discord's limit of two renames in ten minutes is waited out
-rather than fought; a chat renamed anywhere renames its thread, and a
+rather than fought: a topic KOS changes counts toward it too, and an edit
+Discord would hold is left for a later layout rather than holding this
+one, so a new channel is never kept waiting behind a rename; a chat renamed anywhere renames its thread, and a
 thread you rename on Discord retitles its chat; a thread KOS made is bound by id, since threads have
 no topic. A thread you start yourself under a project's channel is a new
 chat in that project, titled as the thread, and that thread is bound to it

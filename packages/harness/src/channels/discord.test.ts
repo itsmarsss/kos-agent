@@ -29,6 +29,7 @@ import {
   chunkText,
   isNetworkError,
   parseApprovalCustomId,
+  refusesLongChannelEdit,
   runNowReply,
   type RunNowOutcome,
   type KeptPrompts,
@@ -2443,22 +2444,30 @@ describe("a slash command in a room", () => {
 });
 
 describe("renames", () => {
-  function server(channels: Record<string, unknown>[]): { adapter: DiscordAdapter; edits: { id: string; edit: Record<string, unknown> }[] } {
+  function server(channels: Record<string, unknown>[], refuse?: () => boolean): { adapter: DiscordAdapter; edits: { id: string; edit: Record<string, unknown> }[]; made: string[] } {
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1" });
     const edits: { id: string; edit: Record<string, unknown> }[] = [];
+    const made: string[] = [];
     const existing = new Map<string, unknown>([
       ["cat", { id: "cat", type: ChannelType.GuildCategory, name: "Projects" }],
       ...channels.map((c) => {
         const live = { type: ChannelType.GuildText, parentId: "cat", ...c } as Record<string, unknown>;
         live.edit = async (e: Record<string, unknown>) => {
+          // As discord.js refuses an edit Discord would hold for minutes.
+          if (refuse?.()) throw Object.assign(new Error("rate limited"), { timeToReset: 540_000, route: "/channels/:id", method: "PATCH" });
           edits.push({ id: String(live.id), edit: e });
           Object.assign(live, e);
         };
+        live.setTopic = async (topic: string) => (live.edit as (e: Record<string, unknown>) => Promise<void>)({ topic });
         return [String(c.id), live] as [string, unknown];
       }),
     ]);
-    (adapter as unknown as { client: unknown }).client = { guilds: { fetch: async () => ({ id: "g1", channels: { fetch: async () => existing } }) } };
-    return { adapter, edits };
+    const create = async (o: { name: string }) => (made.push(o.name), { id: `new-${o.name}`, name: o.name, threads: undefined });
+    (adapter as unknown as { client: unknown }).client = {
+      guilds: { fetch: async () => ({ id: "g1", channels: { fetch: async () => existing, create } }) },
+      channels: { fetch: async (id: string) => existing.get(id) ?? null },
+    };
+    return { adapter, edits, made };
   }
   const plan = (title: string) => ({ key: "project:garden", name: channelName(title), topic: `kos:project:garden · ${title}`, category: "Projects" });
 
@@ -2487,6 +2496,42 @@ describe("renames", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("skips a rename Discord would hold, makes the new channels meanwhile, and renames at the next layout", async () => {
+    let limited = true;
+    const { adapter, edits, made } = server([{ id: "c1", name: "garden", topic: "kos:project:garden · Garden" }], () => limited);
+    const fresh = { key: "project:shed", name: "shed", topic: "kos:project:shed · Shed", category: "Projects" };
+    await adapter.sync([plan("Veg Patch"), fresh]);
+    expect(edits).toEqual([]);
+    expect(made).toEqual(["shed"]);
+    limited = false;
+    await adapter.sync([plan("Veg Patch")]);
+    expect(edits).toEqual([{ id: "c1", edit: { name: "veg-patch", topic: "kos:project:garden · Veg Patch" } }]);
+  });
+
+  it("counts letting a channel go toward Discord's limit, and lets it go at a later layout when past it", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      const { adapter, edits } = server([{ id: "c1", name: "garden", topic: "kos:project:garden · Garden" }]);
+      for (const title of ["A", "B"]) await adapter.sync([plan(title)]);
+      await adapter.unbindChannel("project:garden");
+      expect(edits).toHaveLength(2);
+      vi.setSystemTime(11 * 60_000);
+      await adapter.sync([]);
+      expect(edits.at(-1)).toEqual({ id: "c1", edit: { topic: "B" } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses only a channel edit Discord would hold for more than a few seconds", () => {
+    expect(refusesLongChannelEdit({ method: "PATCH", route: "/channels/:id", timeToReset: 540_000 })).toBe(true);
+    expect(refusesLongChannelEdit({ method: "patch", route: "/channels/:id", timeToReset: 0, sublimitTimeout: 300_000 })).toBe(true);
+    expect(refusesLongChannelEdit({ method: "PATCH", route: "/channels/:id", timeToReset: 1_000 })).toBe(false);
+    expect(refusesLongChannelEdit({ method: "PATCH", route: "/channels/:id/messages/:id", timeToReset: 540_000 })).toBe(false);
+    expect(refusesLongChannelEdit({ method: "POST", route: "/channels/:id", timeToReset: 540_000 })).toBe(false);
   });
 
   it("names a chat's thread as the chat, leaving one already so named alone", async () => {

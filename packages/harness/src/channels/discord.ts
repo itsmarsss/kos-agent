@@ -106,6 +106,24 @@ function snowflakeAt(id: string): number {
 /** Discord lets a channel's name or topic change this many times in the window. */
 const RENAMES_PER_WINDOW = 2;
 const RENAME_WINDOW_MS = 10 * 60_000;
+/** A channel edit Discord would hold longer than this is refused at once, and made at a later layout. */
+const EDIT_WAIT_MAX_MS = 5_000;
+
+/**
+ * Whether discord.js should refuse a rate-limited request rather than wait
+ * it out: a channel or thread edit (a name, a topic) that would wait more
+ * than a few seconds. Waited out, one rename held the whole layout, new
+ * channels included, for up to ten minutes.
+ */
+export function refusesLongChannelEdit(limit: { method: string; route: string; timeToReset: number; retryAfter?: number; sublimitTimeout?: number }): boolean {
+  return limit.method.toUpperCase() === "PATCH" && limit.route === "/channels/:id" && Math.max(limit.timeToReset, limit.retryAfter ?? 0, limit.sublimitTimeout ?? 0) > EDIT_WAIT_MAX_MS;
+}
+
+/** A request refused for Discord's rate limit, by discord.js or by Discord itself. */
+function isRateLimited(err: unknown): boolean {
+  const e = err as { timeToReset?: unknown; route?: unknown; status?: unknown } | null;
+  return (typeof e?.timeToReset === "number" && typeof e.route === "string") || e?.status === 429;
+}
 /** How many sends may wait for a dropped gateway; past it the oldest goes. */
 const OUTBOX_MAX = 100;
 /** How long a send that failed on the network waits before it is tried again, while the gateway stays up. */
@@ -1007,6 +1025,7 @@ export class DiscordAdapter implements ChannelAdapter {
       // text, not a call on the whole server. A reply that names a member
       // allows that member alone (see pings).
       allowedMentions: { parse: [] },
+      rest: { rejectOnRateLimit: refusesLongChannelEdit },
     });
     /*
      * A gateway error is a log line, not the end of the host.
@@ -1557,11 +1576,12 @@ export class DiscordAdapter implements ChannelAdapter {
    */
   async sync(plans: ChannelPlan[]): Promise<{ created: string[]; kept: string[]; threads: ThreadMade[]; audiences: Record<string, Audience> }> {
     if (!this.guildId) return { created: [], kept: [], threads: [], audiences: {} };
-    // Thread renames that had to wait for Discord's limit, tried again.
+    // Thread renames and let-gos that had to wait for Discord's limit, tried again.
     for (const [threadId, title] of [...this.waitingRenames]) {
       this.waitingRenames.delete(threadId);
       await this.renameThread(threadId, title).catch(() => undefined);
     }
+    for (const key of [...this.waitingUnbinds.keys()]) await this.unbindChannel(key).catch(() => undefined);
     const guild = await this.client.guilds.fetch(this.guildId);
     const { bound, categories, loose } = await this.boundChannels(guild);
     const created: string[] = [];
@@ -1608,14 +1628,24 @@ export class DiscordAdapter implements ChannelAdapter {
           // Renamed in KOS: the topic follows, and the name too unless the
           // owner gave the channel one of their own. Discord allows two such
           // edits in ten minutes; one past that waits for a later layout.
+          // Refused for Discord's limit, it is left for a later layout, which finds it still to do.
           if (have.channel.edit && this.mayRename(have.id)) {
             const name = have.name === channelName(was) ? { name: plan.name } : {};
-            await have.channel.edit({ ...name, topic: wanted });
-            if ("name" in name) have.name = plan.name;
+            const edited = await have.channel.edit({ ...name, topic: wanted }).then(
+              () => true,
+              (err: unknown) => {
+                if (isRateLimited(err)) return false;
+                throw err;
+              },
+            );
+            if (edited && "name" in name) have.name = plan.name;
           }
-        } else if (wanted !== plan.topic && have.channel.setTopic && boundKeyOf(have.channel.topic) === plan.key && !(have.channel.topic ?? "").includes("/#/chats/")) {
-          // The link to the chat, added once to a channel from before it was in the topic.
-          await have.channel.setTopic(wanted);
+        } else if (wanted !== plan.topic && have.channel.setTopic && boundKeyOf(have.channel.topic) === plan.key && !(have.channel.topic ?? "").includes("/#/chats/") && this.mayRename(have.id)) {
+          // The link to the chat, added once to a channel from before it was
+          // in the topic. A topic edit counts toward Discord's limit too.
+          await have.channel.setTopic(wanted).catch((err: unknown) => {
+            if (!isRateLimited(err)) throw err;
+          });
         }
         if (have.parentId !== parent && (!have.parentId || own.has(have.parentId))) await have.channel.setParent?.(parent, { lockPermissions: false });
       } else {
@@ -1651,6 +1681,8 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly renamedAt = new Map<string, number[]>();
   /** Thread renames held back by that limit, for the next layout. */
   private readonly waitingRenames = new Map<string, string>();
+  /** Channels to let go held back by that limit, by what they were bound to, for the next layout. */
+  private readonly waitingUnbinds = new Map<string, string>();
 
   /** Whether a channel or thread may be renamed now; counted when it may. */
   private mayRename(id: string): boolean {
@@ -1675,7 +1707,10 @@ export class DiscordAdapter implements ChannelAdapter {
       this.waitingRenames.set(threadId, title);
       return;
     }
-    await thread.setName(name);
+    await thread.setName(name).catch((err: unknown) => {
+      if (!isRateLimited(err)) throw err;
+      this.waitingRenames.set(threadId, title);
+    });
   }
 
   /** Whether some thread already stands for a conversation; the kernel's bindings say. */
@@ -1822,11 +1857,21 @@ export class DiscordAdapter implements ChannelAdapter {
    * plain words, so nothing makes the chat again from it.
    */
   async unbindChannel(key: string): Promise<void> {
-    const id = this.boundIds.get(key);
+    const id = this.boundIds.get(key) ?? this.waitingUnbinds.get(key);
     if (!id) return;
     this.boundIds.delete(key);
+    this.waitingUnbinds.delete(key);
     const channel = (await this.place(id)) as { topic?: string | null; setTopic?: (t: string) => Promise<unknown> } | null;
-    if (channel?.setTopic && boundKeyOf(channel.topic) === key) await channel.setTopic(plainTopic(channel.topic));
+    if (!channel?.setTopic || boundKeyOf(channel.topic) !== key) return;
+    // A topic edit counts toward Discord's limit: past it, or refused for it, the next layout lets it go.
+    if (!this.mayRename(id)) {
+      this.waitingUnbinds.set(key, id);
+      return;
+    }
+    await channel.setTopic(plainTopic(channel.topic)).catch((err: unknown) => {
+      if (!isRateLimited(err)) throw err;
+      this.waitingUnbinds.set(key, id);
+    });
   }
 
   /**
