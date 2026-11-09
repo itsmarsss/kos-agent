@@ -55,6 +55,17 @@ final class DeviceController {
     overlay.onExtend = { [weak self] in self?.extend() }
   }
 
+  /// A session asked for on the owner's screen: by which KOS, for which chat, what for, and when it says no by itself.
+  struct Asking {
+    let origin: String
+    let conversation: String?
+    let task: String
+    let until: Date
+  }
+
+  /// The ask up on the owner's screen now.
+  private(set) var asking: Asking?
+
   var live: LiveSession? { sessions.live }
   /// The KOS the live session is for.
   var liveOrigin: String? { sessions.live == nil ? nil : sessions.origin }
@@ -129,7 +140,12 @@ final class DeviceController {
         offered: Durations.offered(requested: params.minutes, longest: longest), longest: longest, wait: settings.promptWaitSeconds,
         targets: choices, target: suggested.map { String($0.id) } ?? TargetChoice.screen, suggested: suggested?.app,
         chime: settings.sounds)
-      switch await consent.ask(request) {
+      asking = Asking(origin: origin, conversation: params.conversation, task: task, until: Date().addingTimeInterval(TimeInterval(request.wait)))
+      onChange?()
+      let answer = await consent.ask(request)
+      asking = nil
+      onChange?()
+      switch answer {
       case .allowed(let chosen, let target):
         minutes = chosen
         picked = target

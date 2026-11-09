@@ -113,8 +113,16 @@ public struct ChatView: View {
             ItemView(item: item, model: model)
           }
           // At the foot for as long as the turn runs: words after the steps are not the end of the work.
-          if let foot = model.foot { Working(what: foot, since: model.workingSince ?? Date(), live: !model.waitingOnOwner) }
+          // The owner holding the Mac, it is theirs to hand back or stop, here as on the bar.
+          if let foot = model.foot {
+            if model.heldByOwner {
+              HeldCard(handBack: model.handBack, stop: model.stop)
+            } else {
+              Working(what: foot, since: model.workingSince ?? Date(), live: model.footLive)
+            }
+          }
           ForEach(model.asks) { ask in AskCard(ask: ask, answer: model.answer) }
+          if let consent = model.consent { ConsentCard(consent: consent) }
           Color.clear.frame(height: 1).id("end")
         }
         .padding(.horizontal, 16)
@@ -125,6 +133,8 @@ public struct ChatView: View {
       .onChange(of: model.items.count) { reader.scrollTo("end", anchor: .bottom) }
       .onChange(of: model.stories) { reader.scrollTo("end", anchor: .bottom) }
       .onChange(of: model.asks.count) { reader.scrollTo("end", anchor: .bottom) }
+      .onChange(of: model.consent) { reader.scrollTo("end", anchor: .bottom) }
+      .onChange(of: model.heldByOwner) { reader.scrollTo("end", anchor: .bottom) }
       .onAppear { reader.scrollTo("end", anchor: .bottom) }
     }
   }
@@ -482,6 +492,45 @@ private struct Working: View {
     let rise = at < 0.3 ? at / 0.3 : at < 0.6 ? 1 - (at - 0.3) / 0.3 : 0
     return 0.25 + 0.75 * rise
   }
+}
+
+/// The owner took the Mac over from this chat's turn: KOS waits for it back, or for Stop.
+private struct HeldCard: View {
+  let handBack: () -> Void
+  let stop: () -> Void
+
+  var body: some View {
+    Card(tone: Theme.warn, padding: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)) {
+      RowText("Paused, you have control", "KOS waits until you hand it back.", size: .control)
+      HStack(spacing: 6) {
+        Button("Hand back", action: handBack).buttonStyle(KOSButtonStyle(.primary))
+        Button("Stop", action: stop).buttonStyle(KOSButtonStyle(.danger))
+      }
+    }
+  }
+}
+
+/// A session this chat asked for, asked on the owner's screen: answered there, and said here so the chat does not look stuck.
+private struct ConsentCard: View {
+  let consent: ChatModel.Consent
+
+  var body: some View {
+    Card(tone: Theme.warn, padding: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)) {
+      SectionLabel("KOS asks to use this Mac")
+      Text(consent.task).font(.kos(.dense)).fixedSize(horizontal: false, vertical: true)
+      TimelineView(.periodic(from: .now, by: 1)) { context in
+        Text("Asking on your screen… Allow there · \(secondsLeft(until: consent.until, now: context.date))")
+          .font(.kos(.detail).monospacedDigit())
+          .foregroundStyle(Theme.muted)
+      }
+    }
+  }
+}
+
+/// What is left before an ask answers itself, as the prompt counts it.
+func secondsLeft(until: Date, now: Date) -> String {
+  let left = max(0, Int(until.timeIntervalSince(now).rounded(.up)))
+  return left < 60 ? "\(left)s" : "\(left / 60)m \(String(format: "%02d", left % 60))s"
 }
 
 /// An approval to decide in the thread, as the panel's card asks it: what KOS would run, why, with what, and the dashboard's buttons.

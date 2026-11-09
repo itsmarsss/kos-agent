@@ -18,6 +18,9 @@ final class ChatController {
   var target: () -> (id: String, name: String?, online: Bool)? = { nil }
   var faceOf: (String) -> FaceLook = { _ in .kos }
   var isHidden: (String?) -> Bool = { _ in false }
+  /// The session on this Mac, and the ask for one, by the KOS and the chat they are for: the window shows its own chat's alone.
+  var session: (origin: String, conversation: String?, paused: Bool)? { didSet { scope() } }
+  var asking: (origin: String, conversation: String?, task: String, until: Date)? { didSet { scope() } }
 
   private lazy var window = ChatWindow(model: model)
   private var talkingTo: String?
@@ -67,6 +70,7 @@ final class ChatController {
     let other = now?.id != talkingTo
     if other { model.reset() }
     talkingTo = now?.id
+    if other { scope() }
     model.paired = now != nil
     model.kosName = now?.name
     model.online = now?.online ?? false
@@ -106,6 +110,7 @@ final class ChatController {
           conversation: p.chat ?? p.conversation, title: p.title, lines: p.messages.compactMap(Self.line),
           notice: p.notice.map { ($0.text, $0.from, $0.waiting ?? false) }, auto: p.auto ?? false,
           pictures: Dictionary(uniqueKeysWithValues: (p.pictures ?? [:]).compactMap { k, v in Int(k).map { ($0, v) } }))
+        scope()
       case .status:
         let p = try call.params(ChatStatus.self)
         heardBack()
@@ -114,7 +119,9 @@ final class ChatController {
           model.frame(frame.id, image: frame.image, said: p.said, conversation: p.turnChat)
           return try? Outbound.reply(id: call.id, result: EmptyResult())
         }
-        model.status(taken: p.taken ?? false, story: p.story, error: p.error, said: p.said, conversation: p.turnChat)
+        model.status(
+          taken: p.taken ?? false, story: p.story, error: p.error, said: p.said, conversation: p.turnChat,
+          waiting: p.waiting.flatMap { ChatModel.Wait(rawValue: $0.rawValue) }, held: p.held ?? false)
       case .ask:
         let a = try call.params(ChatAsk.self).approval
         model.ask(.init(id: a.id, tool: a.tool, args: a.args, mechanics: a.mechanics, why: a.why, reason: a.reason, always: a.always))
@@ -133,6 +140,17 @@ final class ChatController {
     } catch {
       return try? Outbound.reply(id: call.id, error: DeviceError(.internal, error.localizedDescription))
     }
+  }
+
+  /// The session and the ask, as the window shows them: only when they are this chat's, on the KOS it talks to.
+  private func scope() {
+    let mine = { (origin: String, conversation: String?) in
+      origin == self.talkingTo && conversation != nil && conversation == self.model.conversation
+    }
+    let session = self.session.flatMap { mine($0.origin, $0.conversation) ? $0 : nil }
+    let asking = self.asking.flatMap { mine($0.origin, $0.conversation) ? $0 : nil }
+    model.session = session.map { $0.paused ? .paused : .working }
+    model.consent = asking.map { ChatModel.Consent(task: $0.task, until: $0.until) }
   }
 
   /// One entry of the chat as KOS sends it, as the window draws it.

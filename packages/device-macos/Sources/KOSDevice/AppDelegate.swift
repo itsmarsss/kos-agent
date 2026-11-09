@@ -85,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     chat.target = { [unowned self] in chatTarget() }
     chat.faceOf = { origin in Self.face(of: origin) }
     chat.isHidden = { [unowned self] bundle in settings.isHidden(bundle) }
+    chat.model.handBack = { [unowned self] in controller.resume() }
     chat.model.chooseKOS = { [unowned self] id in
       chatKOS = id
       chat.refresh(asking: true)
@@ -308,7 +309,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // The KOS at work, else the first that is connected, else the first there is: the one the window speaks of.
     let shown = origin ?? pairings.first { lines[$0.deviceId]?.isProven == true } ?? pairings.first
     model.face = shown.map { Self.face(of: $0.deviceId) } ?? .kos
-    chat.model.session = controller.live.map { $0.paused ? .paused : .working }
+    chat.session = controller.live.map { live in (controller.liveOrigin ?? "", live.conversation, live.paused) }
+    chat.asking = controller.asking.map { ($0.origin, $0.conversation, $0.task, $0.until) }
     model.session = controller.live.map { live in
       SessionSummary(
         task: live.task, requester: live.requester, kos: pairings.count > 1 ? origin.map(Self.name) : nil,

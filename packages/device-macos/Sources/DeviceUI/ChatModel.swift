@@ -94,6 +94,20 @@ public final class ChatModel: ObservableObject {
 
   public enum Session: Equatable, Sendable { case working, paused }
 
+  /// What a turn waits on the owner for, as KOS says it.
+  public enum Wait: String, Equatable, Sendable { case consent, approval }
+
+  /// A session asked for on this Mac's screen by this chat: what for, and when it says no by itself.
+  public struct Consent: Equatable, Sendable {
+    public let task: String
+    public let until: Date
+
+    public init(task: String, until: Date) {
+      self.task = task
+      self.until = until
+    }
+  }
+
   /// A turn's steps so far, "› " before each, and the owner's words it is about, when KOS said.
   public struct Story: Equatable, Sendable {
     public let said: String?
@@ -149,8 +163,14 @@ public final class ChatModel: ObservableObject {
   @Published public var besideTitle: String?
   /// The app in front is one the owner hid from KOS.
   @Published public var besideHidden = false
-  /// A session KOS has on this Mac, working or paused for the owner: what the app card says of the app in front.
+  /// This chat's session on this Mac, working or paused for the owner: what the app card says of the app in front.
   @Published public var session: Session?
+  /// This chat's ask for a session, up on the owner's screen.
+  @Published public var consent: Consent?
+  /// What KOS says the running turn waits on the owner for.
+  @Published public private(set) var waiting: Wait?
+  /// KOS says the owner has the Mac, and the turn waits for it back.
+  @Published public private(set) var held = false
   /// Whether this Mac is paired with any KOS at all.
   @Published public var paired = false
   @Published public var online = false
@@ -172,6 +192,10 @@ public final class ChatModel: ObservableObject {
   public var setAuto: (Bool) -> Void = { _ in }
   public var close: () -> Void = {}
   public var chooseKOS: (String) -> Void = { _ in }
+  /// Stop this chat's turn, its session and any ask for one.
+  public var stop: () -> Void = {}
+  /// Give the Mac back to KOS after taking it over.
+  public var handBack: () -> Void = {}
 
   public init() {}
 
@@ -232,8 +256,12 @@ public final class ChatModel: ObservableObject {
 
   /// A turn as it goes, for the owner's words `said` in `conversation`. `story` is `.some(nil)` when KOS said the turn is done.
   /// Another chat's turn is not this one's: nothing of it is drawn.
-  public func status(taken: Bool, story: String??, error: String?, said: String? = nil, conversation: String? = nil) {
+  public func status(
+    taken: Bool, story: String??, error: String?, said: String? = nil, conversation: String? = nil, waiting: Wait? = nil, held: Bool = false
+  ) {
     if let conversation, conversation != self.conversation { return }
+    self.waiting = error == nil && story != .some(nil) ? waiting : nil
+    self.held = error == nil && story != .some(nil) && held
     if let error {
       self.error = error
       working = false
@@ -356,6 +384,8 @@ public final class ChatModel: ObservableObject {
     working = false
     stories = []
     live = []
+    waiting = nil
+    held = false
     pictures = [:]
     pictureOrder = []
     asks = []
@@ -408,14 +438,24 @@ public final class ChatModel: ObservableObject {
     return (steps, lines.filter { !$0.hasPrefix(stepMark) }.joined(separator: "\n"))
   }
 
-  /// An ask is up: the running turn is held on the owner, and its foot says so with no dots and no clock.
-  public var waitingOnOwner: Bool { !asks.isEmpty }
+  /// An approval or a session ask is up: the running turn is held on the owner, and its foot says so with no dots and no clock.
+  public var waitingOnOwner: Bool { !asks.isEmpty || consent != nil || waiting != nil }
+
+  /// The owner took the Mac over from this chat's turn: it waits for them to hand it back.
+  public var heldByOwner: Bool { held || session == .paused }
+
+  /// Something of this chat's is going: a turn, a session, or an ask for one. The box's button stops it.
+  public var busy: Bool { working || session != nil || consent != nil }
+
+  /// The foot counts the turn's time: it is not waiting on the owner.
+  public var footLive: Bool { !waitingOnOwner && !heldByOwner }
 
   /// What the running turn's foot says it is at, for as long as it runs, whatever came last; nil once it ends.
-  /// Waiting on you while an ask is up, thinking before it has shown anything, its latest step while that is
-  /// the last thing told, else working.
+  /// Paused while the owner has the Mac, waiting on you while an ask is up, thinking before it has shown anything,
+  /// its latest step while that is the last thing told, else working.
   public var foot: String? {
-    guard working else { return nil }
+    guard working || heldByOwner || consent != nil else { return nil }
+    if heldByOwner { return "Paused, you have control" }
     if waitingOnOwner { return "Waiting on you" }
     guard let story else { return "Thinking" }
     let last = story.components(separatedBy: "\n").last { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""

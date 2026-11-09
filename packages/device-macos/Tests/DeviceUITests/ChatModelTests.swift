@@ -226,4 +226,53 @@ struct ChatModelTests {
     #expect(model.working)
     #expect(model.error == nil)
   }
+
+  /// A session asked for on the owner's screen holds the turn on them: the foot waits, with no clock, until it is answered.
+  @Test func aSessionAskedOnTheScreenWaitsOnTheOwner() {
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [.you("tidy the deck", files: [])])
+    model.status(taken: false, story: .some("› Use Studio MacBook: Keynote"), error: nil, said: "tidy the deck", conversation: "mac:owner")
+    #expect(model.footLive)
+    model.consent = .init(task: "Tidy the deck", until: Date().addingTimeInterval(60))
+    #expect(model.foot == "Waiting on you")
+    #expect(!model.footLive)
+    #expect(model.busy)
+    model.consent = nil
+    // KOS says so too, before the Mac's own prompt is known here, and the wait ends with the turn.
+    model.status(taken: false, story: .some("› Use Studio MacBook: Keynote"), error: nil, said: "tidy the deck", conversation: "mac:owner", waiting: .consent)
+    #expect(model.foot == "Waiting on you")
+    model.status(taken: false, story: .some(nil), error: nil, said: "tidy the deck", conversation: "mac:owner", waiting: .consent)
+    #expect(model.waiting == nil)
+    #expect(model.foot == nil)
+    #expect(!model.busy)
+  }
+
+  /// The owner took the Mac over: the chat says they have it, without a clock, and waits for it back.
+  @Test func aTurnHeldByTheOwnerSaysTheyHaveControl() {
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [.you("fill the form", files: [])])
+    model.status(taken: false, story: .some("› Click Name"), error: nil, said: "fill the form", conversation: "mac:owner")
+    model.session = .working
+    #expect(!model.heldByOwner)
+    model.session = .paused
+    #expect(model.heldByOwner)
+    #expect(model.foot == "Paused, you have control")
+    #expect(!model.footLive)
+    model.session = .working
+    model.status(taken: false, story: .some("› Click Name"), error: nil, said: "fill the form", conversation: "mac:owner", held: true)
+    #expect(model.heldByOwner)
+    // A held turn with nothing running locally still shows, and a session alone is something to stop.
+    model.status(taken: false, story: .some(nil), error: nil, said: "fill the form", conversation: "mac:owner")
+    #expect(!model.held)
+    #expect(model.busy)
+    var stopped = 0
+    var handed = 0
+    model.stop = { stopped += 1 }
+    model.handBack = { handed += 1 }
+    model.session = .paused
+    #expect(model.foot == "Paused, you have control")
+    model.handBack()
+    model.stop()
+    #expect(handed == 1 && stopped == 1)
+  }
 }
