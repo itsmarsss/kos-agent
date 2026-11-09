@@ -1220,17 +1220,23 @@ export class DiscordAdapter implements ChannelAdapter {
     const recent = after.filter((m) => m.createdTimestamp >= oldest);
     // More than one fetch's worth after the cursor, or some of it too old.
     const capped = (full && after.length === fetched.length) || after.some((m) => m.createdTimestamp < oldest && said(m));
-    this.cursors?.advance(roomId, after.at(-1)!.id);
     const missed = recent.filter((m) => said(m) && !this.seen.has(m.id));
     if (capped && missed.length) {
       await room
         .send?.({ content: `-# KOS was offline; only the last ${missed.length} message${missed.length === 1 ? "" : "s"} here, from the last ${CATCH_UP_WINDOW_MS / 3_600_000} hours at most, are answered`, flags: MessageFlags.SuppressNotifications })
         .catch(() => undefined);
     }
-    // Old enough that it may no longer be wanted: told, not run. Newer runs as it would have live.
+    // Old enough that it may no longer be wanted: told, not run. Newer runs
+    // as it would have live. The cursor moves past each message as it is
+    // taken, so a stop part way through reads on from there, not past the rest.
     const lateBy = Date.now() - LATE_RUN_MS;
+    const told = after.filter((m) => m.createdTimestamp < lateBy);
     await this.notRun(missed.filter((m) => m.createdTimestamp < lateBy));
-    for (const message of missed.filter((m) => m.createdTimestamp >= lateBy)) await this.receiveMessage(message, { late: true });
+    if (told.length) this.cursors?.advance(roomId, told.at(-1)!.id);
+    for (const message of after.filter((m) => m.createdTimestamp >= lateBy)) {
+      if (missed.includes(message)) await this.receiveMessage(message, { late: true });
+      this.cursors?.advance(roomId, message.id);
+    }
   }
 
   /**

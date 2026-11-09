@@ -2307,6 +2307,23 @@ describe("catching up after a drop or a restart", () => {
     expect(cursors).toEqual({ dm1: "101", dm3: recent });
   });
 
+  it("moves the cursor past each message as it is taken, so a stop part way through reads on from there", async () => {
+    const dm = room("dm1", [{ id: "601", author: "owner" }, { id: "602", author: "owner" }, { id: "603", author: "owner" }]);
+    const cursors: Record<string, string> = { dm1: "600" };
+    const { adapter, heard } = adapterOver({ dm1: dm.channel }, cursors);
+    // The process stops while the second is being answered.
+    adapter.onMessage((m) => (heard.push(m), m.text === "said 602" ? new Promise<void>(() => undefined) : undefined));
+    void adapter.catchUp();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(heard.map((m) => m.text)).toEqual(["said 601", "said 602"]);
+    expect(cursors.dm1).toBe("602");
+    // The next process reads what was left, and only that.
+    const next = adapterOver({ dm1: room("dm1", [{ id: "601", author: "owner" }, { id: "602", author: "owner" }, { id: "603", author: "owner" }]).channel }, cursors);
+    await next.adapter.catchUp();
+    expect(next.heard.map((m) => m.text)).toEqual(["said 603"]);
+    expect(cursors.dm1).toBe("603");
+  });
+
   it("reads at most three rooms at once", async () => {
     let reading = 0;
     let most = 0;
