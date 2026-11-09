@@ -341,7 +341,10 @@ and an ask still waiting with no card anywhere gets one then. Up and down
 are what the gateway's shard events last said. A send is a web request
 rather than the gateway, so one that fails on the network (a name that
 will not resolve, a dropped socket, a timeout, a 5xx) waits the same way
-and goes again, first, on the reconnect or after half a minute. A dropped
+and goes again, first, on the reconnect or after half a minute. Files
+wait up to 25 MB in all; past that a message waits as its words, which say
+what was not kept. A channel or thread found gone when what waited for it
+goes out is let go, as it would have been live, and the log says so. A dropped
 gateway is one line in the log when it drops, one a minute while it stays
 down, and one when it is back.
 

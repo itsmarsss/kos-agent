@@ -2042,17 +2042,19 @@ describe("while the gateway is down", () => {
    * An adapter on a real discord.js client, started, whose shard events the
    * test raises: up and down are what the gateway says, not a mocked isReady.
    */
-  async function dropped(fail?: (content: string | undefined) => unknown): Promise<{ adapter: DiscordAdapter; sent: unknown[]; emit: (event: string) => Promise<void>; connectedCalls: number[] }> {
+  async function dropped(fail?: (content: string | undefined) => unknown, gone: string[] = []): Promise<{ adapter: DiscordAdapter; sent: unknown[]; emit: (event: string) => Promise<void>; connectedCalls: number[]; payloads: { content?: string; files?: unknown[] }[] }> {
     const sent: unknown[] = [];
+    const payloads: { content?: string; files?: unknown[] }[] = [];
     const connectedCalls: number[] = [];
-    const adapter = new DiscordAdapter({ token: "t", onConnected: () => void connectedCalls.push(sent.length) });
+    const adapter = new DiscordAdapter({ token: "t", onConnected: () => void connectedCalls.push(sent.length), onGone: (id) => void gone.push(id) });
     const channel = {
       id: "c1",
       isSendable: () => true,
-      send: async (p: { content?: string }) => {
+      send: async (p: { content?: string; files?: unknown[] }) => {
         const err = fail?.(p.content);
         if (err) throw err;
         sent.push(p.content);
+        payloads.push(p);
         return { id: `m${sent.length}` };
       },
     };
@@ -2060,7 +2062,12 @@ describe("while the gateway is down", () => {
     Object.assign(client, {
       login: async () => "",
       user: { id: "bot" },
-      channels: { fetch: async () => channel },
+      channels: {
+        fetch: async (id: string) => {
+          if (id === "gone") throw Object.assign(new Error("Unknown Channel"), { code: 10003, status: 404 });
+          return channel;
+        },
+      },
       users: { fetch: async () => ({ send: async (p: { content?: string }) => { sent.push(`dm:${p.content}`); return { id: "d1", channelId: "dm1", edit: async () => undefined }; } }) },
       application: { commands: { set: async () => undefined } },
     });
@@ -2069,7 +2076,7 @@ describe("while the gateway is down", () => {
       client.emit(event, 0);
       await (adapter as unknown as { upChain: Promise<void> }).upChain;
     };
-    return { adapter, sent, emit, connectedCalls };
+    return { adapter, sent, emit, connectedCalls, payloads };
   }
 
   it("says it is not connected, keeps what is sent, and sends it in order once it is back", async () => {
@@ -2133,6 +2140,37 @@ describe("while the gateway is down", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it("lets go of a place found gone when what waited for it is sent, and says so", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const gone: string[] = [];
+      const { adapter, sent, emit } = await dropped(undefined, gone);
+      await adapter.postIn("gone", { text: "into the void" });
+      await adapter.postIn("c1", { text: "after" });
+      await emit("shardReady");
+      expect(gone).toEqual(["gone"]);
+      expect(sent).toEqual(["after"]);
+      expect(warn.mock.calls.map((c) => String(c[0]))).toContain("[discord] a post in gone not sent: the channel or thread is gone from Discord, and was let go");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("holds files only up to a size while down, sending the rest as words that say what was not kept", async () => {
+    const { adapter, payloads, emit } = await dropped();
+    // 9 MB each once decoded: two are held, a third would pass the bound.
+    const big = (name: string) => ({ name, mediaType: "image/png", data: "A".repeat(12_000_000) });
+    await adapter.postIn("c1", { text: "first", files: [big("a.png")] });
+    await adapter.postIn("c1", { text: "second", files: [big("b.png")] });
+    await adapter.postIn("c1", { text: "third", files: [big("c.png")] });
+    await emit("shardReady");
+    expect(payloads.map((p) => [p.content, p.files?.length ?? 0])).toEqual([
+      ["first", 1],
+      ["second", 1],
+      ["third\n-# not kept while Discord was unreachable: c.png", 0],
+    ]);
   });
 
   it("keeps an ask's card for the reconnect, and knows the ask has its card after", async () => {

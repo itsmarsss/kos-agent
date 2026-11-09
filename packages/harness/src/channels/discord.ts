@@ -126,6 +126,8 @@ function isRateLimited(err: unknown): boolean {
 }
 /** How many sends may wait for a dropped gateway; past it the oldest goes. */
 const OUTBOX_MAX = 100;
+/** How many bytes of files may wait for the connection; a send past it waits without its files, and says so. */
+const OUTBOX_FILE_BYTES = 25 * 1024 * 1024;
 /** How long a send that failed on the network waits before it is tried again, while the gateway stays up. */
 const SEND_RETRY_MS = 30_000;
 /** Failures that say Discord could not be reached, as opposed to a refusal: the send waits and goes again. */
@@ -977,7 +979,9 @@ export class DiscordAdapter implements ChannelAdapter {
   /** Set once start() logs in: before that nothing is waiting on a gateway. */
   private started = false;
   /** Sends made while the gateway was down, waiting for it to be back. */
-  private readonly outbox: { what: string; send: () => Promise<void> }[] = [];
+  private readonly outbox: { what: string; send: () => Promise<void>; bytes: number }[] = [];
+  /** The bytes of files the outbox holds. */
+  private heldBytes = 0;
   private flushing = false;
   /**
    * Whether the gateway is up, as its shard events last said. discord.js's
@@ -1065,26 +1069,42 @@ export class DiscordAdapter implements ChannelAdapter {
    * gateway is the slower to notice): a send that fails on the network is
    * kept the same way, and tried again.
    */
-  private async whenUp(what: string, send: () => Promise<void>): Promise<void> {
-    if (!this.started) return send();
+  private async whenUp<M extends OutboundMessage | undefined>(what: string, msg: M, send: (msg: M) => Promise<void>): Promise<void> {
+    if (!this.started) return send(msg);
     if (this.connected() && !this.flushing && this.outbox.length === 0) {
       try {
-        return await send();
+        return await send(msg);
       } catch (err) {
         if (!isNetworkError(err)) throw err;
         console.warn(`[discord] ${what} not sent, kept to send again: ${err instanceof Error ? err.message : String(err)}`);
         this.retrySoon();
       }
     }
-    this.hold(what, send);
+    this.hold(what, msg, send);
   }
 
-  private hold(what: string, send: () => Promise<void>): void {
+  /**
+   * Kept for the connection, oldest dropped past the count. Files are held
+   * up to a size: past it a send waits as its words alone, which say what
+   * was not kept, rather than the host holding every picture of a long
+   * outage in memory.
+   */
+  private hold<M extends OutboundMessage | undefined>(what: string, msg: M, send: (msg: M) => Promise<void>): void {
     if (this.outbox.length >= OUTBOX_MAX) {
       const dropped = this.outbox.shift();
+      this.heldBytes -= dropped?.bytes ?? 0;
       console.warn(`[discord] too much waiting for the connection; dropped ${dropped?.what}`);
     }
-    this.outbox.push({ what, send });
+    const files = msg?.files ?? [];
+    let bytes = files.reduce((n, f) => n + Math.floor((f.data.length * 3) / 4), 0);
+    let kept = msg;
+    if (msg && bytes > 0 && this.heldBytes + bytes > OUTBOX_FILE_BYTES) {
+      const { files: _left, ...words } = msg;
+      kept = { ...words, text: `${msg.text}\n-# not kept while Discord was unreachable: ${files.map((f) => f.name).join(", ")}` } as M;
+      bytes = 0;
+    }
+    this.heldBytes += bytes;
+    this.outbox.push({ what, send: () => send(kept), bytes });
   }
 
   /** Try what waits again in a while, for a send the network failed with the gateway still up. */
@@ -1111,9 +1131,12 @@ export class DiscordAdapter implements ChannelAdapter {
             this.retrySoon();
             return;
           }
-          console.warn(`[discord] ${next.what} not sent after reconnecting: ${err instanceof Error ? err.message : String(err)}`);
+          // Gone from Discord while it waited: let go there as it would have been live, and said so.
+          if (isUnknownChannel(err)) console.warn(`[discord] ${next.what} not sent: the channel or thread is gone from Discord, and was let go`);
+          else console.warn(`[discord] ${next.what} not sent after reconnecting: ${err instanceof Error ? err.message : String(err)}`);
         }
         this.outbox.shift();
+        this.heldBytes -= next.bytes;
       }
     } finally {
       this.flushing = false;
@@ -1807,11 +1830,17 @@ export class DiscordAdapter implements ChannelAdapter {
    * for and not only a door into it.
    */
   async postIn(channelId: string, msg: OutboundMessage): Promise<void> {
-    await this.whenUp(`a post in ${channelId}`, () => this.postNow(channelId, msg));
+    await this.whenUp(`a post in ${channelId}`, msg, (m) => this.postNow(channelId, m));
   }
 
   private async postNow(channelId: string, msg: OutboundMessage): Promise<void> {
-    const channel = (await this.place(channelId)) as { isSendable?: () => boolean } | null;
+    // Unreachable is the network's, and the send waits; gone is Discord's word, and the place is let go.
+    const channel = (await this.client.channels.fetch(channelId).catch((err: unknown) => {
+      if (isNetworkError(err)) throw err;
+      if (!isUnknownChannel(err)) return null;
+      this.forgetPlace(channelId);
+      throw Object.assign(new Error(`channel ${channelId} is not somewhere this bot can post: it is gone from Discord`), { code: 10003 });
+    })) as { isSendable?: () => boolean } | null;
     if (!channel?.isSendable?.()) throw new Error(`channel ${channelId} is not somewhere this bot can post`);
     if (msg.from && (await this.sendAs(channel as unknown as Parameters<DiscordAdapter["sendAs"]>[0], msg))) return;
     try {
@@ -2530,9 +2559,9 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   async send(recipientId: string, msg: OutboundMessage): Promise<void> {
-    await this.whenUp("a direct message", async () => {
+    await this.whenUp("a direct message", msg, async (m) => {
       const user = await this.client.users.fetch(recipientId);
-      await this.deliver((payload) => user.send(payload), msg);
+      await this.deliver((payload) => user.send(payload), m);
     });
   }
 
@@ -2897,7 +2926,7 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   async requestApproval(recipientId: string, req: ApprovalRequest): Promise<void> {
-    await this.whenUp(`the card for #${req.id}`, () => this.askNow(recipientId, req));
+    await this.whenUp(`the card for #${req.id}`, undefined, () => this.askNow(recipientId, req));
   }
 
   /** Whether an ask has a card here: made by this run, or kept from the last. */
