@@ -46,6 +46,10 @@ final class DeviceController {
 
   /// How long after the owner hands control over that the pointer is not watched.
   private static let handOverGrace: TimeInterval = 3
+  /// The longest one pointer call may take; a drag, the slowest, takes about a second at the shown pace.
+  private static let pointerLimit: TimeInterval = 10
+  /// Pointer calls passing through KOS for Mac's own windows now.
+  private var passingThrough = 0
 
   init(settings: Settings, overlay: OverlayController) {
     self.settings = settings
@@ -363,7 +367,7 @@ final class DeviceController {
       let target = try globalPoint(p.x, p.y, in: session)
       try refuseHidden(at: target)
       await overlay.clear([target])
-      try await throughOwnWindows { try await injector.move(to: target) }
+      try await throughOwnWindows { [injector] in try await injector.move(to: target) }
       return cursor(in: session)
 
     case .pointerClick:
@@ -375,7 +379,7 @@ final class DeviceController {
       let target = try globalPoint(p.x, p.y, in: session)
       try refuseHidden(at: target)
       await overlay.clear([target])
-      try await throughOwnWindows { try await injector.click(at: target, button: p.button ?? .left, count: count, modifiers: modifiers) }
+      try await throughOwnWindows { [injector] in try await injector.click(at: target, button: p.button ?? .left, count: count, modifiers: modifiers) }
       overlay.ripple(at: target)
       return cursor(in: session)
 
@@ -387,7 +391,7 @@ final class DeviceController {
       try refuseHidden(at: from)
       try refuseHidden(at: to)
       await overlay.clear([from, to])
-      try await throughOwnWindows { try await injector.drag(from: from, to: to) }
+      try await throughOwnWindows { [injector] in try await injector.drag(from: from, to: to) }
       return cursor(in: session)
 
     case .pointerScroll:
@@ -399,7 +403,7 @@ final class DeviceController {
       let target = try globalPoint(p.x, p.y, in: session)
       try refuseHidden(at: target)
       await overlay.clear([target])
-      try await throughOwnWindows { try await injector.scroll(at: target, dx: Int(p.dx.rounded()), dy: Int(p.dy.rounded())) }
+      try await throughOwnWindows { [injector] in try await injector.scroll(at: target, dx: Int(p.dx.rounded()), dy: Int(p.dy.rounded())) }
       return cursor(in: session)
 
     case .keysType:
@@ -512,14 +516,22 @@ final class DeviceController {
 
   /// KOS's pointer goes through KOS for Mac's own windows, the bar and the chat, to what the session sees under them:
   /// a picture leaves them out, so a click there is meant for the app beneath. Between actions the owner reaches Stop.
-  private func throughOwnWindows(_ act: () async throws -> Void) async throws {
-    overlay.letThrough(true)
-    letThrough?(true)
-    defer {
-      overlay.letThrough(false)
-      letThrough?(false)
+  /// Counted, so one call ending never lets the windows back while another is still passing through; and limited in
+  /// time, so a call that hangs never leaves the chat window letting clicks through.
+  private func throughOwnWindows(_ act: @escaping @Sendable () async throws -> Void) async throws {
+    passingThrough += 1
+    if passingThrough == 1 {
+      overlay.letThrough(true)
+      letThrough?(true)
     }
-    try await act()
+    defer {
+      passingThrough -= 1
+      if passingThrough == 0 {
+        overlay.letThrough(false)
+        letThrough?(false)
+      }
+    }
+    try await Deadline.run(seconds: Self.pointerLimit, timedOut: { DeviceError(.internal, "The pointer did not finish in time.") }, act)
   }
 
   /// Before KOS types: never into KOS for Mac itself, the chat's box above all. Its windows give up the keyboard
