@@ -68,12 +68,16 @@ public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable
   /// How long the questions of one read may take in all, the wait for a tree apart.
   static var budget: TimeInterval { 0.15 }
 
-  /// Browsers on Chromium, which answer AXEnhancedUserInterface where AXManualAccessibility is not taken.
+  /// Browsers on Chromium, which answer AXEnhancedUserInterface where AXManualAccessibility is not taken. Named in
+  /// full, channels too: a prefix would also take in Chrome's web app shims (com.google.Chrome.app.*).
   static var chromium: Set<String> {
     [
       "com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary",
-      "org.chromium.Chromium", "com.brave.Browser", "com.microsoft.edgemac", "com.vivaldi.Vivaldi",
-      "com.operasoftware.Opera", "company.thebrowser.Browser",
+      "com.google.chrome.for.testing", "org.chromium.Chromium",
+      "com.brave.Browser", "com.brave.Browser.beta", "com.brave.Browser.nightly",
+      "com.microsoft.edgemac", "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev", "com.microsoft.edgemac.Canary",
+      "com.vivaldi.Vivaldi", "com.operasoftware.Opera", "com.operasoftware.OperaGX",
+      "company.thebrowser.Browser", "company.thebrowser.dia",
     ]
   }
 

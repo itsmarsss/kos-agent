@@ -203,6 +203,27 @@ struct SelectionTests {
     #expect(fake.sets("AXEnhancedUserInterface") == [true, false])
   }
 
+  /// Every Chromium browser and channel is known by its bundle, and enhanced for the read; a web app shim is not.
+  @Test(arguments: [
+    "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary", "com.google.chrome.for.testing",
+    "com.microsoft.edgemac", "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev", "com.microsoft.edgemac.Canary",
+    "com.brave.Browser", "com.brave.Browser.beta", "com.brave.Browser.nightly",
+    "com.operasoftware.Opera", "com.operasoftware.OperaGX", "company.thebrowser.Browser", "company.thebrowser.dia",
+  ])
+  func everyChromiumBrowserIsEnhanced(bundle: String) {
+    let fake = Fake()
+    fake.settable = ["AXEnhancedUserInterface"]
+    #expect(read(fake, SelectionApp(pid: 7, bundle: bundle)).1 == 1)
+    #expect(fake.sets("AXEnhancedUserInterface") == [true, false])
+  }
+
+  @Test func aChromeWebAppShimIsNotABrowser() {
+    let fake = Fake()
+    fake.settable = ["AXEnhancedUserInterface"]
+    #expect(read(fake, SelectionApp(pid: 7, bundle: "com.google.Chrome.app.abcdef")).1 == 0)
+    #expect(fake.sets.isEmpty)
+  }
+
   /// Already on, by a screen reader or the owner: left on.
   @Test func anEnhancedChromeIsLeftAsItWas() {
     let fake = Fake()
