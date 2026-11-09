@@ -164,7 +164,7 @@ export async function runActions<A>(adapter: RunAdapter<A>, raw: unknown[], opti
   for (const [index, action] of actions.entries()) {
     if (signal?.aborted) throw new RunError(done, stoppedAt(index));
     if (options.deadlineMs !== undefined && now() - start > options.deadlineMs) throw new RunError(done, `Ran out of time before step ${index + 1}.`);
-    const held = await options.before?.(index);
+    const held = options.before ? await options.before(index) : undefined;
     if (held) throw new RunError(done, held);
     try {
       const next = actions[index + 1];
