@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { chooseTheme, followOtherTabs, isDensity, isTheme, readTheme, reconcileTheme, resolveTheme, showTheme, THEME_KEY, themeStamp } from "./theme.js";
+import { chooseTheme, DRAWN_REPORT_MS, followOtherTabs, heardDrawnTheme, isDensity, isTheme, readTheme, reconcileTheme, reportDrawnTheme, resolveTheme, showTheme, THEME_KEY, themeStamp } from "./theme.js";
 
 afterEach(() => {
   localStorage.clear();
@@ -93,5 +93,83 @@ describe("the theme kept in the workspace", () => {
     await expect(chooseTheme("light", () => Promise.reject(new Error("offline")))).rejects.toThrow("offline");
     reconcileTheme("dark", vi.fn(), themeStamp());
     expect(readTheme()).toBe("dark");
+  });
+});
+
+describe("the palette this tab reports drawing in", () => {
+  /** A browser whose own appearance can be changed, as matchMedia sees it. */
+  function browser(prefersLight: boolean): { set: (light: boolean) => void; restore: () => void } {
+    const heard = new Set<() => void>();
+    const mq = {
+      get matches() {
+        return prefersLight;
+      },
+      addEventListener: (_: string, f: () => void) => void heard.add(f),
+      removeEventListener: (_: string, f: () => void) => void heard.delete(f),
+    };
+    vi.stubGlobal("matchMedia", () => mq);
+    return {
+      set: (light) => {
+        prefersLight = light;
+        for (const f of heard) f();
+      },
+      restore: () => vi.unstubAllGlobals(),
+    };
+  }
+
+  it("is reported on load, on a change of theme and of the browser's appearance, and only when KOS has another", async () => {
+    vi.useFakeTimers();
+    const chrome = browser(false);
+    const sent: string[] = [];
+    const send = vi.fn(async (drawn: "light" | "dark") => (sent.push(drawn), { drawn }));
+    showTheme("system");
+    const stop = reportDrawnTheme(send);
+    // On load: KOS has said nothing, so the dark this browser draws "system" in is reported.
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark"]);
+    // The same palette again, by a different road, is no news.
+    showTheme("dark");
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark"]);
+    // The browser turns light under "system": reported.
+    showTheme("system");
+    chrome.set(true);
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark", "light"]);
+    // A flurry of changes is one report, of where it settled.
+    chrome.set(false);
+    chrome.set(true);
+    chrome.set(false);
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark", "light", "dark"]);
+    // KOS already says light (another dashboard's report): a change to light here sends nothing, and hearing it sent nothing either.
+    heardDrawnTheme("light");
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark", "light", "dark"]);
+    showTheme("light");
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark", "light", "dark"]);
+    stop();
+    showTheme("dark");
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toHaveLength(3);
+    chrome.restore();
+    vi.useRealTimers();
+  });
+
+  it("is reported again on the next change after a report that failed", async () => {
+    vi.useFakeTimers();
+    heardDrawnTheme(undefined);
+    showTheme("light");
+    const send = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ drawn: "dark" });
+    const stop = reportDrawnTheme(send);
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(send).toHaveBeenCalledWith("light");
+    showTheme("dark");
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(send).toHaveBeenLastCalledWith("dark");
+    expect(send).toHaveBeenCalledTimes(2);
+    stop();
+    vi.useRealTimers();
   });
 });

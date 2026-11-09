@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import { isThemeMode, resolveThemeMode, type ThemeMode } from "@kos/shared";
+import { isThemeMode, resolveThemeMode, type DrawnTheme, type ThemeMode } from "@kos/shared";
 
 /**
  * Dark, light, or whatever the system says.
@@ -10,6 +10,9 @@ import { isThemeMode, resolveThemeMode, type ThemeMode } from "@kos/shared";
  * dashboard follows a change made in another. This browser keeps a copy
  * so the first paint is already right, and the status poll reconciles it
  * with the workspace's. System is the default.
+ *
+ * What a device set to the dashboard draws is the palette this tab draws,
+ * "system" read in this browser, so the tab reports it whenever it changes.
  */
 
 export type Theme = ThemeMode;
@@ -44,13 +47,61 @@ export function applyTheme(theme: Theme): void {
   following = null;
   const mq = query();
   const paint = (): void => {
-    document.documentElement.dataset["theme"] = resolveTheme(theme, mq?.matches ?? false);
+    drawnNow = resolveTheme(theme, mq?.matches ?? false);
+    document.documentElement.dataset["theme"] = drawnNow;
+    reportSoon();
   };
   paint();
   if (theme === "system" && mq) {
     mq.addEventListener("change", paint);
     following = () => mq.removeEventListener("change", paint);
   }
+}
+
+/** The palette this tab draws in, and the one KOS last said a dashboard draws in. */
+let drawnNow: DrawnTheme | undefined;
+let drawnKept: DrawnTheme | undefined;
+let report: ((drawn: DrawnTheme) => Promise<{ drawn: DrawnTheme }>) | null = null;
+let reportTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** How long a change waits before it is reported, so a flurry of them is one report. */
+export const DRAWN_REPORT_MS = 500;
+
+function reportSoon(): void {
+  if (!report || reportTimer !== undefined || drawnNow === drawnKept) return;
+  reportTimer = setTimeout(() => void reportNow(), DRAWN_REPORT_MS);
+}
+
+async function reportNow(): Promise<void> {
+  reportTimer = undefined;
+  const drawn = drawnNow;
+  if (!report || !drawn || drawn === drawnKept) return;
+  try {
+    drawnKept = (await report(drawn)).drawn;
+  } catch {
+    // Unsaid this time; the next change reports it again.
+  }
+}
+
+/**
+ * Report the palette this tab draws in to KOS, now and on every change of
+ * it: a choice of theme here or in another tab, or the browser's own
+ * appearance under "system". Only a palette that differs from what KOS
+ * last said is reported, and changes close together are reported once.
+ */
+export function reportDrawnTheme(send: (drawn: DrawnTheme) => Promise<{ drawn: DrawnTheme }>): () => void {
+  report = send;
+  reportSoon();
+  return () => {
+    report = null;
+    clearTimeout(reportTimer);
+    reportTimer = undefined;
+  };
+}
+
+/** What KOS says a dashboard last drew in, from the status poll; hearing it reports nothing, so two dashboards never trade reports. */
+export function heardDrawnTheme(drawn: DrawnTheme | undefined): void {
+  drawnKept = drawn;
 }
 
 /** Show a theme in this tab and keep it as this browser's copy; the workspace is told apart, by whoever chose it. */

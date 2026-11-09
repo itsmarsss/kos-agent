@@ -38,7 +38,7 @@ import { FilesPage } from "./FilesPage.js";
 import { AgentsPage } from "./AgentsPage.js";
 import { BuildsPage } from "./BuildsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
-import { reconcileTheme, themeStamp } from "./theme.js";
+import { heardDrawnTheme, reconcileTheme, reportDrawnTheme, themeStamp } from "./theme.js";
 import { ProjectsPage } from "./ProjectsPage.js";
 import { ArtifactViewer, ArtifactsPage, chatOf, settleOpenViewers } from "./ArtifactsPage.js";
 import { placeOf } from "./chattree.js";
@@ -213,8 +213,12 @@ export function App(): React.ReactElement {
   );
   // The workspace's theme, as every device that follows the dashboard draws it, is this tab's too, unless the owner chose since.
   useEffect(() => {
-    if (status) reconcileTheme(status.theme, (theme) => void api.saveTheme(theme).catch(() => undefined), statusStamp.current);
+    if (!status) return;
+    heardDrawnTheme(status.drawn);
+    reconcileTheme(status.theme, (theme) => void api.saveTheme(theme).catch(() => undefined), statusStamp.current);
   }, [status]);
+  // The palette this tab draws in is what a device set to the dashboard draws: KOS is told it when it changes.
+  useEffect(() => reportDrawnTheme(api.saveDrawnTheme), []);
   // The tab icon is KOS's face, still, with a mark when something waits.
   useEffect(() => {
     const mood = (status?.pendingApprovals ?? 0) > 0 ? "needs-you" : status?.halted ? "asleep" : "idle";
