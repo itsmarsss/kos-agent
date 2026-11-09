@@ -69,9 +69,13 @@ While KOS is in control:
   it does it (click, type "BU354", press Return) is the line when there
   is no intent, and the step's detail on the dashboard when there is.
   Coordinates are never in the line;
-- a bar at the top says what it is doing, with Pause and Stop;
-- touching the mouse, trackpad or keyboard pauses it at once, and only you
-  resume it, on the device;
+- a bar at the top says what it is doing, with Take over and Stop, and its
+  chat window says the same; Stop there stops the turn too;
+- a click or a key takes over at once (a real move of the pointer too, by
+  default; a scroll or a nudge does not), and only you hand it back, on the
+  device; while you have it the session does not idle out;
+- its pointer and keys pass KOS for Mac's own windows by: they never land in
+  the chat window or the bar;
 - it does not type while a password field has focus;
 - apps on the device's hidden list (password managers by default) are blanked
   from what it sees, and it cannot act on them.
