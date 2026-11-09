@@ -232,6 +232,8 @@ describe("the look", () => {
     const source = installOverlay.toString();
     expect(source).toContain(kos.fill);
     expect(source).toContain(kos.ink);
+    // Told no theme, the bar is the page's own appearance, as the pages are before KOS sends one.
+    expect(source).toMatch(/state\.theme \?\? "system"/);
   });
 });
 
