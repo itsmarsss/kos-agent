@@ -67,8 +67,8 @@ public enum Inbound: Equatable {
   case welcome(name: String, signature: String)
   case call(Call)
   case face(FaceDrawing)
-  /// The dashboard's theme, after the welcome and whenever the owner changes it there.
-  case theme(ThemeMode)
+  /// The dashboard's theme and the palette it is drawn in, after the welcome and whenever either changes.
+  case theme(DashboardTheme)
 
   public static func decode(_ data: Data) throws -> Inbound {
     let decoder = JSONDecoder()
@@ -88,10 +88,12 @@ public enum Inbound: Equatable {
       guard face.isValid else { throw DeviceError.badRequest("A face that does not read.") }
       return .face(face)
     case "theme":
-      guard let mode = try decoder.decode(ThemeBody.self, from: data).mode.flatMap(ThemeMode.init(rawValue:)) else {
+      let body = try decoder.decode(ThemeBody.self, from: data)
+      guard let mode = body.mode.flatMap(ThemeMode.init(rawValue:)) else {
         throw DeviceError.badRequest("A theme this app does not know.")
       }
-      return .theme(mode)
+      // A palette this app does not know is no palette: the mode alone still reads.
+      return .theme(DashboardTheme(mode: mode, drawn: body.drawn.flatMap(DrawnTheme.init(rawValue:))))
     default:
       throw DeviceError.badRequest("Unknown message type \(kind).")
     }
@@ -119,6 +121,7 @@ public enum Inbound: Equatable {
 
   private struct ThemeBody: Decodable {
     let mode: String?
+    let drawn: String?
   }
 
   private struct CallHeader: Decodable {

@@ -63,8 +63,16 @@ struct MessagesTests {
   @Test func readsATheme() throws {
     for mode in ThemeMode.allCases {
       let message = try Inbound.decode(Data(#"{"t":"theme","mode":"\#(mode.rawValue)"}"#.utf8))
-      #expect(message == .theme(mode))
+      #expect(message == .theme(DashboardTheme(mode: mode)))
     }
+  }
+
+  /// With the palette a dashboard draws it in; one this app does not know is dropped and the mode kept.
+  @Test func readsTheDrawnPalette() throws {
+    let drawn = try Inbound.decode(Data(#"{"t":"theme","mode":"system","drawn":"dark"}"#.utf8))
+    #expect(drawn == .theme(DashboardTheme(mode: .system, drawn: .dark)))
+    let unknown = try Inbound.decode(Data(#"{"t":"theme","mode":"system","drawn":"sepia"}"#.utf8))
+    #expect(unknown == .theme(DashboardTheme(mode: .system)))
   }
 
   /// One this app does not know (a newer dashboard's), or none: not a theme, so the one it has stays.

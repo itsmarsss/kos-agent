@@ -44,8 +44,8 @@ final class Connection: NSObject {
   var onRemoved: (() -> Void)?
   /// That KOS's face, as it is now and whenever the owner changes it.
   var onFace: ((FaceDrawing) -> Void)?
-  /// That KOS's dashboard theme, as it is now and whenever the owner changes it.
-  var onTheme: ((ThemeMode) -> Void)?
+  /// That KOS's dashboard theme and the palette it is drawn in, as they are now and whenever either changes.
+  var onTheme: ((DashboardTheme) -> Void)?
   /// What to tell KOS about this device in the hello.
   var state: () -> DeviceState = { DeviceState(consent: .device, permissions: Permissions(screen: false, input: false), displays: []) }
 
@@ -295,9 +295,9 @@ final class Connection: NSObject {
       guard proven else { return }
       onFace?(face)
 
-    case .theme(let mode):
+    case .theme(let theme):
       guard proven else { return }
-      onTheme?(mode)
+      onTheme?(theme)
 
     case .call(let call):
       guard proven else { return }

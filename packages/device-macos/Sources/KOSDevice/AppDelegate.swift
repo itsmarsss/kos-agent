@@ -182,8 +182,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     line.onFace = { [unowned self] face in
       if FaceStore.keep(face, for: id) { changed() }
     }
-    line.onTheme = { [unowned self] mode in
-      if settings.keep(theme: mode, of: id) { changed() }
+    line.onTheme = { [unowned self] theme in
+      if settings.keep(theme: theme, of: id) { changed() }
     }
     line.onStatus = { [unowned self] status in
       if case .connected = status { lastState[id] = currentState(for: id) }

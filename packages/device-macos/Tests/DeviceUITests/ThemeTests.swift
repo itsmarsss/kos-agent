@@ -59,7 +59,7 @@ struct ThemeTests {
     #expect(ThemeMode.light.appearanceName == .aqua)
     #expect(ThemeMode.dark.appearanceName == .darkAqua)
     #expect(ThemeMode.system.appearanceName == nil)
-    #expect(ThemeChoice.dashboard.mode(sent: .dark).appearanceName.flatMap(NSAppearance.init(named:))?.isDark == true)
+    #expect(ThemeChoice.dashboard.mode(sent: DashboardTheme(mode: .system, drawn: .dark)).appearanceName.flatMap(NSAppearance.init(named:))?.isDark == true)
   }
 }
 

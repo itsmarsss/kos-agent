@@ -44,6 +44,7 @@ final class Settings {
     static let timeInMenuBar = "timeInMenuBar"
     static let theme = "theme"
     static let themeByKOS = "themeByKOS"
+    static let drawnByKOS = "drawnByKOS"
   }
 
   static let promptWaitChoices = [30, 60, 120, 300]
@@ -88,6 +89,9 @@ final class Settings {
     var themes = themeByKOS
     themes[kos] = nil
     defaults.set(themes, forKey: Key.themeByKOS)
+    var drawn = drawnByKOS
+    drawn[kos] = nil
+    defaults.set(drawn, forKey: Key.drawnByKOS)
   }
 
   /// How the owner set this app to look: as the dashboard is, or a theme of its own.
@@ -96,23 +100,32 @@ final class Settings {
     set { flag(newValue.rawValue, Key.theme) }
   }
 
-  /// The theme `kos`'s dashboard last sent, kept so the app opens in it before that KOS answers.
-  func theme(of kos: String) -> ThemeMode? {
-    themeByKOS[kos].flatMap(ThemeMode.init(rawValue:))
+  /// The theme and palette `kos`'s dashboard last sent, kept so the app opens in them before that KOS answers.
+  func theme(of kos: String) -> DashboardTheme? {
+    guard let mode = themeByKOS[kos].flatMap(ThemeMode.init(rawValue:)) else { return nil }
+    return DashboardTheme(mode: mode, drawn: drawnByKOS[kos].flatMap(DrawnTheme.init(rawValue:)))
   }
 
   /// Kept when it is new; false when it is the one already kept. Not the owner's setting, so no onChange.
   @discardableResult
-  func keep(theme: ThemeMode, of kos: String) -> Bool {
+  func keep(theme: DashboardTheme, of kos: String) -> Bool {
+    guard self.theme(of: kos) != theme else { return false }
     var themes = themeByKOS
-    guard themes[kos] != theme.rawValue else { return false }
-    themes[kos] = theme.rawValue
+    themes[kos] = theme.mode.rawValue
     defaults.set(themes, forKey: Key.themeByKOS)
+    var drawn = drawnByKOS
+    drawn[kos] = theme.drawn?.rawValue
+    defaults.set(drawn, forKey: Key.drawnByKOS)
     return true
   }
 
   private var themeByKOS: [String: String] {
     defaults.dictionary(forKey: Key.themeByKOS) as? [String: String] ?? [:]
+  }
+
+  /// Apart from the modes, so a mode kept by an older version still reads.
+  private var drawnByKOS: [String: String] {
+    defaults.dictionary(forKey: Key.drawnByKOS) as? [String: String] ?? [:]
   }
 
   private var askFirstByKOS: [String: Bool] {
