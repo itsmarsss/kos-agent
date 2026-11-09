@@ -21,6 +21,9 @@ struct SelectionTests {
     private(set) var sets: [(String, Bool)] = []
     var cost: TimeInterval = 0
     var answers = Int.max
+    /// How many times the app refuses to turn a flag off before it takes it.
+    var refusesOff = 0
+    var gone: Set<Int32> = []
     private(set) var asked = 0
     private(set) var clock: TimeInterval = 0
 
@@ -33,12 +36,17 @@ struct SelectionTests {
     func bool(_ attribute: String, of element: Int) -> Bool? { ask { attributes[element]?[attribute] as? Bool } }
     func set(_ attribute: String, _ value: Bool, on element: Int) -> Bool {
       guard settable.contains(attribute), ask({ true }) == true else { return false }
+      if !value, refusesOff > 0 {
+        refusesOff -= 1
+        return false
+      }
       sets.append((attribute, value))
       attributes[element, default: [:]][attribute] = value
       return true
     }
     func markedText(of element: Int) -> String? { ask { marked[element] } }
     func children(of element: Int) -> [Int] { ask { children[element] } ?? [] }
+    func running(_ pid: Int32) -> Bool { !gone.contains(pid) }
 
     func sets(_ attribute: String) -> [Bool] { sets.filter { $0.0 == attribute }.map(\.1) }
     func pass(_ time: TimeInterval) { clock += time }
@@ -110,6 +118,55 @@ struct SelectionTests {
     #expect(reader.read(slack, hidden: false, secureInput: { false }) { paused += 1 } == .nothing)
     #expect(paused == 2)
     #expect(fake.sets("AXManualAccessibility") == [true, false, true, false])
+  }
+
+  /// An app that will not turn its tree off at once is asked again.
+  @Test func aFlagRefusedOffIsAskedAgain() {
+    let fake = Fake()
+    fake.settable = ["AXManualAccessibility"]
+    fake.refusesOff = 1
+    let reader = reader(fake)
+    #expect(reader.read(slack, hidden: false, secureInput: { false }) {} == .nothing)
+    #expect(fake.sets("AXManualAccessibility") == [true, false])
+    #expect(reader.unrestored.isEmpty)
+  }
+
+  /// Refused twice, the flag is kept, and put back at the next read, whichever app that is of.
+  @Test func aFlagLeftOnIsPutBackAtTheNextRead() {
+    let fake = Fake()
+    fake.settable = ["AXManualAccessibility"]
+    fake.refusesOff = 2
+    let reader = reader(fake)
+    #expect(reader.read(slack, hidden: false, secureInput: { false }) {} == .nothing)
+    #expect(fake.sets("AXManualAccessibility") == [true])
+    #expect(reader.unrestored == [8: ["AXManualAccessibility"]])
+    #expect(reader.read(notes, hidden: true, secureInput: { false }) {} == .refused)
+    #expect(fake.sets("AXManualAccessibility") == [true, false])
+    #expect(reader.unrestored.isEmpty)
+  }
+
+  /// Chrome's enhanced mode, refused off, is put back as KOS for Mac quits; one in an app that has quit is let go.
+  @Test func aFlagLeftOnIsPutBackOnQuitting() {
+    let fake = Fake()
+    fake.settable = ["AXEnhancedUserInterface"]
+    fake.refusesOff = 2
+    let reader = reader(fake)
+    #expect(reader.read(chrome, hidden: false, secureInput: { false }) {} == .nothing)
+    #expect(reader.unrestored == [7: ["AXEnhancedUserInterface"]])
+    // Still refused: kept for later.
+    fake.refusesOff = 1
+    reader.restore()
+    #expect(reader.unrestored == [7: ["AXEnhancedUserInterface"]])
+    reader.restore()
+    #expect(fake.sets("AXEnhancedUserInterface") == [true, false])
+    #expect(reader.unrestored.isEmpty)
+
+    fake.refusesOff = 2
+    _ = reader.read(chrome, hidden: false, secureInput: { false }) {}
+    fake.gone = [7]
+    reader.restore()
+    #expect(reader.unrestored.isEmpty)
+    #expect(fake.sets("AXEnhancedUserInterface") == [true, false, true])
   }
 
   /// Already on, by a screen reader or the owner: left on.

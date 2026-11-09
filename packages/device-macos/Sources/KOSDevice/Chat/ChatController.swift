@@ -313,6 +313,12 @@ final class ChatController {
     }
   }
 
+  /// KOS for Mac is quitting: a flag an app would not take back after a read is put back before it goes.
+  func quitting() {
+    let reader = selection
+    selectionQueue.sync { reader.restore() }
+  }
+
   /// A read came back: shown unless nothing changed, then made again if it was asked for meanwhile.
   private func read(_ read: SelectionRead?, from app: NSRunningApplication) {
     reading = false

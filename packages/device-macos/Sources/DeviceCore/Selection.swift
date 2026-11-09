@@ -20,6 +20,8 @@ public protocol SelectionAccess: AnyObject {
   /// The words of the element's selected text marker range, which web content holds its selection in.
   func markedText(of element: Element) -> String?
   func children(of element: Element) -> [Element]
+  /// Whether the process still runs, so a flag left on in an app that quit is not put back forever.
+  func running(_ pid: Int32) -> Bool
 }
 
 /// The app a selection is read from.
@@ -84,6 +86,8 @@ public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable
   private var deadline: TimeInterval = 0
   /// What the last read was of: the app, and the element focused in it then.
   private var last: (pid: Int32, focused: Access.Element?)?
+  /// Flags this reader turned on and could not turn off again, by app: put back at the next read, and on quitting.
+  private(set) var unrestored: [Int32: Set<String>] = [:]
 
   public init(_ access: Access, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
     self.access = access
@@ -96,6 +100,7 @@ public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable
   public func read(
     _ app: SelectionApp, hidden: Bool, onlyIfChanged: Bool = false, secureInput: () -> Bool, pause: () -> Void
   ) -> SelectionRead? {
+    restore()
     guard !hidden, access.trusted, !secureInput() else {
       last = nil
       return hidden || access.trusted ? .refused : .untrusted
@@ -117,7 +122,7 @@ public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable
     }
     guard !turnedOn.isEmpty else { return .nothing }
     // Off again as it was: an app with its tree on does more work, and some animate their windows differently.
-    defer { for flag in turnedOn { _ = access.set(flag, false, on: root) } }
+    defer { turnOff(turnedOn, in: app.pid, root) }
     let paused = now()
     pause()
     deadline += now() - paused
@@ -125,11 +130,31 @@ public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable
     return look(in: root, focused: access.element("AXFocusedUIElement", of: root)) ?? .nothing
   }
 
+  /// Every flag left on is put back: at the next read, and as KOS for Mac quits.
+  public func restore() {
+    for (pid, flags) in unrestored {
+      guard access.running(pid) else {
+        unrestored[pid] = nil
+        continue
+      }
+      let root = access.application(pid)
+      let left = flags.filter { !access.set($0, false, on: root) }
+      unrestored[pid] = left.isEmpty ? nil : left
+    }
+  }
+
   private var inTime: Bool { now() < deadline }
 
   /// Only an app built on Chromium is asked for its tree: in any other the flags do nothing, or change how it behaves.
   private func opensItsTree(_ app: SelectionApp) -> Bool {
     app.chromiumBased || app.bundle.map(Self.chromium.contains) == true
+  }
+
+  /// Each flag off, asked twice; one the app would not take back is kept to be put back later.
+  private func turnOff(_ flags: [String], in pid: Int32, _ root: Access.Element) {
+    for flag in flags where !access.set(flag, false, on: root) && !access.set(flag, false, on: root) {
+      unrestored[pid, default: []].insert(flag)
+    }
   }
 
   /// The selection, a refusal for a password field, or nil for none found.

@@ -132,6 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationWillTerminate(_ notification: Notification) {
     Log.app.notice("quitting")
     controller.quitting()
+    chat.quitting()
     lines.values.forEach { $0.stop() }
   }
 
