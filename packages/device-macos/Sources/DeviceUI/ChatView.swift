@@ -190,7 +190,7 @@ public struct ChatView: View {
         }
         .buttonStyle(.plain)
         .fixedSize()
-        .help(model.auto ? "KOS works on this Mac without asking each step" : "KOS asks before each step on this Mac")
+        .help(model.auto ? "KOS acts without asking; strict steps still ask" : "KOS asks before each step")
         Spacer(minLength: 4)
         // While this chat has something going, the button stops it; words typed meanwhile still go with Return.
         if model.busy {
