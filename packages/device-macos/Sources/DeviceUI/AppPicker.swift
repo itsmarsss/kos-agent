@@ -86,7 +86,6 @@ struct AppPicker: View {
     }
     .frame(width: 290)
     .background(Theme.panel)
-    .environment(\.colorScheme, .dark)
     .onAppear { searching = true }
   }
 }

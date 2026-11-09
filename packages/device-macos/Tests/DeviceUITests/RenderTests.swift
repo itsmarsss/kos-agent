@@ -6,27 +6,34 @@ import Testing
 
 /// Every window state lays out at a sane size, drawn offscreen as the app would.
 ///
-/// With KOS_SNAPSHOT_DIR set, each one is also written there as a PNG, so a
-/// change to the look can be seen without pairing a Mac or asking for a
-/// session.
+/// Each is drawn in both themes. With KOS_SNAPSHOT_DIR set, each is also
+/// written there as a PNG, `name-dark.png` and `name-light.png`, so a change
+/// to the look can be seen without pairing a Mac or asking for a session.
 @MainActor
 @Suite("Windows render")
 struct RenderTests {
   /// `height`: drawn in a window that tall, as the home window is drawn at its one height.
   private func render<V: View>(_ name: String, _ view: V, height: CGFloat? = nil, width: CGFloat = 460) throws -> CGSize {
-    let host = NSHostingView(rootView: view)
-    let size = height.map { CGSize(width: width, height: $0) } ?? host.fittingSize
-    host.frame = CGRect(origin: .zero, size: size)
-    let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
-    window.contentView = host
-    host.layoutSubtreeIfNeeded()
-    if let dir = ProcessInfo.processInfo.environment["KOS_SNAPSHOT_DIR"] {
-      let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-      host.cacheDisplay(in: host.bounds, to: rep)
-      let png = try #require(rep.representation(using: .png, properties: [:]))
-      try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
+    var sizes: [CGSize] = []
+    for (theme, appearance) in [("dark", NSAppearance.Name.darkAqua), ("light", .aqua)] {
+      let host = NSHostingView(rootView: view)
+      let size = height.map { CGSize(width: width, height: $0) } ?? host.fittingSize
+      host.frame = CGRect(origin: .zero, size: size)
+      let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+      window.appearance = NSAppearance(named: appearance)
+      window.contentView = host
+      host.layoutSubtreeIfNeeded()
+      if let dir = ProcessInfo.processInfo.environment["KOS_SNAPSHOT_DIR"] {
+        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        let png = try #require(rep.representation(using: .png, properties: [:]))
+        try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name)-\(theme).png"))
+      }
+      sizes.append(size)
     }
-    return size
+    // A theme is colours only: the same window, the same size.
+    #expect(sizes.first == sizes.last, "\(name) changed size with the theme")
+    return sizes[0]
   }
 
   private func kos(
@@ -202,6 +209,7 @@ struct RenderTests {
       $0.page = .settings
       $0.longestMinutes = 120
       $0.openAtLogin = .needsApproval
+      $0.theme = .light
     }
     _ = try render("settings", HomeView(model: model), height: HomeView.height)
     _ = try render("settings-full", HomeView(model: model), height: 1100)

@@ -36,7 +36,6 @@ final class HUDPanel: NSPanel {
     isReleasedWhenClosed = false
     level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
     collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-    appearance = NSAppearance(named: .darkAqua)
     contentView = host
     place(bottom: false, animated: false)
   }

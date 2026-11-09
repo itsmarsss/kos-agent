@@ -92,7 +92,6 @@ final class ConsentPrompt: NSObject {
     panel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2)
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     panel.isReleasedWhenClosed = false
-    panel.appearance = NSAppearance(named: .darkAqua)
     panel.backgroundColor = NSColor(Theme.bg)
     panel.contentView = host
     if let screen = Displays.screen(for: Displays.underCursor()) {

@@ -104,7 +104,6 @@ public struct HomeView: View {
     .frame(maxHeight: .infinity, alignment: .top)
     .background(Theme.bg)
     .ignoresSafeArea()
-    .environment(\.colorScheme, .dark)
   }
 
   private var controls: some View {

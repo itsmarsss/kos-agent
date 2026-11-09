@@ -76,8 +76,9 @@ public struct SessionBar: View {
     .background(Theme.panel.opacity(0.96), in: Capsule())
     .overlay(Capsule().strokeBorder(tone.opacity(Theme.edge)))
     .shadow(color: tone.opacity(0.35), radius: 12)
+    // A dark lift under the glow, so the bar stands off a light page as well as a dark one.
+    .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
     .padding(14)
-    .environment(\.colorScheme, .dark)
     .onAppear {
       withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { beat = true }
     }

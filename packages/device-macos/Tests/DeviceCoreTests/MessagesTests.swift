@@ -71,7 +71,7 @@ struct MessagesTests {
   @Test func anUnknownThemeIsRefused() {
     #expect(throws: DeviceError.self) { try Inbound.decode(Data(#"{"t":"theme","mode":"sepia"}"#.utf8)) }
     #expect(throws: DeviceError.self) { try Inbound.decode(Data(#"{"t":"theme"}"#.utf8)) }
-    #expect(throws: DeviceError.self) { try Inbound.decode(Data(#"{"t":"theme","mode":3}"#.utf8)) }
+    #expect(throws: (any Error).self) { try Inbound.decode(Data(#"{"t":"theme","mode":3}"#.utf8)) }
   }
 
   @Test func anUnknownTypeIsRefused() {

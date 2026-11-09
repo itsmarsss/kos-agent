@@ -25,7 +25,6 @@ final class ChatWindow: NSPanel {
     hidesOnDeactivate = false
     becomesKeyOnlyIfNeeded = false
     isReleasedWhenClosed = false
-    appearance = NSAppearance(named: .darkAqua)
     backgroundColor = NSColor(Theme.bg)
     contentView = NSHostingView(rootView: ChatView(model: model))
     minSize = ChatView.smallest
