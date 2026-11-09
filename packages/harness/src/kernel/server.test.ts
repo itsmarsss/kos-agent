@@ -392,7 +392,7 @@ describe("handleApiRequest", () => {
     expect(await get("/api/settings/theme")).toEqual({ theme: "system", chosen: false });
     expect(await get("/api/status")).not.toHaveProperty("theme");
     const told: string[] = [];
-    const off = kernel.bus.on("theme:changed", (e) => void told.push(e.theme));
+    const off = kernel.bus.on("theme:changed", (e) => void told.push(e.mode));
     const set = (theme: unknown) => handleApiRequest(kernel, { method: "POST", path: "/api/settings/theme", body: { theme } });
     expect((await set("light")).body).toEqual({ theme: "light" });
     // The same choice again is no news to a device.
@@ -402,8 +402,35 @@ describe("handleApiRequest", () => {
     off();
     expect(told).toEqual(["light", "dark"]);
     expect(kernel.theme()).toBe("dark");
-    expect(await get("/api/settings/theme")).toEqual({ theme: "dark", chosen: true });
-    expect(await get("/api/status")).toMatchObject({ theme: "dark" });
+    // Dark is drawn dark wherever it is, so that is the palette too.
+    expect(await get("/api/settings/theme")).toEqual({ theme: "dark", chosen: true, drawn: "dark" });
+    expect(await get("/api/status")).toMatchObject({ theme: "dark", drawn: "dark" });
+  });
+
+  it("keeps the palette a dashboard reports drawing in, and tells devices only of a change", async () => {
+    const get = async (path: string): Promise<unknown> => (await handleApiRequest(kernel, { method: "GET", path })).body;
+    const told: unknown[] = [];
+    const off = kernel.bus.on("theme:changed", ({ mode, drawn }) => void told.push({ mode, drawn }));
+    const report = (drawn: unknown) => handleApiRequest(kernel, { method: "POST", path: "/api/settings/theme/drawn", body: { drawn } });
+    const choose = (theme: unknown) => handleApiRequest(kernel, { method: "POST", path: "/api/settings/theme", body: { theme } });
+    await choose("system");
+    told.length = 0;
+    for (const bad of ["system", "dashboard", 1, undefined]) expect((await report(bad)).status, String(bad)).toBe(400);
+    expect(told).toEqual([]);
+    // A browser forced dark under a light macOS: "system" drawn dark.
+    expect((await report("dark")).body).toEqual({ drawn: "dark" });
+    await report("dark");
+    // Another dashboard, in a light browser, reports later: the latest wins.
+    await report("light");
+    expect(told).toEqual([{ mode: "system", drawn: "dark" }, { mode: "system", drawn: "light" }]);
+    expect(kernel.dashboardTheme()).toEqual({ mode: "system", drawn: "light" });
+    expect(await get("/api/status")).toMatchObject({ theme: "system", drawn: "light" });
+    expect(await get("/api/settings/theme")).toEqual({ theme: "system", chosen: true, drawn: "light" });
+    // Dark is drawn dark wherever it is drawn: told once, with both, before any dashboard reports it.
+    told.length = 0;
+    await choose("dark");
+    expect(told).toEqual([{ mode: "dark", drawn: "dark" }]);
+    off();
   });
 
   it("lists, writes, runs and removes standing agents for the Agents page", async () => {

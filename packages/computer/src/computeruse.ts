@@ -2,7 +2,7 @@ import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 
 import { requireServices, type ApiExtension, type AuditEntry, type BrowserElsewhere, type KosModule } from "@kos/harness";
-import type { FaceDrawing, ThemeMode } from "@kos/shared";
+import type { DashboardTheme, FaceDrawing } from "@kos/shared";
 
 import { OwnerChrome } from "./chrome.js";
 import { DeviceHub } from "./hub.js";
@@ -32,8 +32,8 @@ export interface ComputerUseOptions {
   halted(): boolean;
   /** KOS's face as the owner set it, sent to every device to draw KOS by. */
   face(): FaceDrawing;
-  /** The dashboard's theme, sent to every device to follow unless it keeps its own. */
-  theme(): ThemeMode;
+  /** The dashboard's theme and the palette it was last drawn in, sent to every device to follow unless it keeps its own. */
+  theme(): DashboardTheme;
   /** The chat each device panel shows, read when it is shown: the Chrome side panel's, and the KOS for Mac window's. */
   panels: { chrome: PanelDeps; mac: PanelDeps };
   /** The audit log, for a session started unasked. */

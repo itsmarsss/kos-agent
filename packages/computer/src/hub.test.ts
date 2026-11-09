@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 
 import { openDatabase } from "@kos/harness";
-import { drawingOf, lookOf, type FaceDrawing, type ThemeMode } from "@kos/shared";
+import { drawingOf, lookOf, type DashboardTheme, type FaceDrawing } from "@kos/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { FakeDevice } from "./device.fixture.js";
@@ -15,7 +15,7 @@ import { DeviceStore } from "./store.js";
 const hostPrivate = generateKeyPairSync("ed25519").privateKey;
 const hostKey = { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) };
 
-function setup(over: { halted?: () => boolean; face?: () => FaceDrawing; theme?: () => ThemeMode; handBackWaitMs?: number } = {}) {
+function setup(over: { halted?: () => boolean; face?: () => FaceDrawing; theme?: () => DashboardTheme; handBackWaitMs?: number } = {}) {
   const store = new DeviceStore(openDatabase(":memory:"));
   const hub = new DeviceHub({ store, hostKey, halted: over.halted ?? (() => false), log: () => undefined, beginTimeoutMs: 200, callTimeoutMs: 200, ...(over.face ? { face: over.face } : {}), ...(over.theme ? { theme: over.theme } : {}), ...(over.handBackWaitMs ? { handBackWaitMs: over.handBackWaitMs } : {}) });
   return { store, hub };
@@ -61,15 +61,24 @@ describe("KOS's face on a device", () => {
 
 describe("the dashboard's theme on a device", () => {
   it("is sent with the face once the device is in, and again to every device online when the owner changes it", async () => {
-    let mode: ThemeMode = "system";
-    const { hub } = setup({ theme: () => mode });
+    let theme: DashboardTheme = { mode: "system" };
+    const { hub } = setup({ theme: () => theme });
     const fake = await online(hub, "Work Chrome");
     expect(fake.themes).toEqual(["system"]);
     const other = await online(hub, "Studio MacBook");
-    mode = "light";
+    theme = { mode: "light" };
     hub.tellTheme();
     expect(fake.themes).toEqual(["system", "light"]);
     expect(other.themes).toEqual(["system", "light"]);
+  });
+
+  it("carries the palette a dashboard last drew it in, when one has said", async () => {
+    let theme: DashboardTheme = { mode: "system" };
+    const { hub } = setup({ theme: () => theme });
+    const fake = await online(hub, "Studio MacBook");
+    theme = { mode: "system", drawn: "dark" };
+    hub.tellTheme();
+    expect(fake.themeFrames).toEqual([{ t: "theme", mode: "system" }, { t: "theme", mode: "system", drawn: "dark" }]);
   });
 
   it("is not sent by a host that has none to give", async () => {

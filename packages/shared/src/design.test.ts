@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { GAITS } from "./blobmotion.js";
-import { COLOURS, FLOAT_SHADOW, isThemeMode, LIGHT_COLOURS, RADII, resolveThemeMode, SPRING, TYPE, type ColourToken } from "./design.js";
+import { COLOURS, FLOAT_SHADOW, isDrawnTheme, isThemeMode, LIGHT_COLOURS, RADII, readDashboardTheme, resolveThemeMode, SPRING, TYPE, type ColourToken } from "./design.js";
 import { KOS_SEED, drawingOf, lookOf } from "./face.js";
 
 /**
@@ -100,6 +100,14 @@ describe("the design tokens", () => {
     expect(resolveThemeMode("light", false)).toBe("light");
     expect(resolveThemeMode("dark", true)).toBe("dark");
     expect(["light", "dark", "system", "dashboard", 1, undefined].map(isThemeMode)).toEqual([true, true, true, false, false, false]);
+    expect(["light", "dark", "system", 1, undefined].map(isDrawnTheme)).toEqual([true, true, false, false, false]);
+  });
+
+  it("read a dashboard theme as sent or kept, and an older bare mode as one without a palette", () => {
+    expect(readDashboardTheme({ mode: "system", drawn: "dark" })).toEqual({ mode: "system", drawn: "dark" });
+    expect(readDashboardTheme({ mode: "system", drawn: "system" })).toEqual({ mode: "system" });
+    expect(readDashboardTheme("light")).toEqual({ mode: "light" });
+    for (const bad of [{ drawn: "dark" }, { mode: "sepia" }, "sepia", null, 1]) expect(readDashboardTheme(bad)).toBeUndefined();
   });
 
   it("cover every token the kit's stylesheet uses, in both apps", () => {

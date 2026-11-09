@@ -137,7 +137,7 @@ import { originOf } from "./origin.js";
 import { ownerWords } from "./transcript.js";
 import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
-import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isThemeMode, KOS_SEED, lookOf, summarizeAction, type ArtifactEdit, type FaceDrawing, type FaceSpec, type ThemeMode } from "@kos/shared";
+import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, type ArtifactEdit, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type ThemeMode } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -225,6 +225,9 @@ export const WORN_FACE_KEY = "discord.face";
 
 /** The dashboard's theme, KOS's own: what every device following the dashboard draws. */
 export const THEME_KEY = "appearance.theme";
+
+/** The palette a dashboard last reported drawing that theme in; with several open, the latest report wins. */
+export const DRAWN_KEY = "appearance.drawn";
 
 /** One channel of the server layout. */
 export interface SurfaceChannel {
@@ -2458,13 +2461,51 @@ export class Kernel {
     return this.themeChoice() ?? "system";
   }
 
-  /** The dashboard's theme as the owner sets it, kept and told to every device; nothing kept when it is not a theme. */
+  /**
+   * The dashboard's theme as the owner sets it, kept and told to every
+   * device; nothing kept when it is not a theme. Light or dark is drawn as
+   * itself, so it is also what the dashboard draws, ahead of its report.
+   */
   setTheme(raw: unknown): ThemeMode | undefined {
     if (!isThemeMode(raw)) return undefined;
     const changed = this.themeChoice() !== raw;
     this.settings.set(THEME_KEY, raw);
-    if (changed) this.bus.emit({ kind: "theme:changed", theme: raw });
+    const drawnChanged = raw !== "system" && this.keepDrawn(raw);
+    if (changed || drawnChanged) this.told();
     return raw;
+  }
+
+  /** The palette a dashboard last reported drawing in, or nothing before one has. */
+  drawnTheme(): DrawnTheme | undefined {
+    const kept = this.settings.get(DRAWN_KEY);
+    return isDrawnTheme(kept) ? kept : undefined;
+  }
+
+  /**
+   * A dashboard reports the palette it draws, "system" read against its own
+   * browser: kept, and told to every device when it is new. With several
+   * dashboards open, the latest report wins. Nothing kept when it is not a palette.
+   */
+  setDrawnTheme(raw: unknown): DrawnTheme | undefined {
+    if (!isDrawnTheme(raw)) return undefined;
+    if (this.keepDrawn(raw)) this.told();
+    return raw;
+  }
+
+  /** The dashboard's theme as a device is told it: the setting, and the palette last drawn in. */
+  dashboardTheme(): DashboardTheme {
+    const drawn = this.drawnTheme();
+    return { mode: this.theme(), ...(drawn ? { drawn } : {}) };
+  }
+
+  private keepDrawn(drawn: DrawnTheme): boolean {
+    if (this.drawnTheme() === drawn) return false;
+    this.settings.set(DRAWN_KEY, drawn);
+    return true;
+  }
+
+  private told(): void {
+    this.bus.emit({ kind: "theme:changed", ...this.dashboardTheme() });
   }
 
   /**
