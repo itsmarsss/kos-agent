@@ -191,11 +191,22 @@ final class ChatController {
     window.ignoresMouseEvents = on
   }
 
-  /// Before KOS types, the box gives up the keyboard to the app KOS works in.
-  func yieldKeys() {
-    guard made, window.isKeyWindow else { return }
-    window.resignKey()
+  /// Before KOS types, the box gives up the keyboard: the app the owner was in before the chat comes back to the
+  /// front, so the keys land there. AppKit gives a window the keyboard only by activating another app, never by
+  /// telling the window to resign it. Waits a moment for the switch; the caller still refuses if it did not happen.
+  func yieldKeys() async {
+    guard made, window.isKeyWindow, let app = lastFront, !app.isTerminated else { return }
+    NSApp.yieldActivation(to: app)
+    app.activate()
+    var waited = 0
+    while window.isKeyWindow, waited < Self.yieldChecks {
+      try? await Task.sleep(nanoseconds: 50_000_000)
+      waited += 1
+    }
   }
+
+  /// How many times, 50 ms apart, the chat looks for the keyboard to have gone before KOS types.
+  private static let yieldChecks = 10
 
   /// Whether a session or an ask, by the KOS and chat it is for, is this window's chat's.
   func isMine(origin: String, conversation: String?) -> Bool {

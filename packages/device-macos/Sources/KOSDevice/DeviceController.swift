@@ -28,7 +28,7 @@ final class DeviceController {
   /// KOS for Mac's own windows beyond the overlay (the chat), stepping aside for KOS's pointer: true while it acts.
   var letThrough: ((Bool) -> Void)?
   /// KOS for Mac's own windows give up the keyboard, so what KOS types lands in the app it works in.
-  var yieldKeys: (() -> Void)?
+  var yieldKeys: (() async -> Void)?
 
   private var sessions = Sessions()
   private var display: CGDirectDisplayID?
@@ -408,7 +408,7 @@ final class DeviceController {
       guard p.text.count <= Limits.typedCharacters else {
         throw DeviceError.badRequest("text is at most \(Limits.typedCharacters) characters; send it in parts.")
       }
-      try refuseKeys()
+      try await refuseKeys()
       try await injector.type(Typing.steps(for: p.text))
       return cursor(in: session)
 
@@ -420,7 +420,7 @@ final class DeviceController {
       guard (1...Limits.pressRepeats).contains(times) else {
         throw DeviceError.badRequest("repeat must be from 1 to \(Limits.pressRepeats).")
       }
-      try refuseKeys()
+      try await refuseKeys()
       try await injector.press(combo, times: times)
       return cursor(in: session)
 
@@ -522,9 +522,10 @@ final class DeviceController {
     try await act()
   }
 
-  /// Before KOS types: never into KOS for Mac itself, the chat's box above all.
-  private func refuseKeys() throws {
-    yieldKeys?()
+  /// Before KOS types: never into KOS for Mac itself, the chat's box above all. Its windows give up the keyboard
+  /// first; one that still has it is refused.
+  private func refuseKeys() async throws {
+    await yieldKeys?()
     if NSApp.keyWindow != nil {
       throw DeviceError(.badRequest, "A KOS for Mac window has the keyboard. Click into the app first, then type.")
     }
