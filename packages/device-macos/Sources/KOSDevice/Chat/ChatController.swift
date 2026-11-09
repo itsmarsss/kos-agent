@@ -23,6 +23,8 @@ final class ChatController {
   var asking: (origin: String, conversation: String?, task: String, until: Date)? { didSet { scope() } }
 
   private lazy var window = ChatWindow(model: model)
+  /// Whether the window was ever made: stepping aside does not make one.
+  private var made = false
   private var talkingTo: String?
   private var wasOnline = false
   private var taking: Timer?
@@ -59,6 +61,7 @@ final class ChatController {
   }
 
   func open() {
+    made = true
     watchFront()
     noteFront()
     window.present()
@@ -176,6 +179,18 @@ final class ChatController {
         self?.model.giveBack("KOS did not take that. It may be a KOS without the Mac window, or not reachable now; your words are back in the box.")
       }
     }
+  }
+
+  /// While KOS's pointer acts, the window lets it through to the app under it.
+  func letThrough(_ on: Bool) {
+    guard made else { return }
+    window.ignoresMouseEvents = on
+  }
+
+  /// Before KOS types, the box gives up the keyboard to the app KOS works in.
+  func yieldKeys() {
+    guard made, window.isKeyWindow else { return }
+    window.resignKey()
   }
 
   /// Whether a session or an ask, by the KOS and chat it is for, is this window's chat's.

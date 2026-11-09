@@ -25,6 +25,10 @@ final class DeviceController {
   var faceOf: (String) -> FaceLook = { _ in .kos }
   /// The owner stopped the session or the ask, by the KOS and the chat it was for: that chat's turn stops too.
   var onOwnerStop: ((String, String?) -> Void)?
+  /// KOS for Mac's own windows beyond the overlay (the chat), stepping aside for KOS's pointer: true while it acts.
+  var letThrough: ((Bool) -> Void)?
+  /// KOS for Mac's own windows give up the keyboard, so what KOS types lands in the app it works in.
+  var yieldKeys: (() -> Void)?
 
   private var sessions = Sessions()
   private var display: CGDirectDisplayID?
@@ -350,7 +354,7 @@ final class DeviceController {
       let target = try globalPoint(p.x, p.y, in: session)
       try refuseHidden(at: target)
       await overlay.clear([target])
-      try await injector.move(to: target)
+      try await throughOwnWindows { try await injector.move(to: target) }
       return cursor(in: session)
 
     case .pointerClick:
@@ -362,7 +366,7 @@ final class DeviceController {
       let target = try globalPoint(p.x, p.y, in: session)
       try refuseHidden(at: target)
       await overlay.clear([target])
-      try await injector.click(at: target, button: p.button ?? .left, count: count, modifiers: modifiers)
+      try await throughOwnWindows { try await injector.click(at: target, button: p.button ?? .left, count: count, modifiers: modifiers) }
       overlay.ripple(at: target)
       return cursor(in: session)
 
@@ -374,7 +378,7 @@ final class DeviceController {
       try refuseHidden(at: from)
       try refuseHidden(at: to)
       await overlay.clear([from, to])
-      try await injector.drag(from: from, to: to)
+      try await throughOwnWindows { try await injector.drag(from: from, to: to) }
       return cursor(in: session)
 
     case .pointerScroll:
@@ -386,7 +390,7 @@ final class DeviceController {
       let target = try globalPoint(p.x, p.y, in: session)
       try refuseHidden(at: target)
       await overlay.clear([target])
-      try await injector.scroll(at: target, dx: Int(p.dx.rounded()), dy: Int(p.dy.rounded()))
+      try await throughOwnWindows { try await injector.scroll(at: target, dx: Int(p.dx.rounded()), dy: Int(p.dy.rounded())) }
       return cursor(in: session)
 
     case .keysType:
@@ -497,7 +501,24 @@ final class DeviceController {
     }
   }
 
+  /// KOS's pointer goes through KOS for Mac's own windows, the bar and the chat, to what the session sees under them:
+  /// a picture leaves them out, so a click there is meant for the app beneath. Between actions the owner reaches Stop.
+  private func throughOwnWindows(_ act: () async throws -> Void) async throws {
+    overlay.letThrough(true)
+    letThrough?(true)
+    defer {
+      overlay.letThrough(false)
+      letThrough?(false)
+    }
+    try await act()
+  }
+
+  /// Before KOS types: never into KOS for Mac itself, the chat's box above all.
   private func refuseKeys() throws {
+    yieldKeys?()
+    if NSApp.keyWindow != nil {
+      throw DeviceError(.badRequest, "A KOS for Mac window has the keyboard. Click into the app first, then type.")
+    }
     if Targets.passwordFieldHasFocus {
       throw DeviceError(.secureInput, "A password field has focus. KOS does not type there.")
     }

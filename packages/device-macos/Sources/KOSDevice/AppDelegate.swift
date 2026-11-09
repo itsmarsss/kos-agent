@@ -87,6 +87,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     chat.isHidden = { [unowned self] bundle in settings.isHidden(bundle) }
     chat.model.handBack = { [unowned self] in controller.resume() }
     chat.model.stop = { [unowned self] in stopChat() }
+    controller.letThrough = { [unowned self] on in chat.letThrough(on) }
+    controller.yieldKeys = { [unowned self] in chat.yieldKeys() }
     controller.onOwnerStop = { [unowned self] origin, conversation in
       if chat.isMine(origin: origin, conversation: conversation) { chat.tellStop() }
     }

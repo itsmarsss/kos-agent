@@ -54,6 +54,11 @@ final class OverlayController {
     hud?.setUntil(until)
   }
 
+  /// While KOS's pointer acts, the bar lets it through to what is under it.
+  func letThrough(_ on: Bool) {
+    hud?.ignoresMouseEvents = on
+  }
+
   /// The window moved: the border follows it. False when it is off this display now, for the overlay to move.
   func follow(window frame: CGRect) -> Bool {
     guard let screen, screen.covers(CGPoint(x: frame.midX, y: frame.midY)) else { return false }
