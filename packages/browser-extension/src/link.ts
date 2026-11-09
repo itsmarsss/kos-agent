@@ -62,6 +62,8 @@ export class Link {
   private retry = 0;
   private ping: ReturnType<typeof setInterval> | undefined;
   private redial: ReturnType<typeof setTimeout> | undefined;
+  /** Frames are read in the order they came: a welcome still being verified holds the face and theme sent after it. */
+  private inbox: Promise<void> = Promise.resolve();
 
   constructor(private readonly options: LinkOptions) {}
 
@@ -115,7 +117,12 @@ export class Link {
     const ws = new WebSocket(socketUrl(this.options.url));
     this.ws = ws;
     this.welcomed = false;
-    ws.onmessage = (event: MessageEvent<string>) => void this.receive(ws, String(event.data));
+    this.inbox = Promise.resolve();
+    ws.onmessage = (event: MessageEvent<string>) => {
+      const text = String(event.data);
+      // A frame that fails is said and passed over; the frames after it are still read.
+      this.inbox = this.inbox.then(() => this.receive(ws, text)).catch((err: unknown) => console.warn("KOS frame failed", err));
+    };
     ws.onclose = (event) => {
       if (this.ws !== ws) return;
       this.ws = null;
