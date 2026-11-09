@@ -156,7 +156,15 @@ public final class ChatModel: ObservableObject {
   @Published public private(set) var auto = false
   @Published public var error: String?
   /// What the box holds: typed, or words KOS never took, given back.
-  @Published public var draft = ""
+  @Published public var draft = "" {
+    didSet { if draft != oldValue { typed() } }
+  }
+  /// What an @ may name, as KOS last answered it, for the start of it asked.
+  @Published public private(set) var mentionsFor = ""
+  @Published public private(set) var mentions: [ChatMenus.Mention] = []
+  /// The token the owner closed the menu on, so it stays closed until they type on.
+  @Published public private(set) var menuClosedAt: String?
+  private var mentionAsk: Task<Void, Never>?
   /// The app in front of the window, which "this" means: its name, or nil for none.
   @Published public var beside: String?
   /// That app's front window, by its title, when macOS says it.
@@ -192,6 +200,8 @@ public final class ChatModel: ObservableObject {
   public var setAuto: (Bool) -> Void = { _ in }
   public var close: () -> Void = {}
   public var chooseKOS: (String) -> Void = { _ in }
+  /// What an @ may name, by the start of it.
+  public var askMentions: (String) -> Void = { _ in }
   /// Stop this chat's turn, its session and any ask for one.
   public var stop: () -> Void = {}
   /// Give the Mac back to KOS after taking it over.
@@ -354,6 +364,50 @@ public final class ChatModel: ObservableObject {
   /// The owner's latest words have KOS's answer under them.
   private func answered(_ said: String) -> Bool {
     after(said)?.contains { if case .kos = $0 { return true } else { return false } } ?? false
+  }
+
+  // MARK: The / and @ menus
+
+  /// How long the box waits on a pause in typing an @ before it asks KOS what it may name.
+  static let mentionPause: Duration = .milliseconds(120)
+
+  /// The menu open on what is typed at the end of the box, and its options; nil when there is none.
+  public var menu: (token: ChatMenus.Token, options: [ChatMenus.Option])? {
+    guard let token = ChatMenus.token(in: draft), token.raw != menuClosedAt else { return nil }
+    let options: [ChatMenus.Option]
+    switch token.kind {
+    case .command: options = ChatMenus.commands(token.q)
+    case .mention: options = token.q == mentionsFor ? mentions.map(ChatMenus.option) : []
+    }
+    return options.isEmpty ? nil : (token, options)
+  }
+
+  /// What was picked in the menu, in place of what was typed.
+  public func take(_ option: ChatMenus.Option) {
+    guard let token = ChatMenus.token(in: draft) else { return }
+    draft = ChatMenus.take(option, for: token, in: draft)
+  }
+
+  /// Escape: the menu stays closed until the owner types on.
+  public func closeMenu() {
+    menuClosedAt = ChatMenus.token(in: draft)?.raw
+  }
+
+  /// What an @ may name, as KOS answered for the start of it.
+  public func mentions(_ list: [ChatMenus.Mention], for q: String) {
+    mentionsFor = q
+    mentions = list
+  }
+
+  private func typed() {
+    menuClosedAt = nil
+    mentionAsk?.cancel()
+    guard let token = ChatMenus.token(in: draft), token.kind == .mention else { return }
+    mentionAsk = Task { [weak self] in
+      try? await Task.sleep(for: Self.mentionPause)
+      guard !Task.isCancelled else { return }
+      self?.askMentions(token.q)
+    }
   }
 
   public func ask(_ approval: Ask) {

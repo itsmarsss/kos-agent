@@ -9,6 +9,8 @@ import SwiftUI
 public struct ChatView: View {
   @ObservedObject private var model: ChatModel
   @State private var switching = false
+  /// Which line of the / or @ menu Return takes.
+  @State private var picked = 0
   @FocusState private var typing: Bool
 
   public static let size = CGSize(width: 380, height: 560)
@@ -143,12 +145,15 @@ public struct ChatView: View {
 
   private var composer: some View {
     VStack(alignment: .leading, spacing: 4) {
+      if let menu = model.menu { CommandMenu(options: menu.options, picked: picked, take: model.take) }
       TextField("", text: $model.draft, axis: .vertical)
         .textFieldStyle(.plain)
         .lineLimit(1...6)
         .focused($typing)
         .disabled(!model.usable)
         .onSubmit(sendDraft)
+        .onChange(of: model.menu?.token.raw) { picked = 0 }
+        .onKeyPress(keys: [.upArrow, .downArrow, .tab, .escape]) { press in menuKey(press.key) }
         // The hint drawn here, not as the field's own: in the faint grey, on one line, cut at its end, as the dashboard's.
         .overlay(alignment: .topLeading) {
           if model.draft.isEmpty {
@@ -218,11 +223,52 @@ public struct ChatView: View {
     model.usable && !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
+  /// The arrows move through the menu, Tab takes the line picked, Escape closes it; with no menu, the keys are the box's.
+  private func menuKey(_ key: KeyEquivalent) -> KeyPress.Result {
+    guard let options = model.menu?.options else { return .ignored }
+    switch key {
+    case .upArrow: picked = (picked + options.count - 1) % options.count
+    case .downArrow: picked = (picked + 1) % options.count
+    case .tab: model.take(options[min(picked, options.count - 1)])
+    default: model.closeMenu()
+    }
+    return .handled
+  }
+
   private func sendDraft() {
+    // Return with the menu open takes the line picked, as Tab does.
+    if let options = model.menu?.options {
+      model.take(options[min(picked, options.count - 1)])
+      return
+    }
     guard canSend else { return }
     let words = model.draft
     model.draft = ""
     model.say(words)
+  }
+}
+
+/// The / or @ menu over the box: what may go in place of what is typed, the line Return takes lit.
+private struct CommandMenu: View {
+  let options: [ChatMenus.Option]
+  let picked: Int
+  let take: (ChatMenus.Option) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 1) {
+      ForEach(Array(options.enumerated()), id: \.offset) { i, option in
+        MenuRow(on: i == picked, height: 26, action: { take(option) }) { _ in
+          HStack(spacing: 8) {
+            Text(option.label).font(.kos(.control)).lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: 6)
+            if let hint = option.hint {
+              Text(hint).font(.kos(.tiny)).foregroundStyle(Theme.faint).lineLimit(1).truncationMode(.tail)
+            }
+          }
+        }
+      }
+    }
+    .padding(.bottom, 4)
   }
 }
 

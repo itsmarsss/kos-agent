@@ -10,6 +10,7 @@ public enum ChatMethod: String, CaseIterable, Sendable {
   case settled = "chat.settled"
   case chats = "chat.chats"
   case models = "chat.models"
+  case mentions = "chat.mentions"
 }
 
 public struct ChatStep: Decodable, Equatable, Sendable {

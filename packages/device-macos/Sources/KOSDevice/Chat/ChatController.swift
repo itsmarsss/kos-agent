@@ -43,6 +43,7 @@ final class ChatController {
     model.switchTo = { [weak self] id in self?.tell(.switchTo(conversation: id)) }
     model.chooseModel = { [weak self] choice in self?.tell(.model(choice)) }
     model.setAuto = { [weak self] on in self?.tell(.auto(on)) }
+    model.askMentions = { [weak self] q in self?.tell(.mentions(q)) }
     model.close = { [weak self] in self?.close() }
   }
 
@@ -133,6 +134,9 @@ final class ChatController {
       case .models:
         let p = try call.params(ChatModels.self)
         model.models(.init(current: p.current, choices: p.choices, fixed: p.fixed), error: p.error)
+      case .mentions:
+        let p = try call.params(ChatMentions.self)
+        model.mentions(p.mentions.map { .init(kind: $0.kind, id: $0.id, label: $0.label, hint: $0.hint) }, for: p.q)
       }
       return try? Outbound.reply(id: call.id, result: EmptyResult())
     } catch let error as DeviceError {
