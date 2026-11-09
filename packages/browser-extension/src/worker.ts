@@ -858,8 +858,8 @@ async function fromOverlay(tab: number, world: number, payload: string): Promise
     case "input":
       // The owner may scroll a KOS tab freely, if they said so.
       if (settings.takeover === "clicksAndKeys" && message["type"] === "wheel") return;
-      // Not the owner's hand right after they allowed it or handed it back: they are still letting go.
-      if (session && !session.paused && session.isOwners(message as unknown as PageInput, Date.now()) && !session.inGrace(Date.now())) await pause();
+      // A click or a key takes over at once; a scroll just after they allowed it or handed it back is their hand still letting go.
+      if (session && !session.paused && session.takesOver(message as unknown as PageInput, Date.now())) await pause();
       return;
     case "place": {
       const x = Number(message["x"]);

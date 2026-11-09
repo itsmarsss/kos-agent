@@ -190,14 +190,21 @@ describe("a session", () => {
     expect(session.over(10_000, 5_000)).toBe("expired");
   });
 
-  it("does not take the owner's hand for a takeover in the moment after they allow it or hand it back", () => {
+  it("lets the owner's scroll pass in the moment after they allow it or hand it back, but never a click or a key", () => {
     const session = new Session(info, 0);
-    expect(session.inGrace(GRACE_MS - 1)).toBe(true);
-    expect(session.inGrace(GRACE_MS)).toBe(false);
+    const wheel = { type: "wheel" as const, x: 10, y: 10 };
+    expect(session.takesOver(wheel, GRACE_MS - 1)).toBe(false);
+    expect(session.takesOver(wheel, GRACE_MS)).toBe(true);
+    expect(session.takesOver({ type: "pointerdown", x: 10, y: 10 }, 1)).toBe(true);
+    expect(session.takesOver({ type: "keydown", key: "a" }, 1)).toBe(true);
     session.pause();
     session.resume(5_000);
-    expect(session.inGrace(5_000 + GRACE_MS - 1)).toBe(true);
-    expect(session.inGrace(5_000 + GRACE_MS)).toBe(false);
+    expect(session.takesOver(wheel, 5_000 + GRACE_MS - 1)).toBe(false);
+    expect(session.takesOver({ type: "pointerdown", x: 10, y: 10 }, 5_001)).toBe(true);
+    expect(session.takesOver(wheel, 5_000 + GRACE_MS)).toBe(true);
+    // KOS's own click, reported back by the page, is never the owner's.
+    session.dispatching("Input.dispatchMouseEvent", { type: "mousePressed", x: 40, y: 40 }, 9_000);
+    expect(session.takesOver({ type: "pointerdown", x: 40, y: 40 }, 9_001)).toBe(false);
   });
 
   it("knows KOS's own clicks and keys when the page reports them, and the owner's when it did not send them", () => {

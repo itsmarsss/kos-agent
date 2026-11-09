@@ -89,9 +89,11 @@ While KOS is in control:
   Coordinates are never in the line;
 - a bar at the top says what it is doing, with Take over and Stop, and its
   chat window says the same; Stop there stops the turn too;
-- your own click or key pauses it at once (on the Mac, a deliberate move of
-  the pointer too); scrolling and small pointer moves do not, nor does
-  anything in the 3 seconds after you press Allow or Hand back. Only you hand
+- your own click or key pauses it at once, even right after you press Allow
+  or Hand back (on the Mac, a deliberate move of the pointer too, past the
+  3 seconds after Allow or Hand back); scrolling and small pointer moves do
+  not, though after you scroll on the Mac KOS looks again before it acts.
+  Only you hand
   it back, on the device or in its chat ("Paused, you have control", with
   Hand back and Stop). KOS waits up to five minutes for you: handed back, it
   looks again before acting; kept, it stops and tells you where it was. The

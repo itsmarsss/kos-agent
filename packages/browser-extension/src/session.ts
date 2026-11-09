@@ -35,7 +35,11 @@ interface Dispatched {
   key?: string;
 }
 
-/** How long after the owner allows a session, or hands it back, their own hand on the page is not taken for a takeover. */
+/**
+ * How long after the owner allows a session, or hands it back, a scroll of
+ * theirs is not taken for a takeover: their hand is still leaving the
+ * trackpad. A click or a key is never let pass, as on the Mac.
+ */
 export const GRACE_MS = 3_000;
 /** How long KOS's own input is remembered, to be told from the owner's. */
 const ECHO_MS = 1_500;
@@ -80,9 +84,10 @@ export class Session {
     this.lastCall = now;
   }
 
-  /** Whether the owner's own input now is still within the grace after they allowed it or handed it back. */
-  inGrace(now: number): boolean {
-    return now < this.graceUntil;
+  /** Whether the page's report of input now is the owner taking over: theirs, not KOS's, and not a scroll in the grace after they allowed it or handed it back. */
+  takesOver(input: PageInput, now: number): boolean {
+    if (!this.isOwners(input, now)) return false;
+    return input.type !== "wheel" || now >= this.graceUntil;
   }
 
   /** Why the session is over at `now`, if it is. Paused, it is never idle. */
