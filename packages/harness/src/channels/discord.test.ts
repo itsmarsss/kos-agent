@@ -27,7 +27,7 @@ import {
   buildCard,
   buildModal,
   chunkText,
-  isNetworkError,
+  sendFailure,
   parseApprovalCustomId,
   refusesLongChannelEdit,
   runNowReply,
@@ -2142,6 +2142,78 @@ describe("while the gateway is down", () => {
     }
   });
 
+  const unreachable = () => Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("getaddrinfo ENOTFOUND discord.com"), { code: "ENOTFOUND" }) });
+  const flush = (adapter: DiscordAdapter) => (adapter as unknown as { flushOutbox: () => Promise<void> }).flushOutbox();
+
+  it("drops a send that timed out rather than send it again, and says so once", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      let tries = 0;
+      const { adapter, sent, emit } = await dropped(() => (++tries === 1 ? Object.assign(new Error("Headers Timeout Error"), { code: "UND_ERR_HEADERS_TIMEOUT" }) : undefined));
+      await emit("shardReady");
+      await adapter.postIn("c1", { text: "maybe posted" });
+      await flush(adapter);
+      expect(tries).toBe(1);
+      expect(sent).toEqual([]);
+      expect(warn.mock.calls.map((c) => String(c[0]))).toEqual(["[discord] a post in c1 may or may not have reached Discord, and is not sent again: Headers Timeout Error"]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("sends again one that never reached Discord, once", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      let offline = true;
+      const { adapter, sent, emit } = await dropped(() => (offline ? unreachable() : undefined));
+      await emit("shardReady");
+      await adapter.postIn("c1", { text: "held" });
+      offline = false;
+      await flush(adapter);
+      await flush(adapter);
+      expect(sent).toEqual(["held"]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("goes on from the next chunk of a long message, not from its first", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      let offline = false;
+      const { adapter, sent, emit } = await dropped((content) => (content?.startsWith("b") && (offline = !offline) ? unreachable() : undefined));
+      await emit("shardReady");
+      await adapter.postIn("c1", { text: `${"a".repeat(1800)}\n${"b".repeat(1800)}` });
+      expect(sent.map((c) => String(c)[0])).toEqual(["a"]);
+      await flush(adapter);
+      expect(sent.map((c) => String(c)[0])).toEqual(["a", "b"]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("drops a send that keeps failing after its tries, and sends what waited behind it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      let tries = 0;
+      const { adapter, sent, emit } = await dropped((content) => (content === "stuck" ? (tries++, unreachable()) : undefined));
+      await emit("shardReady");
+      await adapter.postIn("c1", { text: "stuck" });
+      await adapter.postIn("c1", { text: "behind" });
+      for (let i = 0; i < 4; i++) await flush(adapter);
+      expect(sent).toEqual([]);
+      await flush(adapter);
+      expect(sent).toEqual(["behind"]);
+      // The live try and five more.
+      expect(tries).toBe(6);
+      expect(warn.mock.calls.map((c) => String(c[0]))).toContain("[discord] a post in c1 not sent after 5 tries, and dropped: fetch failed");
+      await flush(adapter);
+      expect(tries).toBe(6);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("lets go of a place found gone when what waited for it is sent, and says so", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
@@ -2193,14 +2265,18 @@ describe("while the gateway is down", () => {
 });
 
 describe("a failure that is the network", () => {
-  it("is a name that did not resolve, a dropped socket, a timeout or a 5xx, and not a refusal", () => {
-    expect(isNetworkError(Object.assign(new TypeError("fetch failed"), { cause: { code: "ENOTFOUND" } }))).toBe(true);
-    expect(isNetworkError({ code: "ECONNRESET" })).toBe(true);
-    expect(isNetworkError({ name: "AbortError" })).toBe(true);
-    expect(isNetworkError({ status: 503 })).toBe(true);
-    expect(isNetworkError({ status: 403, code: 50013 })).toBe(false);
-    expect(isNetworkError({ code: 10003 })).toBe(false);
-    expect(isNetworkError(undefined)).toBe(false);
+  it("is unsent only when no connection was made, unknown once one may have been, and refused otherwise", () => {
+    expect(sendFailure(Object.assign(new TypeError("fetch failed"), { cause: { code: "ENOTFOUND" } }))).toBe("unsent");
+    expect(sendFailure({ code: "ECONNREFUSED" })).toBe("unsent");
+    expect(sendFailure({ code: "UND_ERR_CONNECT_TIMEOUT" })).toBe("unsent");
+    expect(sendFailure({ code: "ECONNRESET" })).toBe("unknown");
+    expect(sendFailure({ code: "ETIMEDOUT" })).toBe("unknown");
+    expect(sendFailure({ code: "UND_ERR_HEADERS_TIMEOUT" })).toBe("unknown");
+    expect(sendFailure({ name: "AbortError" })).toBe("unknown");
+    expect(sendFailure({ status: 503 })).toBe("unknown");
+    expect(sendFailure({ status: 403, code: 50013 })).toBe("refused");
+    expect(sendFailure({ code: 10003 })).toBe("refused");
+    expect(sendFailure(undefined)).toBe("refused");
   });
 });
 

@@ -130,8 +130,12 @@ const OUTBOX_MAX = 100;
 const OUTBOX_FILE_BYTES = 25 * 1024 * 1024;
 /** How long a send that failed on the network waits before it is tried again, while the gateway stays up. */
 const SEND_RETRY_MS = 30_000;
-/** Failures that say Discord could not be reached, as opposed to a refusal: the send waits and goes again. */
-const NETWORK_CODES = new Set(["ENOTFOUND", "EAI_AGAIN", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EPIPE", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET", "UND_ERR_HEADERS_TIMEOUT"]);
+/** How many times a held send is tried again before it is dropped, so one that keeps failing does not hold the rest. */
+const SEND_TRIES_MAX = 5;
+/** Failures before any connection was made: the request never left, so it is safe to send again. */
+const UNSENT_CODES = new Set(["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT"]);
+/** Failures once the request may have reached Discord: sent again, it could post twice. */
+const MAYBE_SENT_CODES = new Set(["ECONNRESET", "ETIMEDOUT", "EPIPE", "UND_ERR_SOCKET", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]);
 /** Subtext lines may not be longer than this and still read as a glance. */
 const DETAIL_MAX = 160;
 
@@ -661,18 +665,42 @@ function plainTopic(topic: string | null | undefined): string {
 }
 
 /**
- * Whether a send failed for want of the network rather than on Discord's
- * say: the name did not resolve, the socket dropped, the request timed out,
- * or Discord answered 5xx after discord.js's own retries. Such a send is
- * worth holding; a refusal is not.
+ * How a send failed, for whether it may go again.
+ *
+ * "unsent": the request never reached Discord (the name did not resolve, no
+ * connection was made, or a read before the post failed), and it is held and
+ * tried again. "unknown": it may have reached Discord (a reset, a timeout, a
+ * 5xx after discord.js's own retries); sent again it could post twice, so it
+ * is dropped. "refused": Discord's own answer, the caller's to hear.
  */
-export function isNetworkError(err: unknown): boolean {
-  for (let e = err as { code?: unknown; name?: unknown; status?: unknown; cause?: unknown } | null | undefined, depth = 0; e && depth < 4; e = e.cause as typeof e, depth++) {
-    if (typeof e.code === "string" && NETWORK_CODES.has(e.code)) return true;
-    if (e.name === "AbortError" || e.name === "TimeoutError" || e.name === "ConnectTimeoutError") return true;
-    if (typeof e.status === "number" && e.status >= 500 && e.status < 600) return true;
+export function sendFailure(err: unknown): "unsent" | "unknown" | "refused" {
+  let unknown = false;
+  for (let e = err as { code?: unknown; name?: unknown; status?: unknown; cause?: unknown; unsent?: unknown } | null | undefined, depth = 0; e && depth < 4; e = e.cause as typeof e, depth++) {
+    if (e.unsent === true || (typeof e.code === "string" && UNSENT_CODES.has(e.code)) || e.name === "ConnectTimeoutError") return "unsent";
+    if (typeof e.code === "string" && MAYBE_SENT_CODES.has(e.code)) unknown = true;
+    if (e.name === "AbortError" || e.name === "TimeoutError" || e.name === "HeadersTimeoutError" || e.name === "SocketError") unknown = true;
+    if (typeof e.status === "number" && e.status >= 500 && e.status < 600) unknown = true;
   }
-  return false;
+  return unknown ? "unknown" : "refused";
+}
+
+/** How far a send has gone: the chunks of its text already posted. */
+interface SendProgress {
+  chunks: number;
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** A send that may have reached Discord: said once and let go, since sending it again could post it twice. */
+function dropUnknown(what: string, err: unknown): void {
+  console.warn(`[discord] ${what} may or may not have reached Discord, and is not sent again: ${errorText(err)}`);
+}
+
+/** A failure to reach Discord before anything was posted, marked so the send is held and tried again. */
+function unsent(err: unknown): Error {
+  return Object.assign(new Error(`Discord could not be reached: ${err instanceof Error ? err.message : String(err)}`), { unsent: true, cause: err });
 }
 
 /** Discord's answer for a channel or thread that no longer exists. */
@@ -979,7 +1007,7 @@ export class DiscordAdapter implements ChannelAdapter {
   /** Set once start() logs in: before that nothing is waiting on a gateway. */
   private started = false;
   /** Sends made while the gateway was down, waiting for it to be back. */
-  private readonly outbox: { what: string; send: () => Promise<void>; bytes: number }[] = [];
+  private readonly outbox: { what: string; send: () => Promise<void>; bytes: number; tries: number }[] = [];
   /** The bytes of files the outbox holds. */
   private heldBytes = 0;
   private flushing = false;
@@ -1066,21 +1094,26 @@ export class DiscordAdapter implements ChannelAdapter {
    * Sent now when the gateway is up; otherwise kept, in order, for when it
    * is back. A send is REST, not the gateway, so one can fail with the
    * gateway up (a name that will not resolve takes both down, but the
-   * gateway is the slower to notice): a send that fails on the network is
-   * kept the same way, and tried again.
+   * gateway is the slower to notice): a send that never reached Discord is
+   * kept the same way, and tried again. One that may have reached it is
+   * dropped with a line, never sent twice. The chunks of a long message
+   * already posted are counted, so a retry goes on from the next.
    */
-  private async whenUp<M extends OutboundMessage | undefined>(what: string, msg: M, send: (msg: M) => Promise<void>): Promise<void> {
-    if (!this.started) return send(msg);
+  private async whenUp<M extends OutboundMessage | undefined>(what: string, msg: M, send: (msg: M, progress: SendProgress) => Promise<void>): Promise<void> {
+    const progress: SendProgress = { chunks: 0 };
+    if (!this.started) return send(msg, progress);
     if (this.connected() && !this.flushing && this.outbox.length === 0) {
       try {
-        return await send(msg);
+        return await send(msg, progress);
       } catch (err) {
-        if (!isNetworkError(err)) throw err;
-        console.warn(`[discord] ${what} not sent, kept to send again: ${err instanceof Error ? err.message : String(err)}`);
+        const failure = sendFailure(err);
+        if (failure === "refused") throw err;
+        if (failure === "unknown") return dropUnknown(what, err);
+        console.warn(`[discord] ${what} not sent, kept to send again: ${errorText(err)}`);
         this.retrySoon();
       }
     }
-    this.hold(what, msg, send);
+    this.hold(what, msg, send, progress);
   }
 
   /**
@@ -1089,7 +1122,7 @@ export class DiscordAdapter implements ChannelAdapter {
    * was not kept, rather than the host holding every picture of a long
    * outage in memory.
    */
-  private hold<M extends OutboundMessage | undefined>(what: string, msg: M, send: (msg: M) => Promise<void>): void {
+  private hold<M extends OutboundMessage | undefined>(what: string, msg: M, send: (msg: M, progress: SendProgress) => Promise<void>, progress: SendProgress): void {
     if (this.outbox.length >= OUTBOX_MAX) {
       const dropped = this.outbox.shift();
       this.heldBytes -= dropped?.bytes ?? 0;
@@ -1104,7 +1137,7 @@ export class DiscordAdapter implements ChannelAdapter {
       bytes = 0;
     }
     this.heldBytes += bytes;
-    this.outbox.push({ what, send: () => send(kept), bytes });
+    this.outbox.push({ what, send: () => send(kept, progress), bytes, tries: 0 });
   }
 
   /** Try what waits again in a while, for a send the network failed with the gateway still up. */
@@ -1117,7 +1150,11 @@ export class DiscordAdapter implements ChannelAdapter {
     this.retry.unref?.();
   }
 
-  /** What waited for the connection, sent in the order it was made. One the network fails stays first, for the next try. */
+  /**
+   * What waited for the connection, sent in the order it was made. One that
+   * again never reached Discord stays first for the next try, up to a count;
+   * past it, it is dropped and the rest go on.
+   */
   private async flushOutbox(): Promise<void> {
     if (this.flushing) return;
     this.flushing = true;
@@ -1127,13 +1164,16 @@ export class DiscordAdapter implements ChannelAdapter {
         try {
           await next.send();
         } catch (err) {
-          if (isNetworkError(err)) {
+          const failure = sendFailure(err);
+          if (failure === "unsent" && ++next.tries < SEND_TRIES_MAX) {
             this.retrySoon();
             return;
           }
+          if (failure === "unsent") console.warn(`[discord] ${next.what} not sent after ${SEND_TRIES_MAX} tries, and dropped: ${errorText(err)}`);
+          else if (failure === "unknown") dropUnknown(next.what, err);
           // Gone from Discord while it waited: let go there as it would have been live, and said so.
-          if (isUnknownChannel(err)) console.warn(`[discord] ${next.what} not sent: the channel or thread is gone from Discord, and was let go`);
-          else console.warn(`[discord] ${next.what} not sent after reconnecting: ${err instanceof Error ? err.message : String(err)}`);
+          else if (isUnknownChannel(err)) console.warn(`[discord] ${next.what} not sent: the channel or thread is gone from Discord, and was let go`);
+          else console.warn(`[discord] ${next.what} not sent after reconnecting: ${errorText(err)}`);
         }
         this.outbox.shift();
         this.heldBytes -= next.bytes;
@@ -1830,21 +1870,21 @@ export class DiscordAdapter implements ChannelAdapter {
    * for and not only a door into it.
    */
   async postIn(channelId: string, msg: OutboundMessage): Promise<void> {
-    await this.whenUp(`a post in ${channelId}`, msg, (m) => this.postNow(channelId, m));
+    await this.whenUp(`a post in ${channelId}`, msg, (m, progress) => this.postNow(channelId, m, progress));
   }
 
-  private async postNow(channelId: string, msg: OutboundMessage): Promise<void> {
-    // Unreachable is the network's, and the send waits; gone is Discord's word, and the place is let go.
+  private async postNow(channelId: string, msg: OutboundMessage, progress?: SendProgress): Promise<void> {
+    // Unreachable is the network's, and the send waits (a read posts nothing, so any failure of it is safe to try again); gone is Discord's word, and the place is let go.
     const channel = (await this.client.channels.fetch(channelId).catch((err: unknown) => {
-      if (isNetworkError(err)) throw err;
+      if (sendFailure(err) !== "refused") throw unsent(err);
       if (!isUnknownChannel(err)) return null;
       this.forgetPlace(channelId);
       throw Object.assign(new Error(`channel ${channelId} is not somewhere this bot can post: it is gone from Discord`), { code: 10003 });
     })) as { isSendable?: () => boolean } | null;
     if (!channel?.isSendable?.()) throw new Error(`channel ${channelId} is not somewhere this bot can post`);
-    if (msg.from && (await this.sendAs(channel as unknown as Parameters<DiscordAdapter["sendAs"]>[0], msg))) return;
+    if (msg.from && (await this.sendAs(channel as unknown as Parameters<DiscordAdapter["sendAs"]>[0], msg, progress))) return;
     try {
-      await this.deliver((payload) => (channel as unknown as { send: (p: unknown) => Promise<unknown> }).send(payload), msg);
+      await this.deliver((payload) => (channel as unknown as { send: (p: unknown) => Promise<unknown> }).send(payload), msg, { progress });
     } catch (err) {
       if (isUnknownChannel(err)) this.forgetPlace(channelId);
       throw err;
@@ -1908,7 +1948,7 @@ export class DiscordAdapter implements ChannelAdapter {
    * no tag line. False when there is no webhook to be had, and the caller
    * posts the ordinary way, tag and all.
    */
-  private async sendAs(channel: { id: string; isThread?: () => boolean; parent?: { id: string } | null }, msg: OutboundMessage): Promise<boolean> {
+  private async sendAs(channel: { id: string; isThread?: () => boolean; parent?: { id: string } | null }, msg: OutboundMessage, progress?: SendProgress): Promise<boolean> {
     if (!msg.from) return false;
     const via = await this.webhookFor(channel, msg.from).catch(() => undefined);
     if (!via) return false;
@@ -1918,9 +1958,11 @@ export class DiscordAdapter implements ChannelAdapter {
     // a blob's is on its own webhook.
     const look = msg.from.avatarUrl ? { avatarURL: msg.from.avatarUrl } : {};
     try {
-      await this.deliver((payload) => hook.send({ ...payload, username, ...look, ...(threadId ? { threadId } : {}) }), msg, { tagged: false });
+      await this.deliver((payload) => hook.send({ ...payload, username, ...look, ...(threadId ? { threadId } : {}) }), msg, { tagged: false, progress });
       return true;
-    } catch {
+    } catch (err) {
+      // The network's failure is the send's, held or dropped; posting it the other way could post it twice.
+      if (sendFailure(err) !== "refused") throw err;
       return false;
     }
   }
@@ -2559,9 +2601,11 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   async send(recipientId: string, msg: OutboundMessage): Promise<void> {
-    await this.whenUp("a direct message", msg, async (m) => {
-      const user = await this.client.users.fetch(recipientId);
-      await this.deliver((payload) => user.send(payload), m);
+    await this.whenUp("a direct message", msg, async (m, progress) => {
+      const user = await this.client.users.fetch(recipientId).catch((err: unknown) => {
+        throw sendFailure(err) === "refused" ? err : unsent(err);
+      });
+      await this.deliver((payload) => user.send(payload), m, { progress });
     });
   }
 
@@ -2738,7 +2782,7 @@ export class DiscordAdapter implements ChannelAdapter {
       flags?: MessageFlags.SuppressNotifications;
     }) => Promise<unknown>,
     msg: OutboundMessage,
-    { tagged = true }: { tagged?: boolean } = {},
+    { tagged = true, progress }: { tagged?: boolean; progress?: SendProgress } = {},
   ): Promise<string | undefined> {
     // References become links first, so the split sees the longer text. A
     // message already posted under the speaker's own name carries no tag.
@@ -2764,7 +2808,8 @@ export class DiscordAdapter implements ChannelAdapter {
       throw new Error("nothing to send: no text, no card and no file");
     }
     let posted: unknown;
-    for (let i = 0; i < Math.max(chunks.length, 1); i++) {
+    // Resumed past the chunks a try before this one already posted.
+    for (let i = progress?.chunks ?? 0; i < Math.max(chunks.length, 1); i++) {
       const last = i === Math.max(chunks.length, 1) - 1;
       posted = await post({
         ...(chunks[i] ? { content: chunks[i] } : {}),
@@ -2774,6 +2819,7 @@ export class DiscordAdapter implements ChannelAdapter {
         ...(last && files.length ? { files: files.map((f) => ({ attachment: f.attachment, name: f.name })) } : {}),
         ...(msg.silent ? { flags: MessageFlags.SuppressNotifications } : {}),
       });
+      if (progress) progress.chunks = i + 1;
     }
     const id = (posted as { id?: unknown } | undefined)?.id;
     return typeof id === "string" ? id : undefined;
