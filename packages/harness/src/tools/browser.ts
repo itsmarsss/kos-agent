@@ -1,7 +1,7 @@
 import { STEPS_MAX, VISIT_MAX, act, evaluate, look, stepsOf, touchesPage, urlFor, visit, type SeeOptions, type Seen, type Tab, type Then } from "@kos/browser";
 import { ScreenMemory, actionsOf } from "@kos/shared";
 
-import { caller, turnStop } from "../kernel/caller.js";
+import { caller, onSite, turnStop } from "../kernel/caller.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import type { WatchLook } from "../ops/watches.js";
 import { RISKY, SAFE } from "../risk/tiers.js";
@@ -251,7 +251,8 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           const steps = stepsOf(actionsOf(input, STEPS_MAX));
           const tab = await deps.tab();
           const before = new Set(deps.mine?.() ?? []);
-          const seen = await act(tab, steps, thenOf(input, "look"), turnStop.getStore(), ifChanged());
+          const site = onSite.getStore();
+          const seen = await act(tab, steps, thenOf(input, "look"), turnStop.getStore(), { ...ifChanged(), ...(site ? { site } : {}) });
           const opened = (deps.mine?.() ?? []).filter((t) => !before.has(t));
           const note = opened.length ? `\nIt opened ${opened.length === 1 ? `a tab, ${opened[0]}` : `tabs ${opened.join(", ")}`}; browser.use_tab works there.` : "";
           return placed({ ...seen, text: `${seen.text}${note}` });

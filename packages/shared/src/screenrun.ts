@@ -83,6 +83,8 @@ export interface RunOptions {
   deadlineMs?: number;
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   now?: () => number;
+  /** A reason not to start the action at `index`, checked just before it; the run stops there and says it. */
+  before?: (index: number) => Promise<string | undefined>;
 }
 
 /** What a run did, line by line, as the start of a result. */
@@ -162,6 +164,8 @@ export async function runActions<A>(adapter: RunAdapter<A>, raw: unknown[], opti
   for (const [index, action] of actions.entries()) {
     if (signal?.aborted) throw new RunError(done, stoppedAt(index));
     if (options.deadlineMs !== undefined && now() - start > options.deadlineMs) throw new RunError(done, `Ran out of time before step ${index + 1}.`);
+    const held = await options.before?.(index);
+    if (held) throw new RunError(done, held);
     try {
       const next = actions[index + 1];
       done.push(await adapter.perform(action, { ...(signal ? { signal } : {}), waits, ...(next === undefined ? {} : { next }) }));

@@ -96,3 +96,11 @@ export const turn = new AsyncLocalStorage<string>();
  * pressing Stop leaves nothing running behind the turn.
  */
 export const turnStop = new AsyncLocalStorage<AbortSignal>();
+
+/**
+ * The one site the current call was allowed on without asking, when it was
+ * allowed by site (a session's "this site" or an "Always on this site"
+ * rule): a run of steps checks it before each, so it cannot carry the yes
+ * to another site part way.
+ */
+export const onSite = new AsyncLocalStorage<string>();

@@ -73,6 +73,34 @@ export function urlFor(raw: string): string {
   throw new Error(`${s} is not an address; give a url like https://example.com`);
 }
 
+/** The host of a url, or "" when it has none. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Whether a run of steps opens a page off `site`: an `open` to another
+ * host, or one whose address cannot be read. A call allowed on one site
+ * that sets out for another is asked about first.
+ */
+export function opensElsewhere(input: Record<string, unknown>, site: string): boolean {
+  const steps = input["actions"] ?? input["steps"];
+  if (!Array.isArray(steps)) return false;
+  return steps.some((step) => {
+    if (!step || typeof step !== "object" || !("open" in step)) return false;
+    const to = (step as { open: unknown }).open;
+    try {
+      return typeof to !== "string" || hostOf(urlFor(to)) !== site;
+    } catch {
+      return true;
+    }
+  });
+}
+
 function lines(text: string): string {
   return text ? `${text}\n` : "";
 }
@@ -204,6 +232,20 @@ function webSteps(page: Page): RunAdapter<Step> {
   };
 }
 
+export interface ActOptions extends SeeOptions {
+  /**
+   * The one host the run was allowed on without asking. Checked before each
+   * step: a tab that has left it (a click that navigated) stops the run
+   * there, so what is left is asked about on the next call.
+   */
+  site?: string;
+}
+
+/** Why a run allowed on `site` alone stopped before the step at `index`, on `here`. */
+export function leftSite(site: string, here: string, index: number): string {
+  return `The tab left ${site}${here ? ` for ${here}` : ""}, and this call was allowed on ${site} alone, so step ${index + 1} and those after it were not run: they need the owner's OK. Call again for them and the owner is asked.`;
+}
+
 /**
  * Steps in order through the shared runner, then the page as `then` says. A
  * step that fails stops the run, and says where it is. Once `signal` aborts
@@ -211,15 +253,22 @@ function webSteps(page: Page): RunAdapter<Step> {
  * one starts: the turn has already answered, and a click made after that
  * would be made for nobody.
  */
-export async function act(tab: Tab, steps: Step[], then: Then, signal?: AbortSignal, options: SeeOptions = {}): Promise<Seen> {
+export async function act(tab: Tab, steps: Step[], then: Then, signal?: AbortSignal, options: ActOptions = {}): Promise<Seen> {
   const page = tab.page;
+  const { site, ...see } = options;
+  const before = site
+    ? async (index: number): Promise<string | undefined> => {
+        const here = hostOf((await page.whereAmI()).url);
+        return here === site ? undefined : leftSite(site, here, index);
+      }
+    : undefined;
   return page.run(async () => {
     await page.ready();
     const from = (await page.whereAmI()).url;
     try {
-      const done = await runActions(webSteps(page), steps, { ...(signal ? { signal } : {}), deadlineMs: RUN_MS });
+      const done = await runActions(webSteps(page), steps, { ...(signal ? { signal } : {}), deadlineMs: RUN_MS, ...(before ? { before } : {}) });
       // The look says where the tab ended up; asked separately only when the run does not look.
-      const seen = await seeAfter(tab, then, undefined, options);
+      const seen = await seeAfter(tab, then, undefined, see);
       const to = seen.url ?? (await page.whereAmI()).url;
       const moved = to && to !== from ? ` Now at ${to}.` : "";
       return { text: `${doneText(done)}${moved}\n${seen.text}`.trim(), images: seen.images };

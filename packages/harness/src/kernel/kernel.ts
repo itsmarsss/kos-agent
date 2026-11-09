@@ -32,6 +32,7 @@ import {
   BrowserLive,
   ChromeHost,
   launchFor,
+  opensElsewhere,
   parseBrowserConfig,
   readAt,
   settleDownload,
@@ -3385,7 +3386,8 @@ export class Kernel {
       permissionContext: (tool) => this.browserContext(tool, opts.conversationId),
       prepare: (tool) => this.readyBrowser(tool, opts.conversationId, opts.signal),
       ...(opts.heard ? { heard: opts.heard } : {}),
-      autoApproves: (tool, context) => opts.conversationId !== undefined && this.actsAloneOn(opts.conversationId, context?.browser?.site) && actsInYourChrome(tool, context),
+      autoApproves: (tool, context) => (opts.conversationId !== undefined && actsInYourChrome(tool, context) ? this.actsAloneOn(opts.conversationId, context?.browser?.site) : false),
+      leavesSite: (tool, input, site) => tool.startsWith(BROWSER_PREFIX) && opensElsewhere(input, site),
       pictureFor: (tool) => this.browserPicture(tool, opts.conversationId),
       running: (tool) => (opts.conversationId && tool.startsWith(BROWSER_PREFIX) ? this.seen.run(opts.conversationId) : undefined),
       projectSlug: () =>
@@ -3670,13 +3672,14 @@ export class Kernel {
   }
 
   /**
-   * Whether a chat acts in the owner's Chrome without asking each step on
-   * this site: the chat is set to Auto, or the owner allowed its session
-   * with this site's steps unasked. The strict tools ask either way.
+   * Whether a chat acts in the owner's Chrome without asking each step:
+   * anywhere when the chat is set to Auto, "site" when the owner allowed its
+   * session with this site's steps unasked, which holds on this site alone.
+   * The strict tools ask either way.
    */
-  private actsAloneOn(conversationId: string, site: string | undefined): boolean {
+  private actsAloneOn(conversationId: string, site: string | undefined): boolean | "site" {
     if (this.actsWithoutAsking(conversationId)) return true;
-    return site !== undefined && this.away(conversationId)?.actsAlone?.(conversationId, site) === true;
+    return site !== undefined && this.away(conversationId)?.actsAlone?.(conversationId, site) === true ? "site" : false;
   }
 
   setActsWithoutAsking(conversationId: string, on: boolean): void {

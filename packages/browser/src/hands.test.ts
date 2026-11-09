@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { act, visit, type Tab } from "./hands.js";
+import { act, opensElsewhere, visit, type Tab } from "./hands.js";
 import type { Page } from "./page.js";
 
 /** A page that counts its round trips: where it is, and what a look asks of it. */
@@ -120,6 +120,29 @@ describe("a run of steps", () => {
       await act(tab, Array.from({ length: 6 }, () => ({ wait: { text: "Done" } })) as never[], "none");
       expect(limits.every((ms) => ms >= 14_900)).toBe(true);
     });
+  });
+});
+
+describe("a run allowed on one site alone", () => {
+  it("runs every step while the tab stays on the site", async () => {
+    const { tab, asked } = fakeTab(["http://shop.test/1", "http://shop.test/2", "http://shop.test/3"]);
+    const seen = await act(tab, [{ click: "@e1" } as never, { click: "@e2" } as never, { click: "@e3" } as never], "none", undefined, { site: "shop.test" });
+    expect(asked.steps).toBe(3);
+    expect(seen.text).toMatch(/^Done: Clicked Next; Clicked Next; Clicked Next\./);
+  });
+
+  it("stops before the next step once a click has taken the tab to another site", async () => {
+    const { tab, asked } = fakeTab(["http://shop.test/cart", "https://bank.example/transfer"]);
+    const run = act(tab, [{ click: "@e1" } as never, { click: "@e7" } as never], "none", undefined, { site: "shop.test" });
+    await expect(run).rejects.toThrow(/^Done: Clicked Next\. The tab left shop\.test for bank\.example, .*step 2 and those after it were not run: they need the owner's OK/);
+    expect(asked.steps).toBe(1);
+  });
+
+  it("names a run that opens another site, so it is asked about before it starts", () => {
+    expect(opensElsewhere({ actions: [{ open: "https://bank.example/transfer" }, { click: "@e1" }] }, "shop.test")).toBe(true);
+    expect(opensElsewhere({ actions: [{ open: "shop.test/cart" }, { click: "@e1" }] }, "shop.test")).toBe(false);
+    expect(opensElsewhere({ actions: [{ open: "file:///etc/passwd" }] }, "shop.test")).toBe(true);
+    expect(opensElsewhere({ actions: [{ click: "@e1" }, { go: "back" }] }, "shop.test")).toBe(false);
   });
 });
 
