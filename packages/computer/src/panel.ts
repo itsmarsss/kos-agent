@@ -202,6 +202,16 @@ export class DevicePanel implements ChannelAdapter {
     return this.last && this.isMine(this.last) && conversation === this.deps.current()?.id ? this.last : undefined;
   }
 
+  /**
+   * Whether a chat's steps each ask the owner first: its turn running now
+   * was started by the owner's words in this panel, and they set the chat
+   * to Ask. A turn typed into the same chat elsewhere (the dashboard, a
+   * schedule, a dispatch) is not the panel's, so its setting is not this one.
+   */
+  asksEachStep(conversation: string): boolean {
+    return this.turns.has(conversation) && !(this.deps.auto?.(conversation) ?? false);
+  }
+
   /** The app in front of the KOS for Mac window when the owner last spoke there; none for an app they hid. */
   appOf(conversation: string): string | undefined {
     if (!this.deviceOf(conversation)) return undefined;

@@ -89,6 +89,7 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
     callFrom: (c: string) => {
       caller = c;
     },
+    setAuto: (c: string, on: boolean) => void (on ? acting.add(c) : acting.delete(c)),
   };
 }
 
@@ -424,6 +425,27 @@ describe("a Chrome's side panel", () => {
     await flush();
     expect(left).toEqual(["chrome:owner"]);
     expect(panel.deviceOf("chrome:owner")).toBeUndefined();
+  });
+
+  it("asks before each step only in a turn the owner started in the panel, in a chat set to Ask", async () => {
+    const { pair, setChat, panel, setAuto } = setup({ place: MAC_PANEL });
+    const mac = pair("macos");
+    panel.onMessage(() => undefined);
+    setChat({ id: "mac:owner", title: "Mac" });
+    mac.event("chat.open", {});
+    mac.event("chat.send", { text: "tidy my desktop" });
+    await flush();
+    // Typed on the dashboard into the same chat: the panel's Ask is not its setting, though the Mac spoke last.
+    panel.watch({ kind: "turn-start", conversationId: "mac:owner", said: "list my files", from: "dashboard" });
+    expect(panel.asksEachStep("mac:owner")).toBe(false);
+    panel.watch({ kind: "turn-end", conversationId: "mac:owner" });
+    panel.watch({ kind: "turn-start", conversationId: "mac:owner", said: "tidy my desktop", from: "mac" });
+    expect(panel.asksEachStep("mac:owner")).toBe(true);
+    setAuto("mac:owner", true);
+    expect(panel.asksEachStep("mac:owner")).toBe(false);
+    setAuto("mac:owner", false);
+    panel.watch({ kind: "turn-end", conversationId: "mac:owner" });
+    expect(panel.asksEachStep("mac:owner")).toBe(false);
   });
 
   it("pushes what the chat waits on and who holds it as they change, once each", async () => {
