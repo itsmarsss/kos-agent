@@ -33,6 +33,7 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>;
   const stops: ((chat: string) => void)[] = [];
   const freshes: ((chat: string) => void)[] = [];
   const ends: ((chat: string) => void)[] = [];
+  const heards: ((chat: string) => void)[] = [];
   const ctx: ModuleContext = {
     registerTool: (def, handler, risk) => {
       tools.set(def.name, { spec: def, handler: handler as Handler, risk });
@@ -60,6 +61,10 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>;
       ends.push(handler);
       return () => undefined;
     },
+    onHeard: (handler) => {
+      heards.push(handler);
+      return () => undefined;
+    },
     ...(opts.mac ? { panelMac: () => opts.mac!() } : {}),
     ...(opts.stopTurn ? { stopTurn: opts.stopTurn } : {}),
     ...(opts.asksEachStep ? { asksEachStep: opts.asksEachStep } : {}),
@@ -80,7 +85,7 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>;
     fake.hello();
     return fake;
   };
-  return { hub, tools, call, pair, halts, module: mod, stop: (chat: string) => stops.forEach((s) => s(chat)), fresh: (chat: string) => freshes.forEach((f) => f(chat)), endTurn: (chat: string) => ends.forEach((e) => e(chat)) };
+  return { hub, tools, call, pair, halts, module: mod, stop: (chat: string) => stops.forEach((s) => s(chat)), fresh: (chat: string) => freshes.forEach((f) => f(chat)), endTurn: (chat: string) => ends.forEach((e) => e(chat)), hear: (chat: string) => heards.forEach((h) => h(chat)) };
 }
 
 const textOf = (r: Result): string => (typeof r === "string" ? r : r.text);
@@ -592,16 +597,39 @@ describe("a turn from the KOS for Mac window", () => {
     expect(textOf(seen)).not.toMatch(/Nothing else was done/);
   });
 
-  it("asks once a turn: after the owner says no, a later act is refused in the same words until the turn ends", async () => {
+  it("asks once a turn: after the owner says no, a later act starts nothing unasked until the turn ends", async () => {
     const { call, pair, endTurn } = setup({ mac: () => ({ device: fake.id }), from: { surface: "mac", said: "look" } });
     const fake = pair();
     fake.answers.set("session.begin", () => ({ ok: true, result: { granted: false } }));
     await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/did not allow the session/);
-    await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/did not allow the session.*Do not ask again/);
+    await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/said no to a session earlier this turn, so none starts unasked.*call computer\.start/);
     expect(fake.calls.filter((c) => c.method === "session.begin")).toHaveLength(1);
     endTurn("c1");
     await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/did not allow/);
     expect(fake.calls.filter((c) => c.method === "session.begin")).toHaveLength(2);
+  });
+
+  it("asks again through a start tool once the owner's words reach the turn after a no, a silence or a Stop, but never unasked", async () => {
+    const { call, pair, hear, module } = setup({ mac: () => ({ device: fake.id }), from: { surface: "mac", said: "look" }, stopTurn: () => true });
+    const fake = pair();
+    const begins = (): number => fake.calls.filter((c) => c.method === "session.begin").length;
+    fake.answers.set("session.begin", () => ({ ok: true, result: { granted: false } }));
+    await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/did not allow the session/);
+    // Before the owner says more, not even a start tool asks.
+    await expect(call("computer.start", { task: "t" })).rejects.toThrow(/did not allow the session.*Do not ask again unless they say so/);
+    expect(begins()).toBe(1);
+    // "ok, allow it now", steered into the turn.
+    hear("c1");
+    fake.answers.set("session.begin", () => ({ ok: true, result: { granted: true, until: Date.now() + 60_000, space: { width: 100, height: 100 } } }));
+    await call("computer.start", { task: "t" });
+    expect(begins()).toBe(2);
+    // A Stop is a no as well, and the owner's words lift it the same way; an unasked start stays refused all turn.
+    module.stopped("c1");
+    await expect(call("computer.start", { task: "t" })).rejects.toThrow(/owner pressed Stop\. Do not start a session again unless they say so/);
+    hear("c1");
+    await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/none starts unasked/);
+    await call("computer.start", { task: "t" });
+    expect(begins()).toBe(3);
   });
 
   it("starts nothing for a turn in the window's chat that is not the owner speaking there", async () => {

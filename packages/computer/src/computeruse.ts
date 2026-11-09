@@ -108,6 +108,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
                 return () => offs.forEach((off) => off());
               },
               onTurnEnd: (handler: (conversation: string) => void) => events.on("turn:end", (e) => handler(e.conversationId)),
+              onHeard: (handler: (conversation: string) => void) => events.on("turn:heard", (e) => handler(e.conversationId)),
             }
           : {}),
       });

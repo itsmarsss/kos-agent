@@ -1751,7 +1751,9 @@ export class Kernel {
       // Shown where the chat is mirrored, as the owner's, where the turn heard them.
       this.progress.emit({ kind: "heard", conversationId: sessionId, said: row.text, ...(w.channel ? { from: w.channel } : {}) });
     }
-    return words.length ? ownerWords(mark, words) : undefined;
+    if (!words.length) return undefined;
+    this.bus.emit({ kind: "turn:heard", conversationId: sessionId });
+    return ownerWords(mark, words);
   }
 
   /**

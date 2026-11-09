@@ -235,7 +235,11 @@ describe("Kernel", () => {
     chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Paint" }).id;
     const heard: unknown[] = [];
     kernel.progress.subscribe((e) => void (e.kind === "heard" && heard.push(e)));
+    // Modules hear it too: a no the owner gave earlier in the turn may no longer stand.
+    const told: string[] = [];
+    kernel.bus.on("turn:heard", (e) => void told.push(e.conversationId));
     expect((await kernel.handleMessage("paint it", { sessionId: chat })).reply).toBe("Red it is.");
+    expect(told).toEqual([chat]);
     expect(await seconds[0]).toMatchObject({ steered: true });
     expect(await seconds[1]).toMatchObject({ reply: "", dropped: true });
     expect(requests).toHaveLength(2);
