@@ -363,6 +363,57 @@ extension Tag where Leading == EmptyView {
   }
 }
 
+/// What the owner quoted with their words, the web kit's QuoteLine: a small head (the quote mark, a label, where it
+/// is from, and × when it can be left out), then the words in quotes, cut to a few lines, on a soft tint with a
+/// hairline edge. In the composer it is the selection going with the next words; in a bubble, what went with them.
+/// Cut short, the whole of it is the card's help.
+public struct QuoteCard: View {
+  private let text: String
+  private let from: String
+  private let label: String?
+  private let lines: Int
+  private let remove: (() -> Void)?
+
+  public init(text: String, from: String, label: String? = nil, lines: Int = 3, remove: (() -> Void)? = nil) {
+    self.text = text
+    self.from = from
+    self.label = label
+    self.lines = lines
+    self.remove = remove
+  }
+
+  public var body: some View {
+    VStack(alignment: .leading, spacing: 3) {
+      HStack(spacing: 5) {
+        Image(systemName: "text.quote").font(.system(size: 9.5, weight: .semibold))
+        Text(label ?? (from.isEmpty ? "Quoted" : from)).font(.kos(.tiny, .semibold)).lineLimit(1).truncationMode(.tail)
+        if label != nil, !from.isEmpty {
+          Text("· \(from)").font(.kos(.tiny)).foregroundStyle(Theme.faint).lineLimit(1).truncationMode(.tail).layoutPriority(-1)
+        }
+        Spacer(minLength: 4)
+        if let remove {
+          IconButton(symbol: "xmark", label: "Leave the selection out", tint: Theme.text, bare: true, action: remove)
+        }
+      }
+      .foregroundStyle(Theme.muted)
+      .frame(minHeight: 16)
+      Text("\u{201C}\(text.split(whereSeparator: \.isNewline).joined(separator: " "))\u{201D}")
+        .font(.kos(.detail))
+        .foregroundStyle(Theme.text)
+        .lineLimit(lines)
+        .truncationMode(.tail)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .padding(.horizontal, 9)
+    .padding(.top, 6)
+    .padding(.bottom, 7)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Theme.text.opacity(0.05), in: RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous).strokeBorder(Theme.text.opacity(0.09)))
+    .help(text)
+  }
+}
+
 /// A row of a menu the window draws itself (the chats, the apps to hide):
 /// lighter under the pointer, the current one on the accent's tint. `lit`
 /// is what the pointer lights it with; the content is told when it is under it.

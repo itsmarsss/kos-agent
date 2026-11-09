@@ -143,7 +143,14 @@ struct RenderTests {
     model.ask(.init(id: "3", tool: "computer.act", mechanics: "Type “the cat”", expires: Date().addingTimeInterval(95)))
     model.selected(.init(text: "teh cat sat on teh mat", from: "Notes: Draft"))
     model.draft = "/s"
-    let size = try render("chat-selection", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    _ = try render("chat-selection", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    // A long selection, cut to two lines; and one sent, above the owner's words.
+    model.draft = ""
+    model.settled("3")
+    let long = "Workers may see and work. Each runs in its own container with the tools its tier allows, and the owner approves anything that reaches outside it, from a purchase to a message sent in their name."
+    model.selected(.init(text: long, from: "Safari: KOS design notes"))
+    model.show(conversation: "mac:owner", title: "Tidy notes", lines: [.you("What does this mean for the jail?", files: [], quote: .init(text: long, from: "Safari: KOS design notes")), .kos("Each worker is boxed in by its tier.")])
+    let size = try render("chat-selection-long", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
     #expect(size.height == ChatView.size.height)
   }
 

@@ -146,7 +146,9 @@ public struct ChatView: View {
   private var composer: some View {
     VStack(alignment: .leading, spacing: 4) {
       if let menu = model.menu { CommandMenu(options: menu.options, picked: picked, take: model.take) }
-      if let quote = model.quote { QuoteChip(quote: quote, putAside: model.putQuoteAside) }
+      if let quote = model.quote {
+        QuoteCard(text: quote.text, from: quote.from, label: "Selected text", lines: 2, remove: model.putQuoteAside).padding(.leading, -4).padding(.bottom, 2)
+      }
       TextField("", text: $model.draft, axis: .vertical)
         .textFieldStyle(.plain)
         .lineLimit(1...6)
@@ -247,27 +249,6 @@ public struct ChatView: View {
     let words = model.draft
     model.draft = ""
     model.say(words)
-  }
-}
-
-/// What the owner selected in the app in front, going with their next words: its words, where from, and × to leave it out.
-private struct QuoteChip: View {
-  let quote: ChatModel.Quote
-  let putAside: () -> Void
-
-  var body: some View {
-    HStack(alignment: .top, spacing: 8) {
-      Rectangle().fill(Theme.accent.opacity(0.6)).frame(width: 2)
-      VStack(alignment: .leading, spacing: 2) {
-        Text(quote.from).font(.kos(.tiny, .semibold)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
-        Text(quote.text).font(.kos(.detail)).foregroundStyle(Theme.text).lineLimit(2).truncationMode(.tail)
-      }
-      Spacer(minLength: 4)
-      IconButton(symbol: "xmark", label: "Leave the selection out", bare: true, action: putAside)
-    }
-    .fixedSize(horizontal: false, vertical: true)
-    .padding(.vertical, 2)
-    .help("What you selected goes with your message")
   }
 }
 
@@ -429,8 +410,8 @@ private struct LineView: View {
 
   var body: some View {
     switch line {
-    case .you(let text, let files):
-      Bubble(text: text, files: files)
+    case .you(let text, let files, let quote):
+      Bubble(text: text, files: files, quote: quote)
     case .kos(let text):
       ChatMarkdown(text).frame(maxWidth: .infinity, alignment: .leading)
     case .note(let text):
@@ -445,12 +426,14 @@ private struct LineView: View {
 private struct Bubble: View {
   let text: String
   let files: [String]
+  var quote: ChatModel.Quote? = nil
 
   var body: some View {
     HStack {
       // Up to 88% of the thread's width, as on the dashboard.
       Spacer(minLength: 40)
       VStack(alignment: .leading, spacing: 6) {
+        if let quote { QuoteCard(text: quote.text, from: quote.from) }
         if !text.isEmpty { ChatMarkdown(text) }
         ForEach(files, id: \.self) { file in
           Label(file, systemImage: "doc").font(.kos(.detail)).foregroundStyle(Theme.muted)

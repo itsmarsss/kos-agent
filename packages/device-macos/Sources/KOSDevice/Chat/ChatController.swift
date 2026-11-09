@@ -164,7 +164,7 @@ final class ChatController {
   /// One entry of the chat as KOS sends it, as the window draws it.
   private static func line(_ m: ChatMessage) -> ChatModel.Line? {
     switch m.role {
-    case "you": return .you(m.text ?? "", files: m.files ?? [])
+    case "you": return .you(m.text ?? "", files: m.files ?? [], quote: m.quote.map { .init(text: $0.text, from: $0.from) })
     case "kos": return m.text.map { .kos($0) }
     case "note": return m.text.map { .note($0) }
     case "steps": return .steps((m.steps ?? []).map { .init(summary: $0.summary, failed: $0.failed ?? false, frame: $0.frame) })
