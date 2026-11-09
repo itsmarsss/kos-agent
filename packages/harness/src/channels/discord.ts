@@ -256,10 +256,10 @@ export function approvalCard(req: ApprovalRequest): ApprovalCard {
 }
 
 /** What a settled prompt becomes: one small line saying how it went. */
-export function settledText(outcome: ApprovalOutcome, summary: string | undefined, id: string, already = false): string {
-  const how = outcome === "approved" ? "✅ Approved" : outcome === "expired" ? "⌛ Lapsed" : "❌ Denied";
-  // Pressed after it was settled somewhere else: how it went, said as that.
-  const mark = already ? `Already decided on the dashboard: ${how}` : how;
+export function settledText(outcome: ApprovalOutcome | "gone", summary: string | undefined, id: string, already = false, here = false): string {
+  const how = outcome === "approved" ? "✅ Approved" : outcome === "expired" ? "⌛ Lapsed" : outcome === "gone" ? "No longer waiting" : "❌ Denied";
+  // Pressed after it was settled: how it went, and where, said as that. A lapse was nobody's decision.
+  const mark = !already || outcome === "gone" ? how : here || outcome === "expired" ? `Already decided: ${how}` : `Already decided on the dashboard: ${how}`;
   if (!summary) return `-# ${mark} · #${id}`;
   const { head, body } = splitSummary(summary);
   return noPreviews(`-# ${mark} · ${literal(head)}${body ? ` \`${cut(body.replace(/`/g, "'"), 80)}\`` : ""}`);
@@ -2268,14 +2268,17 @@ export class DiscordAdapter implements ChannelAdapter {
       deciderId: interaction.user.id,
       ...(decision.remember ? { remember: true } : {}),
     });
-    const outcome = how?.outcome ?? (decision.approved ? "approved" : "denied");
-    const settled = { content: settledText(outcome, prompt?.summary, decision.id, how?.already === true), embeds: [] as never[], components: [] as never[] };
-    // The prompt settles into one small line, on this card and its twin; the
-    // resumed turn's answer is its own message.
+    // Nothing back is nothing decided: the ask was gone, never the button pressed.
+    const outcome = how?.outcome ?? "gone";
+    const settled = { content: settledText(outcome, prompt?.summary, decision.id, how?.already === true, how?.here === true), embeds: [] as never[], components: [] as never[] };
+    // The prompt settles into one small line, on this card and its twin, as
+    // soon as the decision is recorded; the action and the resumed turn's
+    // answer come after, as their own message.
     await interaction.editReply(settled).catch(() => undefined);
     const pressed = (interaction as { message?: { id?: string } }).message?.id;
     await Promise.all((prompt?.copies ?? []).filter((c) => c.messageId !== pressed).map((c) => c.edit(settled).catch(() => undefined)));
     this.forget(decision.id);
+    await how?.done;
   }
 
   /**

@@ -746,6 +746,7 @@ describe("DiscordAdapter authorization", () => {
     });
     adapter.onApproval((decision) => {
       decisions.push(decision);
+      return { outcome: decision.approved ? "approved" : "denied" };
     });
     return { adapter, messages, decisions };
   }
@@ -1656,6 +1657,38 @@ describe("DiscordAdapter authorization", () => {
     button.editReply.mockImplementation(async (p: { content: string }) => void order.push(p.content));
     await adapter.receiveInteraction(button as unknown as Interaction);
     expect(order).toEqual(["deferred", "decided", "-# Already decided on the dashboard: ❌ Denied · #5"]);
+  });
+
+  it("labels a card as soon as the decision is recorded, before a slow approved action ends", async () => {
+    const adapter = new DiscordAdapter({ token: "t" });
+    adapter.setAuthorizer((id) => id === "owner-id");
+    const order: string[] = [];
+    let finish!: () => void;
+    const done = new Promise<void>((r) => (finish = r)).then(() => void order.push("action done"));
+    adapter.onApproval(() => ({ outcome: "approved", done }));
+    const button = fakeButton("owner-id", approvalCustomIds("5").approve) as unknown as { editReply: ReturnType<typeof vi.fn> };
+    button.editReply.mockImplementation(async (p: { content: string }) => void order.push(p.content));
+    const press = adapter.receiveInteraction(button as unknown as Interaction);
+    await new Promise((r) => setTimeout(r, 5));
+    // Labelled within the press's first seconds; the action still runs.
+    expect(order).toEqual(["-# ✅ Approved · #5"]);
+    finish();
+    await press;
+    expect(order).toEqual(["-# ✅ Approved · #5", "action done"]);
+  });
+
+  it("says a second press was decided here, and an ask gone is no longer waiting rather than what was pressed", async () => {
+    const adapter = new DiscordAdapter({ token: "t" });
+    adapter.setAuthorizer((id) => id === "owner-id");
+    const answers: ({ outcome: "approved"; already: true; here: true } | undefined)[] = [{ outcome: "approved", already: true, here: true }, undefined];
+    adapter.onApproval(() => answers.shift());
+    const labels: string[] = [];
+    for (let i = 0; i < 2; i += 1) {
+      const button = fakeButton("owner-id", approvalCustomIds("5").approve) as unknown as { editReply: ReturnType<typeof vi.fn> };
+      button.editReply.mockImplementation(async (p: { content: string }) => void labels.push(p.content));
+      await adapter.receiveInteraction(button as unknown as Interaction);
+    }
+    expect(labels).toEqual(["-# Already decided: ✅ Approved · #5", "-# No longer waiting · #5"]);
   });
 
   it("settles the ask's other card when one is pressed", async () => {

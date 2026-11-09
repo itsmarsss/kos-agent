@@ -395,6 +395,13 @@ export type MessageHandler = (msg: InboundMessage) => Promise<void> | void;
 export interface ApprovalSettled {
   outcome: ApprovalOutcome;
   already?: boolean;
+  /** Already decided, and on this surface rather than the dashboard. */
+  here?: boolean;
+  /**
+   * The approved action and the turn it resumes, still running once the
+   * decision is recorded: the prompt is labelled first, then this is waited.
+   */
+  done?: Promise<void>;
 }
 
 export type ApprovalHandler = (

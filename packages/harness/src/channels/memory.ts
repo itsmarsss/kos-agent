@@ -95,6 +95,7 @@ export class InMemoryAdapter implements ChannelAdapter {
 
   /** Test helper: simulate an approval decision from the surface. */
   async decide(decision: ApprovalDecision): Promise<void> {
-    await this.approvalHandler?.(decision);
+    const how = await this.approvalHandler?.(decision);
+    await how?.done;
   }
 }

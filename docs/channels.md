@@ -90,9 +90,11 @@ the question sits in the conversation it belongs to. It comes from whoever
 you are talking to there, through its own webhook, the way its answers
 come; in `#needs-you` KOS asks as itself. The two cards are one ask: decide
 on either, or on the dashboard, and both settle (a card pressed after the
-ask was decided elsewhere says how it went, "Already decided on the
-dashboard: Denied", rather than what was pressed), a restart of KOS between
-the ask and the answer included. An approval named in a
+ask was decided says how it went and where, "Already decided: Approved"
+for a press here, "Already decided on the dashboard: Denied" for one
+there, rather than what was pressed), a restart of KOS between the ask and
+the answer included. A card is labelled as soon as the decision is
+recorded; the approved action and the answer it leads to follow. An approval named in a
 reply, `@approval:290`, links to it on the dashboard, waiting or decided.
 A bound channel's topic carries a link to its chat on the dashboard, since
 a webhook's profile can carry none.
