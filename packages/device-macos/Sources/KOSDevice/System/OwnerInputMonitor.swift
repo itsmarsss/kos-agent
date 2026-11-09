@@ -3,28 +3,19 @@ import DeviceUI
 
 /// Notices the owner's own hand on the mouse or keyboard while KOS has the computer.
 ///
-/// Events KOS posted are recognised by the injector and ignored. A click, a
-/// scroll or a key from anyone else is the owner taking over, at once. The
-/// pointer has to travel as far as a deliberate move does first: a nudge,
-/// or a hand coming off the trackpad, paused the very first live session a
-/// moment after Allow. And for a few seconds after the owner hands control
-/// over (Allow, Resume) the pointer is not watched at all. How far is the
-/// owner's choice, down to the pointer never pausing KOS at all.
+/// Events KOS posted are recognised by the injector and ignored. A click or
+/// a key from anyone else is the owner taking over, at once. The pointer has
+/// to travel as far as a deliberate move does first: a nudge, or a hand
+/// coming off the trackpad, paused the very first live session a moment
+/// after Allow. A scroll is reading along, not taking over, unless the owner
+/// chose any move. For a few seconds after the owner hands control over
+/// (Allow, Hand back) the pointer is not watched at all. What takes over is
+/// the owner's choice (`Takeover`).
 @MainActor
 final class OwnerInputMonitor {
   private static let travelWindow: TimeInterval = 0.5
 
-  /// How far the pointer travels, within half a second, before it is the owner
-  /// taking over: from the owner's setting. Nothing: moving it never pauses.
-  static func travel(for takeover: Takeover) -> CGFloat? {
-    switch takeover {
-    case .anyMove: return 6
-    case .deliberate: return 40
-    case .clicksAndKeys: return nil
-    }
-  }
-
-  private var travel: CGFloat? = 40
+  private var takeover = Takeover.deliberate
 
   private var monitors: [Any] = []
   private var graceUntil = Date.distantPast
@@ -35,9 +26,9 @@ final class OwnerInputMonitor {
   /// Whether an event is KOS's own, posted by the injector.
   var isFromKOS: (CGEvent) -> Bool = { _ in false }
 
-  func start(grace: TimeInterval, travel: CGFloat?) {
+  func start(grace: TimeInterval, takeover: Takeover) {
     stop()
-    self.travel = travel
+    self.takeover = takeover
     ignorePointer(for: grace)
     let mask: NSEvent.EventTypeMask = [
       .mouseMoved, .leftMouseDown, .rightMouseDown, .otherMouseDown,
@@ -64,8 +55,10 @@ final class OwnerInputMonitor {
   private func handle(_ event: NSEvent) {
     if let raw = event.cgEvent, isFromKOS(raw) { return }
     switch event.type {
+    case .scrollWheel:
+      if takeover.scrollTakesOver { onOwnerInput?() }
     case .mouseMoved, .leftMouseDragged, .rightMouseDragged:
-      guard let travel else { return }
+      guard let travel = takeover.travel else { return }
       let now = Date()
       guard now >= graceUntil else { return }
       if now.timeIntervalSince(travelStarted) > Self.travelWindow {

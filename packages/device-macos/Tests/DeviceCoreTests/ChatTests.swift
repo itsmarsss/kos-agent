@@ -77,4 +77,32 @@ struct ChatTests {
     #expect(try object(ChatEvent.open.frame())["name"] as? String == "chat.open")
     #expect(try object(ChatEvent.auto(true).frame())["data"] as? [String: Bool] == ["on": true])
   }
+
+  @Test func readsWhichChatATurnIsInAndWhatItWaitsOn() throws {
+    let both = try call(#"{"t":"call","id":1,"method":"chat.status","params":{"chat":"mac:owner","conversation":"old","waiting":"consent","held":true}}"#).params(ChatStatus.self)
+    #expect(both.turnChat == "mac:owner")
+    #expect(both.waiting == .consent)
+    #expect(both.held == true)
+    let old = try call(#"{"t":"call","id":2,"method":"chat.status","params":{"conversation":"mac:owner","waiting":"something new"}}"#).params(ChatStatus.self)
+    #expect(old.turnChat == "mac:owner")
+    #expect(old.waiting == .approval)
+    #expect(old.held == nil)
+    let show = try call(#"{"t":"call","id":3,"method":"chat.show","params":{"chat":"mac:owner","conversation":"mac:owner","title":"Mac","messages":[]}}"#).params(ChatShow.self)
+    #expect(show.chat == "mac:owner")
+    let ask = try call(#"{"t":"call","id":4,"method":"chat.ask","params":{"approval":{"id":"9","tool":"computer.act","expiresAt":1700000000000}}}"#).params(ChatAsk.self).approval
+    #expect(ask.expiresAt == 1_700_000_000_000)
+  }
+
+  @Test func writesAQuoteOnceAndAStop() throws {
+    let quoted = try #require(object(ChatEvent.send(text: "fix this", beside: .none, quote: Quote(text: "teh cat", from: "Notes: Draft")).frame())["data"] as? [String: Any])
+    #expect(quoted["quote"] as? [String: String] == ["text": "teh cat", "from": "Notes: Draft"])
+    let plain = try #require(object(ChatEvent.send(text: "hi", beside: .none).frame())["data"] as? [String: Any])
+    #expect(plain["quote"] == nil)
+    let stop = try object(ChatEvent.stop.frame())
+    #expect(stop["name"] as? String == "chat.stop")
+    #expect(stop["data"] as? [String: String] == [:])
+    let mentions = try object(ChatEvent.mentions("ali").frame())
+    #expect(mentions["name"] as? String == "chat.mentions")
+    #expect(mentions["data"] as? [String: String] == ["q": "ali"])
+  }
 }

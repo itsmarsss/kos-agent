@@ -85,6 +85,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     chat.target = { [unowned self] in chatTarget() }
     chat.faceOf = { origin in Self.face(of: origin) }
     chat.isHidden = { [unowned self] bundle in settings.isHidden(bundle) }
+    chat.model.handBack = { [unowned self] in controller.resume() }
+    chat.model.stop = { [unowned self] in stopChat() }
+    controller.letThrough = { [unowned self] on in chat.letThrough(on) }
+    controller.yieldKeys = { [unowned self] in chat.yieldKeys() }
+    controller.onOwnerStop = { [unowned self] origin, conversation in
+      if chat.isMine(origin: origin, conversation: conversation) { chat.tellStop() }
+    }
     chat.model.chooseKOS = { [unowned self] id in
       chatKOS = id
       chat.refresh(asking: true)
@@ -308,11 +315,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // The KOS at work, else the first that is connected, else the first there is: the one the window speaks of.
     let shown = origin ?? pairings.first { lines[$0.deviceId]?.isProven == true } ?? pairings.first
     model.face = shown.map { Self.face(of: $0.deviceId) } ?? .kos
-    chat.model.session = controller.live.map { $0.paused ? .paused : .working }
+    chat.session = controller.live.map { live in (controller.liveOrigin ?? "", live.conversation, live.paused) }
+    chat.asking = controller.asking.map { ($0.origin, $0.conversation, $0.task, $0.until) }
     model.session = controller.live.map { live in
       SessionSummary(
         task: live.task, requester: live.requester, kos: pairings.count > 1 ? origin.map(Self.name) : nil,
         chat: live.conversation.flatMap { id in try? origin?.kosAddress().chat(id) }, until: live.until, paused: live.paused)
+    }
+  }
+
+  /// The chat's Stop: a session or an ask of this chat's ends here at once, and KOS stops the turn either way.
+  private func stopChat() {
+    let origin = controller.liveOrigin ?? controller.asking?.origin
+    let conversation = controller.live?.conversation ?? controller.asking?.conversation
+    if let origin, chat.isMine(origin: origin, conversation: conversation) {
+      controller.stop()
+    } else {
+      chat.tellStop()
     }
   }
 

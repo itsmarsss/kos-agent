@@ -9,6 +9,8 @@ import SwiftUI
 public struct ChatView: View {
   @ObservedObject private var model: ChatModel
   @State private var switching = false
+  /// Which line of the / or @ menu Return takes.
+  @State private var picked = 0
   @FocusState private var typing: Bool
 
   public static let size = CGSize(width: 380, height: 560)
@@ -112,14 +114,17 @@ public struct ChatView: View {
           ForEach(model.items) { item in
             ItemView(item: item, model: model)
           }
-          if model.working {
-            let running = model.running
-            if !running.steps.isEmpty { Steps(steps: running.steps, live: true, pictures: model.picturesOf(model.liveFrames)) }
-            if !running.words.isEmpty { ChatMarkdown(running.words).foregroundStyle(Theme.muted) }
-          }
           // At the foot for as long as the turn runs: words after the steps are not the end of the work.
-          if let foot = model.foot { Working(what: foot, since: model.workingSince ?? Date(), live: !model.waitingOnOwner) }
+          // The owner holding the Mac, it is theirs to hand back or stop, here as on the bar.
+          if let foot = model.foot {
+            if model.heldByOwner {
+              HeldCard(handBack: model.handBack, stop: model.stop)
+            } else {
+              Working(what: foot, since: model.workingSince ?? Date(), live: model.footLive)
+            }
+          }
           ForEach(model.asks) { ask in AskCard(ask: ask, answer: model.answer) }
+          if let consent = model.consent { ConsentCard(consent: consent) }
           Color.clear.frame(height: 1).id("end")
         }
         .padding(.horizontal, 16)
@@ -128,8 +133,10 @@ public struct ChatView: View {
         .textSelection(.enabled)
       }
       .onChange(of: model.items.count) { reader.scrollTo("end", anchor: .bottom) }
-      .onChange(of: model.story) { reader.scrollTo("end", anchor: .bottom) }
+      .onChange(of: model.stories) { reader.scrollTo("end", anchor: .bottom) }
       .onChange(of: model.asks.count) { reader.scrollTo("end", anchor: .bottom) }
+      .onChange(of: model.consent) { reader.scrollTo("end", anchor: .bottom) }
+      .onChange(of: model.heldByOwner) { reader.scrollTo("end", anchor: .bottom) }
       .onAppear { reader.scrollTo("end", anchor: .bottom) }
     }
   }
@@ -138,16 +145,21 @@ public struct ChatView: View {
 
   private var composer: some View {
     VStack(alignment: .leading, spacing: 4) {
+      if let menu = model.menu { CommandMenu(options: menu.options, picked: picked, take: model.take) }
+      if let quote = model.quote { QuoteChip(quote: quote, putAside: model.putQuoteAside) }
       TextField("", text: $model.draft, axis: .vertical)
         .textFieldStyle(.plain)
         .lineLimit(1...6)
         .focused($typing)
         .disabled(!model.usable)
         .onSubmit(sendDraft)
+        .onChange(of: model.menu?.token.raw) { picked = 0 }
+        .onChange(of: typing) { if typing { model.readSelection() } }
+        .onKeyPress(keys: [.upArrow, .downArrow, .tab, .escape]) { press in menuKey(press.key) }
         // The hint drawn here, not as the field's own: in the faint grey, on one line, cut at its end, as the dashboard's.
         .overlay(alignment: .topLeading) {
           if model.draft.isEmpty {
-            Text("Message KOS, / for commands, @ to name things")
+            Text(model.quote == nil ? "Message KOS, / for commands, @ to name things" : "Ask about the selection")
               .foregroundStyle(Theme.faint)
               .lineLimit(1)
               .truncationMode(.tail)
@@ -178,15 +190,27 @@ public struct ChatView: View {
         }
         .buttonStyle(.plain)
         .fixedSize()
-        .help(model.auto ? "KOS works on this Mac without asking each step" : "KOS asks before each step on this Mac")
+        .help(model.auto ? "KOS acts without asking; strict steps still ask" : "KOS asks before each step")
         Spacer(minLength: 4)
-        Button(action: sendDraft) {
-          Image(systemName: "arrow.right").font(.kos(.dense, .bold))
+        // While this chat has something going, the button stops it; words typed meanwhile still go with Return.
+        if model.busy {
+          Button(action: model.stop) {
+            Image(systemName: "stop.fill").font(.kos(.small, .bold))
+          }
+          .buttonStyle(KOSButtonStyle(.danger, round: 30))
+          .disabled(!model.usable)
+          .keyboardShortcut(.return, modifiers: .command)
+          .accessibilityLabel("Stop")
+          .help("Stop KOS: the turn, and its session on this Mac")
+        } else {
+          Button(action: sendDraft) {
+            Image(systemName: "arrow.right").font(.kos(.dense, .bold))
+          }
+          .buttonStyle(KOSButtonStyle(.primary, round: 30))
+          .disabled(!canSend)
+          .keyboardShortcut(.return, modifiers: .command)
+          .accessibilityLabel("Send")
         }
-        .buttonStyle(KOSButtonStyle(.primary, round: 30))
-        .disabled(!canSend)
-        .keyboardShortcut(.return, modifiers: .command)
-        .accessibilityLabel("Send")
       }
     }
     .padding(EdgeInsets(top: 7, leading: 11, bottom: 7, trailing: 7))
@@ -201,11 +225,73 @@ public struct ChatView: View {
     model.usable && !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
+  /// The arrows move through the menu, Tab takes the line picked, Escape closes it; with no menu, the keys are the box's.
+  private func menuKey(_ key: KeyEquivalent) -> KeyPress.Result {
+    guard let options = model.menu?.options else { return .ignored }
+    switch key {
+    case .upArrow: picked = (picked + options.count - 1) % options.count
+    case .downArrow: picked = (picked + 1) % options.count
+    case .tab: model.take(options[min(picked, options.count - 1)])
+    default: model.closeMenu()
+    }
+    return .handled
+  }
+
   private func sendDraft() {
+    // Return with the menu open takes the line picked, as Tab does.
+    if let options = model.menu?.options {
+      model.take(options[min(picked, options.count - 1)])
+      return
+    }
     guard canSend else { return }
     let words = model.draft
     model.draft = ""
     model.say(words)
+  }
+}
+
+/// What the owner selected in the app in front, going with their next words: its words, where from, and × to leave it out.
+private struct QuoteChip: View {
+  let quote: ChatModel.Quote
+  let putAside: () -> Void
+
+  var body: some View {
+    HStack(alignment: .top, spacing: 8) {
+      Rectangle().fill(Theme.accent.opacity(0.6)).frame(width: 2)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(quote.from).font(.kos(.tiny, .semibold)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
+        Text(quote.text).font(.kos(.detail)).foregroundStyle(Theme.text).lineLimit(2).truncationMode(.tail)
+      }
+      Spacer(minLength: 4)
+      IconButton(symbol: "xmark", label: "Leave the selection out", bare: true, action: putAside)
+    }
+    .fixedSize(horizontal: false, vertical: true)
+    .padding(.vertical, 2)
+    .help("What you selected goes with your message")
+  }
+}
+
+/// The / or @ menu over the box: what may go in place of what is typed, the line Return takes lit.
+private struct CommandMenu: View {
+  let options: [ChatMenus.Option]
+  let picked: Int
+  let take: (ChatMenus.Option) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 1) {
+      ForEach(Array(options.enumerated()), id: \.offset) { i, option in
+        MenuRow(on: i == picked, height: 26, action: { take(option) }) { _ in
+          HStack(spacing: 8) {
+            Text(option.label).font(.kos(.control)).lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: 6)
+            if let hint = option.hint {
+              Text(hint).font(.kos(.tiny)).foregroundStyle(Theme.faint).lineLimit(1).truncationMode(.tail)
+            }
+          }
+        }
+      }
+    }
+    .padding(.bottom, 4)
   }
 }
 
@@ -328,6 +414,11 @@ private struct ItemView: View {
       }
     case .sending(_, let text):
       Bubble(text: text, files: []).opacity(0.6)
+    case .story(_, let story):
+      // A turn on the go: its steps so far, live, and what KOS is saying after them.
+      let told = ChatModel.read(story.text)
+      if !told.steps.isEmpty { Steps(steps: told.steps, live: true, pictures: model.picturesOf(model.liveFrames(of: story.said))) }
+      if !told.words.isEmpty { ChatMarkdown(told.words).foregroundStyle(Theme.muted) }
     }
   }
 }
@@ -484,6 +575,45 @@ private struct Working: View {
   }
 }
 
+/// The owner took the Mac over from this chat's turn: KOS waits for it back, or for Stop.
+private struct HeldCard: View {
+  let handBack: () -> Void
+  let stop: () -> Void
+
+  var body: some View {
+    Card(tone: Theme.warn, padding: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)) {
+      RowText("Paused, you have control", "KOS waits until you hand it back.", size: .control)
+      HStack(spacing: 6) {
+        Button("Hand back", action: handBack).buttonStyle(KOSButtonStyle(.primary))
+        Button("Stop", action: stop).buttonStyle(KOSButtonStyle(.danger))
+      }
+    }
+  }
+}
+
+/// A session this chat asked for, asked on the owner's screen: answered there, and said here so the chat does not look stuck.
+private struct ConsentCard: View {
+  let consent: ChatModel.Consent
+
+  var body: some View {
+    Card(tone: Theme.warn, padding: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)) {
+      SectionLabel("KOS asks to use this Mac")
+      Text(consent.task).font(.kos(.dense)).fixedSize(horizontal: false, vertical: true)
+      TimelineView(.periodic(from: .now, by: 1)) { context in
+        Text("Asking on your screen… Allow there · \(secondsLeft(until: consent.until, now: context.date))")
+          .font(.kos(.detail).monospacedDigit())
+          .foregroundStyle(Theme.muted)
+      }
+    }
+  }
+}
+
+/// What is left before an ask answers itself, as the prompt counts it.
+func secondsLeft(until: Date, now: Date) -> String {
+  let left = max(0, Int(until.timeIntervalSince(now).rounded(.up)))
+  return left < 60 ? "\(left)s" : "\(left / 60)m \(String(format: "%02d", left % 60))s"
+}
+
 /// An approval to decide in the thread, as the panel's card asks it: what KOS would run, why, with what, and the dashboard's buttons.
 private struct AskCard: View {
   let ask: ChatModel.Ask
@@ -513,6 +643,14 @@ private struct AskCard: View {
         Button("Approve") { answer(ask.id, true, false) }.buttonStyle(KOSButtonStyle(.primary))
         if let always = ask.always { Button(always) { answer(ask.id, true, true) }.buttonStyle(KOSButtonStyle(.secondary)).help("Approve, and stop asking for this") }
         Button("Deny") { answer(ask.id, false, false) }.buttonStyle(KOSButtonStyle(.danger))
+        if let expires = ask.expires {
+          Spacer(minLength: 4)
+          TimelineView(.periodic(from: .now, by: 1)) { context in
+            Text("Times out in \(secondsLeft(until: expires, now: context.date))")
+              .font(.kos(.detail).monospacedDigit())
+              .foregroundStyle(Theme.faint)
+          }
+        }
       }
     }
   }

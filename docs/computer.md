@@ -87,13 +87,17 @@ While KOS is in control:
   it does it (click, type "BU354", press Return) is the line when there
   is no intent, and the step's detail on the dashboard when there is.
   Coordinates are never in the line;
-- a bar at the top says what it is doing, with Take over and Stop;
-- your own click or key pauses it at once; scrolling and small pointer moves
-  do not, nor does anything in the 3 seconds after you press Allow or Hand
-  back. Only you hand it back, on the device or in its chat ("Paused, you
-  have control", with Hand back and Stop). KOS waits up to five minutes for
-  you: handed back, it looks again before acting; kept, it stops and tells
-  you where it was. The device's idle limit does not run while you have it;
+- a bar at the top says what it is doing, with Take over and Stop, and its
+  chat window says the same; Stop there stops the turn too;
+- your own click or key pauses it at once (on the Mac, a deliberate move of
+  the pointer too); scrolling and small pointer moves do not, nor does
+  anything in the 3 seconds after you press Allow or Hand back. Only you hand
+  it back, on the device or in its chat ("Paused, you have control", with
+  Hand back and Stop). KOS waits up to five minutes for you: handed back, it
+  looks again before acting; kept, it stops and tells you where it was. The
+  device's idle limit does not run while you have it;
+- its pointer and keys pass KOS for Mac's own windows by: they never land in
+  the chat window or the bar;
 - it does not type while a password field has focus;
 - apps on the device's hidden list (password managers by default) are blanked
   from what it sees, and it cannot act on them.

@@ -214,9 +214,9 @@ public struct HomeView: View {
       HStack {
         Spacer()
         if session.paused {
-          Button("Resume", action: model.actions.resume).buttonStyle(KOSButtonStyle(.secondary))
+          Button("Hand back", action: model.actions.resume).buttonStyle(KOSButtonStyle(.secondary))
         } else {
-          Button("Pause", action: model.actions.pause).buttonStyle(KOSButtonStyle(.secondary))
+          Button("Take over", action: model.actions.pause).buttonStyle(KOSButtonStyle(.secondary))
         }
         Button("Stop", action: model.actions.stop).buttonStyle(KOSButtonStyle(.danger))
       }

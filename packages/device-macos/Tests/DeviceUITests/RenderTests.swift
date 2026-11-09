@@ -123,6 +123,30 @@ struct RenderTests {
     #expect(size.height == ChatView.size.height)
   }
 
+  /// A turn going: Stop in the box; asking on the screen; the owner holding the Mac; then a selection on its way, with a menu open.
+  @Test func chatWindowStopAskPausedAndSelection() throws {
+    let model = ChatModel()
+    model.paired = true
+    model.online = true
+    model.beside = "Notes"
+    model.besideTitle = "Draft"
+    model.show(conversation: "mac:owner", title: "Tidy notes", lines: [.you("Fix the typos in this note", files: [])])
+    model.status(taken: false, story: .some("› Use Studio MacBook: Notes"), error: nil, said: "Fix the typos in this note", conversation: "mac:owner")
+    _ = try render("chat-composer-stop", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    model.consent = .init(task: "Fix the typos in the Draft note", until: Date().addingTimeInterval(52))
+    _ = try render("chat-consent", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    model.consent = nil
+    model.session = .paused
+    _ = try render("chat-paused", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    model.session = nil
+    model.status(taken: false, story: .some(nil), error: nil, said: "Fix the typos in this note", conversation: "mac:owner")
+    model.ask(.init(id: "3", tool: "computer.act", mechanics: "Type “the cat”", expires: Date().addingTimeInterval(95)))
+    model.selected(.init(text: "teh cat sat on teh mat", from: "Notes: Draft"))
+    model.draft = "/s"
+    let size = try render("chat-selection", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    #expect(size.height == ChatView.size.height)
+  }
+
   /// Paired with nothing, and paired with a KOS that never answers this window.
   @Test func chatWindowUnpairedAndSilent() throws {
     let model = ChatModel()

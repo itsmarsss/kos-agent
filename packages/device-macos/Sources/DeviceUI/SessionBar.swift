@@ -43,7 +43,7 @@ public struct SessionBar: View {
           .opacity(model.paused ? 1 : (beat ? 0.35 : 1))
       }
       VStack(alignment: .leading, spacing: 1) {
-        Text(model.paused ? "Paused. You have control." : "KOS is using this Mac")
+        Text(model.paused ? "Paused, you have control" : "KOS is using this Mac")
           .font(.kos(.control, .semibold))
           .foregroundStyle(Theme.text)
         HStack(spacing: 6) {
@@ -64,10 +64,10 @@ public struct SessionBar: View {
       Button("+15 min", action: model.extend)
         .buttonStyle(KOSButtonStyle(.ghost, capsule: true))
         .help("Give KOS fifteen more minutes")
-      Button(model.paused ? "Resume" : "Pause", action: model.paused ? model.resume : model.pause)
+      Button(model.paused ? "Hand back" : "Take over", action: model.paused ? model.resume : model.pause)
         .buttonStyle(KOSButtonStyle(.secondary, capsule: true))
-        // As wide as "Resume", so the bar keeps its size when it pauses.
-        .frame(minWidth: 76)
+        // As wide as the wider word, so the bar keeps its size when it pauses.
+        .frame(minWidth: 88)
       Button("Stop", action: model.stop).buttonStyle(KOSButtonStyle(.danger, capsule: true))
     }
     .padding(.leading, 12)

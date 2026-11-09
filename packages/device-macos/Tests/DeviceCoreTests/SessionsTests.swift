@@ -117,6 +117,25 @@ struct SessionsTests {
     #expect(sessions.due(start.addingTimeInterval(200)) == nil)
   }
 
+  /// KOS waits for the owner to hand it back: a pause is not idle, however long; its time limit still holds.
+  @Test func aPausedSessionIsNeverIdle() throws {
+    var sessions = try liveSessions(minutes: 30)
+    _ = sessions.pause()
+    #expect(sessions.due(start.addingTimeInterval(20 * 60)) == nil)
+    #expect(sessions.due(start.addingTimeInterval(30 * 60)) == .expired)
+    _ = sessions.resume(now: start.addingTimeInterval(20 * 60))
+    #expect(sessions.due(start.addingTimeInterval(23 * 60)) == .idle)
+  }
+
+  /// KOS withdrew the ask as the owner allowed it: the yes on its way starts nothing.
+  @Test func aWithdrawnAskGrantsNothing() throws {
+    var sessions = Sessions()
+    try sessions.ask("s1", from: home)
+    sessions.deny("s1")
+    #expect(code { _ = try sessions.grant("s1", task: "t", requester: "r", minutes: 5, space: space, now: start) } == .noSession)
+    #expect(sessions.live == nil)
+  }
+
   @Test func endingSaysWhatEnded() throws {
     var sessions = try liveSessions()
     #expect(sessions.end() == "s1")

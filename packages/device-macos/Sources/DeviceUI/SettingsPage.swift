@@ -34,7 +34,7 @@ struct SettingsPage: View {
       }
       KOSSection("While KOS works") {
         Card {
-          setting("What pauses KOS", takeoverDetail) {
+          setting("What takes over from KOS", takeoverDetail) {
             KOSChoices(Takeover.allCases.map { ($0, $0.label) }, selected: model.takeover, choose: model.actions.setTakeover)
           }
           Hairline()
@@ -84,9 +84,9 @@ struct SettingsPage: View {
 
   private var takeoverDetail: String {
     switch model.takeover {
-    case .anyMove: return "Any touch of the pointer, a click or a key pauses KOS at once."
-    case .deliberate: return "A real move of the pointer, a click or a key. A nudge does not."
-    case .clicksAndKeys: return "Only a click, a scroll or a key. Move the pointer freely while KOS works."
+    case .anyMove: return "Any touch of the pointer, a scroll, a click or a key takes over at once."
+    case .deliberate: return "A real move of the pointer, a click or a key. A nudge or a scroll does not."
+    case .clicksAndKeys: return "Only a click or a key. Move the pointer and scroll freely while KOS works."
     }
   }
 

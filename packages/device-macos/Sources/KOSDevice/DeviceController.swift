@@ -23,6 +23,12 @@ final class DeviceController {
   var kosName: (String) -> String? = { _ in nil }
   /// A KOS's face, as it last sent it.
   var faceOf: (String) -> FaceLook = { _ in .kos }
+  /// The owner stopped the session or the ask, by the KOS and the chat it was for: that chat's turn stops too.
+  var onOwnerStop: ((String, String?) -> Void)?
+  /// KOS for Mac's own windows beyond the overlay (the chat), stepping aside for KOS's pointer: true while it acts.
+  var letThrough: ((Bool) -> Void)?
+  /// KOS for Mac's own windows give up the keyboard, so what KOS types lands in the app it works in.
+  var yieldKeys: (() -> Void)?
 
   private var sessions = Sessions()
   private var display: CGDirectDisplayID?
@@ -54,6 +60,17 @@ final class DeviceController {
     overlay.onStop = { [weak self] in self?.stop() }
     overlay.onExtend = { [weak self] in self?.extend() }
   }
+
+  /// A session asked for on the owner's screen: by which KOS, for which chat, what for, and when it says no by itself.
+  struct Asking {
+    let origin: String
+    let conversation: String?
+    let task: String
+    let until: Date
+  }
+
+  /// The ask up on the owner's screen now.
+  private(set) var asking: Asking?
 
   var live: LiveSession? { sessions.live }
   /// The KOS the live session is for.
@@ -129,7 +146,12 @@ final class DeviceController {
         offered: Durations.offered(requested: params.minutes, longest: longest), longest: longest, wait: settings.promptWaitSeconds,
         targets: choices, target: suggested.map { String($0.id) } ?? TargetChoice.screen, suggested: suggested?.app,
         chime: settings.sounds)
-      switch await consent.ask(request) {
+      asking = Asking(origin: origin, conversation: params.conversation, task: task, until: Date().addingTimeInterval(TimeInterval(request.wait)))
+      onChange?()
+      let answer = await consent.ask(request)
+      asking = nil
+      onChange?()
+      switch answer {
       case .allowed(let chosen, let target):
         minutes = chosen
         picked = target
@@ -181,7 +203,7 @@ final class DeviceController {
     } else {
       overlay.show(display: id, task: task, until: session.until, face: faceOf(origin))
     }
-    owner.start(grace: Self.handOverGrace, travel: OwnerInputMonitor.travel(for: settings.takeover))
+    owner.start(grace: Self.handOverGrace, takeover: settings.takeover)
     ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated { self?.tick() }
     }
@@ -233,7 +255,9 @@ final class DeviceController {
     guard sessions.owns(origin) else { return EmptyResult() }
     switch sessions.phase {
     case .asking(let id) where id == ref.session:
+      // Withdrawn as the owner pressed Allow: the yes on its way grants nothing.
       consent.cancel()
+      sessions.deny(id)
     case .live(let session) where session.id == ref.session:
       end(nil)
     default:
@@ -283,7 +307,12 @@ final class DeviceController {
     onChange?()
   }
 
+  /// The owner's Stop, from the bar, the menu or the chat: the session or the ask ends here at once.
   func stop() {
+    if let origin = sessions.origin {
+      let conversation = sessions.live?.conversation ?? asking?.conversation
+      onOwnerStop?(origin, conversation)
+    }
     end(.owner)
   }
 
@@ -325,7 +354,7 @@ final class DeviceController {
       let target = try globalPoint(p.x, p.y, in: session)
       try refuseHidden(at: target)
       await overlay.clear([target])
-      try await injector.move(to: target)
+      try await throughOwnWindows { try await injector.move(to: target) }
       return cursor(in: session)
 
     case .pointerClick:
@@ -337,7 +366,7 @@ final class DeviceController {
       let target = try globalPoint(p.x, p.y, in: session)
       try refuseHidden(at: target)
       await overlay.clear([target])
-      try await injector.click(at: target, button: p.button ?? .left, count: count, modifiers: modifiers)
+      try await throughOwnWindows { try await injector.click(at: target, button: p.button ?? .left, count: count, modifiers: modifiers) }
       overlay.ripple(at: target)
       return cursor(in: session)
 
@@ -349,7 +378,7 @@ final class DeviceController {
       try refuseHidden(at: from)
       try refuseHidden(at: to)
       await overlay.clear([from, to])
-      try await injector.drag(from: from, to: to)
+      try await throughOwnWindows { try await injector.drag(from: from, to: to) }
       return cursor(in: session)
 
     case .pointerScroll:
@@ -361,7 +390,7 @@ final class DeviceController {
       let target = try globalPoint(p.x, p.y, in: session)
       try refuseHidden(at: target)
       await overlay.clear([target])
-      try await injector.scroll(at: target, dx: Int(p.dx.rounded()), dy: Int(p.dy.rounded()))
+      try await throughOwnWindows { try await injector.scroll(at: target, dx: Int(p.dx.rounded()), dy: Int(p.dy.rounded())) }
       return cursor(in: session)
 
     case .keysType:
@@ -454,7 +483,7 @@ final class DeviceController {
 
   private func interruption(for id: String) -> DeviceError? {
     guard let session = sessions.live, session.id == id else { return DeviceError(.noSession, "The session ended.") }
-    return session.paused ? DeviceError(.paused, "The owner took over. Wait for them to resume it on this Mac.") : nil
+    return session.paused ? DeviceError(.paused, "The owner took over. Wait for them to hand it back on this Mac.") : nil
   }
 
   private func globalPoint(_ x: Double, _ y: Double, in session: LiveSession) throws -> CGPoint {
@@ -472,7 +501,24 @@ final class DeviceController {
     }
   }
 
+  /// KOS's pointer goes through KOS for Mac's own windows, the bar and the chat, to what the session sees under them:
+  /// a picture leaves them out, so a click there is meant for the app beneath. Between actions the owner reaches Stop.
+  private func throughOwnWindows(_ act: () async throws -> Void) async throws {
+    overlay.letThrough(true)
+    letThrough?(true)
+    defer {
+      overlay.letThrough(false)
+      letThrough?(false)
+    }
+    try await act()
+  }
+
+  /// Before KOS types: never into KOS for Mac itself, the chat's box above all.
   private func refuseKeys() throws {
+    yieldKeys?()
+    if NSApp.keyWindow != nil {
+      throw DeviceError(.badRequest, "A KOS for Mac window has the keyboard. Click into the app first, then type.")
+    }
     if Targets.passwordFieldHasFocus {
       throw DeviceError(.secureInput, "A password field has focus. KOS does not type there.")
     }

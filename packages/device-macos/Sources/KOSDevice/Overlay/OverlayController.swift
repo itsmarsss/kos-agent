@@ -2,7 +2,7 @@ import AppKit
 import DeviceUI
 
 /// Everything the owner sees while KOS has the computer: the border and
-/// KOS's cursor on the session's display, and the bar with Pause and Stop.
+/// KOS's cursor on the session's display, and the bar with Take over and Stop.
 /// Up for the whole session and gone when it ends.
 @MainActor
 final class OverlayController {
@@ -52,6 +52,11 @@ final class OverlayController {
 
   func setUntil(_ until: Date) {
     hud?.setUntil(until)
+  }
+
+  /// While KOS's pointer acts, the bar lets it through to what is under it.
+  func letThrough(_ on: Bool) {
+    hud?.ignoresMouseEvents = on
   }
 
   /// The window moved: the border follows it. False when it is off this display now, for the overlay to move.
