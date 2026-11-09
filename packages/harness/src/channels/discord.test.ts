@@ -784,22 +784,26 @@ describe("DiscordAdapter authorization", () => {
     const naming = { ...inGuild("owner-id", "g1", project, "tell me about <@306> and <@999>"), mentions: { users: new Map([["306", { id: "306", username: "splattertron", globalName: null }]]) } } as unknown as Message;
     await adapter.receiveMessage(naming);
     expect(messages[1]).toMatchObject({ text: "tell me about @splattertron and <@999>", members: [{ id: "306", name: "splattertron" }] });
-    // A thread under a project's channel is a chat of that project, titled as the thread.
-    await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "t9", name: "Seeds", isThread: () => true, parent: { topic: "kos:project:garden · Garden" } }));
+    // A thread the owner started under a project's channel is a chat of that project, titled as the thread.
+    await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "t9", name: "Seeds", isThread: () => true, ownerId: "owner-id", parent: { topic: "kos:project:garden · Garden" } }));
     expect(messages[2]).toMatchObject({ conversationId: "discord:thread:t9", newIn: { projectSlug: "garden", title: "Seeds" }, room: { kind: "thread", id: "t9", name: "Seeds" } });
     // A system message (starting a thread, its name as the content) is nobody's words and starts no turn.
     const threadCreated = { ...inGuild("owner-id", "g1", project, "Test"), system: true } as unknown as Message;
     await adapter.receiveMessage(threadCreated);
     expect(messages).toHaveLength(3);
     // A thread under a blob's channel is the blob's own thread.
-    await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "t10", name: "x", isThread: () => true, parent: { topic: "kos:agent:recap · Recap" } }));
+    await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "t10", name: "x", isThread: () => true, ownerId: "owner-id", parent: { topic: "kos:agent:recap · Recap" } }));
     expect(messages[3]).toMatchObject({ conversationId: "agent:recap" });
+    // A thread someone else started is talk in its parent room's chat, never a chat of the owner's.
+    await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "t11", name: "Ana's", isThread: () => true, ownerId: "ana", parent: { topic: "kos:project:garden · Garden" } }));
+    expect(messages[4]).toMatchObject({ conversationId: "project:garden" });
+    expect(messages[4]).not.toHaveProperty("newIn");
     // Another server, an unbound channel, the approvals channel, or anyone but the owner: nothing.
     await adapter.receiveMessage(inGuild("owner-id", "g2", project));
     await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "c5", name: "general", topic: "chit chat", isThread: () => false }));
     await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "c6", name: "needs-you", topic: "kos:needs-you · Approvals", isThread: () => false }));
     await adapter.receiveMessage(inGuild("stranger", "g1", project));
-    expect(messages).toHaveLength(4);
+    expect(messages).toHaveLength(5);
     // Without a server configured, a server message is ignored whoever sent it.
     const dmOnly = new DiscordAdapter({ token: "t" });
     const seen: InboundMessage[] = [];
@@ -815,7 +819,9 @@ describe("DiscordAdapter authorization", () => {
     expect(boundKeyOf("kos:project:garden · Garden")).toBe("project:garden");
     expect(boundKeyOf("Garden")).toBeUndefined();
     expect(bindingOf({ id: "c", topic: "kos:orchestrator:owner · KOS" })).toEqual({ conversationId: "orchestrator:owner" });
-    expect(bindingOf({ id: "t", name: "Ideas", isThread: () => true, parent: { topic: "kos:orchestrator:owner · KOS" } })).toEqual({ conversationId: "discord:thread:t", newIn: { title: "Ideas", threadId: "t" } });
+    const mine = (id: string): boolean => id === "me";
+    expect(bindingOf({ id: "t", name: "Ideas", isThread: () => true, ownerId: "me", parent: { topic: "kos:orchestrator:owner · KOS" } }, undefined, mine)).toEqual({ conversationId: "discord:thread:t", newIn: { title: "Ideas", threadId: "t" } });
+    expect(bindingOf({ id: "t", name: "Ideas", isThread: () => true, ownerId: "ana", parent: { topic: "kos:orchestrator:owner · KOS" } }, undefined, mine)).toEqual({ conversationId: "orchestrator:owner" });
     expect(bindingOf({ id: "t", isThread: () => true, parent: { topic: "kos:needs-you · Approvals" } })).toBeUndefined();
     expect(bindingOf({ id: "t", isThread: () => true, parent: null })).toBeUndefined();
   });
@@ -1521,7 +1527,8 @@ describe("DiscordAdapter authorization", () => {
     });
     const open = { id: "c1", isThread: () => false, topic: "kos:project:club · Club", isSendable: () => true };
     const shut = { id: "c2", isThread: () => false, topic: "kos:project:garden · Garden", isSendable: () => true };
-    const thread = { id: "t1", isThread: () => true, parent: open, isSendable: () => true };
+    // Started by a guest: under the open room's rules, in its chat.
+    const thread = { id: "t1", isThread: () => true, ownerId: "u2", parent: open, isSendable: () => true };
     const guild = { id: "g1" };
     const from = (channel: unknown, author: { id: string; username: string; globalName?: string }, content: string, member?: { displayName: string }) =>
       ({ guild, channel, author: { ...author, bot: false }, member: member ?? null, content, attachments: new Map() }) as unknown as Message;
@@ -1543,7 +1550,7 @@ describe("DiscordAdapter authorization", () => {
     // Named with the room's own chat, which is all a guest's press may reach.
     expect(presses).toEqual([{ buttonId: "", label: "Ship it", token: "tok9", pressedBy: "u1", guest: { id: "u1", name: "Ana B" }, room: "project:club" }]);
     await adapter.receiveInteraction({ ...fakeButton("u2", `${PRESS_PREFIX}tok9`), channel: thread, guildId: "g1", member: null } as unknown as Interaction);
-    expect(presses[1]).toMatchObject({ guest: { id: "u2" }, room: "discord:thread:t1" });
+    expect(presses[1]).toMatchObject({ guest: { id: "u2" }, room: "project:club" });
     const refused = { ...fakeButton("u1", `${PRESS_PREFIX}tok9`), channel: shut, guildId: "g1" } as unknown as Interaction;
     await adapter.receiveInteraction(refused);
     expect(presses).toHaveLength(2);
@@ -2493,15 +2500,19 @@ describe("renames", () => {
     expect(names).toEqual(["Seed order"]);
   });
 
-  it("tells the host when the owner renames a thread on Discord", async () => {
+  it("tells the host when the owner renames a thread of the owner's or KOS's on Discord, and of no one else's", async () => {
     const renamed: [string, string][] = [];
     const adapter = new DiscordAdapter({ token: "t", onThreadRenamed: (id, name) => void renamed.push([id, name]) });
-    const client = (adapter as unknown as { client: { login: () => Promise<string>; emit: (e: string, ...a: unknown[]) => boolean } }).client;
+    adapter.setAuthorizer((id) => id === "owner-id");
+    const client = (adapter as unknown as { client: { login: () => Promise<string>; user: unknown; emit: (e: string, ...a: unknown[]) => boolean } }).client;
     client.login = async () => "";
+    client.user = { id: "bot" };
     await adapter.start();
-    client.emit("threadUpdate", { name: "Seeds" }, { id: "t1", name: "Seed order" });
-    client.emit("threadUpdate", { name: "Same" }, { id: "t1", name: "Same" });
-    expect(renamed).toEqual([["t1", "Seed order"]]);
+    client.emit("threadUpdate", { name: "Seeds" }, { id: "t1", name: "Seed order", ownerId: "owner-id" });
+    client.emit("threadUpdate", { name: "Same" }, { id: "t1", name: "Same", ownerId: "owner-id" });
+    client.emit("threadUpdate", { name: "Chat" }, { id: "t2", name: "Chat renamed", ownerId: "bot" });
+    client.emit("threadUpdate", { name: "Ana's" }, { id: "t3", name: "Mine now", ownerId: "ana" });
+    expect(renamed).toEqual([["t1", "Seed order"], ["t2", "Chat renamed"]]);
   });
 });
 

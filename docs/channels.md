@@ -78,7 +78,9 @@ no topic. A thread you start yourself under a project's channel is a new
 chat in that project, titled as the thread, and that thread is bound to it
 by id the same way, so the layout never makes a second thread for it; one
 under `#kos` is a chat at the root; one under a blob's channel is the
-blob's thread. A chat made that way before the binding may also have a
+blob's thread. A thread someone else started is talk in its channel's
+chat, under that channel's rules for guests, and never a chat of yours;
+renaming it renames nothing in KOS. A chat made that way before the binding may also have a
 thread KOS made beside it: `GET /api/discord/thread-duplicates` lists
 them, and `POST /api/discord/thread-duplicates/rebind` binds each to your
 thread alone, leaving KOS's thread on Discord for you to remove. Channels

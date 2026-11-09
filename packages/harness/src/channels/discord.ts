@@ -671,10 +671,12 @@ export function topicTitle(topic: string | null | undefined): string | undefined
  *
  * A text channel KOS made carries `kos:<conversation>` in its topic. A thread
  * KOS made for a chat is that chat, by the binding the kernel keeps. Any
- * other thread in a project's channel is a new chat of that project; one
- * under KOS's own channel is a chat at the root; one under a blob's channel
- * is the blob's own thread, since a blob has one conversation. A channel
- * with no binding is someone else's and KOS stays out of it.
+ * other thread the owner started in a project's channel is a new chat of
+ * that project; one under KOS's own channel is a chat at the root; one under
+ * a blob's channel is the blob's own thread, since a blob has one
+ * conversation. A thread someone else started is talk in its parent room,
+ * under that room's rules, never a chat of the owner's. A channel with no
+ * binding is someone else's and KOS stays out of it.
  */
 export function bindingOf(
   channel: {
@@ -682,9 +684,11 @@ export function bindingOf(
     name?: string;
     topic?: string | null;
     isThread?: () => boolean;
+    ownerId?: string | null;
     parent?: { topic?: string | null } | null;
   },
   threadOf?: (threadId: string) => string | undefined,
+  isOwner: (userId: string) => boolean = () => false,
 ): ChannelBinding | undefined {
   if (channel.isThread?.()) {
     const known = threadOf?.(channel.id);
@@ -692,6 +696,7 @@ export function bindingOf(
     const parentKey = boundKeyOf(channel.parent?.topic);
     if (!parentKey || parentKey === "needs-you") return undefined;
     if (parentKey.startsWith("agent:")) return { conversationId: parentKey };
+    if (!channel.ownerId || !isOwner(channel.ownerId)) return { conversationId: parentKey };
     const seed: ConversationSeed = {
       ...(parentKey.startsWith("project:") ? { projectSlug: parentKey.slice("project:".length) } : {}),
       ...(channel.name ? { title: channel.name } : {}),
@@ -1122,9 +1127,12 @@ export class DiscordAdapter implements ChannelAdapter {
     this.client.on(Events.ChannelDelete, (channel: { id: string }) => this.forgetPlace(channel.id));
     this.client.on(Events.ThreadDelete, (thread: { id: string }) => this.forgetPlace(thread.id));
 
-    // A thread the owner renamed on Discord retitles its chat.
-    this.client.on(Events.ThreadUpdate, (before: { name: string }, after: { id: string; name: string }) => {
-      if (before.name !== after.name) this.onThreadRenamed?.(after.id, after.name);
+    // A thread the owner renamed on Discord retitles its chat. Only the
+    // owner's or KOS's own: a guest's thread is no chat of the owner's.
+    this.client.on(Events.ThreadUpdate, (before: { name: string }, after: { id: string; name: string; ownerId?: string | null }) => {
+      if (before.name === after.name || !after.ownerId) return;
+      if (after.ownerId !== this.client.user?.id && !this.isAuthorized(after.ownerId)) return;
+      this.onThreadRenamed?.(after.id, after.name);
     });
 
     this.started = true;
@@ -1199,7 +1207,7 @@ export class DiscordAdapter implements ChannelAdapter {
     const room = (await this.client.channels.fetch(roomId).catch(() => null)) as (ReadableChannel & { send?: (p: unknown) => Promise<unknown>; guildId?: string | null }) | null;
     if (!room) return;
     // A room nothing there would be heard in any more: not read, and let go.
-    if (!("messages" in room) || (room.guildId && !bindingOf(room as unknown as Parameters<typeof bindingOf>[0], this.threadOf))) {
+    if (!("messages" in room) || (room.guildId && !this.bindingIn(room))) {
       this.cursors?.drop(roomId);
       return;
     }
@@ -1354,7 +1362,7 @@ export class DiscordAdapter implements ChannelAdapter {
       guest = this.guestIn(message);
       if (!guest) return undefined;
     }
-    const binding = bindingOf(message.channel as Parameters<typeof bindingOf>[0], this.threadOf);
+    const binding = this.bindingIn(message.channel);
     if (!binding) return undefined;
     // A room that reaches its chat only when KOS is addressed: a guest's
     // message that does not address it goes unheard. The owner is always heard.
@@ -1362,6 +1370,11 @@ export class DiscordAdapter implements ChannelAdapter {
     const gated = key !== undefined && this.listenOf?.(key) === "mention";
     if (gated && guest && !this.addressed(message)) return undefined;
     return { binding, ...(guest ? { guest } : {}), gated };
+  }
+
+  /** What a channel or thread here is bound to; a thread is the owner's own chat only when the owner started it. */
+  private bindingIn(channel: unknown): ChannelBinding | undefined {
+    return bindingOf(channel as Parameters<typeof bindingOf>[0], this.threadOf, (id) => this.isAuthorized(id));
   }
 
   /** Where a message was said, for the dashboard to say so under the words. */
@@ -2220,7 +2233,7 @@ export class DiscordAdapter implements ChannelAdapter {
         return;
       }
       // Typed in a bound channel or thread: that room's chat is the one meant.
-      const here = interaction.guildId ? bindingOf(interaction.channel as Parameters<typeof bindingOf>[0], this.threadOf)?.conversationId : undefined;
+      const here = interaction.guildId ? this.bindingIn(interaction.channel)?.conversationId : undefined;
       const said = runCommand(this.commands, interaction.commandName, argument === undefined ? undefined : String(argument), here);
       // Only to whoever asked: where someone sends their messages is not
       // news for a channel.
@@ -2268,7 +2281,7 @@ export class DiscordAdapter implements ChannelAdapter {
       // reading it defensively is cheaper than narrowing a wire shape.
       const label =
         (interaction.component as { label?: string | null }).label ?? "";
-      const room = guest ? bindingOf(interaction.channel as Parameters<typeof bindingOf>[0], this.threadOf)?.conversationId : undefined;
+      const room = guest ? this.bindingIn(interaction.channel)?.conversationId : undefined;
       await this.handlePress(interaction, token, label, guest, room);
       return;
     }
