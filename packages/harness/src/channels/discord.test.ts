@@ -27,6 +27,7 @@ import {
   buildCard,
   buildModal,
   chunkText,
+  isNetworkError,
   parseApprovalCustomId,
   runNowReply,
   type RunNowOutcome,
@@ -1996,33 +1997,49 @@ describe("a guest's slash commands", () => {
 });
 
 describe("while the gateway is down", () => {
-  /** An adapter that has started, on a client whose readiness the test sets. */
-  function dropped(): { adapter: DiscordAdapter; sent: unknown[]; setReady: (r: boolean) => void; connectedCalls: number[] } {
+  /**
+   * An adapter on a real discord.js client, started, whose shard events the
+   * test raises: up and down are what the gateway says, not a mocked isReady.
+   */
+  async function dropped(fail?: (content: string | undefined) => unknown): Promise<{ adapter: DiscordAdapter; sent: unknown[]; emit: (event: string) => Promise<void>; connectedCalls: number[] }> {
     const sent: unknown[] = [];
-    let ready = false;
     const connectedCalls: number[] = [];
     const adapter = new DiscordAdapter({ token: "t", onConnected: () => void connectedCalls.push(sent.length) });
-    const channel = { id: "c1", isSendable: () => true, send: async (p: { content?: string }) => { sent.push(p.content); return { id: `m${sent.length}` }; } };
-    (adapter as unknown as { client: unknown }).client = {
-      isReady: () => ready,
+    const channel = {
+      id: "c1",
+      isSendable: () => true,
+      send: async (p: { content?: string }) => {
+        const err = fail?.(p.content);
+        if (err) throw err;
+        sent.push(p.content);
+        return { id: `m${sent.length}` };
+      },
+    };
+    const client = (adapter as unknown as { client: Record<string, unknown> & { emit: (e: string, ...a: unknown[]) => boolean } }).client;
+    Object.assign(client, {
+      login: async () => "",
       user: { id: "bot" },
       channels: { fetch: async () => channel },
       users: { fetch: async () => ({ send: async (p: { content?: string }) => { sent.push(`dm:${p.content}`); return { id: "d1", channelId: "dm1", edit: async () => undefined }; } }) },
       application: { commands: { set: async () => undefined } },
+    });
+    await adapter.start();
+    const emit = async (event: string): Promise<void> => {
+      client.emit(event, 0);
+      await (adapter as unknown as { upChain: Promise<void> }).upChain;
     };
-    (adapter as unknown as { started: boolean }).started = true;
-    return { adapter, sent, setReady: (r) => (ready = r), connectedCalls };
+    return { adapter, sent, emit, connectedCalls };
   }
 
   it("says it is not connected, keeps what is sent, and sends it in order once it is back", async () => {
-    const { adapter, sent, setReady, connectedCalls } = dropped();
+    const { adapter, sent, emit, connectedCalls } = await dropped();
     expect(adapter.connected()).toBe(false);
     await adapter.postIn("c1", { text: "first" });
     await adapter.send("owner", { text: "second" });
     await adapter.postIn("c1", { text: "third" });
     expect(sent).toEqual([]);
-    setReady(true);
-    await adapter.onUp();
+    await emit("shardReady");
+    expect(adapter.connected()).toBe(true);
     expect(sent).toEqual(["first", "dm:second", "third"]);
     // The host is told after what waited went out, so it does not ask twice.
     expect(connectedCalls).toEqual([3]);
@@ -2030,23 +2047,81 @@ describe("while the gateway is down", () => {
     expect(sent.at(-1)).toBe("live");
   });
 
+  it("goes down on a reconnect or a disconnect and up on a resume, and logs the drop once", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const { adapter, sent, emit } = await dropped();
+      await emit("shardReady");
+      await emit("shardReconnecting");
+      expect(adapter.connected()).toBe(false);
+      await adapter.postIn("c1", { text: "held" });
+      expect(sent).toEqual([]);
+      await emit("shardResume");
+      expect(adapter.connected()).toBe(true);
+      expect(sent).toEqual(["held"]);
+      await emit("shardDisconnect");
+      expect(adapter.connected()).toBe(false);
+      expect(errors.mock.calls.map((c) => String(c[0]))).toEqual([
+        "Discord: connection lost (reconnecting)",
+        expect.stringMatching(/^Discord: connected again after/),
+        "Discord: connection lost (closed)",
+      ]);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("keeps a send the network failed with the gateway up, and sends it first on the reconnect", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      let offline = true;
+      const { adapter, sent, emit } = await dropped((content) =>
+        offline ? Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("getaddrinfo ENOTFOUND discord.com"), { code: "ENOTFOUND" }) }) : content === "refused" ? Object.assign(new Error("Missing Permissions"), { code: 50013, status: 403 }) : undefined,
+      );
+      await emit("shardReady");
+      await adapter.postIn("c1", { text: "first" });
+      // Behind the one that waits, not ahead of it.
+      await adapter.postIn("c1", { text: "second" });
+      expect(sent).toEqual([]);
+      await emit("shardReconnecting");
+      offline = false;
+      await emit("shardReady");
+      expect(sent).toEqual(["first", "second"]);
+      // A refusal is not the network: it is the caller's to hear.
+      await expect(adapter.postIn("c1", { text: "refused" })).rejects.toThrow(/Missing Permissions/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("keeps an ask's card for the reconnect, and knows the ask has its card after", async () => {
-    const { adapter, sent, setReady } = dropped();
+    const { adapter, sent, emit } = await dropped();
     await adapter.requestApproval("owner", { id: "7", text: "Approve x?" });
     expect(adapter.hasCard("7")).toBe(false);
-    setReady(true);
-    await adapter.onUp();
+    await emit("shardReady");
     expect(sent).toHaveLength(1);
     expect(adapter.hasCard("7")).toBe(true);
   });
 
   it("keeps a direct message's card where a restart can find it", async () => {
     const kept = new Map<string, { summary: string; refs: PromptRef[] }>();
-    const { adapter, setReady } = dropped();
+    const { adapter, emit } = await dropped();
     (adapter as unknown as { keptPrompts: KeptPrompts }).keptPrompts = { get: (id) => kept.get(id), set: (id, p) => void kept.set(id, p), delete: (id) => void kept.delete(id) };
-    setReady(true);
+    await emit("shardReady");
     await adapter.requestApproval("owner", { id: "8", text: "Approve y?" });
     expect(kept.get("8")?.refs).toEqual([{ channelId: "dm1", messageId: "d1" }]);
+  });
+});
+
+describe("a failure that is the network", () => {
+  it("is a name that did not resolve, a dropped socket, a timeout or a 5xx, and not a refusal", () => {
+    expect(isNetworkError(Object.assign(new TypeError("fetch failed"), { cause: { code: "ENOTFOUND" } }))).toBe(true);
+    expect(isNetworkError({ code: "ECONNRESET" })).toBe(true);
+    expect(isNetworkError({ name: "AbortError" })).toBe(true);
+    expect(isNetworkError({ status: 503 })).toBe(true);
+    expect(isNetworkError({ status: 403, code: 50013 })).toBe(false);
+    expect(isNetworkError({ code: 10003 })).toBe(false);
+    expect(isNetworkError(undefined)).toBe(false);
   });
 });
 
@@ -2192,7 +2267,7 @@ describe("a turn a restart cut short", () => {
     const said: Record<string, string> = { s1: "-# Read notes.md", s2: "-# thinking…" };
     const room = { messages: { fetch: async (id: string) => ({ content: said[id], edit: async (p: { content: string }) => void (edits[id] = p.content) }) } };
     const adapter = new DiscordAdapter({ token: "t", keptStories: stories });
-    (adapter as unknown as { client: unknown }).client = { isReady: () => true, channels: { fetch: async () => room }, application: { commands: { set: async () => undefined } } };
+    (adapter as unknown as { client: unknown }).client = { channels: { fetch: async () => room }, application: { commands: { set: async () => undefined } } };
     await adapter.onUp();
     expect(edits).toEqual({ s1: "-# Read notes.md\n-# interrupted by a restart", s2: "-# interrupted by a restart" });
     expect(refs.size).toBe(0);
@@ -2304,7 +2379,7 @@ describe("a channel or thread gone from Discord", () => {
     expect((adapter as unknown as { boundThreads: Set<string> }).boundThreads.has("chat-1")).toBe(false);
     // Found unknown when posting: the same.
     client.channels = { fetch: async () => { throw Object.assign(new Error("Unknown Channel"), { code: 10003 }); } };
-    (client as unknown as { isReady: () => boolean }).isReady = () => true;
+    client.emit("shardResume", 0);
     await expect(adapter.postIn("c2", { text: "hi" })).rejects.toThrow(/not somewhere this bot can post/);
     expect(internals.boundIds.has("project:garden")).toBe(false);
     expect(gone).toEqual(["c9", "t1", "c2"]);

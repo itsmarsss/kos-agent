@@ -99,6 +99,10 @@ const RENAMES_PER_WINDOW = 2;
 const RENAME_WINDOW_MS = 10 * 60_000;
 /** How many sends may wait for a dropped gateway; past it the oldest goes. */
 const OUTBOX_MAX = 100;
+/** How long a send that failed on the network waits before it is tried again, while the gateway stays up. */
+const SEND_RETRY_MS = 30_000;
+/** Failures that say Discord could not be reached, as opposed to a refusal: the send waits and goes again. */
+const NETWORK_CODES = new Set(["ENOTFOUND", "EAI_AGAIN", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EPIPE", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET", "UND_ERR_HEADERS_TIMEOUT"]);
 /** Subtext lines may not be longer than this and still read as a glance. */
 const DETAIL_MAX = 160;
 
@@ -625,6 +629,21 @@ function plainTopic(topic: string | null | undefined): string {
   return (topic ?? "").replace(/^kos:[^·\n]*·?\s*/, "").replace(/\s*·\s*https?:\/\/\S+\s*$/, "").trim();
 }
 
+/**
+ * Whether a send failed for want of the network rather than on Discord's
+ * say: the name did not resolve, the socket dropped, the request timed out,
+ * or Discord answered 5xx after discord.js's own retries. Such a send is
+ * worth holding; a refusal is not.
+ */
+export function isNetworkError(err: unknown): boolean {
+  for (let e = err as { code?: unknown; name?: unknown; status?: unknown; cause?: unknown } | null | undefined, depth = 0; e && depth < 4; e = e.cause as typeof e, depth++) {
+    if (typeof e.code === "string" && NETWORK_CODES.has(e.code)) return true;
+    if (e.name === "AbortError" || e.name === "TimeoutError" || e.name === "ConnectTimeoutError") return true;
+    if (typeof e.status === "number" && e.status >= 500 && e.status < 600) return true;
+  }
+  return false;
+}
+
 /** Discord's answer for a channel or thread that no longer exists. */
 function isUnknownChannel(err: unknown): boolean {
   return (err as { code?: unknown } | null)?.code === 10003;
@@ -926,6 +945,14 @@ export class DiscordAdapter implements ChannelAdapter {
   /** Sends made while the gateway was down, waiting for it to be back. */
   private readonly outbox: { what: string; send: () => Promise<void> }[] = [];
   private flushing = false;
+  /**
+   * Whether the gateway is up, as its shard events last said. discord.js's
+   * own isReady() is set once at login and never unset, so it said "up"
+   * through every drop.
+   */
+  private gatewayUp = false;
+  /** A flush waiting to try again a send the network failed. */
+  private retry?: ReturnType<typeof setTimeout>;
 
   setAuthorizer(isAuthorized: SenderAuthorizer): void {
     this.isAuthorized = isAuthorized;
@@ -980,17 +1007,44 @@ export class DiscordAdapter implements ChannelAdapter {
       else console.error(`Discord: ${err.message}`);
     });
     this.client.on(Events.ShardError, (err: Error) => this.downLog.error(err.message));
-    this.client.on(Events.ShardDisconnect, (event: { code?: number }) => this.downLog.error(`closed${event?.code ? ` ${event.code}` : ""}`));
+    // Down: the socket closed and is being made again, or closed for good.
+    this.client.on(Events.ShardReconnecting, () => this.onDown("reconnecting"));
+    this.client.on(Events.ShardDisconnect, (event: { code?: number }) => this.onDown(`closed${event?.code ? ` ${event.code}` : ""}`));
   }
 
   /** Whether the gateway is up now: what is sent while it is not waits for it. */
   connected(): boolean {
-    return this.client.isReady();
+    return this.gatewayUp;
   }
 
-  /** Sent now when the gateway is up; otherwise kept, in order, for when it is back. */
+  /** The gateway dropped: sends wait from here until it is back. */
+  private onDown(what: string): void {
+    this.gatewayUp = false;
+    this.downLog.error(what);
+  }
+
+  /**
+   * Sent now when the gateway is up; otherwise kept, in order, for when it
+   * is back. A send is REST, not the gateway, so one can fail with the
+   * gateway up (a name that will not resolve takes both down, but the
+   * gateway is the slower to notice): a send that fails on the network is
+   * kept the same way, and tried again.
+   */
   private async whenUp(what: string, send: () => Promise<void>): Promise<void> {
-    if (!this.started || (this.connected() && !this.flushing)) return send();
+    if (!this.started) return send();
+    if (this.connected() && !this.flushing && this.outbox.length === 0) {
+      try {
+        return await send();
+      } catch (err) {
+        if (!isNetworkError(err)) throw err;
+        console.warn(`[discord] ${what} not sent, kept to send again: ${err instanceof Error ? err.message : String(err)}`);
+        this.retrySoon();
+      }
+    }
+    this.hold(what, send);
+  }
+
+  private hold(what: string, send: () => Promise<void>): void {
     if (this.outbox.length >= OUTBOX_MAX) {
       const dropped = this.outbox.shift();
       console.warn(`[discord] too much waiting for the connection; dropped ${dropped?.what}`);
@@ -998,14 +1052,33 @@ export class DiscordAdapter implements ChannelAdapter {
     this.outbox.push({ what, send });
   }
 
-  /** What waited for the connection, sent in the order it was made. */
+  /** Try what waits again in a while, for a send the network failed with the gateway still up. */
+  private retrySoon(): void {
+    if (this.retry) return;
+    this.retry = setTimeout(() => {
+      this.retry = undefined;
+      void this.flushOutbox();
+    }, SEND_RETRY_MS);
+    this.retry.unref?.();
+  }
+
+  /** What waited for the connection, sent in the order it was made. One the network fails stays first, for the next try. */
   private async flushOutbox(): Promise<void> {
     if (this.flushing) return;
     this.flushing = true;
     try {
       while (this.outbox.length && this.connected()) {
-        const next = this.outbox.shift()!;
-        await next.send().catch((err: unknown) => console.warn(`[discord] ${next.what} not sent after reconnecting: ${err instanceof Error ? err.message : String(err)}`));
+        const next = this.outbox[0]!;
+        try {
+          await next.send();
+        } catch (err) {
+          if (isNetworkError(err)) {
+            this.retrySoon();
+            return;
+          }
+          console.warn(`[discord] ${next.what} not sent after reconnecting: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        this.outbox.shift();
       }
     } finally {
       this.flushing = false;
@@ -1050,6 +1123,7 @@ export class DiscordAdapter implements ChannelAdapter {
    * come at login, and a second pass only finds what the first left.
    */
   onUp(): Promise<void> {
+    this.gatewayUp = true;
     this.downLog.up();
     this.upChain = this.upChain.then(() => this.afterUp()).catch((err: unknown) => {
       console.warn(`[discord] after reconnecting: ${err instanceof Error ? err.message : String(err)}`);
@@ -2290,6 +2364,9 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   async stop(): Promise<void> {
+    clearTimeout(this.retry);
+    this.retry = undefined;
+    this.gatewayUp = false;
     await this.client.destroy();
   }
 

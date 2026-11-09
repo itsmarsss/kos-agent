@@ -331,7 +331,11 @@ you is left in the primary chat on the dashboard and the turn is told so.
 A message for a channel or another person has nowhere else to go, so that
 one fails. What a running turn sends meanwhile, an answer, a card, a post
 mirrored into a thread, waits and goes out in order once Discord is back,
-and an ask still waiting with no card anywhere gets one then. A dropped
+and an ask still waiting with no card anywhere gets one then. Up and down
+are what the gateway's shard events last said. A send is a web request
+rather than the gateway, so one that fails on the network (a name that
+will not resolve, a dropped socket, a timeout, a 5xx) waits the same way
+and goes again, first, on the reconnect or after half a minute. A dropped
 gateway is one line in the log when it drops, one a minute while it stays
 down, and one when it is back.
 
