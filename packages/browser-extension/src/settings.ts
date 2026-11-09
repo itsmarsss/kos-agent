@@ -10,7 +10,7 @@
  * here, so a bad value is the default rather than a surprise.
  */
 
-import { isThemeMode, type ThemeMode } from "@kos/shared";
+import { isThemeMode, type ThemeMode } from "@kos/shared/design";
 
 /** What of the owner's own hand on a KOS tab pauses KOS: clicks and keys (the default, as on the Mac), or scrolling too. */
 export type Takeover = "anyInput" | "clicksAndKeys";

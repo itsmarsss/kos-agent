@@ -3,6 +3,8 @@
  * Device take their colours, corners and motion from. The CSS and the Swift
  * declare the same values by name, and design.test.ts holds them to it, so
  * the three cannot drift apart again. docs/design.md says what each is for.
+ * Imported as @kos/shared/design too, apart from the rest of @kos/shared,
+ * by what must stay small: the extension's theme script in each page's head.
  */
 
 /** The palette, by token name as the CSS spells it. */

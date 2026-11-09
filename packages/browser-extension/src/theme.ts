@@ -11,7 +11,7 @@
  * page open.
  */
 
-import { isThemeMode, resolveThemeMode, type ThemeMode } from "@kos/shared";
+import { isThemeMode, resolveThemeMode, type ThemeMode } from "@kos/shared/design";
 
 import { readSettings, SENT_THEME_KEY, themeOf } from "./settings.js";
 
