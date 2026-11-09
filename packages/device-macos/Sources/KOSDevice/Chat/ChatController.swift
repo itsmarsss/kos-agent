@@ -296,7 +296,7 @@ final class ChatController {
       return
     }
     guard let app = frontApp() else { return model.selected(nil) }
-    let target = SelectionApp(pid: app.processIdentifier, bundle: app.bundleIdentifier)
+    let target = SelectionApp(pid: app.processIdentifier, bundle: app.bundleIdentifier, chromiumBased: Self.chromiumBased(app))
     let hidden = isHidden(app.bundleIdentifier)
     let onlyIfChanged = !openRead
     openRead = false
@@ -321,6 +321,15 @@ final class ChatController {
       readAgain = false
       readSelection()
     }
+  }
+
+  /// The frameworks an app built on Chromium carries: Electron's, or Chromium Embedded's.
+  private static let chromiumFrameworks = ["Electron Framework.framework", "Chromium Embedded Framework.framework"]
+
+  /// Whether the app is an Electron or Chromium Embedded one, by the framework in its bundle: two file checks.
+  private static func chromiumBased(_ app: NSRunningApplication) -> Bool {
+    guard let frameworks = app.bundleURL?.appendingPathComponent("Contents/Frameworks") else { return false }
+    return chromiumFrameworks.contains { FileManager.default.fileExists(atPath: frameworks.appendingPathComponent($0).path) }
   }
 
   private func show(_ read: SelectionRead, from app: NSRunningApplication) {

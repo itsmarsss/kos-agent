@@ -56,7 +56,7 @@ struct SelectionTests {
   }
 
   private let chrome = SelectionApp(pid: 7, bundle: "com.google.Chrome")
-  private let slack = SelectionApp(pid: 8, bundle: "com.tinyspeck.slackmacgap")
+  private let slack = SelectionApp(pid: 8, bundle: "com.tinyspeck.slackmacgap", chromiumBased: true)
   private let notes = SelectionApp(pid: 9, bundle: "com.apple.Notes")
 
   private func reader(_ fake: Fake) -> SelectionReader<Fake> {
@@ -95,20 +95,42 @@ struct SelectionTests {
     #expect(built)
     #expect(read == .text("ship it"))
     #expect(paused == 1)
-    #expect(fake.sets("AXManualAccessibility") == [true])
+    #expect(fake.sets("AXManualAccessibility") == [true, false])
     #expect(fake.sets("AXEnhancedUserInterface").isEmpty)
   }
 
-  /// An app that took it once keeps its tree on: not asked or waited on again when nothing is selected.
-  @Test func anAppAskedOnceIsNotAskedAgain() {
+  /// The tree is on for the read alone: off again after each, so it is asked for again on the next.
+  @Test func anElectronAppsTreeIsTurnedOffAfterEachRead() {
     let fake = Fake()
     fake.settable = ["AXManualAccessibility"]
     let reader = reader(fake)
     var paused = 0
     #expect(reader.read(slack, hidden: false, secureInput: { false }) { paused += 1 } == .nothing)
+    #expect(fake.attributes[0]?["AXManualAccessibility"] as? Bool == false)
     #expect(reader.read(slack, hidden: false, secureInput: { false }) { paused += 1 } == .nothing)
-    #expect(paused == 1)
-    #expect(fake.sets("AXManualAccessibility") == [true])
+    #expect(paused == 2)
+    #expect(fake.sets("AXManualAccessibility") == [true, false, true, false])
+  }
+
+  /// Already on, by a screen reader or the owner: left on.
+  @Test func anOpenTreeIsLeftAsItWas() {
+    let fake = Fake()
+    fake.settable = ["AXManualAccessibility"]
+    fake.attributes = [0: ["AXManualAccessibility": true]]
+    let (read, paused) = read(fake, slack)
+    #expect(read == .nothing)
+    #expect(paused == 0)
+    #expect(fake.sets("AXManualAccessibility").isEmpty)
+  }
+
+  /// Only an app built on Chromium is asked for its tree: any other is read as it is.
+  @Test func anotherAppIsNeverAskedForItsTree() {
+    let fake = Fake()
+    fake.settable = ["AXManualAccessibility", "AXEnhancedUserInterface"]
+    let (read, paused) = read(fake, notes)
+    #expect(read == .nothing)
+    #expect(paused == 0)
+    #expect(fake.sets.isEmpty)
   }
 
   /// A Chromium browser that does not take AXManualAccessibility gets AXEnhancedUserInterface for the read, then
@@ -135,11 +157,11 @@ struct SelectionTests {
     #expect(fake.sets("AXEnhancedUserInterface").isEmpty)
   }
 
-  /// Only a Chromium browser is enhanced: in any other app it can change how windows move.
-  @Test func anotherAppIsNeverEnhanced() {
+  /// Only a Chromium browser is enhanced: in an Electron app it can change how windows move.
+  @Test func anElectronAppIsNeverEnhanced() {
     let fake = Fake()
     fake.settable = ["AXEnhancedUserInterface"]
-    let (read, paused) = read(fake, notes)
+    let (read, paused) = read(fake, slack)
     #expect(read == .nothing)
     #expect(paused == 0)
     #expect(fake.sets("AXEnhancedUserInterface").isEmpty)

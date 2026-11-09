@@ -26,10 +26,13 @@ public protocol SelectionAccess: AnyObject {
 public struct SelectionApp: Equatable, Sendable {
   public let pid: Int32
   public let bundle: String?
+  /// Built on Chromium (an Electron or Chromium Embedded app), so it keeps its tree off until asked.
+  public let chromiumBased: Bool
 
-  public init(pid: Int32, bundle: String?) {
+  public init(pid: Int32, bundle: String?, chromiumBased: Bool = false) {
     self.pid = pid
     self.bundle = bundle
+    self.chromiumBased = chromiumBased
   }
 }
 
@@ -45,14 +48,14 @@ public enum SelectionRead: Equatable, Sendable {
 
 /// The owner's selection in the app beside the chat, read through Accessibility.
 ///
-/// Chromium and Electron apps keep their tree off until asked for it, so a
-/// first read that finds nothing asks (AXManualAccessibility, and for a
-/// Chromium browser that does not take it, AXEnhancedUserInterface for the
-/// read alone) and reads once more. The selection is the focused element's,
-/// else one of its parents' (a web area around a focused link), as text or
-/// as a marker range, else the first in the focused window, looked for
-/// within a bound and a time budget. Never a hidden app's, a password
-/// field's, or while secure input is on.
+/// Chromium and Electron apps keep their tree off until asked for it, so in
+/// one of those a first read that finds nothing asks (AXManualAccessibility,
+/// and for a Chromium browser that does not take it,
+/// AXEnhancedUserInterface), reads once more, and turns it off again. The
+/// selection is the focused element's, else one of its parents' (a web area
+/// around a focused link), as text or as a marker range, else the first in
+/// the focused window, looked for within a bound and a time budget. Never a
+/// hidden app's, a password field's, or while secure input is on.
 ///
 /// Not tied to an actor: each reader is used from one serial queue.
 public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable {
@@ -81,8 +84,6 @@ public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable
   private var deadline: TimeInterval = 0
   /// What the last read was of: the app, and the element focused in it then.
   private var last: (pid: Int32, focused: Access.Element?)?
-  /// The apps that took AXManualAccessibility: it stays on in them, so they are not asked and waited on again.
-  private var opened: Set<Int32> = []
 
   public init(_ access: Access, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
     self.access = access
@@ -105,22 +106,18 @@ public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable
     if onlyIfChanged, let last, last.pid == app.pid, last.focused == focused { return nil }
     last = (app.pid, focused)
     if let found = look(in: root, focused: focused) { return found }
-    guard access.answering, inTime else { return .nothing }
+    guard access.answering, inTime, opensItsTree(app) else { return .nothing }
 
-    var asked = false
-    var restore = false
-    if !opened.contains(app.pid), access.set(Self.manual, true, on: root) {
-      opened.insert(app.pid)
-      asked = true
+    var turnedOn: [String] = []
+    if access.bool(Self.manual, of: root) != true, access.set(Self.manual, true, on: root) {
+      turnedOn.append(Self.manual)
+    } else if app.bundle.map(Self.chromium.contains) == true, access.bool(Self.enhanced, of: root) != true,
+              access.set(Self.enhanced, true, on: root) {
+      turnedOn.append(Self.enhanced)
     }
-    if !opened.contains(app.pid), app.bundle.map(Self.chromium.contains) == true, access.bool(Self.enhanced, of: root) != true,
-       access.set(Self.enhanced, true, on: root) {
-      asked = true
-      restore = true
-    }
-    guard asked else { return .nothing }
-    // Off again as it was: some apps animate their windows differently while it is on.
-    defer { if restore { _ = access.set(Self.enhanced, false, on: root) } }
+    guard !turnedOn.isEmpty else { return .nothing }
+    // Off again as it was: an app with its tree on does more work, and some animate their windows differently.
+    defer { for flag in turnedOn { _ = access.set(flag, false, on: root) } }
     let paused = now()
     pause()
     deadline += now() - paused
@@ -129,6 +126,11 @@ public final class SelectionReader<Access: SelectionAccess>: @unchecked Sendable
   }
 
   private var inTime: Bool { now() < deadline }
+
+  /// Only an app built on Chromium is asked for its tree: in any other the flags do nothing, or change how it behaves.
+  private func opensItsTree(_ app: SelectionApp) -> Bool {
+    app.chromiumBased || app.bundle.map(Self.chromium.contains) == true
+  }
 
   /// The selection, a refusal for a password field, or nil for none found.
   private func look(in root: Access.Element, focused: Access.Element?) -> SelectionRead? {

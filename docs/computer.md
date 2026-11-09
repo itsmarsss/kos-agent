@@ -326,6 +326,17 @@ on the dashboard. `quote? { text, from }` is what the owner quoted with
 their words; it is kept with the message and shown with it, and never read
 as their words.
 
+The quote is what the owner selected in that app, read through Accessibility
+once each time the window opens (again only if the app or its focused element
+changed), off the main thread and within about 150 ms. Never from a password
+field, while secure input is on, or from a hidden app. Electron and Chromium
+apps keep their Accessibility tree off until asked, so when the first look
+finds nothing in one, KOS for Mac briefly turns its tree on
+(`AXManualAccessibility`, or `AXEnhancedUserInterface` in a Chromium browser
+that does not take it), gives it 200 ms to build, reads again and turns it
+off. While it is on the app sees an assistive technology: VS Code, for one,
+may detect it and offer, or switch to, its screen reader optimized mode.
+
 ### Events
 
 Device: `{ "t": "event", "name": "session.paused", "data": { "session": "...", "reason": "owner" } }`
