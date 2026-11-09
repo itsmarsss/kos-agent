@@ -25,6 +25,8 @@ final class ChatController {
   private lazy var window: ChatWindow = {
     let window = ChatWindow(model: model)
     window.onKey = { [weak self] in self?.readSelection() }
+    // Back from another app, the owner may have selected something else in the same field: read as on opening.
+    window.onResign = { [weak self] in self?.openRead = true }
     return window
   }()
   /// Whether the window was ever made: stepping aside does not make one.
@@ -42,7 +44,7 @@ final class ChatController {
   private let selectionQueue = DispatchQueue(label: "kos.selection", qos: .userInitiated)
   private var reading = false
   private var readAgain = false
-  /// Set as the window opens: its first read is made whatever the last one found.
+  /// Set as the window opens, or gives the keyboard up: the next read is made whatever the last one found.
   private var openRead = false
   /// The owner was told once that without Accessibility the window cannot bring in what they select.
   private var toldAccess = false
