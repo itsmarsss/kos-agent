@@ -137,7 +137,7 @@ import { originOf } from "./origin.js";
 import { ownerWords } from "./transcript.js";
 import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
-import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, KOS_SEED, lookOf, summarizeAction, type ArtifactEdit, type FaceDrawing, type FaceSpec } from "@kos/shared";
+import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isThemeMode, KOS_SEED, lookOf, summarizeAction, type ArtifactEdit, type FaceDrawing, type FaceSpec, type ThemeMode } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -222,6 +222,9 @@ const OPEN_TURNS_KEY = "turns.open";
 
 /** The face the Discord bot wears, as a hash of the PNG, so it is set again only when the look changes. */
 export const WORN_FACE_KEY = "discord.face";
+
+/** The dashboard's theme, KOS's own: what every device following the dashboard draws. */
+export const THEME_KEY = "appearance.theme";
 
 /** One channel of the server layout. */
 export interface SurfaceChannel {
@@ -2442,6 +2445,26 @@ export class Kernel {
     this.settings.set(KOS_FACE_KEY, face);
     this.bus.emit({ kind: "face:changed" });
     return face;
+  }
+
+  /** The theme the owner chose on the dashboard, or nothing before they chose one. */
+  themeChoice(): ThemeMode | undefined {
+    const kept = this.settings.get(THEME_KEY);
+    return isThemeMode(kept) ? kept : undefined;
+  }
+
+  /** KOS's theme, which every device that follows the dashboard draws: the owner's choice, else the system's. */
+  theme(): ThemeMode {
+    return this.themeChoice() ?? "system";
+  }
+
+  /** The dashboard's theme as the owner sets it, kept and told to every device; nothing kept when it is not a theme. */
+  setTheme(raw: unknown): ThemeMode | undefined {
+    if (!isThemeMode(raw)) return undefined;
+    const changed = this.themeChoice() !== raw;
+    this.settings.set(THEME_KEY, raw);
+    if (changed) this.bus.emit({ kind: "theme:changed", theme: raw });
+    return raw;
   }
 
   /**

@@ -7,10 +7,10 @@ import { Link, said, type Hello, type LinkState } from "./link.js";
 import { Lines } from "./lines.js";
 import { linkWords, needsPairing, type LineOf } from "./linkwords.js";
 import { installOverlay } from "./overlay.js";
-import { adding, readPairings, removing, replacedBy, type Paired } from "./pairings.js";
+import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
 import { checkCommand, forwarded, isWebUrl, Worlds } from "./relay.js";
 import { GRACE_MS, Session } from "./session.js";
-import { DEFAULTS, DEFAULT_HIDDEN, asksFirst, isHidden, readSettings, siteOf } from "./settings.js";
+import { DEFAULTS, DEFAULT_HIDDEN, asksFirst, isHidden, readSettings, siteOf, themeOf } from "./settings.js";
 
 /**
  * The parts of the extension that keep the owner's Chrome theirs: where it
@@ -54,6 +54,10 @@ describe("the protocol", () => {
     expect(readFrame(JSON.stringify({ t: "face", face: { ...face, fill: "blue" } }))).toBeUndefined();
     expect(readFrame(JSON.stringify({ t: "face", face: { ...face, shape: { ...face.shape, lobes: [{ k: 2.5, amp: 0.1, phase: 0 }] } } }))).toBeUndefined();
     expect(readFrame("not json")).toBeUndefined();
+    // The dashboard's theme: one of its three modes, or a frame to ignore.
+    for (const mode of ["light", "dark", "system"]) expect(readFrame(JSON.stringify({ t: "theme", mode }))).toEqual({ t: "theme", mode });
+    expect(readFrame('{"t":"theme","mode":"dashboard"}')).toBeUndefined();
+    expect(readFrame('{"t":"theme"}')).toBeUndefined();
   });
 });
 
@@ -228,6 +232,8 @@ describe("the look", () => {
     const source = installOverlay.toString();
     expect(source).toContain(kos.fill);
     expect(source).toContain(kos.ink);
+    // Told no theme, the bar is the page's own appearance, as the pages are before KOS sends one.
+    expect(source).toMatch(/state\.theme \?\? "system"/);
   });
 });
 
@@ -242,6 +248,19 @@ describe("the owner's settings", () => {
     expect(s).toMatchObject({ longestMinutes: 240, promptWaitSeconds: 60, idleMinutes: 3, takeover: "clicksAndKeys", connectOnStart: true, timeOnIcon: false, askFirst: { dev_a: false } });
     expect(asksFirst(s, "dev_a")).toBe(false);
     expect(asksFirst(s, "dev_new")).toBe(true);
+  });
+
+  it("draws the dashboard's theme unless the owner chose this Chrome's own", () => {
+    expect(DEFAULTS.theme).toBe("dashboard");
+    expect(readSettings({ theme: "light" }).theme).toBe("light");
+    expect(readSettings({ theme: "sepia" }).theme).toBe("dashboard");
+    // Following the dashboard: what KOS last sent, the system's before anything was.
+    expect(themeOf("dashboard", "light")).toBe("light");
+    expect(themeOf("dashboard", undefined)).toBe("system");
+    expect(themeOf("dashboard", "sepia")).toBe("system");
+    // Its own choice: what KOS sends does not change it.
+    expect(themeOf("dark", "light")).toBe("dark");
+    expect(themeOf("system", "light")).toBe("system");
   });
 
   it("hides a site with every subdomain, however the owner typed it", () => {
@@ -271,6 +290,18 @@ describe("the KOS this Chrome is paired with", () => {
     const face = drawingOf(lookOf(KOS_SEED, { shape: "cloud" }));
     expect(readPairings([{ ...home, face }], undefined)).toEqual([{ ...home, face }]);
     expect(readPairings([{ ...home, face: { fill: 1 } }], undefined)).toEqual([home]);
+    // So is its dashboard's theme, each KOS its own.
+    expect(readPairings([{ ...home, theme: "light" }, { ...work, theme: "sepia" }], undefined)).toEqual([{ ...home, theme: "light" }, work]);
+  });
+
+  it("speaks of the KOS at work, else the first that is on, else the first paired, whichever spoke last", () => {
+    const list = [{ ...home, theme: "light" as const }, { ...work, theme: "dark" as const }];
+    expect(shownOf(list, "d2", () => true)?.theme).toBe("dark");
+    expect(shownOf(list, undefined, (id) => id === "d2")?.theme).toBe("dark");
+    expect(shownOf(list, undefined, () => true)?.theme).toBe("light");
+    expect(shownOf(list, undefined, () => false)?.theme).toBe("light");
+    expect(shownOf(list, "gone", () => true)).toBeUndefined();
+    expect(shownOf([], undefined, () => true)).toBeUndefined();
   });
 
   it("adds another KOS after the rest, and pairing one again replaces it in place", () => {
@@ -398,7 +429,7 @@ describe("a line KOS closes", () => {
     vi.stubGlobal("WebSocket", FakeSocket);
     FakeSocket.made = [];
     const states: [LinkState, string | undefined][] = [];
-    const link = new Link({ url: "http://127.0.0.1:4317", device: "dev_a", hostKey: "k", keys: {} as CryptoKeyPair, hello: () => ({}) as Hello, onCall: async () => ({}), onFace: () => undefined, onState: (s, d) => void states.push([s, d]) });
+    const link = new Link({ url: "http://127.0.0.1:4317", device: "dev_a", hostKey: "k", keys: {} as CryptoKeyPair, hello: () => ({}) as Hello, onCall: async () => ({}), onFace: () => undefined, onTheme: () => undefined, onState: (s, d) => void states.push([s, d]) });
     link.start();
     FakeSocket.made[0]!.onclose!({ code, reason });
     vi.advanceTimersByTime(1_000);

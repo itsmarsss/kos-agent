@@ -2,7 +2,7 @@ import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 
 import { requireServices, type ApiExtension, type AuditEntry, type BrowserElsewhere, type KosModule } from "@kos/harness";
-import type { FaceDrawing } from "@kos/shared";
+import type { FaceDrawing, ThemeMode } from "@kos/shared";
 
 import { OwnerChrome } from "./chrome.js";
 import { DeviceHub } from "./hub.js";
@@ -32,6 +32,8 @@ export interface ComputerUseOptions {
   halted(): boolean;
   /** KOS's face as the owner set it, sent to every device to draw KOS by. */
   face(): FaceDrawing;
+  /** The dashboard's theme, sent to every device to follow unless it keeps its own. */
+  theme(): ThemeMode;
   /** The chat each device panel shows, read when it is shown: the Chrome side panel's, and the KOS for Mac window's. */
   panels: { chrome: PanelDeps; mac: PanelDeps };
   /** The audit log, for a session started unasked. */
@@ -58,6 +60,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   let chrome: OwnerChrome | undefined;
   let active: ComputerModule | undefined;
   let unfaced: (() => void) | undefined;
+  let unthemed: (() => void) | undefined;
   const sockets = deviceSocketServer(() => (active ? hub : undefined));
   const panel = new DevicePanel(CHROME_PANEL, options.panels.chrome);
   const mac = new DevicePanel(MAC_PANEL, options.panels.mac);
@@ -78,12 +81,14 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         hostKey: loadHostKey({ path: options.hostKeyPath, ...(options.hostKeyEnv ? { env: options.hostKeyEnv } : {}) }),
         halted: options.halted,
         face: options.face,
+        theme: options.theme,
       });
       chrome ??= new OwnerChrome(hub);
       panel.attach(hub);
       mac.attach(hub);
       const events = ctx.events;
       unfaced = events?.on("face:changed", () => hub?.tellFace());
+      unthemed = events?.on("theme:changed", () => hub?.tellTheme());
       active = computerModule({
         hub,
         chrome,
@@ -119,6 +124,8 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       active = undefined;
       unfaced?.();
       unfaced = undefined;
+      unthemed?.();
+      unthemed = undefined;
       panel.attach(undefined);
       mac.attach(undefined);
       hub?.closeAll();

@@ -423,7 +423,11 @@ private struct LineView: View {
 }
 
 /// The owner's words: on the right, the accent's tint over panel-2, the corner by the edge tucked in.
+/// In light, the dashboard's lighter tint over the white panel, which panel-2's grey made dull.
 private struct Bubble: View {
+  private static let fill = Color(
+    dark: Theme.Dark.accent.opacity(0.18).blended(over: Theme.Dark.panel2),
+    light: Theme.Light.accent.opacity(0.09).blended(over: Theme.Light.panel))
   let text: String
   let files: [String]
   var quote: ChatModel.Quote? = nil
@@ -443,7 +447,7 @@ private struct Bubble: View {
       .padding(.vertical, 9)
       .background(
         UnevenRoundedRectangle(topLeadingRadius: Theme.radiusLg, bottomLeadingRadius: Theme.radiusLg, bottomTrailingRadius: Theme.radiusXs, topTrailingRadius: Theme.radiusLg, style: .continuous)
-          .fill(Theme.accent.opacity(0.18).blended(over: Theme.panel2)))
+          .fill(Self.fill))
     }
   }
 }

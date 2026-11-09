@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState, type FormEvent, type ReactElement } f
 import { createRoot } from "react-dom/client";
 
 import { kosAddress, parsePairing } from "./address.js";
-import { CHOICES, isHidden, siteOf, type Takeover } from "./settings.js";
+import { CHOICES, isHidden, siteOf, type Takeover, type ThemeChoice } from "./settings.js";
 import { linkWords, needsPairing } from "./linkwords.js";
 import { ask, minutesLeft, minutesWords } from "./pages.js";
 import type { KosState, PopupState } from "./worker.js";
@@ -483,6 +483,12 @@ function SettingsPage({ state, act, back }: { state: PopupState; act: Act; back:
     ["anyInput", "Clicks, keys, scrolling"],
     ["clicksAndKeys", "Clicks and keys"],
   ];
+  const themes: [ThemeChoice, string][] = [
+    ["dashboard", "Same as dashboard"],
+    ["light", "Light"],
+    ["dark", "Dark"],
+    ["system", "System"],
+  ];
   return (
     <m.div className="stack" variants={stagger} initial="hidden" animate="show">
       <m.div className="page-head" variants={listItem}>
@@ -513,6 +519,13 @@ function SettingsPage({ state, act, back }: { state: PopupState; act: Act; back:
           </Setting>
         </div>
       </Section>
+      <Section label="Appearance">
+        <div className="card">
+          <Setting title="Theme" detail={themeWords(s.theme, state.dashboardTheme)}>
+            <Chips options={themes} selected={s.theme} onChoose={(v) => set({ theme: v })} />
+          </Setting>
+        </div>
+      </Section>
       <Section label="App">
         <div className="card">
           <Toggle title="Connect when Chrome opens" detail={s.connectOnStart ? "Each KOS can reach this Chrome as soon as it opens." : "Off: each waits for Connect, so KOS cannot reach this Chrome until you say."} on={s.connectOnStart} set={(on) => set({ connectOnStart: on })} />
@@ -527,6 +540,15 @@ function SettingsPage({ state, act, back }: { state: PopupState; act: Act; back:
       </Section>
     </m.div>
   );
+}
+
+/** What a theme choice draws, said under it. */
+function themeWords(choice: ThemeChoice, dashboard: PopupState["dashboardTheme"]): string {
+  const system = "follows this computer's appearance";
+  if (choice === "light" || choice === "dark") return `${choice === "light" ? "Light" : "Dark"} here, whatever the dashboard is set to.`;
+  if (choice === "system") return `This Chrome's own: ${system}.`;
+  if (!dashboard) return `The dashboard's theme, once KOS has said it; until then, ${system}.`;
+  return dashboard === "system" ? `The dashboard's theme, System: ${system}.` : `The dashboard's theme, now ${dashboard === "light" ? "Light" : "Dark"}.`;
 }
 
 function Setting({ title, detail, children }: { title: string; detail: string; children: ReactElement }): ReactElement {

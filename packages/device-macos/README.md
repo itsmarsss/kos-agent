@@ -107,8 +107,10 @@ Behind the gear, kept on this Mac, and nothing KOS sends can change them:
   idle limit.
 - While KOS works: what pauses it, and whether its pointer glides so you can
   follow it or gets there quickly.
-- App: open at login, connect when it opens, sounds when KOS asks and when a
-  session starts or ends, and the time left beside the menu bar icon.
+- App: the theme (as the dashboard is, the default, or light, dark or
+  macOS's own), open at login, connect when it opens, sounds when KOS asks
+  and when a session starts or ends, and the time left beside the menu bar
+  icon.
 - Diagnostics: Copy log puts this run's log on the clipboard to send.
 
 ## Log

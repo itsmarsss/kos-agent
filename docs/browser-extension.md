@@ -123,8 +123,22 @@ it does on the dashboard (the same code, `@kos/shared/blobmotion`):
   the start. A tab on one is listed only as hidden, and its events are not
   passed on.
 - **Settings**, behind the gear: the longest session, how long the ask waits,
-  the idle limit, whether scrolling a KOS tab pauses KOS, whether each KOS
-  connects when Chrome opens, the time left on the KOS icon, and Copy log.
+  the idle limit, whether scrolling a KOS tab pauses KOS, the theme, whether
+  each KOS connects when Chrome opens, the time left on the KOS icon, and
+  Copy log.
+- **The theme.** Same as dashboard (the default), Light, Dark or System,
+  kept in this Chrome (`chrome.storage.local`). Same as dashboard draws the
+  mode a KOS sent (`{ "t": "theme" }`, [computer.md](computer.md)), kept
+  with each pairing: that of the KOS whose session is at work, else the
+  first connected, else the first paired, as the toolbar icon picks its
+  face; and this computer's appearance before that KOS has sent one; System is this computer's appearance (`prefers-color-scheme`),
+  whatever the dashboard says. The popup, the side panel and the consent
+  window wear it before their first paint (`theme.js`, a classic script in
+  each page's head, from the pages' own copy of the last answer) and change
+  at once, all of them, when the setting or the dashboard does. The bar on
+  a page wears it too, System there being the page's own appearance; it is
+  opaque, edged in its tone and shadowed in either palette, so it reads on
+  a light site and a dark one alike.
 
 While KOS works in your Chrome:
 

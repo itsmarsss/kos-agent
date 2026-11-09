@@ -4,7 +4,7 @@
  * texts each side signs.
  */
 
-import { readDrawing, type FaceDrawing } from "@kos/shared";
+import { isThemeMode, readDrawing, type FaceDrawing, type ThemeMode } from "@kos/shared";
 
 export const PROTOCOL = 1;
 
@@ -36,6 +36,7 @@ export type KosFrame =
   | { t: "welcome"; name: string; signature: string }
   | { t: "call"; id: number; method: string; params: Record<string, unknown> }
   | { t: "face"; face: FaceDrawing }
+  | { t: "theme"; mode: ThemeMode }
   | { t: "pong" };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -64,6 +65,8 @@ export function readFrame(text: string): KosFrame | undefined {
       const face = readDrawing(raw["face"]);
       return face ? { t: "face", face } : undefined;
     }
+    case "theme":
+      return isThemeMode(raw["mode"]) ? { t: "theme", mode: raw["mode"] } : undefined;
     case "pong":
       return { t: "pong" };
     default:

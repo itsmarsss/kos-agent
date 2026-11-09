@@ -1,6 +1,6 @@
 /** Typed client for the KOS dashboard API. */
 
-import type { HtmlPage } from "@kos/shared";
+import type { HtmlPage, ThemeMode as Theme } from "@kos/shared";
 
 /** Whether a restart is wanted, and what it is waiting on. */
 export interface RestartState {
@@ -16,6 +16,8 @@ export interface Status {
   halted: boolean;
   /** What the owner set about KOS's face; empty means the name's. */
   face?: FaceLook;
+  /** The dashboard's theme as kept in the workspace; absent before the owner chose one. */
+  theme?: Theme;
   queueDepth: number;
   crons: number;
   pendingApprovals: number;
@@ -1295,6 +1297,8 @@ export const api = {
   /** KOS's own face, kept in the workspace. */
   kosFace: () => get<{ face: FaceLook }>("/api/settings/face"),
   saveKosFace: (face: FaceLook) => post<{ face: FaceLook }>("/api/settings/face", { face }),
+  /** The dashboard's theme, kept in the workspace and told to every device. */
+  saveTheme: (theme: Theme) => post<{ theme: Theme }>("/api/settings/theme", { theme }),
   settings: () => get<SettingsPayload>("/api/settings"),
   saveProfile: (name: string, timezone: string) =>
     post<{ profile: { name: string; timezone: string } }>(

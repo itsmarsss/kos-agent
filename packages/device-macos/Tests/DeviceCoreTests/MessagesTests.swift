@@ -60,6 +60,20 @@ struct MessagesTests {
     #expect(throws: DeviceError.self) { try Inbound.decode(Data(wildLump.utf8)) }
   }
 
+  @Test func readsATheme() throws {
+    for mode in ThemeMode.allCases {
+      let message = try Inbound.decode(Data(#"{"t":"theme","mode":"\#(mode.rawValue)"}"#.utf8))
+      #expect(message == .theme(mode))
+    }
+  }
+
+  /// One this app does not know (a newer dashboard's), or none: not a theme, so the one it has stays.
+  @Test func anUnknownThemeIsRefused() {
+    #expect(throws: DeviceError.self) { try Inbound.decode(Data(#"{"t":"theme","mode":"sepia"}"#.utf8)) }
+    #expect(throws: DeviceError.self) { try Inbound.decode(Data(#"{"t":"theme"}"#.utf8)) }
+    #expect(throws: (any Error).self) { try Inbound.decode(Data(#"{"t":"theme","mode":3}"#.utf8)) }
+  }
+
   @Test func anUnknownTypeIsRefused() {
     #expect(throws: DeviceError.self) { try Inbound.decode(Data(#"{"t":"mystery"}"#.utf8)) }
   }

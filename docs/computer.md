@@ -218,6 +218,22 @@ keeps the last face of each KOS it pairs with, draws that KOS by it, and
 draws the default face for a KOS that has sent none. A device that does not
 know the frame ignores it.
 
+After the face, and again whenever the owner changes it on the dashboard, KOS
+sends the dashboard's theme, KOS's own setting (`appearance.theme`, light,
+dark or system, "system" until the owner chooses):
+
+```json
+{ "t": "theme", "mode": "light" }
+```
+
+A device keeps its own choice of theme locally: "dashboard", the default,
+draws the mode it was last sent ("system" being the device's own appearance)
+and the device's appearance before any arrives; "light", "dark" or "system"
+ignore the frame. Paired with several KOS, a device keeps each one's mode and
+draws that of the KOS whose session is at work, else the first connected,
+else the first paired. Nothing KOS sends changes that choice. A device that does
+not know the frame ignores it.
+
 When the owner unpairs the device on the device, it sends `{ "t": "unpair" }`
 before it hangs up. KOS forgets it, as Remove on the dashboard does: any
 session ends and the line closes with `4003`. A device can only unpair itself,

@@ -4,14 +4,30 @@
  * The same choices KOS for Mac offers on a Mac, where a browser has them:
  * the longest session, how long the ask waits, the idle limit, what of the
  * owner's hand pauses KOS, whether it connects when Chrome opens, the time
- * left on the icon, the sites KOS never sees, and per KOS whether it asks
- * first. Nothing KOS sends reaches them; only the extension's own pages
- * change them, and what is stored is read through here, so a bad value is
- * the default rather than a surprise.
+ * left on the icon, the sites KOS never sees, per KOS whether it asks
+ * first, and the theme. Nothing KOS sends reaches them; only the
+ * extension's own pages change them, and what is stored is read through
+ * here, so a bad value is the default rather than a surprise.
  */
+
+import { isThemeMode, type ThemeMode } from "@kos/shared/design";
 
 /** What of the owner's own hand on a KOS tab pauses KOS: clicks and keys (the default, as on the Mac), or scrolling too. */
 export type Takeover = "anyInput" | "clicksAndKeys";
+
+/** How the extension's pages and the bar on a page are drawn: as the dashboard is (the default), or this Chrome's own choice. */
+export type ThemeChoice = "dashboard" | ThemeMode;
+
+export const THEME_CHOICES: readonly ThemeChoice[] = ["dashboard", "light", "dark", "system"];
+
+/** Where the worker keeps the mode of the KOS the toolbar speaks of, in chrome.storage.local, for the pages to follow. */
+export const SENT_THEME_KEY = "dashboardTheme";
+
+/** The mode a choice draws, given what KOS last sent: the system's before anything has been. */
+export function themeOf(choice: ThemeChoice, sent: unknown): ThemeMode {
+  if (choice !== "dashboard") return choice;
+  return isThemeMode(sent) ? sent : "system";
+}
 
 export interface ExtensionSettings {
   /** The longest a session may run, whatever KOS asks for. */
@@ -29,6 +45,7 @@ export interface ExtensionSettings {
   hiddenSites: string[];
   /** Per KOS, by this Chrome's device id there: false lets that KOS's approval queue decide. */
   askFirst: Record<string, boolean>;
+  theme: ThemeChoice;
 }
 
 export const CHOICES = {
@@ -49,6 +66,7 @@ export const DEFAULTS: ExtensionSettings = {
   timeOnIcon: true,
   hiddenSites: DEFAULT_HIDDEN,
   askFirst: {},
+  theme: "dashboard",
 };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -69,6 +87,7 @@ export function readSettings(raw: unknown): ExtensionSettings {
     timeOnIcon: typeof r["timeOnIcon"] === "boolean" ? r["timeOnIcon"] : DEFAULTS.timeOnIcon,
     hiddenSites: [...new Set(sites)],
     askFirst,
+    theme: THEME_CHOICES.find((t) => t === r["theme"]) ?? DEFAULTS.theme,
   };
 }
 

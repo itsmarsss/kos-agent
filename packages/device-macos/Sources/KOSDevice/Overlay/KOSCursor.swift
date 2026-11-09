@@ -54,7 +54,7 @@ final class KOSCursor: CALayer {
     label.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
     label.fontSize = 10
     // The accent's own ink, as a primary button's words are.
-    label.foregroundColor = NSColor(Theme.onAccent).cgColor
+    label.foregroundColor = Palette.ink.cgColor
     label.alignmentMode = .center
     label.contentsScale = contentsScale
     tag.backgroundColor = Palette.accent.cgColor

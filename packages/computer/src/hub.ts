@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-import type { FaceDrawing } from "@kos/shared";
+import type { FaceDrawing, ThemeMode } from "@kos/shared";
 
 import { publicKeyFromRaw, type HostKey } from "./keys.js";
 import { DeviceError, DeviceLink, type Refusal, type Socket } from "./link.js";
@@ -59,6 +59,8 @@ export interface HubDeps {
   halted: () => boolean;
   /** KOS's face as the owner set it, for every device to draw KOS by. */
   face?: () => FaceDrawing;
+  /** The dashboard's theme, for every device that follows the dashboard to draw. */
+  theme?: () => ThemeMode;
   now?: () => number;
   /** Where the hub writes what the owner may need to read in the host's log; the console's error stream unless given. */
   log?: (line: string) => void;
@@ -198,6 +200,7 @@ export class DeviceHub {
     older?.close(CLOSE.replaced, "replaced by a newer connection");
     this.deps.store.seen(id);
     this.showFace(link);
+    this.showTheme(link);
     this.changed();
   }
 
@@ -209,6 +212,16 @@ export class DeviceHub {
   private showFace(link: DeviceLink): void {
     const face = this.deps.face?.();
     if (face) link.tell({ t: "face", face });
+  }
+
+  /** The dashboard's theme changed: every device online is told; one that keeps its own ignores it. */
+  tellTheme(): void {
+    for (const link of this.links.values()) this.showTheme(link);
+  }
+
+  private showTheme(link: DeviceLink): void {
+    const mode = this.deps.theme?.();
+    if (mode) link.tell({ t: "theme", mode });
   }
 
   private gone(link: DeviceLink): void {

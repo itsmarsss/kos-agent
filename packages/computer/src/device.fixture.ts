@@ -18,6 +18,8 @@ export class FakeDevice {
   readonly calls: { method: string; params: Record<string, unknown> }[] = [];
   /** Each face KOS sent, oldest first. */
   readonly faces: Record<string, unknown>[] = [];
+  /** Each theme mode KOS sent, oldest first. */
+  readonly themes: string[] = [];
   readonly answers = new Map<string, Answer>();
   /** Calls with no scripted answer, by method, newest last: answered later with `answer`. */
   private readonly unanswered = new Map<string, unknown[]>();
@@ -100,6 +102,7 @@ export class FakeDevice {
     if (msg.t === "challenge") this.challenge = msg.nonce as string;
     else if (msg.t === "welcome") this.welcome = { name: msg.name as string, signature: msg.signature as string };
     else if (msg.t === "face") this.faces.push(msg.face as Record<string, unknown>);
+    else if (msg.t === "theme") this.themes.push(msg.mode as string);
     else if (msg.t === "call") {
       const method = msg.method as string;
       const params = msg.params as Record<string, unknown>;

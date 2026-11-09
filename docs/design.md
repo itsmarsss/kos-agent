@@ -35,7 +35,8 @@ extension nothing, so its references are chips that go nowhere.
 
 ## Colour
 
-One dark palette, the same hexes on all three.
+Two palettes, dark and light, the same hexes on all three. Dark is below;
+light is `LIGHT_COLOURS`, after the tints.
 
 | Token | Value | For |
 | --- | --- | --- |
@@ -70,10 +71,11 @@ The KOS face is its own colour, not the accent: hue 214, #3585ed, ink
 #141d29, from `@kos/shared` (`face.ts`); KOS for Mac's `KOSFace.swift` ports it.
 KOS's cursor and the border it draws while working are the accent.
 
-Light: the dashboard also has a light palette (Settings, Appearance). The
-extension and KOS for Mac are dark only, as KOS for Mac always was. Light's
-ok and warn are darker (#0f6e45, #7d5400) so a pill's text on its own tint
-still reads at 4.5:1.
+Light: all three also have a light palette (`LIGHT_COLOURS`, and
+`Theme.swift`'s `Light` on the Mac), chosen in Settings on each: Appearance
+on the dashboard, Theme in the extension and in KOS for Mac, both of which
+follow the dashboard's by default. Light's ok and warn are darker (#0f6e45,
+#7d5400) so a pill's text on its own tint still reads at 4.5:1.
 
 ## Type
 

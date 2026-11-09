@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { GAITS } from "./blobmotion.js";
-import { COLOURS, FLOAT_SHADOW, RADII, SPRING, TYPE, type ColourToken } from "./design.js";
+import { COLOURS, FLOAT_SHADOW, isThemeMode, LIGHT_COLOURS, RADII, resolveThemeMode, SPRING, TYPE, type ColourToken } from "./design.js";
 import { KOS_SEED, drawingOf, lookOf } from "./face.js";
 
 /**
@@ -16,6 +16,11 @@ const read = (path: string): string => readFileSync(new URL(path, import.meta.ur
 /** Every plain :root block (the dark palette and what follows it), not a theme's override. */
 function roots(css: string): string[] {
   return [...css.matchAll(/(^|\n):root \{[^}]*\}/g)].map((m) => m[0]);
+}
+
+/** The light palette's block: `:root[data-theme="light"]`. */
+function lightRoot(css: string): string {
+  return /(^|\n):root\[data-theme="light"\] \{[^}]*\}/.exec(css)?.[0] ?? "";
 }
 
 /** A custom property as declared in a block, or nothing. */
@@ -35,6 +40,22 @@ const FACE = read("../../device-macos/Sources/DeviceUI/FaceLook.swift");
 
 /** The Swift spelling of a token: panel-2 is panel2, line-strong is lineStrong. */
 const swiftName = (token: string): string => token.replace(/-(\w)/g, (_, c: string) => c.toUpperCase());
+
+/** A Swift enum's body by its name, wherever it sits in the file. */
+function swiftEnum(source: string, name: string): string {
+  return new RegExp(`\\benum ${name} \\{([^}]*)\\}`).exec(source)?.[1] ?? "";
+}
+
+/** A colour as `#rrggbb`, from a hex or an rgb()/rgba() whose alpha is set aside. */
+function rgbOf(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (value.startsWith("#")) return value.toLowerCase();
+  const parts = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(value);
+  return parts ? `#${parts.slice(1, 4).map((n) => Number(n).toString(16).padStart(2, "0")).join("")}` : undefined;
+}
+
+/** The bar's own properties, each the token it is drawn in: alpha aside, so a translucent bar is still its panel. */
+const BAR_TOKENS = { accent: "accent", violet: "violet", warn: "warn", danger: "danger", bar: "panel", ink: "text", sub: "muted", btn: "panel-2", "btn-line": "line", "btn-line-lit": "line-strong", "btn-lit": "line" } as const;
 
 describe("the design tokens", () => {
   for (const [surface, css] of Object.entries(STYLESHEETS)) {
@@ -65,6 +86,22 @@ describe("the design tokens", () => {
     });
   }
 
+  for (const [surface, css] of Object.entries(STYLESHEETS)) {
+    it(`are the ${surface}'s light colours`, () => {
+      const block = lightRoot(css);
+      expect(block, `${surface} has a light palette`).toContain("color-scheme: light");
+      for (const [token, hex] of Object.entries(LIGHT_COLOURS)) expect(declared(block, token)?.toLowerCase(), `${surface} light --${token}`).toBe(hex);
+    });
+  }
+
+  it("say which palette a mode lands on", () => {
+    expect(resolveThemeMode("system", true)).toBe("light");
+    expect(resolveThemeMode("system", false)).toBe("dark");
+    expect(resolveThemeMode("light", false)).toBe("light");
+    expect(resolveThemeMode("dark", true)).toBe("dark");
+    expect(["light", "dark", "system", "dashboard", 1, undefined].map(isThemeMode)).toEqual([true, true, true, false, false, false]);
+  });
+
   it("cover every token the kit's stylesheet uses, in both apps", () => {
     // A var() with a fallback, or one the kit sets itself (a tone a rule passes down), needs no app to declare it.
     const own = new Set([...KIT.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]));
@@ -76,15 +113,23 @@ describe("the design tokens", () => {
 
   it("are the colours of the bar the extension draws into a page", () => {
     const host = /:host \{([^}]*)\}/.exec(OVERLAY)?.[1] ?? "";
-    for (const token of ["accent", "violet", "warn", "danger"] as const) {
-      expect(declared(host, token)?.toLowerCase(), `overlay --${token}`).toBe(COLOURS[token]);
-    }
+    for (const [name, token] of Object.entries(BAR_TOKENS)) expect(rgbOf(declared(host, name)), `overlay --${name}`).toBe(COLOURS[token]);
   });
 
-  it("are KOS for Mac's colours, corners and spring, and its overlay's", () => {
-    for (const [token, hex] of Object.entries(COLOURS) as [ColourToken, string][]) {
-      const found = new RegExp(`static let ${swiftName(token)} = Color\\(hex: 0x([0-9A-Fa-f]{6})\\)`).exec(SWIFT)?.[1];
-      expect(found && `#${found.toLowerCase()}`, `Theme.${swiftName(token)}`).toBe(hex);
+  it("are the light colours of the bar the extension draws into a page", () => {
+    const light = /const light = `([^`]*)`/.exec(OVERLAY)?.[1] ?? "";
+    for (const [name, token] of Object.entries(BAR_TOKENS)) expect(rgbOf(declared(light, name)), `overlay light --${name}`).toBe(LIGHT_COLOURS[token]);
+    expect(OVERLAY).toContain(':host([data-theme="light"]) { ${light} }');
+    expect(OVERLAY).toContain('@media (prefers-color-scheme: light) { :host([data-theme="system"]) { ${light} } }');
+  });
+
+  it("are KOS for Mac's colours in both palettes, corners and spring, and its overlay's", () => {
+    for (const [palette, colours] of [["Dark", COLOURS], ["Light", LIGHT_COLOURS]] as const) {
+      const body = swiftEnum(SWIFT, palette);
+      for (const [token, hex] of Object.entries(colours) as [ColourToken, string][]) {
+        const found = new RegExp(`static let ${swiftName(token)} = Color\\(hex: 0x([0-9A-Fa-f]{6})\\)`).exec(body)?.[1];
+        expect(found && `#${found.toLowerCase()}`, `Theme.${palette}.${swiftName(token)}`).toBe(hex);
+      }
     }
     for (const [size, px] of Object.entries(RADII)) {
       const name = `radius${size[0]!.toUpperCase()}${size.slice(1)}`;

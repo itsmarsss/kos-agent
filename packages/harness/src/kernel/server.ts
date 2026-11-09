@@ -652,6 +652,8 @@ export async function handleApiRequest(
       // KOS's face rides on the status the dashboard already polls, so the
       // sidebar, the rail and the tab icon all draw the same one.
       face: kernel.kosFace(),
+      // The dashboard's theme on the same poll, so every tab of it follows a change in another; absent before the owner chose one.
+      ...(kernel.themeChoice() ? { theme: kernel.themeChoice() } : {}),
       // Carried on the status the dashboard already polls, so an unattended
       // failure is visible on the next open rather than only in a message the
       // owner may have missed.
@@ -733,6 +735,16 @@ export async function handleApiRequest(
 
   if (method === "POST" && path === "/api/settings/face") {
     return ok({ face: kernel.setKosFace(body.face ?? body) });
+  }
+
+  /** The dashboard's theme, KOS's own: kept in the workspace so every tab and every device that follows it agree. */
+  if (method === "GET" && path === "/api/settings/theme") {
+    return ok({ theme: kernel.theme(), chosen: kernel.themeChoice() !== undefined });
+  }
+
+  if (method === "POST" && path === "/api/settings/theme") {
+    const theme = kernel.setTheme(body.theme);
+    return theme ? ok({ theme }) : { status: 400, body: { error: "theme must be light, dark or system" } };
   }
 
   if (method === "POST" && path === "/api/settings/behaviour") {

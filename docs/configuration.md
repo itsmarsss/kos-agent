@@ -54,7 +54,12 @@ background memory extraction with its threshold.
 
 ## Appearance (Settings, Appearance)
 
-Dark, light or system; compact, standard or comfortable. Kept in the
+Theme: dark, light or system (the default). KOS's own setting,
+`appearance.theme` in the workspace (`GET`/`POST /api/settings/theme`, and
+`theme` on `/api/status` once chosen): every tab of the dashboard follows a
+change made in another, and KOS sends it to every paired device, which draws
+it unless the owner set that device's own theme. The browser keeps a copy
+for the first paint. Density: compact, standard or comfortable, kept in the
 browser, so a phone and a desk can differ.
 
 ## The CLI

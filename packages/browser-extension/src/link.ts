@@ -1,4 +1,4 @@
-import type { FaceDrawing } from "@kos/shared";
+import type { FaceDrawing, ThemeMode } from "@kos/shared";
 
 import { socketUrl } from "./address.js";
 import { nonce, sign, verify } from "./keys.js";
@@ -35,6 +35,8 @@ export interface LinkOptions {
   onState: (state: LinkState, detail?: string) => void;
   /** KOS's face, decided there, as it is now and whenever the owner changes it. */
   onFace: (face: FaceDrawing) => void;
+  /** The dashboard's theme, as it is now and whenever the owner changes it. */
+  onTheme: (mode: ThemeMode) => void;
 }
 
 /** How often the extension says it is still there, which also keeps its worker awake. */
@@ -60,6 +62,8 @@ export class Link {
   private retry = 0;
   private ping: ReturnType<typeof setInterval> | undefined;
   private redial: ReturnType<typeof setTimeout> | undefined;
+  /** Frames are read in the order they came: a welcome still being verified holds the face and theme sent after it. Calls are only started in order. */
+  private inbox: Promise<void> = Promise.resolve();
 
   constructor(private readonly options: LinkOptions) {}
 
@@ -113,7 +117,12 @@ export class Link {
     const ws = new WebSocket(socketUrl(this.options.url));
     this.ws = ws;
     this.welcomed = false;
-    ws.onmessage = (event: MessageEvent<string>) => void this.receive(ws, String(event.data));
+    this.inbox = Promise.resolve();
+    ws.onmessage = (event: MessageEvent<string>) => {
+      const text = String(event.data);
+      // A frame that fails is said and passed over; the frames after it are still read.
+      this.inbox = this.inbox.then(() => this.receive(ws, text)).catch((err: unknown) => console.warn("KOS frame failed", err));
+    };
     ws.onclose = (event) => {
       if (this.ws !== ws) return;
       this.ws = null;
@@ -159,13 +168,17 @@ export class Link {
       return;
     }
     if (frame.t === "face" && this.welcomed) return this.options.onFace(frame.face);
-    if (frame.t === "call" && this.welcomed) {
-      try {
-        this.send({ t: "reply", id: frame.id, ok: true, result: await this.options.onCall(frame.method, frame.params) });
-      } catch (err) {
-        const code = err instanceof CallError ? err.code : "internal";
-        this.send({ t: "reply", id: frame.id, ok: false, error: { code, message: err instanceof Error ? err.message : String(err) } });
-      }
+    if (frame.t === "theme" && this.welcomed) return this.options.onTheme(frame.mode);
+    // Calls are answered side by side: a long one must not hold the frames after it.
+    if (frame.t === "call" && this.welcomed) void this.answer(frame.id, frame.method, frame.params);
+  }
+
+  private async answer(id: number, method: string, params: Record<string, unknown>): Promise<void> {
+    try {
+      this.send({ t: "reply", id, ok: true, result: await this.options.onCall(method, params) });
+    } catch (err) {
+      const code = err instanceof CallError ? err.code : "internal";
+      this.send({ t: "reply", id, ok: false, error: { code, message: err instanceof Error ? err.message : String(err) } });
     }
   }
 }
