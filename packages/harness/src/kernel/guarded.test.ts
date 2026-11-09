@@ -73,6 +73,18 @@ describe("GuardedTools", () => {
     const tools = guarded({ conversationId: "c1", whyFor: (id) => (id === "c1" ? "I'll clear the build folder so the rebuild is clean. " : undefined), waitForApproval: false });
     await tools.execute("danger", { x: 1 });
     expect(approvals.pending()[0]?.why).toBe("I'll clear the build folder so the rebuild is clean.");
+    // Nothing holds for this one, so it lapses with the inbox, not the approval window.
+    expect(approvals.pending()[0]?.waits).toBe(false);
+  });
+
+  it("marks the ask of a turn that holds for the answer, attended or not", async () => {
+    registry.register({ name: "danger", description: "d", inputSchema: { type: "object" } }, () => "done", { floor: "risky" });
+    const stop = new AbortController();
+    const asking = guarded({ conversationId: "c1", attended: false, signal: stop.signal }).execute("danger", { x: 1 });
+    await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+    expect(approvals.pending()[0]).toMatchObject({ attended: false, waits: true });
+    stop.abort();
+    await asking;
   });
 
   it("runs a chat's actions in the owner's Chrome without asking when the owner set it so, and nothing else", async () => {

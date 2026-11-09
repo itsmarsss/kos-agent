@@ -7,7 +7,7 @@ import { ToolRegistry } from "../agent/registry.js";
 import { RISKY } from "../risk/tiers.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { ApprovalQueue, gateToolCall } from "./approvals.js";
+import { ApprovalQueue, approvalExpiry, gateToolCall } from "./approvals.js";
 
 describe("ApprovalQueue", () => {
   let root: string;
@@ -67,11 +67,22 @@ describe("ApprovalQueue", () => {
     ws.db.exec(`CREATE TABLE pending_actions (id INTEGER PRIMARY KEY, tool TEXT NOT NULL, args TEXT NOT NULL, risk_tier TEXT NOT NULL, reason TEXT, status TEXT NOT NULL DEFAULT 'pending', user_id TEXT, conversation_id TEXT, requested_at INTEGER NOT NULL, decided_at INTEGER, decided_by TEXT, rule TEXT, picture TEXT, why TEXT)`);
     ws.db.exec(`INSERT INTO pending_actions (tool, args, risk_tier, requested_at) VALUES ('files.rm', '{}', 'risky', 1)`);
     const older = new ApprovalQueue(ws.db);
-    expect(older.pending()[0]).toMatchObject({ tool: "files.rm", owner: false, attended: false });
+    expect(older.pending()[0]).toMatchObject({ tool: "files.rm", owner: false, attended: false, waits: false });
     // Migrated once: opening it again neither fails nor changes the row.
     const again = new ApprovalQueue(ws.db);
     expect(again.pending()[0]).toMatchObject({ owner: false, attended: false });
     expect(again.enqueue({ tool: "shell", args: {}, riskTier: "risky", owner: true, attended: true })).toMatchObject({ owner: true, attended: true });
+  });
+
+  it("lapses a held turn's ask with the approval window and an ask nothing waits on with the inbox's hours", () => {
+    const windows = { approvalMinutes: 30, approvalExpiryHours: 24 };
+    // An unattended turn that waits (a resumed chat, a dispatch) is still a turn holding for the answer.
+    const held = queue.enqueue({ tool: "files.rm", args: { path: "x" }, riskTier: "risky", attended: false, waits: true });
+    // A schedule that only queues, though the owner may be watching its thread.
+    const queued = queue.enqueue({ tool: "files.rm", args: { path: "y" }, riskTier: "risky", attended: true });
+    expect(queue.get(held.id)?.waits).toBe(true);
+    expect(approvalExpiry(queue.get(held.id)!, windows)).toBe(held.requestedAt + 30 * 60_000);
+    expect(approvalExpiry(queue.get(queued.id)!, windows)).toBe(queued.requestedAt + 24 * 3_600_000);
   });
 
   it("keeps what was decided, newest first", () => {

@@ -21,6 +21,7 @@ import {
   verifyTwilioSignature,
   Kernel,
   activeOwnChat,
+  approvalExpiry,
   connectChannel,
   MODEL_SETTINGS_KEY,
   conversationEvents,
@@ -324,8 +325,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       tool: action.tool,
       args: action.args,
       reason: action.reason,
-      // When it lapses: a turn the owner started waits the approval window, other work's ask the inbox's.
-      expiresAt: action.requestedAt + (action.attended ? kernel.behaviour().approvalMinutes * 60_000 : kernel.behaviour().approvalExpiryHours * 3_600_000),
+      expiresAt: approvalExpiry(action, kernel.behaviour()),
       // The card names what the ids are: #leetcode, not 1561643942586351626.
       names: (kind: string, id: string) => kernel.labelFor(kind, id),
       ...(picture ? { picture } : {}),

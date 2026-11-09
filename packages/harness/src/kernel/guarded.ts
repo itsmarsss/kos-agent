@@ -427,6 +427,7 @@ export class GuardedTools implements ToolBox {
         ...(why ? { why } : {}),
         owner,
         attended,
+        waits: this.deps.waitForApproval !== false,
       });
       this.deps.onQueued?.(action);
 
