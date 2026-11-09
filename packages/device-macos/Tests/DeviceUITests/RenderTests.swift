@@ -173,6 +173,20 @@ struct RenderTests {
     #expect(size.height == ChatView.size.height)
   }
 
+  /// Without Accessibility, the line over the box that says why nothing selected comes in; gone with the next words.
+  @Test func chatWindowWithTheAccessibilityHint() throws {
+    let model = ChatModel()
+    model.paired = true
+    model.online = true
+    model.beside = "Safari"
+    model.show(conversation: nil, title: "Mac", lines: [])
+    model.hint = "Allow Accessibility for KOS for Mac, in System Settings, Privacy & Security, to bring in what you select."
+    let size = try render("chat-access-hint", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    #expect(size.height == ChatView.size.height)
+    model.say("hello")
+    #expect(model.hint == nil)
+  }
+
   @Test func homeWhenConnectedAndInUse() throws {
     let model = home {
       $0.kos = [kos()]

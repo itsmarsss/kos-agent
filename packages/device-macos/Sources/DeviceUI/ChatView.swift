@@ -149,6 +149,9 @@ public struct ChatView: View {
       if let quote = model.quote {
         QuoteCard(text: quote.text, from: quote.from, label: "Selected text", lines: 2, remove: model.putQuoteAside).padding(.leading, -4).padding(.bottom, 2)
       }
+      if let hint = model.hint, model.quote == nil {
+        Text(hint).font(.kos(.tiny)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true).padding(.bottom, 2)
+      }
       TextField("", text: $model.draft, axis: .vertical)
         .textFieldStyle(.plain)
         .lineLimit(1...6)

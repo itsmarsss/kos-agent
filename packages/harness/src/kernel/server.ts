@@ -654,6 +654,8 @@ export async function handleApiRequest(
       face: kernel.kosFace(),
       // The dashboard's theme on the same poll, so every tab of it follows a change in another; absent before the owner chose one.
       ...(kernel.themeChoice() ? { theme: kernel.themeChoice() } : {}),
+      // The palette a dashboard last reported drawing in, so a tab reports its own only when it differs.
+      ...(kernel.drawnTheme() ? { drawn: kernel.drawnTheme() } : {}),
       // Carried on the status the dashboard already polls, so an unattended
       // failure is visible on the next open rather than only in a message the
       // owner may have missed.
@@ -739,12 +741,19 @@ export async function handleApiRequest(
 
   /** The dashboard's theme, KOS's own: kept in the workspace so every tab and every device that follows it agree. */
   if (method === "GET" && path === "/api/settings/theme") {
-    return ok({ theme: kernel.theme(), chosen: kernel.themeChoice() !== undefined });
+    const drawn = kernel.drawnTheme();
+    return ok({ theme: kernel.theme(), chosen: kernel.themeChoice() !== undefined, ...(drawn ? { drawn } : {}) });
   }
 
   if (method === "POST" && path === "/api/settings/theme") {
     const theme = kernel.setTheme(body.theme);
     return theme ? ok({ theme }) : { status: 400, body: { error: "theme must be light, dark or system" } };
+  }
+
+  /** The palette a dashboard draws the theme in, "system" read in its browser: what a device that follows the dashboard draws. */
+  if (method === "POST" && path === "/api/settings/theme/drawn") {
+    const drawn = kernel.setDrawnTheme(body.drawn);
+    return drawn ? ok({ drawn }) : { status: 400, body: { error: "drawn must be light or dark" } };
   }
 
   if (method === "POST" && path === "/api/settings/behaviour") {

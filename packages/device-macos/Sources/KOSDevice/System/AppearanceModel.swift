@@ -3,7 +3,8 @@ import DeviceCore
 import DeviceUI
 
 /// The one place the app's look is set: the owner's choice here, over the
-/// theme the dashboard of the KOS the app speaks of last sent.
+/// theme the dashboard of the KOS the app speaks of last sent: as that
+/// dashboard looks, its palette when it has reported one.
 ///
 /// It sets the application's appearance and nothing else. Every window takes
 /// it from there, every token (Theme) is drawn in it, and SwiftUI's
@@ -12,10 +13,10 @@ import DeviceUI
 @MainActor
 final class AppearanceModel {
   var choice: ThemeChoice { didSet { apply() } }
-  /// The dashboard's theme, as the KOS the app speaks of last sent it; nil before any has.
-  var sent: ThemeMode? { didSet { apply() } }
+  /// The dashboard's theme and palette, as the KOS the app speaks of last sent them; nil before any has.
+  var sent: DashboardTheme? { didSet { apply() } }
 
-  init(choice: ThemeChoice, sent: ThemeMode? = nil) {
+  init(choice: ThemeChoice, sent: DashboardTheme? = nil) {
     self.choice = choice
     self.sent = sent
     apply()

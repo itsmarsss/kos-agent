@@ -548,7 +548,8 @@ function themeWords(choice: ThemeChoice, dashboard: PopupState["dashboardTheme"]
   if (choice === "light" || choice === "dark") return `${choice === "light" ? "Light" : "Dark"} here, whatever the dashboard is set to.`;
   if (choice === "system") return `This Chrome's own: ${system}.`;
   if (!dashboard) return `The dashboard's theme, once KOS has said it; until then, ${system}.`;
-  return dashboard === "system" ? `The dashboard's theme, System: ${system}.` : `The dashboard's theme, now ${dashboard === "light" ? "Light" : "Dark"}.`;
+  const drawn = dashboard.drawn ?? (dashboard.mode === "system" ? undefined : dashboard.mode);
+  return drawn ? `As the dashboard looks, now ${drawn === "light" ? "Light" : "Dark"}.` : `The dashboard's theme, System: ${system}.`;
 }
 
 function Setting({ title, detail, children }: { title: string; detail: string; children: ReactElement }): ReactElement {

@@ -4,7 +4,7 @@
  * texts each side signs.
  */
 
-import { isThemeMode, readDrawing, type FaceDrawing, type ThemeMode } from "@kos/shared";
+import { readDashboardTheme, readDrawing, type DashboardTheme, type FaceDrawing } from "@kos/shared";
 
 export const PROTOCOL = 1;
 
@@ -36,7 +36,7 @@ export type KosFrame =
   | { t: "welcome"; name: string; signature: string }
   | { t: "call"; id: number; method: string; params: Record<string, unknown> }
   | { t: "face"; face: FaceDrawing }
-  | { t: "theme"; mode: ThemeMode }
+  | { t: "theme"; theme: DashboardTheme }
   | { t: "pong" };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -65,8 +65,11 @@ export function readFrame(text: string): KosFrame | undefined {
       const face = readDrawing(raw["face"]);
       return face ? { t: "face", face } : undefined;
     }
-    case "theme":
-      return isThemeMode(raw["mode"]) ? { t: "theme", mode: raw["mode"] } : undefined;
+    case "theme": {
+      // The mode, and the palette a dashboard draws it in when KOS has heard it; only a mode is a theme.
+      const theme = readDashboardTheme(raw);
+      return theme ? { t: "theme", theme } : undefined;
+    }
     case "pong":
       return { t: "pong" };
     default:

@@ -137,7 +137,7 @@ import { originOf } from "./origin.js";
 import { ownerWords } from "./transcript.js";
 import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
-import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isThemeMode, KOS_SEED, lookOf, summarizeAction, type ArtifactEdit, type FaceDrawing, type FaceSpec, type ThemeMode } from "@kos/shared";
+import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, type ArtifactEdit, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type ThemeMode } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -225,6 +225,22 @@ export const WORN_FACE_KEY = "discord.face";
 
 /** The dashboard's theme, KOS's own: what every device following the dashboard draws. */
 export const THEME_KEY = "appearance.theme";
+
+/** The palette a dashboard last reported drawing that theme in, and when; with several open, the latest report wins. */
+export const DRAWN_KEY = "appearance.drawn";
+
+/**
+ * How long a dashboard's report of its palette holds. An open dashboard
+ * reports again well within it, so a report this old is from one that has
+ * closed, and devices draw the mode instead.
+ */
+export const DRAWN_FRESH_MS = 10 * 60_000;
+
+/** A dashboard's report of the palette it draws in, as kept. */
+interface DrawnReport {
+  drawn: DrawnTheme;
+  at: number;
+}
 
 /** One channel of the server layout. */
 export interface SurfaceChannel {
@@ -550,6 +566,8 @@ export class Kernel {
   private restartWanted: { since: number } | null = null;
   private restartPoll: ReturnType<typeof setInterval> | null = null;
   private expirySweep: ReturnType<typeof setInterval> | null = null;
+  /** Set while a dashboard's report of its palette is fresh: when it fires, devices are told it went stale. */
+  private drawnExpiry: ReturnType<typeof setTimeout> | undefined;
 
   /** Called by bootKernel, which assembles the args; not meant for anyone else. */
   constructor(args: {
@@ -2458,13 +2476,84 @@ export class Kernel {
     return this.themeChoice() ?? "system";
   }
 
-  /** The dashboard's theme as the owner sets it, kept and told to every device; nothing kept when it is not a theme. */
+  /**
+   * The dashboard's theme as the owner sets it, kept and told to every
+   * device; nothing kept when it is not a theme. Light or dark is drawn as
+   * itself, so it is also what the dashboard draws, ahead of its report.
+   */
   setTheme(raw: unknown): ThemeMode | undefined {
     if (!isThemeMode(raw)) return undefined;
-    const changed = this.themeChoice() !== raw;
-    this.settings.set(THEME_KEY, raw);
-    if (changed) this.bus.emit({ kind: "theme:changed", theme: raw });
+    this.tellIfChanged(() => {
+      this.settings.set(THEME_KEY, raw);
+      if (raw !== "system") this.keepDrawn(raw);
+    });
     return raw;
+  }
+
+  /**
+   * The palette the dashboard draws in: light or dark as itself, and under
+   * "system" the latest report while it is fresh (DRAWN_FRESH_MS), else
+   * nothing, so a device draws the mode rather than a closed dashboard's palette.
+   */
+  drawnTheme(): DrawnTheme | undefined {
+    const mode = this.theme();
+    if (mode !== "system") return mode;
+    const report = this.drawnReport();
+    const left = report ? report.at + DRAWN_FRESH_MS - Date.now() : 0;
+    if (!report || left <= 0) return undefined;
+    // Kept from before a restart, the report has no timer to say when it goes stale.
+    if (!this.drawnExpiry) this.expireDrawn(left);
+    return report.drawn;
+  }
+
+  /**
+   * A dashboard reports the palette it draws, "system" read against its own
+   * browser: kept with when, and told to every device when it changes what
+   * they draw. An open dashboard says it again now and then only to keep it
+   * fresh. With several dashboards open, the latest report wins. Nothing
+   * kept when it is not a palette.
+   */
+  setDrawnTheme(raw: unknown): DrawnTheme | undefined {
+    if (!isDrawnTheme(raw)) return undefined;
+    this.tellIfChanged(() => this.keepDrawn(raw));
+    return raw;
+  }
+
+  /** The dashboard's theme as a device is told it: the setting, and the palette it is drawn in while that is known. */
+  dashboardTheme(): DashboardTheme {
+    const drawn = this.drawnTheme();
+    return { mode: this.theme(), ...(drawn ? { drawn } : {}) };
+  }
+
+  private drawnReport(): DrawnReport | undefined {
+    const kept = this.settings.get(DRAWN_KEY) as Partial<DrawnReport> | undefined;
+    return kept && isDrawnTheme(kept.drawn) && typeof kept.at === "number" ? { drawn: kept.drawn, at: kept.at } : undefined;
+  }
+
+  private keepDrawn(drawn: DrawnTheme): void {
+    this.settings.set(DRAWN_KEY, { drawn, at: Date.now() } satisfies DrawnReport);
+    this.expireDrawn(DRAWN_FRESH_MS);
+  }
+
+  /** When the report goes stale, devices are told the dashboard's theme without it. */
+  private expireDrawn(after: number): void {
+    if (this.drawnExpiry) clearTimeout(this.drawnExpiry);
+    this.drawnExpiry = setTimeout(() => {
+      this.drawnExpiry = undefined;
+      if (this.theme() === "system") this.told();
+    }, after);
+    this.drawnExpiry.unref?.();
+  }
+
+  private tellIfChanged(change: () => void): void {
+    const before = this.dashboardTheme();
+    change();
+    const after = this.dashboardTheme();
+    if (before.mode !== after.mode || before.drawn !== after.drawn) this.told();
+  }
+
+  private told(): void {
+    this.bus.emit({ kind: "theme:changed", ...this.dashboardTheme() });
   }
 
   /**
@@ -4872,6 +4961,8 @@ export class Kernel {
   }
 
   close(): void {
+    if (this.drawnExpiry) clearTimeout(this.drawnExpiry);
+    this.drawnExpiry = undefined;
     if (this.idleSweep) clearInterval(this.idleSweep);
     if (this.expirySweep) clearInterval(this.expirySweep);
     this.expirySweep = null;

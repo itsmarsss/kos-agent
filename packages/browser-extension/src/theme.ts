@@ -3,8 +3,9 @@
  * panel, the consent window) before their first paint, and kept current.
  *
  * The owner's choice in Settings, "Same as dashboard" by default, which
- * draws the mode sent (`{ t: "theme" }`) by the KOS the toolbar speaks of,
- * and the system's appearance before that KOS has sent one. A classic
+ * draws what the KOS the toolbar speaks of sent (`{ t: "theme" }`): the
+ * palette its dashboard is drawn in, else its mode, and the system's
+ * appearance before that KOS has sent one. A classic
  * script in each page's head, so the palette is on before anything is
  * drawn: this page's copy of the last answer first, at once, then what is
  * stored, and again whenever the setting or the dashboard changes, in every

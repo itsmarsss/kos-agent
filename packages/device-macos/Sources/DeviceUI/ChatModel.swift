@@ -186,6 +186,8 @@ public final class ChatModel: ObservableObject {
   @Published public private(set) var quote: Quote?
   /// The selection put aside or sent: not offered again until the owner selects something else.
   private var quoteSetAside: String?
+  /// Said once over the box when a selection cannot be read, as when Accessibility is not allowed.
+  @Published public var hint: String?
   /// The app in front of the window, which "this" means: its name, or nil for none.
   @Published public var beside: String?
   /// That app's front window, by its title, when macOS says it.
@@ -239,6 +241,7 @@ public final class ChatModel: ObservableObject {
     let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !said.isEmpty else { return }
     error = nil
+    hint = nil
     // A command is about the chat, not the app: it goes without the selection, which waits for the next words.
     let command = said.hasPrefix("/")
     let quoted = command ? nil : quote

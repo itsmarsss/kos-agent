@@ -218,21 +218,34 @@ keeps the last face of each KOS it pairs with, draws that KOS by it, and
 draws the default face for a KOS that has sent none. A device that does not
 know the frame ignores it.
 
-After the face, and again whenever the owner changes it on the dashboard, KOS
-sends the dashboard's theme, KOS's own setting (`appearance.theme`, light,
-dark or system, "system" until the owner chooses):
+After the face, and again whenever either changes, KOS sends the dashboard's
+theme, KOS's own setting (`appearance.theme`, light, dark or system, "system"
+until the owner chooses), and `drawn`, the palette a dashboard last reported
+drawing it in (`appearance.drawn`, light or dark), once one has:
 
 ```json
-{ "t": "theme", "mode": "light" }
+{ "t": "theme", "mode": "system", "drawn": "dark" }
 ```
 
+`drawn` is how the dashboard looks, "system" read in the dashboard's own
+browser, which need not agree with the device's: a Chrome forced dark draws
+System dark on a Mac in light. The dashboard reports it
+(`POST /api/settings/theme/drawn`, [dashboard.md](dashboard.md)); with several
+dashboards open, the latest report wins. Choosing light or dark sets `drawn`
+to the same at once, since either is drawn as itself, and that never goes
+stale. Under system, a report holds for ten minutes: an open dashboard says
+it again every few minutes to keep it fresh, and once no dashboard has for
+ten, KOS sends the theme without `drawn`, so a device draws `mode` rather
+than the palette of a dashboard that has closed.
+
 A device keeps its own choice of theme locally: "dashboard", the default,
-draws the mode it was last sent ("system" being the device's own appearance)
-and the device's appearance before any arrives; "light", "dark" or "system"
-ignore the frame. Paired with several KOS, a device keeps each one's mode and
-draws that of the KOS whose session is at work, else the first connected,
-else the first paired. Nothing KOS sends changes that choice. A device that does
-not know the frame ignores it.
+draws as the dashboard looks, `drawn` when it was sent, else `mode` ("system"
+then being the device's own appearance), and the device's appearance before
+any frame arrives; "light", "dark" or "system" ignore the frame. Paired with
+several KOS, a device keeps each one's theme and draws that of the KOS whose
+session is at work, else the first connected, else the first paired. Nothing
+KOS sends changes that choice. A device that does not know the frame ignores
+it, and one that does not know `drawn` draws `mode`.
 
 When the owner unpairs the device on the device, it sends `{ "t": "unpair" }`
 before it hangs up. KOS forgets it, as Remove on the dashboard does: any
@@ -316,6 +329,21 @@ words and where they were said are taken into that turn at its next step, as
 on the dashboard. `quote? { text, from }` is what the owner quoted with
 their words; it is kept with the message and shown with it, and never read
 as their words.
+
+The quote is what the owner selected in that app, read through Accessibility
+once each time the window opens (again only if the app or its focused element
+changed), off the main thread and within about 150 ms. Never from a password
+field, while secure input is on, or from a hidden app. Electron and Chromium
+apps keep their Accessibility tree off until asked, so when the first look
+finds nothing in one, KOS for Mac briefly turns its tree on
+(`AXManualAccessibility`, or `AXEnhancedUserInterface` in a Chromium browser
+that does not take it), gives it 200 ms to build, reads again and turns it
+off. While it is on the app sees an assistive technology. Code editors on
+Electron watch for that and may switch to a screen reader mode, or say one
+was detected, each time it is turned on, so in VS Code, VS Code Insiders,
+VSCodium, Cursor and Windsurf it is never turned on: their selection comes
+in only when their tree is already on (a screen reader, or the owner's own
+setting), and otherwise nothing comes in, with no hint.
 
 ### Events
 

@@ -7,7 +7,7 @@
  * second line to the same KOS.
  */
 
-import { isThemeMode, readDrawing, type FaceDrawing, type ThemeMode } from "@kos/shared";
+import { readDashboardTheme, readDrawing, type DashboardTheme, type FaceDrawing } from "@kos/shared";
 
 export interface Paired {
   url: string;
@@ -18,8 +18,8 @@ export interface Paired {
   name: string;
   /** That KOS's face, as it last sent it. */
   face?: FaceDrawing;
-  /** That KOS's dashboard theme, as it last sent it. */
-  theme?: ThemeMode;
+  /** That KOS's dashboard theme and the palette it was drawn in, as it last sent them. */
+  theme?: DashboardTheme;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -39,9 +39,10 @@ export function kosOf(p: Pick<Paired, "url">): string {
 
 /** A stored pairing with its face and theme read, or without either that does not read. */
 function withLook(p: Paired): Paired {
-  const { face: keptFace, theme, ...rest } = p;
+  const { face: keptFace, theme: keptTheme, ...rest } = p;
   const face = readDrawing(keptFace);
-  return { ...rest, ...(face ? { face } : {}), ...(isThemeMode(theme) ? { theme } : {}) };
+  const theme = readDashboardTheme(keptTheme);
+  return { ...rest, ...(face ? { face } : {}), ...(theme ? { theme } : {}) };
 }
 
 /** The pairings stored: the list, or the one pairing an older version kept. */

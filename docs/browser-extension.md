@@ -127,9 +127,9 @@ it does on the dashboard (the same code, `@kos/shared/blobmotion`):
   each KOS connects when Chrome opens, the time left on the KOS icon, and
   Copy log.
 - **The theme.** Same as dashboard (the default), Light, Dark or System,
-  kept in this Chrome (`chrome.storage.local`). Same as dashboard draws the
-  mode a KOS sent (`{ "t": "theme" }`, [computer.md](computer.md)), kept
-  with each pairing: that of the KOS whose session is at work, else the
+  kept in this Chrome (`chrome.storage.local`). Same as dashboard draws as
+  the dashboard looks: the palette a KOS sent (`drawn` in `{ "t": "theme" }`,
+  [computer.md](computer.md)), else its mode, kept with each pairing: that of the KOS whose session is at work, else the
   first connected, else the first paired, as the toolbar icon picks its
   face; and this computer's appearance before that KOS has sent one; System is this computer's appearance (`prefers-color-scheme`),
   whatever the dashboard says. The popup, the side panel and the consent

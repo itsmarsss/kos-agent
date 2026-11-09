@@ -62,8 +62,33 @@ export function isThemeMode(v: unknown): v is ThemeMode {
   return v === "light" || v === "dark" || v === "system";
 }
 
+/** A palette as drawn: what a mode lands on once "system" is read. */
+export type DrawnTheme = "light" | "dark";
+
+export function isDrawnTheme(v: unknown): v is DrawnTheme {
+  return v === "light" || v === "dark";
+}
+
+/**
+ * The dashboard's theme as KOS tells a device: the owner's setting, and the
+ * palette a dashboard last reported drawing it in. A device that follows the
+ * dashboard draws `drawn` when there is one, else `mode`.
+ */
+export interface DashboardTheme {
+  mode: ThemeMode;
+  drawn?: DrawnTheme;
+}
+
+/** A dashboard theme as stored or sent, or nothing when it is not one: a bare mode (as older versions kept it) is one without a palette. */
+export function readDashboardTheme(v: unknown): DashboardTheme | undefined {
+  if (isThemeMode(v)) return { mode: v };
+  if (typeof v !== "object" || v === null) return undefined;
+  const { mode, drawn } = v as Record<string, unknown>;
+  return isThemeMode(mode) ? { mode, ...(isDrawnTheme(drawn) ? { drawn } : {}) } : undefined;
+}
+
 /** The palette a mode lands on, given whether the system prefers light. */
-export function resolveThemeMode(mode: ThemeMode, prefersLight: boolean): "light" | "dark" {
+export function resolveThemeMode(mode: ThemeMode, prefersLight: boolean): DrawnTheme {
   return mode === "system" ? (prefersLight ? "light" : "dark") : mode;
 }
 

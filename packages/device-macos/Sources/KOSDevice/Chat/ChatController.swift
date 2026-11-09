@@ -22,7 +22,13 @@ final class ChatController {
   var session: (origin: String, conversation: String?, paused: Bool)? { didSet { scope() } }
   var asking: (origin: String, conversation: String?, task: String, until: Date)? { didSet { scope() } }
 
-  private lazy var window = ChatWindow(model: model)
+  private lazy var window: ChatWindow = {
+    let window = ChatWindow(model: model)
+    window.onKey = { [weak self] in self?.readSelection() }
+    // Back from another app, the owner may have selected something else in the same field: read as on opening.
+    window.onResign = { [weak self] in self?.openRead = true }
+    return window
+  }()
   /// Whether the window was ever made: stepping aside does not make one.
   private var made = false
   private var talkingTo: String?
@@ -30,8 +36,21 @@ final class ChatController {
   private var taking: Timer?
   /// Set while the window waits for a KOS that is on to show the chat.
   private var showing: Timer?
-  private var lastFront: NSRunningApplication?
+  /// The app the owner was in, watched from launch so it is known when the window first opens over KOS for Mac's own.
+  private var front = FrontTracker<NSRunningApplication> { $0.processIdentifier == ProcessInfo.processInfo.processIdentifier }
   private var frontWatch: NSObjectProtocol?
+  private var quitWatch: NSObjectProtocol?
+  /// Whether each running app is built on Chromium, looked up in its bundle once rather than on every read.
+  private var chromium = PerProcess<Bool>()
+  private let selection = SelectionReader(Accessibility())
+  /// Where the selection is read, off the main thread: an app slow to answer holds this queue, not the windows.
+  private let selectionQueue = DispatchQueue(label: "kos.selection", qos: .userInitiated)
+  private var reading = false
+  private var readAgain = false
+  /// Set as the window opens, or gives the keyboard up: the next read is made whatever the last one found.
+  private var openRead = false
+  /// The owner was told once that without Accessibility the window cannot bring in what they select.
+  private var toldAccess = false
 
   /// How long the window waits to hear that KOS has the owner's words before it gives them back.
   private static let takeWithin: TimeInterval = 12
@@ -48,6 +67,8 @@ final class ChatController {
     model.setAuto = { [weak self] on in self?.tell(.auto(on)) }
     model.askMentions = { [weak self] q in self?.tell(.mentions(q)) }
     model.close = { [weak self] in self?.close() }
+    watchFront()
+    front.note(NSWorkspace.shared.frontmostApplication)
   }
 
   var isOpen: Bool { window.isVisible }
@@ -63,8 +84,9 @@ final class ChatController {
 
   func open() {
     made = true
-    watchFront()
     noteFront()
+    // One read for the opening: becoming key, this, and the box taking focus all ask, and only the first reads.
+    openRead = true
     window.present()
     readSelection()
     refresh(asking: true)
@@ -195,7 +217,7 @@ final class ChatController {
   /// front, so the keys land there. AppKit gives a window the keyboard only by activating another app, never by
   /// telling the window to resign it. Waits a moment for the switch; the caller still refuses if it did not happen.
   func yieldKeys() async {
-    guard made, window.isKeyWindow, let app = lastFront, !app.isTerminated else { return }
+    guard made, window.isKeyWindow, let app = front.last, !app.isTerminated else { return }
     NSApp.yieldActivation(to: app)
     app.activate()
     var waited = 0
@@ -238,8 +260,7 @@ final class ChatController {
   }
 
   private func frontApp() -> NSRunningApplication? {
-    let front = NSWorkspace.shared.frontmostApplication
-    return front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? lastFront : front
+    front.beside(front: NSWorkspace.shared.frontmostApplication)
   }
 
   /// The window says which app "this" is, and follows the owner as they move between apps.
@@ -251,15 +272,21 @@ final class ChatController {
       let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
       MainActor.assumeIsolated {
         guard let self else { return }
-        if let app, app.processIdentifier != ProcessInfo.processInfo.processIdentifier { self.lastFront = app }
-        self.noteFront()
+        self.front.note(app)
+        if self.made { self.noteFront() }
       }
+    }
+    quitWatch = NSWorkspace.shared.notificationCenter.addObserver(
+      forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
+    ) { [weak self] note in
+      guard let pid = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier else { return }
+      MainActor.assumeIsolated { self?.chromium.forget(pid) }
     }
   }
 
   private func noteFront() {
+    front.note(NSWorkspace.shared.frontmostApplication)
     let app = frontApp()
-    if let app, app.processIdentifier != ProcessInfo.processInfo.processIdentifier { lastFront = app }
     model.beside = app?.localizedName
     let hidden = app.map { isHidden($0.bundleIdentifier) } ?? false
     model.besideHidden = hidden
@@ -267,34 +294,72 @@ final class ChatController {
     model.besideTitle = hidden ? nil : app.flatMap { Self.windowTitle(of: $0.processIdentifier) }
   }
 
-  /// The longest selection sent, as the side panel cuts a page's.
-  private static let quoteLimit = 4_000
+  /// How long an app that was just asked for its Accessibility tree is given to build it.
+  private static let treeWait: TimeInterval = 0.2
+  private static let accessHint = "Allow Accessibility for KOS for Mac, in System Settings, Privacy & Security, to bring in what you select."
 
-  /// What the owner selected in the app in front, read through Accessibility from its focused element. Never from a
-  /// password field, nor from an app they hid from KOS.
+  /// What the owner selected in the app beside the window (SelectionReader), read on its own queue. Never from a
+  /// password field, nor from an app they hid from KOS. The opening reads; asked again after (the box focused), it
+  /// reads only when the app or its focused element changed, and asked while a read is going, once more after it.
   private func readSelection() {
-    guard let app = frontApp(), !isHidden(app.bundleIdentifier), !Targets.passwordFieldHasFocus else { return model.selected(nil) }
-    let element = AXUIElementCreateApplication(app.processIdentifier)
-    // An app that does not answer is not waited on.
-    AXUIElementSetMessagingTimeout(element, 0.25)
-    guard let focused = Self.attribute(element, kAXFocusedUIElementAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID() else {
-      return model.selected(nil)
+    guard !reading else {
+      readAgain = true
+      return
     }
-    let field = focused as! AXUIElement
-    let secure = kAXSecureTextFieldSubrole as String
-    if Self.attribute(field, kAXSubroleAttribute) as? String == secure || Self.attribute(field, kAXRoleAttribute) as? String == secure {
-      return model.selected(nil)
+    guard let app = frontApp() else { return model.selected(nil) }
+    let target = SelectionApp(pid: app.processIdentifier, bundle: app.bundleIdentifier, chromiumBased: chromium.value(for: app.processIdentifier) { Self.chromiumBased(app) })
+    let hidden = isHidden(app.bundleIdentifier)
+    let onlyIfChanged = !openRead
+    openRead = false
+    reading = true
+    let reader = selection
+    let wait = Self.treeWait
+    selectionQueue.async { [weak self] in
+      let read = reader.read(target, hidden: hidden, onlyIfChanged: onlyIfChanged, secureInput: { Targets.passwordFieldHasFocus }) {
+        Thread.sleep(forTimeInterval: wait)
+      }
+      DispatchQueue.main.async {
+        MainActor.assumeIsolated { self?.read(read, from: app) }
+      }
     }
-    let text = (Self.attribute(field, kAXSelectedTextAttribute) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    guard !text.isEmpty else { return model.selected(nil) }
-    let name = app.localizedName ?? app.bundleIdentifier ?? "an app"
-    let from = Self.windowTitle(of: app.processIdentifier).map { "\(name): \($0)" } ?? name
-    model.selected(.init(text: String(text.prefix(Self.quoteLimit)), from: from))
   }
 
-  private static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
-    var value: CFTypeRef?
-    return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
+  /// KOS for Mac is quitting: a flag an app would not take back after a read is put back before it goes.
+  func quitting() {
+    let reader = selection
+    selectionQueue.sync { reader.restore() }
+  }
+
+  /// A read came back: shown unless nothing changed, then made again if it was asked for meanwhile.
+  private func read(_ read: SelectionRead?, from app: NSRunningApplication) {
+    reading = false
+    if let read { show(read, from: app) }
+    if readAgain {
+      readAgain = false
+      readSelection()
+    }
+  }
+
+  /// The frameworks an app built on Chromium carries: Electron's, or Chromium Embedded's.
+  private static let chromiumFrameworks = ["Electron Framework.framework", "Chromium Embedded Framework.framework"]
+
+  /// Whether the app is an Electron or Chromium Embedded one, by the framework in its bundle: two file checks.
+  private static func chromiumBased(_ app: NSRunningApplication) -> Bool {
+    guard let frameworks = app.bundleURL?.appendingPathComponent("Contents/Frameworks") else { return false }
+    return chromiumFrameworks.contains { FileManager.default.fileExists(atPath: frameworks.appendingPathComponent($0).path) }
+  }
+
+  private func show(_ read: SelectionRead, from app: NSRunningApplication) {
+    if read == .untrusted, !toldAccess {
+      toldAccess = true
+      model.hint = Self.accessHint
+    } else if read != .untrusted {
+      model.hint = nil
+    }
+    guard case .text(let text) = read else { return model.selected(nil) }
+    let name = app.localizedName ?? app.bundleIdentifier ?? "an app"
+    let from = Self.windowTitle(of: app.processIdentifier).map { "\(name): \($0)" } ?? name
+    model.selected(.init(text: text, from: from))
   }
 
   /// The front window of an app, by its title, when macOS will say it.

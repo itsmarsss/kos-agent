@@ -11,7 +11,7 @@
  * module reacting to a turn ending must not be able to end the next one.
  */
 
-import type { ThemeMode } from "@kos/shared";
+import type { DashboardTheme } from "@kos/shared";
 
 import type { KeptFile } from "../kernel/attachments.js";
 import type { MessageFrom } from "../models/types.js";
@@ -60,8 +60,8 @@ export type KernelEvent =
   | { kind: "halt:changed"; halted: boolean }
   /** The owner changed KOS's own face: whatever draws KOS draws it again. */
   | { kind: "face:changed" }
-  /** The owner changed the dashboard's theme: every device that follows it draws it. */
-  | { kind: "theme:changed"; theme: ThemeMode }
+  /** The dashboard's theme or the palette it is drawn in changed: every device that follows it draws it. */
+  | ({ kind: "theme:changed" } & DashboardTheme)
   | { kind: "module:enabled"; name: string }
   | { kind: "module:disabled"; name: string };
 

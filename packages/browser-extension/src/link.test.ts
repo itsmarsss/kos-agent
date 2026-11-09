@@ -41,7 +41,7 @@ describe("a KOS's line, read in order", () => {
     vi.stubGlobal("WebSocket", FakeSocket);
     const faces: FaceDrawing[] = [];
     const themes: ThemeMode[] = [];
-    const link = new Link({ url: "http://127.0.0.1:4317", device: "dev_a", hostKey: "k", keys: {} as CryptoKeyPair, hello: () => ({}) as Hello, onCall: async () => ({}), onState: () => undefined, onFace: (f) => void faces.push(f), onTheme: (m) => void themes.push(m) });
+    const link = new Link({ url: "http://127.0.0.1:4317", device: "dev_a", hostKey: "k", keys: {} as CryptoKeyPair, hello: () => ({}) as Hello, onCall: async () => ({}), onState: () => undefined, onFace: (f) => void faces.push(f), onTheme: (m) => void themes.push(m.mode) });
     link.start();
     const ws = FakeSocket.made[0]!;
     const face = drawingOf(lookOf(KOS_SEED));
@@ -69,7 +69,7 @@ describe("a KOS's line, read in order", () => {
         first = false;
         throw new Error("drawing failed");
       }
-      themes.push(m);
+      themes.push(m.mode);
     } });
     link.start();
     const ws = FakeSocket.made[0]!;
@@ -90,7 +90,7 @@ describe("a KOS's line, read in order", () => {
     vi.stubGlobal("WebSocket", FakeSocket);
     const themes: ThemeMode[] = [];
     let finish: () => void = () => undefined;
-    const link = new Link({ url: "http://127.0.0.1:4317", device: "dev_a", hostKey: "k", keys: {} as CryptoKeyPair, hello: () => ({}) as Hello, onCall: (method) => (method === "slow" ? new Promise((r) => (finish = () => r({ done: true }))) : Promise.resolve({ quick: true })), onState: () => undefined, onFace: () => undefined, onTheme: (m) => void themes.push(m) });
+    const link = new Link({ url: "http://127.0.0.1:4317", device: "dev_a", hostKey: "k", keys: {} as CryptoKeyPair, hello: () => ({}) as Hello, onCall: (method) => (method === "slow" ? new Promise((r) => (finish = () => r({ done: true }))) : Promise.resolve({ quick: true })), onState: () => undefined, onFace: () => undefined, onTheme: (m) => void themes.push(m.mode) });
     link.start();
     const ws = FakeSocket.made[0]!;
     ws.frame({ t: "challenge", protocol: PROTOCOL, nonce: "theirs" });
