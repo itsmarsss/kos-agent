@@ -38,7 +38,9 @@ this listing" said in the DM makes one, "ask recap what I got done" sends
 the task to it, and `@blob:<name>` names one. The DM thread is told when
 a dispatched blob answers, and the answer is sent to you here as well. A
 blob's own approvals, from its schedule or a dispatch, ask here like any
-other; a message it sends you with `notify` arrives here too. Its thread
+other; a message it sends you with `notify` arrives here too, except
+from its own schedule when KOS has a server: that goes to the blob's
+channel (see [Where a message goes](#where-a-message-goes)). Its thread
 stays on the dashboard, under Blobs.
 
 To talk to a blob itself, start the message with its name: `@recap what
@@ -112,7 +114,15 @@ files you attached uploaded under them, and the answer as KOS or as the
 blob under its own name. A message another chat passed on (a handoff, a
 dispatch, a project's goal) shows under that chat's name with KOS's face,
 a blob's under its own, marked "passed on" under the words: only your
-own words wear your name. Work is passed on at most
+own words wear your name. A chat at the root gets a thread under
+`#kos` the first time it shows there, as a project's chat does under its
+project's channel; the chat your DM speaks in, Main, and the chats the
+Chrome and Mac panels keep get none, so the DM stays as it is. A
+schedule's runs show in a thread of the job's own: a project's job under
+the project's channel, a job of yours at the root under `#kos`, a blob's
+in the blob's channel; KOS's own upkeep (`kos.backup`, `kos.memory`,
+`kos.dream`, `kos.observe`, `kos.improve`) posts its runs nowhere and
+says something there only when it needs you. Work is passed on at most
 three times and never back to a chat it came through; that chat hears
 the answer as a note. What you say on Discord is already there and is
 not repeated. In a step line of the story, a workspace path ("Read
@@ -331,7 +341,16 @@ and its line on Discord says "dropped".
 ## Where a message goes
 
 `notify` from a turn goes to you on the first surface wired, or to a named
-surface. A surface that is wired but not connected at that moment (Discord
+surface. From a scheduled run, a `notify` that names nowhere goes to the
+run's own place on the server instead of your DM: the job's thread (under
+its project's channel, or under `#kos` for a job at the root) or the
+blob's channel. A run whose message landed there does not post its
+closing words after it. A fixed-actions job's message is a reminder in
+your own words, so it @mentions you there and pings; a prompted run's
+does not. `to: "owner"` (or `"discord"`) still reaches you directly, for a
+job that should. A job's failing, and its recovery, are told in its place
+too. Without a server, or before it is laid out, all of these go to you as
+before. Approvals from a schedule still ask in `#needs-you`. A surface that is wired but not connected at that moment (Discord
 still logging in, or dropped by the gateway) is not an error: a message for
 you is left in the primary chat on the dashboard and the turn is told so.
 A message for a channel or another person has nowhere else to go, so that
