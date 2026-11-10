@@ -1581,6 +1581,30 @@ describe("DiscordAdapter authorization", () => {
     expect(presses[2]).toEqual({ buttonId: "", label: "Ship it", token: "tok9", pressedBy: "owner-id" });
   });
 
+  it("asks in #needs-you alone for an owner's chat bound to a place guests read, and in a room's own place", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id", guestsAllowed: (key) => key === "chat-board" });
+    const posts: Record<string, Record<string, unknown>[]> = { ny: [], c8: [], c9: [] };
+    const sendable = (id: string, topic: string) => ({ id, topic, isThread: () => false, isSendable: () => true, send: async (p: Record<string, unknown>) => { posts[id]!.push(p); return { id: `m${posts[id]!.length}`, edit: async () => undefined }; } });
+    const places: Record<string, unknown> = { ny: sendable("ny", "kos:needs-you · Approvals"), c8: sendable("c8", "kos:chat-board · Board"), c9: sendable("c9", "kos:chat-mine · Mine") };
+    const inner = adapter as unknown as { client: unknown; approvalsChannelId: string; boundIds: Map<string, string> };
+    inner.client = { channels: { fetch: async (id: string) => places[id] ?? null }, users: { fetch: async () => ({ send: async () => { throw new Error("no DM"); } }) } };
+    inner.approvalsChannelId = "ny";
+    inner.boundIds.set("chat-board", "c8").set("chat-mine", "c9");
+    const ask = (id: string, conversationId: string) => adapter.requestApproval("owner-id", { id, text: "x", tool: "sql", args: { sql: "UPDATE secrets SET v = 1" }, asker: { name: "Board", conversationId } });
+    // The owner's chat bound to #leetcode, which guests read: the card, with all it would do, stays in #needs-you.
+    await ask("1", "chat-board");
+    expect(posts["c8"]).toHaveLength(0);
+    expect(posts["ny"]).toHaveLength(1);
+    expect(String(posts["ny"]![0]?.["content"])).not.toContain("-# in");
+    // A chat whose place only the owner reads is asked there too, as before.
+    await ask("2", "chat-mine");
+    expect(posts["c9"]).toHaveLength(1);
+    // The room's own ask, what a guest's words asked for, shows in its place.
+    await ask("3", "discord:room:c8");
+    expect(posts["c8"]).toHaveLength(1);
+    expect(posts["ny"]).toHaveLength(3);
+  });
+
   it("reads a channel's messages and reactions, reacts, and hands back what it posted", async () => {
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
     const reacted: string[] = [];

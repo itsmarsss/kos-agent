@@ -2352,9 +2352,13 @@ export class DiscordAdapter implements ChannelAdapter {
     const target = this.mirrorTarget(conversationId, this.threadBindings?.() ?? {});
     if (!target) return undefined;
     const channel = (await this.place(target)) as { isSendable?: () => boolean } | null;
-    return channel?.isSendable?.()
-      ? (channel as unknown as { id: string; isThread?: () => boolean; parent?: { id: string } | null; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> })
-      : undefined;
+    if (!channel?.isSendable?.()) return undefined;
+    // A place guests read is no place for the owner's chat to ask in: the
+    // card spells out the tool and all it would do. A room's own asks are
+    // what its guests' words asked for, and show there.
+    const key = this.roomKeyOf(channel);
+    if (!roomPlaceOf(conversationId) && key !== undefined && this.guestsAllowed?.(key)) return undefined;
+    return channel as unknown as { id: string; isThread?: () => boolean; parent?: { id: string } | null; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> };
   }
 
   /**
