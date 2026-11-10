@@ -106,6 +106,8 @@ function snowflakeAt(id: string): number {
 /** Discord lets a channel's name or topic change this many times in the window. */
 const RENAMES_PER_WINDOW = 2;
 const RENAME_WINDOW_MS = 10 * 60_000;
+/** A thread the owner could not be added to is not tried again for this long. */
+const JOIN_RETRY_MS = 10 * 60_000;
 /** A channel edit Discord would hold longer than this is refused at once, and made at a later layout. */
 const EDIT_WAIT_MAX_MS = 5_000;
 
@@ -1877,24 +1879,37 @@ export class DiscordAdapter implements ChannelAdapter {
 
   /** Threads the owner is a member of, by KOS's doing or found so. */
   private readonly ownerIn = new Set<string>();
+  /** Threads the owner could not be added to, until when they are not tried again. */
+  private readonly ownerKeptOut = new Map<string, number>();
 
   /**
    * The owner as a member of a thread KOS speaks in, so what lands there
    * notifies them as a DM would. Once per thread; nothing for a channel,
    * which the owner sees already. An archived thread is opened first, as
-   * Discord adds no one to one.
+   * Discord adds no one to one. False when the owner is not in it, so the
+   * caller can reach them another way; a refusal is said once and not
+   * tried again for a while. Never throws.
    */
-  async joinOwner(threadId: string, known?: unknown): Promise<void> {
-    if (!this.ownerId || this.ownerIn.has(threadId)) return;
-    const thread = (known ?? (await this.place(threadId))) as
+  async joinOwner(threadId: string): Promise<boolean> {
+    if (!this.ownerId || this.ownerIn.has(threadId)) return true;
+    if ((this.ownerKeptOut.get(threadId) ?? 0) > Date.now()) return false;
+    const thread = (await this.place(threadId)) as
       | { isThread?: () => boolean; archived?: boolean | null; setArchived?: (archived: boolean) => Promise<unknown>; members?: { add?: (id: string) => Promise<unknown> } }
       | null;
-    if (!thread) return;
-    if (thread.isThread?.() && thread.members?.add) {
-      if (thread.archived && thread.setArchived) await thread.setArchived.call(thread, false);
-      await thread.members.add.call(thread.members, this.ownerId);
+    if (!thread) return false;
+    try {
+      if (thread.isThread?.() && thread.members?.add) {
+        if (thread.archived && thread.setArchived) await thread.setArchived.call(thread, false);
+        await thread.members.add.call(thread.members, this.ownerId);
+      }
+    } catch (err) {
+      this.ownerKeptOut.set(threadId, Date.now() + JOIN_RETRY_MS);
+      console.warn(`[discord] the owner could not be added to thread ${threadId}: ${errorText(err)}`);
+      return false;
     }
+    this.ownerKeptOut.delete(threadId);
     this.ownerIn.add(threadId);
+    return true;
   }
 
   /**
@@ -2015,6 +2030,7 @@ export class DiscordAdapter implements ChannelAdapter {
   forgetPlace(id: string): void {
     for (const [key, bound] of [...this.boundIds]) if (bound === id) this.boundIds.delete(key);
     this.ownerIn.delete(id);
+    this.ownerKeptOut.delete(id);
     if (this.approvalsChannelId === id) this.approvalsChannelId = undefined;
     for (const key of [...this.webhooks.keys()]) if (key.startsWith(`${id}:`)) this.webhooks.delete(key);
     for (const [name, place] of [...this.known]) if (place.id === id) this.known.delete(name);

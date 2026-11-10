@@ -90,6 +90,7 @@ describe("a scheduled run's message in its place", () => {
   function placer(over: Partial<PlaceNotifierDeps> = {}) {
     const posts: { target: string; text: string }[] = [];
     const joined: string[] = [];
+    const dms: string[] = [];
     const deps: PlaceNotifierDeps = {
       ownerId: "222",
       targetFor: (conv) => ({ "cron:7": "t7", "cron:2": "t2" })[conv],
@@ -97,16 +98,20 @@ describe("a scheduled run's message in its place", () => {
       titleOf: (conv) => conv,
       ensureThread: async () => undefined,
       bindThread: () => undefined,
-      joinOwner: async (id) => void joined.push(id),
+      joinOwner: async (id) => {
+        joined.push(id);
+        return true;
+      },
       forgetPlace: () => undefined,
       connected: () => true,
       postWhenFound: async () => undefined,
       jobOf: (p) => ({ "cron:7": reminder, "cron:2": kickoff })[p.place ?? ""],
       ownerOnly: () => true,
       postIn: async (target, msg) => void posts.push({ target, text: msg.text }),
+      sendOwner: async (msg) => void dms.push(msg.text),
       ...over,
     };
-    return { notifier: new PlaceNotifier(deps), posts, joined };
+    return { notifier: new PlaceNotifier(deps), posts, joined, dms };
   }
   const run = (place: string, text = "Call The Centre now."): NotifyPayload => ({ text, target: { kind: "owner" }, place });
 
@@ -169,6 +174,30 @@ describe("a scheduled run's message in its place", () => {
     expect(posts).toEqual([]);
     // Once Discord is back, the queue finds the place: the thread, made then.
     expect(await held?.()).toBe("t-new");
+  });
+
+  it("sends a run's message to the DM as well when the owner could not join its thread", async () => {
+    const { notifier, posts, dms } = placer({ joinOwner: async (id) => id !== "t2" });
+    expect(await notifier.say(run("cron:2", "Kickoff"), { text: "Kickoff" })).toMatchObject({ delivered: expect.stringContaining("DM as well") });
+    await notifier.say(run("cron:7"), { text: "Call The Centre now." });
+    expect(posts.map((p) => p.target)).toEqual(["t2", "t7"]);
+    expect(dms).toEqual(["Kickoff"]);
+  });
+
+  it("sends a kept post to the DM as well once its thread turns out to be one the owner could not join", async () => {
+    let held: (() => Promise<string | undefined>) | undefined;
+    const { notifier, dms } = placer({
+      targetFor: (conv) => (conv === "orchestrator:owner" ? "kos" : undefined),
+      homeOf: () => "orchestrator:owner",
+      ensureThread: async () => "t-new",
+      joinOwner: async () => false,
+      connected: () => false,
+      postWhenFound: async (find) => void (held = find),
+    });
+    await notifier.say(run("cron:9", "Kickoff"), { text: "Kickoff" });
+    expect(dms).toEqual([]);
+    expect(await held?.()).toBe("t-new");
+    expect(dms).toEqual(["Kickoff"]);
   });
 
   it("leaves to the owner's DM a run whose place guests can read", async () => {

@@ -29,7 +29,10 @@ function deps(
       return `thread-${conv}`;
     },
     bindThread: (thread, conv) => void bound.push([thread, conv]),
-    joinOwner: async (id) => void joined.push(id),
+    joinOwner: async (id) => {
+      joined.push(id);
+      return true;
+    },
     forgetPlace: () => undefined,
     connected: () => true,
     postWhenFound: async () => undefined,
@@ -130,13 +133,13 @@ describe("a scheduled run's answer on the server", () => {
 describe("a conversation's place on the server", () => {
   it("is its own channel or thread when it has one, with the owner made a member of it", async () => {
     const d = deps({ "cron:7": "t7" });
-    expect(await placeOf("cron:7", d)).toBe("t7");
+    expect(await placeOf("cron:7", d)).toEqual({ id: "t7", heard: true });
     expect(d.joined).toEqual(["t7"]);
   });
 
   it("falls back to its home's channel when no thread can be made, and is nothing without a home", async () => {
     const d = deps({ "project:school": "school" }, { homeOf: (c) => (c === "cron:24" ? "project:school" : undefined), ensureThread: async () => undefined });
-    expect(await placeOf("cron:24", d)).toBe("school");
+    expect(await placeOf("cron:24", d)).toEqual({ id: "school", heard: true });
     expect(await placeOf("discord:owner", d)).toBeUndefined();
   });
 });

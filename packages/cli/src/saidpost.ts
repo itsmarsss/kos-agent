@@ -50,8 +50,8 @@ export interface PlaceDeps {
   titleOf(conversationId: string): string;
   ensureThread(channelKey: string, conversationId: string, title: string): Promise<string | undefined>;
   bindThread(threadId: string, conversationId: string): void;
-  /** Make the owner a member of a thread, so what lands there notifies them as a DM would; nothing for a channel. Never throws. */
-  joinOwner(placeId: string): Promise<void>;
+  /** Make the owner a member of a thread, so what lands there notifies them as a DM would; true for a channel. False when they are not in it. Never throws. */
+  joinOwner(placeId: string): Promise<boolean>;
   /** Let go of a channel or thread Discord says is gone, and whatever was bound to it. */
   forgetPlace(placeId: string): void;
   postIn(target: string, msg: OutboundMessage): Promise<void>;
@@ -69,28 +69,42 @@ function goneFromDiscord(err: unknown): boolean {
 /**
  * A scheduled run's message posted in its place. A place Discord says is
  * gone (a thread deleted under it) is let go and a new one found once;
- * false when there is no place, or none that takes the post.
+ * false when there is no place, or none that takes the post. A thread the
+ * owner could not be made a member of would not notify them, so `unheard`
+ * is run for it, to reach them another way.
  */
-export async function postInPlace(conversationId: string, msg: OutboundMessage, deps: PlaceDeps): Promise<boolean> {
+export async function postInPlace(conversationId: string, msg: OutboundMessage, deps: PlaceDeps, unheard?: () => Promise<void>): Promise<boolean> {
   // With Discord down a thread cannot be made, and its home channel's top
   // is not its place: the post waits in the send queue, and the thread is
   // made when Discord is back. A place already there is queued by the post.
   if (!deps.connected() && !deps.targetFor(conversationId) && deps.homeOf(conversationId)) {
-    await deps.postWhenFound(() => placeOf(conversationId, deps), msg);
+    await deps.postWhenFound(async () => {
+      const where = await placeOf(conversationId, deps);
+      if (where && !where.heard) await unheard?.();
+      return where?.id;
+    }, msg);
     return true;
   }
   for (let tries = 0; tries < 2; tries++) {
     const where = await placeOf(conversationId, deps).catch(() => undefined);
     if (!where) return false;
     try {
-      await deps.postIn(where, msg);
-      return true;
+      await deps.postIn(where.id, msg);
     } catch (err) {
       if (!goneFromDiscord(err)) throw err;
-      deps.forgetPlace(where);
+      deps.forgetPlace(where.id);
+      continue;
     }
+    if (!where.heard) await unheard?.();
+    return true;
   }
   return false;
+}
+
+/** A run's place on the server, and whether the owner is notified of what lands there. */
+export interface RunPlace {
+  id: string;
+  heard: boolean;
 }
 
 /**
@@ -101,10 +115,9 @@ export async function postInPlace(conversationId: string, msg: OutboundMessage, 
  * the owner is made a member of the thread it finds, so a post there
  * reaches them as the DM did; a mirrored chat's thread is not joined.
  */
-export async function placeOf(conversationId: string, deps: PlaceDeps): Promise<string | undefined> {
-  const where = await findPlace(conversationId, deps);
-  if (where) await deps.joinOwner(where);
-  return where;
+export async function placeOf(conversationId: string, deps: PlaceDeps): Promise<RunPlace | undefined> {
+  const id = await findPlace(conversationId, deps);
+  return id ? { id, heard: await deps.joinOwner(id) } : undefined;
 }
 
 async function findPlace(conversationId: string, deps: PlaceDeps): Promise<string | undefined> {

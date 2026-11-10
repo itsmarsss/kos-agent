@@ -349,7 +349,9 @@ run's own place on the server instead of your DM: the job's thread (under
 its project's channel, or under `#kos` for a job at the root) or the
 blob's channel. You are made a member of that thread (a job's, a blob's,
 or KOS upkeep's, and no other) before it is posted in, so you are notified
-as the DM did; nothing that used to reach you goes silent. A run whose message landed there does not post its closing words
+as the DM did; nothing that used to reach you goes silent. When Discord
+will not add you, the message goes to your DM as well, and that thread is
+not tried again for ten minutes. A run whose message landed there does not post its closing words
 after it, unless something in the run failed afterwards. A fixed-actions
 job's message, a blob's included, is a reminder in your own words, so it
 @mentions you there and pings; a prompted run's does not. `to: "owner"`

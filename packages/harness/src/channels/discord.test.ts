@@ -2931,6 +2931,29 @@ describe("the owner in KOS's threads", () => {
     await adapter.joinOwner("t7");
     expect(added).toHaveLength(3);
   });
+
+  it("says when the owner could not be added, and does not ask Discord again for ten minutes", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const adapter = new DiscordAdapter({ token: "t", ownerId: "222" });
+      let fetched = 0;
+      let refuse = true;
+      const thread = { id: "t5", isThread: () => true, members: { add: async () => { if (refuse) throw new Error("Missing Access"); } } };
+      (adapter as unknown as { client: unknown }).client = { channels: { fetch: async () => (fetched++, thread) } };
+      expect(await adapter.joinOwner("t5")).toBe(false);
+      expect(await adapter.joinOwner("t5")).toBe(false);
+      expect(fetched).toBe(1);
+      expect(warn).toHaveBeenCalledTimes(1);
+      refuse = false;
+      vi.advanceTimersByTime(10 * 60_000 + 1);
+      expect(await adapter.joinOwner("t5")).toBe(true);
+      expect(fetched).toBe(2);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("two first posts at once", () => {

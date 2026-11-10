@@ -181,6 +181,8 @@ export interface PlaceNotifierDeps extends PlaceDeps {
   jobOf(payload: NotifyPayload): JobFacts | undefined;
   /** Whether the owner alone reads a conversation's place: a channel open to guests is no place for what was meant for the owner. */
   ownerOnly(conversationId: string): boolean;
+  /** The owner's DM, for a post in a thread they could not be made a member of. */
+  sendOwner(msg: OutboundMessage): Promise<void>;
 }
 
 /**
@@ -216,8 +218,15 @@ export class PlaceNotifier {
     const job = this.deps.jobOf(payload);
     // A fixed reminder, and news the owner must not miss (a job failing), ping them.
     const ping = payload.ping || (job && pingsOwner(job)) ? `<@${this.deps.ownerId}> ` : "";
-    if (!(await postInPlace(payload.place, { ...msg, text: `${ping}${msg.text}` }, this.deps))) return undefined;
+    // A thread the owner could not join would not notify them: the DM carries it as well.
+    let unheard = false;
+    const alsoDm = async (): Promise<void> => {
+      unheard = true;
+      await this.deps.sendOwner(msg).catch((err: unknown) => console.warn(`[discord] a run's message was not also sent to the owner's DM: ${err instanceof Error ? err.message : String(err)}`));
+    };
+    if (!(await postInPlace(payload.place, { ...msg, text: `${ping}${msg.text}` }, this.deps, alsoDm))) return undefined;
     this.spoke.add(payload.place);
+    if (unheard) return { delivered: "Posted in this run's own place on Discord; the owner could not be made a member of its thread, so it was sent to their DM as well." };
     return { delivered: `Posted in this run's own place on Discord, where the owner is a member and is notified${ping ? ", pinging them" : ""}; it is not also sent to their DM.` };
   }
 }
@@ -909,7 +918,7 @@ export async function runHost(options: HostOptions): Promise<void> {
         titleOf: (conv) => kernel.titleOf(conv),
         ensureThread: (key, conv, title) => adapter!.ensureThread(key, conv, title),
         bindThread: (threadId, conv) => kernel.bindThread(threadId, conv),
-        joinOwner: (placeId) => adapter!.joinOwner(placeId).catch((err: unknown) => console.warn(`[discord] the owner could not be added to ${placeId}: ${err instanceof Error ? err.message : String(err)}`)),
+        joinOwner: (placeId) => adapter!.joinOwner(placeId),
         forgetPlace: (placeId) => adapter!.forgetPlace(placeId),
         postIn: (target, msg) => adapter!.postIn(target, msg),
         connected: () => adapter!.connected(),
@@ -927,6 +936,7 @@ export async function runHost(options: HostOptions): Promise<void> {
         // By the job the run named, so a blob's run in the blob's channel is known as its job's too.
         jobOf: (payload) => (payload.job !== undefined ? kernel.crons.get(payload.job) : payload.place ? cronOf(payload.place) : undefined),
         ownerOnly,
+        sendOwner: (msg) => adapter!.send(creds.ownerId, msg),
       });
       placer = placed;
       const mirror = new ThreadMirror({
