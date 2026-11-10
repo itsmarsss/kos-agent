@@ -654,13 +654,12 @@ describe("who a message may ping", () => {
     expect(payloads[1]).not.toHaveProperty("allowedMentions");
   });
 
-  it("lets a message ping the owner it names, as a reminder in the server does", async () => {
+  it("lets a reminder posted in a thread ping the owner it names", async () => {
     const payloads: Record<string, unknown>[] = [];
     const adapter = new DiscordAdapter({ token: "t", ownerId: "222" });
-    (adapter as unknown as { client: { users: unknown } }).client = {
-      users: { fetch: async () => ({ send: async (p: Record<string, unknown>) => { payloads.push(p); return {}; } }) },
-    };
-    await adapter.send("222", { text: "<@222> Call The Centre now." });
+    const thread = { id: "t7", isSendable: () => true, send: async (p: Record<string, unknown>) => { payloads.push(p); return { id: "m1" }; } };
+    (adapter as unknown as { client: { channels: unknown } }).client = { channels: { fetch: async () => thread } };
+    await adapter.postIn("t7", { text: "<@222> Call The Centre now." });
     expect(payloads[0]?.allowedMentions).toEqual({ parse: [], users: ["222"] });
   });
 });
