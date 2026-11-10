@@ -144,3 +144,12 @@ export function guestOrigin(): GuestOrigin | undefined {
   return guested.getStore();
 }
 
+/**
+ * Why a call that sets up work to run again later is refused, when a
+ * guest's words started the work making it: a blob, a schedule or a run of
+ * one would carry the guest's ask on past their turn, under no marker of
+ * theirs. Those are the owner's to set up. False for anyone else.
+ */
+export function guestCannot(what: string): string | false {
+  return guestOrigin() ? `${what} is the owner's to set up, and a guest's words started this work. Tell the owner what was asked (notify) instead.` : false;
+}

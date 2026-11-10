@@ -6,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Inference } from "../agent/loop.js";
 import type { CronJob } from "../cron/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
+import { BLOB_TOOLS } from "../tools/agents.js";
+import { guested } from "./caller.js";
 import { MAINTENANCE } from "./caretaker.js";
+import type { GuardedTools } from "./guarded.js";
 import { GUEST_TOOLS, Kernel, orchestratorId } from "./kernel.js";
 import { handleApiRequest } from "./server.js";
 
@@ -155,6 +158,27 @@ describe("what a guest's words reach, wherever they are handed", () => {
     asGuest("agent:noter");
     expect(blob.isError).toBe(true);
     expect(blob.content).not.toContain("my secret");
+  });
+
+  it("refuses a guest's work a blob or a schedule, whatever tools it was given", async () => {
+    const rootChat = kernel.ensureOrchestratorConversation().id;
+    const toolbox = (kernel as unknown as { guardedTools: (o: object) => GuardedTools }).guardedTools({
+      conversationId: rootChat,
+      guest: { project: "daily", chat: "project:daily" },
+      grant: [...BLOB_TOOLS],
+    });
+    const made = await toolbox.execute("blobs.create", { name: "spy", description: "d", brief: "b", schedule: "0 * * * *", prompt: "go" });
+    expect(made.isError).toBe(true);
+    expect(made.content).toMatch(/owner's to set up, and a guest's words started this work/);
+    const job = await toolbox.execute("cron.schedule", { name: "spy", schedule: "0 * * * *", type: "self_prompt", prompt: "go" });
+    expect(job.isError).toBe(true);
+    expect(job.content).toMatch(/owner's to set up/);
+    expect(kernel.roles.exists("spy")).toBe(false);
+    expect(kernel.crons.list().some((c) => c.name === "spy")).toBe(false);
+    // The owner's own turn still makes one.
+    const own = (kernel as unknown as { guardedTools: (o: object) => GuardedTools }).guardedTools({ conversationId: rootChat, owner: true, grant: [...BLOB_TOOLS] });
+    expect((await own.execute("blobs.create", { name: "helper", description: "d", brief: "b" })).isError).toBe(false);
+    expect(guested.run(undefined, () => kernel.roles.exists("helper"))).toBe(true);
   });
 
   it("keeps a guest's handoff under their room when the owner retries it", async () => {

@@ -1,6 +1,7 @@
 import cron from "node-cron";
 
 import { agentConversationId, parseFaceLook, ROLE_NAME, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
+import { guestCannot } from "../kernel/caller.js";
 import { reachesAll } from "../kernel/caretaker.js";
 import type { Conversation } from "../kernel/conversations.js";
 import { whenWords } from "../kernel/when.js";
@@ -243,7 +244,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
           : `Made. Dispatch work to it with blobs.dispatch. The owner can edit ${record.path}.`,
       });
     },
-    { floor: "safe" },
+    { floor: "safe", refuse: () => guestCannot("A blob") },
     { restricted: true },
   );
 
@@ -321,7 +322,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
           note: enabled ? `Resumed: it runs on ${job.schedule} again.` : "Paused: its schedule is off until resumed. Dispatching to it still works.",
         });
       },
-      { floor: "safe" },
+      { floor: "safe", refuse: () => guestCannot(enabled ? "Resuming a blob" : "Pausing a blob") },
       { restricted: true },
     );
   };
@@ -342,7 +343,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
       return JSON.stringify({ removed: name, note: "Its file and schedule are gone; its thread stays as an ordinary chat." });
     },
     // A file of the owner's goes with it, so it asks.
-    { floor: "risky", why: "removes the blob and its file for good" },
+    { floor: "risky", why: "removes the blob and its file for good", refuse: () => guestCannot("Removing a blob") },
     { restricted: true },
   );
 }
