@@ -84,6 +84,21 @@ describe("a turn's answer shown on Discord after an approval", () => {
   });
 });
 
+describe("a turn's answer in a place guests read", () => {
+  it("posts no turn taken elsewhere, and still the answers to what was said there", async () => {
+    const open = (over: Partial<SaidDeps> = {}) => deps({ "chat-board": "c1" }, { ownerOnly: (conv) => conv !== "chat-board", ...over });
+    const dashboard = open();
+    await postSaid(said({ conversationId: "chat-board", channel: "dashboard", text: "my private plan" }), dashboard);
+    await postSaid(said({ conversationId: "chat-board", channel: null, from: { kind: "chat", name: "Orchestrator", id: "project:x" } }), dashboard);
+    expect(dashboard.posts).toEqual([]);
+    expect(dashboard.dms).toEqual([]);
+    // Asked there and answered after an approval: the answer lands there.
+    const resumed = open();
+    await postSaid(said({ conversationId: "chat-board", resumed: true }), resumed);
+    expect(resumed.posts).toEqual([{ target: "c1", text: "Deleted." }]);
+  });
+});
+
 describe("a scheduled run's answer on the server", () => {
   const kickoff: JobFacts = { id: 2, name: "9 AM Daily Kickoff", type: "self_prompt", projectSlug: null };
   const run = (conv: string, reply = "Kickoff sent."): Said => ({ conversationId: conv, text: "", reply, origin: "system", channel: null, files: [] });

@@ -212,6 +212,8 @@ export interface ClaimQuery {
   scopes?: ClaimScope[];
   /** Lowest match score worth returning. Default 0: any token hit. */
   minScore?: number;
+  /** Only the claims these wrote, by source. Default: whoever wrote them. */
+  sources?: string[];
 }
 
 export interface Trace {
@@ -411,9 +413,9 @@ export class FactsStore {
   search(userId: string, query: string, limit = 20, options: ClaimQuery = {}): Fact[] {
     const tokens = tokenize(query);
     const wanted = options.tags?.filter(Boolean) ?? [];
-    const all = wanted.length
-      ? this.all(userId, options.scopes).filter((f) => f.tags.some((t) => wanted.includes(t)))
-      : this.all(userId, options.scopes); // already ordered by updated_at DESC
+    const sources = options.sources;
+    const all = this.all(userId, options.scopes) // already ordered by updated_at DESC
+      .filter((f) => (!wanted.length || f.tags.some((t) => wanted.includes(t))) && (!sources || (f.source !== null && sources.includes(f.source))));
     if (tokens.length === 0) return all.slice(0, limit);
     const needle = query.trim().toLowerCase();
     const floor = options.minScore ?? 0;

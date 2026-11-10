@@ -1545,22 +1545,29 @@ describe("DiscordAdapter authorization", () => {
     // A member in the open room: a guest, named as the server names them.
     await adapter.receiveMessage(from(open, { id: "u1", username: "ana_b", globalName: "Ana" }, "my solution", { displayName: "Ana B" }));
     expect(seen).toHaveLength(1);
-    expect(seen[0]).toMatchObject({ senderId: "u1", text: "my solution", conversationId: "project:club", guest: { id: "u1", name: "Ana B" } });
-    // In a thread under it: still a guest. In a room not opened: silence.
+    // In the place's own room, not the chat the channel is bound to.
+    const clubRoom = { room: { home: "project:club", key: "project:club", name: "channel" } };
+    expect(seen[0]).toMatchObject({ senderId: "u1", text: "my solution", conversationId: "discord:room:c1", newIn: clubRoom, guest: { id: "u1", name: "Ana B" } });
+    // In a thread under it: still a guest, in the thread's own room. In a room not opened: silence.
     await adapter.receiveMessage(from(thread, { id: "u2", username: "bo" }, "me too"));
-    expect(seen[1]).toMatchObject({ guest: { id: "u2", name: "bo" } });
+    expect(seen[1]).toMatchObject({ conversationId: "discord:room:t1", guest: { id: "u2", name: "bo" } });
     await adapter.receiveMessage(from(shut, { id: "u1", username: "ana_b" }, "psst"));
     expect(seen).toHaveLength(2);
     // The owner is never a guest.
     await adapter.receiveMessage(from(open, { id: "owner-id", username: "marsss" }, "hi all"));
     expect(seen[2]?.guest).toBeUndefined();
+    // The owner's words keep to the chat the channel is bound to.
+    expect(seen[2]?.conversationId).toBe("project:club");
+    // A room's answers, a resumed one's included, land in its own place.
+    expect(adapter.mirrorTarget("discord:room:c1", {})).toBe("c1");
+    expect(adapter.mirrorTarget("discord:room:t1", { t1: "project:club" })).toBe("t1");
     // A guest's press in the open room comes through marked; a stranger's elsewhere is refused.
     const pressed = { ...fakeButton("u1", `${PRESS_PREFIX}tok9`), channel: open, guildId: "g1", member: { displayName: "Ana B" } } as unknown as Interaction;
     await adapter.receiveInteraction(pressed);
-    // Named with the room's own chat, which is all a guest's press may reach.
-    expect(presses).toEqual([{ buttonId: "", label: "Ship it", token: "tok9", pressedBy: "u1", guest: { id: "u1", name: "Ana B" }, room: "project:club" }]);
+    // Named with the place's room, which is all a guest's press may reach.
+    expect(presses).toEqual([{ buttonId: "", label: "Ship it", token: "tok9", pressedBy: "u1", guest: { id: "u1", name: "Ana B" }, room: "discord:room:c1", newIn: clubRoom }]);
     await adapter.receiveInteraction({ ...fakeButton("u2", `${PRESS_PREFIX}tok9`), channel: thread, guildId: "g1", member: null } as unknown as Interaction);
-    expect(presses[1]).toMatchObject({ guest: { id: "u2" }, room: "project:club" });
+    expect(presses[1]).toMatchObject({ guest: { id: "u2" }, room: "discord:room:t1" });
     const refused = { ...fakeButton("u1", `${PRESS_PREFIX}tok9`), channel: shut, guildId: "g1" } as unknown as Interaction;
     await adapter.receiveInteraction(refused);
     expect(presses).toHaveLength(2);
@@ -1572,6 +1579,30 @@ describe("DiscordAdapter authorization", () => {
     // The owner's press is no guest's, and names no room.
     await adapter.receiveInteraction({ ...fakeButton("owner-id", `${PRESS_PREFIX}tok9`), channel: open } as unknown as Interaction);
     expect(presses[2]).toEqual({ buttonId: "", label: "Ship it", token: "tok9", pressedBy: "owner-id" });
+  });
+
+  it("asks in #needs-you alone for an owner's chat bound to a place guests read, and in a room's own place", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id", guestsAllowed: (key) => key === "chat-board" });
+    const posts: Record<string, Record<string, unknown>[]> = { ny: [], c8: [], c9: [] };
+    const sendable = (id: string, topic: string) => ({ id, topic, isThread: () => false, isSendable: () => true, send: async (p: Record<string, unknown>) => { posts[id]!.push(p); return { id: `m${posts[id]!.length}`, edit: async () => undefined }; } });
+    const places: Record<string, unknown> = { ny: sendable("ny", "kos:needs-you · Approvals"), c8: sendable("c8", "kos:chat-board · Board"), c9: sendable("c9", "kos:chat-mine · Mine") };
+    const inner = adapter as unknown as { client: unknown; approvalsChannelId: string; boundIds: Map<string, string> };
+    inner.client = { channels: { fetch: async (id: string) => places[id] ?? null }, users: { fetch: async () => ({ send: async () => { throw new Error("no DM"); } }) } };
+    inner.approvalsChannelId = "ny";
+    inner.boundIds.set("chat-board", "c8").set("chat-mine", "c9");
+    const ask = (id: string, conversationId: string) => adapter.requestApproval("owner-id", { id, text: "x", tool: "sql", args: { sql: "UPDATE secrets SET v = 1" }, asker: { name: "Board", conversationId } });
+    // The owner's chat bound to #leetcode, which guests read: the card, with all it would do, stays in #needs-you.
+    await ask("1", "chat-board");
+    expect(posts["c8"]).toHaveLength(0);
+    expect(posts["ny"]).toHaveLength(1);
+    expect(String(posts["ny"]![0]?.["content"])).not.toContain("-# in");
+    // A chat whose place only the owner reads is asked there too, as before.
+    await ask("2", "chat-mine");
+    expect(posts["c9"]).toHaveLength(1);
+    // The room's own ask, what a guest's words asked for, shows in its place.
+    await ask("3", "discord:room:c8");
+    expect(posts["c8"]).toHaveLength(1);
+    expect(posts["ny"]).toHaveLength(3);
   });
 
   it("reads a channel's messages and reactions, reacts, and hands back what it posted", async () => {
@@ -2405,7 +2436,7 @@ describe("catching up after a drop or a restart", () => {
     const opened = adapterOver({ c1: open.channel }, { c1: "200" }, true);
     await opened.adapter.catchUp();
     expect(opened.heard.map((m) => [m.senderId, m.guest?.id, m.conversationId])).toEqual([
-      ["ana", "ana", "project:garden"],
+      ["ana", "ana", "discord:room:c1"],
       ["owner", undefined, "project:garden"],
     ]);
   });

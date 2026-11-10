@@ -70,14 +70,16 @@ export function createPressHandler(deps: PressHandlerDeps): ButtonPressHandler {
       });
       return;
     }
-    // A guest presses only what their room's own chat offered them. A button
-    // another chat sent into the room would run their press there, in a chat
-    // they cannot see, and answer them from it.
-    if (press.guest && route.conversationId !== press.room) {
+    // A guest's press runs in their place's room alone, and only for a
+    // button of the room's own: one its chat or its project sent there. A
+    // button from anywhere else is the owner's to press.
+    const room = press.guest ? deps.kernel.roomForPress(route.conversationId, press.room, deps.channel, press.newIn) : undefined;
+    if (press.guest && !room) {
       await respond.working({ ephemeral: true });
       await respond.send({ text: OWNER_ONLY });
       return;
     }
+    const conversationId = room ?? route.conversationId;
 
     let filled: Record<string, string> | undefined;
     if (route.modal) {
@@ -102,7 +104,7 @@ export function createPressHandler(deps: PressHandlerDeps): ButtonPressHandler {
      * marked edited. One press, one answer.
      */
     const held: OutboundMessage[] = [];
-    const close = deps.kernel.openReplySurface(route.conversationId, async (msg) => {
+    const close = deps.kernel.openReplySurface(conversationId, async (msg) => {
       held.push(msg);
     });
     let res;
@@ -110,7 +112,7 @@ export function createPressHandler(deps: PressHandlerDeps): ButtonPressHandler {
       res = await deps.kernel.handleMessage(
         pressMessage(press, route, filled, deps.ownerRecipientId),
         {
-          sessionId: route.conversationId,
+          sessionId: conversationId,
           origin: "system",
           ...(press.guest ? { guest: press.guest } : {}),
           // Which surface the answer is for. Without it the turn cannot know

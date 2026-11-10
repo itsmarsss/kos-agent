@@ -134,6 +134,8 @@ export interface GuestOrigin {
   project: string | undefined;
   /** The chat their words went to: all a room outside any project reaches. */
   chat: string;
+  /** When that chat is a place's room, the chat the place is bound to: its channel and threads are the guest's to read. */
+  home?: string;
 }
 
 /** Set for every call, cleared when the turn is no guest's, so a call never inherits one. */

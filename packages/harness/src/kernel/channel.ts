@@ -41,8 +41,9 @@ export function connectChannel(
   // The turn's own conversation is known before it runs. A message addressed
   // to an agent runs in the agent's thread; a bound channel's turn runs in
   // the conversation it is bound to.
-  const conversationOf = (ctx: { text?: string; conversationId?: string; channel: string; userId: string; conversationKey?: string }): string => {
-    const addressed = ctx.text ? kernel.addressedAgent(ctx.text) : undefined;
+  const conversationOf = (ctx: { text?: string; conversationId?: string; channel: string; userId: string; conversationKey?: string; guest?: boolean }): string => {
+    // A guest's words run where the place puts them, never in a blob's own thread.
+    const addressed = ctx.text && !ctx.guest ? kernel.addressedAgent(ctx.text) : undefined;
     return addressed ? agentConversationId(addressed.name) : (ctx.conversationId ?? kernel.conversationFor(ctx.channel, ctx.userId, ctx.conversationKey).id);
   };
   // Asks decided from this surface, so a second press says so rather than naming the dashboard.

@@ -39,6 +39,8 @@ export interface SaidEvent {
 export interface ThreadMirrorDeps {
   /** Where a conversation shows on the server: its bound channel or the thread made for it, or nothing yet. */
   targetFor(conversationId: string): string | undefined;
+  /** Whether the owner alone reads a conversation's place: a place guests read is shown no turn of the owner's from elsewhere. */
+  ownerOnly(conversationId: string): boolean;
   /** The channel key a chat's thread is made under (its project's, or KOS's own at the root), or nothing for a chat that gets none. */
   homeOf(conversationId: string): string | undefined;
   /** Make a thread under a channel key, bound to the conversation once made, and return its id, or nothing when that channel is not there yet. */
@@ -118,6 +120,7 @@ export class ThreadMirror {
    */
   private async heard(event: Extract<ProgressEvent, { kind: "heard" }>): Promise<void> {
     if (event.from === "discord" || !event.said.trim()) return;
+    if (!this.deps.ownerOnly(event.conversationId)) return;
     const target = this.tracked.get(event.conversationId)?.target ?? this.deps.targetFor(event.conversationId);
     if (!target) return;
     const owner = await this.deps.ownerSender();
@@ -159,6 +162,9 @@ export class ThreadMirror {
     // handler. Anything the owner says in a job's thread is a conversation
     // like any other and is told here.
     if (event.from === "discord" || !event.said?.trim()) return;
+    // A place guests read shows only what was said in it: work done on the
+    // dashboard or passed on stays the owner's.
+    if (!this.deps.ownerOnly(conv)) return;
     let target = this.deps.targetFor(conv);
     if (!target) {
       // Made on first mirror: a project's chat under the project's channel,
