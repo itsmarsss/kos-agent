@@ -39,6 +39,7 @@ import {
   type ApprovalRequest,
   type NotifyPayload,
   type NotifySent,
+  type OutboundMessage,
   type PendingAction,
 } from "@kos/harness";
 import { createComputerUse, type PanelDeps } from "@kos/computer";
@@ -48,7 +49,7 @@ type PanelSurface = "chrome" | "mac";
 
 import { envFilePath } from "./env.js";
 import { ThreadMirror } from "./threadmirror.js";
-import { pingsOwner, placeOf, postSaid, type PlaceDeps, type SaidDeps } from "./saidpost.js";
+import { pingsOwner, placeOf, postSaid, type JobFacts, type PlaceDeps, type SaidDeps } from "./saidpost.js";
 import { claimHandle, type HandleClaim } from "./imessagelock.js";
 import { clearDaemonState, writeDaemonState } from "./state.js";
 
@@ -172,6 +173,53 @@ export function dashboardUrlFor(host: string, port: number): string {
   return process.env.KOS_PUBLIC_URL?.trim() || `http://${host === "0.0.0.0" ? "localhost" : host}:${port}`;
 }
 
+/** What saying a scheduled run's message in its place needs. */
+export interface PlaceNotifierDeps extends PlaceDeps {
+  /** The owner's id on the server, for a ping. */
+  ownerId: string;
+  /** The scheduled job a message is from, when it is one. */
+  jobOf(payload: NotifyPayload): JobFacts | undefined;
+  postIn(target: string, msg: OutboundMessage): Promise<void>;
+}
+
+/**
+ * A scheduled run's unaddressed message, said in its own place on the
+ * server (the job's thread, the blob's channel) rather than the owner's DM.
+ * It remembers which runs said their piece there, so the run's closing
+ * words do not repeat it.
+ */
+export class PlaceNotifier {
+  /** Conversations whose scheduled run has said its piece in its place this turn. */
+  private readonly spoke = new Set<string>();
+
+  constructor(private readonly deps: PlaceNotifierDeps) {}
+
+  /** A new turn has said nothing in its place yet. */
+  turnStarted(conversationId: string): void {
+    this.spoke.delete(conversationId);
+  }
+
+  /** Whether a scheduled run here already said its piece in its place this turn; asking clears it. */
+  spokeInPlace(conversationId: string): boolean {
+    return this.spoke.delete(conversationId);
+  }
+
+  /**
+   * Said in the message's place, when it asks for one and has one; nothing
+   * otherwise, and the owner is sent it as before.
+   */
+  async say(payload: NotifyPayload, msg: OutboundMessage): Promise<NotifySent | undefined> {
+    if (!payload.place || payload.target.kind !== "owner" || payload.target.surface) return undefined;
+    const where = await placeOf(payload.place, this.deps).catch(() => undefined);
+    if (!where) return undefined;
+    const job = this.deps.jobOf(payload);
+    const ping = job && pingsOwner(job) ? `<@${this.deps.ownerId}> ` : "";
+    await this.deps.postIn(where, { ...msg, text: `${ping}${msg.text}` });
+    this.spoke.add(payload.place);
+    return { delivered: `Posted in this run's own place on Discord, not the owner's DM${ping ? ", pinging the owner" : ""}. To reach the owner directly, send with to: "owner".` };
+  }
+}
+
 /** The key the open asks' Discord cards are kept under, by approval id. */
 const KEPT_PROMPTS_KEY = "discord.prompts";
 /** An ask lapses well within this; a record older is let go. */
@@ -270,10 +318,8 @@ export async function runHost(options: HostOptions): Promise<void> {
   const defaultSurface = creds && wantDiscord ? "discord" : sms ? "sms" : "discord";
   const ownerOn = (surface: string): string => (surface === "sms" ? sms?.owner ?? "" : creds?.ownerId ?? "");
 
-  /** A conversation's place on the server, once the server is laid out; unset without one. */
-  let placeOn: PlaceDeps | undefined;
-  /** Conversations whose scheduled run has said its piece in its place this turn. */
-  const spoke = new Set<string>();
+  /** A scheduled run's place on the server, once the server is laid out; unset without one. */
+  let placer: PlaceNotifier | undefined;
   /** The scheduled job a conversation is the thread of, when it is one. */
   const cronOf = (conversationId: string) => (conversationId.startsWith("cron:") ? kernel.crons.get(Number(conversationId.slice("cron:".length))) : undefined);
 
@@ -290,16 +336,8 @@ export async function runHost(options: HostOptions): Promise<void> {
           // A scheduled run that named nowhere speaks in its own place on the
           // server (the job's thread, the blob's channel) rather than the DM;
           // with no place to be had it reaches the owner as before.
-          if (payload.place && payload.target.kind === "owner" && !payload.target.surface && placeOn && adapter && creds) {
-            const where = await placeOf(payload.place, placeOn).catch(() => undefined);
-            if (where) {
-              const job = cronOf(payload.place);
-              const ping = job && pingsOwner(job) ? `<@${creds.ownerId}> ` : "";
-              await adapter.postIn(where, { ...msg, text: `${ping}${msg.text}` });
-              spoke.add(payload.place);
-              return { delivered: `Posted in this run's own place on Discord, not the owner's DM${ping ? ", pinging the owner" : ""}. To reach the owner directly, send with to: "owner".` };
-            }
-          }
+          const inPlace = await placer?.say(payload, msg);
+          if (inPlace) return inPlace;
           const send = surfaceUp(surfaces, surface, payload.target.surface !== undefined);
           // An addressed message goes through sendTo; the owner's DM is the
           // path everything took before and still takes. What a channel
@@ -863,13 +901,20 @@ export async function runHost(options: HostOptions): Promise<void> {
           return undefined;
         }
       };
-      placeOn = {
+      const placeOn: PlaceDeps = {
         targetFor: (conv) => adapter?.mirrorTarget(conv, kernel.threadBindings()),
         homeOf,
         titleOf: (conv) => kernel.titleOf(conv),
         ensureThread: (key, conv, title) => adapter!.ensureThread(key, conv, title),
         bindThread: (threadId, conv) => kernel.bindThread(threadId, conv),
       };
+      const placed = new PlaceNotifier({
+        ...placeOn,
+        ownerId: creds.ownerId,
+        jobOf: (payload) => (payload.place ? cronOf(payload.place) : undefined),
+        postIn: (target, msg) => adapter!.postIn(target, msg),
+      });
+      placer = placed;
       const mirror = new ThreadMirror({
         targetFor: (conv) => adapter?.mirrorTarget(conv, kernel.threadBindings()),
         homeOf,
@@ -886,13 +931,13 @@ export async function runHost(options: HostOptions): Promise<void> {
       });
       kernel.progress.subscribe((event) => {
         // A new turn has said nothing in its place yet.
-        if (event.kind === "turn-start") spoke.delete(event.conversationId);
+        if (event.kind === "turn-start") placed.turnStarted(event.conversationId);
         mirror.onProgress(event);
       });
       const saidDeps: SaidDeps = {
         ...placeOn,
         jobOf: cronOf,
-        spokeInPlace: (conv) => spoke.delete(conv),
+        spokeInPlace: (conv) => placed.spokeInPlace(conv),
         senderFor: (conv) => kernel.senderFor(conv),
         speakerFor: (from) => kernel.speakerFor(from),
         ownerSender: () => adapter!.ownerSender(),

@@ -1,9 +1,10 @@
 import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { SurfaceDownError, type ChannelAdapter } from "@kos/harness";
+import { SurfaceDownError, type ChannelAdapter, type NotifyPayload } from "@kos/harness";
 
-import { dashboardUrlFor, roomCursorsIn, surfaceUp, waitForPortFree } from "./host.js";
+import { dashboardUrlFor, PlaceNotifier, roomCursorsIn, surfaceUp, waitForPortFree, type PlaceNotifierDeps } from "./host.js";
+import type { JobFacts } from "./saidpost.js";
 
 describe("waitForPortFree", () => {
   let server: Server | undefined;
@@ -79,5 +80,55 @@ describe("dashboardUrlFor", () => {
       if (was === undefined) delete process.env.KOS_PUBLIC_URL;
       else process.env.KOS_PUBLIC_URL = was;
     }
+  });
+});
+
+describe("a scheduled run's message in its place", () => {
+  const reminder: JobFacts = { id: 7, name: "OSAP: call The Centre", type: "actions", projectSlug: null };
+  const kickoff: JobFacts = { id: 2, name: "9 AM Daily Kickoff", type: "self_prompt", projectSlug: null };
+
+  function placer(over: Partial<PlaceNotifierDeps> = {}) {
+    const posts: { target: string; text: string }[] = [];
+    const deps: PlaceNotifierDeps = {
+      ownerId: "222",
+      targetFor: (conv) => ({ "cron:7": "t7", "cron:2": "t2" })[conv],
+      homeOf: () => undefined,
+      titleOf: (conv) => conv,
+      ensureThread: async () => undefined,
+      bindThread: () => undefined,
+      jobOf: (p) => ({ "cron:7": reminder, "cron:2": kickoff })[p.place ?? ""],
+      postIn: async (target, msg) => void posts.push({ target, text: msg.text }),
+      ...over,
+    };
+    return { notifier: new PlaceNotifier(deps), posts };
+  }
+  const run = (place: string, text = "Call The Centre now."): NotifyPayload => ({ text, target: { kind: "owner" }, place });
+
+  it("posts in the run's place, pinging the owner for a fixed reminder and not for a prompted run", async () => {
+    const { notifier, posts } = placer();
+    expect(await notifier.say(run("cron:7"), { text: "Call The Centre now." })).toMatchObject({ delivered: expect.stringContaining("pinging the owner") });
+    await notifier.say(run("cron:2", "Kickoff"), { text: "Kickoff" });
+    expect(posts).toEqual([
+      { target: "t7", text: "<@222> Call The Centre now." },
+      { target: "t2", text: "Kickoff" },
+    ]);
+  });
+
+  it("leaves to the owner's DM what names somewhere, asks no place, or has none", async () => {
+    const { notifier, posts } = placer();
+    expect(await notifier.say({ text: "x", target: { kind: "owner" } }, { text: "x" })).toBeUndefined();
+    expect(await notifier.say({ text: "x", target: { kind: "owner", surface: "discord" }, place: "cron:7" }, { text: "x" })).toBeUndefined();
+    expect(await notifier.say(run("cron:99"), { text: "x" })).toBeUndefined();
+    expect(posts).toEqual([]);
+  });
+
+  it("remembers a run that spoke in its place until asked, or until its next turn starts", async () => {
+    const { notifier } = placer();
+    await notifier.say(run("cron:7"), { text: "x" });
+    expect(notifier.spokeInPlace("cron:7")).toBe(true);
+    expect(notifier.spokeInPlace("cron:7")).toBe(false);
+    await notifier.say(run("cron:7"), { text: "x" });
+    notifier.turnStarted("cron:7");
+    expect(notifier.spokeInPlace("cron:7")).toBe(false);
   });
 });
