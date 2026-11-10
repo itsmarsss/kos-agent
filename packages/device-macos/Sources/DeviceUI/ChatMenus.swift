@@ -59,6 +59,13 @@ public enum ChatMenus {
     ("help", nil, "show these commands"),
   ]
 
+  /// Whether the owner's words name one of these commands; anything else, "/etc/hosts" too, is a message.
+  public static func isCommand(_ said: String) -> Bool {
+    let line = said.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard line.hasPrefix("/"), let word = line.dropFirst().split(whereSeparator: \.isWhitespace).first else { return false }
+    return commands.contains { $0.name == word.lowercased() }
+  }
+
   /// The token being typed at the end of `text`.
   public static func token(in text: String) -> Token? {
     if text.hasPrefix("/"), text.dropFirst().allSatisfy({ $0.isASCII && $0.isLowercase }) {

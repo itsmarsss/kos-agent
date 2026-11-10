@@ -1,11 +1,11 @@
-import { CHAT_COMMANDS, KOS_SEED } from "@kos/shared";
+import { KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
 import { AskSteps, BoltIcon, ChevronDown, Chips, Collapse, ComposeIcon, Countdown, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, QuoteLine, SendIcon, spring, StepPicture, StepsIcon, StopIcon, type Tone, useDismiss, useOverlayScroll, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
 
-import { asked, EMPTY, isShown, shown, statused, STEP, yourWords, type Approval, type Chat, type Extra, type Line, type Quote, type Step } from "./chat.js";
+import { asked, EMPTY, givenBack, isCommand, isShown, PANEL_COMMANDS, sent, shown, statused, STEP, yourWords, type Approval, type Chat, type Extra, type Line, type Quote, type Step } from "./chat.js";
 import { pictureSrc, showable, type Pictured } from "./frames.js";
 import { linkWords } from "./linkwords.js";
 import { isHidden } from "./settings.js";
@@ -112,7 +112,7 @@ function useChat(windowId: number | undefined, online: boolean): {
   const giveBack = (why: string): void => {
     heardBack();
     setError(why);
-    setChat((c) => ({ ...c, working: false, stories: [], live: [], sending: [], ...(c.sending.length ? { unsent: c.sending.join("\n") } : {}) }));
+    setChat(givenBack);
   };
 
   useEffect(() => {
@@ -222,9 +222,7 @@ function useChat(windowId: number | undefined, online: boolean): {
       const said = text.trim();
       if (!said) return;
       if (about) setQuotes((q) => new Map(q).set(quoteKey(quotedIn.current, said), about));
-      // A command (/new, /switch) is never in the chat's words, so it waits for nothing but its answer.
-      // The turn already running keeps its story: these words go to it at its next step, or run after it.
-      setChat((c) => ({ ...c, sending: said.startsWith("/") ? c.sending : [...c.sending, said], working: true, unsent: undefined }));
+      setChat((c) => sent(c, said));
       clearTimeout(taking.current);
       taking.current = setTimeout(() => giveBack("KOS did not take that. It may be an older KOS without the side panel, or not reachable now; your words are back in the box."), TAKE_MS);
       say({ type: "send", text: said, ...(about ? { quote: { text: about.text } } : {}) });
@@ -950,7 +948,7 @@ function Composer({
   const go = (): void => {
     if (!online || !text.trim()) return;
     // A command is about the chat, not the page: it goes without the selection.
-    const about = quoting && !text.trim().startsWith("/") ? quoting : undefined;
+    const about = quoting && !isCommand(text) ? quoting : undefined;
     send(text, about);
     if (about) setSetAside(about.text);
     setText("");
@@ -1066,7 +1064,7 @@ function tokenAt(text: string, caret: number): { kind: "command" | "mention"; q:
 
 /** The commands a surface can run, by the start of their names; the dashboard's own left out. */
 function commandsFor(q: string): Option[] {
-  return CHAT_COMMANDS.filter((c) => c.where !== "dashboard" && c.name.startsWith(q))
+  return PANEL_COMMANDS.filter((c) => c.name.startsWith(q))
     .slice(0, 8)
     .map((c) => ({ insert: `/${c.name} `, label: `/${c.name}${c.args ? ` ${c.args}` : ""}`, hint: c.description }));
 }

@@ -133,11 +133,31 @@ struct ChatModelTests {
       let model = ChatModel()
       model.show(conversation: "mac:owner", title: "Mac", lines: [.you("hi", files: []), .kos("Hello.")])
       model.say(command)
-      model.status(taken: true, story: nil, error: nil, said: command, conversation: "mac:owner")
+      model.status(taken: true, story: nil, error: nil, said: command, conversation: "mac:owner", command: true)
       #expect(model.sending.isEmpty)
       model.show(conversation: "mac:owner", title: "Mac", lines: [], notice: (text: "Done.", from: nil, waiting: false))
       #expect(!model.working)
     }
+  }
+
+  /// Words that start with a slash but name no command are a message: on their way, told as they go, and given back if never taken.
+  @Test func wordsThatNameNoCommandAreAMessage() {
+    let said = "/etc/hosts is broken"
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [])
+    model.say(said)
+    #expect(model.sending == [said])
+    model.status(taken: true, story: nil, error: nil, said: said, conversation: "mac:owner")
+    #expect(model.sending == [said])
+    model.status(taken: false, story: .some("› Read the file"), error: nil, said: said, conversation: "mac:owner")
+    #expect(model.story == "› Read the file")
+    model.giveBack("KOS did not take that.")
+    #expect(model.sending.isEmpty)
+    #expect(model.draft == said)
+    // A command KOS knows by another name goes once KOS says it is one.
+    model.say("/cancel")
+    model.status(taken: true, story: nil, error: nil, said: "/cancel", conversation: "mac:owner", command: true)
+    #expect(model.sending.isEmpty)
   }
 
   /// The first chat, made from none by /new, starts afresh and leaves the window ready for the next words.
@@ -145,7 +165,7 @@ struct ChatModelTests {
     let model = ChatModel()
     model.show(conversation: nil, title: "Mac", lines: [], notice: (text: "Nothing is running.", from: nil, waiting: false))
     model.say("/new")
-    model.status(taken: true, story: nil, error: nil, said: "/new", conversation: nil)
+    model.status(taken: true, story: nil, error: nil, said: "/new", conversation: nil, command: true)
     model.show(conversation: "mac:owner", title: "New conversation", lines: [], notice: (text: "Started 'New conversation'", from: nil, waiting: false))
     #expect(model.conversation == "mac:owner")
     #expect(!model.working)

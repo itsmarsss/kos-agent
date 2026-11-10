@@ -1,14 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { asked, EMPTY, shown, statused, type Chat } from "./chat.js";
+import { asked, EMPTY, givenBack, isCommand, sent, shown, statused } from "./chat.js";
 
-/** The panel as send() leaves it: words on their way, or a command, which waits only for its answer. */
-function sent(c: Chat, text: string): Chat {
-  return { ...c, sending: text.startsWith("/") ? c.sending : [...c.sending, text], working: true };
-}
-
-/** KOS's acknowledgement of words, as the host sends it: a chat not yet made is null. */
-const taken = (said: string, conversation: string | null): Record<string, unknown> => ({ chat: conversation, conversation, held: false, said, taken: true });
+/** KOS's acknowledgement of words, as the host sends it: a chat not yet made is null, and a command says it is one. */
+const taken = (said: string, conversation: string | null): Record<string, unknown> => ({ chat: conversation, conversation, held: false, said, taken: true, ...(isCommand(said) ? { command: true } : {}) });
 
 const kos = (text: string) => ({ role: "kos" as const, text });
 const you = (text: string) => ({ role: "you" as const, text });
@@ -30,6 +25,31 @@ describe("the side panel's chat", () => {
       const c = statused(sent({ ...EMPTY, conversation: "c1" }, command), taken(command, "c1"));
       expect(c.sending).toEqual([]);
     }
+  });
+
+  it("sends words that start with a slash but name no command as a message", () => {
+    const said = "/etc/hosts is broken";
+    let c = sent({ ...EMPTY, conversation: "c1" }, said);
+    expect(c).toMatchObject({ sending: [said], working: true });
+    c = statused(c, { chat: "c1", conversation: "c1", held: false, said, taken: true });
+    expect(c.sending).toEqual([said]);
+    c = statused(c, { chat: "c1", conversation: "c1", held: false, said, story: "› Read the file" });
+    expect(c.stories).toEqual([{ after: 1, said, text: "› Read the file" }]);
+  });
+
+  it("gives words that name no command back to the box when KOS never takes them", () => {
+    const c = givenBack(sent({ ...EMPTY, conversation: "c1" }, "/etc/hosts is broken"));
+    expect(c).toMatchObject({ sending: [], working: false, unsent: "/etc/hosts is broken" });
+  });
+
+  it("knows a command by its name", () => {
+    expect(["/new", "  /switch 2", "/Stop"].every(isCommand)).toBe(true);
+    expect(["/etc/hosts is broken", "/", "new"].some(isCommand)).toBe(false);
+  });
+
+  it("lets a command KOS knows by another name go", () => {
+    const c = statused(sent({ ...EMPTY, conversation: "c1" }, "/cancel"), { chat: "c1", conversation: "c1", held: false, said: "/cancel", taken: true, command: true });
+    expect(c.sending).toEqual([]);
   });
 
   it("lets /stop go when no chat is made yet", () => {

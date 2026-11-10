@@ -246,7 +246,7 @@ public final class ChatModel: ObservableObject {
     error = nil
     hint = nil
     // A command is about the chat, not the app: it goes without the selection, which waits for the next words.
-    let command = said.hasPrefix("/")
+    let command = ChatMenus.isCommand(said)
     let quoted = command ? nil : quote
     if !command { sending.append(said) }
     if let quoted {
@@ -314,9 +314,10 @@ public final class ChatModel: ObservableObject {
   }
 
   /// A turn as it goes, for the owner's words `said` in `conversation`. `story` is `.some(nil)` when KOS said the turn is done.
-  /// Another chat's turn is not this one's: nothing of it is drawn.
+  /// Another chat's turn is not this one's: nothing of it is drawn. `command` says KOS took the words as a command.
   public func status(
-    taken: Bool, story: String??, error: String?, said: String? = nil, conversation: String? = nil, waiting: Wait? = nil, held: Bool = false
+    taken: Bool, story: String??, error: String?, said: String? = nil, conversation: String? = nil, waiting: Wait? = nil, held: Bool = false,
+    command: Bool = false
   ) {
     if let conversation, conversation != self.conversation { return }
     self.waiting = error == nil && story != .some(nil) ? waiting : nil
@@ -335,8 +336,12 @@ public final class ChatModel: ObservableObject {
     }
     if taken {
       // Words said somewhere else (on the dashboard, in a Chrome) show here on their way, as if typed here.
-      // A command (/stop) is never in the chat's words, so it is never on its way to them.
-      guard let said, !said.hasPrefix("/"), conversation != nil else { return }
+      // What KOS took as a command (/stop) is never in the chat's words, so it is never on its way to them.
+      if command, let said {
+        sending.removeAll { $0 == said }
+        return
+      }
+      guard let said, conversation != nil else { return }
       if !sending.contains(said) && !awaiting(said) { sending.append(said) }
       working = true
       if said != takenWords {

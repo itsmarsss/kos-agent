@@ -1,4 +1,5 @@
 import {
+  parseChatCommand,
   TurnNarrator,
   type ApprovalHandler,
   type ApprovalOutcome,
@@ -282,8 +283,8 @@ export class DevicePanel implements ChannelAdapter {
     const chatOf = (): string | undefined => (chat ??= this.deps.current()?.id);
     // Each says which of the owner's messages it is about: two can be on the go at once, one running and one said meanwhile.
     const status = async (params: Record<string, unknown>): Promise<void> => void (await this.tell(device, "chat.status", this.statusOf(chatOf(), { said: msg.text, ...params })));
-    // Taken: the panel stops waiting to hear that anyone has its words.
-    await status({ taken: true });
+    // Taken: the panel stops waiting to hear that anyone has its words. A command is never in the chat's words, and says so.
+    await status({ taken: true, ...(parseChatCommand(msg.text) ? { command: true } : {}) });
     return {
       update: (story) => status({ story }),
       // A wait on the owner, or words the running turn took in: true until the chat moves on.

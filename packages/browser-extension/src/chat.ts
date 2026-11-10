@@ -1,3 +1,5 @@
+import { CHAT_COMMANDS } from "@kos/shared";
+
 import { keep, frameOf, picturesOf, type Pictured } from "./frames.js";
 import type { ConsentRequest } from "./worker.js";
 
@@ -86,6 +88,24 @@ export const EMPTY: Chat = { conversation: null, title: "Chrome", lines: [], sen
 export const STEP = "› ";
 const yours = (lines: Line[]): number => lines.filter((l) => l.role === "you").length;
 
+/** The commands the panel can run, as its / menu offers them: the dashboard's own left out. */
+export const PANEL_COMMANDS = CHAT_COMMANDS.filter((c) => c.where !== "dashboard");
+
+/** Whether the owner's words name one of the panel's commands; anything else, "/etc/hosts" too, is a message. */
+export function isCommand(said: string): boolean {
+  const word = /^\/(\S+)/.exec(said.trim())?.[1]?.toLowerCase();
+  return word !== undefined && PANEL_COMMANDS.some((c) => c.name === word);
+}
+
+/**
+ * The owner's words, sent. A command (/new, /switch) is never in the chat's
+ * words, so it waits for nothing but its answer. The turn already running
+ * keeps its story: these words go to it at its next step, or run after it.
+ */
+export function sent(c: Chat, said: string): Chat {
+  return { ...c, sending: isCommand(said) ? c.sending : [...c.sending, said], working: true, unsent: undefined };
+}
+
 /** What a status may say beyond the chat's state: one with none of these says the state alone. */
 const STATUS_WORDS = ["said", "taken", "story", "error", "frame"];
 
@@ -165,13 +185,14 @@ export function asked(c: Chat, message: Record<string, unknown>): Chat {
 /**
  * The owner's words, taken by KOS. Ones said somewhere else (on the
  * dashboard, in another Chrome) show here on their way, as if typed here,
- * and the turn on them is told as it goes. A command (/new, /stop) is never
- * in the chat's words, so it is never on its way to them: its answer is
- * all it waits for.
+ * and the turn on them is told as it goes. What KOS took as a command
+ * (/new, /stop) is never in the chat's words, so it is never on its way to
+ * them: its answer is all it waits for.
  */
 function took(c: Chat, message: Record<string, unknown>): Chat {
   const said = typeof message["said"] === "string" ? message["said"] : undefined;
-  if (!said || said.startsWith("/") || message["conversation"] !== c.conversation) return c;
+  if (said !== undefined && message["command"] === true) return { ...c, sending: c.sending.filter((t) => t !== said) };
+  if (!said || message["conversation"] !== c.conversation) return c;
   const shown = c.sending.includes(said) || awaiting(c.lines, said);
   const taken = c.taken?.said === said ? c.taken : { said, at: Date.now() };
   return { ...c, sending: shown ? c.sending : [...c.sending, said], working: true, taken };
@@ -187,7 +208,7 @@ function storied(c: Chat, message: Record<string, unknown>): Chat {
   const story = message["story"];
   const said = typeof message["said"] === "string" ? message["said"] : undefined;
   // A failed turn: what is still waiting was never taken, and goes back to the owner.
-  if (typeof message["error"] === "string") return { ...c, working: false, stories: [], live: [], sending: [], ...(c.sending.length ? { unsent: c.sending.join("\n") } : {}) };
+  if (typeof message["error"] === "string") return givenBack(c);
   if (typeof story !== "string") return { ...c, working: false };
   const after = anchorOf(c, said);
   // The steps a finished turn already shows, told once more as it closed: nothing new.
@@ -206,6 +227,11 @@ function framed(c: Chat, message: Record<string, unknown>): Chat {
   const entry = at >= 0 ? c.live[at]! : { ...(said !== undefined ? { said } : {}), frames: [] };
   const next = { ...entry, frames: [...entry.frames.filter((id) => id !== frame[0]), frame[0]] };
   return { ...c, pictures: keep(c.pictures, [frame]), live: at >= 0 ? c.live.map((x, i) => (i === at ? next : x)) : [...c.live, next] };
+}
+
+/** Words that went and were never taken, back in the box for the owner to send again; nothing works on them. */
+export function givenBack(c: Chat): Chat {
+  return { ...c, working: false, stories: [], live: [], sending: [], ...(c.sending.length ? { unsent: c.sending.join("\n") } : {}) };
 }
 
 /** The owner's words in order, said and on their way: what a story or a notice is placed under. */
