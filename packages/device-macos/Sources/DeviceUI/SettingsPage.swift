@@ -14,14 +14,13 @@ struct SettingsPage: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      // The popup's .page-head: back, then the title at the name's size, drawn up under the head.
+      // The popup's .page-head, with no head over it here or there: back, then the title at the name's size.
       HStack(spacing: 10) {
         IconButton(symbol: "chevron.left", label: "Back") { model.page = .home }
         Text("Settings").font(.kos(.body, .semibold)).foregroundStyle(Theme.text)
         Spacer()
       }
-      .padding(.top, -4)
-      .padding(.bottom, -2)
+      .padding(.top, 2)
       KOSSection("Sessions") {
         Card {
           setting("Longest session", "KOS may ask for longer; it gets this at most. +15 min on the bar adds time while it works.") {

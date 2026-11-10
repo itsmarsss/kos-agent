@@ -69,30 +69,31 @@ function Popup(): ReactElement {
   const pill: { word: string; tone: Tone } = state?.session ? (live ? { word: "Working", tone: "accent" } : { word: "Paused", tone: "warn" }) : best ? linkWords(best) : { word: "Not paired", tone: "muted" };
   return (
     <>
-      <header className="head">
-        <Face seed={KOS_SEED} size={40} mood={mood(state)} drawing={state?.session?.face ?? best?.face} label="KOS" />
-        <div className="head-text">
-          <strong>KOS for Chrome</strong>
-          <span className="head-status">
-            <Pill tone={pill.tone}>{pill.word}</Pill>
-            {best && <span className="sub">{state && state.kos.length > 1 ? `${best.host} and ${state.kos.length - 1} more` : best.host}</span>}
+      {/* The head is the home page's; settings open on their own back and title, as KOS for Mac's do. */}
+      {page === "home" && (
+        <header className="head">
+          <Face seed={KOS_SEED} size={40} mood={mood(state)} drawing={state?.session?.face ?? best?.face} label="KOS" />
+          <div className="head-text">
+            <strong>KOS for Chrome</strong>
+            <span className="head-status">
+              <Pill tone={pill.tone}>{pill.word}</Pill>
+              {best && <span className="sub">{state && state.kos.length > 1 ? `${best.host} and ${state.kos.length - 1} more` : best.host}</span>}
+            </span>
+          </div>
+          <span className="head-actions">
+            <AnimatePresence initial={false}>
+              {state?.kos.length ? (
+                <IconButton key="panel" label="Chat with KOS" title="Chat with KOS beside your tabs" onClick={() => void openPanel()} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} transition={spring}>
+                  <ChatIcon size={14} />
+                </IconButton>
+              ) : null}
+            </AnimatePresence>
+            <IconButton label="Settings" onClick={() => setPage("settings")}>
+              <GearIcon size={14} title="" />
+            </IconButton>
           </span>
-        </div>
-        <span className="head-actions">
-          <AnimatePresence initial={false}>
-            {page === "home" && state?.kos.length ? (
-              <IconButton key="panel" label="Chat with KOS" title="Chat with KOS beside your tabs" onClick={() => void openPanel()} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} transition={spring}>
-                <ChatIcon size={14} />
-              </IconButton>
-            ) : null}
-            {page === "home" && (
-              <IconButton key="gear" label="Settings" onClick={() => setPage("settings")} initial={{ opacity: 0, rotate: -60 }} animate={{ opacity: 1, rotate: 0 }} exit={{ opacity: 0, rotate: 60 }} transition={spring}>
-                <GearIcon size={14} title="" />
-              </IconButton>
-            )}
-          </AnimatePresence>
-        </span>
-      </header>
+        </header>
+      )}
       {state && (
         <AnimatePresence mode="wait" initial={false}>
           {page === "home" ? (

@@ -184,7 +184,8 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
   * { animation: none !important; transition: none !important; }
 }
 
-.page-head { display: flex; align-items: center; gap: 10px; margin: -4px 0 -2px; }
+/* Settings open on this alone, at the top: no head over it, as KOS for Mac draws them. */
+.page-head { display: flex; align-items: center; gap: 10px; }
 .page-head strong { font-size: 15px; }
 .btn--sm { padding: 3px 8px; font-size: 12px; }
 /* A button that leads with a symbol: Add a KOS. */

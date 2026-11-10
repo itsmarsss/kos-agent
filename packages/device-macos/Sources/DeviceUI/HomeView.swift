@@ -120,23 +120,20 @@ public struct HomeView: View {
     .frame(height: 28)
   }
 
-  /// The head over either page, as the Chrome popup keeps it over its settings; the gear and chat only at home.
   private var page: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      // The Chrome popup's head, and its 16 under it.
-      header.padding(.bottom, 16)
-      ZStack(alignment: .top) {
-        if model.page == .home {
-          home.transition(.asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .leading)).combined(with: .opacity))
-        } else {
-          SettingsPage(model: model).transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)).combined(with: .opacity))
-        }
+    ZStack(alignment: .top) {
+      if model.page == .home {
+        home.transition(.asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .leading)).combined(with: .opacity))
+      } else {
+        SettingsPage(model: model).transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)).combined(with: .opacity))
       }
     }
   }
 
   private var home: some View {
     VStack(alignment: .leading, spacing: 14) {
+      // The Chrome popup's head, and its 16 under it.
+      header.padding(.bottom, 2)
       if let session = model.session {
         sessionCard(session).transition(.opacity.combined(with: .move(edge: .top)))
       }

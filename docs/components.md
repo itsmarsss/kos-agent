@@ -118,7 +118,7 @@ a Permissions section (Chrome has none to ask for).
 | Why a KOS is down | `.kos-reason` under the row, with what puts it right | `reason` in `HomeView.swift`, the same |
 | Add a KOS | a small ghost `.btn--icon` with `PlusIcon` | `KOSButtonStyle(.ghost, small: true)` with a plus |
 | The footnote | in the hidden sites' card, under a rule, with the security model's link | in the hidden apps' card, the same |
-| Settings | `SettingsPage` in `popup.tsx`, under the head (no chat or gear): `.page-head` (back, the title at 15), then Sessions, While KOS works, Appearance, App, Diagnostics; a row is `Setting` (chips under the words) or `Toggle` (a switch beside them) | `SettingsPage.swift`, under the same head: the same head, sections and order; While KOS works adds the pointer's pace, App adds Open at login and Sounds |
+| Settings | `SettingsPage` in `popup.tsx`, with no head over it: `.page-head` (back, the title at 15) at the top, then Sessions, While KOS works, Appearance, App, Diagnostics; a row is `Setting` (chips under the words) or `Toggle` (a switch beside them) | `SettingsPage.swift`, under the window's close and minimise only: the same page head, sections and order; While KOS works adds the pointer's pace, App adds Open at login and Sounds |
 
 ## Names the two web apps no longer share
 
