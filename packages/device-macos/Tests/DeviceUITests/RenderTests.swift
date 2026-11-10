@@ -251,7 +251,7 @@ struct RenderTests {
       $0.theme = .light
     }
     _ = try render("settings", HomeView(model: model), height: HomeView.height)
-    _ = try render("settings-full", HomeView(model: model), height: 1100)
+    _ = try render("settings-full", HomeView(model: model), height: 1300)
   }
 
   @Test func consentWithALengthOfTheOwnersOwn() throws {
