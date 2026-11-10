@@ -18,7 +18,7 @@ const RUBRIC = {
   page: "6. As a dashboard: a summary before detail, figures with their units, charts drawn to scale with readable labels, in a working state with the data shown.",
   doc: "6. As a document: a lede that states the point, sections with plain headings, comfortable line length, tables or figures where they help; it reads like a designed brief, not a web page.",
   deck: "6. As slides: a 16:9 slide that is legible at a glance, one idea per slide, large type, a clear title; visuals or a few words rather than walls of bullets.",
-  sheet: "6. As a spreadsheet: a grid with typed, right-aligned numbers in a consistent format, readable headers, totals, and a short title with context. On a phone a grid wider than the screen scrolls sideways inside its own box, its right edge faded to show there is more; that is by design, not running off the side, as long as the page itself does not.",
+  sheet: "6. As a spreadsheet: a grid with typed, right-aligned numbers in a consistent format, readable headers, totals, and a short title with context. On a phone a grid wider than the screen scrolls sideways inside its own box, its key figure held at the right edge and the tools saying how many more columns there are; that is by design, not running off the side, as long as the page itself does not.",
 };
 
 /** The artifact a run made: the newest written since it started, of the kind asked for if there is one. */
