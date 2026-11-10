@@ -87,11 +87,22 @@ export function readsSchema(sql: string): boolean {
   return /\bsqlite_(?:master|schema|temp_master|temp_schema)\b/i.test(sql) || /^\s*pragma\b/i.test(sql) || /\bpragma_\w+/i.test(sql) || /\bdbstat\b/i.test(sql);
 }
 
-/** Whether a statement names one of KOS's own tables, by the fixed list: what a write must ask the owner for, wherever it comes from. */
-export function namesKernelTable(sql: string): boolean {
-  // Words inside string literals are data: a note that says "40 pages" names no table.
-  const words = sql.replace(/'(?:[^']|'')*'/g, "''").toLowerCase().match(/[a-z0-9_]+/g) ?? [];
-  return words.some(isKernelTable);
+/**
+ * Whether a statement writes one of KOS's own tables, as SQLite would run it:
+ * the tables its plan opens to write, by root page, not the words it is
+ * spelled with, which quotes and comments can hide. A write to a virtual
+ * table (the memory index) or outside the main database counts, since no
+ * project's table is either. A statement that does not compile writes nothing.
+ */
+export function writesKernelTable(db: Db, sql: string, params: readonly unknown[] = []): boolean {
+  let plan: { opcode: string; p2: number; p3: number }[];
+  try {
+    plan = db.prepare(`EXPLAIN ${sql}`).all(...params) as typeof plan;
+  } catch {
+    return false;
+  }
+  const pages = new Map((db.prepare("SELECT rootpage, tbl_name FROM sqlite_master WHERE rootpage > 0").all() as { rootpage: number; tbl_name: string }[]).map((r) => [r.rootpage, r.tbl_name]));
+  return plan.some((op) => op.opcode === "VUpdate" || (op.opcode === "OpenWrite" && (op.p3 !== 0 || isKernelTable(pages.get(op.p2) ?? "sqlite_master"))));
 }
 
 /** A project as the fence knows it: what its tables start with, and what to call it. */

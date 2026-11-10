@@ -54,11 +54,14 @@ describe("sqlModule", () => {
     expect(JSON.parse(res.content).changes).toBe(1);
   });
 
-  it("asks before any write to KOS's own tables, an insert included, and not for words in a value", () => {
-    expect(registry.classify("sql", { sql: "INSERT INTO pending_messages (id) VALUES (1)" }).tier).toBe("risky");
-    expect(registry.classify("sql", { sql: "insert into Crons (name) values ('x')" }).tier).toBe("risky");
-    expect(registry.classify("sql", { sql: "SELECT * FROM pending_messages" }).tier).toBe("safe");
-    expect(registry.classify("sql", { sql: "INSERT INTO books_tx (amount) VALUES ('40 pages of settings')" }).tier).toBe("safe");
+  it("asks before any write to KOS's own tables, however it is spelled, and not for a project's", () => {
+    ws.db.exec("CREATE TABLE IF NOT EXISTS crons (id INTEGER PRIMARY KEY, name TEXT); CREATE TABLE books_shelf (id INTEGER PRIMARY KEY, pages INTEGER, settings TEXT, memory_mb REAL)");
+    for (const sql of ["INSERT INTO crons (name) VALUES ('x')", "INSERT INTO 'crons'(name) VALUES('a')", "INSERT INTO /* ' */ crons (name) VALUES ('x') -- '", "WITH t AS (SELECT 1) INSERT INTO main.crons(name) SELECT 'x' FROM t"]) {
+      expect(registry.classify("sql", { sql }).tier, sql).toBe("risky");
+    }
+    expect(registry.classify("sql", { sql: "SELECT * FROM crons" }).tier).toBe("safe");
+    // Columns that share a name with KOS's tables, and a value that mentions them, are the project's own.
+    expect(registry.classify("sql", { sql: "INSERT INTO books_shelf (pages, settings, memory_mb) VALUES (?, 'pages', sqlite_version())", params: [40] }).tier).toBe("safe");
   });
 
   it("classifies SELECT and INSERT safe, UPDATE and DELETE risky", () => {
