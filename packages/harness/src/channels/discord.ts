@@ -1746,13 +1746,13 @@ export class DiscordAdapter implements ChannelAdapter {
       // the kernel and skipped. Threads auto-archive on their own when a
       // chat goes quiet, and come back when it is spoken to.
       for (const thread of plan.threads ?? []) {
-        if (this.threadBound(thread.conversationId)) continue;
+        // Made already, or being made now for a first post, which binds it.
+        if (this.threadBound(thread.conversationId) || this.threadsMaking.has(thread.conversationId)) continue;
         // A chat that has a channel of its own is not also a thread here.
         if (bound.has(thread.conversationId)) continue;
-        const made = await have.channel.threads?.create({ name: thread.title.trim().slice(0, 100) || "Chat", autoArchiveDuration: 10080, reason: `KOS: ${thread.conversationId}` });
-        if (!made) continue;
-        threads.push({ threadId: made.id, conversationId: thread.conversationId, title: thread.title });
-        await this.joinOwner(made.id, made).catch((err: unknown) => console.warn(`[discord] the owner could not be added to thread ${made.id}: ${errorText(err)}`));
+        const channel = have.channel;
+        const made = await this.makeThread(thread.conversationId, async () => channel.threads?.create({ name: thread.title.trim().slice(0, 100) || "Chat", autoArchiveDuration: 10080, reason: `KOS: ${thread.conversationId}` }));
+        if (made) threads.push({ threadId: made, conversationId: thread.conversationId, title: thread.title });
       }
     }
     return { created, kept, threads, audiences };
@@ -1843,16 +1843,36 @@ export class DiscordAdapter implements ChannelAdapter {
    * nothing when that channel is not on the server yet.
    */
   async ensureThread(channelKey: string, conversationId: string, title: string): Promise<string | undefined> {
-    const channelId = this.boundIds.get(channelKey);
-    if (!channelId) return undefined;
-    const channel = await this.place(channelId);
-    const threads = (channel as { threads?: { create?: (o: unknown) => Promise<{ id: string }> } } | null)?.threads;
-    if (!threads?.create) return undefined;
-    const made = await threads.create({ name: title.trim().slice(0, 100) || "Chat", autoArchiveDuration: 10080, reason: `KOS: ${conversationId}` }).catch(() => undefined);
-    if (!made) return undefined;
-    this.boundThreads.add(conversationId);
-    await this.joinOwner(made.id, made).catch((err: unknown) => console.warn(`[discord] the owner could not be added to thread ${made.id}: ${errorText(err)}`));
-    return made.id;
+    return this.makeThread(conversationId, async () => {
+      const channelId = this.boundIds.get(channelKey);
+      if (!channelId) return undefined;
+      const channel = await this.place(channelId);
+      const threads = (channel as { threads?: { create?: (o: unknown) => Promise<{ id: string }> } } | null)?.threads;
+      if (!threads?.create) return undefined;
+      return threads.create({ name: title.trim().slice(0, 100) || "Chat", autoArchiveDuration: 10080, reason: `KOS: ${conversationId}` }).catch(() => undefined);
+    });
+  }
+
+  /** Threads being made, by the chat each is for: two first posts at once wait on one, not make two. */
+  private readonly threadsMaking = new Map<string, Promise<string | undefined>>();
+
+  /**
+   * A chat's thread made once, whoever asks first (the thread mirror, a
+   * scheduled run's place, the layout); a second ask while it is being made
+   * gets the same one. The owner is made a member of it.
+   */
+  private makeThread(conversationId: string, make: () => Promise<{ id: string } | undefined>): Promise<string | undefined> {
+    const making = this.threadsMaking.get(conversationId);
+    if (making) return making;
+    const made = (async () => {
+      const thread = await make();
+      if (!thread) return undefined;
+      this.boundThreads.add(conversationId);
+      await this.joinOwner(thread.id, thread).catch((err: unknown) => console.warn(`[discord] the owner could not be added to thread ${thread.id}: ${errorText(err)}`));
+      return thread.id;
+    })().finally(() => this.threadsMaking.delete(conversationId));
+    this.threadsMaking.set(conversationId, made);
+    return made;
   }
 
   /** Threads the owner is a member of, by KOS's doing or found so. */

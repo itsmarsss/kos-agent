@@ -2896,3 +2896,24 @@ describe("the owner in KOS's threads", () => {
     expect(added).toHaveLength(3);
   });
 });
+
+describe("two first posts at once", () => {
+  it("make one thread for a chat, which both are given", async () => {
+    let made = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const adapter = new DiscordAdapter({ token: "t" });
+    (adapter as unknown as { boundIds: Map<string, string> }).boundIds.set("orchestrator:owner", "kos");
+    const kos = { id: "kos", threads: { create: async () => { made++; await gate; return { id: `t${made}` }; } } };
+    (adapter as unknown as { client: unknown }).client = { channels: { fetch: async () => kos } };
+    const first = adapter.ensureThread("orchestrator:owner", "cron:7", "Nudge");
+    const second = adapter.ensureThread("orchestrator:owner", "cron:7", "Nudge");
+    await new Promise((r) => setTimeout(r, 0));
+    release();
+    expect(await Promise.all([first, second])).toEqual(["t1", "t1"]);
+    expect(made).toBe(1);
+    // Once made and let go, a later ask makes a new one.
+    adapter.forgetPlace("t1");
+    expect(await adapter.ensureThread("orchestrator:owner", "cron:7", "Nudge")).toBe("t2");
+  });
+});
