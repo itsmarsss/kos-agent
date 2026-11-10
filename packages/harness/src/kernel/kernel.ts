@@ -1596,7 +1596,13 @@ export class Kernel {
     // brief and reach, so what it remembers is the agent's own.
     if (job.agent && this.roles.exists(job.agent)) return this.ensureAgentConversation(job.agent).id;
     const id = cronSessionId(job.id);
-    if (!this.conversations.get(id)) {
+    const thread = this.conversations.get(id);
+    if (thread) {
+      // A job moved into a project after its first run takes its thread
+      // along: left at the root, the run could not reach the project's
+      // tables and spoke in the wrong place.
+      if (thread.projectSlug !== (job.projectSlug ?? null)) this.conversations.moveToProject(id, job.projectSlug ?? null);
+    } else {
       this.conversations.create({
         id,
         userId: this.profile.ownerId,

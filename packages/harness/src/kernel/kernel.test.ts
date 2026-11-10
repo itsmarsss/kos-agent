@@ -1178,6 +1178,21 @@ describe("Kernel", () => {
     kernel.stopCron();
   });
 
+  it("moves a job's thread into the project the job was moved to", async () => {
+    kernel = await boot(stubInference([]));
+    const books = kernel.standUpProject({ name: "Books", type: "tracker" });
+    const job = kernel.crons.create({ name: "Nudge", schedule: "0 12 * * *", type: "actions", actions: [{ tool: "notify", args: { text: "read" } }] });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    expect(kernel.conversations.get(`cron:${job.id}`)?.projectSlug).toBeNull();
+    kernel.crons.update(job.id, { name: "Nudge", schedule: "0 12 * * *", type: "actions", actions: [{ tool: "notify", args: { text: "read" } }], projectSlug: books.slug });
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    expect(kernel.conversations.get(`cron:${job.id}`)?.projectSlug).toBe(books.slug);
+  });
+
   it("keeps what a turn was given from memory, so the chat can show it", async () => {
     kernel = await boot({
       async generate(): Promise<ModelResponse> {
