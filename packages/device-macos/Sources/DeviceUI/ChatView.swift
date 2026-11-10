@@ -372,7 +372,8 @@ private struct EmptyChat: View {
     .frame(maxWidth: 300)
     .padding(24)
     .frame(maxWidth: .infinity)
-    .padding(.top, 16)
+    // The side panel's .empty-state sits in the middle of the thread (margin: auto): the thread's height, less its 16 and 8 of padding.
+    .containerRelativeFrame(.vertical, alignment: .center) { height, _ in max(0, height - 24) }
   }
 
   /// The kit's .hint: muted at 13, as the dashboard and the side panel draw theirs.
