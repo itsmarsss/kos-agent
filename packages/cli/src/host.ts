@@ -511,7 +511,8 @@ export async function runHost(options: HostOptions): Promise<void> {
     ...(notify ? { notify } : {}),
     // The server's channels as tools, so KOS opens or closes one when the
     // owner says so. The adapter is made after boot; these reach for it then.
-    ...(creds?.guildId
+    // With --no-discord there is no server: no tools for it, and no upkeep chat.
+    ...(wantDiscord && creds?.guildId
       ? {
           discord: {
             connected: () => adapter !== undefined,
