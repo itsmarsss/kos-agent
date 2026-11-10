@@ -71,9 +71,14 @@ describe("the side panel's chat", () => {
     expect(c.extras.map((x) => x.text)).toEqual(["Switched to 'Shopping'"]);
   });
 
-  it("starts afresh when the first chat is made from none, leaving nothing on its way", () => {
-    const c = shown({ ...EMPTY, sending: ["/new"], working: true }, { conversation: "c1", title: "New conversation", messages: [], notice: { text: "Started 'New conversation'" } });
+  it("starts afresh when the first chat is made from none", () => {
+    let c = shown(EMPTY, { conversation: null, title: "Chrome", messages: [], notice: { text: "Nothing is running." }, pictures: { "7": "QUJD" } });
+    c = statused(sent(c, "/new"), taken("/new", null));
+    c = shown(c, { conversation: "c1", title: "New conversation", messages: [], notice: { text: "Started 'New conversation'" } });
     expect(c).toMatchObject({ conversation: "c1", working: false, sending: [] });
+    // What was said while no chat was shown is not this chat's.
+    expect(c.extras.map((x) => x.text)).toEqual(["Started 'New conversation'"]);
+    expect([...c.pictures.keys()]).toEqual([]);
   });
 
   it("keeps an ask made while no chat was shown once its chat is", () => {
