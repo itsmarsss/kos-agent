@@ -1181,7 +1181,7 @@ export class Kernel {
         // here so the agent gets the file's contents or the page's spec
         // rather than a string it has to go and look up, and so a name that
         // no longer exists says so instead of being silently ignored.
-        const mentioned = this.resolveMentions(text, conversation?.id, { guest: guest !== undefined, owner });
+        const mentioned = this.resolveMentions(text, conversation?.id, { ...(guest ? { guest } : {}), owner });
         // Where this message's files now live, so the model refers to them
         // by path and anything else can open them later.
         const keptNote = opts.kept?.length
@@ -1247,13 +1247,15 @@ export class Kernel {
         const extra = [formatting, conversation?.brief, roleNote, scopeNote, asideNote]
           .filter((part): part is string => Boolean(part && part.trim()))
           .join("\n\n");
-        const projects = this.manifest.list();
+        // A guest's work is shown the room's project alone, and its tables only where sql reaches them.
+        const projects = guest ? this.manifest.list().filter((p) => p.slug === guest.project) : this.manifest.list();
+        const tablesOf = guest ? (guest.project === conversation?.projectSlug && guest.project !== MAINTENANCE.slug ? guest.project : undefined) : (conversation?.projectSlug ?? undefined);
         const { system, turnContext } = assembleSystemPrompt({
           baseSystem: this.system,
           profile: this.profile,
           now: Date.now(),
           projects,
-          schemas: this.schemasFor(conversation?.projectSlug ?? undefined),
+          schemas: this.schemasFor(tablesOf),
           skills: this.skillsOffered(conversation?.projectSlug ?? undefined),
           recall,
           ...(extra ? { extra } : {}),
@@ -4620,11 +4622,12 @@ export class Kernel {
    * Only what was actually named: this is the owner pointing at something, so
    * it is worth the prompt space, unlike everything else in the workspace.
    */
-  private resolveMentions(text: string, conversationId: string | undefined, who: { guest: boolean; owner: boolean }): string | null {
+  private resolveMentions(text: string, conversationId: string | undefined, who: { guest?: GuestOrigin; owner: boolean }): string | null {
     const refs = parseMentions(text);
-    // A #word that names no channel is a word, not a dead reference.
+    // A #word that names no channel is a word, not a dead reference. For a
+    // guest's work only the room's own channel is one: the rest stay words.
     const channels = this.discord
-      ? channelNamesIn(text).flatMap((name) => this.discord!.known().filter((p) => p.name.toLowerCase() === name.toLowerCase()))
+      ? channelNamesIn(text).flatMap((name) => this.discord!.known().filter((p) => p.name.toLowerCase() === name.toLowerCase() && (!who.guest || p.bound === who.guest.chat)))
       : [];
     if (refs.length === 0 && channels.length === 0) return null;
 

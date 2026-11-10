@@ -254,4 +254,34 @@ describe("what a guest's words reach, wherever they are handed", () => {
     expect(retried.isError).toBe(true);
     expect(retried.content).toMatch(/a guest's words started this work/);
   });
+
+  it("shows a guest's work the room's project and its own #channel alone", async () => {
+    kernel.standUpProject({ name: "Other", type: "tracker" });
+    kernel.workspace.db.exec("CREATE TABLE other_secrets (code TEXT)");
+    const places = [
+      { id: "c1", name: "leetcode", kind: "channel" as const, bound: "project:daily", audience: "guests" as const },
+      { id: "c2", name: "private", kind: "channel" as const, bound: "project:other", audience: "owner" as const },
+    ];
+    (kernel as unknown as { discord: { known: () => typeof places } }).discord = { known: () => places };
+    const said = (): string => asked.at(-1)!;
+
+    await kernel.handleProjectTurn("daily", "see #leetcode and #private", { channel: "discord", guest });
+    expect(said()).toContain("- daily [");
+    expect(said()).not.toContain("- other [");
+    expect(said()).not.toContain("- maintenance [");
+    expect(said()).toContain("Discord channel #leetcode (id c1)");
+    expect(said()).not.toContain("(id c2)");
+
+    // Handed to Maintenance, a guest's work is shown neither the owner's projects nor every table.
+    await passOn(maintenance, "see #leetcode and #private");
+    await vi.waitFor(() => expect(kernel.busyConversations()).not.toContain(maintenance));
+    expect(said()).not.toContain("- other [");
+    expect(said()).not.toContain("other_secrets");
+    expect(said()).not.toContain("(id c2)");
+
+    // The owner in the same room is shown all of it.
+    await kernel.handleProjectTurn("daily", "see #leetcode and #private", { channel: "discord", owner: true });
+    expect(said()).toContain("- other [");
+    expect(said()).toContain("(id c2)");
+  });
 });

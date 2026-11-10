@@ -1452,9 +1452,9 @@ describe("handleApiRequest", () => {
       kernel.pages.writeHtml({ blob: "noter", id: kernel.roles.identity("noter")! }, { id: "notes", title: "Notes", html: "<p>NOTE-BODY</p>" });
       mkdirSync(join(root, ".kos"), { recursive: true });
       writeFileSync(join(root, ".kos/secret.txt"), "KOS-STATE");
-      const resolve = (text: string, conversationId: string | undefined, who: { guest: boolean; owner: boolean }): string =>
+      const resolve = (text: string, conversationId: string | undefined, who: { guest?: { project: string | undefined; chat: string }; owner: boolean }): string =>
         (kernel as unknown as { resolveMentions: (t: string, c: string | undefined, w: typeof who) => string | null }).resolveMentions(text, conversationId, who) ?? "";
-      const owner = { guest: false, owner: true };
+      const owner = { owner: true };
       const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Shelf chat", projectSlug: "shelf" });
       // A project's chat sees its own page, and not a blob's, by @page or by its file.
       const there = resolve("@page:shelf @page:notes @file:blobs/noter/artifacts/notes.html @file:blobs/noter/artifacts/.history/notes/1.json", chat.id, owner);
@@ -1471,12 +1471,12 @@ describe("handleApiRequest", () => {
       const mine = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mine" });
       expect(resolve("@file:blobs/noter/artifacts/notes.html", mine.id, owner)).toContain("NOTE-BODY");
       // A schedule's run at the root is not the owner's own chat.
-      expect(resolve("@page:notes", mine.id, { guest: false, owner: false })).not.toContain("NOTE-BODY");
+      expect(resolve("@page:notes", mine.id, { owner: false })).not.toContain("NOTE-BODY");
       // KOS's own state is never shown.
       expect(resolve("@file:.kos/secret.txt", mine.id, owner)).not.toContain("KOS-STATE");
       for (const path of [".KOS/secret.txt", "notes/../.Kos/secret.txt"]) expect(resolve(`@file:${path}`, mine.id, owner)).toMatch(/KOS's own state and is not shown/);
       // A guest's words show nothing of the owner's, even in the project's own chat.
-      const guest = resolve("@page:shelf @file:projects/shelf/pages/shelf.html @page:notes @file:notes.txt", chat.id, { guest: true, owner: false });
+      const guest = resolve("@page:shelf @file:projects/shelf/pages/shelf.html @page:notes @file:notes.txt", chat.id, { guest: { project: "shelf", chat: chat.id }, owner: false });
       expect(guest).not.toContain("<p>books</p>");
       expect(guest).not.toContain("NOTE-BODY");
       expect(guest).toMatch(/Not shown, since a guest named them/);
@@ -1490,7 +1490,7 @@ describe("handleApiRequest", () => {
       const job = kernel.crons.create({ name: "rotate", schedule: "0 3 * * *", type: "self_prompt", prompt: "ROTATE-PROMPT", enabled: true, projectSlug: "vault" });
       const asked = kernel.approvals.enqueue({ tool: "files.read", args: { path: "VAULT-KEY" }, riskTier: "risky", conversationId: theirs.id });
       const resolve = (text: string, conversationId: string): string =>
-        (kernel as unknown as { resolveMentions: (t: string, c: string, w: { guest: boolean; owner: boolean }) => string | null }).resolveMentions(text, conversationId, { guest: false, owner: true }) ?? "";
+        (kernel as unknown as { resolveMentions: (t: string, c: string, w: { owner: boolean }) => string | null }).resolveMentions(text, conversationId, { owner: true }) ?? "";
       const named = `@schedule:${job.id} @approval:${asked.id} @chat:[${theirs.id}] @blob:locker @blob:noter @chat:[${mine.id}]`;
       // Another project's chat: the schedule as cron.list has it, nothing of the approval, the chat or a blob's brief.
       const fenced = resolve(named, mine.id);
