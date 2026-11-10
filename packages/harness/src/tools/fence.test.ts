@@ -42,6 +42,16 @@ describe("the fence around the tables", () => {
     expect(readsSchema("SELECT name FROM sqlite_master")).toBe(true);
     expect(readsSchema("  PRAGMA table_info(books_items)")).toBe(true);
     expect(readsSchema("SELECT * FROM books_items")).toBe(false);
+    // The catalogue by its table-valued functions and page stats, unnamed.
+    expect(readsSchema("SELECT name FROM pragma_table_list()")).toBe(true);
+    expect(readsSchema("SELECT * FROM PRAGMA_TABLE_INFO('cr'||'ons')")).toBe(true);
+    expect(readsSchema("SELECT name FROM dbstat")).toBe(true);
+  });
+
+  it("refuses a project's chat the catalogue by pragma functions and dbstat", () => {
+    for (const sql of ["SELECT name FROM pragma_table_list()", "SELECT name FROM pragma_table_info('crons')", "SELECT name FROM dbstat"]) {
+      expect(fence(sql, existing, { project: "books", projects }).ok).toBe(false);
+    }
   });
 
   it("lets a chat build the project it made, rows and all, and nothing else", () => {

@@ -82,9 +82,16 @@ export function tablesIn(sql: string, existing: readonly string[]): string[] {
   return existing.filter((t) => new RegExp(`(^|[^a-z0-9_])${t.toLowerCase()}([^a-z0-9_]|$)`).test(lower));
 }
 
-/** A statement that reads the schema itself: SQLite's catalogue, or a PRAGMA. */
+/** A statement that reads the schema itself: SQLite's catalogue, a PRAGMA, its table-valued pragma_* functions, or dbstat. */
 export function readsSchema(sql: string): boolean {
-  return /\bsqlite_(?:master|schema|temp_master|temp_schema)\b/i.test(sql) || /^\s*pragma\b/i.test(sql);
+  return /\bsqlite_(?:master|schema|temp_master|temp_schema)\b/i.test(sql) || /^\s*pragma\b/i.test(sql) || /\bpragma_\w+/i.test(sql) || /\bdbstat\b/i.test(sql);
+}
+
+/** Whether a statement names one of KOS's own tables, by the fixed list: what a write must ask the owner for, wherever it comes from. */
+export function namesKernelTable(sql: string): boolean {
+  // Words inside string literals are data: a note that says "40 pages" names no table.
+  const words = sql.replace(/'(?:[^']|'')*'/g, "''").toLowerCase().match(/[a-z0-9_]+/g) ?? [];
+  return words.some(isKernelTable);
 }
 
 /** A project as the fence knows it: what its tables start with, and what to call it. */

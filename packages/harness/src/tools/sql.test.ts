@@ -54,6 +54,13 @@ describe("sqlModule", () => {
     expect(JSON.parse(res.content).changes).toBe(1);
   });
 
+  it("asks before any write to KOS's own tables, an insert included, and not for words in a value", () => {
+    expect(registry.classify("sql", { sql: "INSERT INTO pending_messages (id) VALUES (1)" }).tier).toBe("risky");
+    expect(registry.classify("sql", { sql: "insert into Crons (name) values ('x')" }).tier).toBe("risky");
+    expect(registry.classify("sql", { sql: "SELECT * FROM pending_messages" }).tier).toBe("safe");
+    expect(registry.classify("sql", { sql: "INSERT INTO books_tx (amount) VALUES ('40 pages of settings')" }).tier).toBe("safe");
+  });
+
   it("classifies SELECT and INSERT safe, UPDATE and DELETE risky", () => {
     expect(registry.classify("sql", { sql: "SELECT 1" }).tier).toBe("safe");
     expect(registry.classify("sql", { sql: "INSERT INTO books_tx (a) VALUES (1)" }).tier).toBe("safe");

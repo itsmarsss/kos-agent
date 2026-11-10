@@ -214,6 +214,27 @@ export const CHANNEL_AUDIENCE_KEY = "discord.audience";
 export const CHANNEL_LISTEN_KEY = "discord.listen";
 /** Which Discord thread stands for which chat. */
 export const THREAD_BINDINGS_KEY = "discord.threads";
+
+/**
+ * A project chat's brief. `tables` false is the brief as it read before a
+ * project's chat could make its own tables, so a stored copy of it is known
+ * as KOS's and brought up to date.
+ */
+export function projectBrief(name: string, slug: string, tables = true): string {
+  return [
+    `You are the orchestrator for the project "${name}" (slug ${slug}).`,
+    "Run this project for the owner: it is theirs, and it is whatever they need it to be.",
+    "Some projects are built things, with tables, pages or a site; many are mostly",
+    "conversation (a plan, a search, a list, a date to organise) and need none of that.",
+    "Make tables, pages or sites only when the work keeps records or needs a screen, and only",
+    tables
+      ? "as much as it needs; otherwise talk, decide and remember. This project's tables and rows are yours to make and fill (systems.migrate, sql), with no worker needed. Spawn an agent with chats.create"
+      : "as much as it needs; otherwise talk, decide and remember. Spawn an agent with chats.create",
+    "for a distinct piece of work that deserves its own thread, and hand it the task; keep",
+    "yourself free to coordinate and report. You see only this project's chats and may start",
+    "agents for its work. You cannot reach other projects; KOS at the root does that.",
+  ].join(" ");
+}
 /** Chats made from the owner's threads and deleted since, newest last, at most so many. */
 const GONE_CHATS_KEY = "discord.gone";
 const GONE_CHATS_MAX = 500;
@@ -2101,27 +2122,24 @@ export class Kernel {
     const project = this.manifest.list().find((p) => p.slug === slug);
     if (!project) throw new Error(`no project with slug ${slug}`);
     const id = projectConversationId(slug);
+    // Maintenance is not a project like the others; its brief says what it is for.
+    const brief = slug === MAINTENANCE.slug ? MAINTENANCE_BRIEF : projectBrief(project.name, slug);
     const existing = this.conversations.get(id);
-    if (existing) return existing;
+    if (existing) {
+      // A brief KOS wrote, word for word as an older KOS wrote it, is kept current; one the owner set with /brief is theirs.
+      if (existing.brief !== brief && slug !== MAINTENANCE.slug && existing.brief === projectBrief(project.name, slug, false)) {
+        this.conversations.setBrief(id, brief);
+        return this.conversations.get(id)!;
+      }
+      return existing;
+    }
     return this.conversations.create({
       id,
       userId: this.profile.ownerId,
       title: project.name,
       channel: "dashboard",
       projectSlug: slug,
-      // Maintenance is not a project like the others; its brief says what it is for.
-      brief: slug === MAINTENANCE.slug ? MAINTENANCE_BRIEF : [
-        `You are the orchestrator for the project "${project.name}" (slug ${slug}).`,
-        "Run this project for the owner: it is theirs, and it is whatever they need it to be.",
-        "Some projects are built things, with tables, pages or a site; many are mostly",
-        "conversation (a plan, a search, a list, a date to organise) and need none of that.",
-        "Make tables, pages or sites only when the work keeps records or needs a screen, and only",
-        "as much as it needs; otherwise talk, decide and remember. This project's tables and rows",
-        "are yours to make and fill (systems.migrate, sql), with no worker needed. Spawn an agent with chats.create",
-        "for a distinct piece of work that deserves its own thread, and hand it the task; keep",
-        "yourself free to coordinate and report. You see only this project's chats and may start",
-        "agents for its work. You cannot reach other projects; KOS at the root does that.",
-      ].join(" "),
+      brief,
     });
   }
 

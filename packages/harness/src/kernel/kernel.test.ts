@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Inference } from "../agent/loop.js";
 import type { GenerateRequest, ModelResponse } from "../models/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
-import { Kernel, orchestratorId } from "./kernel.js";
+import { Kernel, orchestratorId, projectBrief } from "./kernel.js";
 import type { Conversation } from "./conversations.js";
 import { isKernelTable } from "../tools/fence.js";
 import { SurfaceDownError, type NotifyPayload } from "../tools/notify.js";
@@ -574,6 +574,18 @@ describe("Kernel", () => {
     // The repair shop's orchestrator says what it is for; any other project's says the ordinary thing.
     expect(kernel.ensureProjectConversation("maintenance").brief).toContain("where KOS repairs itself");
     expect(kernel.ensureProjectConversation(books.slug).brief).toContain('orchestrator for the project "Books"');
+  });
+
+  it("brings a project chat's brief as an older KOS wrote it up to date, and keeps one the owner set", async () => {
+    kernel = await boot(stubInference([]));
+    const books = kernel.standUpProject({ name: "Books", type: "tracker" });
+    const garden = kernel.standUpProject({ name: "Garden", type: "notes" });
+    const old = kernel.ensureProjectConversation(books.slug);
+    kernel.conversations.setBrief(old.id, projectBrief("Books", books.slug, false));
+    expect(kernel.ensureProjectConversation(books.slug).brief).toBe(projectBrief("Books", books.slug));
+    const own = kernel.ensureProjectConversation(garden.slug);
+    kernel.conversations.setBrief(own.id, "Keep it short.");
+    expect(kernel.ensureProjectConversation(garden.slug).brief).toBe("Keep it short.");
   });
 
   it("refuses to pass work back to a chat it came through, or on a fourth time", async () => {

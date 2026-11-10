@@ -1,9 +1,9 @@
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
-import { isSqlDestructive } from "../risk/rules.js";
+import { isSqlDestructive, isSqlWrite } from "../risk/rules.js";
 import type { Db } from "../store/db.js";
 import { isAttended, isOwnerTurn } from "../kernel/caller.js";
-import { fence, isKernelTable, MAINTENANCE_SLUG, ownedBy, ownerOf, reachable, tableNames, type Reach } from "./fence.js";
+import { fence, isKernelTable, MAINTENANCE_SLUG, namesKernelTable, ownedBy, ownerOf, reachable, tableNames, type Reach } from "./fence.js";
 
 /**
  * The `sql` tool module: run DML against the workspace SQLite. SELECT and
@@ -127,8 +127,12 @@ export function defineSqlTool(db: Db, ctx: ModuleContext): void {
     (input) => runSql(db, input, reachOf(ctx)),
     {
       floor: "safe",
-      escalate: (input) =>
-        typeof input.sql === "string" && isSqlDestructive(input.sql) ? "changes or removes rows" : false,
+      // A write to KOS's own tables asks, even an insert: only Maintenance reaches them, and a queued row or a job is the owner's to allow.
+      escalate: (input) => {
+        if (typeof input.sql !== "string") return false;
+        if (isSqlWrite(input.sql) && namesKernelTable(input.sql)) return "writes KOS's own tables";
+        return isSqlDestructive(input.sql) ? "changes or removes rows" : false;
+      },
     },
   );
 }
