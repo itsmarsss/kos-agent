@@ -100,6 +100,7 @@ describe("a scheduled run's message in its place", () => {
       joinOwner: async (id) => void joined.push(id),
       forgetPlace: () => undefined,
       jobOf: (p) => ({ "cron:7": reminder, "cron:2": kickoff })[p.place ?? ""],
+      ownerOnly: () => true,
       postIn: async (target, msg) => void posts.push({ target, text: msg.text }),
       ...over,
     };
@@ -146,6 +147,13 @@ describe("a scheduled run's message in its place", () => {
     gone.add("t8");
     expect(await notifier.say(run("cron:7"), { text: "Again." })).toBeUndefined();
     expect(notifier.spokeInPlace("cron:7")).toBe(true);
+  });
+
+  it("leaves to the owner's DM a run whose place guests can read", async () => {
+    const { notifier, posts } = placer({ ownerOnly: (conv) => conv !== "cron:7" });
+    expect(await notifier.say(run("cron:7"), { text: "Call The Centre now." })).toBeUndefined();
+    expect(await notifier.say(run("cron:2", "Kickoff"), { text: "Kickoff" })).toBeDefined();
+    expect(posts).toEqual([{ target: "t2", text: "Kickoff" }]);
   });
 
   it("leaves to the owner's DM what names somewhere, asks no place, or has none", async () => {

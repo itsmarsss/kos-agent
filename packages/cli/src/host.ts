@@ -179,6 +179,8 @@ export interface PlaceNotifierDeps extends PlaceDeps {
   ownerId: string;
   /** The scheduled job a message is from, when it is one. */
   jobOf(payload: NotifyPayload): JobFacts | undefined;
+  /** Whether the owner alone reads a conversation's place: a channel open to guests is no place for what was meant for the owner. */
+  ownerOnly(conversationId: string): boolean;
 }
 
 /**
@@ -204,11 +206,13 @@ export class PlaceNotifier {
   }
 
   /**
-   * Said in the message's place, when it asks for one and has one; nothing
-   * otherwise, and the owner is sent it as before.
+   * Said in the message's place, when it asks for one and has one the
+   * owner alone reads; nothing otherwise, and the owner is sent it in the
+   * DM as before.
    */
   async say(payload: NotifyPayload, msg: OutboundMessage): Promise<NotifySent | undefined> {
     if (!payload.place || payload.target.kind !== "owner" || payload.target.surface) return undefined;
+    if (!this.deps.ownerOnly(payload.place)) return undefined;
     const job = this.deps.jobOf(payload);
     // A fixed reminder, and news the owner must not miss (a job failing), ping them.
     const ping = payload.ping || (job && pingsOwner(job)) ? `<@${this.deps.ownerId}> ` : "";
@@ -913,6 +917,12 @@ export async function runHost(options: HostOptions): Promise<void> {
         ...placeOn,
         ownerId: creds.ownerId,
         jobOf: (payload) => (payload.place ? cronOf(payload.place) : undefined),
+        // A thread is read by whoever reads its channel: the chat's own, else its home's.
+        ownerOnly: (conv) => {
+          const audiences = kernel.channelAudiences();
+          const home = homeOf(conv);
+          return (audiences[conv] ?? (home ? audiences[home] : undefined) ?? "owner") === "owner";
+        },
       });
       placer = placed;
       const mirror = new ThreadMirror({
