@@ -385,7 +385,11 @@ shown (its project, the viewer, full screen):
   something sized to its content is never clipped, up to the view less its
   gutters, past which the grid scrolls in its box. On a phone the row
   numbers and a frozen first column stay put sideways; other frozen columns
-  scroll away but keep their header and total in view.
+  scroll away but keep their header and total in view. A phone narrows the
+  grid before it scrolls (text wraps, a column's `width` is a desktop's),
+  holds the key figure (the first column the tab totals, else its first
+  currency) at the box's right edge, and says in the tools how many columns
+  are out of view.
 
 ## What an artifact runs in
 

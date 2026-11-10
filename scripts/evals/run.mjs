@@ -50,6 +50,8 @@ const TASKS = ALL.filter((t) => wanted.includes("all") || wanted.includes(t.name
 if (!TASKS.length) throw new Error(`no task matches ${args.tasks}; there are ${ALL.map((t) => t.name).join(", ")}`);
 if (!(await portFree(PORT))) throw new Error(`something already answers on ${PORT}; stop it first (never the owner's KOS)`);
 if (!existsSync(join(ROOT, "packages/cli/dist/main.js"))) throw new Error(`${ROOT} is not built: pnpm exec tsc -b there first`);
+// artifacts.check renders against the dashboard's build; without it every artifact task fails its check.
+if (!existsSync(join(ROOT, "packages/ui/dist/page-lib/tokens.json"))) throw new Error(`${ROOT} has no dashboard build: pnpm --dir packages/ui run build there first`);
 
 mkdirSync(OUT, { recursive: true });
 const runsDir = join(OUT, "runs", LABEL);

@@ -82,9 +82,27 @@ export function tablesIn(sql: string, existing: readonly string[]): string[] {
   return existing.filter((t) => new RegExp(`(^|[^a-z0-9_])${t.toLowerCase()}([^a-z0-9_]|$)`).test(lower));
 }
 
-/** A statement that reads the schema itself: SQLite's catalogue, or a PRAGMA. */
+/** A statement that reads the schema itself: SQLite's catalogue, a PRAGMA, its table-valued pragma_* functions, or dbstat. */
 export function readsSchema(sql: string): boolean {
-  return /\bsqlite_(?:master|schema|temp_master|temp_schema)\b/i.test(sql) || /^\s*pragma\b/i.test(sql);
+  return /\bsqlite_(?:master|schema|temp_master|temp_schema)\b/i.test(sql) || /^\s*pragma\b/i.test(sql) || /\bpragma_\w+/i.test(sql) || /\bdbstat\b/i.test(sql);
+}
+
+/**
+ * Whether a statement writes one of KOS's own tables, as SQLite would run it:
+ * the tables its plan opens to write, by root page, not the words it is
+ * spelled with, which quotes and comments can hide. A write to a virtual
+ * table (the memory index) or outside the main database counts, since no
+ * project's table is either. A statement that does not compile writes nothing.
+ */
+export function writesKernelTable(db: Db, sql: string, params: readonly unknown[] = []): boolean {
+  let plan: { opcode: string; p2: number; p3: number }[];
+  try {
+    plan = db.prepare(`EXPLAIN ${sql}`).all(...params) as typeof plan;
+  } catch {
+    return false;
+  }
+  const pages = new Map((db.prepare("SELECT rootpage, tbl_name FROM sqlite_master WHERE rootpage > 0").all() as { rootpage: number; tbl_name: string }[]).map((r) => [r.rootpage, r.tbl_name]));
+  return plan.some((op) => op.opcode === "VUpdate" || (op.opcode === "OpenWrite" && (op.p3 !== 0 || isKernelTable(pages.get(op.p2) ?? "sqlite_master"))));
 }
 
 /** A project as the fence knows it: what its tables start with, and what to call it. */

@@ -7,7 +7,10 @@
  * grid's auto track), and the page never scrolls sideways. Wider, the box
  * sizes to its grid, so a sheet held by something sized to its content is
  * never clipped, up to the view less the page's gutters, past which the grid
- * scrolls in its box rather than the page sideways. Selectors are one class deep, before the agent's own CSS.
+ * scrolls in its box rather than the page sideways. On a phone the grid
+ * narrows first, its words wrapping, and past that its key figure holds at
+ * the right edge and the tools say how many columns are out of view.
+ * Selectors are one class deep, before the agent's own CSS.
  */
 export const SHEET_CSS = String.raw`
 :where(:root) {
@@ -33,6 +36,7 @@ export const SHEET_CSS = String.raw`
 .sheet-tools input, .sheet-tools select { font: 400 13px / 1.2 var(--font-ui); color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm, 7px); padding: 7px 10px; min-width: 0; }
 .sheet-tools input { flex: 1 1 180px; max-width: 320px; }
 .sheet-tools .sheet-rows { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.sheet-tools .sheet-more { display: none; }
 .sheet-tools .sheet-spacer { flex: 1; }
 .sheet-tools button { font: 500 13px / 1 var(--font-ui); color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm, 7px); padding: 8px 12px; cursor: pointer; }
 .sheet-tools button:hover { border-color: var(--line-strong, var(--line)); }
@@ -42,7 +46,7 @@ export const SHEET_CSS = String.raw`
 .sheet-scroll { overflow: auto; max-width: calc(100vw - 2 * clamp(16px, 3vw, 28px)); max-height: var(--sheet-height); border: 1px solid var(--line); border-radius: var(--r-md, 10px); background: var(--panel); overscroll-behavior: contain; }
 .sheet-grid { border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums lining-nums; min-width: 100%; width: max-content; }
 .sheet-grid :where(th, td) { height: var(--sheet-row); padding: 0 12px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 36ch; text-align: left; background: var(--panel); }
-.sheet-grid thead th { position: sticky; top: 0; z-index: 2; background: var(--panel-2); vertical-align: bottom; padding: 6px 0 0; font-weight: 600; }
+.sheet-grid thead th { position: sticky; top: 0; z-index: 2; background: var(--panel-2); vertical-align: bottom; padding: 6px 0 0; font-weight: 600; min-width: var(--sheet-col, auto); }
 .sheet-grid thead button { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 0 12px 7px; cursor: pointer; }
 .sheet-grid thead button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .sheet-grid thead .letter { font: 500 10px / 1 var(--font-mono); color: var(--muted); letter-spacing: 0.04em; }
@@ -79,12 +83,27 @@ export const SHEET_CSS = String.raw`
 .sheet-charts .kos-chart text { fill: var(--muted); font: 11px var(--font-ui); font-variant-numeric: tabular-nums; }
 .sheet-charts .kos-chart .axis { stroke: var(--line); }
 @media (max-width: 560px) {
-  /* A phone holds four columns, not two: tighter cells, and only the row numbers and a frozen first column stay put sideways; the other frozen columns keep their header and total in view. */
+  /* More to the right: the grid fades out at the box's right edge, its border does not, and never over the key column held there (the runtime narrows the fade). Phones only, where scrollbars float over the content and leave the fade alone. */
+  .sheet-scroll.more { mask: linear-gradient(to left, transparent, #000 var(--sheet-fade, 40px)), linear-gradient(#000 0 0) top / 100% 1px no-repeat, linear-gradient(#000 0 0) bottom / 100% 1px no-repeat, linear-gradient(#000 0 0) right / 1px 100% no-repeat; }
+  /* A phone holds four columns, not two: tighter cells, a sigma for the totals' label, and only the row numbers and a frozen first column stay put sideways; the other frozen columns keep their header and total in view. */
   .sheet { font-size: 13px; }
   .sheet-scroll { contain: inline-size; }
-  .sheet-grid :where(th, td) { padding: 0 7px; max-width: 16ch; font-size: 13px; }
-  .sheet-grid thead button { padding: 0 7px 6px; }
-  .sheet-grid .rownum { padding: 0 6px; min-width: 2.5ch; }
+  .sheet-grid :where(th, td) { padding: 0 5px; max-width: 14ch; font-size: 13px; }
+  /* The grid narrows to the box before it scrolls: words wrap, and a width the sheet asked for is a desktop's. */
+  .sheet-grid { width: 100%; }
+  .sheet-grid thead th { min-width: 0; }
+  .sheet-grid .wrap { white-space: normal; overflow-wrap: break-word; }
+  .sheet-grid td.wrap { padding-block: 6px; line-height: 1.25; }
+  /* The key figure holds at the right edge over what it has not reached yet, its shadow saying the columns slide under it. */
+  .sheet-grid .key { position: sticky; right: 0; z-index: 1; }
+  .sheet-grid thead th.key, .sheet-grid tfoot td.key { z-index: 3; }
+  .sheet-scroll.held .sheet-grid .key { overflow: visible; box-shadow: -1px 0 0 var(--line-strong, var(--line)); }
+  .sheet-scroll.held .sheet-grid .key::before { content: ""; position: absolute; top: 0; bottom: 0; right: 100%; width: 14px; background: linear-gradient(to left, color-mix(in srgb, #000 22%, transparent), transparent); pointer-events: none; }
+  .sheet-tools .sheet-more:not(:empty) { display: inline; color: var(--accent); font: 600 13px / 1 var(--font-ui); }
+  .sheet-grid thead button { padding: 0 5px 6px; }
+  .sheet-grid .rownum { padding: 0 4px; min-width: 2ch; }
+  .sheet-grid tfoot th.rownum .word { display: none; }
+  .sheet-grid tfoot th.rownum::after { content: "\03A3"; content: "\03A3" / ""; font: 600 13px / 1 var(--font-ui); letter-spacing: 0; }
   .sheet-grid .frozen:not(:nth-child(2)) { left: auto !important; }
   .sheet-grid .frozen-edge { box-shadow: none; }
   .sheet-grid .frozen:nth-child(2) { max-width: 12ch; box-shadow: 1px 0 0 var(--line-strong, var(--line)); }
