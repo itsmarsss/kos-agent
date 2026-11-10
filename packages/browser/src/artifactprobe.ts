@@ -52,9 +52,15 @@ export function probe(): ProbeResult {
     const text = (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 32);
     return `${el.tagName.toLowerCase()}${id}${cls}${text ? ` "${text}"` : ""}`;
   };
+  // What is not rendered still gets a box: a closed <details>' contents, content-visibility: hidden, hidden=until-found.
   const visible = (el: Element): boolean => {
-    const s = getComputedStyle(el);
-    if (s.display === "none" || s.visibility === "hidden" || Number(s.opacity) === 0) return false;
+    if (typeof el.checkVisibility === "function") {
+      if (!el.checkVisibility({ contentVisibilityAuto: false, opacityProperty: true, visibilityProperty: true })) return false;
+    } else {
+      const s = getComputedStyle(el);
+      if (s.display === "none" || s.visibility === "hidden" || Number(s.opacity) === 0) return false;
+      if (el.parentElement?.closest("details:not([open])") && !el.closest("summary")) return false;
+    }
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
   };
