@@ -145,8 +145,8 @@ export interface SaidDeps extends PlaceDeps {
   jobOf(conversationId: string): JobFacts | undefined;
   /** Whether the owner alone reads a conversation's place: a run's words are the owner's, not a guest's. */
   ownerOnly(conversationId: string): boolean;
-  /** Whether a scheduled run here already said its piece in its place this turn; asking clears it. */
-  spokeInPlace(conversationId: string): boolean;
+  /** Whether a scheduled run here already said its piece this turn, in its place or the DM; asking clears it. */
+  saidItsPiece(conversationId: string): boolean;
   senderFor(conversationId: string): Sender | undefined;
   speakerFor(from: MessageFrom): Sender;
   ownerSender(): Promise<Sender | undefined>;
@@ -165,10 +165,11 @@ export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
   // that waited on an approval was answered "waiting on you" there, and
   // the answer after the decision has only this way back.
   if (said.channel === "discord" && !said.resumed) return;
-  // A run whose message already landed in its place has said its piece;
-  // its closing words ("Digest sent") would only repeat it. A failure after
-  // it is news all the same.
-  const spoke = deps.spokeInPlace(said.conversationId) && said.origin === "system" && !said.failed;
+  // A run whose message already reached the owner (in its place, or in the
+  // DM when guests read its place) has said its piece; its closing words
+  // ("Digest sent") would only repeat it. A failure after it is news all
+  // the same.
+  const spoke = deps.saidItsPiece(said.conversationId) && said.origin === "system" && !said.failed;
   // A scheduled run shows in the job's own thread, under the job's name: a
   // project's job under the project's channel, one at the root under KOS's
   // own. A daily post is what a schedule is for. Only a run the harness

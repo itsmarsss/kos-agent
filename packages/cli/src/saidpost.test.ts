@@ -21,7 +21,7 @@ function deps(
     titleOf: (conv) => `Title of ${conv}`,
     jobOf: () => undefined,
     ownerOnly: () => true,
-    spokeInPlace: () => false,
+    saidItsPiece: () => false,
     ensureThread: async (key, conv, title) => {
       made.push({ key, conv, title });
       return `thread-${conv}`;
@@ -113,13 +113,13 @@ describe("a scheduled run's answer on the server", () => {
 
   it("still tells a run's failure after it said its piece in its place", async () => {
     const reminder: JobFacts = { id: 7, name: "Nudge", type: "actions", projectSlug: null };
-    const d = deps({ "cron:7": "t7" }, { jobOf: () => reminder, spokeInPlace: () => true });
+    const d = deps({ "cron:7": "t7" }, { jobOf: () => reminder, saidItsPiece: () => true });
     await postSaid({ ...run("cron:7", "Ran 2 actions; 1 failed."), failed: true }, d);
     expect(d.posts).toEqual([{ target: "t7", text: "-# Nudge\nRan 2 actions; 1 failed." }]);
   });
 
   it("does not repeat a run that already said its piece in its place", async () => {
-    const d = deps({ "cron:24": "t24", "agent:briefing": "c-brief" }, { jobOf: (c) => (c === "cron:24" ? { ...kickoff, id: 24, name: "School Morning Digest", projectSlug: "school" } : undefined), spokeInPlace: () => true });
+    const d = deps({ "cron:24": "t24", "agent:briefing": "c-brief" }, { jobOf: (c) => (c === "cron:24" ? { ...kickoff, id: 24, name: "School Morning Digest", projectSlug: "school" } : undefined), saidItsPiece: () => true });
     await postSaid(run("cron:24", "Digest sent."), d);
     await postSaid(run("agent:briefing", "Brief sent."), d);
     expect(d.posts).toEqual([]);

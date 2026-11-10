@@ -192,19 +192,19 @@ export interface PlaceNotifierDeps extends PlaceDeps {
  * words do not repeat it.
  */
 export class PlaceNotifier {
-  /** Conversations whose scheduled run has said its piece in its place this turn. */
-  private readonly spoke = new Set<string>();
+  /** Conversations whose scheduled run has said its piece this turn: in its place, or in the DM when guests read its place. */
+  private readonly said = new Set<string>();
 
   constructor(private readonly deps: PlaceNotifierDeps) {}
 
   /** A new turn has said nothing in its place yet. */
   turnStarted(conversationId: string): void {
-    this.spoke.delete(conversationId);
+    this.said.delete(conversationId);
   }
 
-  /** Whether a scheduled run here already said its piece in its place this turn; asking clears it. */
-  spokeInPlace(conversationId: string): boolean {
-    return this.spoke.delete(conversationId);
+  /** Whether a scheduled run here already said its piece this turn; asking clears it. */
+  saidItsPiece(conversationId: string): boolean {
+    return this.said.delete(conversationId);
   }
 
   /**
@@ -214,7 +214,12 @@ export class PlaceNotifier {
    */
   async say(payload: NotifyPayload, msg: OutboundMessage): Promise<NotifySent | undefined> {
     if (!payload.place || payload.target.kind !== "owner" || payload.target.surface) return undefined;
-    if (!this.deps.ownerOnly(payload.place)) return undefined;
+    // A place guests read is not the run's: the DM carries it, and the
+    // run's closing words would only be a second DM for the same turn.
+    if (!this.deps.ownerOnly(payload.place)) {
+      this.said.add(payload.place);
+      return undefined;
+    }
     const job = this.deps.jobOf(payload);
     // A fixed reminder, and news the owner must not miss (a job failing), ping them.
     const ping = payload.ping || (job && pingsOwner(job)) ? `<@${this.deps.ownerId}> ` : "";
@@ -225,7 +230,7 @@ export class PlaceNotifier {
       await this.deps.sendOwner(msg).catch((err: unknown) => console.warn(`[discord] a run's message was not also sent to the owner's DM: ${err instanceof Error ? err.message : String(err)}`));
     };
     if (!(await postInPlace(payload.place, { ...msg, text: `${ping}${msg.text}` }, this.deps, alsoDm))) return undefined;
-    this.spoke.add(payload.place);
+    this.said.add(payload.place);
     if (unheard) return { delivered: "Posted in this run's own place on Discord; the owner could not be made a member of its thread, so it was sent to their DM as well." };
     return { delivered: `Posted in this run's own place on Discord, where the owner is a member and is notified${ping ? ", pinging them" : ""}; it is not also sent to their DM.` };
   }
@@ -961,7 +966,7 @@ export async function runHost(options: HostOptions): Promise<void> {
         ...placeOn,
         jobOf: cronOf,
         ownerOnly,
-        spokeInPlace: (conv) => placed.spokeInPlace(conv),
+        saidItsPiece: (conv) => placed.saidItsPiece(conv),
         senderFor: (conv) => kernel.senderFor(conv),
         speakerFor: (from) => kernel.speakerFor(from),
         ownerSender: () => adapter!.ownerSender(),

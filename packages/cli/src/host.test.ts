@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SurfaceDownError, type ChannelAdapter, type NotifyPayload } from "@kos/harness";
 
 import { dashboardUrlFor, PlaceNotifier, roomCursorsIn, surfaceUp, waitForPortFree, type PlaceNotifierDeps } from "./host.js";
-import type { JobFacts } from "./saidpost.js";
+import { postSaid, type JobFacts, type Said } from "./saidpost.js";
 
 describe("waitForPortFree", () => {
   let server: Server | undefined;
@@ -154,7 +154,7 @@ describe("a scheduled run's message in its place", () => {
     expect(bindings).toEqual({ t8: "cron:7" });
     gone.add("t8");
     expect(await notifier.say(run("cron:7"), { text: "Again." })).toBeUndefined();
-    expect(notifier.spokeInPlace("cron:7")).toBe(true);
+    expect(notifier.saidItsPiece("cron:7")).toBe(true);
   });
 
   it("leaves to the owner's DM a run's message, or a failing job's news, that its place refuses", async () => {
@@ -178,7 +178,7 @@ describe("a scheduled run's message in its place", () => {
         // The caretaker's news for a failing job takes the same way.
         expect(await notifier.say({ ...run("cron:2", "Kickoff is failing."), ping: true }, { text: "Kickoff is failing." })).toBeUndefined();
         expect(forgot).toEqual([]);
-        expect(notifier.spokeInPlace("cron:7")).toBe(false);
+        expect(notifier.saidItsPiece("cron:7")).toBe(false);
       }
     } finally {
       warn.mockRestore();
@@ -239,6 +239,36 @@ describe("a scheduled run's message in its place", () => {
     expect(posts).toEqual([{ target: "t2", text: "Kickoff" }]);
   });
 
+  it("counts a run's message left to the DM by its place's guests as its piece, so its closing words are not a second DM", async () => {
+    const { notifier, dms } = placer({ ownerOnly: () => false });
+    expect(await notifier.say(run("cron:2", "Kickoff"), { text: "Kickoff" })).toBeUndefined();
+    const closing: Said = { conversationId: "cron:2", text: "", reply: "Kickoff sent.", origin: "system", channel: null, files: [] };
+    await postSaid(closing, {
+      targetFor: () => "t2",
+      homeOf: () => undefined,
+      titleOf: (conv) => conv,
+      ensureThread: async () => undefined,
+      joinOwner: async () => true,
+      forgetPlace: () => undefined,
+      postIn: async () => undefined,
+      connected: () => true,
+      postWhenFound: async () => undefined,
+      jobOf: () => kickoff,
+      ownerOnly: () => false,
+      saidItsPiece: (conv) => notifier.saidItsPiece(conv),
+      senderFor: () => undefined,
+      speakerFor: (from) => ({ name: from.name }),
+      ownerSender: async () => undefined,
+      filesFor: () => [],
+      sendOwner: async (msg) => void dms.push(msg.text),
+    });
+    expect(dms).toEqual([]);
+    // The next turn has said nothing yet.
+    await notifier.say(run("cron:2", "Kickoff"), { text: "Kickoff" });
+    notifier.turnStarted("cron:2");
+    expect(notifier.saidItsPiece("cron:2")).toBe(false);
+  });
+
   it("leaves to the owner's DM what names somewhere, asks no place, or has none", async () => {
     const { notifier, posts } = placer();
     expect(await notifier.say({ text: "x", target: { kind: "owner" } }, { text: "x" })).toBeUndefined();
@@ -250,10 +280,10 @@ describe("a scheduled run's message in its place", () => {
   it("remembers a run that spoke in its place until asked, or until its next turn starts", async () => {
     const { notifier } = placer();
     await notifier.say(run("cron:7"), { text: "x" });
-    expect(notifier.spokeInPlace("cron:7")).toBe(true);
-    expect(notifier.spokeInPlace("cron:7")).toBe(false);
+    expect(notifier.saidItsPiece("cron:7")).toBe(true);
+    expect(notifier.saidItsPiece("cron:7")).toBe(false);
     await notifier.say(run("cron:7"), { text: "x" });
     notifier.turnStarted("cron:7");
-    expect(notifier.spokeInPlace("cron:7")).toBe(false);
+    expect(notifier.saidItsPiece("cron:7")).toBe(false);
   });
 });
