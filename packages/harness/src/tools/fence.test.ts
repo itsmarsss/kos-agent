@@ -220,7 +220,7 @@ describe("the fence around the tables", () => {
   });
 
   describe("a guest's words", () => {
-    const guest = (project: string | undefined, room: string | undefined): Reach => ({ ...reach(project), guest: { project: room } });
+    const guest = (project: string | undefined, room: string | undefined): Reach => ({ ...reach(project), guest: { project: room, chat: `project:${room}` } });
 
     it("reach the tables of their room's project, and only in its chats", () => {
       expect(fence(db, "INSERT INTO books_items (title) VALUES (?)", guest("books", "books"), ["x"])).toEqual({ ok: true });

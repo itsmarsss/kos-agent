@@ -95,11 +95,11 @@ export const MAINTENANCE_BRIEF = [
  * blob and the whole Discord layout as the root does, and KOS's own
  * tables besides (tools/fence.ts). Any other project sees its own.
  *
- * Maintenance's reach is for repairs the owner or KOS started. A guest's
- * words, said in its channel or handed to it, reach only Maintenance's own.
+ * Neither is for a guest's work: a guest's words, said in a room or
+ * handed on to the root or Maintenance, reach only their room's own.
  */
 export function reachesAll(project: string | undefined, guest: GuestOrigin | undefined = guestOrigin()): boolean {
-  return project === undefined || (project === MAINTENANCE.slug && !guest);
+  return !guest && (project === undefined || project === MAINTENANCE.slug);
 }
 
 type ManifestLike = CaretakerDeps["manifest"];

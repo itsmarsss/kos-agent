@@ -368,11 +368,16 @@ export function notRunNote(said: string[]): string {
 
 /** Who a waiting message's turn is to the fences, kept with it so a restart runs it as that. */
 function flagsOf(opts: PendingFlags): PendingFlags {
-  const keys = ["owner", "attended", "origin", "channel", "grant", "allow", "guest", "room", "members", "context", "contextRides", "quote", "roomTalk", "via", "from", "trail", "maxIterations", "guestFiles", "sentAt"] as const;
+  const keys = ["owner", "attended", "origin", "channel", "grant", "allow", "guest", "guested", "room", "members", "context", "contextRides", "quote", "roomTalk", "via", "from", "trail", "maxIterations", "guestFiles", "sentAt"] as const;
   return Object.fromEntries(keys.filter((k) => opts[k] !== undefined).map((k) => [k, opts[k]])) as PendingFlags;
 }
 
 export const GUEST_TOOLS = ["sql", "discord.react", "discord.reactions", "discord.messages", "discord.member", "notify", "chats.handoff"];
+
+/** What a guest's work may use in a chat: the guest tools its own scope also allows, all of them where it has none. */
+function guestTools(own: readonly string[] | null | undefined): string[] {
+  return own ? GUEST_TOOLS.filter((t) => own.some((a) => t === a || t.startsWith(`${a}.`))) : [...GUEST_TOOLS];
+}
 
 /** The same message said twice: the words of two stored copies agree, whatever else rides on them. */
 /**
@@ -900,6 +905,8 @@ export class Kernel {
       trail?: string[];
       /** Files a guest sent, by name: not kept, not read, only named to the turn. */
       guestFiles?: string[];
+      /** The guest's room behind work a guest's turn passed on, kept on the message so a retry is still theirs. */
+      guested?: GuestOrigin;
       /** When the surface says it was sent, in ms, kept if it waits so a restart judges its age by it. */
       sentAt?: number;
       /**
@@ -928,8 +935,7 @@ export class Kernel {
       // A guest's turn reaches less than the chat's own: nothing of the
       // owner's, and no file of theirs is kept or read. What a guest sent
       // is named to the turn, so the reply can say it was not taken.
-      const own = this.conversations.get(sessionId)?.toolAllow ?? null;
-      const reach = own ? GUEST_TOOLS.filter((t) => own.some((a) => t === a || t.startsWith(`${a}.`))) : [...GUEST_TOOLS];
+      const reach = guestTools(this.conversations.get(sessionId)?.toolAllow);
       const { attachments: sent, grant: _grant, ...rest } = opts;
       opts = { ...rest, origin: "system", owner: false, allow: reach, ...(sent?.length ? { guestFiles: sent.map((a) => a.name) } : {}) };
     }
@@ -1057,9 +1063,9 @@ export class Kernel {
       // or the sender was not, the owner's only when the door that took the
       // owner's own message said so.
       const attended = opts.attended ?? opts.origin !== "system";
-      const owner = attended && opts.owner === true && opts.origin !== "system" && !opts.guest && !sessionId.startsWith("cron:");
+      const owner = attended && opts.owner === true && opts.origin !== "system" && !opts.guest && !opts.guested && !sessionId.startsWith("cron:");
       // A guest's words reach no further than their room's project, here and wherever the work is passed.
-      const guest = opts.guested ?? (opts.guest ? { project: this.projectOf(sessionId) ?? undefined } : undefined);
+      const guest = opts.guested ?? (opts.guest ? { project: this.projectOf(sessionId) ?? undefined, chat: sessionId } : undefined);
       const stop = this.stopFor(sessionId, turnId);
       const previousConversation = this.currentConversationId;
       this.currentConversationId = sessionId;
@@ -1135,13 +1141,17 @@ export class Kernel {
           // null is unrestricted; an array is the exact scope, empty included.
           // An explicit override wins: it says what this caller is, and the
           // conversation's own scope is what the owner set for ordinary turns.
-          ...(opts.allow !== undefined
-            ? { allow: opts.allow }
-            : conversation?.toolAllow !== null &&
-                conversation?.toolAllow !== undefined
-              ? { allow: conversation.toolAllow }
-              : {}),
-          ...(opts.grant?.length ? { grant: opts.grant } : {}),
+          // A guest's work, on whatever hop, has the guest tools that scope
+          // allows and no grant: it never gains a tool by being passed on.
+          ...(guest
+            ? { allow: guestTools(opts.allow ?? conversation?.toolAllow) }
+            : opts.allow !== undefined
+              ? { allow: opts.allow }
+              : conversation?.toolAllow !== null &&
+                  conversation?.toolAllow !== undefined
+                ? { allow: conversation.toolAllow }
+                : {}),
+          ...(opts.grant?.length && !guest ? { grant: opts.grant } : {}),
         });
 
         // An agent with memory of its own reads that beside the global claims.
@@ -1165,7 +1175,7 @@ export class Kernel {
         // here so the agent gets the file's contents or the page's spec
         // rather than a string it has to go and look up, and so a name that
         // no longer exists says so instead of being silently ignored.
-        const mentioned = this.resolveMentions(text, conversation?.id, { guest: opts.guest !== undefined, owner });
+        const mentioned = this.resolveMentions(text, conversation?.id, { guest: guest !== undefined, owner });
         // Where this message's files now live, so the model refers to them
         // by path and anything else can open them later.
         const keptNote = opts.kept?.length
@@ -2730,7 +2740,8 @@ export class Kernel {
         ...(as.guest ? { guested: as.guest } : {}),
         ...(from ? { from } : {}),
         ...(trail.length ? { trail } : {}),
-        ...(orchestrates ? { grant: projectChat ? PROJECT_ORCHESTRATOR_GRANT : [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS], allow: [...ORCHESTRATOR_SCOPE] } : {}),
+        // A guest's work is no orchestrator's: it runs with the guest tools the target's own scope allows.
+        ...(orchestrates && !as.guest ? { grant: projectChat ? PROJECT_ORCHESTRATOR_GRANT : [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS], allow: [...ORCHESTRATOR_SCOPE] } : {}),
       });
     /*
      * In the target's own lane, behind anything already running there.
@@ -4903,11 +4914,12 @@ export class Kernel {
     // A guest's waiting words stay a guest's in the copy.
     const from = waiting.origin?.from;
     const guest: Guest | undefined = from?.kind === "guest" ? { id: from.id ?? "", name: from.name } : undefined;
+    const guested = waiting.origin?.guested;
     void this.handleMessage(withoutGuestName(waiting.text, guest), {
       sessionId: fork.id,
       userId: source.userId,
       // Asked on the dashboard; the words are the owner's unless a guest or a chat sent them.
-      ...(guest ? { guest } : { owner: !from || from.owner === true }),
+      ...(guest ? { guest } : guested ? { guested } : { owner: !from || from.owner === true }),
       ...(waiting.attachments.length ? { attachments: waiting.attachments } : {}),
     });
     return fork.id;
@@ -4973,9 +4985,12 @@ export class Kernel {
     }
     this.sessions.set(target, history.slice(0, at));
 
+    // Work a guest's turn passed on stays under their room, whoever sends it again; new words are the sender's own.
+    const guested = opts.text === undefined ? original?.origin?.guested : undefined;
     const res = await this.handleMessage(said, {
       sessionId: target,
       userId: source.userId,
+      ...(guested ? { guested } : {}),
       ...(guest
         ? { guest, ...(original?.origin?.via ? { channel: original.origin.via } : {}), ...(original?.origin?.room ? { room: original.origin.room } : {}) }
         : // The owner's again only if it was theirs, or the words are new ones of theirs: not a chat's sent again.

@@ -132,6 +132,8 @@ export function scheduledJob(): number | undefined {
  */
 export interface GuestOrigin {
   project: string | undefined;
+  /** The chat their words went to: all a room outside any project reaches. */
+  chat: string;
 }
 
 /** Set for every call, cleared when the turn is no guest's, so a call never inherits one. */
@@ -141,3 +143,4 @@ export const guested = new AsyncLocalStorage<GuestOrigin | undefined>();
 export function guestOrigin(): GuestOrigin | undefined {
   return guested.getStore();
 }
+

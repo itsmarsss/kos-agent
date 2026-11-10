@@ -192,12 +192,13 @@ describe("the maintenance project", () => {
 });
 
 describe("who reaches the whole of KOS", () => {
-  it("is the root and Maintenance, and Maintenance only on work no guest started", () => {
+  it("is the root and Maintenance, and neither on work a guest started", () => {
     expect(reachesAll(undefined)).toBe(true);
     expect(reachesAll("maintenance")).toBe(true);
     expect(reachesAll("books")).toBe(false);
-    expect(guested.run({ project: "maintenance" }, () => reachesAll("maintenance"))).toBe(false);
-    expect(guested.run({ project: "books" }, () => reachesAll("maintenance"))).toBe(false);
+    expect(guested.run({ project: "maintenance", chat: "project:maintenance" }, () => reachesAll("maintenance"))).toBe(false);
+    expect(guested.run({ project: "books", chat: "project:books" }, () => reachesAll("maintenance"))).toBe(false);
+    expect(guested.run({ project: undefined, chat: "c1" }, () => reachesAll(undefined))).toBe(false);
     expect(guested.run(undefined, () => reachesAll("maintenance"))).toBe(true);
   });
 });

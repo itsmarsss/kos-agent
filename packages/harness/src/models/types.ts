@@ -1,3 +1,5 @@
+import type { GuestOrigin } from "../kernel/caller.js";
+
 /**
  * Internal, provider-neutral model types. Every provider adapter normalizes to
  * and from these shapes so the rest of KOS speaks one tool-call protocol
@@ -156,6 +158,8 @@ export interface MessageOrigin {
   via: string;
   room?: MessageRoom;
   from?: MessageFrom;
+  /** The guest's room behind work a guest's turn passed on: a retry runs under it again. */
+  guested?: GuestOrigin;
 }
 
 /**
