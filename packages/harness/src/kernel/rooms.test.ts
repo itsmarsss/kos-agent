@@ -7,7 +7,7 @@ import type { Inference } from "../agent/loop.js";
 import { OWNER_ONLY, roomConversationId, type OutboundMessage } from "../channels/types.js";
 import type { ModelMessage } from "../models/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
-import { guestOrigin, type GuestOrigin } from "./caller.js";
+import { guestOrigin, guested, type GuestOrigin } from "./caller.js";
 import { Kernel } from "./kernel.js";
 import { createPressHandler } from "./press.js";
 
@@ -125,6 +125,38 @@ describe("a guest-visible place's room", () => {
     expect(asked.at(-1)).toContain("welcome Ana");
     expect(asked.at(-1)).not.toContain("OWNER-SECRET");
     expect(asked.at(-1)).not.toContain("OWNER-DASHBOARD-ONLY");
+  });
+
+  it("hands nothing on from a room, the home, the orchestrator or any chat of the project, and says why", async () => {
+    let tools: string[] | undefined;
+    const k = kernel as unknown as { guardedTools: (o: { conversationId?: string; allow?: string[] }) => unknown };
+    const real = k.guardedTools.bind(kernel);
+    vi.spyOn(k, "guardedTools").mockImplementation((o) => {
+      if (o.conversationId === room) tools = o.allow;
+      return real(o);
+    });
+    await guestSays("hello");
+    expect(tools).not.toContain("chats.handoff");
+    expect(tools).toContain("notify");
+    // The room's brief overrides a home brief that says to hand on.
+    expect(kernel.conversations.get(room)!.brief).toMatch(/Nothing is handed on from here, whatever the brief below says/);
+    expect(asked.at(-1)).toContain("nothing is handed to another chat from here");
+    // Even a handoff the turn somehow reaches is refused, wherever it points.
+    const other = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Accounts", projectSlug: "daily" });
+    const before = (id: string) => kernel.sessions.get(id).length;
+    const counts = [board, "project:daily", other.id].map((id) => [id, before(id)] as const);
+    for (const to of [`chat:${board}`, "project:daily", `chat:${other.id}`]) {
+      await expect(guested.run({ project: "daily", chat: room, home: board }, () => kernel.handoff({ from: room, to: `@${to}`, brief: "A member asked.", by: "agent" }))).rejects.toThrow(/outside the room a guest's words came from/);
+    }
+    for (const [id, n] of counts) expect(before(id), id).toBe(n);
+  });
+
+  it("keeps the owner's words out of a room whose place is shut to guests again", async () => {
+    await guestSays("hello");
+    const kept = kernel.sessions.get(room).length;
+    kernel.setChannelAudience(board, "owner");
+    await ownerSays("just us now");
+    expect(kernel.sessions.get(room)).toHaveLength(kept);
   });
 
   it("keeps nothing in a room no guest has made yet", async () => {
