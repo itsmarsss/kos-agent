@@ -382,7 +382,8 @@ shown (its project, the viewer, full screen):
   the grid scrolls. On a phone, sideways too: the grid's box is contained
   inline there, so a wide grid never widens what holds it, and the page
   never scrolls sideways. Wider, the box sizes to its grid, so a sheet in
-  something sized to its content is never clipped. On a phone the row
+  something sized to its content is never clipped, up to the view less its
+  gutters, past which the grid scrolls in its box. On a phone the row
   numbers and a frozen first column stay put sideways; other frozen columns
   scroll away but keep their header and total in view.
 

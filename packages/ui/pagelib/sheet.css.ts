@@ -6,7 +6,8 @@
  * grid, it never widens what holds the sheet (a flex row, an inline block, a
  * grid's auto track), and the page never scrolls sideways. Wider, the box
  * sizes to its grid, so a sheet held by something sized to its content is
- * never clipped. Selectors are one class deep, before the agent's own CSS.
+ * never clipped, up to the view less the page's gutters, past which the grid
+ * scrolls in its box rather than the page sideways. Selectors are one class deep, before the agent's own CSS.
  */
 export const SHEET_CSS = String.raw`
 :where(:root) {
@@ -38,7 +39,7 @@ export const SHEET_CSS = String.raw`
 .sheet-status { font-size: 13px; color: var(--muted); }
 .sheet-status.bad { color: var(--danger); }
 
-.sheet-scroll { overflow: auto; max-height: var(--sheet-height); border: 1px solid var(--line); border-radius: var(--r-md, 10px); background: var(--panel); overscroll-behavior: contain; }
+.sheet-scroll { overflow: auto; max-width: calc(100vw - 2 * clamp(16px, 3vw, 28px)); max-height: var(--sheet-height); border: 1px solid var(--line); border-radius: var(--r-md, 10px); background: var(--panel); overscroll-behavior: contain; }
 .sheet-grid { border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums lining-nums; min-width: 100%; width: max-content; }
 .sheet-grid :where(th, td) { height: var(--sheet-row); padding: 0 12px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 36ch; text-align: left; background: var(--panel); }
 .sheet-grid thead th { position: sticky; top: 0; z-index: 2; background: var(--panel-2); vertical-align: bottom; padding: 6px 0 0; font-weight: 600; }
