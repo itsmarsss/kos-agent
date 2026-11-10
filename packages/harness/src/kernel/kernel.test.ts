@@ -47,6 +47,7 @@ describe("Kernel", () => {
   async function boot(
     inference: Inference,
     notify?: (payload: { text: string }) => Promise<void>,
+    discord?: DiscordServices,
   ): Promise<Kernel> {
     root = mkdtempSync(join(tmpdir(), "kos-kernel-"));
     return Kernel.boot({
@@ -54,6 +55,7 @@ describe("Kernel", () => {
       secrets: new SecretsRegistry(),
       inference,
       ...(notify ? { notify } : {}),
+      ...(discord ? { discord } : {}),
       profileOverrides: { name: "Kenny", timezone: "UTC" },
     });
   }
@@ -1286,9 +1288,10 @@ describe("Kernel", () => {
 
   it("tells every upkeep job's failure in the one upkeep chat, which threads under KOS", async () => {
     const seen: NotifyPayload[] = [];
+    const server = { connected: () => true, known: () => [] } as unknown as DiscordServices;
     kernel = await boot(stubInference([]), async (payload) => {
       seen.push(payload as NotifyPayload);
-    });
+    }, server);
     kernel.settings.set(BEHAVIOUR_KEY, { autoFix: false });
     const broken = [{ tool: "files.read", args: { path: "nope/missing.md" } }];
     const a = kernel.crons.create({ name: "kos.alpha", schedule: "0 3 * * *", type: "actions", actions: broken });
@@ -1305,6 +1308,22 @@ describe("Kernel", () => {
       [upkeep, true],
     ]);
     expect(kernel.threadHome(upkeep)).toBe(`orchestrator:${kernel.profile.ownerId}`);
+  });
+
+  it("tells an upkeep job's failure to the owner, and makes no upkeep chat, without a server", async () => {
+    const seen: NotifyPayload[] = [];
+    kernel = await boot(stubInference([]), async (payload) => {
+      seen.push(payload as NotifyPayload);
+    });
+    kernel.settings.set(BEHAVIOUR_KEY, { autoFix: false });
+    const job = kernel.crons.create({ name: "kos.alpha", schedule: "0 3 * * *", type: "actions", actions: [{ tool: "files.read", args: { path: "nope/missing.md" } }] });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]?.place).toBeUndefined();
+    expect(kernel.conversations.get(upkeepSessionId(kernel.profile.ownerId))).toBeUndefined();
   });
 
   it("moves a job's thread into the project the job was moved to", async () => {

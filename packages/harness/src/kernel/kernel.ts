@@ -1640,10 +1640,12 @@ export class Kernel {
   /**
    * Where a job's failing and recovered news is told: its own place, or for
    * KOS's upkeep (kos.*) the one chat all of upkeep shares, made when first
-   * needed, rather than a thread for each.
+   * needed, rather than a thread for each. Without a server there is no
+   * thread for that chat to be: upkeep's news goes to the owner as before.
    */
-  private newsPlace(job: CronJob): string {
+  private newsPlace(job: CronJob): string | undefined {
     if (!job.name.startsWith("kos.")) return this.jobPlace(job);
+    if (!this.discord) return undefined;
     const id = upkeepSessionId(this.profile.ownerId);
     if (!this.conversations.get(id)) {
       this.conversations.create({
