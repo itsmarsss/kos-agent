@@ -17,8 +17,11 @@ const TONES = ["--accent", "--ok", "--warn", "--violet", "--danger", "--muted"];
 const PAD = 28;
 /** The space a label keeps from the next, and from its bar. */
 const LABEL_GAP = 8;
-/** One bar's row, when the bars run across. */
+/** One bar's row, when the bars run across, and the least a row may shrink to under a height. */
 const ROW = 26;
+const MIN_ROW = 16;
+/** Bars run across only for categories; more than this is a series, which keeps its columns. */
+const MAX_ROWS = 16;
 /** About how wide a character draws at the chart's 11 px, for a chart not laid out. */
 const CHAR_PX = 6.2;
 
@@ -26,6 +29,8 @@ function svg(el: Element, width: number, height: number): SVGSVGElement {
   const s = document.createElementNS(NS, "svg");
   s.setAttribute("viewBox", `0 0 ${width} ${height}`);
   s.setAttribute("class", "kos-chart");
+  // Its geometry runs left to right, whatever the page's direction.
+  s.setAttribute("style", "direction:ltr");
   el.replaceChildren(s);
   return s;
 }
@@ -54,25 +59,30 @@ function textWidth(t: SVGTextContentElement): number {
   return t.getComputedTextLength?.() || (t.textContent ?? "").length * CHAR_PX;
 }
 
-/** The widest of these labels as the chart draws them, measured in a chart of its own when none is given. */
-function widest(el: Element, labels: string[], into?: SVGSVGElement): number {
-  const s = into ?? svg(el, 1, 1);
-  const widths = labels.map((l) => {
-    const t = add(s, "text", {}, l) as SVGTextContentElement;
-    const width = textWidth(t);
-    t.remove();
-    return width;
-  });
-  return Math.max(0, ...widths);
+/** How wide each label draws in this chart: all placed, then read in one pass, so the page lays out once. */
+function widths(s: SVGSVGElement, labels: string[]): number[] {
+  const texts = labels.map((l) => add(s, "text", {}, l) as SVGTextContentElement);
+  const out = texts.map(textWidth);
+  for (const t of texts) t.remove();
+  return out;
 }
 
-/** Cut a label to its room with an ellipsis, the whole of it in its title. */
-function fit(t: SVGElement, room: number): void {
+/** Cut a label of this width to its room with an ellipsis, the whole of it in its title. */
+function fit(t: SVGElement, width: number, room: number): void {
+  if (width <= room) return;
   const text = t as SVGTextContentElement;
   const whole = text.textContent ?? "";
-  if (textWidth(text) <= room) return;
-  let cut = whole;
-  while (cut.length > 1 && textWidth(text) > room) text.textContent = `${(cut = cut.slice(0, -1)).trimEnd()}\u2026`;
+  const cut = (n: number): string => `${whole.slice(0, n).trimEnd()}…`;
+  // The longest start that fits, found by halves: a read for each, not one for each character.
+  let lo = 1;
+  let hi = whole.length - 1;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    text.textContent = cut(mid);
+    if (textWidth(text) <= room) lo = mid;
+    else hi = mid - 1;
+  }
+  text.textContent = cut(lo);
   add(text, "title", {}, whole);
 }
 
@@ -86,47 +96,53 @@ function frame(el: Element, data: Series): { s: SVGSVGElement; w: number; h: num
   return { s, w, h, max };
 }
 
+/** Every how many labels has room beside the next, at a step of this many px. */
+const thin = (sizes: number[], step: number): number => Math.max(1, Math.ceil((Math.max(0, ...sizes) + LABEL_GAP) / step));
+
 /**
  * Bars side by side while every label fits under its own; past that, as on a
  * phone with a word for each category, one bar a row, its label at its left
- * and its figure at its end, so no label is ever drawn over another.
+ * and its figure at its end, so no label is ever drawn over another. A
+ * height too short for rows, or more bars than categories have, keeps the
+ * columns and labels as many as have room.
  */
 export function bar(el: Element, data: Series): void {
   const w = widthOf(el, 600);
   const labels = data.values.map((_, i) => String(data.labels[i] ?? ""));
   const n = data.values.length || 1;
   const slot = (w - PAD - 4) / n;
-  if (n > 16 || widest(el, labels) + LABEL_GAP <= slot) return columns(el, data, labels, slot);
-  rows(el, data, labels, w);
+  const sizes = widths(svg(el, w, 1), labels);
+  const row = Math.min(ROW, data.height ? (data.height - 8) / n : ROW);
+  if (thin(sizes, slot) === 1 || n > MAX_ROWS || row < MIN_ROW) return columns(el, data, labels, slot, thin(sizes, slot));
+  rows(el, data, labels, sizes, w, row);
 }
 
-function columns(el: Element, data: Series, labels: string[], slot: number): void {
+function columns(el: Element, data: Series, labels: string[], slot: number, every: number): void {
   const { s, h, max } = frame(el, data);
-  const n = data.values.length;
   data.values.forEach((v, i) => {
     const bh = ((h - PAD * 2) * Math.max(0, v)) / max;
     add(s, "rect", { x: PAD + i * slot + slot * 0.15, y: h - PAD - bh, width: slot * 0.7, height: bh, rx: 3, style: "fill:var(--accent)" });
-    if (n <= 16) add(s, "text", { x: PAD + i * slot + slot / 2, y: h - PAD + 14, "text-anchor": "middle" }, labels[i]);
+    if (i % every === 0) add(s, "text", { x: PAD + i * slot + slot / 2, y: h - PAD + 14, "text-anchor": "middle" }, labels[i]);
   });
 }
 
-function rows(el: Element, data: Series, labels: string[], w: number): void {
+function rows(el: Element, data: Series, labels: string[], sizes: number[], w: number, row: number): void {
   const n = data.values.length;
-  const h = n * ROW + 8;
+  const h = n * row + 8;
   const s = svg(el, w, h);
   const max = Math.max(0, ...data.values) || 1;
+  const figures = data.values.map(short);
   // The labels take what they need, up to two fifths; a longer one is cut to fit.
-  const room = Math.min(widest(el, labels, s), w * 0.4);
+  const room = Math.min(Math.max(0, ...sizes), w * 0.4);
   const left = room + LABEL_GAP;
-  const figure = widest(el, data.values.map(short), s) + LABEL_GAP;
-  const span = Math.max(1, w - left - figure);
+  const span = Math.max(1, w - left - Math.max(0, ...widths(s, figures)) - LABEL_GAP);
   add(s, "line", { x1: left, y1: 0, x2: left, y2: h, class: "axis" });
   data.values.forEach((v, i) => {
-    const mid = 4 + i * ROW + ROW / 2;
+    const mid = 4 + i * row + row / 2;
     const bw = (span * Math.max(0, v)) / max;
-    add(s, "rect", { x: left, y: mid - ROW * 0.3, width: bw, height: ROW * 0.6, rx: 3, style: "fill:var(--accent)" });
-    fit(add(s, "text", { x: room, y: mid + 4, "text-anchor": "end" }, labels[i]), room);
-    add(s, "text", { x: left + bw + 6, y: mid + 4 }, short(v));
+    add(s, "rect", { x: left, y: mid - row * 0.3, width: bw, height: row * 0.6, rx: 3, style: "fill:var(--accent)" });
+    fit(add(s, "text", { x: room, y: mid + 4, "text-anchor": "end" }, labels[i]), sizes[i]!, room);
+    add(s, "text", { x: left + bw + 6, y: mid + 4 }, figures[i]);
   });
 }
 
@@ -140,7 +156,7 @@ export function line(el: Element, data: Series): void {
   const y = (v: number): number => h - PAD - ((h - PAD * 2) * v) / max;
   const points = data.values.map((v, i) => `${x(i)},${y(v)}`).join(" ");
   add(s, "polyline", { points, fill: "none", style: "stroke:var(--accent);stroke-width:2" });
-  const every = Math.max(1, Math.ceil(n / 8), Math.ceil((widest(el, labels, s) + LABEL_GAP) / step));
+  const every = Math.max(Math.ceil(n / 8), thin(widths(s, labels), step));
   labels.forEach((l, i) => {
     if (i % every === 0) add(s, "text", { x: x(i), y: h - PAD + 14, "text-anchor": "middle" }, l);
   });
