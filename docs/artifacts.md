@@ -379,7 +379,9 @@ shown (its project, the viewer, full screen):
 - A deck is a 16:9 stage as wide as the room, under its bar, never taller
   than the view; a sheet fills the view below where its frame starts, and
   its runtime gives the grid what is left under its head and tools, so only
-  the grid scrolls.
+  the grid scrolls. Sideways too: the grid's box is contained inline, so a
+  wide grid never widens what holds it, and the page never scrolls sideways.
+  On a phone the row numbers and a frozen first column stay put.
 
 ## What an artifact runs in
 

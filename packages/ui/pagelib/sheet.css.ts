@@ -2,7 +2,10 @@
  * kos-sheet's defaults: a quiet grid where the figures are the point.
  * Numbers sit right in tabular figures, the header and the row numbers stay
  * in view, the focused cell is plain to see, and only the grid scrolls
- * sideways. Selectors are one class deep, before the agent's own CSS.
+ * sideways: its box is contained inline, so however wide the grid, it never
+ * widens what holds the sheet (a flex row, an inline block, a grid's auto
+ * track), and the page itself never scrolls sideways. Selectors are one class
+ * deep, before the agent's own CSS.
  */
 export const SHEET_CSS = String.raw`
 :where(:root) {
@@ -34,7 +37,7 @@ export const SHEET_CSS = String.raw`
 .sheet-status { font-size: 13px; color: var(--muted); }
 .sheet-status.bad { color: var(--danger); }
 
-.sheet-scroll { overflow: auto; max-height: var(--sheet-height); border: 1px solid var(--line); border-radius: var(--r-md, 10px); background: var(--panel); overscroll-behavior: contain; }
+.sheet-scroll { contain: inline-size; overflow: auto; max-height: var(--sheet-height); border: 1px solid var(--line); border-radius: var(--r-md, 10px); background: var(--panel); overscroll-behavior: contain; }
 .sheet-grid { border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums lining-nums; min-width: 100%; width: max-content; }
 .sheet-grid :where(th, td) { height: var(--sheet-row); padding: 0 12px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 36ch; text-align: left; background: var(--panel); }
 .sheet-grid thead th { position: sticky; top: 0; z-index: 2; background: var(--panel-2); vertical-align: bottom; padding: 6px 0 0; font-weight: 600; }
@@ -74,13 +77,14 @@ export const SHEET_CSS = String.raw`
 .sheet-charts .kos-chart text { fill: var(--muted); font: 11px var(--font-ui); font-variant-numeric: tabular-nums; }
 .sheet-charts .kos-chart .axis { stroke: var(--line); }
 @media (max-width: 560px) {
-  /* A phone holds four columns, not two: tighter cells, and only the row numbers stay put. */
+  /* A phone holds four columns, not two: tighter cells, and only the row numbers and a frozen first column stay put. */
   .sheet { font-size: 13px; }
   .sheet-grid :where(th, td) { padding: 0 7px; max-width: 16ch; font-size: 13px; }
   .sheet-grid thead button { padding: 0 7px 6px; }
   .sheet-grid .rownum { padding: 0 6px; min-width: 2.5ch; }
-  .sheet-grid .frozen:not(.rownum) { position: static; }
+  .sheet-grid .frozen:not(:nth-child(2)) { position: static; }
   .sheet-grid .frozen-edge { box-shadow: none; }
+  .sheet-grid .frozen:nth-child(2) { max-width: 12ch; box-shadow: 1px 0 0 var(--line-strong, var(--line)); }
   .sheet-tools input { max-width: none; }
 }
 `;

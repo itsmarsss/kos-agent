@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createSocket, type Socket } from "node:dgram";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -437,6 +437,63 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await new Promise((r) => setTimeout(r, 100));
     expect(await value("ownerIn(f)")).toBe(false);
     expect(await value("saveAllowed(f, undefined)")).toBe(false);
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
+  /*
+   * A sheet wider than a phone, on the sheet's runtime and the kit's CSS as
+   * the dashboard inlines them: the page never scrolls sideways, only each
+   * grid does, inside its own box, with the row numbers and the frozen first
+   * column held while it does. Twice: on the page, and in a flex row, which
+   * sizes what it holds by its content and once took the grid's whole width.
+   */
+  it("scrolls a wide sheet inside its grid on a phone, never the page", async () => {
+    const { build } = await import("esbuild");
+    const bundled = await build({ entryPoints: [join(import.meta.dirname, "../../pagelib/sheet.ts")], bundle: true, write: false, format: "iife", target: "chrome120", charset: "ascii", logLevel: "silent" });
+    const columns = [{ label: "Line" }, ...Array.from({ length: 11 }, (_, i) => ({ label: `Month ${i + 1}`, type: "currency", currency: "CAD" }))];
+    const rows = Array.from({ length: 8 }, (_, r) => [`Line ${r + 1}`, ...Array.from({ length: 11 }, (_, c) => 1000 * (r + 1) + c)]);
+    const data = `<script type="application/json" data-sheet>${JSON.stringify({ sheets: [{ name: "Year", freeze: 1, columns, rows, totals: { B: "sum" } }] })}</script>`;
+    const html = `<h1>The year</h1>${data}<div style="display:flex;gap:12px"><section>${data}</section></div><script>
+      addEventListener("message", (e) => {
+        if (e.data !== "probe") return;
+        const grids = [...document.querySelectorAll(".sheet-scroll")].map((grid) => {
+          const left = (sel) => grid.querySelector(sel).getBoundingClientRect().left;
+          const before = [left("tbody .rownum"), left("tbody td")];
+          grid.scrollLeft = 400;
+          // Within a pixel: a frozen cell is pinned at whole pixels, the layout falls on fractions.
+          const held = Math.abs(left("tbody .rownum") - before[0]) < 1 && Math.abs(left("tbody td") - before[1]) < 1;
+          const out = { wide: grid.scrollWidth, box: grid.clientWidth, scrolled: grid.scrollLeft, held };
+          grid.scrollLeft = 0;
+          return out;
+        });
+        top.postMessage({ probe: { page: document.documentElement.scrollWidth, view: innerWidth, grids } }, "*");
+      });
+    </script>`;
+    const css = ["kit.css", "page.css"].map((f) => readFileSync(join(import.meta.dirname, "../../../kit/src", f), "utf8")).join("\n");
+    const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css, libraries: [bundled.outputFiles[0]!.text], kind: "sheet" }));
+    pages.set("/sheet", `<!doctype html><meta name="viewport" content="width=device-width"><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:100%;height:700px" srcdoc="${frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe><script>
+      addEventListener("message", (e) => { if (e.data && e.data.probe) document.body.dataset.probe = JSON.stringify(e.data.probe); });
+    </script></body>`);
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await send("Page.navigate", { url: `${base}/sheet` });
+    const value = async (expression: string): Promise<unknown> => ((await send("Runtime.evaluate", { expression, returnByValue: true })).result as { value?: unknown } | undefined)?.value;
+    // Ask until both grids are drawn and answer, up to a bound.
+    type Probe = { page?: number; view?: number; grids?: { wide: number; box: number; scrolled: number; held: boolean }[] };
+    let probe: Probe = {};
+    for (let waited = 0; waited < 10_000 && probe.grids?.length !== 2; waited += 100) {
+      await value(`document.getElementById("f").contentWindow.frames[0].postMessage("probe", "*")`);
+      await new Promise((r) => setTimeout(r, 100));
+      probe = JSON.parse(String(await value("document.body.dataset.probe || '{}'"))) as Probe;
+    }
+    expect(probe.view).toBe(390);
+    expect(probe.page).toBeLessThanOrEqual(probe.view!);
+    expect(probe.grids).toHaveLength(2);
+    for (const grid of probe.grids!) {
+      expect(grid.box).toBeLessThan(probe.view!);
+      expect(grid.wide).toBeGreaterThan(grid.box);
+      expect(grid.scrolled).toBe(400);
+      expect(grid.held).toBe(true);
+    }
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 
