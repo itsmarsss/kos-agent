@@ -243,13 +243,20 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   });
 
   const value = async (expression: string): Promise<unknown> => ((await send("Runtime.evaluate", { expression, returnByValue: true })).result as { value?: unknown } | undefined)?.value;
-  /** Wait for what is expected in the browser, up to a bound, rather than guess how long a busy machine takes. */
+  /**
+   * Wait for what is expected in the browser, up to a bound, rather than guess
+   * how long a busy machine takes; past the bound, fail naming what it waited on.
+   */
   const until = async (expression: string, bound = BOUND_MS): Promise<void> => {
-    for (const end = Date.now() + bound; !(await value(expression)) && Date.now() < end; ) await pause(50);
+    for (const end = Date.now() + bound; !(await value(expression)); await pause(50)) {
+      if (Date.now() >= end) throw new Error(`Waited ${bound} ms for ${expression}`);
+    }
   };
   /** The same, for what reaches this side: a request, a packet. */
   const within = async (seen: () => boolean, bound = BOUND_MS): Promise<void> => {
-    for (const end = Date.now() + bound; !seen() && Date.now() < end; ) await pause(50);
+    for (const end = Date.now() + bound; !seen(); await pause(50)) {
+      if (Date.now() >= end) throw new Error(`Waited ${bound} ms for ${seen.toString()}`);
+    }
   };
 
   /** The dashboard's side: the frame as ArtifactPage draws it, around one page, run until it has tried and then a while longer. */
@@ -387,7 +394,10 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     const { build } = await import("esbuild");
     const bundled = await build({ entryPoints: [join(import.meta.dirname, "../../pagelib/doc.ts")], bundle: true, write: false, format: "iife", target: "chrome120", charset: "ascii", logLevel: "silent" });
     const runtime = bundled.outputFiles[0]!.text;
-    const html = `<article data-doc><p><br></p><h2>Next</h2></article>`;
+    // The "/" menu, as it shows: its picked block told to the dashboard, so the test presses Enter on what it sees.
+    const html = `<article data-doc><p><br></p><h2>Next</h2></article><script>
+      new MutationObserver(() => { const m = document.querySelector(".doc-slash"); if (m && !m.hidden) top.postMessage({ menu: m.querySelector('[aria-selected="true"]')?.textContent ?? "" }, "*"); }).observe(document.body, { subtree: true, childList: true, attributes: true });
+    </script>`;
     const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [runtime], kind: "doc" }));
     // The dashboard's own checks, as ArtifactPage makes them (frameheight.ts), run here in the browser.
     const checks = `const REVEAL_MS = ${REVEAL_MS}, DONE_MS = ${DONE_MS}; const ownerIn = ${ownerIn.toString()}; const saveAllowed = ${saveAllowed.toString()}; const revealAllowed = ${revealAllowed.toString()};`;
@@ -398,6 +408,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       addEventListener("message", (e) => {
         const page = f.contentWindow.frames[0], m = e.data || {};
         if (e.source !== page) return;
+        if (typeof m.menu === "string") { document.body.dataset.menu = m.menu; return; }
         // The bridge's channel for the owner's presses and keys, taken once as ArtifactPage takes it.
         if (m.__kos === "gestures") { ports += 1; document.body.dataset.ports = String(ports); if (ports === 1) e.ports[0].onmessage = () => { gestureAt = performance.now(); document.body.dataset.gestures = String(Number(document.body.dataset.gestures || 0) + 1); }; return; }
         // The dashboard's edit bar: Edit once the doc says it can be edited.
@@ -442,8 +453,9 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await key("Enter");
     await type("it is **wet** now");
     await key("Enter");
-    // The menu opens on the key's own input event, which Chrome has handled by the time it answers.
+    // Enter only once the menu shows the divider picked.
     await type("/div");
+    await until("(document.body.dataset.menu || '').startsWith('Divider')");
     await key("Enter");
     await until("document.body.dataset.saved");
     // A while for a second save that must not come.
