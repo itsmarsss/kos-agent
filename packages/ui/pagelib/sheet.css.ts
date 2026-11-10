@@ -78,13 +78,13 @@ export const SHEET_CSS = String.raw`
 .sheet-charts .kos-chart text { fill: var(--muted); font: 11px var(--font-ui); font-variant-numeric: tabular-nums; }
 .sheet-charts .kos-chart .axis { stroke: var(--line); }
 @media (max-width: 560px) {
-  /* A phone holds four columns, not two: tighter cells, and only the row numbers and a frozen first column stay put. */
+  /* A phone holds four columns, not two: tighter cells, and only the row numbers and a frozen first column stay put sideways; the other frozen columns keep their header and total in view. */
   .sheet { font-size: 13px; }
   .sheet-scroll { contain: inline-size; }
   .sheet-grid :where(th, td) { padding: 0 7px; max-width: 16ch; font-size: 13px; }
   .sheet-grid thead button { padding: 0 7px 6px; }
   .sheet-grid .rownum { padding: 0 6px; min-width: 2.5ch; }
-  .sheet-grid .frozen:not(:nth-child(2)) { position: static; }
+  .sheet-grid .frozen:not(:nth-child(2)) { left: auto !important; }
   .sheet-grid .frozen-edge { box-shadow: none; }
   .sheet-grid .frozen:nth-child(2) { max-width: 12ch; box-shadow: 1px 0 0 var(--line-strong, var(--line)); }
   .sheet-tools input { max-width: none; }

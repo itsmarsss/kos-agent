@@ -383,7 +383,8 @@ shown (its project, the viewer, full screen):
   inline there, so a wide grid never widens what holds it, and the page
   never scrolls sideways. Wider, the box sizes to its grid, so a sheet in
   something sized to its content is never clipped. On a phone the row
-  numbers and a frozen first column stay put.
+  numbers and a frozen first column stay put sideways; other frozen columns
+  scroll away but keep their header and total in view.
 
 ## What an artifact runs in
 

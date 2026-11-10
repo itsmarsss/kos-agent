@@ -544,6 +544,39 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   }, 30_000);
 
   /*
+   * Two frozen columns on a phone: only the first stays put sideways, but the
+   * second keeps its header at the top and its total at the bottom while the
+   * grid scrolls down, as every other column does.
+   */
+  it("keeps a second frozen column's header and total in view on a phone", async () => {
+    const sticky = `() => {
+      const grid = document.querySelector(".sheet-scroll");
+      const at = (sel) => grid.querySelector(sel).getBoundingClientRect();
+      grid.scrollTop = 200;
+      grid.scrollLeft = 300;
+      const out = {
+        down: grid.scrollTop,
+        header: Math.abs(at("thead th:nth-child(3)").top - at("thead .rownum").top),
+        total: Math.abs(at("tfoot td:nth-child(3)").bottom - at("tfoot .rownum").bottom),
+        across: Math.abs(at("tbody td:nth-child(3)").left - at("tbody td:nth-child(2)").right),
+      };
+      grid.scrollTop = 0;
+      grid.scrollLeft = 0;
+      return out;
+    }`;
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await sheetPage("/frozen", sheetData(months(30, 2)), { sticky });
+    const probe = await ask<{ down: number; header: number; total: number; across: number }>("sticky", (p) => p.down > 0);
+    expect(probe.down).toBe(200);
+    // Within a pixel of the row numbers, which are held at the top and the bottom.
+    expect(probe.header).toBeLessThan(1);
+    expect(probe.total).toBeLessThan(1);
+    // Sideways it scrolls away, not pinned beside the first.
+    expect(probe.across).toBeGreaterThan(100);
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
+  /*
    * On a desktop the grid's box sizes to its grid, so a sheet held by
    * something sized to its content (an inline block, a flex item) shows every
    * column, where a box contained inline would be sized as if empty, to no
