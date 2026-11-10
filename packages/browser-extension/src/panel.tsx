@@ -1021,7 +1021,7 @@ function Composer({
         ref={box}
         rows={1}
         value={text}
-        placeholder={online ? (quoting ? "Ask about the selection" : "Message KOS, / for commands, @ to name things") : k?.held ? "Paused. Connect it from the KOS icon." : k ? `${linkWords(k).word}. See the KOS icon.` : "KOS is not connected"}
+        placeholder={online ? (quoting ? "Ask about the selection" : "Message KOS, / for commands, @ to name things") : k?.held ? "Disconnected. Connect it from the KOS icon." : k ? `${linkWords(k).word}. See the KOS icon.` : "KOS is not connected"}
         disabled={!online}
         onChange={(e) => {
           setText(e.target.value);

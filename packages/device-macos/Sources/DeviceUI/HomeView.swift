@@ -106,24 +106,16 @@ public struct HomeView: View {
     .ignoresSafeArea()
   }
 
+  /// The window's own close and minimise, which the Chrome popup leaves to
+  /// Chrome: in the gear's style, not the system's lights or copies of them,
+  /// round and quiet until the pointer is over them.
   private var controls: some View {
-    // Close and minimise in the gear's own style, not the system's lights
-    // or copies of them: round, quiet until the pointer is over them.
     HStack(spacing: 4) {
       IconButton(symbol: "xmark", label: "Close", tint: Theme.danger, action: model.actions.close)
         .keyboardShortcut("w", modifiers: .command)
       IconButton(symbol: "minus", label: "Minimise", action: model.actions.minimize)
         .keyboardShortcut("m", modifiers: .command)
       Spacer()
-      if model.page == .home {
-        // Chat and the gear, as the Chrome popup's header has them: chat only once there is a KOS to talk to.
-        if !model.kos.isEmpty {
-          IconButton(symbol: "bubble.left", label: "Chat with KOS", action: model.actions.openChat)
-            .transition(.opacity)
-        }
-        IconButton(symbol: "gearshape", label: "Settings") { model.page = .settings }
-          .transition(.opacity)
-      }
     }
     .frame(height: 28)
   }
@@ -140,7 +132,8 @@ public struct HomeView: View {
 
   private var home: some View {
     VStack(alignment: .leading, spacing: 14) {
-      header.padding(.top, 2)
+      // The Chrome popup's head, and its 16 under it.
+      header.padding(.bottom, 2)
       if let session = model.session {
         sessionCard(session).transition(.opacity.combined(with: .move(edge: .top)))
       }
@@ -152,16 +145,41 @@ public struct HomeView: View {
 
   // MARK: Header
 
+  /// The Chrome popup's head: KOS's face, the name over where it stands (the
+  /// pill, then which KOS), and chat and the gear at the right.
   private var header: some View {
     HStack(alignment: .center, spacing: 12) {
-      KOSFace(size: 42, mood: faceMood, look: model.face)
-      VStack(alignment: .leading, spacing: 2) {
-        Text("KOS for Mac").font(.kos(.title, .semibold)).foregroundStyle(Theme.text)
-        Text("Only in sessions you allow.").font(.kos(.detail)).foregroundStyle(Theme.muted)
+      KOSFace(size: 40, mood: faceMood, look: model.face)
+      VStack(alignment: .leading, spacing: 4) {
+        Text("KOS for Mac").font(.kos(.body, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+        HStack(spacing: 8) {
+          linkPill
+          if let host = headHost {
+            Text(host).font(.system(size: KOSType.small.rawValue, design: .monospaced)).foregroundStyle(Theme.muted)
+              .lineLimit(1).truncationMode(.middle)
+          }
+        }
       }
       Spacer(minLength: 8)
-      linkPill
+      if model.page == .home {
+        HStack(spacing: 2) {
+          // Chat only once there is a KOS to talk to.
+          if !model.kos.isEmpty {
+            IconButton(symbol: "bubble.left", label: "Chat with KOS", action: model.actions.openChat)
+              .transition(.opacity)
+          }
+          IconButton(symbol: "gearshape", label: "Settings") { model.page = .settings }
+            .transition(.opacity)
+        }
+        .padding(.trailing, -4)
+      }
     }
+  }
+
+  /// The host of the KOS the head speaks of, and how many more there are.
+  private var headHost: String? {
+    guard let best = model.headKOS else { return nil }
+    return model.kos.count > 1 ? "\(best.host) and \(model.kos.count - 1) more" : best.host
   }
 
   /// How KOS looks in the header: at work in a session, sagging when it cannot be reached.
@@ -174,17 +192,11 @@ public struct HomeView: View {
     }
   }
 
+  /// The head says what the card of the KOS it shows says, or that a session has this Mac: the Chrome popup's words.
   private var linkPill: Pill {
-    guard let overall = model.overall else { return Pill("Not paired", tone: .muted, dot: true) }
-    switch overall {
-    case .connecting: return Pill("Connecting", tone: .accent, dot: true)
-    case .connected: return Pill(model.session == nil ? "Ready" : "In use", tone: model.session == nil ? .ok : .accent, dot: true)
-    case .offline: return Pill("Offline", tone: .warn, dot: true)
-    case .untrusted: return Pill("Not KOS", tone: .danger, dot: true)
-    case .replaced: return Pill("Elsewhere", tone: .warn, dot: true)
-    case .outdated: return Pill("Update", tone: .warn, dot: true)
-    case .disconnected: return Pill("Disconnected", tone: .muted, dot: true)
-    }
+    if let session = model.session { return session.paused ? Pill("Paused", tone: .warn, dot: true) : Pill("Working", tone: .accent, dot: true) }
+    guard let best = model.headKOS else { return Pill("Not paired", tone: .muted, dot: true) }
+    return pill(best.link)
   }
 
   // MARK: Session
@@ -235,9 +247,13 @@ public struct HomeView: View {
         Button {
           model.showPairing = true
         } label: {
-          Label("Add a KOS", systemImage: "plus")
+          // The Chrome popup's: the kit's plus, then the words.
+          HStack(spacing: 5) {
+            Image(systemName: "plus").font(.system(size: 9.5, weight: .bold)).accessibilityHidden(true)
+            Text("Add a KOS")
+          }
         }
-        .buttonStyle(KOSButtonStyle(.ghost))
+        .buttonStyle(KOSButtonStyle(.ghost, small: true))
         .help("Pair this Mac with another KOS as well, say one at work beside one at home.")
         .transition(.opacity)
       }
@@ -312,11 +328,14 @@ public struct HomeView: View {
     let open = openKOS == entry.id
     return Card {
       DrawerRow(
-        icon: "server.rack", tint: tint(entry.link), title: entry.host, detail: summary(entry), open: open,
+        icon: "server.rack", tint: tint(entry.link), title: entry.host,
+        detail: "As \(entry.deviceName) · \(entry.askFirst ? "asks here first" : "its approvals decide")", open: open,
         toggle: { openKOS = open ? nil : entry.id }
       ) {
-        // Connected is the usual state, and the green mark already says it: the pill is for anything else.
-        if entry.link != .connected { pill(entry.link) }
+        pill(entry.link)
+      }
+      if let why = trouble(entry) {
+        reason(why, entry)
       }
       if open {
         VStack(alignment: .leading, spacing: 10) {
@@ -339,20 +358,6 @@ public struct HomeView: View {
             if let dashboard = entry.dashboard {
               KOSLink("Dashboard", to: dashboard)
             }
-            switch entry.link {
-            case .offline, .replaced:
-              Button("Reconnect") { model.actions.reconnect(entry.id) }.buttonStyle(KOSButtonStyle(.secondary))
-            case .untrusted:
-              // Dialling again meets the same key; a fresh pairing with that KOS is what mends it.
-              Button("Pair again") {
-                model.address = entry.dashboard?.absoluteString ?? entry.host
-                model.code = ""
-                model.showPairing = true
-              }
-              .buttonStyle(KOSButtonStyle(.secondary))
-            default:
-              EmptyView()
-            }
             Button("Unpair") { model.actions.unpair(entry.id) }.buttonStyle(KOSButtonStyle(.danger))
           }
         }
@@ -362,11 +367,40 @@ public struct HomeView: View {
     .clipped()
   }
 
+  /// Why a KOS is not connected, under its row with what puts it right, as the Chrome popup has it; nothing while it is on or on its way.
+  private func reason(_ why: String, _ entry: KOSEntry) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text(why).font(.kos(.detail)).foregroundStyle(Theme.muted).lineLimit(2).lineSpacing(1.5)
+        .fixedSize(horizontal: false, vertical: true).help(why)
+      switch entry.link {
+      case .disconnected:
+        Button("Connect") { model.actions.connect(entry.id) }.buttonStyle(KOSButtonStyle(.primary, small: true))
+      case .untrusted:
+        // Dialling again meets the same key; a fresh pairing with that KOS is what mends it.
+        Button("Pair again") {
+          model.address = entry.dashboard?.absoluteString ?? entry.host
+          model.code = ""
+          model.showPairing = true
+        }
+        .buttonStyle(KOSButtonStyle(.primary, small: true))
+      case .offline, .replaced:
+        Button("Try now") { model.actions.reconnect(entry.id) }.buttonStyle(KOSButtonStyle(.secondary, small: true))
+      default:
+        EmptyView()
+      }
+    }
+    .padding(.vertical, 9)
+    .padding(.horizontal, 10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Theme.panel2.opacity(0.7), in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
+  }
+
+  /// The pill's word for a line, from the Chrome popup's (linkwords.ts) where the two share a state.
   private func pill(_ link: LinkState) -> Pill {
     switch link {
     case .connecting: return Pill("Connecting", tone: .accent, dot: true)
     case .connected: return Pill("Connected", tone: .ok, dot: true)
-    case .offline: return Pill("Offline", tone: .warn, dot: true)
+    case .offline: return Pill("Can't reach KOS", tone: .warn, dot: true)
     case .untrusted: return Pill("Not KOS", tone: .danger, dot: true)
     case .replaced: return Pill("Elsewhere", tone: .warn, dot: true)
     case .outdated: return Pill("Update", tone: .warn, dot: true)
@@ -384,17 +418,15 @@ public struct HomeView: View {
     }
   }
 
-  /// How the line to one KOS stands, in a sentence; connected, whether it asks first, folded away with its switch.
-  private func summary(_ entry: KOSEntry) -> String {
+  /// Why the line to one KOS is down, in a sentence; nothing while it is connected or on its way.
+  private func trouble(_ entry: KOSEntry) -> String? {
     switch entry.link {
-    // The pill says connected; the line says as what, and who decides.
-    case .connected: return "As \(entry.deviceName) · \(entry.askFirst ? "asks here first" : "its approvals decide")"
-    case .connecting: return "Connecting. Dialling out; nothing listens on this Mac."
+    case .connected, .connecting: return nil
     case .offline(let why): return "Can't reach it: \(why)"
     case .untrusted: return "It could not sign with the key from pairing, so nothing it says is acted on."
-    case .replaced: return "Another KOS for Mac with this pairing took the line. Reconnect to take it back."
+    case .replaced: return "Another KOS for Mac with this pairing took the line. Try now to take it back."
     case .outdated: return "It is newer than this app. Update KOS for Mac to keep using it."
-    case .disconnected: return "Not connected. It can't reach this Mac until you connect; the pairing stays."
+    case .disconnected: return "You disconnected it. The pairing stays; Connect lets it in again."
     }
   }
 
@@ -504,10 +536,11 @@ public struct HomeView: View {
         .transition(Self.inPlace)
       }
       Hairline()
+      // The Chrome popup's note, in the same place: what KOS keeps to, and where it says more.
       HStack(alignment: .top, spacing: 8) {
         Image(systemName: "hand.raised").font(.kos(.detail)).foregroundStyle(Theme.faint)
         VStack(alignment: .leading, spacing: 6) {
-          Text("Touch the mouse, trackpad or keyboard and KOS pauses at once. It never types into password fields.")
+          Text("KOS works only in sessions you allow. Touch the mouse, trackpad or keyboard and it pauses at once.")
             .font(.kos(.small)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
           KOSLink("How this keeps your Mac safe", to: HomeModel.safety, size: KOSType.small.rawValue)
         }

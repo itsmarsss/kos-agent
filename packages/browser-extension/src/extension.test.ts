@@ -344,8 +344,8 @@ describe("a KOS's line in words", () => {
     expect(needsPairing(unpaired)).toBe(true);
     expect(linkWords(line({ link: "refused", detail: "Another copy of this extension connected to KOS in its place." })).word).toBe("Refused");
     expect(needsPairing(line({ link: "refused" }))).toBe(false);
-    // Held by the owner, whatever its line last was: paused, and nothing to pair.
-    expect(linkWords(line({ link: "unpaired", held: true })).word).toBe("Paused");
+    // Held by the owner, whatever its line last was: disconnected, and nothing to pair.
+    expect(linkWords(line({ link: "unpaired", held: true })).word).toBe("Disconnected");
     expect(needsPairing(line({ link: "unpaired", held: true }))).toBe(false);
   });
 });

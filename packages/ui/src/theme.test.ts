@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { chooseTheme, DRAWN_HEARTBEAT_MS, DRAWN_REPORT_MS, followOtherTabs, heardDrawnTheme, isDensity, isTheme, readTheme, reconcileTheme, reportDrawnTheme, resolveTheme, showTheme, THEME_KEY, themeStamp } from "./theme.js";
+import { chooseTheme, DRAWN_REPORT_MS, followOtherTabs, heardDrawnTheme, isDensity, isTheme, readTheme, reconcileTheme, reportDrawnTheme, resolveTheme, showTheme, THEME_KEY, themeStamp } from "./theme.js";
 
 afterEach(() => {
   localStorage.clear();
@@ -123,7 +123,7 @@ describe("the palette this tab reports drawing in", () => {
     const sent: string[] = [];
     const send = vi.fn(async (drawn: "light" | "dark") => (sent.push(drawn), { drawn }));
     showTheme("system");
-    const stop = reportDrawnTheme(send, async () => undefined);
+    const stop = reportDrawnTheme(send);
     // On load: KOS has said nothing, so the dark this browser draws "system" in is reported.
     await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
     expect(sent).toEqual(["dark"]);
@@ -157,74 +157,70 @@ describe("the palette this tab reports drawing in", () => {
     vi.useRealTimers();
   });
 
-  /** KOS's side: the latest report wins, and holds ten minutes. */
-  function kos(): { send: (drawn: "light" | "dark") => Promise<{ drawn: "light" | "dark" }>; read: () => Promise<"light" | "dark" | undefined>; sent: string[]; other: (drawn: "light" | "dark") => void } {
-    let kept: { drawn: "light" | "dark"; at: number } | undefined;
-    const sent: string[] = [];
-    return {
-      sent,
-      send: async (drawn) => {
-        sent.push(drawn);
-        kept = { drawn, at: Date.now() };
-        return { drawn };
-      },
-      read: async () => (kept && Date.now() - kept.at < 10 * 60_000 ? kept.drawn : undefined),
-      other: (drawn) => void (kept = { drawn, at: Date.now() }),
-    };
-  }
-
-  it("is said again now and then while KOS has it, and when KOS has none, never over another dashboard's", async () => {
+  it("never answers another dashboard's palette, and says its own when KOS has none", async () => {
     vi.useFakeTimers();
     const chrome = browser(false);
-    const k = kos();
+    const sent: string[] = [];
+    const send = vi.fn(async (drawn: "light" | "dark") => (sent.push(drawn), { drawn }));
     heardDrawnTheme(undefined);
     showTheme("system");
-    const stop = reportDrawnTheme(k.send, k.read);
+    const stop = reportDrawnTheme(send);
     await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
-    expect(k.sent).toEqual(["dark"]);
-    // Polls that hear it back are no news.
+    expect(sent).toEqual(["dark"]);
+    // KOS keeps it, so an open tab never says it again only to keep it.
     heardDrawnTheme("dark");
-    await vi.advanceTimersByTimeAsync(DRAWN_HEARTBEAT_MS - DRAWN_REPORT_MS - 1);
-    expect(k.sent).toEqual(["dark"]);
-    // The heartbeat says it again, only to keep it fresh.
-    await vi.advanceTimersByTimeAsync(1);
-    expect(k.sent).toEqual(["dark", "dark"]);
-    // Another dashboard's palette is never answered, from a poll or a heartbeat.
-    k.other("light");
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(sent).toEqual(["dark"]);
+    // Another dashboard's palette is never answered.
     heardDrawnTheme("light");
-    await vi.advanceTimersByTimeAsync(DRAWN_HEARTBEAT_MS * 2);
-    expect(k.sent).toEqual(["dark", "dark"]);
-    // KOS has none (the last report went stale): this tab's is said at once.
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(sent).toEqual(["dark"]);
+    // KOS has none (a fresh workspace): this tab's is said at once.
     heardDrawnTheme(undefined);
     await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
-    expect(k.sent).toEqual(["dark", "dark", "dark"]);
+    expect(sent).toEqual(["dark", "dark"]);
     stop();
     chrome.restore();
     vi.useRealTimers();
   });
 
-  it("stays fresh past the ten minutes KOS holds it while the tab is hidden and polls nothing", async () => {
+  it("takes the palette back from a closed dashboard when the owner looks at this tab again, and only then", async () => {
     vi.useFakeTimers();
     const chrome = browser(false);
-    const k = kos();
-    heardDrawnTheme(undefined);
+    const sent: string[] = [];
+    const send = vi.fn(async (drawn: "light" | "dark") => (sent.push(drawn), { drawn }));
+    let visibility: DocumentVisibilityState = "visible";
+    vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility);
+    heardDrawnTheme("dark");
     showTheme("system");
-    const stop = reportDrawnTheme(k.send, k.read);
+    const stop = reportDrawnTheme(send);
+    // KOS kept another dashboard's light; this tab, open meanwhile, leaves it.
+    heardDrawnTheme("light");
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(sent).toEqual([]);
+    // Hidden, a focus or a visibility change says nothing.
+    visibility = "hidden";
+    document.dispatchEvent(new Event("visibilitychange"));
     await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
-    expect(k.sent).toEqual(["dark"]);
-    // Hidden: no status poll from here on, so nothing is heard.
-    for (let minute = 1; minute <= 30; minute++) {
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(await k.read()).toBe("dark");
-    }
-    // Another dashboard reports while this one is hidden: the heartbeat reads it and leaves it alone.
-    k.other("light");
-    const before = k.sent.length;
-    await vi.advanceTimersByTimeAsync(DRAWN_HEARTBEAT_MS * 2);
-    expect(k.sent).toHaveLength(before);
-    expect(await k.read()).toBe("light");
+    expect(sent).toEqual([]);
+    // Shown again: this tab's dark is said, once.
+    visibility = "visible";
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark"]);
+    // Focused while KOS already has it: no news.
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark"]);
     stop();
+    // Stopped: looked at or not, nothing.
+    heardDrawnTheme("light");
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark"]);
     chrome.restore();
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -233,7 +229,7 @@ describe("the palette this tab reports drawing in", () => {
     heardDrawnTheme(undefined);
     showTheme("light");
     const send = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ drawn: "dark" });
-    const stop = reportDrawnTheme(send, async () => undefined);
+    const stop = reportDrawnTheme(send);
     await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
     expect(send).toHaveBeenCalledWith("light");
     showTheme("dark");

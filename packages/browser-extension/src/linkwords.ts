@@ -22,11 +22,14 @@ export interface LinkWords {
   detail: string;
 }
 
+/** Who this Chrome is to a KOS, and who decides its sessions: the card's line under the KOS, as KOS for Mac says it. */
+export const asWords = (k: Pick<LineOf, "name" | "askFirst">): string => `As ${k.name} · ${k.askFirst ? "asks here first" : "its approvals decide"}`;
+
 export function linkWords(k: LineOf): LinkWords {
-  if (k.held) return { word: "Paused", tone: "muted", detail: "You disconnected it. The pairing stays; Connect lets it in again." };
+  if (k.held) return { word: "Disconnected", tone: "muted", detail: "You disconnected it. The pairing stays; Connect lets it in again." };
   switch (k.link) {
     case "online":
-      return { word: "Connected", tone: "ok", detail: `As ${k.name} · ${k.askFirst ? "asks here first" : "its approvals decide"}` };
+      return { word: "Connected", tone: "ok", detail: asWords(k) };
     case "connecting":
       return { word: "Connecting", tone: "accent", detail: `Reaching ${k.host}…` };
     case "offline":

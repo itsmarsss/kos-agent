@@ -264,9 +264,9 @@ export function Collapse({ open, children }: { open: boolean; children: ReactNod
 }
 
 /** A row that opens what is under it: an icon on its tint, a title, a line of detail, what it carries on the right, a chevron. */
-export function DrawerRow({ icon, tone, title, detail, open, onToggle, trailing }: { icon: ReactNode; tone: Tone; title: string; detail: string; open: boolean; onToggle: () => void; trailing?: ReactNode }): ReactElement {
+export function DrawerRow({ icon, tone, title, detail, open, onToggle, trailing, wrap = false }: { icon: ReactNode; tone: Tone; title: string; detail: string; open: boolean; onToggle: () => void; trailing?: ReactNode; wrap?: boolean }): ReactElement {
   return (
-    <button type="button" className="drawer-row" aria-expanded={open} onClick={onToggle}>
+    <button type="button" className={wrap ? "drawer-row drawer-row--wrap" : "drawer-row"} aria-expanded={open} onClick={onToggle}>
       <span className="tile" data-tone={tone}>
         {icon}
       </span>
