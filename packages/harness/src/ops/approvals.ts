@@ -111,8 +111,8 @@ interface Row {
 }
 
 /** A stored guest's room; a row without its chat reaches no chat of its own. */
-function guestOf(stored: { project: string | null; chat?: string }): GuestOrigin {
-  return { project: stored.project ?? undefined, chat: stored.chat ?? "" };
+function guestOf(stored: { project: string | null; chat?: string; home?: string }): GuestOrigin {
+  return { project: stored.project ?? undefined, chat: stored.chat ?? "", ...(stored.home ? { home: stored.home } : {}) };
 }
 
 function toAction(row: Row): PendingAction {
@@ -131,7 +131,7 @@ function toAction(row: Row): PendingAction {
     why: row.why ?? null,
     owner: row.owner === 1,
     attended: row.attended === 1,
-    guest: row.guest === null ? null : guestOf(JSON.parse(row.guest) as { project: string | null; chat?: string }),
+    guest: row.guest === null ? null : guestOf(JSON.parse(row.guest) as { project: string | null; chat?: string; home?: string }),
     waits: row.waits === 1,
     decidedAt: row.decided_at,
     decidedBy: row.decided_by,
@@ -226,7 +226,7 @@ export class ApprovalQueue {
         input.why?.trim() ? input.why.trim() : null,
         input.owner === true ? 1 : 0,
         input.attended === true ? 1 : 0,
-        input.guest ? JSON.stringify({ project: input.guest.project ?? null, chat: input.guest.chat }) : null,
+        input.guest ? JSON.stringify({ project: input.guest.project ?? null, chat: input.guest.chat, ...(input.guest.home ? { home: input.guest.home } : {}) }) : null,
         input.waits === true ? 1 : 0,
       );
     return this.get(Number(info.lastInsertRowid))!;

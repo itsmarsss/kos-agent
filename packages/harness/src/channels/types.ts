@@ -14,6 +14,20 @@ export interface ConversationSeed {
   title?: string;
   /** The surface's thread the owner started, which the chat stands for from then on: bound, so none is made beside it. */
   threadId?: string;
+  /** A guest-visible place's own room, made the first time a guest speaks there. */
+  room?: RoomSeed;
+}
+
+/**
+ * Where a room stands, as the surface knows it: the chat the place is bound
+ * to (its home, whose project and brief the room takes), the binding key of
+ * the channel that says who may read it (a thread's parent's), and the
+ * place's name, for the room's title.
+ */
+export interface RoomSeed {
+  home: string;
+  key: string;
+  name: string;
 }
 
 /**
@@ -35,6 +49,23 @@ export const INTERRUPTED_LINE = "-# interrupted by a restart";
 
 /** A chat made from a thread the owner started on Discord is this and the thread's id. */
 export const OWNER_THREAD_PREFIX = "discord:thread:";
+
+/**
+ * A guest-visible channel or thread's own chat is this and the place's id:
+ * a room apart from the owner's working chat the place is bound to, so a
+ * guest's turn reads only what was said there.
+ */
+export const ROOM_PREFIX = "discord:room:";
+
+/** The room chat of a place on the surface, by the place's id. */
+export function roomConversationId(placeId: string): string {
+  return `${ROOM_PREFIX}${placeId}`;
+}
+
+/** The place a room chat stands for, or nothing for any other chat. */
+export function roomPlaceOf(conversationId: string): string | undefined {
+  return conversationId.startsWith(ROOM_PREFIX) ? conversationId.slice(ROOM_PREFIX.length) || undefined : undefined;
+}
 /**
  * How old a message read on KOS's return may be and still run. Older, it is
  * not run: what was asked an hour ago may no longer be wanted, and it would
@@ -288,11 +319,12 @@ export interface ButtonPress {
   /** Set when the presser is a guest of the channel rather than the owner. */
   guest?: Guest;
   /**
-   * The conversation bound to the room a guest pressed in. A guest's press
-   * reaches that conversation alone: a button another chat put in the room
-   * is the owner's to press.
+   * The room chat of the place a guest pressed in. A guest's press runs
+   * there alone, and only for a button of the room's own project.
    */
   room?: string;
+  /** What that room starts as, when the press is the first a guest made there. */
+  newIn?: ConversationSeed;
 }
 
 /** What anyone but the owner is told when they reach for something of the owner's. */

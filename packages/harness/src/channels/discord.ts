@@ -27,7 +27,7 @@ import { CHANNEL_TOKEN, detailLines, stepActions, summarizeAction, withUnixTimes
 import { isReadable, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, ChannelRef, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
-import { INTERRUPTED_LINE, LATE_RUN_MS, OWNER_ONLY, OWNER_THREAD_PREFIX, channelName, type Guest } from "./types.js";
+import { INTERRUPTED_LINE, LATE_RUN_MS, OWNER_ONLY, OWNER_THREAD_PREFIX, channelName, roomConversationId, roomPlaceOf, type Guest } from "./types.js";
 import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
 import { linkMentions, linkPaths, literal, literalWords, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
 import { tablesToCode } from "./tables.js";
@@ -1466,14 +1466,26 @@ export class DiscordAdapter implements ChannelAdapter {
       guest = this.guestIn(message);
       if (!guest) return undefined;
     }
-    const binding = this.bindingIn(message.channel);
-    if (!binding) return undefined;
+    const bound = this.bindingIn(message.channel);
+    if (!bound) return undefined;
     // A room that reaches its chat only when KOS is addressed: a guest's
     // message that does not address it goes unheard. The owner is always heard.
     const key = this.roomKeyOf(message.channel);
     const gated = key !== undefined && this.listenOf?.(key) === "mention";
     if (gated && guest && !this.addressed(message)) return undefined;
+    // A guest speaks in the place's own room, never in the owner's chat it is bound to.
+    const binding = guest && key ? this.roomIn(message.channel, bound, key) : bound;
     return { binding, ...(guest ? { guest } : {}), gated };
+  }
+
+  /**
+   * The room chat of a guest-visible channel or thread: its own, made the
+   * first time a guest speaks or presses there, in the project of the chat
+   * the place is bound to. The binding itself stays the owner's.
+   */
+  private roomIn(channel: unknown, bound: ChannelBinding, key: string): ChannelBinding {
+    const place = channel as { id: string; name?: string | null };
+    return { conversationId: roomConversationId(place.id), newIn: { room: { home: bound.conversationId, key, name: place.name || "channel" } } };
   }
 
   /** What a channel or thread here is bound to; a thread is the owner's own chat only when the owner started it. */
@@ -1845,6 +1857,9 @@ export class DiscordAdapter implements ChannelAdapter {
    * the thread KOS made for it, or nowhere.
    */
   mirrorTarget(conversationId: string, threads: Record<string, string>): string | undefined {
+    // A room shows in the very place it is the room of.
+    const place = roomPlaceOf(conversationId);
+    if (place) return place;
     const channel = this.boundIds.get(conversationId);
     if (channel) return channel;
     for (const [threadId, bound] of Object.entries(threads)) if (bound === conversationId) return threadId;
@@ -2543,7 +2558,9 @@ export class DiscordAdapter implements ChannelAdapter {
       // reading it defensively is cheaper than narrowing a wire shape.
       const label =
         (interaction.component as { label?: string | null }).label ?? "";
-      const room = guest ? this.bindingIn(interaction.channel)?.conversationId : undefined;
+      const bound = guest ? this.bindingIn(interaction.channel) : undefined;
+      const key = guest ? this.roomKeyOf(interaction.channel) : undefined;
+      const room = bound && key ? this.roomIn(interaction.channel, bound, key) : undefined;
       await this.handlePress(interaction, token, label, guest, room);
       return;
     }
@@ -2606,7 +2623,7 @@ export class DiscordAdapter implements ChannelAdapter {
     token: string,
     label: string,
     guest?: Guest,
-    room?: string,
+    room?: ChannelBinding,
   ): Promise<void> {
     // Where the answer goes once a form has moved the conversation onto the
     // submission: the button's own interaction can no longer be replied to.
@@ -2713,7 +2730,7 @@ export class DiscordAdapter implements ChannelAdapter {
     }
 
     await this.buttonHandler(
-      { buttonId: "", label, token, pressedBy: interaction.user.id, ...(guest ? { guest } : {}), ...(room ? { room } : {}) },
+      { buttonId: "", label, token, pressedBy: interaction.user.id, ...(guest ? { guest } : {}), ...(room ? { room: room.conversationId, ...(room.newIn ? { newIn: room.newIn } : {}) } : {}) },
       respond,
     );
 

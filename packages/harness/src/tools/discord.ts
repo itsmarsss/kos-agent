@@ -257,10 +257,12 @@ function serverReach(deps: DiscordServices, ctx: ModuleContext) {
     const here = scope();
     const ours = (bound: string | undefined): boolean =>
       bound !== undefined && (bound === `project:${here}` || bound === ctx.services?.callerConversation?.() || (here !== undefined && ctx.services?.projectOf?.(bound) === here));
-    const mine = guest
+    // A room's guest reads where the room's place is bound: its home's channel or thread.
+    const room = guest ? (guest.home ?? guest.chat) : undefined;
+    const mine = room
       ? thread
-        ? thread.conversationId === guest.chat || thread.channel === guest.chat
-        : key === guest.chat
+        ? thread.conversationId === room || thread.channel === room
+        : key === room
       : thread
         ? ownThread(thread) || ours(thread.conversationId) || ours(thread.channel)
         : ours(key);

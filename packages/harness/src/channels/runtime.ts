@@ -151,6 +151,8 @@ export interface TurnWatch {
   conversationId?: string;
   /** What was said, since a message addressed to an agent runs in the agent's thread. */
   text?: string;
+  /** A guest said it: their words run in the place's room, whatever blob they name. */
+  guest?: boolean;
 }
 
 const NARRATE_EVERY_MS = 1_500;
@@ -353,6 +355,7 @@ export class ChannelRuntime {
       text: msg.text,
       ...(msg.conversationKey ? { conversationKey: msg.conversationKey } : {}),
       ...(msg.conversationId ? { conversationId: msg.conversationId } : {}),
+      ...(msg.guest ? { guest: true } : {}),
     };
     // Behind a turn already running there: said at once, so a message that
     // waits is not a message that was missed.

@@ -945,11 +945,10 @@ export async function runHost(options: HostOptions): Promise<void> {
         connected: () => adapter!.connected(),
         postWhenFound: (find, msg) => adapter!.postWhenFound(find, msg),
       };
-      // A thread is read by whoever reads its channel: the chat's own, else its home's.
+      // A thread is read by whoever reads its channel: the chat's own (a room's by its place's), else its home's.
       const ownerOnly = (conv: string): boolean => {
-        const audiences = kernel.channelAudiences();
         const home = homeOf(conv);
-        return (audiences[conv] ?? (home ? audiences[home] : undefined) ?? "owner") === "owner";
+        return (kernel.audienceOf(conv) ?? (home ? kernel.channelAudiences()[home] : undefined) ?? "owner") === "owner";
       };
       const placed = new PlaceNotifier({
         ...placeOn,
