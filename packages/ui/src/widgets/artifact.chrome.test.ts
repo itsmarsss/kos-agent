@@ -619,18 +619,48 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await send("Emulation.clearDeviceMetricsOverride");
   }, 60_000);
 
-  /** The eval's expenses, as a sheet is written from them: a date, two words and the amount. */
+  /** The eval's expenses, as the guide writes them: a date, two words, the item a desktop's 28 characters wide, and the amount. */
   const expenses = (freeze: number): Record<string, unknown> => ({
     name: "Expenses",
     freeze,
-    columns: [{ label: "Date", type: "date" }, { label: "Category" }, { label: "Item" }, { label: "Amount", type: "currency", currency: "CAD" }],
+    columns: [{ label: "Date", type: "date" }, { label: "Category" }, { label: "Item", width: 28 }, { label: "Amount", type: "currency", currency: "CAD" }],
     rows: [
       ["2026-10-01", "Housing", "Rent", 1650],
+      ["2026-10-01", "Housing", "Tenant insurance", 28.5],
       ["2026-10-02", "Groceries", "Farmers market", 118.55],
       ["2026-10-04", "Dining", "Pizza night", 56.37],
     ],
     totals: { Amount: "sum" },
   });
+  /** The same with a description and how it was paid: five columns, one more than a phone holds. */
+  const paid = (): Record<string, unknown> => {
+    const four = expenses(1) as { columns: unknown[]; rows: unknown[][] };
+    return {
+      ...four,
+      columns: [{ label: "Date", type: "date" }, { label: "Description", width: 24 }, { label: "Category" }, { label: "Amount", type: "currency", currency: "CAD" }, { label: "Payment method" }],
+      rows: four.rows.map(([date, category, item, amount], i) => [date, item, category, amount, ["Visa", "Debit", "Mastercard"][i % 3]]),
+    };
+  };
+  /** Where the key column's cells and the cue stand against the grid's box, and whether its fade reaches them. */
+  const keyed = `() => {
+    const grid = document.querySelector(".sheet-scroll");
+    const box = grid.getBoundingClientRect();
+    const right = box.left + grid.clientLeft + grid.clientWidth;
+    const keys = [...grid.querySelectorAll(".key")].map((c) => c.getBoundingClientRect());
+    const fade = grid.classList.contains("more") ? parseFloat(getComputedStyle(grid).getPropertyValue("--sheet-fade")) : 0;
+    return {
+      more: grid.classList.contains("more"),
+      held: grid.classList.contains("held"),
+      fade: getComputedStyle(grid).getPropertyValue("--sheet-fade").trim(),
+      keys: keys.length,
+      inside: keys.every((r) => r.left >= box.left && r.right <= right + 0.5),
+      clear: keys.every((r) => r.right <= right - fade + 0.5),
+      cue: document.querySelector(".sheet-more").textContent,
+      cueShown: document.querySelector(".sheet-more").getBoundingClientRect().width > 0,
+      page: document.documentElement.scrollWidth,
+    };
+  }`;
+  type Keyed = { more: boolean; held: boolean; fade: string; keys: number; inside: boolean; clear: boolean; cue: string; cueShown: boolean; page: number };
 
   /*
    * The eval's expenses on a phone: a date, a category, an item and the
@@ -645,6 +675,59 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     expect(probe.wide).toBeLessThanOrEqual(probe.box);
     expect(probe.more).toBe(false);
     expect(probe.label).toBe("Total");
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
+  /*
+   * One more column than a phone holds: the amount, the figure the sheet
+   * totals, is whole inside the box and never faded, in every row and the
+   * total, and the tools say a column is out of view; scrolled to the end it
+   * stands where it is and the cue goes. Narrower still, it holds at the
+   * edge, the columns before it sliding under it, and the fade lets it be.
+   */
+  it("keeps a five-column expense sheet's amount whole in its box on a phone", async () => {
+    const end = `() => { const grid = document.querySelector(".sheet-scroll"); grid.scrollLeft = grid.scrollWidth; return grid.scrollLeft; }`;
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await sheetPage("/paid", `<h1>October</h1>${sheetData(paid())}`, { keyed, end });
+    const start = await ask<Keyed>("keyed", (p) => p.more && p.cue !== "");
+    expect(start.page).toBeLessThanOrEqual(390);
+    // The header, four rows and the total.
+    expect(start.keys).toBe(6);
+    expect(start.inside).toBe(true);
+    expect(start.clear).toBe(true);
+    expect(start.cue).toBe("1 more column \u2192");
+    expect(start.cueShown).toBe(true);
+    expect(await ask<number>("end", (x) => x > 0)).toBeGreaterThan(0);
+    const scrolled = await ask<Keyed>("keyed", (p) => !p.more);
+    expect(scrolled.inside).toBe(true);
+    expect(scrolled.held).toBe(false);
+    expect(scrolled.cue).toBe("");
+    expect(scrolled.cueShown).toBe(false);
+    await send("Emulation.setDeviceMetricsOverride", { width: 320, height: 700, deviceScaleFactor: 1, mobile: true });
+    await sheetPage("/paid-narrow", `<h1>October</h1>${sheetData(paid())}`, { keyed });
+    const narrow = await ask<Keyed>("keyed", (p) => p.held);
+    expect(narrow.inside).toBe(true);
+    expect(narrow.clear).toBe(true);
+    expect(narrow.fade).toBe("0px");
+    expect(narrow.cue).toMatch(/^[12] more columns? \u2192$/);
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
+  /* A grid far wider than a phone says how much is out of view; a desktop, with its scrollbar, does not. */
+  it("says how many columns a wide grid has out of view on a phone, and only there", async () => {
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await sheetPage("/cue", `<h1>The year</h1>${sheetData(months(8, 1))}`, { keyed });
+    const phone = await ask<Keyed>("keyed", (p) => p.more && p.cue !== "");
+    expect(phone.cue).toMatch(/^(\d+) more columns \u2192$/);
+    expect(Number(/\d+/.exec(phone.cue)![0])).toBeGreaterThanOrEqual(7);
+    expect(phone.cueShown).toBe(true);
+    // The key column, the first month, is in view at the start, so the edge fades in full.
+    expect(phone.held).toBe(false);
+    expect(phone.fade).toBe("40px");
+    await send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false });
+    await sheetPage("/cue-wide", `<h1>The year</h1>${sheetData({ ...months(8, 1), columns: [{ label: "Line" }, ...Array.from({ length: 30 }, (_, i) => ({ label: `Month ${i + 1}`, type: "currency", currency: "CAD" }))] })}`, { keyed });
+    const desktop = await ask<Keyed>("keyed", (p) => p.more);
+    expect(desktop.cueShown).toBe(false);
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 
