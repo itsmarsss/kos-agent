@@ -1,24 +1,37 @@
 import { describe, expect, it } from "vitest";
 
 import type { OutboundMessage } from "@kos/harness";
-import { postSaid, type Said, type SaidDeps } from "./saidpost.js";
+import { placeOf, postSaid, type JobFacts, type Said, type SaidDeps } from "./saidpost.js";
 
-function deps(targets: Record<string, string> = {}): SaidDeps & { posts: { target: string; text: string }[]; dms: string[] } {
+function deps(
+  targets: Record<string, string> = {},
+  over: Partial<SaidDeps> = {},
+): SaidDeps & { posts: { target: string; text: string }[]; dms: string[]; made: { key: string; conv: string; title: string }[]; bound: [string, string][] } {
   const posts: { target: string; text: string }[] = [];
   const dms: string[] = [];
+  const made: { key: string; conv: string; title: string }[] = [];
+  const bound: [string, string][] = [];
   return {
     posts,
     dms,
+    made,
+    bound,
     targetFor: (conv) => targets[conv],
+    homeOf: () => undefined,
+    titleOf: (conv) => `Title of ${conv}`,
     jobOf: () => undefined,
-    ensureThread: async () => undefined,
-    bindThread: () => undefined,
+    ensureThread: async (key, conv, title) => {
+      made.push({ key, conv, title });
+      return `thread-${conv}`;
+    },
+    bindThread: (thread, conv) => void bound.push([thread, conv]),
     senderFor: () => undefined,
     speakerFor: (from) => ({ name: from.name }),
     ownerSender: async () => ({ name: "Owner" }),
     filesFor: () => [],
     postIn: async (target, msg: OutboundMessage) => void posts.push({ target, text: msg.text }),
     sendOwner: async (msg) => void dms.push(msg.text),
+    ...over,
   };
 }
 
@@ -53,5 +66,39 @@ describe("a turn's answer shown on Discord after an approval", () => {
     await postSaid(said({ conversationId: "discord:thread:t1", channel: null, origin: "system", text: "System: the owner approved" }), d);
     expect(d.posts).toEqual([{ target: "t1", text: "Deleted." }]);
     expect(d.dms).toEqual([]);
+  });
+});
+
+describe("a scheduled run's answer on the server", () => {
+  const kickoff: JobFacts = { id: 2, name: "9 AM Daily Kickoff", type: "self_prompt", projectSlug: null };
+  const run = (conv: string, reply = "Kickoff sent."): Said => ({ conversationId: conv, text: "", reply, origin: "system", channel: null, files: [] });
+
+  it("posts a root job's run in a thread of its own made under KOS's channel", async () => {
+    const d = deps({ "orchestrator:owner": "kos" }, { jobOf: () => kickoff, homeOf: () => "orchestrator:owner" });
+    await postSaid(run("cron:2"), d);
+    expect(d.made).toEqual([{ key: "orchestrator:owner", conv: "cron:2", title: "Title of cron:2" }]);
+    expect(d.bound).toEqual([["thread-cron:2", "cron:2"]]);
+    expect(d.posts).toEqual([{ target: "thread-cron:2", text: "-# 9 AM Daily Kickoff\nKickoff sent." }]);
+    expect(d.dms).toEqual([]);
+  });
+
+  it("keeps KOS's upkeep runs to themselves", async () => {
+    const d = deps({ "orchestrator:owner": "kos" }, { jobOf: () => ({ id: 11, name: "kos.observe", type: "self_prompt", projectSlug: null }), homeOf: () => "orchestrator:owner" });
+    await postSaid(run("cron:11", "No threads needed observing."), d);
+    expect(d.posts).toEqual([]);
+    expect(d.made).toEqual([]);
+  });
+
+});
+
+describe("a conversation's place on the server", () => {
+  it("is its own channel or thread when it has one", async () => {
+    expect(await placeOf("cron:7", deps({ "cron:7": "t7" }))).toBe("t7");
+  });
+
+  it("falls back to its home's channel when no thread can be made, and is nothing without a home", async () => {
+    const d = deps({ "project:school": "school" }, { homeOf: (c) => (c === "cron:24" ? "project:school" : undefined), ensureThread: async () => undefined });
+    expect(await placeOf("cron:24", d)).toBe("school");
+    expect(await placeOf("discord:owner", d)).toBeUndefined();
   });
 });

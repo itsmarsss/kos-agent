@@ -12,13 +12,52 @@ export interface Said {
   from?: MessageFrom;
 }
 
-export interface SaidDeps {
+/** A scheduled job, as much of it as where its runs speak depends on. */
+export interface JobFacts {
+  id: number;
+  name: string;
+  type: "actions" | "self_prompt";
+  projectSlug: string | null;
+}
+
+/** KOS's own upkeep (kos.backup, kos.memory, kos.dream, kos.observe, kos.improve): it speaks only when something needs the owner. */
+export function isUpkeep(job: Pick<JobFacts, "name">): boolean {
+  return job.name.startsWith("kos.");
+}
+
+/** What finding a conversation's place on the server needs. */
+export interface PlaceDeps {
   /** Where a conversation shows on the server: its channel or thread, or nothing. */
   targetFor(conversationId: string): string | undefined;
-  /** The scheduled job a conversation is the thread of, when it is one. */
-  jobOf(conversationId: string): { id: number; name: string; projectSlug: string | null } | undefined;
+  /** The channel key its thread is made under (a project's, or KOS's own at the root), or nothing. */
+  homeOf(conversationId: string): string | undefined;
+  /** What a new thread for it is called. */
+  titleOf(conversationId: string): string;
   ensureThread(channelKey: string, conversationId: string, title: string): Promise<string | undefined>;
   bindThread(threadId: string, conversationId: string): void;
+}
+
+/**
+ * Where a conversation speaks on the server: its own channel or thread,
+ * the thread made now under its home when it has none yet, or its home's
+ * channel when no thread can be made. Nothing when it has no place there.
+ */
+export async function placeOf(conversationId: string, deps: PlaceDeps): Promise<string | undefined> {
+  const bound = deps.targetFor(conversationId);
+  if (bound) return bound;
+  const home = deps.homeOf(conversationId);
+  if (!home) return undefined;
+  const made = await deps.ensureThread(home, conversationId, deps.titleOf(conversationId)).catch(() => undefined);
+  if (made) {
+    deps.bindThread(made, conversationId);
+    return made;
+  }
+  return deps.targetFor(home);
+}
+
+export interface SaidDeps extends PlaceDeps {
+  /** The scheduled job a conversation is the thread of, when it is one. */
+  jobOf(conversationId: string): JobFacts | undefined;
   senderFor(conversationId: string): Sender | undefined;
   speakerFor(from: MessageFrom): Sender;
   ownerSender(): Promise<Sender | undefined>;
@@ -38,20 +77,17 @@ export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
   // that waited on an approval was answered "waiting on you" there, and
   // the answer after the decision has only this way back.
   if (said.channel === "discord" && !said.resumed) return;
-  // A scheduled run of a project's job shows in the job's own thread, under
-  // the job's name: a daily post is what a schedule is for. Only a run the
-  // harness started gets the run format; anything the owner says in a job's
-  // thread is a conversation, told below.
+  // A scheduled run shows in the job's own thread, under the job's name: a
+  // project's job under the project's channel, one at the root under KOS's
+  // own. A daily post is what a schedule is for. Only a run the harness
+  // started gets the run format; anything the owner says in a job's thread
+  // is a conversation, told below. KOS's upkeep keeps its runs to itself.
   const job = deps.jobOf(said.conversationId);
   if (job && said.origin === "system") {
-    let where = deps.targetFor(said.conversationId);
-    if (!where && job.projectSlug) {
-      where = await deps.ensureThread(`project:${job.projectSlug}`, said.conversationId, job.name).catch(() => undefined);
-      if (where) deps.bindThread(where, said.conversationId);
-    }
-    where ??= job.projectSlug ? deps.targetFor(`project:${job.projectSlug}`) : undefined;
+    if (isUpkeep(job) || !said.reply.trim()) return;
+    const where = await placeOf(said.conversationId, deps);
     // With a Run now button, the same path the dashboard's Run now takes.
-    if (where && said.reply.trim()) await deps.postIn(where, { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] });
+    if (where) await deps.postIn(where, { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] });
     return;
   }
   const target = deps.targetFor(said.conversationId);

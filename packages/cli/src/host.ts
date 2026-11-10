@@ -47,7 +47,7 @@ type PanelSurface = "chrome" | "mac";
 
 import { envFilePath } from "./env.js";
 import { ThreadMirror } from "./threadmirror.js";
-import { postSaid, type SaidDeps } from "./saidpost.js";
+import { postSaid, type PlaceDeps, type SaidDeps } from "./saidpost.js";
 import { claimHandle, type HandleClaim } from "./imessagelock.js";
 import { clearDaemonState, writeDaemonState } from "./state.js";
 
@@ -834,15 +834,24 @@ export async function runHost(options: HostOptions): Promise<void> {
             return [];
           }
         });
+      /** Where a chat's thread goes: a project's under its channel, a root chat's or schedule's under #kos. */
+      const homeOf = (conv: string): string | undefined => {
+        try {
+          return kernel.threadHome(conv);
+        } catch {
+          return undefined;
+        }
+      };
+      const placeOn: PlaceDeps = {
+        targetFor: (conv) => adapter?.mirrorTarget(conv, kernel.threadBindings()),
+        homeOf,
+        titleOf: (conv) => kernel.titleOf(conv),
+        ensureThread: (key, conv, title) => adapter!.ensureThread(key, conv, title),
+        bindThread: (threadId, conv) => kernel.bindThread(threadId, conv),
+      };
       const mirror = new ThreadMirror({
         targetFor: (conv) => adapter?.mirrorTarget(conv, kernel.threadBindings()),
-        projectOf: (conv) => {
-          try {
-            return kernel.conversations.get(conv)?.projectSlug ?? undefined;
-          } catch {
-            return undefined;
-          }
-        },
+        homeOf,
         ensureThread: (key, conv, title) => adapter!.ensureThread(key, conv, title),
         bindThread: (threadId, conv) => kernel.bindThread(threadId, conv),
         titleOf: (conv) => kernel.titleOf(conv),
@@ -856,10 +865,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       });
       kernel.progress.subscribe((event) => mirror.onProgress(event));
       const saidDeps: SaidDeps = {
-        targetFor: (conv) => adapter?.mirrorTarget(conv, kernel.threadBindings()),
+        ...placeOn,
         jobOf: (conv) => (conv.startsWith("cron:") ? kernel.crons.get(Number(conv.slice("cron:".length))) : undefined),
-        ensureThread: (key, conv, title) => adapter!.ensureThread(key, conv, title),
-        bindThread: (threadId, conv) => kernel.bindThread(threadId, conv),
         senderFor: (conv) => kernel.senderFor(conv),
         speakerFor: (from) => kernel.speakerFor(from),
         ownerSender: () => adapter!.ownerSender(),

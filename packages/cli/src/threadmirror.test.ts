@@ -32,7 +32,7 @@ function harness(over: Partial<ThreadMirrorDeps> = {}) {
 
   const deps: ThreadMirrorDeps = {
     targetFor: (id) => (id === "c-thread" ? "t1" : undefined),
-    projectOf: (id) => (id === "c-new" ? "school" : id === "c-thread" ? "school" : undefined),
+    homeOf: (id) => (id === "c-new" || id === "c-thread" ? "project:school" : id === "c-root" ? "orchestrator:owner" : undefined),
     ensureThread: async (key, conv) => {
       madeThreads.push({ key, conv });
       return "t-made";
@@ -97,6 +97,15 @@ describe("mirroring a turn's story into a thread", () => {
     expect(h.madeThreads).toEqual([{ key: "project:school", conv: "c-new" }]);
     expect(h.bound).toEqual([{ threadId: "t-made", conv: "c-new" }]);
     expect(h.posts[0]?.target).toBe("t-made");
+  });
+
+  it("gives a chat at the root its thread under KOS's channel on first mirror, and a chat with no home none", async () => {
+    const h = harness();
+    h.mirror.onProgress({ kind: "turn-start", conversationId: "c-root", said: "do the thing", from: "dashboard" });
+    h.mirror.onProgress({ kind: "turn-start", conversationId: "c-dm", said: "do the thing", from: "dashboard" });
+    await h.mirror.settle();
+    expect(h.madeThreads).toEqual([{ key: "orchestrator:owner", conv: "c-root" }]);
+    expect(h.posts).toEqual([{ target: "t-made", text: "do the thing", from: "Owner" }]);
   });
 
   it("opens no story for a turn that takes no step, and still posts the message and the answer", async () => {

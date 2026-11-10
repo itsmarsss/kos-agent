@@ -1193,6 +1193,30 @@ describe("Kernel", () => {
     expect(kernel.conversations.get(`cron:${job.id}`)?.projectSlug).toBe(books.slug);
   });
 
+  it("homes a chat's thread under its project, a root chat's or schedule's under KOS, and the DM's chat nowhere", async () => {
+    kernel = await boot(stubInference([]));
+    const owner = kernel.profile.ownerId;
+    const books = kernel.standUpProject({ name: "Books", type: "tracker" });
+    const inProject = kernel.conversations.create({ userId: owner, title: "Shelf", projectSlug: books.slug });
+    const atRoot = kernel.conversations.create({ userId: owner, title: "Errands" });
+    const dm = kernel.conversations.create({ userId: owner, title: "From the DM" });
+    kernel.conversations.setActive("discord", owner, dm.id);
+    kernel.roles.write({ name: "recap", description: "Sums up the day", brief: "You recap.", memory: "own" });
+    const job = kernel.crons.create({ name: "Kickoff", schedule: "0 9 * * *", type: "actions", actions: [{ tool: "notify", args: { text: "hi" } }] });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    expect(kernel.threadHome(inProject.id)).toBe(`project:${books.slug}`);
+    expect(kernel.threadHome(atRoot.id)).toBe(`orchestrator:${owner}`);
+    expect(kernel.threadHome(`cron:${job.id}`)).toBe(`orchestrator:${owner}`);
+    expect(kernel.threadHome(dm.id)).toBeUndefined();
+    expect(kernel.threadHome(primarySessionId(owner))).toBeUndefined();
+    expect(kernel.threadHome(kernel.ensureAgentConversation("recap").id)).toBeUndefined();
+    expect(kernel.threadHome(`project:${books.slug}`)).toBeUndefined();
+    expect(kernel.threadHome(`orchestrator:${owner}`)).toBeUndefined();
+  });
+
   it("keeps what a turn was given from memory, so the chat can show it", async () => {
     kernel = await boot({
       async generate(): Promise<ModelResponse> {

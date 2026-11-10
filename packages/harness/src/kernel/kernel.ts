@@ -3184,6 +3184,25 @@ export class Kernel {
     });
   }
 
+  /**
+   * The channel a chat's thread is made under on a server, by its key: its
+   * project's channel, or KOS's own for a chat or a schedule at the root.
+   * Nothing for a chat that is a channel's own (KOS, a project's
+   * orchestrator, a blob), a surface's stream, the primary chat, or the
+   * chat the DM speaks in: the DM keeps its chat.
+   */
+  threadHome(conversationId: string): string | undefined {
+    const owner = this.profile.ownerId;
+    const chat = this.conversations.get(conversationId);
+    if (!chat) return undefined;
+    if (chat.projectSlug) return chat.id === projectConversationId(chat.projectSlug) ? undefined : `project:${chat.projectSlug}`;
+    const kind = conversationKind(chat, owner);
+    if (kind === "schedule") return orchestratorId(owner);
+    if (kind !== "chat" || chat.role) return undefined;
+    if (chat.id === primarySessionId(owner) || chat.channel === "discord" || this.conversations.activeFor("discord", owner) === chat.id) return undefined;
+    return orchestratorId(owner);
+  }
+
   /** A thread that is gone: its binding goes with it. */
   unbindThread(threadId: string): void {
     const { [threadId]: _gone, ...rest } = this.threadBindings();
