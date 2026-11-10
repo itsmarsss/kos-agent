@@ -2889,10 +2889,10 @@ describe("the owner in KOS's threads", () => {
     return { adapter, added, unarchived };
   }
 
-  it("adds the owner to a thread it makes, so a post there notifies them", async () => {
+  it("does not add the owner to a thread it makes, so a mirrored chat does not buzz them", async () => {
     const { adapter, added } = threaded();
-    expect(await adapter.ensureThread("project:school", "cron:24", "Digest")).toBe("made1");
-    expect(added).toEqual([["made1", "222"]]);
+    expect(await adapter.ensureThread("project:school", "chat-1", "Essay")).toBe("made1");
+    expect(added).toEqual([]);
   });
 
   it("adds the owner to a thread already there once, opening it first when archived, and leaves a channel be", async () => {

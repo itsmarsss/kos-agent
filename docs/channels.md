@@ -118,9 +118,9 @@ own words wear your name. A chat at the root gets a thread under
 `#kos` the first time it shows there, as a project's chat does under its
 project's channel; the chat your DM speaks in, Main, the chats begun on
 the Chrome and Mac panels, iMessage or SMS, and any chat one of those is
-pointed at get none, so each surface keeps its chat. KOS makes you a
-member of every thread it makes, so what lands there notifies you as a
-DM would, and two posts at once make one thread, not two. A
+pointed at get none, so each surface keeps its chat. A mirrored chat's
+thread does not add you as a member, so its answers do not buzz you; two
+posts at once make one thread, not two. A
 schedule's runs show in a thread of the job's own: a project's job under
 the project's channel, a job of yours at the root under `#kos`, a blob's
 in the blob's channel; KOS's own upkeep (`kos.backup`, `kos.memory`,
@@ -347,9 +347,9 @@ and its line on Discord says "dropped".
 surface. From a scheduled run, a `notify` that names nowhere goes to the
 run's own place on the server instead of your DM: the job's thread (under
 its project's channel, or under `#kos` for a job at the root) or the
-blob's channel. You are made a member of that thread before it is posted
-in, so you are notified as the DM did; nothing that used to reach you goes
-silent. A run whose message landed there does not post its closing words
+blob's channel. You are made a member of that thread (a job's, a blob's,
+or KOS upkeep's, and no other) before it is posted in, so you are notified
+as the DM did; nothing that used to reach you goes silent. A run whose message landed there does not post its closing words
 after it, unless something in the run failed afterwards. A fixed-actions
 job's message, a blob's included, is a reminder in your own words, so it
 @mentions you there and pings; a prompted run's does not. `to: "owner"`

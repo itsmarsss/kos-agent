@@ -1859,7 +1859,8 @@ export class DiscordAdapter implements ChannelAdapter {
   /**
    * A chat's thread made once, whoever asks first (the thread mirror, a
    * scheduled run's place, the layout); a second ask while it is being made
-   * gets the same one. The owner is made a member of it.
+   * gets the same one. The owner is not made a member here: a mirrored chat
+   * would buzz them for every answer. A run's place asks for that itself.
    */
   private makeThread(conversationId: string, make: () => Promise<{ id: string } | undefined>): Promise<string | undefined> {
     const making = this.threadsMaking.get(conversationId);
@@ -1868,7 +1869,6 @@ export class DiscordAdapter implements ChannelAdapter {
       const thread = await make();
       if (!thread) return undefined;
       this.boundThreads.add(conversationId);
-      await this.joinOwner(thread.id, thread).catch((err: unknown) => console.warn(`[discord] the owner could not be added to thread ${thread.id}: ${errorText(err)}`));
       return thread.id;
     })().finally(() => this.threadsMaking.delete(conversationId));
     this.threadsMaking.set(conversationId, made);

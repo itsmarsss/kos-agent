@@ -97,8 +97,9 @@ export async function postInPlace(conversationId: string, msg: OutboundMessage, 
  * Where a scheduled run speaks on the server: its own channel or thread,
  * the thread made now under its home when it has none yet, or its home's
  * channel when no thread can be made. Nothing when it has no place there.
- * The owner is a member of the thread it finds, so a post there reaches
- * them as the DM did.
+ * Only a run's place (a job's, a blob's, KOS upkeep's) is found here, and
+ * the owner is made a member of the thread it finds, so a post there
+ * reaches them as the DM did; a mirrored chat's thread is not joined.
  */
 export async function placeOf(conversationId: string, deps: PlaceDeps): Promise<string | undefined> {
   const where = await findPlace(conversationId, deps);
