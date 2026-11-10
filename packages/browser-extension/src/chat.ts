@@ -115,11 +115,16 @@ function stated(c: Chat, message: Record<string, unknown>): Chat {
   return { ...c, waiting, held: message["held"] === true };
 }
 
-/** The chat as KOS says it stands now: the owner's words that arrived leave the waiting ones, and a finished turn's steps are in the chat itself. */
+/**
+ * The chat as KOS says it stands now: the owner's words that arrived leave
+ * the waiting ones, and a finished turn's steps are in the chat itself.
+ * Another chat than the one shown, the first one made from none too, starts
+ * afresh: nothing on its way to the last one is on its way to this.
+ */
 export function shown(c: Chat, message: Record<string, unknown>): Chat {
   const conversation = (message["conversation"] as string | null) ?? null;
   const lines = (message["messages"] as Line[]) ?? [];
-  const fresh = conversation !== c.conversation && c.conversation !== null;
+  const fresh = conversation !== c.conversation;
   const said = lines.filter((l): l is Extract<Line, { role: "you" }> => l.role === "you").map((l) => l.text);
   const sending = fresh ? [] : c.sending.filter((t) => !said.includes(t));
   const notice = message["notice"] as { text: string; from?: string; waiting?: true; said?: string } | undefined;
@@ -148,11 +153,13 @@ export function shown(c: Chat, message: Record<string, unknown>): Chat {
 /**
  * The owner's words, taken by KOS. Ones said somewhere else (on the
  * dashboard, in another Chrome) show here on their way, as if typed here,
- * and the turn on them is told as it goes.
+ * and the turn on them is told as it goes. A command (/new, /stop) is never
+ * in the chat's words, so it is never on its way to them: its answer is
+ * all it waits for.
  */
 function took(c: Chat, message: Record<string, unknown>): Chat {
   const said = typeof message["said"] === "string" ? message["said"] : undefined;
-  if (!said || message["conversation"] !== c.conversation) return c;
+  if (!said || said.startsWith("/") || message["conversation"] !== c.conversation) return c;
   const shown = c.sending.includes(said) || awaiting(c.lines, said);
   const taken = c.taken?.said === said ? c.taken : { said, at: Date.now() };
   return { ...c, sending: shown ? c.sending : [...c.sending, said], working: true, taken };
