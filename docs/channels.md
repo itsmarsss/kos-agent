@@ -222,12 +222,17 @@ what was said in the place. Your own words there still run in the bound
 chat, as before; they and KOS's answer are also kept in the room, since
 the place's members saw them. Your dashboard work in the bound chat never
 reaches the room, and the room shows under its project like any chat.
+Nor does it reach the place itself: a channel or thread guests read is
+shown no turn taken on the dashboard or passed on from another chat, and
+no command typed there; what was said in the place, its answers, and
+schedules' and notify posts still go up.
 A guest's words are named ("[Ana, a guest in the channel] …") and told to
 the turn as untrusted: the brief and your standing instructions govern,
 nothing of yours changes on a guest's say-so, and anything risky still
 asks you. A guest's turn reaches less than the chat's own: the project's
-data, the channel, a word back, and a handoff within the project; never
-your files, memory, schedules or browser, and a file a guest sends is
+data, the channel and a word back to you; it hands nothing to another
+chat, since that chat would answer from its own history, and asks you
+with notify instead. It never reaches your files, memory, schedules or browser, and a file a guest sends is
 neither kept nor read. Their button presses run in the room, for a button
 of the room's own project. Nothing a guest says is remembered as yours.
 Opening a channel to guests asks you first.
