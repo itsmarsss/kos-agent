@@ -161,8 +161,11 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
 .quote::before { content: "“"; }
 .quote::after { content: "”"; }
 
-.foot { display: flex; gap: 8px; color: var(--muted); font-size: 11.5px; }
+/* —— the note under the hidden sites: how KOS keeps out of the owner's way, and where it says more —— */
+.foot { display: flex; align-items: flex-start; gap: 8px; color: var(--muted); font-size: 11.5px; line-height: 1.25; }
 .foot svg { flex: none; margin-top: 1px; color: var(--faint); }
+.foot-text { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.foot .link { font-size: 11.5px; }
 .error { color: var(--danger); font-size: 12px; }
 
 /* —— why a KOS is not connected, under its row: two lines, the rest on hover —— */
@@ -184,6 +187,9 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
 .page-head { display: flex; align-items: center; gap: 10px; margin: -4px 0 -2px; }
 .page-head strong { font-size: 15px; }
 .btn--sm { padding: 3px 8px; font-size: 12px; }
+/* A button that leads with a symbol: Add a KOS. */
+.btn--icon { display: inline-flex; align-items: center; gap: 5px; }
+.btn--icon svg { display: block; flex: none; }
 
 /* —— a setting: what it is, what it does, its control —— */
 .setting { display: flex; align-items: flex-start; gap: 12px; }

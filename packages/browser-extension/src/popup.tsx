@@ -1,13 +1,13 @@
 import { KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { ChatIcon, ChevronLeft, Chips, Collapse, DrawerRow, Face, Field, GearIcon, GlobeIcon, HandIcon, HiddenIcon, IconButton, listItem, overlayScroll, Pill, Section, ServerIcon, spring, stagger, StatusDot, Switch, Tag, type Tone } from "@kos/kit";
+import { ChatIcon, ChevronLeft, Chips, Collapse, DrawerRow, Face, Field, GearIcon, GlobeIcon, HandIcon, HiddenIcon, IconButton, listItem, overlayScroll, Pill, PlusIcon, Section, ServerIcon, spring, stagger, StatusDot, Switch, Tag, type Tone } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 
 import { kosAddress, parsePairing } from "./address.js";
 import { CHOICES, isHidden, siteOf, type Takeover, type ThemeChoice } from "./settings.js";
-import { linkWords, needsPairing } from "./linkwords.js";
+import { asWords, linkWords, needsPairing } from "./linkwords.js";
 import { ask, minutesLeft, minutesWords } from "./pages.js";
 import type { KosState, PopupState } from "./worker.js";
 
@@ -119,6 +119,9 @@ function Popup(): ReactElement {
 
 type Act = (message: Record<string, unknown>) => Promise<boolean>;
 
+/** What the footnote under the hidden sites points to, as KOS for Mac's points to its own. */
+const SAFETY = "https://github.com/itsmarsss/kos-agent/blob/main/docs/browser-extension.md#security-model";
+
 /** The side panel, in this window: Chrome opens one only from a press, and the popup's is one. */
 async function openPanel(): Promise<void> {
   const win = await chrome.windows.getCurrent();
@@ -135,10 +138,6 @@ function Home({ state, tab, act }: { state: PopupState; tab: chrome.tabs.Tab | u
       {state.kos.length > 0 && <ThisTab state={state} tab={tab} act={act} />}
       <KosSection state={state} act={act} />
       <HiddenSection state={state} tab={tab} act={act} />
-      <m.p className="foot" variants={listItem}>
-        <HandIcon size={13} />
-        <span>KOS works only in its own window and the tabs you give it. Click or type in one of them and it pauses.</span>
-      </m.p>
     </m.div>
   );
 }
@@ -208,8 +207,9 @@ function KosSection({ state, act }: { state: PopupState; act: Act }): ReactEleme
       label={state.kos.length > 1 ? `KOS · ${state.kos.length}` : "KOS"}
       action={
         state.kos.length > 0 && !adding ? (
-          <button type="button" className="btn btn--ghost btn--sm" title="Pair this Chrome with another KOS as well, say one at work beside one at home." onClick={() => setAdding(true)}>
-            + Add a KOS
+          <button type="button" className="btn btn--ghost btn--sm btn--icon" title="Pair this Chrome with another KOS as well, say one at work beside one at home." onClick={() => setAdding(true)}>
+            <PlusIcon size={11} title="" />
+            Add a KOS
           </button>
         ) : undefined
       }
@@ -245,7 +245,7 @@ function KosCard({ k, open, toggle, act }: { k: KosState; open: boolean; toggle:
   const trouble = !on && (k.held || k.link !== "connecting");
   return (
     <div className="card">
-      <DrawerRow icon={<ServerIcon />} tone={link.tone} title={k.host} detail={`As ${k.name}`} open={open} onToggle={toggle} trailing={<Pill tone={link.tone}>{link.word}</Pill>} />
+      <DrawerRow icon={<ServerIcon />} tone={link.tone} title={k.host} detail={asWords(k)} open={open} onToggle={toggle} trailing={<Pill tone={link.tone}>{link.word}</Pill>} />
       {trouble && (
         <div className="kos-reason">
           <p title={link.detail}>{link.detail}</p>
@@ -469,6 +469,16 @@ function HiddenSection({ state, tab, act }: { state: PopupState; tab: chrome.tab
             </div>
           )}
         </Collapse>
+        <hr className="rule" />
+        <div className="foot">
+          <HandIcon size={13} />
+          <div className="foot-text">
+            <span>KOS works only in its own window and the tabs you give it. Click or type in one of them and it pauses at once.</span>
+            <a className="link" href={SAFETY} target="_blank" rel="noopener">
+              How this keeps your Chrome safe
+            </a>
+          </div>
+        </div>
       </div>
     </Section>
   );
