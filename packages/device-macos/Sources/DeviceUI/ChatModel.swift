@@ -292,7 +292,9 @@ public final class ChatModel: ObservableObject {
   /// before it was: the first chat's first turn can ask while the window still shows none.
   public func show(conversation: String?, title: String, lines: [Line], notice: (text: String, from: String?, waiting: Bool)? = nil, auto: Bool = false, pictures: [Int: String] = [:]) {
     let fresh = conversation != self.conversation
-    if fresh {
+    // Words sent while no chat was shown are on their way to the chat they went in, what their turn saw with them.
+    let theirs = self.conversation == nil && (upcoming.map { $0 == conversation } ?? unshown)
+    if fresh && !theirs {
       self.pictures = [:]
       pictureOrder = []
     }
@@ -301,8 +303,7 @@ public final class ChatModel: ObservableObject {
       if case .you(let text, _, _) = line { return text }
       return nil
     }
-    // Words sent while no chat was shown are on their way to the chat they went in: still waiting until it has them.
-    let theirs = self.conversation == nil && (upcoming.map { $0 == conversation } ?? unshown)
+    // Still waiting until the chat has them.
     sending = fresh && !theirs ? [] : sending.filter { !said.contains($0) }
     var kept = fresh ? [] : notices.filter { !$0.waiting }
     if let notice { kept.append(Notice(after: said.count, text: notice.text, from: notice.from, waiting: notice.waiting)) }
@@ -393,9 +394,11 @@ public final class ChatModel: ObservableObject {
     return chat == upcoming
   }
 
-  /// A step's picture as the turn on `said` takes it, in `conversation`: kept, and shown under its steps.
+  /// A step's picture as the turn on `said` takes it, in `conversation`: kept, and shown under its steps. While the window
+  /// shows none, the first turn's pictures show as its story does.
   public func frame(_ id: Int, image: String, said: String? = nil, conversation: String? = nil) {
-    guard conversation == self.conversation, keepPicture(id, image) else { return }
+    let about = conversation == self.conversation || (conversation != nil && isAbout(conversation, said: said, taken: false))
+    guard about, keepPicture(id, image) else { return }
     if let at = live.firstIndex(where: { $0.said == said }) {
       live[at].frames = live[at].frames.filter { $0 != id } + [id]
     } else {

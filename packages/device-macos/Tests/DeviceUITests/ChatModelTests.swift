@@ -223,6 +223,23 @@ struct ChatModelTests {
     #expect(model.story == "› Look")
   }
 
+  /// While the window shows no chat, the first turn's pictures draw as it goes and stay once its chat is shown.
+  @Test func theFirstTurnFromNoneShowsItsPictures() {
+    let model = ChatModel()
+    let abc = Data("ABC".utf8).base64EncodedString()
+    model.show(conversation: nil, title: "Mac", lines: [])
+    model.say("tidy the deck")
+    model.status(taken: true, story: nil, error: nil, said: "tidy the deck", conversation: "mac:owner")
+    model.frame(3, image: abc, said: "tidy the deck", conversation: "mac:owner")
+    // Another chat's is still not this one's.
+    model.frame(4, image: abc, said: "other", conversation: "cm1:owner")
+    #expect(model.liveFrames(of: "tidy the deck") == [3])
+    #expect(model.liveFrames == [3])
+    model.show(conversation: "mac:owner", title: "tidy the deck", lines: [.you("tidy the deck", files: [])])
+    #expect(model.picturesOf([3]).map(\.id) == [3])
+    #expect(model.liveFrames == [3])
+  }
+
   /// The first chat, made from none by /new, starts afresh and leaves the window ready for the next words.
   @Test func aChatMadeFromNoneStartsAfresh() {
     let model = ChatModel()
