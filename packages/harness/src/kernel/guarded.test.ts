@@ -12,7 +12,7 @@ import { RISKY } from "../risk/tiers.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { caller, isAttended, isOwnerTurn, onSite, turnStop } from "./caller.js";
-import { GuardedTools, STOPPED_RESULT, finishedAfterStop, type GuardedToolsDeps } from "./guarded.js";
+import { GuardedTools, STOPPED_RESULT, approvedResult, finishedAfterStop, isUndone, undoneResult, type GuardedToolsDeps } from "./guarded.js";
 
 describe("GuardedTools", () => {
   let root: string;
@@ -277,7 +277,8 @@ describe("GuardedTools", () => {
     const res = await call;
 
     expect(ran).toBe(true);
-    expect(res.content).toBe("ran");
+    // The real result, said to be approved: the model reports it rather than waiting on it.
+    expect(res.content).toBe("The owner approved this, and it ran:\nran");
     expect(res.isError).toBeFalsy();
   });
 
@@ -295,8 +296,49 @@ describe("GuardedTools", () => {
 
     // Told plainly, and told not to try again: a refusal the model reads as a
     // transient failure is a refusal it will work around.
-    expect(res.content).toMatch(/not approved/);
-    expect(res.content).toMatch(/Do not try it again/);
+    expect(res.content).toBe(undoneResult("denied", "danger"));
+    expect(res.content).not.toMatch(/pending|#\d/);
+  });
+
+  describe("the words for a decided ask", () => {
+    it("says a denial plainly and finally, and asks for a one-line reply", () => {
+      expect(undoneResult("denied", "Delete notes/plan.md")).toBe(
+        "The owner denied this: Delete notes/plan.md. It was not done. Do not retry or ask again in this turn unless they say so. Tell them in one line that you did not do it.",
+      );
+    });
+
+    it("says an unanswered ask was not done", () => {
+      expect(undoneResult("expired", "Delete notes/plan.md")).toBe(
+        "No answer in time; it was not done: Delete notes/plan.md. Do not retry it in this turn. Tell the owner in one line that you did not do it.",
+      );
+    });
+
+    it("notes an approved result as approved, and a failed one as failed", () => {
+      expect(approvedResult({ content: "deleted", isError: false })).toEqual({ content: "The owner approved this, and it ran:\ndeleted", isError: false });
+      expect(approvedResult({ content: "ENOENT", isError: true })).toEqual({ content: "The owner approved this; it ran and failed:\nENOENT", isError: true });
+    });
+
+    it("has no em dash in any of them", () => {
+      const all = [undoneResult("denied", "x"), undoneResult("expired", "x"), approvedResult({ content: "", isError: true }).content, STOPPED_RESULT];
+      expect(all.join(" ")).not.toMatch(/\u2014/);
+    });
+
+    it("knows a refusal in today's words and in the old ones", () => {
+      expect(isUndone(undoneResult("denied", "x"))).toBe(true);
+      expect(isUndone(undoneResult("expired", "x"))).toBe(true);
+      expect(isUndone("not approved (pending #4). The owner did not approve it.")).toBe(true);
+      expect(isUndone("deleted")).toBe(false);
+    });
+  });
+
+  it("answers Stop, not a lapse, for an ask the turn was stopped under", async () => {
+    registry.register({ name: "danger", description: "d", inputSchema: { type: "object" } }, () => "ran", RISKY);
+    const stop = new AbortController();
+    const call = guarded({ signal: stop.signal }).execute("danger", {});
+    await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+    stop.abort();
+    expect((await call).content).toBe(STOPPED_RESULT);
+    expect(approvals.pending()).toHaveLength(0);
   });
 
   describe("a call whose session is readied first", () => {
@@ -313,7 +355,7 @@ describe("GuardedTools", () => {
       await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
       expect(order).toEqual(["prepare", "picture"]);
       approvals.approve(approvals.pending()[0]!.id, "owner");
-      expect((await call).content).toBe("ran");
+      expect((await call).content).toMatch(/approved this, and it ran:\nran$/);
     });
 
     it("asks about a strict tool first, and asks for no session when the owner says no", async () => {
@@ -323,14 +365,14 @@ describe("GuardedTools", () => {
       const refused = tools().execute("browser.eval", { code: "1" });
       await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
       approvals.deny(approvals.pending()[0]!.id, "owner");
-      expect((await refused).content).toMatch(/not approved/);
+      expect(isUndone((await refused).content)).toBe(true);
       expect(prepared).toEqual([]);
       // Allowed, the session is asked for, then it runs.
       const allowed = tools().execute("browser.eval", { code: "2" });
       await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
       expect(prepared).toEqual([]);
       approvals.approve(approvals.pending()[0]!.id, "owner");
-      expect((await allowed).content).toBe("ran");
+      expect((await allowed).content).toMatch(/approved this, and it ran:\nran$/);
       expect(prepared).toEqual(["browser.eval"]);
     });
 
@@ -351,8 +393,7 @@ describe("GuardedTools", () => {
     );
     // A turn that waits forever holds its conversation's queue forever.
     const res = await guarded({ approvalTimeoutMs: 10 }).execute("danger", {});
-    expect(res.content).toMatch(/not approved/);
-    expect(res.content).toMatch(/Nobody decided within the wait/);
+    expect(res.content).toBe(undoneResult("expired", "danger"));
     // The ask lapsed with the wait rather than lingering in the inbox.
     expect(approvals.pending()).toHaveLength(0);
   });

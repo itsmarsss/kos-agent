@@ -1,3 +1,5 @@
+import { summarizeAction } from "@kos/shared";
+
 import type { ToolBox } from "../agent/loop.js";
 import type { ToolExecution, ToolRegistry } from "../agent/registry.js";
 import type { AuditLog } from "../ops/audit.js";
@@ -126,8 +128,36 @@ export interface GuardedToolsDeps {
  */
 export const QUEUED_PREFIX = "queued for approval (pending #";
 
-/** The other end of the same decision, so a reader can tell them apart. */
-export const DENIED_PREFIX = "not approved (pending #";
+/**
+ * What the model is told of an ask that came to nothing: plain and final.
+ *
+ * It read "not approved (pending #1)", and with "pending" in the result the
+ * model told the owner the delete was still waiting on them, a moment after
+ * they had said no. Nothing here names an id to wait on.
+ */
+export const DENIED_PREFIX = "The owner denied this: ";
+/** The same for an ask nobody answered within the wait. */
+export const LAPSED_PREFIX = "No answer in time; it was not done: ";
+/** How a refusal read before, still in older transcripts. */
+const OLD_DENIED_PREFIX = "not approved (pending #";
+
+/** The result for an ask the owner denied, or that lapsed unanswered. */
+export function undoneResult(decision: "denied" | "expired", what: string): string {
+  return decision === "denied"
+    ? `${DENIED_PREFIX}${what}. It was not done. Do not retry or ask again in this turn unless they say so. Tell them in one line that you did not do it.`
+    : `${LAPSED_PREFIX}${what}. Do not retry it in this turn. Tell the owner in one line that you did not do it.`;
+}
+
+/** Whether a result is an ask that came to nothing, in today's words or the old ones. */
+export function isUndone(result: string): boolean {
+  return [DENIED_PREFIX, LAPSED_PREFIX, OLD_DENIED_PREFIX].some((prefix) => result.startsWith(prefix));
+}
+
+/** An approved call's own result, said to be approved so the model reports it rather than waiting on it. */
+export function approvedResult(result: ToolExecution): ToolExecution {
+  const head = result.isError ? "The owner approved this; it ran and failed:" : "The owner approved this, and it ran:";
+  return { ...result, content: `${head}\n${result.content}` };
+}
 
 /**
  * What a call answers when the owner stopped the turn under it. Stop only
@@ -482,31 +512,23 @@ export class GuardedTools implements ToolBox {
       this.deps.onDecided?.(action, decision);
 
       if (decision !== "approved") {
-        return {
-          content: [
-            `${DENIED_PREFIX}${action.id}).`,
-            decision === "expired" ? "Nobody decided within the wait, so nothing was done." : "The owner did not approve it, so nothing was done.",
-            "Do not try it again. Say what you would have done and stop, or",
-            "offer something that does not need it.",
-          ].join(" "),
-          isError: false,
-        };
+        return { content: undoneResult(decision === "denied" ? "denied" : "expired", summarizeAction(name, input)), isError: false };
       }
 
       const unready = await readyNow();
       if (unready) return unready;
       const approvedInput = injectSecrets(input, secrets);
-      const approvedResult = await run(name, approvedInput);
+      const approvedRun = await run(name, approvedInput);
       audit.record({
         tool: name,
         args: input,
-        result: approvedResult.content,
-        isError: approvedResult.isError,
+        result: approvedRun.content,
+        isError: approvedRun.isError,
         riskTier: "risky",
         ...(userId ? { userId } : {}),
       });
-      this.deps.onExecuted?.(name, approvedResult);
-      return approvedResult;
+      this.deps.onExecuted?.(name, approvedRun);
+      return approvedResult(approvedRun);
     }
 
     // Safe: inject secrets just before execution, then run and audit.
