@@ -141,8 +141,21 @@ for (const t of TAGS) {
 top.postMessage({ census: { tried, made, placed } }, "*");
 `;
 
-/** A page that says it is up, then tries one way out. */
-const attempt = (code: string): string => `<p>page</p><script>top.postMessage("alive", "*"); setTimeout(() => { try { ${code} } catch (e) {} }, 50)</script>`;
+/** A page that says it is up, tries one way out, then says it tried. */
+const attempt = (code: string): string => `<p>page</p><script>top.postMessage("alive", "*"); setTimeout(() => { try { ${code} } catch (e) {} top.postMessage("tried", "*"); }, 50)</script>`;
+
+/** A document as an iframe's srcdoc attribute holds it. */
+const srcdoc = (doc: string): string => doc.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+
+/** The most any one thing is waited for: a bound, so a slow machine fails a step, not the whole run. */
+const BOUND_MS = 15_000;
+/**
+ * How long to watch for what must not happen (a request, a second report)
+ * once what starts it has happened. A request a page sends lands in a few
+ * milliseconds; this is room for a slow machine, not a guess at a race.
+ */
+const QUIET_MS = 500;
+const pause = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 interface Run {
   alive: boolean;
@@ -180,7 +193,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     let version: { webSocketDebuggerUrl: string } | undefined;
     for (let i = 0; i < 300 && !version; i++) {
       version = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json() as Promise<{ webSocketDebuggerUrl: string }>).catch(() => undefined);
-      if (!version) await new Promise((r) => setTimeout(r, 100));
+      if (!version) await pause(100);
     }
     const ws = new WebSocket(version!.webSocketDebuggerUrl);
     await new Promise((r) => (ws.onopen = r));
@@ -191,9 +204,11 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       if (m.id) wait.get(m.id)?.(m);
     };
     const raw = (method: string, params: Record<string, unknown> = {}, sessionId?: string): Promise<Record<string, unknown>> =>
-      new Promise((resolve) => {
+      new Promise((resolve, reject) => {
         const id = ++n;
-        wait.set(id, (m) => resolve(m.result ?? {}));
+        // An answer Chrome never sends fails this call, not the test's whole timeout.
+        const timer = setTimeout(() => (wait.delete(id), reject(new Error(`Chrome did not answer ${method} in ${BOUND_MS} ms`))), BOUND_MS);
+        wait.set(id, (m) => (clearTimeout(timer), wait.delete(id), resolve(m.result ?? {})));
         ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
       });
     const target = await raw("Target.createTarget", { url: "about:blank" });
@@ -219,23 +234,27 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     }
   });
 
-  /** The dashboard's side: the frame as ArtifactPage draws it, around one page. */
+  const value = async (expression: string): Promise<unknown> => ((await send("Runtime.evaluate", { expression, returnByValue: true })).result as { value?: unknown } | undefined)?.value;
+  /** Wait for what is expected in the browser, up to a bound, rather than guess how long a busy machine takes. */
+  const until = async (expression: string, bound = BOUND_MS): Promise<void> => {
+    for (const end = Date.now() + bound; !(await value(expression)) && Date.now() < end; ) await pause(50);
+  };
+  /** The same, for what reaches this side: a request, a packet. */
+  const within = async (seen: () => boolean, bound = BOUND_MS): Promise<void> => {
+    for (const end = Date.now() + bound; !seen() && Date.now() < end; ) await pause(50);
+  };
+
+  /** The dashboard's side: the frame as ArtifactPage draws it, around one page, run until it has tried and then a while longer. */
   async function run(name: string, frame: string): Promise<Run> {
     const path = `/${name}`;
-    pages.set(path, `<!doctype html><body><script>addEventListener("message", (e) => { if (e.data === "alive") document.title = "alive"; else if (e.data && e.data.census) document.body.dataset.said = JSON.stringify(e.data.census); })</script><iframe sandbox="allow-scripts" srcdoc="${frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe></body>`);
+    pages.set(path, `<!doctype html><body><script>addEventListener("message", (e) => { if (e.data === "alive") document.title = "alive"; else if (e.data === "tried") document.body.dataset.tried = "1"; else if (e.data && e.data.census) document.body.dataset.said = JSON.stringify(e.data.census); })</script><iframe sandbox="allow-scripts" srcdoc="${srcdoc(frame)}"></iframe></body>`);
     requests.length = 0;
     await send("Page.navigate", { url: `${base}${path}` });
-    await new Promise((r) => setTimeout(r, 1300));
-    const read = async (expression: string): Promise<string | undefined> =>
-      ((await send("Runtime.evaluate", { expression, returnByValue: true })).result as { value?: string } | undefined)?.value;
-    // A census is slow on a busy machine: wait for it, up to a bound, rather than guess how long it takes.
-    const counting = frame.includes("const TAGS =");
-    for (let waited = 0; counting && !(await read("document.body.dataset.said || ''")) && waited < 10_000; waited += 200) {
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    const title = await read("document.title");
-    const said = await read("document.body.dataset.said || ''");
-    return { alive: title === "alive", requests: [...requests], ...(said ? { said } : {}) };
+    // Up and tried (a census is said before), then the room a request has to land in, before the next page.
+    await until("document.body.dataset.tried === '1'");
+    await pause(QUIET_MS);
+    const said = String(await value("document.body.dataset.said || ''"));
+    return { alive: (await value("document.title")) === "alive", requests: [...requests], ...(said ? { said } : {}) };
   }
 
   const page = (code: string): string => pageDocument({ html: attempt(`const XHTML = "${XHTML}"; ${code}`), tokens: {}, mode: "dark", css: "", libraries: [] });
@@ -245,7 +264,9 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   it("sees a leak when there is one: the flat frame KOS had sends a navigation's request", async () => {
     const flat = await run("control", page(attempts(E).href!).replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'">`));
     expect(flat.alive).toBe(true);
-    expect(flat.requests.join(" ")).toContain("/href");
+    // A navigation's request can come after the page's own turn is over: wait for it, up to a bound.
+    await within(() => requests.some((r) => r.startsWith("/href")));
+    expect(requests.join(" ")).toContain("/href");
   }, 20_000);
 
   it("sees a placed element when there is one: the sweep without the guard places every kind", async () => {
@@ -288,6 +309,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       const stun = await stunServer();
       const bare = await run("rtc-control", wrapperDocument(unguarded(offer(stun.url))));
       expect(bare.alive).toBe(true);
+      await within(() => stun.packets.length > 0);
       expect(stun.packets.length).toBeGreaterThan(0);
     }, 20_000);
 
@@ -312,7 +334,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       addEventListener("message", (e) => { if (e.data === "probe") top.postMessage({ probe: { scroll: document.scrollingElement.scrollHeight, client: document.scrollingElement.clientHeight, wide: document.scrollingElement.scrollWidth > innerWidth, view: innerHeight } }, "*"); });
     </script>`;
     const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [], kind: "page" }));
-    pages.set("/fit", `<!doctype html><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:600px;height:300px" srcdoc="${frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe><div style="height:2000px"></div><script>
+    pages.set("/fit", `<!doctype html><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:600px;height:300px" srcdoc="${srcdoc(frame)}"></iframe><div style="height:2000px"></div><script>
       const f = document.getElementById("f");
       addEventListener("message", (e) => {
         const page = f.contentWindow.frames[0], m = e.data || {};
@@ -327,10 +349,11 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     </script></body>`);
     await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
     await send("Page.navigate", { url: `${base}/fit` });
-    await new Promise((r) => setTimeout(r, 1200));
-    const value = async (expression: string): Promise<unknown> => ((await send("Runtime.evaluate", { expression, returnByValue: true })).result as { value?: unknown } | undefined)?.value;
+    // Applied, then a while to see it settle rather than report on in a loop.
+    await until(`document.getElementById("f").getBoundingClientRect().height === 2700`);
+    await pause(QUIET_MS);
     await value(`document.getElementById("f").contentWindow.frames[0].postMessage("probe", "*")`);
-    await new Promise((r) => setTimeout(r, 300));
+    await until("document.body.dataset.probe");
     const probe = JSON.parse(String(await value("document.body.dataset.probe || '{}'"))) as { scroll?: number; client?: number; wide?: boolean };
     expect(await value(`document.getElementById("f").getBoundingClientRect().height`)).toBe(2700);
     // No scroll inside: the page's document is exactly as tall as its frame.
@@ -341,7 +364,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     expect(Number(await value("document.body.dataset.heights"))).toBeLessThanOrEqual(3);
     expect(await value("scrollY")).toBe(0);
     for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: 20, y: 20, button: "left", clickCount: 1 });
-    await new Promise((r) => setTimeout(r, 400));
+    await until("scrollY > 0");
     expect(await value("scrollY")).toBe(2640);
     await send("Emulation.clearDeviceMetricsOverride");
   }, 20_000);
@@ -360,7 +383,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [runtime], kind: "doc" }));
     // The dashboard's own checks, as ArtifactPage makes them (frameheight.ts), run here in the browser.
     const checks = `const REVEAL_MS = ${REVEAL_MS}, DONE_MS = ${DONE_MS}; const ownerIn = ${ownerIn.toString()}; const saveAllowed = ${saveAllowed.toString()}; const revealAllowed = ${revealAllowed.toString()};`;
-    pages.set("/doc", `<!doctype html><body style="margin:0"><button id="elsewhere">elsewhere</button><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:800px;height:560px" srcdoc="${frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe><script>
+    pages.set("/doc", `<!doctype html><body style="margin:0"><button id="elsewhere">elsewhere</button><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:800px;height:560px" srcdoc="${srcdoc(frame)}"></iframe><script>
       ${checks}
       const f = document.getElementById("f");
       let gestureAt = -Infinity, ports = 0;
@@ -382,13 +405,9 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     </script></body>`);
     await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
     await send("Page.navigate", { url: `${base}/doc` });
-    const value = async (expression: string): Promise<unknown> => ((await send("Runtime.evaluate", { expression, returnByValue: true, userGesture: false })).result as { value?: unknown } | undefined)?.value;
-    // Wait for what is expected, up to a bound, rather than guess how long a busy machine takes.
-    const until = async (expression: string, bound = 10_000): Promise<void> => {
-      for (let waited = 0; !(await value(expression)) && waited < bound; waited += 100) await new Promise((r) => setTimeout(r, 100));
-    };
     await until("document.body.dataset.ports === '1'");
-    await new Promise((r) => setTimeout(r, 300));
+    // A while for a press or a second channel that must not come.
+    await pause(QUIET_MS);
     // Before the owner touches it, nothing is theirs: no hand in the frame, no press over the channel, which came once.
     expect(await value("ownerIn(f)")).toBe(false);
     expect(await value("document.body.dataset.ports")).toBe("1");
@@ -406,21 +425,21 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     // The press is the owner's hand in the frame, and the frame's channel told the dashboard of it, just now:
     // read all three the moment the stamp lands, since the window for a jump is half a second.
     let seen: unknown;
-    for (let waited = 0; waited < 5_000; waited += 20) {
+    for (const end = Date.now() + 5_000; !seen && Date.now() < end; ) {
       seen = await value("Number(document.body.dataset.gestures || 0) > 0 ? [ownerIn(f), revealAllowed(f, gestureAt)] : null");
-      if (seen) break;
-      await new Promise((r) => setTimeout(r, 20));
+      if (!seen) await pause(20);
     }
     expect(seen).toEqual([true, true]);
     await type("## Water");
     await key("Enter");
     await type("it is **wet** now");
     await key("Enter");
+    // The menu opens on the key's own input event, which Chrome has handled by the time it answers.
     await type("/div");
-    await new Promise((r) => setTimeout(r, 400));
     await key("Enter");
     await until("document.body.dataset.saved");
-    await new Promise((r) => setTimeout(r, 700));
+    // A while for a second save that must not come.
+    await pause(QUIET_MS);
     const saved = String(await value("document.body.dataset.saved || ''"));
     expect(saved).toContain("<h2>Water</h2>");
     expect(saved).toMatch(/<p>it is(&nbsp;| )<strong>wet<\/strong>(&nbsp;| )now<\/p><hr><h2>Next<\/h2>/);
@@ -434,7 +453,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     expect(await value("revealAllowed(f, gestureAt)")).toBe(false);
     // A press on the dashboard itself takes the hand out of the frame.
     for (const t of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type: t, x: 20, y: 8, button: "left", clickCount: 1 });
-    await new Promise((r) => setTimeout(r, 100));
+    await until("!ownerIn(f)");
     expect(await value("ownerIn(f)")).toBe(false);
     expect(await value("saveAllowed(f, undefined)")).toBe(false);
     await send("Emulation.clearDeviceMetricsOverride");
@@ -471,18 +490,17 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     </script>`;
     const css = ["kit.css", "page.css"].map((f) => readFileSync(join(import.meta.dirname, "../../../kit/src", f), "utf8")).join("\n");
     const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css, libraries: [bundled.outputFiles[0]!.text], kind: "sheet" }));
-    pages.set("/sheet", `<!doctype html><meta name="viewport" content="width=device-width"><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:100%;height:700px" srcdoc="${frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe><script>
+    pages.set("/sheet", `<!doctype html><meta name="viewport" content="width=device-width"><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:100%;height:700px" srcdoc="${srcdoc(frame)}"></iframe><script>
       addEventListener("message", (e) => { if (e.data && e.data.probe) document.body.dataset.probe = JSON.stringify(e.data.probe); });
     </script></body>`);
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await send("Page.navigate", { url: `${base}/sheet` });
-    const value = async (expression: string): Promise<unknown> => ((await send("Runtime.evaluate", { expression, returnByValue: true })).result as { value?: unknown } | undefined)?.value;
     // Ask until both grids are drawn and answer, up to a bound.
     type Probe = { page?: number; view?: number; grids?: { wide: number; box: number; scrolled: number; held: boolean }[] };
     let probe: Probe = {};
-    for (let waited = 0; waited < 10_000 && probe.grids?.length !== 2; waited += 100) {
+    for (const end = Date.now() + BOUND_MS; probe.grids?.length !== 2 && Date.now() < end; ) {
       await value(`document.getElementById("f").contentWindow.frames[0].postMessage("probe", "*")`);
-      await new Promise((r) => setTimeout(r, 100));
+      await pause(100);
       probe = JSON.parse(String(await value("document.body.dataset.probe || '{}'"))) as Probe;
     }
     expect(probe.view).toBe(390);
@@ -497,12 +515,21 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 
+  /*
+   * Each way out on a page of its own, one after another in one tab: Chrome
+   * takes one prerender a page and holds back those of pages run at once, so
+   * attempts sharing a page or racing in tabs hide each other's. Each waits
+   * for its page to have tried, then the room a request has to land in,
+   * where it once waited a fixed 1.3 s, which a slow machine ran past the
+   * timeout. Each aims at a path of its own, so a request that lands late,
+   * in the next one's turn, still names the attempt that sent it.
+   */
   it("lets no way out send a single request, with the page running each time", async () => {
     const results: Record<string, Run> = {};
-    for (const [name, code] of Object.entries(attempts(E))) results[name] = await run(name, wrapperDocument(page(code)));
+    for (const name of Object.keys(attempts(E))) results[name] = await run(name, wrapperDocument(page(attempts(`${E}/${name}`)[name]!)));
     const notRunning = Object.entries(results).filter(([, r]) => !r.alive).map(([name]) => name);
     const leaked = Object.fromEntries(Object.entries(results).filter(([, r]) => r.requests.length > 0).map(([name, r]) => [name, r.requests]));
     expect(notRunning).toEqual([]);
     expect(leaked).toEqual({});
-  }, 180_000);
+  }, 120_000);
 });
