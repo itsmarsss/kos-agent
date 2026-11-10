@@ -84,7 +84,7 @@ struct RenderTests {
   @Test func chatWindow() throws {
     let model = ChatModel()
     model.paired = true
-    model.online = true
+    model.link = .connected
     model.beside = "Keynote"
     model.besideTitle = "Q3 review.key"
     model.models(.init(current: "gpt-5.5", choices: ["gpt-5.5", "gpt-5.4-mini"]))
@@ -113,7 +113,7 @@ struct RenderTests {
   @Test func chatWindowEmptyThinkingAndAtAStep() throws {
     let model = ChatModel()
     model.paired = true
-    model.online = true
+    model.link = .connected
     model.beside = "Keynote"
     model.besideTitle = "Q3 review.key"
     model.models(.init(current: "", choices: [], fixed: "Claude Agent SDK"))
@@ -134,7 +134,7 @@ struct RenderTests {
   @Test func theEmptyChatFitsItsThread() throws {
     let model = ChatModel()
     model.paired = true
-    model.online = true
+    model.link = .connected
     model.show(conversation: nil, title: "Mac", lines: [])
     let host = NSHostingView(rootView: ChatView(model: model))
     host.frame = CGRect(origin: .zero, size: ChatView.size)
@@ -156,7 +156,7 @@ struct RenderTests {
   @Test func chatWindowStopAskPausedAndSelection() throws {
     let model = ChatModel()
     model.paired = true
-    model.online = true
+    model.link = .connected
     model.beside = "Notes"
     model.besideTitle = "Draft"
     model.show(conversation: "mac:owner", title: "Tidy notes", lines: [.you("Fix the typos in this note", files: [])])
@@ -189,7 +189,7 @@ struct RenderTests {
     model.beside = "Keynote"
     _ = try render("chat-window-unpaired", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
     model.paired = true
-    model.online = true
+    model.link = .connected
     model.silent = true
     let size = try render("chat-window-silent", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
     #expect(size.height == ChatView.size.height)
@@ -199,7 +199,7 @@ struct RenderTests {
   @Test func chatWindowWithTheAccessibilityHint() throws {
     let model = ChatModel()
     model.paired = true
-    model.online = true
+    model.link = .connected
     model.beside = "Safari"
     model.show(conversation: nil, title: "Mac", lines: [])
     model.hint = "Allow Accessibility for KOS for Mac, in System Settings, Privacy & Security, to bring in what you select."

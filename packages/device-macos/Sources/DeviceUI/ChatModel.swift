@@ -211,7 +211,8 @@ public final class ChatModel: ObservableObject {
   @Published public private(set) var held = false
   /// Whether this Mac is paired with any KOS at all.
   @Published public var paired = false
-  @Published public var online = false
+  /// The line to the KOS this window talks to; none while nothing is paired.
+  @Published public var link: LinkState?
   /// The KOS is on and never showed the chat: one from before this window, that cannot talk here.
   @Published public var silent = false
   /// Which KOS this is, when the Mac is paired with more than one.
@@ -550,6 +551,9 @@ public final class ChatModel: ObservableObject {
   }
 
   // MARK: As drawn
+
+  /// A KOS is on the line.
+  public var online: Bool { link == .connected }
 
   /// The chat can be talked to: a KOS on the line that answers this window.
   public var usable: Bool { online && !silent }

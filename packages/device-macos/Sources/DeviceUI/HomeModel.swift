@@ -19,6 +19,17 @@ public enum LinkState: Equatable {
   case disconnected
 }
 
+extension BlobMood {
+  /// How KOS looks on a line, for both windows: sagging when it cannot be reached, asleep only when the owner disconnected it.
+  public init(link: LinkState?) {
+    switch link {
+    case .offline, .untrusted, .outdated: self = .error
+    case .disconnected: self = .asleep
+    default: self = .idle
+    }
+  }
+}
+
 public enum HomePage: Equatable {
   case home, settings
 }

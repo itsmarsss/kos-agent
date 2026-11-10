@@ -782,6 +782,23 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     sizes.push(await size());
     // Settings are longer than the popup: they scroll inside it.
     expect(await devtools.evaluate(popup, "(() => { const p = document.querySelector('.popup-page'); return p.scrollHeight > p.clientHeight; })()")).toBe(true);
+    // Scrolled down, settings leave from where they are, and home comes in at its top.
+    const scrolled = (await devtools.evaluate(popup, "(() => { const p = document.querySelector('.popup-page'); p.scrollTop = 200; return [p.scrollTop, document.querySelector('.page-head').getBoundingClientRect().top]; })()")) as [number, number];
+    expect(scrolled[0]).toBe(200);
+    const leaving = (await devtools.evaluate(
+      popup,
+      "new Promise((res) => { document.querySelector('[aria-label=Back]').click(); requestAnimationFrame(() => res([document.querySelector('.popup-page').scrollTop, document.querySelector('.page-head').getBoundingClientRect().top])); })",
+    )) as [number, number];
+    expect(leaving[0]).toBe(0);
+    expect(Math.abs(leaving[1] - scrolled[1])).toBeLessThan(1);
+    // Back again on the settings still leaving goes nowhere; settings called back mid-leave come in where they were, their scroll given back.
+    const returned = (await devtools.evaluate(
+      popup,
+      "new Promise((res) => { document.querySelector('[aria-label=Back]').click(); document.querySelector('[aria-label=Settings]').click(); requestAnimationFrame(() => res([document.querySelector('.popup-page').scrollTop, document.querySelector('.page-head').getBoundingClientRect().top])); })",
+    )) as [number, number];
+    expect(returned[0]).toBe(200);
+    expect(Math.abs(returned[1] - scrolled[1])).toBeLessThan(1);
+    await shown("document.querySelectorAll('.page-head').length === 1 && !document.querySelector('[aria-label=Settings]')");
     await devtools.evaluate(popup, "document.querySelector('[aria-label=Back]').click()");
     await shown("document.querySelector('.drawer-row') && !document.querySelector('.page-head')");
     await devtools.evaluate(popup, "document.querySelector('.drawer-row').click()");

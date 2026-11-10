@@ -280,13 +280,27 @@ struct ChatModelTests {
     #expect(model.asks.isEmpty)
   }
 
+  @Test func theFaceSleepsOnlyWhenTheOwnerDisconnectedIt() {
+    let model = ChatModel()
+    model.link = .offline("No route")
+    #expect(!model.online)
+    #expect(BlobMood(link: model.link) == .error)
+    #expect(BlobMood(link: .untrusted) == .error)
+    #expect(BlobMood(link: .outdated) == .error)
+    #expect(BlobMood(link: .disconnected) == .asleep)
+    #expect(BlobMood(link: .connecting) == .idle)
+    #expect(BlobMood(link: nil) == .idle)
+    model.link = .connected
+    #expect(model.online)
+  }
+
   @Test func theHeaderSaysWhyThereIsNoChatAsThePanelDoes() {
     let model = ChatModel()
     #expect(model.subtitle == "Not paired yet")
     model.paired = true
     #expect(model.subtitle == "Not connected")
     #expect(!model.usable)
-    model.online = true
+    model.link = .connected
     model.silent = true
     #expect(model.subtitle == "This KOS cannot talk here yet")
     #expect(!model.usable)

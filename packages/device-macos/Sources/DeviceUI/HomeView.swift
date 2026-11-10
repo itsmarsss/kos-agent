@@ -185,11 +185,7 @@ public struct HomeView: View {
   /// How KOS looks in the header: at work in a session, sagging when it cannot be reached.
   private var faceMood: BlobMood {
     if let session = model.session { return session.paused ? .idle : .working }
-    switch model.overall {
-    case .offline, .untrusted, .outdated: return .error
-    case .disconnected: return .asleep
-    default: return .idle
-    }
+    return BlobMood(link: model.overall)
   }
 
   /// The head says what the card of the KOS it shows says, or that a session has this Mac: the Chrome popup's words.

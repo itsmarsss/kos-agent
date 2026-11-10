@@ -199,12 +199,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   /// The KOS the chat window talks to: the one chosen while it stays paired, else the first connected, else the first paired.
-  private func chatTarget() -> (id: String, name: String?, online: Bool)? {
+  private func chatTarget() -> (id: String, name: String?, link: LinkState)? {
     if chatKOS.flatMap(pairing) == nil {
       chatKOS = (pairings.first { lines[$0.deviceId]?.isProven == true } ?? pairings.first)?.deviceId
     }
     guard let id = chatKOS, let paired = pairing(id) else { return nil }
-    return (id, pairings.count > 1 ? Self.name(paired) : nil, lines[id]?.isProven == true)
+    return (id, pairings.count > 1 ? Self.name(paired) : nil, Self.link(lines[id]?.status ?? .disconnected))
   }
 
   /// A KOS's face as it last sent it, else KOS's own.

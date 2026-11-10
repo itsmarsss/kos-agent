@@ -66,9 +66,25 @@ function Popup(): ReactElement {
   // The popup keeps one size; its page scrolls inside, under the overlay thumb, no lane taken from its 392 px.
   const scroller = useRef<HTMLDivElement>(null);
   const overlay = useOverlayScroll(scroller);
+  const pages = { home: useRef<HTMLElement>(null), settings: useRef<HTMLElement>(null) };
+  // The page shown, read at the click: a click on a page still leaving goes nowhere.
+  const shown = useRef(page);
   // Settings open at their top, and home where it starts, not wherever the last page was scrolled to.
+  // The page leaving is held where it was scrolled to as the scroll moves, so it leaves from there.
   const go = (next: "home" | "settings"): void => {
-    if (scroller.current) scroller.current.scrollTop = 0;
+    if (shown.current === next) return;
+    const view = scroller.current;
+    const leaving = pages[shown.current].current;
+    const coming = pages[next].current;
+    // Back before it was gone: it comes in from where it was held, its scroll given back.
+    const back = coming ? -parseFloat(coming.style.top || "0") : 0;
+    coming?.style.removeProperty("top");
+    if (view) {
+      const from = view.scrollTop;
+      view.scrollTop = back;
+      if (leaving) leaving.style.top = `${view.scrollTop - from}px`;
+    }
+    shown.current = next;
     setPage(next);
   };
   return (
@@ -78,12 +94,12 @@ function Popup(): ReactElement {
         <div className="pages">
           <AnimatePresence initial={false}>
             {page === "home" ? (
-              <m.main key="home" className="stack page" custom={-1} variants={pageMove} initial="out" animate="in" exit="out">
+              <m.main key="home" ref={pages.home} className="stack page" custom={-1} variants={pageMove} initial="out" animate="in" exit="out">
                 <Head state={state} settings={() => go("settings")} />
                 {state && <Home state={state} tab={tab} act={act} />}
               </m.main>
             ) : (
-              <m.main key="settings" className="stack page" custom={1} variants={pageMove} initial="out" animate="in" exit="out">
+              <m.main key="settings" ref={pages.settings} className="stack page" custom={1} variants={pageMove} initial="out" animate="in" exit="out">
                 {state && <SettingsPage state={state} act={act} back={() => go("home")} />}
               </m.main>
             )}
