@@ -9,6 +9,7 @@ import SwiftUI
 /// colour (an ask is the warn's), `wash` fills it with that colour's faint
 /// tint instead of the panel (a quote, a notice). A card that is itself a
 /// choice is `picked` on the accent's tint when chosen, and `lit` under the pointer.
+/// Its padding and gap are the kit's `.card` (0.75rem by 0.85rem, 0.5rem between).
 public struct Card<Content: View>: View {
   private let tone: Color?
   private let wash: Bool
@@ -18,7 +19,7 @@ public struct Card<Content: View>: View {
   private let spacing: CGFloat
   private let content: Content
 
-  public init(tone: Color? = nil, wash: Bool = false, picked: Bool = false, lit: Bool = false, padding: EdgeInsets = EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14), spacing: CGFloat = 10, @ViewBuilder content: () -> Content) {
+  public init(tone: Color? = nil, wash: Bool = false, picked: Bool = false, lit: Bool = false, padding: EdgeInsets = EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14), spacing: CGFloat = 8, @ViewBuilder content: () -> Content) {
     self.tone = tone
     self.wash = wash
     self.picked = picked
@@ -29,7 +30,7 @@ public struct Card<Content: View>: View {
   }
 
   /// Even padding all round.
-  public init(tone: Color? = nil, wash: Bool = false, picked: Bool = false, lit: Bool = false, padding: CGFloat, spacing: CGFloat = 10, @ViewBuilder content: () -> Content) {
+  public init(tone: Color? = nil, wash: Bool = false, picked: Bool = false, lit: Bool = false, padding: CGFloat, spacing: CGFloat = 8, @ViewBuilder content: () -> Content) {
     self.init(tone: tone, wash: wash, picked: picked, lit: lit, padding: EdgeInsets(top: padding, leading: padding, bottom: padding, trailing: padding), spacing: spacing, content: content)
   }
 
@@ -55,7 +56,7 @@ public struct Card<Content: View>: View {
   }
 }
 
-/// A small heading over a card.
+/// A small heading over a card: the kit's `.label` (11, semibold, 0.08em apart, faint).
 public struct SectionLabel: View {
   private let text: String
 
@@ -66,7 +67,7 @@ public struct SectionLabel: View {
   public var body: some View {
     Text(text.uppercased())
       .font(.kos(.tiny, .semibold))
-      .tracking(0.8)
+      .tracking(0.88)
       .foregroundStyle(Theme.faint)
   }
 }
@@ -90,6 +91,7 @@ public struct KOSSection<Content: View, Trailing: View>: View {
         Spacer()
         trailing
       }
+      .frame(minHeight: 22)
       content
     }
   }

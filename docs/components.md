@@ -104,6 +104,21 @@ tool rows to one chip.
 | Message actions | `MessageActions.tsx` (kit `IconButton`s) | | |
 | A quoted selection | kit `QuoteLine` in the owner's bubble | kit `QuoteLine` labelled "Selected text" with the site the worker sends, two lines, over the box; once sent, kit `QuoteLine` in `.msg--you` | `QuoteCard` labelled "Selected text" with the app, two lines, over the box; once sent, `QuoteCard` in `Bubble` |
 
+## The device home
+
+The KOS for Chrome popup and the KOS for Mac window are one layout. KOS for
+Mac adds its own close and minimise over it (Chrome draws the popup's) and
+a Permissions section (Chrome has none to ask for).
+
+| Piece | KOS for Chrome popup | KOS for Mac window |
+| --- | --- | --- |
+| Head | `.head` in `popup.tsx`: `Face` at 40, the name, a `Pill` and the host on the line under it, chat and the gear at the right | `header` in `HomeView.swift`, the same |
+| The pill's words | `linkWords` (`linkwords.ts`); Working or Paused while a session runs | `pill(_:)` in `HomeView.swift`, the same words for the states the two share |
+| A KOS | `KosCard`: `DrawerRow` with the host, `asWords` ("As <name> · asks here first"), its `Pill` and the chevron | `kosCard`: `DrawerRow`, the same line and pill |
+| Why a KOS is down | `.kos-reason` under the row, with what puts it right | `reason` in `HomeView.swift`, the same |
+| Add a KOS | a small ghost `.btn--icon` with `PlusIcon` | `KOSButtonStyle(.ghost, small: true)` with a plus |
+| The footnote | in the hidden sites' card, under a rule, with the security model's link | in the hidden apps' card, the same |
+
 ## Names the two web apps no longer share
 
 The two web stylesheets never load on one page, but one class meaning two

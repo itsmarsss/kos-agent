@@ -187,6 +187,16 @@ struct RenderTests {
     #expect(model.hint == nil)
   }
 
+  /// Paired, connected and granted, nothing open: the state the Chrome popup is compared with.
+  @Test func homeWhenConnected() throws {
+    let model = home {
+      $0.kos = [kos(host: "127.0.0.1:4317")]
+      $0.screenGranted = true
+      $0.inputGranted = true
+    }
+    _ = try render("home-connected", HomeView(model: model), height: HomeView.height)
+  }
+
   @Test func homeWhenConnectedAndInUse() throws {
     let model = home {
       $0.kos = [kos()]
