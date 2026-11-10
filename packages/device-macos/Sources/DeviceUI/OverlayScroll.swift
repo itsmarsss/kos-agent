@@ -52,6 +52,28 @@ public struct OverlayScroll<Content: View>: View {
   }
 }
 
+/// The time the thumb keeps: what time it is, and running something after a while. The app's is the
+/// continuous clock; a test's moves only when the test says.
+@MainActor
+protocol ScrollClock {
+  var now: ContinuousClock.Instant { get }
+  func after(_ delay: Duration, _ run: @escaping @MainActor () -> Void)
+}
+
+/// The continuous clock, waking on the main actor.
+struct SystemScrollClock: ScrollClock {
+  nonisolated init() {}
+
+  var now: ContinuousClock.Instant { .now }
+
+  func after(_ delay: Duration, _ run: @escaping @MainActor () -> Void) {
+    Task { @MainActor in
+      try? await Task.sleep(for: delay)
+      run()
+    }
+  }
+}
+
 /// The thumb's state: what it is drawn from (how far down the page is, how
 /// tall it is, how much shows), where the pointer is, whether it shows, and
 /// the scroll view a drag moves.
@@ -59,6 +81,7 @@ public struct OverlayScroll<Content: View>: View {
 final class ScrollTrack: ObservableObject {
   /// How long the thumb stays after the last scroll or hover.
   var fade: Duration = .milliseconds(800)
+  private let clock: any ScrollClock
   /// How long after a wheel or trackpad event a move of the page is the owner's.
   static let userWindow: Duration = .milliseconds(250)
 
@@ -76,8 +99,13 @@ final class ScrollTrack: ObservableObject {
   private var userUntil: ContinuousClock.Instant?
   private var dragStart: (offset: CGFloat, ratio: CGFloat)?
   private var hideAt: ContinuousClock.Instant?
-  private var fading: Task<Void, Never>?
+  /// Whether a fade is waiting: one at a time, however often it is put back.
+  private var fading = false
   weak var scrollView: NSScrollView?
+
+  init(clock: any ScrollClock = SystemScrollClock()) {
+    self.clock = clock
+  }
 
   var bar: ThumbBar? { ThumbBar(offset: offset, content: content, visible: visible) }
   /// Lit with the pointer on it or while it is dragged: darker, and 1.6 times as wide toward the content.
@@ -91,7 +119,7 @@ final class ScrollTrack: ObservableObject {
     if moved { self.offset = offset }
     if content != self.content { self.content = content }
     regrab()
-    if moved, let userUntil, ContinuousClock.now <= userUntil { show() }
+    if moved, let userUntil, clock.now <= userUntil { show() }
   }
 
   func measure(size: CGSize) {
@@ -102,7 +130,7 @@ final class ScrollTrack: ObservableObject {
 
   /// A wheel or trackpad event over the view (momentum too): the page moving now is the owner scrolling it.
   func userScrolled() {
-    userUntil = .now + Self.userWindow
+    userUntil = clock.now + Self.userWindow
   }
 
   /// Where the pointer is over the scroll view, nil once it has left.
@@ -164,26 +192,24 @@ final class ScrollTrack: ObservableObject {
     keepShown()
   }
 
-  /// One trailing fade: each call moves the time it fades at, and a single task waits for the last of them.
+  /// One trailing fade: each call moves the time it fades at, and a single wait runs to the last of them.
   private func keepShown() {
     guard shown else { return }
-    hideAt = .now + fade
-    guard fading == nil else { return }
-    fading = Task { [weak self] in
-      while let at = self?.hideAt {
-        try? await Task.sleep(until: at, clock: .continuous)
-        guard let self, !Task.isCancelled else { return }
-        guard self.hideAt == at else { continue }
-        self.fading = nil
-        self.hideAt = nil
-        if !self.near && !self.lit { self.shown = false }
-        return
-      }
-    }
+    hideAt = clock.now + fade
+    guard !fading else { return }
+    fading = true
+    wait(fade)
   }
 
-  deinit {
-    fading?.cancel()
+  private func wait(_ delay: Duration) {
+    clock.after(delay) { [weak self] in
+      guard let self, let at = self.hideAt else { return }
+      let left = at - self.clock.now
+      if left > .zero { return self.wait(left) }
+      self.fading = false
+      self.hideAt = nil
+      if !self.near && !self.lit { self.shown = false }
+    }
   }
 }
 

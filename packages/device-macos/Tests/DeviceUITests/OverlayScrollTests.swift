@@ -38,9 +38,9 @@ struct OverlayScrollTests {
     #expect(bar.size == ThumbBar.minimum)
   }
 
-  /// A page 1000 tall in a view 200 by 300: its thumb is 89 long, from 1 down at the top.
-  private func track(fade: Duration = .seconds(60)) -> ScrollTrack {
-    let track = ScrollTrack()
+  /// A page 1000 tall in a view 200 by 300: its thumb is 89 long, from 1 down at the top. Its time moves only by `clock.pass`.
+  private func track(_ clock: TestClock, fade: Duration = .milliseconds(800)) -> ScrollTrack {
+    let track = ScrollTrack(clock: clock)
     track.fade = fade
     track.measure(size: CGSize(width: 200, height: 300))
     track.measure(offset: 0, content: 1000)
@@ -48,7 +48,7 @@ struct OverlayScrollTests {
   }
 
   @Test func nearTheEdgeShowsTheThumbAndOnItTheThumbTakesThePress() {
-    let track = track()
+    let track = track(TestClock())
     track.hover(CGPoint(x: 100, y: 20))
     #expect(!track.near && !track.grab && !track.shown)
     // Within 8 of the edge, beside the thumb: shown, not pressable.
@@ -67,7 +67,7 @@ struct OverlayScrollTests {
   }
 
   @Test func thePageMovingUnderAStillPointerTakesTheGrabAway() {
-    let track = track()
+    let track = track(TestClock())
     track.hover(CGPoint(x: 197, y: 20))
     #expect(track.grab)
     track.userScrolled()
@@ -78,7 +78,7 @@ struct OverlayScrollTests {
   }
 
   @Test func onlyTheOwnersScrollShowsTheThumb() {
-    let track = track()
+    let track = track(TestClock())
     // The chat following a turn as it streams.
     track.measure(offset: 120, content: 1000)
     #expect(!track.shown)
@@ -87,37 +87,54 @@ struct OverlayScrollTests {
     #expect(track.shown)
   }
 
-  /// Waits, up to two seconds however loaded the machine is, for the thumb to fade.
-  private func faded(_ track: ScrollTrack) async throws -> Bool {
-    let clock = ContinuousClock()
-    let until = clock.now + .seconds(2)
-    while track.shown && clock.now < until { try await Task.sleep(for: .milliseconds(10)) }
-    return !track.shown
-  }
-
-  @Test func theThumbFadesOnceTheScrollingStops() async throws {
-    let track = track(fade: .milliseconds(300))
-    let clock = ContinuousClock()
+  @Test func theThumbFadesOnceTheScrollingStops() {
+    let clock = TestClock()
+    let track = track(clock)
     track.userScrolled()
     track.measure(offset: 40, content: 1000)
     #expect(track.shown)
-    try await Task.sleep(for: .milliseconds(150))
+    clock.pass(.milliseconds(500))
     track.userScrolled()
     track.measure(offset: 80, content: 1000)
-    let again = clock.now
-    try await Task.sleep(for: .milliseconds(200))
-    // Past the first scroll's fade, not the second's: still shown. (A machine too busy to wake in time proves nothing.)
-    if clock.now - again < .milliseconds(300) { #expect(track.shown, "a scroll since put the fade back") }
-    #expect(try await faded(track))
+    clock.pass(.milliseconds(500))
+    #expect(track.shown, "a scroll since put the fade back")
+    clock.pass(.milliseconds(299))
+    #expect(track.shown)
+    clock.pass(.milliseconds(1))
+    #expect(!track.shown)
+    // However many scrolls put it back, one wait at a time.
+    #expect(clock.waits <= 3)
   }
 
-  @Test func theThumbStaysWhileThePointerIsNear() async throws {
-    let track = track(fade: .milliseconds(40))
+  @Test func theThumbStaysWhileThePointerIsNearOrOnIt() {
+    let clock = TestClock()
+    let track = track(clock)
     track.hover(CGPoint(x: 195, y: 200))
-    try await Task.sleep(for: .milliseconds(120))
+    clock.pass(.seconds(5))
     #expect(track.shown)
     track.hover(nil)
-    #expect(try await faded(track))
+    clock.pass(.milliseconds(799))
+    #expect(track.shown)
+    clock.pass(.milliseconds(1))
+    #expect(!track.shown)
+    // Dragged, it stays however long the drag.
+    track.hover(CGPoint(x: 197, y: 20))
+    track.beginDrag()
+    track.hover(nil)
+    clock.pass(.seconds(5))
+    #expect(track.shown)
+    track.endDrag()
+    clock.pass(.milliseconds(800))
+    #expect(!track.shown)
+  }
+
+  @Test func aMoveIsTheOwnersOnlySoonAfterTheirWheel() {
+    let clock = TestClock()
+    let track = track(clock)
+    track.userScrolled()
+    clock.pass(ScrollTrack.userWindow + .milliseconds(1))
+    track.measure(offset: 50, content: 1000)
+    #expect(!track.shown)
   }
 
   /// A scroll view as AppKit makes one, its page 1000 tall in a view 300 tall.
@@ -130,7 +147,7 @@ struct OverlayScrollTests {
   }
 
   @Test func aDragMovesThePageByTheThumbsRatio() throws {
-    let track = track()
+    let track = track(TestClock())
     let scroll = scrollView()
     track.scrollView = scroll
     let ratio = try #require(track.bar).ratio
@@ -198,7 +215,7 @@ struct OverlayScrollTests {
   }
 
   @Test func thePageTakesTheWholeWidthEvenWithTheLegacyScroller() throws {
-    let (host, scroll) = try host(ScrollTrack(), height: 2000)
+    let (host, scroll) = try host(ScrollTrack(clock: TestClock()), height: 2000)
     // As a Mac with a mouse, or "Show scroll bars: Always", has it.
     scroll.scrollerStyle = .legacy
     scroll.tile()
@@ -210,7 +227,7 @@ struct OverlayScrollTests {
   }
 
   @Test func aScrollTheAppMakesMovesNoThumbButTheOwnersShowsIt() throws {
-    let track = track()
+    let track = track(TestClock())
     let (host, scroll) = try host(track, height: 1200)
     settle(host)
     #expect(try brightness(host, x: 197.5, y: 150) < 0.05, "a thumb before any scroll")
@@ -242,4 +259,29 @@ struct OverlayScrollTests {
 
 private final class FlippedPage: NSView {
   override var isFlipped: Bool { true }
+}
+
+/// A clock for the thumb that moves only when a test says, running what was waiting for the time passed.
+@MainActor
+final class TestClock: ScrollClock {
+  private(set) var now = ContinuousClock.now
+  private var waiting: [(at: ContinuousClock.Instant, run: @MainActor () -> Void)] = []
+  /// How many waits were asked for.
+  private(set) var waits = 0
+
+  func after(_ delay: Duration, _ run: @escaping @MainActor () -> Void) {
+    waits += 1
+    waiting.append((now + delay, run))
+  }
+
+  /// Time passes: what falls due runs, in order, as the time it was due.
+  func pass(_ time: Duration) {
+    let end = now + time
+    while let next = waiting.indices.filter({ waiting[$0].at <= end }).min(by: { waiting[$0].at < waiting[$1].at }) {
+      let due = waiting.remove(at: next)
+      now = max(now, due.at)
+      due.run()
+    }
+    now = end
+  }
 }
