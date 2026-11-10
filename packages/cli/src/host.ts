@@ -38,6 +38,7 @@ import {
   SurfaceDownError,
   type ApprovalRequest,
   type NotifyPayload,
+  type NotifySent,
   type PendingAction,
 } from "@kos/harness";
 import { createComputerUse, type PanelDeps } from "@kos/computer";
@@ -47,7 +48,7 @@ type PanelSurface = "chrome" | "mac";
 
 import { envFilePath } from "./env.js";
 import { ThreadMirror } from "./threadmirror.js";
-import { postSaid, type PlaceDeps, type SaidDeps } from "./saidpost.js";
+import { placeOf, postSaid, type PlaceDeps, type SaidDeps } from "./saidpost.js";
 import { claimHandle, type HandleClaim } from "./imessagelock.js";
 import { clearDaemonState, writeDaemonState } from "./state.js";
 
@@ -269,17 +270,35 @@ export async function runHost(options: HostOptions): Promise<void> {
   const defaultSurface = creds && wantDiscord ? "discord" : sms ? "sms" : "discord";
   const ownerOn = (surface: string): string => (surface === "sms" ? sms?.owner ?? "" : creds?.ownerId ?? "");
 
+  /** A conversation's place on the server, once the server is laid out; unset without one. */
+  let placeOn: PlaceDeps | undefined;
+  /** Conversations whose scheduled run has said its piece in its place this turn. */
+  const spoke = new Set<string>();
+  /** The scheduled job a conversation is the thread of, when it is one. */
+  const cronOf = (conversationId: string) => (conversationId.startsWith("cron:") ? kernel.crons.get(Number(conversationId.slice("cron:".length))) : undefined);
+
   const notify =
     (creds && wantDiscord) || sms
-      ? async (payload: NotifyPayload) => {
+      ? async (payload: NotifyPayload): Promise<NotifySent | undefined> => {
           const surface = payload.target.surface ?? defaultSurface;
-          const send = surfaceUp(surfaces, surface, payload.target.surface !== undefined);
           const msg = {
             text: payload.text,
             ...(payload.card ? { card: payload.card } : {}),
             ...(payload.buttons ? { buttons: payload.buttons } : {}),
             ...(payload.from ? { from: payload.from } : {}),
           };
+          // A scheduled run that named nowhere speaks in its own place on the
+          // server (the job's thread, the blob's channel) rather than the DM;
+          // with no place to be had it reaches the owner as before.
+          if (payload.place && payload.target.kind === "owner" && !payload.target.surface && placeOn && adapter) {
+            const where = await placeOf(payload.place, placeOn).catch(() => undefined);
+            if (where) {
+              await adapter.postIn(where, msg);
+              spoke.add(payload.place);
+              return { delivered: `Posted in this run's own place on Discord, not the owner's DM. To reach the owner directly, send with to: "owner".` };
+            }
+          }
+          const send = surfaceUp(surfaces, surface, payload.target.surface !== undefined);
           // An addressed message goes through sendTo; the owner's DM is the
           // path everything took before and still takes. What a channel
           // post was given as an id comes back, so it can be reacted to.
@@ -842,7 +861,7 @@ export async function runHost(options: HostOptions): Promise<void> {
           return undefined;
         }
       };
-      const placeOn: PlaceDeps = {
+      placeOn = {
         targetFor: (conv) => adapter?.mirrorTarget(conv, kernel.threadBindings()),
         homeOf,
         titleOf: (conv) => kernel.titleOf(conv),
@@ -863,10 +882,15 @@ export async function runHost(options: HostOptions): Promise<void> {
         openStory: (target, from) => adapter!.openStory(target, from),
         warn: (message) => console.warn(`[discord] thread mirror: ${message}`),
       });
-      kernel.progress.subscribe((event) => mirror.onProgress(event));
+      kernel.progress.subscribe((event) => {
+        // A new turn has said nothing in its place yet.
+        if (event.kind === "turn-start") spoke.delete(event.conversationId);
+        mirror.onProgress(event);
+      });
       const saidDeps: SaidDeps = {
         ...placeOn,
-        jobOf: (conv) => (conv.startsWith("cron:") ? kernel.crons.get(Number(conv.slice("cron:".length))) : undefined),
+        jobOf: cronOf,
+        spokeInPlace: (conv) => spoke.delete(conv),
         senderFor: (conv) => kernel.senderFor(conv),
         speakerFor: (from) => kernel.speakerFor(from),
         ownerSender: () => adapter!.ownerSender(),

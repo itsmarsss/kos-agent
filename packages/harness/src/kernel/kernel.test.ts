@@ -1158,8 +1158,10 @@ describe("Kernel", () => {
 
   it("runs a scheduled actions job through the guarded path", async () => {
     const sent: string[] = [];
+    const places: (string | undefined)[] = [];
     kernel = await boot(stubInference([]), async (payload) => {
       sent.push(payload.text);
+      places.push((payload as NotifyPayload).place);
     });
     const job = kernel.crons.create({
       name: "ping",
@@ -1172,10 +1174,34 @@ describe("Kernel", () => {
     await kernel.fireCron(job.id);
     await kernel.queue.drain();
     expect(sent).toEqual(["scheduled hi"]);
+    // Named nowhere, a run's message goes to the job's own place, not the DM.
+    expect(places).toEqual([`cron:${job.id}`]);
     expect(kernel.runs.recent().some((r) => r.kind === "cron" && r.status === "ok")).toBe(
       true,
     );
     kernel.stopCron();
+  });
+
+  it("sends a prompted run's unaddressed message to its place, and an addressed one to the owner", async () => {
+    const step = (id: string, input: Record<string, unknown>): ModelResponse => ({
+      content: [{ type: "tool_use", id, name: "notify", input }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      model: "stub",
+    });
+    const seen: NotifyPayload[] = [];
+    kernel = await boot(stubInference([step("n1", { text: "kickoff" }), step("n2", { text: "dm", to: "owner" })]), async (payload) => {
+      seen.push(payload as NotifyPayload);
+    });
+    const job = kernel.crons.create({ name: "Kickoff", schedule: "0 9 * * *", type: "self_prompt", prompt: "kick off the day" });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    expect(seen.map((p) => [p.text, p.place ?? null])).toEqual([
+      ["kickoff", `cron:${job.id}`],
+      ["dm", null],
+    ]);
   });
 
   it("moves a job's thread into the project the job was moved to", async () => {

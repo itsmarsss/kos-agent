@@ -121,7 +121,7 @@ import { ARTIFACT_TOOLS } from "../tools/systems.js";
 import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
 import { DISCORD_TOOLS, type Audience, type BoundThread, type DiscordServices, type Listen, type ServerPlace } from "../tools/discord.js";
 import { agentConversationId, agentScope, KOS_FACE_KEY, parseFaceLook, type FaceLook, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
-import { type NotifyPayload, parseTarget } from "../tools/notify.js";
+import { type NotifyPayload, type NotifySent, parseTarget } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
 import type { SuggestionStore } from "../improve/store.js";
@@ -160,7 +160,7 @@ export interface KernelOptions {
   /** Inference override (tests inject a stub); defaults to the model router. */
   inference?: Inference;
   /** Send a message to the owner via the active channel adapter. */
-  notify?: (payload: NotifyPayload) => Promise<{ id?: string } | void>;
+  notify?: (payload: NotifyPayload) => Promise<NotifySent | void>;
   /** Additional (e.g. agent-promoted or third-party) modules to load. */
   extraModules?: KosModule[];
   /** Extra modules that switch off in Settings beside the built-in features, by module name. */
@@ -619,7 +619,7 @@ export class Kernel {
     system: string;
     sessionless: boolean;
     features: BuiltinFeature[];
-    notify?: (payload: NotifyPayload) => Promise<{ id?: string } | void>;
+    notify?: (payload: NotifyPayload) => Promise<NotifySent | void>;
     onApprovalRequested?: (action: PendingAction) => void;
     restart?: () => Promise<void>;
     discord?: DiscordServices;
@@ -1102,6 +1102,7 @@ export class Kernel {
           // A schedule's prompt, a blob's own timer, a guest: the owner did not start this one.
           attended,
           owner,
+          scheduled: opts.via === "schedule",
           // Where the words were said, for a start on that device that needs no ask from a tool.
           ...(opts.channel && text.trim() ? { origin: { surface: opts.channel, said: text } } : {}),
           heard: () => this.hear(sessionId, mark),
@@ -3491,6 +3492,8 @@ export class Kernel {
     attended?: boolean;
     /** True for the owner's own turn alone. */
     owner?: boolean;
+    /** True for a schedule's run, whose unaddressed messages go to the job's place. */
+    scheduled?: boolean;
     /** The surface the turn's words arrived on, and those words. */
     origin?: TurnOrigin;
     /** The owner's words said since the last call, for the model with this call's result. */
@@ -3538,6 +3541,7 @@ export class Kernel {
       ...(opts.waitForApproval === false ? { waitForApproval: false } : {}),
       ...(opts.attended === false ? { attended: false } : {}),
       ...(opts.owner === true ? { owner: true } : {}),
+      ...(opts.scheduled === true ? { scheduled: true } : {}),
       ...(opts.origin ? { origin: opts.origin } : {}),
       onQueued: (action) => {
         opts.onQueued?.(action);
@@ -4294,6 +4298,7 @@ export class Kernel {
           // holding a queue slot until the owner wakes up.
           waitForApproval: false,
           attended: false,
+          scheduled: true,
         }),
         inference: this.inference,
         buildSystem: (j) => this.cronSystemPrompt(j),

@@ -104,3 +104,16 @@ export const turnStop = new AsyncLocalStorage<AbortSignal>();
  * to another site part way.
  */
 export const onSite = new AsyncLocalStorage<string>();
+
+/**
+ * Whether the turn making the current call is a schedule's run: a job's
+ * prompt or its fixed actions, a blob's own timer. What such a run says
+ * without naming where goes to the job's own place on the server, not
+ * the owner's inbox.
+ */
+export const scheduled = new AsyncLocalStorage<boolean>();
+
+/** True only inside a call of a scheduled run. */
+export function isScheduledTurn(): boolean {
+  return scheduled.getStore() ?? false;
+}

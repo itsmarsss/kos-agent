@@ -6,7 +6,7 @@ import type {
   ModalSpec,
   Sender,
 } from "../channels/types.js";
-import { caller, isOwnerTurn } from "../kernel/caller.js";
+import { caller, isOwnerTurn, isScheduledTurn } from "../kernel/caller.js";
 import type { KosModule } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 
@@ -49,6 +49,23 @@ export interface NotifyPayload {
   buttons?: MessageButton[];
   /** The blob speaking, when it is one; the kernel fills this in, not the tool. */
   from?: Sender;
+  /**
+   * The conversation whose place on the server this goes to, in place of
+   * the owner's inbox: a scheduled run's own, when it named nowhere. A
+   * surface with no such place sends it to the owner as before.
+   */
+  place?: string;
+}
+
+/** What a surface says it did with a message: the id of a post, and where it went when that was not where asked. */
+export interface NotifySent {
+  id?: string;
+  delivered?: string;
+}
+
+/** Whether a call named where to send: "owner" said outright is an address, leaving it out is not. */
+function addressed(raw: unknown): boolean {
+  return raw !== undefined && raw !== null && raw !== "";
 }
 
 export interface NotifyToolDeps {
@@ -422,7 +439,8 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
             "press. Say a thing once: the text introduces and the card holds the named values, never both " +
             "with the same words. Times in the owner's timezone, in words, as tool results give them. " +
             "`to` picks the surface and where on it: omit for the owner wherever " +
-            'they already are, "discord" for the owner on Discord, "discord:channel:<id>" ' +
+            "they already are, or, from a scheduled run, for the job's own place (its thread, " +
+            'or the blob\'s channel); "owner" for the owner directly, "discord" for the owner on Discord, "discord:channel:<id>" ' +
             "to post in a channel, which needs approval. A press comes back as a message " +
             "in the conversation named by `replyTo`, so say what a button means in its " +
             "label.",
@@ -433,7 +451,7 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
               to: {
                 type: "string",
                 description:
-                  'owner (default), reply (make this the shape of the answer you are about to give, rather than a second message), channel:<id>, or user:<id>',
+                  "omit for the default (the owner; from a scheduled run, its own place), owner to reach the owner directly, reply (make this the shape of the answer you are about to give, rather than a second message), channel:<id>, or user:<id>",
               },
               card: {
                 type: "object",
@@ -562,9 +580,15 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
             };
           });
 
+          // A schedule's run that names nowhere speaks in its own place (the
+          // job's thread, the blob's channel), not the owner's inbox; "owner"
+          // or a surface said outright still reaches the owner directly.
+          const from = caller.getStore();
+          const place = !addressed(input.to) && isScheduledTurn() && from ? from : undefined;
           const delivered = await services.notify({
             text,
             target,
+            ...(place ? { place } : {}),
             ...(card ? { card } : {}),
             ...(buttons.length ? { buttons } : {}),
           });

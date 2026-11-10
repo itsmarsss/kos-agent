@@ -1,6 +1,6 @@
 import type { Sender } from "../channels/types.js";
 import type { ModelMessage } from "../models/types.js";
-import type { NotifyPayload } from "../tools/notify.js";
+import type { NotifyPayload, NotifySent } from "../tools/notify.js";
 import type { HealthNotice } from "../ops/health.js";
 import { writeMention } from "./mentions.js";
 import { primarySessionId } from "./session.js";
@@ -31,7 +31,7 @@ export interface CaretakerDeps {
   behaviour: () => { autoFix: boolean; fixSteps: number };
   health: { observe: (key: string, label: string, ok: boolean, error: string | null) => HealthNotice | null | undefined };
   /** The active surface, if one is wired. Absent, a notice is written to the primary chat. */
-  notify?: (payload: NotifyPayload) => Promise<{ id?: string } | void>;
+  notify?: (payload: NotifyPayload) => Promise<NotifySent | void>;
   sessions: { get: (id: string) => ModelMessage[]; record: (id: string, messages: ModelMessage[]) => unknown };
   conversations: {
     create: (input: { userId: string; title: string; projectSlug?: string }) => { id: string };

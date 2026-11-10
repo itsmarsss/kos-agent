@@ -58,6 +58,8 @@ export async function placeOf(conversationId: string, deps: PlaceDeps): Promise<
 export interface SaidDeps extends PlaceDeps {
   /** The scheduled job a conversation is the thread of, when it is one. */
   jobOf(conversationId: string): JobFacts | undefined;
+  /** Whether a scheduled run here already said its piece in its place this turn; asking clears it. */
+  spokeInPlace(conversationId: string): boolean;
   senderFor(conversationId: string): Sender | undefined;
   speakerFor(from: MessageFrom): Sender;
   ownerSender(): Promise<Sender | undefined>;
@@ -77,6 +79,9 @@ export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
   // that waited on an approval was answered "waiting on you" there, and
   // the answer after the decision has only this way back.
   if (said.channel === "discord" && !said.resumed) return;
+  // A run whose message already landed in its place has said its piece;
+  // its closing words ("Digest sent") would only repeat it.
+  const spoke = deps.spokeInPlace(said.conversationId) && said.origin === "system";
   // A scheduled run shows in the job's own thread, under the job's name: a
   // project's job under the project's channel, one at the root under KOS's
   // own. A daily post is what a schedule is for. Only a run the harness
@@ -84,12 +89,13 @@ export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
   // is a conversation, told below. KOS's upkeep keeps its runs to itself.
   const job = deps.jobOf(said.conversationId);
   if (job && said.origin === "system") {
-    if (isUpkeep(job) || !said.reply.trim()) return;
+    if (spoke || isUpkeep(job) || !said.reply.trim()) return;
     const where = await placeOf(said.conversationId, deps);
     // With a Run now button, the same path the dashboard's Run now takes.
     if (where) await deps.postIn(where, { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] });
     return;
   }
+  if (spoke) return;
   const target = deps.targetFor(said.conversationId);
   const from = deps.senderFor(said.conversationId);
   if (!target) {

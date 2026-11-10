@@ -20,6 +20,7 @@ function deps(
     homeOf: () => undefined,
     titleOf: (conv) => `Title of ${conv}`,
     jobOf: () => undefined,
+    spokeInPlace: () => false,
     ensureThread: async (key, conv, title) => {
       made.push({ key, conv, title });
       return `thread-${conv}`;
@@ -89,6 +90,12 @@ describe("a scheduled run's answer on the server", () => {
     expect(d.made).toEqual([]);
   });
 
+  it("does not repeat a run that already said its piece in its place", async () => {
+    const d = deps({ "cron:24": "t24", "agent:briefing": "c-brief" }, { jobOf: (c) => (c === "cron:24" ? { ...kickoff, id: 24, name: "School Morning Digest", projectSlug: "school" } : undefined), spokeInPlace: () => true });
+    await postSaid(run("cron:24", "Digest sent."), d);
+    await postSaid(run("agent:briefing", "Brief sent."), d);
+    expect(d.posts).toEqual([]);
+  });
 });
 
 describe("a conversation's place on the server", () => {
