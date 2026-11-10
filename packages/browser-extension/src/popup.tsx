@@ -1,8 +1,8 @@
 import { KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { ChatIcon, ChevronLeft, Chips, Collapse, DrawerRow, Face, Field, GearIcon, GlobeIcon, HandIcon, HiddenIcon, IconButton, listItem, overlayScroll, Pill, PlusIcon, Section, ServerIcon, spring, stagger, StatusDot, Switch, Tag, type Tone } from "@kos/kit";
+import { ChatIcon, ChevronLeft, Chips, Collapse, DrawerRow, Face, Field, GearIcon, GlobeIcon, HandIcon, HiddenIcon, IconButton, listItem, Pill, PlusIcon, Section, ServerIcon, spring, stagger, StatusDot, Switch, Tag, type Tone, useOverlayScroll } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
-import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 
 import { kosAddress, parsePairing } from "./address.js";
@@ -61,60 +61,68 @@ function usePopup(): { state: PopupState | undefined; tab: chrome.tabs.Tab | und
 function Popup(): ReactElement {
   const { state, tab, error, act } = usePopup();
   const [page, setPage] = useState<"home" | "settings">("home");
-  // A tall popup scrolls as a page: the overlay thumb over its edge, no lane taken from its 392 px.
-  useEffect(() => overlayScroll(document.documentElement), []);
+  // The popup keeps one size; its page scrolls inside, under the overlay thumb, no lane taken from its 392 px.
+  const scroller = useRef<HTMLDivElement>(null);
+  const overlay = useOverlayScroll(scroller);
+  // Settings open at their top, and home where it starts, not wherever the last page was scrolled to.
+  const go = (next: "home" | "settings"): void => {
+    if (scroller.current) scroller.current.scrollTop = 0;
+    setPage(next);
+  };
   const live = state?.session && !state.session.paused;
   const best = state?.kos.find(connected) ?? state?.kos[0];
   // The head says what the card of the KOS it shows says, or that a session has this Chrome.
   const pill: { word: string; tone: Tone } = state?.session ? (live ? { word: "Working", tone: "accent" } : { word: "Paused", tone: "warn" }) : best ? linkWords(best) : { word: "Not paired", tone: "muted" };
   return (
-    <>
-      {/* The head is the home page's; settings open on their own back and title, as KOS for Mac's do. */}
-      {page === "home" && (
-        <header className="head">
-          <Face seed={KOS_SEED} size={40} mood={mood(state)} drawing={state?.session?.face ?? best?.face} label="KOS" />
-          <div className="head-text">
-            <strong>KOS for Chrome</strong>
-            <span className="head-status">
-              <Pill tone={pill.tone}>{pill.word}</Pill>
-              {best && <span className="sub">{state && state.kos.length > 1 ? `${best.host} and ${state.kos.length - 1} more` : best.host}</span>}
+    <div className="popup">
+      <div className="popup-page" ref={overlay}>
+        {/* The head is the home page's; settings open on their own back and title, as KOS for Mac's do. */}
+        {page === "home" && (
+          <header className="head">
+            <Face seed={KOS_SEED} size={40} mood={mood(state)} drawing={state?.session?.face ?? best?.face} label="KOS" />
+            <div className="head-text">
+              <strong>KOS for Chrome</strong>
+              <span className="head-status">
+                <Pill tone={pill.tone}>{pill.word}</Pill>
+                {best && <span className="sub">{state && state.kos.length > 1 ? `${best.host} and ${state.kos.length - 1} more` : best.host}</span>}
+              </span>
+            </div>
+            <span className="head-actions">
+              <AnimatePresence initial={false}>
+                {state?.kos.length ? (
+                  <IconButton key="panel" label="Chat with KOS" title="Chat with KOS beside your tabs" onClick={() => void openPanel()} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} transition={spring}>
+                    <ChatIcon size={14} />
+                  </IconButton>
+                ) : null}
+              </AnimatePresence>
+              <IconButton label="Settings" onClick={() => go("settings")}>
+                <GearIcon size={14} title="" />
+              </IconButton>
             </span>
-          </div>
-          <span className="head-actions">
-            <AnimatePresence initial={false}>
-              {state?.kos.length ? (
-                <IconButton key="panel" label="Chat with KOS" title="Chat with KOS beside your tabs" onClick={() => void openPanel()} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} transition={spring}>
-                  <ChatIcon size={14} />
-                </IconButton>
-              ) : null}
-            </AnimatePresence>
-            <IconButton label="Settings" onClick={() => setPage("settings")}>
-              <GearIcon size={14} title="" />
-            </IconButton>
-          </span>
-        </header>
-      )}
-      {state && (
-        <AnimatePresence mode="wait" initial={false}>
-          {page === "home" ? (
-            <m.main key="home" className="stack page" initial={{ opacity: 0, x: -18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -18 }} transition={spring}>
-              <Home state={state} tab={tab} act={act} />
-            </m.main>
-          ) : (
-            <m.main key="settings" className="stack page" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 18 }} transition={spring}>
-              <SettingsPage state={state} act={act} back={() => setPage("home")} />
-            </m.main>
+          </header>
+        )}
+        {state && (
+          <AnimatePresence mode="wait" initial={false}>
+            {page === "home" ? (
+              <m.main key="home" className="stack page" initial={{ opacity: 0, x: -18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -18 }} transition={spring}>
+                <Home state={state} tab={tab} act={act} />
+              </m.main>
+            ) : (
+              <m.main key="settings" className="stack page" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 18 }} transition={spring}>
+                <SettingsPage state={state} act={act} back={() => go("home")} />
+              </m.main>
+            )}
+          </AnimatePresence>
+        )}
+        <AnimatePresence>
+          {error && (
+            <m.p className="error" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+              {error}
+            </m.p>
           )}
         </AnimatePresence>
-      )}
-      <AnimatePresence>
-        {error && (
-          <m.p className="error" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            {error}
-          </m.p>
-        )}
-      </AnimatePresence>
-    </>
+      </div>
+    </div>
   );
 }
 

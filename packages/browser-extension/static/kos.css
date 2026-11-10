@@ -84,6 +84,19 @@ body {
 p { margin: 0; }
 strong { font-weight: 600; }
 
+/*
+ * The popup keeps one size, as KOS for Mac's window does: its width, and a
+ * height in that window's proportion (460 by 680) under Chrome's 600 cap.
+ * The page scrolls inside it, top-aligned, under the kit's overlay thumb,
+ * and fades out at the foot when there is more below.
+ */
+body.popup { width: 392px; height: 580px; padding: 0; overflow: hidden; }
+body.popup #root { height: 100%; }
+.popup { position: relative; height: 100%; }
+.popup-page { height: 100%; overflow: hidden auto; padding: var(--gutter); }
+/* No taller than the page's own margin, so at the very end it covers nothing. */
+.popup::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: var(--gutter); background: linear-gradient(to bottom, transparent, var(--bg)); pointer-events: none; }
+
 /* —— the head: KOS's face, the name, where it stands —— */
 .head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .head-actions { display: flex; gap: 2px; margin-right: -4px; }
