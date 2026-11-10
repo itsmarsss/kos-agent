@@ -127,6 +127,35 @@ struct ChatModelTests {
     #expect(model.working)
   }
 
+  /// A command is never in the chat's words: taken, it is never on its way, so its answer ends the wait.
+  @Test func aCommandTakenNeverWaitsOnItsOwnWords() {
+    for command in ["/stop", "/clear", "/new", "/switch 2"] {
+      let model = ChatModel()
+      model.show(conversation: "mac:owner", title: "Mac", lines: [.you("hi", files: []), .kos("Hello.")])
+      model.say(command)
+      model.status(taken: true, story: nil, error: nil, said: command, conversation: "mac:owner")
+      #expect(model.sending.isEmpty)
+      model.show(conversation: "mac:owner", title: "Mac", lines: [], notice: (text: "Done.", from: nil, waiting: false))
+      #expect(!model.working)
+    }
+  }
+
+  /// The first chat, made from none by /new, starts afresh and leaves the window ready for the next words.
+  @Test func aChatMadeFromNoneStartsAfresh() {
+    let model = ChatModel()
+    model.show(conversation: nil, title: "Mac", lines: [], notice: (text: "Nothing is running.", from: nil, waiting: false))
+    model.say("/new")
+    model.status(taken: true, story: nil, error: nil, said: "/new", conversation: nil)
+    model.show(conversation: "mac:owner", title: "New conversation", lines: [], notice: (text: "Started 'New conversation'", from: nil, waiting: false))
+    #expect(model.conversation == "mac:owner")
+    #expect(!model.working)
+    #expect(model.notices.map(\.text) == ["Started 'New conversation'"])
+    model.say("next")
+    model.status(taken: true, story: nil, error: nil, said: "next", conversation: "mac:owner")
+    #expect(model.sending == ["next"])
+    #expect(model.working)
+  }
+
   @Test func theHeaderSaysWhyThereIsNoChatAsThePanelDoes() {
     let model = ChatModel()
     #expect(model.subtitle == "Not paired yet")

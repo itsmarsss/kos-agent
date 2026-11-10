@@ -275,9 +275,10 @@ public final class ChatModel: ObservableObject {
 
   // MARK: KOS
 
-  /// The chat as KOS says it stands now.
+  /// The chat as KOS says it stands now. Another chat than the one shown, the first one made from none too, starts afresh:
+  /// nothing on its way to the last one is on its way to this.
   public func show(conversation: String?, title: String, lines: [Line], notice: (text: String, from: String?, waiting: Bool)? = nil, auto: Bool = false, pictures: [Int: String] = [:]) {
-    let fresh = conversation != self.conversation && self.conversation != nil
+    let fresh = conversation != self.conversation
     if fresh {
       self.pictures = [:]
       pictureOrder = []
@@ -330,7 +331,8 @@ public final class ChatModel: ObservableObject {
     }
     if taken {
       // Words said somewhere else (on the dashboard, in a Chrome) show here on their way, as if typed here.
-      guard let said, conversation != nil else { return }
+      // A command (/stop) is never in the chat's words, so it is never on its way to them.
+      guard let said, !said.hasPrefix("/"), conversation != nil else { return }
       if !sending.contains(said) && !awaiting(said) { sending.append(said) }
       working = true
       if said != takenWords {
