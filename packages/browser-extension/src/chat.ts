@@ -62,6 +62,10 @@ export interface Chat {
   lines: Line[];
   /** The owner's words on their way, until the chat has them. */
   sending: string[];
+  /** While none is shown, the chat the first status about words on their way named: the one they are on their way to. */
+  upcoming?: string;
+  /** Words went since a chat was last shown: the next one shown from none is theirs, unless a status named another. */
+  unshown?: true;
   /** The story of each turn on the go, under the words it is about: one running, and one said meanwhile. */
   stories: Extra[];
   working: boolean;
@@ -103,7 +107,8 @@ export function isCommand(said: string): boolean {
  * keeps its story: these words go to it at its next step, or run after it.
  */
 export function sent(c: Chat, said: string): Chat {
-  return { ...c, sending: isCommand(said) ? c.sending : [...c.sending, said], working: true, unsent: undefined };
+  if (isCommand(said)) return { ...c, working: true, unsent: undefined };
+  return { ...c, sending: [...c.sending, said], unshown: true, working: true, unsent: undefined };
 }
 
 /** What a status may say beyond the chat's state: one with none of these says the state alone. */
@@ -116,7 +121,7 @@ const STATUS_WORDS = ["said", "taken", "story", "error", "frame"];
  */
 export function statused(c: Chat, message: Record<string, unknown>): Chat {
   if (!isShown(c, message)) return c;
-  const s = stated(c, message);
+  const s = stated(noted(c, message), message);
   // A step's picture, on its own: the story it belongs to is told apart.
   if (message["frame"] !== undefined) return framed(s, message);
   if (message["taken"] === true) return took(s, message);
@@ -131,6 +136,14 @@ export function isShown(c: Chat, message: Record<string, unknown>): boolean {
   return typeof about !== "string" || c.conversation === null || about === c.conversation;
 }
 
+/** While none is shown, the chat the first status about words on their way names: where those words went. */
+function noted(c: Chat, message: Record<string, unknown>): Chat {
+  const chat = message["chat"];
+  const said = message["said"];
+  if (c.conversation !== null || c.upcoming !== undefined || typeof chat !== "string") return c;
+  return typeof said === "string" && c.sending.includes(said) ? { ...c, upcoming: chat } : c;
+}
+
 /** The chat's state as a status says it: what it waits on, and whether the owner holds it. A status without them clears them. */
 function stated(c: Chat, message: Record<string, unknown>): Chat {
   const waiting = message["waiting"] === "consent" || message["waiting"] === "approval" ? message["waiting"] : undefined;
@@ -142,7 +155,8 @@ function stated(c: Chat, message: Record<string, unknown>): Chat {
  * the waiting ones, and a finished turn's steps are in the chat itself.
  * Another chat than the one shown, the first one made from none too, starts
  * afresh: nothing on its way to the last one is on its way to this, though
- * words sent while none was shown are on their way to the first. An ask
+ * words sent while none was shown are on their way to the first: the chat a
+ * status named them in, or, before any did, the first one shown. An ask
  * made in the chat now shown stays, though it came before it was: the first
  * chat's first turn can ask while the panel still shows none.
  */
@@ -151,8 +165,9 @@ export function shown(c: Chat, message: Record<string, unknown>): Chat {
   const lines = (message["messages"] as Line[]) ?? [];
   const fresh = conversation !== c.conversation;
   const said = lines.filter((l): l is Extract<Line, { role: "you" }> => l.role === "you").map((l) => l.text);
-  // Words sent while no chat was shown are on their way to the first one made: still waiting until it has them.
-  const sending = fresh && c.conversation !== null ? [] : c.sending.filter((t) => !said.includes(t));
+  // Words sent while no chat was shown are on their way to the chat they went in: still waiting until it has them.
+  const theirs = c.conversation === null && (c.upcoming !== undefined ? c.upcoming === conversation : c.unshown === true);
+  const sending = fresh && !theirs ? [] : c.sending.filter((t) => !said.includes(t));
   const notice = message["notice"] as { text: string; from?: string; waiting?: true; said?: string } | undefined;
   // A wait said before is over once the chat is shown again: decided, or still asked in its own card.
   const kept = fresh ? [] : c.extras.filter((x) => !x.waiting);
@@ -163,6 +178,8 @@ export function shown(c: Chat, message: Record<string, unknown>): Chat {
   const answered = !sending.length && (notice !== undefined || lines.at(-1)?.role !== "you");
   return {
     ...c,
+    // Shown none again, the words still wait for the first chat.
+    ...(conversation !== null ? { upcoming: undefined, unshown: undefined } : {}),
     conversation,
     title: String(message["title"] ?? "Chrome"),
     auto: message["auto"] === true,

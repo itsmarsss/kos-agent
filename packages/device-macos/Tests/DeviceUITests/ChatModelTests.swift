@@ -175,6 +175,29 @@ struct ChatModelTests {
     #expect(model.sending.isEmpty)
   }
 
+  /// Words sent from none wait for the chat KOS took them in, though none is shown again on the way.
+  @Test func wordsSentFromNoneWaitForTheChatTheyWentIn() {
+    let model = ChatModel()
+    model.show(conversation: nil, title: "Mac", lines: [])
+    model.say("hi")
+    model.status(taken: true, story: nil, error: nil, said: "hi", conversation: "z:owner")
+    model.show(conversation: nil, title: "Mac", lines: [])
+    model.show(conversation: "z:owner", title: "New conversation", lines: [])
+    #expect(model.sending == ["hi"])
+    #expect(model.working)
+  }
+
+  /// Words sent from none are not on their way to a chat the owner moved to mid-turn: it does not spin on them.
+  @Test func wordsSentFromNoneLeaveAChatMovedToMidTurn() {
+    let model = ChatModel()
+    model.show(conversation: nil, title: "Mac", lines: [])
+    model.say("hi")
+    model.status(taken: true, story: nil, error: nil, said: "hi", conversation: "z:owner")
+    model.show(conversation: "w:owner", title: "Trip", lines: [.you("a", files: []), .kos("b")])
+    #expect(model.sending.isEmpty)
+    #expect(!model.working)
+  }
+
   /// While the window shows no chat, the turn in the chat it is about to show is told: its story shows before the chat does.
   @Test func theFirstTurnFromNoneIsTold() {
     let model = ChatModel()

@@ -104,6 +104,23 @@ describe("the side panel's chat", () => {
     expect(c.sending).toEqual([]);
   });
 
+  it("keeps words sent from none for the chat KOS took them in", () => {
+    let c = statused(sent(EMPTY, "hi"), taken("hi", "z"));
+    // None shown again on the way does not end the wait.
+    c = shown(c, { conversation: null, title: "Chrome", messages: [] });
+    c = shown(c, { conversation: "z", title: "New conversation", messages: [] });
+    expect(c).toMatchObject({ conversation: "z", working: true, sending: ["hi"] });
+  });
+
+  it("drops words sent from none when the owner moves to another chat mid-turn", () => {
+    let c = statused(sent(EMPTY, "hi"), taken("hi", "z"));
+    c = shown(c, { conversation: "w", title: "Trip", messages: [you("a"), kos("b")] });
+    expect(c).toMatchObject({ conversation: "w", working: false, sending: [] });
+    // Nor is a chat shown after the first one made from none.
+    c = shown(shown(sent(EMPTY, "hi"), { conversation: "z", title: "New conversation", messages: [] }), { conversation: "w", title: "Trip", messages: [] });
+    expect(c.sending).toEqual([]);
+  });
+
   it("keeps words on their way when the same chat is shown before it has them", () => {
     const c = shown(sent({ ...EMPTY, conversation: "c1", lines: [you("a"), kos("b")] }, "next"), { conversation: "c1", title: "Chat", messages: [you("a"), kos("b")] });
     expect(c).toMatchObject({ sending: ["next"], working: true });

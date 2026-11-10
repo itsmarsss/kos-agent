@@ -164,6 +164,8 @@ public final class ChatModel: ObservableObject {
   private var takenWords: String?
   /// The chat a turn is in while the window shows none: the one KOS is about to show, its first turn told as it goes.
   private var upcoming: String?
+  /// Words went since a chat was last shown: the next one shown from none is theirs, unless a status named another.
+  private var unshown = false
   /// The story of each turn on the go, under the words it is about: one running, and one said meanwhile.
   @Published public private(set) var stories: [Story] = []
   /// What each turn on the go saw, by the words it is about.
@@ -250,7 +252,10 @@ public final class ChatModel: ObservableObject {
     // A command is about the chat, not the app: it goes without the selection, which waits for the next words.
     let command = ChatMenus.isCommand(said)
     let quoted = command ? nil : quote
-    if !command { sending.append(said) }
+    if !command {
+      sending.append(said)
+      unshown = true
+    }
     if let quoted {
       quoteSetAside = quoted.text
       quote = nil
@@ -282,7 +287,8 @@ public final class ChatModel: ObservableObject {
 
   /// The chat as KOS says it stands now. Another chat than the one shown, the first one made from none too, starts afresh:
   /// nothing on its way to the last one is on its way to this, though words sent while none was shown are on their way
-  /// to the first. An ask made in the chat now shown stays, though it came
+  /// to the first: the chat a status named them in, or, before any did, the first one shown. An ask made in the chat now
+  /// shown stays, though it came
   /// before it was: the first chat's first turn can ask while the window still shows none.
   public func show(conversation: String?, title: String, lines: [Line], notice: (text: String, from: String?, waiting: Bool)? = nil, auto: Bool = false, pictures: [Int: String] = [:]) {
     let fresh = conversation != self.conversation
@@ -295,8 +301,9 @@ public final class ChatModel: ObservableObject {
       if case .you(let text, _, _) = line { return text }
       return nil
     }
-    // Words sent while no chat was shown are on their way to the first one made: still waiting until it has them.
-    sending = fresh && self.conversation != nil ? [] : sending.filter { !said.contains($0) }
+    // Words sent while no chat was shown are on their way to the chat they went in: still waiting until it has them.
+    let theirs = self.conversation == nil && (upcoming.map { $0 == conversation } ?? unshown)
+    sending = fresh && !theirs ? [] : sending.filter { !said.contains($0) }
     var kept = fresh ? [] : notices.filter { !$0.waiting }
     if let notice { kept.append(Notice(after: said.count, text: notice.text, from: notice.from, waiting: notice.waiting)) }
     notices = kept
@@ -312,7 +319,11 @@ public final class ChatModel: ObservableObject {
     }
     if fresh { asks = asks.filter { $0.chat != nil && $0.chat == conversation } }
     self.conversation = conversation
-    upcoming = nil
+    // Shown none again, the words still wait for the first chat.
+    if conversation != nil {
+      upcoming = nil
+      unshown = false
+    }
     self.title = title
     self.lines = lines
     self.auto = auto
@@ -503,6 +514,7 @@ public final class ChatModel: ObservableObject {
     silent = false
     conversation = nil
     upcoming = nil
+    unshown = false
     title = "KOS"
     lines = []
     sending = []
