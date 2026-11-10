@@ -8,8 +8,9 @@
  * sizes to its grid, so a sheet held by something sized to its content is
  * never clipped, up to the view less the page's gutters, past which the grid
  * scrolls in its box rather than the page sideways. On a phone the grid
- * narrows first, its words wrapping, and past that its key figure holds at
- * the right edge and the tools say how many columns are out of view.
+ * narrows first, its short words wrapping to two lines at most and its free
+ * text cut on one, and past that its key figure holds at the right edge and
+ * the tools say how many columns are out of view.
  * Selectors are one class deep, before the agent's own CSS.
  */
 export const SHEET_CSS = String.raw`
@@ -94,6 +95,8 @@ export const SHEET_CSS = String.raw`
   .sheet-grid thead th { min-width: 0; }
   .sheet-grid .wrap { white-space: normal; overflow-wrap: break-word; }
   .sheet-grid td.wrap { padding-block: 6px; line-height: 1.25; }
+  /* Two lines at most, cut after, so a row is as tall as what reads in it. */
+  .sheet-grid td.wrap .lines { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
   /* The key figure holds at the right edge over what it has not reached yet, its shadow saying the columns slide under it. */
   .sheet-grid .key { position: sticky; right: 0; z-index: 1; }
   .sheet-grid thead th.key, .sheet-grid tfoot td.key { z-index: 3; }

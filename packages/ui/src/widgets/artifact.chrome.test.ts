@@ -713,6 +713,40 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 
+  /** The same with notes and whether a receipt was kept: seven columns, the notes far out of view on a phone. */
+  const noted = (): Record<string, unknown> => {
+    const five = paid() as { columns: unknown[]; rows: unknown[][] };
+    const notes = ["Paid on the first, as every month, from the joint account", "Renewed for the year, the broker's quote was lower", "Mostly vegetables, the apples were on sale this week", "Sam's birthday, he paid the tip and the drinks after"];
+    return {
+      ...five,
+      columns: [...five.columns, { label: "Notes" }, { label: "Receipt", type: "bool" }],
+      rows: five.rows.map((row, i) => [...row.slice(0, 1), i === 1 ? "Tenant insurance for the year, renewed" : row[1], ...row.slice(2), notes[i], i % 2 === 0]),
+    };
+  };
+
+  /*
+   * Notes scrolled out of view on a phone do not set the rows' height: free
+   * text stays on one line, cut, and the short words beside the amount wrap
+   * to two lines at most, so no row stands far taller than a line's.
+   */
+  it("keeps a seven-column sheet's rows to what reads in them on a phone", async () => {
+    const heights = `() => {
+      const rows = [...document.querySelectorAll(".sheet-grid tbody tr")].map((tr) => tr.getBoundingClientRect().height);
+      const notes = document.querySelector(".sheet-grid tbody td:nth-child(7)");
+      return { rows, line: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sheet-row")), notesWrap: notes ? getComputedStyle(notes).whiteSpace : "", page: document.documentElement.scrollWidth };
+    }`;
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await sheetPage("/noted", `<h1>October</h1>${sheetData(noted())}`, { heights, keyed });
+    const probe = await ask<{ rows: number[]; line: number; notesWrap: string; page: number }>("heights", (p) => p.rows.length === 4);
+    expect(probe.notesWrap).toBe("nowrap");
+    expect(Math.max(...probe.rows)).toBeLessThanOrEqual(probe.line * 2.5);
+    expect(probe.page).toBeLessThanOrEqual(390);
+    const key = await ask<Keyed>("keyed", (p) => p.more);
+    expect(key.inside).toBe(true);
+    expect(key.clear).toBe(true);
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
   /* A grid far wider than a phone says how much is out of view; a desktop, with its scrollbar, does not. */
   it("says how many columns a wide grid has out of view on a phone, and only there", async () => {
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
@@ -770,6 +804,48 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       expect(grid.box).toBeGreaterThanOrEqual(grid.table);
       expect(grid.wide).toBeLessThanOrEqual(grid.box);
     }
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
+  /** A month by category and its bar chart, as the eval's budgets draw it: eight words under eight bars. */
+  const byCategory = `<script type="application/json" data-sheet>${JSON.stringify({
+    sheets: [{
+      name: "By category",
+      columns: [{ label: "Category" }, { label: "Amount", type: "currency", currency: "CAD" }],
+      rows: ["Housing", "Groceries", "Dining", "Transport", "Utilities", "Fun", "Health", "Other"].map((c, i) => [c, 1650 - i * 180]),
+    }],
+    charts: [{ type: "bar", title: "Spend by category", labels: "A1:A8", values: "B1:B8" }],
+  })}</script>`;
+  /** The chart's labels: how many, how many lines they stand on, any two drawn over each other, and which way its bars run. */
+  const labels = `() => {
+    const chart = document.querySelector(".kos-chart");
+    if (!chart) return { labels: 0 };
+    const boxes = [...chart.querySelectorAll("text")].filter((t) => /^[A-Z]/.test(t.textContent)).map((t) => t.getBoundingClientRect());
+    const over = boxes.some((a, i) => boxes.slice(i + 1).some((b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom));
+    const bars = [...chart.querySelectorAll("rect")].map((r) => r.getBoundingClientRect());
+    return { labels: boxes.length, lines: new Set(boxes.map((b) => Math.round(b.top))).size, over, across: bars.every((b) => b.width > b.height), page: document.documentElement.scrollWidth };
+  }`;
+  type Labels = { labels: number; lines: number; over: boolean; across: boolean; page: number };
+
+  /*
+   * Eight categories under their bars do not fit a phone: the bars run
+   * across there, a label at each one's left, none over another and the page
+   * no wider. A desktop keeps them side by side, the words on one line under.
+   */
+  it("draws a by-category bar chart's labels clear of each other on a phone, as before on a desktop", async () => {
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await sheetPage("/chart", `<h1>October</h1>${byCategory}`, { labels });
+    const phone = await ask<Labels>("labels", (p) => p.labels === 8);
+    expect(phone.over).toBe(false);
+    expect(phone.across).toBe(true);
+    expect(phone.lines).toBe(8);
+    expect(phone.page).toBeLessThanOrEqual(390);
+    await send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false });
+    await sheetPage("/chart-wide", `<h1>October</h1>${byCategory}`, { labels });
+    const desktop = await ask<Labels>("labels", (p) => p.labels === 8);
+    expect(desktop.over).toBe(false);
+    expect(desktop.across).toBe(false);
+    expect(desktop.lines).toBe(1);
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 
