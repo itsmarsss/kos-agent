@@ -350,9 +350,12 @@ its project's channel, or under `#kos` for a job at the root) or the
 blob's channel. You are made a member of that thread (a job's, a blob's,
 or KOS upkeep's, and no other) before it is posted in, so you are notified
 as the DM did; nothing that used to reach you goes silent. When Discord
-will not add you, the message goes to your DM as well, and that thread is
-not tried again for ten minutes. A run whose message landed there does not post its closing words
-after it, unless something in the run failed afterwards. A fixed-actions
+will not add you, the message goes to your DM as well, once however often
+its send is tried, and a thread that is gone or the bot may not add you to
+is not tried again for ten minutes; Discord not answering is no refusal,
+and the next post tries again. A run whose message reached you, there or
+in the DM, does not send its closing words after it, unless something in
+the run failed afterwards. A fixed-actions
 job's message, a blob's included, is a reminder in your own words, so it
 @mentions you there and pings; a prompted run's does not. `to: "owner"`
 (or `"discord"`) still reaches you directly, for a job that should.
@@ -361,8 +364,8 @@ A job's failing is told in its place with an @mention, and its recovery
 there without one; KOS's upkeep (`kos.*`) tells both in one `#kos` thread,
 "KOS upkeep", not a thread per job. A place guests can read is not used:
 the message goes to your DM. A thread deleted under a job is let go and a
-new one made for the post; if that fails too, the message goes to your
-DM. With Discord down, a post whose thread is still to be made waits in
+new one made for the post; if that fails too, or the place refuses the
+post (no access, a locked thread), the message goes to your DM. With Discord down, a post whose thread is still to be made waits in
 the send queue and the thread is made once Discord is back. Without a
 server, or before it is laid out, all of these go to you as before. A
 moved job's thread is let go and made again under its new project. A
