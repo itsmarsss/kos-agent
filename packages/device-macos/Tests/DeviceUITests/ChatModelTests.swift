@@ -147,7 +147,7 @@ struct ChatModelTests {
     model.show(conversation: "mac:owner", title: "Mac", lines: [])
     model.say(said)
     #expect(model.sending == [said])
-    model.status(taken: true, story: nil, error: nil, said: said, conversation: "mac:owner")
+    model.status(taken: true, story: nil, error: nil, said: said, conversation: "mac:owner", command: false)
     #expect(model.sending == [said])
     model.status(taken: false, story: .some("› Read the file"), error: nil, said: said, conversation: "mac:owner")
     #expect(model.story == "› Read the file")
@@ -238,6 +238,18 @@ struct ChatModelTests {
     model.show(conversation: "mac:owner", title: "tidy the deck", lines: [.you("tidy the deck", files: [])])
     #expect(model.picturesOf([3]).map(\.id) == [3])
     #expect(model.liveFrames == [3])
+  }
+
+  /// A KOS from before taken words said whether they were a command took any starting with "/" as one.
+  @Test func anOlderKOSTakesSlashWordsAsCommands() {
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [])
+    model.say("/cancel")
+    model.status(taken: true, story: nil, error: nil, said: "/cancel", conversation: "mac:owner")
+    #expect(model.sending.isEmpty)
+    model.say("hello")
+    model.status(taken: true, story: nil, error: nil, said: "hello", conversation: "mac:owner")
+    #expect(model.sending == ["hello"])
   }
 
   /// The first chat, made from none by /new, starts afresh and leaves the window ready for the next words.

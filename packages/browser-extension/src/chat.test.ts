@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { asked, EMPTY, givenBack, isCommand, sent, shown, statused } from "./chat.js";
 
-/** KOS's acknowledgement of words, as the host sends it: a chat not yet made is null, and a command says it is one. */
-const taken = (said: string, conversation: string | null): Record<string, unknown> => ({ chat: conversation, conversation, held: false, said, taken: true, ...(isCommand(said) ? { command: true } : {}) });
+/** KOS's acknowledgement of words, as the host sends it: a chat not yet made is null, and it says whether they were a command. */
+const taken = (said: string, conversation: string | null): Record<string, unknown> => ({ chat: conversation, conversation, held: false, said, taken: true, command: isCommand(said) });
 
 const kos = (text: string) => ({ role: "kos" as const, text });
 const you = (text: string) => ({ role: "you" as const, text });
@@ -31,7 +31,7 @@ describe("the side panel's chat", () => {
     const said = "/etc/hosts is broken";
     let c = sent({ ...EMPTY, conversation: "c1" }, said);
     expect(c).toMatchObject({ sending: [said], working: true });
-    c = statused(c, { chat: "c1", conversation: "c1", held: false, said, taken: true });
+    c = statused(c, { chat: "c1", conversation: "c1", held: false, said, taken: true, command: false });
     expect(c.sending).toEqual([said]);
     c = statused(c, { chat: "c1", conversation: "c1", held: false, said, story: "› Read the file" });
     expect(c.stories).toEqual([{ after: 1, said, text: "› Read the file" }]);
@@ -50,6 +50,14 @@ describe("the side panel's chat", () => {
   it("lets a command KOS knows by another name go", () => {
     const c = statused(sent({ ...EMPTY, conversation: "c1" }, "/cancel"), { chat: "c1", conversation: "c1", held: false, said: "/cancel", taken: true, command: true });
     expect(c.sending).toEqual([]);
+  });
+
+  it("takes words starting with a slash as a command from a KOS that does not say", () => {
+    const older = { chat: "c1", conversation: "c1", held: false, taken: true };
+    let c = statused(sent({ ...EMPTY, conversation: "c1" }, "/cancel"), { ...older, said: "/cancel" });
+    expect(c.sending).toEqual([]);
+    c = statused(sent(c, "hello"), { ...older, said: "hello" });
+    expect(c.sending).toEqual(["hello"]);
   });
 
   it("lets /stop go when no chat is made yet", () => {

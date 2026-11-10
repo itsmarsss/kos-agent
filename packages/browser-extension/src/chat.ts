@@ -210,11 +210,16 @@ export function asked(c: Chat, message: Record<string, unknown>): Chat {
  */
 function took(c: Chat, message: Record<string, unknown>): Chat {
   const said = typeof message["said"] === "string" ? message["said"] : undefined;
-  if (said !== undefined && message["command"] === true) return { ...c, sending: c.sending.filter((t) => t !== said) };
+  if (said !== undefined && tookAsCommand(message, said)) return { ...c, sending: c.sending.filter((t) => t !== said) };
   if (!said || message["conversation"] !== c.conversation) return c;
   const shown = c.sending.includes(said) || awaiting(c.lines, said);
   const taken = c.taken?.said === said ? c.taken : { said, at: Date.now() };
   return { ...c, sending: shown ? c.sending : [...c.sending, said], working: true, taken };
+}
+
+/** Whether KOS took the words as a command, as it says; a KOS from before it said so took any words starting with "/" as one. */
+function tookAsCommand(message: Record<string, unknown>, said: string): boolean {
+  return "command" in message ? message["command"] === true : said.startsWith("/");
 }
 
 /** The owner's words are the chat's latest and not yet answered: the turn on them is in the chat already. */

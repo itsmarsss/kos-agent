@@ -284,7 +284,7 @@ export class DevicePanel implements ChannelAdapter {
     // Each says which of the owner's messages it is about: two can be on the go at once, one running and one said meanwhile.
     const status = async (params: Record<string, unknown>): Promise<void> => void (await this.tell(device, "chat.status", this.statusOf(chatOf(), { said: msg.text, ...params })));
     // Taken: the panel stops waiting to hear that anyone has its words. A command is never in the chat's words, and says so.
-    await status({ taken: true, ...(parseChatCommand(msg.text) ? { command: true } : {}) });
+    await status({ taken: true, command: Boolean(parseChatCommand(msg.text)) });
     return {
       update: (story) => status({ story }),
       // A wait on the owner, or words the running turn took in: true until the chat moves on.
@@ -316,7 +316,7 @@ export class DevicePanel implements ChannelAdapter {
       if (!chat || id !== chat.id) return;
       this.quiet();
       this.running = { conversation: id, narrator: new TurnNarrator(), shownAt: 0, ...(event.said ? { said: event.said } : {}), ...(speaker ? { speaker } : {}) };
-      if (event.said) void this.everyDevice("chat.status", this.statusOf(id, { said: event.said, taken: true }), speaker);
+      if (event.said) void this.everyDevice("chat.status", this.statusOf(id, { said: event.said, taken: true, command: false }), speaker);
       return;
     }
     const running = this.running;
@@ -474,7 +474,7 @@ export class DevicePanel implements ChannelAdapter {
     for (const req of this.deps.waiting?.(chat.id) ?? []) await this.tell(device, "chat.ask", { chat: chat.id, approval: approvalOf(req) });
     const running = this.running;
     if (running?.conversation === chat.id) {
-      if (running.said) await this.tell(device, "chat.status", this.statusOf(chat.id, { said: running.said, taken: true }));
+      if (running.said) await this.tell(device, "chat.status", this.statusOf(chat.id, { said: running.said, taken: true, command: false }));
       if (running.narrator.worthShowing()) await this.tell(device, "chat.status", this.statusOf(chat.id, { ...this.about(running), story: running.narrator.render() }));
     }
     await this.tell(device, "chat.status", this.statusOf(chat.id, {}));

@@ -331,10 +331,11 @@ public final class ChatModel: ObservableObject {
   }
 
   /// A turn as it goes, for the owner's words `said` in `conversation`. `story` is `.some(nil)` when KOS said the turn is done.
-  /// Another chat's turn is not this one's: nothing of it is drawn. `command` says KOS took the words as a command.
+  /// Another chat's turn is not this one's: nothing of it is drawn. `command` says KOS took the words as a command; a KOS
+  /// from before it said so (nil) took any words starting with "/" as one.
   public func status(
     taken: Bool, story: String??, error: String?, said: String? = nil, conversation: String? = nil, waiting: Wait? = nil, held: Bool = false,
-    command: Bool = false
+    command: Bool? = nil
   ) {
     guard isAbout(conversation, said: said, taken: taken) else { return }
     self.waiting = error == nil && story != .some(nil) ? waiting : nil
@@ -354,7 +355,7 @@ public final class ChatModel: ObservableObject {
     if taken {
       // Words said somewhere else (on the dashboard, in a Chrome) show here on their way, as if typed here.
       // What KOS took as a command (/stop) is never in the chat's words, so it is never on its way to them.
-      if command, let said {
+      if let said, command ?? said.hasPrefix("/") {
         sending.removeAll { $0 == said }
         return
       }

@@ -150,7 +150,7 @@ final class ChatController {
         }
         model.status(
           taken: p.taken ?? false, story: p.story, error: p.error, said: p.said, conversation: p.turnChat,
-          waiting: p.waiting.flatMap { ChatModel.Wait(rawValue: $0.rawValue) }, held: p.held ?? false, command: p.command ?? false)
+          waiting: p.waiting.flatMap { ChatModel.Wait(rawValue: $0.rawValue) }, held: p.held ?? false, command: p.command)
       case .ask:
         let p = try call.params(ChatAsk.self)
         let a = p.approval
