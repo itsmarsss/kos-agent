@@ -209,6 +209,12 @@ describe("the discord tools", () => {
     // Not the room a guest spoke in, so not theirs.
     const room = await harness(true, "garden");
     await guested.run({ project: "garden", chat: "project:garden" }, async () => expect(await reads(room, "board")).toBe(false));
+    // A place's own room reads where the place is bound, and nowhere its chat id alone would reach.
+    const boardRoom = await harness(true, "garden", "discord:room:c8");
+    await guested.run({ project: "garden", chat: "discord:room:c8", home: "chat-board" }, async () => {
+      expect(await reads(boardRoom, "board")).toBe(true);
+      expect(await reads(boardRoom, "my-garden")).toBe(false);
+    });
 
     // The root and Maintenance reach any channel, by the name they gave.
     for (const scope of [undefined, "maintenance"]) {
