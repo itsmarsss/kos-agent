@@ -132,6 +132,8 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
 }
 
 public struct ChatAsk: Decodable, Equatable, Sendable {
+  /// The chat it is asked in.
+  public let chat: String?
   public let approval: ChatApproval
 }
 

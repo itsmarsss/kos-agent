@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EMPTY, shown, statused, type Chat } from "./chat.js";
+import { asked, EMPTY, shown, statused, type Chat } from "./chat.js";
 
 /** The panel as send() leaves it: words on their way, or a command, which waits only for its answer. */
 function sent(c: Chat, text: string): Chat {
@@ -54,6 +54,18 @@ describe("the side panel's chat", () => {
   it("starts afresh when the first chat is made from none, leaving nothing on its way", () => {
     const c = shown({ ...EMPTY, sending: ["/new"], working: true }, { conversation: "c1", title: "New conversation", messages: [], notice: { text: "Started 'New conversation'" } });
     expect(c).toMatchObject({ conversation: "c1", working: false, sending: [] });
+  });
+
+  it("keeps an ask made while no chat was shown once its chat is", () => {
+    let c = asked(EMPTY, { chat: "c1", approval: { id: "a1", tool: "browser.act" } });
+    c = shown(c, { conversation: "c1", title: "Chat", messages: [you("Buy it")], notice: { text: "Waiting on you", waiting: true } });
+    expect(c.asks.map((a) => a.id)).toEqual(["a1"]);
+  });
+
+  it("drops another chat's ask when a chat is shown afresh", () => {
+    let c = asked({ ...EMPTY, conversation: "c1" }, { chat: "c1", approval: { id: "a1", tool: "browser.act" } });
+    c = shown(c, { conversation: "c2", title: "Other", messages: [] });
+    expect(c.asks).toEqual([]);
   });
 
   it("keeps words on their way when the same chat is shown before it has them", () => {

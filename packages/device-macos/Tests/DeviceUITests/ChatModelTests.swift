@@ -156,6 +156,18 @@ struct ChatModelTests {
     #expect(model.working)
   }
 
+  /// An ask made while the window showed no chat stays once its chat is shown; another chat's goes.
+  @Test func anAskMadeBeforeItsChatIsShownStays() {
+    let model = ChatModel()
+    model.ask(.init(id: "a1", tool: "computer.act", chat: "mac:owner"))
+    model.show(conversation: "mac:owner", title: "Mac", lines: [.you("tidy", files: [])], notice: (text: "Waiting on you", from: nil, waiting: true))
+    #expect(model.asks.map(\.id) == ["a1"])
+    model.ask(.init(id: "a2", tool: "computer.act", chat: "cm1:owner"))
+    #expect(model.asks.map(\.id) == ["a1"])
+    model.show(conversation: "cm1:owner", title: "Trip", lines: [])
+    #expect(model.asks.isEmpty)
+  }
+
   @Test func theHeaderSaysWhyThereIsNoChatAsThePanelDoes() {
     let model = ChatModel()
     #expect(model.subtitle == "Not paired yet")

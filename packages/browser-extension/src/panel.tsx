@@ -5,7 +5,7 @@ import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/rea
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
 
-import { EMPTY, isShown, shown, statused, STEP, yourWords, type Approval, type Chat, type Extra, type Line, type Quote, type Step } from "./chat.js";
+import { asked, EMPTY, isShown, shown, statused, STEP, yourWords, type Approval, type Chat, type Extra, type Line, type Quote, type Step } from "./chat.js";
 import { pictureSrc, showable, type Pictured } from "./frames.js";
 import { linkWords } from "./linkwords.js";
 import { isHidden } from "./settings.js";
@@ -180,10 +180,8 @@ function useChat(windowId: number | undefined, online: boolean): {
           return setSelection({ text: String(message["text"] ?? ""), from: String(message["from"] ?? "") });
         case "chat.mentions":
           return setMentions({ q: String(message["q"] ?? ""), list: (message["mentions"] as Mention[]) ?? [] });
-        case "chat.ask": {
-          const approval = message["approval"] as Approval;
-          return setChat((c) => (isShown(c, message) ? { ...c, asks: [...c.asks.filter((a) => a.id !== approval.id), approval] } : c));
-        }
+        case "chat.ask":
+          return setChat((c) => asked(c, message));
         case "chat.settled":
           return setChat((c) => ({ ...c, asks: c.asks.filter((a) => a.id !== message["approval"]) }));
         case "consent":

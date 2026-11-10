@@ -45,12 +45,15 @@ public final class ChatModel: ObservableObject {
     public let always: String?
     /// When it times out if the owner does not answer, when it does.
     public let expires: Date?
+    /// The chat it is asked in, as KOS says: what keeps it up once that chat is shown.
+    public let chat: String?
 
     public init(
       id: String, tool: String, args: String? = nil, mechanics: String? = nil, why: String? = nil, reason: String? = nil, always: String? = nil,
-      expires: Date? = nil
+      expires: Date? = nil, chat: String? = nil
     ) {
       self.id = id
+      self.chat = chat
       self.tool = tool
       self.args = args
       self.mechanics = mechanics
@@ -276,7 +279,8 @@ public final class ChatModel: ObservableObject {
   // MARK: KOS
 
   /// The chat as KOS says it stands now. Another chat than the one shown, the first one made from none too, starts afresh:
-  /// nothing on its way to the last one is on its way to this.
+  /// nothing on its way to the last one is on its way to this. An ask made in the chat now shown stays, though it came
+  /// before it was: the first chat's first turn can ask while the window still shows none.
   public func show(conversation: String?, title: String, lines: [Line], notice: (text: String, from: String?, waiting: Bool)? = nil, auto: Bool = false, pictures: [Int: String] = [:]) {
     let fresh = conversation != self.conversation
     if fresh {
@@ -302,7 +306,7 @@ public final class ChatModel: ObservableObject {
       stories = []
       live = []
     }
-    if fresh { asks = [] }
+    if fresh { asks = asks.filter { $0.chat != nil && $0.chat == conversation } }
     self.conversation = conversation
     self.title = title
     self.lines = lines
@@ -456,7 +460,9 @@ public final class ChatModel: ObservableObject {
     }
   }
 
+  /// An approval to decide here; one asked in another chat than the one shown is not this one's.
   public func ask(_ approval: Ask) {
+    if let chat = approval.chat, let conversation, chat != conversation { return }
     asks = asks.filter { $0.id != approval.id } + [approval]
   }
 

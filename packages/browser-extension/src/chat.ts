@@ -29,6 +29,8 @@ export interface Step {
 
 export interface Approval {
   id: string;
+  /** The chat it is asked in, as KOS says: what keeps it up once that chat is shown. */
+  chat?: string;
   tool: string;
   args?: string;
   /** Every action a step said by its purpose takes, which the arguments, cut to fit, may not reach. */
@@ -119,7 +121,9 @@ function stated(c: Chat, message: Record<string, unknown>): Chat {
  * The chat as KOS says it stands now: the owner's words that arrived leave
  * the waiting ones, and a finished turn's steps are in the chat itself.
  * Another chat than the one shown, the first one made from none too, starts
- * afresh: nothing on its way to the last one is on its way to this.
+ * afresh: nothing on its way to the last one is on its way to this. An ask
+ * made in the chat now shown stays, though it came before it was: the first
+ * chat's first turn can ask while the panel still shows none.
  */
 export function shown(c: Chat, message: Record<string, unknown>): Chat {
   const conversation = (message["conversation"] as string | null) ?? null;
@@ -146,8 +150,16 @@ export function shown(c: Chat, message: Record<string, unknown>): Chat {
     working: sending.length > 0 || (c.working && !answered),
     pictures: keep(fresh ? new Map() : c.pictures, picturesOf(message)),
     ...(answered ? { stories: [], live: [] } : {}),
-    ...(fresh ? { asks: [] } : {}),
+    ...(fresh ? { asks: c.asks.filter((a) => a.chat !== undefined && a.chat === conversation) } : {}),
   };
+}
+
+/** An approval to decide here, kept with the chat it is asked in; one asked in another chat than the one shown is not this one's. */
+export function asked(c: Chat, message: Record<string, unknown>): Chat {
+  if (!isShown(c, message)) return c;
+  const chat = typeof message["chat"] === "string" ? message["chat"] : undefined;
+  const approval: Approval = { ...(message["approval"] as Approval), ...(chat !== undefined ? { chat } : {}) };
+  return { ...c, asks: [...c.asks.filter((a) => a.id !== approval.id), approval] };
 }
 
 /**
