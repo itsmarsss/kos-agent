@@ -716,6 +716,14 @@ function isUnknownChannel(err: unknown): boolean {
   return (err as { code?: unknown } | null)?.code === 10003;
 }
 
+/** Discord's answers that keep the owner out of a thread for good: it is gone, or the bot may not add them (Missing Access, Missing Permissions). */
+const KEPT_OUT_CODES = new Set([10003, 50001, 50013]);
+
+function keepsOwnerOut(err: unknown): boolean {
+  const e = err as { code?: unknown; status?: unknown } | null;
+  return (typeof e?.code === "number" && KEPT_OUT_CODES.has(e.code)) || e?.status === 403;
+}
+
 /** The title a `kos:` topic gives its chat: "kos:project:garden · Garden · https://…" is Garden. */
 export function topicTitle(topic: string | null | undefined): string | undefined {
   const m = /^kos:\S+\s*·\s*(.*?)(?:\s*·\s*https?:\/\/\S+)?\s*$/.exec(topic ?? "");
@@ -1894,23 +1902,30 @@ export class DiscordAdapter implements ChannelAdapter {
    * notifies them as a DM would. Once per thread; nothing for a channel,
    * which the owner sees already. An archived thread is opened first, as
    * Discord adds no one to one. False when the owner is not in it, so the
-   * caller can reach them another way; a refusal is said once and not
-   * tried again for a while. Never throws.
+   * caller can reach them another way; a thread that is gone or the bot
+   * may not add them to is said once and not tried again for a while. Not
+   * reaching Discord is no refusal: true, so nothing more is sent, and the
+   * next post tries again. Never throws.
    */
   async joinOwner(threadId: string): Promise<boolean> {
     if (!this.ownerId || this.ownerIn.has(threadId)) return true;
     if ((this.ownerKeptOut.get(threadId) ?? 0) > Date.now()) return false;
-    const thread = (await this.place(threadId)) as
-      | { isThread?: () => boolean; archived?: boolean | null; setArchived?: (archived: boolean) => Promise<unknown>; members?: { add?: (id: string) => Promise<unknown> } }
-      | null;
-    if (!thread) return false;
     try {
+      const thread = (await this.client.channels.fetch(threadId)) as
+        | { isThread?: () => boolean; archived?: boolean | null; setArchived?: (archived: boolean) => Promise<unknown>; members?: { add?: (id: string) => Promise<unknown> } }
+        | null;
+      if (!thread) return false;
       if (thread.isThread?.() && thread.members?.add) {
         if (thread.archived && thread.setArchived) await thread.setArchived.call(thread, false);
         await thread.members.add.call(thread.members, this.ownerId);
       }
     } catch (err) {
-      this.ownerKeptOut.set(threadId, Date.now() + JOIN_RETRY_MS);
+      if (sendFailure(err) !== "refused") {
+        console.warn(`[discord] the owner was not added to thread ${threadId} this time, and is tried again with its next post: ${errorText(err)}`);
+        return true;
+      }
+      if (isUnknownChannel(err)) this.forgetPlace(threadId);
+      if (keepsOwnerOut(err)) this.ownerKeptOut.set(threadId, Date.now() + JOIN_RETRY_MS);
       console.warn(`[discord] the owner could not be added to thread ${threadId}: ${errorText(err)}`);
       return false;
     }

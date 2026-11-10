@@ -2939,7 +2939,7 @@ describe("the owner in KOS's threads", () => {
       const adapter = new DiscordAdapter({ token: "t", ownerId: "222" });
       let fetched = 0;
       let refuse = true;
-      const thread = { id: "t5", isThread: () => true, members: { add: async () => { if (refuse) throw new Error("Missing Access"); } } };
+      const thread = { id: "t5", isThread: () => true, members: { add: async () => { if (refuse) throw Object.assign(new Error("Missing Access"), { code: 50001 }); } } };
       (adapter as unknown as { client: unknown }).client = { channels: { fetch: async () => (fetched++, thread) } };
       expect(await adapter.joinOwner("t5")).toBe(false);
       expect(await adapter.joinOwner("t5")).toBe(false);
@@ -2952,6 +2952,35 @@ describe("the owner in KOS's threads", () => {
     } finally {
       warn.mockRestore();
       vi.useRealTimers();
+    }
+  });
+
+  it("takes Discord not answering as no refusal: nothing more is sent, and the next post asks again", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const adapter = new DiscordAdapter({ token: "t", ownerId: "222" });
+      const added: string[] = [];
+      let failure: unknown = Object.assign(new Error("getaddrinfo ENOTFOUND discord.com"), { code: "ENOTFOUND" });
+      const thread = {
+        id: "t5",
+        isThread: () => true,
+        members: {
+          add: async (id: string) => {
+            if (failure) throw failure;
+            added.push(id);
+          },
+        },
+      };
+      (adapter as unknown as { client: unknown }).client = { channels: { fetch: async () => thread } };
+      expect(await adapter.joinOwner("t5")).toBe(true);
+      // A refusal that is not for good (a locked thread) leaves it to the DM, and is asked again too.
+      failure = Object.assign(new Error("Thread is locked"), { code: 50083 });
+      expect(await adapter.joinOwner("t5")).toBe(false);
+      failure = undefined;
+      expect(await adapter.joinOwner("t5")).toBe(true);
+      expect(added).toEqual(["222"]);
+    } finally {
+      warn.mockRestore();
     }
   });
 });
