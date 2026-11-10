@@ -791,6 +791,15 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     )) as [number, number];
     expect(leaving[0]).toBe(0);
     expect(Math.abs(leaving[1] - scrolled[1])).toBeLessThan(1);
+    // Back again on the settings still leaving goes nowhere; settings called back mid-leave come in where they were, their scroll given back.
+    const returned = (await devtools.evaluate(
+      popup,
+      "new Promise((res) => { document.querySelector('[aria-label=Back]').click(); document.querySelector('[aria-label=Settings]').click(); requestAnimationFrame(() => res([document.querySelector('.popup-page').scrollTop, document.querySelector('.page-head').getBoundingClientRect().top])); })",
+    )) as [number, number];
+    expect(returned[0]).toBe(200);
+    expect(Math.abs(returned[1] - scrolled[1])).toBeLessThan(1);
+    await shown("document.querySelectorAll('.page-head').length === 1 && !document.querySelector('[aria-label=Settings]')");
+    await devtools.evaluate(popup, "document.querySelector('[aria-label=Back]').click()");
     await shown("document.querySelector('.drawer-row') && !document.querySelector('.page-head')");
     await devtools.evaluate(popup, "document.querySelector('.drawer-row').click()");
     await shown("document.querySelector('.drawer-row[aria-expanded=true]')");

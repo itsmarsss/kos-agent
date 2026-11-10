@@ -101,7 +101,7 @@ describe("the check's queue", () => {
 });
 
 describe("the check's left-behind profiles", () => {
-  it("removes profiles whose Chrome is gone and keeps live and fresh ones", () => {
+  it("removes profiles whose Chrome is gone and keeps live and fresh ones", async () => {
     const dir = mkdtempSync(join(tmpdir(), "sweep-"));
     try {
       const profile = (name: string, lock?: string, old = false): string => {
@@ -117,8 +117,10 @@ describe("the check's left-behind profiles", () => {
       const stale = profile("kos-check-stale", undefined, true);
       const fresh = profile("kos-check-fresh");
       const other = profile("someone-else", "host-99999999");
-      expect(sweepProfiles(dir).sort()).toEqual([dead, stale].sort());
-      expect([live, fresh, other].every((p) => existsSync(p))).toBe(true);
+      // A lock that names no process says nothing; a fresh profile is kept on its age.
+      const garbled = profile("kos-check-garbled", "not-a-pid");
+      expect((await sweepProfiles(dir)).sort()).toEqual([dead, stale].sort());
+      expect([live, fresh, other, garbled].every((p) => existsSync(p))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

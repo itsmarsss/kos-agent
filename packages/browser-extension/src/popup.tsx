@@ -67,17 +67,24 @@ function Popup(): ReactElement {
   const scroller = useRef<HTMLDivElement>(null);
   const overlay = useOverlayScroll(scroller);
   const pages = { home: useRef<HTMLElement>(null), settings: useRef<HTMLElement>(null) };
+  // The page shown, read at the click: a click on a page still leaving goes nowhere.
+  const shown = useRef(page);
   // Settings open at their top, and home where it starts, not wherever the last page was scrolled to.
-  // The page leaving is held where it was scrolled to as the scroll goes back, so it leaves from there.
+  // The page leaving is held where it was scrolled to as the scroll moves, so it leaves from there.
   const go = (next: "home" | "settings"): void => {
+    if (shown.current === next) return;
     const view = scroller.current;
-    const leaving = pages[page].current;
-    if (view && leaving) {
-      leaving.style.top = `${-view.scrollTop}px`;
-      view.scrollTop = 0;
+    const leaving = pages[shown.current].current;
+    const coming = pages[next].current;
+    // Back before it was gone: it comes in from where it was held, its scroll given back.
+    const back = coming ? -parseFloat(coming.style.top || "0") : 0;
+    coming?.style.removeProperty("top");
+    if (view) {
+      const from = view.scrollTop;
+      view.scrollTop = back;
+      if (leaving) leaving.style.top = `${view.scrollTop - from}px`;
     }
-    // Back before it was gone: it comes in from where it is, not held.
-    pages[next].current?.style.removeProperty("top");
+    shown.current = next;
     setPage(next);
   };
   return (
