@@ -141,7 +141,8 @@ function stated(c: Chat, message: Record<string, unknown>): Chat {
  * The chat as KOS says it stands now: the owner's words that arrived leave
  * the waiting ones, and a finished turn's steps are in the chat itself.
  * Another chat than the one shown, the first one made from none too, starts
- * afresh: nothing on its way to the last one is on its way to this. An ask
+ * afresh: nothing on its way to the last one is on its way to this, though
+ * words sent while none was shown are on their way to the first. An ask
  * made in the chat now shown stays, though it came before it was: the first
  * chat's first turn can ask while the panel still shows none.
  */
@@ -150,7 +151,8 @@ export function shown(c: Chat, message: Record<string, unknown>): Chat {
   const lines = (message["messages"] as Line[]) ?? [];
   const fresh = conversation !== c.conversation;
   const said = lines.filter((l): l is Extract<Line, { role: "you" }> => l.role === "you").map((l) => l.text);
-  const sending = fresh ? [] : c.sending.filter((t) => !said.includes(t));
+  // Words sent while no chat was shown are on their way to the first one made: still waiting until it has them.
+  const sending = fresh && c.conversation !== null ? [] : c.sending.filter((t) => !said.includes(t));
   const notice = message["notice"] as { text: string; from?: string; waiting?: true; said?: string } | undefined;
   // A wait said before is over once the chat is shown again: decided, or still asked in its own card.
   const kept = fresh ? [] : c.extras.filter((x) => !x.waiting);

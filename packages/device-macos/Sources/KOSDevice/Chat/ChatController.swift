@@ -130,7 +130,6 @@ final class ChatController {
       switch method {
       case .show:
         let p = try call.params(ChatShow.self)
-        heardBack()
         showing?.invalidate()
         showing = nil
         model.silent = false
@@ -138,6 +137,8 @@ final class ChatController {
           conversation: p.chat ?? p.conversation, title: p.title, lines: p.messages.compactMap(Self.line),
           notice: p.notice.map { ($0.text, $0.from, $0.waiting ?? false) }, auto: p.auto ?? false,
           pictures: Dictionary(uniqueKeysWithValues: (p.pictures ?? [:]).compactMap { k, v in Int(k).map { ($0, v) } }))
+        // Words the chat does not have yet are still KOS's to take: the wait on them goes on.
+        if model.sending.isEmpty { heardBack() }
         scope()
       case .status:
         let p = try call.params(ChatStatus.self)

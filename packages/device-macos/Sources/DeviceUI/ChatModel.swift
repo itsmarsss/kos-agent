@@ -279,7 +279,8 @@ public final class ChatModel: ObservableObject {
   // MARK: KOS
 
   /// The chat as KOS says it stands now. Another chat than the one shown, the first one made from none too, starts afresh:
-  /// nothing on its way to the last one is on its way to this. An ask made in the chat now shown stays, though it came
+  /// nothing on its way to the last one is on its way to this, though words sent while none was shown are on their way
+  /// to the first. An ask made in the chat now shown stays, though it came
   /// before it was: the first chat's first turn can ask while the window still shows none.
   public func show(conversation: String?, title: String, lines: [Line], notice: (text: String, from: String?, waiting: Bool)? = nil, auto: Bool = false, pictures: [Int: String] = [:]) {
     let fresh = conversation != self.conversation
@@ -292,7 +293,8 @@ public final class ChatModel: ObservableObject {
       if case .you(let text, _, _) = line { return text }
       return nil
     }
-    sending = fresh ? [] : sending.filter { !said.contains($0) }
+    // Words sent while no chat was shown are on their way to the first one made: still waiting until it has them.
+    sending = fresh && self.conversation != nil ? [] : sending.filter { !said.contains($0) }
     var kept = fresh ? [] : notices.filter { !$0.waiting }
     if let notice { kept.append(Notice(after: said.count, text: notice.text, from: notice.from, waiting: notice.waiting)) }
     notices = kept

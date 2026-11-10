@@ -155,10 +155,14 @@ function useChat(windowId: number | undefined, online: boolean): {
         case "state":
           return setWorker(message["state"] as PopupState);
         case "chat.show":
-          heardBack();
           setShownOnce(true);
           setSilent(false);
-          return setChat((c) => shown(c, message));
+          return setChat((c) => {
+            const next = shown(c, message);
+            // Words the chat does not have yet are still KOS's to take: the wait on them goes on.
+            if (!next.sending.length) heardBack();
+            return next;
+          });
         case "chat.status":
           return setChat((c) => {
             // Another chat's, from a turn the owner moved away from: not drawn over this one.

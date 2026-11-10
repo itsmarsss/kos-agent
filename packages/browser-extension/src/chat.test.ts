@@ -93,6 +93,17 @@ describe("the side panel's chat", () => {
     expect(c.asks).toEqual([]);
   });
 
+  it("keeps words sent from none on their way when the first chat is shown before it has them", () => {
+    let c = statused(sent(EMPTY, "/new"), taken("/new", null));
+    c = sent(c, "Find the cheapest one");
+    c = shown(c, { conversation: "c1", title: "New conversation", messages: [], notice: { text: "Started 'New conversation'" } });
+    expect(c).toMatchObject({ conversation: "c1", working: true, sending: ["Find the cheapest one"] });
+    // Never taken, they still come back to the box.
+    expect(givenBack(c).unsent).toBe("Find the cheapest one");
+    c = shown(c, { conversation: "c1", title: "Find the cheapest one", messages: [you("Find the cheapest one")] });
+    expect(c.sending).toEqual([]);
+  });
+
   it("keeps words on their way when the same chat is shown before it has them", () => {
     const c = shown(sent({ ...EMPTY, conversation: "c1", lines: [you("a"), kos("b")] }, "next"), { conversation: "c1", title: "Chat", messages: [you("a"), kos("b")] });
     expect(c).toMatchObject({ sending: ["next"], working: true });

@@ -160,6 +160,21 @@ struct ChatModelTests {
     #expect(model.sending.isEmpty)
   }
 
+  /// Words sent while no chat was shown wait for the first one made until it has them, and come back if never taken.
+  @Test func wordsSentFromNoneWaitForTheFirstChat() {
+    let model = ChatModel()
+    model.say("/new")
+    model.say("find the deck")
+    model.show(conversation: "mac:owner", title: "New conversation", lines: [], notice: (text: "Started 'New conversation'", from: nil, waiting: false))
+    #expect(model.sending == ["find the deck"])
+    #expect(model.working)
+    model.show(conversation: "mac:owner", title: "find the deck", lines: [.you("find the deck", files: [])])
+    #expect(model.sending.isEmpty)
+    model.say("and the notes")
+    model.show(conversation: "cm1:owner", title: "Trip", lines: [])
+    #expect(model.sending.isEmpty)
+  }
+
   /// The first chat, made from none by /new, starts afresh and leaves the window ready for the next words.
   @Test func aChatMadeFromNoneStartsAfresh() {
     let model = ChatModel()
