@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SurfaceDownError, type ChannelAdapter, type NotifyPayload } from "@kos/harness";
 
@@ -155,6 +155,34 @@ describe("a scheduled run's message in its place", () => {
     gone.add("t8");
     expect(await notifier.say(run("cron:7"), { text: "Again." })).toBeUndefined();
     expect(notifier.spokeInPlace("cron:7")).toBe(true);
+  });
+
+  it("leaves to the owner's DM a run's message, or a failing job's news, that its place refuses", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const refusals = [
+        Object.assign(new Error("Missing Access"), { code: 50001 }),
+        Object.assign(new Error("Missing Permissions"), { code: 50013 }),
+        Object.assign(new Error("Thread is locked"), { code: 50083 }),
+        new Error("channel t7 is not somewhere this bot can post"),
+      ];
+      for (const refusal of refusals) {
+        const forgot: string[] = [];
+        const { notifier } = placer({
+          forgetPlace: (id) => void forgot.push(id),
+          postIn: async () => {
+            throw refusal;
+          },
+        });
+        expect(await notifier.say(run("cron:7"), { text: "Call The Centre now." })).toBeUndefined();
+        // The caretaker's news for a failing job takes the same way.
+        expect(await notifier.say({ ...run("cron:2", "Kickoff is failing."), ping: true }, { text: "Kickoff is failing." })).toBeUndefined();
+        expect(forgot).toEqual([]);
+        expect(notifier.spokeInPlace("cron:7")).toBe(false);
+      }
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("keeps a run's post for its thread while Discord is down, rather than its channel's top", async () => {

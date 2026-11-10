@@ -69,7 +69,9 @@ function goneFromDiscord(err: unknown): boolean {
 /**
  * A scheduled run's message posted in its place. A place Discord says is
  * gone (a thread deleted under it) is let go and a new one found once;
- * false when there is no place, or none that takes the post. A thread the
+ * false when there is no place, or none that takes the post: one Discord
+ * refuses (no access, a locked thread) leaves the message to the caller's
+ * other way to the owner rather than throwing. A thread the
  * owner could not be made a member of would not notify them, so `unheard`
  * is run for it, to reach them another way.
  */
@@ -91,7 +93,10 @@ export async function postInPlace(conversationId: string, msg: OutboundMessage, 
     try {
       await deps.postIn(where.id, msg);
     } catch (err) {
-      if (!goneFromDiscord(err)) throw err;
+      if (!goneFromDiscord(err)) {
+        console.warn(`[discord] a run's place ${where.id} refused its post: ${err instanceof Error ? err.message : String(err)}`);
+        return false;
+      }
       deps.forgetPlace(where.id);
       continue;
     }
