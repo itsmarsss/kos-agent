@@ -1960,13 +1960,17 @@ export class DiscordAdapter implements ChannelAdapter {
   /**
    * A post whose place is found only as it is sent, kept for the connection
    * as any send is: a thread Discord was down to make is made once it is
-   * back, and the post goes there rather than the top of its channel.
+   * back, and the post goes there rather than the top of its channel. One
+   * that finds no place by then goes to the owner's DM, not nowhere.
    */
   async postWhenFound(find: () => Promise<string | undefined>, msg: OutboundMessage): Promise<void> {
     await this.whenUp("a post in a place still to be made", msg, async (m, progress) => {
       const id = await find();
-      if (!id) throw new Error("a post waiting for its place found none on the server");
-      await this.postNow(id, m, progress);
+      if (id) return this.postNow(id, m, progress);
+      if (!this.ownerId) throw new Error("a post waiting for its place found none on the server");
+      await this.dmNow(this.ownerId, m, progress).catch((err: unknown) => {
+        throw Object.assign(new Error(`a post waiting for its place found none on the server, and the owner's DM did not take it: ${errorText(err)}`), { cause: err });
+      });
     });
   }
 
@@ -2704,12 +2708,14 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   async send(recipientId: string, msg: OutboundMessage): Promise<void> {
-    await this.whenUp("a direct message", msg, async (m, progress) => {
-      const user = await this.client.users.fetch(recipientId).catch((err: unknown) => {
-        throw sendFailure(err) === "refused" ? err : unsent(err);
-      });
-      await this.deliver((payload) => user.send(payload), m, { progress });
+    await this.whenUp("a direct message", msg, (m, progress) => this.dmNow(recipientId, m, progress));
+  }
+
+  private async dmNow(recipientId: string, msg: OutboundMessage, progress?: SendProgress): Promise<void> {
+    const user = await this.client.users.fetch(recipientId).catch((err: unknown) => {
+      throw sendFailure(err) === "refused" ? err : unsent(err);
     });
+    await this.deliver((payload) => user.send(payload), msg, { progress });
   }
 
   /**

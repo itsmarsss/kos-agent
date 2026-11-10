@@ -2118,6 +2118,29 @@ describe("while the gateway is down", () => {
     expect(sent).toEqual(["digest"]);
   });
 
+  it("sends a kept post that finds no place by then to the owner's DM", async () => {
+    const { adapter, sent, emit } = await dropped();
+    (adapter as unknown as { ownerId: string }).ownerId = "222";
+    await adapter.postWhenFound(async () => undefined, { text: "digest" });
+    await emit("shardReady");
+    expect(sent).toEqual(["dm:digest"]);
+  });
+
+  it("logs a kept post that finds no place and whose DM fails too", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const { adapter, sent, emit } = await dropped();
+      (adapter as unknown as { ownerId: string }).ownerId = "222";
+      (adapter as unknown as { client: { users: unknown } }).client.users = { fetch: async () => { throw new Error("Cannot send messages to this user"); } };
+      await adapter.postWhenFound(async () => undefined, { text: "digest" });
+      await emit("shardReady");
+      expect(sent).toEqual([]);
+      expect(warn.mock.calls.map((c) => String(c[0])).join("\n")).toMatch(/found none on the server, and the owner's DM did not take it: Cannot send messages/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("goes down on a reconnect or a disconnect and up on a resume, and logs the drop once", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
