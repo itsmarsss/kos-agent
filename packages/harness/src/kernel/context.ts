@@ -265,10 +265,6 @@ const DISCORD_STYLE = [
   "for the presser alone.",
   "When you are answering a press, the message you send with notify is the answer, whole. Do not also write",
   "a reply about having sent it: it goes nowhere, and the reader wanted the thing, not a note saying it was sent.",
-  "",
-  "### After an approval",
-  "When you continue after the owner approved or denied an action, reply in one line: what happened and the",
-  "result. Do not recap the request, the approval, or what you were about to do.",
 ].join("\n");
 
 /** Each surface with a house style: the heading an owner's own style goes under, and the style itself. */
