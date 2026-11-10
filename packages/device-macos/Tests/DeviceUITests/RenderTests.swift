@@ -140,9 +140,15 @@ struct RenderTests {
     host.frame = CGRect(origin: .zero, size: ChatView.size)
     let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
     window.contentView = host
-    host.layoutSubtreeIfNeeded()
+    // The thread is measured, then the empty chat takes that height: a pass or two.
+    for _ in 0..<5 {
+      host.layoutSubtreeIfNeeded()
+      RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    }
     let thread = try #require(OverlayScrollTests.scrollView(in: host))
     let page = try #require(thread.documentView)
+    // The empty chat fills the thread (it is in the middle) and no more (it does not scroll), whatever the host's sizes.
+    #expect(page.frame.height >= thread.contentView.bounds.height - 1, "the empty chat is \(page.frame.height) in a thread \(thread.contentView.bounds.height) tall")
     #expect(page.frame.height <= thread.contentView.bounds.height + 0.5, "the empty chat scrolls by \(page.frame.height - thread.contentView.bounds.height)")
   }
 
