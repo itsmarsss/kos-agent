@@ -653,6 +653,15 @@ describe("who a message may ping", () => {
     await adapter.send("owner-id", { text: "@everyone look" });
     expect(payloads[1]).not.toHaveProperty("allowedMentions");
   });
+
+  it("lets a reminder posted in a thread ping the owner it names", async () => {
+    const payloads: Record<string, unknown>[] = [];
+    const adapter = new DiscordAdapter({ token: "t", ownerId: "222" });
+    const thread = { id: "t7", isSendable: () => true, send: async (p: Record<string, unknown>) => { payloads.push(p); return { id: "m1" }; } };
+    (adapter as unknown as { client: { channels: unknown } }).client = { channels: { fetch: async () => thread } };
+    await adapter.postIn("t7", { text: "<@222> Call The Centre now." });
+    expect(payloads[0]?.allowedMentions).toEqual({ parse: [], users: ["222"] });
+  });
 });
 
 describe("a prompt with a picture", () => {
@@ -2095,6 +2104,43 @@ describe("while the gateway is down", () => {
     expect(sent.at(-1)).toBe("live");
   });
 
+  it("keeps a post whose place is still to be made, and finds the place once it is back", async () => {
+    const { adapter, sent, emit } = await dropped();
+    const asked: string[] = [];
+    await adapter.postWhenFound(async () => {
+      asked.push("found");
+      return "c1";
+    }, { text: "digest" });
+    expect(asked).toEqual([]);
+    expect(sent).toEqual([]);
+    await emit("shardReady");
+    expect(asked).toEqual(["found"]);
+    expect(sent).toEqual(["digest"]);
+  });
+
+  it("sends a kept post that finds no place by then to the owner's DM", async () => {
+    const { adapter, sent, emit } = await dropped();
+    (adapter as unknown as { ownerId: string }).ownerId = "222";
+    await adapter.postWhenFound(async () => undefined, { text: "digest" });
+    await emit("shardReady");
+    expect(sent).toEqual(["dm:digest"]);
+  });
+
+  it("logs a kept post that finds no place and whose DM fails too", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const { adapter, sent, emit } = await dropped();
+      (adapter as unknown as { ownerId: string }).ownerId = "222";
+      (adapter as unknown as { client: { users: unknown } }).client.users = { fetch: async () => { throw new Error("Cannot send messages to this user"); } };
+      await adapter.postWhenFound(async () => undefined, { text: "digest" });
+      await emit("shardReady");
+      expect(sent).toEqual([]);
+      expect(warn.mock.calls.map((c) => String(c[0])).join("\n")).toMatch(/found none on the server, and the owner's DM did not take it: Cannot send messages/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("goes down on a reconnect or a disconnect and up on a resume, and logs the drop once", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
@@ -2842,5 +2888,144 @@ describe("a Discord reply", () => {
     expect((await heardFrom(replyTo({ id: "bot", name: "KOS", content: "Done." }))).context).toBe("Replying to this message of KOS's:\n> Done.");
     expect((await heardFrom(replyTo({ id: "owner-id", name: "owner", content: "x".repeat(400) }))).context).toBe(`Replying to their own earlier message:\n> ${"x".repeat(300)}`);
     expect(await heardFrom(replyTo(undefined))).not.toHaveProperty("context");
+  });
+});
+
+describe("the owner in KOS's threads", () => {
+  /** An adapter whose project channel makes threads that record who was added to them. */
+  function threaded() {
+    const added: [string, string][] = [];
+    const unarchived: string[] = [];
+    let n = 0;
+    const thread = (id: string, archived = false) => ({
+      id,
+      archived,
+      isThread: () => true,
+      setArchived: async (a: boolean) => void (a ? undefined : unarchived.push(id)),
+      members: { add: async (user: string) => void added.push([id, user]) },
+    });
+    const existing: Record<string, unknown> = { t7: thread("t7"), t9: thread("t9", true), c1: { id: "c1", isThread: () => false } };
+    const adapter = new DiscordAdapter({ token: "t", ownerId: "222" });
+    (adapter as unknown as { boundIds: Map<string, string> }).boundIds.set("project:school", "c1");
+    existing["c1"] = { id: "c1", isThread: () => false, threads: { create: async () => thread(`made${++n}`) } };
+    (adapter as unknown as { client: unknown }).client = { channels: { fetch: async (id: string) => existing[id] ?? null } };
+    return { adapter, added, unarchived };
+  }
+
+  it("does not add the owner to a thread it makes, so a mirrored chat does not buzz them", async () => {
+    const { adapter, added } = threaded();
+    expect(await adapter.ensureThread("project:school", "chat-1", "Essay")).toBe("made1");
+    expect(added).toEqual([]);
+  });
+
+  it("adds the owner to a thread already there once, opening it first when archived, and leaves a channel be", async () => {
+    const { adapter, added, unarchived } = threaded();
+    await adapter.joinOwner("t7");
+    await adapter.joinOwner("t7");
+    await adapter.joinOwner("t9");
+    await adapter.joinOwner("c1");
+    expect(added).toEqual([["t7", "222"], ["t9", "222"]]);
+    expect(unarchived).toEqual(["t9"]);
+    // A thread let go is joined again when next it is spoken in.
+    adapter.forgetPlace("t7");
+    await adapter.joinOwner("t7");
+    expect(added).toHaveLength(3);
+  });
+
+  it("says when the owner could not be added, and does not ask Discord again for ten minutes", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const adapter = new DiscordAdapter({ token: "t", ownerId: "222" });
+      let fetched = 0;
+      let refuse = true;
+      const thread = { id: "t5", isThread: () => true, members: { add: async () => { if (refuse) throw Object.assign(new Error("Missing Access"), { code: 50001 }); } } };
+      (adapter as unknown as { client: unknown }).client = { channels: { fetch: async () => (fetched++, thread) } };
+      expect(await adapter.joinOwner("t5")).toBe(false);
+      expect(await adapter.joinOwner("t5")).toBe(false);
+      expect(fetched).toBe(1);
+      expect(warn).toHaveBeenCalledTimes(1);
+      refuse = false;
+      vi.advanceTimersByTime(10 * 60_000 + 1);
+      expect(await adapter.joinOwner("t5")).toBe(true);
+      expect(fetched).toBe(2);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("takes Discord not answering as no refusal: nothing more is sent, and the next post asks again", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const adapter = new DiscordAdapter({ token: "t", ownerId: "222" });
+      const added: string[] = [];
+      let failure: unknown = Object.assign(new Error("getaddrinfo ENOTFOUND discord.com"), { code: "ENOTFOUND" });
+      const thread = {
+        id: "t5",
+        isThread: () => true,
+        members: {
+          add: async (id: string) => {
+            if (failure) throw failure;
+            added.push(id);
+          },
+        },
+      };
+      (adapter as unknown as { client: unknown }).client = { channels: { fetch: async () => thread } };
+      expect(await adapter.joinOwner("t5")).toBe(true);
+      // A refusal that is not for good (a locked thread) leaves it to the DM, and is asked again too.
+      failure = Object.assign(new Error("Thread is locked"), { code: 50083 });
+      expect(await adapter.joinOwner("t5")).toBe(false);
+      failure = undefined;
+      expect(await adapter.joinOwner("t5")).toBe(true);
+      expect(added).toEqual(["222"]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe("a thread made for a chat", () => {
+  it("is bound before the ask is let go, so a post right after finds it rather than making another", async () => {
+    const seen: string[] = [];
+    let made = 0;
+    let again: Promise<string | undefined> | undefined;
+    const adapter: DiscordAdapter = new DiscordAdapter({
+      token: "t",
+      onThreadMade: (threadId, conv) => {
+        seen.push(`bound ${threadId} to ${conv}`);
+        // Asked again while it is being bound: the same thread, not a second.
+        again = adapter.ensureThread("orchestrator:owner", conv, "Nudge");
+      },
+    });
+    (adapter as unknown as { boundIds: Map<string, string> }).boundIds.set("orchestrator:owner", "kos");
+    const kos = { id: "kos", threads: { create: async () => ({ id: `t${++made}` }) } };
+    (adapter as unknown as { client: unknown }).client = { channels: { fetch: async () => kos } };
+    const id = await adapter.ensureThread("orchestrator:owner", "cron:7", "Nudge");
+    seen.push(`answered ${id}`);
+    expect(await again).toBe("t1");
+    expect(seen).toEqual(["bound t1 to cron:7", "answered t1"]);
+    expect(made).toBe(1);
+  });
+});
+
+describe("two first posts at once", () => {
+  it("make one thread for a chat, which both are given", async () => {
+    let made = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const adapter = new DiscordAdapter({ token: "t" });
+    (adapter as unknown as { boundIds: Map<string, string> }).boundIds.set("orchestrator:owner", "kos");
+    const kos = { id: "kos", threads: { create: async () => { made++; await gate; return { id: `t${made}` }; } } };
+    (adapter as unknown as { client: unknown }).client = { channels: { fetch: async () => kos } };
+    const first = adapter.ensureThread("orchestrator:owner", "cron:7", "Nudge");
+    const second = adapter.ensureThread("orchestrator:owner", "cron:7", "Nudge");
+    await new Promise((r) => setTimeout(r, 0));
+    release();
+    expect(await Promise.all([first, second])).toEqual(["t1", "t1"]);
+    expect(made).toBe(1);
+    // Once made and let go, a later ask makes a new one.
+    adapter.forgetPlace("t1");
+    expect(await adapter.ensureThread("orchestrator:owner", "cron:7", "Nudge")).toBe("t2");
   });
 });

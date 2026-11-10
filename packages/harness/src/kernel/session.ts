@@ -163,6 +163,15 @@ export function cronSessionId(jobId: number): string {
   return `cron:${jobId}`;
 }
 
+/**
+ * The one chat KOS's upkeep (kos.backup, kos.memory and the rest) tells of
+ * a failure in, rather than a thread per job: on a server, one thread under
+ * KOS's own channel.
+ */
+export function upkeepSessionId(ownerId: string): string {
+  return `upkeep:${ownerId}`;
+}
+
 export const RETENTION_DEFAULTS: Retention = {
   maxChars: DEFAULT_MAX_CHARS,
   maxToolResultChars: DEFAULT_MAX_TOOL_RESULT_CHARS,

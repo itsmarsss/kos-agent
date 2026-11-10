@@ -121,7 +121,7 @@ import { ARTIFACT_TOOLS } from "../tools/systems.js";
 import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
 import { DISCORD_TOOLS, type Audience, type BoundThread, type DiscordServices, type Listen, type ServerPlace } from "../tools/discord.js";
 import { agentConversationId, agentScope, KOS_FACE_KEY, parseFaceLook, type FaceLook, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
-import { type NotifyPayload, parseTarget } from "../tools/notify.js";
+import { type NotifyPayload, type NotifySent, parseTarget } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
 import type { SuggestionStore } from "../improve/store.js";
@@ -141,7 +141,7 @@ import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme,
 import { facePng } from "../files/facepng.js";
 import { attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
-import { SessionStore, cronSessionId, primarySessionId } from "./session.js";
+import { SessionStore, cronSessionId, primarySessionId, upkeepSessionId } from "./session.js";
 import type { TurnMade } from "./turnmade.js";
 import { ConversationStore, type Conversation, conversationKind, projectConversationId } from "./conversations.js";
 import {
@@ -160,7 +160,7 @@ export interface KernelOptions {
   /** Inference override (tests inject a stub); defaults to the model router. */
   inference?: Inference;
   /** Send a message to the owner via the active channel adapter. */
-  notify?: (payload: NotifyPayload) => Promise<{ id?: string } | void>;
+  notify?: (payload: NotifyPayload) => Promise<NotifySent | void>;
   /** Additional (e.g. agent-promoted or third-party) modules to load. */
   extraModules?: KosModule[];
   /** Extra modules that switch off in Settings beside the built-in features, by module name. */
@@ -619,7 +619,7 @@ export class Kernel {
     system: string;
     sessionless: boolean;
     features: BuiltinFeature[];
-    notify?: (payload: NotifyPayload) => Promise<{ id?: string } | void>;
+    notify?: (payload: NotifyPayload) => Promise<NotifySent | void>;
     onApprovalRequested?: (action: PendingAction) => void;
     restart?: () => Promise<void>;
     discord?: DiscordServices;
@@ -744,8 +744,9 @@ export class Kernel {
       runs: args.runs,
       health: args.health,
       report: (key, label, ok, error) => {
-        this.caretaker.report(key, label, ok, error);
         const jobId = Number(key.replace(/^cron:/, ""));
+        const job = Number.isInteger(jobId) ? this.crons.get(jobId) : undefined;
+        this.caretaker.report(key, label, ok, error, job ? this.newsPlace(job) : undefined);
         if (Number.isInteger(jobId)) this.bus.emit({ kind: "cron:fired", jobId, name: label, ok, error });
       },
       backup: args.backup,
@@ -1102,6 +1103,8 @@ export class Kernel {
           // A schedule's prompt, a blob's own timer, a guest: the owner did not start this one.
           attended,
           owner,
+          // The job behind a schedule's run, whose unaddressed messages go to its place.
+          ...(opts.via === "schedule" && opts.from?.kind === "schedule" && opts.from.id ? { scheduled: Number(opts.from.id) } : {}),
           // Where the words were said, for a start on that device that needs no ask from a tool.
           ...(opts.channel && text.trim() ? { origin: { surface: opts.channel, said: text } } : {}),
           heard: () => this.hear(sessionId, mark),
@@ -1387,7 +1390,11 @@ export class Kernel {
                 sessionId,
                 ...(opts.origin === "system" ? [] : [text]),
               );
-              this.said(sessionId, text, reply, opts.origin ?? "owner", opts.channel, opts.kept ?? [], resumed || opts.replayed === true, opts.guest ? undefined : opts.from);
+              this.said(sessionId, text, reply, opts.origin ?? "owner", opts.channel, opts.kept ?? [], {
+                resumed: resumed || opts.replayed === true,
+                from: opts.guest ? undefined : opts.from,
+                dm: opts.room?.kind === "dm",
+              });
             }
             /*
              * One row per model the call actually used.
@@ -1476,6 +1483,7 @@ export class Kernel {
               ...(opts.kept?.length ? { kept: opts.kept } : {}),
               ...(resumed || opts.replayed ? { resumed: true } : {}),
               ...(opts.from && !opts.guest ? { from: opts.from } : {}),
+              ...(opts.room?.kind === "dm" ? { dm: true } : {}),
               runId,
               useSession,
               before,
@@ -1596,7 +1604,17 @@ export class Kernel {
     // brief and reach, so what it remembers is the agent's own.
     if (job.agent && this.roles.exists(job.agent)) return this.ensureAgentConversation(job.agent).id;
     const id = cronSessionId(job.id);
-    if (!this.conversations.get(id)) {
+    const thread = this.conversations.get(id);
+    if (thread) {
+      // A job moved into a project after its first run takes its thread
+      // along: left at the root, the run could not reach the project's
+      // tables and spoke in the wrong place. Its Discord thread, under the
+      // old home's channel, is let go; the next post makes one under the new.
+      if (thread.projectSlug !== (job.projectSlug ?? null)) {
+        this.conversations.moveToProject(id, job.projectSlug ?? null);
+        for (const [threadId, bound] of Object.entries(this.threadBindings())) if (bound === id) this.unbindThread(threadId);
+      }
+    } else {
       this.conversations.create({
         id,
         userId: this.profile.ownerId,
@@ -1609,6 +1627,32 @@ export class Kernel {
           "Each run is a turn in this thread, so what it did last time is above.",
           "The owner may join in and ask about a run; answer as yourself.",
         ].join(" "),
+      });
+    }
+    return id;
+  }
+
+  /** The conversation a job's runs speak from, without making it: the blob's thread, or the job's own. */
+  private jobPlace(job: CronJob): string {
+    return job.agent && this.roles.exists(job.agent) ? agentConversationId(job.agent) : cronSessionId(job.id);
+  }
+
+  /**
+   * Where a job's failing and recovered news is told: its own place, or for
+   * KOS's upkeep (kos.*) the one chat all of upkeep shares, made when first
+   * needed, rather than a thread for each. Without a server there is no
+   * thread for that chat to be: upkeep's news goes to the owner as before.
+   */
+  private newsPlace(job: CronJob): string | undefined {
+    if (!job.name.startsWith("kos.")) return this.jobPlace(job);
+    if (!this.discord) return undefined;
+    const id = upkeepSessionId(this.profile.ownerId);
+    if (!this.conversations.get(id)) {
+      this.conversations.create({
+        id,
+        userId: this.profile.ownerId,
+        title: "KOS upkeep",
+        brief: "KOS's own upkeep (kos.backup, kos.memory, kos.dream, kos.observe, kos.improve) says here when one of its jobs fails or recovers.",
       });
     }
     return id;
@@ -1669,7 +1713,7 @@ export class Kernel {
      * job runs in the blob's own thread and is left out.
      */
     if (id.startsWith("cron:") && (failed > 0 || this.firedByHand.has(job.id))) {
-      this.said(id, "The schedule fired.", summary, "system", undefined, []);
+      this.said(id, "The schedule fired.", summary, "system", undefined, [], { failed: failed > 0 });
     }
   }
 
@@ -1693,7 +1737,7 @@ export class Kernel {
     // its own; otherwise the answer stays in its thread and the brief says
     // what to tell.
     const role = job.agent ? this.roles.get(job.agent) : undefined;
-    if (role?.report === "always" && res.reply.trim()) this.caretaker.tell(res.reply, this.senderFor(id));
+    if (role?.report === "always" && res.reply.trim()) this.caretaker.tell(res.reply, { from: this.senderFor(id) });
     return res.reply;
   }
 
@@ -3178,6 +3222,29 @@ export class Kernel {
     });
   }
 
+  /**
+   * The channel a chat's thread is made under on a server, by its key: its
+   * project's channel, or KOS's own for a chat or a schedule at the root.
+   * Nothing for a chat that is a channel's own (KOS, a project's
+   * orchestrator, a blob), a surface's stream, the primary chat, a chat
+   * begun on a device or messaging surface (a Chrome or Mac panel, the DM,
+   * iMessage, SMS), or one such a surface is pointed at now: that surface
+   * keeps its chat, and a thread would answer it in a second place.
+   */
+  threadHome(conversationId: string): string | undefined {
+    const owner = this.profile.ownerId;
+    const chat = this.conversations.get(conversationId);
+    if (!chat) return undefined;
+    if (chat.projectSlug) return chat.id === projectConversationId(chat.projectSlug) ? undefined : `project:${chat.projectSlug}`;
+    const kind = conversationKind(chat, owner);
+    if (kind === "schedule") return orchestratorId(owner);
+    if (kind !== "chat" || chat.role) return undefined;
+    if (chat.id === primarySessionId(owner)) return undefined;
+    if (chat.channel && chat.channel !== "dashboard") return undefined;
+    if (this.conversations.pointersAt(chat.id).some((surface) => surface !== "dashboard")) return undefined;
+    return orchestratorId(owner);
+  }
+
   /** A thread that is gone: its binding goes with it. */
   unbindThread(threadId: string): void {
     const { [threadId]: _gone, ...rest } = this.threadBindings();
@@ -3466,6 +3533,8 @@ export class Kernel {
     attended?: boolean;
     /** True for the owner's own turn alone. */
     owner?: boolean;
+    /** The job behind a schedule's run, whose unaddressed messages go to the job's place. */
+    scheduled?: number;
     /** The surface the turn's words arrived on, and those words. */
     origin?: TurnOrigin;
     /** The owner's words said since the last call, for the model with this call's result. */
@@ -3513,6 +3582,7 @@ export class Kernel {
       ...(opts.waitForApproval === false ? { waitForApproval: false } : {}),
       ...(opts.attended === false ? { attended: false } : {}),
       ...(opts.owner === true ? { owner: true } : {}),
+      ...(opts.scheduled !== undefined ? { scheduled: opts.scheduled } : {}),
       ...(opts.origin ? { origin: opts.origin } : {}),
       onQueued: (action) => {
         opts.onQueued?.(action);
@@ -3588,6 +3658,8 @@ export class Kernel {
       resumed?: boolean;
       /** Who passed the words on, when a chat or a schedule did rather than the owner. */
       from?: MessageFrom;
+      /** The words came in a direct message, where an answer after an approval goes back. */
+      dm?: boolean;
       runId: number;
       useSession: boolean;
       /** How long the history was when the turn began; what follows is the turn's own. */
@@ -3681,13 +3753,21 @@ export class Kernel {
       else await remembering;
     }
 
-    if (useSession) this.said(sessionId, text, reply, origin ?? "owner", ctx.channel, ctx.kept ?? [], ctx.resumed ?? false, ctx.from);
+    if (useSession) this.said(sessionId, text, reply, origin ?? "owner", ctx.channel, ctx.kept ?? [], { resumed: ctx.resumed ?? false, from: ctx.from, dm: ctx.dm });
     this.runs.finish(runId, "ok");
     return reply;
   }
 
   /** A turn's exchange, told to whoever shows the chat elsewhere, with the files that came with it and who passed the words on. */
-  private said(conversationId: string, text: string, reply: string, origin: "owner" | "system", channel: string | undefined, files: KeptFile[], resumed = false, from?: MessageFrom): void {
+  private said(
+    conversationId: string,
+    text: string,
+    reply: string,
+    origin: "owner" | "system",
+    channel: string | undefined,
+    files: KeptFile[],
+    extra: { resumed?: boolean; from?: MessageFrom | undefined; dm?: boolean | undefined; failed?: boolean } = {},
+  ): void {
     this.bus.emit({
       kind: "turn:said",
       conversationId,
@@ -3697,8 +3777,10 @@ export class Kernel {
       origin,
       channel: channel ?? null,
       files,
-      ...(resumed ? { resumed: true } : {}),
-      ...(from ? { from } : {}),
+      ...(extra.resumed ? { resumed: true } : {}),
+      ...(extra.from ? { from: extra.from } : {}),
+      ...(extra.dm ? { dm: true } : {}),
+      ...(extra.failed ? { failed: true } : {}),
     });
   }
 
@@ -4269,6 +4351,7 @@ export class Kernel {
           // holding a queue slot until the owner wakes up.
           waitForApproval: false,
           attended: false,
+          scheduled: job.id,
         }),
         inference: this.inference,
         buildSystem: (j) => this.cronSystemPrompt(j),

@@ -13,6 +13,7 @@ export {
   notifyModule,
   SurfaceDownError,
   type NotifyPayload,
+  type NotifySent,
 } from "./notify.js";
 export {
   createHttpModule,

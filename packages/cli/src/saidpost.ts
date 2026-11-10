@@ -10,20 +10,148 @@ export interface Said {
   files: { name: string; path: string }[];
   resumed?: boolean;
   from?: MessageFrom;
+  /** The words came in the owner's DM. */
+  dm?: boolean;
+  /** A scheduled run where something failed. */
+  failed?: boolean;
 }
 
-export interface SaidDeps {
+/** A scheduled job, as much of it as where its runs speak depends on. */
+export interface JobFacts {
+  id: number;
+  name: string;
+  type: "actions" | "self_prompt";
+  projectSlug: string | null;
+}
+
+/** KOS's own upkeep (kos.backup, kos.memory, kos.dream, kos.observe, kos.improve): it speaks only when something needs the owner. */
+export function isUpkeep(job: Pick<JobFacts, "name">): boolean {
+  return job.name.startsWith("kos.");
+}
+
+/**
+ * Whether what a job sends to its place pings the owner. A fixed-actions
+ * job's message is a reminder in the owner's own words, set for the time
+ * they wanted to hear it, so it @mentions them; a prompted run decides
+ * what is worth saying and posts without a ping, as any message in a
+ * thread does. KOS's upkeep pings nobody.
+ */
+export function pingsOwner(job: Pick<JobFacts, "name" | "type">): boolean {
+  return job.type === "actions" && !isUpkeep(job);
+}
+
+/** What finding a conversation's place on the server needs. */
+export interface PlaceDeps {
   /** Where a conversation shows on the server: its channel or thread, or nothing. */
   targetFor(conversationId: string): string | undefined;
-  /** The scheduled job a conversation is the thread of, when it is one. */
-  jobOf(conversationId: string): { id: number; name: string; projectSlug: string | null } | undefined;
+  /** The channel key its thread is made under (a project's, or KOS's own at the root), or nothing. */
+  homeOf(conversationId: string): string | undefined;
+  /** What a new thread for it is called. */
+  titleOf(conversationId: string): string;
+  /** Make a thread for a conversation under its home, bound to it once made. */
   ensureThread(channelKey: string, conversationId: string, title: string): Promise<string | undefined>;
-  bindThread(threadId: string, conversationId: string): void;
+  /** Make the owner a member of a thread, so what lands there notifies them as a DM would; true for a channel. False when they are not in it. Never throws. */
+  joinOwner(placeId: string): Promise<boolean>;
+  /** Let go of a channel or thread Discord says is gone, and whatever was bound to it. */
+  forgetPlace(placeId: string): void;
+  postIn(target: string, msg: OutboundMessage): Promise<void>;
+  /** Whether Discord is reachable now. */
+  connected(): boolean;
+  /** A post kept in the send queue with a way to find its place, found once Discord is back. */
+  postWhenFound(find: () => Promise<string | undefined>, msg: OutboundMessage): Promise<void>;
+}
+
+/** Discord's answer for a channel or thread that no longer exists. */
+function goneFromDiscord(err: unknown): boolean {
+  return (err as { code?: unknown } | null)?.code === 10003;
+}
+
+/**
+ * A scheduled run's message posted in its place. A place Discord says is
+ * gone (a thread deleted under it) is let go and a new one found once;
+ * false when there is no place, or none that takes the post: one Discord
+ * refuses (no access, a locked thread) leaves the message to the caller's
+ * other way to the owner rather than throwing. "held" when it waits for
+ * Discord to come back, its place found then. A thread the owner could not
+ * be made a member of would not notify them, so `unheard` is run for it,
+ * to reach them another way.
+ */
+export async function postInPlace(conversationId: string, msg: OutboundMessage, deps: PlaceDeps, unheard?: () => Promise<void>): Promise<"posted" | "held" | false> {
+  // With Discord down a thread cannot be made, and its home channel's top
+  // is not its place: the post waits in the send queue, and the thread is
+  // made when Discord is back. A place already there is queued by the post.
+  // The queue may find it more than once (a send tried again): the owner is
+  // told another way once.
+  if (!deps.connected() && !deps.targetFor(conversationId) && deps.homeOf(conversationId)) {
+    let toldElsewhere = false;
+    await deps.postWhenFound(async () => {
+      const where = await placeOf(conversationId, deps);
+      if (where && !where.heard && !toldElsewhere) {
+        toldElsewhere = true;
+        await unheard?.();
+      }
+      return where?.id;
+    }, msg);
+    return "held";
+  }
+  for (let tries = 0; tries < 2; tries++) {
+    const where = await placeOf(conversationId, deps).catch(() => undefined);
+    if (!where) return false;
+    try {
+      await deps.postIn(where.id, msg);
+    } catch (err) {
+      if (!goneFromDiscord(err)) {
+        console.warn(`[discord] a run's place ${where.id} refused its post: ${err instanceof Error ? err.message : String(err)}`);
+        return false;
+      }
+      deps.forgetPlace(where.id);
+      continue;
+    }
+    if (!where.heard) await unheard?.();
+    return "posted";
+  }
+  return false;
+}
+
+/** A run's place on the server, and whether the owner is notified of what lands there. */
+export interface RunPlace {
+  id: string;
+  heard: boolean;
+}
+
+/**
+ * Where a scheduled run speaks on the server: its own channel or thread,
+ * the thread made now under its home when it has none yet, or its home's
+ * channel when no thread can be made. Nothing when it has no place there.
+ * Only a run's place (a job's, a blob's, KOS upkeep's) is found here, and
+ * the owner is made a member of the thread it finds, so a post there
+ * reaches them as the DM did; a mirrored chat's thread is not joined.
+ */
+export async function placeOf(conversationId: string, deps: PlaceDeps): Promise<RunPlace | undefined> {
+  const id = await findPlace(conversationId, deps);
+  return id ? { id, heard: await deps.joinOwner(id) } : undefined;
+}
+
+async function findPlace(conversationId: string, deps: PlaceDeps): Promise<string | undefined> {
+  const bound = deps.targetFor(conversationId);
+  if (bound) return bound;
+  const home = deps.homeOf(conversationId);
+  if (!home) return undefined;
+  const made = await deps.ensureThread(home, conversationId, deps.titleOf(conversationId)).catch(() => undefined);
+  return made ?? deps.targetFor(home);
+}
+
+export interface SaidDeps extends PlaceDeps {
+  /** The scheduled job a conversation is the thread of, when it is one. */
+  jobOf(conversationId: string): JobFacts | undefined;
+  /** Whether the owner alone reads a conversation's place: a run's words are the owner's, not a guest's. */
+  ownerOnly(conversationId: string): boolean;
+  /** Whether a scheduled run here already said its piece this turn, in its place or the DM; asking clears it. */
+  saidItsPiece(conversationId: string): boolean;
   senderFor(conversationId: string): Sender | undefined;
   speakerFor(from: MessageFrom): Sender;
   ownerSender(): Promise<Sender | undefined>;
   filesFor(files: { name: string; path: string }[]): NonNullable<OutboundMessage["files"]>;
-  postIn(target: string, msg: OutboundMessage): Promise<void>;
   /** The owner's DM. */
   sendOwner(msg: OutboundMessage): Promise<void>;
 }
@@ -38,29 +166,37 @@ export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
   // that waited on an approval was answered "waiting on you" there, and
   // the answer after the decision has only this way back.
   if (said.channel === "discord" && !said.resumed) return;
-  // A scheduled run of a project's job shows in the job's own thread, under
-  // the job's name: a daily post is what a schedule is for. Only a run the
-  // harness started gets the run format; anything the owner says in a job's
-  // thread is a conversation, told below.
+  // A run whose message already reached the owner (in its place, or in the
+  // DM when guests read its place) has said its piece; its closing words
+  // ("Digest sent") would only repeat it. A failure after it is news all
+  // the same.
+  const spoke = deps.saidItsPiece(said.conversationId) && said.origin === "system" && !said.failed;
+  // A scheduled run shows in the job's own thread, under the job's name: a
+  // project's job under the project's channel, one at the root under KOS's
+  // own. A daily post is what a schedule is for. Only a run the harness
+  // started gets the run format; anything the owner says in a job's thread
+  // is a conversation, told below. KOS's upkeep keeps its runs to itself.
   const job = deps.jobOf(said.conversationId);
   if (job && said.origin === "system") {
-    let where = deps.targetFor(said.conversationId);
-    if (!where && job.projectSlug) {
-      where = await deps.ensureThread(`project:${job.projectSlug}`, said.conversationId, job.name).catch(() => undefined);
-      if (where) deps.bindThread(where, said.conversationId);
-    }
-    where ??= job.projectSlug ? deps.targetFor(`project:${job.projectSlug}`) : undefined;
+    if (spoke || isUpkeep(job) || !said.reply.trim()) return;
     // With a Run now button, the same path the dashboard's Run now takes.
-    if (where && said.reply.trim()) await deps.postIn(where, { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] });
+    const run: OutboundMessage = { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] };
+    // A place guests can read is not the run's: the owner hears it in the DM.
+    if (deps.ownerOnly(said.conversationId)) await postInPlace(said.conversationId, run, deps);
+    else await deps.sendOwner(run);
     return;
   }
+  if (spoke) return;
   const target = deps.targetFor(said.conversationId);
   const from = deps.senderFor(said.conversationId);
-  if (!target) {
-    // A resumed turn asked in the DM has no channel or thread: its answer goes back to the DM.
-    if (said.channel === "discord" && said.resumed && said.reply.trim()) await deps.sendOwner({ text: said.reply, ...(from ? { from } : {}) });
+  // A resumed turn asked in the DM is answered in the DM, where it was
+  // asked, even when its chat also has a thread; one with no channel or
+  // thread has nowhere else to go.
+  if (said.channel === "discord" && said.resumed && (said.dm || !target)) {
+    if (said.reply.trim()) await deps.sendOwner({ text: said.reply, ...(from ? { from } : {}) });
     return;
   }
+  if (!target) return;
   if (said.origin === "owner" && said.text.trim() && said.channel !== "discord") {
     // The files that came with the words go too; one that is gone is simply not shown.
     const files = deps.filesFor(said.files);

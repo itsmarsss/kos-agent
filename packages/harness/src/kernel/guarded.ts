@@ -5,7 +5,7 @@ import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
 import { injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
-import { attendance, caller, onSite, origin, ownership, turn, turnStop, type TurnOrigin } from "./caller.js";
+import { attendance, caller, onSite, origin, ownership, scheduled, turn, turnStop, type TurnOrigin } from "./caller.js";
 
 export interface GuardedToolsDeps {
   /** A big result set aside as it comes back: whole with its handle, or its start and an outline when huge (in an SDK query). */
@@ -43,6 +43,8 @@ export interface GuardedToolsDeps {
   attended?: boolean;
   /** True for the owner's own turn alone; see `ownership`. */
   owner?: boolean;
+  /** The job whose run this is, for a schedule's run; see `scheduled`. */
+  scheduled?: number;
   /** The surface the turn's words arrived on, and those words; see `origin`. */
   origin?: TurnOrigin;
   /**
@@ -314,8 +316,11 @@ export class GuardedTools implements ToolBox {
     const inTurn = <T>(work: () => Promise<T>): Promise<T> => (turnId ? turn.run(turnId, () => stoppable(work)) : stoppable(work));
     const from = this.deps.origin;
     const placed = <T>(work: () => Promise<T>): Promise<T> => (from ? origin.run(from, work) : work());
+    // Set for every call, cleared when this turn is no schedule's: a turn a
+    // scheduled run started (a dispatch, a handoff) must not inherit its job.
+    const job = this.deps.scheduled;
     const within = <T>(work: () => Promise<T>): Promise<T> =>
-      attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work)))));
+      scheduled.run(job, () => attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work))))));
     const run = async (n: string, i: Record<string, unknown>, site?: string): Promise<ToolExecution> => {
       started.ran = true;
       const ended = this.deps.running?.(n);
