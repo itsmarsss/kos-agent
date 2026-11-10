@@ -67,7 +67,7 @@ public struct HomeView: View {
         .padding(.horizontal, Theme.gutter)
         .padding(.top, 14)
       ScrollViewReader { scroller in
-        ScrollView(.vertical) {
+        OverlayScroll {
           page
             .padding(.horizontal, Theme.gutter)
             .padding(.top, 14)
@@ -279,7 +279,8 @@ public struct HomeView: View {
         Text(model.kos.isEmpty
           ? "From KOS: Settings, Devices, Add a device. Open its link or paste it here."
           : "From that KOS: Settings, Devices, Add a device. Pairing one already here replaces it.")
-          .font(.kos(.detail)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+          // The kit's .hint: the muted grey at the base size.
+          .font(.kos(.dense)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
         if let page = model.devicesPage {
           Spacer(minLength: 4)
           KOSLink("Devices", to: page)

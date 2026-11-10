@@ -111,24 +111,41 @@ public struct RowText: View {
   private let titleLines: Int?
   private let detailLines: Int?
   private let cut: Text.TruncationMode
+  private let setting: Bool
 
   /// `size` is the title's; `cut` is where a title too long for the row is cut (the middle, for an address).
-  public init(_ title: String, _ detail: String? = nil, size: KOSType = .dense, titleLines: Int? = nil, detailLines: Int? = nil, cut: Text.TruncationMode = .tail) {
+  /// `setting` sets a setting's words as the popup's `.setting .line-text--wrap`: the title at the control size,
+  /// both lines on the body's 1.4 leading rather than the system's tighter one.
+  public init(_ title: String, _ detail: String? = nil, size: KOSType = .dense, titleLines: Int? = nil, detailLines: Int? = nil, cut: Text.TruncationMode = .tail, setting: Bool = false) {
     self.title = title
     self.detail = detail
-    self.size = size
+    self.size = setting ? .control : size
     self.titleLines = titleLines
     self.detailLines = detailLines
     self.cut = cut
+    self.setting = setting
   }
 
   public var body: some View {
     VStack(alignment: .leading, spacing: 2) {
       Text(title).font(.kos(size, .semibold)).foregroundStyle(Theme.text).lineLimit(titleLines).truncationMode(cut)
+        .modifier(Leading(size: size.rawValue, on: setting))
       if let detail {
         Text(detail).font(.kos(.small)).foregroundStyle(Theme.muted).lineLimit(detailLines)
           .fixedSize(horizontal: false, vertical: detailLines == 1 ? false : true)
+          .modifier(Leading(size: KOSType.small.rawValue, on: setting))
       }
+    }
+  }
+
+  /// The web's line-height of 1.4 over the system's own (about 1.2): the difference between lines, and half of it above and below.
+  private struct Leading: ViewModifier {
+    let size: CGFloat
+    let on: Bool
+
+    func body(content: Content) -> some View {
+      let extra = on ? size * 0.2 : 0
+      content.lineSpacing(extra).padding(.vertical, extra / 2)
     }
   }
 }
@@ -149,7 +166,7 @@ public struct SwitchRow: View {
 
   public var body: some View {
     HStack(alignment: .top, spacing: 12) {
-      RowText(title, detail)
+      RowText(title, detail, setting: true)
       Spacer(minLength: 8)
       KOSSwitch(isOn: isOn, set: set)
     }
@@ -660,12 +677,63 @@ public struct KOSChoices<Value: Hashable>: View {
   }
 
   public var body: some View {
-    HStack(spacing: 6) {
+    // The kit's .chips wrap: a row too long for the card goes on under itself.
+    ChipFlow(spacing: 6) {
       ForEach(options, id: \.value) { option in
         Button(option.label) { choose(option.value) }
           .buttonStyle(ChipStyle(selected: option.value == selected))
       }
     }
+  }
+}
+
+/// Chips left to right, on to the next line when the next one does not fit, as flex-wrap lays them.
+struct ChipFlow: Layout {
+  let spacing: CGFloat
+
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    let rows = self.rows(subviews, width: proposal.width ?? .infinity)
+    // As wide as offered, as a block of flex-wrap is; its widest row when offered any width.
+    let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? rows.map(\.width).max() ?? 0
+    let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, rows.count - 1))
+    return CGSize(width: width, height: height)
+  }
+
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    var y = bounds.minY
+    for row in rows(subviews, width: bounds.width) {
+      var x = bounds.minX
+      for i in row.items {
+        let size = subviews[i].sizeThatFits(.unspecified)
+        subviews[i].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+        x += size.width + spacing
+      }
+      y += row.height + spacing
+    }
+  }
+
+  private struct Row {
+    var items: [Int] = []
+    var width: CGFloat = 0
+    var height: CGFloat = 0
+  }
+
+  private func rows(_ subviews: Subviews, width: CGFloat) -> [Row] {
+    var rows: [Row] = []
+    var row = Row()
+    for (i, view) in subviews.enumerated() {
+      let size = view.sizeThatFits(.unspecified)
+      let next = row.items.isEmpty ? size.width : row.width + spacing + size.width
+      if !row.items.isEmpty && next > width {
+        rows.append(row)
+        row = Row()
+      }
+      row.width = row.items.isEmpty ? size.width : row.width + spacing + size.width
+      row.height = max(row.height, size.height)
+      row.items.append(i)
+    }
+    if !row.items.isEmpty { rows.append(row) }
+    return rows
   }
 }
 
@@ -690,8 +758,9 @@ public struct ChipStyle: ButtonStyle {
       configuration.label
         .font(.kos(.detail, selected ? .semibold : .medium))
         .foregroundStyle(selected ? Theme.accent : hovering ? Theme.text : Theme.muted)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5.5)
+        // The kit's .chips button: 0.3rem by 0.65rem around a line of 1.4, 28 high.
+        .padding(.horizontal, 10.5)
+        .padding(.vertical, 6.5)
         .background(selected ? Theme.accent.opacity(Theme.tint) : hovering ? Theme.line.opacity(0.7) : Theme.panel2, in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous).strokeBorder(selected ? Theme.accent.opacity(Theme.edge) : hovering ? Theme.lineStrong : Theme.line))
         .scaleEffect(configuration.isPressed ? 0.97 : 1)

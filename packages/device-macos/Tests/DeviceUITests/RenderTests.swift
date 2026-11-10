@@ -130,6 +130,28 @@ struct RenderTests {
     #expect(size.height == ChatView.size.height)
   }
 
+  /// The empty chat in the middle of the thread, as the side panel's is, with nothing to scroll (and so no thumb).
+  @Test func theEmptyChatFitsItsThread() throws {
+    let model = ChatModel()
+    model.paired = true
+    model.online = true
+    model.show(conversation: nil, title: "Mac", lines: [])
+    let host = NSHostingView(rootView: ChatView(model: model))
+    host.frame = CGRect(origin: .zero, size: ChatView.size)
+    let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.contentView = host
+    // The thread is measured, then the empty chat takes that height: a pass or two.
+    for _ in 0..<5 {
+      host.layoutSubtreeIfNeeded()
+      RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    }
+    let thread = try #require(OverlayScrollTests.scrollView(in: host))
+    let page = try #require(thread.documentView)
+    // The empty chat fills the thread (it is in the middle) and no more (it does not scroll), whatever the host's sizes.
+    #expect(page.frame.height >= thread.contentView.bounds.height - 1, "the empty chat is \(page.frame.height) in a thread \(thread.contentView.bounds.height) tall")
+    #expect(page.frame.height <= thread.contentView.bounds.height + 0.5, "the empty chat scrolls by \(page.frame.height - thread.contentView.bounds.height)")
+  }
+
   /// A turn going: Stop in the box; asking on the screen; the owner holding the Mac; then a selection on its way, with a menu open.
   @Test func chatWindowStopAskPausedAndSelection() throws {
     let model = ChatModel()
@@ -251,7 +273,7 @@ struct RenderTests {
       $0.theme = .light
     }
     _ = try render("settings", HomeView(model: model), height: HomeView.height)
-    _ = try render("settings-full", HomeView(model: model), height: 1100)
+    _ = try render("settings-full", HomeView(model: model), height: 1300)
   }
 
   @Test func consentWithALengthOfTheOwnersOwn() throws {

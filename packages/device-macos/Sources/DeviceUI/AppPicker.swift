@@ -73,13 +73,15 @@ struct AppPicker: View {
           .frame(maxWidth: .infinity)
           .padding(.vertical, 18)
       } else {
-        ScrollView {
+        OverlayScroll {
           LazyVStack(spacing: 1) {
             ForEach(shown) { app in
               PickerRow(app: app) { choose(app.id) }
             }
           }
           .padding(5)
+          // Room for the thumb at the right, so a row's right end still takes the press.
+          .padding(.trailing, 2)
         }
         .frame(height: min(CGFloat(shown.count) * (PickerRow.height + 1) + 10, 300))
       }

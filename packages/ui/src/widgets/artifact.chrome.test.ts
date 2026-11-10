@@ -550,7 +550,8 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await sheetPage("/sheet", `<h1>The year</h1>${data}<div style="display:flex;gap:12px"><section>${data}</section></div>`, { grids });
     type Probe = { page: number; view: number; grids: { wide: number; box: number; scrolled: number; held: boolean }[] };
-    const probe = await ask<Probe>("grids", (p) => p.grids.length === 2);
+    // Until both grids are laid out and their frozen columns pinned, a load the probe can beat on a slow runner; bounded by ask.
+    const probe = await ask<Probe>("grids", (p) => p.grids.length === 2 && p.grids.every((g) => g.wide > g.box && g.scrolled === 400 && g.held));
     expect(probe.view).toBe(390);
     expect(probe.page).toBeLessThanOrEqual(probe.view);
     expect(probe.grids).toHaveLength(2);

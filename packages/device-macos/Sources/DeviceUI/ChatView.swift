@@ -11,6 +11,8 @@ public struct ChatView: View {
   @State private var switching = false
   /// Which line of the / or @ menu Return takes.
   @State private var picked = 0
+  /// How tall the thread shows, so the empty chat can take that height and sit in its middle.
+  @State private var threadHeight: CGFloat = 0
   @FocusState private var typing: Bool
 
   public static let size = CGSize(width: 380, height: 560)
@@ -106,10 +108,12 @@ public struct ChatView: View {
 
   private var thread: some View {
     ScrollViewReader { reader in
-      ScrollView {
+      OverlayScroll {
         LazyVStack(alignment: .leading, spacing: 10) {
           if model.lines.isEmpty && model.sending.isEmpty && model.notices.isEmpty {
             EmptyChat(paired: model.paired, silent: model.silent, online: model.online, ask: model.say)
+              // The side panel's .empty-state sits in the middle of the thread (margin: auto), and the thread does not scroll.
+              .frame(minHeight: max(0, threadHeight - EmptyChat.threadChrome))
           }
           ForEach(model.items) { item in
             ItemView(item: item, model: model)
@@ -132,6 +136,8 @@ public struct ChatView: View {
         .padding(.bottom, 8)
         .textSelection(.enabled)
       }
+      // Measured here, not by containerRelativeFrame, which macOS 15 resolves against the window, not the scroll view.
+      .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { threadHeight = $0 }
       .onChange(of: model.items.count) { reader.scrollTo("end", anchor: .bottom) }
       .onChange(of: model.stories) { reader.scrollTo("end", anchor: .bottom) }
       .onChange(of: model.asks.count) { reader.scrollTo("end", anchor: .bottom) }
@@ -372,8 +378,10 @@ private struct EmptyChat: View {
     .frame(maxWidth: 300)
     .padding(24)
     .frame(maxWidth: .infinity)
-    .padding(.top, 16)
   }
+
+  /// What the thread holds around the empty state: its padding, 16 above and 8 below, and the end marker with its gap.
+  static let threadChrome: CGFloat = 16 + 8 + 1 + 10
 
   /// The kit's .hint: muted at 13, as the dashboard and the side panel draw theirs.
   private func hint(_ words: String) -> some View {
@@ -668,7 +676,7 @@ private struct Switcher: View {
       if chats.isEmpty {
         Text("Loading your chats").font(.kos(.detail)).foregroundStyle(Theme.faint).padding(8)
       }
-      ScrollView {
+      OverlayScroll {
         VStack(alignment: .leading, spacing: 1) {
           ForEach(shown) { chat in
             MenuRow(on: chat.id == current, action: { pick(chat.id) }) { _ in
@@ -680,6 +688,8 @@ private struct Switcher: View {
             }
           }
         }
+        // Room for the thumb at the right, so a row's right end still takes the press.
+        .padding(.trailing, 6)
       }
       .frame(maxHeight: 280)
     }
