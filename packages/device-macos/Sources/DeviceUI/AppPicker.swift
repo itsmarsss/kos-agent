@@ -73,7 +73,7 @@ struct AppPicker: View {
           .frame(maxWidth: .infinity)
           .padding(.vertical, 18)
       } else {
-        ScrollView {
+        OverlayScroll {
           LazyVStack(spacing: 1) {
             ForEach(shown) { app in
               PickerRow(app: app) { choose(app.id) }

@@ -106,7 +106,7 @@ public struct ChatView: View {
 
   private var thread: some View {
     ScrollViewReader { reader in
-      ScrollView {
+      OverlayScroll {
         LazyVStack(alignment: .leading, spacing: 10) {
           if model.lines.isEmpty && model.sending.isEmpty && model.notices.isEmpty {
             EmptyChat(paired: model.paired, silent: model.silent, online: model.online, ask: model.say)
@@ -668,7 +668,7 @@ private struct Switcher: View {
       if chats.isEmpty {
         Text("Loading your chats").font(.kos(.detail)).foregroundStyle(Theme.faint).padding(8)
       }
-      ScrollView {
+      OverlayScroll {
         VStack(alignment: .leading, spacing: 1) {
           ForEach(shown) { chat in
             MenuRow(on: chat.id == current, action: { pick(chat.id) }) { _ in

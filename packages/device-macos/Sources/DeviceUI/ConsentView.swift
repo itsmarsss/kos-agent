@@ -202,7 +202,7 @@ struct TargetPicker: View {
           Text("· KOS asked for \(app)").font(.kos(.small)).foregroundStyle(Theme.faint)
         }
       }
-      ScrollView {
+      OverlayScroll {
         LazyVGrid(columns: columns, spacing: 8) {
           ForEach(model.targets) { choice in
             TargetTile(choice: choice, selected: choice.id == model.target) { model.target = choice.id }

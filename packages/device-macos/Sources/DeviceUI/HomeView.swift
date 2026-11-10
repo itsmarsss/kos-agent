@@ -67,7 +67,7 @@ public struct HomeView: View {
         .padding(.horizontal, Theme.gutter)
         .padding(.top, 14)
       ScrollViewReader { scroller in
-        ScrollView(.vertical) {
+        OverlayScroll {
           page
             .padding(.horizontal, Theme.gutter)
             .padding(.top, 14)

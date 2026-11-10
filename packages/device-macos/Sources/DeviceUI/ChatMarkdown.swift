@@ -427,10 +427,12 @@ private struct BlockView: View {
         .timesHelp(text)
     case .code(let code):
       Card(padding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)) {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
           Text(code).font(.kos(.dense, design: .monospaced)).foregroundStyle(Theme.text)
             .padding(.horizontal, 11).padding(.vertical, 10)
         }
+        // Sideways, as the kit's code block: no bar, a mouse's legacy one either; the trackpad and Shift with the wheel scroll it.
+        .scrollIndicators(.never)
       }
     case .list(let ordered, let start, let items):
       VStack(alignment: .leading, spacing: 3) {
@@ -443,7 +445,7 @@ private struct BlockView: View {
         }
       }
     case .table(let head, let align, let rows):
-      ScrollView(.horizontal, showsIndicators: false) {
+      ScrollView(.horizontal) {
         // The dashboard's table: a head of 13 in the muted grey, cells of 14, 6 by 11 around each, a line under each row.
         Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 6) {
           GridRow {
@@ -465,6 +467,7 @@ private struct BlockView: View {
         .padding(.horizontal, 11)
         .padding(.vertical, 2)
       }
+      .scrollIndicators(.never)
     }
   }
 }
