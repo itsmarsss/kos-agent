@@ -1,3 +1,5 @@
+import { summarizeAction } from "@kos/shared";
+
 import type { PendingAction } from "../ops/approvals.js";
 import { SHARED_LANE } from "../ops/queue.js";
 import { injectSecrets } from "../secrets/inject.js";
@@ -18,6 +20,16 @@ import { primarySessionId } from "./session.js";
 
 /** A build's permission requests are decided here and performed by the build itself. */
 export const BUILD_ACTION_PREFIX = "build.";
+
+/** How a resume begins, so a reader can show it as a note rather than as the owner's words. */
+export const RESUME_HEAD = "System: the owner decided on";
+
+/** One decided action, as the resumed turn is told it: what it was, and what came of it. */
+export function decidedLine(id: number, tool: string, args: string, outcome: { approved: true; isError: boolean; result: string } | { approved: false }): string {
+  const head = `@approval:${id} ${summarizeAction(tool, args)}`;
+  if (!outcome.approved) return `${head}: the owner denied this. It was not done.`;
+  return `${head}: the owner approved it, and it ${outcome.isError ? "ran and failed" : "ran"}. Result: ${outcome.result}`;
+}
 
 export interface DecisionResult {
   ok: boolean;
@@ -78,9 +90,10 @@ export class Decisions {
     const lines = [...(this.held.get(sessionId) ?? []), outcome];
     this.held.delete(sessionId);
     return [
-      `System: the owner decided on ${lines.length === 1 ? "the pending action" : "the pending actions"}:`,
+      `${RESUME_HEAD} ${lines.length === 1 ? "the pending action" : "the pending actions"}:`,
       ...lines.map((l) => `- ${l}`),
-      "Continue the owner's prior request now with these results. For a denied action, acknowledge it briefly and ask how to proceed without it.",
+      "Carry on with the owner's request now, with these results.",
+      "For a denied action, tell the owner in one line that you did not do it. Do not retry it or ask again unless they say so.",
       "Do not re-create resources that already exist (use slugs/ids from the results).",
       "If this was tasks.create_list, use tasks.add / tasks.list with the returned slug as instance.",
       "Reply in one or two lines: what was done and the result. Do not restate the request, the approval, or what you were about to do.",
@@ -133,7 +146,7 @@ export class Decisions {
     }, action.conversationId ?? SHARED_LANE);
 
     const sessionId = action.conversationId ?? primarySessionId(d.ownerId);
-    const outcome = `#${id} ${action.tool}: approved and run, ${result.isError ? "FAILED" : "SUCCEEDED"}, result=${result.content}`;
+    const outcome = decidedLine(id, action.tool, action.args, { approved: true, isError: result.isError, result: result.content });
     const waiting = this.siblingsWaiting(action.conversationId, id);
     if (waiting.length > 0) {
       this.held.set(sessionId, [...(this.held.get(sessionId) ?? []), outcome]);
@@ -158,7 +171,7 @@ export class Decisions {
       return { ok: true, message: `Declined. The build was told it may not ${denied.tool.slice(BUILD_ACTION_PREFIX.length)}.` };
     }
     const sessionId = denied.conversationId ?? primarySessionId(d.ownerId);
-    const outcome = `#${id} ${denied.tool}: denied by the owner`;
+    const outcome = decidedLine(id, denied.tool, denied.args, { approved: false });
     const waiting = this.siblingsWaiting(denied.conversationId, id);
     if (waiting.length > 0) {
       this.held.set(sessionId, [...(this.held.get(sessionId) ?? []), outcome]);

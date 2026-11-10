@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ModelMessage } from "../models/types.js";
+import { decidedLine } from "./decisions.js";
 import { conversationEvents, historyEvents, spokenTurns } from "./transcript.js";
 
 const withTool: ModelMessage[] = [
@@ -106,6 +107,20 @@ describe("conversationEvents", () => {
     // It did not fail, but it did not happen: without this it renders as "ok".
     expect(events[0]).toMatchObject({ pendingId: "7" });
     expect((events[0] as { isError?: boolean }).isError).toBeUndefined();
+  });
+
+  it("shows a resume as a note of what was decided, not as the owner's words", () => {
+    const resume = [
+      "System: the owner decided on the pending actions:",
+      `- ${decidedLine(5, "files.rm", JSON.stringify({ path: "notes/a.md" }), { approved: true, isError: false, result: "removed" })}`,
+      `- ${decidedLine(6, "files.rm", JSON.stringify({ path: "notes/b.md" }), { approved: true, isError: true, result: "ENOENT" })}`,
+      `- ${decidedLine(7, "files.rm", JSON.stringify({ path: "notes/c.md" }), { approved: false })}`,
+      "Carry on with the owner's request now, with these results.",
+    ].join("\n");
+    const events = conversationEvents([{ role: "user", content: [{ type: "text", text: resume }] }]);
+    expect(events).toEqual([
+      { kind: "message", role: "system", text: "Approved #5 · Delete notes/a.md; Approved #6 · Delete notes/b.md · failed; Denied #7 · Delete notes/c.md" },
+    ]);
   });
 
   it("leaves a call that really ran without a pending id", () => {

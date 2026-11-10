@@ -1,6 +1,7 @@
 import { summarizeAction } from "@kos/shared";
 
 import { saidText, type MessageOrigin, type ModelMessage, type Quote } from "../models/types.js";
+import { RESUME_HEAD } from "./decisions.js";
 import { parseQueuedApproval } from "./guarded.js";
 import type { EarlierHistory } from "./session.js";
 
@@ -108,14 +109,15 @@ export function splitOwnerWords(content: string): { content: string; said: strin
  * plumbing attributed to them. Recognised here and reduced to a one-line note.
  */
 function approvalNote(text: string): string | null {
-  const approved = /^System: the owner approved pending action #(\d+)\./.exec(text);
-  if (approved) {
-    const tool = /\btool=(\S+)/.exec(text)?.[1] ?? "action";
-    const failed = /\boutcome=FAILED\b/.test(text);
-    return `Approved #${approved[1]} · ${tool} ${failed ? "failed" : "ran"}`;
-  }
-  const denied = /^System: the owner denied pending action #(\d+)\./.exec(text);
-  return denied ? `Denied #${denied[1]}` : null;
+  if (!text.startsWith(RESUME_HEAD)) return null;
+  const notes = text.split("\n").flatMap((line) => {
+    const m = /^- @approval:(\d+) (.+): the owner (approved it, and it ran and failed|approved it, and it ran|denied this)\./.exec(line);
+    if (!m) return [];
+    const [, id, what, how] = m;
+    if (how === "denied this") return [`Denied #${id} · ${what}`];
+    return [`Approved #${id} · ${what}${how!.endsWith("failed") ? " · failed" : ""}`];
+  });
+  return notes.length ? notes.join("; ") : null;
 }
 
 function textOf(content: ModelMessage["content"]): string {
