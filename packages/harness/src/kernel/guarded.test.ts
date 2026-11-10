@@ -316,6 +316,9 @@ describe("GuardedTools", () => {
     it("notes an approved result as approved, and a failed one as failed", () => {
       expect(approvedResult({ content: "deleted", isError: false })).toEqual({ content: "The owner approved this, and it ran:\ndeleted", isError: false });
       expect(approvedResult({ content: "ENOENT", isError: true })).toEqual({ content: "The owner approved this; it ran and failed:\nENOENT", isError: true });
+      // Pictures that came with the result stay with it.
+      const images = [{ mediaType: "image/jpeg" as const, data: "SU1H" }];
+      expect(approvedResult({ content: "shot", isError: false, images }).images).toEqual(images);
     });
 
     it("has no em dash in any of them", () => {

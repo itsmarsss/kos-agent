@@ -444,10 +444,10 @@ describe("KOS end-to-end flows", () => {
         .flatMap((c) => c.request.messages)
         .flatMap((m) => (typeof m.content === "string" ? [] : m.content))
         .flatMap((b) => (b.type === "tool_result" && b.toolUseId === id ? [b.content] : []))[0];
-    /** The next answer told to whoever mirrors the chat. */
-    const nextSaid = (): Promise<{ reply: string; resumed: boolean; text: string }> =>
+    /** The next answer told to whoever mirrors the chat: where it goes, and whether it follows a wait. */
+    const nextSaid = (): Promise<{ conversationId: string; resumed: boolean }> =>
       new Promise((resolve) => {
-        kernel.bus.on("turn:said", (e) => resolve({ reply: e.reply, resumed: e.resumed === true, text: e.text }));
+        kernel.bus.on("turn:said", (e) => resolve({ conversationId: e.conversationId, resumed: e.resumed === true }));
       });
 
     it("answers a denial in the waiting turn, told plainly that it was not done", async () => {
@@ -458,8 +458,8 @@ describe("KOS end-to-end flows", () => {
       expect(first.suspended).toBe(true);
       const said = nextSaid();
       await kernel.deny(kernel.approvals.pending()[0]!.id);
-      // The turn reacts where it was asked, as the answer after the wait.
-      expect(await said).toMatchObject({ reply: "OK, I won't delete it.", resumed: true });
+      // The turn reacts in the chat that asked, as the answer after the wait, which every surface posts.
+      expect(await said).toEqual({ conversationId: c.id, resumed: true });
       const shown = resultShown(model, "c1")!;
       expect(shown).toMatch(/^The owner denied this: .*It was not done\./);
       expect(shown).not.toMatch(/pending|#\d/);
@@ -475,7 +475,7 @@ describe("KOS end-to-end flows", () => {
       expect((await ask).suspended).toBe(true);
       const said = nextSaid();
       await kernel.approve(kernel.approvals.pending()[0]!.id);
-      expect(await said).toMatchObject({ reply: "Deleted plan.md.", resumed: true });
+      expect(await said).toEqual({ conversationId: c.id, resumed: true });
       expect(resultShown(model, "c1")).toMatch(/^The owner approved this, and it ran:\n/);
       expect(existsSync(join(kernel.workspace.root, "plan.md"))).toBe(false);
     });
@@ -488,9 +488,9 @@ describe("KOS end-to-end flows", () => {
       // As a restart leaves it: asked in this chat, with no turn left holding for the answer.
       const ask = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "plan.md" }, riskTier: "risky", conversationId: c.id, owner: true, attended: true });
       const said = nextSaid();
-      const r = await kernel.deny(ask.id);
-      expect(r.reply).toBe("OK, I won't delete it.");
-      expect(await said).toMatchObject({ reply: "OK, I won't delete it." });
+      await kernel.deny(ask.id);
+      // A turn runs in the chat that asked, and its answer is told there.
+      expect((await said).conversationId).toBe(c.id);
       expect(model.prompts.at(-1)).toContain(`@approval:${ask.id} Delete plan.md: the owner denied this. It was not done.`);
       expect(existsSync(join(kernel.workspace.root, "plan.md"))).toBe(true);
     });
@@ -501,8 +501,9 @@ describe("KOS end-to-end flows", () => {
       writeFileSync(join(kernel.workspace.root, "plan.md"), "bye");
       const c = kernel.conversations.create({ userId: "owner", title: "Notes" });
       const ask = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "plan.md" }, riskTier: "risky", conversationId: c.id, owner: true, attended: true });
-      const r = await kernel.approve(ask.id);
-      expect(r.reply).toBe("Deleted plan.md.");
+      const said = nextSaid();
+      await kernel.approve(ask.id);
+      expect((await said).conversationId).toBe(c.id);
       expect(model.prompts.at(-1)).toContain(`@approval:${ask.id} Delete plan.md: the owner approved it, and it ran.`);
       expect(existsSync(join(kernel.workspace.root, "plan.md"))).toBe(false);
     });
