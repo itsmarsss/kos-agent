@@ -7,7 +7,7 @@
  * tokens; each app loads it beside its own stylesheet.
  */
 
-export { card, ease, listItem, spring, stagger } from "./motion.js";
+export { arrive, card, ease, fromTop, hover, inPlace, listItem, pageMove, spring, stagger } from "./motion.js";
 export {
   AgentFaces,
   EYES,
