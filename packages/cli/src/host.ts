@@ -915,17 +915,18 @@ export async function runHost(options: HostOptions): Promise<void> {
         connected: () => adapter!.connected(),
         postWhenFound: (find, msg) => adapter!.postWhenFound(find, msg),
       };
+      // A thread is read by whoever reads its channel: the chat's own, else its home's.
+      const ownerOnly = (conv: string): boolean => {
+        const audiences = kernel.channelAudiences();
+        const home = homeOf(conv);
+        return (audiences[conv] ?? (home ? audiences[home] : undefined) ?? "owner") === "owner";
+      };
       const placed = new PlaceNotifier({
         ...placeOn,
         ownerId: creds.ownerId,
         // By the job the run named, so a blob's run in the blob's channel is known as its job's too.
         jobOf: (payload) => (payload.job !== undefined ? kernel.crons.get(payload.job) : payload.place ? cronOf(payload.place) : undefined),
-        // A thread is read by whoever reads its channel: the chat's own, else its home's.
-        ownerOnly: (conv) => {
-          const audiences = kernel.channelAudiences();
-          const home = homeOf(conv);
-          return (audiences[conv] ?? (home ? audiences[home] : undefined) ?? "owner") === "owner";
-        },
+        ownerOnly,
       });
       placer = placed;
       const mirror = new ThreadMirror({
@@ -950,6 +951,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       const saidDeps: SaidDeps = {
         ...placeOn,
         jobOf: cronOf,
+        ownerOnly,
         spokeInPlace: (conv) => placed.spokeInPlace(conv),
         senderFor: (conv) => kernel.senderFor(conv),
         speakerFor: (from) => kernel.speakerFor(from),

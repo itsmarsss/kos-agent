@@ -22,6 +22,7 @@ function deps(
     homeOf: () => undefined,
     titleOf: (conv) => `Title of ${conv}`,
     jobOf: () => undefined,
+    ownerOnly: () => true,
     spokeInPlace: () => false,
     ensureThread: async (key, conv, title) => {
       made.push({ key, conv, title });
@@ -95,6 +96,13 @@ describe("a scheduled run's answer on the server", () => {
     expect(d.posts).toEqual([{ target: "thread-cron:2", text: "-# 9 AM Daily Kickoff\nKickoff sent." }]);
     expect(d.joined).toEqual(["thread-cron:2"]);
     expect(d.dms).toEqual([]);
+  });
+
+  it("sends a run's closing words to the DM when guests can read its place", async () => {
+    const d = deps({ "cron:2": "t2" }, { jobOf: () => kickoff, ownerOnly: () => false });
+    await postSaid(run("cron:2"), d);
+    expect(d.posts).toEqual([]);
+    expect(d.dms).toEqual(["-# 9 AM Daily Kickoff\nKickoff sent."]);
   });
 
   it("keeps KOS's upkeep runs to themselves", async () => {

@@ -123,6 +123,8 @@ async function findPlace(conversationId: string, deps: PlaceDeps): Promise<strin
 export interface SaidDeps extends PlaceDeps {
   /** The scheduled job a conversation is the thread of, when it is one. */
   jobOf(conversationId: string): JobFacts | undefined;
+  /** Whether the owner alone reads a conversation's place: a run's words are the owner's, not a guest's. */
+  ownerOnly(conversationId: string): boolean;
   /** Whether a scheduled run here already said its piece in its place this turn; asking clears it. */
   spokeInPlace(conversationId: string): boolean;
   senderFor(conversationId: string): Sender | undefined;
@@ -156,7 +158,10 @@ export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
   if (job && said.origin === "system") {
     if (spoke || isUpkeep(job) || !said.reply.trim()) return;
     // With a Run now button, the same path the dashboard's Run now takes.
-    await postInPlace(said.conversationId, { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] }, deps);
+    const run: OutboundMessage = { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] };
+    // A place guests can read is not the run's: the owner hears it in the DM.
+    if (deps.ownerOnly(said.conversationId)) await postInPlace(said.conversationId, run, deps);
+    else await deps.sendOwner(run);
     return;
   }
   if (spoke) return;
