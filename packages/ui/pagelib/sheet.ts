@@ -53,8 +53,20 @@ export function keyColumn(columns: readonly SheetColumn[], totals: SheetTab["tot
   return figure >= 0 ? figure : columns.findIndex((c, i) => i >= freeze && c.type === "currency");
 }
 
-/** Whether a column holds words, which a phone wraps so the grid narrows rather than runs off. */
-const wraps = (column: SheetColumn): boolean => (column.type ?? "text") === "text";
+/** Past this many characters a cell runs over two lines of a phone's column. */
+const TWO_LINES = 28;
+
+/**
+ * Whether a column holds words a phone wraps, up to two lines, so the grid
+ * narrows rather than runs off. Free text, most of whose cells two lines
+ * would not hold (notes, descriptions), stays on one line and is cut: wrapped,
+ * it would make every row tall, out of view as much as in it.
+ */
+export function wraps(column: SheetColumn, cells: readonly Value[]): boolean {
+  if ((column.type ?? "text") !== "text") return false;
+  const lengths = cells.filter((v) => v !== null && v !== "").map((v) => formatValue(v, column).length).sort((a, b) => a - b);
+  return !lengths.length || lengths[Math.floor(lengths.length / 2)]! <= TWO_LINES;
+}
 
 /** What an owner typed, as a cell to store: a formula stays text, a number in a numeric column becomes one. */
 export function cellFromInput(text: string, column: SheetColumn | undefined): SheetCell {
@@ -255,7 +267,8 @@ class Sheet {
     const rows = given ?? viewRows(values, columns, this.filter, this.sort);
     const freeze = Math.max(0, Math.min(tab.freeze ?? 0, columns.length));
     const key = keyColumn(columns, tab.totals, freeze);
-    const kinds = (c: SheetColumn, i: number): (string | false)[] => [isNumeric(c) && "num", wraps(c) && "wrap", i === key && "key", i < freeze && "frozen", i === freeze - 1 && "frozen-edge"];
+    const wrapped = columns.map((c, i) => wraps(c, values.map((row) => row[i] ?? null)));
+    const kinds = (c: SheetColumn, i: number): (string | false)[] => [isNumeric(c) && "num", wrapped[i]! && "wrap", i === key && "key", i < freeze && "frozen", i === freeze - 1 && "frozen-edge"];
     const count = this.root.querySelector(".sheet-rows");
     if (count) count.textContent = rows.length === values.length ? `${values.length} rows` : `${rows.length} of ${values.length} rows`;
 
@@ -350,7 +363,7 @@ class Sheet {
         "data-col": String(col),
         title: isError(v) ? `${v.error} ${v.why}` : formula ? raw : undefined,
       },
-      typeof v === "boolean" ? (v ? "✓" : "") : formatValue(v, column),
+      typeof v === "boolean" ? (v ? "✓" : "") : kinds.includes("wrap") ? el("span", { class: "lines" }, formatValue(v, column)) : formatValue(v, column),
     );
     if (typeof v === "boolean") td.setAttribute("aria-label", v ? "Yes" : "No");
     td.addEventListener("click", () => this.moveTo(row, col));

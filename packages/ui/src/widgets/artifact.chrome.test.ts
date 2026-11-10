@@ -713,6 +713,40 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 
+  /** The same with notes and whether a receipt was kept: seven columns, the notes far out of view on a phone. */
+  const noted = (): Record<string, unknown> => {
+    const five = paid() as { columns: unknown[]; rows: unknown[][] };
+    const notes = ["Paid on the first, as every month, from the joint account", "Renewed for the year, the broker's quote was lower", "Mostly vegetables, the apples were on sale this week", "Sam's birthday, he paid the tip and the drinks after"];
+    return {
+      ...five,
+      columns: [...five.columns, { label: "Notes" }, { label: "Receipt", type: "bool" }],
+      rows: five.rows.map((row, i) => [...row.slice(0, 1), i === 1 ? "Tenant insurance for the year, renewed" : row[1], ...row.slice(2), notes[i], i % 2 === 0]),
+    };
+  };
+
+  /*
+   * Notes scrolled out of view on a phone do not set the rows' height: free
+   * text stays on one line, cut, and the short words beside the amount wrap
+   * to two lines at most, so no row stands far taller than a line's.
+   */
+  it("keeps a seven-column sheet's rows to what reads in them on a phone", async () => {
+    const heights = `() => {
+      const rows = [...document.querySelectorAll(".sheet-grid tbody tr")].map((tr) => tr.getBoundingClientRect().height);
+      const notes = document.querySelector(".sheet-grid tbody td:nth-child(7)");
+      return { rows, line: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sheet-row")), notesWrap: notes ? getComputedStyle(notes).whiteSpace : "", page: document.documentElement.scrollWidth };
+    }`;
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await sheetPage("/noted", `<h1>October</h1>${sheetData(noted())}`, { heights, keyed });
+    const probe = await ask<{ rows: number[]; line: number; notesWrap: string; page: number }>("heights", (p) => p.rows.length === 4);
+    expect(probe.notesWrap).toBe("nowrap");
+    expect(Math.max(...probe.rows)).toBeLessThanOrEqual(probe.line * 2.5);
+    expect(probe.page).toBeLessThanOrEqual(390);
+    const key = await ask<Keyed>("keyed", (p) => p.more);
+    expect(key.inside).toBe(true);
+    expect(key.clear).toBe(true);
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
   /* A grid far wider than a phone says how much is out of view; a desktop, with its scrollbar, does not. */
   it("says how many columns a wide grid has out of view on a phone, and only there", async () => {
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });

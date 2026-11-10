@@ -2,7 +2,7 @@
 import type { SheetBook } from "@kos/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { SAVE_DELAY_MS, SAVE_GAP_MS, cellFromInput, keyColumn, readBook, sourceQuery, startSheets, viewRows } from "./sheet.js";
+import { SAVE_DELAY_MS, SAVE_GAP_MS, cellFromInput, keyColumn, readBook, sourceQuery, startSheets, viewRows, wraps } from "./sheet.js";
 
 const BOOK: SheetBook = {
   sheets: [
@@ -69,6 +69,16 @@ describe("pure helpers", () => {
     expect(keyColumn(columns, undefined, 1)).toBe(2);
     expect(keyColumn(columns, { Amount: "sum" }, 4)).toBe(-1);
     expect(keyColumn(columns.slice(0, 2), { Item: "count" }, 0)).toBe(-1);
+  });
+
+  it("wraps a phone's short words, never its figures or its free text", () => {
+    const notes = ["Paid early to keep the discount on the lease", "Split with Sam, he sends his half Friday", "Ok"];
+    expect(wraps({ label: "Category" }, ["Housing", "Groceries", null])).toBe(true);
+    expect(wraps({ label: "Notes" }, notes)).toBe(false);
+    // One long note among short words is cut by the clamp, not taken for free text.
+    expect(wraps({ label: "Item" }, ["Rent", notes[0]!, "Pizza night"])).toBe(true);
+    expect(wraps({ label: "Amount", type: "currency" }, [1650])).toBe(false);
+    expect(wraps({ label: "Empty" }, [])).toBe(true);
   });
 
   it("explains a workbook it cannot read", () => {
