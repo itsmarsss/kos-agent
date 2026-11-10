@@ -28,7 +28,9 @@ export const RESUME_HEAD = "System: the owner decided on";
 export function decidedLine(id: number, tool: string, args: string, outcome: { approved: true; isError: boolean; result: string } | { approved: false }): string {
   const head = `@approval:${id} ${summarizeAction(tool, args)}`;
   if (!outcome.approved) return `${head}: the owner denied this. It was not done.`;
-  return `${head}: the owner approved it, and it ${outcome.isError ? "ran and failed" : "ran"}. Result: ${outcome.result}`;
+  // On one line: a result's own lines could otherwise pass for another decision.
+  const result = outcome.result.replace(/\s*\n\s*/g, " ");
+  return `${head}: the owner approved it, and it ${outcome.isError ? "ran and failed" : "ran"}. Result: ${result}`;
 }
 
 export interface DecisionResult {
