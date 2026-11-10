@@ -1,8 +1,11 @@
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { ArtifactChecker, hostDocument, parseRelay, reportWords, type CheckReport } from "./artifactcheck.js";
+import { ArtifactChecker, hostDocument, parseRelay, reportWords, sweepProfiles, type CheckReport } from "./artifactcheck.js";
 
 /**
  * The check's words and its host page, apart from Chrome: what the page
@@ -94,5 +97,30 @@ describe("the check's queue", () => {
     expect(order).toEqual(["g1", "mine"]);
     expect(await Promise.all(gallery)).toEqual([report([]), report([]), "broken"]);
     expect(order).toEqual(["g1", "mine", "g2", "g3"]);
+  });
+});
+
+describe("the check's left-behind profiles", () => {
+  it("removes profiles whose Chrome is gone and keeps live and fresh ones", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sweep-"));
+    try {
+      const profile = (name: string, lock?: string, old = false): string => {
+        const path = join(dir, name);
+        mkdirSync(path);
+        if (lock) symlinkSync(lock, join(path, "SingletonLock"));
+        if (old) utimesSync(path, new Date(0), new Date(0));
+        return path;
+      };
+      // A pid this high is past any system's limit, so nothing holds it.
+      const dead = profile("kos-check-dead", "host-99999999");
+      const live = profile("kos-check-live", `host-${process.pid}`);
+      const stale = profile("kos-check-stale", undefined, true);
+      const fresh = profile("kos-check-fresh");
+      const other = profile("someone-else", "host-99999999");
+      expect(sweepProfiles(dir).sort()).toEqual([dead, stale].sort());
+      expect([live, fresh, other].every((p) => existsSync(p))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

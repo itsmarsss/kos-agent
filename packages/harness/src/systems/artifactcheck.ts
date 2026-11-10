@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, readlinkSync, existsSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createServer as createHttpServer, type Server } from "node:http";
 import { createServer } from "node:net";
@@ -172,6 +172,45 @@ const SETTLE_MS = 6000;
 const QUIET_MS = 700;
 /** The Chrome goes once nothing has been checked for this long. */
 const IDLE_MS = 90_000;
+const PROFILE_PREFIX = "kos-check-";
+
+/** Whether a process is still running: signal 0 checks without sending anything. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Throwaway profiles a check left behind when its host stopped before Chrome
+ * did. Chrome's lock names the process that holds a profile; one whose process
+ * is gone, or one with no lock older than a minute, is no one's.
+ */
+export function sweepProfiles(dir = tmpdir(), now = Date.now()): string[] {
+  const swept: string[] = [];
+  for (const name of readdirSync(dir)) {
+    if (!name.startsWith(PROFILE_PREFIX)) continue;
+    const path = join(dir, name);
+    try {
+      let held: boolean;
+      try {
+        const pid = Number(readlinkSync(join(path, "SingletonLock")).split("-").pop());
+        held = Number.isInteger(pid) && pid > 0 && alive(pid);
+      } catch {
+        held = now - statSync(path).mtimeMs < 60_000;
+      }
+      if (held) continue;
+      rmSync(path, { recursive: true, force: true, maxRetries: 3 });
+      swept.push(path);
+    } catch {
+      // Gone already, or not ours to remove.
+    }
+  }
+  return swept;
+}
 
 const freePort = (): Promise<number> =>
   new Promise((ok, fail) => {
@@ -255,7 +294,8 @@ export class ArtifactChecker {
     this.idle.unref?.();
     if (this.cdp?.open) return this.cdp;
     this.close();
-    this.profile = mkdtempSync(join(tmpdir(), "kos-check-"));
+    sweepProfiles();
+    this.profile = mkdtempSync(join(tmpdir(), PROFILE_PREFIX));
     const binary = this.options.chrome?.();
     this.chrome = new ChromeHost({ port: await freePort(), profileDir: this.profile, launch: () => ({ ...(binary ? { binary } : {}), windowSize: { width: 1280, height: 800 } }) });
     const url = await this.chrome.ensure();
