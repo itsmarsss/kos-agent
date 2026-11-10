@@ -39,6 +39,8 @@ export interface RecallOptions {
    * are the owner's own. A guest's work reads its room's project this way.
    */
   only?: string[];
+  /** Only the claims these wrote, by source: a room's guests are matched what the room itself wrote, never the owner's chats. */
+  sources?: string[];
 }
 
 /**
@@ -59,6 +61,7 @@ export class MemoryRetriever {
     const facts = this.facts.search(userId, query, options.factLimit ?? 10, {
       scopes,
       ...(options.minScore !== undefined ? { minScore: options.minScore } : {}),
+      ...(options.sources ? { sources: options.sources } : {}),
     });
     this.facts.markUsed(facts.map((f) => f.id));
     let events: EventHit[] = [];

@@ -1181,6 +1181,9 @@ export class Kernel {
           projectSlug: conversation?.projectSlug ?? null,
           ...(own ? { scopes: [own] } : {}),
           ...(guestScopes ? { only: guestScopes } : {}),
+          // From a room, the project's claims are mostly notes from the owner's
+          // own chats: matched only when the room wrote them. Pinned ones still stand.
+          ...(guest?.home !== undefined ? { sources: [guest.chat] } : {}),
           // A single matching word is retrieval, not relevance: one key hit,
           // a phrase, or two words in the value before a claim is injected.
           minScore: 2,

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Inference } from "../agent/loop.js";
 import { OWNER_ONLY, roomConversationId, type OutboundMessage } from "../channels/types.js";
 import type { ModelMessage } from "../models/types.js";
+import { projectScope } from "../memory/facts.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { guestOrigin, guested, type GuestOrigin } from "./caller.js";
 import { Kernel } from "./kernel.js";
@@ -157,6 +158,22 @@ describe("a guest-visible place's room", () => {
     kernel.setChannelAudience(board, "owner");
     await ownerSays("just us now");
     expect(kernel.sessions.get(room)).toHaveLength(kept);
+  });
+
+  it("recalls in a room the project's pinned rules and what the room wrote, never the owner's chats' notes", async () => {
+    const owner = kernel.profile.ownerId;
+    const scope = projectScope("daily");
+    kernel.facts.upsert(owner, { key: "streak_rule", value: "PINNED-RULE streaks reset at midnight", kind: "fact", pinned: true, scope });
+    kernel.facts.upsert(owner, { key: "streak_plan", value: "OWNER-NOTE streak plan from the board chat", kind: "fact", scope }, board);
+    kernel.facts.upsert(owner, { key: "streak_ask", value: "ROOM-NOTE streak asked in the room", kind: "fact", scope }, room);
+    await guestSays("what is the streak plan and streak ask?");
+    const prompt = asked.at(-1)!;
+    expect(prompt).toContain("PINNED-RULE");
+    expect(prompt).toContain("ROOM-NOTE");
+    expect(prompt).not.toContain("OWNER-NOTE");
+    // The owner's own chat recalls them all, as before.
+    await kernel.handleMessage("what is the streak plan and streak ask?", { userId: owner, sessionId: board, owner: true });
+    expect(asked.at(-1)).toContain("OWNER-NOTE");
   });
 
   it("keeps nothing in a room no guest has made yet", async () => {
