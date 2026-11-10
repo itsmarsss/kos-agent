@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Inference } from "../agent/loop.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
-import { DRAWN_FRESH_MS, GUEST_TOOLS, Kernel, orchestratorId } from "./kernel.js";
+import { GUEST_TOOLS, Kernel, orchestratorId } from "./kernel.js";
 import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { RATES_KEY } from "../ops/spend.js";
 import { cronSessionId } from "./session.js";
@@ -433,8 +433,8 @@ describe("handleApiRequest", () => {
     off();
   });
 
-  it("lets a palette no dashboard has said for ten minutes go, and devices draw the mode", async () => {
-    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  it("keeps the palette a dashboard last reported however long none reports, until one reports another", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     try {
       const told: unknown[] = [];
       const off = kernel.bus.on("theme:changed", ({ mode, drawn }) => void told.push({ mode, drawn }));
@@ -442,27 +442,20 @@ describe("handleApiRequest", () => {
       kernel.setTheme("system");
       kernel.setDrawnTheme("dark");
       told.length = 0;
-      // An open dashboard says it again within the ten minutes: only kept fresh, no news to a device.
-      vi.advanceTimersByTime(DRAWN_FRESH_MS - 60_000);
-      kernel.setDrawnTheme("dark");
-      vi.advanceTimersByTime(DRAWN_FRESH_MS - 60_000);
+      // Every dashboard closes: a day later, devices still draw its last look, and are told nothing.
+      vi.advanceTimersByTime(24 * 60 * 60_000);
       expect(told).toEqual([]);
       expect(kernel.dashboardTheme()).toEqual({ mode: "system", drawn: "dark" });
-      // Then it closes: ten minutes after its last word, devices are told the mode alone.
-      vi.advanceTimersByTime(60_000);
-      expect(told).toEqual([{ mode: "system", drawn: undefined }]);
-      expect(kernel.dashboardTheme()).toEqual({ mode: "system" });
-      expect(await status()).not.toHaveProperty("drawn");
-      // A dashboard opens again and says it: told.
+      expect(await status()).toMatchObject({ theme: "system", drawn: "dark" });
+      // The same palette again is no news; another one is.
       kernel.setDrawnTheme("dark");
-      expect(told).toEqual([{ mode: "system", drawn: undefined }, { mode: "system", drawn: "dark" }]);
-      // Light or dark chosen is drawn as itself, and never goes stale.
+      kernel.setDrawnTheme("light");
+      expect(told).toEqual([{ mode: "system", drawn: "light" }]);
+      // A palette chosen outright is kept as the last look, so going back to "system" keeps drawing it.
       told.length = 0;
-      kernel.setTheme("light");
-      vi.advanceTimersByTime(3 * DRAWN_FRESH_MS);
-      expect(told).toEqual([{ mode: "light", drawn: "light" }]);
-      expect(kernel.dashboardTheme()).toEqual({ mode: "light", drawn: "light" });
-      expect(await status()).toMatchObject({ theme: "light", drawn: "light" });
+      kernel.setTheme("dark");
+      kernel.setTheme("system");
+      expect(told).toEqual([{ mode: "dark", drawn: "dark" }, { mode: "system", drawn: "dark" }]);
       off();
     } finally {
       vi.useRealTimers();

@@ -226,20 +226,16 @@ export const WORN_FACE_KEY = "discord.face";
 /** The dashboard's theme, KOS's own: what every device following the dashboard draws. */
 export const THEME_KEY = "appearance.theme";
 
-/** The palette a dashboard last reported drawing that theme in, and when; with several open, the latest report wins. */
-export const DRAWN_KEY = "appearance.drawn";
-
 /**
- * How long a dashboard's report of its palette holds. An open dashboard
- * reports again well within it, so a report this old is from one that has
- * closed, and devices draw the mode instead.
+ * The palette a dashboard last reported drawing that theme in; with several
+ * open, the latest report wins. It holds until a dashboard reports another,
+ * so a device matches the dashboard's last look even with none open.
  */
-export const DRAWN_FRESH_MS = 10 * 60_000;
+export const DRAWN_KEY = "appearance.drawn";
 
 /** A dashboard's report of the palette it draws in, as kept. */
 interface DrawnReport {
   drawn: DrawnTheme;
-  at: number;
 }
 
 /** One channel of the server layout. */
@@ -567,7 +563,6 @@ export class Kernel {
   private restartPoll: ReturnType<typeof setInterval> | null = null;
   private expirySweep: ReturnType<typeof setInterval> | null = null;
   /** Set while a dashboard's report of its palette is fresh: when it fires, devices are told it went stale. */
-  private drawnExpiry: ReturnType<typeof setTimeout> | undefined;
 
   /** Called by bootKernel, which assembles the args; not meant for anyone else. */
   constructor(args: {
@@ -2536,26 +2531,19 @@ export class Kernel {
 
   /**
    * The palette the dashboard draws in: light or dark as itself, and under
-   * "system" the latest report while it is fresh (DRAWN_FRESH_MS), else
-   * nothing, so a device draws the mode rather than a closed dashboard's palette.
+   * "system" the latest report, however old, else nothing until a dashboard
+   * has reported one.
    */
   drawnTheme(): DrawnTheme | undefined {
     const mode = this.theme();
-    if (mode !== "system") return mode;
-    const report = this.drawnReport();
-    const left = report ? report.at + DRAWN_FRESH_MS - Date.now() : 0;
-    if (!report || left <= 0) return undefined;
-    // Kept from before a restart, the report has no timer to say when it goes stale.
-    if (!this.drawnExpiry) this.expireDrawn(left);
-    return report.drawn;
+    return mode !== "system" ? mode : this.drawnReport()?.drawn;
   }
 
   /**
    * A dashboard reports the palette it draws, "system" read against its own
    * browser: kept with when, and told to every device when it changes what
-   * they draw. An open dashboard says it again now and then only to keep it
-   * fresh. With several dashboards open, the latest report wins. Nothing
-   * kept when it is not a palette.
+   * they draw. The same palette again is no news. With several dashboards
+   * open, the latest report wins. Nothing kept when it is not a palette.
    */
   setDrawnTheme(raw: unknown): DrawnTheme | undefined {
     if (!isDrawnTheme(raw)) return undefined;
@@ -2571,22 +2559,11 @@ export class Kernel {
 
   private drawnReport(): DrawnReport | undefined {
     const kept = this.settings.get(DRAWN_KEY) as Partial<DrawnReport> | undefined;
-    return kept && isDrawnTheme(kept.drawn) && typeof kept.at === "number" ? { drawn: kept.drawn, at: kept.at } : undefined;
+    return kept && isDrawnTheme(kept.drawn) ? { drawn: kept.drawn } : undefined;
   }
 
   private keepDrawn(drawn: DrawnTheme): void {
-    this.settings.set(DRAWN_KEY, { drawn, at: Date.now() } satisfies DrawnReport);
-    this.expireDrawn(DRAWN_FRESH_MS);
-  }
-
-  /** When the report goes stale, devices are told the dashboard's theme without it. */
-  private expireDrawn(after: number): void {
-    if (this.drawnExpiry) clearTimeout(this.drawnExpiry);
-    this.drawnExpiry = setTimeout(() => {
-      this.drawnExpiry = undefined;
-      if (this.theme() === "system") this.told();
-    }, after);
-    this.drawnExpiry.unref?.();
+    this.settings.set(DRAWN_KEY, { drawn } satisfies DrawnReport);
   }
 
   private tellIfChanged(change: () => void): void {
@@ -5044,8 +5021,6 @@ export class Kernel {
   }
 
   close(): void {
-    if (this.drawnExpiry) clearTimeout(this.drawnExpiry);
-    this.drawnExpiry = undefined;
     if (this.idleSweep) clearInterval(this.idleSweep);
     if (this.expirySweep) clearInterval(this.expirySweep);
     this.expirySweep = null;
