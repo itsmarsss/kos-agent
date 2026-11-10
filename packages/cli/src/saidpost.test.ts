@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { OutboundMessage } from "@kos/harness";
-import { placeOf, postSaid, type JobFacts, type Said, type SaidDeps } from "./saidpost.js";
+import { pingsOwner, placeOf, postSaid, type JobFacts, type Said, type SaidDeps } from "./saidpost.js";
 
 function deps(
   targets: Record<string, string> = {},
@@ -107,5 +107,13 @@ describe("a conversation's place on the server", () => {
     const d = deps({ "project:school": "school" }, { homeOf: (c) => (c === "cron:24" ? "project:school" : undefined), ensureThread: async () => undefined });
     expect(await placeOf("cron:24", d)).toBe("school");
     expect(await placeOf("discord:owner", d)).toBeUndefined();
+  });
+});
+
+describe("who a job's message pings", () => {
+  it("pings the owner for a fixed reminder, not for a prompted run or KOS's upkeep", () => {
+    expect(pingsOwner({ name: "OSAP: call The Centre 10:00", type: "actions" })).toBe(true);
+    expect(pingsOwner({ name: "9 AM Daily Kickoff", type: "self_prompt" })).toBe(false);
+    expect(pingsOwner({ name: "kos.backup", type: "actions" })).toBe(false);
   });
 });

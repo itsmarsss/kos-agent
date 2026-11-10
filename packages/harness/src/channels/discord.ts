@@ -2749,7 +2749,8 @@ export class DiscordAdapter implements ChannelAdapter {
    * Nothing to add when it names none.
    */
   private pings(content: string | undefined): { allowedMentions?: MessageMentionOptions } {
-    const seen = new Set(this.membersSeen.values());
+    // The owner is always someone a message may name: a reminder they set pings them.
+    const seen = new Set([...this.membersSeen.values(), ...(this.ownerId ? [this.ownerId] : [])]);
     const users = [...new Set([...(content ?? "").matchAll(/<@!?(\d+)>/g)].map((m) => m[1]!).filter((id) => seen.has(id)))];
     return users.length ? { allowedMentions: { parse: [], users } } : {};
   }

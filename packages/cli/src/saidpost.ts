@@ -25,6 +25,17 @@ export function isUpkeep(job: Pick<JobFacts, "name">): boolean {
   return job.name.startsWith("kos.");
 }
 
+/**
+ * Whether what a job sends to its place pings the owner. A fixed-actions
+ * job's message is a reminder in the owner's own words, set for the time
+ * they wanted to hear it, so it @mentions them; a prompted run decides
+ * what is worth saying and posts without a ping, as any message in a
+ * thread does. KOS's upkeep pings nobody.
+ */
+export function pingsOwner(job: Pick<JobFacts, "name" | "type">): boolean {
+  return job.type === "actions" && !isUpkeep(job);
+}
+
 /** What finding a conversation's place on the server needs. */
 export interface PlaceDeps {
   /** Where a conversation shows on the server: its channel or thread, or nothing. */

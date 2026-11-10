@@ -653,6 +653,16 @@ describe("who a message may ping", () => {
     await adapter.send("owner-id", { text: "@everyone look" });
     expect(payloads[1]).not.toHaveProperty("allowedMentions");
   });
+
+  it("lets a message ping the owner it names, as a reminder in the server does", async () => {
+    const payloads: Record<string, unknown>[] = [];
+    const adapter = new DiscordAdapter({ token: "t", ownerId: "222" });
+    (adapter as unknown as { client: { users: unknown } }).client = {
+      users: { fetch: async () => ({ send: async (p: Record<string, unknown>) => { payloads.push(p); return {}; } }) },
+    };
+    await adapter.send("222", { text: "<@222> Call The Centre now." });
+    expect(payloads[0]?.allowedMentions).toEqual({ parse: [], users: ["222"] });
+  });
 });
 
 describe("a prompt with a picture", () => {

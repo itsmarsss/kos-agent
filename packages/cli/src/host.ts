@@ -48,7 +48,7 @@ type PanelSurface = "chrome" | "mac";
 
 import { envFilePath } from "./env.js";
 import { ThreadMirror } from "./threadmirror.js";
-import { placeOf, postSaid, type PlaceDeps, type SaidDeps } from "./saidpost.js";
+import { pingsOwner, placeOf, postSaid, type PlaceDeps, type SaidDeps } from "./saidpost.js";
 import { claimHandle, type HandleClaim } from "./imessagelock.js";
 import { clearDaemonState, writeDaemonState } from "./state.js";
 
@@ -290,12 +290,14 @@ export async function runHost(options: HostOptions): Promise<void> {
           // A scheduled run that named nowhere speaks in its own place on the
           // server (the job's thread, the blob's channel) rather than the DM;
           // with no place to be had it reaches the owner as before.
-          if (payload.place && payload.target.kind === "owner" && !payload.target.surface && placeOn && adapter) {
+          if (payload.place && payload.target.kind === "owner" && !payload.target.surface && placeOn && adapter && creds) {
             const where = await placeOf(payload.place, placeOn).catch(() => undefined);
             if (where) {
-              await adapter.postIn(where, msg);
+              const job = cronOf(payload.place);
+              const ping = job && pingsOwner(job) ? `<@${creds.ownerId}> ` : "";
+              await adapter.postIn(where, { ...msg, text: `${ping}${msg.text}` });
               spoke.add(payload.place);
-              return { delivered: `Posted in this run's own place on Discord, not the owner's DM. To reach the owner directly, send with to: "owner".` };
+              return { delivered: `Posted in this run's own place on Discord, not the owner's DM${ping ? ", pinging the owner" : ""}. To reach the owner directly, send with to: "owner".` };
             }
           }
           const send = surfaceUp(surfaces, surface, payload.target.surface !== undefined);
