@@ -30,6 +30,8 @@ function deps(
     bindThread: (thread, conv) => void bound.push([thread, conv]),
     joinOwner: async (id) => void joined.push(id),
     forgetPlace: () => undefined,
+    connected: () => true,
+    postWhenFound: async () => undefined,
     senderFor: () => undefined,
     speakerFor: (from) => ({ name: from.name }),
     ownerSender: async () => ({ name: "Owner" }),

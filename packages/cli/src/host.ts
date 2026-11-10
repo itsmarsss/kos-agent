@@ -912,6 +912,8 @@ export async function runHost(options: HostOptions): Promise<void> {
         joinOwner: (placeId) => adapter!.joinOwner(placeId).catch((err: unknown) => console.warn(`[discord] the owner could not be added to ${placeId}: ${err instanceof Error ? err.message : String(err)}`)),
         forgetPlace: (placeId) => adapter!.forgetPlace(placeId),
         postIn: (target, msg) => adapter!.postIn(target, msg),
+        connected: () => adapter!.connected(),
+        postWhenFound: (find, msg) => adapter!.postWhenFound(find, msg),
       };
       const placed = new PlaceNotifier({
         ...placeOn,

@@ -1957,6 +1957,19 @@ export class DiscordAdapter implements ChannelAdapter {
     await this.whenUp(`a post in ${channelId}`, msg, (m, progress) => this.postNow(channelId, m, progress));
   }
 
+  /**
+   * A post whose place is found only as it is sent, kept for the connection
+   * as any send is: a thread Discord was down to make is made once it is
+   * back, and the post goes there rather than the top of its channel.
+   */
+  async postWhenFound(find: () => Promise<string | undefined>, msg: OutboundMessage): Promise<void> {
+    await this.whenUp("a post in a place still to be made", msg, async (m, progress) => {
+      const id = await find();
+      if (!id) throw new Error("a post waiting for its place found none on the server");
+      await this.postNow(id, m, progress);
+    });
+  }
+
   private async postNow(channelId: string, msg: OutboundMessage, progress?: SendProgress): Promise<void> {
     // Unreachable is the network's, and the send waits (a read posts nothing, so any failure of it is safe to try again); gone is Discord's word, and the place is let go.
     const channel = (await this.client.channels.fetch(channelId).catch((err: unknown) => {

@@ -2105,6 +2105,20 @@ describe("while the gateway is down", () => {
     expect(sent.at(-1)).toBe("live");
   });
 
+  it("keeps a post whose place is still to be made, and finds the place once it is back", async () => {
+    const { adapter, sent, emit } = await dropped();
+    const asked: string[] = [];
+    await adapter.postWhenFound(async () => {
+      asked.push("found");
+      return "c1";
+    }, { text: "digest" });
+    expect(asked).toEqual([]);
+    expect(sent).toEqual([]);
+    await emit("shardReady");
+    expect(asked).toEqual(["found"]);
+    expect(sent).toEqual(["digest"]);
+  });
+
   it("goes down on a reconnect or a disconnect and up on a resume, and logs the drop once", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {

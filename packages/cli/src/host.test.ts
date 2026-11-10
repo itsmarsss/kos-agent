@@ -99,6 +99,8 @@ describe("a scheduled run's message in its place", () => {
       bindThread: () => undefined,
       joinOwner: async (id) => void joined.push(id),
       forgetPlace: () => undefined,
+      connected: () => true,
+      postWhenFound: async () => undefined,
       jobOf: (p) => ({ "cron:7": reminder, "cron:2": kickoff })[p.place ?? ""],
       ownerOnly: () => true,
       postIn: async (target, msg) => void posts.push({ target, text: msg.text }),
@@ -147,6 +149,26 @@ describe("a scheduled run's message in its place", () => {
     gone.add("t8");
     expect(await notifier.say(run("cron:7"), { text: "Again." })).toBeUndefined();
     expect(notifier.spokeInPlace("cron:7")).toBe(true);
+  });
+
+  it("keeps a run's post for its thread while Discord is down, rather than its channel's top", async () => {
+    const made: string[] = [];
+    let held: (() => Promise<string | undefined>) | undefined;
+    const { notifier, posts } = placer({
+      targetFor: (conv) => (conv === "orchestrator:owner" ? "kos" : undefined),
+      homeOf: () => "orchestrator:owner",
+      ensureThread: async (_key, conv) => {
+        made.push(conv);
+        return "t-new";
+      },
+      connected: () => false,
+      postWhenFound: async (find) => void (held = find),
+    });
+    expect(await notifier.say(run("cron:9", "Kickoff"), { text: "Kickoff" })).toBeDefined();
+    expect(made).toEqual([]);
+    expect(posts).toEqual([]);
+    // Once Discord is back, the queue finds the place: the thread, made then.
+    expect(await held?.()).toBe("t-new");
   });
 
   it("leaves to the owner's DM a run whose place guests can read", async () => {

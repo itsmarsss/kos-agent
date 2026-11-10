@@ -55,6 +55,10 @@ export interface PlaceDeps {
   /** Let go of a channel or thread Discord says is gone, and whatever was bound to it. */
   forgetPlace(placeId: string): void;
   postIn(target: string, msg: OutboundMessage): Promise<void>;
+  /** Whether Discord is reachable now. */
+  connected(): boolean;
+  /** A post kept in the send queue with a way to find its place, found once Discord is back. */
+  postWhenFound(find: () => Promise<string | undefined>, msg: OutboundMessage): Promise<void>;
 }
 
 /** Discord's answer for a channel or thread that no longer exists. */
@@ -68,6 +72,13 @@ function goneFromDiscord(err: unknown): boolean {
  * false when there is no place, or none that takes the post.
  */
 export async function postInPlace(conversationId: string, msg: OutboundMessage, deps: PlaceDeps): Promise<boolean> {
+  // With Discord down a thread cannot be made, and its home channel's top
+  // is not its place: the post waits in the send queue, and the thread is
+  // made when Discord is back. A place already there is queued by the post.
+  if (!deps.connected() && !deps.targetFor(conversationId) && deps.homeOf(conversationId)) {
+    await deps.postWhenFound(() => placeOf(conversationId, deps), msg);
+    return true;
+  }
   for (let tries = 0; tries < 2; tries++) {
     const where = await placeOf(conversationId, deps).catch(() => undefined);
     if (!where) return false;
