@@ -2,8 +2,8 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { isSqlDestructive, isSqlWrite } from "../risk/rules.js";
 import type { Db } from "../store/db.js";
-import { isAttended, isOwnerTurn } from "../kernel/caller.js";
-import { fence, isKernelTable, MAINTENANCE_SLUG, ownedBy, ownerOf, reachable, tableNames, writesKernelTable, type Reach } from "./fence.js";
+import { guestOrigin, isAttended, isOwnerTurn } from "../kernel/caller.js";
+import { fence, isKernelTable, maintains, ownedBy, ownerOf, reachable, tableNames, writesKernelTable, type Reach } from "./fence.js";
 
 /**
  * The `sql` tool module: run DML against the workspace SQLite. SELECT and
@@ -55,7 +55,7 @@ function explainMissingTable(db: Db, message: string, reach: Reach): string {
   const named = /no such table:\s*([^\s]+)/.exec(message)?.[1];
   if (!named) return message;
   const all = tableNames(db);
-  const maintenance = reach.project === MAINTENANCE_SLUG;
+  const maintenance = maintains(reach);
   const siblings = reach.projects.map((p) => p.slug);
   const mine = reachable(reach);
   const tables = maintenance ? all : all.filter((t) => !isKernelTable(t) && mine.some((slug) => ownedBy(t, slug, siblings)));
@@ -82,7 +82,7 @@ function explainMissingTable(db: Db, message: string, reach: Reach): string {
 function runSql(db: Db, input: Record<string, unknown>, reach: Reach): string {
   const sql = sqlOf(input);
   assertDml(sql);
-  const verdict = fence(sql, tableNames(db), reach);
+  const verdict = fence(db, sql, reach, paramsOf(input));
   if (!verdict.ok) throw new Error(verdict.reason);
   let stmt;
   try {
@@ -98,7 +98,9 @@ function runSql(db: Db, input: Record<string, unknown>, reach: Reach): string {
 
 /** Who is asking, read at call time: the caller's project and every project's name, so a refusal can say whose a table is. */
 export function reachOf(ctx: ModuleContext): Reach {
+  const guest = guestOrigin();
   return {
+    ...(guest ? { guest } : {}),
     project: ctx.services?.callerProject?.(),
     blob: ctx.services?.callerBlob?.(),
     owner: isAttended() && isOwnerTurn() && !ctx.services?.callerConversation?.()?.startsWith("cron:"),

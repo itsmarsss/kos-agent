@@ -47,6 +47,8 @@ export interface ModuleServices {
   callerBlob?: () => { name: string; id: string } | undefined;
   /** The calling conversation's id, read at call time. */
   callerConversation?: () => string | undefined;
+  /** The project a conversation belongs to, by its id; undefined for one at the root or none at all. */
+  projectOf?: (conversationId: string) => string | undefined;
   /**
    * What each chat was last shown of a screen, one memory for every surface
    * (KOS's browser, the owner's Chrome, a computer), so a look on one is never

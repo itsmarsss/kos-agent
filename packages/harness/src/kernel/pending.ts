@@ -2,6 +2,7 @@ import type { Guest } from "../channels/types.js";
 import type { MessageFrom, MessageOrigin, MessageRoom, Quote } from "../models/types.js";
 import type { Db } from "../store/db.js";
 import type { Attachment } from "./attachments.js";
+import type { GuestOrigin } from "./caller.js";
 
 /**
  * Messages sent while a turn was already running.
@@ -57,6 +58,8 @@ export interface PendingFlags {
   maxIterations?: number;
   /** Files a guest sent, by name: named to the turn, never kept. */
   guestFiles?: string[];
+  /** The guest's room behind work a guest's turn passed on. */
+  guested?: GuestOrigin;
   /** When the surface says it was sent, in ms: a restart judges its age by this, not by when it was queued. */
   sentAt?: number;
 }

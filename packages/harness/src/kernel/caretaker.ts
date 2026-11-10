@@ -2,6 +2,7 @@ import type { Sender } from "../channels/types.js";
 import type { ModelMessage } from "../models/types.js";
 import type { NotifyPayload, NotifySent } from "../tools/notify.js";
 import type { HealthNotice } from "../ops/health.js";
+import { guestOrigin, type GuestOrigin } from "./caller.js";
 import { writeMention } from "./mentions.js";
 import { primarySessionId } from "./session.js";
 
@@ -93,9 +94,12 @@ export const MAINTENANCE_BRIEF = [
  * repair reaches what the fault reaches, so it sees every chat, every
  * blob and the whole Discord layout as the root does, and KOS's own
  * tables besides (tools/fence.ts). Any other project sees its own.
+ *
+ * Neither is for a guest's work: a guest's words, said in a room or
+ * handed on to the root or Maintenance, reach only their room's own.
  */
-export function reachesAll(project: string | undefined): boolean {
-  return project === undefined || project === MAINTENANCE.slug;
+export function reachesAll(project: string | undefined, guest: GuestOrigin | undefined = guestOrigin()): boolean {
+  return !guest && (project === undefined || project === MAINTENANCE.slug);
 }
 
 type ManifestLike = CaretakerDeps["manifest"];

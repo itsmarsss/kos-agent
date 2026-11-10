@@ -2,6 +2,7 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { tokenize } from "../memory/facts.js";
 import { saidText } from "../models/types.js";
+import { guestOrigin } from "../kernel/caller.js";
 import { reachesAll } from "../kernel/caretaker.js";
 import { conversationKind, isFixed, type Conversation, type ConversationStore } from "../kernel/conversations.js";
 import type { CongregationMember } from "../kernel/progress.js";
@@ -56,10 +57,14 @@ const REPLY_CAP = 8_000;
  * A project orchestrator sees its own project and no other, and never
  * another project's orchestrator, so one project cannot reach into the next
  * through a dispatch. The root, with no scope, sees everything, and so
- * does Maintenance: a repair reaches what the fault reaches.
+ * does Maintenance: a repair reaches what the fault reaches. A guest's work,
+ * wherever it was handed, sees its room's project's chats, or the room's
+ * own chat where that has no project.
  */
 function inScopeFor(deps: ChatToolDeps): (c: { id: string; projectSlug: string | null }) => boolean {
   return (c) => {
+    const guest = guestOrigin();
+    if (guest) return guest.project ? c.projectSlug === guest.project : c.id === guest.chat;
     const scope = deps.scope?.();
     if (reachesAll(scope)) return true;
     return c.projectSlug === scope && !c.id.startsWith("project:");

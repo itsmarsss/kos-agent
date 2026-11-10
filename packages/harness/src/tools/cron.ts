@@ -1,4 +1,4 @@
-import { caller } from "../kernel/caller.js";
+import { caller, guestCannot } from "../kernel/caller.js";
 import cron from "node-cron";
 
 import { CronStore } from "../cron/store.js";
@@ -167,7 +167,7 @@ function activate(ctx: ModuleContext, deps: CronToolDeps): void {
       const job = store.create(parsed);
       return JSON.stringify({ id: job.id, name: job.name, ...(job.projectSlug ? { projectSlug: job.projectSlug } : {}) });
     },
-    { floor: "safe" },
+    { floor: "safe", refuse: () => guestCannot("A schedule") },
   );
 
   ctx.registerTool(
@@ -203,7 +203,7 @@ function activate(ctx: ModuleContext, deps: CronToolDeps): void {
       const id = typeof input.id === "number" ? input.id : Number(input.id);
       return store.delete(id) ? "removed" : "not found";
     },
-    { floor: "safe" },
+    { floor: "safe", refuse: () => guestCannot("Removing a schedule") },
   );
 
   if (!deps.fire) return;
@@ -232,7 +232,7 @@ function activate(ctx: ModuleContext, deps: CronToolDeps): void {
         ? `ran ${job.name}`
         : `${job.name} did not succeed: ${result.error ?? "unknown error"}`;
     },
-    { floor: "safe" },
+    { floor: "safe", refuse: () => guestCannot("Running a schedule") },
   );
 }
 

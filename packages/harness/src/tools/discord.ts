@@ -1,3 +1,4 @@
+import { guestOrigin } from "../kernel/caller.js";
 import { reachesAll } from "../kernel/caretaker.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 
@@ -116,6 +117,9 @@ export interface MakePlace {
   access?: Access[];
 }
 
+/** A channel or thread as the server is asked for it: by what the owner called it, or by Discord's id alone once judged. */
+export type ChannelRef = string | { id: string };
+
 export interface DiscordServices {
   /** True while the server surface is up; the tools say so plainly when it is not. */
   connected: () => boolean;
@@ -144,11 +148,11 @@ export interface DiscordServices {
    */
   known: () => ServerPlace[];
   /** An emoji on a message, from KOS. */
-  react: (channel: string, message: string, emoji: string) => Promise<void>;
+  react: (channel: ChannelRef, message: string, emoji: string) => Promise<void>;
   /** Who reacted with what on a message. */
-  reactions: (channel: string, message: string) => Promise<Reaction[]>;
+  reactions: (channel: ChannelRef, message: string) => Promise<Reaction[]>;
   /** The last messages in a channel, newest last. */
-  messages: (channel: string, limit: number) => Promise<ChannelMessage[]>;
+  messages: (channel: ChannelRef, limit: number) => Promise<ChannelMessage[]>;
   /** A member of the server by id: who they are, as Discord has it. */
   member: (id: string) => Promise<MemberInfo>;
 }
@@ -221,10 +225,8 @@ export function findChannel(channels: ServerChannel[], named: string): ServerCha
   return channels.find((c) => c.id === named.trim() || c.name.toLowerCase() === want || c.key.toLowerCase() === want || c.key.toLowerCase().endsWith(`:${want}`));
 }
 
-function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
-  const up = (): void => {
-    if (!deps.connected()) throw new Error("the Discord server is not set up here: KOS_DISCORD_GUILD names it, under Settings, Network.");
-  };
+/** What the chat asking reaches on the server, read at call time. */
+function serverReach(deps: DiscordServices, ctx: ModuleContext) {
   // The reach of the chat asking, as chats.list has it: a project's chat
   // sees its own channel and threads and no other project's, and cannot
   // look outside; KOS at the root, and Maintenance, see them all.
@@ -232,6 +234,54 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
   const scope = (): string | undefined => ctx.services?.callerProject?.();
   const ownChannel = (c: ServerChannel): boolean => reachesAll(scope()) || c.key === `project:${scope()}`;
   const ownThread = (t: BoundThread): boolean => reachesAll(scope()) || t.projectSlug === scope();
+
+  /*
+   * Where a message may be read, reacted to or counted, by Discord's id.
+   * The adapter takes any channel's name or id, so the reach is judged
+   * here: a project's chat its own channel and threads, a guest's work only
+   * the room they spoke in (the channel bound to its chat, or that chat's
+   * thread) and the threads under it. The root and Maintenance reach any,
+   * named as they named it.
+   */
+  const placeIn = async (named: string): Promise<ChannelRef> => {
+    const guest = guestOrigin();
+    if (!guest && reachesAll(scope())) return named;
+    const want = named.trim();
+    const name = want.replace(/^#/, "").toLowerCase();
+    const thread = deps.threads().find((t) => t.id === want);
+    const channel = thread ? undefined : findChannel(await deps.channels(), want);
+    const known = thread || channel?.id ? undefined : deps.known().find((p) => p.kind === "channel" && (p.id === want || p.name.toLowerCase() === name));
+    const id = thread?.id ?? channel?.id ?? known?.id;
+    const key = channel?.key ?? known?.bound;
+    // A project's channel is bound to its orchestrator or to any chat of it: #leetcode to the board chat, say.
+    const here = scope();
+    const ours = (bound: string | undefined): boolean =>
+      bound !== undefined && (bound === `project:${here}` || bound === ctx.services?.callerConversation?.() || (here !== undefined && ctx.services?.projectOf?.(bound) === here));
+    const mine = guest
+      ? thread
+        ? thread.conversationId === guest.chat || thread.channel === guest.chat
+        : key === guest.chat
+      : thread
+        ? ownThread(thread) || ours(thread.conversationId) || ours(thread.channel)
+        : ours(key);
+    if (!id || !mine) {
+      throw new Error(
+        guest
+          ? `${named} is not the channel a guest's words came from, and a guest's work reads and reacts only there.`
+          : `${named} is not this project's channel or one of its threads. Hand the question to KOS at the root (chats.handoff), which reaches the rest of the server.`,
+      );
+    }
+    // By id alone: a channel named with digits cannot stand in for the one judged.
+    return { id };
+  };
+  return { ownChannel, ownThread, placeIn };
+}
+
+function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
+  const up = (): void => {
+    if (!deps.connected()) throw new Error("the Discord server is not set up here: KOS_DISCORD_GUILD names it, under Settings, Network.");
+  };
+  const { ownChannel, ownThread } = serverReach(deps, ctx);
 
   ctx.registerTool(
     {
@@ -530,6 +580,7 @@ function defineAdminTools(deps: DiscordServices, ctx: ModuleContext): void {
  * tools that shape the server stay the orchestrators'.
  */
 function defineReadingTools(deps: DiscordServices, ctx: ModuleContext): void {
+  const { placeIn } = serverReach(deps, ctx);
   const up = (): void => {
     if (!deps.connected()) throw new Error("the Discord server is not set up here: KOS_DISCORD_GUILD names it, under Settings, Network.");
   };
@@ -550,7 +601,7 @@ function defineReadingTools(deps: DiscordServices, ctx: ModuleContext): void {
     },
     async (input) => {
       up();
-      await deps.react(str(input, "channel"), str(input, "message"), str(input, "emoji"));
+      await deps.react(await placeIn(str(input, "channel")), str(input, "message"), str(input, "emoji"));
       return JSON.stringify({ reacted: str(input, "emoji"), message: str(input, "message") });
     },
     { floor: "safe" },
@@ -569,7 +620,7 @@ function defineReadingTools(deps: DiscordServices, ctx: ModuleContext): void {
     },
     async (input) => {
       up();
-      return JSON.stringify({ reactions: await deps.reactions(str(input, "channel"), str(input, "message")) });
+      return JSON.stringify({ reactions: await deps.reactions(await placeIn(str(input, "channel")), str(input, "message")) });
     },
     { floor: "safe" },
     { restricted: false },
@@ -588,7 +639,7 @@ function defineReadingTools(deps: DiscordServices, ctx: ModuleContext): void {
     async (input) => {
       up();
       const limit = Math.max(1, Math.min(100, Number(input["limit"]) || 20));
-      return JSON.stringify({ messages: await deps.messages(str(input, "channel"), limit) });
+      return JSON.stringify({ messages: await deps.messages(await placeIn(str(input, "channel")), limit) });
     },
     { floor: "safe" },
     { restricted: false },

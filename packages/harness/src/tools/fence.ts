@@ -1,5 +1,5 @@
 import { MAINTENANCE } from "../kernel/caretaker.js";
-import { isSqlWrite } from "../risk/rules.js";
+import type { GuestOrigin } from "../kernel/caller.js";
 import type { Db } from "../store/db.js";
 
 /**
@@ -22,7 +22,13 @@ import type { Db } from "../store/db.js";
  * Maintenance is the exception: it is where KOS repairs itself, and a
  * repair may need to look at a job's rows, a queue, or any project's
  * table. There, reads are free and writes ask as any write does, but the
- * trust tables are never written by a model from anywhere.
+ * trust tables are never written by a model from anywhere. That reach is
+ * for work the owner or KOS started: a guest's words, said in its channel
+ * or handed to it, reach no table there.
+ *
+ * What a statement reaches is what SQLite's plan for it opens, not the
+ * words it is spelled with: a book tracker's `pages` column is not KOS's
+ * `pages` table, and `'crons'` in quotes is still the crons table.
  *
  * The list of KOS's tables is by name, and a test boots a fresh kernel to
  * check nothing has been added without being named here.
@@ -76,10 +82,15 @@ export function tableNames(db: Db): string[] {
   return (db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`).all() as { name: string }[]).map((r) => r.name).concat("sqlite_master");
 }
 
-/** The tables a statement reaches, among those that exist: names that appear as words in it. */
-export function tablesIn(sql: string, existing: readonly string[]): string[] {
-  const lower = sql.toLowerCase();
-  return existing.filter((t) => new RegExp(`(^|[^a-z0-9_])${t.toLowerCase()}([^a-z0-9_]|$)`).test(lower));
+/**
+ * A statement with its comments gone and, unless `values` is kept, its
+ * string literals blanked: a word in a value or a remark is no name. Quoted
+ * identifiers stay as they are.
+ */
+export function codeOf(sql: string, values: "strip" | "keep" = "strip"): string {
+  return sql.replace(/("(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\])|('(?:[^']|'')*')|--[^\n]*|\/\*[\s\S]*?(?:\*\/|$)/g, (all, ident: string | undefined, value: string | undefined) =>
+    ident ?? (value !== undefined && values === "keep" ? value : " "),
+  );
 }
 
 /** A statement that reads the schema itself: SQLite's catalogue, a PRAGMA, its table-valued pragma_* functions, or dbstat. */
@@ -87,22 +98,79 @@ export function readsSchema(sql: string): boolean {
   return /\bsqlite_(?:master|schema|temp_master|temp_schema)\b/i.test(sql) || /^\s*pragma\b/i.test(sql) || /\bpragma_\w+/i.test(sql) || /\bdbstat\b/i.test(sql);
 }
 
+/** The table-valued functions that read only what they are given: a project's JSON documents, taken apart. */
+const JSON_FUNCTIONS = /\bjson_(?:each|tree)\s*\(/gi;
+
 /**
- * Whether a statement writes one of KOS's own tables, as SQLite would run it:
- * the tables its plan opens to write, by root page, not the words it is
- * spelled with, which quotes and comments can hide. A write to a virtual
- * table (the memory index) or outside the main database counts, since no
- * project's table is either. A statement that does not compile writes nothing.
+ * What a statement reaches as SQLite would run it: the tables its plan
+ * opens, by root page, to read and to write. Words lie both ways: a column
+ * or a value named `pages` is not KOS's table, and a name in quotes or
+ * behind a comment still is. An index counts as its table, root page 1 is
+ * the catalogue, and a table outside the main database (temp, attached)
+ * is nobody's project's.
+ *
+ * A virtual table's cursor does not say which it is, so the plan counts
+ * them: the memory index, a pragma_* function, dbstat, json_each. Only the
+ * JSON functions read nothing but their arguments, and `virtual` is true
+ * when the plan opens more of those cursors than the statement calls them,
+ * or when it names any other virtual table or the schema, in quotes or in
+ * a value, which SQLite can take for a name.
+ */
+export interface Plan {
+  reads: string[];
+  writes: string[];
+  /** A virtual table other than the JSON functions, or a write to any. */
+  virtual: boolean;
+  /** A table of the temp or an attached database. */
+  elsewhere: boolean;
+}
+
+/** The plan of a statement, or nothing for one that does not compile: no such table, a syntax error, the wrong count of params. */
+export function planOf(db: Db, sql: string, params: readonly unknown[] = []): Plan | undefined {
+  let ops: { opcode: string; p2: number; p3: number }[];
+  try {
+    ops = db.prepare(`EXPLAIN ${sql}`).all(...params) as typeof ops;
+  } catch {
+    return undefined;
+  }
+  const catalogue = db.prepare("SELECT rootpage, tbl_name, type, sql FROM sqlite_master").all() as { rootpage: number | null; tbl_name: string; type: string; sql: string | null }[];
+  const pages = new Map(catalogue.filter((r) => r.rootpage).map((r) => [r.rootpage!, r.tbl_name]));
+  const tableAt = (page: number): string => (page === 1 ? "sqlite_master" : (pages.get(page) ?? "sqlite_master"));
+  const reads = new Set<string>();
+  const writes = new Set<string>();
+  let elsewhere = false;
+  let cursors = 0;
+  let vwrite = false;
+  for (const op of ops) {
+    if (op.opcode === "VOpen") cursors++;
+    else if (op.opcode === "VUpdate") vwrite = true;
+    else if (op.opcode === "OpenRead" || op.opcode === "ReopenIdx" || op.opcode === "OpenWrite") {
+      if (op.p3 !== 0) elsewhere = true;
+      else (op.opcode === "OpenWrite" ? writes : reads).add(tableAt(op.p2));
+    }
+  }
+  let virtual = vwrite;
+  if (cursors && !virtual) {
+    const named = codeOf(sql, "keep");
+    const tables = catalogue.filter((r) => r.type === "table" && /^\s*create\s+virtual\b/i.test(r.sql ?? "")).map((r) => r.tbl_name);
+    virtual =
+      cursors > (codeOf(sql).match(JSON_FUNCTIONS)?.length ?? 0) ||
+      readsSchema(named) ||
+      tables.some((t) => new RegExp(`(^|[^a-z0-9_])${t.toLowerCase()}([^a-z0-9_]|$)`).test(named.toLowerCase()));
+  }
+  return { reads: [...reads], writes: [...writes], virtual, elsewhere };
+}
+
+/**
+ * Whether a statement writes one of KOS's own tables, by its plan. One that
+ * also reaches a virtual table (the memory index) or outside the main
+ * database counts, since no project's table is either: asking about a
+ * project's write that reads one is the cheaper mistake. A statement that
+ * does not compile writes nothing.
  */
 export function writesKernelTable(db: Db, sql: string, params: readonly unknown[] = []): boolean {
-  let plan: { opcode: string; p2: number; p3: number }[];
-  try {
-    plan = db.prepare(`EXPLAIN ${sql}`).all(...params) as typeof plan;
-  } catch {
-    return false;
-  }
-  const pages = new Map((db.prepare("SELECT rootpage, tbl_name FROM sqlite_master WHERE rootpage > 0").all() as { rootpage: number; tbl_name: string }[]).map((r) => [r.rootpage, r.tbl_name]));
-  return plan.some((op) => op.opcode === "VUpdate" || (op.opcode === "OpenWrite" && (op.p3 !== 0 || isKernelTable(pages.get(op.p2) ?? "sqlite_master"))));
+  const plan = planOf(db, sql, params);
+  return plan !== undefined && (plan.virtual || plan.elsewhere || plan.writes.some(isKernelTable));
 }
 
 /** A project as the fence knows it: what its tables start with, and what to call it. */
@@ -147,11 +215,23 @@ export interface Reach {
    * reach ends with the turn; a later one hands the work to the project.
    */
   made?: readonly string[];
+  /**
+   * The room a guest spoke in, when a guest's words started this turn or the
+   * work that reached it. Its reach is that room's project, and only in that
+   * project's own chats: never Maintenance's, wherever the work was handed.
+   */
+  guest?: GuestOrigin;
 }
 
-/** The projects a chat's statements and schema changes may reach: its own, and those this turn made. */
+/** The projects a chat's statements and schema changes may reach: its own, and those this turn made; for a guest's, its room's alone. */
 export function reachable(reach: Reach): string[] {
+  if (reach.guest) return reach.project && reach.project === reach.guest.project && reach.project !== MAINTENANCE_SLUG ? [reach.project] : [];
   return [...new Set([...(reach.project ? [reach.project] : []), ...(reach.made ?? [])])];
+}
+
+/** Maintenance, on work the owner or KOS started: what reaches KOS's own tables and the schema. */
+export function maintains(reach: Reach): boolean {
+  return reach.project === MAINTENANCE_SLUG && !reach.guest;
 }
 
 export interface FenceVerdict {
@@ -166,35 +246,48 @@ const refuse = (reason: string): FenceVerdict => ({ ok: false, reason });
 /** Where to send what is not this chat's: the owning project, or Maintenance when something looks wrong. */
 export const HAND_ON = "hand the question to the project that owns the data (chats.handoff to @project:<slug>), or to Maintenance (chats.handoff to @project:maintenance) when something looks wrong";
 
-/** Judge one statement for the chat asking. `existing` is every table in the database. */
-export function fence(sql: string, existing: readonly string[], reach: Reach): FenceVerdict {
-  const reached = tablesIn(sql, existing);
-  const kernel = reached.filter(isKernelTable);
-  const trust = kernel.filter((t) => TRUST_TABLES.has(t));
-  if (isSqlWrite(sql) && trust.length) {
+/**
+ * Judge one statement for the chat asking, by what SQLite's plan for it
+ * opens, with `params` bound as the statement will run. One that does not
+ * compile is let through for SQLite to say why, but an EXPLAIN of its own
+ * has no plan to judge, so only Maintenance runs one.
+ */
+export function fence(db: Db, sql: string, reach: Reach, params: readonly unknown[] = []): FenceVerdict {
+  const plan = planOf(db, sql, params);
+  if (!plan) return /^\s*explain\b/i.test(codeOf(sql)) && !maintains(reach) ? refuse("EXPLAIN is Maintenance's: send the statement itself.") : { ok: true };
+  const trust = plan.writes.filter((t) => TRUST_TABLES.has(t));
+  if (trust.length) {
     return refuse(`${trust.join(", ")}: KOS's trust tables are never written through sql. Approvals and permissions are the owner's, in the dashboard.`);
   }
-  if (reach.project === MAINTENANCE_SLUG) return { ok: true };
-  if (readsSchema(sql)) {
+  if (maintains(reach)) return { ok: true };
+  const reached = [...new Set([...plan.reads, ...plan.writes])];
+  const schema = plan.virtual || plan.elsewhere || readsSchema(codeOf(sql)) || reached.some((t) => t.toLowerCase().startsWith("sqlite_"));
+  const mine = reachable(reach);
+  if (reach.guest && !mine.length && (schema || reached.length)) {
+    return refuse(
+      "a guest's words started this work, so sql reaches only the tables of the project whose channel they spoke in, and this chat is not that project's. " +
+        "Answer them with what you know, or tell the owner (notify) what was asked.",
+    );
+  }
+  if (schema) {
     return refuse(
       "the schema is Maintenance's to read, not yours: your project's tables and their columns are listed in your prompt. " +
         "Something that does not match what you expected is Maintenance's to look into: hand it there (chats.handoff to @project:maintenance) with what you saw.",
     );
   }
-  const own = kernel.filter((t) => !t.startsWith("sqlite_"));
+  const own = reached.filter(isKernelTable);
   if (own.length) {
     return refuse(
       `${own.join(", ")}: ${own.length === 1 ? "that table is" : "those tables are"} KOS's own, not a project's. ` +
         "Use the tool for the job (cron.list for jobs, chats.list and chats.read for chats, tasks.list, blobs.list, memory.recall for facts, chats.handoff to pass something to another chat); sql is for your project's tables.",
     );
   }
-  const tables = reached.filter((t) => !isKernelTable(t));
-  if (tables.length === 0) return { ok: true };
+  const tables = reached;
+  if (!tables.length) return { ok: true };
   const whose = (t: string): string => {
     const owner = ownerOf(t, reach.projects);
     return owner ? `${t} is the ${owner.name} project's` : `${t} belongs to no project`;
   };
-  const mine = reachable(reach);
   if (!mine.length) {
     // Named outright: a chat that made a project in an earlier turn is
     // looking for that project's own chat, not a lecture on the root.

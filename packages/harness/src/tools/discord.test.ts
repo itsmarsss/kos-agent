@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
+import { guested } from "../kernel/caller.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
@@ -21,7 +22,7 @@ describe("the discord tools", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  async function harness(connected = true, scope?: string) {
+  async function harness(connected = true, scope?: string, caller?: string) {
     const channels: ServerChannel[] = [
       { key: "orchestrator:owner", id: "ch1", name: "kos", audience: "owner", fixed: true },
       { key: "needs-you", id: "ch2", name: "needs-you", audience: "owner", fixed: true },
@@ -32,7 +33,10 @@ describe("the discord tools", () => {
     const places: ServerPlace[] = [
       { id: "c0", name: "general", kind: "channel", audience: "everyone" },
       { id: "c7", name: "diary", kind: "channel", audience: "owner" },
+      // A channel of the owner's made the home of a chat in the garden, not of the project itself.
+      { id: "c8", name: "board", kind: "channel", audience: "guests", bound: "chat-board" },
     ];
+    const projects: Record<string, string> = { "chat-board": "garden", "cron:21": "garden", "chat-other": "garden", "chat-pantry": "pantry" };
     const roles: ServerRole[] = [{ id: "r0", name: "Members", members: 3 }];
     const made: MakePlace[] = [];
     const accessed: [string, Access[]][] = [];
@@ -46,7 +50,14 @@ describe("the discord tools", () => {
     ];
     const pruned: string[] = [];
     const registry = new ToolRegistry();
-    const ctx = toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), ...(scope ? { callerProject: () => scope } : {}) });
+    const ctx = toolRegistryContext(registry, {
+      workspace: ws,
+      db: ws.db,
+      secrets: new SecretsRegistry(),
+      projectOf: (id) => projects[id],
+      ...(scope ? { callerProject: () => scope } : {}),
+      ...(caller ? { callerConversation: () => caller } : {}),
+    });
     await new ModuleLoader(ctx).load([
       createDiscordModule({
         connected: () => connected,
@@ -95,7 +106,8 @@ describe("the discord tools", () => {
           return { key: to, name: channel.replace(/^#/, ""), audience: "guests" };
         },
         react: async (channel, message, emoji) => {
-          reacted.push([channel, message, emoji]);
+          // Judged by the tool, a channel comes by id alone.
+          reacted.push([typeof channel === "string" ? channel : `id:${channel.id}`, message, emoji]);
         },
         reactions: async () => [{ emoji: "👍", count: 2, users: [{ id: "u1", name: "Ana" }, { id: "u2", name: "Bo" }] }],
         messages: async (_channel, limit) => [{ id: "m1", author: { id: "u1", name: "Ana", bot: false }, text: "done", at: "2026-10-19T09:00:00.000Z", reactions: [] }].slice(0, limit),
@@ -150,6 +162,61 @@ describe("the discord tools", () => {
     expect((await h.call("discord.member", { id: "<@306>" })).json).toMatchObject({ id: "306", name: "splattertron", roles: ["Members"] });
     expect((await h.call("discord.member", { id: "splattertron" })).isError).toBe(true);
     expect(h.registry.classify("discord.member", { id: "306" }).tier).toBe("safe");
+  });
+
+  it("reads and reacts only where the chat asking reaches: a guest's work its room alone", async () => {
+    const react = async (h: Awaited<ReturnType<typeof harness>>, channel: string): Promise<boolean> => !(await h.call("discord.react", { channel, message: "m1", emoji: "👍" })).isError;
+    const reads = async (h: Awaited<ReturnType<typeof harness>>, channel: string): Promise<boolean> =>
+      !(await h.call("discord.messages", { channel })).isError && !(await h.call("discord.reactions", { channel, message: "m1" })).isError;
+
+    // A guest in the garden's channel, on the first hop or handed on to Maintenance: that channel and its threads.
+    for (const scope of ["garden", "maintenance", undefined]) {
+      const h = await harness(true, scope);
+      const room = { project: "garden", chat: "project:garden" };
+      await guested.run(room, async () => {
+        for (const ok of ["my-garden", "#my-garden", "ch3", "t1"]) expect(await react(h, ok), `${scope}: ${ok}`).toBe(true);
+        for (const ok of ["my-garden", "t1"]) expect(await reads(h, ok), `${scope}: ${ok}`).toBe(true);
+        for (const no of ["kos", "needs-you", "recap", "general", "diary", "c7", "t3", "t4", "999"]) {
+          expect(await react(h, no), `${scope}: ${no}`).toBe(false);
+          expect(await reads(h, no), `${scope}: ${no}`).toBe(false);
+        }
+        const refused = await h.call("discord.messages", { channel: "kos" });
+        expect(refused.content).toMatch(/a guest's work reads and reacts only there/);
+      });
+      // Named by Discord's id, so the adapter cannot find a different channel by the same words.
+      expect(h.reacted.map(([channel]) => channel)).toEqual(["id:ch3", "id:ch3", "id:ch3", "id:t1"]);
+    }
+
+    // A guest in a thread's chat reaches that thread, not the channel above it.
+    const thread = await harness(true, "garden");
+    await guested.run({ project: "garden", chat: "c1" }, async () => {
+      expect(await react(thread, "t1")).toBe(true);
+      expect(await react(thread, "my-garden")).toBe(false);
+    });
+
+    // A project's chat: its own channel and threads, as the listings show it.
+    const garden = await harness(true, "garden");
+    for (const ok of ["my-garden", "t1"]) expect(await reads(garden, ok), ok).toBe(true);
+    for (const no of ["general", "kos", "t3", "999"]) expect(await reads(garden, no), no).toBe(false);
+    // A channel bound to a chat of the project is the project's: from its schedule's run, the chat itself, or another of its chats.
+    for (const caller of ["cron:21", "chat-board", "chat-other"]) {
+      const h = await harness(true, "garden", caller);
+      expect(await reads(h, "board"), caller).toBe(true);
+      expect(await react(h, "#board"), caller).toBe(true);
+      expect(h.reacted).toEqual([["id:c8", "m1", "👍"]]);
+    }
+    expect(await reads(await harness(true, "pantry", "chat-pantry"), "board")).toBe(false);
+    // Not the room a guest spoke in, so not theirs.
+    const room = await harness(true, "garden");
+    await guested.run({ project: "garden", chat: "project:garden" }, async () => expect(await reads(room, "board")).toBe(false));
+
+    // The root and Maintenance reach any channel, by the name they gave.
+    for (const scope of [undefined, "maintenance"]) {
+      const all = await harness(true, scope);
+      expect(await react(all, "general")).toBe(true);
+      expect(await reads(all, "999")).toBe(true);
+      expect(all.reacted).toEqual([["general", "m1", "👍"]]);
+    }
   });
 
   it("makes a channel of the owner's a chat's home, asking only when others can see it, and only for a project or a blob", async () => {

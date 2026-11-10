@@ -6,7 +6,7 @@ import { deleteProject } from "../systems/remove.js";
 import type { CreateProjectInput } from "../systems/manifest.js";
 import { artifactGuide } from "../systems/artifactguide.js";
 import { ARTIFACT_KINDS, WORKSPACE_SCOPE, isArtifactKind } from "@kos/shared";
-import { MAINTENANCE_SLUG, reachable, type Reach } from "./fence.js";
+import { maintains, reachable, type Reach } from "./fence.js";
 import { reachOf } from "./sql.js";
 import { ownerOfRecord, type PageOwner, type PageStore } from "../systems/pages.js";
 
@@ -46,7 +46,7 @@ function str(input: Record<string, unknown>, key: string): string {
  * Anywhere else could make a table it was then refused the rows of.
  */
 function refuseOutsideReach(project: string, reach: Reach): void {
-  if (reach.project === MAINTENANCE_SLUG || reachable(reach).includes(project)) return;
+  if (maintains(reach) || reachable(reach).includes(project)) return;
   const name = reach.projects.find((p) => p.slug === project)?.name ?? project;
   const here = reach.project ? `This chat is ${reach.projects.find((p) => p.slug === reach.project)?.name ?? reach.project}'s` : "This chat belongs to no project";
   throw new Error(`${here}, so ${name}'s tables are not its to change. Hand the work to ${name}'s own chat with chats.handoff to @project:${project}, saying what to build and load.`);
@@ -72,7 +72,7 @@ export function whyNot(owner: PageOwner, reach: Reach, what: "change" | "read", 
   if (typeof owner === "object" && what === "change" && removed(owner.id)) {
     return `The blob ${owner.blob} that made it was removed, so what it made is kept for the owner as it is: its artifacts`;
   }
-  if (reach.project === MAINTENANCE_SLUG) return undefined;
+  if (maintains(reach)) return undefined;
   const name = (slug: string): string => reach.projects.find((p) => p.slug === slug)?.name ?? slug;
   const here = reach.project ? `This chat is ${name(reach.project)}'s` : reach.blob ? `This chat is the blob ${reach.blob.name}'s` : undefined;
   if (typeof owner === "string") {

@@ -34,6 +34,11 @@ export interface RecallOptions {
   minScore?: number;
   /** Extra scopes to read, for an outside caller's own claims. */
   scopes?: string[];
+  /**
+   * These scopes alone: no global claims and no moments from the log, which
+   * are the owner's own. A guest's work reads its room's project this way.
+   */
+  only?: string[];
 }
 
 /**
@@ -50,14 +55,14 @@ export class MemoryRetriever {
   ) {}
 
   async recall(userId: string, query: string, options: RecallOptions = {}): Promise<Recall> {
-    const scopes = [GLOBAL_SCOPE, ...(options.projectSlug ? [projectScope(options.projectSlug)] : []), ...(options.scopes ?? [])];
+    const scopes = options.only ?? [GLOBAL_SCOPE, ...(options.projectSlug ? [projectScope(options.projectSlug)] : []), ...(options.scopes ?? [])];
     const facts = this.facts.search(userId, query, options.factLimit ?? 10, {
       scopes,
       ...(options.minScore !== undefined ? { minScore: options.minScore } : {}),
     });
     this.facts.markUsed(facts.map((f) => f.id));
     let events: EventHit[] = [];
-    if (this.events && query.trim()) {
+    if (this.events && query.trim() && !options.only) {
       // Recall goes on by words alone when the embedding cannot be had in time: the turn should not wait on it.
       const [embedding] = this.embedder ? ((await Promise.race([this.embedder.embed([query], "query").catch(() => undefined), deadline(10_000)])) ?? [undefined]) : [undefined];
       events = this.events.search({

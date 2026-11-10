@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { ModelMessage } from "../models/types.js";
-import { Caretaker, adoptFixes, isTransient, type CaretakerDeps } from "./caretaker.js";
+import { guested } from "./caller.js";
+import { Caretaker, adoptFixes, isTransient, reachesAll, type CaretakerDeps } from "./caretaker.js";
 
 function deps(over: Partial<CaretakerDeps> = {}) {
   const log: string[] = [];
@@ -187,5 +188,17 @@ describe("the maintenance project", () => {
     expect(moved).toEqual(["a"]);
     adoptFixes(manifest, conversations, "owner");
     expect(made).toEqual(["maintenance"]);
+  });
+});
+
+describe("who reaches the whole of KOS", () => {
+  it("is the root and Maintenance, and neither on work a guest started", () => {
+    expect(reachesAll(undefined)).toBe(true);
+    expect(reachesAll("maintenance")).toBe(true);
+    expect(reachesAll("books")).toBe(false);
+    expect(guested.run({ project: "maintenance", chat: "project:maintenance" }, () => reachesAll("maintenance"))).toBe(false);
+    expect(guested.run({ project: "books", chat: "project:books" }, () => reachesAll("maintenance"))).toBe(false);
+    expect(guested.run({ project: undefined, chat: "c1" }, () => reachesAll(undefined))).toBe(false);
+    expect(guested.run(undefined, () => reachesAll("maintenance"))).toBe(true);
   });
 });
