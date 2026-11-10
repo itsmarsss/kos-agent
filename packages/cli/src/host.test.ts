@@ -98,6 +98,7 @@ describe("a scheduled run's message in its place", () => {
       ensureThread: async () => undefined,
       bindThread: () => undefined,
       joinOwner: async (id) => void joined.push(id),
+      forgetPlace: () => undefined,
       jobOf: (p) => ({ "cron:7": reminder, "cron:2": kickoff })[p.place ?? ""],
       postIn: async (target, msg) => void posts.push({ target, text: msg.text }),
       ...over,
@@ -123,6 +124,28 @@ describe("a scheduled run's message in its place", () => {
     await notifier.say({ ...run("cron:2", "Kickoff is failing."), ping: true }, { text: "Kickoff is failing." });
     await notifier.say(run("cron:2", "Kickoff is working again."), { text: "Kickoff is working again." });
     expect(posts.map((p) => p.text)).toEqual(["<@222> Kickoff is failing.", "Kickoff is working again."]);
+  });
+
+  it("finds a new place once when Discord says the thread is gone, and leaves it to the DM when that fails too", async () => {
+    const bindings: Record<string, string> = { t7: "cron:7" };
+    const gone = new Set(["t7"]);
+    const { notifier, posts } = placer({
+      targetFor: (conv) => Object.entries(bindings).find(([, c]) => c === conv)?.[0],
+      homeOf: () => "orchestrator:owner",
+      ensureThread: async () => "t8",
+      bindThread: (thread, conv) => void (bindings[thread] = conv),
+      forgetPlace: (id) => void delete bindings[id],
+      postIn: async (target, msg) => {
+        if (gone.has(target)) throw Object.assign(new Error("Unknown Channel"), { code: 10003 });
+        posts.push({ target, text: msg.text });
+      },
+    });
+    expect(await notifier.say(run("cron:7"), { text: "Call The Centre now." })).toBeDefined();
+    expect(posts).toEqual([{ target: "t8", text: "<@222> Call The Centre now." }]);
+    expect(bindings).toEqual({ t8: "cron:7" });
+    gone.add("t8");
+    expect(await notifier.say(run("cron:7"), { text: "Again." })).toBeUndefined();
+    expect(notifier.spokeInPlace("cron:7")).toBe(true);
   });
 
   it("leaves to the owner's DM what names somewhere, asks no place, or has none", async () => {

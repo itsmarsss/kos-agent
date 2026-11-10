@@ -49,7 +49,7 @@ type PanelSurface = "chrome" | "mac";
 
 import { envFilePath } from "./env.js";
 import { ThreadMirror } from "./threadmirror.js";
-import { pingsOwner, placeOf, postSaid, type JobFacts, type PlaceDeps, type SaidDeps } from "./saidpost.js";
+import { pingsOwner, postInPlace, postSaid, type JobFacts, type PlaceDeps, type SaidDeps } from "./saidpost.js";
 import { claimHandle, type HandleClaim } from "./imessagelock.js";
 import { clearDaemonState, writeDaemonState } from "./state.js";
 
@@ -179,7 +179,6 @@ export interface PlaceNotifierDeps extends PlaceDeps {
   ownerId: string;
   /** The scheduled job a message is from, when it is one. */
   jobOf(payload: NotifyPayload): JobFacts | undefined;
-  postIn(target: string, msg: OutboundMessage): Promise<void>;
 }
 
 /**
@@ -210,12 +209,10 @@ export class PlaceNotifier {
    */
   async say(payload: NotifyPayload, msg: OutboundMessage): Promise<NotifySent | undefined> {
     if (!payload.place || payload.target.kind !== "owner" || payload.target.surface) return undefined;
-    const where = await placeOf(payload.place, this.deps).catch(() => undefined);
-    if (!where) return undefined;
     const job = this.deps.jobOf(payload);
     // A fixed reminder, and news the owner must not miss (a job failing), ping them.
     const ping = payload.ping || (job && pingsOwner(job)) ? `<@${this.deps.ownerId}> ` : "";
-    await this.deps.postIn(where, { ...msg, text: `${ping}${msg.text}` });
+    if (!(await postInPlace(payload.place, { ...msg, text: `${ping}${msg.text}` }, this.deps))) return undefined;
     this.spoke.add(payload.place);
     return { delivered: `Posted in this run's own place on Discord, where the owner is a member and is notified${ping ? ", pinging them" : ""}; it is not also sent to their DM.` };
   }
@@ -909,12 +906,13 @@ export async function runHost(options: HostOptions): Promise<void> {
         ensureThread: (key, conv, title) => adapter!.ensureThread(key, conv, title),
         bindThread: (threadId, conv) => kernel.bindThread(threadId, conv),
         joinOwner: (placeId) => adapter!.joinOwner(placeId).catch((err: unknown) => console.warn(`[discord] the owner could not be added to ${placeId}: ${err instanceof Error ? err.message : String(err)}`)),
+        forgetPlace: (placeId) => adapter!.forgetPlace(placeId),
+        postIn: (target, msg) => adapter!.postIn(target, msg),
       };
       const placed = new PlaceNotifier({
         ...placeOn,
         ownerId: creds.ownerId,
         jobOf: (payload) => (payload.place ? cronOf(payload.place) : undefined),
-        postIn: (target, msg) => adapter!.postIn(target, msg),
       });
       placer = placed;
       const mirror = new ThreadMirror({
@@ -944,7 +942,6 @@ export async function runHost(options: HostOptions): Promise<void> {
         speakerFor: (from) => kernel.speakerFor(from),
         ownerSender: () => adapter!.ownerSender(),
         filesFor: keptFiles,
-        postIn: (target, msg) => adapter!.postIn(target, msg),
         sendOwner: (msg) => adapter!.send(creds.ownerId, msg),
       };
       /*

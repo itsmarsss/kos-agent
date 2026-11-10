@@ -50,6 +50,34 @@ export interface PlaceDeps {
   bindThread(threadId: string, conversationId: string): void;
   /** Make the owner a member of a thread, so what lands there notifies them as a DM would; nothing for a channel. Never throws. */
   joinOwner(placeId: string): Promise<void>;
+  /** Let go of a channel or thread Discord says is gone, and whatever was bound to it. */
+  forgetPlace(placeId: string): void;
+  postIn(target: string, msg: OutboundMessage): Promise<void>;
+}
+
+/** Discord's answer for a channel or thread that no longer exists. */
+function goneFromDiscord(err: unknown): boolean {
+  return (err as { code?: unknown } | null)?.code === 10003;
+}
+
+/**
+ * A scheduled run's message posted in its place. A place Discord says is
+ * gone (a thread deleted under it) is let go and a new one found once;
+ * false when there is no place, or none that takes the post.
+ */
+export async function postInPlace(conversationId: string, msg: OutboundMessage, deps: PlaceDeps): Promise<boolean> {
+  for (let tries = 0; tries < 2; tries++) {
+    const where = await placeOf(conversationId, deps).catch(() => undefined);
+    if (!where) return false;
+    try {
+      await deps.postIn(where, msg);
+      return true;
+    } catch (err) {
+      if (!goneFromDiscord(err)) throw err;
+      deps.forgetPlace(where);
+    }
+  }
+  return false;
 }
 
 /**
@@ -87,7 +115,6 @@ export interface SaidDeps extends PlaceDeps {
   speakerFor(from: MessageFrom): Sender;
   ownerSender(): Promise<Sender | undefined>;
   filesFor(files: { name: string; path: string }[]): NonNullable<OutboundMessage["files"]>;
-  postIn(target: string, msg: OutboundMessage): Promise<void>;
   /** The owner's DM. */
   sendOwner(msg: OutboundMessage): Promise<void>;
 }
@@ -113,9 +140,8 @@ export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
   const job = deps.jobOf(said.conversationId);
   if (job && said.origin === "system") {
     if (spoke || isUpkeep(job) || !said.reply.trim()) return;
-    const where = await placeOf(said.conversationId, deps);
     // With a Run now button, the same path the dashboard's Run now takes.
-    if (where) await deps.postIn(where, { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] });
+    await postInPlace(said.conversationId, { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] }, deps);
     return;
   }
   if (spoke) return;
