@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import * as sqliteVec from "sqlite-vec";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { Db } from "../store/db.js";
@@ -129,6 +130,19 @@ describe("the fence around the tables", () => {
     // A call that never runs does not cover a virtual table that does.
     expect(fence(db, "SELECT * FROM 'dbstat' WHERE 0 AND EXISTS (SELECT 1 FROM json_each('[]'))", reach("books")).ok).toBe(false);
     expect(fence(db, "SELECT * FROM 'memory_facts_fts' WHERE 0 AND EXISTS (SELECT 1 FROM json_each('[]'))", reach("books")).ok).toBe(false);
+  });
+
+  it("knows every virtual table module the JSON allowance is judged against", () => {
+    // The allowance counts json_each and json_tree calls and refuses any
+    // other virtual cursor it cannot account for. A module an upgrade adds
+    // may be one a statement can open by name alone: judge it, then pin it.
+    const kos = new Database(":memory:");
+    sqliteVec.load(kos);
+    const modules = (kos.prepare("SELECT name FROM pragma_module_list ORDER BY name").all() as { name: string }[]).map((r) => r.name);
+    expect(modules).toEqual(["dbstat", "fts3", "fts3tokenize", "fts4", "fts4aux", "fts5", "fts5vocab", "geopoly", "json_each", "json_tree", "pragma_module_list", "rtree", "rtree_i32", "vec0", "vec_each"]);
+    // vec_each takes only its arguments apart, but is not counted: refused, the safe way.
+    expect(fence(kos, "SELECT * FROM vec_each(?)", reach("books"), ["[1]"]).ok).toBe(false);
+    kos.close();
   });
 
   it("keeps EXPLAIN for Maintenance", () => {
