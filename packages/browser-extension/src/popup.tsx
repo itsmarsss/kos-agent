@@ -71,7 +71,7 @@ function Popup(): ReactElement {
     setPage(next);
   };
   return (
-    <div className="popup">
+    <div className="popup-frame">
       <div className="popup-page" ref={overlay}>
         {/* Home and settings move at once, each from its own side, as KOS for Mac's pages do; the head is home's. */}
         <div className="pages">
@@ -88,14 +88,14 @@ function Popup(): ReactElement {
             )}
           </AnimatePresence>
         </div>
-        <AnimatePresence>
-          {error && (
-            <m.p className="error" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-              {error}
-            </m.p>
-          )}
-        </AnimatePresence>
       </div>
+      <AnimatePresence>
+        {error && (
+          <m.p className="error popup-error" role="alert" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+            {error}
+          </m.p>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -140,7 +140,7 @@ function Head({ state, settings }: { state: PopupState | undefined; settings: ()
 function StatePill({ tone, word }: { tone: Tone; word: string }): ReactElement {
   return (
     <AnimatePresence mode="popLayout" initial={false}>
-      <m.span key={word} className="state-pill" layout="position" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ opacity: ease }}>
+      <m.span key={word} className="state-pill" layout="position" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ opacity: ease, layout: spring }}>
         <Pill tone={tone}>{word}</Pill>
       </m.span>
     </AnimatePresence>
@@ -381,7 +381,8 @@ function PairForm({ first = false, again, cancel, act }: { first?: boolean; agai
   useEffect(() => {
     if (first || again) return;
     form.current?.querySelector("input")?.focus({ preventScroll: true });
-    form.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    form.current?.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
   }, [first, again]);
   /** What was typed or pasted in a field; a pairing link, in either, fills in both. */
   const read = (text: string, set: (text: string) => void): void => {

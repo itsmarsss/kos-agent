@@ -128,7 +128,13 @@ final class BlobDriver: ObservableObject {
     motion.look = look
     let dt = last.map { now - $0 } ?? 0.016
     last = now
-    return motion.step(now: now, dt: still ? 0.016 : dt, pointer: still ? nil : pointer(now: now))
+    var frame = motion.step(now: now, dt: still ? 0.016 : dt, pointer: still ? nil : pointer(now: now))
+    // Held still, the mark sits where it reads plainest, not wherever its drift froze.
+    if still {
+      frame.mark = .zero
+      frame.markOpacity = 1
+    }
+    return frame
   }
 
   /// Where the pointer is from the face's centre, y down, while it has moved in the last few seconds.

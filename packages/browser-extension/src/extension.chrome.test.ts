@@ -785,10 +785,13 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     await devtools.evaluate(popup, "document.querySelector('[aria-label=Back]').click()");
     await shown("document.querySelector('.drawer-row') && !document.querySelector('.page-head')");
     await devtools.evaluate(popup, "document.querySelector('.drawer-row').click()");
+    await shown("document.querySelector('.drawer-row[aria-expanded=true]')");
     sizes.push(await size());
     await devtools.evaluate(popup, "[...document.querySelectorAll('button')].find((b) => b.textContent.includes('Add a KOS')).click()");
     await shown("document.querySelector('.pair-form:not(.pair-form--again)')");
     sizes.push(await size());
+    // The form, wherever it falls on the page, scrolled up into the popup's view.
+    expect(await devtools.evaluate(popup, "(() => { const f = document.querySelector('.pair-form').getBoundingClientRect(); const p = document.querySelector('.popup-page').getBoundingClientRect(); return f.top >= p.top && f.top < p.bottom; })()")).toBe(true);
     expect(sizes).toEqual(Array(4).fill([392, 580, 580]));
   }, 30_000);
 });
