@@ -95,7 +95,8 @@ body.popup { width: 392px; height: 580px; padding: 0; overflow: hidden; }
 body.popup #root { height: 100%; }
 .popup-frame { position: relative; height: 100%; }
 .popup-page { position: relative; height: 100%; overflow: hidden auto; padding: var(--gutter); scroll-padding-block: var(--gutter); }
-.popup-error { position: absolute; left: var(--gutter); right: var(--gutter); bottom: var(--gutter); z-index: 1; padding: 8px 10px; border-radius: 8px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); }
+/* Over the page's foot until clicked away or the next action. */
+.popup-error { cursor: pointer; position: absolute; left: var(--gutter); right: var(--gutter); bottom: var(--gutter); z-index: 1; padding: 8px 10px; border-radius: 8px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); }
 /* Home and settings in one place, so one comes in as the other leaves. */
 .pages { display: grid; }
 .pages > * { grid-area: 1 / 1; min-width: 0; }

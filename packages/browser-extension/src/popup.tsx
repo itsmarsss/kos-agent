@@ -32,7 +32,7 @@ function mood(s: PopupState | undefined): BlobMood {
 }
 
 /** The page's whole state: the worker's, the tab in front, and an error to show. */
-function usePopup(): { state: PopupState | undefined; tab: chrome.tabs.Tab | undefined; error: string; act: (message: Record<string, unknown>) => Promise<boolean> } {
+function usePopup(): { state: PopupState | undefined; tab: chrome.tabs.Tab | undefined; error: string; dismiss: () => void; act: (message: Record<string, unknown>) => Promise<boolean> } {
   const [state, setState] = useState<PopupState>();
   const [tab, setTab] = useState<chrome.tabs.Tab>();
   const [error, setError] = useState("");
@@ -56,11 +56,12 @@ function usePopup(): { state: PopupState | undefined; tab: chrome.tabs.Tab | und
       return false;
     }
   }, []);
-  return { state, tab, error, act };
+  const dismiss = useCallback(() => setError(""), []);
+  return { state, tab, error, dismiss, act };
 }
 
 function Popup(): ReactElement {
-  const { state, tab, error, act } = usePopup();
+  const { state, tab, error, dismiss, act } = usePopup();
   const [page, setPage] = useState<"home" | "settings">("home");
   // The popup keeps one size; its page scrolls inside, under the overlay thumb, no lane taken from its 392 px.
   const scroller = useRef<HTMLDivElement>(null);
@@ -91,7 +92,7 @@ function Popup(): ReactElement {
       </div>
       <AnimatePresence>
         {error && (
-          <m.p className="error popup-error" role="alert" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+          <m.p className="error popup-error" role="alert" title="Dismiss" onClick={dismiss} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             {error}
           </m.p>
         )}
