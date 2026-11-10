@@ -1305,6 +1305,16 @@ describe("Kernel", () => {
     expect(kernel.threadHome(`orchestrator:${owner}`)).toBeUndefined();
   });
 
+  it("says a turn's words came in the DM, so an answer after an approval goes back there", async () => {
+    kernel = await boot(stubInference([]));
+    const told: { dm?: boolean; channel: string | null }[] = [];
+    kernel.bus.on("turn:said", (said) => void told.push({ channel: said.channel, ...(said.dm ? { dm: said.dm } : {}) }));
+    const owner = kernel.profile.ownerId;
+    await kernel.handleChannelTurn({ text: "hi", userId: owner, channel: "discord", room: { kind: "dm" } });
+    await kernel.handleChannelTurn({ text: "hi", userId: owner, channel: "discord", room: { kind: "thread", id: "t1" } });
+    expect(told).toEqual([{ channel: "discord", dm: true }, { channel: "discord" }]);
+  });
+
   it("keeps what a turn was given from memory, so the chat can show it", async () => {
     kernel = await boot({
       async generate(): Promise<ModelResponse> {

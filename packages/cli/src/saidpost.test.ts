@@ -49,6 +49,13 @@ describe("a turn's answer shown on Discord after an approval", () => {
     expect(d.posts).toEqual([]);
   });
 
+  it("sends a resumed DM turn's answer back to the DM even when its chat has a thread", async () => {
+    const d = deps({ "chat-1": "t1" });
+    await postSaid(said({ conversationId: "chat-1", resumed: true, dm: true }), d);
+    expect(d.dms).toEqual(["Deleted."]);
+    expect(d.posts).toEqual([]);
+  });
+
   it("posts a resumed thread turn's answer in its thread, and not in the DM", async () => {
     const d = deps({ "discord:thread:t1": "t1" });
     await postSaid(said({ conversationId: "discord:thread:t1", resumed: true }), d);

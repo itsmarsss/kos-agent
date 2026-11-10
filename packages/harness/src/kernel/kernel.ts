@@ -1389,7 +1389,11 @@ export class Kernel {
                 sessionId,
                 ...(opts.origin === "system" ? [] : [text]),
               );
-              this.said(sessionId, text, reply, opts.origin ?? "owner", opts.channel, opts.kept ?? [], resumed || opts.replayed === true, opts.guest ? undefined : opts.from);
+              this.said(sessionId, text, reply, opts.origin ?? "owner", opts.channel, opts.kept ?? [], {
+                resumed: resumed || opts.replayed === true,
+                from: opts.guest ? undefined : opts.from,
+                dm: opts.room?.kind === "dm",
+              });
             }
             /*
              * One row per model the call actually used.
@@ -1478,6 +1482,7 @@ export class Kernel {
               ...(opts.kept?.length ? { kept: opts.kept } : {}),
               ...(resumed || opts.replayed ? { resumed: true } : {}),
               ...(opts.from && !opts.guest ? { from: opts.from } : {}),
+              ...(opts.room?.kind === "dm" ? { dm: true } : {}),
               runId,
               useSession,
               before,
@@ -3650,6 +3655,8 @@ export class Kernel {
       resumed?: boolean;
       /** Who passed the words on, when a chat or a schedule did rather than the owner. */
       from?: MessageFrom;
+      /** The words came in a direct message, where an answer after an approval goes back. */
+      dm?: boolean;
       runId: number;
       useSession: boolean;
       /** How long the history was when the turn began; what follows is the turn's own. */
@@ -3743,13 +3750,21 @@ export class Kernel {
       else await remembering;
     }
 
-    if (useSession) this.said(sessionId, text, reply, origin ?? "owner", ctx.channel, ctx.kept ?? [], ctx.resumed ?? false, ctx.from);
+    if (useSession) this.said(sessionId, text, reply, origin ?? "owner", ctx.channel, ctx.kept ?? [], { resumed: ctx.resumed ?? false, from: ctx.from, dm: ctx.dm });
     this.runs.finish(runId, "ok");
     return reply;
   }
 
   /** A turn's exchange, told to whoever shows the chat elsewhere, with the files that came with it and who passed the words on. */
-  private said(conversationId: string, text: string, reply: string, origin: "owner" | "system", channel: string | undefined, files: KeptFile[], resumed = false, from?: MessageFrom): void {
+  private said(
+    conversationId: string,
+    text: string,
+    reply: string,
+    origin: "owner" | "system",
+    channel: string | undefined,
+    files: KeptFile[],
+    extra: { resumed?: boolean; from?: MessageFrom | undefined; dm?: boolean | undefined } = {},
+  ): void {
     this.bus.emit({
       kind: "turn:said",
       conversationId,
@@ -3759,8 +3774,9 @@ export class Kernel {
       origin,
       channel: channel ?? null,
       files,
-      ...(resumed ? { resumed: true } : {}),
-      ...(from ? { from } : {}),
+      ...(extra.resumed ? { resumed: true } : {}),
+      ...(extra.from ? { from: extra.from } : {}),
+      ...(extra.dm ? { dm: true } : {}),
     });
   }
 

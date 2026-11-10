@@ -43,6 +43,8 @@ export type KernelEvent =
       resumed?: boolean;
       /** Who passed the words on, when a chat or a schedule did: the mirror speaks as them, never as the owner. */
       from?: MessageFrom;
+      /** The words came in a direct message: an answer after an approval goes back there, whatever thread the chat has. */
+      dm?: boolean;
     }
   /** A slash command run in a chat: the line as typed and what it answered, with where it was typed. */
   | { kind: "command:ran"; conversationId: string; text: string; reply: string; channel: string | null }

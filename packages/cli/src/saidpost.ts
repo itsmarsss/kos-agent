@@ -10,6 +10,8 @@ export interface Said {
   files: { name: string; path: string }[];
   resumed?: boolean;
   from?: MessageFrom;
+  /** The words came in the owner's DM. */
+  dm?: boolean;
 }
 
 /** A scheduled job, as much of it as where its runs speak depends on. */
@@ -119,11 +121,14 @@ export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
   if (spoke) return;
   const target = deps.targetFor(said.conversationId);
   const from = deps.senderFor(said.conversationId);
-  if (!target) {
-    // A resumed turn asked in the DM has no channel or thread: its answer goes back to the DM.
-    if (said.channel === "discord" && said.resumed && said.reply.trim()) await deps.sendOwner({ text: said.reply, ...(from ? { from } : {}) });
+  // A resumed turn asked in the DM is answered in the DM, where it was
+  // asked, even when its chat also has a thread; one with no channel or
+  // thread has nowhere else to go.
+  if (said.channel === "discord" && said.resumed && (said.dm || !target)) {
+    if (said.reply.trim()) await deps.sendOwner({ text: said.reply, ...(from ? { from } : {}) });
     return;
   }
+  if (!target) return;
   if (said.origin === "owner" && said.text.trim() && said.channel !== "discord") {
     // The files that came with the words go too; one that is gone is simply not shown.
     const files = deps.filesFor(said.files);
