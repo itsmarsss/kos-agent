@@ -1617,6 +1617,10 @@ describe("DiscordAdapter authorization", () => {
     await adapter.react("c9", "m2", "🎉");
     expect(reacted).toEqual(["m2:🎉"]);
     await expect(adapter.react("nowhere", "m2", "🎉")).rejects.toThrow(/no channel called nowhere/);
+    // Given by id, the id is fetched: a channel whose name is that id's digits does not stand in for it.
+    (adapter as unknown as { known: Map<string, { id: string }> }).known.set("c9", { id: "elsewhere" });
+    expect(await adapter.messages({ id: "c9" }, 1)).toHaveLength(2);
+    await expect(adapter.messages("c9", 1)).rejects.toThrow(/no channel called c9/);
     // Posting into a channel says which message it made.
     expect(await adapter.sendTo({ kind: "channel", id: "c9" }, { text: "Tomorrow's problem" })).toEqual({ id: "m3" });
   });

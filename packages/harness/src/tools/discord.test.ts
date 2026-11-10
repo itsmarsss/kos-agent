@@ -106,7 +106,8 @@ describe("the discord tools", () => {
           return { key: to, name: channel.replace(/^#/, ""), audience: "guests" };
         },
         react: async (channel, message, emoji) => {
-          reacted.push([channel, message, emoji]);
+          // Judged by the tool, a channel comes by id alone.
+          reacted.push([typeof channel === "string" ? channel : `id:${channel.id}`, message, emoji]);
         },
         reactions: async () => [{ emoji: "👍", count: 2, users: [{ id: "u1", name: "Ana" }, { id: "u2", name: "Bo" }] }],
         messages: async (_channel, limit) => [{ id: "m1", author: { id: "u1", name: "Ana", bot: false }, text: "done", at: "2026-10-19T09:00:00.000Z", reactions: [] }].slice(0, limit),
@@ -183,7 +184,7 @@ describe("the discord tools", () => {
         expect(refused.content).toMatch(/a guest's work reads and reacts only there/);
       });
       // Named by Discord's id, so the adapter cannot find a different channel by the same words.
-      expect(h.reacted.map(([channel]) => channel)).toEqual(["ch3", "ch3", "ch3", "t1"]);
+      expect(h.reacted.map(([channel]) => channel)).toEqual(["id:ch3", "id:ch3", "id:ch3", "id:t1"]);
     }
 
     // A guest in a thread's chat reaches that thread, not the channel above it.
@@ -202,7 +203,7 @@ describe("the discord tools", () => {
       const h = await harness(true, "garden", caller);
       expect(await reads(h, "board"), caller).toBe(true);
       expect(await react(h, "#board"), caller).toBe(true);
-      expect(h.reacted).toEqual([["c8", "m1", "👍"]]);
+      expect(h.reacted).toEqual([["id:c8", "m1", "👍"]]);
     }
     expect(await reads(await harness(true, "pantry", "chat-pantry"), "board")).toBe(false);
     // Not the room a guest spoke in, so not theirs.

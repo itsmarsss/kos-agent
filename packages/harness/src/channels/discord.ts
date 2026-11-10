@@ -25,7 +25,7 @@ import {
 import { CHANNEL_TOKEN, detailLines, stepActions, summarizeAction, withUnixTimes } from "@kos/shared";
 
 import { isReadable, type Attachment } from "../kernel/attachments.js";
-import type { Access, Audience, ChannelMessage, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
+import type { Access, Audience, ChannelMessage, ChannelRef, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
 import { INTERRUPTED_LINE, LATE_RUN_MS, OWNER_ONLY, OWNER_THREAD_PREFIX, channelName, type Guest } from "./types.js";
 import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
@@ -1616,23 +1616,24 @@ export class DiscordAdapter implements ChannelAdapter {
     return true;
   }
 
-  /** The channel or thread, by id or by name, as somewhere messages can be read from. */
-  private async room(channel: string): Promise<ReadableChannel> {
-    const id = this.known.get(channel.trim().replace(/^#/, "").toLowerCase())?.id ?? channel.trim();
+  /** The channel or thread, by id or by name, as somewhere messages can be read from; one given by id is fetched by that id alone. */
+  private async room(channel: ChannelRef): Promise<ReadableChannel> {
+    const id = typeof channel === "string" ? (this.known.get(channel.trim().replace(/^#/, "").toLowerCase())?.id ?? channel.trim()) : channel.id;
+    const named = typeof channel === "string" ? channel : channel.id;
     const fetched = await this.client.channels.fetch(id).catch(() => null);
-    if (!fetched || !("messages" in fetched)) throw new Error(`no channel called ${channel} that KOS can read; discord.server lists them`);
+    if (!fetched || !("messages" in fetched)) throw new Error(`no channel called ${named} that KOS can read; discord.server lists them`);
     return fetched as unknown as ReadableChannel;
   }
 
   /** An emoji on a message, from KOS. */
-  async react(channel: string, message: string, emoji: string): Promise<void> {
+  async react(channel: ChannelRef, message: string, emoji: string): Promise<void> {
     const room = await this.room(channel);
     const found = await room.messages.fetch(message);
     await found.react(emoji);
   }
 
   /** Who reacted with what on a message, each emoji with the members behind it. */
-  async reactions(channel: string, message: string): Promise<Reaction[]> {
+  async reactions(channel: ChannelRef, message: string): Promise<Reaction[]> {
     const room = await this.room(channel);
     const found = await room.messages.fetch(message);
     const out: Reaction[] = [];
@@ -1644,7 +1645,7 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   /** The last messages in a channel, oldest first. */
-  async messages(channel: string, limit: number): Promise<ChannelMessage[]> {
+  async messages(channel: ChannelRef, limit: number): Promise<ChannelMessage[]> {
     const room = await this.room(channel);
     const fetched = await room.messages.fetch({ limit: Math.max(1, Math.min(100, limit)) });
     return [...fetched.values()]

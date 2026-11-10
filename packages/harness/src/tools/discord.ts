@@ -117,6 +117,9 @@ export interface MakePlace {
   access?: Access[];
 }
 
+/** A channel or thread as the server is asked for it: by what the owner called it, or by Discord's id alone once judged. */
+export type ChannelRef = string | { id: string };
+
 export interface DiscordServices {
   /** True while the server surface is up; the tools say so plainly when it is not. */
   connected: () => boolean;
@@ -145,11 +148,11 @@ export interface DiscordServices {
    */
   known: () => ServerPlace[];
   /** An emoji on a message, from KOS. */
-  react: (channel: string, message: string, emoji: string) => Promise<void>;
+  react: (channel: ChannelRef, message: string, emoji: string) => Promise<void>;
   /** Who reacted with what on a message. */
-  reactions: (channel: string, message: string) => Promise<Reaction[]>;
+  reactions: (channel: ChannelRef, message: string) => Promise<Reaction[]>;
   /** The last messages in a channel, newest last. */
-  messages: (channel: string, limit: number) => Promise<ChannelMessage[]>;
+  messages: (channel: ChannelRef, limit: number) => Promise<ChannelMessage[]>;
   /** A member of the server by id: who they are, as Discord has it. */
   member: (id: string) => Promise<MemberInfo>;
 }
@@ -240,7 +243,7 @@ function serverReach(deps: DiscordServices, ctx: ModuleContext) {
    * thread) and the threads under it. The root and Maintenance reach any,
    * named as they named it.
    */
-  const placeIn = async (named: string): Promise<string> => {
+  const placeIn = async (named: string): Promise<ChannelRef> => {
     const guest = guestOrigin();
     if (!guest && reachesAll(scope())) return named;
     const want = named.trim();
@@ -268,7 +271,8 @@ function serverReach(deps: DiscordServices, ctx: ModuleContext) {
           : `${named} is not this project's channel or one of its threads. Hand the question to KOS at the root (chats.handoff), which reaches the rest of the server.`,
       );
     }
-    return id;
+    // By id alone: a channel named with digits cannot stand in for the one judged.
+    return { id };
   };
   return { ownChannel, ownThread, placeIn };
 }
