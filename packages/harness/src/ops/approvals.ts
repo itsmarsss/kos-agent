@@ -1,4 +1,5 @@
 import type { ToolRegistry } from "../agent/registry.js";
+import type { GuestOrigin } from "../kernel/caller.js";
 import type { RiskTier } from "../risk/tiers.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import type { Db } from "../store/db.js";
@@ -26,6 +27,8 @@ export interface EnqueueInput {
   /** Whether the turn that asked was the owner's own, and attended: what an orphaned approval runs as. */
   owner?: boolean;
   attended?: boolean;
+  /** The guest's room, when a guest's words started the asking turn: an orphaned approval reaches no further. */
+  guest?: GuestOrigin;
   /** The asking turn holds for the answer, so the ask lapses with the approval window rather than the inbox's hours. */
   waits?: boolean;
 }
@@ -55,6 +58,8 @@ export interface PendingAction {
    */
   owner: boolean;
   attended: boolean;
+  /** The guest's room, when a guest's words started the asking turn; null otherwise, and for a row from before. */
+  guest: GuestOrigin | null;
   /** Whether a turn held for the answer: its ask lapses with the approval window, not the inbox's. False for a row from before. */
   waits: boolean;
 }
@@ -101,6 +106,7 @@ interface Row {
   why: string | null;
   owner: number;
   attended: number;
+  guest: string | null;
   waits: number;
 }
 
@@ -120,6 +126,7 @@ function toAction(row: Row): PendingAction {
     why: row.why ?? null,
     owner: row.owner === 1,
     attended: row.attended === 1,
+    guest: row.guest === null ? null : { project: (JSON.parse(row.guest) as { project: string | null }).project ?? undefined },
     waits: row.waits === 1,
     decidedAt: row.decided_at,
     decidedBy: row.decided_by,
@@ -179,6 +186,9 @@ export class ApprovalQueue {
     if (!columns.some((c) => c.name === "attended")) {
       this.db.exec(`ALTER TABLE pending_actions ADD COLUMN attended INTEGER NOT NULL DEFAULT 0`);
     }
+    if (!columns.some((c) => c.name === "guest")) {
+      this.db.exec(`ALTER TABLE pending_actions ADD COLUMN guest TEXT`);
+    }
     if (!columns.some((c) => c.name === "waits")) {
       this.db.exec(`ALTER TABLE pending_actions ADD COLUMN waits INTEGER NOT NULL DEFAULT 0`);
     }
@@ -195,8 +205,8 @@ export class ApprovalQueue {
     const args = this.secrets ? this.secrets.redact(argsJson) : argsJson;
     const info = this.db
       .prepare(
-        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why, owner, attended, waits)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why, owner, attended, guest, waits)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.tool,
@@ -211,6 +221,7 @@ export class ApprovalQueue {
         input.why?.trim() ? input.why.trim() : null,
         input.owner === true ? 1 : 0,
         input.attended === true ? 1 : 0,
+        input.guest ? JSON.stringify({ project: input.guest.project ?? null }) : null,
         input.waits === true ? 1 : 0,
       );
     return this.get(Number(info.lastInsertRowid))!;

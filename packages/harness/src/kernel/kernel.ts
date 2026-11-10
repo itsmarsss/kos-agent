@@ -101,7 +101,7 @@ import { DB_FILENAME, Workspace } from "../store/workspace.js";
 import { InstanceConfig } from "../systems/config.js";
 import { ProjectManifest } from "../systems/manifest.js";
 import { describeActive, describeProject, type ProjectSchema } from "../systems/schema.js";
-import { caller, isAttended, isOwnerTurn, type TurnOrigin } from "./caller.js";
+import { caller, guestOrigin, isAttended, isOwnerTurn, type GuestOrigin, type TurnOrigin } from "./caller.js";
 import {
   deleteProject as cascadeDeleteProject,
   type DeleteProjectResult,
@@ -1039,6 +1039,8 @@ export class Kernel {
       from?: MessageFrom;
       trail?: string[];
       guestFiles?: string[];
+      /** The guest's room behind work a guest's turn passed on; a guest's own turn finds its room here. */
+      guested?: GuestOrigin;
       maxIterations?: number;
       /** Which model class answers; the reasoning route unless a job says cheap. */
       task?: Task;
@@ -1056,12 +1058,14 @@ export class Kernel {
       // owner's own message said so.
       const attended = opts.attended ?? opts.origin !== "system";
       const owner = attended && opts.owner === true && opts.origin !== "system" && !opts.guest && !sessionId.startsWith("cron:");
+      // A guest's words reach no further than their room's project, here and wherever the work is passed.
+      const guest = opts.guested ?? (opts.guest ? { project: this.projectOf(sessionId) ?? undefined } : undefined);
       const stop = this.stopFor(sessionId, turnId);
       const previousConversation = this.currentConversationId;
       this.currentConversationId = sessionId;
       this.working.add(sessionId);
       this.openTurn(sessionId, true);
-      if (this.buildsWhatItMakes(sessionId, opts.guest !== undefined)) this.turnMade.begin(sessionId, turnId);
+      if (this.buildsWhatItMakes(sessionId, guest !== undefined)) this.turnMade.begin(sessionId, turnId);
       this.failed.delete(sessionId);
       // Where this work has been, for as long as the turn runs: a handoff
       // made from inside it extends the trail rather than starting one.
@@ -1121,6 +1125,7 @@ export class Kernel {
           // A schedule's prompt, a blob's own timer, a guest: the owner did not start this one.
           attended,
           owner,
+          ...(guest ? { guest } : {}),
           // The job behind a schedule's run, whose unaddressed messages go to its place.
           ...(opts.via === "schedule" && opts.from?.kind === "schedule" && opts.from.id ? { scheduled: Number(opts.from.id) } : {}),
           // Where the words were said, for a start on that device that needs no ask from a tool.
@@ -2697,9 +2702,10 @@ export class Kernel {
      * Who the sender's turn was to the fences, which the turn it starts is
      * no more than: read from the call that sends it unless said, so a
      * guest's or a schedule's turn handing work on hands on none of the
-     * owner's reach. A door outside any turn (the dashboard) says so itself.
+     * owner's reach, and a guest's none past their room's project. A door
+     * outside any turn (the dashboard) says so itself.
      */
-    as: { attended: boolean; owner: boolean } = { attended: isAttended(), owner: isOwnerTurn() },
+    as: { attended: boolean; owner: boolean; guest?: GuestOrigin } = { attended: isAttended(), owner: isOwnerTurn(), guest: guestOrigin() },
   ): Promise<{ reply: string; conversationId: string }> {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) throw new Error(`no such conversation: ${conversationId}`);
@@ -2721,6 +2727,7 @@ export class Kernel {
         channel: "dispatch",
         attended: as.attended,
         owner: as.owner,
+        ...(as.guest ? { guested: as.guest } : {}),
         ...(from ? { from } : {}),
         ...(trail.length ? { trail } : {}),
         ...(orchestrates ? { grant: projectChat ? PROJECT_ORCHESTRATOR_GRANT : [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS], allow: [...ORCHESTRATOR_SCOPE] } : {}),
@@ -3533,6 +3540,8 @@ export class Kernel {
     owner?: boolean;
     /** The job behind a schedule's run, whose unaddressed messages go to the job's place. */
     scheduled?: number;
+    /** The guest's room, for a turn a guest's words started or work they passed on. */
+    guest?: GuestOrigin;
     /** The surface the turn's words arrived on, and those words. */
     origin?: TurnOrigin;
     /** The owner's words said since the last call, for the model with this call's result. */
@@ -3581,6 +3590,7 @@ export class Kernel {
       ...(opts.attended === false ? { attended: false } : {}),
       ...(opts.owner === true ? { owner: true } : {}),
       ...(opts.scheduled !== undefined ? { scheduled: opts.scheduled } : {}),
+      ...(opts.guest ? { guest: opts.guest } : {}),
       ...(opts.origin ? { origin: opts.origin } : {}),
       onQueued: (action) => {
         opts.onQueued?.(action);

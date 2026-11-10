@@ -7,7 +7,7 @@ import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
 import { injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
-import { attendance, caller, onSite, origin, ownership, scheduled, turn, turnStop, type TurnOrigin } from "./caller.js";
+import { attendance, caller, guested, onSite, origin, ownership, scheduled, turn, turnStop, type GuestOrigin, type TurnOrigin } from "./caller.js";
 
 export interface GuardedToolsDeps {
   /** A big result set aside as it comes back: whole with its handle, or its start and an outline when huge (in an SDK query). */
@@ -47,6 +47,8 @@ export interface GuardedToolsDeps {
   owner?: boolean;
   /** The job whose run this is, for a schedule's run; see `scheduled`. */
   scheduled?: number;
+  /** The guest's room, for a turn a guest's words started or work they passed on; see `guested`. */
+  guest?: GuestOrigin;
   /** The surface the turn's words arrived on, and those words; see `origin`. */
   origin?: TurnOrigin;
   /**
@@ -349,8 +351,9 @@ export class GuardedTools implements ToolBox {
     // Set for every call, cleared when this turn is no schedule's: a turn a
     // scheduled run started (a dispatch, a handoff) must not inherit its job.
     const job = this.deps.scheduled;
+    const guest = this.deps.guest;
     const within = <T>(work: () => Promise<T>): Promise<T> =>
-      scheduled.run(job, () => attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work))))));
+      scheduled.run(job, () => guested.run(guest, () => attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work)))))));
     const run = async (n: string, i: Record<string, unknown>, site?: string): Promise<ToolExecution> => {
       started.ran = true;
       const ended = this.deps.running?.(n);
@@ -377,7 +380,8 @@ export class GuardedTools implements ToolBox {
 
     // Refused before it is judged: a rule that refuses is the fence, and an
     // ask would only invite the owner to open a gate the harness keeps shut.
-    const refused = registry.refusal(name, called);
+    // Judged inside the turn's stores, so a rule that asks who is calling hears this turn.
+    const refused = await within(async () => registry.refusal(name, called));
     if (refused) return { content: refused, isError: true };
 
     // Judged, asked about and run as stamped: what the owner says yes to is
@@ -462,6 +466,7 @@ export class GuardedTools implements ToolBox {
         ...(why ? { why } : {}),
         owner,
         attended,
+        ...(guest ? { guest } : {}),
         waits: this.deps.waitForApproval !== false,
       });
       this.deps.onQueued?.(action);

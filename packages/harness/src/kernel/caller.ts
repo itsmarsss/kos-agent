@@ -117,3 +117,27 @@ export const scheduled = new AsyncLocalStorage<number | undefined>();
 export function scheduledJob(): number | undefined {
   return scheduled.getStore();
 }
+
+/**
+ * The room a guest spoke in, for a turn their words started or work such a
+ * turn passed on, however many hops: dispatch and handoff carry it as they
+ * carry the owner flag. `project` is that room's project, none for a room
+ * outside one. Absent for the owner's turns, a schedule's and KOS's own.
+ *
+ * Not the owner flag: a schedule's run is not the owner's either, yet
+ * Maintenance's run on a timer reaches what Maintenance does. A guest's
+ * words reach no further than the project of the room they were said in,
+ * wherever the work goes next: never KOS's own tables through Maintenance,
+ * and never another project's through its orchestrator.
+ */
+export interface GuestOrigin {
+  project: string | undefined;
+}
+
+/** Set for every call, cleared when the turn is no guest's, so a call never inherits one. */
+export const guested = new AsyncLocalStorage<GuestOrigin | undefined>();
+
+/** The guest's room behind the current call's turn, when a guest's words started it. */
+export function guestOrigin(): GuestOrigin | undefined {
+  return guested.getStore();
+}
