@@ -99,7 +99,7 @@ body.popup #root { height: 100%; }
 .popup-error { cursor: pointer; position: absolute; left: var(--gutter); right: var(--gutter); bottom: var(--gutter); z-index: 1; padding: 8px 10px; border-radius: 8px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); }
 /* Home and settings in one place, so one comes in as the other leaves. */
 .pages { display: grid; }
-.pages > * { grid-area: 1 / 1; min-width: 0; }
+.pages > * { position: relative; grid-area: 1 / 1; min-width: 0; }
 /* No taller than the page's own margin, so at the very end it covers nothing. */
 .popup-frame::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: var(--gutter); background: linear-gradient(to bottom, transparent, var(--bg)); pointer-events: none; }
 
