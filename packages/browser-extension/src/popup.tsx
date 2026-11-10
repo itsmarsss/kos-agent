@@ -1,8 +1,8 @@
 import { KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { ChatIcon, ChevronLeft, Chips, Collapse, DrawerRow, Face, Field, GearIcon, GlobeIcon, HandIcon, HiddenIcon, IconButton, listItem, overlayScroll, Pill, PlusIcon, Section, ServerIcon, spring, stagger, StatusDot, Switch, Tag, type Tone } from "@kos/kit";
-import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
-import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
+import { ChatIcon, ChevronLeft, Chips, Collapse, DrawerRow, Face, Field, GearIcon, GlobeIcon, HandIcon, HiddenIcon, IconButton, Pill, PlusIcon, Section, ServerIcon, StatusDot, Switch, Tag, type Tone, arrive, ease, fromTop, pageMove, spring, useOverlayScroll } from "@kos/kit";
+import { AnimatePresence, LayoutGroup, LazyMotion, MotionConfig, domMax, m } from "motion/react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 
 import { kosAddress, parsePairing } from "./address.js";
@@ -23,15 +23,16 @@ import type { KosState, PopupState } from "./worker.js";
 
 const connected = (k: KosState): boolean => k.link === "online" && !k.held;
 
+/** How KOS looks in the head, as on KOS for Mac: at work in a session, at ease while a KOS is connected or on its way, asleep when the owner disconnected each, sagging when none can be reached. */
 function mood(s: PopupState | undefined): BlobMood {
   if (!s || !s.kos.length) return "idle";
   if (s.session) return s.session.paused ? "idle" : "working";
-  if (s.kos.some(connected)) return "idle";
+  if (s.kos.some((k) => connected(k) || (!k.held && k.link === "connecting"))) return "idle";
   return s.kos.every((k) => k.held) ? "asleep" : "error";
 }
 
 /** The page's whole state: the worker's, the tab in front, and an error to show. */
-function usePopup(): { state: PopupState | undefined; tab: chrome.tabs.Tab | undefined; error: string; act: (message: Record<string, unknown>) => Promise<boolean> } {
+function usePopup(): { state: PopupState | undefined; tab: chrome.tabs.Tab | undefined; error: string; dismiss: () => void; act: (message: Record<string, unknown>) => Promise<boolean> } {
   const [state, setState] = useState<PopupState>();
   const [tab, setTab] = useState<chrome.tabs.Tab>();
   const [error, setError] = useState("");
@@ -55,66 +56,95 @@ function usePopup(): { state: PopupState | undefined; tab: chrome.tabs.Tab | und
       return false;
     }
   }, []);
-  return { state, tab, error, act };
+  const dismiss = useCallback(() => setError(""), []);
+  return { state, tab, error, dismiss, act };
 }
 
 function Popup(): ReactElement {
-  const { state, tab, error, act } = usePopup();
+  const { state, tab, error, dismiss, act } = usePopup();
   const [page, setPage] = useState<"home" | "settings">("home");
-  // A tall popup scrolls as a page: the overlay thumb over its edge, no lane taken from its 392 px.
-  useEffect(() => overlayScroll(document.documentElement), []);
+  // The popup keeps one size; its page scrolls inside, under the overlay thumb, no lane taken from its 392 px.
+  const scroller = useRef<HTMLDivElement>(null);
+  const overlay = useOverlayScroll(scroller);
+  // Settings open at their top, and home where it starts, not wherever the last page was scrolled to.
+  const go = (next: "home" | "settings"): void => {
+    if (scroller.current) scroller.current.scrollTop = 0;
+    setPage(next);
+  };
+  return (
+    <div className="popup-frame">
+      <div className="popup-page" ref={overlay}>
+        {/* Home and settings move at once, each from its own side, as KOS for Mac's pages do; the head is home's. */}
+        <div className="pages">
+          <AnimatePresence initial={false}>
+            {page === "home" ? (
+              <m.main key="home" className="stack page" custom={-1} variants={pageMove} initial="out" animate="in" exit="out">
+                <Head state={state} settings={() => go("settings")} />
+                {state && <Home state={state} tab={tab} act={act} />}
+              </m.main>
+            ) : (
+              <m.main key="settings" className="stack page" custom={1} variants={pageMove} initial="out" animate="in" exit="out">
+                {state && <SettingsPage state={state} act={act} back={() => go("home")} />}
+              </m.main>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+      <AnimatePresence>
+        {error && (
+          <m.p className="error popup-error" role="alert" title="Dismiss" onClick={dismiss} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+            {error}
+          </m.p>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/** KOS's face, the name over where it stands (the pill, then which KOS), and chat and the gear at the right. */
+function Head({ state, settings }: { state: PopupState | undefined; settings: () => void }): ReactElement {
   const live = state?.session && !state.session.paused;
   const best = state?.kos.find(connected) ?? state?.kos[0];
   // The head says what the card of the KOS it shows says, or that a session has this Chrome.
   const pill: { word: string; tone: Tone } = state?.session ? (live ? { word: "Working", tone: "accent" } : { word: "Paused", tone: "warn" }) : best ? linkWords(best) : { word: "Not paired", tone: "muted" };
   return (
-    <>
-      {/* The head is the home page's; settings open on their own back and title, as KOS for Mac's do. */}
-      {page === "home" && (
-        <header className="head">
-          <Face seed={KOS_SEED} size={40} mood={mood(state)} drawing={state?.session?.face ?? best?.face} label="KOS" />
-          <div className="head-text">
-            <strong>KOS for Chrome</strong>
-            <span className="head-status">
-              <Pill tone={pill.tone}>{pill.word}</Pill>
-              {best && <span className="sub">{state && state.kos.length > 1 ? `${best.host} and ${state.kos.length - 1} more` : best.host}</span>}
-            </span>
-          </div>
-          <span className="head-actions">
-            <AnimatePresence initial={false}>
-              {state?.kos.length ? (
-                <IconButton key="panel" label="Chat with KOS" title="Chat with KOS beside your tabs" onClick={() => void openPanel()} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} transition={spring}>
-                  <ChatIcon size={14} />
-                </IconButton>
-              ) : null}
-            </AnimatePresence>
-            <IconButton label="Settings" onClick={() => setPage("settings")}>
-              <GearIcon size={14} title="" />
-            </IconButton>
-          </span>
-        </header>
-      )}
-      {state && (
-        <AnimatePresence mode="wait" initial={false}>
-          {page === "home" ? (
-            <m.main key="home" className="stack page" initial={{ opacity: 0, x: -18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -18 }} transition={spring}>
-              <Home state={state} tab={tab} act={act} />
-            </m.main>
-          ) : (
-            <m.main key="settings" className="stack page" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 18 }} transition={spring}>
-              <SettingsPage state={state} act={act} back={() => setPage("home")} />
-            </m.main>
+    <header className="head">
+      <Face seed={KOS_SEED} size={40} mood={mood(state)} drawing={state?.session?.face ?? best?.face} label="KOS" />
+      <div className="head-text">
+        <strong>KOS for Chrome</strong>
+        <span className="head-status">
+          <StatePill tone={pill.tone} word={pill.word} />
+          {best && (
+            <m.span className="sub" layout="position">
+              {state && state.kos.length > 1 ? `${best.host} and ${state.kos.length - 1} more` : best.host}
+            </m.span>
           )}
+        </span>
+      </div>
+      <span className="head-actions">
+        <AnimatePresence initial={false}>
+          {state?.kos.length ? (
+            <IconButton key="panel" label="Chat with KOS" title="Chat with KOS beside your tabs" onClick={() => void openPanel()} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <ChatIcon size={14} />
+            </IconButton>
+          ) : null}
         </AnimatePresence>
-      )}
-      <AnimatePresence>
-        {error && (
-          <m.p className="error" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            {error}
-          </m.p>
-        )}
-      </AnimatePresence>
-    </>
+        <IconButton label="Settings" onClick={settings}>
+          <GearIcon size={14} title="" />
+        </IconButton>
+      </span>
+    </header>
+  );
+}
+
+/** A state's pill that changes as KOS for Mac's does: the old words fade out where they were, the new fade in, and what follows moves over. */
+function StatePill({ tone, word }: { tone: Tone; word: string }): ReactElement {
+  return (
+    <AnimatePresence mode="popLayout" initial={false}>
+      <m.span key={word} className="state-pill" layout="position" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ opacity: ease, layout: spring }}>
+        <Pill tone={tone}>{word}</Pill>
+      </m.span>
+    </AnimatePresence>
   );
 }
 
@@ -134,18 +164,21 @@ async function openPanel(): Promise<void> {
 
 function Home({ state, tab, act }: { state: PopupState; tab: chrome.tabs.Tab | undefined; act: Act }): ReactElement {
   return (
-    <m.div className="stack" variants={stagger} initial="hidden" animate="show">
-      <AnimatePresence initial={false}>{state.session && <SessionCard key="session" session={state.session} act={act} />}</AnimatePresence>
-      {state.kos.length > 0 && <ThisTab state={state} tab={tab} act={act} />}
-      <KosSection state={state} act={act} />
-      <HiddenSection state={state} tab={tab} act={act} />
-    </m.div>
+    // One layout: a card arriving or a drawer opening in one section moves the sections under it, on the spring.
+    <LayoutGroup>
+      <div className="stack">
+        <AnimatePresence initial={false}>{state.session && <SessionCard key="session" session={state.session} act={act} />}</AnimatePresence>
+        {state.kos.length > 0 && <ThisTab state={state} tab={tab} act={act} />}
+        <KosSection state={state} act={act} />
+        <HiddenSection state={state} tab={tab} act={act} />
+      </div>
+    </LayoutGroup>
   );
 }
 
 function SessionCard({ session, act }: { session: NonNullable<PopupState["session"]>; act: Act }): ReactElement {
   return (
-    <m.section className="card card--live" data-paused={session.paused || undefined} layout variants={listItem} initial="hidden" animate="show" exit="exit">
+    <m.section className="card card--live" data-paused={session.paused || undefined} layout variants={fromTop} initial="hidden" animate="show" exit="hidden">
       <div className="session-head">
         <StatusDot state={session.paused ? "needs-you" : "working"} label={session.paused ? "Paused" : "Working"} />
         <strong>{session.paused ? "Paused, you have control" : "KOS is using this Chrome"}</strong>
@@ -207,22 +240,24 @@ function KosSection({ state, act }: { state: PopupState; act: Act }): ReactEleme
     <Section
       label={state.kos.length > 1 ? `KOS · ${state.kos.length}` : "KOS"}
       action={
-        state.kos.length > 0 && !adding ? (
-          <button type="button" className="btn btn--ghost btn--sm btn--icon" title="Pair this Chrome with another KOS as well, say one at work beside one at home." onClick={() => setAdding(true)}>
-            <PlusIcon size={11} title="" />
-            Add a KOS
-          </button>
-        ) : undefined
+        <AnimatePresence initial={false}>
+          {state.kos.length > 0 && !adding && (
+            <m.button key="add" type="button" className="btn btn--ghost btn--sm btn--icon" title="Pair this Chrome with another KOS as well, say one at work beside one at home." onClick={() => setAdding(true)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <PlusIcon size={11} title="" />
+              Add a KOS
+            </m.button>
+          )}
+        </AnimatePresence>
       }
     >
-      <AnimatePresence initial={false}>
+      <AnimatePresence mode="popLayout" initial={false}>
         {state.kos.map((k) => (
-          <m.div key={k.id} layout variants={listItem} initial="hidden" animate="show" exit="exit" transition={spring}>
+          <m.div key={k.id} layout variants={arrive} initial="hidden" animate="show" exit="hidden">
             <KosCard k={k} open={open === k.id} toggle={() => setOpen(open === k.id ? undefined : k.id)} act={act} />
           </m.div>
         ))}
         {pairing && (
-          <m.div key="pair" layout variants={listItem} initial="hidden" animate="show" exit="exit">
+          <m.div key="pair" layout variants={arrive} initial="hidden" animate="show" exit="hidden">
             <PairForm first={!state.kos.length} cancel={() => setAdding(false)} act={act} />
           </m.div>
         )}
@@ -246,7 +281,7 @@ function KosCard({ k, open, toggle, act }: { k: KosState; open: boolean; toggle:
   const trouble = !on && (k.held || k.link !== "connecting");
   return (
     <div className="card">
-      <DrawerRow wrap icon={<ServerIcon />} tone={link.tone} title={k.host} detail={asWords(k)} open={open} onToggle={toggle} trailing={<Pill tone={link.tone}>{link.word}</Pill>} />
+      <DrawerRow wrap icon={<ServerIcon />} tone={link.tone} title={k.host} detail={asWords(k)} open={open} onToggle={toggle} trailing={<StatePill tone={link.tone} word={link.word} />} />
       {trouble && (
         <div className="kos-reason">
           <p title={link.detail}>{link.detail}</p>
@@ -342,6 +377,14 @@ function PairForm({ first = false, again, cancel, act }: { first?: boolean; agai
   const [name, setName] = useState(again?.name ?? `Chrome${platform ? ` on ${platform}` : ""}`);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ text: string; failed?: boolean }>();
+  // Another KOS to add: the form, wherever it falls on the page, brought up on the spring as KOS for Mac's is, its address ready to type.
+  const form = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (first || again) return;
+    form.current?.querySelector("input")?.focus({ preventScroll: true });
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    form.current?.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
+  }, [first, again]);
   /** What was typed or pasted in a field; a pairing link, in either, fills in both. */
   const read = (text: string, set: (text: string) => void): void => {
     if (text.trim().startsWith("kos-device:")) {
@@ -381,7 +424,7 @@ function PairForm({ first = false, again, cancel, act }: { first?: boolean; agai
     })();
   };
   return (
-    <form className={again ? "pair-form pair-form--again" : "card pair-form"} onSubmit={submit}>
+    <form ref={form} className={again ? "pair-form pair-form--again" : "card pair-form"} onSubmit={submit}>
       <strong>{again ? `Pair again with ${again.host}` : first ? "Pair with your KOS" : "Pair with another KOS"}</strong>
       <div className="hint-row">
         <p className="hint">
@@ -398,7 +441,7 @@ function PairForm({ first = false, again, cancel, act }: { first?: boolean; agai
         )}
       </div>
       <Field label="KOS address or pairing link">
-        <input className="mono" type="text" placeholder="https://kos.example.ts.net" spellCheck={false} autoComplete="off" value={address} onChange={(e) => read(e.target.value, setAddress)} autoFocus={!first && !again} />
+        <input className="mono" type="text" placeholder="https://kos.example.ts.net" spellCheck={false} autoComplete="off" value={address} onChange={(e) => read(e.target.value, setAddress)} />
       </Field>
       <div className="pair-fields">
         <Field label="Code">
@@ -444,7 +487,7 @@ function HiddenSection({ state, tab, act }: { state: PopupState; tab: chrome.tab
           <m.div className="tags" layout>
             <AnimatePresence initial={false}>
               {sites.map((site) => (
-                <m.span key={site} layout initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.85 }} transition={spring}>
+                <m.span key={site} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                   <Tag remove={{ label: `Show ${site} to KOS`, onRemove: () => void act({ type: "unhide", site }) }}>{site}</Tag>
                 </m.span>
               ))}
@@ -501,13 +544,13 @@ function SettingsPage({ state, act, back }: { state: PopupState; act: Act; back:
     ["system", "System"],
   ];
   return (
-    <m.div className="stack" variants={stagger} initial="hidden" animate="show">
-      <m.div className="page-head" variants={listItem}>
+    <div className="stack">
+      <div className="page-head">
         <IconButton label="Back" onClick={back}>
           <ChevronLeft size={14} title="" />
         </IconButton>
         <strong>Settings</strong>
-      </m.div>
+      </div>
       <Section label="Sessions">
         <div className="card">
           <Setting title="Longest session" detail="KOS may ask for longer; it gets this at most.">
@@ -549,7 +592,7 @@ function SettingsPage({ state, act, back }: { state: PopupState; act: Act; back:
           <LogRow />
         </div>
       </Section>
-    </m.div>
+    </div>
   );
 }
 
@@ -614,7 +657,8 @@ function LogRow(): ReactElement {
 
 createRoot(document.getElementById("root")!).render(
   <LazyMotion features={domMax} strict>
-    <MotionConfig reducedMotion="user">
+    {/* The one spring KOS for Mac moves by, for anything not told otherwise: a section making room, a page. */}
+    <MotionConfig reducedMotion="user" transition={spring}>
       <Popup />
     </MotionConfig>
   </LazyMotion>,

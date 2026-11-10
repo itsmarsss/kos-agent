@@ -55,6 +55,19 @@ struct BlobMotionTests {
     #expect(lowest < -5)
   }
 
+  /// The dashboard's marks: the "!" bobs with the hop while it needs you; the "z" drifts up and fades while asleep.
+  @Test func marksItsMoodAsTheDashboardDoes() {
+    var blob = BlobMotion(now: 0)
+    blob.mood = .asleep
+    let asleep = run(&blob, from: 0, seconds: 6)
+    #expect(asleep.contains { $0.mark.dy < -8 && $0.markOpacity < 0.3 })
+    #expect(asleep.contains { $0.markOpacity > 0.9 })
+    blob.mood = .needsYou
+    let needed = run(&blob, from: 6, seconds: 2)
+    #expect(needed.allSatisfy { $0.markOpacity == 1 && $0.mark.dx == 0 })
+    #expect(needed.contains { $0.mark.dy < -4 })
+  }
+
   /// The same points packages/shared's `outline` gives this shape (blobmotion.test.ts checks them there).
   @Test func drawsALumpyOutlineAsTheDashboardDoes() {
     let shape = FaceLook.Shape(

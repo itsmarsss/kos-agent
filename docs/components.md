@@ -23,9 +23,9 @@ them, so it keeps the same pieces under the same names in Swift.
 | Light palette | `LIGHT_COLOURS` in `design.ts` | `:root[data-theme="light"]` in `styles.css` | `:root[data-theme="light"]` in `kos.css`; the page bar's `light` in `overlay.ts` | `Theme.swift`'s light palette: each token the dark palette's or the light one's by the appearance it is drawn in |
 | Theme mode | `ThemeMode`, `resolveThemeMode` in `design.ts`: light, dark or system, KOS's own setting (`appearance.theme`) | `theme.ts` (`useTheme`, `showTheme`, `reconcileTheme`), Settings, Appearance | `theme.ts` marks each page, `themeOf` in `settings.ts`; Settings, Appearance adds Same as dashboard | `ThemeMode`/`ThemeChoice` in DeviceCore; `AppearanceModel` sets the app's appearance; Settings, Theme adds Same as dashboard |
 | Type scale | `TYPE` in `design.ts` (`--text-xs` to `--text-2xl`) | `--text-*` | `--text-*` | `KOSType` in `Theme.swift` (title 17, body 15, table 14, dense 13, control 12.5, detail 12, small 11.5, tiny 11, the label's size too); `Font.kos(_:_:)` sets one |
-| Hover, press, tints | | 140 ms, 0.97, 14% | the same | `Theme.hover`, `Theme.press`, `Theme.tint`, `Theme.edge` |
+| Hover, press, tints | | 140 ms, 0.97, 14% | the same, eased out; a pressed button a shade deeper, as the Mac's | `Theme.hover`, `Theme.press`, `Theme.tint`, `Theme.edge` |
 | Hints and empty lines | | `--muted` at `--text-base` (`.hint`, `.empty-text`, `.empty-line`, `.set-hint`) | the same | `Theme.muted` |
-| Motion presets | `kit/src/motion.ts` (`spring`, `ease`, `listItem`, `stagger`, `card`) | from the kit | from the kit | `Theme.spring` |
+| Motion presets | `kit/src/motion.ts` (`spring`, `ease`, `listItem`, `stagger`, `card`; and KOS for Mac's own, by name: `hover`, `inPlace`, `pageMove`, `arrive`, `fromTop`) | from the kit | from the kit; the popup moves as KOS for Mac's window does, its `MotionConfig` on `spring` | `Theme.spring`, `Theme.hover`, `Theme.press`, `HomeView.inPlace`, the page's `.move(edge:)` |
 
 `design.test.ts` fails when the colours, corners, spring or shadow drift
 in either stylesheet or in `Theme.swift` and `Palette.swift`, when either

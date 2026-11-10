@@ -762,4 +762,36 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(await settled((k) => k[0]?.link === "unpaired")).toEqual([expect.objectContaining({ id: "dev_legacy", link: "unpaired", detail: "This Chrome no longer has the key it paired with. Pair again." })]);
     expect(await storedKeys()).toEqual([]);
   }, 30_000);
+  it("keeps the popup one size, its page scrolling inside, between home, settings, the pairing form and an open drawer", async () => {
+    // In front, as a popup always is: a tab behind others gets no frames, and its pages never finish moving.
+    await devtools.send("Page.bringToFront", {}, popup);
+    await devtools.send("Page.reload", {}, popup);
+    await devtools.loaded(popup);
+    const shown = async (js: string): Promise<void> => {
+      for (let i = 0; i < 50 && !(await devtools.evaluate(popup, `!!(${js})`)); i++) await until(() => false, 100);
+    };
+    // What Chrome sizes its popup to: the body, its page scrolling inside it rather than past it.
+    const size = async (): Promise<unknown> => {
+      await until(() => false, 600);
+      return devtools.evaluate(popup, "(() => { const b = document.body.getBoundingClientRect(); return [b.width, b.height, document.body.scrollHeight]; })()");
+    };
+    await shown("document.querySelector('.drawer-row')");
+    const sizes = [await size()];
+    await devtools.evaluate(popup, "document.querySelector('[aria-label=Settings]').click()");
+    await shown("document.querySelector('.page-head')");
+    sizes.push(await size());
+    // Settings are longer than the popup: they scroll inside it.
+    expect(await devtools.evaluate(popup, "(() => { const p = document.querySelector('.popup-page'); return p.scrollHeight > p.clientHeight; })()")).toBe(true);
+    await devtools.evaluate(popup, "document.querySelector('[aria-label=Back]').click()");
+    await shown("document.querySelector('.drawer-row') && !document.querySelector('.page-head')");
+    await devtools.evaluate(popup, "document.querySelector('.drawer-row').click()");
+    await shown("document.querySelector('.drawer-row[aria-expanded=true]')");
+    sizes.push(await size());
+    await devtools.evaluate(popup, "[...document.querySelectorAll('button')].find((b) => b.textContent.includes('Add a KOS')).click()");
+    await shown("document.querySelector('.pair-form:not(.pair-form--again)')");
+    sizes.push(await size());
+    // The form, wherever it falls on the page, scrolled up into the popup's view.
+    expect(await devtools.evaluate(popup, "(() => { const f = document.querySelector('.pair-form').getBoundingClientRect(); const p = document.querySelector('.popup-page').getBoundingClientRect(); return f.top >= p.top && f.top < p.bottom; })()")).toBe(true);
+    expect(sizes).toEqual(Array(4).fill([392, 580, 580]));
+  }, 30_000);
 });

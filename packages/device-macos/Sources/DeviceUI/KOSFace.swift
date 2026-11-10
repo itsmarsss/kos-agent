@@ -23,8 +23,10 @@ public struct KOSFace: View {
   public var body: some View {
     TimelineView(.animation(paused: still)) { context in
       let frame = driver.frame(at: context.date.timeIntervalSinceReferenceDate, mood: mood, look: look, still: still)
-      Canvas { canvas, area in Self.draw(frame, look: look, in: &canvas, size: area.width) }
+      Canvas { canvas, area in Self.draw(frame, look: look, mood: mood, in: &canvas, size: area.width) }
     }
+    // Greyer when it is down or asleep, as the dashboard's face is.
+    .saturation(mood == .error ? 0.5 : mood == .asleep ? 0.75 : 1)
     .frame(width: size, height: size)
     .background(PointerProbe(driver: driver))
     .onHover { driver.hover = $0 }
@@ -32,7 +34,7 @@ public struct KOSFace: View {
     .accessibilityHidden(true)
   }
 
-  private static func draw(_ frame: BlobFrame, look: FaceLook, in canvas: inout GraphicsContext, size: CGFloat) {
+  private static func draw(_ frame: BlobFrame, look: FaceLook, mood: BlobMood, in canvas: inout GraphicsContext, size: CGFloat) {
     let body = Color(hex: look.fill)
     let ink = Color(hex: look.ink)
     let c = BlobMotion.center
@@ -66,6 +68,23 @@ public struct KOSFace: View {
         }
       }
     }
+    // Over the face, unmoved by the body: the "!" while it needs you, the "z" while asleep, the dashboard's at its places.
+    switch mood {
+    case .needsYou: mark(Text("!").font(.system(size: 20 * size / 100, weight: .heavy)).foregroundColor(Color(hex: 0xF5A524)), at: CGPoint(x: 80, y: 22), frame, in: &canvas, size: size)
+    case .asleep: mark(Text("z").font(.system(size: 16 * size / 100, weight: .bold)).foregroundColor(ink), at: CGPoint(x: 74, y: 24), frame, in: &canvas, size: size)
+    default: break
+    }
+  }
+
+  /// A mark set on its baseline at `at` in the 100-unit box, as SVG text is, moved and faded as the frame says.
+  private static func mark(_ text: Text, at: CGPoint, _ frame: BlobFrame, in canvas: inout GraphicsContext, size: CGFloat) {
+    let resolved = canvas.resolve(text)
+    let box = resolved.measure(in: CGSize(width: size, height: size))
+    let baseline = resolved.firstBaseline(in: box)
+    var layer = canvas
+    layer.opacity = frame.markOpacity
+    let origin = CGPoint(x: (at.x + frame.mark.dx) * size / 100, y: (at.y + frame.mark.dy) * size / 100 - baseline)
+    layer.draw(resolved, in: CGRect(origin: origin, size: box))
   }
 
   /// A closed Catmull-Rom curve through the points, as cubic Béziers, so no corner ever shows.
@@ -109,7 +128,13 @@ final class BlobDriver: ObservableObject {
     motion.look = look
     let dt = last.map { now - $0 } ?? 0.016
     last = now
-    return motion.step(now: now, dt: still ? 0.016 : dt, pointer: still ? nil : pointer(now: now))
+    var frame = motion.step(now: now, dt: still ? 0.016 : dt, pointer: still ? nil : pointer(now: now))
+    // Held still, the mark sits where it reads plainest, not wherever its drift froze.
+    if still {
+      frame.mark = .zero
+      frame.markOpacity = 1
+    }
+    return frame
   }
 
   /// Where the pointer is from the face's centre, y down, while it has moved in the last few seconds.

@@ -84,8 +84,29 @@ body {
 p { margin: 0; }
 strong { font-weight: 600; }
 
+/*
+ * The popup keeps one size, as KOS for Mac's window does: its width, and a
+ * height in that window's proportion (460 by 680) under Chrome's 600 cap.
+ * The page scrolls inside it, top-aligned, under the kit's overlay thumb,
+ * and fades out at the foot. A failed action's line is pinned above the
+ * foot, so it shows wherever the page is scrolled.
+ */
+body.popup { width: 392px; height: 580px; padding: 0; overflow: hidden; }
+body.popup #root { height: 100%; }
+.popup-frame { position: relative; height: 100%; }
+.popup-page { position: relative; height: 100%; overflow: hidden auto; padding: var(--gutter); scroll-padding-block: var(--gutter); }
+/* Over the page's foot until clicked away or the next action. */
+.popup-error { cursor: pointer; position: absolute; left: var(--gutter); right: var(--gutter); bottom: var(--gutter); z-index: 1; padding: 8px 10px; border-radius: 8px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); }
+/* Home and settings in one place, so one comes in as the other leaves. */
+.pages { display: grid; }
+.pages > * { grid-area: 1 / 1; min-width: 0; }
+/* No taller than the page's own margin, so at the very end it covers nothing. */
+.popup-frame::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: var(--gutter); background: linear-gradient(to bottom, transparent, var(--bg)); pointer-events: none; }
+
 /* —— the head: KOS's face, the name, where it stands —— */
-.head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+/* 16 under it, as KOS for Mac's: 2 here and the page's 14. */
+.head { display: flex; align-items: center; gap: 12px; margin-bottom: 2px; }
+.state-pill { display: inline-flex; }
 .head-actions { display: flex; gap: 2px; margin-right: -4px; }
 .head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .head-text strong { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -116,7 +137,7 @@ strong { font-weight: 600; }
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 80ms ease;
+  transition: background 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out, transform 80ms ease-out;
 }
 .btn:hover:not(:disabled) { border-color: var(--line-strong); background: color-mix(in srgb, var(--line) 70%, transparent); }
 .btn:active:not(:disabled) { transform: scale(0.97); }
@@ -130,10 +151,15 @@ strong { font-weight: 600; }
 :root[data-theme="light"] .btn--danger { color: color-mix(in srgb, var(--danger) 80%, black); }
 .btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 17%, transparent); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
 .btn--wide { width: 100%; }
+/* Pressed, a touch smaller and deeper, as KOS for Mac's buttons are. */
+.btn--primary:active:not(:disabled) { background: color-mix(in srgb, var(--accent) 80%, transparent); }
+:root[data-theme="light"] .btn--primary:active:not(:disabled) { background: color-mix(in srgb, var(--accent-lit) 85%, black); }
+.btn:not(.btn--primary, .btn--danger):active:not(:disabled) { background: var(--line); }
+.btn--danger:active:not(:disabled) { background: color-mix(in srgb, var(--danger) 24%, transparent); }
 
 /* A link that leaves the extension, with the arrow that says so. */
 .link { display: inline-flex; align-items: center; gap: 3px; color: var(--accent); font-size: 12px; font-weight: 500; text-decoration: none; cursor: pointer; }
-.link::after { content: "↗"; font-size: 10px; font-weight: 700; transition: transform 140ms ease; }
+.link::after { content: "↗"; font-size: 10px; font-weight: 700; transition: transform 140ms ease-out; }
 .link:hover { color: var(--accent-lit); text-decoration: underline; }
 .link:hover::after { transform: translate(1.5px, -1.5px); }
 
@@ -173,7 +199,7 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
 .kos-reason p { color: var(--muted); font-size: 12px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 
 /* —— pairing, as KOS for Mac asks for it —— */
-.pair-form { display: flex; flex-direction: column; gap: 10px; }
+.pair-form { display: flex; flex-direction: column; gap: 10px; scroll-margin-top: var(--gutter); }
 .pair-form--again { padding-top: 2px; }
 .hint-row { display: flex; align-items: baseline; gap: 6px; }
 .hint-row .link { flex: none; margin-left: auto; }

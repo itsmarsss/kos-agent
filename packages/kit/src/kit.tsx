@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type HTMLAttributes, type
 import { stepMechanics } from "@kos/shared";
 
 import { ChevronDown, CloseIcon, QuoteIcon } from "./icons.js";
-import { ease, listItem, spring } from "./motion.js";
+import { hover, inPlace, listItem, spring } from "./motion.js";
 import { Tooltip } from "./Tooltip.js";
 
 /**
@@ -123,7 +123,7 @@ export function Skeleton({ width, height, radius, className }: { width?: number 
 export function Switch({ on, onChange, label, disabled }: { on: boolean; onChange: (on: boolean) => void; label: string; disabled?: boolean }): ReactElement {
   return (
     <button type="button" className="switch" role="switch" aria-checked={on} aria-label={label} disabled={disabled} onClick={() => onChange(!on)}>
-      <m.span layout transition={spring} />
+      <m.span layout transition={hover} />
     </button>
   );
 }
@@ -253,8 +253,8 @@ export function Collapse({ open, children }: { open: boolean; children: ReactNod
         <m.div
           className="collapse"
           initial={{ height: 0, opacity: 0 }}
-          animate={{ height: "auto", opacity: 1, transition: { height: spring, opacity: { ...ease, delay: 0.05 } } }}
-          exit={{ height: 0, opacity: 0, transition: { height: spring, opacity: { duration: 0.1 } } }}
+          animate={{ height: "auto", opacity: 1, transition: { height: spring, opacity: inPlace.enter } }}
+          exit={{ height: 0, opacity: 0, transition: { height: spring, opacity: inPlace.exit } }}
         >
           <div className="collapse-body">{children}</div>
         </m.div>

@@ -38,6 +38,9 @@ public struct BlobFrame: Equatable, Sendable {
   public var wide: Double
   public var happy: Bool
   public var slant: Double
+  /// The mark over the face, the dashboard's: the "!" while it needs you, the "z" while asleep; where it has moved to, and how faint.
+  public var mark: CGVector
+  public var markOpacity: Double
 }
 
 private struct MoodSpec {
@@ -197,6 +200,16 @@ public struct BlobMotion {
         }
       }
     }
+    // The mark: the "!" bobs with the hop; the "z" drifts up and fades, again and again.
+    var mark = CGVector.zero
+    var markOpacity = 1.0
+    if mood == .needsYou {
+      mark.dy = hop * 0.6 - 2 * max(0, sin(t * 7))
+    } else if mood == .asleep {
+      let p = (t / 2.2).truncatingRemainder(dividingBy: 1)
+      mark = CGVector(dx: p * 3, dy: -p * 10)
+      markOpacity = p < 0.15 ? p / 0.15 : 1 - (p - 0.15) / 0.85
+    }
     let wobble = min(0.14, max(-0.14, wob))
     return BlobFrame(
       outline: Self.outline(look.shape, wobble: wobble, phase: wobPhase),
@@ -210,7 +223,9 @@ public struct BlobMotion {
       open: min(1.3, max(0.06, spec.open * blink)),
       wide: spec.wide * (hover ? 1.08 : 1),
       happy: happy,
-      slant: mood == .error ? 18 : 0)
+      slant: mood == .error ? 18 : 0,
+      mark: mark,
+      markOpacity: markOpacity)
   }
 
   /// The silhouette: a gumdrop a touch wider low down, lumpy as its lobes
