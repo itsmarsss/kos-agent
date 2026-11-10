@@ -337,10 +337,10 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
   text-align: left;
   cursor: pointer;
 }
-/* KOS for Mac's DrawerRow: a title on one line, its detail on up to two, set as tight as the Mac sets them. */
-.drawer-row .line-text { line-height: 1.25; }
 .drawer-row .line-text strong { font-size: 13px; }
-.drawer-row .line-text span { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+/* `wrap`, as KOS for Mac's DrawerRow is: a title on one line, its detail on up to two, set as tight as the Mac sets them. */
+.drawer-row--wrap .line-text { line-height: 1.25; }
+.drawer-row--wrap .line-text span { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 .chev { flex: none; color: var(--faint); transition: color 140ms ease; display: grid; }
 .drawer-row:hover .chev { color: var(--text); }
 .drawer-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--r-sm); }

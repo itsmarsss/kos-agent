@@ -245,7 +245,7 @@ function KosCard({ k, open, toggle, act }: { k: KosState; open: boolean; toggle:
   const trouble = !on && (k.held || k.link !== "connecting");
   return (
     <div className="card">
-      <DrawerRow icon={<ServerIcon />} tone={link.tone} title={k.host} detail={asWords(k)} open={open} onToggle={toggle} trailing={<Pill tone={link.tone}>{link.word}</Pill>} />
+      <DrawerRow wrap icon={<ServerIcon />} tone={link.tone} title={k.host} detail={asWords(k)} open={open} onToggle={toggle} trailing={<Pill tone={link.tone}>{link.word}</Pill>} />
       {trouble && (
         <div className="kos-reason">
           <p title={link.detail}>{link.detail}</p>
@@ -437,7 +437,7 @@ function HiddenSection({ state, tab, act }: { state: PopupState; tab: chrome.tab
   return (
     <Section label="On this Chrome">
       <div className="card">
-        <DrawerRow icon={<HiddenIcon />} tone="accent" title="Hidden from KOS" detail={summary} open={open} onToggle={() => setOpen(!open)} />
+        <DrawerRow wrap icon={<HiddenIcon />} tone="accent" title="Hidden from KOS" detail={summary} open={open} onToggle={() => setOpen(!open)} />
         <Collapse open={open}>
           <hr className="rule" />
           <m.div className="tags" layout>
