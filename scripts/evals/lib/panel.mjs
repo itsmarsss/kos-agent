@@ -68,7 +68,7 @@ export async function chromePanel({ chrome, kos, extDist, workDir, tabUrl }) {
       const c = list.find((x) => x.id === chat);
       const now = chat ? await kos.replies(chat) : [];
       // A decision resumes the turn: its answer, not the wait before it, is the one to judge.
-      if (kos.resumed(list) && now.length > before && c?.activity !== "working") {
+      if ((await kos.resumed(list)) && now.length > before && c?.activity !== "working") {
         if (++idle >= 3) {
           answer = now.slice(before).join("\n\n");
           timedOut = false;
