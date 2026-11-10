@@ -8,6 +8,7 @@ import type { CronJob } from "../cron/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { BLOB_TOOLS } from "../tools/agents.js";
 import { guested } from "./caller.js";
+import { projectScope } from "../memory/facts.js";
 import { MAINTENANCE } from "./caretaker.js";
 import type { GuardedTools } from "./guarded.js";
 import { GUEST_TOOLS, Kernel, orchestratorId } from "./kernel.js";
@@ -28,12 +29,16 @@ describe("what a guest's words reach, wherever they are handed", () => {
   let root: string;
   let kernel: Kernel;
   let tools: Map<string, { allow?: string[]; grant?: string[]; guest?: unknown }>;
+  /** Every model request, as text. */
+  let asked: string[];
   const maintenance = `project:${MAINTENANCE.slug}`;
 
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "kos-guest-reach-"));
+    asked = [];
     const inference: Inference = {
       async generate(_task, req) {
+        asked.push(JSON.stringify(req));
         const sent = JSON.stringify(req.messages.at(-1));
         if (sent.includes("tool_result")) return reply("ok");
         const hand = /HAND-TO:([\w:-]+)/.exec(sent)?.[1];
@@ -81,18 +86,73 @@ describe("what a guest's words reach, wherever they are handed", () => {
     expect(res.content).toMatch(/a guest's words started this work/);
   });
 
-  it("refuses a guest's handoff to Maintenance, and to another project, what they reach", async () => {
-    await kernel.handleProjectTurn("daily", `HAND-TO:${maintenance}`, { channel: "discord", guest });
+  /** Work a guest's turn in the daily room passes on, past the handoff's own fence: the marker alone holds it. */
+  const room = { project: "daily", chat: "project:daily" };
+  const passOn = (to: string, text: string): Promise<unknown> => {
+    if (to.startsWith("project:")) kernel.ensureProjectConversation(to.slice("project:".length));
+    return guested.run(room, () => kernel.dispatchTo(to, text, "project:daily"));
+  };
+
+  it("hands a guest's ask on only within their room", async () => {
+    const rootChat = kernel.ensureOrchestratorConversation().id;
+    const other = kernel.standUpProject({ name: "Other", type: "tracker" });
+    kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+    const loose = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Loose" });
+    let n = 0;
+    for (const to of [`chat:${rootChat}`, maintenance, other.conversationId, "blob:noter", `chat:${loose.id}`]) {
+      await kernel.handleProjectTurn("daily", `HAND-TO:${to}`, { channel: "discord", guest });
+      const refused = await lastSql("project:daily", ++n);
+      expect(refused.isError, to).toBe(true);
+      expect(refused.content).toMatch(/outside the room a guest's words came from/);
+    }
+    for (const id of [rootChat, maintenance, other.conversationId, "agent:noter", loose.id]) expect(tools.has(id), id).toBe(false);
+
+    // A chat of the room's own project takes it, and answers with the guest tools alone.
+    const members = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Members", projectSlug: "daily" });
+    await kernel.handleProjectTurn("daily", `HAND-TO:chat:${members.id} READ-OWN`, { channel: "discord", guest });
+    expect((await lastSql("project:daily", ++n)).isError).not.toBe(true);
+    const own = await lastSql(members.id, 1);
+    expect(own.isError).not.toBe(true);
+    asGuest(members.id);
+  });
+
+  it("refuses a guest's work passed to Maintenance or another project what they reach", async () => {
+    await passOn(maintenance, "READ-SESSIONS");
     const handed = await lastSql(maintenance, 1);
     expect(handed.isError).toBe(true);
     expect(handed.content).toMatch(/a guest's words started this work/);
 
     // The other project's orchestrator holds sql by its grant; a guest's work does not borrow it.
     const other = kernel.standUpProject({ name: "Other", type: "tracker" });
-    await kernel.handleProjectTurn("daily", `HAND-TO:${other.conversationId} READ-OWN`, { channel: "discord", guest });
+    await passOn(other.conversationId, "READ-OWN");
     const elsewhere = await lastSql(other.conversationId, 1);
     expect(elsewhere.isError).toBe(true);
     expect(elsewhere.content).toMatch(/a guest's words started this work/);
+  });
+
+  it("remembers on a guest's turn only what is their room's project's", async () => {
+    kernel.facts.upsert(kernel.profile.ownerId, { key: "vault_code", value: "the vault code is 4242", kind: "fact", pinned: true });
+    kernel.facts.upsert(kernel.profile.ownerId, { key: "problem_secret", value: "the owner's problem secret is hidden", kind: "fact" });
+    kernel.facts.upsert(kernel.profile.ownerId, { key: "daily_rule", value: "one problem a day", kind: "fact", pinned: true, scope: projectScope("daily") });
+    const said = (): string => asked.at(-1)!;
+
+    await kernel.handleProjectTurn("daily", "what is the problem secret", { channel: "discord", guest });
+    expect(said()).toContain("one problem a day");
+    expect(said()).not.toContain("4242");
+    expect(said()).not.toContain("problem secret is hidden");
+    expect(said()).toContain("tell them what was asked with notify (to: owner)");
+    expect(said()).not.toContain("owner's orchestrator");
+
+    // Handed on, the same: the target's own scope does not widen it.
+    await passOn(maintenance, "what is the problem secret");
+    await vi.waitFor(() => expect(kernel.busyConversations()).not.toContain(maintenance));
+    expect(said()).not.toContain("4242");
+    expect(said()).not.toContain("problem secret is hidden");
+
+    // The owner in the same room is told everything that is theirs.
+    await kernel.handleProjectTurn("daily", "what is the problem secret", { channel: "discord", owner: true });
+    expect(said()).toContain("4242");
+    expect(said()).toContain("problem secret is hidden");
   });
 
   it("keeps a guest's own room's tables theirs", async () => {
@@ -134,26 +194,26 @@ describe("what a guest's words reach, wherever they are handed", () => {
     for (const t of given?.allow ?? ["unrestricted"]) expect(GUEST_TOOLS, t).toContain(t);
   };
 
-  it("gives a guest's handoff to the root or a blob only the guest tools", async () => {
+  it("gives a guest's work passed to the root or a blob only the guest tools", async () => {
     const mine = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Private" });
     kernel.sessions.set(mine.id, [{ role: "user", content: [{ type: "text", text: "my secret" }] }]);
     const rootChat = kernel.ensureOrchestratorConversation().id;
     expect(rootChat).toBe(orchestratorId(kernel.profile.ownerId));
 
-    await kernel.handleProjectTurn("daily", `HAND-TO:chat:${rootChat} ASK:READ-CHAT:${mine.id}`, { channel: "discord", guest });
+    await passOn(rootChat, `READ-CHAT:${mine.id}`);
     const read = await lastSql(rootChat, 1);
     asGuest(rootChat);
     expect(read.isError).toBe(true);
     expect(read.content).not.toContain("my secret");
 
-    await kernel.handleProjectTurn("daily", `HAND-TO:chat:${rootChat} ASK:RECALL`, { channel: "discord", guest });
+    await passOn(rootChat, "RECALL");
     const recalled = await lastSql(rootChat, 2);
     asGuest(rootChat);
     expect(recalled.isError).toBe(true);
     expect(recalled.content).toMatch(/not available/);
 
     kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
-    await kernel.handleProjectTurn("daily", `HAND-TO:blob:noter ASK:READ-CHAT:${mine.id}`, { channel: "discord", guest });
+    await passOn(kernel.ensureAgentConversation("noter").id, `READ-CHAT:${mine.id}`);
     const blob = await lastSql("agent:noter", 1);
     asGuest("agent:noter");
     expect(blob.isError).toBe(true);
@@ -181,8 +241,8 @@ describe("what a guest's words reach, wherever they are handed", () => {
     expect(guested.run(undefined, () => kernel.roles.exists("helper"))).toBe(true);
   });
 
-  it("keeps a guest's handoff under their room when the owner retries it", async () => {
-    await kernel.handleProjectTurn("daily", `HAND-TO:${maintenance}`, { channel: "discord", guest });
+  it("keeps a guest's passed-on work under their room when the owner retries it", async () => {
+    await passOn(maintenance, "READ-SESSIONS");
     expect((await lastSql(maintenance, 1)).isError).toBe(true);
     const handed = kernel.sessions.get(maintenance).find((m) => m.role === "user" && m.origin?.guested);
     expect(handed?.origin?.guested).toEqual({ project: "daily", chat: "project:daily" });

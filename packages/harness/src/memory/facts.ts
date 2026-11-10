@@ -345,9 +345,11 @@ export class FactsStore {
    * stand, those whose evidence is the owner's words: one an agent wrote down
    * or a tool produced would otherwise go into every prompt unasked, and
    * waits to be matched like any other claim. `limit` bounds the whole list.
+   * Pinned entries stand everywhere, unless `within` keeps them to `scopes`
+   * as well: a guest's work is told none of the owner's own.
    */
-  standing(userId: string, scopes: ClaimScope[], limit = 8): Fact[] {
-    const pinned = this.pinned(userId);
+  standing(userId: string, scopes: ClaimScope[], limit = 8, options: { within?: boolean } = {}): Fact[] {
+    const pinned = options.within ? this.pinned(userId, scopes) : this.pinned(userId);
     const prefs = this.all(userId, scopes).filter((f) => f.kind === "preference" && !f.pinned && f.trust === "owner");
     return [...pinned, ...prefs].slice(0, limit);
   }
