@@ -11,7 +11,9 @@ gets real work right, and what that costs.
 
 ## Running it
 
-It needs a built checkout (`pnpm exec tsc -b`, and `pnpm --dir packages/browser-extension run build`),
+It needs a built checkout (`pnpm exec tsc -b`, `pnpm --dir packages/ui run build` for the
+dashboard's build that `artifacts.check` renders against, and
+`pnpm --dir packages/browser-extension run build`),
 a free port, and Chrome. It never touches the owner's KOS, Mac or Chrome: every run starts its
 own host on a copy of a template workspace, pairs a fake Mac and a headless Chrome with it, and
 stops it afterwards.
