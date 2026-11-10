@@ -71,11 +71,12 @@ function goneFromDiscord(err: unknown): boolean {
  * gone (a thread deleted under it) is let go and a new one found once;
  * false when there is no place, or none that takes the post: one Discord
  * refuses (no access, a locked thread) leaves the message to the caller's
- * other way to the owner rather than throwing. A thread the
- * owner could not be made a member of would not notify them, so `unheard`
- * is run for it, to reach them another way.
+ * other way to the owner rather than throwing. "held" when it waits for
+ * Discord to come back, its place found then. A thread the owner could not
+ * be made a member of would not notify them, so `unheard` is run for it,
+ * to reach them another way.
  */
-export async function postInPlace(conversationId: string, msg: OutboundMessage, deps: PlaceDeps, unheard?: () => Promise<void>): Promise<boolean> {
+export async function postInPlace(conversationId: string, msg: OutboundMessage, deps: PlaceDeps, unheard?: () => Promise<void>): Promise<"posted" | "held" | false> {
   // With Discord down a thread cannot be made, and its home channel's top
   // is not its place: the post waits in the send queue, and the thread is
   // made when Discord is back. A place already there is queued by the post.
@@ -91,7 +92,7 @@ export async function postInPlace(conversationId: string, msg: OutboundMessage, 
       }
       return where?.id;
     }, msg);
-    return true;
+    return "held";
   }
   for (let tries = 0; tries < 2; tries++) {
     const where = await placeOf(conversationId, deps).catch(() => undefined);
@@ -107,7 +108,7 @@ export async function postInPlace(conversationId: string, msg: OutboundMessage, 
       continue;
     }
     if (!where.heard) await unheard?.();
-    return true;
+    return "posted";
   }
   return false;
 }

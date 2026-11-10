@@ -185,6 +185,9 @@ export interface PlaceNotifierDeps extends PlaceDeps {
   sendOwner(msg: OutboundMessage): Promise<void>;
 }
 
+/** What became of a run's message that asked for its place: said there, or left to the owner's DM, and why. */
+export type PlaceSaid = { sent: NotifySent } | { dm: string };
+
 /**
  * A scheduled run's unaddressed message, said in its own place on the
  * server (the job's thread, the blob's channel) rather than the owner's DM.
@@ -209,30 +212,42 @@ export class PlaceNotifier {
 
   /**
    * Said in the message's place, when it asks for one and has one the
-   * owner alone reads; nothing otherwise, and the owner is sent it in the
-   * DM as before.
+   * owner alone reads and that takes the post. One that asks for a place
+   * and is not said there is left to the owner's DM, with why; one that
+   * asks for none is nothing here.
    */
-  async say(payload: NotifyPayload, msg: OutboundMessage): Promise<NotifySent | undefined> {
+  async say(payload: NotifyPayload, msg: OutboundMessage): Promise<PlaceSaid | undefined> {
     if (!payload.place || payload.target.kind !== "owner" || payload.target.surface) return undefined;
     // A place guests read is not the run's: the DM carries it, and the
     // run's closing words would only be a second DM for the same turn.
     if (!this.deps.ownerOnly(payload.place)) {
       this.said.add(payload.place);
-      return undefined;
+      return { dm: "guests can read this run's place on Discord, so it was not posted there" };
     }
     const job = this.deps.jobOf(payload);
     // A fixed reminder, and news the owner must not miss (a job failing), ping them.
     const ping = payload.ping || (job && pingsOwner(job)) ? `<@${this.deps.ownerId}> ` : "";
     // A thread the owner could not join would not notify them: the DM carries it as well.
-    let unheard = false;
+    let alsoDmed: boolean | undefined;
     const alsoDm = async (): Promise<void> => {
-      unheard = true;
-      await this.deps.sendOwner(msg).catch((err: unknown) => console.warn(`[discord] a run's message was not also sent to the owner's DM: ${err instanceof Error ? err.message : String(err)}`));
+      alsoDmed = await this.deps.sendOwner(msg).then(
+        () => true,
+        (err: unknown) => {
+          console.warn(`[discord] a run's message was not also sent to the owner's DM: ${err instanceof Error ? err.message : String(err)}`);
+          return false;
+        },
+      );
     };
-    if (!(await postInPlace(payload.place, { ...msg, text: `${ping}${msg.text}` }, this.deps, alsoDm))) return undefined;
+    const placed = await postInPlace(payload.place, { ...msg, text: `${ping}${msg.text}` }, this.deps, alsoDm);
+    if (!placed) return { dm: "this run has no place on Discord that took the post" };
     this.said.add(payload.place);
-    if (unheard) return { delivered: "Posted in this run's own place on Discord; the owner could not be made a member of its thread, so it was sent to their DM as well." };
-    return { delivered: `Posted in this run's own place on Discord, where the owner is a member and is notified${ping ? ", pinging them" : ""}; it is not also sent to their DM.` };
+    const pinging = ping ? ", pinging them" : "";
+    if (placed === "held") {
+      return { sent: { delivered: `Not posted yet: Discord is unreachable, so it is kept to post in this run's own place once Discord is back${pinging}. The owner is made a member of its thread then, or sent it in their DM when they cannot be or no place is found.` } };
+    }
+    if (alsoDmed === true) return { sent: { delivered: `Posted in this run's own place on Discord${pinging}; the owner could not be made a member of its thread, so it was sent to their DM as well.` } };
+    if (alsoDmed === false) return { sent: { delivered: `Posted in this run's own place on Discord${pinging}; the owner could not be made a member of its thread, and their DM did not take it either, so they may not have been notified.` } };
+    return { sent: { delivered: `Posted in this run's own place on Discord, where the owner is a member and is notified${pinging}; it is not also sent to their DM.` } };
   }
 }
 
@@ -351,16 +366,16 @@ export async function runHost(options: HostOptions): Promise<void> {
           };
           // A scheduled run that named nowhere speaks in its own place on the
           // server (the job's thread, the blob's channel) rather than the DM;
-          // with no place to be had it reaches the owner as before.
+          // with no place to be had it reaches the owner as before, told why.
           const inPlace = await placer?.say(payload, msg);
-          if (inPlace) return inPlace;
+          if (inPlace && "sent" in inPlace) return inPlace.sent;
           const send = surfaceUp(surfaces, surface, payload.target.surface !== undefined);
           // An addressed message goes through sendTo; the owner's DM is the
           // path everything took before and still takes. What a channel
           // post was given as an id comes back, so it can be reacted to.
           if (payload.target.kind === "owner") {
             await send.send(ownerOn(surface), msg);
-            return undefined;
+            return inPlace ? { delivered: `Sent to the owner's DM: ${inPlace.dm}.` } : undefined;
           }
           const posted = await send.sendTo?.(payload.target, msg);
           return posted && typeof posted === "object" && typeof posted.id === "string" ? { id: posted.id } : undefined;

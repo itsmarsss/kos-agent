@@ -116,7 +116,7 @@ describe("a scheduled run's message in its place", () => {
 
   it("posts in the run's place, pinging the owner for a fixed reminder and not for a prompted run", async () => {
     const { notifier, posts, joined } = placer();
-    expect(await notifier.say(run("cron:7"), { text: "Call The Centre now." })).toMatchObject({ delivered: expect.stringContaining("pinging them") });
+    expect(await notifier.say(run("cron:7"), { text: "Call The Centre now." })).toMatchObject({ sent: { delivered: expect.stringContaining("pinging them") } });
     await notifier.say(run("cron:2", "Kickoff"), { text: "Kickoff" });
     expect(posts).toEqual([
       { target: "t7", text: "<@222> Call The Centre now." },
@@ -149,11 +149,11 @@ describe("a scheduled run's message in its place", () => {
         posts.push({ target, text: msg.text });
       },
     });
-    expect(await notifier.say(run("cron:7"), { text: "Call The Centre now." })).toBeDefined();
+    expect(await notifier.say(run("cron:7"), { text: "Call The Centre now." })).toMatchObject({ sent: {} });
     expect(posts).toEqual([{ target: "t8", text: "<@222> Call The Centre now." }]);
     expect(bindings).toEqual({ t8: "cron:7" });
     gone.add("t8");
-    expect(await notifier.say(run("cron:7"), { text: "Again." })).toBeUndefined();
+    expect(await notifier.say(run("cron:7"), { text: "Again." })).toEqual({ dm: "this run has no place on Discord that took the post" });
     expect(notifier.saidItsPiece("cron:7")).toBe(true);
   });
 
@@ -174,9 +174,9 @@ describe("a scheduled run's message in its place", () => {
             throw refusal;
           },
         });
-        expect(await notifier.say(run("cron:7"), { text: "Call The Centre now." })).toBeUndefined();
+        expect(await notifier.say(run("cron:7"), { text: "Call The Centre now." })).toEqual({ dm: "this run has no place on Discord that took the post" });
         // The caretaker's news for a failing job takes the same way.
-        expect(await notifier.say({ ...run("cron:2", "Kickoff is failing."), ping: true }, { text: "Kickoff is failing." })).toBeUndefined();
+        expect(await notifier.say({ ...run("cron:2", "Kickoff is failing."), ping: true }, { text: "Kickoff is failing." })).toEqual({ dm: "this run has no place on Discord that took the post" });
         expect(forgot).toEqual([]);
         expect(notifier.saidItsPiece("cron:7")).toBe(false);
       }
@@ -198,7 +198,7 @@ describe("a scheduled run's message in its place", () => {
       connected: () => false,
       postWhenFound: async (find) => void (held = find),
     });
-    expect(await notifier.say(run("cron:9", "Kickoff"), { text: "Kickoff" })).toBeDefined();
+    expect(await notifier.say(run("cron:9", "Kickoff"), { text: "Kickoff" })).toMatchObject({ sent: { delivered: expect.stringContaining("Not posted yet") } });
     expect(made).toEqual([]);
     expect(posts).toEqual([]);
     // Once Discord is back, the queue finds the place: the thread, made then.
@@ -207,10 +207,26 @@ describe("a scheduled run's message in its place", () => {
 
   it("sends a run's message to the DM as well when the owner could not join its thread", async () => {
     const { notifier, posts, dms } = placer({ joinOwner: async (id) => id !== "t2" });
-    expect(await notifier.say(run("cron:2", "Kickoff"), { text: "Kickoff" })).toMatchObject({ delivered: expect.stringContaining("DM as well") });
+    expect(await notifier.say(run("cron:2", "Kickoff"), { text: "Kickoff" })).toMatchObject({ sent: { delivered: expect.stringContaining("DM as well") } });
     await notifier.say(run("cron:7"), { text: "Call The Centre now." });
     expect(posts.map((p) => p.target)).toEqual(["t2", "t7"]);
     expect(dms).toEqual(["Kickoff"]);
+  });
+
+  it("does not say a run's message reached the DM when the DM did not take it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const { notifier } = placer({
+        joinOwner: async () => false,
+        sendOwner: async () => {
+          throw new Error("Cannot send messages to this user");
+        },
+      });
+      const said = await notifier.say(run("cron:2", "Kickoff"), { text: "Kickoff" });
+      expect(said).toMatchObject({ sent: { delivered: expect.stringContaining("their DM did not take it either") } });
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("sends a kept post to the DM as well once its thread turns out to be one the owner could not join", async () => {
@@ -234,14 +250,14 @@ describe("a scheduled run's message in its place", () => {
 
   it("leaves to the owner's DM a run whose place guests can read", async () => {
     const { notifier, posts } = placer({ ownerOnly: (conv) => conv !== "cron:7" });
-    expect(await notifier.say(run("cron:7"), { text: "Call The Centre now." })).toBeUndefined();
-    expect(await notifier.say(run("cron:2", "Kickoff"), { text: "Kickoff" })).toBeDefined();
+    expect(await notifier.say(run("cron:7"), { text: "Call The Centre now." })).toEqual({ dm: expect.stringContaining("guests can read") });
+    expect(await notifier.say(run("cron:2", "Kickoff"), { text: "Kickoff" })).toMatchObject({ sent: {} });
     expect(posts).toEqual([{ target: "t2", text: "Kickoff" }]);
   });
 
   it("counts a run's message left to the DM by its place's guests as its piece, so its closing words are not a second DM", async () => {
     const { notifier, dms } = placer({ ownerOnly: () => false });
-    expect(await notifier.say(run("cron:2", "Kickoff"), { text: "Kickoff" })).toBeUndefined();
+    expect(await notifier.say(run("cron:2", "Kickoff"), { text: "Kickoff" })).toEqual({ dm: expect.stringContaining("guests can read") });
     const closing: Said = { conversationId: "cron:2", text: "", reply: "Kickoff sent.", origin: "system", channel: null, files: [] };
     await postSaid(closing, {
       targetFor: () => "t2",
@@ -273,7 +289,7 @@ describe("a scheduled run's message in its place", () => {
     const { notifier, posts } = placer();
     expect(await notifier.say({ text: "x", target: { kind: "owner" } }, { text: "x" })).toBeUndefined();
     expect(await notifier.say({ text: "x", target: { kind: "owner", surface: "discord" }, place: "cron:7" }, { text: "x" })).toBeUndefined();
-    expect(await notifier.say(run("cron:99"), { text: "x" })).toBeUndefined();
+    expect(await notifier.say(run("cron:99"), { text: "x" })).toEqual({ dm: "this run has no place on Discord that took the post" });
     expect(posts).toEqual([]);
   });
 
