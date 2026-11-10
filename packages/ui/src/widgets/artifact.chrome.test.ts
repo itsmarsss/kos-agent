@@ -619,6 +619,56 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await send("Emulation.clearDeviceMetricsOverride");
   }, 60_000);
 
+  /** The eval's expenses, as a sheet is written from them: a date, two words and the amount. */
+  const expenses = (freeze: number): Record<string, unknown> => ({
+    name: "Expenses",
+    freeze,
+    columns: [{ label: "Date", type: "date" }, { label: "Category" }, { label: "Item" }, { label: "Amount", type: "currency", currency: "CAD" }],
+    rows: [
+      ["2026-10-01", "Housing", "Rent", 1650],
+      ["2026-10-02", "Groceries", "Farmers market", 118.55],
+      ["2026-10-04", "Dining", "Pizza night", 56.37],
+    ],
+    totals: { Amount: "sum" },
+  });
+
+  /*
+   * The eval's expenses on a phone: a date, a category, an item and the
+   * amount fit the box whole, so the amount is not cut at its edge. Cells
+   * draw tighter there, and the totals' label is a sigma, not a word.
+   */
+  it("fits a four-column sheet whole on a phone", async () => {
+    const fit = `() => { const grid = document.querySelector(".sheet-scroll"); return { wide: grid.scrollWidth, box: grid.clientWidth, more: grid.classList.contains("more"), label: document.querySelector("tfoot .rownum").getAttribute("aria-label") }; }`;
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await sheetPage("/fit", `<h1>October</h1>${sheetData(expenses(1))}`, { fit });
+    const probe = await ask<{ wide: number; box: number; more: boolean; label: string }>("fit", (p) => p.box > 0);
+    expect(probe.wide).toBeLessThanOrEqual(probe.box);
+    expect(probe.more).toBe(false);
+    expect(probe.label).toBe("Total");
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
+  /*
+   * Wider than the box, the grid fades out at its right edge so a phone's
+   * last column reads as more to come, not the end of the row; scrolled to
+   * the end, the fade goes, and the frozen first column stays where it was.
+   */
+  it("fades a wide grid's right edge until it is scrolled to the end", async () => {
+    const edge = `() => { const grid = document.querySelector(".sheet-scroll"); return { more: grid.classList.contains("more"), mask: getComputedStyle(grid).maskImage, left: grid.querySelector("tbody td.frozen").getBoundingClientRect().left - grid.getBoundingClientRect().left }; }`;
+    const end = `() => { const grid = document.querySelector(".sheet-scroll"); grid.scrollLeft = grid.scrollWidth; return grid.scrollLeft; }`;
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await sheetPage("/edge", `<h1>The year</h1>${sheetData(months(8, 1))}`, { edge, end });
+    type Edge = { more: boolean; mask: string; left: number };
+    const start = await ask<Edge>("edge", (p) => p.more);
+    expect(start.mask).toMatch(/linear-gradient/);
+    expect(await ask<number>("end", (x) => x > 0)).toBeGreaterThan(0);
+    const scrolled = await ask<Edge>("edge", (p) => !p.more);
+    expect(scrolled.more).toBe(false);
+    expect(scrolled.mask).toBe("none");
+    expect(Math.abs(scrolled.left - start.left)).toBeLessThan(1);
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
   /*
    * On a desktop the grid's box sizes to its grid, so a sheet held by
    * something sized to its content (an inline block, a flex item) shows every

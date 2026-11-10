@@ -96,6 +96,7 @@ class Sheet {
       this.resizeWatch = new ResizeObserver(([e]) => {
         const w = Math.round(e?.contentRect.width ?? 0);
         if (w !== width && width !== 0) this.drawCharts();
+        this.markMore();
         width = w;
       });
       this.resizeWatch.observe(this.root);
@@ -219,7 +220,9 @@ class Sheet {
     parts.push(tools);
     const err = this.loaded.get(t)?.error;
     if (err) parts.push(el("p", { class: "sheet-error", role: "alert" }, `The rows could not be read: ${err}`));
-    parts.push(el("div", { class: "sheet-scroll" }));
+    const scroll = el("div", { class: "sheet-scroll" });
+    scroll.addEventListener("scroll", () => this.markMore(), { passive: true });
+    parts.push(scroll);
     if (this.book.charts?.length) parts.push(el("div", { class: "sheet-charts" }));
     this.root.replaceChildren(...parts);
     this.renderGrid(rows);
@@ -264,7 +267,8 @@ class Sheet {
       const shown = rows.map((r) => values[r - 1]!);
       const sums = totalsRow(columns, tab.totals, shown);
       const label = rows.length === values.length ? "Total" : "Shown";
-      const tr = el("tr", {}, el("th", { class: "rownum", scope: "row" }, label));
+      // A phone draws the word as a sigma, so the row numbers' column is no wider than its numbers.
+      const tr = el("tr", {}, el("th", { class: "rownum", scope: "row", "aria-label": label, title: label }, el("span", { class: "word" }, label)));
       columns.forEach((c, i) => {
         const v = sums[i];
         tr.append(el("td", { class: cls(isNumeric(c) && "num", i < freeze && "frozen", i === freeze - 1 && "frozen-edge", v !== undefined && isError(v) && "err") }, v === undefined ? "" : formatValue(v, c)));
@@ -274,7 +278,20 @@ class Sheet {
     table.addEventListener("keydown", (e) => this.key(e));
     const scroll = this.root.querySelector(".sheet-scroll")!;
     scroll.replaceChildren(table);
-    if (freeze) (globalThis.requestAnimationFrame ?? setTimeout)(() => this.pin());
+    (globalThis.requestAnimationFrame ?? setTimeout)(() => {
+      if (freeze) this.pin();
+      this.markMore();
+    });
+  }
+
+  /**
+   * Mark a grid with more to its right, which its edge then fades out to say.
+   * A phone cut the last column at the box's edge, and it read as the end of
+   * the row rather than a grid that scrolls.
+   */
+  private markMore(): void {
+    const scroll = this.root.querySelector(".sheet-scroll");
+    scroll?.classList.toggle("more", Math.ceil(scroll.scrollLeft + scroll.clientWidth) < scroll.scrollWidth - 1);
   }
 
   /** Pin the frozen columns of the grid drawn now, at the widths it has now. */
