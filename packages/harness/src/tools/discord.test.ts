@@ -22,7 +22,7 @@ describe("the discord tools", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  async function harness(connected = true, scope?: string) {
+  async function harness(connected = true, scope?: string, caller?: string) {
     const channels: ServerChannel[] = [
       { key: "orchestrator:owner", id: "ch1", name: "kos", audience: "owner", fixed: true },
       { key: "needs-you", id: "ch2", name: "needs-you", audience: "owner", fixed: true },
@@ -33,7 +33,10 @@ describe("the discord tools", () => {
     const places: ServerPlace[] = [
       { id: "c0", name: "general", kind: "channel", audience: "everyone" },
       { id: "c7", name: "diary", kind: "channel", audience: "owner" },
+      // A channel of the owner's made the home of a chat in the garden, not of the project itself.
+      { id: "c8", name: "board", kind: "channel", audience: "guests", bound: "chat-board" },
     ];
+    const projects: Record<string, string> = { "chat-board": "garden", "cron:21": "garden", "chat-other": "garden", "chat-pantry": "pantry" };
     const roles: ServerRole[] = [{ id: "r0", name: "Members", members: 3 }];
     const made: MakePlace[] = [];
     const accessed: [string, Access[]][] = [];
@@ -47,7 +50,14 @@ describe("the discord tools", () => {
     ];
     const pruned: string[] = [];
     const registry = new ToolRegistry();
-    const ctx = toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), ...(scope ? { callerProject: () => scope } : {}) });
+    const ctx = toolRegistryContext(registry, {
+      workspace: ws,
+      db: ws.db,
+      secrets: new SecretsRegistry(),
+      projectOf: (id) => projects[id],
+      ...(scope ? { callerProject: () => scope } : {}),
+      ...(caller ? { callerConversation: () => caller } : {}),
+    });
     await new ModuleLoader(ctx).load([
       createDiscordModule({
         connected: () => connected,
@@ -187,6 +197,18 @@ describe("the discord tools", () => {
     const garden = await harness(true, "garden");
     for (const ok of ["my-garden", "t1"]) expect(await reads(garden, ok), ok).toBe(true);
     for (const no of ["general", "kos", "t3", "999"]) expect(await reads(garden, no), no).toBe(false);
+    // A channel bound to a chat of the project is the project's: from its schedule's run, the chat itself, or another of its chats.
+    for (const caller of ["cron:21", "chat-board", "chat-other"]) {
+      const h = await harness(true, "garden", caller);
+      expect(await reads(h, "board"), caller).toBe(true);
+      expect(await react(h, "#board"), caller).toBe(true);
+      expect(h.reacted).toEqual([["c8", "m1", "👍"]]);
+    }
+    expect(await reads(await harness(true, "pantry", "chat-pantry"), "board")).toBe(false);
+    // Not the room a guest spoke in, so not theirs.
+    const room = await harness(true, "garden");
+    await guested.run({ project: "garden", chat: "project:garden" }, async () => expect(await reads(room, "board")).toBe(false));
+
     // The root and Maintenance reach any channel, by the name they gave.
     for (const scope of [undefined, "maintenance"]) {
       const all = await harness(true, scope);

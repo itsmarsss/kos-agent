@@ -279,6 +279,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     },
     callerBlob: () => callerBlobOf(kernelRef?.callerConversationId, conversations, roles),
     callerConversation: () => kernelRef?.callerConversationId ?? undefined,
+    projectOf: (id) => conversations.get(id)?.projectSlug ?? undefined,
     turnMade,
     // One memory of what each chat was last shown, for every screen surface.
     screens: new ScreenMemory(),

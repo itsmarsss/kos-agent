@@ -250,13 +250,17 @@ function serverReach(deps: DiscordServices, ctx: ModuleContext) {
     const known = thread || channel?.id ? undefined : deps.known().find((p) => p.kind === "channel" && (p.id === want || p.name.toLowerCase() === name));
     const id = thread?.id ?? channel?.id ?? known?.id;
     const key = channel?.key ?? known?.bound;
+    // A project's channel is bound to its orchestrator or to any chat of it: #leetcode to the board chat, say.
+    const here = scope();
+    const ours = (bound: string | undefined): boolean =>
+      bound !== undefined && (bound === `project:${here}` || bound === ctx.services?.callerConversation?.() || (here !== undefined && ctx.services?.projectOf?.(bound) === here));
     const mine = guest
       ? thread
         ? thread.conversationId === guest.chat || thread.channel === guest.chat
         : key === guest.chat
       : thread
-        ? ownThread(thread)
-        : key === `project:${scope()}`;
+        ? ownThread(thread) || ours(thread.conversationId) || ours(thread.channel)
+        : ours(key);
     if (!id || !mine) {
       throw new Error(
         guest
