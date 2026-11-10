@@ -27,6 +27,8 @@ const quote = (name: string): string => `"${name.replace(/"/g, '""')}"`;
 
 /** The shortest a grid is drawn, however little room the frame has. */
 const SHEET_MIN_HEIGHT = 320;
+/** Where the stylesheet's phone layout starts (sheet.css.ts). */
+const PHONE_QUERY = "(max-width: 560px)";
 
 /** The query that reads a source tab's rows: its key, then each column's table column. */
 export function sourceQuery(tab: SheetTab): string | undefined {
@@ -98,6 +100,8 @@ class Sheet {
       });
       this.resizeWatch.observe(this.root);
     }
+    // The phone's tighter cells move where each frozen column starts.
+    globalThis.matchMedia?.(PHONE_QUERY)?.addEventListener("change", () => this.pin());
     addEventListener("resize", () => this.fit());
     this.render();
   }
@@ -270,7 +274,13 @@ class Sheet {
     table.addEventListener("keydown", (e) => this.key(e));
     const scroll = this.root.querySelector(".sheet-scroll")!;
     scroll.replaceChildren(table);
-    if (freeze) (globalThis.requestAnimationFrame ?? setTimeout)(() => pinColumns(table, freeze));
+    if (freeze) (globalThis.requestAnimationFrame ?? setTimeout)(() => this.pin());
+  }
+
+  /** Pin the frozen columns of the grid drawn now, at the widths it has now. */
+  private pin(): void {
+    const table = this.root.querySelector<HTMLTableElement>(".sheet-grid");
+    if (table) pinColumns(table);
   }
 
   private cell(t: number, row: number, col: number, v: Value, column: SheetColumn, freeze: number): HTMLTableCellElement {
@@ -494,9 +504,10 @@ function colOf(range: string): number {
 const cls = (...names: (string | false | undefined)[]): string | undefined => names.filter(Boolean).join(" ") || undefined;
 
 /** Keep the first columns in view: each frozen cell sits at the width of what is left of it. */
-function pinColumns(table: HTMLTableElement, freeze: number): void {
+function pinColumns(table: HTMLTableElement): void {
   const head = table.tHead?.rows[0];
   if (!head) return;
+  const freeze = head.querySelectorAll(".frozen").length;
   let left = head.cells[0]?.offsetWidth ?? 0;
   const lefts: number[] = [];
   for (let i = 1; i <= freeze; i++) {

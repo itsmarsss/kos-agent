@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createSocket, type Socket } from "node:dgram";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -141,8 +141,26 @@ for (const t of TAGS) {
 top.postMessage({ census: { tried, made, placed } }, "*");
 `;
 
-/** A page that says it is up, then tries one way out. */
-const attempt = (code: string): string => `<p>page</p><script>top.postMessage("alive", "*"); setTimeout(() => { try { ${code} } catch (e) {} }, 50)</script>`;
+/** A page that says it is up, tries one way out, then says it tried. */
+const attempt = (code: string): string => `<p>page</p><script>top.postMessage("alive", "*"); setTimeout(() => { try { ${code} } catch (e) {} top.postMessage("tried", "*"); }, 50)</script>`;
+
+/** A document as an iframe's srcdoc attribute holds it. */
+const srcdoc = (doc: string): string => doc.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+
+/** The most any one thing is waited for: a bound, so a slow machine fails a step, not the whole run. */
+const BOUND_MS = 15_000;
+/**
+ * How long to watch for what must not happen (a request, a second report)
+ * once what starts it has happened. A request a page sends lands in a few
+ * milliseconds; this is room for a slow machine, not a guess at a race.
+ */
+const QUIET_MS = 500;
+/**
+ * The same watch for the ways out, the test that holds the line: a request a
+ * busy machine sends late is still counted against the attempt that sent it.
+ */
+const ESCAPE_QUIET_MS = 1_500;
+const pause = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 interface Run {
   alive: boolean;
@@ -159,6 +177,8 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   let E = "";
   let base = "";
   const requests: string[] = [];
+  /** Every request the attacker's server is sent, never cleared between runs. */
+  const log: string[] = [];
   const pages = new Map<string, string>();
   let send: (method: string, params?: Record<string, unknown>) => Promise<Record<string, unknown>>;
   let close = (): void => undefined;
@@ -169,6 +189,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   beforeAll(async () => {
     evil = createServer((req, res) => {
       requests.push(req.url ?? "");
+      log.push(req.url ?? "");
       res.writeHead(200, { "content-type": "text/html", "access-control-allow-origin": "*" }).end("<p>evil</p>");
     });
     E = `http://127.0.0.1:${await listen(evil)}`;
@@ -180,7 +201,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     let version: { webSocketDebuggerUrl: string } | undefined;
     for (let i = 0; i < 300 && !version; i++) {
       version = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json() as Promise<{ webSocketDebuggerUrl: string }>).catch(() => undefined);
-      if (!version) await new Promise((r) => setTimeout(r, 100));
+      if (!version) await pause(100);
     }
     const ws = new WebSocket(version!.webSocketDebuggerUrl);
     await new Promise((r) => (ws.onopen = r));
@@ -191,9 +212,11 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       if (m.id) wait.get(m.id)?.(m);
     };
     const raw = (method: string, params: Record<string, unknown> = {}, sessionId?: string): Promise<Record<string, unknown>> =>
-      new Promise((resolve) => {
+      new Promise((resolve, reject) => {
         const id = ++n;
-        wait.set(id, (m) => resolve(m.result ?? {}));
+        // An answer Chrome never sends fails this call, not the test's whole timeout.
+        const timer = setTimeout(() => (wait.delete(id), reject(new Error(`Chrome did not answer ${method} in ${BOUND_MS} ms`))), BOUND_MS);
+        wait.set(id, (m) => (clearTimeout(timer), wait.delete(id), resolve(m.result ?? {})));
         ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
       });
     const target = await raw("Target.createTarget", { url: "about:blank" });
@@ -219,23 +242,34 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     }
   });
 
-  /** The dashboard's side: the frame as ArtifactPage draws it, around one page. */
-  async function run(name: string, frame: string): Promise<Run> {
+  const value = async (expression: string): Promise<unknown> => ((await send("Runtime.evaluate", { expression, returnByValue: true })).result as { value?: unknown } | undefined)?.value;
+  /**
+   * Wait for what is expected in the browser, up to a bound, rather than guess
+   * how long a busy machine takes; past the bound, fail naming what it waited on.
+   */
+  const until = async (expression: string, bound = BOUND_MS): Promise<void> => {
+    for (const end = Date.now() + bound; !(await value(expression)); await pause(50)) {
+      if (Date.now() >= end) throw new Error(`Waited ${bound} ms for ${expression}`);
+    }
+  };
+  /** The same, for what reaches this side: a request, a packet. */
+  const within = async (seen: () => boolean, bound = BOUND_MS): Promise<void> => {
+    for (const end = Date.now() + bound; !seen(); await pause(50)) {
+      if (Date.now() >= end) throw new Error(`Waited ${bound} ms for ${seen.toString()}`);
+    }
+  };
+
+  /** The dashboard's side: the frame as ArtifactPage draws it, around one page, run until it has tried and then a while longer. */
+  async function run(name: string, frame: string, quiet = QUIET_MS): Promise<Run> {
     const path = `/${name}`;
-    pages.set(path, `<!doctype html><body><script>addEventListener("message", (e) => { if (e.data === "alive") document.title = "alive"; else if (e.data && e.data.census) document.body.dataset.said = JSON.stringify(e.data.census); })</script><iframe sandbox="allow-scripts" srcdoc="${frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe></body>`);
+    pages.set(path, `<!doctype html><body><script>addEventListener("message", (e) => { if (e.data === "alive") document.title = "alive"; else if (e.data === "tried") document.body.dataset.tried = "1"; else if (e.data && e.data.census) document.body.dataset.said = JSON.stringify(e.data.census); })</script><iframe sandbox="allow-scripts" srcdoc="${srcdoc(frame)}"></iframe></body>`);
     requests.length = 0;
     await send("Page.navigate", { url: `${base}${path}` });
-    await new Promise((r) => setTimeout(r, 1300));
-    const read = async (expression: string): Promise<string | undefined> =>
-      ((await send("Runtime.evaluate", { expression, returnByValue: true })).result as { value?: string } | undefined)?.value;
-    // A census is slow on a busy machine: wait for it, up to a bound, rather than guess how long it takes.
-    const counting = frame.includes("const TAGS =");
-    for (let waited = 0; counting && !(await read("document.body.dataset.said || ''")) && waited < 10_000; waited += 200) {
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    const title = await read("document.title");
-    const said = await read("document.body.dataset.said || ''");
-    return { alive: title === "alive", requests: [...requests], ...(said ? { said } : {}) };
+    // Up and tried (a census is said before), then the room a request has to land in, before the next page.
+    await until("document.body.dataset.tried === '1'");
+    await pause(quiet);
+    const said = String(await value("document.body.dataset.said || ''"));
+    return { alive: (await value("document.title")) === "alive", requests: [...requests], ...(said ? { said } : {}) };
   }
 
   const page = (code: string): string => pageDocument({ html: attempt(`const XHTML = "${XHTML}"; ${code}`), tokens: {}, mode: "dark", css: "", libraries: [] });
@@ -245,7 +279,9 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   it("sees a leak when there is one: the flat frame KOS had sends a navigation's request", async () => {
     const flat = await run("control", page(attempts(E).href!).replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'">`));
     expect(flat.alive).toBe(true);
-    expect(flat.requests.join(" ")).toContain("/href");
+    // A navigation's request can come after the page's own turn is over: wait for it, up to a bound.
+    await within(() => requests.some((r) => r.startsWith("/href")));
+    expect(requests.join(" ")).toContain("/href");
   }, 20_000);
 
   it("sees a placed element when there is one: the sweep without the guard places every kind", async () => {
@@ -288,6 +324,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       const stun = await stunServer();
       const bare = await run("rtc-control", wrapperDocument(unguarded(offer(stun.url))));
       expect(bare.alive).toBe(true);
+      await within(() => stun.packets.length > 0);
       expect(stun.packets.length).toBeGreaterThan(0);
     }, 20_000);
 
@@ -312,7 +349,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       addEventListener("message", (e) => { if (e.data === "probe") top.postMessage({ probe: { scroll: document.scrollingElement.scrollHeight, client: document.scrollingElement.clientHeight, wide: document.scrollingElement.scrollWidth > innerWidth, view: innerHeight } }, "*"); });
     </script>`;
     const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [], kind: "page" }));
-    pages.set("/fit", `<!doctype html><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:600px;height:300px" srcdoc="${frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe><div style="height:2000px"></div><script>
+    pages.set("/fit", `<!doctype html><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:600px;height:300px" srcdoc="${srcdoc(frame)}"></iframe><div style="height:2000px"></div><script>
       const f = document.getElementById("f");
       addEventListener("message", (e) => {
         const page = f.contentWindow.frames[0], m = e.data || {};
@@ -327,10 +364,11 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     </script></body>`);
     await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
     await send("Page.navigate", { url: `${base}/fit` });
-    await new Promise((r) => setTimeout(r, 1200));
-    const value = async (expression: string): Promise<unknown> => ((await send("Runtime.evaluate", { expression, returnByValue: true })).result as { value?: unknown } | undefined)?.value;
+    // Applied, then a while to see it settle rather than report on in a loop.
+    await until(`document.getElementById("f").getBoundingClientRect().height === 2700`);
+    await pause(QUIET_MS);
     await value(`document.getElementById("f").contentWindow.frames[0].postMessage("probe", "*")`);
-    await new Promise((r) => setTimeout(r, 300));
+    await until("document.body.dataset.probe");
     const probe = JSON.parse(String(await value("document.body.dataset.probe || '{}'"))) as { scroll?: number; client?: number; wide?: boolean };
     expect(await value(`document.getElementById("f").getBoundingClientRect().height`)).toBe(2700);
     // No scroll inside: the page's document is exactly as tall as its frame.
@@ -341,7 +379,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     expect(Number(await value("document.body.dataset.heights"))).toBeLessThanOrEqual(3);
     expect(await value("scrollY")).toBe(0);
     for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: 20, y: 20, button: "left", clickCount: 1 });
-    await new Promise((r) => setTimeout(r, 400));
+    await until("scrollY > 0");
     expect(await value("scrollY")).toBe(2640);
     await send("Emulation.clearDeviceMetricsOverride");
   }, 20_000);
@@ -356,17 +394,21 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     const { build } = await import("esbuild");
     const bundled = await build({ entryPoints: [join(import.meta.dirname, "../../pagelib/doc.ts")], bundle: true, write: false, format: "iife", target: "chrome120", charset: "ascii", logLevel: "silent" });
     const runtime = bundled.outputFiles[0]!.text;
-    const html = `<article data-doc><p><br></p><h2>Next</h2></article>`;
+    // The "/" menu, as it shows: its picked block told to the dashboard, so the test presses Enter on what it sees.
+    const html = `<article data-doc><p><br></p><h2>Next</h2></article><script>
+      new MutationObserver(() => { const m = document.querySelector(".doc-slash"); if (m && !m.hidden) top.postMessage({ menu: m.querySelector('[aria-selected="true"]')?.textContent ?? "" }, "*"); }).observe(document.body, { subtree: true, childList: true, attributes: true });
+    </script>`;
     const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [runtime], kind: "doc" }));
     // The dashboard's own checks, as ArtifactPage makes them (frameheight.ts), run here in the browser.
     const checks = `const REVEAL_MS = ${REVEAL_MS}, DONE_MS = ${DONE_MS}; const ownerIn = ${ownerIn.toString()}; const saveAllowed = ${saveAllowed.toString()}; const revealAllowed = ${revealAllowed.toString()};`;
-    pages.set("/doc", `<!doctype html><body style="margin:0"><button id="elsewhere">elsewhere</button><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:800px;height:560px" srcdoc="${frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe><script>
+    pages.set("/doc", `<!doctype html><body style="margin:0"><button id="elsewhere">elsewhere</button><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:800px;height:560px" srcdoc="${srcdoc(frame)}"></iframe><script>
       ${checks}
       const f = document.getElementById("f");
       let gestureAt = -Infinity, ports = 0;
       addEventListener("message", (e) => {
         const page = f.contentWindow.frames[0], m = e.data || {};
         if (e.source !== page) return;
+        if (typeof m.menu === "string") { document.body.dataset.menu = m.menu; return; }
         // The bridge's channel for the owner's presses and keys, taken once as ArtifactPage takes it.
         if (m.__kos === "gestures") { ports += 1; document.body.dataset.ports = String(ports); if (ports === 1) e.ports[0].onmessage = () => { gestureAt = performance.now(); document.body.dataset.gestures = String(Number(document.body.dataset.gestures || 0) + 1); }; return; }
         // The dashboard's edit bar: Edit once the doc says it can be edited.
@@ -382,13 +424,9 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     </script></body>`);
     await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
     await send("Page.navigate", { url: `${base}/doc` });
-    const value = async (expression: string): Promise<unknown> => ((await send("Runtime.evaluate", { expression, returnByValue: true, userGesture: false })).result as { value?: unknown } | undefined)?.value;
-    // Wait for what is expected, up to a bound, rather than guess how long a busy machine takes.
-    const until = async (expression: string, bound = 10_000): Promise<void> => {
-      for (let waited = 0; !(await value(expression)) && waited < bound; waited += 100) await new Promise((r) => setTimeout(r, 100));
-    };
     await until("document.body.dataset.ports === '1'");
-    await new Promise((r) => setTimeout(r, 300));
+    // A while for a press or a second channel that must not come.
+    await pause(QUIET_MS);
     // Before the owner touches it, nothing is theirs: no hand in the frame, no press over the channel, which came once.
     expect(await value("ownerIn(f)")).toBe(false);
     expect(await value("document.body.dataset.ports")).toBe("1");
@@ -406,21 +444,22 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     // The press is the owner's hand in the frame, and the frame's channel told the dashboard of it, just now:
     // read all three the moment the stamp lands, since the window for a jump is half a second.
     let seen: unknown;
-    for (let waited = 0; waited < 5_000; waited += 20) {
+    for (const end = Date.now() + 5_000; !seen && Date.now() < end; ) {
       seen = await value("Number(document.body.dataset.gestures || 0) > 0 ? [ownerIn(f), revealAllowed(f, gestureAt)] : null");
-      if (seen) break;
-      await new Promise((r) => setTimeout(r, 20));
+      if (!seen) await pause(20);
     }
     expect(seen).toEqual([true, true]);
     await type("## Water");
     await key("Enter");
     await type("it is **wet** now");
     await key("Enter");
+    // Enter only once the menu shows the divider picked.
     await type("/div");
-    await new Promise((r) => setTimeout(r, 400));
+    await until("(document.body.dataset.menu || '').startsWith('Divider')");
     await key("Enter");
     await until("document.body.dataset.saved");
-    await new Promise((r) => setTimeout(r, 700));
+    // A while for a second save that must not come.
+    await pause(QUIET_MS);
     const saved = String(await value("document.body.dataset.saved || ''"));
     expect(saved).toContain("<h2>Water</h2>");
     expect(saved).toMatch(/<p>it is(&nbsp;| )<strong>wet<\/strong>(&nbsp;| )now<\/p><hr><h2>Next<\/h2>/);
@@ -434,18 +473,191 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     expect(await value("revealAllowed(f, gestureAt)")).toBe(false);
     // A press on the dashboard itself takes the hand out of the frame.
     for (const t of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type: t, x: 20, y: 8, button: "left", clickCount: 1 });
-    await new Promise((r) => setTimeout(r, 100));
+    await until("!ownerIn(f)");
     expect(await value("ownerIn(f)")).toBe(false);
     expect(await value("saveAllowed(f, undefined)")).toBe(false);
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 
+  /** The sheet's runtime, bundled once for the sheet tests. */
+  let sheetRuntime: string | undefined;
+  /**
+   * A sheet page on the sheet's runtime and the kit's CSS as the dashboard
+   * inlines them, framed as the dashboard frames it, with probes the test asks
+   * for by name: each is a function's source, run in the page, whose value
+   * comes back over postMessage.
+   */
+  async function sheetPage(path: string, html: string, probes: Record<string, string>): Promise<void> {
+    if (!sheetRuntime) {
+      const { build } = await import("esbuild");
+      const bundled = await build({ entryPoints: [join(import.meta.dirname, "../../pagelib/sheet.ts")], bundle: true, write: false, format: "iife", target: "chrome120", charset: "ascii", logLevel: "silent" });
+      sheetRuntime = bundled.outputFiles[0]!.text;
+    }
+    const answer = `<script>
+      const probes = { ${Object.entries(probes).map(([name, fn]) => `${JSON.stringify(name)}: ${fn}`).join(", ")} };
+      addEventListener("message", (e) => { const ask = e.data && e.data.ask; if (probes[ask]) top.postMessage({ answer: { ask, value: probes[ask]() } }, "*"); });
+    </script>`;
+    const css = ["kit.css", "page.css"].map((f) => readFileSync(join(import.meta.dirname, "../../../kit/src", f), "utf8")).join("\n");
+    const frame = wrapperDocument(pageDocument({ html: html + answer, tokens: {}, mode: "dark", css, libraries: [sheetRuntime], kind: "sheet" }));
+    pages.set(path, `<!doctype html><meta name="viewport" content="width=device-width"><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:100%;height:700px" srcdoc="${srcdoc(frame)}"></iframe><script>
+      window.answers = {};
+      addEventListener("message", (e) => { if (e.data && e.data.answer) answers[e.data.answer.ask] = JSON.stringify(e.data.answer.value); });
+    </script></body>`);
+    await send("Page.navigate", { url: `${base}${path}` });
+  }
+  /** Ask the sheet page a probe until its answer passes `ready`, up to a bound; the last answer, which a test then holds. */
+  async function ask<T>(name: string, ready: (v: T) => boolean = () => true): Promise<T> {
+    let last: T | undefined;
+    for (const end = Date.now() + BOUND_MS; Date.now() < end; await pause(100)) {
+      await value(`delete answers[${JSON.stringify(name)}]; document.getElementById("f").contentWindow.frames[0].postMessage({ ask: ${JSON.stringify(name)} }, "*")`);
+      await pause(50);
+      const raw = await value(`answers[${JSON.stringify(name)}]`);
+      if (typeof raw !== "string") continue;
+      last = JSON.parse(raw) as T;
+      if (ready(last)) return last;
+    }
+    if (last === undefined) throw new Error(`The sheet page never answered ${name} in ${BOUND_MS} ms`);
+    return last;
+  }
+
+  const sheetData = (sheet: Record<string, unknown>): string => `<script type="application/json" data-sheet>${JSON.stringify({ sheets: [sheet] })}</script>`;
+  const months = (rows: number, freeze: number): Record<string, unknown> => ({
+    name: "Year",
+    freeze,
+    columns: [{ label: "Line" }, ...Array.from({ length: 11 }, (_, i) => ({ label: `Month ${i + 1}`, type: "currency", currency: "CAD" }))],
+    rows: Array.from({ length: rows }, (_, r) => [`Line ${r + 1}`, ...Array.from({ length: 11 }, (_, c) => 1000 * (r + 1) + c)]),
+    totals: { B: "sum", C: "sum" },
+  });
+
+  /*
+   * A sheet wider than a phone: the page never scrolls sideways, only each
+   * grid does, inside its own box, with the row numbers and the frozen first
+   * column held while it does. Twice: on the page, and in a flex row, which
+   * sizes what it holds by its content and once took the grid's whole width.
+   */
+  it("scrolls a wide sheet inside its grid on a phone, never the page", async () => {
+    const data = sheetData(months(8, 1));
+    const grids = `() => ({ page: document.documentElement.scrollWidth, view: innerWidth, grids: [...document.querySelectorAll(".sheet-scroll")].map((grid) => {
+      const left = (sel) => grid.querySelector(sel).getBoundingClientRect().left;
+      const before = [left("tbody .rownum"), left("tbody td")];
+      grid.scrollLeft = 400;
+      // Within a pixel: a frozen cell is pinned at whole pixels, the layout falls on fractions.
+      const held = Math.abs(left("tbody .rownum") - before[0]) < 1 && Math.abs(left("tbody td") - before[1]) < 1;
+      const out = { wide: grid.scrollWidth, box: grid.clientWidth, scrolled: grid.scrollLeft, held };
+      grid.scrollLeft = 0;
+      return out;
+    }) })`;
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await sheetPage("/sheet", `<h1>The year</h1>${data}<div style="display:flex;gap:12px"><section>${data}</section></div>`, { grids });
+    type Probe = { page: number; view: number; grids: { wide: number; box: number; scrolled: number; held: boolean }[] };
+    const probe = await ask<Probe>("grids", (p) => p.grids.length === 2);
+    expect(probe.view).toBe(390);
+    expect(probe.page).toBeLessThanOrEqual(probe.view);
+    expect(probe.grids).toHaveLength(2);
+    for (const grid of probe.grids) {
+      expect(grid.box).toBeLessThan(probe.view);
+      expect(grid.wide).toBeGreaterThan(grid.box);
+      expect(grid.scrolled).toBe(400);
+      expect(grid.held).toBe(true);
+    }
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
+  /*
+   * Two frozen columns on a phone: only the first stays put sideways, but the
+   * second keeps its header at the top and its total at the bottom while the
+   * grid scrolls down, as every other column does.
+   */
+  it("keeps a second frozen column's header and total in view on a phone", async () => {
+    const sticky = `() => {
+      const grid = document.querySelector(".sheet-scroll");
+      const at = (sel) => grid.querySelector(sel).getBoundingClientRect();
+      grid.scrollTop = 200;
+      grid.scrollLeft = 300;
+      const out = {
+        down: grid.scrollTop,
+        header: Math.abs(at("thead th:nth-child(3)").top - at("thead .rownum").top),
+        total: Math.abs(at("tfoot td:nth-child(3)").bottom - at("tfoot .rownum").bottom),
+        across: Math.abs(at("tbody td:nth-child(3)").left - at("tbody td:nth-child(2)").right),
+      };
+      grid.scrollTop = 0;
+      grid.scrollLeft = 0;
+      return out;
+    }`;
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await sheetPage("/frozen", sheetData(months(30, 2)), { sticky });
+    const probe = await ask<{ down: number; header: number; total: number; across: number }>("sticky", (p) => p.down > 0);
+    expect(probe.down).toBe(200);
+    // Within a pixel of the row numbers, which are held at the top and the bottom.
+    expect(probe.header).toBeLessThan(1);
+    expect(probe.total).toBeLessThan(1);
+    // Sideways it scrolls away, not pinned beside the first.
+    expect(probe.across).toBeGreaterThan(100);
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
+  /*
+   * A frozen column sits just right of the row numbers, which a phone draws
+   * narrower: across the phone's breakpoint and back, it moves with them.
+   */
+  it("keeps a frozen column against the row numbers as the view crosses a phone's width", async () => {
+    const pin = `() => { const cell = document.querySelector(".sheet-grid tbody td.frozen"); return { rownum: document.querySelector(".sheet-grid thead .rownum").offsetWidth, left: getComputedStyle(cell).left }; }`;
+    const view = (width: number): Promise<Record<string, unknown>> => send("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: width < 600 });
+    const pinned = (p: { rownum: number; left: string }): boolean => p.left === `${p.rownum}px`;
+    await view(1200);
+    await sheetPage("/pin", sheetData(months(8, 1)), { pin });
+    const wide = await ask("pin", pinned);
+    expect(wide.left).toBe(`${wide.rownum}px`);
+    await view(390);
+    const phone = await ask("pin", (p: { rownum: number; left: string }) => p.rownum !== wide.rownum && pinned(p));
+    expect(phone.rownum).toBeLessThan(wide.rownum);
+    expect(phone.left).toBe(`${phone.rownum}px`);
+    await view(1200);
+    const back = await ask("pin", (p: { rownum: number; left: string }) => p.rownum === wide.rownum && pinned(p));
+    expect(back.left).toBe(`${wide.rownum}px`);
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 60_000);
+
+  /*
+   * On a desktop the grid's box sizes to its grid, so a sheet held by
+   * something sized to its content (an inline block, a flex item) shows every
+   * column, where a box contained inline would be sized as if empty, to no
+   * wider than the tools above it. The columns are wider than the tools.
+   */
+  it("shows a three-column sheet whole on a desktop, inside an inline block and a flex item", async () => {
+    const data = sheetData({ name: "Spend", columns: [{ label: "Date", type: "date", width: 24 }, { label: "Category", width: 24 }, { label: "Amount", type: "currency", currency: "CAD", width: 24 }], rows: [["2026-10-01", "Housing", 1650], ["2026-10-02", "Food", 56.37]] });
+    const grids = `() => [...document.querySelectorAll(".sheet-scroll")].map((grid) => ({ wide: grid.scrollWidth, box: grid.clientWidth, table: grid.querySelector("table").offsetWidth }))`;
+    await send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false });
+    await sheetPage("/narrow", `<div style="display:inline-block">${data}</div><div style="display:flex;gap:12px"><section>${data}</section></div>`, { grids });
+    const probe = await ask<{ wide: number; box: number; table: number }[]>("grids", (g) => g.length === 2);
+    expect(probe).toHaveLength(2);
+    for (const grid of probe) {
+      expect(grid.table).toBeGreaterThan(500);
+      expect(grid.box).toBeGreaterThanOrEqual(grid.table);
+      expect(grid.wide).toBeLessThanOrEqual(grid.box);
+    }
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
+  /*
+   * Each way out on a page of its own, one after another in one tab: Chrome
+   * takes one prerender a page and holds back those of pages run at once, so
+   * attempts sharing a page or racing in tabs hide each other's. Each waits
+   * for its page to have tried, then the room a request has to land in.
+   * Each aims at a path of its own, so a request that lands late, in the
+   * next one's turn, still names the attempt that sent it; and once the last
+   * has had its turn, a further while for any still on its way, after which
+   * the whole log of what the attacker was sent must be empty.
+   */
   it("lets no way out send a single request, with the page running each time", async () => {
     const results: Record<string, Run> = {};
-    for (const [name, code] of Object.entries(attempts(E))) results[name] = await run(name, wrapperDocument(page(code)));
+    const from = log.length;
+    for (const name of Object.keys(attempts(E))) results[name] = await run(name, wrapperDocument(page(attempts(`${E}/${name}`)[name]!)), ESCAPE_QUIET_MS);
+    await pause(ESCAPE_QUIET_MS);
     const notRunning = Object.entries(results).filter(([, r]) => !r.alive).map(([name]) => name);
     const leaked = Object.fromEntries(Object.entries(results).filter(([, r]) => r.requests.length > 0).map(([name, r]) => [name, r.requests]));
     expect(notRunning).toEqual([]);
     expect(leaked).toEqual({});
-  }, 180_000);
+    expect(log.slice(from)).toEqual([]);
+  }, 150_000);
 });
