@@ -44,6 +44,8 @@ struct ChatTests {
     #expect(ask.mechanics == "Type “hunter2”, press cmd+q")
     let plain = try call(#"{"t":"call","id":6,"method":"chat.ask","params":{"approval":{"id":"12","tool":"files.rm","args":"{}"}}}"#).params(ChatAsk.self).approval
     #expect(plain.mechanics == nil)
+    let mine = try call(#"{"t":"call","id":7,"method":"chat.ask","params":{"chat":"mac:owner","approval":{"id":"13","tool":"files.rm"}}}"#).params(ChatAsk.self)
+    #expect(mine.chat == "mac:owner")
   }
 
   @Test func tellsAStoryFromADoneTurnFromNothingSaid() throws {

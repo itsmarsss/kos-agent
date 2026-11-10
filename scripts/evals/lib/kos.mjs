@@ -6,6 +6,9 @@ import { join, resolve } from "node:path";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** How long a decided chat may go without being seen to resume before the run stops waiting on it. */
+const RESUME_GRACE_MS = 30_000;
+
 export class Kos {
   /** @param {import("./host.mjs").Host} host */
   constructor(host, log) {
@@ -23,6 +26,13 @@ export class Kos {
     this.policy = "approve";
     /** When this run began: approvals filed with no chat after it are this run's. */
     this.since = Date.now();
+    /**
+     * Chats whose approval this run decided, until the turn the decision resumed is seen to
+     * have run. A chat waiting on the owner is not working, so without this a run took the
+     * "waiting on you" message for the answer and stopped before the resumed turn ran. Each
+     * keeps where the chat stood once decided: its reply count.
+     */
+    this.resuming = new Map();
   }
 
   async api(path, body, ms = 20_000) {
@@ -67,7 +77,32 @@ export class Kos {
       this.approvals.push({ id: a.id, tool: a.tool, args: a.args, conversationId: a.conversationId, choice, at: Date.now() });
       if (choice === "approve") await this.api("/api/approve", { id: a.id }).catch(() => undefined);
       if (choice === "deny") await this.api("/api/deny", { id: a.id }).catch(() => undefined);
+      if ((choice === "approve" || choice === "deny") && a.conversationId) await this.decided(a.conversationId);
     }
+  }
+
+  /** Where a decided chat stands, to tell its resumed turn by: a turn too quick to be seen working still moves it. */
+  async decided(id) {
+    this.resuming.set(id, { at: Date.now(), working: false, replies: (await this.replies(id)).length });
+  }
+
+  /**
+   * Whether every turn a decision resumed has run, by the chats as listed now: seen working
+   * since the decision, or a reply more than where it stood (the decision alone touches the chat), and
+   * not working any more (asked again counts, and is decided anew); or never seen to resume
+   * within the grace.
+   */
+  async resumed(list) {
+    for (const [id, r] of this.resuming) {
+      const c = list.find((x) => x.id === id);
+      if (c?.activity === "working") {
+        r.working = true;
+        continue;
+      }
+      const moved = r.working || (await this.replies(id)).length > r.replies;
+      if (moved || Date.now() - r.at > RESUME_GRACE_MS) this.resuming.delete(id);
+    }
+    return this.resuming.size === 0;
   }
 
   /**
@@ -85,9 +120,10 @@ export class Kos {
     let quiet = 0;
     while (Date.now() - t0 < limitMs) {
       await this.decide();
-      const c = (await this.conversations()).find((x) => x.id === id);
+      const list = await this.conversations();
+      const c = list.find((x) => x.id === id);
       const now = await this.replies(id);
-      if (now.length > before && c?.activity !== "working") {
+      if ((await this.resumed(list)) && now.length > before && c?.activity !== "working") {
         // Twice in a row idle, so a turn that hands on to another step is not cut off between them.
         if (++quiet >= 2) {
           answer = now.slice(before).join("\n\n");
@@ -104,14 +140,15 @@ export class Kos {
     return { chat: id, t0, t1: Date.now(), wall: (Date.now() - t0) / 1000, answer, timedOut };
   }
 
-  /** Until no chat on the host is working (three quiet looks in a row), or the deadline. */
+  /** Until no chat on the host is working and every decided one has resumed and ended (three quiet looks in a row), or the deadline. */
   async settle(deadline) {
     let quiet = 0;
     while (Date.now() < deadline && quiet < 3) {
       await this.decide();
-      const busy = (await this.conversations()).filter((c) => c.activity === "working");
+      const list = await this.conversations();
+      const busy = list.filter((c) => c.activity === "working");
       for (const c of busy) this.mine.add(c.id);
-      quiet = busy.length ? 0 : quiet + 1;
+      quiet = (await this.resumed(list)) && !busy.length ? quiet + 1 : 0;
       await sleep(1000);
     }
   }

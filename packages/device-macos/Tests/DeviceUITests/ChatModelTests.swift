@@ -127,6 +127,159 @@ struct ChatModelTests {
     #expect(model.working)
   }
 
+  /// A command is never in the chat's words: taken, it is never on its way, so its answer ends the wait.
+  @Test func aCommandTakenNeverWaitsOnItsOwnWords() {
+    for command in ["/stop", "/clear", "/new", "/switch 2"] {
+      let model = ChatModel()
+      model.show(conversation: "mac:owner", title: "Mac", lines: [.you("hi", files: []), .kos("Hello.")])
+      model.say(command)
+      model.status(taken: true, story: nil, error: nil, said: command, conversation: "mac:owner", command: true)
+      #expect(model.sending.isEmpty)
+      model.show(conversation: "mac:owner", title: "Mac", lines: [], notice: (text: "Done.", from: nil, waiting: false))
+      #expect(!model.working)
+    }
+  }
+
+  /// Words that start with a slash but name no command are a message: on their way, told as they go, and given back if never taken.
+  @Test func wordsThatNameNoCommandAreAMessage() {
+    let said = "/etc/hosts is broken"
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [])
+    model.say(said)
+    #expect(model.sending == [said])
+    model.status(taken: true, story: nil, error: nil, said: said, conversation: "mac:owner", command: false)
+    #expect(model.sending == [said])
+    model.status(taken: false, story: .some("› Read the file"), error: nil, said: said, conversation: "mac:owner")
+    #expect(model.story == "› Read the file")
+    model.giveBack("KOS did not take that.")
+    #expect(model.sending.isEmpty)
+    #expect(model.draft == said)
+    // A command KOS knows by another name goes once KOS says it is one.
+    model.say("/cancel")
+    model.status(taken: true, story: nil, error: nil, said: "/cancel", conversation: "mac:owner", command: true)
+    #expect(model.sending.isEmpty)
+  }
+
+  /// Words sent while no chat was shown wait for the first one made until it has them, and come back if never taken.
+  @Test func wordsSentFromNoneWaitForTheFirstChat() {
+    let model = ChatModel()
+    model.say("/new")
+    model.say("find the deck")
+    model.show(conversation: "mac:owner", title: "New conversation", lines: [], notice: (text: "Started 'New conversation'", from: nil, waiting: false))
+    #expect(model.sending == ["find the deck"])
+    #expect(model.working)
+    model.show(conversation: "mac:owner", title: "find the deck", lines: [.you("find the deck", files: [])])
+    #expect(model.sending.isEmpty)
+    model.say("and the notes")
+    model.show(conversation: "cm1:owner", title: "Trip", lines: [])
+    #expect(model.sending.isEmpty)
+  }
+
+  /// Words sent from none wait for the chat KOS took them in, though none is shown again on the way.
+  @Test func wordsSentFromNoneWaitForTheChatTheyWentIn() {
+    let model = ChatModel()
+    model.show(conversation: nil, title: "Mac", lines: [])
+    model.say("hi")
+    model.status(taken: true, story: nil, error: nil, said: "hi", conversation: "z:owner")
+    model.show(conversation: nil, title: "Mac", lines: [])
+    model.show(conversation: "z:owner", title: "New conversation", lines: [])
+    #expect(model.sending == ["hi"])
+    #expect(model.working)
+  }
+
+  /// Words sent from none are not on their way to a chat the owner moved to mid-turn: it does not spin on them.
+  @Test func wordsSentFromNoneLeaveAChatMovedToMidTurn() {
+    let model = ChatModel()
+    model.show(conversation: nil, title: "Mac", lines: [])
+    model.say("hi")
+    model.status(taken: true, story: nil, error: nil, said: "hi", conversation: "z:owner")
+    model.show(conversation: "w:owner", title: "Trip", lines: [.you("a", files: []), .kos("b")])
+    #expect(model.sending.isEmpty)
+    #expect(!model.working)
+  }
+
+  /// While the window shows no chat, the turn in the chat it is about to show is told: its story shows before the chat does.
+  @Test func theFirstTurnFromNoneIsTold() {
+    let model = ChatModel()
+    model.show(conversation: nil, title: "Mac", lines: [])
+    model.say("tidy the deck")
+    model.status(taken: true, story: nil, error: nil, said: "tidy the deck", conversation: "mac:owner")
+    model.status(taken: false, story: .some("› Look at the screen"), error: nil, said: "tidy the deck", conversation: "mac:owner")
+    #expect(model.story == "› Look at the screen")
+    // Another chat's turn is still not this one's.
+    model.status(taken: false, story: .some("› Elsewhere"), error: nil, said: "other", conversation: "cm1:owner")
+    #expect(model.stories.map(\.text) == ["› Look at the screen"])
+    model.show(conversation: "mac:owner", title: "tidy the deck", lines: [.you("tidy the deck", files: [])])
+    #expect(model.story == "› Look at the screen")
+    #expect(model.working)
+  }
+
+  /// Taken before its chat was made, the first turn is told by the words it is about.
+  @Test func theFirstTurnIsToldByItsWordsWhenTakenBeforeItsChat() {
+    let model = ChatModel()
+    model.say("tidy the deck")
+    model.status(taken: true, story: nil, error: nil, said: "tidy the deck", conversation: nil)
+    model.status(taken: false, story: .some("› Look"), error: nil, said: "tidy the deck", conversation: "mac:owner")
+    #expect(model.story == "› Look")
+  }
+
+  /// While the window shows no chat, the first turn's pictures draw as it goes and stay once its chat is shown.
+  @Test func theFirstTurnFromNoneShowsItsPictures() {
+    let model = ChatModel()
+    let abc = Data("ABC".utf8).base64EncodedString()
+    model.show(conversation: nil, title: "Mac", lines: [])
+    model.say("tidy the deck")
+    model.status(taken: true, story: nil, error: nil, said: "tidy the deck", conversation: "mac:owner")
+    model.frame(3, image: abc, said: "tidy the deck", conversation: "mac:owner")
+    // Another chat's is still not this one's.
+    model.frame(4, image: abc, said: "other", conversation: "cm1:owner")
+    #expect(model.liveFrames(of: "tidy the deck") == [3])
+    #expect(model.liveFrames == [3])
+    model.show(conversation: "mac:owner", title: "tidy the deck", lines: [.you("tidy the deck", files: [])])
+    #expect(model.picturesOf([3]).map(\.id) == [3])
+    #expect(model.liveFrames == [3])
+  }
+
+  /// A KOS from before taken words said whether they were a command took any starting with "/" as one.
+  @Test func anOlderKOSTakesSlashWordsAsCommands() {
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [])
+    model.say("/cancel")
+    model.status(taken: true, story: nil, error: nil, said: "/cancel", conversation: "mac:owner")
+    #expect(model.sending.isEmpty)
+    model.say("hello")
+    model.status(taken: true, story: nil, error: nil, said: "hello", conversation: "mac:owner")
+    #expect(model.sending == ["hello"])
+  }
+
+  /// The first chat, made from none by /new, starts afresh and leaves the window ready for the next words.
+  @Test func aChatMadeFromNoneStartsAfresh() {
+    let model = ChatModel()
+    model.show(conversation: nil, title: "Mac", lines: [], notice: (text: "Nothing is running.", from: nil, waiting: false))
+    model.say("/new")
+    model.status(taken: true, story: nil, error: nil, said: "/new", conversation: nil, command: true)
+    model.show(conversation: "mac:owner", title: "New conversation", lines: [], notice: (text: "Started 'New conversation'", from: nil, waiting: false))
+    #expect(model.conversation == "mac:owner")
+    #expect(!model.working)
+    #expect(model.notices.map(\.text) == ["Started 'New conversation'"])
+    model.say("next")
+    model.status(taken: true, story: nil, error: nil, said: "next", conversation: "mac:owner")
+    #expect(model.sending == ["next"])
+    #expect(model.working)
+  }
+
+  /// An ask made while the window showed no chat stays once its chat is shown; another chat's goes.
+  @Test func anAskMadeBeforeItsChatIsShownStays() {
+    let model = ChatModel()
+    model.ask(.init(id: "a1", tool: "computer.act", chat: "mac:owner"))
+    model.show(conversation: "mac:owner", title: "Mac", lines: [.you("tidy", files: [])], notice: (text: "Waiting on you", from: nil, waiting: true))
+    #expect(model.asks.map(\.id) == ["a1"])
+    model.ask(.init(id: "a2", tool: "computer.act", chat: "cm1:owner"))
+    #expect(model.asks.map(\.id) == ["a1"])
+    model.show(conversation: "cm1:owner", title: "Trip", lines: [])
+    #expect(model.asks.isEmpty)
+  }
+
   @Test func theHeaderSaysWhyThereIsNoChatAsThePanelDoes() {
     let model = ChatModel()
     #expect(model.subtitle == "Not paired yet")

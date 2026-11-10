@@ -86,6 +86,8 @@ public struct ChatStatus: Decodable, Equatable, Sendable {
   /// Which of the owner's messages the turn is for.
   public let said: String?
   public let taken: Bool?
+  /// KOS took the words as a command, never in the chat's words.
+  public let command: Bool?
   public let error: String?
   /// The turn's steps so far; `.some(nil)` when KOS said null, the turn done; nil when it said nothing of them.
   public let story: String??
@@ -96,7 +98,7 @@ public struct ChatStatus: Decodable, Equatable, Sendable {
   /// The owner took the Mac over, and the turn waits for it back.
   public let held: Bool?
 
-  enum CodingKeys: String, CodingKey { case conversation, chat, said, taken, error, story, frame, waiting, held }
+  enum CodingKeys: String, CodingKey { case conversation, chat, said, taken, command, error, story, frame, waiting, held }
 
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -104,6 +106,7 @@ public struct ChatStatus: Decodable, Equatable, Sendable {
     chat = try c.decodeIfPresent(String.self, forKey: .chat)
     said = try c.decodeIfPresent(String.self, forKey: .said)
     taken = try c.decodeIfPresent(Bool.self, forKey: .taken)
+    command = try c.decodeIfPresent(Bool.self, forKey: .command)
     error = try c.decodeIfPresent(String.self, forKey: .error)
     story = c.contains(.story) ? .some(try c.decodeIfPresent(String.self, forKey: .story)) : nil
     frame = try c.decodeIfPresent(ChatFrame.self, forKey: .frame)
@@ -132,6 +135,8 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
 }
 
 public struct ChatAsk: Decodable, Equatable, Sendable {
+  /// The chat it is asked in.
+  public let chat: String?
   public let approval: ChatApproval
 }
 

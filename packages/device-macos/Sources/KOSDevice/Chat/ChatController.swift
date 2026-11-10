@@ -130,7 +130,6 @@ final class ChatController {
       switch method {
       case .show:
         let p = try call.params(ChatShow.self)
-        heardBack()
         showing?.invalidate()
         showing = nil
         model.silent = false
@@ -138,6 +137,8 @@ final class ChatController {
           conversation: p.chat ?? p.conversation, title: p.title, lines: p.messages.compactMap(Self.line),
           notice: p.notice.map { ($0.text, $0.from, $0.waiting ?? false) }, auto: p.auto ?? false,
           pictures: Dictionary(uniqueKeysWithValues: (p.pictures ?? [:]).compactMap { k, v in Int(k).map { ($0, v) } }))
+        // Words the chat does not have yet are still KOS's to take: the wait on them goes on.
+        if model.sending.isEmpty { heardBack() }
         scope()
       case .status:
         let p = try call.params(ChatStatus.self)
@@ -149,12 +150,13 @@ final class ChatController {
         }
         model.status(
           taken: p.taken ?? false, story: p.story, error: p.error, said: p.said, conversation: p.turnChat,
-          waiting: p.waiting.flatMap { ChatModel.Wait(rawValue: $0.rawValue) }, held: p.held ?? false)
+          waiting: p.waiting.flatMap { ChatModel.Wait(rawValue: $0.rawValue) }, held: p.held ?? false, command: p.command)
       case .ask:
-        let a = try call.params(ChatAsk.self).approval
+        let p = try call.params(ChatAsk.self)
+        let a = p.approval
         model.ask(.init(
           id: a.id, tool: a.tool, args: a.args, mechanics: a.mechanics, why: a.why, reason: a.reason, always: a.always,
-          expires: a.expiresAt.map { Date(timeIntervalSince1970: $0 / 1000) }))
+          expires: a.expiresAt.map { Date(timeIntervalSince1970: $0 / 1000) }, chat: p.chat))
       case .settled:
         model.settled(try call.params(ChatSettled.self).approval)
       case .chats:

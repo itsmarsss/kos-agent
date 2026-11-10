@@ -283,7 +283,10 @@ describe("a Chrome's side panel", () => {
     ]);
     const presence = await panel.acknowledge({ channel: "chrome", senderId: chrome.id, text: "/new" });
     // Taken at once, so the panel knows someone has its words before any step is told.
-    expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { ...state, said: "/new", taken: true } });
+    expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { ...state, said: "/new", taken: true, command: true } });
+    // Words that start with a slash but name no command are a message, taken as one.
+    await panel.acknowledge({ channel: "chrome", senderId: chrome.id, text: "/etc/hosts is broken" });
+    expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { ...state, said: "/etc/hosts is broken", taken: true, command: false } });
     await presence.update("› Read the page");
     expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { ...state, said: "/new", story: "› Read the page" } });
     await presence.complete({ text: "Hello." });
@@ -311,7 +314,7 @@ describe("a Chrome's side panel", () => {
     const state = { chat: "chrome:owner", conversation: "chrome:owner", waiting: "approval", held: false };
     expect(status()).toEqual([
       // The owner's words at once, then each step as it is taken.
-      { ...state, said: "compare these mugs", taken: true },
+      { ...state, said: "compare these mugs", taken: true, command: false },
       { ...state, said: "compare these mugs", story: "› Read the page" },
     ]);
     // A panel opened mid-turn is told the turn so far, after the chat, and then its state.

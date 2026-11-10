@@ -64,9 +64,11 @@ export async function chromePanel({ chrome, kos, extDist, workDir, tabUrl }) {
       }
       // Approvals of risky steps go through the dashboard's queue, by the run's policy.
       await kos.decide();
-      const c = (await kos.conversations()).find((x) => x.id === chat);
+      const list = await kos.conversations();
+      const c = list.find((x) => x.id === chat);
       const now = chat ? await kos.replies(chat) : [];
-      if (now.length > before && c?.activity !== "working") {
+      // A decision resumes the turn: its answer, not the wait before it, is the one to judge.
+      if ((await kos.resumed(list)) && now.length > before && c?.activity !== "working") {
         if (++idle >= 3) {
           answer = now.slice(before).join("\n\n");
           timedOut = false;

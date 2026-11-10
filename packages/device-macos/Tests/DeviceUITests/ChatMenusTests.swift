@@ -7,6 +7,15 @@ import Testing
 @MainActor
 @Suite("Chat menus")
 struct ChatMenusTests {
+  @Test func knowsACommandByItsName() {
+    #expect(ChatMenus.isCommand("/new"))
+    #expect(ChatMenus.isCommand("  /switch 2"))
+    #expect(ChatMenus.isCommand("/Stop"))
+    #expect(!ChatMenus.isCommand("/etc/hosts is broken"))
+    #expect(!ChatMenus.isCommand("/"))
+    #expect(!ChatMenus.isCommand("new"))
+  }
+
   @Test func readsTheTokenAtTheEndOfTheBox() {
     #expect(ChatMenus.token(in: "/") == .init(kind: .command, q: "", start: 0, raw: "/"))
     #expect(ChatMenus.token(in: "/sw")?.q == "sw")
