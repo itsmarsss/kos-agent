@@ -137,7 +137,9 @@ export class Kos {
     await this.settle(t0 + limitMs);
     const after = await this.replies(id);
     if (after.length > before) answer = after.slice(before).join("\n\n");
-    return { chat: id, t0, t1: Date.now(), wall: (Date.now() - t0) / 1000, answer, timedOut };
+    // The last reply alone: after a decision, the answer that reacted to it.
+    const final = after.length > before ? after.at(-1) : "";
+    return { chat: id, t0, t1: Date.now(), wall: (Date.now() - t0) / 1000, answer, final, timedOut };
   }
 
   /** Until no chat on the host is working and every decided one has resumed and ended (three quiet looks in a row), or the deadline. */
