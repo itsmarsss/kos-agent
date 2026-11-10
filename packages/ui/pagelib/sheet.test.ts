@@ -2,7 +2,7 @@
 import type { SheetBook } from "@kos/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { SAVE_DELAY_MS, SAVE_GAP_MS, cellFromInput, readBook, sourceQuery, startSheets, viewRows } from "./sheet.js";
+import { SAVE_DELAY_MS, SAVE_GAP_MS, cellFromInput, keyColumn, readBook, sourceQuery, startSheets, viewRows } from "./sheet.js";
 
 const BOOK: SheetBook = {
   sheets: [
@@ -62,6 +62,15 @@ describe("pure helpers", () => {
     expect(sourceQuery({ ...tab, source: { table: "x y", key: "id" } })).toBeUndefined();
   });
 
+  it("keys a phone's grid on the figure it totals, else its first currency, never a frozen column", () => {
+    const columns = [{ label: "Date", type: "date" as const }, { label: "Item" }, { label: "Tax", type: "currency" as const }, { label: "Amount", type: "currency" as const }, { label: "Paid by" }];
+    expect(keyColumn(columns, { Amount: "sum" }, 1)).toBe(3);
+    expect(keyColumn(columns, { d: "sum", B: "count" }, 1)).toBe(3);
+    expect(keyColumn(columns, undefined, 1)).toBe(2);
+    expect(keyColumn(columns, { Amount: "sum" }, 4)).toBe(-1);
+    expect(keyColumn(columns.slice(0, 2), { Item: "count" }, 0)).toBe(-1);
+  });
+
   it("explains a workbook it cannot read", () => {
     expect(readBook("{oops")).toMatch(/not valid JSON/);
     expect(readBook('{"sheets":[]}')).toMatch(/at least one tab/);
@@ -78,6 +87,9 @@ describe("kos-sheet in a page", () => {
     expect([...root.querySelectorAll("tbody .rownum")].map((n) => n.textContent)).toEqual(["1", "2", "3", "4"]);
     expect(root.querySelector("thead th.num")).not.toBeNull();
     expect(root.querySelector("thead th.frozen")).not.toBeNull();
+    // Words wrap on a phone and the amount holds at its right edge: every cell of each column says so.
+    expect([...root.querySelectorAll("tbody tr:first-child td")].map((td) => ["wrap", "key"].filter((c) => td.classList.contains(c)).join())).toEqual(["", "wrap", "key"]);
+    expect(root.querySelector("tfoot td.key")?.textContent).toBe("$1,597.50");
   });
 
   it("sorts by a header and filters, totalling what is shown", () => {

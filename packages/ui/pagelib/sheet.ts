@@ -14,7 +14,7 @@ import type { SheetBook, SheetCell, SheetColumn, SheetTab } from "@kos/shared";
 
 import { bar, line, pie } from "./chartdraw.js";
 import { SHEET_CSS } from "./sheet.css.js";
-import { Workbook, columnLetter, formatValue, isError, isNumeric, literalOf, sortValue, totalsRow, type Value } from "./sheetformula.js";
+import { Workbook, columnLetter, findColumn, formatValue, isError, isNumeric, literalOf, sortValue, totalsRow, type Value } from "./sheetformula.js";
 import { addStyle, editable, el, kos, ready, reason } from "./runtime.js";
 
 /** How long after an edit the workbook is saved, so a run of edits is one version. */
@@ -27,6 +27,8 @@ const quote = (name: string): string => `"${name.replace(/"/g, '""')}"`;
 
 /** The shortest a grid is drawn, however little room the frame has. */
 const SHEET_MIN_HEIGHT = 320;
+/** How far in from its right edge a phone fades a grid with more to see (sheet.css.ts). */
+const SHEET_FADE = 40;
 /** Where the stylesheet's phone layout starts (sheet.css.ts). */
 const PHONE_QUERY = "(max-width: 560px)";
 
@@ -38,6 +40,21 @@ export function sourceQuery(tab: SheetTab): string | undefined {
   const order = /^([A-Za-z_][A-Za-z0-9_]*)(\s+(asc|desc))?$/i.exec(src.orderBy?.trim() ?? "");
   return `SELECT ${quote(src.key)} AS __key, ${cols.join(", ")} FROM ${quote(src.table)}${order ? ` ORDER BY ${quote(order[1]!)}${order[3] ? ` ${order[3].toUpperCase()}` : ""}` : ""}`;
 }
+
+/**
+ * The column a phone holds at the grid's right edge while there is more to
+ * see: the first figure the tab totals, else its first currency, never a
+ * frozen one; -1 when there is none. A phone cut the amount of an expense
+ * sheet off at its edge, and the row read as having none.
+ */
+export function keyColumn(columns: readonly SheetColumn[], totals: SheetTab["totals"], freeze: number): number {
+  const totalled = new Set(Object.keys(totals ?? {}).map((ref) => findColumn(columns, ref)));
+  const figure = columns.findIndex((c, i) => i >= freeze && isNumeric(c) && totalled.has(i));
+  return figure >= 0 ? figure : columns.findIndex((c, i) => i >= freeze && c.type === "currency");
+}
+
+/** Whether a column holds words, which a phone wraps so the grid narrows rather than runs off. */
+const wraps = (column: SheetColumn): boolean => (column.type ?? "text") === "text";
 
 /** What an owner typed, as a cell to store: a formula stays text, a number in a numeric column becomes one. */
 export function cellFromInput(text: string, column: SheetColumn | undefined): SheetCell {
@@ -211,7 +228,7 @@ class Sheet {
       this.filter.column = Number(which.value);
       this.renderGrid();
     });
-    const tools = el("div", { class: "sheet-tools" }, search, which, el("span", { class: "sheet-rows" }), el("span", { class: "sheet-spacer" }), this.status);
+    const tools = el("div", { class: "sheet-tools" }, search, which, el("span", { class: "sheet-rows" }), el("span", { class: "sheet-more", "aria-hidden": "true" }), el("span", { class: "sheet-spacer" }), this.status);
     if (tab.rows && !tab.pivot && this.editable(t)) {
       const add = el("button", { type: "button" }, "Add row");
       add.addEventListener("click", () => this.addRow());
@@ -236,6 +253,8 @@ class Sheet {
     const values = this.wb.values(t);
     const rows = given ?? viewRows(values, columns, this.filter, this.sort);
     const freeze = Math.max(0, Math.min(tab.freeze ?? 0, columns.length));
+    const key = keyColumn(columns, tab.totals, freeze);
+    const kinds = (c: SheetColumn, i: number): (string | false)[] => [isNumeric(c) && "num", wraps(c) && "wrap", i === key && "key", i < freeze && "frozen", i === freeze - 1 && "frozen-edge"];
     const count = this.root.querySelector(".sheet-rows");
     if (count) count.textContent = rows.length === values.length ? `${values.length} rows` : `${rows.length} of ${values.length} rows`;
 
@@ -247,15 +266,16 @@ class Sheet {
         this.sort = this.sort?.column !== i ? { column: i, dir: 1 } : this.sort.dir === 1 ? { column: i, dir: -1 } : undefined;
         this.renderGrid();
       });
-      const th = el("th", { scope: "col", "aria-sort": dir, class: cls(isNumeric(c) && "num", i < freeze && "frozen", i === freeze - 1 && "frozen-edge") }, b);
-      if (c.width) th.style.minWidth = `${c.width}ch`;
+      const th = el("th", { scope: "col", "aria-sort": dir, class: cls(...kinds(c, i)) }, b);
+      // A width the stylesheet keeps on a desktop and lets go of on a phone.
+      if (c.width) th.style.setProperty("--sheet-col", `${c.width}ch`);
       headRow.append(th);
     });
 
     const body = el("tbody");
     for (const r of rows) {
       const tr = el("tr", {}, el("th", { class: "rownum", scope: "row" }, String(r)));
-      columns.forEach((c, i) => tr.append(this.cell(t, r, i, values[r - 1]![i] ?? null, c, freeze)));
+      columns.forEach((c, i) => tr.append(this.cell(t, r, i, values[r - 1]![i] ?? null, c, kinds(c, i))));
       body.append(tr);
     }
     const table = el("table", { class: "sheet-grid", role: "grid", "aria-label": tab.name, "aria-rowcount": String(rows.length + 1) }, el("thead", {}, headRow), body);
@@ -271,7 +291,7 @@ class Sheet {
       const tr = el("tr", {}, el("th", { class: "rownum", scope: "row", "aria-label": label, title: label }, el("span", { class: "word" }, label)));
       columns.forEach((c, i) => {
         const v = sums[i];
-        tr.append(el("td", { class: cls(isNumeric(c) && "num", i < freeze && "frozen", i === freeze - 1 && "frozen-edge", v !== undefined && isError(v) && "err") }, v === undefined ? "" : formatValue(v, c)));
+        tr.append(el("td", { class: cls(...kinds(c, i), v !== undefined && isError(v) && "err") }, v === undefined ? "" : formatValue(v, c)));
       });
       table.append(el("tfoot", {}, tr));
     }
@@ -285,13 +305,29 @@ class Sheet {
   }
 
   /**
-   * Mark a grid with more to its right, which its edge then fades out to say.
-   * A phone cut the last column at the box's edge, and it read as the end of
-   * the row rather than a grid that scrolls.
+   * Mark a grid with more to its right, and say how many columns are out of
+   * view. A phone cut the last column at the box's edge, and it read as the
+   * end of the row rather than a grid that scrolls. The key column is held
+   * when it reaches into the edge's fade with more past it: the fade then
+   * narrows to what shows past it, so the figure is never faded, and its
+   * shadow says what slides under it.
    */
   private markMore(): void {
-    const scroll = this.root.querySelector(".sheet-scroll");
-    scroll?.classList.toggle("more", Math.ceil(scroll.scrollLeft + scroll.clientWidth) < scroll.scrollWidth - 1);
+    const scroll = this.root.querySelector<HTMLElement>(".sheet-scroll");
+    if (!scroll) return;
+    const more = Math.ceil(scroll.scrollLeft + scroll.clientWidth) < scroll.scrollWidth - 1;
+    const head = [...scroll.querySelectorAll<HTMLElement>(".sheet-grid thead th:not(.rownum)")];
+    const keyCell = head.find((th) => th.classList.contains("key"));
+    const key = keyCell?.getBoundingClientRect();
+    const right = scroll.getBoundingClientRect().left + scroll.clientLeft + scroll.clientWidth;
+    const held = more && !!key && key.right > right - SHEET_FADE;
+    const edge = held ? key.left : right;
+    const out = head.filter((th) => th !== keyCell && th.getBoundingClientRect().right > edge + 1).length;
+    scroll.classList.toggle("more", more);
+    scroll.classList.toggle("held", held);
+    scroll.style.setProperty("--sheet-fade", `${held ? Math.max(0, Math.floor(right - key.right)) : SHEET_FADE}px`);
+    const cue = this.root.querySelector(".sheet-more");
+    if (cue) cue.textContent = out ? `${out} more column${out === 1 ? "" : "s"} \u2192` : "";
   }
 
   /** Pin the frozen columns of the grid drawn now, at the widths it has now. */
@@ -300,14 +336,14 @@ class Sheet {
     if (table) pinColumns(table);
   }
 
-  private cell(t: number, row: number, col: number, v: Value, column: SheetColumn, freeze: number): HTMLTableCellElement {
+  private cell(t: number, row: number, col: number, v: Value, column: SheetColumn, kinds: (string | false)[]): HTMLTableCellElement {
     const raw = this.rawCell(t, row, col);
     const formula = typeof raw === "string" && raw.startsWith("=");
     const isFocus = this.focus.row === row && this.focus.col === col;
     const td = el(
       "td",
       {
-        class: cls(isNumeric(column) && "num", isError(v) && "err", typeof v === "boolean" && "bool", formula && "formula", col < freeze && "frozen", col === freeze - 1 && "frozen-edge", isFocus && "focus"),
+        class: cls(...kinds, isError(v) && "err", typeof v === "boolean" && "bool", formula && "formula", isFocus && "focus"),
         tabindex: isFocus ? "0" : "-1",
         "data-row": String(row),
         "data-col": String(col),
