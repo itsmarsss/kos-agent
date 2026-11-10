@@ -130,6 +130,22 @@ struct RenderTests {
     #expect(size.height == ChatView.size.height)
   }
 
+  /// The empty chat in the middle of the thread, as the side panel's is, with nothing to scroll (and so no thumb).
+  @Test func theEmptyChatFitsItsThread() throws {
+    let model = ChatModel()
+    model.paired = true
+    model.online = true
+    model.show(conversation: nil, title: "Mac", lines: [])
+    let host = NSHostingView(rootView: ChatView(model: model))
+    host.frame = CGRect(origin: .zero, size: ChatView.size)
+    let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.contentView = host
+    host.layoutSubtreeIfNeeded()
+    let thread = try #require(OverlayScrollTests.scrollView(in: host))
+    let page = try #require(thread.documentView)
+    #expect(page.frame.height <= thread.contentView.bounds.height + 0.5, "the empty chat scrolls by \(page.frame.height - thread.contentView.bounds.height)")
+  }
+
   /// A turn going: Stop in the box; asking on the screen; the owner holding the Mac; then a selection on its way, with a menu open.
   @Test func chatWindowStopAskPausedAndSelection() throws {
     let model = ChatModel()

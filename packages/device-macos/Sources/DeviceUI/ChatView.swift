@@ -372,9 +372,12 @@ private struct EmptyChat: View {
     .frame(maxWidth: 300)
     .padding(24)
     .frame(maxWidth: .infinity)
-    // The side panel's .empty-state sits in the middle of the thread (margin: auto): the thread's height, less its 16 and 8 of padding.
-    .containerRelativeFrame(.vertical, alignment: .center) { height, _ in max(0, height - 24) }
+    // The side panel's .empty-state sits in the middle of the thread (margin: auto), and the thread does not scroll.
+    .containerRelativeFrame(.vertical, alignment: .center) { height, _ in max(0, height - Self.threadChrome) }
   }
+
+  /// What the thread holds around the empty state: its padding, 16 above and 8 below, and the end marker with its gap.
+  static let threadChrome: CGFloat = 16 + 8 + 1 + 10
 
   /// The kit's .hint: muted at 13, as the dashboard and the side panel draw theirs.
   private func hint(_ words: String) -> some View {
@@ -681,6 +684,8 @@ private struct Switcher: View {
             }
           }
         }
+        // Room for the thumb at the right, so a row's right end still takes the press.
+        .padding(.trailing, 6)
       }
       .frame(maxHeight: 280)
     }

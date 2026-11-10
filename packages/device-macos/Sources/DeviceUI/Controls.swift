@@ -693,7 +693,8 @@ struct ChipFlow: Layout {
 
   func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
     let rows = self.rows(subviews, width: proposal.width ?? .infinity)
-    let width = rows.map { $0.width }.max() ?? 0
+    // As wide as offered, as a block of flex-wrap is; its widest row when offered any width.
+    let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? rows.map(\.width).max() ?? 0
     let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, rows.count - 1))
     return CGSize(width: width, height: height)
   }
