@@ -102,6 +102,13 @@ describe("a scheduled run's answer on the server", () => {
     expect(d.made).toEqual([]);
   });
 
+  it("still tells a run's failure after it said its piece in its place", async () => {
+    const reminder: JobFacts = { id: 7, name: "Nudge", type: "actions", projectSlug: null };
+    const d = deps({ "cron:7": "t7" }, { jobOf: () => reminder, spokeInPlace: () => true });
+    await postSaid({ ...run("cron:7", "Ran 2 actions; 1 failed."), failed: true }, d);
+    expect(d.posts).toEqual([{ target: "t7", text: "-# Nudge\nRan 2 actions; 1 failed." }]);
+  });
+
   it("does not repeat a run that already said its piece in its place", async () => {
     const d = deps({ "cron:24": "t24", "agent:briefing": "c-brief" }, { jobOf: (c) => (c === "cron:24" ? { ...kickoff, id: 24, name: "School Morning Digest", projectSlug: "school" } : undefined), spokeInPlace: () => true });
     await postSaid(run("cron:24", "Digest sent."), d);

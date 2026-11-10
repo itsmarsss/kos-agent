@@ -1183,6 +1183,23 @@ describe("Kernel", () => {
     kernel.stopCron();
   });
 
+  it("marks an actions run where something failed, so a message it already sent does not hide it", async () => {
+    kernel = await boot(stubInference([]), async () => undefined);
+    const told: { reply: string; failed?: boolean }[] = [];
+    kernel.bus.on("turn:said", (said) => void (said.conversationId.startsWith("cron:") && told.push({ reply: said.reply, ...(said.failed ? { failed: true } : {}) })));
+    const job = kernel.crons.create({
+      name: "Nudge",
+      schedule: "0 12 * * *",
+      type: "actions",
+      actions: [{ tool: "notify", args: { text: "read" } }, { tool: "files.read", args: { path: "nope/missing.md" } }],
+    });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    expect(told).toEqual([{ reply: "Ran 2 actions; 1 failed.", failed: true }]);
+  });
+
   it("sends a prompted run's unaddressed message to its place, and an addressed one to the owner", async () => {
     const step = (id: string, input: Record<string, unknown>): ModelResponse => ({
       content: [{ type: "tool_use", id, name: "notify", input }],

@@ -1710,7 +1710,7 @@ export class Kernel {
      * job runs in the blob's own thread and is left out.
      */
     if (id.startsWith("cron:") && (failed > 0 || this.firedByHand.has(job.id))) {
-      this.said(id, "The schedule fired.", summary, "system", undefined, []);
+      this.said(id, "The schedule fired.", summary, "system", undefined, [], { failed: failed > 0 });
     }
   }
 
@@ -3763,7 +3763,7 @@ export class Kernel {
     origin: "owner" | "system",
     channel: string | undefined,
     files: KeptFile[],
-    extra: { resumed?: boolean; from?: MessageFrom | undefined; dm?: boolean | undefined } = {},
+    extra: { resumed?: boolean; from?: MessageFrom | undefined; dm?: boolean | undefined; failed?: boolean } = {},
   ): void {
     this.bus.emit({
       kind: "turn:said",
@@ -3777,6 +3777,7 @@ export class Kernel {
       ...(extra.resumed ? { resumed: true } : {}),
       ...(extra.from ? { from: extra.from } : {}),
       ...(extra.dm ? { dm: true } : {}),
+      ...(extra.failed ? { failed: true } : {}),
     });
   }
 
