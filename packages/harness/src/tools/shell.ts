@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { turnStop } from "../kernel/caller.js";
+import { guestOrigin, turnStop } from "../kernel/caller.js";
 import { MAINTENANCE } from "../kernel/caretaker.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
@@ -103,13 +103,13 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
         // sql tool refuses those tables: asked, the owner said yes to a read
         // of the crons table twice in a day, each time to a chat that had
         // cron.list. Maintenance, which repairs KOS, may, and asks as for any
-        // command that writes.
+        // command that writes, unless a guest's words started the work.
         {
           floor: "risky",
           why: "a command that may write",
           relax: (input) => typeof input["command"] === "string" && isReadOnlyCommand(input["command"]),
           refuse: (input) =>
-            typeof input["command"] === "string" && namesDatabase(input["command"]) && ctx.services?.callerProject?.() !== MAINTENANCE.slug ? DATABASE_REFUSED : false,
+            typeof input["command"] === "string" && namesDatabase(input["command"]) && (ctx.services?.callerProject?.() !== MAINTENANCE.slug || guestOrigin() !== undefined) ? DATABASE_REFUSED : false,
         },
       );
     },

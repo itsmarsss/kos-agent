@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { Db } from "../store/db.js";
-import { codeOf, fence, isKernelTable, ownedBy, ownerOf, planOf, readsSchema, writesKernelTable, type Reach } from "./fence.js";
+import { codeOf, fence, isKernelTable, ownedBy, ownerOf, planOf, readsSchema, reachable, writesKernelTable, type Reach } from "./fence.js";
 
 /**
  * The sql tool is for the calling project's tables. KOS's own, another
@@ -219,4 +219,27 @@ describe("the fence around the tables", () => {
     expect(writesKernelTable(db, "INSERT INTO books_missing (x) VALUES (1)")).toBe(false);
   });
 
+  describe("a guest's words", () => {
+    const guest = (project: string | undefined, room: string | undefined): Reach => ({ ...reach(project), guest: { project: room } });
+
+    it("reach the tables of their room's project, and only in its chats", () => {
+      expect(fence(db, "INSERT INTO books_items (title) VALUES (?)", guest("books", "books"), ["x"])).toEqual({ ok: true });
+      expect(fence(db, "SELECT * FROM chat_sessions", guest("books", "books")).ok).toBe(false);
+      expect(reachable({ ...guest("pantry", "books"), made: ["pantry"] })).toEqual([]);
+      const elsewhere = fence(db, "SELECT * FROM pantry_items", guest("pantry", "books"));
+      expect(elsewhere.ok).toBe(false);
+      expect(elsewhere.reason).toMatch(/a guest's words started this work/);
+    });
+
+    it("reach nothing of Maintenance's, in its channel or handed to it", () => {
+      for (const sql of ["SELECT * FROM chat_sessions", "SELECT name FROM sqlite_master", "SELECT * FROM books_items", "PRAGMA table_list"]) {
+        const refused = fence(db, sql, guest("maintenance", "maintenance"));
+        expect(refused.ok, sql).toBe(false);
+        expect(refused.reason).toMatch(/a guest's words started this work/);
+        expect(fence(db, sql, guest("maintenance", "books")).ok, sql).toBe(false);
+      }
+      expect(fence(db, "SELECT 1", guest("maintenance", "maintenance"))).toEqual({ ok: true });
+      expect(fence(db, "EXPLAIN SELECT * FROM chat_sessions", guest("maintenance", "maintenance")).ok).toBe(false);
+    });
+  });
 });

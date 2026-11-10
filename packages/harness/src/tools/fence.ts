@@ -1,4 +1,5 @@
 import { MAINTENANCE } from "../kernel/caretaker.js";
+import type { GuestOrigin } from "../kernel/caller.js";
 import type { Db } from "../store/db.js";
 
 /**
@@ -21,7 +22,9 @@ import type { Db } from "../store/db.js";
  * Maintenance is the exception: it is where KOS repairs itself, and a
  * repair may need to look at a job's rows, a queue, or any project's
  * table. There, reads are free and writes ask as any write does, but the
- * trust tables are never written by a model from anywhere.
+ * trust tables are never written by a model from anywhere. That reach is
+ * for work the owner or KOS started: a guest's words, said in its channel
+ * or handed to it, reach no table there.
  *
  * What a statement reaches is what SQLite's plan for it opens, not the
  * words it is spelled with: a book tracker's `pages` column is not KOS's
@@ -212,16 +215,23 @@ export interface Reach {
    * reach ends with the turn; a later one hands the work to the project.
    */
   made?: readonly string[];
+  /**
+   * The room a guest spoke in, when a guest's words started this turn or the
+   * work that reached it. Its reach is that room's project, and only in that
+   * project's own chats: never Maintenance's, wherever the work was handed.
+   */
+  guest?: GuestOrigin;
 }
 
-/** The projects a chat's statements and schema changes may reach: its own, and those this turn made. */
+/** The projects a chat's statements and schema changes may reach: its own, and those this turn made; for a guest's, its room's alone. */
 export function reachable(reach: Reach): string[] {
+  if (reach.guest) return reach.project && reach.project === reach.guest.project && reach.project !== MAINTENANCE_SLUG ? [reach.project] : [];
   return [...new Set([...(reach.project ? [reach.project] : []), ...(reach.made ?? [])])];
 }
 
-/** Maintenance: what reaches KOS's own tables and the schema. */
+/** Maintenance, on work the owner or KOS started: what reaches KOS's own tables and the schema. */
 export function maintains(reach: Reach): boolean {
-  return reach.project === MAINTENANCE_SLUG;
+  return reach.project === MAINTENANCE_SLUG && !reach.guest;
 }
 
 export interface FenceVerdict {
@@ -253,6 +263,12 @@ export function fence(db: Db, sql: string, reach: Reach, params: readonly unknow
   const reached = [...new Set([...plan.reads, ...plan.writes])];
   const schema = plan.virtual || plan.elsewhere || readsSchema(codeOf(sql)) || reached.some((t) => t.toLowerCase().startsWith("sqlite_"));
   const mine = reachable(reach);
+  if (reach.guest && !mine.length && (schema || reached.length)) {
+    return refuse(
+      "a guest's words started this work, so sql reaches only the tables of the project whose channel they spoke in, and this chat is not that project's. " +
+        "Answer them with what you know, or tell the owner (notify) what was asked.",
+    );
+  }
   if (schema) {
     return refuse(
       "the schema is Maintenance's to read, not yours: your project's tables and their columns are listed in your prompt. " +

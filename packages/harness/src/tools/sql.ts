@@ -2,7 +2,7 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { isSqlDestructive, isSqlWrite } from "../risk/rules.js";
 import type { Db } from "../store/db.js";
-import { isAttended, isOwnerTurn } from "../kernel/caller.js";
+import { guestOrigin, isAttended, isOwnerTurn } from "../kernel/caller.js";
 import { fence, isKernelTable, maintains, ownedBy, ownerOf, reachable, tableNames, writesKernelTable, type Reach } from "./fence.js";
 
 /**
@@ -98,7 +98,9 @@ function runSql(db: Db, input: Record<string, unknown>, reach: Reach): string {
 
 /** Who is asking, read at call time: the caller's project and every project's name, so a refusal can say whose a table is. */
 export function reachOf(ctx: ModuleContext): Reach {
+  const guest = guestOrigin();
   return {
+    ...(guest ? { guest } : {}),
     project: ctx.services?.callerProject?.(),
     blob: ctx.services?.callerBlob?.(),
     owner: isAttended() && isOwnerTurn() && !ctx.services?.callerConversation?.()?.startsWith("cron:"),
