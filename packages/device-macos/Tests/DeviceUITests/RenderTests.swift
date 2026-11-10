@@ -195,6 +195,21 @@ struct RenderTests {
       $0.inputGranted = true
     }
     _ = try render("home-connected", HomeView(model: model), height: HomeView.height)
+    #expect(model.headKOS?.host == "127.0.0.1:4317")
+  }
+
+  /// The head's pill and host are one KOS's: the connected one, though another is listed first.
+  @Test func headSpeaksOfOneKOS() throws {
+    let model = home {
+      $0.kos = [kos(host: "kos.work.ts.net", link: .offline("KOS is not answering.")), kos("d2", host: "127.0.0.1:4317")]
+      $0.screenGranted = true
+      $0.inputGranted = true
+    }
+    #expect(model.headKOS?.id == "d2")
+    #expect(model.headKOS?.link == .connected)
+    model.kos = [kos(host: "kos.work.ts.net", link: .offline("KOS is not answering.")), kos("d2", host: "127.0.0.1:4317", link: .disconnected)]
+    #expect(model.headKOS?.id == "d1")
+    _ = try render("home-head-first", HomeView(model: model), height: HomeView.height)
   }
 
   @Test func homeWhenConnectedAndInUse() throws {

@@ -282,4 +282,7 @@ public final class HomeModel: ObservableObject {
     if links.contains(.connecting) { return .connecting }
     return links.first { $0 != .disconnected } ?? links.first
   }
+
+  /// The KOS the head speaks of, its pill and its host both, as the Chrome popup picks it: the first connected, else the first.
+  public var headKOS: KOSEntry? { kos.first { $0.link == .connected } ?? kos.first }
 }

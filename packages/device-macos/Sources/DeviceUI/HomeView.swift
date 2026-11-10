@@ -176,9 +176,9 @@ public struct HomeView: View {
     }
   }
 
-  /// The KOS the head speaks of, the first connected else the first, and how many more there are.
+  /// The host of the KOS the head speaks of, and how many more there are.
   private var headHost: String? {
-    guard let best = model.kos.first(where: { $0.link == .connected }) ?? model.kos.first else { return nil }
+    guard let best = model.headKOS else { return nil }
     return model.kos.count > 1 ? "\(best.host) and \(model.kos.count - 1) more" : best.host
   }
 
@@ -195,8 +195,8 @@ public struct HomeView: View {
   /// The head says what the card of the KOS it shows says, or that a session has this Mac: the Chrome popup's words.
   private var linkPill: Pill {
     if let session = model.session { return session.paused ? Pill("Paused", tone: .warn, dot: true) : Pill("Working", tone: .accent, dot: true) }
-    guard let overall = model.overall else { return Pill("Not paired", tone: .muted, dot: true) }
-    return pill(overall)
+    guard let best = model.headKOS else { return Pill("Not paired", tone: .muted, dot: true) }
+    return pill(best.link)
   }
 
   // MARK: Session
@@ -249,7 +249,7 @@ public struct HomeView: View {
         } label: {
           // The Chrome popup's: the kit's plus, then the words.
           HStack(spacing: 5) {
-            Image(systemName: "plus").font(.system(size: 9.5, weight: .bold))
+            Image(systemName: "plus").font(.system(size: 9.5, weight: .bold)).accessibilityHidden(true)
             Text("Add a KOS")
           }
         }

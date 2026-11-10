@@ -87,7 +87,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     menu.addItem(.separator())
     let links = now.kos.map(\.link)
     let several = links.count > 1
-    if links.contains(where: Self.redialable) { menu.addItem(action(several ? "Reconnect All" : "Reconnect", #selector(reconnect))) }
+    if links.contains(where: Self.redialable) { menu.addItem(action(several ? "Try all now" : "Try now", #selector(reconnect))) }
     if links.contains(.disconnected) { menu.addItem(action(several ? "Connect All" : "Connect", #selector(connect))) }
     if links.contains(where: { $0 != .disconnected }) { menu.addItem(action(several ? "Disconnect All" : "Disconnect", #selector(disconnect))) }
     // Pairing, permissions, each KOS's rules and the hidden apps all live in the one window.
@@ -102,7 +102,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     menu.addItem(NSMenuItem(title: "Quit KOS for Mac", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
   }
 
-  /// A line that dropped or was taken, which Reconnect dials again.
+  /// A line that dropped or was taken, which Try now dials again.
   static func redialable(_ link: Connection.Status) -> Bool {
     switch link {
     case .offline, .replaced, .untrusted: return true

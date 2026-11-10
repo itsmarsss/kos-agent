@@ -51,7 +51,7 @@ those to this table by hand.
 | `Empty` | What a list says when it is empty: a dashed box, or one quiet line inside a card (`inline`) | kit (every list and panel, and the page widgets) | `.empty-state` (the side panel's centred face and words) | `EmptyChat` (`ChatView.swift`) |
 | Label | The small uppercase head over a card, a section, a group | `.label` in `kit.css` | `.label` | `SectionLabel` (Controls) |
 | `Section` | A label with an action at its right, over what it labels | kit (the dashboard's settings card is its own `Section` in `SettingsPage.tsx`) | kit | `KOSSection` (Controls) |
-| `DrawerRow` | A row that opens what is under it (`.drawer-row`) | kit, not yet used | kit | `DrawerRow` (`DrawerRow.swift`) |
+| `DrawerRow` | A row that opens what is under it (`.drawer-row`); `wrap` sets its detail on up to two lines, as the Mac's | kit, not yet used | kit (`wrap`) | `DrawerRow` (`DrawerRow.swift`) |
 | `RefChip` | A link to one of the owner's things (a project, a page, a site, a chat), in its kind's mark and colour, as a reference in a message is | kit; the Markdown's references are drawn with it | kit (through Markdown) | the violet reference chips of `chatInline` (`ChatMarkdown.swift`) |
 | `Collapse` | What a drawer opens to | kit, not yet used | kit | the `HomeView.inPlace` transition |
 | `WorkingDots` | KOS at work: the foot of a running turn, under whatever it showed last, until the turn ends | kit | kit | `Working` (`ChatView.swift`) |
@@ -114,7 +114,7 @@ a Permissions section (Chrome has none to ask for).
 | --- | --- | --- |
 | Head | `.head` in `popup.tsx`: `Face` at 40, the name, a `Pill` and the host on the line under it, chat and the gear at the right | `header` in `HomeView.swift`, the same |
 | The pill's words | `linkWords` (`linkwords.ts`); Working or Paused while a session runs | `pill(_:)` in `HomeView.swift`, the same words for the states the two share |
-| A KOS | `KosCard`: `DrawerRow` with the host, `asWords` ("As <name> · asks here first"), its `Pill` and the chevron | `kosCard`: `DrawerRow`, the same line and pill |
+| A KOS | `KosCard`: `DrawerRow` with the host, `asWords` ("As <name> · asks here first"), its `Pill` and the chevron | `kosCard`: `DrawerRow`, the same line and pill; `HomeModel.headKOS` (the first connected, else the first) gives the head its pill and host |
 | Why a KOS is down | `.kos-reason` under the row, with what puts it right | `reason` in `HomeView.swift`, the same |
 | Add a KOS | a small ghost `.btn--icon` with `PlusIcon` | `KOSButtonStyle(.ghost, small: true)` with a plus |
 | The footnote | in the hidden sites' card, under a rule, with the security model's link | in the hidden apps' card, the same |
