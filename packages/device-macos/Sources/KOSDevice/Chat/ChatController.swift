@@ -14,8 +14,8 @@ final class ChatController {
   let model = ChatModel()
   /// A frame to a KOS, by this Mac's device id there.
   var send: ((String, Data) -> Void)?
-  /// The KOS the window talks to: its id, what to call it when there are several, and whether its line is up.
-  var target: () -> (id: String, name: String?, online: Bool)? = { nil }
+  /// The KOS the window talks to: its id, what to call it when there are several, and where its line stands.
+  var target: () -> (id: String, name: String?, link: LinkState)? = { nil }
   var faceOf: (String) -> FaceLook = { _ in .kos }
   var isHidden: (String?) -> Bool = { _ in false }
   /// The session on this Mac, and the ask for one, by the KOS and the chat they are for: the window shows its own chat's alone.
@@ -101,7 +101,7 @@ final class ChatController {
     if other { scope() }
     model.paired = now != nil
     model.kosName = now?.name
-    model.online = now?.online ?? false
+    model.link = now?.link
     if let id = now?.id { model.face = faceOf(id) }
     let cameOn = model.online && (!wasOnline || other)
     wasOnline = model.online

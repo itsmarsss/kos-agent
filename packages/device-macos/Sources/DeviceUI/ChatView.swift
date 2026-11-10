@@ -51,7 +51,7 @@ public struct ChatView: View {
   // MARK: Header
 
   private var mood: BlobMood {
-    guard model.online else { return .asleep }
+    guard model.online else { return BlobMood(link: model.link) }
     return model.asks.isEmpty ? (model.working ? .working : .idle) : .needsYou
   }
 

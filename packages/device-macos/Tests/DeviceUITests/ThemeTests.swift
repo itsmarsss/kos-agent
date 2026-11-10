@@ -130,7 +130,7 @@ struct ThemeFollowsTests {
     follows({ () -> ChatView in
       let model = ChatModel()
       model.paired = true
-      model.online = true
+      model.link = .connected
       model.beside = "Keynote"
       model.show(conversation: "c", title: "Q3", lines: [.you("What still needs numbers?", files: []), .kos("Slides **4** and 7.")])
       return ChatView(model: model)
