@@ -459,58 +459,107 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 
+  /** The sheet's runtime, bundled once for the sheet tests. */
+  let sheetRuntime: string | undefined;
+  /**
+   * A sheet page on the sheet's runtime and the kit's CSS as the dashboard
+   * inlines them, framed as the dashboard frames it, with probes the test asks
+   * for by name: each is a function's source, run in the page, whose value
+   * comes back over postMessage.
+   */
+  async function sheetPage(path: string, html: string, probes: Record<string, string>): Promise<void> {
+    if (!sheetRuntime) {
+      const { build } = await import("esbuild");
+      const bundled = await build({ entryPoints: [join(import.meta.dirname, "../../pagelib/sheet.ts")], bundle: true, write: false, format: "iife", target: "chrome120", charset: "ascii", logLevel: "silent" });
+      sheetRuntime = bundled.outputFiles[0]!.text;
+    }
+    const answer = `<script>
+      const probes = { ${Object.entries(probes).map(([name, fn]) => `${JSON.stringify(name)}: ${fn}`).join(", ")} };
+      addEventListener("message", (e) => { const ask = e.data && e.data.ask; if (probes[ask]) top.postMessage({ answer: { ask, value: probes[ask]() } }, "*"); });
+    </script>`;
+    const css = ["kit.css", "page.css"].map((f) => readFileSync(join(import.meta.dirname, "../../../kit/src", f), "utf8")).join("\n");
+    const frame = wrapperDocument(pageDocument({ html: html + answer, tokens: {}, mode: "dark", css, libraries: [sheetRuntime], kind: "sheet" }));
+    pages.set(path, `<!doctype html><meta name="viewport" content="width=device-width"><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:100%;height:700px" srcdoc="${srcdoc(frame)}"></iframe><script>
+      window.answers = {};
+      addEventListener("message", (e) => { if (e.data && e.data.answer) answers[e.data.answer.ask] = JSON.stringify(e.data.answer.value); });
+    </script></body>`);
+    await send("Page.navigate", { url: `${base}${path}` });
+  }
+  /** Ask the sheet page a probe until its answer passes `ready`, up to a bound; the last answer, which a test then holds. */
+  async function ask<T>(name: string, ready: (v: T) => boolean = () => true): Promise<T> {
+    let last: T | undefined;
+    for (const end = Date.now() + BOUND_MS; Date.now() < end; await pause(100)) {
+      await value(`delete answers[${JSON.stringify(name)}]; document.getElementById("f").contentWindow.frames[0].postMessage({ ask: ${JSON.stringify(name)} }, "*")`);
+      await pause(50);
+      const raw = await value(`answers[${JSON.stringify(name)}]`);
+      if (typeof raw !== "string") continue;
+      last = JSON.parse(raw) as T;
+      if (ready(last)) return last;
+    }
+    if (last === undefined) throw new Error(`The sheet page never answered ${name} in ${BOUND_MS} ms`);
+    return last;
+  }
+
+  const sheetData = (sheet: Record<string, unknown>): string => `<script type="application/json" data-sheet>${JSON.stringify({ sheets: [sheet] })}</script>`;
+  const months = (rows: number, freeze: number): Record<string, unknown> => ({
+    name: "Year",
+    freeze,
+    columns: [{ label: "Line" }, ...Array.from({ length: 11 }, (_, i) => ({ label: `Month ${i + 1}`, type: "currency", currency: "CAD" }))],
+    rows: Array.from({ length: rows }, (_, r) => [`Line ${r + 1}`, ...Array.from({ length: 11 }, (_, c) => 1000 * (r + 1) + c)]),
+    totals: { B: "sum", C: "sum" },
+  });
+
   /*
-   * A sheet wider than a phone, on the sheet's runtime and the kit's CSS as
-   * the dashboard inlines them: the page never scrolls sideways, only each
+   * A sheet wider than a phone: the page never scrolls sideways, only each
    * grid does, inside its own box, with the row numbers and the frozen first
    * column held while it does. Twice: on the page, and in a flex row, which
    * sizes what it holds by its content and once took the grid's whole width.
    */
   it("scrolls a wide sheet inside its grid on a phone, never the page", async () => {
-    const { build } = await import("esbuild");
-    const bundled = await build({ entryPoints: [join(import.meta.dirname, "../../pagelib/sheet.ts")], bundle: true, write: false, format: "iife", target: "chrome120", charset: "ascii", logLevel: "silent" });
-    const columns = [{ label: "Line" }, ...Array.from({ length: 11 }, (_, i) => ({ label: `Month ${i + 1}`, type: "currency", currency: "CAD" }))];
-    const rows = Array.from({ length: 8 }, (_, r) => [`Line ${r + 1}`, ...Array.from({ length: 11 }, (_, c) => 1000 * (r + 1) + c)]);
-    const data = `<script type="application/json" data-sheet>${JSON.stringify({ sheets: [{ name: "Year", freeze: 1, columns, rows, totals: { B: "sum" } }] })}</script>`;
-    const html = `<h1>The year</h1>${data}<div style="display:flex;gap:12px"><section>${data}</section></div><script>
-      addEventListener("message", (e) => {
-        if (e.data !== "probe") return;
-        const grids = [...document.querySelectorAll(".sheet-scroll")].map((grid) => {
-          const left = (sel) => grid.querySelector(sel).getBoundingClientRect().left;
-          const before = [left("tbody .rownum"), left("tbody td")];
-          grid.scrollLeft = 400;
-          // Within a pixel: a frozen cell is pinned at whole pixels, the layout falls on fractions.
-          const held = Math.abs(left("tbody .rownum") - before[0]) < 1 && Math.abs(left("tbody td") - before[1]) < 1;
-          const out = { wide: grid.scrollWidth, box: grid.clientWidth, scrolled: grid.scrollLeft, held };
-          grid.scrollLeft = 0;
-          return out;
-        });
-        top.postMessage({ probe: { page: document.documentElement.scrollWidth, view: innerWidth, grids } }, "*");
-      });
-    </script>`;
-    const css = ["kit.css", "page.css"].map((f) => readFileSync(join(import.meta.dirname, "../../../kit/src", f), "utf8")).join("\n");
-    const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css, libraries: [bundled.outputFiles[0]!.text], kind: "sheet" }));
-    pages.set("/sheet", `<!doctype html><meta name="viewport" content="width=device-width"><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:100%;height:700px" srcdoc="${srcdoc(frame)}"></iframe><script>
-      addEventListener("message", (e) => { if (e.data && e.data.probe) document.body.dataset.probe = JSON.stringify(e.data.probe); });
-    </script></body>`);
+    const data = sheetData(months(8, 1));
+    const grids = `() => ({ page: document.documentElement.scrollWidth, view: innerWidth, grids: [...document.querySelectorAll(".sheet-scroll")].map((grid) => {
+      const left = (sel) => grid.querySelector(sel).getBoundingClientRect().left;
+      const before = [left("tbody .rownum"), left("tbody td")];
+      grid.scrollLeft = 400;
+      // Within a pixel: a frozen cell is pinned at whole pixels, the layout falls on fractions.
+      const held = Math.abs(left("tbody .rownum") - before[0]) < 1 && Math.abs(left("tbody td") - before[1]) < 1;
+      const out = { wide: grid.scrollWidth, box: grid.clientWidth, scrolled: grid.scrollLeft, held };
+      grid.scrollLeft = 0;
+      return out;
+    }) })`;
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
-    await send("Page.navigate", { url: `${base}/sheet` });
-    // Ask until both grids are drawn and answer, up to a bound.
-    type Probe = { page?: number; view?: number; grids?: { wide: number; box: number; scrolled: number; held: boolean }[] };
-    let probe: Probe = {};
-    for (const end = Date.now() + BOUND_MS; probe.grids?.length !== 2 && Date.now() < end; ) {
-      await value(`document.getElementById("f").contentWindow.frames[0].postMessage("probe", "*")`);
-      await pause(100);
-      probe = JSON.parse(String(await value("document.body.dataset.probe || '{}'"))) as Probe;
-    }
+    await sheetPage("/sheet", `<h1>The year</h1>${data}<div style="display:flex;gap:12px"><section>${data}</section></div>`, { grids });
+    type Probe = { page: number; view: number; grids: { wide: number; box: number; scrolled: number; held: boolean }[] };
+    const probe = await ask<Probe>("grids", (p) => p.grids.length === 2);
     expect(probe.view).toBe(390);
-    expect(probe.page).toBeLessThanOrEqual(probe.view!);
+    expect(probe.page).toBeLessThanOrEqual(probe.view);
     expect(probe.grids).toHaveLength(2);
-    for (const grid of probe.grids!) {
-      expect(grid.box).toBeLessThan(probe.view!);
+    for (const grid of probe.grids) {
+      expect(grid.box).toBeLessThan(probe.view);
       expect(grid.wide).toBeGreaterThan(grid.box);
       expect(grid.scrolled).toBe(400);
       expect(grid.held).toBe(true);
+    }
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
+  /*
+   * On a desktop the grid's box sizes to its grid, so a sheet held by
+   * something sized to its content (an inline block, a flex item) shows every
+   * column, where a box contained inline would be sized as if empty, to no
+   * wider than the tools above it. The columns are wider than the tools.
+   */
+  it("shows a three-column sheet whole on a desktop, inside an inline block and a flex item", async () => {
+    const data = sheetData({ name: "Spend", columns: [{ label: "Date", type: "date", width: 24 }, { label: "Category", width: 24 }, { label: "Amount", type: "currency", currency: "CAD", width: 24 }], rows: [["2026-10-01", "Housing", 1650], ["2026-10-02", "Food", 56.37]] });
+    const grids = `() => [...document.querySelectorAll(".sheet-scroll")].map((grid) => ({ wide: grid.scrollWidth, box: grid.clientWidth, table: grid.querySelector("table").offsetWidth }))`;
+    await send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false });
+    await sheetPage("/narrow", `<div style="display:inline-block">${data}</div><div style="display:flex;gap:12px"><section>${data}</section></div>`, { grids });
+    const probe = await ask<{ wide: number; box: number; table: number }[]>("grids", (g) => g.length === 2);
+    expect(probe).toHaveLength(2);
+    for (const grid of probe) {
+      expect(grid.table).toBeGreaterThan(500);
+      expect(grid.box).toBeGreaterThanOrEqual(grid.table);
+      expect(grid.wide).toBeLessThanOrEqual(grid.box);
     }
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
