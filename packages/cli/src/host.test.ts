@@ -227,6 +227,9 @@ describe("a scheduled run's message in its place", () => {
     expect(dms).toEqual([]);
     expect(await held?.()).toBe("t-new");
     expect(dms).toEqual(["Kickoff"]);
+    // The outbox tries a failed send again, finding the place again: the DM is not sent twice.
+    expect(await held?.()).toBe("t-new");
+    expect(dms).toEqual(["Kickoff"]);
   });
 
   it("leaves to the owner's DM a run whose place guests can read", async () => {

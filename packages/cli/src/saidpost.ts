@@ -79,10 +79,16 @@ export async function postInPlace(conversationId: string, msg: OutboundMessage, 
   // With Discord down a thread cannot be made, and its home channel's top
   // is not its place: the post waits in the send queue, and the thread is
   // made when Discord is back. A place already there is queued by the post.
+  // The queue may find it more than once (a send tried again): the owner is
+  // told another way once.
   if (!deps.connected() && !deps.targetFor(conversationId) && deps.homeOf(conversationId)) {
+    let toldElsewhere = false;
     await deps.postWhenFound(async () => {
       const where = await placeOf(conversationId, deps);
-      if (where && !where.heard) await unheard?.();
+      if (where && !where.heard && !toldElsewhere) {
+        toldElsewhere = true;
+        await unheard?.();
+      }
       return where?.id;
     }, msg);
     return true;
