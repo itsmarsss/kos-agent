@@ -98,6 +98,8 @@ class Sheet {
   private readonly root = el("div", { class: "sheet" });
   private readonly status = el("span", { class: "sheet-status", role: "status", "aria-live": "polite" });
   private resizeWatch: ResizeObserver | undefined;
+  /** The width the charts were last drawn at, which a chart's layout depends on. */
+  private chartsAt = 0;
 
   constructor(
     private readonly book: SheetBook,
@@ -109,12 +111,11 @@ class Sheet {
       if (t.source) void this.load(i);
     });
     if (typeof ResizeObserver === "function") {
-      let width = 0;
+      // Drawn before the sheet was laid out, the charts are drawn again once it is.
       this.resizeWatch = new ResizeObserver(([e]) => {
         const w = Math.round(e?.contentRect.width ?? 0);
-        if (w !== width && width !== 0) this.drawCharts();
+        if (w !== 0 && w !== this.chartsAt) this.drawCharts();
         this.markMore();
-        width = w;
       });
       this.resizeWatch.observe(this.root);
     }
@@ -522,6 +523,7 @@ class Sheet {
   private drawCharts(): void {
     const box = this.root.querySelector(".sheet-charts");
     if (!box) return;
+    this.chartsAt = Math.round(this.root.getBoundingClientRect().width);
     box.replaceChildren();
     for (const chart of this.book.charts ?? []) {
       const t = this.wb.tabIndex(chart.sheet);

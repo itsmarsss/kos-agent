@@ -124,6 +124,8 @@ describe.skipIf(!chrome)("artifacts.check in Chrome", () => {
 /** The dashboard's own build, when there is one: the runtimes and fonts as KOS serves them. */
 const BUILT = resolve(here, "../../../ui/dist/page-lib");
 
+const CATEGORIES = ["Housing", "Groceries", "Dining", "Transport", "Utilities", "Fun", "Health", "Other"];
+
 /** One small artifact of each runtime kind, written the plain way the guide shows. */
 const KINDS: Record<string, HtmlPage> = {
   doc: { id: "doc", kind: "doc", title: "Brief", html: `<article data-doc><header><p class="kicker">Brief</p><h1>Garden water plan</h1><p class="lede">Four rain tanks cover a third of summer watering.</p></header><h2>Why</h2><p>The tap at the gate cannot serve 42 plots<span class="fn">Plot count, October 2026.</span>.</p><table><tr><th>Item</th><th class="num">Cost</th></tr><tr><td>Tanks</td><td class="num">$4,800</td></tr></table></article>` },
@@ -133,6 +135,8 @@ const KINDS: Record<string, HtmlPage> = {
   sheet: { id: "sheet", kind: "sheet", title: "Spend", html: `<h1>October spending</h1><script type="application/json" data-sheet>{"sheets":[{"name":"Expenses","freeze":1,"columns":[{"label":"Date","type":"date"},{"label":"Category"},{"label":"Amount","type":"currency","currency":"CAD"}],"rows":[["2026-10-01","Housing",1650],["2026-10-02","Food",56.37],["2026-10-04","Food",=SUM(C1:C1)]],"totals":{"Amount":"sum"}},{"name":"By category","columns":[{"label":"Category"},{"label":"Amount","type":"currency","currency":"CAD"}],"pivot":{"from":"Expenses","by":"Category","values":[{"column":"Amount","fn":"sum"}]}}]}</script>`.replace("=SUM(C1:C1)", '"=C2*2"') },
   // Twelve columns, wider than a phone, in a flex row that sizes it by its content: the grid scrolls in its own box, never the page.
   "wide sheet": { id: "wide sheet", kind: "sheet", title: "Year", html: `<h1>The year by month</h1><div style="display:flex"><section><script type="application/json" data-sheet>${JSON.stringify({ sheets: [{ name: "Months", freeze: 1, columns: [{ label: "Line" }, ...Array.from({ length: 11 }, (_, i) => ({ label: `Month ${i + 1}`, type: "currency", currency: "CAD" }))], rows: Array.from({ length: 6 }, (_, r) => [`Line ${r + 1}`, ...Array.from({ length: 11 }, (_, c) => 1000 * (r + 1) + c)]), totals: { B: "sum" } }] })}</script></section></div>` },
+  // The month by category under its grid, as the eval's budgets draw it: eight words under eight bars, too many side by side on a phone.
+  "chart sheet": { id: "chart sheet", kind: "sheet", title: "Budget", html: `<h1>October by category</h1><script type="application/json" data-sheet>${JSON.stringify({ sheets: [{ name: "By category", columns: [{ label: "Category" }, { label: "Amount", type: "currency", currency: "CAD" }], rows: CATEGORIES.map((c, i) => [c, 1650 - i * 180]) }], charts: [{ type: "bar", title: "Spend by category", labels: "A1:A8", values: "B1:B8" }] })}</script>` },
 };
 
 describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-sheet.js")))("each runtime through artifacts.check", () => {
