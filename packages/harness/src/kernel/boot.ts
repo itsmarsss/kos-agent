@@ -318,7 +318,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         try {
           const posted = await options.notify(payload);
           // The id of what landed in a channel, for a reaction or a count later.
-          return posted?.id ? `Posted as message ${posted.id}; discord.react and discord.reactions take that id.` : undefined;
+          if (posted?.id) return `Posted as message ${posted.id}; discord.react and discord.reactions take that id.`;
+          return posted?.delivered;
         } catch (err) {
           /*
            * The owner's surface is wired but not connected at this moment:

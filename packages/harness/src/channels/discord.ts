@@ -106,6 +106,8 @@ function snowflakeAt(id: string): number {
 /** Discord lets a channel's name or topic change this many times in the window. */
 const RENAMES_PER_WINDOW = 2;
 const RENAME_WINDOW_MS = 10 * 60_000;
+/** A thread the owner could not be added to is not tried again for this long. */
+const JOIN_RETRY_MS = 10 * 60_000;
 /** A channel edit Discord would hold longer than this is refused at once, and made at a later layout. */
 const EDIT_WAIT_MAX_MS = 5_000;
 
@@ -452,6 +454,8 @@ export interface DiscordAdapterOptions {
   onThreadRenamed?: (threadId: string, name: string) => void;
   /** Told when a channel or thread is gone from Discord, so what was bound to it is let go. */
   onGone?: (id: string) => void;
+  /** Told a thread was made for a chat, so it is bound before anyone else can ask for one. */
+  onThreadMade?: (threadId: string, conversationId: string) => void;
 }
 
 /** The story lines of turns still running, by message, kept across restarts. */
@@ -710,6 +714,14 @@ function unsent(err: unknown): Error {
 /** Discord's answer for a channel or thread that no longer exists. */
 function isUnknownChannel(err: unknown): boolean {
   return (err as { code?: unknown } | null)?.code === 10003;
+}
+
+/** Discord's answers that keep the owner out of a thread for good: it is gone, or the bot may not add them (Missing Access, Missing Permissions). */
+const KEPT_OUT_CODES = new Set([10003, 50001, 50013]);
+
+function keepsOwnerOut(err: unknown): boolean {
+  const e = err as { code?: unknown; status?: unknown } | null;
+  return (typeof e?.code === "number" && KEPT_OUT_CODES.has(e.code)) || e?.status === 403;
 }
 
 /** The title a `kos:` topic gives its chat: "kos:project:garden · Garden · https://…" is Garden. */
@@ -985,6 +997,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly keptStories?: KeptStories;
   private readonly onThreadRenamed?: (threadId: string, name: string) => void;
   private readonly onGone?: (id: string) => void;
+  private readonly onThreadMade?: (threadId: string, conversationId: string) => void;
   /** Messages already taken, newest last, so none runs twice. */
   private readonly seen = new Set<string>();
   private readonly threadBindings?: () => Record<string, string>;
@@ -1040,6 +1053,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.keptStories) this.keptStories = options.keptStories;
     if (options.onThreadRenamed) this.onThreadRenamed = options.onThreadRenamed;
     if (options.onGone) this.onGone = options.onGone;
+    if (options.onThreadMade) this.onThreadMade = options.onThreadMade;
     if (options.threadBindings) this.threadBindings = options.threadBindings;
     if (options.keptPrompts) this.keptPrompts = options.keptPrompts;
     if (options.timezone) this.timezone = options.timezone;
@@ -1746,11 +1760,13 @@ export class DiscordAdapter implements ChannelAdapter {
       // the kernel and skipped. Threads auto-archive on their own when a
       // chat goes quiet, and come back when it is spoken to.
       for (const thread of plan.threads ?? []) {
-        if (this.threadBound(thread.conversationId)) continue;
+        // Made already, or being made now for a first post, which binds it.
+        if (this.threadBound(thread.conversationId) || this.threadsMaking.has(thread.conversationId)) continue;
         // A chat that has a channel of its own is not also a thread here.
         if (bound.has(thread.conversationId)) continue;
-        const made = await have.channel.threads?.create({ name: thread.title.trim().slice(0, 100) || "Chat", autoArchiveDuration: 10080, reason: `KOS: ${thread.conversationId}` });
-        if (made) threads.push({ threadId: made.id, conversationId: thread.conversationId, title: thread.title });
+        const channel = have.channel;
+        const made = await this.makeThread(thread.conversationId, async () => channel.threads?.create({ name: thread.title.trim().slice(0, 100) || "Chat", autoArchiveDuration: 10080, reason: `KOS: ${thread.conversationId}` }));
+        if (made) threads.push({ threadId: made, conversationId: thread.conversationId, title: thread.title });
       }
     }
     return { created, kept, threads, audiences };
@@ -1841,15 +1857,81 @@ export class DiscordAdapter implements ChannelAdapter {
    * nothing when that channel is not on the server yet.
    */
   async ensureThread(channelKey: string, conversationId: string, title: string): Promise<string | undefined> {
-    const channelId = this.boundIds.get(channelKey);
-    if (!channelId) return undefined;
-    const channel = await this.place(channelId);
-    const threads = (channel as { threads?: { create?: (o: unknown) => Promise<{ id: string }> } } | null)?.threads;
-    if (!threads?.create) return undefined;
-    const made = await threads.create({ name: title.trim().slice(0, 100) || "Chat", autoArchiveDuration: 10080, reason: `KOS: ${conversationId}` }).catch(() => undefined);
-    if (!made) return undefined;
-    this.boundThreads.add(conversationId);
-    return made.id;
+    return this.makeThread(conversationId, async () => {
+      const channelId = this.boundIds.get(channelKey);
+      if (!channelId) return undefined;
+      const channel = await this.place(channelId);
+      const threads = (channel as { threads?: { create?: (o: unknown) => Promise<{ id: string }> } } | null)?.threads;
+      if (!threads?.create) return undefined;
+      return threads.create({ name: title.trim().slice(0, 100) || "Chat", autoArchiveDuration: 10080, reason: `KOS: ${conversationId}` }).catch(() => undefined);
+    });
+  }
+
+  /** Threads being made, by the chat each is for: two first posts at once wait on one, not make two. */
+  private readonly threadsMaking = new Map<string, Promise<string | undefined>>();
+
+  /**
+   * A chat's thread made once, whoever asks first (the thread mirror, a
+   * scheduled run's place, the layout); a second ask while it is being made
+   * gets the same one. It is bound before the ask is let go, so no one
+   * finds it unbound and makes another. The owner is not made a member
+   * here: a mirrored chat would buzz them for every answer. A run's place
+   * asks for that itself.
+   */
+  private makeThread(conversationId: string, make: () => Promise<{ id: string } | undefined>): Promise<string | undefined> {
+    const making = this.threadsMaking.get(conversationId);
+    if (making) return making;
+    const made = (async () => {
+      const thread = await make();
+      if (!thread) return undefined;
+      this.boundThreads.add(conversationId);
+      this.onThreadMade?.(thread.id, conversationId);
+      return thread.id;
+    })().finally(() => this.threadsMaking.delete(conversationId));
+    this.threadsMaking.set(conversationId, made);
+    return made;
+  }
+
+  /** Threads the owner is a member of, by KOS's doing or found so. */
+  private readonly ownerIn = new Set<string>();
+  /** Threads the owner could not be added to, until when they are not tried again. */
+  private readonly ownerKeptOut = new Map<string, number>();
+
+  /**
+   * The owner as a member of a thread KOS speaks in, so what lands there
+   * notifies them as a DM would. Once per thread; nothing for a channel,
+   * which the owner sees already. An archived thread is opened first, as
+   * Discord adds no one to one. False when the owner is not in it, so the
+   * caller can reach them another way; a thread that is gone or the bot
+   * may not add them to is said once and not tried again for a while. Not
+   * reaching Discord is no refusal: true, so nothing more is sent, and the
+   * next post tries again. Never throws.
+   */
+  async joinOwner(threadId: string): Promise<boolean> {
+    if (!this.ownerId || this.ownerIn.has(threadId)) return true;
+    if ((this.ownerKeptOut.get(threadId) ?? 0) > Date.now()) return false;
+    try {
+      const thread = (await this.client.channels.fetch(threadId)) as
+        | { isThread?: () => boolean; archived?: boolean | null; setArchived?: (archived: boolean) => Promise<unknown>; members?: { add?: (id: string) => Promise<unknown> } }
+        | null;
+      if (!thread) return false;
+      if (thread.isThread?.() && thread.members?.add) {
+        if (thread.archived && thread.setArchived) await thread.setArchived.call(thread, false);
+        await thread.members.add.call(thread.members, this.ownerId);
+      }
+    } catch (err) {
+      if (sendFailure(err) !== "refused") {
+        console.warn(`[discord] the owner was not added to thread ${threadId} this time, and is tried again with its next post: ${errorText(err)}`);
+        return true;
+      }
+      if (isUnknownChannel(err)) this.forgetPlace(threadId);
+      if (keepsOwnerOut(err)) this.ownerKeptOut.set(threadId, Date.now() + JOIN_RETRY_MS);
+      console.warn(`[discord] the owner could not be added to thread ${threadId}: ${errorText(err)}`);
+      return false;
+    }
+    this.ownerKeptOut.delete(threadId);
+    this.ownerIn.add(threadId);
+    return true;
   }
 
   /**
@@ -1912,6 +1994,23 @@ export class DiscordAdapter implements ChannelAdapter {
     await this.whenUp(`a post in ${channelId}`, msg, (m, progress) => this.postNow(channelId, m, progress));
   }
 
+  /**
+   * A post whose place is found only as it is sent, kept for the connection
+   * as any send is: a thread Discord was down to make is made once it is
+   * back, and the post goes there rather than the top of its channel. One
+   * that finds no place by then goes to the owner's DM, not nowhere.
+   */
+  async postWhenFound(find: () => Promise<string | undefined>, msg: OutboundMessage): Promise<void> {
+    await this.whenUp("a post in a place still to be made", msg, async (m, progress) => {
+      const id = await find();
+      if (id) return this.postNow(id, m, progress);
+      if (!this.ownerId) throw new Error("a post waiting for its place found none on the server");
+      await this.dmNow(this.ownerId, m, progress).catch((err: unknown) => {
+        throw Object.assign(new Error(`a post waiting for its place found none on the server, and the owner's DM did not take it: ${errorText(err)}`), { cause: err });
+      });
+    });
+  }
+
   private async postNow(channelId: string, msg: OutboundMessage, progress?: SendProgress): Promise<void> {
     // Unreachable is the network's, and the send waits (a read posts nothing, so any failure of it is safe to try again); gone is Discord's word, and the place is let go.
     const channel = (await this.client.channels.fetch(channelId).catch((err: unknown) => {
@@ -1952,6 +2051,8 @@ export class DiscordAdapter implements ChannelAdapter {
    */
   forgetPlace(id: string): void {
     for (const [key, bound] of [...this.boundIds]) if (bound === id) this.boundIds.delete(key);
+    this.ownerIn.delete(id);
+    this.ownerKeptOut.delete(id);
     if (this.approvalsChannelId === id) this.approvalsChannelId = undefined;
     for (const key of [...this.webhooks.keys()]) if (key.startsWith(`${id}:`)) this.webhooks.delete(key);
     for (const [name, place] of [...this.known]) if (place.id === id) this.known.delete(name);
@@ -2645,12 +2746,14 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   async send(recipientId: string, msg: OutboundMessage): Promise<void> {
-    await this.whenUp("a direct message", msg, async (m, progress) => {
-      const user = await this.client.users.fetch(recipientId).catch((err: unknown) => {
-        throw sendFailure(err) === "refused" ? err : unsent(err);
-      });
-      await this.deliver((payload) => user.send(payload), m, { progress });
+    await this.whenUp("a direct message", msg, (m, progress) => this.dmNow(recipientId, m, progress));
+  }
+
+  private async dmNow(recipientId: string, msg: OutboundMessage, progress?: SendProgress): Promise<void> {
+    const user = await this.client.users.fetch(recipientId).catch((err: unknown) => {
+      throw sendFailure(err) === "refused" ? err : unsent(err);
     });
+    await this.deliver((payload) => user.send(payload), msg, { progress });
   }
 
   /**
@@ -2749,7 +2852,8 @@ export class DiscordAdapter implements ChannelAdapter {
    * Nothing to add when it names none.
    */
   private pings(content: string | undefined): { allowedMentions?: MessageMentionOptions } {
-    const seen = new Set(this.membersSeen.values());
+    // The owner is always someone a message may name: a reminder they set pings them.
+    const seen = new Set([...this.membersSeen.values(), ...(this.ownerId ? [this.ownerId] : [])]);
     const users = [...new Set([...(content ?? "").matchAll(/<@!?(\d+)>/g)].map((m) => m[1]!).filter((id) => seen.has(id)))];
     return users.length ? { allowedMentions: { parse: [], users } } : {};
   }

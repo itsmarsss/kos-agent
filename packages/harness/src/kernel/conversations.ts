@@ -433,6 +433,12 @@ export class ConversationStore {
     return this.get(row.conversation_id) ? row.conversation_id : undefined;
   }
 
+  /** The surfaces pointed at a conversation now, by name. */
+  pointersAt(conversationId: string): string[] {
+    const rows = this.db.prepare(`SELECT channel FROM conversation_active WHERE conversation_id = ?`).all(conversationId) as { channel: string }[];
+    return rows.map((r) => r.channel);
+  }
+
   /**
    * Forget where a surface was pointed.
    *

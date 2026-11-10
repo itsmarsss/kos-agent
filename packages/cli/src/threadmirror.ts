@@ -39,12 +39,10 @@ export interface SaidEvent {
 export interface ThreadMirrorDeps {
   /** Where a conversation shows on the server: its bound channel or the thread made for it, or nothing yet. */
   targetFor(conversationId: string): string | undefined;
-  /** The project a conversation belongs to, so a new chat's thread can be made under its channel. */
-  projectOf(conversationId: string): string | undefined;
-  /** Make a thread under a channel key (project:<slug>) and return its id, or nothing when that channel is not there yet. */
+  /** The channel key a chat's thread is made under (its project's, or KOS's own at the root), or nothing for a chat that gets none. */
+  homeOf(conversationId: string): string | undefined;
+  /** Make a thread under a channel key, bound to the conversation once made, and return its id, or nothing when that channel is not there yet. */
   ensureThread(channelKey: string, conversationId: string, title: string): Promise<string | undefined>;
-  /** Told a thread was made for a conversation, so the kernel can bind it. */
-  bindThread(threadId: string, conversationId: string): void;
   /** A conversation's title, for a thread's name. */
   titleOf(conversationId: string): string;
   /** Who a chat or schedule speaks as, when a message was passed on. */
@@ -163,11 +161,12 @@ export class ThreadMirror {
     if (event.from === "discord" || !event.said?.trim()) return;
     let target = this.deps.targetFor(conv);
     if (!target) {
-      const slug = this.deps.projectOf(conv);
-      if (!slug) return;
-      target = await this.deps.ensureThread(`project:${slug}`, conv, this.deps.titleOf(conv));
+      // Made on first mirror: a project's chat under the project's channel,
+      // a chat at the root under KOS's own.
+      const home = this.deps.homeOf(conv);
+      if (!home) return;
+      target = await this.deps.ensureThread(home, conv, this.deps.titleOf(conv));
       if (!target) return;
-      this.deps.bindThread(target, conv);
     }
     const files = event.files?.length ? this.deps.filesFor(event.files) : [];
     const passed = event.origin?.from;

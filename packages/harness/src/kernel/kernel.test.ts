@@ -14,7 +14,8 @@ import { BindingGoneError } from "../channels/types.js";
 import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { toPdf } from "../tools/pdf.js";
 import { bodyHexOf } from "@kos/shared";
-import { primarySessionId } from "./session.js";
+import { primarySessionId, upkeepSessionId } from "./session.js";
+import { BEHAVIOUR_KEY } from "./behaviour.js";
 import { conversationEvents } from "./transcript.js";
 
 /** Inference stub: optionally emits one tool call on the first turn. */
@@ -46,6 +47,7 @@ describe("Kernel", () => {
   async function boot(
     inference: Inference,
     notify?: (payload: { text: string }) => Promise<void>,
+    discord?: DiscordServices,
   ): Promise<Kernel> {
     root = mkdtempSync(join(tmpdir(), "kos-kernel-"));
     return Kernel.boot({
@@ -53,6 +55,7 @@ describe("Kernel", () => {
       secrets: new SecretsRegistry(),
       inference,
       ...(notify ? { notify } : {}),
+      ...(discord ? { discord } : {}),
       profileOverrides: { name: "Kenny", timezone: "UTC" },
     });
   }
@@ -1158,8 +1161,10 @@ describe("Kernel", () => {
 
   it("runs a scheduled actions job through the guarded path", async () => {
     const sent: string[] = [];
+    const places: (string | undefined)[] = [];
     kernel = await boot(stubInference([]), async (payload) => {
       sent.push(payload.text);
+      places.push((payload as NotifyPayload).place);
     });
     const job = kernel.crons.create({
       name: "ping",
@@ -1172,10 +1177,219 @@ describe("Kernel", () => {
     await kernel.fireCron(job.id);
     await kernel.queue.drain();
     expect(sent).toEqual(["scheduled hi"]);
+    // Named nowhere, a run's message goes to the job's own place, not the DM.
+    expect(places).toEqual([`cron:${job.id}`]);
     expect(kernel.runs.recent().some((r) => r.kind === "cron" && r.status === "ok")).toBe(
       true,
     );
     kernel.stopCron();
+  });
+
+  it("marks an actions run where something failed, so a message it already sent does not hide it", async () => {
+    kernel = await boot(stubInference([]), async () => undefined);
+    const told: { reply: string; failed?: boolean }[] = [];
+    kernel.bus.on("turn:said", (said) => void (said.conversationId.startsWith("cron:") && told.push({ reply: said.reply, ...(said.failed ? { failed: true } : {}) })));
+    const job = kernel.crons.create({
+      name: "Nudge",
+      schedule: "0 12 * * *",
+      type: "actions",
+      actions: [{ tool: "notify", args: { text: "read" } }, { tool: "files.read", args: { path: "nope/missing.md" } }],
+    });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    expect(told).toEqual([{ reply: "Ran 2 actions; 1 failed.", failed: true }]);
+  });
+
+  it("names the job behind a blob's run, whose place is the blob's channel, so its reminder can ping", async () => {
+    const seen: NotifyPayload[] = [];
+    kernel = await boot(stubInference([]), async (payload) => {
+      seen.push(payload as NotifyPayload);
+    });
+    kernel.roles.write({ name: "recap", description: "Sums up the day", brief: "You recap.", memory: "own" });
+    const job = kernel.crons.create({ name: "Stretch", schedule: "0 15 * * *", type: "actions", agent: "recap", actions: [{ tool: "notify", args: { text: "stretch" } }] });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    expect(seen.map((p) => [p.place, p.job])).toEqual([["agent:recap", job.id]]);
+  });
+
+  it("sends a prompted run's unaddressed message to its place, and an addressed one to the owner", async () => {
+    const step = (id: string, input: Record<string, unknown>): ModelResponse => ({
+      content: [{ type: "tool_use", id, name: "notify", input }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      model: "stub",
+    });
+    const seen: NotifyPayload[] = [];
+    kernel = await boot(stubInference([step("n1", { text: "kickoff" }), step("n2", { text: "dm", to: "owner" })]), async (payload) => {
+      seen.push(payload as NotifyPayload);
+    });
+    const job = kernel.crons.create({ name: "Kickoff", schedule: "0 9 * * *", type: "self_prompt", prompt: "kick off the day" });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    expect(seen.map((p) => [p.text, p.place ?? null])).toEqual([
+      ["kickoff", `cron:${job.id}`],
+      ["dm", null],
+    ]);
+  });
+
+  it("does not lend a run's job to a chat it hands off to, whose message goes to the owner without a ping", async () => {
+    const reply = (content: ModelResponse["content"]): ModelResponse => ({ content, stopReason: content.some((b) => b.type === "tool_use") ? "tool_use" : "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    const seen: NotifyPayload[] = [];
+    let target = "";
+    kernel = await boot(
+      {
+        async generate(_t, r) {
+          const last = r.messages[r.messages.length - 1];
+          if (last?.content.some((b) => b.type === "tool_result")) return reply([{ type: "text", text: "done" }]);
+          if (/You are the helper\./.test(r.system ?? "")) return reply([{ type: "tool_use", id: "n", name: "notify", input: { text: "from the helper" } }]);
+          return reply([{ type: "tool_use", id: "h", name: "chats.handoff", input: { to: target, brief: "say hi", ask: "go" } }]);
+        },
+      },
+      async (payload) => {
+        seen.push(payload as NotifyPayload);
+      },
+    );
+    target = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Helper", brief: "You are the helper." }).id;
+    const job = kernel.crons.create({ name: "Greeter", schedule: "0 9 * * *", type: "self_prompt", prompt: "hand off to the helper" });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen.map((p) => [p.text, p.place ?? null, p.job ?? null, p.ping ?? false])).toEqual([["from the helper", null, null, false]]);
+  });
+
+  it("tells a failing job's news in its own place with a ping, and its recovery there without one", async () => {
+    const seen: NotifyPayload[] = [];
+    kernel = await boot(stubInference([]), async (payload) => {
+      seen.push(payload as NotifyPayload);
+    });
+    kernel.settings.set(BEHAVIOUR_KEY, { autoFix: false });
+    const broken = [{ tool: "files.read", args: { path: "nope/missing.md" } }];
+    const job = kernel.crons.create({ name: "Nightly", schedule: "0 3 * * *", type: "actions", actions: broken });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    kernel.crons.update(job.id, { name: "Nightly", schedule: "0 3 * * *", type: "actions", actions: [{ tool: "files.ls", args: {} }] });
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    await vi.waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen.map((p) => [p.place, p.ping ?? false])).toEqual([
+      [`cron:${job.id}`, true],
+      [`cron:${job.id}`, false],
+    ]);
+  });
+
+  it("tells every upkeep job's failure in the one upkeep chat, which threads under KOS", async () => {
+    const seen: NotifyPayload[] = [];
+    const server = { connected: () => true, known: () => [] } as unknown as DiscordServices;
+    kernel = await boot(stubInference([]), async (payload) => {
+      seen.push(payload as NotifyPayload);
+    }, server);
+    kernel.settings.set(BEHAVIOUR_KEY, { autoFix: false });
+    const broken = [{ tool: "files.read", args: { path: "nope/missing.md" } }];
+    const a = kernel.crons.create({ name: "kos.alpha", schedule: "0 3 * * *", type: "actions", actions: broken });
+    const b = kernel.crons.create({ name: "kos.beta", schedule: "0 4 * * *", type: "actions", actions: broken });
+    kernel.startCron();
+    await kernel.fireCron(a.id);
+    await kernel.fireCron(b.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    const upkeep = upkeepSessionId(kernel.profile.ownerId);
+    await vi.waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen.map((p) => [p.place, p.ping])).toEqual([
+      [upkeep, true],
+      [upkeep, true],
+    ]);
+    expect(kernel.threadHome(upkeep)).toBe(`orchestrator:${kernel.profile.ownerId}`);
+  });
+
+  it("tells an upkeep job's failure to the owner, and makes no upkeep chat, without a server", async () => {
+    const seen: NotifyPayload[] = [];
+    kernel = await boot(stubInference([]), async (payload) => {
+      seen.push(payload as NotifyPayload);
+    });
+    kernel.settings.set(BEHAVIOUR_KEY, { autoFix: false });
+    const job = kernel.crons.create({ name: "kos.alpha", schedule: "0 3 * * *", type: "actions", actions: [{ tool: "files.read", args: { path: "nope/missing.md" } }] });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]?.place).toBeUndefined();
+    expect(kernel.conversations.get(upkeepSessionId(kernel.profile.ownerId))).toBeUndefined();
+  });
+
+  it("moves a job's thread into the project the job was moved to", async () => {
+    kernel = await boot(stubInference([]));
+    const books = kernel.standUpProject({ name: "Books", type: "tracker" });
+    const job = kernel.crons.create({ name: "Nudge", schedule: "0 12 * * *", type: "actions", actions: [{ tool: "notify", args: { text: "read" } }] });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    expect(kernel.conversations.get(`cron:${job.id}`)?.projectSlug).toBeNull();
+    kernel.bindThread("t-root", `cron:${job.id}`);
+    kernel.crons.update(job.id, { name: "Nudge", schedule: "0 12 * * *", type: "actions", actions: [{ tool: "notify", args: { text: "read" } }], projectSlug: books.slug });
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    expect(kernel.conversations.get(`cron:${job.id}`)?.projectSlug).toBe(books.slug);
+    // The thread under KOS's channel is let go, so the next post makes one under the project's.
+    expect(kernel.threadBindings()).toEqual({});
+    expect(kernel.threadHome(`cron:${job.id}`)).toBe(`project:${books.slug}`);
+  });
+
+  it("homes a chat's thread under its project, a root chat's or schedule's under KOS, and the DM's chat nowhere", async () => {
+    kernel = await boot(stubInference([]));
+    const owner = kernel.profile.ownerId;
+    const books = kernel.standUpProject({ name: "Books", type: "tracker" });
+    const inProject = kernel.conversations.create({ userId: owner, title: "Shelf", projectSlug: books.slug });
+    const atRoot = kernel.conversations.create({ userId: owner, title: "Errands" });
+    const dm = kernel.conversations.create({ userId: owner, title: "From the DM" });
+    kernel.conversations.setActive("discord", owner, dm.id);
+    kernel.roles.write({ name: "recap", description: "Sums up the day", brief: "You recap.", memory: "own" });
+    const job = kernel.crons.create({ name: "Kickoff", schedule: "0 9 * * *", type: "actions", actions: [{ tool: "notify", args: { text: "hi" } }] });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    expect(kernel.threadHome(inProject.id)).toBe(`project:${books.slug}`);
+    expect(kernel.threadHome(atRoot.id)).toBe(`orchestrator:${owner}`);
+    expect(kernel.threadHome(`cron:${job.id}`)).toBe(`orchestrator:${owner}`);
+    expect(kernel.threadHome(dm.id)).toBeUndefined();
+    // A chat begun on a device panel or a messaging surface stays there.
+    for (const channel of ["chrome", "mac", "imessage", "sms", "discord"]) {
+      expect(kernel.threadHome(kernel.conversations.create({ userId: owner, title: `On ${channel}`, channel }).id)).toBeUndefined();
+    }
+    // A root chat a panel or iMessage is pointed at stays with it; the dashboard's pointer is no surface of its own.
+    for (const surface of ["chrome", "mac", "imessage"]) {
+      const pointed = kernel.conversations.create({ userId: owner, title: `Pointed by ${surface}` });
+      kernel.conversations.setActive(surface, owner, pointed.id);
+      expect(kernel.threadHome(pointed.id)).toBeUndefined();
+    }
+    const onDashboard = kernel.conversations.create({ userId: owner, title: "Open on the dashboard", channel: "dashboard" });
+    kernel.conversations.setActive("dashboard", owner, onDashboard.id);
+    expect(kernel.threadHome(onDashboard.id)).toBe(`orchestrator:${owner}`);
+    expect(kernel.threadHome(primarySessionId(owner))).toBeUndefined();
+    expect(kernel.threadHome(kernel.ensureAgentConversation("recap").id)).toBeUndefined();
+    expect(kernel.threadHome(`project:${books.slug}`)).toBeUndefined();
+    expect(kernel.threadHome(`orchestrator:${owner}`)).toBeUndefined();
+  });
+
+  it("says a turn's words came in the DM, so an answer after an approval goes back there", async () => {
+    kernel = await boot(stubInference([]));
+    const told: { dm?: boolean; channel: string | null }[] = [];
+    kernel.bus.on("turn:said", (said) => void told.push({ channel: said.channel, ...(said.dm ? { dm: said.dm } : {}) }));
+    const owner = kernel.profile.ownerId;
+    await kernel.handleChannelTurn({ text: "hi", userId: owner, channel: "discord", room: { kind: "dm" } });
+    await kernel.handleChannelTurn({ text: "hi", userId: owner, channel: "discord", room: { kind: "thread", id: "t1" } });
+    expect(told).toEqual([{ channel: "discord", dm: true }, { channel: "discord" }]);
   });
 
   it("keeps what a turn was given from memory, so the chat can show it", async () => {

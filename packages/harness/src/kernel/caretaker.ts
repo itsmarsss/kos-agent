@@ -1,6 +1,6 @@
 import type { Sender } from "../channels/types.js";
 import type { ModelMessage } from "../models/types.js";
-import type { NotifyPayload } from "../tools/notify.js";
+import type { NotifyPayload, NotifySent } from "../tools/notify.js";
 import type { HealthNotice } from "../ops/health.js";
 import { writeMention } from "./mentions.js";
 import { primarySessionId } from "./session.js";
@@ -31,7 +31,7 @@ export interface CaretakerDeps {
   behaviour: () => { autoFix: boolean; fixSteps: number };
   health: { observe: (key: string, label: string, ok: boolean, error: string | null) => HealthNotice | null | undefined };
   /** The active surface, if one is wired. Absent, a notice is written to the primary chat. */
-  notify?: (payload: NotifyPayload) => Promise<{ id?: string } | void>;
+  notify?: (payload: NotifyPayload) => Promise<NotifySent | void>;
   sessions: { get: (id: string) => ModelMessage[]; record: (id: string, messages: ModelMessage[]) => unknown };
   conversations: {
     create: (input: { userId: string; title: string; projectSlug?: string }) => { id: string };
@@ -137,12 +137,16 @@ export class Caretaker {
    * A job ran. Say something only when the monitor says it is news, and
    * try a fix only when there is something to fix: a first failure that
    * is not the connection dropping, which the next run settles by itself.
+   * The news goes to the job's own place when it has one, where its runs
+   * are, rather than the owner's inbox: a failure pings the owner there, a
+   * recovery is said without one.
    */
-  report(key: string, label: string, ok: boolean, error: string | null): void {
+  report(key: string, label: string, ok: boolean, error: string | null, place?: string): void {
     const notice = this.deps.health.observe(key, label, ok, error);
     if (!notice) return;
     const transient = notice.kind === "failing" && isTransient(error);
-    this.tell(transient && notice.streak === 1 ? `${notice.text} That reads as a connection blip; the next run will tell.` : notice.text);
+    const text = transient && notice.streak === 1 ? `${notice.text} That reads as a connection blip; the next run will tell.` : notice.text;
+    this.tell(text, place ? { place, ping: notice.kind === "failing" } : {});
     if (notice.kind === "failing" && notice.streak === 1 && !transient && this.deps.behaviour().autoFix && !this.deps.isHalted()) {
       void this.startFix({ label, error: error ?? "no error given", what: "scheduled job", ref: key }).catch(() => undefined);
     }
@@ -172,10 +176,15 @@ export class Caretaker {
       .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id;
   }
 
-  /** Tell the owner on the surface they use, or leave a note where they will look. */
-  tell(text: string, from?: Sender): void {
+  /**
+   * Tell the owner on the surface they use, or leave a note where they will
+   * look. With a place, it is said there instead (a job's thread), where
+   * the surface has one, pinging the owner when asked to.
+   */
+  tell(text: string, opts: { from?: Sender | undefined; place?: string; ping?: boolean } = {}): void {
+    const { from, place, ping } = opts;
     if (this.deps.notify) {
-      void this.deps.notify({ text, target: { kind: "owner" }, ...(from ? { from } : {}) }).catch(() => this.record(text));
+      void this.deps.notify({ text, target: { kind: "owner" }, ...(from ? { from } : {}), ...(place ? { place } : {}), ...(place && ping ? { ping: true } : {}) }).catch(() => this.record(text));
       return;
     }
     this.record(text);

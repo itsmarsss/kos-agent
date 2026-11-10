@@ -18,7 +18,6 @@ function harness(over: Partial<ThreadMirrorDeps> = {}) {
   let storyFrom: string | undefined;
   let removed = false;
   const madeThreads: { key: string; conv: string }[] = [];
-  const bound: { threadId: string; conv: string }[] = [];
   let clock = 0;
 
   const story: Story = {
@@ -32,13 +31,10 @@ function harness(over: Partial<ThreadMirrorDeps> = {}) {
 
   const deps: ThreadMirrorDeps = {
     targetFor: (id) => (id === "c-thread" ? "t1" : undefined),
-    projectOf: (id) => (id === "c-new" ? "school" : id === "c-thread" ? "school" : undefined),
+    homeOf: (id) => (id === "c-new" || id === "c-thread" ? "project:school" : id === "c-root" ? "orchestrator:owner" : undefined),
     ensureThread: async (key, conv) => {
       madeThreads.push({ key, conv });
       return "t-made";
-    },
-    bindThread: (threadId, conv) => {
-      bound.push({ threadId, conv });
     },
     titleOf: (id) => `Title of ${id}`,
     speakerFor: (from) => ({ name: from.name }),
@@ -59,7 +55,7 @@ function harness(over: Partial<ThreadMirrorDeps> = {}) {
     ...over,
   };
   const mirror = new ThreadMirror(deps);
-  return { mirror, posts, edits, madeThreads, bound, get storyOpenedIn() { return storyOpenedIn; }, get storyFrom() { return storyFrom; }, get removed() { return removed; }, tick: () => { clock += 1; } };
+  return { mirror, posts, edits, madeThreads, get storyOpenedIn() { return storyOpenedIn; }, get storyFrom() { return storyFrom; }, get removed() { return removed; }, tick: () => { clock += 1; } };
 }
 
 const start = (conv: string, over: Partial<Extract<ProgressEvent, { kind: "turn-start" }>> = {}): ProgressEvent => ({ kind: "turn-start", conversationId: conv, said: "do the thing", from: "dispatch", origin: { via: "dispatch", from: { kind: "chat", name: "Orchestrator", id: "project:school" } }, ...over });
@@ -90,13 +86,21 @@ describe("mirroring a turn's story into a thread", () => {
     expect(h.posts.map((p) => p.text)).toEqual(["do the thing\n-# passed on", "Done, 12 rows."]);
   });
 
-  it("makes the thread on demand for a chat that has none yet, and binds it", async () => {
+  it("makes the thread on demand for a chat that has none yet", async () => {
     const h = harness();
     h.mirror.onProgress(start("c-new"));
     await h.mirror.settle();
     expect(h.madeThreads).toEqual([{ key: "project:school", conv: "c-new" }]);
-    expect(h.bound).toEqual([{ threadId: "t-made", conv: "c-new" }]);
     expect(h.posts[0]?.target).toBe("t-made");
+  });
+
+  it("gives a chat at the root its thread under KOS's channel on first mirror, and a chat with no home none", async () => {
+    const h = harness();
+    h.mirror.onProgress({ kind: "turn-start", conversationId: "c-root", said: "do the thing", from: "dashboard" });
+    h.mirror.onProgress({ kind: "turn-start", conversationId: "c-dm", said: "do the thing", from: "dashboard" });
+    await h.mirror.settle();
+    expect(h.madeThreads).toEqual([{ key: "orchestrator:owner", conv: "c-root" }]);
+    expect(h.posts).toEqual([{ target: "t-made", text: "do the thing", from: "Owner" }]);
   });
 
   it("opens no story for a turn that takes no step, and still posts the message and the answer", async () => {

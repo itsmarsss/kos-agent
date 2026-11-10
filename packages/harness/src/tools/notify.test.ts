@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
-import { caller, ownership } from "../kernel/caller.js";
+import { caller, ownership, scheduled } from "../kernel/caller.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
@@ -49,6 +49,27 @@ describe("notifyModule", () => {
     ]);
     return registry;
   }
+
+  it("sends a scheduled run's unaddressed message to the job's place, and an addressed one where it says", async () => {
+    const sent: NotifyPayload[] = [];
+    const registry = await load(async (p) => {
+      sent.push(p);
+      return undefined;
+    });
+    const inRun = (input: Record<string, unknown>) => caller.run("cron:7", () => scheduled.run(7, () => registry.execute("notify", input)));
+    await inRun({ text: "digest" });
+    await inRun({ text: "ping me", to: "owner" });
+    await inRun({ text: "dm me", to: "discord" });
+    // The owner's own turn in the same thread is not a run: it reaches the owner.
+    await caller.run("cron:7", () => registry.execute("notify", { text: "asked" }));
+    expect(sent[0]?.job).toBe(7);
+    expect(sent.map((p) => [p.text, p.place ?? null, p.target])).toEqual([
+      ["digest", "cron:7", { kind: "owner" }],
+      ["ping me", null, { kind: "owner" }],
+      ["dm me", null, { surface: "discord", kind: "owner" }],
+      ["asked", null, { kind: "owner" }],
+    ]);
+  });
 
   it("sends via the wired channel and is safe-tier", async () => {
     const sent: NotifyPayload[] = [];
