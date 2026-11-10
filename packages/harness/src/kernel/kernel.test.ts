@@ -1204,6 +1204,16 @@ describe("Kernel", () => {
     ]);
   });
 
+  it("tells a failing job's news in the job's own place", async () => {
+    const seen: NotifyPayload[] = [];
+    kernel = await boot(stubInference([]), async (payload) => {
+      seen.push(payload as NotifyPayload);
+    });
+    kernel.caretaker.report("cron:5", "Broken", false, "boom", "cron:5");
+    await vi.waitFor(() => expect(seen.length).toBeGreaterThan(0));
+    expect(seen[0]).toMatchObject({ place: "cron:5", target: { kind: "owner" } });
+  });
+
   it("moves a job's thread into the project the job was moved to", async () => {
     kernel = await boot(stubInference([]));
     const books = kernel.standUpProject({ name: "Books", type: "tracker" });

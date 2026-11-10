@@ -744,8 +744,9 @@ export class Kernel {
       runs: args.runs,
       health: args.health,
       report: (key, label, ok, error) => {
-        this.caretaker.report(key, label, ok, error);
         const jobId = Number(key.replace(/^cron:/, ""));
+        const job = Number.isInteger(jobId) ? this.crons.get(jobId) : undefined;
+        this.caretaker.report(key, label, ok, error, job ? this.jobPlace(job) : undefined);
         if (Number.isInteger(jobId)) this.bus.emit({ kind: "cron:fired", jobId, name: label, ok, error });
       },
       backup: args.backup,
@@ -1619,6 +1620,11 @@ export class Kernel {
       });
     }
     return id;
+  }
+
+  /** The conversation a job's runs speak from, without making it: the blob's thread, or the job's own. */
+  private jobPlace(job: CronJob): string {
+    return job.agent && this.roles.exists(job.agent) ? agentConversationId(job.agent) : cronSessionId(job.id);
   }
 
   /**
