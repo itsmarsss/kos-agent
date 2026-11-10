@@ -3218,8 +3218,10 @@ export class Kernel {
    * The channel a chat's thread is made under on a server, by its key: its
    * project's channel, or KOS's own for a chat or a schedule at the root.
    * Nothing for a chat that is a channel's own (KOS, a project's
-   * orchestrator, a blob), a surface's stream, the primary chat, or the
-   * chat the DM speaks in: the DM keeps its chat.
+   * orchestrator, a blob), a surface's stream, the primary chat, a chat
+   * begun on a device or messaging surface (a Chrome or Mac panel, the DM,
+   * iMessage, SMS), or one such a surface is pointed at now: that surface
+   * keeps its chat, and a thread would answer it in a second place.
    */
   threadHome(conversationId: string): string | undefined {
     const owner = this.profile.ownerId;
@@ -3229,7 +3231,9 @@ export class Kernel {
     const kind = conversationKind(chat, owner);
     if (kind === "schedule") return orchestratorId(owner);
     if (kind !== "chat" || chat.role) return undefined;
-    if (chat.id === primarySessionId(owner) || chat.channel === "discord" || this.conversations.activeFor("discord", owner) === chat.id) return undefined;
+    if (chat.id === primarySessionId(owner)) return undefined;
+    if (chat.channel && chat.channel !== "dashboard") return undefined;
+    if (this.conversations.pointersAt(chat.id).some((surface) => surface !== "dashboard")) return undefined;
     return orchestratorId(owner);
   }
 

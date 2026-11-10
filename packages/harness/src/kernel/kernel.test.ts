@@ -1286,6 +1286,19 @@ describe("Kernel", () => {
     expect(kernel.threadHome(atRoot.id)).toBe(`orchestrator:${owner}`);
     expect(kernel.threadHome(`cron:${job.id}`)).toBe(`orchestrator:${owner}`);
     expect(kernel.threadHome(dm.id)).toBeUndefined();
+    // A chat begun on a device panel or a messaging surface stays there.
+    for (const channel of ["chrome", "mac", "imessage", "sms", "discord"]) {
+      expect(kernel.threadHome(kernel.conversations.create({ userId: owner, title: `On ${channel}`, channel }).id)).toBeUndefined();
+    }
+    // A root chat a panel or iMessage is pointed at stays with it; the dashboard's pointer is no surface of its own.
+    for (const surface of ["chrome", "mac", "imessage"]) {
+      const pointed = kernel.conversations.create({ userId: owner, title: `Pointed by ${surface}` });
+      kernel.conversations.setActive(surface, owner, pointed.id);
+      expect(kernel.threadHome(pointed.id)).toBeUndefined();
+    }
+    const onDashboard = kernel.conversations.create({ userId: owner, title: "Open on the dashboard", channel: "dashboard" });
+    kernel.conversations.setActive("dashboard", owner, onDashboard.id);
+    expect(kernel.threadHome(onDashboard.id)).toBe(`orchestrator:${owner}`);
     expect(kernel.threadHome(primarySessionId(owner))).toBeUndefined();
     expect(kernel.threadHome(kernel.ensureAgentConversation("recap").id)).toBeUndefined();
     expect(kernel.threadHome(`project:${books.slug}`)).toBeUndefined();
