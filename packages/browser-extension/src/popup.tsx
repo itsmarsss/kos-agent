@@ -23,10 +23,11 @@ import type { KosState, PopupState } from "./worker.js";
 
 const connected = (k: KosState): boolean => k.link === "online" && !k.held;
 
+/** How KOS looks in the head, as on KOS for Mac: at work in a session, at ease while a KOS is connected or on its way, asleep when the owner disconnected each, sagging when none can be reached. */
 function mood(s: PopupState | undefined): BlobMood {
   if (!s || !s.kos.length) return "idle";
   if (s.session) return s.session.paused ? "idle" : "working";
-  if (s.kos.some(connected)) return "idle";
+  if (s.kos.some((k) => connected(k) || (!k.held && k.link === "connecting"))) return "idle";
   return s.kos.every((k) => k.held) ? "asleep" : "error";
 }
 
