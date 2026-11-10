@@ -961,6 +961,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       placer = placed;
       const mirror = new ThreadMirror({
         targetFor: (conv) => adapter?.mirrorTarget(conv, kernel.threadBindings()),
+        ownerOnly,
         homeOf,
         ensureThread: (key, conv, title) => adapter!.ensureThread(key, conv, title),
         titleOf: (conv) => kernel.titleOf(conv),
@@ -1001,7 +1002,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       // A slash command typed on the dashboard is a small line in the chat's
       // channel or thread, with the first line of what it answered.
       kernel.bus.on("command:ran", async (ran) => {
-        if (ran.channel === "discord" || !adapter) return;
+        // Not into a place guests read: the owner's bookkeeping is the owner's.
+        if (ran.channel === "discord" || !adapter || !ownerOnly(ran.conversationId)) return;
         const target = adapter.mirrorTarget(ran.conversationId, kernel.threadBindings());
         if (!target) return;
         const answer = ran.reply.trim().split("\n")[0] ?? "";

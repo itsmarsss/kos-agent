@@ -31,6 +31,7 @@ function harness(over: Partial<ThreadMirrorDeps> = {}) {
 
   const deps: ThreadMirrorDeps = {
     targetFor: (id) => (id === "c-thread" ? "t1" : undefined),
+    ownerOnly: () => true,
     homeOf: (id) => (id === "c-new" || id === "c-thread" ? "project:school" : id === "c-root" ? "orchestrator:owner" : undefined),
     ensureThread: async (key, conv) => {
       madeThreads.push({ key, conv });
@@ -197,5 +198,32 @@ describe("the owner's own words mirrored into a thread", () => {
     h.mirror.onSaid({ conversationId: "c-thread", text: "do the thing", reply: "Done.", origin: "owner", channel: null }, async () => undefined);
     await h.mirror.settle();
     expect(posted).toEqual([{ text: "do the thing", silent: true }, { text: "and the red one", silent: true }, { text: "Done." }]);
+  });
+});
+
+describe("a place guests read", () => {
+  it("is shown none of the owner's turns from elsewhere, and still the ones said there", async () => {
+    const h = harness({ ownerOnly: (id) => id !== "c-thread" });
+    // A dashboard turn and work passed on: no words, steps, heard words or thread.
+    h.mirror.onProgress(start("c-thread", { from: "dashboard", origin: { via: "dashboard" } }));
+    h.mirror.onProgress(toolStart("c-thread"));
+    h.mirror.onProgress({ kind: "heard", conversationId: "c-thread", said: "the private bit", from: "dashboard" });
+    h.mirror.onProgress(start("c-thread"));
+    await h.mirror.settle();
+    let fellBack = false;
+    h.mirror.onSaid({ conversationId: "c-thread", text: "do the thing", reply: "Done.", origin: "owner", channel: null }, async () => {
+      fellBack = true;
+    });
+    h.mirror.onProgress(turnEnd("c-thread"));
+    await h.mirror.settle();
+    expect(h.posts).toEqual([]);
+    expect(h.storyOpenedIn).toBeNull();
+    expect(h.madeThreads).toEqual([]);
+    // Its answer goes to the host's own handler, which holds the same line.
+    expect(fellBack).toBe(true);
+    // A chat only the owner reads is mirrored as before.
+    h.mirror.onProgress(start("c-new"));
+    await h.mirror.settle();
+    expect(h.posts).toEqual([{ target: "t-made", text: "do the thing\n-# passed on", from: "Orchestrator" }]);
   });
 });

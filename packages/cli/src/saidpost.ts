@@ -144,7 +144,7 @@ async function findPlace(conversationId: string, deps: PlaceDeps): Promise<strin
 export interface SaidDeps extends PlaceDeps {
   /** The scheduled job a conversation is the thread of, when it is one. */
   jobOf(conversationId: string): JobFacts | undefined;
-  /** Whether the owner alone reads a conversation's place: a run's words are the owner's, not a guest's. */
+  /** Whether the owner alone reads a conversation's place: a run's words, and a turn not taken there, are the owner's, not a guest's. */
   ownerOnly(conversationId: string): boolean;
   /** Whether a scheduled run here already said its piece this turn, in its place or the DM; asking clears it. */
   saidItsPiece(conversationId: string): boolean;
@@ -187,6 +187,9 @@ export async function postSaid(said: Said, deps: SaidDeps): Promise<void> {
     return;
   }
   if (spoke) return;
+  // A place guests read is shown only what was said in it, and the answers
+  // to that: a turn taken on the dashboard or passed on stays the owner's.
+  if (said.channel !== "discord" && !deps.ownerOnly(said.conversationId)) return;
   const target = deps.targetFor(said.conversationId);
   const from = deps.senderFor(said.conversationId);
   // A resumed turn asked in the DM is answered in the DM, where it was
