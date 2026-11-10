@@ -1236,6 +1236,33 @@ describe("Kernel", () => {
     ]);
   });
 
+  it("does not lend a run's job to a chat it hands off to, whose message goes to the owner without a ping", async () => {
+    const reply = (content: ModelResponse["content"]): ModelResponse => ({ content, stopReason: content.some((b) => b.type === "tool_use") ? "tool_use" : "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    const seen: NotifyPayload[] = [];
+    let target = "";
+    kernel = await boot(
+      {
+        async generate(_t, r) {
+          const last = r.messages[r.messages.length - 1];
+          if (last?.content.some((b) => b.type === "tool_result")) return reply([{ type: "text", text: "done" }]);
+          if (/You are the helper\./.test(r.system ?? "")) return reply([{ type: "tool_use", id: "n", name: "notify", input: { text: "from the helper" } }]);
+          return reply([{ type: "tool_use", id: "h", name: "chats.handoff", input: { to: target, brief: "say hi", ask: "go" } }]);
+        },
+      },
+      async (payload) => {
+        seen.push(payload as NotifyPayload);
+      },
+    );
+    target = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Helper", brief: "You are the helper." }).id;
+    const job = kernel.crons.create({ name: "Greeter", schedule: "0 9 * * *", type: "self_prompt", prompt: "hand off to the helper" });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen.map((p) => [p.text, p.place ?? null, p.job ?? null, p.ping ?? false])).toEqual([["from the helper", null, null, false]]);
+  });
+
   it("tells a failing job's news in its own place with a ping, and its recovery there without one", async () => {
     const seen: NotifyPayload[] = [];
     kernel = await boot(stubInference([]), async (payload) => {

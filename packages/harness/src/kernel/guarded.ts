@@ -316,10 +316,11 @@ export class GuardedTools implements ToolBox {
     const inTurn = <T>(work: () => Promise<T>): Promise<T> => (turnId ? turn.run(turnId, () => stoppable(work)) : stoppable(work));
     const from = this.deps.origin;
     const placed = <T>(work: () => Promise<T>): Promise<T> => (from ? origin.run(from, work) : work());
+    // Set for every call, cleared when this turn is no schedule's: a turn a
+    // scheduled run started (a dispatch, a handoff) must not inherit its job.
     const job = this.deps.scheduled;
-    const timed = <T>(work: () => Promise<T>): Promise<T> => (job !== undefined ? scheduled.run(job, work) : work());
     const within = <T>(work: () => Promise<T>): Promise<T> =>
-      timed(() => attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work))))));
+      scheduled.run(job, () => attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work))))));
     const run = async (n: string, i: Record<string, unknown>, site?: string): Promise<ToolExecution> => {
       started.ran = true;
       const ended = this.deps.running?.(n);

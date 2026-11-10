@@ -111,7 +111,7 @@ export const onSite = new AsyncLocalStorage<string>();
  * naming where goes to the job's own place on the server, not the owner's
  * inbox.
  */
-export const scheduled = new AsyncLocalStorage<number>();
+export const scheduled = new AsyncLocalStorage<number | undefined>();
 
 /** The id of the job whose run is making the current call, when one is. */
 export function scheduledJob(): number | undefined {
