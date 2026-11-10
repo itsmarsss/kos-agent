@@ -43,8 +43,8 @@ export interface GuardedToolsDeps {
   attended?: boolean;
   /** True for the owner's own turn alone; see `ownership`. */
   owner?: boolean;
-  /** True for a schedule's run; see `scheduled`. */
-  scheduled?: boolean;
+  /** The job whose run this is, for a schedule's run; see `scheduled`. */
+  scheduled?: number;
   /** The surface the turn's words arrived on, and those words; see `origin`. */
   origin?: TurnOrigin;
   /**
@@ -316,9 +316,10 @@ export class GuardedTools implements ToolBox {
     const inTurn = <T>(work: () => Promise<T>): Promise<T> => (turnId ? turn.run(turnId, () => stoppable(work)) : stoppable(work));
     const from = this.deps.origin;
     const placed = <T>(work: () => Promise<T>): Promise<T> => (from ? origin.run(from, work) : work());
-    const timed = this.deps.scheduled === true;
+    const job = this.deps.scheduled;
+    const timed = <T>(work: () => Promise<T>): Promise<T> => (job !== undefined ? scheduled.run(job, work) : work());
     const within = <T>(work: () => Promise<T>): Promise<T> =>
-      scheduled.run(timed, () => attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work))))));
+      timed(() => attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work))))));
     const run = async (n: string, i: Record<string, unknown>, site?: string): Promise<ToolExecution> => {
       started.ran = true;
       const ended = this.deps.running?.(n);

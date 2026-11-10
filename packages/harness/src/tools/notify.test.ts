@@ -56,12 +56,13 @@ describe("notifyModule", () => {
       sent.push(p);
       return undefined;
     });
-    const inRun = (input: Record<string, unknown>) => caller.run("cron:7", () => scheduled.run(true, () => registry.execute("notify", input)));
+    const inRun = (input: Record<string, unknown>) => caller.run("cron:7", () => scheduled.run(7, () => registry.execute("notify", input)));
     await inRun({ text: "digest" });
     await inRun({ text: "ping me", to: "owner" });
     await inRun({ text: "dm me", to: "discord" });
     // The owner's own turn in the same thread is not a run: it reaches the owner.
     await caller.run("cron:7", () => registry.execute("notify", { text: "asked" }));
+    expect(sent[0]?.job).toBe(7);
     expect(sent.map((p) => [p.text, p.place ?? null, p.target])).toEqual([
       ["digest", "cron:7", { kind: "owner" }],
       ["ping me", null, { kind: "owner" }],

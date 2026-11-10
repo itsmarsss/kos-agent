@@ -1103,7 +1103,8 @@ export class Kernel {
           // A schedule's prompt, a blob's own timer, a guest: the owner did not start this one.
           attended,
           owner,
-          scheduled: opts.via === "schedule",
+          // The job behind a schedule's run, whose unaddressed messages go to its place.
+          ...(opts.via === "schedule" && opts.from?.kind === "schedule" && opts.from.id ? { scheduled: Number(opts.from.id) } : {}),
           // Where the words were said, for a start on that device that needs no ask from a tool.
           ...(opts.channel && text.trim() ? { origin: { surface: opts.channel, said: text } } : {}),
           heard: () => this.hear(sessionId, mark),
@@ -3530,8 +3531,8 @@ export class Kernel {
     attended?: boolean;
     /** True for the owner's own turn alone. */
     owner?: boolean;
-    /** True for a schedule's run, whose unaddressed messages go to the job's place. */
-    scheduled?: boolean;
+    /** The job behind a schedule's run, whose unaddressed messages go to the job's place. */
+    scheduled?: number;
     /** The surface the turn's words arrived on, and those words. */
     origin?: TurnOrigin;
     /** The owner's words said since the last call, for the model with this call's result. */
@@ -3579,7 +3580,7 @@ export class Kernel {
       ...(opts.waitForApproval === false ? { waitForApproval: false } : {}),
       ...(opts.attended === false ? { attended: false } : {}),
       ...(opts.owner === true ? { owner: true } : {}),
-      ...(opts.scheduled === true ? { scheduled: true } : {}),
+      ...(opts.scheduled !== undefined ? { scheduled: opts.scheduled } : {}),
       ...(opts.origin ? { origin: opts.origin } : {}),
       onQueued: (action) => {
         opts.onQueued?.(action);
@@ -4348,7 +4349,7 @@ export class Kernel {
           // holding a queue slot until the owner wakes up.
           waitForApproval: false,
           attended: false,
-          scheduled: true,
+          scheduled: job.id,
         }),
         inference: this.inference,
         buildSystem: (j) => this.cronSystemPrompt(j),

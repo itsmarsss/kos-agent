@@ -916,7 +916,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       const placed = new PlaceNotifier({
         ...placeOn,
         ownerId: creds.ownerId,
-        jobOf: (payload) => (payload.place ? cronOf(payload.place) : undefined),
+        // By the job the run named, so a blob's run in the blob's channel is known as its job's too.
+        jobOf: (payload) => (payload.job !== undefined ? kernel.crons.get(payload.job) : payload.place ? cronOf(payload.place) : undefined),
         // A thread is read by whoever reads its channel: the chat's own, else its home's.
         ownerOnly: (conv) => {
           const audiences = kernel.channelAudiences();

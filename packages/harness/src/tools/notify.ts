@@ -6,7 +6,7 @@ import type {
   ModalSpec,
   Sender,
 } from "../channels/types.js";
-import { caller, isOwnerTurn, isScheduledTurn } from "../kernel/caller.js";
+import { caller, isOwnerTurn, scheduledJob } from "../kernel/caller.js";
 import type { KosModule } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 
@@ -57,6 +57,8 @@ export interface NotifyPayload {
   place?: string;
   /** Mention the owner where it lands in a place, as news they must not miss; a DM notifies them already. */
   ping?: boolean;
+  /** The scheduled job whose run sent it, with its place: a blob's job speaks in the blob's channel, not a thread of its own. */
+  job?: number;
 }
 
 /** What a surface says it did with a message: the id of a post, and where it went when that was not where asked. */
@@ -586,11 +588,12 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
           // job's thread, the blob's channel), not the owner's inbox; "owner"
           // or a surface said outright still reaches the owner directly.
           const from = caller.getStore();
-          const place = !addressed(input.to) && isScheduledTurn() && from ? from : undefined;
+          const job = scheduledJob();
+          const place = !addressed(input.to) && job !== undefined && from ? from : undefined;
           const delivered = await services.notify({
             text,
             target,
-            ...(place ? { place } : {}),
+            ...(place ? { place, job } : {}),
             ...(card ? { card } : {}),
             ...(buttons.length ? { buttons } : {}),
           });

@@ -1200,6 +1200,20 @@ describe("Kernel", () => {
     expect(told).toEqual([{ reply: "Ran 2 actions; 1 failed.", failed: true }]);
   });
 
+  it("names the job behind a blob's run, whose place is the blob's channel, so its reminder can ping", async () => {
+    const seen: NotifyPayload[] = [];
+    kernel = await boot(stubInference([]), async (payload) => {
+      seen.push(payload as NotifyPayload);
+    });
+    kernel.roles.write({ name: "recap", description: "Sums up the day", brief: "You recap.", memory: "own" });
+    const job = kernel.crons.create({ name: "Stretch", schedule: "0 15 * * *", type: "actions", agent: "recap", actions: [{ tool: "notify", args: { text: "stretch" } }] });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    expect(seen.map((p) => [p.place, p.job])).toEqual([["agent:recap", job.id]]);
+  });
+
   it("sends a prompted run's unaddressed message to its place, and an addressed one to the owner", async () => {
     const step = (id: string, input: Record<string, unknown>): ModelResponse => ({
       content: [{ type: "tool_use", id, name: "notify", input }],
