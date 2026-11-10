@@ -217,7 +217,7 @@ export function App(): React.ReactElement {
     heardDrawnTheme(status.drawn);
     reconcileTheme(status.theme, (theme) => void api.saveTheme(theme).catch(() => undefined), statusStamp.current);
   }, [status]);
-  // The palette this tab draws in is what a device set to the dashboard draws: KOS is told it when it changes, and again now and then to keep it fresh.
+  // The palette this tab draws in is what a device set to the dashboard draws: KOS is told it when it changes, and when this tab is looked at again while KOS has another.
   useEffect(() => reportDrawnTheme(api.saveDrawnTheme), []);
   // The tab icon is KOS's face, still, with a mark when something waits.
   useEffect(() => {

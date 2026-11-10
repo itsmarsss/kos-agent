@@ -184,6 +184,46 @@ describe("the palette this tab reports drawing in", () => {
     vi.useRealTimers();
   });
 
+  it("takes the palette back from a closed dashboard when the owner looks at this tab again, and only then", async () => {
+    vi.useFakeTimers();
+    const chrome = browser(false);
+    const sent: string[] = [];
+    const send = vi.fn(async (drawn: "light" | "dark") => (sent.push(drawn), { drawn }));
+    let visibility: DocumentVisibilityState = "visible";
+    vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility);
+    heardDrawnTheme("dark");
+    showTheme("system");
+    const stop = reportDrawnTheme(send);
+    // KOS kept another dashboard's light; this tab, open meanwhile, leaves it.
+    heardDrawnTheme("light");
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(sent).toEqual([]);
+    // Hidden, a focus or a visibility change says nothing.
+    visibility = "hidden";
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual([]);
+    // Shown again: this tab's dark is said, once.
+    visibility = "visible";
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark"]);
+    // Focused while KOS already has it: no news.
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark"]);
+    stop();
+    // Stopped: looked at or not, nothing.
+    heardDrawnTheme("light");
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(DRAWN_REPORT_MS);
+    expect(sent).toEqual(["dark"]);
+    chrome.restore();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
   it("is reported again on the next change after a report that failed", async () => {
     vi.useFakeTimers();
     heardDrawnTheme(undefined);

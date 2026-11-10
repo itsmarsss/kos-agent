@@ -97,13 +97,23 @@ async function say(drawn: DrawnTheme): Promise<void> {
  * appearance under "system". Only a palette that differs from what KOS
  * last said is reported, and changes close together are reported once.
  * KOS keeps a report until another replaces it, so nothing is said again
- * only to keep it.
+ * only to keep it. When the owner comes back to this tab (it shows again,
+ * or its window takes focus) and KOS has another dashboard's palette, this
+ * tab's is said: the dashboard looked at is the one devices match. Only on
+ * those events, so two open dashboards never trade reports.
  */
 export function reportDrawnTheme(send: (drawn: DrawnTheme) => Promise<{ drawn: DrawnTheme }>): () => void {
   report = send;
   reportSoon();
+  const lookedAt = (): void => {
+    if (document.visibilityState === "visible") reportSoon();
+  };
+  document.addEventListener("visibilitychange", lookedAt);
+  window.addEventListener("focus", lookedAt);
   return () => {
     report = null;
+    document.removeEventListener("visibilitychange", lookedAt);
+    window.removeEventListener("focus", lookedAt);
     clearTimeout(reportTimer);
     reportTimer = undefined;
   };

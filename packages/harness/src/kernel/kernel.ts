@@ -562,7 +562,6 @@ export class Kernel {
   private restartWanted: { since: number } | null = null;
   private restartPoll: ReturnType<typeof setInterval> | null = null;
   private expirySweep: ReturnType<typeof setInterval> | null = null;
-  /** Set while a dashboard's report of its palette is fresh: when it fires, devices are told it went stale. */
 
   /** Called by bootKernel, which assembles the args; not meant for anyone else. */
   constructor(args: {
@@ -2541,7 +2540,7 @@ export class Kernel {
 
   /**
    * A dashboard reports the palette it draws, "system" read against its own
-   * browser: kept with when, and told to every device when it changes what
+   * browser: kept until another replaces it, and told to every device when it changes what
    * they draw. The same palette again is no news. With several dashboards
    * open, the latest report wins. Nothing kept when it is not a palette.
    */

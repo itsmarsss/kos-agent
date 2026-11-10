@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Inference } from "../agent/loop.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
-import { GUEST_TOOLS, Kernel, orchestratorId } from "./kernel.js";
+import { DRAWN_KEY, GUEST_TOOLS, Kernel, orchestratorId } from "./kernel.js";
 import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { RATES_KEY } from "../ops/spend.js";
 import { cronSessionId } from "./session.js";
@@ -431,6 +431,21 @@ describe("handleApiRequest", () => {
     await choose("dark");
     expect(told).toEqual([{ mode: "dark", drawn: "dark" }]);
     off();
+  });
+
+  it("serves the kept palette after a restart, and reads one kept with a time by an older KOS", async () => {
+    kernel.setTheme("system");
+    kernel.setDrawnTheme("dark");
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: stub, chrome: { port: 1, exists: () => false } });
+    expect(kernel.dashboardTheme()).toEqual({ mode: "system", drawn: "dark" });
+    // An older KOS kept when, and let a report go stale after ten minutes: a year-old one still holds.
+    kernel.settings.set(DRAWN_KEY, { drawn: "light", at: Date.now() - 365 * 24 * 60 * 60_000 });
+    expect(kernel.dashboardTheme()).toEqual({ mode: "system", drawn: "light" });
+    expect((await handleApiRequest(kernel, { method: "GET", path: "/api/status" })).body).toMatchObject({ theme: "system", drawn: "light" });
+    // Anything else kept there is no palette.
+    kernel.settings.set(DRAWN_KEY, { drawn: "sepia" });
+    expect(kernel.dashboardTheme()).toEqual({ mode: "system" });
   });
 
   it("keeps the palette a dashboard last reported however long none reports, until one reports another", async () => {
