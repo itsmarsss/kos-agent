@@ -155,6 +155,11 @@ const BOUND_MS = 15_000;
  * milliseconds; this is room for a slow machine, not a guess at a race.
  */
 const QUIET_MS = 500;
+/**
+ * The same watch for the ways out, the test that holds the line: a request a
+ * busy machine sends late is still counted against the attempt that sent it.
+ */
+const ESCAPE_QUIET_MS = 1_500;
 const pause = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 interface Run {
@@ -172,6 +177,8 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   let E = "";
   let base = "";
   const requests: string[] = [];
+  /** Every request the attacker's server is sent, never cleared between runs. */
+  const log: string[] = [];
   const pages = new Map<string, string>();
   let send: (method: string, params?: Record<string, unknown>) => Promise<Record<string, unknown>>;
   let close = (): void => undefined;
@@ -182,6 +189,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   beforeAll(async () => {
     evil = createServer((req, res) => {
       requests.push(req.url ?? "");
+      log.push(req.url ?? "");
       res.writeHead(200, { "content-type": "text/html", "access-control-allow-origin": "*" }).end("<p>evil</p>");
     });
     E = `http://127.0.0.1:${await listen(evil)}`;
@@ -245,14 +253,14 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   };
 
   /** The dashboard's side: the frame as ArtifactPage draws it, around one page, run until it has tried and then a while longer. */
-  async function run(name: string, frame: string): Promise<Run> {
+  async function run(name: string, frame: string, quiet = QUIET_MS): Promise<Run> {
     const path = `/${name}`;
     pages.set(path, `<!doctype html><body><script>addEventListener("message", (e) => { if (e.data === "alive") document.title = "alive"; else if (e.data === "tried") document.body.dataset.tried = "1"; else if (e.data && e.data.census) document.body.dataset.said = JSON.stringify(e.data.census); })</script><iframe sandbox="allow-scripts" srcdoc="${srcdoc(frame)}"></iframe></body>`);
     requests.length = 0;
     await send("Page.navigate", { url: `${base}${path}` });
     // Up and tried (a census is said before), then the room a request has to land in, before the next page.
     await until("document.body.dataset.tried === '1'");
-    await pause(QUIET_MS);
+    await pause(quiet);
     const said = String(await value("document.body.dataset.said || ''"));
     return { alive: (await value("document.title")) === "alive", requests: [...requests], ...(said ? { said } : {}) };
   }
@@ -623,17 +631,21 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
    * Each way out on a page of its own, one after another in one tab: Chrome
    * takes one prerender a page and holds back those of pages run at once, so
    * attempts sharing a page or racing in tabs hide each other's. Each waits
-   * for its page to have tried, then the room a request has to land in,
-   * where it once waited a fixed 1.3 s, which a slow machine ran past the
-   * timeout. Each aims at a path of its own, so a request that lands late,
-   * in the next one's turn, still names the attempt that sent it.
+   * for its page to have tried, then the room a request has to land in.
+   * Each aims at a path of its own, so a request that lands late, in the
+   * next one's turn, still names the attempt that sent it; and once the last
+   * has had its turn, a further while for any still on its way, after which
+   * the whole log of what the attacker was sent must be empty.
    */
   it("lets no way out send a single request, with the page running each time", async () => {
     const results: Record<string, Run> = {};
-    for (const name of Object.keys(attempts(E))) results[name] = await run(name, wrapperDocument(page(attempts(`${E}/${name}`)[name]!)));
+    const from = log.length;
+    for (const name of Object.keys(attempts(E))) results[name] = await run(name, wrapperDocument(page(attempts(`${E}/${name}`)[name]!)), ESCAPE_QUIET_MS);
+    await pause(ESCAPE_QUIET_MS);
     const notRunning = Object.entries(results).filter(([, r]) => !r.alive).map(([name]) => name);
     const leaked = Object.fromEntries(Object.entries(results).filter(([, r]) => r.requests.length > 0).map(([name, r]) => [name, r.requests]));
     expect(notRunning).toEqual([]);
     expect(leaked).toEqual({});
-  }, 120_000);
+    expect(log.slice(from)).toEqual([]);
+  }, 150_000);
 });
