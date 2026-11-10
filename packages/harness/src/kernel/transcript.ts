@@ -103,21 +103,39 @@ export function splitOwnerWords(content: string): { content: string; said: strin
   return { content: content.slice(0, at), said };
 }
 
+/** One decided action in a resume, as a note: today's words, or the outcome lines that came before them. */
+function decidedNote(line: string): string | null {
+  const now = /^- @approval:(\d+) (.+?): the owner (approved it, and it ran and failed|approved it, and it ran|denied this)\./.exec(line);
+  if (now) {
+    const [, id, what, how] = now;
+    if (how === "denied this") return `Denied #${id} · ${what}`;
+    return `Approved #${id} · ${what}${how!.endsWith("failed") ? " · failed" : ""}`;
+  }
+  const before = /^- #(\d+) (\S+): (?:approved and run, (SUCCEEDED|FAILED)|denied by the owner)/.exec(line);
+  if (!before) return null;
+  const [, id, tool, ran] = before;
+  return ran ? `Approved #${id} · ${tool} ${ran === "FAILED" ? "failed" : "ran"}` : `Denied #${id} · ${tool}`;
+}
+
 /**
  * The harness resumes a held call by sending itself a user turn. That is the
  * right shape for the model and the wrong one for a reader, who sees a wall of
- * plumbing attributed to them. Recognised here and reduced to a one-line note.
+ * plumbing attributed to them. Recognised here and reduced to a one-line note,
+ * in each of the shapes a stored chat may hold.
  */
 function approvalNote(text: string): string | null {
-  if (!text.startsWith(RESUME_HEAD)) return null;
-  const notes = text.split("\n").flatMap((line) => {
-    const m = /^- @approval:(\d+) (.+): the owner (approved it, and it ran and failed|approved it, and it ran|denied this)\./.exec(line);
-    if (!m) return [];
-    const [, id, what, how] = m;
-    if (how === "denied this") return [`Denied #${id} · ${what}`];
-    return [`Approved #${id} · ${what}${how!.endsWith("failed") ? " · failed" : ""}`];
-  });
-  return notes.length ? notes.join("; ") : null;
+  if (text.startsWith(RESUME_HEAD)) {
+    const notes = text.split("\n").flatMap((line) => decidedNote(line) ?? []);
+    return notes.length ? notes.join("; ") : null;
+  }
+  // The oldest shape: one action per resume.
+  const approved = /^System: the owner approved pending action #(\d+)\./.exec(text);
+  if (approved) {
+    const tool = /\btool=(\S+)/.exec(text)?.[1] ?? "action";
+    return `Approved #${approved[1]} · ${tool} ${/\boutcome=FAILED\b/.test(text) ? "failed" : "ran"}`;
+  }
+  const denied = /^System: the owner denied pending action #(\d+)\./.exec(text);
+  return denied ? `Denied #${denied[1]}` : null;
 }
 
 function textOf(content: ModelMessage["content"]): string {
