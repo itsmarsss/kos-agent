@@ -97,7 +97,6 @@ describe("a scheduled run's message in its place", () => {
       homeOf: () => undefined,
       titleOf: (conv) => conv,
       ensureThread: async () => undefined,
-      bindThread: () => undefined,
       joinOwner: async (id) => {
         joined.push(id);
         return true;
@@ -140,8 +139,10 @@ describe("a scheduled run's message in its place", () => {
     const { notifier, posts } = placer({
       targetFor: (conv) => Object.entries(bindings).find(([, c]) => c === conv)?.[0],
       homeOf: () => "orchestrator:owner",
-      ensureThread: async () => "t8",
-      bindThread: (thread, conv) => void (bindings[thread] = conv),
+      ensureThread: async (_key, conv) => {
+        bindings["t8"] = conv;
+        return "t8";
+      },
       forgetPlace: (id) => void delete bindings[id],
       postIn: async (target, msg) => {
         if (gone.has(target)) throw Object.assign(new Error("Unknown Channel"), { code: 10003 });

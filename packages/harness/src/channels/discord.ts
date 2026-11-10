@@ -454,6 +454,8 @@ export interface DiscordAdapterOptions {
   onThreadRenamed?: (threadId: string, name: string) => void;
   /** Told when a channel or thread is gone from Discord, so what was bound to it is let go. */
   onGone?: (id: string) => void;
+  /** Told a thread was made for a chat, so it is bound before anyone else can ask for one. */
+  onThreadMade?: (threadId: string, conversationId: string) => void;
 }
 
 /** The story lines of turns still running, by message, kept across restarts. */
@@ -987,6 +989,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly keptStories?: KeptStories;
   private readonly onThreadRenamed?: (threadId: string, name: string) => void;
   private readonly onGone?: (id: string) => void;
+  private readonly onThreadMade?: (threadId: string, conversationId: string) => void;
   /** Messages already taken, newest last, so none runs twice. */
   private readonly seen = new Set<string>();
   private readonly threadBindings?: () => Record<string, string>;
@@ -1042,6 +1045,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.keptStories) this.keptStories = options.keptStories;
     if (options.onThreadRenamed) this.onThreadRenamed = options.onThreadRenamed;
     if (options.onGone) this.onGone = options.onGone;
+    if (options.onThreadMade) this.onThreadMade = options.onThreadMade;
     if (options.threadBindings) this.threadBindings = options.threadBindings;
     if (options.keptPrompts) this.keptPrompts = options.keptPrompts;
     if (options.timezone) this.timezone = options.timezone;
@@ -1861,8 +1865,10 @@ export class DiscordAdapter implements ChannelAdapter {
   /**
    * A chat's thread made once, whoever asks first (the thread mirror, a
    * scheduled run's place, the layout); a second ask while it is being made
-   * gets the same one. The owner is not made a member here: a mirrored chat
-   * would buzz them for every answer. A run's place asks for that itself.
+   * gets the same one. It is bound before the ask is let go, so no one
+   * finds it unbound and makes another. The owner is not made a member
+   * here: a mirrored chat would buzz them for every answer. A run's place
+   * asks for that itself.
    */
   private makeThread(conversationId: string, make: () => Promise<{ id: string } | undefined>): Promise<string | undefined> {
     const making = this.threadsMaking.get(conversationId);
@@ -1871,6 +1877,7 @@ export class DiscordAdapter implements ChannelAdapter {
       const thread = await make();
       if (!thread) return undefined;
       this.boundThreads.add(conversationId);
+      this.onThreadMade?.(thread.id, conversationId);
       return thread.id;
     })().finally(() => this.threadsMaking.delete(conversationId));
     this.threadsMaking.set(conversationId, made);

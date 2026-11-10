@@ -48,8 +48,8 @@ export interface PlaceDeps {
   homeOf(conversationId: string): string | undefined;
   /** What a new thread for it is called. */
   titleOf(conversationId: string): string;
+  /** Make a thread for a conversation under its home, bound to it once made. */
   ensureThread(channelKey: string, conversationId: string, title: string): Promise<string | undefined>;
-  bindThread(threadId: string, conversationId: string): void;
   /** Make the owner a member of a thread, so what lands there notifies them as a DM would; true for a channel. False when they are not in it. Never throws. */
   joinOwner(placeId: string): Promise<boolean>;
   /** Let go of a channel or thread Discord says is gone, and whatever was bound to it. */
@@ -126,11 +126,7 @@ async function findPlace(conversationId: string, deps: PlaceDeps): Promise<strin
   const home = deps.homeOf(conversationId);
   if (!home) return undefined;
   const made = await deps.ensureThread(home, conversationId, deps.titleOf(conversationId)).catch(() => undefined);
-  if (made) {
-    deps.bindThread(made, conversationId);
-    return made;
-  }
-  return deps.targetFor(home);
+  return made ?? deps.targetFor(home);
 }
 
 export interface SaidDeps extends PlaceDeps {

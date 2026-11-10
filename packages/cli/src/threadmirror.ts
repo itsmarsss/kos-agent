@@ -41,10 +41,8 @@ export interface ThreadMirrorDeps {
   targetFor(conversationId: string): string | undefined;
   /** The channel key a chat's thread is made under (its project's, or KOS's own at the root), or nothing for a chat that gets none. */
   homeOf(conversationId: string): string | undefined;
-  /** Make a thread under a channel key and return its id, or nothing when that channel is not there yet. */
+  /** Make a thread under a channel key, bound to the conversation once made, and return its id, or nothing when that channel is not there yet. */
   ensureThread(channelKey: string, conversationId: string, title: string): Promise<string | undefined>;
-  /** Told a thread was made for a conversation, so the kernel can bind it. */
-  bindThread(threadId: string, conversationId: string): void;
   /** A conversation's title, for a thread's name. */
   titleOf(conversationId: string): string;
   /** Who a chat or schedule speaks as, when a message was passed on. */
@@ -169,7 +167,6 @@ export class ThreadMirror {
       if (!home) return;
       target = await this.deps.ensureThread(home, conv, this.deps.titleOf(conv));
       if (!target) return;
-      this.deps.bindThread(target, conv);
     }
     const files = event.files?.length ? this.deps.filesFor(event.files) : [];
     const passed = event.origin?.from;

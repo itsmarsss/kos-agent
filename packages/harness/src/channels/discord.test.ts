@@ -2956,6 +2956,30 @@ describe("the owner in KOS's threads", () => {
   });
 });
 
+describe("a thread made for a chat", () => {
+  it("is bound before the ask is let go, so a post right after finds it rather than making another", async () => {
+    const seen: string[] = [];
+    let made = 0;
+    let again: Promise<string | undefined> | undefined;
+    const adapter: DiscordAdapter = new DiscordAdapter({
+      token: "t",
+      onThreadMade: (threadId, conv) => {
+        seen.push(`bound ${threadId} to ${conv}`);
+        // Asked again while it is being bound: the same thread, not a second.
+        again = adapter.ensureThread("orchestrator:owner", conv, "Nudge");
+      },
+    });
+    (adapter as unknown as { boundIds: Map<string, string> }).boundIds.set("orchestrator:owner", "kos");
+    const kos = { id: "kos", threads: { create: async () => ({ id: `t${++made}` }) } };
+    (adapter as unknown as { client: unknown }).client = { channels: { fetch: async () => kos } };
+    const id = await adapter.ensureThread("orchestrator:owner", "cron:7", "Nudge");
+    seen.push(`answered ${id}`);
+    expect(await again).toBe("t1");
+    expect(seen).toEqual(["bound t1 to cron:7", "answered t1"]);
+    expect(made).toBe(1);
+  });
+});
+
 describe("two first posts at once", () => {
   it("make one thread for a chat, which both are given", async () => {
     let made = 0;

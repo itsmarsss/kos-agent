@@ -372,7 +372,6 @@ export async function runHost(options: HostOptions): Promise<void> {
   const layOut = async (): Promise<Awaited<ReturnType<DiscordAdapter["sync"]>>> => {
     adapter!.rememberThreads(kernel.threadBindings());
     const made = await adapter!.sync(kernel.surfaceChannels());
-    for (const t of made.threads) kernel.bindThread(t.threadId, t.conversationId);
     // Discord's permissions are the truth for who reads a channel; the kernel follows, so the guest gate agrees.
     for (const [key, audience] of Object.entries(made.audiences)) kernel.setChannelAudience(key, audience);
     adapter!.rememberThreads(kernel.threadBindings());
@@ -708,6 +707,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       onGone: (id) => {
         if (kernel.threadBindings()[id]) kernel.unbindThread(id);
       },
+      // A thread made for a chat is the chat's at once, before another post could make a second.
+      onThreadMade: (threadId, conv) => kernel.bindThread(threadId, conv),
       // The owner renamed a chat's thread on Discord: the chat takes the name.
       onThreadRenamed: (threadId, name) => {
         const id = kernel.threadBindings()[threadId];
@@ -917,7 +918,6 @@ export async function runHost(options: HostOptions): Promise<void> {
         homeOf,
         titleOf: (conv) => kernel.titleOf(conv),
         ensureThread: (key, conv, title) => adapter!.ensureThread(key, conv, title),
-        bindThread: (threadId, conv) => kernel.bindThread(threadId, conv),
         joinOwner: (placeId) => adapter!.joinOwner(placeId),
         forgetPlace: (placeId) => adapter!.forgetPlace(placeId),
         postIn: (target, msg) => adapter!.postIn(target, msg),
@@ -943,7 +943,6 @@ export async function runHost(options: HostOptions): Promise<void> {
         targetFor: (conv) => adapter?.mirrorTarget(conv, kernel.threadBindings()),
         homeOf,
         ensureThread: (key, conv, title) => adapter!.ensureThread(key, conv, title),
-        bindThread: (threadId, conv) => kernel.bindThread(threadId, conv),
         titleOf: (conv) => kernel.titleOf(conv),
         speakerFor: (from) => kernel.speakerFor(from),
         ownerSender: () => adapter!.ownerSender(),

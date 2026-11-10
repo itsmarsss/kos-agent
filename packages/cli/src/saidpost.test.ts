@@ -6,18 +6,16 @@ import { pingsOwner, placeOf, postSaid, type JobFacts, type Said, type SaidDeps 
 function deps(
   targets: Record<string, string> = {},
   over: Partial<SaidDeps> = {},
-): SaidDeps & { posts: { target: string; text: string }[]; dms: string[]; made: { key: string; conv: string; title: string }[]; bound: [string, string][]; joined: string[] } {
+): SaidDeps & { posts: { target: string; text: string }[]; dms: string[]; made: { key: string; conv: string; title: string }[]; joined: string[] } {
   const posts: { target: string; text: string }[] = [];
   const dms: string[] = [];
   const made: { key: string; conv: string; title: string }[] = [];
-  const bound: [string, string][] = [];
   const joined: string[] = [];
   return {
     joined,
     posts,
     dms,
     made,
-    bound,
     targetFor: (conv) => targets[conv],
     homeOf: () => undefined,
     titleOf: (conv) => `Title of ${conv}`,
@@ -28,7 +26,6 @@ function deps(
       made.push({ key, conv, title });
       return `thread-${conv}`;
     },
-    bindThread: (thread, conv) => void bound.push([thread, conv]),
     joinOwner: async (id) => {
       joined.push(id);
       return true;
@@ -95,7 +92,6 @@ describe("a scheduled run's answer on the server", () => {
     const d = deps({ "orchestrator:owner": "kos" }, { jobOf: () => kickoff, homeOf: () => "orchestrator:owner" });
     await postSaid(run("cron:2"), d);
     expect(d.made).toEqual([{ key: "orchestrator:owner", conv: "cron:2", title: "Title of cron:2" }]);
-    expect(d.bound).toEqual([["thread-cron:2", "cron:2"]]);
     expect(d.posts).toEqual([{ target: "thread-cron:2", text: "-# 9 AM Daily Kickoff\nKickoff sent." }]);
     expect(d.joined).toEqual(["thread-cron:2"]);
     expect(d.dms).toEqual([]);
