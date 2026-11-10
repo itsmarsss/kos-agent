@@ -1257,11 +1257,15 @@ describe("Kernel", () => {
     await kernel.fireCron(job.id);
     await kernel.queue.drain();
     expect(kernel.conversations.get(`cron:${job.id}`)?.projectSlug).toBeNull();
+    kernel.bindThread("t-root", `cron:${job.id}`);
     kernel.crons.update(job.id, { name: "Nudge", schedule: "0 12 * * *", type: "actions", actions: [{ tool: "notify", args: { text: "read" } }], projectSlug: books.slug });
     await kernel.fireCron(job.id);
     await kernel.queue.drain();
     kernel.stopCron();
     expect(kernel.conversations.get(`cron:${job.id}`)?.projectSlug).toBe(books.slug);
+    // The thread under KOS's channel is let go, so the next post makes one under the project's.
+    expect(kernel.threadBindings()).toEqual({});
+    expect(kernel.threadHome(`cron:${job.id}`)).toBe(`project:${books.slug}`);
   });
 
   it("homes a chat's thread under its project, a root chat's or schedule's under KOS, and the DM's chat nowhere", async () => {

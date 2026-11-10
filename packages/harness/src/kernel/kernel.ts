@@ -1602,8 +1602,12 @@ export class Kernel {
     if (thread) {
       // A job moved into a project after its first run takes its thread
       // along: left at the root, the run could not reach the project's
-      // tables and spoke in the wrong place.
-      if (thread.projectSlug !== (job.projectSlug ?? null)) this.conversations.moveToProject(id, job.projectSlug ?? null);
+      // tables and spoke in the wrong place. Its Discord thread, under the
+      // old home's channel, is let go; the next post makes one under the new.
+      if (thread.projectSlug !== (job.projectSlug ?? null)) {
+        this.conversations.moveToProject(id, job.projectSlug ?? null);
+        for (const [threadId, bound] of Object.entries(this.threadBindings())) if (bound === id) this.unbindThread(threadId);
+      }
     } else {
       this.conversations.create({
         id,
