@@ -6,12 +6,14 @@ import { pingsOwner, placeOf, postSaid, type JobFacts, type Said, type SaidDeps 
 function deps(
   targets: Record<string, string> = {},
   over: Partial<SaidDeps> = {},
-): SaidDeps & { posts: { target: string; text: string }[]; dms: string[]; made: { key: string; conv: string; title: string }[]; bound: [string, string][] } {
+): SaidDeps & { posts: { target: string; text: string }[]; dms: string[]; made: { key: string; conv: string; title: string }[]; bound: [string, string][]; joined: string[] } {
   const posts: { target: string; text: string }[] = [];
   const dms: string[] = [];
   const made: { key: string; conv: string; title: string }[] = [];
   const bound: [string, string][] = [];
+  const joined: string[] = [];
   return {
+    joined,
     posts,
     dms,
     made,
@@ -26,6 +28,7 @@ function deps(
       return `thread-${conv}`;
     },
     bindThread: (thread, conv) => void bound.push([thread, conv]),
+    joinOwner: async (id) => void joined.push(id),
     senderFor: () => undefined,
     speakerFor: (from) => ({ name: from.name }),
     ownerSender: async () => ({ name: "Owner" }),
@@ -80,6 +83,7 @@ describe("a scheduled run's answer on the server", () => {
     expect(d.made).toEqual([{ key: "orchestrator:owner", conv: "cron:2", title: "Title of cron:2" }]);
     expect(d.bound).toEqual([["thread-cron:2", "cron:2"]]);
     expect(d.posts).toEqual([{ target: "thread-cron:2", text: "-# 9 AM Daily Kickoff\nKickoff sent." }]);
+    expect(d.joined).toEqual(["thread-cron:2"]);
     expect(d.dms).toEqual([]);
   });
 
@@ -99,8 +103,10 @@ describe("a scheduled run's answer on the server", () => {
 });
 
 describe("a conversation's place on the server", () => {
-  it("is its own channel or thread when it has one", async () => {
-    expect(await placeOf("cron:7", deps({ "cron:7": "t7" }))).toBe("t7");
+  it("is its own channel or thread when it has one, with the owner made a member of it", async () => {
+    const d = deps({ "cron:7": "t7" });
+    expect(await placeOf("cron:7", d)).toBe("t7");
+    expect(d.joined).toEqual(["t7"]);
   });
 
   it("falls back to its home's channel when no thread can be made, and is nothing without a home", async () => {

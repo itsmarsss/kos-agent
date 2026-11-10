@@ -2854,3 +2854,45 @@ describe("a Discord reply", () => {
     expect(await heardFrom(replyTo(undefined))).not.toHaveProperty("context");
   });
 });
+
+describe("the owner in KOS's threads", () => {
+  /** An adapter whose project channel makes threads that record who was added to them. */
+  function threaded() {
+    const added: [string, string][] = [];
+    const unarchived: string[] = [];
+    let n = 0;
+    const thread = (id: string, archived = false) => ({
+      id,
+      archived,
+      isThread: () => true,
+      setArchived: async (a: boolean) => void (a ? undefined : unarchived.push(id)),
+      members: { add: async (user: string) => void added.push([id, user]) },
+    });
+    const existing: Record<string, unknown> = { t7: thread("t7"), t9: thread("t9", true), c1: { id: "c1", isThread: () => false } };
+    const adapter = new DiscordAdapter({ token: "t", ownerId: "222" });
+    (adapter as unknown as { boundIds: Map<string, string> }).boundIds.set("project:school", "c1");
+    existing["c1"] = { id: "c1", isThread: () => false, threads: { create: async () => thread(`made${++n}`) } };
+    (adapter as unknown as { client: unknown }).client = { channels: { fetch: async (id: string) => existing[id] ?? null } };
+    return { adapter, added, unarchived };
+  }
+
+  it("adds the owner to a thread it makes, so a post there notifies them", async () => {
+    const { adapter, added } = threaded();
+    expect(await adapter.ensureThread("project:school", "cron:24", "Digest")).toBe("made1");
+    expect(added).toEqual([["made1", "222"]]);
+  });
+
+  it("adds the owner to a thread already there once, opening it first when archived, and leaves a channel be", async () => {
+    const { adapter, added, unarchived } = threaded();
+    await adapter.joinOwner("t7");
+    await adapter.joinOwner("t7");
+    await adapter.joinOwner("t9");
+    await adapter.joinOwner("c1");
+    expect(added).toEqual([["t7", "222"], ["t9", "222"]]);
+    expect(unarchived).toEqual(["t9"]);
+    // A thread let go is joined again when next it is spoken in.
+    adapter.forgetPlace("t7");
+    await adapter.joinOwner("t7");
+    expect(added).toHaveLength(3);
+  });
+});

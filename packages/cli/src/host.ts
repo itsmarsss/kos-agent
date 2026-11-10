@@ -216,7 +216,7 @@ export class PlaceNotifier {
     const ping = job && pingsOwner(job) ? `<@${this.deps.ownerId}> ` : "";
     await this.deps.postIn(where, { ...msg, text: `${ping}${msg.text}` });
     this.spoke.add(payload.place);
-    return { delivered: `Posted in this run's own place on Discord, not the owner's DM${ping ? ", pinging the owner" : ""}. To reach the owner directly, send with to: "owner".` };
+    return { delivered: `Posted in this run's own place on Discord, where the owner is a member and is notified${ping ? ", pinging them" : ""}; it is not also sent to their DM.` };
   }
 }
 
@@ -907,6 +907,7 @@ export async function runHost(options: HostOptions): Promise<void> {
         titleOf: (conv) => kernel.titleOf(conv),
         ensureThread: (key, conv, title) => adapter!.ensureThread(key, conv, title),
         bindThread: (threadId, conv) => kernel.bindThread(threadId, conv),
+        joinOwner: (placeId) => adapter!.joinOwner(placeId).catch((err: unknown) => console.warn(`[discord] the owner could not be added to ${placeId}: ${err instanceof Error ? err.message : String(err)}`)),
       };
       const placed = new PlaceNotifier({
         ...placeOn,

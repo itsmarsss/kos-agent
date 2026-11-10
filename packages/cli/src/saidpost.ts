@@ -46,14 +46,24 @@ export interface PlaceDeps {
   titleOf(conversationId: string): string;
   ensureThread(channelKey: string, conversationId: string, title: string): Promise<string | undefined>;
   bindThread(threadId: string, conversationId: string): void;
+  /** Make the owner a member of a thread, so what lands there notifies them as a DM would; nothing for a channel. Never throws. */
+  joinOwner(placeId: string): Promise<void>;
 }
 
 /**
- * Where a conversation speaks on the server: its own channel or thread,
+ * Where a scheduled run speaks on the server: its own channel or thread,
  * the thread made now under its home when it has none yet, or its home's
  * channel when no thread can be made. Nothing when it has no place there.
+ * The owner is a member of the thread it finds, so a post there reaches
+ * them as the DM did.
  */
 export async function placeOf(conversationId: string, deps: PlaceDeps): Promise<string | undefined> {
+  const where = await findPlace(conversationId, deps);
+  if (where) await deps.joinOwner(where);
+  return where;
+}
+
+async function findPlace(conversationId: string, deps: PlaceDeps): Promise<string | undefined> {
   const bound = deps.targetFor(conversationId);
   if (bound) return bound;
   const home = deps.homeOf(conversationId);

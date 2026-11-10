@@ -1750,7 +1750,9 @@ export class DiscordAdapter implements ChannelAdapter {
         // A chat that has a channel of its own is not also a thread here.
         if (bound.has(thread.conversationId)) continue;
         const made = await have.channel.threads?.create({ name: thread.title.trim().slice(0, 100) || "Chat", autoArchiveDuration: 10080, reason: `KOS: ${thread.conversationId}` });
-        if (made) threads.push({ threadId: made.id, conversationId: thread.conversationId, title: thread.title });
+        if (!made) continue;
+        threads.push({ threadId: made.id, conversationId: thread.conversationId, title: thread.title });
+        await this.joinOwner(made.id, made).catch((err: unknown) => console.warn(`[discord] the owner could not be added to thread ${made.id}: ${errorText(err)}`));
       }
     }
     return { created, kept, threads, audiences };
@@ -1849,7 +1851,30 @@ export class DiscordAdapter implements ChannelAdapter {
     const made = await threads.create({ name: title.trim().slice(0, 100) || "Chat", autoArchiveDuration: 10080, reason: `KOS: ${conversationId}` }).catch(() => undefined);
     if (!made) return undefined;
     this.boundThreads.add(conversationId);
+    await this.joinOwner(made.id, made).catch((err: unknown) => console.warn(`[discord] the owner could not be added to thread ${made.id}: ${errorText(err)}`));
     return made.id;
+  }
+
+  /** Threads the owner is a member of, by KOS's doing or found so. */
+  private readonly ownerIn = new Set<string>();
+
+  /**
+   * The owner as a member of a thread KOS speaks in, so what lands there
+   * notifies them as a DM would. Once per thread; nothing for a channel,
+   * which the owner sees already. An archived thread is opened first, as
+   * Discord adds no one to one.
+   */
+  async joinOwner(threadId: string, known?: unknown): Promise<void> {
+    if (!this.ownerId || this.ownerIn.has(threadId)) return;
+    const thread = (known ?? (await this.place(threadId))) as
+      | { isThread?: () => boolean; archived?: boolean | null; setArchived?: (archived: boolean) => Promise<unknown>; members?: { add?: (id: string) => Promise<unknown> } }
+      | null;
+    if (!thread) return;
+    if (thread.isThread?.() && thread.members?.add) {
+      if (thread.archived && thread.setArchived) await thread.setArchived.call(thread, false);
+      await thread.members.add.call(thread.members, this.ownerId);
+    }
+    this.ownerIn.add(threadId);
   }
 
   /**
@@ -1952,6 +1977,7 @@ export class DiscordAdapter implements ChannelAdapter {
    */
   forgetPlace(id: string): void {
     for (const [key, bound] of [...this.boundIds]) if (bound === id) this.boundIds.delete(key);
+    this.ownerIn.delete(id);
     if (this.approvalsChannelId === id) this.approvalsChannelId = undefined;
     for (const key of [...this.webhooks.keys()]) if (key.startsWith(`${id}:`)) this.webhooks.delete(key);
     for (const [name, place] of [...this.known]) if (place.id === id) this.known.delete(name);

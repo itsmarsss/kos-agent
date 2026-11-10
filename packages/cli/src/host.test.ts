@@ -89,6 +89,7 @@ describe("a scheduled run's message in its place", () => {
 
   function placer(over: Partial<PlaceNotifierDeps> = {}) {
     const posts: { target: string; text: string }[] = [];
+    const joined: string[] = [];
     const deps: PlaceNotifierDeps = {
       ownerId: "222",
       targetFor: (conv) => ({ "cron:7": "t7", "cron:2": "t2" })[conv],
@@ -96,22 +97,25 @@ describe("a scheduled run's message in its place", () => {
       titleOf: (conv) => conv,
       ensureThread: async () => undefined,
       bindThread: () => undefined,
+      joinOwner: async (id) => void joined.push(id),
       jobOf: (p) => ({ "cron:7": reminder, "cron:2": kickoff })[p.place ?? ""],
       postIn: async (target, msg) => void posts.push({ target, text: msg.text }),
       ...over,
     };
-    return { notifier: new PlaceNotifier(deps), posts };
+    return { notifier: new PlaceNotifier(deps), posts, joined };
   }
   const run = (place: string, text = "Call The Centre now."): NotifyPayload => ({ text, target: { kind: "owner" }, place });
 
   it("posts in the run's place, pinging the owner for a fixed reminder and not for a prompted run", async () => {
-    const { notifier, posts } = placer();
-    expect(await notifier.say(run("cron:7"), { text: "Call The Centre now." })).toMatchObject({ delivered: expect.stringContaining("pinging the owner") });
+    const { notifier, posts, joined } = placer();
+    expect(await notifier.say(run("cron:7"), { text: "Call The Centre now." })).toMatchObject({ delivered: expect.stringContaining("pinging them") });
     await notifier.say(run("cron:2", "Kickoff"), { text: "Kickoff" });
     expect(posts).toEqual([
       { target: "t7", text: "<@222> Call The Centre now." },
       { target: "t2", text: "Kickoff" },
     ]);
+    // The owner is a member of each, so the post reaches them as the DM did.
+    expect(joined).toEqual(["t7", "t2"]);
   });
 
   it("leaves to the owner's DM what names somewhere, asks no place, or has none", async () => {
