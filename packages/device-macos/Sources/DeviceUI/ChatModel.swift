@@ -162,6 +162,8 @@ public final class ChatModel: ObservableObject {
   @Published public private(set) var workingSince: Date?
   /// The words of the turn KOS last took: a turn queued behind another starts its own clock.
   private var takenWords: String?
+  /// The chat a turn is in while the window shows none: the one KOS is about to show, its first turn told as it goes.
+  private var upcoming: String?
   /// The story of each turn on the go, under the words it is about: one running, and one said meanwhile.
   @Published public private(set) var stories: [Story] = []
   /// What each turn on the go saw, by the words it is about.
@@ -310,6 +312,7 @@ public final class ChatModel: ObservableObject {
     }
     if fresh { asks = asks.filter { $0.chat != nil && $0.chat == conversation } }
     self.conversation = conversation
+    upcoming = nil
     self.title = title
     self.lines = lines
     self.auto = auto
@@ -321,7 +324,7 @@ public final class ChatModel: ObservableObject {
     taken: Bool, story: String??, error: String?, said: String? = nil, conversation: String? = nil, waiting: Wait? = nil, held: Bool = false,
     command: Bool = false
   ) {
-    if let conversation, conversation != self.conversation { return }
+    guard isAbout(conversation, said: said, taken: taken) else { return }
     self.waiting = error == nil && story != .some(nil) ? waiting : nil
     self.held = error == nil && story != .some(nil) && held
     if let error {
@@ -368,6 +371,15 @@ public final class ChatModel: ObservableObject {
     case .none:
       break
     }
+  }
+
+  /// Whether a turn in `chat` is this window's: the chat shown, or, while none is, the one about to be, as KOS took the
+  /// owner's words there or tells the turn on words on their way from here.
+  private func isAbout(_ chat: String?, said: String?, taken: Bool) -> Bool {
+    guard let chat, chat != conversation else { return true }
+    guard conversation == nil else { return false }
+    if upcoming == nil, taken || said.map(sending.contains) == true { upcoming = chat }
+    return chat == upcoming
   }
 
   /// A step's picture as the turn on `said` takes it, in `conversation`: kept, and shown under its steps.
@@ -490,6 +502,7 @@ public final class ChatModel: ObservableObject {
   public func reset() {
     silent = false
     conversation = nil
+    upcoming = nil
     title = "KOS"
     lines = []
     sending = []

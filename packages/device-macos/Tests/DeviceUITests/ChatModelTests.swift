@@ -175,6 +175,31 @@ struct ChatModelTests {
     #expect(model.sending.isEmpty)
   }
 
+  /// While the window shows no chat, the turn in the chat it is about to show is told: its story shows before the chat does.
+  @Test func theFirstTurnFromNoneIsTold() {
+    let model = ChatModel()
+    model.show(conversation: nil, title: "Mac", lines: [])
+    model.say("tidy the deck")
+    model.status(taken: true, story: nil, error: nil, said: "tidy the deck", conversation: "mac:owner")
+    model.status(taken: false, story: .some("› Look at the screen"), error: nil, said: "tidy the deck", conversation: "mac:owner")
+    #expect(model.story == "› Look at the screen")
+    // Another chat's turn is still not this one's.
+    model.status(taken: false, story: .some("› Elsewhere"), error: nil, said: "other", conversation: "cm1:owner")
+    #expect(model.stories.map(\.text) == ["› Look at the screen"])
+    model.show(conversation: "mac:owner", title: "tidy the deck", lines: [.you("tidy the deck", files: [])])
+    #expect(model.story == "› Look at the screen")
+    #expect(model.working)
+  }
+
+  /// Taken before its chat was made, the first turn is told by the words it is about.
+  @Test func theFirstTurnIsToldByItsWordsWhenTakenBeforeItsChat() {
+    let model = ChatModel()
+    model.say("tidy the deck")
+    model.status(taken: true, story: nil, error: nil, said: "tidy the deck", conversation: nil)
+    model.status(taken: false, story: .some("› Look"), error: nil, said: "tidy the deck", conversation: "mac:owner")
+    #expect(model.story == "› Look")
+  }
+
   /// The first chat, made from none by /new, starts afresh and leaves the window ready for the next words.
   @Test func aChatMadeFromNoneStartsAfresh() {
     let model = ChatModel()
