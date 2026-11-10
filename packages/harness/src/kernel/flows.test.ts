@@ -1880,6 +1880,39 @@ describe("KOS end-to-end flows", () => {
     expect(model.systems[0]).toMatch(/Read artifacts\.guide.*artifacts\.write.*artifacts\.check/);
   });
 
+  it("a project orchestrator builds and fills its own project's tables, and no other's", async () => {
+    // A chat at the root is told to hand table work to @project:<slug>; that
+    // chat had no sql or migrate, so it saved rows as a sheet or spawned a worker.
+    const beds = { op: "create_table", table: "beds", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "name", type: "TEXT" }] };
+    const model = scripted([
+      toolCall("c1", "systems.migrate", { project: "garden", spec: beds }),
+      toolCall("c2", "sql", { sql: "INSERT INTO garden_beds (name) VALUES (?)", params: ["north"] }),
+      toolCall("c3", "systems.migrate", { project: "notes", spec: beds }),
+      toolCall("c4", "sql", { sql: "SELECT * FROM notes_pages" }),
+      text("Done."),
+    ]);
+    kernel = await boot(model.inference);
+    const garden = kernel.standUpProject({ name: "Garden", type: "tracker" });
+    const notes = kernel.standUpProject({ name: "Notes", type: "notes" });
+    kernel.migrator.migrate(notes.slug, { op: "create_table", table: "pages", columns: [{ name: "id", type: "INTEGER", primaryKey: true }] });
+
+    await kernel.handleProjectTurn(garden.slug, "make a beds table and add the north bed");
+    const offered = (model.calls[0]!.request.tools ?? []).map((t) => t.name);
+    for (const name of ["sql", "systems.migrate"]) expect(offered).toContain(name);
+    // Still the orchestrator: it does not start projects or reach the shell.
+    for (const name of ["systems.project_create", "shell", "files.write"]) expect(offered).not.toContain(name);
+
+    const results = kernel.sessions
+      .get(`project:${garden.slug}`)
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === "tool_result") as { isError?: boolean; content: unknown }[];
+    expect(results.map((r) => r.isError === true)).toEqual([false, false, true, true]);
+    expect(kernel.workspace.db.prepare("SELECT name FROM garden_beds").all()).toEqual([{ name: "north" }]);
+    expect(String(results[2]!.content)).toContain("not its to change");
+    expect(String(results[3]!.content)).toContain("not this project's");
+    expect(kernel.workspace.db.prepare("SELECT name FROM sqlite_master WHERE name = 'notes_beds'").all()).toEqual([]);
+  });
+
   it("KOS gets a router brief so the hierarchy is a behaviour", async () => {
     const model = scripted([text("hi")]);
     kernel = await boot(model.inference);

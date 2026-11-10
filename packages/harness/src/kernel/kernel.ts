@@ -300,10 +300,13 @@ const ORCHESTRATOR_SCOPE = ["memory"];
 
 /**
  * What a project's own orchestrator is granted: the root's chats, blobs and
- * Discord tools, and its project's pages. Asked to turn its pages into
- * artifacts, it had no page tool to read or write one with, and said so.
+ * Discord tools, and its project's pages and tables. Asked to turn its pages
+ * into artifacts, it had no page tool to read or write one with, and said so.
+ * It is where a chat at the root hands table work, and without sql and
+ * migrate it saved the rows as a sheet or spent a hop on a worker chat. Both
+ * stay fenced to its own project, as any of the project's chats are.
  */
-const PROJECT_ORCHESTRATOR_GRANT = [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS, ...ARTIFACT_TOOLS];
+const PROJECT_ORCHESTRATOR_GRANT = [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS, ...ARTIFACT_TOOLS, "sql", "systems.migrate"];
 
 /**
  * What a turn may reach when a guest is speaking: the chat's own data, the
@@ -2113,7 +2116,8 @@ export class Kernel {
         "Some projects are built things, with tables, pages or a site; many are mostly",
         "conversation (a plan, a search, a list, a date to organise) and need none of that.",
         "Make tables, pages or sites only when the work keeps records or needs a screen, and only",
-        "as much as it needs; otherwise talk, decide and remember. Spawn an agent with chats.create",
+        "as much as it needs; otherwise talk, decide and remember. This project's tables and rows",
+        "are yours to make and fill (systems.migrate, sql), with no worker needed. Spawn an agent with chats.create",
         "for a distinct piece of work that deserves its own thread, and hand it the task; keep",
         "yourself free to coordinate and report. You see only this project's chats and may start",
         "agents for its work. You cannot reach other projects; KOS at the root does that.",
