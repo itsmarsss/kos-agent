@@ -46,6 +46,15 @@ describe("sqlModule", () => {
     expect(JSON.parse(res.content)).toEqual([{ amount: 10 }, { amount: 20 }]);
   });
 
+  it("runs a project's row whose columns and values are named like KOS's tables", async () => {
+    ws.db.exec("CREATE TABLE IF NOT EXISTS pages (id TEXT); CREATE TABLE IF NOT EXISTS settings (key TEXT); CREATE TABLE books_shelf (id INTEGER PRIMARY KEY, pages INTEGER, settings TEXT)");
+    const res = await registry.execute("sql", { sql: "INSERT INTO books_shelf (pages, settings) VALUES (?, 'settings')", params: [320] });
+    expect(res.isError).toBe(false);
+    expect(JSON.parse(res.content).changes).toBe(1);
+    const read = await registry.execute("sql", { sql: "SELECT pages FROM books_shelf WHERE settings = ?", params: ["settings"] });
+    expect(JSON.parse(read.content)).toEqual([{ pages: 320 }]);
+  });
+
   it("runs a write and reports changes", async () => {
     const res = await registry.execute("sql", {
       sql: "INSERT INTO books_tx (amount) VALUES (?)",
