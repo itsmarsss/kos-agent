@@ -55,6 +55,8 @@ export interface NotifyPayload {
    * surface with no such place sends it to the owner as before.
    */
   place?: string;
+  /** Mention the owner where it lands in a place, as news they must not miss; a DM notifies them already. */
+  ping?: boolean;
 }
 
 /** What a surface says it did with a message: the id of a post, and where it went when that was not where asked. */

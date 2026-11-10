@@ -141,7 +141,7 @@ import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme,
 import { facePng } from "../files/facepng.js";
 import { attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
-import { SessionStore, cronSessionId, primarySessionId } from "./session.js";
+import { SessionStore, cronSessionId, primarySessionId, upkeepSessionId } from "./session.js";
 import type { TurnMade } from "./turnmade.js";
 import { ConversationStore, type Conversation, conversationKind, projectConversationId } from "./conversations.js";
 import {
@@ -746,7 +746,7 @@ export class Kernel {
       report: (key, label, ok, error) => {
         const jobId = Number(key.replace(/^cron:/, ""));
         const job = Number.isInteger(jobId) ? this.crons.get(jobId) : undefined;
-        this.caretaker.report(key, label, ok, error, job ? this.jobPlace(job) : undefined);
+        this.caretaker.report(key, label, ok, error, job ? this.newsPlace(job) : undefined);
         if (Number.isInteger(jobId)) this.bus.emit({ kind: "cron:fired", jobId, name: label, ok, error });
       },
       backup: args.backup,
@@ -1628,6 +1628,25 @@ export class Kernel {
   }
 
   /**
+   * Where a job's failing and recovered news is told: its own place, or for
+   * KOS's upkeep (kos.*) the one chat all of upkeep shares, made when first
+   * needed, rather than a thread for each.
+   */
+  private newsPlace(job: CronJob): string {
+    if (!job.name.startsWith("kos.")) return this.jobPlace(job);
+    const id = upkeepSessionId(this.profile.ownerId);
+    if (!this.conversations.get(id)) {
+      this.conversations.create({
+        id,
+        userId: this.profile.ownerId,
+        title: "KOS upkeep",
+        brief: "KOS's own upkeep (kos.backup, kos.memory, kos.dream, kos.observe, kos.improve) says here when one of its jobs fails or recovers.",
+      });
+    }
+    return id;
+  }
+
+  /**
    * Write a fixed-actions run into the job's thread.
    *
    * An actions job makes no model call, so there was no turn to record and
@@ -1706,7 +1725,7 @@ export class Kernel {
     // its own; otherwise the answer stays in its thread and the brief says
     // what to tell.
     const role = job.agent ? this.roles.get(job.agent) : undefined;
-    if (role?.report === "always" && res.reply.trim()) this.caretaker.tell(res.reply, this.senderFor(id));
+    if (role?.report === "always" && res.reply.trim()) this.caretaker.tell(res.reply, { from: this.senderFor(id) });
     return res.reply;
   }
 

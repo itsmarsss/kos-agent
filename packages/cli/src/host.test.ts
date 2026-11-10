@@ -118,6 +118,13 @@ describe("a scheduled run's message in its place", () => {
     expect(joined).toEqual(["t7", "t2"]);
   });
 
+  it("pings the owner for a failing job's news in its place, and not for its recovery", async () => {
+    const { notifier, posts } = placer();
+    await notifier.say({ ...run("cron:2", "Kickoff is failing."), ping: true }, { text: "Kickoff is failing." });
+    await notifier.say(run("cron:2", "Kickoff is working again."), { text: "Kickoff is working again." });
+    expect(posts.map((p) => p.text)).toEqual(["<@222> Kickoff is failing.", "Kickoff is working again."]);
+  });
+
   it("leaves to the owner's DM what names somewhere, asks no place, or has none", async () => {
     const { notifier, posts } = placer();
     expect(await notifier.say({ text: "x", target: { kind: "owner" } }, { text: "x" })).toBeUndefined();

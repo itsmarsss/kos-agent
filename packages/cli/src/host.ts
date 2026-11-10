@@ -213,7 +213,8 @@ export class PlaceNotifier {
     const where = await placeOf(payload.place, this.deps).catch(() => undefined);
     if (!where) return undefined;
     const job = this.deps.jobOf(payload);
-    const ping = job && pingsOwner(job) ? `<@${this.deps.ownerId}> ` : "";
+    // A fixed reminder, and news the owner must not miss (a job failing), ping them.
+    const ping = payload.ping || (job && pingsOwner(job)) ? `<@${this.deps.ownerId}> ` : "";
     await this.deps.postIn(where, { ...msg, text: `${ping}${msg.text}` });
     this.spoke.add(payload.place);
     return { delivered: `Posted in this run's own place on Discord, where the owner is a member and is notified${ping ? ", pinging them" : ""}; it is not also sent to their DM.` };

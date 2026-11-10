@@ -14,7 +14,8 @@ import { BindingGoneError } from "../channels/types.js";
 import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { toPdf } from "../tools/pdf.js";
 import { bodyHexOf } from "@kos/shared";
-import { primarySessionId } from "./session.js";
+import { primarySessionId, upkeepSessionId } from "./session.js";
+import { BEHAVIOUR_KEY } from "./behaviour.js";
 import { conversationEvents } from "./transcript.js";
 
 /** Inference stub: optionally emits one tool call on the first turn. */
@@ -1204,14 +1205,48 @@ describe("Kernel", () => {
     ]);
   });
 
-  it("tells a failing job's news in the job's own place", async () => {
+  it("tells a failing job's news in its own place with a ping, and its recovery there without one", async () => {
     const seen: NotifyPayload[] = [];
     kernel = await boot(stubInference([]), async (payload) => {
       seen.push(payload as NotifyPayload);
     });
-    kernel.caretaker.report("cron:5", "Broken", false, "boom", "cron:5");
-    await vi.waitFor(() => expect(seen.length).toBeGreaterThan(0));
-    expect(seen[0]).toMatchObject({ place: "cron:5", target: { kind: "owner" } });
+    kernel.settings.set(BEHAVIOUR_KEY, { autoFix: false });
+    const broken = [{ tool: "files.read", args: { path: "nope/missing.md" } }];
+    const job = kernel.crons.create({ name: "Nightly", schedule: "0 3 * * *", type: "actions", actions: broken });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    kernel.crons.update(job.id, { name: "Nightly", schedule: "0 3 * * *", type: "actions", actions: [{ tool: "files.ls", args: {} }] });
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    await vi.waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen.map((p) => [p.place, p.ping ?? false])).toEqual([
+      [`cron:${job.id}`, true],
+      [`cron:${job.id}`, false],
+    ]);
+  });
+
+  it("tells every upkeep job's failure in the one upkeep chat, which threads under KOS", async () => {
+    const seen: NotifyPayload[] = [];
+    kernel = await boot(stubInference([]), async (payload) => {
+      seen.push(payload as NotifyPayload);
+    });
+    kernel.settings.set(BEHAVIOUR_KEY, { autoFix: false });
+    const broken = [{ tool: "files.read", args: { path: "nope/missing.md" } }];
+    const a = kernel.crons.create({ name: "kos.alpha", schedule: "0 3 * * *", type: "actions", actions: broken });
+    const b = kernel.crons.create({ name: "kos.beta", schedule: "0 4 * * *", type: "actions", actions: broken });
+    kernel.startCron();
+    await kernel.fireCron(a.id);
+    await kernel.fireCron(b.id);
+    await kernel.queue.drain();
+    kernel.stopCron();
+    const upkeep = upkeepSessionId(kernel.profile.ownerId);
+    await vi.waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen.map((p) => [p.place, p.ping])).toEqual([
+      [upkeep, true],
+      [upkeep, true],
+    ]);
+    expect(kernel.threadHome(upkeep)).toBe(`orchestrator:${kernel.profile.ownerId}`);
   });
 
   it("moves a job's thread into the project the job was moved to", async () => {
