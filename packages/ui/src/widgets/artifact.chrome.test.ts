@@ -577,6 +577,28 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   }, 30_000);
 
   /*
+   * A frozen column sits just right of the row numbers, which a phone draws
+   * narrower: across the phone's breakpoint and back, it moves with them.
+   */
+  it("keeps a frozen column against the row numbers as the view crosses a phone's width", async () => {
+    const pin = `() => { const cell = document.querySelector(".sheet-grid tbody td.frozen"); return { rownum: document.querySelector(".sheet-grid thead .rownum").offsetWidth, left: getComputedStyle(cell).left }; }`;
+    const view = (width: number): Promise<Record<string, unknown>> => send("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: width < 600 });
+    const pinned = (p: { rownum: number; left: string }): boolean => p.left === `${p.rownum}px`;
+    await view(1200);
+    await sheetPage("/pin", sheetData(months(8, 1)), { pin });
+    const wide = await ask("pin", pinned);
+    expect(wide.left).toBe(`${wide.rownum}px`);
+    await view(390);
+    const phone = await ask("pin", (p: { rownum: number; left: string }) => p.rownum !== wide.rownum && pinned(p));
+    expect(phone.rownum).toBeLessThan(wide.rownum);
+    expect(phone.left).toBe(`${phone.rownum}px`);
+    await view(1200);
+    const back = await ask("pin", (p: { rownum: number; left: string }) => p.rownum === wide.rownum && pinned(p));
+    expect(back.left).toBe(`${wide.rownum}px`);
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 60_000);
+
+  /*
    * On a desktop the grid's box sizes to its grid, so a sheet held by
    * something sized to its content (an inline block, a flex item) shows every
    * column, where a box contained inline would be sized as if empty, to no
