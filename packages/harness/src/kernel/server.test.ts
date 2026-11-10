@@ -1,4 +1,4 @@
-import { DENIED_PREFIX } from "./guarded.js";
+import { undoneResult } from "./guarded.js";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -629,7 +629,8 @@ describe("handleApiRequest", () => {
       { kind: "tool" as const, name: "browser.visit", summary: "", args: {}, result: "Opened" },
       { kind: "tool" as const, name: "sql", summary: "", args: {}, result: "rows" },
       // A step from the old engine, in a transcript from before KOS drove the browser itself.
-      { kind: "tool" as const, name: "mcp.browser.agent_browser_click", summary: "", args: {}, result: `${DENIED_PREFIX}4). no` },
+      { kind: "tool" as const, name: "mcp.browser.agent_browser_click", summary: "", args: {}, result: "not approved (pending #4). no" },
+      { kind: "tool" as const, name: "browser.act", summary: "", args: {}, result: undoneResult("denied", "Click Buy") },
       { kind: "tool" as const, name: "browser.act", summary: "", args: {}, result: "Done" },
       { kind: "tool" as const, name: "browser.act", summary: "", args: {}, pendingId: "9" },
     ];
@@ -637,7 +638,7 @@ describe("handleApiRequest", () => {
       { id: 11, toolUseId: null, tool: "browser.visit" },
       { id: 12, toolUseId: null, tool: "browser.act" },
     ];
-    expect(withFrames(events, frames).map((e) => (e.kind === "tool" ? e.frameId : null))).toEqual([11, undefined, undefined, 12, undefined]);
+    expect(withFrames(events, frames).map((e) => (e.kind === "tool" ? e.frameId : null))).toEqual([11, undefined, undefined, undefined, 12, undefined]);
   });
 
   it("gives any step its picture by the call's id, not only a browser step's", () => {

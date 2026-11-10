@@ -38,7 +38,7 @@ import {
   parseModelSettings,
 } from "../models/settings.js";
 import { historyEvents, type ChatEvent } from "./transcript.js";
-import { DENIED_PREFIX } from "./guarded.js";
+import { isUndone } from "./guarded.js";
 import { copyEntry, deleteEntry, listDirectory, makeDir, readForText, readForView, readImage, readBytes, readPdf, renameEntry, type DirEntry } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, sumSpend, windowFor, RATES_KEY, type Rates, type SpendSummary } from "../ops/spend.js";
@@ -3217,7 +3217,7 @@ export function withFrames(events: ChatEvent[], frames: { id: number; toolUseId:
     if (e.kind !== "tool") return e;
     if (e.toolUseId && byId.has(e.toolUseId)) return { ...e, frameId: byId.get(e.toolUseId)! };
     if (!browserStep(e.name)) return e;
-    if (e.pendingId || (e.result && (e.result.startsWith(DENIED_PREFIX) || e.result.startsWith("Queued for approval")))) return e;
+    if (e.pendingId || (e.result && (isUndone(e.result) || e.result.startsWith("Queued for approval")))) return e;
     const frame = unkeyed[next];
     if (!frame) return e;
     next++;

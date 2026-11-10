@@ -231,11 +231,10 @@ describe("channelGuidance", () => {
     expect(channelGuidance(undefined)).toBeUndefined();
   });
 
-  it("asks for the fewest lines, subtext for the small print, and one line after an approval", () => {
+  it("asks for the fewest lines and subtext for the small print", () => {
     const g = channelGuidance("discord")!;
     expect(g).toContain("-# ");
     expect(g).toContain("Lead with the answer");
-    expect(g).toContain("After an approval");
     // Times are quoted in the owner's words, never computed into Discord's
     // <t:…> markup: the number came out a year off when worked out by hand.
     // A time on the reader's clock is a token with the time as written, never seconds worked out by hand.

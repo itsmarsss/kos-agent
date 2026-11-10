@@ -437,6 +437,78 @@ describe("KOS end-to-end flows", () => {
     off();
   });
 
+  describe("reacting to a decision", () => {
+    /** What the model was shown as a call's result, in the request after it. */
+    const resultShown = (model: Scripted, id: string): string | undefined =>
+      model.calls
+        .flatMap((c) => c.request.messages)
+        .flatMap((m) => (typeof m.content === "string" ? [] : m.content))
+        .flatMap((b) => (b.type === "tool_result" && b.toolUseId === id ? [b.content] : []))[0];
+    /** The next answer told to whoever mirrors the chat: where it goes, and whether it follows a wait. */
+    const nextSaid = (): Promise<{ conversationId: string; resumed: boolean }> =>
+      new Promise((resolve) => {
+        kernel.bus.on("turn:said", (e) => resolve({ conversationId: e.conversationId, resumed: e.resumed === true }));
+      });
+
+    it("answers a denial in the waiting turn, told plainly that it was not done", async () => {
+      const model = scripted([toolCall("c1", "shell", { command: "rm -rf build" }), text("OK, I won't delete it.")]);
+      kernel = await boot(model.inference);
+      const c = kernel.conversations.create({ userId: "owner", title: "Tidy" });
+      const first = await kernel.handleMessage("delete the build folder", { sessionId: c.id });
+      expect(first.suspended).toBe(true);
+      const said = nextSaid();
+      await kernel.deny(kernel.approvals.pending()[0]!.id);
+      // The turn reacts in the chat that asked, as the answer after the wait, which every surface posts.
+      expect(await said).toEqual({ conversationId: c.id, resumed: true });
+      const shown = resultShown(model, "c1")!;
+      expect(shown).toMatch(/^The owner denied this: .*It was not done\./);
+      expect(shown).not.toMatch(/pending|#\d/);
+    });
+
+    it("reports an approved call's result in the waiting turn", async () => {
+      const model = scripted([toolCall("c1", "files.rm", { path: "plan.md" }), text("Deleted plan.md.")]);
+      kernel = await boot(model.inference);
+      writeFileSync(join(kernel.workspace.root, "plan.md"), "bye");
+      const c = kernel.conversations.create({ userId: "owner", title: "Notes" });
+      const ask = kernel.handleMessage("delete plan.md", { sessionId: c.id });
+      await vi.waitFor(() => expect(kernel.approvals.pending()).toHaveLength(1));
+      expect((await ask).suspended).toBe(true);
+      const said = nextSaid();
+      await kernel.approve(kernel.approvals.pending()[0]!.id);
+      expect(await said).toEqual({ conversationId: c.id, resumed: true });
+      expect(resultShown(model, "c1")).toMatch(/^The owner approved this, and it ran:\n/);
+      expect(existsSync(join(kernel.workspace.root, "plan.md"))).toBe(false);
+    });
+
+    it("resumes a chat whose ask nothing waits on, and answers a denial in it", async () => {
+      const model = scripted([text("OK, I won't delete it.")]);
+      kernel = await boot(model.inference);
+      writeFileSync(join(kernel.workspace.root, "plan.md"), "keep");
+      const c = kernel.conversations.create({ userId: "owner", title: "Notes" });
+      // As a restart leaves it: asked in this chat, with no turn left holding for the answer.
+      const ask = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "plan.md" }, riskTier: "risky", conversationId: c.id, owner: true, attended: true });
+      const said = nextSaid();
+      await kernel.deny(ask.id);
+      // A turn runs in the chat that asked, and its answer is told there.
+      expect((await said).conversationId).toBe(c.id);
+      expect(model.prompts.at(-1)).toContain(`@approval:${ask.id} Delete plan.md: the owner denied this. It was not done.`);
+      expect(existsSync(join(kernel.workspace.root, "plan.md"))).toBe(true);
+    });
+
+    it("resumes a chat whose ask nothing waits on, and reports an approved result in it", async () => {
+      const model = scripted([text("Deleted plan.md.")]);
+      kernel = await boot(model.inference);
+      writeFileSync(join(kernel.workspace.root, "plan.md"), "bye");
+      const c = kernel.conversations.create({ userId: "owner", title: "Notes" });
+      const ask = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "plan.md" }, riskTier: "risky", conversationId: c.id, owner: true, attended: true });
+      const said = nextSaid();
+      await kernel.approve(ask.id);
+      expect((await said).conversationId).toBe(c.id);
+      expect(model.prompts.at(-1)).toContain(`@approval:${ask.id} Delete plan.md: the owner approved it, and it ran.`);
+      expect(existsSync(join(kernel.workspace.root, "plan.md"))).toBe(false);
+    });
+  });
+
   it("stops a turn waiting on the owner, and lapses the ask", async () => {
     const model = scripted([
       toolCall("c1", "shell", { command: "rm -rf build" }),

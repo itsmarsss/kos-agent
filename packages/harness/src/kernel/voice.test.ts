@@ -9,6 +9,12 @@ describe("the house voice", () => {
     expect(VOICE.split("\n").length).toBeLessThan(12);
   });
 
+  it("asks for a one-line reaction once the owner decides on an ask", () => {
+    expect(VOICE).toContain("Once the owner decides on something you asked for, react in one line");
+    expect(VOICE).toContain("A decided ask is never still waiting on them.");
+    expect(VOICE).toContain("No recap of the ask or the approval.");
+  });
+
   it("rewrites an em dash as the pause it stood for, outside code", () => {
     expect(inHouseVoice("Done — the file is there.")).toBe("Done, the file is there.");
     expect(inHouseVoice("Done—the file is there.")).toBe("Done, the file is there.");

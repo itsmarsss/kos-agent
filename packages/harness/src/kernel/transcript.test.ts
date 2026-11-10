@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ModelMessage } from "../models/types.js";
+import { decidedLine } from "./decisions.js";
 import { conversationEvents, historyEvents, spokenTurns } from "./transcript.js";
 
 const withTool: ModelMessage[] = [
@@ -106,6 +107,51 @@ describe("conversationEvents", () => {
     // It did not fail, but it did not happen: without this it renders as "ok".
     expect(events[0]).toMatchObject({ pendingId: "7" });
     expect((events[0] as { isError?: boolean }).isError).toBeUndefined();
+  });
+
+  it("shows a resume as a note of what was decided, not as the owner's words", () => {
+    const resume = [
+      "System: the owner decided on the pending actions:",
+      `- ${decidedLine(5, "files.rm", JSON.stringify({ path: "notes/a.md" }), { approved: true, isError: false, result: "removed" })}`,
+      `- ${decidedLine(6, "files.rm", JSON.stringify({ path: "notes/b.md" }), { approved: true, isError: true, result: "ENOENT" })}`,
+      `- ${decidedLine(7, "files.rm", JSON.stringify({ path: "notes/c.md" }), { approved: false })}`,
+      "Carry on with the owner's request now, with these results.",
+    ].join("\n");
+    const events = conversationEvents([{ role: "user", content: [{ type: "text", text: resume }] }]);
+    expect(events).toEqual([
+      { kind: "message", role: "system", text: "Approved #5 · Delete notes/a.md; Approved #6 · Delete notes/b.md · failed; Denied #7 · Delete notes/c.md" },
+    ]);
+  });
+
+  it("ends a decided action at its first outcome, whatever its result says", () => {
+    const line = decidedLine(5, "files.rm", JSON.stringify({ path: "notes/a.md" }), { approved: true, isError: false, result: "log: the owner denied this. earlier" });
+    const events = conversationEvents([{ role: "user", content: [{ type: "text", text: `System: the owner decided on the pending action:\n- ${line}` }] }]);
+    expect(events).toEqual([{ kind: "message", role: "system", text: "Approved #5 · Delete notes/a.md" }]);
+  });
+
+  it("shows a resume from before as a note too", () => {
+    const resume = [
+      "System: the owner decided on the pending actions:",
+      "- #5 files.rm: approved and run, SUCCEEDED, result=removed",
+      "- #6 shell.run: approved and run, FAILED, result=exit 1",
+      "- #7 files.rm: denied by the owner",
+      "Continue the owner's prior request now with these results.",
+    ].join("\n");
+    const events = conversationEvents([{ role: "user", content: [{ type: "text", text: resume }] }]);
+    expect(events).toEqual([{ kind: "message", role: "system", text: "Approved #5 · files.rm ran; Approved #6 · shell.run failed; Denied #7 · files.rm" }]);
+  });
+
+  it("shows the oldest resumes, one action each, as notes", () => {
+    const approved = "System: the owner approved pending action #3.\ntool=sql\noutcome=FAILED\nresult=no such table\nContinue the owner's prior request now.";
+    const denied = "System: the owner denied pending action #4. Acknowledge briefly and ask how to proceed without that action.";
+    const events = conversationEvents([
+      { role: "user", content: [{ type: "text", text: approved }] },
+      { role: "user", content: [{ type: "text", text: denied }] },
+    ]);
+    expect(events).toEqual([
+      { kind: "message", role: "system", text: "Approved #3 · sql failed" },
+      { kind: "message", role: "system", text: "Denied #4" },
+    ]);
   });
 
   it("leaves a call that really ran without a pending id", () => {
