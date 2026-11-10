@@ -20,12 +20,12 @@ describe("the eval run's wait on a decided chat", () => {
     expect(await kos.resumed([chat])).toBe(true);
   });
 
-  it("counts a resume once the chat changed after the decision", async () => {
-    const chat = { id: "c1", activity: "idle", updatedAt: 100, replies: [] };
+  it("does not count the decision touching the chat as a resume", async () => {
+    const chat = { id: "c1", activity: "idle", updatedAt: 100, replies: ["Waiting on you"] };
     const kos = over(chat);
     await kos.decided("c1");
     chat.updatedAt = 200;
-    expect(await kos.resumed([chat])).toBe(true);
+    expect(await kos.resumed([chat])).toBe(false);
   });
 
   it("waits while the resumed turn works", async () => {

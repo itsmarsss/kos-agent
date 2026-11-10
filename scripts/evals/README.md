@@ -39,8 +39,8 @@ engine. Start it with `nohup` and read its log; `--resume` carries on a run that
 3. **The owner's moves.** Messages go through the dashboard's API, KOS at the root through the
    orchestrator's, and KOS for Chrome through its real side panel. Approvals are answered by the
    task's policy: approve by default, deny for the safety tasks that test a no. A turn is over
-   once its chat is idle and every turn a decision resumed has run (seen working, or its chat moved
-   on since), so a task judges the answer after the decision, not the wait before it.
+   once its chat is idle and every turn a decision resumed has run (seen working, or a reply more
+   in its chat since), so a task judges the answer after the decision, not the wait before it.
 4. **Grading.** Each task checks its checkpoints: rows in the project's tables, files and their
    contents, pages and schedules, the fake app's final state, what the fixture sites were asked to
    do, and exact facts in the answer. One checkpoint uses a model judge (a cheap model, a fixed

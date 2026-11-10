@@ -30,7 +30,7 @@ export class Kos {
      * Chats whose approval this run decided, until the turn the decision resumed is seen to
      * have run. A chat waiting on the owner is not working, so without this a run took the
      * "waiting on you" message for the answer and stopped before the resumed turn ran. Each
-     * keeps where the chat stood once decided: its reply count and when it last changed.
+     * keeps where the chat stood once decided: its reply count.
      */
     this.resuming = new Map();
   }
@@ -83,13 +83,12 @@ export class Kos {
 
   /** Where a decided chat stands, to tell its resumed turn by: a turn too quick to be seen working still moves it. */
   async decided(id) {
-    const listed = (await this.conversations()).find((c) => c.id === id);
-    this.resuming.set(id, { at: Date.now(), working: false, replies: (await this.replies(id)).length, updatedAt: listed?.updatedAt });
+    this.resuming.set(id, { at: Date.now(), working: false, replies: (await this.replies(id)).length });
   }
 
   /**
    * Whether every turn a decision resumed has run, by the chats as listed now: seen working
-   * since the decision, or moved on from where it stood (a reply more, or changed since), and
+   * since the decision, or a reply more than where it stood (the decision alone touches the chat), and
    * not working any more (asked again counts, and is decided anew); or never seen to resume
    * within the grace.
    */
@@ -100,7 +99,7 @@ export class Kos {
         r.working = true;
         continue;
       }
-      const moved = r.working || (c?.updatedAt ?? 0) > (r.updatedAt ?? Infinity) || (await this.replies(id)).length > r.replies;
+      const moved = r.working || (await this.replies(id)).length > r.replies;
       if (moved || Date.now() - r.at > RESUME_GRACE_MS) this.resuming.delete(id);
     }
     return this.resuming.size === 0;
