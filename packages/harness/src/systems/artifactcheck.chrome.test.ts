@@ -7,7 +7,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { findChrome } from "@kos/browser";
 import { COLOURS, type HtmlPage } from "@kos/shared";
 
+import Database from "better-sqlite3";
+
 import { ArtifactChecker, reportWords, type Finding } from "./artifactcheck.js";
+import { PageQueries } from "./pagequeries.js";
 
 /**
  * artifacts.check in a real Chrome, on pages planted with one problem each,
@@ -154,5 +157,51 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-sheet.js")))("each runti
   it.each(Object.keys(KINDS))("the %s runtime's own chrome passes, in both themes and widths", async (id) => {
     const report = await checker.check(id);
     expect(report.findings).toEqual([]);
+  }, 45_000);
+});
+
+/** Ten queries at once, as a dashboard's charts ask them, then whether all ten came back. */
+const MANY = `<h1>Reading</h1><p id="out">waiting</p><script>Promise.all(Array.from({ length: 10 }, function (_, i) { return kos.query("SELECT n + ? AS n FROM books", [i]) })).then(function (all) { out.textContent = all.length + " answered" }, function (e) { out.textContent = "query failed: " + e.message })</script>`;
+
+describe.skipIf(!chrome)("artifacts.check over real page queries", () => {
+  let dir: string;
+  let queries: PageQueries;
+  let checker: ArtifactChecker;
+  let lib: string;
+  const pages: Record<string, HtmlPage> = {
+    many: { id: "many", title: "Reading", html: MANY },
+    broken: { id: "broken", title: "Broken", html: `<h1>Broken</h1><p id="out">waiting</p><script>kos.query("SELECT missing FROM books").then(function () {}, function (e) { out.textContent = "query failed" })</script>` },
+  };
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "kos-queries-"));
+    const db = new Database(join(dir, "kos.sqlite"));
+    db.exec("CREATE TABLE books (n INTEGER); INSERT INTO books VALUES (1), (2), (3);");
+    db.close();
+    queries = new PageQueries(join(dir, "kos.sqlite"));
+    lib = pageLib();
+    checker = new ArtifactChecker({
+      load: (id) => (pages[id] ? { page: pages[id]!, title: pages[id]!.title } : undefined),
+      call: (id, _verb, args) => queries.run(String(args.sql), (args.params as number[] | undefined) ?? [], { key: id }),
+      captures: (id) => join(dir, "captures", id),
+      pageLib: () => lib,
+    });
+  });
+
+  afterAll(() => {
+    checker?.close();
+    queries?.close();
+    rmSync(lib, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("answers ten queries asked at once, in every render, with nothing to report", async () => {
+    const report = await checker.check("many");
+    expect(report.findings).toEqual([]);
+  }, 45_000);
+
+  it("reports a query the page's own SQL breaks", async () => {
+    const report = await checker.check("broken");
+    expect(report.findings.find((f) => f.kind === "bridge")?.text).toMatch(/kos\.query: no such column: missing/);
   }, 45_000);
 });

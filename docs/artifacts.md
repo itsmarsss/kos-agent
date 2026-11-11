@@ -479,7 +479,10 @@ declarations:
   time waiting for a turn included: SQLite cannot be interrupted from Node,
   so a recursive CTE that never ends would otherwise hold the server. A page
   has one query running and four waiting at most; more are refused, so one
-  page cannot starve the rest. Headlines run the same way, with 1 s, and are
+  page cannot starve the rest. The bridge sends a frame's queries two at a
+  time and holds the rest in the frame, so a page that asks for ten at once
+  (`Promise.all` over its charts) gets ten answers, and the viewer and a
+  check's render of the same artifact still fit. Headlines run the same way, with 1 s, and are
   kept for 30 s or until the page changes; the page list waits on them for
   1.2 s at most. Closing KOS kills every child, and a child whose server
   goes exits by itself.

@@ -36,6 +36,14 @@ export const fitsContent = (kind: string | undefined): boolean => FIT_KINDS.incl
 /** The tallest the dashboard lets a page's frame grow: the height is the page's to say, so it is capped. */
 export const FRAME_HEIGHT_MAX = 50_000;
 
+/**
+ * Queries one frame has with the server at once. The server lets a page have
+ * one running and four waiting (pagequeries.ts); the bridge holds the rest,
+ * so a page that asks for ten at once gets ten answers, and two frames of the
+ * same artifact (the viewer and a check's render) still fit.
+ */
+export const FRAME_QUERIES = 2;
+
 /** What a page may load: nothing from the network. */
 export const PAGE_CSP = [
   "default-src 'none'",
@@ -159,6 +167,9 @@ export function tokenRule(tokens: Record<string, string>, mode: "light" | "dark"
  * a jump scroll the dashboard only just after one. A save is the shell's to
  * allow, not the page's: it is relayed while the owner's hand is in the
  * frame, or just after the shell's own Done.
+ *
+ * Queries go out FRAME_QUERIES at a time, in the order asked; the rest wait
+ * in the frame, so how many a page asks at once is never a refusal.
  */
 export const BRIDGE_SCRIPT = `(function(){
 var gestures=new MessageChannel(),gport=gestures.port1,tell=MessagePort.prototype.postMessage,apply=Reflect.apply,listen=EventTarget.prototype.addEventListener;
@@ -181,6 +192,8 @@ addEventListener("load",measure);
 Element.prototype.scrollIntoView=function(o){if(inner())into.call(this,o);reveal(this,o===false?"end":o&&typeof o==="object"&&o.block||"start")};
 }
 function call(method,args){return new Promise(function(resolve,reject){var id=++seq;waiting[id]={resolve:resolve,reject:reject};top.postMessage({__kos:"call",id:id,method:method,args:args},"*");});}
+var asking=0,asks=[];
+function ask(){while(asking<${FRAME_QUERIES}&&asks.length){var a=asks.shift();asking++;call("query",a.args).then(a.resolve,a.reject).then(function(){asking--;ask()})}}
 function report(message){try{top.postMessage({__kos:"error",message:String(message).slice(0,2000)},"*");}catch(_){}}
 addEventListener("message",function(e){
 if(e.source!==top)return;var m=e.data||{};
@@ -192,7 +205,7 @@ document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e
 addEventListener("error",function(e){report(e.message||"The page hit an error")});
 addEventListener("unhandledrejection",function(e){var r=e.reason;report(r&&r.message?r.message:String(r))});
 var kos={
-query:function(sql,params){return call("query",{sql:sql,params:params})},
+query:function(sql,params){return new Promise(function(resolve,reject){asks.push({args:{sql:sql,params:params},resolve:resolve,reject:reject});ask()})},
 write:function(table,op,values,key){return call("write",{table:table,op:op,values:values,key:key}).then(function(r){refreshFns.forEach(function(f){try{f()}catch(err){report(err&&err.message||err)}});return r})},
 files:Object.freeze({read:function(path){return call("file",{path:path})}}),
 ask:function(text){return call("ask",{text:String(text)})},
