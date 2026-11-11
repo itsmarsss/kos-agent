@@ -7,14 +7,15 @@
  * A tab's rows are kept with the artifact (`rows`, saved through kos.save
  * after an edit, as a new version), read live from a project table
  * (`source`, edited through the declared kos.write), or grouped from another
- * tab (`pivot`, read only). The arithmetic is sheetformula.ts.
+ * tab (`pivot`, read only). The arithmetic is sheetformula.ts in @kos/shared,
+ * which the server's export reads a workbook with too.
  */
 
 import type { SheetBook, SheetCell, SheetColumn, SheetTab } from "@kos/shared";
+import { Workbook, columnLetter, findColumn, formatValue, isError, isNumeric, literalOf, sortValue, sourceQuery, sourceRows, totalsRow, type Value } from "@kos/shared/sheetformula";
 
 import { bar, line, pie } from "./chartdraw.js";
 import { SHEET_CSS } from "./sheet.css.js";
-import { Workbook, columnLetter, findColumn, formatValue, isError, isNumeric, literalOf, sortValue, totalsRow, type Value } from "./sheetformula.js";
 import { addStyle, editable, el, kos, ready, reason } from "./runtime.js";
 
 /** How long after an edit the workbook is saved, so a run of edits is one version. */
@@ -22,24 +23,12 @@ export const SAVE_DELAY_MS = 600;
 /** The least time between two saves: KOS takes one of the owner's edits to an artifact every 2 s (PageStore's EDIT_GAP_MS). */
 export const SAVE_GAP_MS = 2100;
 
-const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const quote = (name: string): string => `"${name.replace(/"/g, '""')}"`;
-
 /** The shortest a grid is drawn, however little room the frame has. */
 const SHEET_MIN_HEIGHT = 320;
 /** How far in from its right edge a phone fades a grid with more to see (sheet.css.ts). */
 const SHEET_FADE = 40;
 /** Where the stylesheet's phone layout starts (sheet.css.ts). */
 const PHONE_QUERY = "(max-width: 560px)";
-
-/** The query that reads a source tab's rows: its key, then each column's table column. */
-export function sourceQuery(tab: SheetTab): string | undefined {
-  const src = tab.source;
-  if (!src || !IDENT.test(src.table) || !IDENT.test(src.key)) return undefined;
-  const cols = tab.columns.map((c) => quote(c.column ?? c.label));
-  const order = /^([A-Za-z_][A-Za-z0-9_]*)(\s+(asc|desc))?$/i.exec(src.orderBy?.trim() ?? "");
-  return `SELECT ${quote(src.key)} AS __key, ${cols.join(", ")} FROM ${quote(src.table)}${order ? ` ORDER BY ${quote(order[1]!)}${order[3] ? ` ${order[3].toUpperCase()}` : ""}` : ""}`;
-}
 
 /**
  * The column a phone holds at the grid's right edge while there is more to
@@ -112,6 +101,9 @@ class Sheet {
   private resizeWatch: ResizeObserver | undefined;
   /** The sheet's content width as its observer last saw it, which a chart's layout depends on. */
   private chartsAt = 0;
+  /** The frame a resize waits for before it redraws, and the width it saw last. */
+  private resizeFrame = 0;
+  private resizeAt = 0;
 
   constructor(
     private readonly book: SheetBook,
@@ -125,12 +117,17 @@ class Sheet {
     if (typeof ResizeObserver === "function") {
       // The charts follow the width the observer sees, so a change of height alone never redraws them; drawn before the sheet was laid out, they are drawn again once it is.
       this.resizeWatch = new ResizeObserver(([e]) => {
-        const w = Math.round(e?.contentRect.width ?? 0);
-        if (w !== 0 && w !== this.chartsAt) {
-          this.chartsAt = w;
-          this.drawCharts();
-        }
-        this.markMore();
+        this.resizeAt = Math.round(e?.contentRect.width ?? 0);
+        // Redrawn on the next frame, outside the observer's callback: a redraw changes the sheet's height, which the observer would otherwise have to report again in the same frame.
+        if (this.resizeFrame) return;
+        this.resizeFrame = (globalThis.requestAnimationFrame ?? setTimeout)(() => {
+          this.resizeFrame = 0;
+          if (this.resizeAt !== 0 && this.resizeAt !== this.chartsAt) {
+            this.chartsAt = this.resizeAt;
+            this.drawCharts();
+          }
+          this.markMore();
+        }) as unknown as number;
       });
       this.resizeWatch.observe(this.root);
     }
@@ -170,10 +167,7 @@ class Sheet {
         const res = await bridge.query(sql);
         this.loaded.set(i, {
           keys: res.rows.map((r) => r.__key),
-          rows: res.rows.map((r) => tab.columns.map((c) => {
-            const v = r[c.column ?? c.label];
-            return v === undefined ? null : (v as SheetCell);
-          })),
+          rows: sourceRows(tab, res.rows),
         });
       } catch (e) {
         this.loaded.set(i, { keys: [], rows: [], error: reason(e) });

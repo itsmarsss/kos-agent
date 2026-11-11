@@ -160,6 +160,7 @@ export {
   FRAME_HEIGHT_MAX,
   FRAME_QUERY_WAIT_MS,
   GUARD_SCRIPT,
+  RTC_GUARD,
   PAGE_CSP,
   PAGE_GUARD_CSP,
   WRAPPER_CSP,
@@ -194,4 +195,5 @@ export {
   type SheetColumnType,
   type SheetTab,
 } from "./artifacts.js";
+export { EXPORT_FORMATS, EXPORT_WORDS, KIND_EXPORTS, exportName, isExportFormat, type ExportFormat } from "./artifactexport.js";
 export { ARTIFACT_FONTS, fontById, fontFaceCss, fontStackVars, type ArtifactFont, type FontFile, type FontRole } from "./artifactfonts.js";

@@ -198,19 +198,29 @@ export interface CheckerOptions {
   pageLib?: () => string;
   /** A Chrome binary to use instead of the first one found. */
   chrome?: () => string | undefined;
+  /** Whether a path is a Chrome to run: the host's own finder, which a test points at none. */
+  exists?: (path: string) => boolean;
+  /** The longest one job may hold the Chrome; JOB_MS unless a test says less. */
+  jobMs?: number;
 }
 
-/** A check waiting its turn. */
-interface Waiting {
-  id: string;
-  resolve: (report: CheckReport) => void;
-  reject: (err: unknown) => void;
+/** Who is waiting on the Chrome: the agent's checks and the owner's exports first, then the gallery's redraws. */
+export type Lane = "agent" | "gallery";
+
+/** What work on the check's Chrome is handed: the browser, and a loopback URL that serves a document once. */
+export interface CheckBrowser {
+  cdp: CdpClient;
+  serve(html: string): Promise<string>;
+  /** Stop this Chrome, for work given up whose page may still be spinning its renderer: the next job starts a fresh one. */
+  reset(): void;
 }
 
 /** How long a render may take to settle: its runtime drawn and its queries answered. */
 const SETTLE_MS = 6000;
 /** Quiet time after the last bridge call before measuring. */
 const QUIET_MS = 700;
+/** The longest one job (a check's four renders, an export) may hold the Chrome before it is stopped. */
+export const JOB_MS = 120_000;
 /** The Chrome goes once nothing has been checked for this long. */
 const IDLE_MS = 90_000;
 const PROFILE_PREFIX = "kos-check-";
@@ -270,8 +280,8 @@ export class ArtifactChecker {
   private cdp: CdpClient | undefined;
   private profile: string | undefined;
   private idle: ReturnType<typeof setTimeout> | undefined;
-  /** Checks waiting their turn: the agent's first, then the gallery's redraws. */
-  private readonly waiting: Record<"agent" | "gallery", Waiting[]> = { agent: [], gallery: [] };
+  /** Work waiting its turn on the one Chrome: the agent's checks and the owner's exports first, then the gallery's redraws. */
+  private readonly waiting: Record<Lane, (() => Promise<void>)[]> = { agent: [], gallery: [] };
   private draining = false;
   /** Serves each render's top document once, on loopback: Chrome loads it as a page loads the dashboard. */
   private server: Server | undefined;
@@ -285,9 +295,43 @@ export class ArtifactChecker {
    * agent's check waits only for the one running, never behind a gallery
    * full of redraws, which can be eight checks of a few seconds each.
    */
-  check(id: string, from: "agent" | "gallery" = "gallery"): Promise<CheckReport> {
+  check(id: string, from: Lane = "gallery"): Promise<CheckReport> {
+    return this.queue(from, () => this.run(id));
+  }
+
+  /**
+   * Other work on the same Chrome (an export's render, a print), alone: it
+   * waits for whatever is drawing now and goes ahead of the gallery's
+   * redraws, so a print never shares the browser with a check.
+   */
+  withBrowser<T>(work: (browser: CheckBrowser) => Promise<T>): Promise<T> {
+    return this.queue("agent", async () => {
+      const cdp = await this.browser();
+      // Only the Chrome this work was handed: one started since for the next job is left alone.
+      return work({ cdp, serve: (html) => this.serve(html), reset: () => this.cdp === cdp && this.close() });
+    });
+  }
+
+  /**
+   * One job at a time, each held to a ceiling: one that never ends (a page
+   * spinning its renderer, a print that hangs) is given up and the Chrome
+   * stopped, so whatever it ran goes with it and the next job starts a fresh
+   * one rather than waiting behind it.
+   */
+  private queue<T>(lane: Lane, work: () => Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
-      this.waiting[from].push({ id, resolve, reject });
+      this.waiting[lane].push(() => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const ceiling = new Promise<never>((_, fail) => {
+          timer = setTimeout(() => {
+            this.close();
+            fail(new Error("the render took too long, so KOS stopped it"));
+          }, this.options.jobMs ?? JOB_MS);
+        });
+        return Promise.race([work(), ceiling])
+          .then(resolve, reject)
+          .finally(() => clearTimeout(timer));
+      });
       void this.drain();
     });
   }
@@ -296,9 +340,7 @@ export class ArtifactChecker {
     if (this.draining) return;
     this.draining = true;
     try {
-      for (let job = this.waiting.agent.shift() ?? this.waiting.gallery.shift(); job; job = this.waiting.agent.shift() ?? this.waiting.gallery.shift()) {
-        await this.run(job.id).then(job.resolve, job.reject);
-      }
+      for (let job = this.waiting.agent.shift() ?? this.waiting.gallery.shift(); job; job = this.waiting.agent.shift() ?? this.waiting.gallery.shift()) await job();
     } finally {
       this.draining = false;
     }
@@ -339,7 +381,14 @@ export class ArtifactChecker {
     void sweepProfiles().catch(() => undefined);
     this.profile = mkdtempSync(join(tmpdir(), PROFILE_PREFIX));
     const binary = this.options.chrome?.();
-    this.chrome = new ChromeHost({ port: await freePort(), profileDir: this.profile, launch: () => ({ ...(binary ? { binary } : {}), windowSize: { width: 1280, height: 800 } }) });
+    // Sealed: it draws what KOS did not write, so it reaches nothing but the port KOS serves its documents on.
+    const loopback = await this.servePort();
+    this.chrome = new ChromeHost({
+      port: await freePort(),
+      profileDir: this.profile,
+      ...(this.options.exists ? { exists: this.options.exists } : {}),
+      launch: () => ({ ...(binary ? { binary } : {}), windowSize: { width: 1280, height: 800 }, sealed: { loopback: [loopback] } }),
+    });
     const url = await this.chrome.ensure();
     const cdp = new CdpClient((u) => new WebSocket(u) as unknown as CdpSocket);
     await cdp.dial(url, () => {
@@ -351,7 +400,15 @@ export class ArtifactChecker {
 
   /** A URL that answers with this document, once. */
   private async serve(html: string): Promise<string> {
-    if (!this.serverUrl) {
+    await this.servePort();
+    const key = randomUUID();
+    this.documents.set(key, html);
+    return this.serverUrl + key;
+  }
+
+  /** The loopback port KOS serves each render's document on, started before the Chrome so the Chrome may reach it and nothing else. */
+  private async servePort(): Promise<number> {
+    if (!this.server) {
       const server = createHttpServer((req, res) => {
         const key = (req.url ?? "").slice(1);
         const body = this.documents.get(key);
@@ -364,9 +421,7 @@ export class ArtifactChecker {
       this.server = server;
       this.serverUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}/`;
     }
-    const key = randomUUID();
-    this.documents.set(key, html);
-    return this.serverUrl + key;
+    return (this.server.address() as { port: number }).port;
   }
 
   private async run(id: string): Promise<CheckReport> {

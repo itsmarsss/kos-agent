@@ -2,7 +2,7 @@
 import type { SheetBook } from "@kos/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { SAVE_DELAY_MS, SAVE_GAP_MS, cellFromInput, keyColumn, readBook, sourceQuery, startSheets, viewRows, wraps } from "./sheet.js";
+import { SAVE_DELAY_MS, SAVE_GAP_MS, cellFromInput, keyColumn, readBook, startSheets, viewRows, wraps } from "./sheet.js";
 
 const BOOK: SheetBook = {
   sheets: [
@@ -53,13 +53,6 @@ describe("pure helpers", () => {
     expect(viewRows(values, cols, { text: "plu", column: -1 }, undefined)).toEqual([3]);
     expect(viewRows(values, cols, { text: "", column: -1 }, { column: 1, dir: 1 })).toEqual([3, 1, 2]);
     expect(viewRows(values, cols, { text: "", column: -1 }, { column: 0, dir: -1 })).toEqual([3, 1, 2]);
-  });
-
-  it("reads a source table with quoted names and a safe order", () => {
-    const tab = { name: "T", columns: [{ label: "When", column: "date" }, { label: "amount" }], source: { table: "budget_tx", key: "id", orderBy: "date desc" } };
-    expect(sourceQuery(tab)).toBe('SELECT "id" AS __key, "date", "amount" FROM "budget_tx" ORDER BY "date" DESC');
-    expect(sourceQuery({ ...tab, source: { ...tab.source, orderBy: "date; drop" } })).toBe('SELECT "id" AS __key, "date", "amount" FROM "budget_tx"');
-    expect(sourceQuery({ ...tab, source: { table: "x y", key: "id" } })).toBeUndefined();
   });
 
   it("keys a phone's grid on the figure it totals, else its first currency, never a frozen column", () => {

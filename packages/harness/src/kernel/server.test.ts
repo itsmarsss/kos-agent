@@ -11,6 +11,9 @@ import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { RATES_KEY } from "../ops/spend.js";
 import { cronSessionId } from "./session.js";
 import { caller } from "./caller.js";
+import { findChrome } from "@kos/browser";
+
+import { readZip } from "../files/zip.js";
 import { crossSiteWrite, handleApiRequest, mentionsOf, withFrames } from "./server.js";
 
 const stub: Inference = {
@@ -1557,6 +1560,168 @@ describe("handleApiRequest", () => {
       for (const shown of ["ROTATE-PROMPT", "VAULT-KEY", "VAULT-CHAT-BRIEF", "LOCKER-BRIEF"]) expect(own, shown).toContain(shown);
       const root = resolve(named, kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mine" }).id);
       for (const shown of ["ROTATE-PROMPT", "VAULT-KEY", "VAULT-CHAT-BRIEF", "LOCKER-BRIEF", "NOTER-BRIEF", "SHELF-CHAT-BRIEF"]) expect(root, shown).toContain(shown);
+    });
+
+    describe("the owner's exports", () => {
+      const BOOK = (source: boolean): string =>
+        `<h1>Books</h1><script type="application/json" data-sheet>${JSON.stringify({
+          sheets: [
+            source ? { name: "Shelf", columns: [{ label: "title" }], source: { table: "shelf_books", key: "id" } } : { name: "Shelf", columns: [{ label: "title" }], rows: [["Emma"]] },
+            { name: "Sums", columns: [{ label: "n", type: "number" }, { label: "twice", type: "number" }], rows: [[2, "=A1*2"]] },
+          ],
+        })}</script>`;
+      const get = (id: string, query: string, headers?: Record<string, string>, token?: string) =>
+        handleApiRequest(kernel, { method: "GET", path: `/api/artifacts/${id}/export`, url: `/api/artifacts/${id}/export?${query}`, ...(headers ? { headers } : {}) }, token ? { token } : {});
+      const audited = () => kernel.audit.recent(50).filter((r) => r.tool === "artifact.export");
+
+      /**
+       * The dashboard's build of the frame, as a test's own: the kit's sheet,
+       * tokens and a stand-in for each runtime. A test never relies on the UI
+       * having been built, which CI does after the tests.
+       */
+      let pageLib: string;
+      const builtBefore = process.env.KOS_UI_DIST;
+      beforeEach(() => {
+        const dist = mkdtempSync(join(tmpdir(), "kos-ui-dist-"));
+        pageLib = join(dist, "page-lib");
+        mkdirSync(join(pageLib, "fonts"), { recursive: true });
+        writeFileSync(join(pageLib, "frame.css"), "body{margin:0}");
+        writeFileSync(join(pageLib, "tokens.json"), JSON.stringify({ dark: { "--bg": "#0c0e12" }, light: { "--bg": "#f4f5f8" } }));
+        for (const runtime of ["kos-doc", "kos-deck", "kos-sheet"]) writeFileSync(join(pageLib, `${runtime}.js`), `/* ${runtime} */`);
+        process.env.KOS_UI_DIST = dist;
+      });
+      afterEach(() => {
+        if (builtBefore === undefined) delete process.env.KOS_UI_DIST;
+        else process.env.KOS_UI_DIST = builtBefore;
+        rmSync(join(pageLib, ".."), { recursive: true, force: true });
+      });
+
+      beforeEach(() => {
+        kernel.pages.writeHtml("shelf", { id: "brief", kind: "doc", title: "Shelf: the brief", html: '<article data-doc><h1>The brief</h1><p>Read <strong>Emma</strong><span class="fn">By Austen.</span>.</p></article>' });
+        kernel.pages.writeHtml("shelf", { id: "books", kind: "sheet", title: "Books", html: BOOK(true) });
+        kernel.pages.writeHtml("shelf", { id: "pitch", kind: "deck", title: "Pitch", html: "<main data-deck><section><h1>Pitch</h1></section></main>" });
+      });
+
+      it("sends a doc as Markdown, named from its title, and keeps it in the audit log", async () => {
+        const res = await get("brief", "format=md");
+        expect(res.status).toBe(200);
+        expect((res.body as Buffer).toString("utf8")).toBe("# The brief\n\nRead **Emma**[^1].\n\n[^1]: By Austen.\n");
+        expect(res.headers).toMatchObject({ "content-type": "text/markdown; charset=utf-8", "content-disposition": `attachment; filename="Shelf the brief.md"; filename*=UTF-8''Shelf%20the%20brief.md`, "cache-control": "no-store" });
+        expect(audited()[0]).toMatchObject({ isError: false, result: expect.stringMatching(/^Shelf the brief\.md, \d+ bytes$/) });
+      });
+
+      it("sends a sheet's tab as CSV read through its own bridge, and every tab as a zip", async () => {
+        const one = await get("books", "format=csv&tab=Shelf");
+        expect(one.headers?.["content-type"]).toBe("text/csv; charset=utf-8");
+        expect((one.body as Buffer).toString("utf8")).toBe("\uFEFFtitle\r\nDune\r\n");
+        expect(((await get("books", "format=csv&tab=sums")).body as Buffer).toString()).toBe("\uFEFFn,twice\r\n2,4\r\n");
+        const all = await get("books", "format=csv");
+        expect(all.headers?.["content-type"]).toBe("application/zip");
+        expect([...readZip(all.body as Buffer).keys()]).toEqual(["Shelf.csv", "Sums.csv"]);
+        // Every row of the table, not the 500 a frame's read is cut to.
+        kernel.workspace.db.exec(`INSERT INTO shelf_books (title) SELECT 'Book ' || value FROM json_each('[${Array.from({ length: 1200 }, (_, i) => i).join(",")}]')`);
+        const big = ((await get("books", "format=csv&tab=Shelf")).body as Buffer).toString("utf8").split("\r\n");
+        expect(big).toHaveLength(1203);
+        expect(big.at(-2)).toBe("Book 1199");
+        expect(await get("books", "format=csv&tab=Nope")).toMatchObject({ status: 400, body: { error: 'the sheet has no tab called "Nope"' } });
+        // A table the sheet can no longer read refuses the export in words, not as a server error.
+        kernel.workspace.db.exec("DROP TABLE shelf_books");
+        expect(await get("books", "format=csv")).toMatchObject({ status: 400, body: { error: expect.stringMatching(/^the tab "Shelf" cannot be read: /) } });
+      });
+
+      it("sends a doc as one HTML file with its runtime and data, and nothing of the dashboard's", async () => {
+        const res = await get("brief", "format=html&theme=dark", { "x-kos-token": "secret-token-value" }, "secret-token-value");
+        expect(res.status).toBe(200);
+        const html = (res.body as Buffer).toString("utf8");
+        // The artifact in a sandboxed frame of a page that loads nothing, never the file itself.
+        expect(html).toMatch(/^<!doctype html><html data-theme="dark"><head><meta http-equiv="Content-Security-Policy" content="default-src 'none';[^"]*frame-src about:">/);
+        expect(html).toContain('<iframe sandbox="allow-scripts" allow="fullscreen"');
+        expect(html).toContain("<html data-mode=&quot;dark&quot; data-theme=&quot;dark&quot; data-kind=&quot;doc&quot; data-export>");
+        expect(html).toContain("<title>Shelf: the brief</title>");
+        // As the browser parsed it, its link, meta and base hints taken out first.
+        expect(html).toContain('<article data-doc=&quot;&quot;><h1>The brief</h1>');
+        expect(html).toContain("default-src 'none'");
+        expect(html).not.toContain("secret-token-value");
+        expect(res.headers?.["content-security-policy"]).toBe("sandbox; default-src 'none'");
+      });
+
+      it("names a file whose title runs long in emoji, and keeps it as sent", async () => {
+        kernel.pages.rename("brief", { title: `${"a".repeat(99)}\u{1F33F}\u{1F33F}` });
+        const res = await get("brief", "format=md");
+        expect(res.status).toBe(200);
+        expect(res.headers?.["content-disposition"]).toContain(`filename*=UTF-8''${"a".repeat(99)}%F0%9F%8C%BF.md`);
+        expect(audited()[0]).toMatchObject({ isError: false });
+      });
+
+      it("exports a doc as HTML with no Chrome at all, and refuses in words what must be drawn first", async () => {
+        // This kernel finds no Chrome (beforeEach boots it so): a doc that reads nothing needs none.
+        expect((await get("brief", "format=html")).status).toBe(200);
+        kernel.pages.writeHtml("shelf", { id: "reader", title: "Reader", html: '<h1>Reader</h1><script>kos.query("SELECT title FROM shelf_books")</script>' });
+        for (const [id, format] of [["reader", "html"], ["brief", "pdf"], ["pitch", "pdf"]] as const) {
+          expect(await get(id, `format=${format}`), `${id} ${format}`).toMatchObject({ status: 503, body: { error: expect.stringMatching(/^KOS's Chrome is not available on this machine, so it cannot draw this artifact to export it/) } });
+        }
+        // What needs neither is unaffected.
+        expect((await get("brief", "format=md")).status).toBe(200);
+        expect((await get("books", "format=csv")).status).toBe(200);
+      });
+
+      it("refuses HTML and PDF in words where the dashboard's build is not on the machine", async () => {
+        process.env.KOS_UI_DIST = join(pageLib, "..", "nothing-here");
+        for (const format of ["html", "pdf"]) {
+          expect(await get("brief", `format=${format}`), format).toMatchObject({ status: 503, body: { error: expect.stringMatching(/^KOS's dashboard build is not on this machine/) } });
+        }
+        expect((await get("brief", "format=md")).status).toBe(200);
+        expect(audited().filter((r) => r.isError)).toHaveLength(2);
+      });
+
+      describe.skipIf(!findChrome(undefined))("with a Chrome on the machine", () => {
+        let withChrome: Kernel;
+        let root2: string;
+        beforeEach(async () => {
+          root2 = mkdtempSync(join(tmpdir(), "kos-api-chrome-"));
+          // Its own browser for the web is never started here; the check's Chrome is found as on any host.
+          withChrome = await Kernel.boot({ rootDir: root2, secrets: new SecretsRegistry(), inference: stub, chrome: { port: 1 } });
+          withChrome.manifest.createProject({ name: "Shelf", type: "tracker" });
+          withChrome.migrator.migrate("shelf", { op: "create_table", table: "books", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "title", type: "TEXT" }] });
+          withChrome.workspace.db.exec("INSERT INTO shelf_books (title) VALUES ('Dune')");
+          withChrome.pages.writeHtml("shelf", { id: "reader", title: "Reader", html: '<h1>Reader</h1><p id="out">-</p><script>kos.query("SELECT title FROM shelf_books").then(function(r){out.textContent=r.rows[0].title})</script>' });
+        });
+        afterEach(() => {
+          withChrome.close();
+          rmSync(root2, { recursive: true, force: true });
+        });
+
+        it("draws a page that reads, and freezes what it read into its HTML", async () => {
+          const res = await handleApiRequest(withChrome, { method: "GET", path: "/api/artifacts/reader/export", url: "/api/artifacts/reader/export?format=html" });
+          expect(res.status).toBe(200);
+          expect((res.body as Buffer).toString("utf8")).toContain("&quot;rows&quot;:[{&quot;title&quot;:&quot;Dune&quot;}]");
+        }, 60_000);
+      });
+
+      it("refuses what the kind has not, an unknown format, the trash, an older widget page and an unknown id", async () => {
+        expect(await get("pitch", "format=md")).toMatchObject({ status: 400, body: { error: "a deck exports as pdf, html, not md" } });
+        expect(await get("books", "format=pdf")).toMatchObject({ status: 400 });
+        expect(await get("brief", "format=docx")).toMatchObject({ status: 400, body: { error: "format is one of pdf, md, html or csv" } });
+        expect(await get("brief", "format=md&tab=x")).toMatchObject({ status: 400 });
+        kernel.pages.trash("brief");
+        expect(await get("brief", "format=md")).toMatchObject({ status: 409, body: { error: expect.stringMatching(/in the trash/) } });
+        kernel.pages.write("shelf", { id: "old", title: "Old", widgets: [{ type: "stat", label: "N", query: "SELECT 1 AS n" }] });
+        expect((await get("old", "format=html")).status).toBe(404);
+        expect((await get("nothing", "format=html")).status).toBe(404);
+        expect(audited().every((r) => r.isError)).toBe(true);
+        expect(audited()).toHaveLength(7);
+      });
+
+      it("is the owner's: behind the token, and refused to another site's page even as a read", async () => {
+        expect((await get("brief", "format=md", {}, "secret")).status).toBe(401);
+        expect((await get("brief", "format=md", { "x-kos-token": "secret" }, "secret")).status).toBe(200);
+        const strangers: Record<string, string>[] = [{ "sec-fetch-site": "cross-site" }, { host: "127.0.0.1:4317", origin: "https://evil.example" }];
+        for (const headers of strangers) {
+          expect((await get("brief", "format=md", headers)).status, JSON.stringify(headers)).toBe(403);
+        }
+        expect((await get("brief", "format=md", { host: "127.0.0.1:4317", "sec-fetch-site": "same-origin" })).status).toBe(200);
+        expect(audited().find((r) => r.isError)?.result).toMatch(/from another site/);
+      });
     });
 
     describe("the owner's management", () => {

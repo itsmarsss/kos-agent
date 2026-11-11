@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { FRAME_QUERY_WAIT_MS, GUARD_SCRIPT, pageDocument, wrapperDocument } from "@kos/shared";
+import { FRAME_QUERY_WAIT_MS, GUARD_SCRIPT, RTC_GUARD, pageDocument, wrapperDocument } from "@kos/shared";
 import { DONE_MS, REVEAL_MS, ownerIn, revealAllowed, saveAllowed } from "./frameheight.js";
 
 /**
@@ -274,7 +274,8 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
 
   const page = (code: string): string => pageDocument({ html: attempt(`const XHTML = "${XHTML}"; ${code}`), tokens: {}, mode: "dark", css: "", libraries: [] });
   /** The same page with the guard taken out, for the controls. */
-  const unguarded = (code: string): string => page(code).replace(`<script>${GUARD_SCRIPT}</script>`, "").replace("; require-trusted-types-for 'script'; trusted-types default", "");
+  const unguarded = (code: string): string =>
+    page(code).replace(`<script>${RTC_GUARD}</script>`, "").replace(`<script>${GUARD_SCRIPT}</script>`, "").replace("; require-trusted-types-for 'script'; trusted-types default", "");
 
   it("sees a leak when there is one: the flat frame KOS had sends a navigation's request", async () => {
     const flat = await run("control", page(attempts(E).href!).replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'">`));
@@ -327,6 +328,46 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       await within(() => stun.packets.length > 0);
       expect(stun.packets.length).toBeGreaterThan(0);
     }, 20_000);
+
+    /*
+     * A browser with no Trusted Types (simulated: the page sees none), where
+     * WebRTC must still be gone, and a fresh frame's realm, with its own
+     * RTCPeerConnection, must not be had by markup, by a factory or by
+     * reaching into an element's window.
+     */
+    it("sends none from a page with no Trusted Types, nor through a frame's own realm", async () => {
+      const stun = await stunServer();
+      const viaFrame = `var said = { steps: [] }, step = (n, f) => { try { f(); said.steps.push(n) } catch (e) { said.steps.push(n + ":" + e.message.slice(0, 60)) } };
+        step("html", () => document.body.insertAdjacentHTML("beforeend", "<iframe></iframe>"));
+        step("make", () => document.body.appendChild(document.createElement("iframe")));
+        step("edit", () => { var d = document.createElement("div"); d.contentEditable = "true"; d.textContent = "x"; document.body.appendChild(d); d.focus(); getSelection().selectAllChildren(d); document.execCommand("insertHTML", false, "<iframe></iframe><object></object><embed>") });
+        step("design", () => { document.designMode = "on"; getSelection().selectAllChildren(document.body); document.execCommand("insertHTML", false, "<iframe></iframe>"); document.designMode = "off" });
+        var f = document.querySelector("iframe, object, embed"), w = null;
+        step("reach", () => { w = window[0] || frames[0] || (f && (f.contentWindow || (f.contentDocument && f.contentDocument.defaultView))) });
+        said.realm = !!w; said.tt = typeof trustedTypes;
+        step("rtc", () => { said.rtc = !!(w && w.RTCPeerConnection) });
+        top.postMessage({ census: said }, "*");
+        if (said.rtc) { const pc = new w.RTCPeerConnection({ iceServers: [{ urls: "${stun.url}" }] }); pc.createDataChannel("d"); pc.createOffer().then((o) => pc.setLocalDescription(o)) }`;
+      const noTrustedTypes = (code: string): string =>
+        page(code)
+          .replace(`<script>${RTC_GUARD}</script>`, `<script>Object.defineProperty(window, "trustedTypes", { value: undefined, configurable: true })</script><script>${RTC_GUARD}</script>`)
+          .replace("; require-trusted-types-for 'script'; trusted-types default", "");
+      const direct = await run("rtc-no-tt", wrapperDocument(noTrustedTypes(`${offer(stun.url)}; try { new webkitRTCPeerConnection({}) } catch (e) {}`)));
+      expect(direct.alive).toBe(true);
+      const framed = await run("rtc-no-tt-frame", wrapperDocument(noTrustedTypes(viaFrame)));
+      expect(framed.alive).toBe(true);
+      // The guard ran with no Trusted Types: no frame made by markup or by a factory, so no realm to take one from.
+      const said = JSON.parse(framed.said ?? "{}") as { steps: string[]; realm: boolean };
+      expect(said.steps[0]).toMatch(/^html:A KOS page cannot make that markup/);
+      expect(said.steps[1]).toMatch(/^make:A KOS page cannot make <iframe>/);
+      // Editing's insertHTML, which no policy covers, is held to the same refusal, in an editable element and in design mode.
+      expect(said.steps[2]).toMatch(/^edit:A KOS page cannot make that markup/);
+      expect(said.steps[3]).toMatch(/^design:A KOS page cannot make that markup/);
+      // So no frame is there for an index to reach (window[0], frames[0]) either.
+      expect(said.realm).toBe(false);
+      await pause(1000);
+      expect(stun.packets).toEqual([]);
+    }, 30_000);
 
     it("sends none from a page", async () => {
       const stun = await stunServer();

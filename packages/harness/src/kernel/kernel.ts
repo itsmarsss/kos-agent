@@ -109,6 +109,7 @@ import {
 import { Migrator } from "../systems/migrate.js";
 import { Headlines, type Headline } from "../systems/headlines.js";
 import { ArtifactChecker } from "../systems/artifactcheck.js";
+import { ArtifactExporter } from "../systems/artifactexport.js";
 import { BridgeRefusal, pageFile, pageQuery, pageWrite, type BridgePage } from "../systems/pagebridge.js";
 import { PageQueries } from "../systems/pagequeries.js";
 import { ownerOfRecord, PageStore } from "../systems/pages.js";
@@ -137,7 +138,7 @@ import { originOf } from "./origin.js";
 import { ownerWords } from "./transcript.js";
 import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
-import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, type ArtifactEdit, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type ThemeMode } from "@kos/shared";
+import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, type ArtifactEdit, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type HtmlPage, type ThemeMode } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -665,6 +666,7 @@ export class Kernel {
     chrome?: Pick<ChromeOptions, "port" | "exists" | "spawn">;
   }) {
     this.workspace = args.workspace;
+    this.chromeExists = args.chrome?.exists;
     this.restartHost = args.restart;
     this.discord = args.discord;
     this.progress.subscribe((event) => {
@@ -4320,18 +4322,36 @@ export class Kernel {
     }
   }
 
+  /** An HTML artifact as a renderer reads it: its document and its title. */
+  private htmlArtifact(id: string): { page: HtmlPage; title: string } | undefined {
+    const got = this.pages.get(id);
+    return got?.kind === "html" ? { page: got.page, title: got.record.title } : undefined;
+  }
+
+  /** How the host finds a Chrome to run, when it was told; the check's Chrome finds one the same way. */
+  private readonly chromeExists: ((path: string) => boolean) | undefined;
   private artifactChecker?: ArtifactChecker;
   /** artifacts.check's renderer: a headless Chrome of its own, started on first use and closed when idle. */
   get checker(): ArtifactChecker {
     this.artifactChecker ??= new ArtifactChecker({
-      load: (id) => {
-        const got = this.pages.get(id);
-        return got?.kind === "html" ? { page: got.page, title: got.record.title } : undefined;
-      },
+      load: (id) => this.htmlArtifact(id),
       call: (id, verb, args) => this.artifactCall(id, verb, args),
       captures: (id) => this.pages.capturesDir(id),
+      // The host's own finder for Chrome, so a host told there is none (a test) starts none here either.
+      ...(this.chromeExists ? { exists: this.chromeExists } : {}),
     });
     return this.artifactChecker;
+  }
+
+  private artifactExporter?: ArtifactExporter;
+  /** The owner's exports: drawn and printed on the check's Chrome, one at a time, reading as the frame reads. */
+  get exporter(): ArtifactExporter {
+    this.artifactExporter ??= new ArtifactExporter({
+      load: (id) => this.htmlArtifact(id),
+      call: (id, verb, args) => this.artifactCall(id, verb, args),
+      browser: (work) => this.checker.withBrowser(work),
+    });
+    return this.artifactExporter;
   }
 
   /** Each HTML page's figure for Home, computed apart from the server and kept a while. */

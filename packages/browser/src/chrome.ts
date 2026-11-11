@@ -29,6 +29,29 @@ export interface ChromeLaunch {
    * only allows that.
    */
   extensions?: string[];
+  /**
+   * A Chrome that draws what KOS did not write (artifacts.check, an
+   * export), cut off from the network at its own resolver and proxy: no
+   * name resolves, and every connection, a preconnect or a navigation's
+   * included, goes to a proxy that is not there, but those to the loopback
+   * ports named here, KOS's own. Never KOS's browser for the web, which
+   * needs the network.
+   */
+  sealed?: { loopback: number[] };
+}
+
+/** Where a sealed Chrome's every connection goes: the discard port on loopback, where nothing answers. */
+export const BLACK_HOLE = "127.0.0.1:9";
+
+/** The flags that cut a sealed Chrome off: a resolver that finds no name, and a proxy that is not there for all but KOS's own ports. */
+export function sealedArgs(sealed: { loopback: number[] }): string[] {
+  return [
+    // No name resolves, so no lookup leaves the machine with what a page put in a host name.
+    "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
+    // Every connection goes to the proxy, loopback too (<-loopback), but KOS's own ports.
+    `--proxy-server=${BLACK_HOLE}`,
+    `--proxy-bypass-list=${["<-loopback>", ...sealed.loopback.map((port) => `127.0.0.1:${port}`)].join(";")}`,
+  ];
 }
 
 export interface ChromeOptions {
@@ -60,8 +83,13 @@ const KNOWN_BINARIES = [
   "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
 ];
 
-/** A Chrome to run: the one named, else the first known one that exists. */
+/**
+ * A Chrome to run: the one named, else the first known one that exists.
+ * KOS_CHROME=none finds none, as a machine without Chrome would (CI, or a
+ * run of the tests that checks KOS behaves without one).
+ */
 export function findChrome(preferred: string | undefined, exists: (p: string) => boolean = existsSync): string | undefined {
+  if (process.env.KOS_CHROME === "none") return undefined;
   if (preferred && exists(preferred)) return preferred;
   return KNOWN_BINARIES.find((p) => exists(p));
 }
@@ -85,6 +113,7 @@ export function chromeArgs(options: Pick<ChromeOptions, "port" | "profileDir"> &
     "--disable-features=TranslateUI",
     // Lets KOS load the extensions over CDP (Extensions.loadUnpacked).
     ...(extensions.length ? ["--enable-unsafe-extension-debugging"] : []),
+    ...(options.sealed ? sealedArgs(options.sealed) : []),
     "about:blank",
   ];
 }

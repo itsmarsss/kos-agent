@@ -6,13 +6,14 @@ import { dirname, extname, join, normalize, relative, resolve, sep } from "node:
 import { parseHomeLayout,
   CHAT_COMMANDS,
 } from "@kos/shared";
-import { stepMechanics, summarizeAction } from "@kos/shared";
+import { isExportFormat, stepMechanics, summarizeAction } from "@kos/shared";
 import type { PendingAction } from "../ops/approvals.js";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
 import { DREAM_JOB, MEMORY_JOB, OBSERVE_JOB } from "../memory/job.js";
 import { runDisplayQuery } from "../systems/display.js";
 import type { Headline } from "../systems/headlines.js";
+import { ExportRefusal, ExportUnavailable } from "../systems/artifactexport.js";
 import { BridgeRefusal } from "../systems/pagebridge.js";
 import { ArtifactTrashed, EditConflict, type PageStore } from "../systems/pages.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
@@ -1538,6 +1539,50 @@ export async function handleApiRequest(
       const message = err instanceof Error ? err.message : String(err);
       audit(message, true);
       return { status: err instanceof ArtifactTrashed ? 409 : 400, body: { error: message } };
+    }
+  }
+  /*
+   * An artifact as a file to keep (artifactexport.ts): ?format= one its
+   * kind has, &tab= one of a sheet's tabs for its CSV, &theme= for an HTML
+   * or a PDF (light unless dark is asked). The owner's, behind the token as
+   * every route is, and refused when another site's page asks for it, even
+   * to read: a request it starts would carry the owner's data off as a
+   * download, and print in KOS's Chrome. Never of what is in the trash.
+   * Each is kept in the audit log as artifact.export, refusals too.
+   */
+  const exporting = method === "GET" ? /^\/api\/artifacts\/([^/]+)\/export$/.exec(path) : null;
+  if (exporting) {
+    const id = decodeURIComponent(exporting[1]!);
+    const params = queryParams(req.url);
+    const format = params.get("format") ?? "";
+    const tab = params.get("tab") ?? undefined;
+    const theme = params.get("theme") === "dark" ? "dark" : "light";
+    const args: Record<string, unknown> = { id, format, ...(tab !== undefined ? { tab } : {}), theme };
+    const refuse = (status: number, error: string): ApiResponse => {
+      void kernel.audit.record({ tool: "artifact.export", args, result: error, isError: true, userId: kernel.profile.ownerId });
+      return { status, body: { error } };
+    };
+    if (fromAnotherSite(req, options.allowedOrigins)) return refuse(403, "an export is asked from the dashboard itself, not from another site");
+    const got = kernel.pages.get(id);
+    if (!got || got.kind !== "html") return refuse(404, "artifact not found");
+    if (got.record.trashedAt !== undefined) return refuse(409, "this artifact is in the trash; restore it to export it");
+    if (!isExportFormat(format)) return refuse(400, "format is one of pdf, md, html or csv");
+    try {
+      const file = await kernel.exporter.export(id, format, { theme, ...(tab !== undefined ? { tab } : {}) });
+      const headers = {
+        "content-type": file.type,
+        "content-length": String(file.body.byteLength),
+        "content-disposition": attachment(file.name),
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        // A file to save, never a page on the dashboard's origin: should a browser draw it anyway, it runs nothing there.
+        "content-security-policy": "sandbox; default-src 'none'",
+      };
+      // Kept as sent only once there is a response to send.
+      void kernel.audit.record({ tool: "artifact.export", args, result: `${file.name}, ${file.body.byteLength} bytes`, isError: false, userId: kernel.profile.ownerId });
+      return { status: 200, body: file.body, headers };
+    } catch (err) {
+      return refuse(err instanceof ExportUnavailable ? 503 : err instanceof ExportRefusal ? 400 : 500, err instanceof Error ? err.message : String(err));
     }
   }
   const artifactRoute = /^\/api\/artifacts\/([^/]+)\/(thumb|check)$/.exec(path);
@@ -3178,6 +3223,11 @@ export function authorized(req: ApiRequest, token: string): boolean {
  */
 export function crossSiteWrite(req: ApiRequest, allowedOrigins: readonly string[] = []): boolean {
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return false;
+  return fromAnotherSite(req, allowedOrigins);
+}
+
+/** Whether a request, whatever its method, came from a web page other than the dashboard's own, by the same reading as crossSiteWrite. */
+export function fromAnotherSite(req: ApiRequest, allowedOrigins: readonly string[] = []): boolean {
   const headers = req.headers ?? {};
   const origin = header(headers, "origin");
   if (origin !== undefined && allowedOrigins.includes(origin)) return false;
@@ -3224,6 +3274,12 @@ function manageArtifact(pages: PageStore, id: string, verb: string, body: Record
       if (pages.record(id)?.trashedAt === undefined) throw new Error("only an artifact in the trash is deleted for good; move it to the trash first");
       return { id, deleted: pages.remove(id) };
   }
+}
+
+/** A download's Content-Disposition: the name as ASCII for an old client, and in full as UTF-8 (RFC 6266). */
+export function attachment(name: string): string {
+  const ascii = name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)}`;
 }
 
 function queryParams(url?: string): URLSearchParams {

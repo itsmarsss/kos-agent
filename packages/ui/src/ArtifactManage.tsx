@@ -1,5 +1,6 @@
-import { Face, Field, NavIcon } from "@kos/kit";
-import { RENAME_DESCRIPTION_MAX, RENAME_TITLE_MAX, WORKSPACE_SCOPE, relativeWords } from "@kos/shared";
+import { Face, Field, NavIcon, WorkingDots, spring } from "@kos/kit";
+import { EXPORT_WORDS, KIND_EXPORTS, RENAME_DESCRIPTION_MAX, RENAME_TITLE_MAX, WORKSPACE_SCOPE, relativeWords, sheetDataOf, type ExportFormat, type HtmlPage } from "@kos/shared";
+import { AnimatePresence, m } from "motion/react";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 
 import { api, type PageSummary, type Project } from "./api.js";
@@ -10,8 +11,9 @@ import { ProjectMark } from "./ProjectMark.js";
 
 /**
  * The owner's own handles on an artifact, wherever it is shown (its viewer's
- * menu, a gallery card's): rename it, copy it, give it to another owner, put
- * it in the trash, and from the trash restore it or delete it for good. One
+ * menu, a gallery card's): rename it, copy it, give it to another owner,
+ * export it as a file, put it in the trash, and from the trash restore it or
+ * delete it for good. One
  * set of dialogs per view, as files have (FileActions.tsx). KOS can rename,
  * copy and move what it reaches, but deletes nothing: the trash is the
  * owner's alone.
@@ -75,9 +77,39 @@ export const deleteWords = (title: string): string => `Delete “${title}” for
 
 type Dialog = { kind: "rename"; record: PageSummary; title: string; description: string } | { kind: "move"; record: PageSummary; choice?: string };
 
+/** A sheet's tabs by name, read from its document when the view has it; none when it cannot be read. */
+export function sheetTabs(page: HtmlPage | undefined): string[] {
+  if (page?.kind !== "sheet") return [];
+  try {
+    const book = JSON.parse(sheetDataOf(page.html) ?? "") as { sheets?: { name?: unknown }[] };
+    return (book.sheets ?? []).flatMap((t) => (typeof t.name === "string" ? [t.name] : []));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The formats an artifact exports as, one item each, as its kind has them
+ * (KIND_EXPORTS): a doc's PDF, Markdown and HTML, a deck's PDF and HTML, a
+ * page's PDF and HTML, a sheet's CSV and HTML. A sheet whose tabs are known
+ * (the viewer has its document) offers each tab's CSV beside all of them.
+ */
+export function exportItems(record: PageSummary, page: HtmlPage | undefined, act: (format: ExportFormat, tab?: string) => void): MenuItem[] {
+  if (record.kind !== "html" || record.trashedAt !== undefined) return [];
+  const tabs = sheetTabs(page);
+  return KIND_EXPORTS[record.artifactKind].flatMap((format): MenuItem[] =>
+    format === "csv" && tabs.length > 1
+      ? [{ label: "Export all tabs as CSV", act: () => act("csv") }, ...tabs.map((tab) => ({ label: `Export “${tab}” as CSV`, act: () => act("csv", tab) }))]
+      : [{ label: `Export as ${EXPORT_WORDS[format]}`, act: () => act(format) }],
+  );
+}
+
+/** The dashboard's palette now: an HTML export is drawn in it; a PDF is printed light. */
+const drawnTheme = (): "light" | "dark" => (document.documentElement.dataset.theme === "light" ? "light" : "dark");
+
 export interface ArtifactOps {
-  /** The menu's management: rename, duplicate, move and trash; restore and delete forever for one in the trash. */
-  items: (record: PageSummary) => MenuItem[];
+  /** The menu's management: rename, duplicate, move, export and trash; restore and delete forever for one in the trash. Given its document, a sheet's tabs export one by one too. */
+  items: (record: PageSummary, page?: HtmlPage) => MenuItem[];
   restore: (record: PageSummary) => void;
   remove: (record: PageSummary) => void;
   busy: boolean;
@@ -88,6 +120,8 @@ export interface ArtifactOps {
 export function useArtifactOps({ projects, onChanged, onError }: { projects: Project[]; onChanged: (change: ArtifactChange) => void; onError: (text: string) => void }): ArtifactOps {
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The export being made, said while the server draws or prints it: a PDF can take a few seconds. */
+  const [exporting, setExporting] = useState<string>();
   const [blobs, setBlobs] = useState<string[]>([]);
   const moving = dialog?.kind === "move";
   // The living blobs, read when the picker opens: one made since the page loaded is offered too.
@@ -121,7 +155,17 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
   const restore = (record: PageSummary): void => void run(() => did("restore", api.restoreArtifact(record.id)));
   const remove = (record: PageSummary): void => void run(() => api.deleteArtifact(record.id).then(() => ({ op: "delete", id: record.id })));
 
-  const items = (record: PageSummary): MenuItem[] =>
+  const exportAs = (record: PageSummary, format: ExportFormat, tab?: string): void => {
+    if (exporting) return;
+    setExporting(`Exporting “${tab ?? record.title}” as ${EXPORT_WORDS[format]}`);
+    void api
+      .exportArtifact(record.id, format, { ...(tab !== undefined ? { tab } : {}), theme: format === "pdf" ? "light" : drawnTheme() })
+      .catch((err: unknown) => onError(`Could not export “${record.title}”: ${err instanceof Error ? err.message : String(err)}`))
+      .finally(() => setExporting(undefined));
+  };
+  const exports = (record: PageSummary, page?: HtmlPage): MenuItem[] => exportItems(record, page, (format, tab) => exportAs(record, format, tab)).map((item, i) => (i === 0 ? { ...item, divided: true } : item));
+
+  const items = (record: PageSummary, page?: HtmlPage): MenuItem[] =>
     record.trashedAt !== undefined
       ? [
           { label: "Restore", act: () => restore(record) },
@@ -132,7 +176,8 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
           // Nothing new goes to a removed blob, so its work is moved out, not copied where it is.
           ...(record.blobRemoved ? [] : [{ label: "Duplicate", act: () => void run(() => did("duplicate", api.duplicateArtifact(record.id))) }]),
           { label: "Move to…", act: () => setDialog({ kind: "move", record }) },
-          { label: "Move to trash", act: () => void run(() => did("trash", api.trashArtifact(record.id))), danger: true },
+          ...exports(record, page),
+          { label: "Move to trash", act: () => void run(() => did("trash", api.trashArtifact(record.id))), danger: true, divided: true },
         ];
 
   const places: Place[] = [
@@ -156,6 +201,22 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
 
   const dialogs = (
     <>
+      <AnimatePresence>
+        {exporting && (
+          <m.div
+            key="exporting"
+            className="ops-toast"
+            role="status"
+            initial={{ opacity: 0, y: -10, x: "-50%", scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, x: "-50%", scale: 1 }}
+            exit={{ opacity: 0, y: -6, x: "-50%", scale: 0.98 }}
+            transition={spring}
+          >
+            <span className="ops-toast-text">{exporting}</span>
+            <WorkingDots />
+          </m.div>
+        )}
+      </AnimatePresence>
       <Modal open={dialog?.kind === "rename"} title="Rename" onClose={() => setDialog(null)}>
         {dialog?.kind === "rename" && (
           <form

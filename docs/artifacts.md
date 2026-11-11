@@ -185,6 +185,147 @@ project's; Maintenance reaches all. A guest's turn has none of them, and a
 call that a guest's words started is refused. `artifacts.list` leaves the
 trash out unless asked (`trashed: true`).
 
+## Exporting artifacts
+
+The owner takes an artifact away as a file from the same two menus, the
+viewer's and each gallery card's, which list only what its kind has
+(`KIND_EXPORTS`, `@kos/shared` `artifactexport.ts`):
+
+| Kind | Formats |
+| --- | --- |
+| `doc` | PDF, Markdown, HTML |
+| `deck` | PDF (a slide a page), HTML |
+| `sheet` | CSV (all tabs, or one; the viewer lists each tab), HTML |
+| `page` | PDF, HTML |
+
+The file downloads straight from the menu; while it is made the dashboard
+says so, and a failure says why. The route is
+`GET /api/artifacts/<id>/export?format=pdf|md|html|csv`, with `&tab=` for one
+of a sheet's tabs and `&theme=light|dark` (light unless dark is asked; the
+dashboard asks for its own palette for HTML and light for a PDF). It is the
+owner's: behind the token like every route, and refused when another site's
+page asks for it (`fromAnotherSite`, the reading `crossSiteWrite` makes, for
+any method), since a request it started would carry the owner's data off as
+a download and print in KOS's Chrome. It refuses what is in the trash, an
+older widget page, and a format the kind does not have. The name is the
+title's (`exportName`), sent as `Content-Disposition` in ASCII and in full
+UTF-8. Each export, and each refusal, is kept in the audit log as
+`artifact.export`. The work is `ArtifactExporter` (`systems/artifactexport.ts`).
+Markdown and CSV need nothing but the server. HTML and PDF need the
+dashboard's build (the runtimes they inline); a PDF, and the HTML of an
+artifact that reads (a page, a sheet with a source tab), need KOS's Chrome
+too. Where this machine has either missing, the export is refused in words
+with a 503 ("KOS's Chrome is not available on this machine, so …"), not
+failed; a doc's HTML needs no Chrome. `KOS_CHROME=none` makes KOS find no
+Chrome, as on a machine without one.
+
+- **Held as on the dashboard.** What the agent wrote may try to send what
+  it reads somewhere, by names no write-time check sees
+  (`document["loc"+"ation"]`). So an artifact never runs as a page of its
+  own, in a render or in the saved file: it runs in the sandboxed srcdoc
+  frame (scripts only: no popups, no top navigation, no forms) inside the
+  wrapper whose policy lets that frame hold `about:` documents alone, where
+  a navigation, a popup or a request goes nowhere. KOS's renders add a
+  sealed tab (`systems/exportrender.ts`), offline from the start
+  (DevTools' own network emulation), on the tab and on every frame Chrome
+  attaches beside it. Its one document is answered by KOS through the
+  request's interception, under a name no resolver knows, so no socket is
+  opened for it. Every other request is paused and failed (Fetch), a window
+  it opens is closed, and the relay binding is heard only from that
+  document's own context, not from the artifact's frame nor anything the
+  tab becomes after. What each of the ways out that Fetch never sees meets:
+  - a WebSocket: the frame's policy (`connect-src 'none'`), and the tab
+    being offline; a print runs no script at all;
+  - a preconnect, a DNS prefetch or a prerender hint: the exporter takes
+    every `link`, `meta` and `base`, and every frame, object and embed, out
+    of the artifact before drawing or saving it (`withoutExits`, `systems/printsafe.ts`), whatever the stored
+    lint passed, and the guard refuses making one from script;
+  - a navigation's own lookup and connection (Chrome resolves the host a
+    frame is sent to, and connects, before the wrapper's policy refuses it):
+    the Chrome that checks and exports is launched sealed (`sealed` in
+    `ChromeLaunch`, `@kos/browser`): its resolver finds no name
+    (`--host-resolver-rules=MAP * ~NOTFOUND`), and every connection, to
+    loopback too, goes to a proxy that is not there (`127.0.0.1:9`), but
+    the one port KOS serves the check's documents on. These flags do not
+    hold WebRTC's UDP; the frame's guard (`RTC_GUARD`) does, and an export's
+    offline tab besides. KOS's browser for the web is never launched so. On the dashboard, in the owner's own browser,
+    this leak stands as below (What still leaves), held at write time.
+  An artifact that tries to leave anyway is left with nothing in its frame,
+  and its PDF is refused in words. `artifactexport.chrome.test.ts` plants
+  ones that try every way (a computed location, top's, a popup, an image,
+  the binding called straight, stored hints, a snapshot that hands back its
+  own frames, SVG script, `foreignObject` and a refresh) and counts no
+  request, connection or WebSocket on a listener, in a render for HTML, in
+  a print, and in the saved file opened from disk.
+- **PDF** is printed by the Chrome `artifacts.check` keeps, never the
+  machine's print dialog, so nothing asks the owner for a permission. The
+  checker's queue (`ArtifactChecker.withBrowser`) runs one job at a time,
+  a check or an export, the owner's ahead of the gallery's redraws, each
+  held to a ceiling (`JOB_MS`, two minutes) past which the job is given up
+  and the Chrome stopped; three exports waiting at most, and each given up
+  after 60 s, its tabs closed and its Chrome stopped, since a page that
+  spins holds its renderer whatever closes, counted against the three until
+  its work has truly ended. The artifact is drawn in its wrapper, its reads
+  answered live by the same server-side checks the frame's are and never
+  written; then the frame as it was drawn (its markup without scripts, its
+  stylesheets, a canvas as its picture) is printed with `Page.printToPDF`.
+  That snapshot is read in the artifact's frame after its code ran, which
+  can replace every method the reading calls, so it is untrusted text: the
+  server rebuilds it with parse5 against an allowlist of what a printed page
+  is made of (`systems/printsafe.ts`: no script, frame, object, form, link,
+  meta or base, no handler, `srcdoc` or `javascript:`, no `foreignObject` or
+  SVG animation, a `use` or link only to `#id`, images only as `data:`, a
+  style holding its text and no element, in SVG too, and every `url()` and
+  `@import` to anything but `data:` or `#id` dropped, in a style and in an
+  SVG paint attribute alike, with its CSS escapes read first, so `u\rl(` is
+  `url(`), under its own policy, built as the head's first node, that loads
+  and runs nothing, and puts it in a second sealed tab with no request at
+  all (`Page.setDocumentContent`), with scripts off and the network offline
+  on the tab and every frame Chrome attaches. Each of those locks is proven
+  alone (`exportrender.chrome.test.ts`: a control with both off connects,
+  each on its own lets nothing through). A Chrome that dies under a render
+  or a print refuses the export in words, and the next starts a fresh one. A deck prints by its
+  runtime's print rules on 16:9 pages, every slide whole and nothing after
+  the last; a doc on US Letter with margins, on white, its runtime's print
+  rules keeping a heading with what follows it and a figure, table, quote
+  or code block whole where it fits; a page on Letter, KOS's ground to the
+  paper's edges.
+- **HTML** is one file that opens anywhere, offline: an outer page under
+  the wrapper's policy (no network, no connection, `frame-src about:`)
+  that runs nothing of its own, holding the artifact's document in the
+  sandboxed frame: its markup with its kind's runtime, its libraries, KOS's
+  tokens for the chosen theme, the kit's stylesheet and the fonts it names,
+  inlined (dropped for their system stacks past 600 KB, which four families
+  do not reach), under the frame's own policy and guard. Its `window.kos`
+  reaches nothing: a page, a sheet with a source tab, or a doc or deck that
+  names `kos` is drawn once in KOS's Chrome first, and what its reads
+  answered is frozen into the file, answered from it by the same call; a
+  write, an ask or a save is refused in words, and with no save no runtime
+  offers editing. Nothing of the dashboard goes in: no token, no address,
+  only the artifact and what its own reads answered. Served with
+  `Content-Security-Policy: sandbox`, so a browser that drew it on the
+  dashboard's origin would run nothing there.
+- **Markdown** (`systems/docmarkdown.ts`) is the doc's article read with
+  parse5 and written as CommonMark with GitHub's tables, task lists and
+  footnotes: the header's kicker, title, lede and byline, headings, lists
+  and checklists, tables (with a caption, a spanned cell padded), figures
+  numbered as the doc numbers them, pull quotes and callouts as quotes,
+  code fenced with its language, links, and `.fn` notes as `[^n]`. A drawing
+  (an SVG or canvas chart) has no Markdown; its figure keeps its caption.
+- **CSV** (`systems/sheetcsv.ts`) is a tab's values as the sheet works them
+  out, with the runtime's own engine (`sheetformula.ts`, in `@kos/shared` so
+  the server and the runtime share it): a formula as its result, a pivot as
+  its groups, a source tab as every row its table holds now (not the
+  frame's first 500), read through the artifact's own bridge 500 at a time
+  and one tab after another, yielding between pages, up to 100,000 rows and
+  60 s for them all, past either of which the export is refused and the
+  table is the place to export from (as it is when a page comes back cut
+  short with no row in it); a tab whose read is
+  refused refuses the export, naming the tab. Numbers plain, to fifteen digits; no totals row;
+  RFC 4180 quoting and CRLF; a UTF-8 byte-order mark so Excel reads accents;
+  a text cell a spreadsheet would run as a formula led by an apostrophe.
+  Every tab of a sheet with more than one is a zip of a CSV each.
+
 ## How an artifact is written
 
 The tools are `artifacts.guide`, `artifacts.write`, `artifacts.patch`,
@@ -375,7 +516,7 @@ piece that names them.
 exactly as the dashboard does (the same wrapper, document, policy, guard,
 bridge, tokens, kit CSS, fonts and runtime, from the dashboard's build in
 `dist/page-lib`, held in a column with the dashboard's gutter on KOS's
-ground) in a headless Chrome KOS starts for it and closes when idle,
+ground) in a headless Chrome KOS starts for it, sealed from the network but for the loopback port it serves the render on, and closes when idle,
 at 1280 and 390 px wide, in light and in dark, with the machine's own
 preference set to the other theme so an artifact that follows the OS rather
 than KOS's toggle is caught. Its `window.kos` reads are answered by the same
@@ -547,7 +688,7 @@ also runs the old flat frame as a control and sees it leak):
 | The sandbox: scripts only | `window.open` and `target=_blank` (no popups), forms (no `allow-forms`), navigating the dashboard or any frame but the page's own (`top.location`, `parent.location`, `target=_top`) |
 | The page's policy, first in its head: no network | fetch, beacons, sockets, event streams, workers' fetches, external images, fonts, styles, scripts, objects and frames |
 | The wrapper's policy: its frame may hold `about:` documents and nothing else | the page sending itself anywhere: `location.href`, `assign`, `replace`, a meta refresh, a link it clicks, a download link, `data:` and `blob:` documents. A frame's navigation is checked against its parent's policy, and a `srcdoc` frame inherits its parent's policy, so the page can narrow it but never widen it |
-| Trusted Types and the guard script, run before the page's own | the elements no policy governs: `<link rel=prerender>` (which sends a real request whatever the policy says), other prefetch links, speculation rules, `<meta>`, `<iframe>` (a fresh realm), `<form>`, `<object>`, `<base>`, `<script>`, in any namespace and under any prefix. Every string the page turns into HTML (`innerHTML`, `insertAdjacentHTML`, `document.write`, `DOMParser`, ranges, shadow roots, templates) goes through one policy that refuses their markup; `createElement`, `createElementNS` and `createDocument` refuse them; and since a parser can still make one (an XML entity, another document), no node holding one may be adopted, imported or placed by any insertion method (`appendChild`, `insertBefore`, `replaceChild`, `append`, `prepend`, `replaceChildren`, `replaceWith`, `before`, `after`, `insertAdjacentElement`, `moveBefore`, a range's `insertNode` and `surroundContents`). A `<link>` takes no `rel` or `href`. WebRTC (STUN goes out over UDP beside every policy) and XSLT are taken away. All of it is fixed in place, and it checks with built-ins held from before the page runs, so a page that replaces `Function.prototype.call` or `RegExp.prototype.exec` changes nothing |
+| Trusted Types and the guard script, run before the page's own | the elements no policy governs: `<link rel=prerender>` (which sends a real request whatever the policy says), other prefetch links, speculation rules, `<meta>`, `<iframe>` (a fresh realm), `<form>`, `<object>`, `<base>`, `<script>`, in any namespace and under any prefix. Every string the page turns into HTML (`innerHTML`, `insertAdjacentHTML`, `document.write`, `DOMParser`, ranges, shadow roots, templates) goes through one policy that refuses their markup; `createElement`, `createElementNS` and `createDocument` refuse them; and since a parser can still make one (an XML entity, another document), no node holding one may be adopted, imported or placed by any insertion method (`appendChild`, `insertBefore`, `replaceChild`, `append`, `prepend`, `replaceChildren`, `replaceWith`, `before`, `after`, `insertAdjacentElement`, `moveBefore`, a range's `insertNode` and `surroundContents`). A `<link>` takes no `rel` or `href`. XSLT is taken away. Where a browser has no Trusted Types, the guard sets the same markup refusal on each HTML sink (`innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `DOMParser`, ranges, `setHTML`, `setHTMLUnsafe`) and the rest of it runs as ever; editing's `execCommand("insertHTML")`, which no policy covers, is held to it in every browser. A frame got no other way still cannot be placed by script (the insertion methods refuse it), so `window[0]` and `frames[0]` have nothing to hand over. The browser's own drop handling is not script: a person dropping HTML into an editable part can place an empty `<iframe>`, which Chrome strips of its `srcdoc` and which, inside the sandbox, is a cross-origin window the page cannot read. WebRTC (STUN goes out over UDP beside every policy) is taken away by a script of its own just before the guard (`RTC_GUARD`), which also hands no frame, object or embed's window or document to the page, since a fresh realm brings its own RTCPeerConnection; an exported file has the same. `artifact.chrome.test.ts` hides Trusted Types from a page and sees the guard still refuse a frame, by markup, by factory and by editing (in an editable element and in design mode), no frame for an index to reach, and no STUN packet leave All of it is fixed in place, and it checks with built-ins held from before the page runs, so a page that replaces `Function.prototype.call` or `RegExp.prototype.exec` changes nothing |
 | `artifacts.write` | the same in the page as written: `<link>` (prefixed too), `<meta http-equiv>`, frames, objects, `<base>`, `<form>`, speculation rules, link or form targets, download links, links off the page; in its code `location`, `open()`, setting a link's `href` or `target`, `submit()`, `navigation.navigate`, WebRTC. Code is read with its strings and comments blanked, so "Pick a location" or `row.location` pass. The page is refused with what it held, because a page that tries one only breaks (it has no network to reach), and because of the one leak below. This is a best reading of the code, not a parser |
 
 **What still leaves.** When a page starts a navigation, Chrome opens a

@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { isReadable, readAttachments } from "../kernel/attachments.js";
 import { isOffice, officeKindOf, officeNote, officeText } from "./office.js";
-import { isZip, readZip } from "./zip.js";
-import { zipOf } from "./zipfixture.js";
+import { isZip, readZip, writeZip } from "./zip.js";
 
 const DOCX = {
   "[Content_Types].xml": "<Types/>",
@@ -35,12 +34,12 @@ const PPTX = {
 
 describe("a zip", () => {
   it("reads stored and deflated entries by name, and refuses what it is not", () => {
-    const stored = readZip(zipOf({ "a.txt": "hello", "dir/": "", "dir/b.txt": "world" }));
+    const stored = readZip(writeZip({ "a.txt": "hello", "dir/": "", "dir/b.txt": "world" }));
     expect([...stored.keys()]).toEqual(["a.txt", "dir/b.txt"]);
     expect(stored.get("dir/b.txt")?.toString()).toBe("world");
-    const deflated = readZip(zipOf({ "long.txt": "x".repeat(5000) }, { deflate: true }));
+    const deflated = readZip(writeZip({ "long.txt": "x".repeat(5000) }, { deflate: true }));
     expect(deflated.get("long.txt")?.length).toBe(5000);
-    expect(isZip(zipOf({ "a": "b" }))).toBe(true);
+    expect(isZip(writeZip({ "a": "b" }))).toBe(true);
     expect(isZip(new Uint8Array([1, 2, 3, 4, 5]))).toBe(false);
     expect(() => readZip(new Uint8Array(40))).toThrow(/not a zip/);
   });
@@ -52,34 +51,34 @@ describe("an Office document", () => {
     expect(officeKindOf("application/octet-stream", "Deck.PPTX")).toBe("pptx");
     expect(officeKindOf("", "ledger.xlsx")).toBe("xlsx");
     expect(officeKindOf("application/pdf", "a.pdf")).toBeUndefined();
-    expect(isOffice(zipOf(DOCX), "cv.docx")).toBe(true);
+    expect(isOffice(writeZip(DOCX), "cv.docx")).toBe(true);
     expect(isOffice(new Uint8Array([1, 2, 3, 4, 5]), "cv.docx")).toBe(false);
   });
 
   it("reads a Word document as its paragraphs, a table row as one line", () => {
-    const read = officeText(zipOf(DOCX), "cv.docx");
+    const read = officeText(writeZip(DOCX), "cv.docx");
     expect(read).toMatchObject({ kind: "docx", parts: 4, truncated: false });
     expect(read.text).toBe("Resume of Kenny & co\n\nSkills:\tTypeScript\nRust\n\nYear | Role\n\n2026 | Builder");
     expect(officeNote(read)).toBe("docx, 4 paragraphs");
     // With no name or type to go by, what is inside says what it is.
-    expect(officeText(zipOf(DOCX, { deflate: true })).kind).toBe("docx");
+    expect(officeText(writeZip(DOCX, { deflate: true })).kind).toBe("docx");
   });
 
   it("reads a workbook sheet by sheet, shared and inline strings, numbers and booleans", () => {
-    const read = officeText(zipOf(XLSX), "spend.xlsx");
+    const read = officeText(writeZip(XLSX), "spend.xlsx");
     expect(read).toMatchObject({ kind: "xlsx", parts: 3 });
     expect(read.text).toBe("--- sheet Spend ---\nItem | Price\nKettle | 42 | TRUE\n\n--- sheet Notes & more ---\nlater");
     expect(officeNote(read)).toBe("xlsx, 3 rows");
   });
 
   it("reads a deck slide by slide, in slide order", () => {
-    const read = officeText(zipOf(PPTX), "deck.pptx");
+    const read = officeText(writeZip(PPTX), "deck.pptx");
     expect(read).toMatchObject({ kind: "pptx", parts: 3 });
     expect(read.text).toBe("--- slide 1 of 3 ---\nKOS in a slide\nBullet one\n\n--- slide 2 of 3 ---\nSecond\n\n--- slide 3 of 3 ---\nTenth");
   });
 
   it("stops at the cap and says so", () => {
-    const read = officeText(zipOf(DOCX), "cv.docx", "", 25);
+    const read = officeText(writeZip(DOCX), "cv.docx", "", 25);
     expect(read.truncated).toBe(true);
     expect(read.text.length).toBeLessThanOrEqual(25);
     expect(officeNote(read)).toContain("cut at the cap");
@@ -88,12 +87,12 @@ describe("an Office document", () => {
   it("comes through the door as the text file it reads as, like a PDF", async () => {
     expect(isReadable("", "cv.docx")).toBe(true);
     expect(isReadable("application/zip", "cv.zip")).toBe(false);
-    const [file] = await readAttachments([{ name: "cv.docx", mediaType: "application/octet-stream", data: Buffer.from(zipOf(DOCX)).toString("base64") }]);
+    const [file] = await readAttachments([{ name: "cv.docx", mediaType: "application/octet-stream", data: Buffer.from(writeZip(DOCX)).toString("base64") }]);
     expect(file).toMatchObject({ name: "cv.docx", mediaType: "text/plain" });
     expect(Buffer.from(file!.data, "base64").toString("utf8")).toBe("[cv.docx: docx, 4 paragraphs]\nResume of Kenny & co\n\nSkills:\tTypeScript\nRust\n\nYear | Role\n\n2026 | Builder");
   });
 
   it("refuses a zip that is not a document", () => {
-    expect(() => officeText(zipOf({ "a.txt": "x" }), "a.zip")).toThrow(/not an Office document/);
+    expect(() => officeText(writeZip({ "a.txt": "x" }), "a.zip")).toThrow(/not an Office document/);
   });
 });

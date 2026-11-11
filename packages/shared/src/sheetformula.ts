@@ -1,6 +1,9 @@
 /**
  * The sheet runtime's engine, apart from the page: formulas, a workbook's
- * values, totals, pivots and number formats. Pure, so it is tested alone.
+ * values, totals, pivots and number formats, and the query a source tab
+ * reads. Pure, so it is tested alone, and shared: the runtime draws a
+ * workbook with it, and the server exports one with it (a CSV of a tab's
+ * values, not its formulas).
  *
  * Data rows are numbered from 1 (the header is not a row) and column A is
  * the first column. A cell is a value, or a formula starting with "=".
@@ -8,7 +11,7 @@
  * + and -, then * and /, then ^, then a unary minus (so -2^2 is 4).
  */
 
-import type { SheetAggregate, SheetBook, SheetCell, SheetColumn, SheetTab } from "@kos/shared";
+import type { SheetAggregate, SheetBook, SheetCell, SheetColumn, SheetTab } from "./artifacts.js";
 
 export type ErrorCode = "#REF!" | "#DIV/0!" | "#NAME?" | "#VALUE!" | "#CYCLE!";
 
@@ -818,4 +821,28 @@ export function sortValue(a: Value, b: Value): number {
   if (blank(a) || blank(b)) return blank(a) === blank(b) ? 0 : blank(a) ? 1 : -1;
   if (typeof a === "number" && typeof b === "number") return a - b;
   return toText(a).localeCompare(toText(b), undefined, { numeric: true, sensitivity: "base" });
+}
+
+// —— a source tab ——
+
+const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const quote = (name: string): string => `"${name.replace(/"/g, '""')}"`;
+
+/** The query that reads a source tab's rows: its key, then each column's table column. */
+export function sourceQuery(tab: SheetTab): string | undefined {
+  const src = tab.source;
+  if (!src || !IDENT.test(src.table) || !IDENT.test(src.key)) return undefined;
+  const cols = tab.columns.map((c) => quote(c.column ?? c.label));
+  const order = /^([A-Za-z_][A-Za-z0-9_]*)(\s+(asc|desc))?$/i.exec(src.orderBy?.trim() ?? "");
+  return `SELECT ${quote(src.key)} AS __key, ${cols.join(", ")} FROM ${quote(src.table)}${order ? ` ORDER BY ${quote(order[1]!)}${order[3] ? ` ${order[3].toUpperCase()}` : ""}` : ""}`;
+}
+
+/** A source tab's rows from its query's answer, each in the tab's column order; a column the table lacks reads empty. */
+export function sourceRows(tab: SheetTab, rows: readonly Record<string, unknown>[]): SheetCell[][] {
+  return rows.map((r) =>
+    tab.columns.map((c) => {
+      const v = r[c.column ?? c.label];
+      return v === undefined ? null : (v as SheetCell);
+    }),
+  );
 }

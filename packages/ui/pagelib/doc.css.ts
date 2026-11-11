@@ -162,6 +162,16 @@ export const DOC_CSS = String.raw`
 :where([data-doc]) ul.checklist > li[data-checked="true"] { color: var(--muted); text-decoration: line-through; }
 :where([data-doc]) ul.checklist > li[data-checked="true"]::before { background: var(--accent); border-color: var(--accent); }
 [data-editing] [data-doc] ul.checklist > li::before { cursor: pointer; }
-@media print { .doc-toc { display: none; } }
+/* On paper: white under the text, no contents to press, a heading kept with what follows it, and a figure, table, quote or code block whole on its page where it fits. */
+@media print {
+  @page { size: letter; margin: 0.75in 0.8in; }
+  .doc-toc, .fn-back { display: none; }
+  :where(html[data-kind="doc"]) body { background: var(--panel); }
+  :where([data-doc], .doc-notes) :where(h1, h2, h3, h4) { break-after: avoid; break-inside: avoid; }
+  :where([data-doc]) :where(figure, table, pre, blockquote, aside, .doc-table, img, svg) { break-inside: avoid; }
+  :where([data-doc], .doc-notes) :where(p, li) { orphans: 3; widows: 3; }
+  /* The same ink without opacity, which a PDF paints as a group of its own after the rest, so the lede read out of order. */
+  :where([data-doc]) .lede { opacity: 1; color: color-mix(in srgb, var(--text) 86%, var(--panel)); }
+}
 @media (prefers-reduced-motion: reduce) { .flash { animation: none; } html { scroll-behavior: auto; } }
 `;

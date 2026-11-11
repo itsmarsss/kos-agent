@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { api, type AgentInfo, type ArtifactSummary, type Project } from "./api.js";
+import { api, dispositionName, type AgentInfo, type ArtifactSummary, type Project } from "./api.js";
 import { ArtifactViewer, ArtifactsPage } from "./ArtifactsPage.js";
 import { ArtifactOpen, ArtifactStep } from "./ArtifactStep.js";
 
@@ -168,6 +168,76 @@ describe("managing an artifact from its viewer", () => {
     await waitFor(() => expect(restored).toHaveBeenCalledWith("old"));
     await waitFor(() => expect(screen.queryByText(/This artifact is in the trash/)).toBeNull());
     expect(screen.getByRole("button", { name: "History" })).toBeTruthy();
+  });
+});
+
+describe("exporting an artifact", () => {
+  const SHEET: ArtifactSummary = { id: "spend", projectSlug: "budget", title: "Spending", path: "", updatedAt: at(5), kind: "html", artifactKind: "sheet", capturedAt: at(1) };
+  const labels = (): string[] => within(screen.getByRole("menu")).getAllByRole("menuitem").map((i) => i.textContent ?? "");
+
+  it("offers a doc's formats in its viewer's menu, and says so while the file is made", async () => {
+    openViewer(BRIEF);
+    let finish = (): void => undefined;
+    const made = vi.spyOn(api, "exportArtifact").mockImplementation(() => new Promise<void>((done) => (finish = done)));
+    fireEvent.click(await menuItem("Export as PDF"));
+    await waitFor(() => expect(made).toHaveBeenCalledWith("brief", "pdf", { theme: "light" }));
+    expect(screen.getByText("Exporting “Q4 brief” as PDF").closest("[role=status]")).toBeTruthy();
+    finish();
+    await waitFor(() => expect(screen.queryByText("Exporting “Q4 brief” as PDF")).toBeNull());
+    fireEvent.click(await screen.findByRole("button", { name: "More" }));
+    expect(labels()).toEqual(expect.arrayContaining(["Export as PDF", "Export as Markdown", "Export as HTML"]));
+    expect(labels()).not.toContain("Export as CSV");
+  });
+
+  it("draws an HTML export in the dashboard's theme, and shows why one failed", async () => {
+    document.documentElement.dataset.theme = "light";
+    openViewer(BRIEF);
+    vi.spyOn(api, "exportArtifact").mockRejectedValue(new Error("the export took too long"));
+    fireEvent.click(await menuItem("Export as HTML"));
+    expect((await screen.findByRole("alert")).textContent).toBe("Could not export “Q4 brief”: the export took too long");
+    expect(api.exportArtifact).toHaveBeenCalledWith("brief", "html", { theme: "light" });
+    delete document.documentElement.dataset.theme;
+  });
+
+  it("offers a deck no Markdown, a sheet each of its tabs, and a gallery card the sheet as one", async () => {
+    vi.spyOn(api, "anyPage").mockResolvedValue({
+      record: SHEET,
+      kind: "html",
+      page: { id: "spend", title: "Spending", kind: "sheet", html: `<script type="application/json" data-sheet>{"sheets":[{"name":"Expenses","columns":[{"label":"a"}],"rows":[]},{"name":"By month","columns":[{"label":"a"}],"rows":[]}]}</script>` },
+    } as never);
+    frames();
+    render(<ArtifactViewer id="spend" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
+    const made = vi.spyOn(api, "exportArtifact").mockResolvedValue();
+    fireEvent.click(await menuItem("Export “By month” as CSV"));
+    await waitFor(() => expect(made).toHaveBeenCalledWith("spend", "csv", { tab: "By month", theme: "dark" }));
+    fireEvent.click(await screen.findByRole("button", { name: "More" }));
+    expect(labels().filter((l) => l.startsWith("Export"))).toEqual(["Export all tabs as CSV", "Export “Expenses” as CSV", "Export “By month” as CSV", "Export as HTML"]);
+    cleanup();
+
+    vi.spyOn(api, "artifacts").mockResolvedValue([PITCH, SHEET]);
+    vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD]);
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Actions for Garden pitch" }));
+    expect(labels().filter((l) => l.startsWith("Export"))).toEqual(["Export as PDF", "Export as HTML"]);
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    fireEvent.click(await menuItem("Export as CSV", "Actions for Spending"));
+    await waitFor(() => expect(made).toHaveBeenCalledWith("spend", "csv", { theme: "dark" }));
+  });
+
+  it("offers nothing to export from the trash", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([BRIEF]);
+    vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD]);
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Trash1" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Actions for Old memo" }));
+    expect(labels()).toEqual(["Restore", "Delete forever"]);
+  });
+
+  it("names the file as the server does, in full when it says so in UTF-8", () => {
+    expect(dispositionName(`attachment; filename="Caf_ plan.pdf"; filename*=UTF-8''Caf%C3%A9%20plan.pdf`)).toBe("Café plan.pdf");
+    expect(dispositionName('attachment; filename="plan.md"')).toBe("plan.md");
+    expect(dispositionName(`attachment; filename="x.csv"; filename*=UTF-8''%E0%A4%A`)).toBe("x.csv");
+    expect(dispositionName(null)).toBeUndefined();
   });
 });
 

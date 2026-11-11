@@ -269,3 +269,18 @@ describe.skipIf(!chrome)("artifacts.check over real page queries", () => {
     expect(report.findings.find((f) => f.kind === "bridge")?.text).toMatch(/kos\.query: no such column: missing/);
   }, 45_000);
 });
+
+describe.skipIf(!chrome)("the check's Chrome, one job at a time", () => {
+  it("stops a job that holds it past its ceiling, and starts the next on a fresh one", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kos-ceiling-"));
+    // Room for the next job to start a Chrome of its own on a busy machine, which the ceiling counts too.
+    const checker = new ArtifactChecker({ load: () => undefined, call: async () => ({}), captures: (id) => join(dir, id), jobMs: 8000 });
+    try {
+      await expect(checker.withBrowser(() => new Promise<never>(() => undefined))).rejects.toThrow(/took too long/);
+      expect(await checker.withBrowser(async ({ cdp }) => ((await cdp.send("Browser.getVersion", {})) as { product: string }).product)).toMatch(/Chrome/);
+    } finally {
+      checker.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
