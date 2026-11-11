@@ -200,23 +200,22 @@ export function autoMap(header: readonly string[] | undefined, width: number, co
 /** A row's place in what came in: a line of a file, or a row of a paste. */
 const where = (line: number, column: SheetColumn | undefined, col: number): string => `Row ${line}, ${column?.label ?? `column ${col + 1}`}`;
 
-/** Rows to add from a file, mapped onto the tab's columns; a blank line adds nothing, and a value that does not fit leaves its cell empty and says so. */
+/** Rows to add from a file, mapped onto the tab's columns; a line with nothing for a mapped column adds nothing, and a value that does not fit leaves its cell empty and says so. */
 export function importRows(rows: readonly string[][], header: boolean, map: readonly number[], columns: readonly SheetColumn[]): { rows: SheetCell[][]; errors: string[] } {
   const out: SheetCell[][] = [];
   const errors: string[] = [];
   rows.forEach((fields, i) => {
     if (header && i === 0) return;
-    if (fields.every((f) => f.trim() === "")) return;
-    out.push(
-      columns.map((c, col) => {
-        const from = map[col] ?? -1;
-        if (from < 0) return null;
-        const got = coerce(fields[from] ?? "", c);
-        if ("cell" in got) return got.cell;
-        errors.push(`${where(i + 1, c, col)}: ${got.error}`);
-        return null;
-      }),
-    );
+    const row = columns.map((c, col) => {
+      const from = map[col] ?? -1;
+      if (from < 0) return null;
+      const got = coerce(fields[from] ?? "", c);
+      if ("cell" in got) return got.cell;
+      errors.push(`${where(i + 1, c, col)}: ${got.error}`);
+      return null;
+    });
+    // A line with nothing for any mapped column adds nothing (and a table would refuse an insert of no values).
+    if (row.some((c) => c !== null)) out.push(row);
   });
   return { rows: out, errors };
 }

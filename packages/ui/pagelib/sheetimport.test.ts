@@ -123,6 +123,13 @@ describe("mapping and importing", () => {
     ]);
     expect(got.errors).toEqual(['Row 4, Amount: "lots" is not a number']);
   });
+
+  it("adds no row for a line whose mapped columns are all empty, so the count is what is added", () => {
+    const rows = parseDelimited("Item,Amount,Note\nMilk,4,\n,,only a note\n,lots,\n", ",");
+    const got = importRows(rows, true, autoMap(rows[0], 3, COLUMNS), COLUMNS);
+    expect(got.rows).toEqual([[null, "Milk", 4, null]]);
+    expect(got.errors).toEqual(['Row 4, Amount: "lots" is not a number']);
+  });
 });
 
 describe("a paste", () => {
