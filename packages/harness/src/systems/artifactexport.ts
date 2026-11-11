@@ -23,7 +23,7 @@ import { writeZip } from "../files/zip.js";
 import { artifactFrame, defaultPageLib, hostDocument, loadAssets, type CheckBrowser, type FrameAssets, type Theme } from "./artifactcheck.js";
 import { docMarkdown } from "./docmarkdown.js";
 import { SNAPSHOT, SealedTab, type RelayedCall } from "./exportrender.js";
-import { printDocument, withoutHints } from "./printsafe.js";
+import { printDocument, withoutExits } from "./printsafe.js";
 import { SourceRefusal, tabCsv, withSources, type SourcePage } from "./sheetcsv.js";
 
 /**
@@ -211,7 +211,8 @@ function faces(page: HtmlPage, assets: FrameAssets): string {
 
 /**
  * The artifact's own document in an exported file: the frame's policy and
- * guard (the guard only where the browser has Trusted Types), the theme's
+ * guard (on Trusted Types where the browser has them, on each sink where
+ * not), the theme's
  * tokens, the kit, the fonts, the frozen bridge, the libraries and runtime,
  * then the artifact's own head and body.
  */
@@ -229,9 +230,9 @@ export function exportDocument({ page, title, mode, assets, answers }: ExportDoc
     `<meta http-equiv="Content-Security-Policy" content="${PAGE_GUARD_CSP}">`,
     '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
-    // WebRTC goes whatever the browser: the guard after it needs Trusted Types.
+    // WebRTC and frames' windows go first; the guard runs whether or not the browser has Trusted Types.
     `<script>${RTC_GUARD}</script>`,
-    `<script>if(typeof trustedTypes==="object"&&trustedTypes)${GUARD_SCRIPT}</script>`,
+    `<script>${GUARD_SCRIPT}</script>`,
     `<style id="kos-tokens">${tokenRule(assets.tokens[mode], mode)}</style>`,
     `<style>${`${assets.css}\n${fontStackVars()}\n${faces(page, assets)}\n${EXPORT_CSS}`.replace(/<\/style/gi, "")}</style>`,
     `<script>${scriptSafe(exportBridge(mode, answers))}</script>`,
@@ -351,7 +352,7 @@ export class ArtifactExporter {
     const assets = loadAssets((this.options.pageLib ?? defaultPageLib)());
     if (format === "html") {
       const answers = reads(page) ? (await this.inChrome((cdp, job) => this.draw(cdp, job, id, page, theme, assets, false))).answers : {};
-      const html = savedFile(exportDocument({ page: { ...page, html: withoutHints(page.html) }, title, mode: theme, assets, answers }), title, theme, assets.tokens[theme]["--bg"] ?? "transparent");
+      const html = savedFile(exportDocument({ page: { ...page, html: withoutExits(page.html) }, title, mode: theme, assets, answers }), title, theme, assets.tokens[theme]["--bg"] ?? "transparent");
       return { body: Buffer.from(html, "utf8"), type: "text/html; charset=utf-8", name: exportName(title, "html") };
     }
     const pdf = await this.inChrome(async (cdp, job) => {
@@ -462,7 +463,7 @@ export class ArtifactExporter {
       const view = kind === "deck" ? VIEW.deck : VIEW.other;
       await cdp.send("Emulation.setDeviceMetricsOverride", { ...view, deviceScaleFactor: 1, mobile: false }, tab.sessionId);
       await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }] }, tab.sessionId);
-      await tab.navigate(hostDocument(artifactFrame({ ...page, html: withoutHints(page.html) }, theme, assets), assets.tokens[theme]["--bg"]));
+      await tab.navigate(hostDocument(artifactFrame({ ...page, html: withoutExits(page.html) }, theme, assets), assets.tokens[theme]["--bg"]));
       const start = Date.now();
       await sleep(400);
       while (!job.aborted && Date.now() - start < SETTLE_MS && (inFlight > 0 || Date.now() - lastCall < QUIET_MS)) await sleep(100);

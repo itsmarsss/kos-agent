@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { PRINT_CSP, plainCss, printCss, printDocument, withoutHints } from "./printsafe.js";
+import { PRINT_CSP, plainCss, printCss, printDocument, withoutExits } from "./printsafe.js";
 
 describe("a snapshot made safe to print", () => {
   it("keeps the page's markup and styles, under its own policy first in the head", () => {
@@ -35,9 +35,15 @@ describe("a snapshot made safe to print", () => {
   });
 });
 
-describe("an artifact without its hints", () => {
+describe("an artifact without its hints and frames", () => {
+  it("drops a frame, an object or an embed wherever it was written", () => {
+    const out = withoutExits('<p>a</p><div><iframe srcdoc="x"></iframe><object data="x"></object><embed src="x"><frameset><frame></frameset></div><svg><foreignObject><iframe></iframe></foreignObject></svg>');
+    expect(out).not.toMatch(/<(iframe|object|embed|frame)/i);
+    expect(out).toContain("<p>a</p>");
+  });
+
   it("drops every link, meta and base, in any case and in a template, and keeps its scripts' text as written", () => {
-    const out = withoutHints('<HEAD><LINK REL=preconnect href="http://x"><meta http-equiv=refresh content="0;url=http://x"><base href="http://x/"></HEAD><body><template><link rel="prefetch" href="http://x"></template><p>a</p><script>var s = "<link rel=x>";</script></body>');
+    const out = withoutExits('<HEAD><LINK REL=preconnect href="http://x"><meta http-equiv=refresh content="0;url=http://x"><base href="http://x/"></HEAD><body><template><link rel="prefetch" href="http://x"></template><p>a</p><script>var s = "<link rel=x>";</script></body>');
     expect(out.replace(/<script>[\s\S]*?<\/script>/, "")).not.toMatch(/<link|<meta|<base/i);
     expect(out).toContain('<p>a</p><script>var s = "<link rel=x>";</script>');
   });

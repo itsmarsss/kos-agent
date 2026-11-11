@@ -15,7 +15,7 @@ import { parseRelay } from "./artifactcheck.js";
  *  - It can be offline from the start (DevTools' network emulation), which
  *    is what stops a WebSocket and what a preconnect would open: neither is
  *    a request Fetch sees. The exporter also takes every link, meta and base
- *    out of the artifact before it is drawn (withoutHints).
+ *    out of the artifact before it is drawn (withoutExits).
  *  - A window it opens is closed as it appears.
  *  - The kosRelay binding (a read relayed by the host document, or its word
  *    that the artifact's frame tried to leave) is heard only from the document KOS served, in the

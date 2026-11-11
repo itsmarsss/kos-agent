@@ -329,6 +329,40 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       expect(stun.packets.length).toBeGreaterThan(0);
     }, 20_000);
 
+    /*
+     * A browser with no Trusted Types (simulated: the page sees none), where
+     * WebRTC must still be gone, and a fresh frame's realm, with its own
+     * RTCPeerConnection, must not be had by markup, by a factory or by
+     * reaching into an element's window.
+     */
+    it("sends none from a page with no Trusted Types, nor through a frame's own realm", async () => {
+      const stun = await stunServer();
+      const viaFrame = `var said = { steps: [] }, step = (n, f) => { try { f(); said.steps.push(n) } catch (e) { said.steps.push(n + ":" + e.message.slice(0, 60)) } };
+        step("html", () => document.body.insertAdjacentHTML("beforeend", "<iframe></iframe>"));
+        step("make", () => document.body.appendChild(document.createElement("iframe")));
+        var f = document.querySelector("iframe"), w = null;
+        step("reach", () => { w = window[0] || (f && (f.contentWindow || (f.contentDocument && f.contentDocument.defaultView))) });
+        said.realm = !!w; said.tt = typeof trustedTypes;
+        step("rtc", () => { said.rtc = !!(w && w.RTCPeerConnection) });
+        top.postMessage({ census: said }, "*");
+        if (said.rtc) { const pc = new w.RTCPeerConnection({ iceServers: [{ urls: "${stun.url}" }] }); pc.createDataChannel("d"); pc.createOffer().then((o) => pc.setLocalDescription(o)) }`;
+      const noTrustedTypes = (code: string): string =>
+        page(code)
+          .replace(`<script>${RTC_GUARD}</script>`, `<script>Object.defineProperty(window, "trustedTypes", { value: undefined, configurable: true })</script><script>${RTC_GUARD}</script>`)
+          .replace("; require-trusted-types-for 'script'; trusted-types default", "");
+      const direct = await run("rtc-no-tt", wrapperDocument(noTrustedTypes(`${offer(stun.url)}; try { new webkitRTCPeerConnection({}) } catch (e) {}`)));
+      expect(direct.alive).toBe(true);
+      const framed = await run("rtc-no-tt-frame", wrapperDocument(noTrustedTypes(viaFrame)));
+      expect(framed.alive).toBe(true);
+      // The guard ran with no Trusted Types: no frame made by markup or by a factory, so no realm to take one from.
+      const said = JSON.parse(framed.said ?? "{}") as { steps: string[]; realm: boolean };
+      expect(said.steps[0]).toMatch(/^html:A KOS page cannot make that markup/);
+      expect(said.steps[1]).toMatch(/^make:A KOS page cannot make <iframe>/);
+      expect(said.realm).toBe(false);
+      await pause(1000);
+      expect(stun.packets).toEqual([]);
+    }, 30_000);
+
     it("sends none from a page", async () => {
       const stun = await stunServer();
       const guarded = await run("rtc", wrapperDocument(page(`${offer(stun.url)}; try { new webkitRTCPeerConnection({}) } catch (e) {}`)));

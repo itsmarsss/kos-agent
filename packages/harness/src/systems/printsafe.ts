@@ -201,8 +201,8 @@ export function printDocument(snapshot: string, extraCss = ""): string {
   return `<!doctype html>${serialize(document)}`;
 }
 
-/** What reaches out before any policy or interception sees it: a preconnect or DNS prefetch hint, a refresh, a base. */
-const HINTS = new Set(["link", "meta", "base"]);
+/** What reaches out before any policy or interception sees it (a preconnect or DNS prefetch hint, a refresh, a base), and a frame, a fresh realm with a network of its own. */
+const HINTS = new Set(["link", "meta", "base", "iframe", "frame", "frameset", "object", "embed", "portal", "fencedframe"]);
 
 function dropHints(parent: Parent): void {
   parent.childNodes = parent.childNodes.filter((n) => !("tagName" in n && HINTS.has(n.tagName.toLowerCase())));
@@ -213,13 +213,15 @@ function dropHints(parent: Parent): void {
 
 /**
  * The artifact's own document with every link, meta and base taken out,
- * however it was written, before KOS draws or exports it. A preconnect or a
+ * and every frame, object and embed, however it was written, before KOS
+ * draws or exports it. No artifact has one: the write-time lint and the
+ * guard refuse them all. A preconnect or a
  * DNS prefetch is made by the browser's network service beside any request
  * interception or page policy, so the only sure stop is never to hand the
  * hint over; the write-time lint refuses them too, but an export does not
  * rely on what was stored.
  */
-export function withoutHints(html: string): string {
+export function withoutExits(html: string): string {
   const document = parse(html);
   dropHints(document);
   return serialize(document);

@@ -82,7 +82,10 @@ export const WRAPPER_CSP = `${PAGE_CSP}; frame-src about:`;
  * or placed, whatever namespace it claims:
  *
  *  - Trusted Types send every string the page turns into HTML through one
- *    policy, which refuses their markup, prefixed or not;
+ *    policy, which refuses their markup, prefixed or not; where a browser
+ *    has no Trusted Types, the same refusal is set on each of those sinks
+ *    (innerHTML, outerHTML, insertAdjacentHTML, document.write, DOMParser,
+ *    ranges, setHTMLUnsafe) instead, so the rest of the guard still runs;
  *  - the factories (createElement, createElementNS, createDocument) refuse
  *    them by name;
  *  - and since a parser can still make one (an XML document's entities, a
@@ -114,7 +117,15 @@ var t;try{t=R(typeOf,n,[])}catch(_){return false}
 if(t===1&&bad(R(nameOf,n,[])))return true;
 var find=finds[t];return find!==undefined&&R(find,n,[TAGS])!==null}
 function check(nodes){for(var i=0;i<nodes.length;i++)if(holds(nodes[i]))refuse("that element")}
-trustedTypes.createPolicy("default",{createHTML:function(s){if(R(exec,inMarkup,[s])!==null||R(exec,inXsl,[s])!==null)refuse("that markup");return s},createScript:function(){refuse("a script")},createScriptURL:function(){refuse("a script URL")}});
+function vet(s){s=Str(s);if(R(exec,inMarkup,[s])!==null||R(exec,inXsl,[s])!==null)refuse("that markup");return s}
+if(typeof trustedTypes==="object"&&trustedTypes&&typeof trustedTypes.createPolicy==="function"){trustedTypes.createPolicy("default",{createHTML:vet,createScript:function(){refuse("a script")},createScriptURL:function(){refuse("a script URL")}})}
+else{
+var setOf=function(o,k){var d=o&&Object.getOwnPropertyDescriptor(o,k);if(!d||!d.set)return;define(o,k,{get:d.get,set:function(v){R(d.set,this,[vet(v)])},enumerable:d.enumerable,configurable:false})};
+var argOf=function(o,k,i){var f=o&&o[k];if(typeof f!=="function")return;fix(o,k,function(){var a=[];for(var j=0;j<arguments.length;j++)a[j]=arguments[j];if(i<0){for(var n=0;n<a.length;n++)a[n]=vet(a[n])}else a[i]=vet(a[i]);return R(f,this,a)})};
+setOf(Element.prototype,"innerHTML");setOf(Element.prototype,"outerHTML");if(typeof ShadowRoot==="function")setOf(ShadowRoot.prototype,"innerHTML");
+argOf(Element.prototype,"insertAdjacentHTML",1);argOf(Element.prototype,"setHTMLUnsafe",0);if(typeof ShadowRoot==="function")argOf(ShadowRoot.prototype,"setHTMLUnsafe",0);
+argOf(Document.prototype,"write",-1);argOf(Document.prototype,"writeln",-1);argOf(DOMParser.prototype,"parseFromString",0);argOf(Range.prototype,"createContextualFragment",0);argOf(Document,"parseHTMLUnsafe",0);
+}
 var make=Document.prototype.createElement,makeNS=Document.prototype.createElementNS,makeDoc=DOMImplementation.prototype.createDocument;
 fix(Document.prototype,"createElement",function(n,o){n=Str(n);if(bad(n))refuse("<"+n+">");return R(make,this,[n,o])});
 fix(Document.prototype,"createElementNS",function(ns,n,o){n=Str(n);if(bad(n))refuse("<"+n+">");return R(makeNS,this,[ns,n,o])});
@@ -136,11 +147,12 @@ fix(Element.prototype,"setAttributeNS",function(ns,n,v){n=Str(n);if(inert(this,n
 
 /**
  * WebRTC taken away, first and on its own: it reaches the network beside
- * any policy (a STUN request carries what the page puts in it), so it is not
- * left to the guard, which stops at its first line where a browser has no
- * Trusted Types.
+ * any policy (a STUN request carries what the page puts in it). And since a
+ * frame is a fresh realm with its own RTCPeerConnection, no frame, object or
+ * embed hands its window or document to the page either. Neither waits on
+ * the guard.
  */
-export const RTC_GUARD = `(function(){["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel","RTCRtpSender","RTCRtpReceiver","RTCRtpTransceiver"].forEach(function(k){try{Object.defineProperty(window,k,{value:undefined,writable:false,configurable:false})}catch(e){}})})();`;
+export const RTC_GUARD = `(function(){var d=Object.defineProperty;["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel","RTCRtpSender","RTCRtpReceiver","RTCRtpTransceiver"].forEach(function(k){try{d(window,k,{value:undefined,writable:false,configurable:false})}catch(e){}});["HTMLIFrameElement","HTMLFrameElement","HTMLObjectElement"].forEach(function(c){var p=window[c]&&window[c].prototype;if(p)["contentWindow","contentDocument"].forEach(function(k){try{d(p,k,{get:function(){return null},configurable:false})}catch(e){}})})})();`;
 
 /**
  * Text that holds no tags of the page's: a comment, and what a raw element
