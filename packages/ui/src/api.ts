@@ -441,6 +441,8 @@ export interface PageSummary {
   /** What it is: page, doc, deck or sheet. */
   artifactKind: import("@kos/shared").ArtifactKind;
   description?: string;
+  /** When the owner put it in the trash, in ms: it is kept as it is until restored or deleted for good. */
+  trashedAt?: number;
   /** The figure an HTML page offers its project's card, when it declares one. */
   headline?: { label: string; value: unknown };
 }
@@ -1142,6 +1144,16 @@ export const api = {
   },
   /** Every artifact, across projects, blobs and the workspace, with when it was last captured. */
   artifacts: () => get<ArtifactSummary[]>("/api/artifacts"),
+  /** What is in the trash, newest trashed first once sorted. */
+  trashedArtifacts: () => get<ArtifactSummary[]>("/api/artifacts?trashed=1"),
+  renameArtifact: (id: string, change: { title?: string; description?: string }) => post<PageSummary>(`/api/artifacts/${encodeURIComponent(id)}/rename`, change),
+  duplicateArtifact: (id: string) => post<PageSummary>(`/api/artifacts/${encodeURIComponent(id)}/duplicate`),
+  /** To a project by its slug, the workspace as WORKSPACE_SCOPE, or a living blob by its name. */
+  moveArtifact: (id: string, to: { project: string } | { blob: string }) => post<PageSummary>(`/api/artifacts/${encodeURIComponent(id)}/move`, to),
+  trashArtifact: (id: string) => post<PageSummary>(`/api/artifacts/${encodeURIComponent(id)}/trash`),
+  restoreArtifact: (id: string) => post<PageSummary>(`/api/artifacts/${encodeURIComponent(id)}/restore`),
+  /** For good: only what is in the trash. */
+  deleteArtifact: (id: string) => post<{ id: string; deleted: boolean }>(`/api/artifacts/${encodeURIComponent(id)}/delete`),
   /** Render an artifact and keep its captures: the gallery's thumbnail. */
   checkArtifact: (id: string) => post<{ findings: { kind: string; text: string }[]; capturedAt?: number }>(`/api/artifacts/${encodeURIComponent(id)}/check`),
   pageHistory: (id: string) => get<PageVersion[]>(`/api/pages/${encodeURIComponent(id)}/history`),
@@ -1149,7 +1161,6 @@ export const api = {
   pageVersion: (id: string, version: number) => get<HtmlPage>(`/api/pages/${encodeURIComponent(id)}/versions/${version}`),
   /** Put a page back as it was at a version; `base`, the version it was opened at, refuses one made on a page changed since (409). */
   /** Delete what a removed blob made, which is the owner's alone to let go. */
-  deletePage: (id: string) => post<{ deleted: boolean }>(`/api/pages/${encodeURIComponent(id)}/delete`, {}),
   pageRollback: (id: string, version: number, base?: number) => post<PageSummary>(`/api/pages/${encodeURIComponent(id)}/rollback`, { version, ...(base !== undefined ? { base } : {}) }),
   mutate: (req: MutateRequest) => post<MutateResult>("/api/mutate", req),
   conversations: (includeArchived = false) =>

@@ -3199,6 +3199,10 @@ li:hover .chats-item-when { opacity: 0; }
 .artifact-step-owner > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artifact-step-owner .project-mark { width: 16px; height: 16px; font-size: 9.5px; border-radius: 4px; flex: none; }
 .artifact-step-acts { display: flex; gap: 4px; flex: none; }
+/* In the trash: still named, quieter, with the way back. */
+.artifact-step.is-trashed { border-style: dashed; }
+.artifact-step.is-trashed .artifact-step-thumb img { opacity: 0.45; filter: grayscale(1); }
+.artifact-step.is-trashed .artifact-step-title { color: var(--muted); }
 @media (max-width: 480px) {
   .artifact-step-acts .btn--ghost { display: none; }
 }
@@ -7226,6 +7230,44 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .artifact-card-owner > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artifact-card-owner .project-mark, .artifact-view-owner .project-mark { width: 16px; height: 16px; font-size: 9.5px; border-radius: 4px; flex: none; }
 .artifact-card-time { margin-left: auto; white-space: nowrap; }
+/* A card's menu sits over its capture's corner, beside the card's button rather than in it (ArtifactMenu). */
+.artifact-card-wrap { position: relative; display: flex; width: 100%; min-width: 0; }
+.artifact-card-menu { position: absolute; top: 8px; right: 8px; opacity: 0; transition: opacity 140ms ease-out; }
+.artifact-card-menu .artifact-view-more { background: color-mix(in srgb, var(--panel) 90%, transparent); border-color: var(--line-strong); }
+.artifact-card-wrap:hover .artifact-card-menu, .artifact-card-menu:focus-within, .artifact-card-menu:has([aria-expanded="true"]) { opacity: 1; }
+@media (hover: none) { .artifact-card-menu { opacity: 1; } }
+.artifacts-trash { display: inline-flex; align-items: center; gap: 0.35rem; }
+/* The menu's groups: what it is, then the owner's own handles on it, under a hairline. */
+.artifact-view-menu .is-divided { position: relative; margin-top: 7px; }
+.artifact-view-menu .is-divided::before { content: ""; position: absolute; left: 6px; right: 6px; top: -4px; border-top: 1px solid var(--line); pointer-events: none; }
+/* Rename and Move (ArtifactManage.tsx). */
+.artifact-dialog { min-width: 0; }
+.artifact-dialog .hint { margin: 0; }
+.artifact-dialog-about { resize: vertical; min-height: 3.4rem; font: inherit; line-height: 1.45; }
+.artifact-move-list { display: flex; flex-direction: column; gap: 2px; max-height: min(20rem, 50vh); overflow-y: auto; padding: 3px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg); }
+.artifact-move-option {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  color: var(--text);
+  font-size: var(--text-base);
+  cursor: pointer;
+  transition: background 140ms ease-out;
+}
+.artifact-move-option:hover:not(:disabled) { background: var(--panel-2); }
+.artifact-move-option:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.artifact-move-option.is-on { background: var(--accent-dim); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.artifact-move-option:disabled { cursor: default; color: var(--muted); }
+.artifact-move-option .project-mark, .artifact-move-ws { width: 20px; height: 20px; font-size: 10.5px; border-radius: 5px; flex: none; }
+.artifact-move-ws svg { width: 12px; height: 12px; }
+.artifact-move-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-move-here { color: var(--faint); font-size: var(--text-sm); }
+/* In the trash: said once, over the artifact, with the way back. */
+.artifact-trashed { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem 0.8rem; flex-wrap: wrap; border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); background: color-mix(in srgb, var(--warn) 8%, transparent); }
 
 /* One artifact, full size: its head, then the artifact as part of the page. */
 /* A container, so the head folds by the room the viewer has (beside a chat, it is narrow on a wide screen), not by the window. */

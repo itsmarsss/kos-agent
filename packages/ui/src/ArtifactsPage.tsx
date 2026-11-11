@@ -9,7 +9,9 @@ import { ProjectMark } from "./ProjectMark.js";
 import { VersionList } from "./PageHistory.js";
 import type { Route } from "./routes.js";
 import { Select } from "./Select.js";
-import { ArtifactHead } from "./ArtifactHead.js";
+import { ArtifactHead, ArtifactMenu, type MenuItem } from "./ArtifactHead.js";
+import { TrashNotice, useArtifactOps, type ArtifactChange } from "./ArtifactManage.js";
+import { hrefFor } from "./routes.js";
 import { ArtifactPage, type ArtifactHandle, type DeckView, type EditState } from "./widgets/ArtifactPage.js";
 
 /**
@@ -81,30 +83,37 @@ export const NEW_ARTIFACT_WORDS = "Make a ";
 /** How many cards the loading gallery draws in their place. */
 const SKELETONS = 6;
 
-function ArtifactCard({ a, projects, theme, onOpen }: { a: ArtifactSummary; projects: Project[]; theme: "light" | "dark"; onOpen: () => void }): ReactElement {
+function ArtifactCard({ a, projects, theme, onOpen, menu }: { a: ArtifactSummary; projects: Project[]; theme: "light" | "dark"; onOpen: () => void; menu: MenuItem[] }): ReactElement {
   return (
-    <button type="button" className="artifact-card" onClick={onOpen}>
-      <span className="artifact-thumb" data-kind={a.artifactKind}>
-        {a.capturedAt ? (
-          <img src={`/api/artifacts/${encodeURIComponent(a.id)}/thumb?theme=${theme}&v=${Math.round(a.capturedAt)}`} alt="" loading="lazy" />
-        ) : (
-          <span className="artifact-thumb-mark">
-            <NavIcon name={a.artifactKind} />
-          </span>
-        )}
-      </span>
-      <span className="artifact-card-body">
-        <span className="artifact-card-title">{a.title}</span>
-        <span className="artifact-card-desc">{a.description || "\u00a0"}</span>
-        <span className="artifact-card-meta">
-          {isWidgetPage(a) ? <Tag title="Made before artifacts; KOS can convert it">Older widget page</Tag> : <Tag>{KIND_WORD[a.artifactKind]}</Tag>}
-          <span className="artifact-card-owner">
-            <OwnerMark record={a} projects={projects} />
-          </span>
-          <span className="artifact-card-time">{relativeWords(Math.round(a.updatedAt / 1000))}</span>
+    <div className="artifact-card-wrap">
+      <button type="button" className="artifact-card" onClick={onOpen}>
+        <span className="artifact-thumb" data-kind={a.artifactKind}>
+          {a.capturedAt ? (
+            <img src={`/api/artifacts/${encodeURIComponent(a.id)}/thumb?theme=${theme}&v=${Math.round(a.capturedAt)}`} alt="" loading="lazy" />
+          ) : (
+            <span className="artifact-thumb-mark">
+              <NavIcon name={a.artifactKind} />
+            </span>
+          )}
         </span>
-      </span>
-    </button>
+        <span className="artifact-card-body">
+          <span className="artifact-card-title">{a.title}</span>
+          <span className="artifact-card-desc">{a.description || "\u00a0"}</span>
+          <span className="artifact-card-meta">
+            {isWidgetPage(a) ? <Tag title="Made before artifacts; KOS can convert it">Older widget page</Tag> : <Tag>{KIND_WORD[a.artifactKind]}</Tag>}
+            <span className="artifact-card-owner">
+              <OwnerMark record={a} projects={projects} />
+            </span>
+            {/* In the trash, when it went there: the view's own head says it is the trash. */}
+            <span className="artifact-card-time" {...(a.trashedAt !== undefined ? { title: "When it was moved to the trash" } : {})}>
+              {relativeWords(Math.round((a.trashedAt ?? a.updatedAt) / 1000))}
+            </span>
+          </span>
+        </span>
+      </button>
+      {/* Beside the card's button, not in it: a button holds no other. */}
+      <ArtifactMenu className="artifact-card-menu" label={`Actions for ${a.title}`} items={menu} />
+    </div>
   );
 }
 
@@ -118,10 +127,20 @@ function CardGrid({ items, label, children }: { items: ArtifactSummary[]; label:
   );
 }
 
+/** The gallery's two views: what is in use, and what the owner put in the trash. */
+type View = "all" | "trash";
+
+const newestFirst = (items: ArtifactSummary[]): ArtifactSummary[] => [...items].sort((a, b) => b.updatedAt - a.updatedAt);
+const trashedFirst = (items: ArtifactSummary[]): ArtifactSummary[] => [...items].sort((a, b) => (b.trashedAt ?? 0) - (a.trashedAt ?? 0));
+
 export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]; onOpen: (id: string) => void; onNew?: (words: string) => void }): ReactElement {
   const theme = useDashboardTheme();
   const [list, setList] = useState<ArtifactSummary[]>();
+  const [trash, setTrash] = useState<ArtifactSummary[]>();
+  const [view, setView] = useState<View>("all");
   const [error, setError] = useState<string>();
+  /** What was just put in the trash, with a way to take it back. */
+  const [trashed, setTrashed] = useState<ArtifactSummary>();
   const [kind, setKind] = useState<ArtifactKind | "all">("all");
   const [project, setProject] = useState(ALL_PROJECTS);
   const [query, setQuery] = useState("");
@@ -130,18 +149,48 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
 
   useEffect(() => {
     let stale = false;
+    const failed = (err: unknown): void => void (!stale && setError(err instanceof Error ? err.message : String(err)));
     api
       .artifacts()
-      .then((got) => !stale && setList([...got].sort((a, b) => b.updatedAt - a.updatedAt)))
-      .catch((err: unknown) => !stale && setError(err instanceof Error ? err.message : String(err)));
+      .then((got) => !stale && setList(newestFirst(got)))
+      .catch(failed);
+    // The trash is a view beside the gallery: one that cannot be read is shown empty rather than as the gallery's error.
+    api
+      .trashedArtifacts()
+      .then((got) => !stale && setTrash(trashedFirst(got)))
+      .catch(() => !stale && setTrash([]));
     return () => {
       stale = true;
     };
   }, []);
 
+  // Each change lands where it belongs: a rename or a move in place, a copy at the top, the trash and back between the two lists.
+  const changed = (change: ArtifactChange): void => {
+    setError(undefined);
+    const without = (items: ArtifactSummary[] | undefined, id: string): ArtifactSummary[] => (items ?? []).filter((a) => a.id !== id);
+    const known = [...(list ?? []), ...(trash ?? [])].find((a) => a.id === (change.op === "delete" ? change.id : change.record.id));
+    if (change.op === "delete") return setTrash((t) => without(t, change.id));
+    // A record from a write carries no capture; the one the list had is kept, and redrawn when older than the change.
+    const next: ArtifactSummary = { ...change.record, ...(known?.capturedAt ? { capturedAt: known.capturedAt } : {}) };
+    if (change.op === "duplicate") return setList((l) => newestFirst([next, ...(l ?? [])]));
+    if (change.op === "trash") {
+      setList((l) => without(l, next.id));
+      setTrash((t) => trashedFirst([next, ...without(t, next.id)]));
+      return setTrashed(next);
+    }
+    if (change.op === "restore") {
+      setTrash((t) => without(t, next.id));
+      setTrashed(undefined);
+      return setList((l) => newestFirst([next, ...without(l, next.id)]));
+    }
+    setList((l) => newestFirst((l ?? []).map((a) => (a.id === next.id ? next : a))));
+  };
+  const ops = useArtifactOps({ projects, onChanged: changed, onError: setError });
+
   // Redraw what has no capture, or an old one, one at a time, newest first,
   // and no more than REDRAW_MAX in a visit: each redraw updates the list,
   // which runs this again, so the count is kept across runs, not per run.
+  // What is in the trash is left as it was drawn.
   const redrawn = useRef(new Set<string>());
   useEffect(() => {
     if (!list) return;
@@ -160,15 +209,17 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
     };
   }, [list]);
 
+  const inTrash = view === "trash";
+  const source = inTrash ? trash : list;
   // Every filter but the kind's, so each kind chip can say how many it would show.
   const matching = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return (list ?? []).filter(
+    return (source ?? []).filter(
       (a) =>
         (project === ALL_PROJECTS || ownerValue(a) === project) &&
         (!q || haystack(a, ownerName(a, projects)).includes(q)),
     );
-  }, [list, project, projects, query]);
+  }, [source, project, projects, query]);
   const shown = useMemo(() => matching.filter((a) => kind === "all" || a.artifactKind === kind), [kind, matching]);
   const kinds = useMemo(
     () => KINDS.map(([value, word]): ChipOption<ArtifactKind | "all"> => [value, <>{word}<Count n={value === "all" ? matching.length : matching.filter((a) => a.artifactKind === value).length} /></>]),
@@ -176,17 +227,17 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
   );
 
   const owners = useMemo(() => {
-    const slugs = [...new Set((list ?? []).flatMap((a) => (a.projectSlug ? [a.projectSlug] : [])))];
-    const blobs = [...new Map((list ?? []).flatMap((a) => (a.blob ? [[ownerValue(a), a] as const] : []))).values()].sort((a, b) => ownerName(a, projects).localeCompare(ownerName(b, projects)));
+    const slugs = [...new Set((source ?? []).flatMap((a) => (a.projectSlug ? [a.projectSlug] : [])))];
+    const blobs = [...new Map((source ?? []).flatMap((a) => (a.blob ? [[ownerValue(a), a] as const] : []))).values()].sort((a, b) => ownerName(a, projects).localeCompare(ownerName(b, projects)));
     return [
       { value: ALL_PROJECTS, label: "Everyone's" },
-      ...((list ?? []).some((a) => a.projectSlug === null && !a.blob) ? [{ value: WORKSPACE_SCOPE, label: "Workspace" }] : []),
+      ...((source ?? []).some((a) => a.projectSlug === null && !a.blob) ? [{ value: WORKSPACE_SCOPE, label: "Workspace" }] : []),
       ...slugs
         .map((s) => ({ value: s, label: bySlug.get(s)?.name ?? s, icon: <ProjectMark slug={s} name={bySlug.get(s)?.name ?? s} colour={bySlug.get(s)?.colour} /> }))
         .sort((a, b) => a.label.localeCompare(b.label)),
       ...blobs.map((b) => ({ value: ownerValue(b), label: ownerName(b, projects), icon: <Face seed={b.blob!} size={14} /> })),
     ];
-  }, [list, bySlug, projects]);
+  }, [source, bySlug, projects]);
 
   // A section per owner, the one touched most recently first, and the workspace's own last.
   const groups = useMemo(() => {
@@ -198,38 +249,73 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
   }, [shown]);
 
   const filtered = kind !== "all" || project !== ALL_PROJECTS || query.trim() !== "";
-  const card = (a: ArtifactSummary): ReactElement => <ArtifactCard a={a} projects={projects} theme={theme} onOpen={() => onOpen(a.id)} />;
+  const card = (a: ArtifactSummary): ReactElement => <ArtifactCard a={a} projects={projects} theme={theme} onOpen={() => onOpen(a.id)} menu={ops.items(a)} />;
+  const show = (next: View): void => {
+    setView(next);
+    setProject(ALL_PROJECTS);
+    setTrashed(undefined);
+  };
   const newArtifact = onNew ? (
     <button type="button" className="btn btn--primary btn--sm artifacts-new" onClick={() => onNew(NEW_ARTIFACT_WORDS)}>
       <PlusIcon size={13} title="" />
       New artifact
     </button>
   ) : null;
+  const actions = inTrash ? (
+    <button type="button" className="btn btn--sm" onClick={() => show("all")}>
+      Back to artifacts
+    </button>
+  ) : (
+    <>
+      <button type="button" className="btn btn--ghost btn--sm artifacts-trash" onClick={() => show("trash")}>
+        Trash
+        {trash && trash.length > 0 && <Count n={trash.length} />}
+      </button>
+      {newArtifact}
+    </>
+  );
 
   return (
     <div className="list-page artifacts">
       <PageHead
-        title="Artifacts"
-        {...(list ? { count: list.length } : {})}
-        subtitle="The pages, docs, decks and sheets KOS has made, across projects, blobs and the workspace."
+        title={inTrash ? "Trash" : "Artifacts"}
+        {...(source ? { count: source.length } : {})}
+        subtitle={
+          inTrash
+            ? "Kept as it was until you restore it or delete it for good. Nothing is deleted on its own."
+            : "The pages, docs, decks and sheets KOS has made, across projects, blobs and the workspace."
+        }
         search={
           <input
             className="list-search"
             type="search"
-            placeholder="Search artifacts"
-            aria-label="Search artifacts"
+            placeholder={inTrash ? "Search the trash" : "Search artifacts"}
+            aria-label={inTrash ? "Search the trash" : "Search artifacts"}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         }
-        actions={newArtifact}
+        actions={actions}
       />
-      {list && list.length > 0 && (
+      {trashed && !inTrash && (
+        <div className="ops-alert artifact-preview" role="status">
+          <span>“{trashed.title}” is in the trash.</span>
+          <span className="artifact-preview-acts">
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => show("trash")}>
+              Open the trash
+            </button>
+            <button type="button" className="btn btn--sm" disabled={ops.busy} onClick={() => ops.restore(trashed)}>
+              Undo
+            </button>
+          </span>
+        </div>
+      )}
+      {source && source.length > 0 && (
         <div className="artifacts-bar">
           <Chips options={kinds} selected={kind} onChoose={setKind} label="Kind" small scroll />
           <div className="artifacts-bar-end">
             {owners.length > 2 && <Select value={project} options={owners} onChange={setProject} label="Owner" />}
-            <Chips options={GROUPINGS} selected={grouping} onChoose={setGrouping} label="Group" small />
+            {!inTrash && <Chips options={GROUPINGS} selected={grouping} onChoose={setGrouping} label="Group" small />}
           </div>
         </div>
       )}
@@ -238,7 +324,7 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
           {error}
         </p>
       )}
-      {!list && !error && (
+      {!source && !error && (
         <ul className="artifact-grid" aria-label="Loading artifacts" aria-busy="true">
           {Array.from({ length: SKELETONS }, (_, i) => (
             <li key={i}>
@@ -254,13 +340,18 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
           ))}
         </ul>
       )}
-      {list && list.length === 0 && (
-        <div className="artifacts-empty">
-          <Empty title="Nothing made yet">Ask KOS for a doc, a deck, a sheet or a page, and it shows up here.</Empty>
-          {newArtifact}
-        </div>
-      )}
-      {list && list.length > 0 && shown.length === 0 && (
+      {source && source.length === 0 &&
+        (inTrash ? (
+          <div className="artifacts-empty">
+            <Empty title="The trash is empty">What you move to the trash waits here until you restore it or delete it for good.</Empty>
+          </div>
+        ) : (
+          <div className="artifacts-empty">
+            <Empty title="Nothing made yet">Ask KOS for a doc, a deck, a sheet or a page, and it shows up here.</Empty>
+            {newArtifact}
+          </div>
+        ))}
+      {source && source.length > 0 && shown.length === 0 && (
         <div className="artifacts-none">
           <Empty inline>No artifact matches these filters.</Empty>
           {filtered && (
@@ -278,15 +369,15 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
           )}
         </div>
       )}
-      {shown.length > 0 && grouping === "recent" && (
+      {shown.length > 0 && (inTrash || grouping === "recent") && (
         <section className="artifact-group">
-          <h2 className="label">Recently updated</h2>
-          <CardGrid items={shown} label="Artifacts">
+          <h2 className="label">{inTrash ? "Recently trashed" : "Recently updated"}</h2>
+          <CardGrid items={shown} label={inTrash ? "Trash" : "Artifacts"}>
             {card}
           </CardGrid>
         </section>
       )}
-      {shown.length > 0 && grouping === "project" && (
+      {shown.length > 0 && !inTrash && grouping === "project" && (
         <div className="artifact-groups" role="list" aria-label="Artifacts">
           {groups.map((items) => (
             <section key={ownerValue(items[0]!)} className="artifact-group" role="listitem">
@@ -301,6 +392,7 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
           ))}
         </div>
       )}
+      {ops.dialogs}
     </div>
   );
 }
@@ -415,6 +507,8 @@ export function ArtifactViewer({
   const [words, setWords] = useState("");
   /** An older version shown in place of the current one, to look at before restoring it. */
   const [preview, setPreview] = useState<{ version: PageVersion; page: HtmlPage }>();
+  /** The copy just made of it, to go to. */
+  const [copy, setCopy] = useState<PageSummary>();
   const frame = useRef<ArtifactHandle>(null);
   const head = useRef<HTMLElement>(null);
   // The frame's own controls, drawn in the head: a doc's editing, a deck's place.
@@ -452,6 +546,7 @@ export function ArtifactViewer({
   // A new artifact in the same viewer (another one picked beside a chat): the one open finishes its editing first.
   useEffect(() => {
     setError(undefined);
+    setCopy(undefined);
     if (initial?.record.id === id && !record) {
       show(initial);
       return;
@@ -463,6 +558,19 @@ export function ArtifactViewer({
 
   const whose = record ? ownerOf(record) : null;
   const owner = record ? ownerName(record, projects) : "Workspace";
+  const trashed = record?.trashedAt !== undefined;
+
+  const changed = (change: ArtifactChange): void => {
+    setError(undefined);
+    if (change.op === "delete") return onBack();
+    if (change.op === "duplicate") return setCopy(change.record);
+    // In the trash the frame is only looked at: its editing goes with it.
+    if (change.op === "trash") setEdit(undefined);
+    saved(change.record);
+  };
+  const ops = useArtifactOps({ projects, onChanged: changed, onError: setError });
+  // Whatever the doc has not saved is saved first, so a rename or a move is made on the newest version.
+  const manage = record ? ops.items(record).map((item) => ({ ...item, act: () => void settle().then(item.act) })) : [];
 
   const convert = (): void => {
     if (!record?.projectSlug) return;
@@ -492,9 +600,9 @@ export function ArtifactViewer({
           {...(whose && onOpenOwner && !record.blobRemoved ? { onOpenOwner: () => void settle().then(() => onOpenOwner(whose)) } : {})}
           history={history}
           onHistory={() => setHistory(true)}
-          {...(!record.blobRemoved && !older ? { onAsk: () => setAsking((v) => !v) } : {})}
+          {...(!record.blobRemoved && !older && !trashed ? { onAsk: () => setAsking((v) => !v) } : {})}
           asking={asking}
-          {...(record.blobRemoved ? { onDelete: () => void api.deletePage(record.id).then(onBack, failed) } : {})}
+          manage={manage}
           {...(record.artifactKind === "deck" && !older ? { onPresent: () => frame.current?.present() } : {})}
           {...(edit ? { edit } : {})}
           onEdit={(action) => frame.current?.edit(action)}
@@ -523,6 +631,20 @@ export function ArtifactViewer({
             </button>
           </div>
         </form>
+      )}
+      {record && trashed && <TrashNotice record={record} ops={ops} />}
+      {copy && (
+        <div className="ops-alert artifact-preview" role="status">
+          <span>Made a copy: “{copy.title}”.</span>
+          <span className="artifact-preview-acts">
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setCopy(undefined)}>
+              Dismiss
+            </button>
+            <a className="btn btn--sm" href={hrefFor({ name: "artifacts", id: copy.id })} onClick={() => setCopy(undefined)}>
+              Open the copy
+            </a>
+          </span>
+        </div>
       )}
       {older && record && (
         <div className="ops-alert artifact-older" role="status">
@@ -559,7 +681,8 @@ export function ArtifactViewer({
         </div>
       )}
       {record && preview && <ArtifactPage key={`v${preview.version.version}`} ref={frame} record={record} page={preview.page} locked onDeck={setDeck} cover={head} />}
-      {record && page && !preview && (
+      {record && page && !preview && trashed && <ArtifactPage key="trashed" ref={frame} record={record} page={page} locked onDeck={setDeck} cover={head} />}
+      {record && page && !preview && !trashed && (
         <ArtifactPage ref={frame} record={record} page={page} onSaved={saved} onReload={() => void load().catch(failed)} onEdit={setEdit} onDeck={setDeck} cover={head} />
       )}
       {!record && !error && (
@@ -567,6 +690,7 @@ export function ArtifactViewer({
           <Skeleton height="60vh" radius="var(--r-md)" />
         </div>
       )}
+      {ops.dialogs}
       {record && (
         <Drawer open={history} title="History" subtitle={record.title} onClose={() => setHistory(false)}>
           <VersionList

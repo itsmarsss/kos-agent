@@ -38,8 +38,8 @@ export interface ArtifactHeadProps {
   /** Ask KOS for a change; absent where KOS no longer changes it (a removed blob's, an older widget page). */
   onAsk?: () => void;
   asking: boolean;
-  /** Delete what a removed blob made. */
-  onDelete?: () => void;
+  /** The owner's own handles on it (rename, duplicate, move, the trash), last in the menu. */
+  manage?: MenuItem[];
   /** Show it full screen: a deck presents. */
   onPresent?: () => void;
   edit?: EditState;
@@ -49,12 +49,17 @@ export interface ArtifactHeadProps {
   ref?: Ref<HTMLElement>;
 }
 
-/** A row of the overflow menu; `narrow` ones are on the row itself when there is room. */
-interface MenuItem {
+/** A row of an artifact's menu; `narrow` ones are on the viewer's row itself when there is room. */
+export interface MenuItem {
   label: string;
   act: () => void;
   narrow?: boolean;
   pressed?: boolean;
+  /** A line above it: the start of another group. */
+  divided?: boolean;
+  danger?: boolean;
+  /** What cannot be undone asks once, beside the item (ConfirmButton), with these words. */
+  confirm?: string;
 }
 
 export function ArtifactHead(props: ArtifactHeadProps): ReactElement {
@@ -63,6 +68,8 @@ export function ArtifactHead(props: ArtifactHeadProps): ReactElement {
   const canEdit = edit !== undefined;
   const steering = deck !== undefined && !deck.reading;
   const status = edit ? edit.status || (editing ? (edit.pending ? "Editing" : "Editing, all saved") : "") : "";
+  // In the trash it is only looked at: no versions to restore, nothing to ask.
+  const trashed = record.trashedAt !== undefined;
 
   // What the menu holds: on a phone everything but Done, wider only what the row has no room for.
   const items: MenuItem[] = [];
@@ -74,11 +81,12 @@ export function ArtifactHead(props: ArtifactHeadProps): ReactElement {
     if (canEdit) items.push({ label: "Edit", act: () => props.onEdit("edit"), narrow: true });
     if (steering) items.push({ label: "Notes", act: () => props.onDeck("notes"), narrow: true, pressed: deck.notes }, { label: "All slides", act: () => props.onDeck("grid"), narrow: true, pressed: deck.grid });
     if (props.onPresent) items.push({ label: "Present", act: props.onPresent, narrow: true });
-    items.push({ label: "History", act: props.onHistory, narrow: true });
+    if (!trashed) items.push({ label: "History", act: props.onHistory, narrow: true });
     // A doc's Edit is the owner's own hand; asking KOS is the second way, so it waits in the menu.
     if (props.onAsk) items.push({ label: "Edit with KOS", act: props.onAsk, narrow: !canEdit });
   }
   if (props.onOpenOwner) items.push({ label: `Open ${props.ownerName}`, act: props.onOpenOwner });
+  if (!editing && props.manage?.length) items.push(...props.manage.map((item, i) => (i === 0 && items.length ? { ...item, divided: true } : item)));
 
   return (
     <header className={`artifact-view-head${editing ? " is-editing" : ""}`} ref={props.ref}>
@@ -148,9 +156,11 @@ export function ArtifactHead(props: ArtifactHeadProps): ReactElement {
           </>
         ) : (
           <>
-            <button type="button" className="btn btn--ghost btn--sm artifact-view-wide" aria-expanded={props.history} onClick={props.onHistory}>
-              History
-            </button>
+            {!trashed && (
+              <button type="button" className="btn btn--ghost btn--sm artifact-view-wide" aria-expanded={props.history} onClick={props.onHistory}>
+                History
+              </button>
+            )}
             {canEdit && (
               <button type="button" className="btn btn--sm artifact-view-wide" title="Edit the text in place" onClick={() => props.onEdit("edit")}>
                 Edit
@@ -166,19 +176,20 @@ export function ArtifactHead(props: ArtifactHeadProps): ReactElement {
                 Present
               </button>
             )}
-            {props.onDelete && (
-              <ConfirmButton label="Delete" text={`Delete “${record.title}”, which the removed blob ${record.blob} made, and its versions?`} onConfirm={props.onDelete} />
-            )}
           </>
         )}
-        <ViewerMenu about={record.description} items={items} />
+        <ArtifactMenu about={record.description} items={items} />
       </div>
     </header>
   );
 }
 
-/** The overflow menu: what the artifact is about, then what the row has no room for. */
-function ViewerMenu({ about, items }: { about?: string; items: MenuItem[] }): ReactElement | null {
+/**
+ * An artifact's menu: what it is about, then what can be done with it. The
+ * viewer's row puts there what it has no room for; a gallery card, its
+ * management. Fixed to the window, so no card or list clips it.
+ */
+export function ArtifactMenu({ about, items, label = "More", className }: { about?: string; items: MenuItem[]; label?: string; className?: string }): ReactElement | null {
   const [open, setOpen] = useState(false);
   const [place, setPlace] = useState<CSSProperties>({});
   const wrap = useRef<HTMLDivElement>(null);
@@ -222,8 +233,8 @@ function ViewerMenu({ about, items }: { about?: string; items: MenuItem[] }): Re
   // Only the narrow ones: the menu has nothing more to say wider when it holds no description and nothing else.
   const wideEmpty = !about && items.every((i) => i.narrow);
   return (
-    <div className={`artifact-view-menu-wrap${wideEmpty ? " artifact-view-narrow" : ""}`} ref={wrap}>
-      <IconButton ref={button} className="artifact-view-more" label="More" aria-haspopup="menu" aria-expanded={open} onClick={toggle}>
+    <div className={`artifact-view-menu-wrap${wideEmpty ? " artifact-view-narrow" : ""}${className ? ` ${className}` : ""}`} ref={wrap}>
+      <IconButton ref={button} className="artifact-view-more" label={label} aria-haspopup="menu" aria-expanded={open} onClick={toggle}>
         <MoreIcon title="" />
       </IconButton>
       <AnimatePresence>
@@ -234,23 +245,29 @@ function ViewerMenu({ about, items }: { about?: string; items: MenuItem[] }): Re
                 {about}
               </p>
             )}
-            <div role="menu" aria-label="More" ref={list} {...(about ? { "aria-describedby": aboutId } : {})}>
-              {items.map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  tabIndex={-1}
-                  role={item.pressed === undefined ? "menuitem" : "menuitemcheckbox"}
-                  {...(item.pressed === undefined ? {} : { "aria-checked": item.pressed })}
-                  className={item.narrow ? "artifact-view-narrow" : undefined}
-                  onClick={() => {
-                    close(false);
-                    item.act();
-                  }}
-                >
-                  {item.label}
-                </button>
-              ))}
+            <div role="menu" aria-label={label} ref={list} {...(about ? { "aria-describedby": aboutId } : {})}>
+              {items.map((item) => {
+                const cls = [item.narrow && "artifact-view-narrow", item.divided && "is-divided", item.danger && "is-danger"].filter(Boolean).join(" ") || undefined;
+                const act = (): void => {
+                  close(false);
+                  item.act();
+                };
+                return item.confirm ? (
+                  <ConfirmButton key={item.label} role="menuitem" className={cls ?? ""} label={item.label} text={item.confirm} onConfirm={act} />
+                ) : (
+                  <button
+                    key={item.label}
+                    type="button"
+                    tabIndex={-1}
+                    role={item.pressed === undefined ? "menuitem" : "menuitemcheckbox"}
+                    {...(item.pressed === undefined ? {} : { "aria-checked": item.pressed })}
+                    className={cls}
+                    onClick={act}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
             </div>
           </m.div>
         )}

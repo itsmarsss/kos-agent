@@ -1,0 +1,201 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+import { api, type AgentInfo, type ArtifactSummary, type Project } from "./api.js";
+import { ArtifactViewer, ArtifactsPage } from "./ArtifactsPage.js";
+import { ArtifactOpen, ArtifactStep } from "./ArtifactStep.js";
+
+beforeAll(() => {
+  window.matchMedia ??= (() => ({ addEventListener: () => undefined, removeEventListener: () => undefined })) as unknown as typeof window.matchMedia;
+});
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+const projects = [
+  { slug: "budget", name: "Household budget" },
+  { slug: "garden", name: "Garden" },
+] as Project[];
+const at = (n: number): number => Date.now() - n * 60_000;
+const BRIEF: ArtifactSummary = { id: "brief", projectSlug: "budget", title: "Q4 brief", description: "What we decided and why.", path: "", updatedAt: at(10), kind: "html", artifactKind: "doc", capturedAt: at(1) };
+const PITCH: ArtifactSummary = { id: "pitch", projectSlug: null, title: "Garden pitch", path: "", updatedAt: at(30), kind: "html", artifactKind: "deck", capturedAt: at(1) };
+const OLD: ArtifactSummary = { id: "old", projectSlug: null, title: "Old memo", path: "", updatedAt: at(90), kind: "html", artifactKind: "doc", capturedAt: at(80), trashedAt: at(3) };
+
+/** The frame's documents load from the dashboard's build; any answer will do here. */
+const frames = (): void => void vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
+
+function openViewer(record: ArtifactSummary, onBack = vi.fn()): void {
+  vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: record.id, title: record.title, kind: record.artifactKind, html: "<article data-doc><p>x</p></article>" } } as never);
+  frames();
+  render(<ArtifactViewer id={record.id} projects={projects} onBack={onBack} onOpenChat={() => undefined} />);
+}
+
+async function menuItem(name: string, more = "More"): Promise<HTMLElement> {
+  fireEvent.click(await screen.findByRole("button", { name: more }));
+  return within(screen.getByRole("menu")).getByRole("menuitem", { name });
+}
+
+describe("managing an artifact from its viewer", () => {
+  it("renames it in a small dialog, title and description, and shows the new title", async () => {
+    openViewer(BRIEF);
+    const renamed = vi.spyOn(api, "renameArtifact").mockResolvedValue({ ...BRIEF, title: "Q4 decisions", description: "Each decision, with why.", updatedAt: Date.now() });
+    fireEvent.click(await menuItem("Rename…"));
+    const dialog = await screen.findByRole("dialog", { name: "Rename" });
+    const title = within(dialog).getByLabelText("Title") as HTMLInputElement;
+    expect(title.value).toBe("Q4 brief");
+    fireEvent.change(title, { target: { value: "  Q4 decisions " } });
+    fireEvent.change(within(dialog).getByLabelText(/Description/), { target: { value: "Each decision, with why." } });
+    fireEvent.change(title, { target: { value: " " } });
+    expect((within(dialog).getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(title, { target: { value: "  Q4 decisions " } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(renamed).toHaveBeenCalledWith("brief", { title: "Q4 decisions", description: "Each decision, with why." }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("heading", { name: "Q4 decisions" })).toBeTruthy();
+  });
+
+  it("moves it to any project, the workspace or a living blob, the one it is in marked and not offered", async () => {
+    openViewer(BRIEF);
+    vi.spyOn(api, "agents").mockResolvedValue({ agents: [{ name: "noter" } as AgentInfo], invalid: [] });
+    const moved = vi.spyOn(api, "moveArtifact").mockResolvedValue({ ...BRIEF, projectSlug: null, blob: "noter" });
+    fireEvent.click(await menuItem("Move to…"));
+    const dialog = await screen.findByRole("dialog", { name: "Move “Q4 brief”" });
+    const picker = within(dialog).getByRole("radiogroup", { name: "Move to" });
+    await within(picker).findByRole("radio", { name: /noter/ });
+    expect(within(picker).getAllByRole("radio").map((r) => r.querySelector(".artifact-move-name")?.textContent)).toEqual(["Workspace", "Garden", "Household budget", "noter"]);
+    const here = within(picker).getByRole("radio", { name: /Household budget/ }) as HTMLButtonElement;
+    expect(here.disabled).toBe(true);
+    expect(here.textContent).toContain("Here now");
+    const move = within(dialog).getByRole("button", { name: "Move" }) as HTMLButtonElement;
+    expect(move.disabled).toBe(true);
+    fireEvent.click(within(picker).getByRole("radio", { name: "Workspace" }));
+    fireEvent.click(within(picker).getByRole("radio", { name: /noter/ }));
+    expect(within(picker).getByRole("radio", { name: /noter/ }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(move);
+    await waitFor(() => expect(moved).toHaveBeenCalledWith("brief", { blob: "noter" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("makes a copy and offers to open it", async () => {
+    openViewer(BRIEF);
+    vi.spyOn(api, "duplicateArtifact").mockResolvedValue({ ...BRIEF, id: "brief-copy", title: "Q4 brief copy" });
+    fireEvent.click(await menuItem("Duplicate"));
+    expect(await screen.findByText("Made a copy: “Q4 brief copy”.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open the copy" }).getAttribute("href")).toContain("brief-copy");
+  });
+
+  it("puts it in the trash, then says so over it with Restore and Delete forever, and nothing to edit or ask", async () => {
+    const back = vi.fn();
+    openViewer(BRIEF, back);
+    vi.spyOn(api, "trashArtifact").mockResolvedValue({ ...BRIEF, trashedAt: Date.now() });
+    fireEvent.click(await menuItem("Move to trash"));
+    const notice = await screen.findByText(/This artifact is in the trash/);
+    expect(screen.queryByRole("button", { name: "History" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit with KOS" })).toBeNull();
+    // The menu now holds the way back too.
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    expect(within(screen.getByRole("menu")).getAllByRole("menuitem").map((i) => i.textContent)).toEqual(expect.arrayContaining(["Restore", "Delete forever"]));
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    // Delete forever asks once, beside itself.
+    const gone = vi.spyOn(api, "deleteArtifact").mockResolvedValue({ id: "brief", deleted: true });
+    const box = notice.closest(".artifact-trashed") as HTMLElement;
+    fireEvent.click(within(box).getByRole("button", { name: "Delete forever" }));
+    const ask = await screen.findByRole("alertdialog");
+    expect(ask.textContent).toMatch(/Delete “Q4 brief” for good, with every version\? This cannot be undone/);
+    fireEvent.click(within(ask).getByRole("button", { name: "Delete forever" }));
+    await waitFor(() => expect(gone).toHaveBeenCalledWith("brief"));
+    await waitFor(() => expect(back).toHaveBeenCalled());
+  });
+
+  it("restores one opened from the trash", async () => {
+    openViewer(OLD);
+    const restored = vi.spyOn(api, "restoreArtifact").mockResolvedValue({ ...OLD, trashedAt: undefined } as never);
+    const box = (await screen.findByText(/This artifact is in the trash/)).closest(".artifact-trashed") as HTMLElement;
+    fireEvent.click(within(box).getByRole("button", { name: "Restore" }));
+    await waitFor(() => expect(restored).toHaveBeenCalledWith("old"));
+    await waitFor(() => expect(screen.queryByText(/This artifact is in the trash/)).toBeNull());
+    expect(screen.getByRole("button", { name: "History" })).toBeTruthy();
+  });
+});
+
+describe("the gallery's trash", () => {
+  const cards = (list = "Artifacts"): string[] => [...screen.getByRole("list", { name: list }).querySelectorAll(".artifact-card-title")].map((t) => t.textContent ?? "");
+
+  it("trashes from a card's menu, with an undo, and keeps it in a view of its own", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([BRIEF, PITCH]);
+    vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD]);
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
+    await waitFor(() => expect(cards()).toEqual(["Q4 brief", "Garden pitch"]));
+    const trashButton = screen.getByRole("button", { name: /^Trash/ });
+    expect(trashButton.textContent).toBe("Trash1");
+
+    vi.spyOn(api, "trashArtifact").mockResolvedValue({ ...PITCH, trashedAt: Date.now() });
+    fireEvent.click(await menuItem("Move to trash", "Actions for Garden pitch"));
+    await waitFor(() => expect(cards()).toEqual(["Q4 brief"]));
+    expect(screen.getByText("“Garden pitch” is in the trash.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Trash/ }).textContent).toBe("Trash2");
+    // Undo brings it back where it was.
+    vi.spyOn(api, "restoreArtifact").mockResolvedValue(PITCH);
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(cards()).toEqual(["Q4 brief", "Garden pitch"]));
+    expect(screen.queryByText("“Garden pitch” is in the trash.")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Trash/ }));
+    expect(screen.getByRole("heading", { name: /^Trash/ })).toBeTruthy();
+    expect(cards("Trash")).toEqual(["Old memo"]);
+    expect(screen.getByTitle("When it was moved to the trash").textContent).toBe("3 minutes ago");
+    fireEvent.click(screen.getByRole("button", { name: "Back to artifacts" }));
+    expect(cards()).toEqual(["Q4 brief", "Garden pitch"]);
+  });
+
+  it("restores or deletes for good from the trash, asking before it deletes", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([BRIEF]);
+    vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD]);
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Trash1" }));
+    const gone = vi.spyOn(api, "deleteArtifact").mockResolvedValue({ id: "old", deleted: true });
+    fireEvent.click(await menuItem("Delete forever", "Actions for Old memo"));
+    expect(gone).not.toHaveBeenCalled();
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete forever" }));
+    await waitFor(() => expect(gone).toHaveBeenCalledWith("old"));
+    expect(await screen.findByText("The trash is empty")).toBeTruthy();
+    expect(screen.getByText(/Nothing is deleted on its own/)).toBeTruthy();
+  });
+
+  it("brings one back from the trash's card menu, into the gallery", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([BRIEF]);
+    vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD]);
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Trash1" }));
+    vi.spyOn(api, "restoreArtifact").mockResolvedValue({ ...OLD, trashedAt: undefined } as never);
+    fireEvent.click(await menuItem("Restore", "Actions for Old memo"));
+    expect(await screen.findByText("The trash is empty")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back to artifacts" }));
+    expect(cards()).toEqual(["Q4 brief", "Old memo"]);
+  });
+});
+
+describe("an artifact a chat named, now in the trash", () => {
+  it("says so on its card, with Restore for the owner", async () => {
+    vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD]);
+    const restored = vi.spyOn(api, "restoreArtifact").mockResolvedValue({ ...OLD, trashedAt: undefined } as never);
+    const { container } = render(
+      <ArtifactOpen.Provider value={{ projects, open: () => undefined }}>
+        <ArtifactStep art={{ id: "old", title: "Old memo", projectSlug: null, artifactKind: "doc" }} />
+        <ArtifactStep art={{ id: "pitch", title: "Garden pitch", projectSlug: null, artifactKind: "deck" }} />
+      </ArtifactOpen.Provider>,
+    );
+    expect(await screen.findByText("In the trash")).toBeTruthy();
+    const [old, pitch] = [...container.querySelectorAll<HTMLElement>(".artifact-step")];
+    expect(old!.classList.contains("is-trashed")).toBe(true);
+    expect(pitch!.classList.contains("is-trashed")).toBe(false);
+    expect(within(pitch!).queryByRole("button", { name: "Restore" })).toBeNull();
+    vi.spyOn(api, "trashedArtifacts").mockResolvedValue([]);
+    fireEvent.click(within(old!).getByRole("button", { name: "Restore" }));
+    await waitFor(() => expect(restored).toHaveBeenCalledWith("old"));
+    await waitFor(() => expect(old!.classList.contains("is-trashed")).toBe(false));
+  });
+});

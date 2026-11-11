@@ -3,6 +3,7 @@ import { isArtifactKind, type ArtifactKind } from "@kos/shared";
 import { createContext, useContext, useEffect, useState, type ReactElement } from "react";
 
 import type { ChatEvent, PageSummary, Project } from "./api.js";
+import { useInTrash, restoreFromTrash } from "./ArtifactManage.js";
 import { KIND_WORD, OwnerMark, useDashboardTheme } from "./ArtifactsPage.js";
 import { hrefFor } from "./routes.js";
 
@@ -91,6 +92,9 @@ export const THUMB_RETRY_MS = 8000;
 export function ArtifactStep({ art }: { art: WrittenArtifact }): ReactElement {
   const { projects, open, beside } = useContext(ArtifactOpen);
   const theme = useDashboardTheme();
+  // Put in the trash since: said so, with the way back; opened, the viewer says it too.
+  const trashed = useInTrash(art.id);
+  const [restoring, setRestoring] = useState(false);
   /*
    * The capture artifacts.check keeps, in the dashboard's palette; the
    * kind's mark until there is one. A capture missing at first (the check
@@ -112,7 +116,7 @@ export function ArtifactStep({ art }: { art: WrittenArtifact }): ReactElement {
     return () => clearTimeout(later);
   }, [missing, tries]);
   return (
-    <div className="artifact-step">
+    <div className={`artifact-step${trashed ? " is-trashed" : ""}`}>
       <button type="button" className="artifact-step-thumb" data-kind={art.artifactKind} tabIndex={-1} aria-hidden="true" onClick={() => open(art.id)}>
         {!missing ? (
           <img src={`/api/artifacts/${encodeURIComponent(art.id)}/thumb?theme=${theme}&v=${Math.round(art.updatedAt ?? 0)}&try=${tries}`} alt="" loading="lazy" onError={() => setMissing(true)} />
@@ -123,14 +127,29 @@ export function ArtifactStep({ art }: { art: WrittenArtifact }): ReactElement {
       <span className="artifact-step-body">
         <span className="artifact-step-title">{art.title}</span>
         <span className="artifact-step-meta">
-          <Tag>{KIND_WORD[art.artifactKind]}</Tag>
+          {trashed ? <Tag title="Kept as it was until you restore it or delete it for good">In the trash</Tag> : <Tag>{KIND_WORD[art.artifactKind]}</Tag>}
           <span className="artifact-step-owner">
             <OwnerMark record={art} projects={projects} />
           </span>
         </span>
       </span>
       <span className="artifact-step-acts">
-        {beside && (
+        {trashed && (
+          <button
+            type="button"
+            className="btn btn--sm"
+            disabled={restoring}
+            onClick={() => {
+              setRestoring(true);
+              void restoreFromTrash(art.id)
+                .catch(() => undefined)
+                .finally(() => setRestoring(false));
+            }}
+          >
+            Restore
+          </button>
+        )}
+        {beside && !trashed && (
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => beside(art.id)}>
             Open here
           </button>

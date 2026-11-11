@@ -24,7 +24,12 @@ const ART: ArtifactSummary[] = [
   { id: "ledger", projectSlug: "budget", title: "Ledger", description: "Every expense, with totals by category.", path: "", updatedAt: at(40), kind: "html", artifactKind: "sheet", capturedAt: at(39) },
 ];
 
-const titles = (): string[] => within(screen.getByRole("list", { name: "Artifacts" })).getAllByRole("button").map((b) => b.querySelector(".artifact-card-title")?.textContent ?? "");
+/** The cards' titles, in order; each card's menu beside it is no card. */
+const titles = (): string[] =>
+  within(screen.getByRole("list", { name: "Artifacts" }))
+    .getAllByRole("button")
+    .filter((b) => b.classList.contains("artifact-card"))
+    .map((b) => b.querySelector(".artifact-card-title")?.textContent ?? "");
 
 describe("the Artifacts page", () => {
   it("is in the nav and has a route for the gallery and for one artifact", () => {
@@ -69,7 +74,7 @@ describe("the Artifacts page", () => {
     await waitFor(() => expect(titles()).toHaveLength(4));
     expect(screen.queryByRole("list", { name: "Loading artifacts" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "By owner" }));
-    const inGroup = (name: string): string[] => within(screen.getByRole("list", { name })).getAllByRole("button").map((b) => b.querySelector(".artifact-card-title")?.textContent ?? "");
+    const inGroup = (name: string): string[] => [...screen.getByRole("list", { name }).querySelectorAll(".artifact-card-title")].map((t) => t.textContent ?? "");
     expect(inGroup("Household budget")).toEqual(["Spending board", "Ledger"]);
     // The workspace's own come last.
     expect(inGroup("Workspace")).toEqual(["Q4 brief", "Garden pitch"]);
@@ -204,21 +209,20 @@ describe("one artifact, full size", () => {
     expect(await freshChatOf(null)).toEqual({ name: "chats", id: "primary:kenny" });
   });
 
-  it("shows a removed blob's artifact as kept: named so, no way to its missing page or to KOS, and the owner's to delete", async () => {
+  it("shows a removed blob's artifact as kept: named so, no way to its missing page or to KOS, and the owner's to put in the trash", async () => {
     const record = { id: "notes", projectSlug: null, blob: "noter", blobId: "old", blobRemoved: true as const, title: "Notes", path: "", updatedAt: at(1), kind: "html" as const, artifactKind: "doc" as const };
     vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "notes", title: "Notes", kind: "doc", html: "<article data-doc></article>" } } as never);
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
-    const gone = vi.spyOn(api, "deletePage").mockResolvedValue({ deleted: true });
-    const back = vi.fn();
-    render(<ArtifactViewer id="notes" projects={projects} onBack={back} onOpenChat={() => undefined} onOpenOwner={() => undefined} />);
+    const trashed = vi.spyOn(api, "trashArtifact").mockResolvedValue({ ...record, trashedAt: Date.now() });
+    render(<ArtifactViewer id="notes" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} onOpenOwner={() => undefined} />);
     expect(await screen.findByText("Removed blob: noter")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Open/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit with KOS" })).toBeNull();
     expect(screen.getByRole("button", { name: "History" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(back).toHaveBeenCalled());
-    expect(gone).toHaveBeenCalledWith("notes");
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move to trash" }));
+    await waitFor(() => expect(trashed).toHaveBeenCalledWith("notes"));
+    expect(await screen.findByText(/This artifact is in the trash/)).toBeTruthy();
   });
 
   it("lists a removed blob's artifacts apart from a later blob of its name", async () => {
