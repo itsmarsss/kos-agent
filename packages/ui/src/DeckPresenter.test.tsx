@@ -85,6 +85,16 @@ describe("the presenter view", () => {
     expect(within(view).queryByText("Fix with KOS")).toBeNull();
   });
 
+  it("makes the dashboard under it inert while open, and gives it back", async () => {
+    const app = document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
+    const { view } = await presenter();
+    expect(app.hasAttribute("inert")).toBe(true);
+    expect(document.activeElement).toBe(view);
+    cleanup();
+    expect(app.hasAttribute("inert")).toBe(false);
+    app.remove();
+  });
+
   it("takes the keys a presenter reaches for, leaving a control its own Space", async () => {
     const { view, ended } = await presenter();
     const at = (): string => within(view).getByText(/^Slide \d of 4$/).textContent!;

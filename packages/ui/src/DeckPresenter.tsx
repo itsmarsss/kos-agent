@@ -177,14 +177,22 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
     return () => removeEventListener("keydown", key, true);
   }, [end, go]);
 
-  // The view holds the focus while open, the page under it does not scroll, and the focus goes back after.
+  /*
+   * The view holds the focus while open: the dashboard under it is inert
+   * (no tab stop, no press, nothing a screen reader walks) and does not
+   * scroll. The focus goes back where it was, if that is still there; the
+   * menu item that opened this is not, so the viewer puts it on its menu.
+   */
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
+    const app = document.getElementById("root");
+    app?.setAttribute("inert", "");
     root.current?.focus();
     document.documentElement.classList.add("has-presenter");
     return () => {
       document.documentElement.classList.remove("has-presenter");
-      before?.focus?.();
+      app?.removeAttribute("inert");
+      if (before?.isConnected && before !== document.body) before.focus();
     };
   }, []);
 

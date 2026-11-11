@@ -313,6 +313,8 @@ describe("one artifact, full size", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(audience.close).toHaveBeenCalled();
     expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "go", index: 3 }, "*");
+    // The focus goes back to the menu it was opened from.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "More" })));
   });
 
   it("keeps its description and the rest in a menu the keyboard can walk", async () => {

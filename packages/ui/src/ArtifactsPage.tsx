@@ -704,6 +704,8 @@ export function ArtifactViewer({
           onEnd={(index) => {
             setPresenter(undefined);
             frame.current?.go(index);
+            // Back on the menu it was opened from, once the dashboard is not inert.
+            requestAnimationFrame(() => head.current?.querySelector<HTMLElement>(".artifact-view-more")?.focus());
           }}
         />
       )}
