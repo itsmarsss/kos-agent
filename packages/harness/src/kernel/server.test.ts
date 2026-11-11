@@ -1595,6 +1595,9 @@ describe("handleApiRequest", () => {
         expect(all.headers?.["content-type"]).toBe("application/zip");
         expect([...readZip(all.body as Buffer).keys()]).toEqual(["Shelf.csv", "Sums.csv"]);
         expect(await get("books", "format=csv&tab=Nope")).toMatchObject({ status: 400, body: { error: 'the sheet has no tab called "Nope"' } });
+        // A table the sheet can no longer read refuses the export in words, not as a server error.
+        kernel.workspace.db.exec("DROP TABLE shelf_books");
+        expect(await get("books", "format=csv")).toMatchObject({ status: 400, body: { error: expect.stringMatching(/^the tab "Shelf" cannot be read: /) } });
       });
 
       it("sends a doc as one HTML file with its runtime and data, and nothing of the dashboard's", async () => {

@@ -1,7 +1,7 @@
 import type { SheetBook } from "@kos/shared";
 import { describe, expect, it } from "vitest";
 
-import { tabCsv, withSources } from "./sheetcsv.js";
+import { SourceRefusal, tabCsv, withSources } from "./sheetcsv.js";
 
 const BOOK: SheetBook = {
   sheets: [
@@ -59,5 +59,23 @@ describe("a sheet's tab as CSV", () => {
     expect(asked).toEqual(['SELECT "id" AS __key, "date", "amount", "Double" FROM "budget_tx"']);
     expect(lines(tabCsv(filled, 0))).toEqual(["When,amount,Double", "2026-10-01,12,", ""]);
     await expect(withSources({ sheets: [{ ...book.sheets[0]!, source: { table: "x y", key: "id" } }] }, async () => ({ rows: [] }))).rejects.toThrow(/no plain table/);
+  });
+
+  it("reads source tabs one after another, and refuses the export for one whose read is refused, saying which", async () => {
+    const tab = (name: string, table: string) => ({ name, columns: [{ label: "n" }], source: { table, key: "id" } });
+    let running = 0;
+    let most = 0;
+    const read = async (sql: string): Promise<{ rows: Record<string, unknown>[] }> => {
+      most = Math.max(most, ++running);
+      await new Promise((r) => setTimeout(r, 5));
+      running -= 1;
+      if (sql.includes('"gone"')) throw new Error("this page cannot read that table");
+      return { rows: [{ n: 1 }] };
+    };
+    await withSources({ sheets: [tab("A", "a"), tab("B", "b"), tab("C", "c")] }, read);
+    expect(most).toBe(1);
+    const refused = withSources({ sheets: [tab("A", "a"), tab("Old", "gone")] }, read);
+    await expect(refused).rejects.toBeInstanceOf(SourceRefusal);
+    await expect(refused).rejects.toThrow('the tab "Old" cannot be read: this page cannot read that table');
   });
 });

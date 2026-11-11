@@ -22,7 +22,7 @@ import { writeZip } from "../files/zip.js";
 import { artifactFrame, defaultPageLib, hostDocument, loadAssets, type CheckBrowser, type FrameAssets, type Theme } from "./artifactcheck.js";
 import { docMarkdown } from "./docmarkdown.js";
 import { SNAPSHOT, SealedTab, type RelayedCall } from "./exportrender.js";
-import { tabCsv, withSources } from "./sheetcsv.js";
+import { SourceRefusal, tabCsv, withSources } from "./sheetcsv.js";
 
 /**
  * Artifacts taken away from KOS, as files: a doc as PDF, Markdown or HTML, a
@@ -355,7 +355,9 @@ export class ArtifactExporter {
     } catch {
       throw new ExportRefusal("the sheet's data cannot be read, so it has nothing to export");
     }
-    const filled = await withSources(book, (sql) => this.options.call(id, "query", { sql }) as Promise<{ rows: Record<string, unknown>[] }>);
+    const filled = await withSources(book, (sql) => this.options.call(id, "query", { sql }) as Promise<{ rows: Record<string, unknown>[] }>).catch((err: unknown) => {
+      throw err instanceof SourceRefusal ? new ExportRefusal(err.message) : err;
+    });
     const csv = (name: string): ExportFile => {
       const t = filled.sheets.findIndex((s) => s.name.trim().toLowerCase() === name.trim().toLowerCase());
       if (t < 0) throw new ExportRefusal(`the sheet has no tab called "${name}"`);

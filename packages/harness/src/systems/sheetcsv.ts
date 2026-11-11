@@ -1,4 +1,4 @@
-import type { SheetBook } from "@kos/shared";
+import type { SheetBook, SheetTab } from "@kos/shared";
 import { Workbook, isError, sourceQuery, sourceRows, type Value } from "@kos/shared/sheetformula";
 
 /**
@@ -44,21 +44,32 @@ export function tabCsv(book: SheetBook, tab: number): string {
 /** A read of a project table, as window.kos answers one. */
 export type SourceRead = (sql: string) => Promise<{ rows: Record<string, unknown>[] }>;
 
+/** A source tab the export cannot read: its table refused it. */
+export class SourceRefusal extends Error {}
+
 /**
- * The workbook with each source tab holding the rows its table has now, read
- * through the artifact's own bridge, so its declarations and the server's
- * checks hold as they do for the frame. A tab whose read is refused says
- * why, as the runtime would.
+ * The workbook with each source tab holding the rows its table has now,
+ * read through the artifact's own bridge one tab after another, so its
+ * declarations, the server's checks and its queue hold as they do for the
+ * frame. A tab whose read is refused refuses the export, saying which and
+ * why.
  */
 export async function withSources(book: SheetBook, read: SourceRead): Promise<SheetBook> {
-  const sheets = await Promise.all(
-    book.sheets.map(async (tab) => {
-      if (!tab.source) return tab;
-      const sql = sourceQuery(tab);
-      if (!sql) throw new Error(`the tab "${tab.name}" reads no plain table, so it has nothing to export`);
-      const got = await read(sql);
-      return { ...tab, rows: sourceRows(tab, got.rows) };
-    }),
-  );
+  const sheets: SheetTab[] = [];
+  for (const tab of book.sheets) {
+    if (!tab.source) {
+      sheets.push(tab);
+      continue;
+    }
+    const sql = sourceQuery(tab);
+    if (!sql) throw new SourceRefusal(`the tab "${tab.name}" reads no plain table, so it has nothing to export`);
+    let rows: Record<string, unknown>[];
+    try {
+      rows = (await read(sql)).rows;
+    } catch (err) {
+      throw new SourceRefusal(`the tab "${tab.name}" cannot be read: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    sheets.push({ ...tab, rows: sourceRows(tab, rows) });
+  }
   return { ...book, sheets };
 }
