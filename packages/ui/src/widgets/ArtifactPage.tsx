@@ -340,9 +340,9 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const present = useCallback((): void => {
     const el = box.current;
     if (!el) return;
-    if (el.requestFullscreen) void el.requestFullscreen().catch(() => pageWindow()?.postMessage({ __kos: "present", on: true }, "*"));
-    else pageWindow()?.postMessage({ __kos: "present", on: true }, "*");
-  }, [pageWindow]);
+    // The frame hears it is presenting only from fullscreenchange: where full screen is refused or missing, nothing changed, so it is not told it did.
+    if (el.requestFullscreen) void el.requestFullscreen().catch(() => undefined);
+  }, []);
   const reply = useCallback(
     (id: unknown, body: { result?: unknown; error?: string }) => {
       pageWindow()?.postMessage({ __kos: "reply", id, ...body }, "*");

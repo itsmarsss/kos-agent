@@ -250,6 +250,17 @@ describe("the page's frame", () => {
     });
     expect(full).toHaveBeenCalledTimes(1);
   });
+
+  it("does not tell the artifact it presents where the browser refuses full screen", async () => {
+    HTMLElement.prototype.requestFullscreen = vi.fn().mockRejectedValue(new Error("not allowed"));
+    const { pageWin } = await frame();
+    const told = vi.spyOn(pageWin, "postMessage");
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "present" } }));
+    });
+    await act(() => new Promise<void>((r) => setTimeout(r, 0)));
+    expect(told).not.toHaveBeenCalledWith(expect.objectContaining({ __kos: "present", on: true }), "*");
+  });
 });
 
 describe("a frame as tall as its page", () => {
