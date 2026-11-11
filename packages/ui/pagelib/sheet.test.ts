@@ -544,4 +544,15 @@ describe("pasting, importing, and changing the shape", () => {
     expect(root.querySelector(".sheet-menu")).toBeNull();
     expect(document.activeElement).toBe(more);
   });
+
+  it("gives pasted and added rows the formula their column has", () => {
+    vi.useFakeTimers();
+    (window as { kos?: unknown }).kos = { save: vi.fn().mockResolvedValue({}) };
+    const root = mount({ sheets: [{ name: "T", columns: [{ label: "Item" }, { label: "Cost", type: "number" }, { label: "Tax", type: "number" }], rows: [["Tea", 10, "=B1*0.1"], ["Jam", 20, "=B2*0.1"]] }] });
+    focusCell(root, 2, 0);
+    paste(root, "Jam\t20\nOil\t30");
+    expect(cells(root)[2]).toEqual(["Oil", "30", "3"]);
+    click(root, "Add row");
+    expect(root.querySelector('td[data-row="4"][data-col="2"]')!.getAttribute("title")).toBe("=B4*0.1");
+  });
 });

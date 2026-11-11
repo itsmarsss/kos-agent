@@ -8,7 +8,7 @@
  */
 
 import type { SheetBook, SheetCell, SheetColumn, SheetColumnType } from "@kos/shared";
-import { columnLetter, findColumn, rewriteRefs, type Ref } from "@kos/shared/sheetformula";
+import { columnLetter, fillFormula, findColumn, rewriteRefs, type Ref } from "@kos/shared/sheetformula";
 
 import { coerce } from "./sheetimport.js";
 
@@ -168,4 +168,29 @@ export function deleteRows(book: SheetBook, t: number, rows: readonly number[]):
     shiftRefs(book, t, "row", r, -1);
     tab.rows!.splice(r - 1, 1);
   }
+}
+
+/**
+ * New rows carrying the formulas of the columns that are formulas: a column
+ * whose every filled cell is one takes its last, filled down to each new
+ * row, where the new row left that cell empty. `from` is the data row
+ * (from 1) the first new row will be.
+ */
+export function fillNewRows(rows: readonly SheetCell[][], added: SheetCell[][], from: number, width: number): SheetCell[][] {
+  const templates = Array.from({ length: width }, (_, c) => {
+    let last = -1;
+    for (let r = 0; r < rows.length; r++) {
+      const cell = rows[r]![c];
+      if (cell === null || cell === undefined || cell === "") continue;
+      if (!(typeof cell === "string" && cell.startsWith("="))) return undefined;
+      last = r;
+    }
+    return last < 0 ? undefined : { row: last + 1, formula: rows[last]![c] as string };
+  });
+  return added.map((row, i) =>
+    row.map((cell, c) => {
+      const t = templates[c];
+      return cell === null && t ? fillFormula(t.formula, from + i - t.row) : cell;
+    }),
+  );
 }

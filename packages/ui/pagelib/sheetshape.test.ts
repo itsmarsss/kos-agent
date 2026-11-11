@@ -2,7 +2,7 @@ import type { SheetBook } from "@kos/shared";
 import { Workbook, rewriteRefs, type Ref } from "@kos/shared/sheetformula";
 import { describe, expect, it } from "vitest";
 
-import { deleteColumn, deleteRows, freshLabel, insertColumn, insertRows, renameColumn, retypeColumn } from "./sheetshape.js";
+import { deleteColumn, deleteRows, fillNewRows, freshLabel, insertColumn, insertRows, renameColumn, retypeColumn } from "./sheetshape.js";
 
 const book = (): SheetBook => ({
   sheets: [
@@ -125,5 +125,19 @@ describe("rows", () => {
     expect(tab.rows).toEqual([["2026-01-03", "Bread", 3, "=C1*0.13"]]);
     expect(b.sheets[1]!.rows).toEqual([["=SUM(Expenses!C1:C1)"], ["=#REF!"]]);
     expect(new Workbook(b).value(1, 1, 0)).toBe(3);
+  });
+});
+
+describe("new rows", () => {
+  it("carry the formula of a column that is all formulas, where they leave it empty", () => {
+    const rows = [
+      ["2026-10-01", 10, "=TODAY()-A1", "note"],
+      ["2026-10-02", 20, "=TODAY()-A2", "=B2"],
+    ];
+    expect(fillNewRows(rows, [["2026-10-03", 30, null, null], ["2026-10-04", 40, 99, null]], 3, 4)).toEqual([
+      ["2026-10-03", 30, "=TODAY()-A3", null],
+      ["2026-10-04", 40, 99, null],
+    ]);
+    expect(fillNewRows([], [[1, null]], 1, 2)).toEqual([[1, null]]);
   });
 });

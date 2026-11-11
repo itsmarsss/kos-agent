@@ -28,7 +28,7 @@ import { bar, line, pie } from "./chartdraw.js";
 import { SHEET_CSS } from "./sheet.css.js";
 import { importPanel, inlineBar, menu, TYPE_WORDS, type Action, type MenuItem } from "./sheetpanels.js";
 import { autoMap, clipboardRows, coerce, detectDelimiter, importRows, isHeader, parseDelimited, planPaste, type Delimiter, type PastePlan } from "./sheetimport.js";
-import { deleteColumn, deleteRows, freshLabel, insertColumn, insertRows, renameColumn, retypeColumn } from "./sheetshape.js";
+import { deleteColumn, deleteRows, fillNewRows, freshLabel, insertColumn, insertRows, renameColumn, retypeColumn } from "./sheetshape.js";
 import { addStyle, editable, el, kos, ready, reason } from "./runtime.js";
 
 /** How long after an edit the workbook is saved, so a run of edits is one version. */
@@ -619,7 +619,7 @@ class Sheet {
   private addRow(): void {
     const tab = this.book.sheets[this.tab]!;
     this.keepUndo();
-    tab.rows!.push(tab.columns.map(() => null));
+    tab.rows!.push(...fillNewRows(tab.rows!, [tab.columns.map(() => null)], tab.rows!.length + 1, tab.columns.length));
     this.filter.text = "";
     this.sort = undefined;
     this.wb = this.workbook();
@@ -787,7 +787,7 @@ class Sheet {
         while (row.length < tab.columns.length) row.push(null);
         row[c.col] = c.cell;
       }
-      rows.push(...added);
+      rows.push(...fillNewRows(rows, added, rows.length + 1, tab.columns.length));
     });
     return true;
   }

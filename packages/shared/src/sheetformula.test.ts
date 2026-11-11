@@ -1,7 +1,7 @@
 import { SHEET_ROWS_MAX, type SheetBook } from "./artifacts.js";
 import { describe, expect, it, vi } from "vitest";
 
-import { Workbook, aggregate, columnIndex, isoOf, columnLetter, findColumn, formatValue, isError, literalOf, meets, parseFormula, sortValue, sourceQuery, totalsRow, type Value } from "./sheetformula.js";
+import { Workbook, aggregate, columnIndex, fillFormula, isoOf, columnLetter, findColumn, formatValue, isError, literalOf, meets, parseFormula, sortValue, sourceQuery, totalsRow, type Value } from "./sheetformula.js";
 
 /** A one-tab workbook of these rows, every column a number unless typed. */
 function book(rows: (string | number | boolean | null)[][], extra: Partial<SheetBook> = {}): Workbook {
@@ -218,6 +218,15 @@ describe("functions", () => {
   it("passes an error along", () => {
     expect(calc("=(1/0)+1")).toMatchObject({ error: "#DIV/0!" });
     expect(calc("=SUM(A1:A2)", [["=1/0"], [2]])).toMatchObject({ error: "#DIV/0!" });
+  });
+});
+
+describe("filling a formula", () => {
+  it("moves its rows as a fill handle does, holding $ rows, and names a row above the first #REF!", () => {
+    expect(fillFormula("=C1*2+SUM($C$1:C1)+Other!B3", 2)).toBe("=C3*2+SUM($C$1:C3)+Other!B5");
+    expect(fillFormula("=TODAY()-A10", 5)).toBe("=TODAY()-A15");
+    expect(fillFormula("=A2+1", -2)).toBe("=#REF!+1");
+    expect(fillFormula("plain", 3)).toBe("plain");
   });
 });
 

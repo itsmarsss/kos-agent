@@ -340,6 +340,39 @@ export function rewriteRefs(formula: string, move: (ref: Ref) => Ref | null): st
   return last === 0 ? formula : `=${out}${src.slice(last)}`;
 }
 
+/**
+ * A formula filled down (or up) by so many rows, as a spreadsheet's fill
+ * handle does: each reference's row moves unless it is held with $
+ * (C1*2 a row down is C2*2; $C$1 stays). A reference moved above the first
+ * row is #REF!.
+ */
+export function fillFormula(formula: string, rows: number): string {
+  if (!formula.startsWith("=") || rows === 0) return formula;
+  const src = formula.slice(1);
+  let tokens: Token[];
+  try {
+    tokens = tokenize(src);
+  } catch {
+    return formula;
+  }
+  let out = "";
+  let last = 0;
+  for (const tok of tokens) {
+    if (tok.t !== "ref") continue;
+    const m = CORNERS.exec(src.slice(tok.cell, tok.end));
+    if (!m) continue;
+    const corner = (dc: string, col: string, dr: string, row: string): string | null => {
+      const next = dr ? Number(row) : Number(row) + rows;
+      return next < 1 ? null : `${dc}${col.toUpperCase()}${dr}${next}`;
+    };
+    const first = corner(m[1]!, m[2]!, m[3]!, m[4]!);
+    const second = m[6] === undefined ? "" : corner(m[5]!, m[6], m[7]!, m[8]!);
+    out += first === null || second === null ? src.slice(last, tok.from) + GONE : src.slice(last, tok.cell) + first + (second ? `:${second}` : "");
+    last = tok.end;
+  }
+  return last === 0 ? formula : `=${out}${src.slice(last)}`;
+}
+
 // —— values ——
 
 const NUMERIC = new Set(["number", "currency", "percent"]);
