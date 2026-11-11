@@ -62,7 +62,7 @@ export interface MenuItem {
   danger?: boolean;
   /** What cannot be undone asks once, beside the item (ConfirmButton), with these words. */
   confirm?: string;
-  /** Only where a presenter sits at a screen and keyboard: away on a narrow view and on a touch screen. */
+  /** Only where a presenter sits at a screen and keyboard: away in a narrow window and on a touch screen. */
   desk?: boolean;
 }
 

@@ -7399,8 +7399,8 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .artifact-view-about { margin: 0 0 3px; padding: 6px 8px 9px; color: var(--muted); font-size: var(--text-sm); line-height: 1.45; border-bottom: 1px solid var(--line); }
 /* Wider, the row holds these itself. */
 .artifact-view-menu button.artifact-view-narrow, .artifact-view-menu-wrap.artifact-view-narrow { display: none; }
-/* Presenting with notes wants a screen and keys: away on a touch screen with no pointer, and on a narrow view (below). */
-@media (hover: none) and (pointer: coarse) { .artifact-view-menu button.artifact-view-desk { display: none; } }
+/* Presenting with notes wants a screen and keys: away on a touch screen with no pointer, and in a window narrower than the presenter's two columns. */
+@media (hover: none) and (pointer: coarse), (max-width: 900px) { .artifact-view-menu button.artifact-view-desk { display: none; } }
 .artifact-view-loading { display: flex; flex-direction: column; gap: 10px; }
 .artifact-ask-edit { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); }
 .artifact-ask-edit label { color: var(--muted); font-size: var(--text-base); }
@@ -7462,7 +7462,6 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
   .artifact-view-owner { margin-left: 0; padding: 3px; }
   .artifact-view-menu button.artifact-view-narrow { display: block; }
   .artifact-view-menu-wrap.artifact-view-narrow { display: block; }
-  .artifact-view-menu button.artifact-view-desk { display: none; }
 }
 /* Below the phone bar, which sticks at the top of a narrow window; in place of a chat, at the top of its own scroll. */
 @media (max-width: 860px) {
