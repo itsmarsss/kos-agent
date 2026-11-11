@@ -113,7 +113,7 @@ Draw them to scale from zero unless the subject says otherwise, with axis labels
 
 ## Complete at rest
 
-Everything is readable on first paint. No reveal-on-scroll, no fade-in that hides content until an observer fires, no section waiting on a click to show its point. Motion, if any, is short and respects prefers-reduced-motion. A tool opens in a realistic working state: the current week selected, the latest rows shown, a sensible default filter.
+Everything is readable on first paint: no reveal-on-scroll, no fade-in waiting on an observer, no section waiting on a click. Motion is short and respects prefers-reduced-motion. A tool opens in a working state: the current week, the latest rows, a sensible filter.
 
 ## Avoid the generated look
 
@@ -136,9 +136,10 @@ When the owner gives a direction (a colour, a face, a reference, a mood), follow
 
 ## Copy
 
+- Write from the reader's side: what they can do or learn, not what the artifact contains.
 - Active voice, plain sentences, no mannered devices (no "not just X, but Y", no rhetorical questions as headings, no triplets for rhythm).
 - Name controls by what they do: "Add ride", "Export week", not "Submit" or "Go".
-- Errors say what went wrong and how to fix it.
+- Errors say what went wrong and how to fix it: "Distance must be a number in km, like 42.5".
 - Empty states say what will be there and how to start it.
 
 ## Naming
@@ -147,10 +148,10 @@ The title is a short specific noun phrase, a name and not a caption: "Halifax Re
 
 ## Interfaces
 
-- Summary before detail: the figure or status that answers the main question first, the rows after.
-- Show state in form: a pill for a status, chips for filters, a tag for a category, not a sentence.
-- Keep semantic colours (ok, warn, danger) apart from the accent; the accent means "act here", not "good".
-- Interactive things look interactive: buttons look like buttons, rows that open show a hover and a cursor.
+- Summary before detail: what answers the main question first, the rows after.
+- Show state in form: a pill for a status, chips for filters, a tag for a category.
+- Keep ok, warn and danger apart from the accent, which means "act here", not "good".
+- Interactive things look it: rows that open show a hover and a cursor.
 
 ## Build cleanly
 
