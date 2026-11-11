@@ -9,6 +9,7 @@ import { PATCH_EDITS_MAX, patchEdits, patchSummary } from "../systems/artifactpa
 import { ARTIFACT_KINDS, WORKSPACE_SCOPE, isArtifactKind } from "@kos/shared";
 import { maintains, reachable, type Reach } from "./fence.js";
 import { reachOf } from "./sql.js";
+import { turn } from "../kernel/caller.js";
 import { ownerOfRecord, type PageOwner, type PageStore } from "../systems/pages.js";
 
 /**
@@ -154,6 +155,39 @@ export function artifactFolderRefusal(pages: PageStore, folder: string, reach: R
   return undefined;
 }
 
+/** How many turns' check counts are kept: a turn's are only needed while it runs. */
+const TURNS_TALLIED = 64;
+
+/**
+ * How many times each artifact has been checked in the turn now running.
+ * KOS checks once and fixes in one pass: the first check asks for the fix,
+ * the second is the check after it and its findings go to the owner, and a
+ * third is not run, so no write, check and patch can go round for ever.
+ */
+class CheckTally {
+  private readonly turns = new Map<string, Map<string, number>>();
+
+  constructor(private readonly key: () => string) {}
+
+  /** Checks so far this turn for an artifact, counting the one about to run. */
+  take(id: string): number {
+    const k = this.key();
+    let counts = this.turns.get(k);
+    if (!counts) {
+      counts = new Map();
+      this.turns.set(k, counts);
+      const oldest = this.turns.keys().next().value;
+      if (this.turns.size > TURNS_TALLIED && oldest !== undefined) this.turns.delete(oldest);
+    }
+    const n = (counts.get(id) ?? 0) + 1;
+    counts.set(id, n);
+    return n;
+  }
+}
+
+/** Said in place of a third check in one turn. */
+const CHECKED_ENOUGH = "Not checked again: it has had its check and the check after the fix in this turn. Do not patch, write or check it again; tell the owner in a line what is left, and finish.";
+
 /** Who a new artifact from this chat belongs to when it names none: a blob's thread makes its own; anywhere else, the workspace. */
 const defaultOwner = (reach: Reach): PageOwner => (reach.blob && !reach.project ? { blob: reach.blob.name, id: reach.blob.id } : null);
 
@@ -164,6 +198,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
     throw new Error("systems module requires manifest, migrator, and pages services");
   }
   const removed = (blobId: string): boolean => pages.blobIds.removed(blobId);
+  const tally = new CheckTally(() => turn.getStore() ?? ctx.services?.callerConversation?.() ?? "");
   const refuseOtherOwnersPage = (owner: PageOwner, reach: Reach, what: "change" | "read" = "change"): void => {
     const why = whyNot(owner, reach, what, removed);
     if (why) throw new Error(`${why} are not its to ${what}.${handTo(owner, reach, removed)}`);
@@ -392,7 +427,8 @@ function defineSystemsTools(ctx: ModuleContext): void {
       const record = pages.record(id);
       if (record) refuseOtherOwnersPage(ownerOfRecord(record), reachOf(ctx), "read");
       if (record?.trashedAt !== undefined) throw new Error(`the artifact ${id} is in the trash, left as it is until the owner restores it; there is nothing to check`);
-      return checkArtifact(id);
+      const n = tally.take(id);
+      return n > 2 ? CHECKED_ENOUGH : checkArtifact(id, { final: n === 2 });
     },
     { floor: "safe" },
     { tags: ["systems"] },
@@ -522,7 +558,9 @@ function defineSystemsTools(ctx: ModuleContext): void {
       const summary = JSON.stringify({ id: record.id, title: record.title, version: pages.latestVersion(id), edits: edits.length, replaced, ...patchSummary(before, after) });
       if (!checkArtifact) return summary;
       // The patch is kept whatever the check finds; a check that cannot run says so rather than failing what was saved.
-      const checked = await checkArtifact(id).catch((err: unknown) => ({ text: `Saved, but the check could not run: ${err instanceof Error ? err.message : String(err)}` }));
+      const n = tally.take(id);
+      if (n > 2) return `${summary}\n\n${CHECKED_ENOUGH}`;
+      const checked = await checkArtifact(id, { final: n === 2 }).catch((err: unknown) => ({ text: `Saved, but the check could not run: ${err instanceof Error ? err.message : String(err)}` }));
       return { ...checked, text: `${summary}\n\n${checked.text}` };
     },
     { floor: "safe" },

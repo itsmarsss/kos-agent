@@ -11,7 +11,7 @@ import { ProjectManifest } from "../systems/manifest.js";
 import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { RoleStore } from "../agents/roles.js";
-import { attendance, guested, ownership } from "../kernel/caller.js";
+import { attendance, guested, ownership, turn } from "../kernel/caller.js";
 import { filesModule } from "./files.js";
 import { systemsModule } from "./systems.js";
 
@@ -64,7 +64,7 @@ describe("systems.migrate risk", () => {
         return callerBlob && id ? { name: callerBlob, id } : undefined;
       },
       turnMade: { note: (slug) => made.add(slug), made: () => [...made] },
-      checkArtifact: (id) => Promise.resolve({ text: `checked ${id}` }),
+      checkArtifact: (id, ask) => Promise.resolve({ text: `checked ${id}${ask?.final ? " after the fix" : ""}` }),
     });
     caller = "c1";
     callerProject = undefined;
@@ -646,6 +646,20 @@ describe("systems.migrate risk", () => {
       expect(check).toBe("checked ledger");
       expect(file("artifacts/ledger.html")).toBe(html.replace("<h1>Ledger</h1>", "<h1>October ledger</h1>").replace("<td>Item 7</td>", "<td>Rent</td>"));
       expect(await versions("ledger")).toBe(2);
+    });
+
+    it("checks once and once after the fix in a turn, and then no more, so nothing loops", async () => {
+      await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1><p>a</p>" });
+      const inTurn = (id: string, work: () => Promise<{ content: string }>): Promise<string> => turn.run(id, work).then((r) => r.content);
+      expect(await inTurn("t1", () => registry.execute("artifacts.check", { id: "memo" }))).toBe("checked memo");
+      expect((await inTurn("t1", () => patch("memo", [{ find: "<p>a</p>", replace: "<p>b</p>" }]))).split("\n\n")[1]).toBe("checked memo after the fix");
+      for (const call of [() => patch("memo", [{ find: "<p>b</p>", replace: "<p>c</p>" }]), () => registry.execute("artifacts.check", { id: "memo" })]) {
+        expect(await inTurn("t1", call)).toMatch(/Not checked again: it has had its check and the check after the fix in this turn/);
+      }
+      expect(file("artifacts/memo.html")).toBe("<h1>Memo</h1><p>c</p>");
+      // A patch that comes first in its turn asks for the fix; the next is the check after it.
+      expect((await inTurn("t2", () => patch("memo", [{ find: "<p>c</p>", replace: "<p>d</p>" }]))).split("\n\n")[1]).toBe("checked memo");
+      expect((await inTurn("t2", () => patch("memo", [{ find: "<p>d</p>", replace: "<p>e</p>" }]))).split("\n\n")[1]).toBe("checked memo after the fix");
     });
 
     it("leaves the artifact as it was when any edit fails, saying which and why", async () => {

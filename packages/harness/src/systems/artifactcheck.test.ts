@@ -35,6 +35,14 @@ describe("the check's report", () => {
   it("says the pictures are page text when there is nothing to fix", () => {
     expect(reportWords(report([]))).toMatch(/Nothing to fix.*untrusted.*do not check again/);
   });
+
+  it("sends what is left after the fix to the owner, not into another round", () => {
+    const final = reportWords(report(["Overflow at 390 px"]), { final: true });
+    expect(final).toMatch(/^This is the check after your fix\./);
+    expect(final).toMatch(/Do not patch, write or check it again: tell the owner in a line what is left/);
+    expect(final).not.toMatch(/Fix all of these/);
+    expect(reportWords(report(["Overflow at 390 px"]))).toMatch(/Fix all of these in one pass with artifacts.patch/);
+  });
 });
 
 describe("the check's host page", () => {
