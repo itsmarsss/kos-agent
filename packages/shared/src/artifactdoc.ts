@@ -180,7 +180,9 @@ export function tokenRule(tokens: Record<string, string>, mode: "light" | "dark"
  *
  * A page that paints a ground of its own (its body's background is not
  * KOS's --bg) is marked data-ground="own" on its root, now and on each theme
- * change, so the kit and the runtimes give it back the gutter the dashboard's
+ * change (read once a background transition on either has settled, so a
+ * colour caught mid-fade is never taken for one of its own), so the kit and
+ * the runtimes give it back the gutter the dashboard's
  * column otherwise gives: its text never runs to the edge of its colour.
  *
  * Queries go out FRAME_QUERIES at a time, in the order asked; the rest wait
@@ -210,11 +212,14 @@ Element.prototype.scrollIntoView=function(o){if(inner())into.call(this,o);reveal
 ${colourOf.toString()}
 var grounded=0;
 function ground(){var b=document.body,t=/--bg:([^;}]+)/.exec((document.getElementById("kos-tokens")||{}).textContent||"");if(!b||!t)return;
+var moving=[b,root].reduce(function(all,n){return all.concat(n.getAnimations?n.getAnimations().filter(function(x){return x.playState==="running"}):[])},[]);
+if(moving.length){Promise.all(moving.map(function(x){return x.finished.catch(function(){})})).then(reground);return}
 var bs=getComputedStyle(b),hs=getComputedStyle(root),own=bs.backgroundImage!=="none"||hs.backgroundImage!=="none";
 if(!own){var c=colourOf(bs.backgroundColor);if(!c||c[3]===0)c=colourOf(hs.backgroundColor);var k=colourOf(t[1].trim());own=!!c&&!!k&&c[3]>0&&Math.max(Math.abs(c[0]-k[0]),Math.abs(c[1]-k[1]),Math.abs(c[2]-k[2]))>2}
 if(own)root.dataset.ground="own";else delete root.dataset.ground}
 function reground(){cancelAnimationFrame(grounded);grounded=requestAnimationFrame(ground)}
-function watchGround(){ground();var o={attributes:true,attributeFilter:["style","class"]};var mo=new MutationObserver(reground);mo.observe(root,o);if(document.body)mo.observe(document.body,o);var st=new MutationObserver(reground);st.observe(document.head,{childList:true,subtree:true,characterData:true})}
+function watchGround(){ground();var o={attributes:true,attributeFilter:["style","class"]};var mo=new MutationObserver(reground);mo.observe(root,o);if(document.body)mo.observe(document.body,o);var st=new MutationObserver(reground);st.observe(document.head,{childList:true,subtree:true,characterData:true});
+["transitionend","transitioncancel"].forEach(function(t){document.addEventListener(t,function(e){if(e.target===root||e.target===document.body)reground()},true)})}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",watchGround);else watchGround();
 addEventListener("load",ground);
 function call(method,args,sent){return new Promise(function(resolve,reject){var id=++seq;if(sent)sent.id=id;waiting[id]={resolve:resolve,reject:reject};top.postMessage({__kos:"call",id:id,method:method,args:args},"*");});}

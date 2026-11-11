@@ -398,7 +398,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   it("gives a page on a ground of its own its gutter back, and none to one on KOS's", async () => {
     const css = readFileSync(join(import.meta.dirname, "../../../kit/src/page.css"), "utf8");
     const report = (then = ""): string =>
-      `<script>addEventListener("load", () => { ${then}; setTimeout(() => top.postMessage({ seen: { ground: document.documentElement.dataset.ground || "", pad: getComputedStyle(document.body).paddingLeft } }, "*"), 150) })</script>`;
+      `<script>addEventListener("load", () => { ${then}; setTimeout(() => top.postMessage({ seen: { ground: document.documentElement.dataset.ground || "", pad: getComputedStyle(document.body).paddingLeft } }, "*"), 700) })</script>`;
     const KOS = { ground: "", pad: "0px" };
     const OWN = { ground: "own", pad: "20px" };
     const cases: [string, string, typeof KOS][] = [
@@ -412,6 +412,8 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       ["/own-html", `<style>html{background:#f2efe6}body{background:transparent}</style><h1>Its html</h1>${report()}`, OWN],
       // Changed after it loads, by a class on the body or a theme callback: heard again.
       ["/own-later", `<style>.paper{background:#f2efe6}</style><h1>Later</h1>${report("document.body.classList.add('paper')")}`, OWN],
+      // A ground that fades with the theme is read once it settles: KOS's still, after a flip mid-fade.
+      ["/kos-fading", `<style>body{transition:background-color .25s}</style><h1>Fading</h1>${report("const s = document.getElementById('kos-tokens'), r = s.textContent; s.textContent = r.replace(/--bg:[^;}]+/, '--bg:#f4f5f8'); dispatchEvent(new MessageEvent('message', { data: { __kos: 'theme', mode: 'light', rule: s.textContent }, source: top })); setTimeout(() => dispatchEvent(new MessageEvent('message', { data: { __kos: 'theme', mode: 'dark', rule: r }, source: top })), 100)")}`, KOS],
       ["/own-on-theme", `<style>.paper{background:#f2efe6}</style><h1>On theme</h1>${report("kos.onTheme(() => document.body.classList.add('paper')); dispatchEvent(new MessageEvent('message', { data: { __kos: 'theme', mode: 'dark', rule: document.getElementById('kos-tokens').textContent }, source: top }))")}`, OWN],
     ];
     for (const [path, html, want] of cases) {
