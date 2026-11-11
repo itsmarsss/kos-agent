@@ -509,7 +509,7 @@ Before the page's own markup the frame gets:
 | `kos.theme`, `kos.onTheme(fn)` | The dashboard's theme, and its changes. |
 | `kos.refresh(fn)` | Run again after the page's own writes. |
 | `kos.save(edit)` | A doc's or a sheet's edit, made by the owner in the runtime, kept as the next version (above). Refused for a page or a deck. |
-| `kos.present()` | Ask the dashboard to show the artifact full screen; it then posts `present` on and off, which sets `data-present` on `<html>` and fires `kos:present`. |
+| `kos.present(on?)` | Ask the dashboard to show the artifact full screen (`kos.present(false)` gives it back); it then posts `present` on and off, which sets `data-present` on `<html>` and fires `kos:present`. Where the browser has no full screen for an element (Safari on an iPhone) or refuses, the artifact presents in place in its frame, and Escape or Present again ends it. |
 
 The dashboard only relays these, for its own frame. The server decides each
 one (`packages/harness/src/systems/pagebridge.ts`) against the page's stored

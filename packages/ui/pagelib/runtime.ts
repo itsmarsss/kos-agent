@@ -17,7 +17,7 @@ export interface KosBridge {
   query(sql: string, params?: unknown[]): Promise<{ rows: Record<string, unknown>[]; truncated?: boolean }>;
   write(table: string, op: "insert" | "update" | "delete", values: Record<string, unknown>, key?: { column: string; value: unknown }): Promise<unknown>;
   save?: (edit: ArtifactEdit) => Promise<unknown>;
-  present?: () => void;
+  present?: (on?: boolean) => void;
 }
 
 export const kos = (): KosBridge | undefined => (window as unknown as { kos?: KosBridge }).kos;

@@ -195,6 +195,8 @@ export function startDeck(): void {
     state = step(state, a);
     // Asking the dashboard for the whole screen; it tells the deck back through kos:present.
     if (a.type === "present" && state.presenting && !was) kos()?.present?.();
+    // And giving it back when the deck stops on its own (Escape, the grid), so the dashboard does not hold a screen nobody presents on.
+    else if (was && !state.presenting) kos()?.present?.(false);
     render();
   };
 

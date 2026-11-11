@@ -232,7 +232,7 @@ write:function(table,op,values,key){return call("write",{table:table,op:op,value
 files:Object.freeze({read:function(path){return call("file",{path:path})}}),
 ask:function(text){return call("ask",{text:String(text)})},
 save:function(edit){return call("save",{edit:edit})},
-present:function(){top.postMessage({__kos:"present"},"*")},
+present:function(on){top.postMessage({__kos:"present",on:on!==false},"*")},
 onTheme:function(f){themeFns.push(f)},
 refresh:function(f){refreshFns.push(f)}
 };

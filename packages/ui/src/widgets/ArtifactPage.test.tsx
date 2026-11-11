@@ -242,6 +242,7 @@ describe("the page's frame", () => {
   });
 
   it("goes full screen when the artifact asks, which only the dashboard can do", async () => {
+    Object.defineProperty(document, "fullscreenEnabled", { value: true, configurable: true });
     const full = vi.fn().mockResolvedValue(undefined);
     HTMLElement.prototype.requestFullscreen = full;
     const { pageWin } = await frame();
@@ -251,7 +252,29 @@ describe("the page's frame", () => {
     expect(full).toHaveBeenCalledTimes(1);
   });
 
-  it("does not tell the artifact it presents where the browser refuses full screen", async () => {
+  it("presents in place where the browser has no full screen for it, and stops on Escape or when the deck stops", async () => {
+    Object.defineProperty(document, "fullscreenEnabled", { value: false, configurable: true });
+    const { pageWin } = await frame();
+    const told = vi.spyOn(pageWin, "postMessage");
+    const say = (data: unknown): void =>
+      act(() => {
+        window.dispatchEvent(new MessageEvent("message", { source: pageWin, data }));
+      });
+    say({ __kos: "present" });
+    expect(told).toHaveBeenLastCalledWith({ __kos: "present", on: true }, "*");
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(told).toHaveBeenLastCalledWith({ __kos: "present", on: false }, "*");
+    say({ __kos: "present" });
+    say({ __kos: "present", on: false });
+    expect(told).toHaveBeenLastCalledWith({ __kos: "present", on: false }, "*");
+    expect(told).toHaveBeenCalledTimes(4);
+    Object.defineProperty(document, "fullscreenEnabled", { value: true, configurable: true });
+  });
+
+  it("presents in place when the browser refuses full screen", async () => {
+    Object.defineProperty(document, "fullscreenEnabled", { value: true, configurable: true });
     HTMLElement.prototype.requestFullscreen = vi.fn().mockRejectedValue(new Error("not allowed"));
     const { pageWin } = await frame();
     const told = vi.spyOn(pageWin, "postMessage");
@@ -259,8 +282,9 @@ describe("the page's frame", () => {
       window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "present" } }));
     });
     await act(() => new Promise<void>((r) => setTimeout(r, 0)));
-    expect(told).not.toHaveBeenCalledWith(expect.objectContaining({ __kos: "present", on: true }), "*");
+    expect(told).toHaveBeenLastCalledWith({ __kos: "present", on: true }, "*");
   });
+
 });
 
 describe("a frame as tall as its page", () => {
