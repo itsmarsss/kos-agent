@@ -11,7 +11,7 @@ import { ProjectManifest } from "../systems/manifest.js";
 import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { RoleStore } from "../agents/roles.js";
-import { attendance, ownership } from "../kernel/caller.js";
+import { attendance, guested, ownership } from "../kernel/caller.js";
 import { filesModule } from "./files.js";
 import { systemsModule } from "./systems.js";
 
@@ -35,6 +35,8 @@ describe("systems.migrate risk", () => {
   let made = new Set<string>();
   // The registry's own execute, run as no turn in particular.
   let execute: ToolRegistry["execute"];
+  // The artifacts' store, for what only the owner does: the trash.
+  let store: PageStore;
 
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "kos-systems-"));
@@ -46,6 +48,7 @@ describe("systems.migrate risk", () => {
     const manifest = new ProjectManifest(ws.db);
     const migrator = new Migrator(ws.db, manifest);
     const pages = new PageStore(ws.db, ws, manifest);
+    store = pages;
     roles = new RoleStore(ws, pages.blobIds);
     const ctx = toolRegistryContext(registry, {
       workspace: ws,
@@ -496,6 +499,107 @@ describe("systems.migrate risk", () => {
     expect(JSON.parse(moved.content)).toMatchObject({ projectSlug: null, path: "artifacts/beds.html" });
     expect(await ids("@workspace")).toEqual(["beds"]);
     expect(JSON.parse((await registry.execute("artifacts.history", { id: "beds" })).content)).toHaveLength(3);
+  });
+
+  it("renames and copies what the chat may change, keeping the id, and never another owner's", async () => {
+    const a = JSON.parse((await registry.execute("systems.project_create", { name: "Garden", type: "tracker" })).content) as { slug: string };
+    const b = JSON.parse((await registry.execute("systems.project_create", { name: "Pantry", type: "tracker" })).content) as { slug: string };
+    await registry.execute("artifacts.write", { project: a.slug, id: "beds", title: "Beds", html: "<h1>Beds</h1>" });
+    await registry.execute("artifacts.write", { project: b.slug, id: "shelf", title: "Shelf", html: "<h1>Shelf</h1>" });
+    made = new Set();
+    callerProject = a.slug;
+    const renamed = JSON.parse((await registry.execute("artifacts.rename", { id: "beds", title: "Raised beds", description: "Where each bed is." })).content) as { id: string; title: string; description: string };
+    expect(renamed).toMatchObject({ id: "beds", title: "Raised beds", description: "Where each bed is." });
+    const copy = JSON.parse((await registry.execute("artifacts.duplicate", { id: "beds" })).content) as { id: string; title: string; projectSlug: string };
+    expect(copy).toMatchObject({ id: "beds-copy", title: "Raised beds copy", projectSlug: a.slug });
+    expect(JSON.parse((await registry.execute("artifacts.history", { id: "beds-copy" })).content)).toHaveLength(1);
+    // Pantry's is Pantry's.
+    for (const tool of ["artifacts.rename", "artifacts.duplicate"]) {
+      const got = await registry.execute(tool, { id: "shelf", title: "Mine" });
+      expect(got.isError, tool).toBe(true);
+      expect(got.content).toMatch(/This chat is Garden's, so Pantry's artifacts are not its to change/);
+    }
+    expect(store.record("shelf")?.title).toBe("Shelf");
+    expect((await registry.execute("artifacts.rename", { id: "nope", title: "X" })).content).toMatch(/not found/);
+  });
+
+  it("moves an artifact only from and to where the chat reaches, and never into a removed blob", async () => {
+    const a = JSON.parse((await registry.execute("systems.project_create", { name: "Garden", type: "tracker" })).content) as { slug: string };
+    const b = JSON.parse((await registry.execute("systems.project_create", { name: "Pantry", type: "tracker" })).content) as { slug: string };
+    await registry.execute("artifacts.write", { project: a.slug, id: "beds", title: "Beds", html: "<h1>Beds</h1>" });
+    await registry.execute("artifacts.write", { project: b.slug, id: "shelf", title: "Shelf", html: "<h1>Shelf</h1>" });
+    await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1>" });
+    for (const name of ["noter", "gone"]) roles.write({ name, description: name, brief: "Work.", memory: "own" });
+    made = new Set();
+
+    // A project's chat: not into another project, not out of one, not into a blob.
+    callerProject = a.slug;
+    const across = await registry.execute("artifacts.move", { id: "beds", project: b.slug });
+    expect(across.isError).toBe(true);
+    expect(across.content).toMatch(/This chat is Garden's, so Pantry's artifacts are not its to change/);
+    expect((await registry.execute("artifacts.move", { id: "shelf", project: a.slug })).content).toMatch(/Pantry's artifacts are not its to change/);
+    expect((await registry.execute("artifacts.move", { id: "beds", blob: "noter" })).content).toMatch(/the blob noter's artifacts are not its to change/);
+    expect(store.record("beds")?.projectSlug).toBe(a.slug);
+    // Its own to the workspace and back, with its id and versions.
+    expect(JSON.parse((await registry.execute("artifacts.move", { id: "beds", project: "@workspace" })).content)).toMatchObject({ id: "beds", projectSlug: null });
+    expect(JSON.parse((await registry.execute("artifacts.move", { id: "memo", project: a.slug })).content)).toMatchObject({ projectSlug: a.slug });
+    expect(JSON.parse((await registry.execute("artifacts.history", { id: "beds" })).content)).toHaveLength(2);
+    expect((await registry.execute("artifacts.move", { id: "beds" })).content).toMatch(/say where it goes/);
+    expect((await registry.execute("artifacts.move", { id: "beds", project: "nowhere" })).content).toMatch(/unknown project/);
+
+    // The owner's own turn at the root: the workspace and a blob, never a project's.
+    callerProject = undefined;
+    expect(JSON.parse((await registry.execute("artifacts.move", { id: "beds", blob: "noter" })).content)).toMatchObject({ blob: "noter" });
+    expect((await registry.execute("artifacts.move", { id: "beds", project: b.slug })).content).toMatch(/belongs to no project, so Pantry's artifacts are not its to change/);
+    expect((await registry.execute("artifacts.move", { id: "beds", blob: "nobody" })).content).toMatch(/no blob is called nobody/);
+    roles.remove("gone");
+    expect((await registry.execute("artifacts.move", { id: "beds", blob: "gone" })).content).toMatch(/no blob is called gone/);
+
+    // Maintenance reaches across.
+    callerProject = "maintenance";
+    expect(JSON.parse((await registry.execute("artifacts.move", { id: "shelf", project: a.slug })).content)).toMatchObject({ projectSlug: a.slug });
+  });
+
+  it("gives KOS no delete, leaves the trash out of its lists unless asked, and changes nothing in it", async () => {
+    const names = registry.defs().map((d) => d.name).filter((n) => n.startsWith("artifacts."));
+    expect(names).toEqual(expect.arrayContaining(["artifacts.rename", "artifacts.duplicate", "artifacts.move"]));
+    expect(names.filter((n) => /delete|trash|remove|purge/.test(n))).toEqual([]);
+    await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1>" });
+    await registry.execute("artifacts.write", { id: "old", title: "Old", html: "<h1>Old</h1>" });
+    store.trash("old");
+    const ids = async (input: Record<string, unknown>): Promise<string[]> => (JSON.parse((await registry.execute("artifacts.list", input)).content) as { id: string }[]).map((r) => r.id);
+    expect(await ids({})).toEqual(["memo"]);
+    expect(await ids({ trashed: true })).toEqual(["old"]);
+    for (const [tool, input] of [
+      ["artifacts.write", { id: "old", title: "Old", html: "<h1>Back</h1>" }],
+      ["artifacts.rename", { id: "old", title: "New" }],
+      ["artifacts.duplicate", { id: "old" }],
+      ["artifacts.move", { id: "old", project: "@workspace" }],
+      ["artifacts.rollback", { id: "old", version: 1 }],
+    ] as const) {
+      const got = await registry.execute(tool, input);
+      expect(got.isError, tool).toBe(true);
+      expect(got.content, tool).toMatch(/in the trash/);
+    }
+    expect(store.record("old")?.title).toBe("Old");
+  });
+
+  it("refuses every management call that a guest's words started", async () => {
+    const { slug } = JSON.parse((await registry.execute("systems.project_create", { name: "Garden", type: "tracker" })).content) as { slug: string };
+    await registry.execute("artifacts.write", { project: slug, id: "beds", title: "Beds", html: "<h1>Beds</h1>" });
+    made = new Set();
+    callerProject = slug;
+    const guest = { project: slug, chat: `project:${slug}` };
+    for (const [tool, input] of [
+      ["artifacts.rename", { id: "beds", title: "Theirs" }],
+      ["artifacts.duplicate", { id: "beds" }],
+      ["artifacts.move", { id: "beds", project: "@workspace" }],
+    ] as const) {
+      const got = await guested.run(guest, () => registry.execute(tool, input));
+      expect(got.isError, tool).toBe(true);
+      expect(got.content, tool).toMatch(/a guest's words started this work/);
+    }
+    expect(store.record("beds")).toMatchObject({ title: "Beds", projectSlug: slug });
   });
 
   it("tells the model the check is not available where KOS has no Chrome", async () => {

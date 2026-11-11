@@ -15,6 +15,7 @@ import {
   type HtmlPage,
   type PageSpec,
   type SheetBook,
+  WORKSPACE_SCOPE,
 } from "@kos/shared";
 
 import { ROLE_NAME, RoleStore } from "../agents/roles.js";
@@ -238,6 +239,25 @@ export class PageStore {
     const roles = new RoleStore(this.workspace, this.blobIds);
     const give = this.db.prepare(`UPDATE pages SET blob_id = ? WHERE blob = ? AND blob_id IS NULL`);
     for (const name of names) give.run(roles.identity(name) ?? this.blobIds.retired(name), name);
+  }
+
+  /**
+   * Where a move names: a project by its slug, the workspace as
+   * WORKSPACE_SCOPE, or a living blob by its name; one of the two. Refused
+   * with what to name instead.
+   */
+  destination(to: { project?: unknown; blob?: unknown }): PageOwner {
+    const project = typeof to.project === "string" && to.project ? to.project : undefined;
+    const blob = typeof to.blob === "string" && to.blob ? to.blob : undefined;
+    if ((project === undefined) === (blob === undefined)) throw new Error(`say where it goes: project (a slug, or "${WORKSPACE_SCOPE}") or blob (a name), one of them`);
+    if (blob !== undefined) {
+      const id = ROLE_NAME.test(blob) ? new RoleStore(this.workspace, this.blobIds).identity(blob) : undefined;
+      if (!id) throw new Error(`no blob is called ${blob}; blobs.list names them`);
+      return { blob, id };
+    }
+    if (project === WORKSPACE_SCOPE) return null;
+    if (!this.manifest.get(project!)) throw new Error(`unknown project: ${project}; systems.project_list names them`);
+    return project!;
   }
 
   private row(id: string): Row | undefined {
@@ -650,10 +670,11 @@ export class PageStore {
     return this.write(projectSlug, JSON.parse(v.body));
   }
 
-  /** The artifact as stored, for a change that keeps its document: refused when it is gone. */
+  /** The artifact as stored, for a change that keeps its document: refused when it is gone, or in the trash. */
   private loaded(id: string): LoadedPage {
     const got = this.get(id);
     if (!got) throw new Error(`artifact not found: ${id}`);
+    if (got.record.trashedAt !== undefined) throw new ArtifactTrashed(`the artifact ${id} is in the trash, so it is left as it is; the owner can restore it from the Artifacts page's Trash`);
     return got;
   }
 
@@ -701,7 +722,6 @@ export class PageStore {
   /** A copy beside it, the same owner's, named "<title> copy": an artifact of its own, its history starting at this one version. */
   duplicate(id: string): PageRecord {
     const got = this.loaded(id);
-    if (got.record.trashedAt !== undefined) throw new ArtifactTrashed(`the artifact ${id} is in the trash; restore it before copying it`);
     const owner = ownerOfRecord(got.record);
     this.refuseRemovedBlob(owner);
     return this.rewrite(got, owner, { id: this.copyId(id), title: `${got.record.title} copy` });

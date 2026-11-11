@@ -53,7 +53,18 @@ function refuseOutsideReach(project: string, reach: Reach): void {
 }
 
 /** The artifact tools: a project's orchestrator is granted them for its own project's artifacts. */
-export const ARTIFACT_TOOLS = ["artifacts.write", "artifacts.list", "artifacts.get", "artifacts.history", "artifacts.rollback", "artifacts.guide", "artifacts.check"] as const;
+export const ARTIFACT_TOOLS = [
+  "artifacts.write",
+  "artifacts.list",
+  "artifacts.get",
+  "artifacts.history",
+  "artifacts.rollback",
+  "artifacts.rename",
+  "artifacts.duplicate",
+  "artifacts.move",
+  "artifacts.guide",
+  "artifacts.check",
+] as const;
 
 /**
  * Whose artifacts a chat may read and change. A project's are its own chats',
@@ -367,11 +378,12 @@ function defineSystemsTools(ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "artifacts.list",
-      description: `List artifacts: every one, one project's, or the workspace's own (project: "${WORKSPACE_SCOPE}"), each with its kind (page, doc, deck, sheet), title and description.`,
+      description: `List artifacts: every one, one project's, or the workspace's own (project: "${WORKSPACE_SCOPE}"), each with its kind (page, doc, deck, sheet), title and description. What the owner put in the trash is left out; trashed: true lists only that, which stays as it is until the owner restores it.`,
       inputSchema: {
         type: "object",
         properties: {
           project: { type: "string" },
+          trashed: { type: "boolean", description: "list what is in the trash instead" },
         },
       },
     },
@@ -379,7 +391,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
       const project = typeof input.project === "string" && input.project ? input.project : undefined;
       const reach = reachOf(ctx);
       // Only what this chat may read: a blob's from a project's chat or another blob's is left out, and a blob's turn sees its own and the workspace's.
-      return JSON.stringify(pages.list(project === WORKSPACE_SCOPE ? null : project).filter((r) => (r.blob === undefined && !reach.blob) || whyNot(ownerOfRecord(r), reach, "read", removed) === undefined));
+      return JSON.stringify(pages.list(project === WORKSPACE_SCOPE ? null : project, { trashed: input.trashed === true }).filter((r) => (r.blob === undefined && !reach.blob) || whyNot(ownerOfRecord(r), reach, "read", removed) === undefined));
     },
     { floor: "safe" },
     { tags: ["systems"] },
@@ -434,6 +446,74 @@ function defineSystemsTools(ctx: ModuleContext): void {
       const record = pages.record(id);
       if (record) refuseOtherOwnersPage(ownerOfRecord(record), reachOf(ctx));
       return JSON.stringify(pages.rollback(id, Number(input.version)));
+    },
+    { floor: "safe" },
+    { tags: ["systems"] },
+  );
+
+  /** The artifact a management call names, held to who may change it: never from a guest's words, which run no artifact tool at all. */
+  const changeable = (input: Record<string, unknown>, reach: Reach): string => {
+    if (reach.guest) throw new Error("a guest's words started this work, and artifacts are the owner's and KOS's to change; tell the owner (notify) what was asked");
+    const id = str(input, "id");
+    const record = pages.record(id);
+    if (!record) throw new Error(`artifact not found: ${id}`);
+    refuseOtherOwnersPage(ownerOfRecord(record), reach);
+    return id;
+  };
+
+  ctx.registerTool(
+    {
+      name: "artifacts.rename",
+      description: "Give an artifact a new title, a new description, or both. Its id stays, so every mention and link to it still finds it, and the rename is kept as a version.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          title: { type: "string", description: "a short specific name" },
+          description: { type: "string", description: "one sentence: what it is for" },
+        },
+        required: ["id"],
+      },
+    },
+    (input) => {
+      const id = changeable(input, reachOf(ctx));
+      return JSON.stringify(pages.rename(id, { ...(typeof input.title === "string" ? { title: input.title } : {}), ...(typeof input.description === "string" ? { description: input.description } : {}) }));
+    },
+    { floor: "safe" },
+    { tags: ["systems"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "artifacts.duplicate",
+      description: 'Copy an artifact beside itself, for the same owner, titled "<title> copy" under a new id (returned). The copy is an artifact of its own: its history starts with it.',
+      inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    },
+    (input) => JSON.stringify(pages.duplicate(changeable(input, reachOf(ctx)))),
+    { floor: "safe" },
+    { tags: ["systems"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "artifacts.move",
+      description: `Give an artifact to another owner: a project (project: its slug), the workspace (project: "${WORKSPACE_SCOPE}"), or a blob (blob: its name). Its id, versions and captures go with it. Both ends must be this chat's to change: a project's chat moves its own artifacts and the workspace's, never into another project. An artifact that reads its project's tables cannot go where those tables are not.`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          project: { type: "string", description: `the project's slug, or "${WORKSPACE_SCOPE}"` },
+          blob: { type: "string", description: "a living blob's name" },
+        },
+        required: ["id"],
+      },
+    },
+    (input) => {
+      const reach = reachOf(ctx);
+      const id = changeable(input, reach);
+      const to = pages.destination(input);
+      refuseOtherOwnersPage(to, reach);
+      return JSON.stringify(pages.move(id, to));
     },
     { floor: "safe" },
     { tags: ["systems"] },
