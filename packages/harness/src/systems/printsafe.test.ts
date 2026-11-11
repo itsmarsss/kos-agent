@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { PRINT_CSP, printCss, printDocument, withoutHints } from "./printsafe.js";
+import { PRINT_CSP, plainCss, printCss, printDocument, withoutHints } from "./printsafe.js";
 
 describe("a snapshot made safe to print", () => {
   it("keeps the page's markup and styles, under its own policy first in the head", () => {
@@ -40,5 +40,38 @@ describe("an artifact without its hints", () => {
     const out = withoutHints('<HEAD><LINK REL=preconnect href="http://x"><meta http-equiv=refresh content="0;url=http://x"><base href="http://x/"></HEAD><body><template><link rel="prefetch" href="http://x"></template><p>a</p><script>var s = "<link rel=x>";</script></body>');
     expect(out.replace(/<script>[\s\S]*?<\/script>/, "")).not.toMatch(/<link|<meta|<base/i);
     expect(out).toContain('<p>a</p><script>var s = "<link rel=x>";</script>');
+  });
+});
+
+describe("the snapshot's ways round the print allowlist", () => {
+  it("reads nothing but text in a style, SVG's too, and drops a frame, foreign content or a script at any depth", () => {
+    const out = printDocument(
+      `<body><svg><style><iframe srcdoc="<script>new WebSocket('ws://x')</script>"></iframe><foreignObject><script>a()</script></foreignObject>rect{fill:red}</style>` +
+        `<g><g><g><foreignObject><div><iframe src="http://x"></iframe></div></foreignObject><script>b()</script></g></g></g></svg>` +
+        `<math><mi><svg><frame src="http://x"></frame></svg></mi></math><div><div><span><iframe></iframe><frame></frame><script>c()</script></span></div></div></body>`,
+    );
+    for (const gone of ["<iframe", "srcdoc", "WebSocket", "<foreignObject", "<script", "<frame", "a()", "b()", "c()", "http://x"]) expect(out, gone).not.toContain(gone);
+    expect(out).toContain("<style>rect{fill:red}</style>");
+  });
+
+  it("puts its policy first in the real head, as a node, whatever an attribute says", () => {
+    const out = printDocument(`<html><head title="<head>"><style>p{}</style></head><body><p data-x="<head><script>x()</script>">a</p></body></html>`);
+    expect(out.indexOf('<meta http-equiv="Content-Security-Policy"')).toBe(out.indexOf("<head>") + "<head>".length);
+    // Left in its attribute, where it is text.
+    expect(out).toContain(`<p data-x="<head><script>x()</script>">a</p>`);
+    expect(out.match(/Content-Security-Policy/g)).toHaveLength(1);
+    // A snapshot with no head still gets one, with the policy in it.
+    expect(printDocument("<p>bare</p>")).toMatch(/^<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="[^"]+"><meta charset="utf-8"><\/head><body><p>bare<\/p><\/body><\/html>$/);
+  });
+
+  it("reads CSS escapes before it looks for a url or an @import, in styles and in SVG paint", () => {
+    expect(plainCss("u\\rl(x) \\75 rl(y) @im\\port \\000075 rl(z) content:\"\\201C\\\"\"")).toBe('url(x) url(y) @import url(z) content:"\\201C\\""');
+    for (const css of ["p{background:u\\rl(http://x/a)}", "p{background:\\75 rl(http://x/a)}", "@im\\port 'http://x/a.css'; p{}", "p{background:url(http://x/a"]) {
+      // Whatever is left of the address is no url() any more: nothing loads it.
+      expect(plainCss(printCss(css)), css).not.toMatch(/url\(|@import/i);
+    }
+    const svg = printDocument(`<svg><rect fill="u\\rl(http://x/p)" stroke="\\75 rl(http://x/q)" filter="url(#f)" mask="url(http://x/m)" clip-path="u\\72l(//x/c)" marker-end="url(http://x/e)" cursor="url(http://x/k), auto" style="fill:u\\rl(http://x/s)"/></svg>`);
+    expect(svg).not.toContain("x/");
+    expect(svg).toContain('filter="url(#f)"');
   });
 });

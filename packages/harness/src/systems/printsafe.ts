@@ -1,4 +1,4 @@
-import { parse, serialize, type DefaultTreeAdapterMap } from "parse5";
+import { defaultTreeAdapter, parse, serialize, type DefaultTreeAdapterMap } from "parse5";
 
 /**
  * A drawn artifact as a document safe to print: its snapshot rebuilt on the
@@ -79,14 +79,41 @@ const NEVER = new Set(["srcdoc", "srcset", "action", "formaction", "form", "ping
 const schemeOf = (value: string): string => value.replace(/[\u0000- \u007f]+/g, "").toLowerCase();
 const runs = (value: string): boolean => /(javascript|vbscript):|data:text\/html/.test(schemeOf(value));
 
-/** A CSS text without anything it could load: every url() to elsewhere and every @import gone. */
+/**
+ * CSS with every escape that spells a name's own character written as that
+ * character: `u\rl(`, `\75 rl(` and `@im\port` are url( and @import to the
+ * browser, and must be to the filters below. Only letters, digits and `( ) @
+ * _ -` are decoded, which mean the same written either way; an escaped quote,
+ * backslash or line break is left escaped, so no string ends early.
+ */
+export function plainCss(css: string): string {
+  return css.replace(/\\([0-9a-fA-F]{1,6})[ \t\r\n\f]?|\\([^\r\n\f0-9a-fA-F])/g, (whole: string, hex: string | undefined, char: string | undefined) => {
+    const c = hex !== undefined ? String.fromCodePoint(Math.min(parseInt(hex, 16), 0x10ffff)) : char!;
+    return /^[A-Za-z0-9()@_-]$/.test(c) ? c : whole;
+  });
+}
+
+/** What a URL in CSS may be: the page's own data, or a place on it. */
+const KEPT_URL = /^\s*['"]?\s*(data:(image|font|application\/font)|#)/i;
+
+/** A CSS text without anything it could load: escapes read first, then every url() to elsewhere and every @import gone. */
 export function printCss(css: string): string {
-  return css
+  return plainCss(css)
     .replace(/@import[^;]*;?/gi, "")
-    .replace(/url\(\s*(['"]?)([^)]*?)\1\s*\)/gi, (whole, _q: string, target: string) => (/^\s*(data:(image|font|application\/font)|#)/i.test(target) ? whole : "none"))
-    .replace(/(^|[^\w-])(-webkit-)?image-set\s*\(/gi, "$1none(")
+    .replace(/url\(\s*(['"]?)([^)]*?)\1\s*\)/gi, (whole, _q: string, target: string) => (KEPT_URL.test(target) ? whole : "none"))
+    // An url( the pattern above did not close (one left open to the end of a rule) is no url at all.
+    .replace(/url\((?![^)]*\))/gi, "none(")
+    .replace(/url\((?!\s*['"]?\s*(data:(image|font|application\/font)|#))/gi, "none(")
+    .replace(/(^|[^\w-])(-webkit-)?image(-set)?\s*\(/gi, "$1none(")
+    .replace(/(^|[^\w-])src\s*\(/gi, "$1none(")
     .replace(/expression\s*\(/gi, "none(");
 }
+
+/** Whether a presentation attribute's value names something to load: any url( but to the page's own #id, read with its escapes. */
+const loadsCss = (value: string): boolean => {
+  const plain = plainCss(value);
+  return /url\s*\((?!\s*['"]?\s*#)|image(-set)?\s*\(|(^|[^\w-])src\s*\(|@import|expression\s*\(/i.test(plain);
+};
 
 /** Whether an element of this namespace and name is a printed page's. */
 function allowedTag(el: Element): boolean {
@@ -114,9 +141,8 @@ function keptValue(el: Element, a: { name: string; prefix?: string; value: strin
     if (tag === "html" && name === "xmlns") return a.value;
     return HTML_ATTRS[tag]?.has(name) ? a.value : undefined;
   }
-  // SVG and MathML presentation: any, but none that names something outside the page.
-  if (/url\s*\(/i.test(a.value) && !/url\s*\(\s*['"]?#/i.test(a.value)) return undefined;
-  return a.value;
+  // SVG and MathML presentation: any, but none that names something outside the page (fill, stroke, filter, mask, clip-path, marker-*, cursor...).
+  return loadsCss(a.value) ? undefined : a.value;
 }
 
 function clean(parent: Parent): void {
@@ -133,7 +159,9 @@ function clean(parent: Parent): void {
       return value === undefined ? [] : [{ ...a, value }];
     });
     if (node.tagName.toLowerCase() === "style") {
-      for (const text of node.childNodes) if (text.nodeName === "#text") (text as DefaultTreeAdapterMap["textNode"]).value = printCss((text as DefaultTreeAdapterMap["textNode"]).value);
+      // A style holds its rules and nothing else: in SVG it can hold elements, which go unread.
+      node.childNodes = node.childNodes.filter((c) => c.nodeName === "#text");
+      for (const text of node.childNodes) (text as DefaultTreeAdapterMap["textNode"]).value = printCss((text as DefaultTreeAdapterMap["textNode"]).value);
     } else clean(node);
     kept.push(node);
   }
@@ -143,18 +171,34 @@ function clean(parent: Parent): void {
 /** The policy the print document carries in its own head, first: it loads nothing but data: images and fonts, and runs nothing. */
 export const PRINT_CSP = "default-src 'none'; script-src 'none'; frame-src 'none'; connect-src 'none'; img-src data: blob:; font-src data:; style-src 'unsafe-inline'; form-action 'none'; base-uri 'none'";
 
-/** The snapshot rebuilt as a document safe to print, under PRINT_CSP. */
+/** The snapshot rebuilt as a document safe to print, under PRINT_CSP, first in its real head, built as nodes and never spliced into text. */
 export function printDocument(snapshot: string, extraCss = ""): string {
   const document = parse(snapshot);
   clean(document);
-  const html = document.childNodes.find((n): n is Element => "tagName" in n && n.tagName === "html");
-  const headEl = html?.childNodes.find((n): n is Element => "tagName" in n && n.tagName === "head");
-  if (headEl) headEl.attrs = [];
-  const body = serialize(document);
-  const head = `<meta http-equiv="Content-Security-Policy" content="${PRINT_CSP}"><meta charset="utf-8">`;
-  const style = extraCss ? `<style>${printCss(extraCss).replace(/<\/style/gi, "")}</style>` : "";
-  // The policy first in the head, before any style; the head is always there, as parse5 builds one.
-  return `<!doctype html>${html ? body.replace(/<head>/i, `<head>${head}`).replace(/<\/head>/i, `${style}</head>`) : `<html><head>${head}${style}</head><body>${body}</body></html>`}`;
+  const a = defaultTreeAdapter;
+  const element = (tag: string, attrs: Record<string, string>): Element => a.createElement(tag, HTML as never, Object.entries(attrs).map(([name, value]) => ({ name, value })));
+  let html = document.childNodes.find((n): n is Element => "tagName" in n && n.tagName === "html");
+  if (!html) {
+    html = element("html", {});
+    a.appendChild(document, html);
+  }
+  let head = html.childNodes.find((n): n is Element => "tagName" in n && n.tagName === "head");
+  if (!head) {
+    head = element("head", {});
+    a.insertBefore(html, head, html.childNodes[0]!);
+  }
+  head.attrs = [];
+  const first = head.childNodes[0];
+  for (const meta of [element("meta", { "http-equiv": "Content-Security-Policy", content: PRINT_CSP }), element("meta", { charset: "utf-8" })]) {
+    if (first) a.insertBefore(head, meta, first);
+    else a.appendChild(head, meta);
+  }
+  if (extraCss) {
+    const style = element("style", {});
+    a.insertText(style, printCss(extraCss));
+    a.appendChild(head, style);
+  }
+  return `<!doctype html>${serialize(document)}`;
 }
 
 /** What reaches out before any policy or interception sees it: a preconnect or DNS prefetch hint, a refresh, a base. */
