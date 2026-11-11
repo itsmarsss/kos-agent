@@ -212,31 +212,56 @@ title's (`exportName`), sent as `Content-Disposition` in ASCII and in full
 UTF-8. Each export, and each refusal, is kept in the audit log as
 `artifact.export`. The work is `ArtifactExporter` (`systems/artifactexport.ts`).
 
+- **Held as on the dashboard.** What the agent wrote may try to send what
+  it reads somewhere, by names no write-time check sees
+  (`document["loc"+"ation"]`). So an artifact never runs as a page of its
+  own, in a render or in the saved file: it runs in the sandboxed srcdoc
+  frame (scripts only: no popups, no top navigation, no forms) inside the
+  wrapper whose policy lets that frame hold `about:` documents alone, where
+  a navigation, a popup or a request goes nowhere. KOS's renders add a
+  second lock, a sealed tab (`systems/exportrender.ts`): every request but
+  the one document KOS serves it is paused and failed (Fetch, on the tab and
+  on every frame Chrome attaches beside it), a window it opens is closed,
+  and the relay binding is heard only from that document's own context, not
+  from the artifact's frame nor anything the tab becomes after. An artifact
+  that tries to leave anyway is left with nothing in its frame, and its PDF
+  is refused in words. `artifactexport.chrome.test.ts` plants one that
+  tries every way (a computed location, top's, a popup, an image, the
+  binding called straight) and counts no request, in a render for HTML, in
+  a print, and in the saved file opened from disk.
 - **PDF** is printed by the Chrome `artifacts.check` keeps, never the
   machine's print dialog, so nothing asks the owner for a permission. The
   checker's queue (`ArtifactChecker.withBrowser`) runs one job at a time,
-  a check or an export, the owner's ahead of the gallery's redraws; three
-  exports waiting at most, and each given up after 60 s. The artifact is
-  drawn as the HTML export below, its reads answered live by the same
-  server-side checks the frame's are and never written, then printed with
-  `Page.printToPDF`. A deck prints by its runtime's print rules on 16:9
-  pages, every slide whole and nothing after the last; a doc on US Letter
-  with margins, on white, its runtime's print rules keeping a heading with
-  what follows it and a figure, table, quote or code block whole where it
-  fits; a page on Letter, KOS's ground to the paper's edges.
-- **HTML** is one file that opens anywhere, offline: the artifact's markup
-  with its kind's runtime, its libraries, KOS's tokens for the chosen theme,
-  the kit's stylesheet and the fonts it names, inlined (dropped for their
-  system stacks past 600 KB, which four families do not reach), under the
-  frame's own policy and guard, so the file opens no connection. Its
-  `window.kos` reaches nothing: an artifact that reads (a page's
-  `kos.query`, a sheet's source tab) is drawn once in KOS's Chrome first and
-  what its reads answered is frozen into the file, answered from it by the
-  same call; a write, an ask or a save is refused in words, and with no
-  save no runtime offers editing. Nothing of the dashboard goes in: no
-  token, no address, only the artifact and what its own reads answered.
-  Served with `Content-Security-Policy: sandbox`, so a browser that drew it
-  on the dashboard's origin would run nothing there.
+  a check or an export, the owner's ahead of the gallery's redraws, each
+  held to a ceiling (`JOB_MS`, two minutes) past which the job is given up
+  and the Chrome stopped; three exports waiting at most, and each given up
+  after 60 s, its tabs closed and its Chrome stopped, since a page that
+  spins holds its renderer whatever closes, counted against the three until
+  its work has truly ended. The artifact is drawn in its wrapper, its reads
+  answered live by the same server-side checks the frame's are and never
+  written; then the frame as it was drawn (its markup without scripts, its
+  stylesheets, a canvas as its picture) is printed with `Page.printToPDF`
+  in a second sealed tab that runs no script. A deck prints by its
+  runtime's print rules on 16:9 pages, every slide whole and nothing after
+  the last; a doc on US Letter with margins, on white, its runtime's print
+  rules keeping a heading with what follows it and a figure, table, quote
+  or code block whole where it fits; a page on Letter, KOS's ground to the
+  paper's edges.
+- **HTML** is one file that opens anywhere, offline: an outer page under
+  the wrapper's policy (no network, no connection, `frame-src about:`)
+  that runs nothing of its own, holding the artifact's document in the
+  sandboxed frame: its markup with its kind's runtime, its libraries, KOS's
+  tokens for the chosen theme, the kit's stylesheet and the fonts it names,
+  inlined (dropped for their system stacks past 600 KB, which four families
+  do not reach), under the frame's own policy and guard. Its `window.kos`
+  reaches nothing: a page, a sheet with a source tab, or a doc or deck that
+  names `kos` is drawn once in KOS's Chrome first, and what its reads
+  answered is frozen into the file, answered from it by the same call; a
+  write, an ask or a save is refused in words, and with no save no runtime
+  offers editing. Nothing of the dashboard goes in: no token, no address,
+  only the artifact and what its own reads answered. Served with
+  `Content-Security-Policy: sandbox`, so a browser that drew it on the
+  dashboard's origin would run nothing there.
 - **Markdown** (`systems/docmarkdown.ts`) is the doc's article read with
   parse5 and written as CommonMark with GitHub's tables, task lists and
   footnotes: the header's kicker, title, lede and byline, headings, lists

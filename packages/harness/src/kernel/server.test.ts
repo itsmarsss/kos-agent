@@ -1601,7 +1601,10 @@ describe("handleApiRequest", () => {
         const res = await get("brief", "format=html&theme=dark", { "x-kos-token": "secret-token-value" }, "secret-token-value");
         expect(res.status).toBe(200);
         const html = (res.body as Buffer).toString("utf8");
-        expect(html).toMatch(/^<!doctype html><html data-mode="dark" data-theme="dark" data-kind="doc" data-export>/);
+        // The artifact in a sandboxed frame of a page that loads nothing, never the file itself.
+        expect(html).toMatch(/^<!doctype html><html data-theme="dark"><head><meta http-equiv="Content-Security-Policy" content="default-src 'none';[^"]*frame-src about:">/);
+        expect(html).toContain('<iframe sandbox="allow-scripts" allow="fullscreen"');
+        expect(html).toContain("<html data-mode=&quot;dark&quot; data-theme=&quot;dark&quot; data-kind=&quot;doc&quot; data-export>");
         expect(html).toContain("<title>Shelf: the brief</title>");
         expect(html).toContain('<article data-doc><h1>The brief</h1>');
         expect(html).toContain("default-src 'none'");
