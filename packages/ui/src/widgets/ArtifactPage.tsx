@@ -204,6 +204,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const box = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const loads = useRef(0);
+  // Whether the deck presents in its frame, where the browser gave no full screen (see setPresenting).
+  const inPlace = useRef(false);
   const [doc, setDoc] = useState<string>();
   const [error, setError] = useState<string>();
   const [left, setLeft] = useState(false);
@@ -285,6 +287,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   useEffect(() => {
     let stale = false;
     loads.current = 0;
+    // A new document starts not presenting: the old one's in-place present went with it.
+    inPlace.current = false;
     gate.current = heightGate();
     setShown(false);
     setCovered(true);
@@ -343,7 +347,6 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
    * (Safari on an iPhone) or refuses, the deck presents in place: the frame
    * is told on, and off again from the deck, Escape, or Present pressed again.
    */
-  const inPlace = useRef(false);
   const presentInPlace = useCallback(
     (on: boolean): void => {
       inPlace.current = on;

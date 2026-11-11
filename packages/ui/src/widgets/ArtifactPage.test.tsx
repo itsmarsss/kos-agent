@@ -273,6 +273,31 @@ describe("the page's frame", () => {
     Object.defineProperty(document, "fullscreenEnabled", { value: true, configurable: true });
   });
 
+  it("forgets presenting in place when the frame loads a new document", async () => {
+    Object.defineProperty(document, "fullscreenEnabled", { value: false, configurable: true });
+    const handle = { current: null as ArtifactHandle | null };
+    const { rerender } = render(<ArtifactPage record={record} page={page} ref={handle} />);
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const told = vi.spyOn(pageWin, "postMessage");
+    act(() => handle.current!.present());
+    expect(told).toHaveBeenCalledWith({ __kos: "present", on: true }, "*");
+    rerender(<ArtifactPage record={record} page={{ ...page, html: "<p>again</p>" }} ref={handle} />);
+    await waitFor(() => expect(screen.getByTitle("Budget").getAttribute("srcdoc")).toContain("again"));
+    // The new document's frame may be a new element: its page window stands in again.
+    Object.defineProperty((screen.getByTitle("Budget") as HTMLIFrameElement).contentWindow!, "frames", { value: [pageWin], configurable: true });
+    told.mockClear();
+    // Not still presenting: Escape says nothing, and Present starts presenting rather than stopping.
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(told).not.toHaveBeenCalledWith(expect.objectContaining({ __kos: "present" }), "*");
+    act(() => handle.current!.present());
+    expect(told).toHaveBeenCalledWith({ __kos: "present", on: true }, "*");
+    Object.defineProperty(document, "fullscreenEnabled", { value: true, configurable: true });
+  });
+
   it("presents in place when the browser refuses full screen", async () => {
     Object.defineProperty(document, "fullscreenEnabled", { value: true, configurable: true });
     HTMLElement.prototype.requestFullscreen = vi.fn().mockRejectedValue(new Error("not allowed"));
