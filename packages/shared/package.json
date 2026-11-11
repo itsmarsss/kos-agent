@@ -21,6 +21,10 @@
     "./design": {
       "types": "./dist/design.d.ts",
       "default": "./dist/design.js"
+    },
+    "./sheetformula": {
+      "types": "./dist/sheetformula.d.ts",
+      "default": "./dist/sheetformula.js"
     }
   },
   "scripts": {

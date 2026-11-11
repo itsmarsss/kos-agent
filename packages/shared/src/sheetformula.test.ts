@@ -1,7 +1,7 @@
-import { SHEET_ROWS_MAX, type SheetBook } from "@kos/shared";
+import { SHEET_ROWS_MAX, type SheetBook } from "./artifacts.js";
 import { describe, expect, it, vi } from "vitest";
 
-import { Workbook, aggregate, columnIndex, columnLetter, findColumn, formatValue, isError, literalOf, meets, parseFormula, sortValue, totalsRow, type Value } from "./sheetformula.js";
+import { Workbook, aggregate, columnIndex, columnLetter, findColumn, formatValue, isError, literalOf, meets, parseFormula, sortValue, sourceQuery, totalsRow, type Value } from "./sheetformula.js";
 
 /** A one-tab workbook of these rows, every column a number unless typed. */
 function book(rows: (string | number | boolean | null)[][], extra: Partial<SheetBook> = {}): Workbook {
@@ -304,5 +304,14 @@ describe("formats", () => {
     expect(formatValue(true, { label: "b", type: "bool" })).toBe("Yes");
     expect(formatValue({ error: "#REF!", why: "x" }, undefined)).toBe("#REF!");
     expect(formatValue(null, undefined)).toBe("");
+  });
+});
+
+describe("a source tab", () => {
+  it("reads a source table with quoted names and a safe order", () => {
+    const tab = { name: "T", columns: [{ label: "When", column: "date" }, { label: "amount" }], source: { table: "budget_tx", key: "id", orderBy: "date desc" } };
+    expect(sourceQuery(tab)).toBe('SELECT "id" AS __key, "date", "amount" FROM "budget_tx" ORDER BY "date" DESC');
+    expect(sourceQuery({ ...tab, source: { ...tab.source, orderBy: "date; drop" } })).toBe('SELECT "id" AS __key, "date", "amount" FROM "budget_tx"');
+    expect(sourceQuery({ ...tab, source: { table: "x y", key: "id" } })).toBeUndefined();
   });
 });
