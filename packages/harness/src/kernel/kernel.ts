@@ -4802,6 +4802,10 @@ export class Kernel {
           parts.push(`Page ${ref.id}: not shown; ${why} are not this chat's to read.`);
           continue;
         }
+        if (record?.trashedAt !== undefined) {
+          parts.push(`Page ${ref.id} ("${record.title}"): in the trash. The owner set it aside; it is left as it is until they restore it from the Artifacts page's Trash.`);
+          continue;
+        }
         const page = this.pages.get(ref.id);
         parts.push(
           page

@@ -11,7 +11,7 @@ import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { RATES_KEY } from "../ops/spend.js";
 import { cronSessionId } from "./session.js";
 import { caller } from "./caller.js";
-import { handleApiRequest, withFrames } from "./server.js";
+import { handleApiRequest, mentionsOf, withFrames } from "./server.js";
 
 const stub: Inference = {
   async generate() {
@@ -1506,6 +1506,81 @@ describe("handleApiRequest", () => {
       for (const shown of ["ROTATE-PROMPT", "VAULT-KEY", "VAULT-CHAT-BRIEF", "LOCKER-BRIEF"]) expect(own, shown).toContain(shown);
       const root = resolve(named, kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mine" }).id);
       for (const shown of ["ROTATE-PROMPT", "VAULT-KEY", "VAULT-CHAT-BRIEF", "LOCKER-BRIEF", "NOTER-BRIEF", "SHELF-CHAT-BRIEF"]) expect(root, shown).toContain(shown);
+    });
+
+    describe("the owner's management", () => {
+      const manage = (id: string, verb: string, body: Record<string, unknown> = {}, headers?: Record<string, string>) =>
+        handleApiRequest(kernel, { method: "POST", path: `/api/artifacts/${id}/${verb}`, body, ...(headers ? { headers } : {}) }, headers ? { token: "secret" } : {});
+      const audited = (verb: string) => kernel.audit.recent(50).filter((r) => r.tool === `artifact.${verb}`);
+      const listed = async (trashed = false): Promise<string[]> =>
+        ((await handleApiRequest(kernel, { method: "GET", path: "/api/artifacts", url: `/api/artifacts${trashed ? "?trashed=1" : ""}`, body: {} })).body as { id: string }[]).map((r) => r.id).sort();
+
+      it("is the owner's alone, behind the dashboard's token", async () => {
+        for (const verb of ["rename", "duplicate", "move", "trash", "restore", "delete"]) {
+          expect((await handleApiRequest(kernel, { method: "POST", path: `/api/artifacts/shelf/${verb}`, body: { title: "X" } }, { token: "secret" })).status, verb).toBe(401);
+        }
+        expect(kernel.pages.record("shelf")).toMatchObject({ title: "Shelf" });
+        expect((await manage("shelf", "rename", { title: "Books" }, { "x-kos-token": "secret" })).status).toBe(200);
+      });
+
+      it("renames, copies and moves an artifact under its id, each audited", async () => {
+        const renamed = await manage("shelf", "rename", { title: "Books", description: "Every book on the shelf." });
+        expect(renamed).toMatchObject({ status: 200, body: { id: "shelf", title: "Books", description: "Every book on the shelf." } });
+        expect(audited("rename")[0]).toMatchObject({ isError: false, userId: kernel.profile.ownerId });
+        expect(JSON.parse(audited("rename")[0]!.args)).toMatchObject({ id: "shelf", title: "Books" });
+
+        const copy = await manage("shelf", "duplicate");
+        expect(copy).toMatchObject({ status: 200, body: { id: "shelf-copy", title: "Books copy", projectSlug: "shelf" } });
+        expect(audited("duplicate")).toHaveLength(1);
+
+        kernel.pages.writeHtml(null, { id: "memo", title: "Memo", html: "<p>memo</p>" });
+        kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+        expect(await manage("memo", "move", { project: "vault" })).toMatchObject({ status: 200, body: { id: "memo", projectSlug: "vault" } });
+        expect(await manage("memo", "move", { blob: "noter" })).toMatchObject({ status: 200, body: { blob: "noter" } });
+        expect(await manage("memo", "move", { project: "@workspace" })).toMatchObject({ status: 200, body: { projectSlug: null } });
+        expect(kernel.pages.history("memo")).toHaveLength(4);
+        // One that reads its project's tables does not go where they are not, and the refusal is audited too.
+        const refused = await manage("shelf", "move", { project: "vault" });
+        expect(refused.status).toBe(400);
+        expect((refused.body as { error: string }).error).toMatch(/not a table of project "vault"/);
+        expect(audited("move").map((r) => r.isError)).toEqual([true, false, false, false]);
+        expect((await manage("memo", "move", {})).status).toBe(400);
+        expect((await manage("nope", "rename", { title: "X" })).status).toBe(404);
+      });
+
+      it("trashes into a list of its own, restores, and deletes for good only from the trash", async () => {
+        kernel.pages.writeHtml(null, { id: "memo", title: "Memo", html: "<p>memo</p>" });
+        expect((await manage("memo", "delete")).status).toBe(400);
+        expect(kernel.pages.record("memo")).toBeDefined();
+
+        expect(await manage("memo", "trash")).toMatchObject({ status: 200, body: { id: "memo", trashedAt: expect.any(Number) } });
+        expect(await listed()).toEqual(["shelf"]);
+        expect(await listed(true)).toEqual(["memo"]);
+        // Out of the project's list and the @ menu too.
+        expect((await manage("shelf", "trash")).status).toBe(200);
+        expect(((await handleApiRequest(kernel, { method: "GET", path: "/api/pages", url: "/api/pages?project=shelf", body: {} })).body as unknown[]).length).toBe(0);
+        expect(mentionsOf(kernel, "she", 10, "page")).toEqual([]);
+        // Still opened by its id, saying it is in the trash, and nothing changes it there.
+        expect((await handleApiRequest(kernel, { method: "GET", path: "/api/pages/memo", body: {} })).body).toMatchObject({ record: { trashedAt: expect.any(Number) } });
+        expect((await manage("memo", "rename", { title: "X" })).status).toBe(409);
+        expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/memo/rollback", body: { version: 1 } })).status).toBe(400);
+
+        expect(await manage("shelf", "restore")).toMatchObject({ status: 200, body: { id: "shelf" } });
+        expect(await listed()).toEqual(["shelf"]);
+        expect(await manage("memo", "delete")).toMatchObject({ status: 200, body: { id: "memo", deleted: true } });
+        expect(kernel.pages.record("memo")).toBeUndefined();
+        expect(audited("trash")).toHaveLength(2);
+        expect(audited("restore")).toHaveLength(1);
+        expect(audited("delete").map((r) => r.isError)).toEqual([false, true]);
+      });
+
+      it("tells a chat that mentions a trashed artifact where it is, without its body", () => {
+        kernel.pages.trash("shelf");
+        const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Shelf chat", projectSlug: "shelf" });
+        const said = (kernel as unknown as { resolveMentions: (t: string, c: string, w: { owner: boolean }) => string | null }).resolveMentions("@page:shelf", chat.id, { owner: true }) ?? "";
+        expect(said).toMatch(/Page shelf \("Shelf"\): in the trash/);
+        expect(said).not.toContain("<p>books</p>");
+      });
     });
 
     it("gives a guest's turn no artifact or file tool, so a guest never reaches the root's reach over a blob's artifacts", () => {

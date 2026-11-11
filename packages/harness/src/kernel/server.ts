@@ -14,7 +14,7 @@ import { DREAM_JOB, MEMORY_JOB, OBSERVE_JOB } from "../memory/job.js";
 import { runDisplayQuery } from "../systems/display.js";
 import type { Headline } from "../systems/headlines.js";
 import { BridgeRefusal } from "../systems/pagebridge.js";
-import { EditConflict } from "../systems/pages.js";
+import { ArtifactTrashed, EditConflict, type PageStore } from "../systems/pages.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
@@ -1500,17 +1500,43 @@ export async function handleApiRequest(
   /*
    * The Artifacts page: every artifact, each with whether a capture of it
    * exists and whether it is older than the artifact, so the gallery can
-   * show the capture or ask for a fresh one.
+   * show the capture or ask for a fresh one. `?trashed=1` lists the trash
+   * instead.
    */
   if (method === "GET" && path === "/api/artifacts") {
     // So what a hand-deleted blob made reads as a removed blob's, with its Delete, without a reboot.
     kernel.roles.retireDeleted();
+    const trashed = queryParams(req.url).get("trashed") === "1";
     return ok(
-      kernel.pages.list().map((record) => {
+      kernel.pages.list(undefined, { trashed }).map((record) => {
         const at = captureTime(kernel.pages.capturesDir(record.id));
         return { ...record, ...(at ? { capturedAt: at } : {}) };
       }),
     );
+  }
+
+  /*
+   * The owner's management of one artifact: rename, duplicate, move, trash,
+   * restore, and delete for good, which only one in the trash may be.
+   * Owner-only as every route past the token is: KOS's own tools rename,
+   * copy and move within their reach, and delete nothing. Each is audited.
+   */
+  const manage = method === "POST" ? /^\/api\/artifacts\/([^/]+)\/(rename|duplicate|move|trash|restore|delete)$/.exec(path) : null;
+  if (manage) {
+    const id = decodeURIComponent(manage[1]!);
+    const verb = manage[2]!;
+    if (!kernel.pages.record(id)) return { status: 404, body: { error: "artifact not found" } };
+    const args: Record<string, unknown> = { id, ...(verb === "rename" ? { title: body.title, description: body.description } : verb === "move" ? { project: body.project, blob: body.blob } : {}) };
+    const audit = (result: string, isError: boolean): void => void kernel.audit.record({ tool: `artifact.${verb}`, args, result, isError, userId: kernel.profile.ownerId });
+    try {
+      const done = manageArtifact(kernel.pages, id, verb, body);
+      audit(JSON.stringify(done), false);
+      return ok(done);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      audit(message, true);
+      return { status: err instanceof ArtifactTrashed ? 409 : 400, body: { error: message } };
+    }
   }
   const artifactRoute = /^\/api\/artifacts\/([^/]+)\/(thumb|check)$/.exec(path);
   if (artifactRoute) {
@@ -3138,6 +3164,25 @@ function header(
   const v = headers[name] ?? headers[name.toLowerCase()];
   if (Array.isArray(v)) return v[0];
   return v;
+}
+
+/** One of the owner's changes to an artifact, by its verb; delete is for good, so only one in the trash may be. */
+function manageArtifact(pages: PageStore, id: string, verb: string, body: Record<string, unknown>): unknown {
+  switch (verb) {
+    case "rename":
+      return pages.rename(id, { ...(typeof body.title === "string" ? { title: body.title } : {}), ...(typeof body.description === "string" ? { description: body.description } : {}) });
+    case "duplicate":
+      return pages.duplicate(id);
+    case "move":
+      return pages.move(id, pages.destination(body));
+    case "trash":
+      return pages.trash(id);
+    case "restore":
+      return pages.restore(id);
+    default:
+      if (pages.record(id)?.trashedAt === undefined) throw new Error("only an artifact in the trash is deleted for good; move it to the trash first");
+      return { id, deleted: pages.remove(id) };
+  }
 }
 
 function queryParams(url?: string): URLSearchParams {
