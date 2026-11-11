@@ -89,13 +89,23 @@ const PLANTED: Record<string, { html: string; expect: Finding["kind"] }> = {
   inverted: { html: `<h1>Inverted</h1><section style="background:var(--text);color:var(--bg);height:320px;padding:24px"><p>Season review</p></section>`, expect: "inverted" },
   boxes: { html: `<h1>Boxes</h1>${boxed("Open now")}${boxed("Needs a nudge")}${boxed("Recent")}`, expect: "boxes" },
   zeros: { html: `<h1>Zeros</h1>${figures("0", "0", "$0.00")}`, expect: "figures" },
+  // The kit's own stat tiles, as a generated dashboard writes them.
+  "kit zeros": { html: `<h1>Kit zeros</h1><div class="grid"><div class="stat"><span class="stat-value">0</span><span class="stat-label">Figure 1</span></div><div class="stat"><span class="stat-value">0</span><span class="stat-label">Figure 2</span></div><div class="stat"><span class="stat-value">$0.00</span><span class="stat-label">Figure 3</span></div></div>`, expect: "figures" },
+  "kit dashes": { html: `<h1>Kit dashes</h1><div class="grid"><div class="stat"><span class="stat-value">—</span><span class="stat-label">Figure 1</span></div><div class="stat"><span class="stat-value">—</span><span class="stat-label">Figure 2</span></div><div class="stat"><span class="stat-value">—</span><span class="stat-label">Figure 3</span></div></div>`, expect: "figures" },
   placeholder: { html: `<h1>Placeholder</h1>${figures("12", "—")}`, expect: "figures" },
   // One zero among real figures is news ("0 overdue"), not noise; a status dot is an empty leaf, not a figure.
   "one zero": { html: `<h1>One zero</h1>${figures("12", "0", "3")}<p><span class="dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);font-size:28px"></span> on track</p>`, expect: "none" as never },
   // Cards for objects, and a board's lanes side by side: not sections in boxes.
   cards: { html: `<h1>Cards</h1>${book("The Stranger")}${book("The Plague")}${book("The Fall")}<div style="display:flex;gap:12px">${lane("Reading")}${lane("Queued")}</div>`, expect: "none" as never },
+  // Object cards stacked: a bold title and a button, no section in them.
+  "object cards": { html: `<h1>Tasks</h1>${["Water the beds", "Order tanks", "Book the hall"].map((t) => `<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:8px"><div style="font-weight:600">${t}</div><p>Due Friday</p><button class="btn">Open</button></div>`).join("")}`, expect: "none" as never },
+  // Section cards side by side, each with its own heading and table: sections in boxes still.
+  "side boxes": { html: `<h1>Side</h1><div style="display:flex;gap:12px">${["Open", "Due", "Done"].map((t) => `<div class="card" style="flex:1;border:1px solid var(--line);border-radius:10px;padding:12px"><h2>${t}</h2><table><tr><td>Mon</td><td>2</td></tr></table></div>`).join("")}</div>`, expect: "boxes" },
   // Fills that are inline spans given a width draw nothing; the kit's meter and block fills draw.
   bars: { html: `<h1>Bars</h1>${["Housing", "Groceries"].map((c) => `<p>${c}</p><div style="height:8px;background:var(--panel-2)"><span style="width:60%;background:var(--accent)"></span></div>`).join("")}`, expect: "bars" },
+  "unset meter": { html: `<h1>Unset</h1><p>Housing</p><div class="meter"></div>`, expect: "bars" },
+  // A month of real zeros: block fills at 0% are data, not a bug.
+  "zero bars": { html: `<h1>Zero bars</h1>${["Housing", "Groceries", "Fun"].map((c) => `<p>${c}</p><div style="height:8px;width:300px;background:var(--panel-2)"><div style="width:0%;height:100%;background:var(--accent)"></div></div>`).join("")}`, expect: "none" as never },
   meters: { html: `<h1>Meters</h1><p>Housing</p><div class="meter" style="--value: 60%"></div><p>Groceries</p><div class="meter"><div style="width:30%"></div></div><p>Fun</p><div class="meter"><div style="width:0%"></div></div>`, expect: "none" as never },
   ground: { html: `<style>body{background:var(--panel-2)}</style><h1>Ground</h1><p>A slab of its own.</p>`, expect: "ground" },
   // Colours a browser computes outside rgb(): read as they draw, not as white or black.
