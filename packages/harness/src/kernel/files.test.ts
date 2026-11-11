@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
-import { zipOf } from "../files/zipfixture.js";
+import { writeZip } from "../files/zip.js";
 import { copyEntry, deleteEntry, isImage, listDirectory, makeDir, readFile, readForText, readForView, readImage, readBytes, readPdf, renameEntry, uniqueName } from "./files.js";
 
 describe("workspace file browsing", () => {
@@ -51,7 +51,7 @@ describe("workspace file browsing", () => {
   it("reads a document's text for the page, and serves a PDF as itself", () => {
     writeFileSync(
       join(ws.root, "projects", "budget", "spend.xlsx"),
-      zipOf({
+      writeZip({
         "xl/workbook.xml": '<workbook><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>',
         "xl/_rels/workbook.xml.rels": '<Relationships><Relationship Id="rId1" Type="x" Target="worksheets/sheet1.xml"/></Relationships>',
         "xl/worksheets/sheet1.xml": '<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Kettle</t></is></c><c r="B1"><v>42</v></c></row></sheetData></worksheet>',

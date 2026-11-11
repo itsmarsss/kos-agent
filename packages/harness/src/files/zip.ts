@@ -1,4 +1,6 @@
-import { inflateRawSync } from "node:zlib";
+import { deflateRawSync, inflateRawSync } from "node:zlib";
+
+import { crc32 } from "./crc32.js";
 
 /**
  * A zip archive, read.
@@ -61,4 +63,52 @@ function endRecord(buf: Buffer): number {
     if (buf.readUInt32LE(i) === END) return i;
   }
   throw new Error("not a zip: no end record");
+}
+
+/**
+ * A zip of these entries, each stored or deflated, laid out as a real writer
+ * lays one out: what a sheet's tabs export as, and what a test of the reader
+ * above makes. No zip64: an entry or an archive over 4 GB is not one KOS
+ * writes.
+ */
+export function writeZip(entries: Record<string, string | Uint8Array>, { deflate = false } = {}): Uint8Array {
+  const locals: Buffer[] = [];
+  const centrals: Buffer[] = [];
+  let offset = 0;
+  for (const [name, content] of Object.entries(entries)) {
+    const nameBytes = Buffer.from(name, "utf8");
+    const raw = typeof content === "string" ? Buffer.from(content, "utf8") : Buffer.from(content);
+    const data = deflate ? deflateRawSync(raw) : raw;
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    // Bit 11: the name is UTF-8, so a tab called "Dépenses" opens as itself.
+    local.writeUInt16LE(0x0800, 6);
+    local.writeUInt16LE(deflate ? 8 : 0, 8);
+    local.writeUInt32LE(crc32(raw), 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(raw.length, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(deflate ? 8 : 0, 10);
+    central.writeUInt32LE(crc32(raw), 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(raw.length, 24);
+    central.writeUInt16LE(nameBytes.length, 28);
+    central.writeUInt32LE(offset, 42);
+    locals.push(local, nameBytes, data);
+    centrals.push(central, nameBytes);
+    offset += 30 + nameBytes.length + data.length;
+  }
+  const dir = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(centrals.length / 2, 8);
+  end.writeUInt16LE(centrals.length / 2, 10);
+  end.writeUInt32LE(dir.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return new Uint8Array(Buffer.concat([...locals, dir, end]));
 }

@@ -836,3 +836,13 @@ export function sourceQuery(tab: SheetTab): string | undefined {
   const order = /^([A-Za-z_][A-Za-z0-9_]*)(\s+(asc|desc))?$/i.exec(src.orderBy?.trim() ?? "");
   return `SELECT ${quote(src.key)} AS __key, ${cols.join(", ")} FROM ${quote(src.table)}${order ? ` ORDER BY ${quote(order[1]!)}${order[3] ? ` ${order[3].toUpperCase()}` : ""}` : ""}`;
 }
+
+/** A source tab's rows from its query's answer, each in the tab's column order; a column the table lacks reads empty. */
+export function sourceRows(tab: SheetTab, rows: readonly Record<string, unknown>[]): SheetCell[][] {
+  return rows.map((r) =>
+    tab.columns.map((c) => {
+      const v = r[c.column ?? c.label];
+      return v === undefined ? null : (v as SheetCell);
+    }),
+  );
+}

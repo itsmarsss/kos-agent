@@ -12,7 +12,7 @@
  */
 
 import type { SheetBook, SheetCell, SheetColumn, SheetTab } from "@kos/shared";
-import { Workbook, columnLetter, findColumn, formatValue, isError, isNumeric, literalOf, sortValue, sourceQuery, totalsRow, type Value } from "@kos/shared/sheetformula";
+import { Workbook, columnLetter, findColumn, formatValue, isError, isNumeric, literalOf, sortValue, sourceQuery, sourceRows, totalsRow, type Value } from "@kos/shared/sheetformula";
 
 import { bar, line, pie } from "./chartdraw.js";
 import { SHEET_CSS } from "./sheet.css.js";
@@ -159,10 +159,7 @@ class Sheet {
         const res = await bridge.query(sql);
         this.loaded.set(i, {
           keys: res.rows.map((r) => r.__key),
-          rows: res.rows.map((r) => tab.columns.map((c) => {
-            const v = r[c.column ?? c.label];
-            return v === undefined ? null : (v as SheetCell);
-          })),
+          rows: sourceRows(tab, res.rows),
         });
       } catch (e) {
         this.loaded.set(i, { keys: [], rows: [], error: reason(e) });
