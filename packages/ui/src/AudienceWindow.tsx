@@ -18,8 +18,6 @@ import { ArtifactPage, type ArtifactHandle, type DeckView } from "./widgets/Arti
  */
 /** How long the mouse rests before the bar and the pointer go. */
 const IDLE_MS = 3000;
-/** How long a press waits for a second one, which makes it a double-click. */
-const DOUBLE_MS = 250;
 /** A press this soon after the window took the focus is the press that gave it. */
 const FOCUS_MS = 500;
 
@@ -140,11 +138,9 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
   /*
    * A press on the slide, which the window takes, not the deck's frame
    * (inert here): the left third back, the rest forward, as the deck's own
-   * tap. A second press soon after is a double-click, for full screen, so a
-   * single one waits that long before it moves.
+   * tap, at once. Full screen is F or the bar's button, never a click, so
+   * moving through slides by clicking never turns into one.
    */
-  const tapTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => clearTimeout(tapTimer.current), []);
   // A press that brings this window forward (the owner coming back to it from the presenter's) only brings it forward.
   const focusedAt = useRef(Number.NEGATIVE_INFINITY);
   useEffect(() => {
@@ -155,15 +151,10 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
     return () => removeEventListener("focus", focused);
   }, []);
   const tap = (e: MouseEvent<HTMLDivElement>): void => {
-    clearTimeout(tapTimer.current);
-    if (e.detail >= 2) {
-      fullScreen();
-      return;
-    }
     if (!count || performance.now() - focusedAt.current < FOCUS_MS) return;
     const r = e.currentTarget.getBoundingClientRect();
     const back = e.clientX - r.left < r.width / 3;
-    tapTimer.current = setTimeout(() => moved(moveSlide(want, count, back ? "prev" : "next")), DOUBLE_MS);
+    moved(moveSlide(want, count, back ? "prev" : "next"));
   };
 
   return (
@@ -175,7 +166,7 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
             <span className="audience-title">{got ? got.record.title : "Opening the deck"}</span>
             <span className="audience-hint">Drag this window to the room's screen</span>
           </span>
-          <button type="button" className="btn btn--sm" disabled={!got} title="Full screen (F, or double-click)" onClick={fullScreen}>
+          <button type="button" className="btn btn--sm" disabled={!got} title="Full screen (F)" onClick={fullScreen}>
             <FullscreenIcon />
             Full screen
           </button>

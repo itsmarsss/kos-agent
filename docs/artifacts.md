@@ -602,7 +602,8 @@ audience window to drag onto the projector: the dashboard's own page at
 `#/audience/<id>/<session>` (`AudienceWindow.tsx`), drawn without the
 dashboard around it, which frames the deck as the viewer does, loads the
 version the presenter presents (or the presenter says it shows another), and
-offers Full screen (its button, F, or a double-click); its bar and the pointer
+offers Full screen (its button, or F); a press on the slide moves it at once,
+the left third back; its bar and the pointer
 go when the mouse rests. The dashboard under the presenter is inert, and a
 deck's error is said in the presenter's head, never over the room's slide. The artifact never opens a window; its sandbox refuses that.
 Each window drives only its own deck frames: the presenter's two and the

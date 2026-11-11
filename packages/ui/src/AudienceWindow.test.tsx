@@ -57,18 +57,17 @@ describe("the audience window", () => {
     expect(box.classList.contains("is-idle")).toBe(false);
   });
 
-  it("goes full screen on F or a double-click, and a double-click moves nothing", async () => {
+  it("goes full screen on F or its button, never on a click", async () => {
     const full = vi.fn().mockResolvedValue(undefined);
     HTMLElement.prototype.requestFullscreen = full;
-    const { stage, heard } = await audience();
+    const { stage } = await audience();
     fireEvent.keyDown(window, { key: "f" });
     expect(full).toHaveBeenCalledTimes(1);
-    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: /Full screen/ }));
+    expect(full).toHaveBeenCalledTimes(2);
     fireEvent.click(stage, { detail: 1, clientX: 900 });
     fireEvent.click(stage, { detail: 2, clientX: 900 });
-    act(() => void vi.advanceTimersByTime(400));
     expect(full).toHaveBeenCalledTimes(2);
-    expect(heard.filter((s) => s.type === "moved")).toEqual([]);
   });
 
   it("says which version it shows, and reads the deck again for the one the presenter presents, once", async () => {
@@ -98,10 +97,16 @@ describe("the audience window", () => {
     await waitFor(() => expect(heard).toContainEqual({ type: "moved", index: 1 }));
   });
 
-  it("moves on a single press, and the presenter hears it", async () => {
+  it("moves at once on a press, forward on the right and back on the left third, and the presenter hears it", async () => {
     const { stage, heard } = await audience();
+    vi.spyOn(stage, "getBoundingClientRect").mockReturnValue({ left: 0, top: 0, width: 1200, height: 700, right: 1200, bottom: 700, x: 0, y: 0, toJSON: () => ({}) });
+    const moves = (): PresentSignal[] => heard.filter((s) => s.type === "moved");
     fireEvent.click(stage, { detail: 1, clientX: 900 });
-    await waitFor(() => expect(heard).toContainEqual({ type: "moved", index: 1 }));
+    await waitFor(() => expect(moves()).toEqual([{ type: "moved", index: 1 }]));
+    fireEvent.click(stage, { detail: 2, clientX: 900 });
+    await waitFor(() => expect(moves()).toEqual([{ type: "moved", index: 1 }, { type: "moved", index: 2 }]));
+    fireEvent.click(stage, { detail: 1, clientX: 100 });
+    await waitFor(() => expect(moves().at(-1)).toEqual({ type: "moved", index: 1 }));
     expect(screen.getByText("Garden pitch")).toBeTruthy();
   });
 });
