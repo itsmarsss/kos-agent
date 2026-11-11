@@ -57,6 +57,30 @@ describe("managing an artifact from its viewer", () => {
     expect(screen.getByRole("heading", { name: "Q4 decisions" })).toBeTruthy();
   });
 
+  it("renames an older widget page by its title alone, with no description to send", async () => {
+    const spec = { ...BRIEF, id: "old-board", title: "Old board", kind: "spec" as const, artifactKind: "page" as const, description: undefined };
+    vi.spyOn(api, "anyPage").mockResolvedValue({ record: spec, kind: "spec", spec: { id: "old-board", title: "Old board", widgets: [] }, data: [], errors: [] } as never);
+    frames();
+    render(<ArtifactViewer id="old-board" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
+    const renamed = vi.spyOn(api, "renameArtifact").mockResolvedValue({ ...spec, title: "Board" });
+    fireEvent.click(await menuItem("Rename…"));
+    const dialog = await screen.findByRole("dialog", { name: "Rename" });
+    expect(within(dialog).queryByLabelText(/Description/)).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText("Title"), { target: { value: "Board" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(renamed).toHaveBeenCalledWith("old-board", { title: "Board" }));
+  });
+
+  it("sends only what changed", async () => {
+    openViewer(BRIEF);
+    const renamed = vi.spyOn(api, "renameArtifact").mockResolvedValue({ ...BRIEF, description: "New words." });
+    fireEvent.click(await menuItem("Rename…"));
+    const dialog = await screen.findByRole("dialog", { name: "Rename" });
+    fireEvent.change(within(dialog).getByLabelText(/Description/), { target: { value: "New words." } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(renamed).toHaveBeenCalledWith("brief", { description: "New words." }));
+  });
+
   it("moves it to any project, the workspace or a living blob, the one it is in marked and not offered", async () => {
     openViewer(BRIEF);
     vi.spyOn(api, "agents").mockResolvedValue({ agents: [{ name: "noter" } as AgentInfo], invalid: [] });

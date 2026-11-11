@@ -48,7 +48,9 @@ describe("PageStore management", () => {
   it("renames an older widget page's title, which has no description", () => {
     pages.write("budget", { id: "old", title: "Old", widgets: [{ type: "markdown", content: "hi" }] });
     expect(pages.rename("old", { title: "Older" }).title).toBe("Older");
+    expect(pages.rename("old", { title: "Oldest", description: "" }).title).toBe("Oldest");
     expect(() => pages.rename("old", { description: "x" })).toThrow(/no description/);
+    expect(() => pages.rename("old", { description: " " })).toThrow(/new title or description/);
   });
 
   it("duplicates beside it, the same owner's, under a free id, with a history of its own", () => {

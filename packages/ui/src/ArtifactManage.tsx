@@ -162,15 +162,21 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
               const title = dialog.title.trim();
               if (!title) return;
               const { record } = dialog;
-              void run(() => did("rename", api.renameArtifact(record.id, { title, description: dialog.description.trim() })));
+              // Only what changed: an older widget page has no description to send.
+              const description = dialog.description.trim();
+              const change = { ...(title !== record.title ? { title } : {}), ...(description !== (record.description ?? "") ? { description } : {}) };
+              if (!("title" in change) && !("description" in change)) return setDialog(null);
+              void run(() => did("rename", api.renameArtifact(record.id, change)));
             }}
           >
             <Field label="Title">
               <input className="kos-input" value={dialog.title} autoFocus maxLength={120} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, title: e.target.value })} />
             </Field>
-            <Field label="Description" hint="One sentence: what it is for.">
-              <textarea className="kos-input artifact-dialog-about" rows={2} maxLength={280} value={dialog.description} onChange={(e) => setDialog({ ...dialog, description: e.target.value })} />
-            </Field>
+            {dialog.record.kind === "html" && (
+              <Field label="Description" hint="One sentence: what it is for.">
+                <textarea className="kos-input artifact-dialog-about" rows={2} maxLength={280} value={dialog.description} onChange={(e) => setDialog({ ...dialog, description: e.target.value })} />
+              </Field>
+            )}
             <div className="file-dialog-actions">
               <button type="submit" className="btn btn--primary" disabled={busy || !dialog.title.trim()}>
                 Save

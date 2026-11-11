@@ -730,9 +730,11 @@ export class PageStore {
   rename(id: string, change: { title?: string; description?: string }): PageRecord {
     const title = change.title?.trim();
     if (change.title !== undefined && !title) throw new Error("a title is required");
-    if (title === undefined && change.description === undefined) throw new Error("say a new title or description");
     const got = this.loaded(id);
-    return this.rewrite(got, ownerOfRecord(got.record), { ...(title ? { title } : {}), ...(change.description !== undefined ? { description: change.description.trim() } : {}) });
+    // An older widget page has no description, so clearing one changes nothing.
+    const description = got.kind === "spec" && change.description?.trim() === "" ? undefined : change.description?.trim();
+    if (title === undefined && description === undefined) throw new Error("say a new title or description");
+    return this.rewrite(got, ownerOfRecord(got.record), { ...(title ? { title } : {}), ...(description !== undefined ? { description } : {}) });
   }
 
   /** The id a copy of `id` takes: `<id>-copy`, then `-copy-2` and on, free in any case so its file is its own on any disk. */
