@@ -207,6 +207,9 @@ export function ownerOf(table: string, slugs: string[]): string | undefined {
   return best;
 }
 
+/** The table columns each source tab reads, in any order, by tab. */
+const sourceColumns = (book: SheetBook): string => JSON.stringify(book.sheets.map((s) => (s.source ? s.columns.map((c) => c.column ?? c.label).sort() : null)));
+
 export class PageStore {
   /** When each artifact last took one of the owner's edits. */
   private readonly lastEdit = new Map<string, number>();
@@ -556,6 +559,8 @@ export class PageStore {
       const before = JSON.parse(sheetDataOf(page.html) ?? "{}") as SheetBook;
       // The owner edits the data, not where it comes from: a tab's live source stays as written.
       if (JSON.stringify(sheetTables(before)) !== JSON.stringify(sheetTables(edit.sheet))) throw new Error("an edit cannot change which tables the sheet reads");
+      // Nor which of their columns: a table's columns are its migrations', so the owner renames and retypes what shows them, and asks KOS for more.
+      if (sourceColumns(before) !== sourceColumns(edit.sheet)) throw new Error("an edit cannot change which columns of its tables the sheet reads; a table's columns change through KOS");
       html = withSheetData(page.html, edit.sheet);
     } else {
       throw new Error(page.kind === "doc" || page.kind === "sheet" ? "that edit does not fit this artifact" : "only a doc or a sheet is edited in place");
