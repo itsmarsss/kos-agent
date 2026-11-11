@@ -1343,6 +1343,8 @@ describe("handleApiRequest", () => {
         { origin: "null", "sec-fetch-site": "cross-site" },
         { "sec-fetch-site": "cross-site" },
         { origin: "chrome-extension://not-an-extension" },
+        // Another site's page through a proxy that rewrote its Origin to the dashboard's: the browser still says cross-site.
+        { origin: "http://127.0.0.1:4317", "sec-fetch-site": "cross-site" },
       ];
       for (const headers of strangers) {
         const res = await post(headers);

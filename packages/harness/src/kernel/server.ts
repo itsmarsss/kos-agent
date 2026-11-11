@@ -3167,15 +3167,18 @@ const EXTENSION_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
  * (KOS for Mac, the CLI, a provider's webhook) says neither and is let by,
  * as are KOS for Chrome's own origin and any origin on the allowlist. The
  * dashboard's own origin is its host as the request names it, or as a proxy
- * in front passes it on. An opaque origin ("null", a sandboxed frame such
- * as an artifact's) is no one's.
+ * in front passes it on; a browser that calls the request cross-site is
+ * believed over an Origin that matches it. An opaque origin ("null", a
+ * sandboxed frame such as an artifact's) is no one's.
  */
 export function crossSiteWrite(req: ApiRequest, allowedOrigins: readonly string[] = []): boolean {
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return false;
   const headers = req.headers ?? {};
   const origin = header(headers, "origin");
   if (origin !== undefined && (EXTENSION_ORIGIN.test(origin) || allowedOrigins.includes(origin))) return false;
-  if (origin === undefined) return header(headers, "sec-fetch-site") === "cross-site";
+  // The browser's own word wins over an Origin a proxy in front may have rewritten (the dashboard's dev server does).
+  if (header(headers, "sec-fetch-site") === "cross-site") return true;
+  if (origin === undefined) return false;
   let host: string;
   try {
     host = new URL(origin).host;
