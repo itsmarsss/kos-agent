@@ -477,8 +477,10 @@ Before the page's own markup the frame gets:
   classes read as KOS, whatever the kind. The body has KOS's ground and face
   and no padding: the frame is always held by something that gives it a
   gutter (the dashboard's column, the check's view), so its edges line up
-  with the dashboard's head; full screen, marked `data-present`, it takes its
-  own. Each runtime starts from the same ground: a doc's text on it in a
+  with the dashboard's head; full screen (`data-present`), or when the page
+  paints a ground of its own (the bridge marks `data-ground="own"` when the
+  body's background is not KOS's `--bg`), it takes its own, so its text
+  never meets the edge of its colour. Each runtime starts from the same ground: a doc's text on it in a
   reading serif under headings in KOS's face, a deck's slides as KOS's panel
   with a 1 px line (the title slide too, never inverted), a sheet's grid on
   KOS's panel;

@@ -8,7 +8,9 @@
  * A frame is always shown inside something that gives it a gutter: the
  * dashboard's column, or artifacts.check's view of it. So the body has no
  * padding and the page's edges line up with the dashboard's head. Full
- * screen, the bridge marks the root data-present and the page takes its own.
+ * screen (data-present), or on a ground of its own (data-ground="own", both
+ * marked by the bridge), the page takes its own, so text never meets the
+ * edge of its colour.
  */
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -20,8 +22,8 @@ body {
   color: var(--text);
   font: var(--text-md, 14px) / 1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 }
-:where(html[data-present]) body { padding: 20px; }
-@media (max-width: 560px) { :where(html[data-present]) body { padding: 16px; } }
+:where(html[data-present], html[data-ground="own"]) body { padding: 20px; }
+@media (max-width: 560px) { :where(html[data-present], html[data-ground="own"]) body { padding: 16px; } }
 h1 { font-size: var(--text-xl); font-weight: 600; letter-spacing: -0.02em; margin: 0 0 4px; }
 h2 { font-size: var(--text-lg); font-weight: 600; margin: 18px 0 8px; }
 h3 { font-size: var(--text-md); font-weight: 600; margin: 14px 0 6px; }

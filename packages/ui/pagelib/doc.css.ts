@@ -6,7 +6,7 @@
  * :where() or kept to one class, and the sheet sits before the agent's own
  * CSS, so the artifact restyles anything without fighting it. Colours are
  * KOS's tokens. The dashboard's column gives the doc its gutter; full screen
- * (data-present) it takes its own.
+ * (data-present), or on a ground of its own (data-ground="own"), it takes its own.
  */
 export const DOC_CSS = String.raw`
 :where(:root) {
@@ -18,7 +18,7 @@ export const DOC_CSS = String.raw`
   --doc-size: 1.125rem;
   --doc-gutter: 0px;
 }
-:where(html[data-present]) { --doc-gutter: clamp(16px, 4vw, 40px); }
+:where(html[data-present], html[data-ground="own"]) { --doc-gutter: clamp(16px, 4vw, 40px); }
 :where(html[data-kind="doc"]) body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font: 400 var(--doc-size) / 1.6 var(--font-body); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 /* Light type on a dark ground thins under grayscale smoothing; the platform's own keeps its weight. */
 :where(html[data-kind="doc"][data-mode="dark"]) body { -webkit-font-smoothing: auto; -moz-osx-font-smoothing: auto; }

@@ -12,7 +12,8 @@
  * text cut on one, and past that its key figure holds at the right edge and
  * the tools say how many columns are out of view.
  * It sits on KOS's ground in KOS's face; the dashboard's column gives it its
- * gutter, and full screen (data-present) it takes its own.
+ * gutter; full screen (data-present), or on a ground of its own
+ * (data-ground="own"), it takes its own.
  * Selectors are one class deep, before the agent's own CSS.
  */
 export const SHEET_CSS = String.raw`
@@ -25,7 +26,7 @@ export const SHEET_CSS = String.raw`
   --sheet-height: max(320px, calc(100dvh - 220px));
   --sheet-gutter: 0px;
 }
-:where(html[data-present]) { --sheet-gutter: clamp(16px, 3vw, 28px); }
+:where(html[data-present], html[data-ground="own"]) { --sheet-gutter: clamp(16px, 3vw, 28px); }
 :where(html[data-kind="sheet"]) body { font-family: var(--font-body); background: var(--bg); color: var(--text); padding: var(--sheet-gutter); }
 
 .sheet { display: flex; flex-direction: column; gap: 12px; min-width: 0; font: 400 14px / 1.4 var(--font-ui); }

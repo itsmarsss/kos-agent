@@ -176,6 +176,11 @@ export function tokenRule(tokens: Record<string, string>, mode: "light" | "dark"
  * allow, not the page's: it is relayed while the owner's hand is in the
  * frame, or just after the shell's own Done.
  *
+ * A page that paints a ground of its own (its body's background is not
+ * KOS's --bg) is marked data-ground="own" on its root, now and on each theme
+ * change, so the kit and the runtimes give it back the gutter the dashboard's
+ * column otherwise gives: its text never runs to the edge of its colour.
+ *
  * Queries go out FRAME_QUERIES at a time, in the order asked; the rest wait
  * in the frame, so how many a page asks at once is never a refusal. One with
  * no answer in FRAME_QUERY_WAIT_MS gives its turn up and is refused.
@@ -200,6 +205,11 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 addEventListener("load",measure);
 Element.prototype.scrollIntoView=function(o){if(inner())into.call(this,o);reveal(this,o===false?"end":o&&typeof o==="object"&&o.block||"start")};
 }
+function ground(){var b=document.body,t=/--bg:\\s*#([0-9a-f]{6})\\b/i.exec((document.getElementById("kos-tokens")||{}).textContent||""),m=b&&/rgba?\\(([^)]+)\\)/.exec(getComputedStyle(b).backgroundColor);if(!t||!m)return;
+var p=m[1].split(/[\\s,\\/]+/).filter(Boolean).map(Number),k=[0,2,4].map(function(i){return parseInt(t[1].substr(i,2),16)});
+if((p.length<4||p[3]>0)&&(p[0]!==k[0]||p[1]!==k[1]||p[2]!==k[2]))root.dataset.ground="own";else delete root.dataset.ground}
+if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",ground);else ground();
+addEventListener("load",ground);
 function call(method,args,sent){return new Promise(function(resolve,reject){var id=++seq;if(sent)sent.id=id;waiting[id]={resolve:resolve,reject:reject};top.postMessage({__kos:"call",id:id,method:method,args:args},"*");});}
 var asking=0,asks=[];
 function send(a){var sent={},over=false,timer=setTimeout(function(){if(end())a.reject(new Error("the query had no answer in ${FRAME_QUERY_WAIT_MS / 1000} s; KOS may be busy, so try again"))},${FRAME_QUERY_WAIT_MS});
@@ -210,7 +220,7 @@ function report(message){try{top.postMessage({__kos:"error",message:String(messa
 addEventListener("message",function(e){
 if(e.source!==top)return;var m=e.data||{};
 if(m.__kos==="reply"){var w=waiting[m.id];if(!w)return;delete waiting[m.id];if(m.error)w.reject(new Error(m.error));else w.resolve(m.result);}
-else if(m.__kos==="theme"){mode=m.mode;document.documentElement.dataset.mode=m.mode;document.documentElement.dataset.theme=m.mode;var s=document.getElementById("kos-tokens");if(s)s.textContent=m.rule;themeFns.forEach(function(f){try{f(m.mode)}catch(err){report(err&&err.message||err)}});}
+else if(m.__kos==="theme"){mode=m.mode;document.documentElement.dataset.mode=m.mode;document.documentElement.dataset.theme=m.mode;var s=document.getElementById("kos-tokens");if(s)s.textContent=m.rule;ground();themeFns.forEach(function(f){try{f(m.mode)}catch(err){report(err&&err.message||err)}});}
 else if(m.__kos==="present"){var on=m.on===true;if(on)document.documentElement.dataset.present="on";else delete document.documentElement.dataset.present;dispatchEvent(new CustomEvent("kos:present",{detail:{on:on}}));}
 });
 document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href^='#']"):null;if(!a||e.defaultPrevented)return;e.preventDefault();var id=decodeURIComponent(a.getAttribute("href").slice(1)),t=id?document.getElementById(id):null,b=matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth";if(t)t.scrollIntoView({behavior:b,block:"start"});else if(!id){if(!fit||inner())scrollTo({top:0,behavior:b});if(fit)reveal(null,"start")}});

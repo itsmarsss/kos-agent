@@ -391,6 +391,29 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
    * the typing stops, which the bridge sends only at the owner's hand.
    */
   /*
+   * A page on KOS's ground has no gutter of its own (the dashboard's column
+   * gives it one); a page that paints its own ground is marked so, and gets
+   * its gutter back, so its text never meets the edge of its colour.
+   */
+  it("gives a page on a ground of its own its gutter back, and none to one on KOS's", async () => {
+    const css = readFileSync(join(import.meta.dirname, "../../../kit/src/page.css"), "utf8");
+    const report = `<script>addEventListener("load", () => setTimeout(() => top.postMessage({ seen: { ground: document.documentElement.dataset.ground || "", pad: getComputedStyle(document.body).paddingLeft } }, "*"), 50))</script>`;
+    for (const [path, html, want] of [
+      ["/kos-ground", `<h1>On KOS</h1>${report}`, { ground: "", pad: "0px" }],
+      ["/own-ground", `<style>body{background:#f2efe6}</style><h1>Its own</h1>${report}`, { ground: "own", pad: "20px" }],
+    ] as const) {
+      const frame = wrapperDocument(pageDocument({ html, tokens: { "--bg": "#0c0e12", "--text": "#e7ebf3" }, mode: "dark", css, libraries: [] }));
+      pages.set(path, `<!doctype html><body><iframe id="f" sandbox="allow-scripts" style="width:800px;height:400px" srcdoc="${srcdoc(frame)}"></iframe><script>
+        addEventListener("message", (e) => { if (e.data && e.data.seen) document.body.dataset.seen = JSON.stringify(e.data.seen); });
+      </script></body>`);
+      await send("Emulation.setDeviceMetricsOverride", { width: 900, height: 600, deviceScaleFactor: 1, mobile: false });
+      await send("Page.navigate", { url: `${base}${path}` });
+      await until("!!document.body.dataset.seen");
+      expect(JSON.parse(String(await value("document.body.dataset.seen")))).toEqual(want);
+    }
+  }, 30_000);
+
+  /*
    * Queries go out two at a time, and one whose answer never comes gives its
    * turn up after a bounded wait, refused in words: the rest still run.
    */

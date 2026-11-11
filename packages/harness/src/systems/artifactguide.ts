@@ -41,9 +41,9 @@ When unsure, it is KOS's own look.
 ## Ground it in the subject
 
 Write down, for yourself, three things: the one subject, who reads it, and the single job the artifact does for them (decide, track, learn, present). Everything on it serves that job.
-- Use the subject's own units, terms and conventions as content: kilograms and sets for a training log, CAD and categories for a budget, sprints and owners for a plan. Name things the way the owner does.
+- Use the subject's own units and terms: kilograms and sets for a training log, CAD and categories for a budget. Name things the way the owner does.
 - Use real content. Never lorem ipsum, "Item 1", "John Doe", "Lorem", "Your title here" or invented metrics. When the owner gave notes, a CSV or a project, every number and name comes from there.
-- A project artifact reads the project's real tables live through window.kos. Pasting a snapshot of a table into the HTML makes it stale the moment the owner adds a row.
+- A project artifact reads its tables live through window.kos; a pasted snapshot goes stale with the next row.
 - When nothing real exists yet, a tool opens with clearly marked example data ("Example rows: replace with your own") so it is in a working state, not an empty shell.
 
 ## Build on KOS's tokens
@@ -76,7 +76,7 @@ Only for the distinctive treatment: a plan on :root of 4 to 6 colour tokens (gro
     @media (prefers-color-scheme: dark) { :root:not([data-theme=light]) { dark values } }
     :root[data-theme=dark] { dark values }
 
-The body then takes its background and colour from the plan. Design the dark theme rather than invert: lifted greys, not pure black, a lighter accent, subtler lines.
+The body takes its background and colour from the plan; KOS then gives it a gutter, and every box on it pads its own edges. Design the dark theme rather than invert: lifted greys, not pure black, a lighter accent, subtler lines.
 
 ## Fonts
 
@@ -136,10 +136,9 @@ When the owner gives a direction (a colour, a face, a reference, a mood), follow
 
 ## Copy
 
-- Write from the reader's side: what they can do or learn, not what the artifact contains.
 - Active voice, plain sentences, no mannered devices (no "not just X, but Y", no rhetorical questions as headings, no triplets for rhythm).
 - Name controls by what they do: "Add ride", "Export week", not "Submit" or "Go".
-- Errors say what went wrong and how to fix it: "Distance must be a number in km, like 42.5".
+- Errors say what went wrong and how to fix it.
 - Empty states say what will be there and how to start it.
 
 ## Naming
