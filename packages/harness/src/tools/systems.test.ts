@@ -644,7 +644,7 @@ describe("systems.migrate risk", () => {
       expect(got.isError, got.content).toBe(false);
       expect(got.content.length).toBeLessThan(400);
       const [line, check] = got.content.split("\n\n");
-      expect(JSON.parse(line!)).toEqual({ id: "ledger", title: "Ledger", version: 2, edits: 2, replaced: 2, lines: { removed: 2, added: 2, of: 603 }, bytes: { before: html.length, after: html.length + 6 } });
+      expect(JSON.parse(line!)).toEqual({ id: "ledger", title: "Ledger", artifactKind: "page", projectSlug: null, updatedAt: store.record("ledger")!.updatedAt, version: 2, edits: 2, replaced: 2, lines: { removed: 2, added: 2, of: 603 }, bytes: { before: html.length, after: html.length + 6 } });
       expect(check).toBe("checked ledger");
       expect(file("artifacts/ledger.html")).toBe(html.replace("<h1>Ledger</h1>", "<h1>October ledger</h1>").replace("<td>Item 7</td>", "<td>Rent</td>"));
       expect(await versions("ledger")).toBe(2);

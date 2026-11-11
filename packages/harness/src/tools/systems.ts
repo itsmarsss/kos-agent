@@ -555,7 +555,9 @@ function defineSystemsTools(ctx: ModuleContext): void {
       const id = changeable(input, reachOf(ctx));
       const edits = patchEdits(input.edits);
       const { record, before, after, replaced } = pages.patch(id, edits);
-      const summary = JSON.stringify({ id: record.id, title: record.title, version: pages.latestVersion(id), edits: edits.length, replaced, ...patchSummary(before, after) });
+      // What the chat's card needs to show it (kind, owner, when), then what changed; never the document.
+      const { id: kept, title, artifactKind, projectSlug, blob, updatedAt } = record;
+      const summary = JSON.stringify({ id: kept, title, artifactKind, projectSlug, ...(blob ? { blob } : {}), updatedAt, version: pages.latestVersion(id), edits: edits.length, replaced, ...patchSummary(before, after) });
       if (!checkArtifact) return summary;
       // The patch is kept whatever the check finds; a check that cannot run says so rather than failing what was saved.
       const n = tally.take(id);
