@@ -475,13 +475,15 @@ describe("systems.migrate risk", () => {
     await refused("files.rm", { path: "projects" });
     expect(existsSync(join(root, "blobs/noter/artifacts/noter-doc.html"))).toBe(true);
     expect(existsSync(join(root, `${pages}/beds.html`))).toBe(true);
-    await allowed("files.mv", { from: "blobs/roster", to: "scratch/roster" });
-    // Each owner may take its own: the blob its versions, the project its pages.
+    // Nor its own: an artifact is taken away from the trash, by the owner, never by files.*.
+    expect(await refused("files.mv", { from: "blobs/roster", to: "scratch/roster" })).toMatch(/blobs\/roster holds the artifact roster-doc, which files.\* does not take away: .*trash/);
     callerBlob = "noter";
-    await allowed("files.rm", { path: "blobs/noter/artifacts/.history" });
+    await refused("files.rm", { path: "blobs/noter/artifacts/.history" });
     callerBlob = undefined;
     callerProject = slug;
-    await allowed("files.rm", { path: pages });
+    await refused("files.rm", { path: pages });
+    // A copy out is a read, and its own to make.
+    await allowed("files.cp", { from: `${pages}/beds.html`, to: "scratch/beds.html" });
     // A folder that holds no artifact is a folder.
     await allowed("files.mkdir", { path: "notes/old" });
     await allowed("files.rm", { path: "notes" });
@@ -677,16 +679,31 @@ describe("systems.migrate risk", () => {
     it("is the only way to change part of a document: files.* gives an artifact's document no new content", async () => {
       await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1>" });
       await registry.execute("files.write", { path: "scratch/x.html", content: "<iframe></iframe>" });
-      for (const [tool, args] of [
-        ["files.write", { path: "artifacts/memo.html", content: "<iframe></iframe>" }],
-        ["files.edit", { path: "artifacts/Memo.html", find: "Memo", replace: "x" }],
-        ["files.cp", { from: "scratch/x.html", to: "artifacts/memo.html" }],
-        ["files.mv", { from: "scratch/x.html", to: "artifacts/memo.html" }],
-      ] as const) {
-        const got = await registry.execute(tool, args);
-        expect(got.content, tool).toMatch(/is the artifact memo's document, which files.\* does not change: change part of it with artifacts.patch/);
+      await registry.execute("artifacts.check", { id: "memo" });
+      for (const path of ["artifacts/memo.html", "artifacts/Memo.html", "artifacts/.history/memo/1.json", "artifacts/.history/memo/9.json", "artifacts/.captures/memo/desktop-light.jpg"]) {
+        for (const [tool, args] of [
+          ["files.write", { path, content: "<iframe></iframe>" }],
+          ["files.edit", { path, find: "Memo", replace: "x" }],
+          ["files.cp", { from: "scratch/x.html", to: path }],
+          ["files.mv", { from: "scratch/x.html", to: path }],
+        ] as const) {
+          const got = await registry.execute(tool, args);
+          expect(got.content, `${tool} ${path}`).toMatch(/is part of the artifact memo, which files.\* does not change: change part of it with artifacts.patch/);
+        }
+        for (const [tool, args] of [
+          ["files.rm", { path }],
+          ["files.mv", { from: path, to: "scratch/gone" }],
+        ] as const) {
+          const got = await registry.execute(tool, args);
+          expect(got.content, `${tool} ${path}`).toMatch(/is part of the artifact memo, which files.\* does not take away: KOS never deletes an artifact; the owner puts one in the trash/);
+        }
+      }
+      for (const path of ["artifacts", "artifacts/.history", "artifacts/.history/memo", "artifacts/.captures/memo"]) {
+        expect((await registry.execute("files.rm", { path })).content, path).toMatch(/(holds|is part of) the artifact memo, which files.\* does not take away/);
       }
       expect(file("artifacts/memo.html")).toBe("<h1>Memo</h1>");
+      expect(existsSync(join(root, "artifacts/.history/memo/1.json"))).toBe(true);
+      expect(existsSync(join(root, "scratch/x.html"))).toBe(true);
       expect((await registry.execute("files.read", { path: "artifacts/memo.html" })).isError).toBe(false);
     });
 

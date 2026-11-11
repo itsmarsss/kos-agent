@@ -70,23 +70,32 @@ function usable(ws: Workspace, path: string): string {
 function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
   /**
    * An artifact's file, version or capture is reached as the artifacts tools
-   * reach it: by its owner's chats. Its document is never given new content
-   * here (`replace`: a write, an edit, a copy or move onto it), which would
-   * skip every check a write makes and keep no version.
+   * reach it: by its owner's chats, and then only to read. Its document,
+   * versions and captures are never given new content here (`replace`: a
+   * write, an edit, a copy or move onto one), which would skip every check a
+   * write makes and keep no version; and none is taken away (`remove`: an rm,
+   * or a move from it or a folder holding it), which is the owner's to do
+   * from the trash.
    */
-  const fenced = (path: string, what: "read" | "change" | "replace", whole = false): string => {
+  const fenced = (path: string, what: "read" | "replace" | "remove", folder = false): string => {
     const abs = usable(ws, path);
     const pages = ctx.services?.pages;
     if (!pages) return abs;
     const rel = relative(ws.root, abs);
     const reach = reachOf(ctx);
-    const as = what === "replace" ? "change" : what;
+    const as = what === "read" ? "read" : "change";
     // A folder taken whole (rm, mv, cp) takes every artifact under it, so each one's owner must be this chat's to reach.
+    const whole = what === "remove" || folder;
     const why = artifactFileRefusal(pages, rel, reach, as) ?? (whole ? artifactFolderRefusal(pages, rel, reach, as) : undefined);
     if (why) throw new Error(why);
-    const record = what === "replace" ? pages.recordAt(rel) : undefined;
-    if (record && foldedPath(ws.root, rel) === foldedPath(ws.root, record.path)) {
-      throw new Error(`${rel} is the artifact ${record.id}'s document, which files.* does not change: change part of it with artifacts.patch, or all of it with artifacts.write, so it is checked and kept as a version`);
+    if (what === "read") return abs;
+    const record = pages.recordAt(rel);
+    if (record && what === "replace") {
+      throw new Error(`${rel} is part of the artifact ${record.id}, which files.* does not change: change part of it with artifacts.patch, or all of it with artifacts.write, so it is checked and kept as a version`);
+    }
+    const held = record ?? (what === "remove" ? pages.recordsUnder(rel)[0] : undefined);
+    if (held) {
+      throw new Error(`${rel} ${record ? "is part of" : "holds"} the artifact ${held.id}, which files.* does not take away: KOS never deletes an artifact; the owner puts one in the trash from the Artifacts page. To give it another owner, use artifacts.move`);
     }
     return abs;
   };
@@ -230,7 +239,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
     (input) => {
       const to = fenced(str(input, "to"), "replace");
       mkdirSync(dirname(to), { recursive: true });
-      renameSync(fenced(str(input, "from"), "change", true), to);
+      renameSync(fenced(str(input, "from"), "remove"), to);
       return "ok";
     },
     { floor: "safe", escalate: (input) => (outsideScratch(optStr(input, "from") ?? "") ? "outside the scratch folder" : false) },
@@ -247,7 +256,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      rmSync(fenced(str(input, "path"), "change", true), { recursive: true, force: true });
+      rmSync(fenced(str(input, "path"), "remove"), { recursive: true, force: true });
       return "ok";
     },
     rmRisk,
