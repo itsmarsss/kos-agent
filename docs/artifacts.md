@@ -370,11 +370,14 @@ shown (its project, the viewer, full screen):
   dashboard scrolls as one page. The page keeps its own scrollbar only while
   its frame is shorter than it (the check's fixed view, or past the cap),
   and its sideways overflow is hidden.
-- A frame opens at the height it last took (`rememberedHeight`, kept per
-  artifact for the tab's session), a skeleton in its place, and fades in
-  once its page's first heights have been quiet for 160 ms, at the last;
-  a frame that says nothing is shown 1.5 s after it loads, a sheet as soon
-  as it has drawn. So opening one again never jumps, and the first time
+- A frame opens at the height it last took at about that width
+  (`rememberedHeight`, kept per artifact and 160 px width bucket, in memory
+  and for the tab's session; never from an older version shown to look
+  at), a skeleton in its place, and cross-fades in once its page's first
+  heights have been quiet for 160 ms, at the last, or once a deck says it
+  has handed over its bar; a frame that has said nothing is shown 1.5 s
+  after it loads, a sheet as soon as it has drawn, and one that hit an
+  error at once. So opening one again never jumps, and the first time
   settles once. Reduced motion drops the fade.
 - The height is the page's to say, so the dashboard holds it
   (`widgets/frameheight.ts`): within 80 px and 50,000 px, a change under

@@ -1,11 +1,18 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SaveConflict, api, type PageSummary } from "../api.js";
-import { ArtifactPage, SETTLE_MS, fixRequest, type ArtifactHandle } from "./ArtifactPage.js";
-import { DONE_MS, FRAME_HEIGHT_MIN, REVEAL_MS, heightGate } from "./frameheight.js";
+import { ArtifactPage, forgetAssets, SETTLE_MS, fixRequest, type ArtifactHandle } from "./ArtifactPage.js";
+import { DONE_MS, FRAME_HEIGHT_MIN, REVEAL_MS, forgetHeights, heightGate } from "./frameheight.js";
 import { FRAME_HEIGHT_MAX, GUARD_SCRIPT, PAGE_CSP, PAGE_GUARD_CSP, WRAPPER_CSP, pageDocument, splitHtml, wrapperDocument } from "@kos/shared";
+
+// The kinds' runtimes and fonts, as the build serves them: a doc or a deck waits on its runtime before its frame is drawn.
+beforeEach(() => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (url) =>
+    String(url).endsWith(".js") ? new Response("", { status: 200, headers: { "content-type": "text/javascript" } }) : new Response(new Uint8Array([1]), { status: 200, headers: { "content-type": "font/woff2" } }),
+  );
+});
 
 beforeAll(() => {
   // jsdom has no media queries; the frame only listens for the theme changing.
@@ -14,6 +21,8 @@ beforeAll(() => {
 
 afterEach(() => {
   sessionStorage.clear();
+  forgetHeights();
+  forgetAssets();
   cleanup();
   vi.restoreAllMocks();
 });
@@ -262,7 +271,7 @@ describe("a frame as tall as its page", () => {
   }
 
   /** A page's first heights settle before the frame is shown and takes them. */
-  const quiet = (): Promise<void> => act(() => new Promise<void>((r) => setTimeout(r, 200)));
+  const quiet = (): Promise<void> => act(() => new Promise<void>((r) => setTimeout(r, 400)));
 
   /** The bridge's channel for the owner's presses, handed over as the bridge does; returns a press. */
   async function gestureChannel(say: (data: unknown) => void): Promise<() => Promise<void>> {
@@ -298,6 +307,62 @@ describe("a frame as tall as its page", () => {
     const again = await frame();
     expect(again.el.style.height).toBe("1200px");
     expect((document.querySelector(".artifact-skeleton") as HTMLElement).style.height).toBe("1200px");
+  });
+
+  it("shows a page that spoke before its wrapper finished loading once its heights settle, not after the load's fallback", async () => {
+    // The wrapper's load held back, as a real Chrome finishes it after the page's own first height.
+    let held = true;
+    const hold = (e: Event): void => {
+      if (held && e.target instanceof HTMLIFrameElement) e.stopImmediatePropagation();
+    };
+    document.addEventListener("load", hold, true);
+    try {
+      const { el, say } = await frame();
+      say({ __kos: "height", height: 900 });
+      held = false;
+      fireEvent.load(el);
+      await quiet();
+      expect(el.closest(".artifact-stage")!.hasAttribute("data-shown")).toBe(true);
+      expect(el.style.height).toBe("900px");
+    } finally {
+      document.removeEventListener("load", hold, true);
+    }
+  });
+
+  it("keeps no height for an older version shown to look at, and draws no skeleton under an error", async () => {
+    render(<ArtifactPage record={record} page={page} locked />);
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
+    say({ __kos: "height", height: 640 });
+    await quiet();
+    expect(el.style.height).toBe("640px");
+    expect(sessionStorage.length).toBe(0);
+    cleanup();
+    const again = await frame();
+    expect(again.el.style.height).toBe("");
+    again.say({ __kos: "error", message: "boom" });
+    expect(document.querySelector(".artifact-skeleton")).toBeNull();
+  });
+
+  it("shows a deck once it has handed over its bar, and hears a deck's or a doc's messages only from that kind", async () => {
+    const deck = await frame("deck");
+    const stage = deck.el.closest(".artifact-stage")!;
+    deck.say({ __kos: "deck", index: 0, count: 3, grid: false, notes: false, reading: false, hosted: false });
+    expect(stage.hasAttribute("data-shown")).toBe(false);
+    deck.say({ __kos: "deck", index: 0, count: 3, grid: false, notes: false, reading: false, hosted: true });
+    expect(stage.hasAttribute("data-shown")).toBe(true);
+    cleanup();
+    const heard = vi.fn();
+    render(<ArtifactPage record={record} page={page} onDeck={heard} onEdit={heard} />);
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    heard.mockClear();
+    act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "deck", index: 1, count: 3, hosted: true } })));
+    act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "edit", editing: true } })));
+    expect(heard.mock.calls.every(([v]) => v === undefined)).toBe(true);
   });
 
   it("caps the height, since it is the page's to say", async () => {
@@ -406,7 +471,7 @@ describe("a frame as tall as its page", () => {
   it("tells the viewer how a doc's editing stands, and sends the doc what the owner presses in the viewer's head", async () => {
     const handle: { current: ArtifactHandle | null } = { current: null };
     const heard = vi.fn();
-    render(<ArtifactPage ref={handle} record={record} page={page} onEdit={heard} />);
+    render(<ArtifactPage ref={handle} record={record} page={{ ...page, kind: "doc" }} onEdit={heard} />);
     const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
     const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
     Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
@@ -443,7 +508,7 @@ describe("a frame as tall as its page", () => {
 
   it("finishes a doc's editing before the frame goes, saving what waits", async () => {
     const handle: { current: ArtifactHandle | null } = { current: null };
-    render(<ArtifactPage ref={handle} record={record} page={page} />);
+    render(<ArtifactPage ref={handle} record={record} page={{ ...page, kind: "doc" }} />);
     const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
     const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
     Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
@@ -464,8 +529,8 @@ describe("a frame as tall as its page", () => {
 });
 
 describe("a doc's saves, which are the owner's", () => {
-  // The doc's runtime is not loaded here: the edit messages are what the frame hears, whatever the kind.
-  const page = { id: "budget", title: "Budget", html: "<p>hi</p>" };
+  // The doc's runtime is not loaded here: the edit messages are what the frame hears.
+  const page = { id: "budget", title: "Budget", kind: "doc" as const, html: "<p>hi</p>" };
   const hand = (isActive: boolean): void => {
     Object.defineProperty(navigator, "userActivation", { value: { isActive, hasBeenActive: isActive }, configurable: true });
   };

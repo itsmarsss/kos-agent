@@ -6,7 +6,7 @@ import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, 
 
 import { SaveConflict, api, type PageSummary } from "../api.js";
 import { fitsContent, pageDocument, tokenRule, wrapperDocument } from "@kos/shared";
-import { heightGate, ownerIn, rememberHeight, rememberedHeight, revealAllowed, revealInDashboard, saveAllowed, type EditTold, type HeightGate, type Reveal } from "./frameheight.js";
+import { heightBucket, heightGate, ownerIn, rememberHeight, rememberedHeight, revealAllowed, revealInDashboard, saveAllowed, type EditTold, type HeightGate, type Reveal } from "./frameheight.js";
 
 /**
  * An HTML page, the way a Claude artifact is shown: the agent's document in a
@@ -81,6 +81,12 @@ function fontFile(file: string): Promise<string> {
     fontFiles.set(file, got);
   }
   return got;
+}
+
+/** Drop the libraries and fonts kept: for a test that serves them afresh. */
+export function forgetAssets(): void {
+  fetched.clear();
+  fontFiles.clear();
 }
 
 /**
@@ -170,6 +176,8 @@ const SHOW_ANYWAY_MS = 1500;
 const SHEET_DRAWN_MS = 120;
 /** A page's first heights come in a burst as its fonts and runtime land: it is shown once they have been quiet this long, at the last. */
 const FIRST_QUIET_MS = 160;
+/** The frame's fade in (styles.css): the skeleton stays under it until it is done, so nothing blank shows between. */
+const FADE_MS = 200;
 
 /** How long settle waits on a doc to save before letting the frame go anyway: a page saying it is editing cannot hold the dashboard. */
 export const SETTLE_MS = 2500;
@@ -202,17 +210,38 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const [asked, setAsked] = useState<Asked>();
   const [told, setTold] = useState<string>();
   const [conflict, setConflict] = useState<string>();
-  // Opened at the height it last took, so the dashboard does not jump when the page reports.
-  const [height, setHeight] = useState<number | undefined>(() => rememberedHeight(record.id));
-  // Drawn: until then a skeleton holds its place, and the frame fades in over it.
+  // Opened at the height it last took at this width (read once the box is laid out), so the dashboard does not jump when the page reports.
+  const [height, setHeight] = useState<number>();
+  /*
+   * Drawn: until then a skeleton holds its place, and the frame fades in
+   * over it, the skeleton kept under it until the fade is done. Shown once
+   * the page's first heights have settled (a page or a doc), once a deck
+   * says it has handed over its bar, once a sheet has drawn, or a while
+   * after the document loaded when the page has said nothing.
+   */
   const [shown, setShown] = useState(false);
+  const [covered, setCovered] = useState(true);
   const shownRef = useRef(false);
-  const showLater = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const show = useCallback((): void => {
-    clearTimeout(showLater.current);
-    shownRef.current = true;
-    setShown(true);
+  // Something was heard from the page, so the load's fallback is not needed.
+  const spoke = useRef(false);
+  // The last height heard before showing: the one the frame takes as it fades in.
+  const first = useRef<number | undefined>(undefined);
+  const quietTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const anywayTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const fadeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const clearTimers = useCallback((): void => {
+    clearTimeout(quietTimer.current);
+    clearTimeout(anywayTimer.current);
+    clearTimeout(fadeTimer.current);
   }, []);
+  const show = useCallback((): void => {
+    if (shownRef.current) return;
+    clearTimers();
+    shownRef.current = true;
+    if (first.current !== undefined) setHeight(first.current);
+    setShown(true);
+    fadeTimer.current = setTimeout(() => setCovered(false), FADE_MS);
+  }, [clearTimers]);
   const [edit, setEdit] = useState<EditState>();
   const [deck, setDeck] = useState<DeckView>();
   const editRef = useRef<EditState | undefined>(undefined);
@@ -257,10 +286,12 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     let stale = false;
     loads.current = 0;
     gate.current = heightGate();
-    setHeight(rememberedHeight(record.id));
     setShown(false);
+    setCovered(true);
     shownRef.current = false;
-    clearTimeout(showLater.current);
+    spoke.current = false;
+    first.current = undefined;
+    clearTimers();
     setEdit(undefined);
     setDeck(undefined);
     setLeft(false);
@@ -279,9 +310,19 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       .catch((err: unknown) => !stale && setError(err instanceof Error ? err.message : String(err)));
     return () => {
       stale = true;
-      clearTimeout(showLater.current);
+      clearTimers();
     };
-  }, [page, locked, record.id]);
+  }, [page, locked, record.id, clearTimers]);
+
+  // What it last took at this width, read once the box is laid out and before it is painted.
+  const widthKey = useCallback((): string => `${record.id}@${heightBucket(box.current?.clientWidth ?? 0)}`, [record.id]);
+  useLayoutEffect(() => {
+    setHeight(rememberedHeight(widthKey()));
+  }, [page, locked, widthKey]);
+  // A page that hit an error shows as it is, with no skeleton shimmering over it.
+  useEffect(() => {
+    if (error) show();
+  }, [error, show]);
 
   // The page's own window: the frame inside the wrapper. A cross-origin frame's frames can be named, not read, and naming one not there yet throws.
   const pageWindow = useCallback((): Window | undefined => {
@@ -325,17 +366,17 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         if (layout !== "fit") return;
         const owner = ownerIn(frame.current);
         const next = gate.current?.accept((m as { height?: unknown }).height, owner);
-        if (next !== undefined) rememberHeight(record.id, next);
+        // An older version shown to look at may be another height: what is remembered is the current one's.
+        if (next !== undefined && !locked) rememberHeight(widthKey(), next);
         if (shownRef.current) {
           if (next !== undefined) setHeight(next);
         } else {
           // Not shown yet: the skeleton keeps its height until the page's first heights have settled, then the frame takes the last and fades in.
-          const settled = next ?? rememberedHeight(record.id);
-          clearTimeout(showLater.current);
-          showLater.current = setTimeout(() => {
-            if (settled !== undefined) setHeight(settled);
-            show();
-          }, FIRST_QUIET_MS);
+          spoke.current = true;
+          clearTimeout(anywayTimer.current);
+          if (next !== undefined) first.current = next;
+          clearTimeout(quietTimer.current);
+          quietTimer.current = setTimeout(show, FIRST_QUIET_MS);
         }
         const reveal = (m as { reveal?: Reveal }).reveal;
         if (reveal && typeof reveal === "object" && revealAllowed(frame.current, gestures.current.at)) revealInDashboard(frame.current, reveal, 16 + coverHeight());
@@ -354,14 +395,18 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       }
       // A deck's place, for the viewer's head: the first report hands the deck's bar to the head.
       if (m.__kos === "deck") {
+        if (page.kind !== "deck") return;
         const d = m as Record<string, unknown>;
-        show();
+        // Shown once its own bar has gone, so it does not jump as it fades in.
+        if (flag(d.hosted)) show();
+        else spoke.current = true;
         setDeck({ index: count(d.index), count: count(d.count), grid: flag(d.grid), notes: flag(d.notes), reading: flag(d.reading) });
         if (!flag(d.hosted)) pageWindow()?.postMessage({ __kos: "deck-do", action: "host" }, "*");
         return;
       }
       // A doc's editing, for the controls in the viewer's head.
       if (m.__kos === "edit") {
+        if (page.kind !== "doc") return;
         const d = m as Partial<EditState>;
         const next: EditState = { editing: d.editing === true, pending: d.pending === true, status: String(d.status ?? "").slice(0, 300), bad: d.bad === true };
         setEdit(next);
@@ -414,7 +459,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     };
     window.addEventListener("message", heard);
     return () => window.removeEventListener("message", heard);
-  }, [coverHeight, layout, left, locked, onSaved, page.capabilities?.ask, pageWindow, present, record.id, reply, show]);
+  }, [coverHeight, layout, left, locked, onSaved, page.capabilities?.ask, page.kind, pageWindow, present, record.id, reply, show, widthKey]);
 
   // A deck or a sheet fills the view below where it starts on the page, so that is measured, not guessed.
   useLayoutEffect(() => {
@@ -574,7 +619,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       {told && <p className="hint">{told}</p>}
       {!left && (
         <div className="artifact-stage" data-layout={layout} data-shown={shown ? "" : undefined}>
-          {!shown && <Skeleton className={`artifact-skeleton artifact-skeleton--${layout}`} {...(layout === "fit" && height !== undefined ? { height } : {})} radius="var(--r-md)" />}
+          {covered && !error && <Skeleton className={`artifact-skeleton artifact-skeleton--${layout}`} {...(layout === "fit" && height !== undefined ? { height } : {})} radius="var(--r-md)" />}
           {doc !== undefined && (
             <iframe
               ref={frame}
@@ -589,8 +634,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
                 // The first load is the wrapper; any after it is the wrapper being sent elsewhere, which its sandbox should never allow.
                 loads.current += 1;
                 if (loads.current > 1) setLeft(true);
-                clearTimeout(showLater.current);
-                showLater.current = setTimeout(show, layout === "sheet" ? SHEET_DRAWN_MS : SHOW_ANYWAY_MS);
+                // The page may have spoken before its wrapper finished loading: then its own timing stands.
+                if (loads.current === 1 && !spoke.current) anywayTimer.current = setTimeout(show, layout === "sheet" ? SHEET_DRAWN_MS : SHOW_ANYWAY_MS);
               }}
             />
           )}

@@ -263,8 +263,8 @@ describe("one artifact, full size", () => {
   });
 
   it("restores on the version the doc's own last save made, not the one first opened", async () => {
-    const record = { ...ART[3]!, artifactKind: "page" as const };
-    vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "ledger", title: "Ledger", html: "<p>x</p>" } } as never);
+    const record = { ...ART[3]!, artifactKind: "doc" as const };
+    vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "ledger", title: "Ledger", kind: "doc", html: "<p>x</p>" } } as never);
     vi.spyOn(api, "pageHistory").mockResolvedValue([
       { version: 1, at: at(90), title: "Ledger", kind: "html" },
       { version: 2, at: at(40), title: "Ledger", kind: "html" },
@@ -303,8 +303,8 @@ describe("one artifact, full size", () => {
   });
 
   it("finishes an open doc's editing before the dashboard moves elsewhere", async () => {
-    const record = { ...ART[3]!, artifactKind: "page" as const };
-    vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "ledger", title: "Ledger", html: "<p>x</p>" } } as never);
+    const record = { ...ART[3]!, artifactKind: "doc" as const };
+    vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "ledger", title: "Ledger", kind: "doc", html: "<p>x</p>" } } as never);
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
     render(<ArtifactViewer id="ledger" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
     const el = await waitFor(() => {

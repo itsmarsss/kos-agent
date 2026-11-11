@@ -7136,10 +7136,11 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .artifact-stage { position: relative; min-width: 0; }
 .artifact-skeleton { display: block; width: 100%; }
 .artifact-stage:has(> .artifact-frame) > .artifact-skeleton { position: absolute; inset: 0; z-index: 1; }
-.artifact-frame { transition: opacity 180ms cubic-bezier(0.32, 0.72, 0, 1); }
-.artifact-stage:not([data-shown]) > .artifact-frame { opacity: 0; }
+/* A cross-fade: the skeleton goes as the frame comes, and leaves once the fade is done. */
+.artifact-frame, .artifact-skeleton { transition: opacity 180ms cubic-bezier(0.32, 0.72, 0, 1); }
+.artifact-stage:not([data-shown]) > .artifact-frame, .artifact-stage[data-shown] > .artifact-skeleton { opacity: 0; }
 @media (prefers-reduced-motion: reduce) {
-  .artifact-frame { transition: none; }
+  .artifact-frame, .artifact-skeleton { transition: none; }
 }
 .artifact-frame[data-layout="fit"], .artifact-skeleton--fit { height: min(70vh, 40rem); }
 /* The slide's 16:9 at the frame's width (less the stage's 12px padding); never taller than the view. Its controls are the viewer's head, so the deck's own bar is away. */
