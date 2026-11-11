@@ -1337,13 +1337,14 @@ describe("handleApiRequest", () => {
       kernel.pages.writeHtml(null, { id: "memo", title: "Memo", html: "<p>memo</p>" });
       const post = (headers: Record<string, string>, path = "/api/artifacts/memo/rename") =>
         handleApiRequest(kernel, { method: "POST", path, body: { title: "Taken" }, headers: { host: "127.0.0.1:4317", ...headers } });
-      for (const headers of [
+      const strangers: Record<string, string>[] = [
         { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
         { origin: "http://127.0.0.1:4422", "sec-fetch-site": "same-site" },
         { origin: "null", "sec-fetch-site": "cross-site" },
         { "sec-fetch-site": "cross-site" },
         { origin: "chrome-extension://not-an-extension" },
-      ]) {
+      ];
+      for (const headers of strangers) {
         const res = await post(headers);
         expect(res.status, JSON.stringify(headers)).toBe(403);
       }
