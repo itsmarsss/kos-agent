@@ -93,6 +93,7 @@ Pair deliberately: a serif body with a grotesque for labels, or one sans in two 
 - text-wrap: balance on headings, text-wrap: pretty on paragraphs.
 - Uppercase labels are small, letter-spaced (0.06em to 0.1em) and in the muted ink.
 - Numbers that line up use font-variant-numeric: tabular-nums, right-aligned in tables.
+- A range of figures (an en dash between them, never a hyphen), a date range or a figure with its unit stays on one line: wrap it in <span class="nowrap">.
 
 ## Layout
 
