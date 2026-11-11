@@ -298,8 +298,10 @@ UTF-8. Each export, and each refusal, is kept in the audit log as
   the server and the runtime share it): a formula as its result, a pivot as
   its groups, a source tab as every row its table holds now (not the
   frame's first 500), read through the artifact's own bridge 500 at a time
-  and one tab after another, up to 100,000 rows, past which the export is
-  refused and the table is the place to export from; a tab whose read is
+  and one tab after another, yielding between pages, up to 100,000 rows and
+  60 s for them all, past either of which the export is refused and the
+  table is the place to export from (as it is when a page comes back cut
+  short with no row in it); a tab whose read is
   refused refuses the export, naming the tab. Numbers plain, to fifteen digits; no totals row;
   RFC 4180 quoting and CRLF; a UTF-8 byte-order mark so Excel reads accents;
   a text cell a spreadsheet would run as a formula led by an apostrophe.

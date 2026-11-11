@@ -95,4 +95,14 @@ describe("a sheet's tab as CSV", () => {
     expect(out.at(-2)).toBe(String(SOURCE_PAGE * 2 + 37));
     await expect(withSources(book, table(SOURCE_ROWS_MAX + 1))).rejects.toThrow(/more than 100,000 rows; export its table from the project instead/);
   });
+
+  it("stops at its deadline, and refuses a page cut short with nothing in it", async () => {
+    const book: SheetBook = { sheets: [{ name: "Slow", columns: [{ label: "n" }], source: { table: "slow", key: "id" } }] };
+    const slow = async (_sql: string, params: number[]) => {
+      await new Promise((r) => setTimeout(r, 20));
+      return { rows: Array.from({ length: SOURCE_PAGE }, (_, i) => ({ n: params[1]! + i })), truncated: true };
+    };
+    await expect(withSources(book, slow, 50)).rejects.toThrow(/took longer than 60 s, so the export stopped at the tab "Slow"/);
+    await expect(withSources(book, async () => ({ rows: [], truncated: true }))).rejects.toThrow('the tab "Slow" has a row too large to read, so it cannot be exported whole');
+  });
 });
