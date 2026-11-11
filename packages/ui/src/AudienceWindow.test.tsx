@@ -87,6 +87,17 @@ describe("the audience window", () => {
     expect(read).toHaveBeenCalledTimes(3);
   });
 
+  it("takes the press that brings the window forward as that alone", async () => {
+    const { stage, heard } = await audience();
+    act(() => void window.dispatchEvent(new FocusEvent("focus")));
+    fireEvent.click(stage, { detail: 1, clientX: 900 });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(heard.filter((s) => s.type === "moved")).toEqual([]);
+    await new Promise((r) => setTimeout(r, 200));
+    fireEvent.click(stage, { detail: 1, clientX: 900 });
+    await waitFor(() => expect(heard).toContainEqual({ type: "moved", index: 1 }));
+  });
+
   it("moves on a single press, and the presenter hears it", async () => {
     const { stage, heard } = await audience();
     fireEvent.click(stage, { detail: 1, clientX: 900 });

@@ -20,6 +20,8 @@ import { ArtifactPage, type ArtifactHandle, type DeckView } from "./widgets/Arti
 const IDLE_MS = 3000;
 /** How long a press waits for a second one, which makes it a double-click. */
 const DOUBLE_MS = 250;
+/** A press this soon after the window took the focus is the press that gave it. */
+const FOCUS_MS = 500;
 
 export function AudienceWindow({ id, session }: { id: string; session: string }): ReactElement {
   const box = useRef<HTMLDivElement>(null);
@@ -143,13 +145,22 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
    */
   const tapTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(tapTimer.current), []);
+  // A press that brings this window forward (the owner coming back to it from the presenter's) only brings it forward.
+  const focusedAt = useRef(Number.NEGATIVE_INFINITY);
+  useEffect(() => {
+    const focused = (): void => {
+      focusedAt.current = performance.now();
+    };
+    addEventListener("focus", focused);
+    return () => removeEventListener("focus", focused);
+  }, []);
   const tap = (e: MouseEvent<HTMLDivElement>): void => {
     clearTimeout(tapTimer.current);
     if (e.detail >= 2) {
       fullScreen();
       return;
     }
-    if (!count) return;
+    if (!count || performance.now() - focusedAt.current < FOCUS_MS) return;
     const r = e.currentTarget.getBoundingClientRect();
     const back = e.clientX - r.left < r.width / 3;
     tapTimer.current = setTimeout(() => moved(moveSlide(want, count, back ? "prev" : "next")), DOUBLE_MS);
