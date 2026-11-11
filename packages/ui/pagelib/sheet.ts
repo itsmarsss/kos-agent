@@ -586,9 +586,10 @@ class Sheet {
       const name = column?.column ?? column?.label ?? "";
       try {
         this.say("Saving…");
-        await kos()!.write(tab.source.table, "update", { [name]: cell }, { column: tab.source.key, value: loaded.keys[row - 1] });
+        const got = (await kos()!.write(tab.source.table, "update", { [name]: cell }, { column: tab.source.key, value: loaded.keys[row - 1] })) as { changes?: number } | undefined;
         loaded.rows[row - 1]![col] = cell;
-        this.say("Saved");
+        if (got?.changes === 0) this.say("Not saved: that row is already gone from the table", true);
+        else this.say("Saved");
         await this.load(t);
       } catch (e) {
         this.say(`Not saved: ${reason(e)}`, true);

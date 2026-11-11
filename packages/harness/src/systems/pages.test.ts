@@ -716,6 +716,10 @@ describe("PageStore HTML pages", () => {
       for (const columns of [[...shown.sheets[0]!.columns, { label: "Secret", column: "secret" }], [shown.sheets[0]!.columns[0]!], [{ label: "Note", column: "note" }, { label: "Amount (CAD)" }]]) {
         expect(() => edit("ledger", { sheet: { sheets: [{ ...shown.sheets[0]!, columns }] } as never }), JSON.stringify(columns)).toThrow(/which columns of its tables/);
       }
+      // Nor its key (which names the rows a write changes) or its order.
+      for (const source of [{ table: "budget_tx", key: "note" }, { table: "budget_tx", key: "id", orderBy: "amount" }]) {
+        expect(() => edit("ledger", { sheet: { sheets: [{ ...shown.sheets[0]!, source }] } as never }), JSON.stringify(source)).toThrow(/which columns of its tables/);
+      }
     });
 
     it("refuses an edit made on an older version, an edit that changes nothing, and a second save too soon", () => {
