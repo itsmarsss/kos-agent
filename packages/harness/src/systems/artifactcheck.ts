@@ -630,7 +630,7 @@ export function reportWords(report: CheckReport): string {
     ...lines,
     ...more,
     "```",
-    "Fix all of these in one pass, write the artifact again with artifacts.write, and finish. Do not check again.",
+    "Fix all of these in one pass with artifacts.patch (artifacts.write only to rewrite it whole), and finish. Do not check again.",
     pictures,
   ].join("\n");
 }

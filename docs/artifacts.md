@@ -187,8 +187,8 @@ trash out unless asked (`trashed: true`).
 
 ## How an artifact is written
 
-The tools are `artifacts.guide`, `artifacts.write`, `artifacts.check`,
-`artifacts.list`, `artifacts.get`, `artifacts.history` and
+The tools are `artifacts.guide`, `artifacts.write`, `artifacts.patch`,
+`artifacts.check`, `artifacts.list`, `artifacts.get`, `artifacts.history` and
 `artifacts.rollback`, with `artifacts.rename`, `artifacts.duplicate` and
 `artifacts.move` (Managing artifacts, above). The agent's instructions say an artifact is one of the
 four kinds, that "make me a doc, slides or a spreadsheet" names the kind, and
@@ -227,6 +227,30 @@ Every write is kept as a version under the artifact's folder, in
 `.history/<id>/`, the last 30. `artifacts.history` lists them and
 `artifacts.rollback` puts one back, as does Roll back on the artifact itself;
 a rollback is a version too, so it can be undone.
+
+### Changing part of one
+
+`artifacts.patch({ id, edits })` changes part of an artifact and leaves the
+rest as it is, so a new title or one more row costs its own words rather than
+the whole document again (`systems/artifactpatch.ts`). Each edit is
+`{ find, replace }`, where `find` is an exact piece of the stored HTML (as
+`artifacts.get` returns it) that occurs exactly once, or every occurrence
+with `all: true`; or `{ id, html }`, which replaces the one element with that
+id whole, found by parsing the HTML with parse5 (an id in a script's text is
+not an element, and an element whose end tag is implied is refused). Edits
+apply in order to a copy, all or none, at most 50, and a refusal names the
+edit and why (missing, or how many times it occurs). The result is the
+whole document again, written through `writeHtml` as any write is: every
+write check, the doc's editor allowlist, the fence on who may change it, the
+trash and a guest's words refused as for `artifacts.rename`, and a version
+kept. Then, where KOS has Chrome, it is checked as `artifacts.check` checks
+it. What comes back is one line (the new version, how many places changed,
+lines out and in, bytes before and after) and the check's findings, never
+the document. A doc is patched in its stored form: what its runtime draws
+(contents, note numbers, anything marked `data-kos-gen`) is not stored, and
+an edit that adds `data-kos-gen` is refused. The guide and the agent's
+instructions say to patch a targeted change and rewrite with
+`artifacts.write` only for a redesign; "Edit with KOS" asks the same.
 
 ## The owner's edits
 

@@ -709,6 +709,10 @@ describe("systems.migrate risk", () => {
     expect(told("artifacts.write")).toMatch(/artifacts.check is not available/);
     expect(told("artifacts.write")).not.toMatch(/check once with artifacts.check/);
     expect(told("artifacts.check")).toMatch(/^Not available on this KOS/);
+    expect(told("artifacts.patch")).not.toMatch(/artifacts.check|findings/);
+    await bare.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1>" });
+    const patched = await bare.execute("artifacts.patch", { id: "memo", edits: [{ find: "Memo</h1>", replace: "Note</h1>" }] });
+    expect(JSON.parse(patched.content)).toMatchObject({ id: "memo", version: 2 });
     expect((await bare.execute("artifacts.guide", { kind: "doc" })).content).toMatch(/artifacts.check is not available here/);
     expect(registry.defs().find((d) => d.name === "artifacts.write")?.description).toMatch(/check once with artifacts.check/);
   });

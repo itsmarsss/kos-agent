@@ -332,6 +332,8 @@ export function summarizeAction(
       return `Schedule cron “${fmtVal(a.name)}” [${fmtVal(a.schedule)}]`;
     case "artifacts.write":
       return `Write ${fmtVal(a.kind ?? "page")} “${fmtVal(a.title)}”${a.project ? ` for project ${fmtVal(a.project)}` : ""}`;
+    case "artifacts.patch":
+      return `Change artifact ${fmtVal(a.id)}`;
     case "artifacts.check":
       return `Check artifact ${fmtVal(a.id)}`;
     case "artifacts.guide":
