@@ -161,6 +161,10 @@ export const SHEET_CSS = String.raw`
   .sheet-scroll.held .sheet-grid .key::before { content: ""; position: absolute; top: 0; bottom: 0; right: 100%; width: 14px; background: linear-gradient(to left, color-mix(in srgb, #000 22%, transparent), transparent); pointer-events: none; }
   .sheet-tools .sheet-more:not(:empty) { display: inline; color: var(--accent); font: 600 13px / 1 var(--font-ui); }
   .sheet-grid thead button { padding: 0 5px 6px; }
+  /* A column's menu takes no width on a phone: it lies over the header's corner, shown once the header is pressed or focused, so the grid is as narrow as it was without it. */
+  .sheet-grid thead th:has(.sheet-colmenu) button:first-child { padding-right: 5px; }
+  .sheet-grid thead .sheet-colmenu { top: 2px; right: 2px; bottom: auto; width: 20px; height: 20px; opacity: 0; pointer-events: none; background: var(--panel-2); }
+  .sheet-grid thead th:focus-within .sheet-colmenu, .sheet-grid thead th:hover .sheet-colmenu, .sheet-grid thead .sheet-colmenu[aria-expanded="true"] { opacity: 1; pointer-events: auto; }
   .sheet-grid .rownum { padding: 0 4px; min-width: 2ch; }
   .sheet-grid tfoot th.rownum .word { display: none; }
   .sheet-grid tfoot th.rownum::after { content: "\03A3"; content: "\03A3" / ""; font: 600 13px / 1 var(--font-ui); letter-spacing: 0; }
