@@ -11,6 +11,8 @@ import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { RATES_KEY } from "../ops/spend.js";
 import { cronSessionId } from "./session.js";
 import { caller } from "./caller.js";
+import { findChrome } from "@kos/browser";
+
 import { readZip } from "../files/zip.js";
 import { crossSiteWrite, handleApiRequest, mentionsOf, withFrames } from "./server.js";
 
@@ -1572,6 +1574,28 @@ describe("handleApiRequest", () => {
         handleApiRequest(kernel, { method: "GET", path: `/api/artifacts/${id}/export`, url: `/api/artifacts/${id}/export?${query}`, ...(headers ? { headers } : {}) }, token ? { token } : {});
       const audited = () => kernel.audit.recent(50).filter((r) => r.tool === "artifact.export");
 
+      /**
+       * The dashboard's build of the frame, as a test's own: the kit's sheet,
+       * tokens and a stand-in for each runtime. A test never relies on the UI
+       * having been built, which CI does after the tests.
+       */
+      let pageLib: string;
+      const builtBefore = process.env.KOS_UI_DIST;
+      beforeEach(() => {
+        const dist = mkdtempSync(join(tmpdir(), "kos-ui-dist-"));
+        pageLib = join(dist, "page-lib");
+        mkdirSync(join(pageLib, "fonts"), { recursive: true });
+        writeFileSync(join(pageLib, "frame.css"), "body{margin:0}");
+        writeFileSync(join(pageLib, "tokens.json"), JSON.stringify({ dark: { "--bg": "#0c0e12" }, light: { "--bg": "#f4f5f8" } }));
+        for (const runtime of ["kos-doc", "kos-deck", "kos-sheet"]) writeFileSync(join(pageLib, `${runtime}.js`), `/* ${runtime} */`);
+        process.env.KOS_UI_DIST = dist;
+      });
+      afterEach(() => {
+        if (builtBefore === undefined) delete process.env.KOS_UI_DIST;
+        else process.env.KOS_UI_DIST = builtBefore;
+        rmSync(join(pageLib, ".."), { recursive: true, force: true });
+      });
+
       beforeEach(() => {
         kernel.pages.writeHtml("shelf", { id: "brief", kind: "doc", title: "Shelf: the brief", html: '<article data-doc><h1>The brief</h1><p>Read <strong>Emma</strong><span class="fn">By Austen.</span>.</p></article>' });
         kernel.pages.writeHtml("shelf", { id: "books", kind: "sheet", title: "Books", html: BOOK(true) });
@@ -1627,6 +1651,51 @@ describe("handleApiRequest", () => {
         expect(res.status).toBe(200);
         expect(res.headers?.["content-disposition"]).toContain(`filename*=UTF-8''${"a".repeat(99)}%F0%9F%8C%BF.md`);
         expect(audited()[0]).toMatchObject({ isError: false });
+      });
+
+      it("exports a doc as HTML with no Chrome at all, and refuses in words what must be drawn first", async () => {
+        // This kernel finds no Chrome (beforeEach boots it so): a doc that reads nothing needs none.
+        expect((await get("brief", "format=html")).status).toBe(200);
+        kernel.pages.writeHtml("shelf", { id: "reader", title: "Reader", html: '<h1>Reader</h1><script>kos.query("SELECT title FROM shelf_books")</script>' });
+        for (const [id, format] of [["reader", "html"], ["brief", "pdf"], ["pitch", "pdf"]] as const) {
+          expect(await get(id, `format=${format}`), `${id} ${format}`).toMatchObject({ status: 503, body: { error: expect.stringMatching(/^KOS's Chrome is not available on this machine, so it cannot draw this artifact to export it/) } });
+        }
+        // What needs neither is unaffected.
+        expect((await get("brief", "format=md")).status).toBe(200);
+        expect((await get("books", "format=csv")).status).toBe(200);
+      });
+
+      it("refuses HTML and PDF in words where the dashboard's build is not on the machine", async () => {
+        process.env.KOS_UI_DIST = join(pageLib, "..", "nothing-here");
+        for (const format of ["html", "pdf"]) {
+          expect(await get("brief", `format=${format}`), format).toMatchObject({ status: 503, body: { error: expect.stringMatching(/^KOS's dashboard build is not on this machine/) } });
+        }
+        expect((await get("brief", "format=md")).status).toBe(200);
+        expect(audited().filter((r) => r.isError)).toHaveLength(2);
+      });
+
+      describe.skipIf(!findChrome(undefined))("with a Chrome on the machine", () => {
+        let withChrome: Kernel;
+        let root2: string;
+        beforeEach(async () => {
+          root2 = mkdtempSync(join(tmpdir(), "kos-api-chrome-"));
+          // Its own browser for the web is never started here; the check's Chrome is found as on any host.
+          withChrome = await Kernel.boot({ rootDir: root2, secrets: new SecretsRegistry(), inference: stub, chrome: { port: 1 } });
+          withChrome.manifest.createProject({ name: "Shelf", type: "tracker" });
+          withChrome.migrator.migrate("shelf", { op: "create_table", table: "books", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "title", type: "TEXT" }] });
+          withChrome.workspace.db.exec("INSERT INTO shelf_books (title) VALUES ('Dune')");
+          withChrome.pages.writeHtml("shelf", { id: "reader", title: "Reader", html: '<h1>Reader</h1><p id="out">-</p><script>kos.query("SELECT title FROM shelf_books").then(function(r){out.textContent=r.rows[0].title})</script>' });
+        });
+        afterEach(() => {
+          withChrome.close();
+          rmSync(root2, { recursive: true, force: true });
+        });
+
+        it("draws a page that reads, and freezes what it read into its HTML", async () => {
+          const res = await handleApiRequest(withChrome, { method: "GET", path: "/api/artifacts/reader/export", url: "/api/artifacts/reader/export?format=html" });
+          expect(res.status).toBe(200);
+          expect((res.body as Buffer).toString("utf8")).toContain("&quot;rows&quot;:[{&quot;title&quot;:&quot;Dune&quot;}]");
+        }, 60_000);
       });
 
       it("refuses what the kind has not, an unknown format, the trash, an older widget page and an unknown id", async () => {

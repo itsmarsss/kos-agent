@@ -666,6 +666,7 @@ export class Kernel {
     chrome?: Pick<ChromeOptions, "port" | "exists" | "spawn">;
   }) {
     this.workspace = args.workspace;
+    this.chromeExists = args.chrome?.exists;
     this.restartHost = args.restart;
     this.discord = args.discord;
     this.progress.subscribe((event) => {
@@ -4327,6 +4328,8 @@ export class Kernel {
     return got?.kind === "html" ? { page: got.page, title: got.record.title } : undefined;
   }
 
+  /** How the host finds a Chrome to run, when it was told; the check's Chrome finds one the same way. */
+  private readonly chromeExists: ((path: string) => boolean) | undefined;
   private artifactChecker?: ArtifactChecker;
   /** artifacts.check's renderer: a headless Chrome of its own, started on first use and closed when idle. */
   get checker(): ArtifactChecker {
@@ -4334,6 +4337,8 @@ export class Kernel {
       load: (id) => this.htmlArtifact(id),
       call: (id, verb, args) => this.artifactCall(id, verb, args),
       captures: (id) => this.pages.capturesDir(id),
+      // The host's own finder for Chrome, so a host told there is none (a test) starts none here either.
+      ...(this.chromeExists ? { exists: this.chromeExists } : {}),
     });
     return this.artifactChecker;
   }

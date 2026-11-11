@@ -83,8 +83,13 @@ const KNOWN_BINARIES = [
   "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
 ];
 
-/** A Chrome to run: the one named, else the first known one that exists. */
+/**
+ * A Chrome to run: the one named, else the first known one that exists.
+ * KOS_CHROME=none finds none, as a machine without Chrome would (CI, or a
+ * run of the tests that checks KOS behaves without one).
+ */
 export function findChrome(preferred: string | undefined, exists: (p: string) => boolean = existsSync): string | undefined {
+  if (process.env.KOS_CHROME === "none") return undefined;
   if (preferred && exists(preferred)) return preferred;
   return KNOWN_BINARIES.find((p) => exists(p));
 }

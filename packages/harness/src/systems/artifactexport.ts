@@ -77,6 +77,14 @@ export interface ExportOptions {
 /** An export the artifact cannot give: the kind has no such format, or the tab is not there. */
 export class ExportRefusal extends Error {}
 
+/** An export this machine cannot make now: the dashboard's build or KOS's Chrome is not here. Said in words, as a 503. */
+export class ExportUnavailable extends ExportRefusal {}
+
+/** What the build's absence is called, by loadAssets and a missing runtime alike. */
+const NO_BUILD = /the dashboard's build has no/;
+/** What ChromeHost says when it finds no Chrome to start. */
+const NO_CHROME = /no Chrome found/;
+
 export interface ExporterOptions {
   load: (id: string) => { page: HtmlPage; title: string } | undefined;
   /** A window.kos read (query or file), answered as the dashboard's server answers one. */
@@ -219,7 +227,7 @@ function faces(page: HtmlPage, assets: FrameAssets): string {
 export function exportDocument({ page, title, mode, assets, answers }: ExportDocumentInput): string {
   const libraries = artifactAssets(page).scripts.map((name) => {
     const code = assets.script(name);
-    if (code === undefined) throw new Error(`the dashboard's build has no ${name}; build the UI so KOS can export artifacts`);
+    if (code === undefined) throw new ExportUnavailable(`KOS's dashboard build is not on this machine (it has no ${name}), so it cannot export this artifact as HTML or PDF; build the UI (pnpm --dir packages/ui run build)`);
     return code;
   });
   const { head, body } = splitHtml(page.html);
@@ -349,7 +357,7 @@ export class ArtifactExporter {
     if (tab !== undefined && format !== "csv") throw new ExportRefusal("only a sheet's CSV takes a tab");
     if (format === "md") return { body: Buffer.from(docMarkdown(page.html), "utf8"), type: "text/markdown; charset=utf-8", name: exportName(title, "md") };
     if (format === "csv") return this.csv(id, page, title, tab);
-    const assets = loadAssets((this.options.pageLib ?? defaultPageLib)());
+    const assets = this.assets();
     if (format === "html") {
       const answers = reads(page) ? (await this.inChrome((cdp, job) => this.draw(cdp, job, id, page, theme, assets, false))).answers : {};
       const html = savedFile(exportDocument({ page: { ...page, html: withoutExits(page.html) }, title, mode: theme, assets, answers }), title, theme, assets.tokens[theme]["--bg"] ?? "transparent");
@@ -360,6 +368,16 @@ export class ArtifactExporter {
       return this.print(cdp, job, kind, snapshot!, assets.tokens[theme]);
     });
     return { body: pdf, type: "application/pdf", name: exportName(title, "pdf") };
+  }
+
+  /** The dashboard's build of the frame, or a refusal in words where this machine has none. */
+  private assets(): FrameAssets {
+    try {
+      return loadAssets((this.options.pageLib ?? defaultPageLib)());
+    } catch (err) {
+      if (NO_BUILD.test(String(err))) throw new ExportUnavailable("KOS's dashboard build is not on this machine, so it cannot export this artifact as HTML or PDF; build the UI (pnpm --dir packages/ui run build)");
+      throw err;
+    }
   }
 
   private async csv(id: string, page: HtmlPage, title: string, tab: string | undefined): Promise<ExportFile> {
@@ -401,6 +419,7 @@ export class ArtifactExporter {
       job.start(browser);
       return work(browser.cdp, job);
     }).catch((err: unknown) => {
+      if (NO_CHROME.test(String(err))) throw new ExportUnavailable("KOS's Chrome is not available on this machine, so it cannot draw this artifact to export it; install Chrome, or export a doc as Markdown or a sheet as CSV");
       // The Chrome went from under the work (a crash, a stop): said in words, and the next export starts a fresh one.
       if (!job.aborted && (job.browserGone || BROWSER_GONE.test(String(err)))) throw new ExportRefusal("KOS's Chrome stopped while it drew the artifact, so there is nothing to export; try again");
       throw err;

@@ -37,6 +37,18 @@ describe("finding and starting Chrome", () => {
     expect(chromeArgs({ port: 9225, profileDir: "/w", headed: true })[0]).not.toBe("--headless=new");
   });
 
+  it("finds none when told there is none, as a machine without Chrome would", () => {
+    const before = process.env.KOS_CHROME;
+    process.env.KOS_CHROME = "none";
+    try {
+      expect(findChrome("/x/chrome", () => true)).toBeUndefined();
+    } finally {
+      if (before === undefined) delete process.env.KOS_CHROME;
+      else process.env.KOS_CHROME = before;
+    }
+    expect(findChrome("/x/chrome", () => true)).toBe("/x/chrome");
+  });
+
   it("cuts a sealed Chrome off at its resolver and proxy, but its own loopback ports, and leaves the web browser's network alone", () => {
     const sealed = chromeArgs({ port: 9225, profileDir: "/w", sealed: { loopback: [4100, 4101] } });
     expect(sealed).toContain("--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1");

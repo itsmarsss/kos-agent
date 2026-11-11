@@ -198,6 +198,8 @@ export interface CheckerOptions {
   pageLib?: () => string;
   /** A Chrome binary to use instead of the first one found. */
   chrome?: () => string | undefined;
+  /** Whether a path is a Chrome to run: the host's own finder, which a test points at none. */
+  exists?: (path: string) => boolean;
   /** The longest one job may hold the Chrome; JOB_MS unless a test says less. */
   jobMs?: number;
 }
@@ -384,6 +386,7 @@ export class ArtifactChecker {
     this.chrome = new ChromeHost({
       port: await freePort(),
       profileDir: this.profile,
+      ...(this.options.exists ? { exists: this.options.exists } : {}),
       launch: () => ({ ...(binary ? { binary } : {}), windowSize: { width: 1280, height: 800 }, sealed: { loopback: [loopback] } }),
     });
     const url = await this.chrome.ensure();

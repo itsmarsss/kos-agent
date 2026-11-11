@@ -13,7 +13,7 @@ import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 import { DREAM_JOB, MEMORY_JOB, OBSERVE_JOB } from "../memory/job.js";
 import { runDisplayQuery } from "../systems/display.js";
 import type { Headline } from "../systems/headlines.js";
-import { ExportRefusal } from "../systems/artifactexport.js";
+import { ExportRefusal, ExportUnavailable } from "../systems/artifactexport.js";
 import { BridgeRefusal } from "../systems/pagebridge.js";
 import { ArtifactTrashed, EditConflict, type PageStore } from "../systems/pages.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
@@ -1582,7 +1582,7 @@ export async function handleApiRequest(
       void kernel.audit.record({ tool: "artifact.export", args, result: `${file.name}, ${file.body.byteLength} bytes`, isError: false, userId: kernel.profile.ownerId });
       return { status: 200, body: file.body, headers };
     } catch (err) {
-      return refuse(err instanceof ExportRefusal ? 400 : 500, err instanceof Error ? err.message : String(err));
+      return refuse(err instanceof ExportUnavailable ? 503 : err instanceof ExportRefusal ? 400 : 500, err instanceof Error ? err.message : String(err));
     }
   }
   const artifactRoute = /^\/api\/artifacts\/([^/]+)\/(thumb|check)$/.exec(path);

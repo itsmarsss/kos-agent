@@ -211,6 +211,13 @@ older widget page, and a format the kind does not have. The name is the
 title's (`exportName`), sent as `Content-Disposition` in ASCII and in full
 UTF-8. Each export, and each refusal, is kept in the audit log as
 `artifact.export`. The work is `ArtifactExporter` (`systems/artifactexport.ts`).
+Markdown and CSV need nothing but the server. HTML and PDF need the
+dashboard's build (the runtimes they inline); a PDF, and the HTML of an
+artifact that reads (a page, a sheet with a source tab), need KOS's Chrome
+too. Where this machine has either missing, the export is refused in words
+with a 503 ("KOS's Chrome is not available on this machine, so …"), not
+failed; a doc's HTML needs no Chrome. `KOS_CHROME=none` makes KOS find no
+Chrome, as on a machine without one.
 
 - **Held as on the dashboard.** What the agent wrote may try to send what
   it reads somewhere, by names no write-time check sees
