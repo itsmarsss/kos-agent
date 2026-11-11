@@ -53,6 +53,7 @@ export const SHEET_CSS = String.raw`
 .sheet-panel, .sheet-rowbar { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md, 10px); background: var(--panel); font-size: 13px; color: var(--text); }
 /* Never taller than a share of the view, so a short window keeps rows of its grid in sight; what is past it scrolls in the panel. */
 .sheet-panel { max-height: min(45vh, 460px); overflow: auto; overscroll-behavior: contain; flex-shrink: 0; }
+.sheet-panel > * { flex-shrink: 0; }
 .sheet-panel.danger { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
 .sheet-panel p { margin: 0; }
 .sheet-panel-notes { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
