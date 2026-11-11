@@ -904,7 +904,7 @@ export function App(): React.ReactElement {
           id={route.id}
           initial={activePage}
           projects={projects}
-          backLabel={owner ? "← Projects" : "← Home"}
+          backTo={owner ? "Projects" : "Home"}
           onBack={() => go(back)}
           onOpenChat={(owner) => void chatOf(owner).then(go)}
           onOpenOwner={(owner) => void chatOf(owner).then(go)}

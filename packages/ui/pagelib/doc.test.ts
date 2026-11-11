@@ -83,7 +83,7 @@ describe("kos-doc", () => {
   /** What the doc told the dashboard about its editing, last first. */
   const states = (spy: ReturnType<typeof vi.spyOn>): { editing: boolean; pending: boolean; status: string }[] =>
     spy.mock.calls.map((c) => c[0] as { __kos?: string }).filter((m): m is never => m.__kos === "edit").reverse();
-  /** The dashboard's edit bar, pressed. */
+  /** The viewer's head, pressed. */
   const press = (action: string): void => void window.dispatchEvent(new MessageEvent("message", { source: window, data: { __kos: "edit-do", action } }));
 
   it("offers editing to the dashboard only with kos.save, and not when locked", () => {
@@ -111,7 +111,16 @@ describe("kos-doc", () => {
 
     press("edit");
     expect(article.getAttribute("contenteditable")).toBe("true");
-    expect(article.querySelector(".fn-ref")).toBeNull();
+    // Laid out as it reads: the notes keep their numbers, never typed into, and the list at the end stays.
+    const refs = [...article.querySelectorAll(".fn-ref")];
+    expect(refs.map((r) => r.getAttribute("contenteditable"))).toEqual(["false", "false"]);
+    expect(document.querySelector(".doc-notes")).not.toBeNull();
+    // A number opens its note in the line to edit, and closes it again.
+    const note = article.querySelector(".fn")!;
+    (refs[0] as HTMLElement).click();
+    expect(note.classList.contains("fn-shown")).toBe(true);
+    (refs[0] as HTMLElement).click();
+    expect(note.classList.contains("fn-shown")).toBe(false);
     expect(states(told)[0]).toMatchObject({ editing: true });
     // Done with nothing changed saves nothing.
     press("done");
@@ -128,11 +137,26 @@ describe("kos-doc", () => {
     expect(sent.doc).toContain("<h1>Garden plan, revised</h1>");
     expect(sent.doc).toContain('<span class="fn">Each 1.2 m by 3 m.</span>');
     expect(sent.doc).not.toContain("data-kos-gen");
+    expect(sent.doc).not.toContain("fn-shown");
+    expect(sent.doc).not.toContain("contenteditable");
     await vi.waitFor(() => expect(article.hasAttribute("contenteditable")).toBe(false));
     expect(states(told)[0]).toMatchObject({ editing: false, pending: false });
     expect(states(told).some((s) => s.status === "Saved")).toBe(true);
     expect(article.querySelectorAll(".fn-ref")).toHaveLength(2);
     told.mockRestore();
+  });
+
+  it("numbers its notes again on leaving when a number was deleted, though the saved text is the same", async () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn().mockResolvedValue({ version: 2 }) };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const article = mount(ARTICLE);
+    startDoc();
+    press("edit");
+    article.querySelector(".fn-ref")!.remove();
+    article.dispatchEvent(new InputEvent("input", { inputType: "deleteContentBackward" }));
+    press("done");
+    await vi.waitFor(() => expect(article.hasAttribute("contenteditable")).toBe(false));
+    expect(article.querySelectorAll(".fn-ref")).toHaveLength(2);
   });
 
   it("saves on its own a moment after the owner stops typing, and Done just after a save waits out the gap rather than being refused", async () => {
