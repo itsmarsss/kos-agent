@@ -160,6 +160,8 @@ describe("the presenter view", () => {
     open.mockReturnValue(again as unknown as Window);
     fireEvent.click(within(view).getByRole("button", { name: "Open audience window" }));
     expect(String(open.mock.calls[0]![0])).toMatch(/#\/audience\/pitch\/0123456789abcdef01234567$/);
+    // The audience window keeps no way back into this one.
+    expect((again as { opener?: unknown }).opener).toBeNull();
     expect(within(view).getByText("Opening the audience window")).toBeTruthy();
     // The owner closes it: there is no event for that, so the presenter looks.
     again.closed = true;

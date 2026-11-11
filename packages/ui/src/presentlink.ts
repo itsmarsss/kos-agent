@@ -86,5 +86,8 @@ export function audienceRoute(hash: string): { id: string; session: string } | u
  */
 export function openAudience(id: string, session: string): Window | null {
   const url = `${location.origin}${location.pathname}${audienceHash(id, session)}`;
-  return window.open(url, `kos-audience-${session}`, "popup,width=1280,height=760");
+  const audience = window.open(url, `kos-audience-${session}`, "popup,width=1280,height=760");
+  // It hears the presenter over the channel alone: it holds no way back into this window.
+  if (audience) audience.opener = null;
+  return audience;
 }
