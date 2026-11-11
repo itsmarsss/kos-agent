@@ -319,6 +319,19 @@ describe("dates", () => {
     expect(at("=A1>DATE(2026,1,1)", [["2026-06-01"]], "date")).toBe(true);
   });
 
+  it("counts dates in a range as their serials: the least, the most, a median and a count", () => {
+    const dates = [["2026-01-10"], ["2026-03-01"], ["2026-02-01"]];
+    expect(formatValue(at("=MIN(A1:A3)", dates, "date"), { label: "d", type: "date" })).toBe("Jan 10, 2026");
+    expect(formatValue(at("=MAX(A1:A3)", dates, "date"), { label: "d", type: "date" })).toBe("Mar 1, 2026");
+    expect(formatValue(at("=MEDIAN(A1:A3)", dates, "date"), { label: "d", type: "date" })).toBe("Feb 1, 2026");
+    expect(at("=COUNT(A1:A3)", dates, "date")).toBe(3);
+    expect(at("=MAX(A1:A3)-MIN(A1:A3)", dates, "date")).toBe(50);
+    expect(formatValue(aggregate("max", ["2026-01-10", "2026-03-01", null]), { label: "d", type: "date" })).toBe("Mar 1, 2026");
+    expect(formatValue(aggregate("min", [null, ""]), { label: "d", type: "date" })).toBe("");
+    // Text that is not a date stays out, as before.
+    expect(aggregate("sum", ["x", 2, "2026-01-01"])).toBe(2 + 46023);
+  });
+
   it("counts whole units between dates with DATEDIF", () => {
     const span = (a: string, b: string, unit: string): Value => at(`=DATEDIF(A1,B1,"${unit}")`, [[a, b]], "date");
     expect(span("2020-05-15", "2026-11-11", "Y")).toBe(6);

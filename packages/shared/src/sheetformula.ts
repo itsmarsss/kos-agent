@@ -420,11 +420,14 @@ export function meets(v: Value, criterion: Value): boolean {
   return compare(v, criterion) === 0;
 }
 
-/** A column's values folded into one: sum, average, min, max or count. */
+/** A value a range's arithmetic counts: a number, or a date's ISO text as its serial, as a spreadsheet keeps a date; undefined for anything else. */
+const figureOf = (v: Value): number | undefined => (typeof v === "number" ? v : typeof v === "string" ? isoSerial(v) : undefined);
+
+/** A column's values folded into one: sum, average, min, max or count. Dates count as their serials, so a date column's least and most are its first and last days. */
 export function aggregate(fn: SheetAggregate, values: readonly Value[]): Value {
   const firstError = values.find(isError);
   if (firstError && fn !== "count") return firstError;
-  const nums = values.filter((v): v is number => typeof v === "number");
+  const nums = values.map(figureOf).filter((v): v is number => v !== undefined);
   switch (fn) {
     case "count":
       return values.filter((v) => v !== null && v !== "" && !isError(v)).length;
@@ -841,7 +844,8 @@ export class Workbook {
         if (Array.isArray(a)) {
           for (const v of a) {
             if (isError(v)) return v;
-            if (typeof v === "number") out.push(v);
+            const n = figureOf(v);
+            if (n !== undefined) out.push(n);
           }
         } else {
           const n = toNumber(a);
@@ -880,7 +884,7 @@ export class Workbook {
         return name === "MIN" ? Math.min(...ns) : Math.max(...ns);
       }
       case "COUNT":
-        return flat(args()).filter((v) => typeof v === "number").length;
+        return flat(args()).filter((v) => figureOf(v) !== undefined).length;
       case "COUNTA":
         return flat(args()).filter((v) => v !== null && v !== "").length;
       case "ROUND":
@@ -930,7 +934,8 @@ export class Workbook {
           if (!meets(v, crit)) return;
           count += 1;
           const s = over[i];
-          if (typeof s === "number") picked.push(s);
+          const n = s === undefined ? undefined : figureOf(s);
+          if (n !== undefined) picked.push(n);
         });
         if (name === "COUNTIF") return count;
         if (name === "SUMIF") return picked.reduce((a, b) => a + b, 0);
@@ -1174,8 +1179,9 @@ export function formatValue(v: Value, column: SheetColumn | undefined): string {
       case "number":
         return d === undefined ? nf("n", { maximumFractionDigits: 2 }).format(v) : nf(`n:${d}`, { minimumFractionDigits: d, maximumFractionDigits: d }).format(v);
       case "date":
-        // A serial, as date arithmetic leaves one: shown as the day it is.
-        return Number.isFinite(v) && v >= 0 ? formatValue(isoOf(v), column) : String(v);
+        // A serial, as date arithmetic leaves one: shown as the day it is; day 0 is no date (an empty column's least or most), so nothing.
+        if (v === 0) return "";
+        return Number.isFinite(v) && v > 0 ? formatValue(isoOf(v), column) : String(v);
       default:
         return Number.isInteger(v) ? String(v) : nf("n", { maximumFractionDigits: 4 }).format(v);
     }
