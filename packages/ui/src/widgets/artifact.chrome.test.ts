@@ -411,6 +411,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       ["/own-gradient", `<style>body{background:linear-gradient(#0c0e12, #1a2030)}</style><h1>Gradient</h1>${report()}`, OWN],
       ["/own-html", `<style>html{background:#f2efe6}body{background:transparent}</style><h1>Its html</h1>${report()}`, OWN],
       // Changed after it loads, by a class on the body or a theme callback: heard again.
+      ["/own-breathing", `<style>@keyframes breathe{50%{opacity:.96}}body{background:#f2efe6;animation:breathe 4s infinite}</style><h1>Breathing</h1>${report()}`, OWN],
       ["/own-later", `<style>.paper{background:#f2efe6}</style><h1>Later</h1>${report("document.body.classList.add('paper')")}`, OWN],
       // A ground that fades with the theme is read once it settles: KOS's still, after a flip mid-fade.
       ["/kos-fading", `<style>body{transition:background-color .25s}</style><h1>Fading</h1>${report("const s = document.getElementById('kos-tokens'), r = s.textContent; s.textContent = r.replace(/--bg:[^;}]+/, '--bg:#f4f5f8'); dispatchEvent(new MessageEvent('message', { data: { __kos: 'theme', mode: 'light', rule: s.textContent }, source: top })); setTimeout(() => dispatchEvent(new MessageEvent('message', { data: { __kos: 'theme', mode: 'dark', rule: r }, source: top })), 100)")}`, KOS],

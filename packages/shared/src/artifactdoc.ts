@@ -212,7 +212,7 @@ Element.prototype.scrollIntoView=function(o){if(inner())into.call(this,o);reveal
 ${colourOf.toString()}
 var grounded=0;
 function ground(){var b=document.body,t=/--bg:([^;}]+)/.exec((document.getElementById("kos-tokens")||{}).textContent||"");if(!b||!t)return;
-var moving=[b,root].reduce(function(all,n){return all.concat(n.getAnimations?n.getAnimations().filter(function(x){return x.playState==="running"}):[])},[]);
+var moving=[b,root].reduce(function(all,n){return all.concat(n.getAnimations?n.getAnimations().filter(function(x){return x.playState==="running"&&!!x.effect&&x.effect.getComputedTiming().endTime!==Infinity}):[])},[]);
 if(moving.length){Promise.all(moving.map(function(x){return x.finished.catch(function(){})})).then(reground);return}
 var bs=getComputedStyle(b),hs=getComputedStyle(root),own=bs.backgroundImage!=="none"||hs.backgroundImage!=="none";
 if(!own){var c=colourOf(bs.backgroundColor);if(!c||c[3]===0)c=colourOf(hs.backgroundColor);var k=colourOf(t[1].trim());own=!!c&&!!k&&c[3]>0&&Math.max(Math.abs(c[0]-k[0]),Math.abs(c[1]-k[1]),Math.abs(c[2]-k[2]))>2}
