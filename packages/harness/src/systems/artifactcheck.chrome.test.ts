@@ -98,6 +98,9 @@ const PLANTED: Record<string, { html: string; expect: Finding["kind"] }> = {
   bars: { html: `<h1>Bars</h1>${["Housing", "Groceries"].map((c) => `<p>${c}</p><div style="height:8px;background:var(--panel-2)"><span style="width:60%;background:var(--accent)"></span></div>`).join("")}`, expect: "bars" },
   meters: { html: `<h1>Meters</h1><p>Housing</p><div class="meter" style="--value: 60%"></div><p>Groceries</p><div class="meter"><div style="width:30%"></div></div><p>Fun</p><div class="meter"><div style="width:0%"></div></div>`, expect: "none" as never },
   ground: { html: `<style>body{background:var(--panel-2)}</style><h1>Ground</h1><p>A slab of its own.</p>`, expect: "ground" },
+  // Colours a browser computes outside rgb(): read as they draw, not as white or black.
+  "oklch ground": { html: `<style>body{background:oklch(0.62 0.12 40)}</style><h1>Oklch</h1><p>A slab of its own.</p>`, expect: "ground" },
+  "mixed kos ground": { html: `<style>body{background:color-mix(in srgb, var(--bg) 100%, transparent)}</style><h1>Mixed</h1><p>KOS's ground, mixed.</p>`, expect: "none" as never },
 };
 
 const chrome = findChrome(undefined);
@@ -156,6 +159,7 @@ describe.skipIf(!chrome)("artifacts.check in Chrome", () => {
     if (planted.expect === "bridge") expect(report.findings.find((f) => f.kind === "bridge")?.text).toMatch(/kos\.query: the query cannot run here/);
     if (planted.expect === "console") expect(report.findings.some((f) => /the chart had no data/.test(f.text))).toBe(true);
     if (planted.expect === "empty") expect(report.findings.find((f) => f.kind === "empty")?.text).toMatch(/div\.chart/);
+    if (id === "oklch ground") expect(report.findings.find((f) => f.kind === "ground")?.text).not.toMatch(/rgb\((0, 0, 0|255, 255, 255)\)/);
     if (["inverted", "boxes", "figures", "ground", "bars"].includes(planted.expect)) {
       expect(report.findings.find((f) => f.kind === planted.expect)?.small).toBe(true);
       expect(reportWords(report)).toContain(`[${planted.expect}, small]`);

@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { CdpClient, ChromeHost, probeArtifact, type CdpEvent, type CdpSocket, type ProbeResult } from "@kos/browser";
 import { WebSocket } from "ws";
 
-import { artifactAssets, fontById, fontFaceCss, fontStackVars, pageDocument, wrapperDocument, type HtmlPage } from "@kos/shared";
+import { artifactAssets, colourOf, fontById, fontFaceCss, fontStackVars, pageDocument, wrapperDocument, type HtmlPage } from "@kos/shared";
 
 import type { ToolOutput } from "../agent/registry.js";
 
@@ -482,7 +482,7 @@ export class ArtifactChecker {
         .catch(() => undefined)) as { result?: { value?: unknown } } | undefined;
       if (is?.result?.value !== true) continue;
       // A bundler may wrap functions in a naming helper; the frame has none, so it is given one.
-      const expression = `(function(){var __name=function(f){return f};return (${probeArtifact.toString()})()})()`;
+      const expression = `(function(){var __name=function(f){return f};return (${probeArtifact.toString()})(${colourOf.toString()})})()`;
       const out = (await cdp.send("Runtime.evaluate", { expression, contextId: c.id, returnByValue: true }, c.sessionId)) as {
         result: { value?: ProbeResult };
         exceptionDetails?: { text?: string; exception?: { description?: string } };

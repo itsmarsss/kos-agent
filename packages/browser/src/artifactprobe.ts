@@ -53,8 +53,15 @@ export interface ProbeResult {
   emptyBars: string[];
 }
 
-/** The function serialised into the frame; it must not close over anything. */
-export function probe(): ProbeResult {
+import type { Rgba } from "@kos/shared";
+
+/**
+ * The function serialised into the frame; it must not close over anything.
+ * It is handed @kos/shared's colourOf, serialised beside it, so every colour
+ * a browser computes (oklch, color-mix, hsl) is read the same way the bridge
+ * reads a page's ground.
+ */
+export function probe(colourOf: (css: string) => Rgba | undefined): ProbeResult {
   const view = { width: document.documentElement.clientWidth, height: window.innerHeight };
   const named = (el: Element): string => {
     const id = el.id ? `#${el.id}` : "";
@@ -74,12 +81,7 @@ export function probe(): ProbeResult {
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
   };
-  const rgba = (c: string): [number, number, number, number] | undefined => {
-    const m = /rgba?\(([^)]+)\)/.exec(c);
-    if (!m) return undefined;
-    const p = m[1]!.split(/[\s,/]+/).filter(Boolean).map(Number);
-    return [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0, p[3] ?? 1];
-  };
+  const rgba = (c: string): Rgba | undefined => colourOf(c);
   const over = (top: [number, number, number, number], base: [number, number, number]): [number, number, number] => [
     top[0] * top[3] + base[0] * (1 - top[3]),
     top[1] * top[3] + base[1] * (1 - top[3]),
@@ -292,13 +294,9 @@ export function probe(): ProbeResult {
     for (let n = el.parentElement; n; n = n.parentElement) if (boxes.has(n)) depth += 1;
     wrappers.push({ name: named(el), depth });
   }
-  const kosBg = /--bg:([^;}]+)/.exec(document.getElementById("kos-tokens")?.textContent ?? "")?.[1];
-  const probeEl = document.createElement("span");
-  probeEl.style.backgroundColor = kosBg ?? "";
-  document.body.append(probeEl);
-  const kosGround = getComputedStyle(probeEl).backgroundColor;
-  probeEl.remove();
+  const kosBg = colourOf(/--bg:([^;}]+)/.exec(document.getElementById("kos-tokens")?.textContent ?? "")?.[1]?.trim() ?? "");
   const bodyGround = behindOf(document.body);
+  const rgb = (c: number[]): string => `rgb(${c.slice(0, 3).map(Math.round).join(", ")})`;
 
   // The element that pushes past the edge, not every child it carries along.
   const overflow = [...wide].filter((el) => !el.parentElement || !wide.has(el.parentElement)).map((el) => ({ name: named(el), right: Math.round(el.getBoundingClientRect().right) }));
@@ -317,7 +315,7 @@ export function probe(): ProbeResult {
     formulaErrors,
     clipped,
     overlaps,
-    ground: { kos: kosBg ? kosGround : "", body: bodyGround ? `rgb(${bodyGround.map(Math.round).join(", ")})` : "" },
+    ground: { kos: kosBg ? rgb(kosBg) : "", body: bodyGround ? rgb(bodyGround) : "" },
     // The outermost of each: a slide inside a dark stage is one finding.
     inverted: inverted.filter((e, i) => !inverted.some((o, j) => j < i && e.name !== o.name && o.width >= e.width && o.height >= e.height)).slice(0, 4),
     wrappers: wrappers.slice(0, 12),
