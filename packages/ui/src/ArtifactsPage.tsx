@@ -11,6 +11,8 @@ import type { Route } from "./routes.js";
 import { Select } from "./Select.js";
 import { ArtifactHead, ArtifactMenu, type MenuItem } from "./ArtifactHead.js";
 import { TrashNotice, useArtifactOps, type ArtifactChange } from "./ArtifactManage.js";
+import { DeckPresenter } from "./DeckPresenter.js";
+import { openAudience, presentSession } from "./presentlink.js";
 import { hrefFor } from "./routes.js";
 import { ArtifactPage, type ArtifactHandle, type DeckView, type EditState } from "./widgets/ArtifactPage.js";
 
@@ -514,6 +516,8 @@ export function ArtifactViewer({
   // The frame's own controls, drawn in the head: a doc's editing, a deck's place.
   const [edit, setEdit] = useState<EditState>();
   const [deck, setDeck] = useState<DeckView>();
+  // The presenter view, while it is open: its presentation's name, the audience window it opened, and where it began.
+  const [presenter, setPresenter] = useState<{ session: string; audience: Window | null; start: number; count: number }>();
   // The newest version as saved, read when a restore is sent: the doc's own save just before it is the version it is made on.
   const latest = useRef<PageSummary | undefined>(undefined);
   const saved = (r: PageSummary): void => {
@@ -578,6 +582,12 @@ export function ArtifactViewer({
     onOpenChat({ project: record.projectSlug });
   };
 
+  /** The presenter view, from the owner's press: the audience window opens in the same press, or the browser blocks it. */
+  const presentNotes = (artifact: string, at: DeckView): void => {
+    const session = presentSession();
+    setPresenter({ session, audience: openAudience(artifact, session), start: at.index, count: at.count });
+  };
+
   const ask = (): void => {
     if (!record || !words.trim()) return;
     void api.message(editRequest(words, record), chatIdOf(whose)).catch(() => undefined);
@@ -604,6 +614,7 @@ export function ArtifactViewer({
           asking={asking}
           manage={manage}
           {...(record.artifactKind === "deck" && !older ? { onPresent: () => frame.current?.present() } : {})}
+          {...(record.artifactKind === "deck" && page && deck && !deck.reading && !preview && !trashed ? { onPresentNotes: () => presentNotes(record.id, deck) } : {})}
           {...(edit ? { edit } : {})}
           onEdit={(action) => frame.current?.edit(action)}
           {...(deck ? { deck } : {})}
@@ -684,6 +695,17 @@ export function ArtifactViewer({
       {record && page && !preview && trashed && <ArtifactPage key="trashed" ref={frame} record={record} page={page} locked onDeck={setDeck} cover={head} />}
       {record && page && !preview && !trashed && (
         <ArtifactPage ref={frame} record={record} page={page} onSaved={saved} onReload={() => void load().catch(failed)} onEdit={setEdit} onDeck={setDeck} cover={head} />
+      )}
+      {presenter && record && page && (
+        <DeckPresenter
+          record={record}
+          page={page}
+          {...presenter}
+          onEnd={(index) => {
+            setPresenter(undefined);
+            frame.current?.go(index);
+          }}
+        />
       )}
       {!record && !error && (
         <div className="artifact-view-loading" aria-busy="true" aria-label="Loading the artifact">

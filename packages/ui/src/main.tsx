@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { domMax, LazyMotion, MotionConfig } from "motion/react";
 
 import { App } from "./App.js";
+import { AudienceWindow } from "./AudienceWindow.js";
+import { audienceRoute } from "./presentlink.js";
 import { applyDensity, applyTheme, followOtherTabs, readDensity, readTheme } from "./theme.js";
 // The kit's pieces first, so the dashboard's own sheet says where a piece differs in its place; KaTeX's for typeset maths.
 import "@kos/kit/kit.css";
@@ -15,6 +17,8 @@ applyTheme(readTheme());
 applyDensity(readDensity());
 followOtherTabs();
 
+// A deck's audience window is the dashboard's own page, drawn alone: no shell, no nav, the slide.
+const audience = audienceRoute(window.location.hash);
 const root = document.getElementById("root");
 if (root) {
   createRoot(root).render(
@@ -31,7 +35,7 @@ if (root) {
       */}
       <LazyMotion features={domMax} strict>
         <MotionConfig reducedMotion="user">
-          <App />
+          {audience ? <AudienceWindow {...audience} /> : <App />}
         </MotionConfig>
       </LazyMotion>
     </StrictMode>,

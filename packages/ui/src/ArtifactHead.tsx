@@ -42,6 +42,8 @@ export interface ArtifactHeadProps {
   manage?: MenuItem[];
   /** Show it full screen: a deck presents. */
   onPresent?: () => void;
+  /** Present a deck with its notes: the presenter view here, the slide in an audience window. */
+  onPresentNotes?: () => void;
   edit?: EditState;
   onEdit: (action: EditTold["action"]) => void;
   deck?: DeckView;
@@ -60,6 +62,8 @@ export interface MenuItem {
   danger?: boolean;
   /** What cannot be undone asks once, beside the item (ConfirmButton), with these words. */
   confirm?: string;
+  /** Only where a presenter sits at a screen and keyboard: away on a narrow view and on a touch screen. */
+  desk?: boolean;
 }
 
 export function ArtifactHead(props: ArtifactHeadProps): ReactElement {
@@ -81,6 +85,7 @@ export function ArtifactHead(props: ArtifactHeadProps): ReactElement {
     if (canEdit) items.push({ label: "Edit", act: () => props.onEdit("edit"), narrow: true });
     if (steering) items.push({ label: "Notes", act: () => props.onDeck("notes"), narrow: true, pressed: deck.notes }, { label: "All slides", act: () => props.onDeck("grid"), narrow: true, pressed: deck.grid });
     if (props.onPresent) items.push({ label: "Present", act: props.onPresent, narrow: true });
+    if (props.onPresentNotes) items.push({ label: "Present with notes", act: props.onPresentNotes, desk: true });
     if (!trashed) items.push({ label: "History", act: props.onHistory, narrow: true });
     // A doc's Edit is the owner's own hand; asking KOS is the second way, so it waits in the menu.
     if (props.onAsk) items.push({ label: "Edit with KOS", act: props.onAsk, narrow: !canEdit });
@@ -247,7 +252,7 @@ export function ArtifactMenu({ about, items, label = "More", className }: { abou
             )}
             <div role="menu" aria-label={label} ref={list} {...(about ? { "aria-describedby": aboutId } : {})}>
               {items.map((item) => {
-                const cls = [item.narrow && "artifact-view-narrow", item.divided && "is-divided", item.danger && "is-danger"].filter(Boolean).join(" ") || undefined;
+                const cls = [item.narrow && "artifact-view-narrow", item.desk && "artifact-view-desk", item.divided && "is-divided", item.danger && "is-danger"].filter(Boolean).join(" ") || undefined;
                 const act = (): void => {
                   close(false);
                   item.act();
