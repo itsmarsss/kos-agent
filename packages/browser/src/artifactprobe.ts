@@ -49,6 +49,8 @@ export interface ProbeResult {
   wrappers: { name: string; depth: number }[];
   /** Big figures that say nothing: a placeholder (a dash, n/a), or a zero in a row of figures that all read zero. */
   blankFigures: { name: string; text: string }[];
+  /** A deck's slides whose brightness stands apart from the rest (an inverted title slide), by number, hidden slides included. */
+  oddSlides: { slide: number; name: string }[];
   /** Bars whose fill cannot draw: an inline fill (it ignores width), a fill given a width that draws none, a .meter with no --value. */
   emptyBars: string[];
 }
@@ -241,18 +243,23 @@ export function probe(colourOf: (css: string) => Rgba | undefined): ProbeResult 
     const text = (first?.textContent ?? "").trim();
     return !!first && text.length > 0 && text.length <= 60 && Number(getComputedStyle(first).fontWeight) >= 600;
   };
-  // One of a set of objects: with no heading of its own, an item or an article, or one of siblings alike laid side by side (a grid of cards).
-  const listed = (el: Element, r: DOMRect): boolean =>
-    !el.querySelector(HEADING) &&
-    (el.matches("li,article") ||
-    Array.from(el.parentElement?.children ?? []).some((sib) => {
-      if (sib === el || sib.tagName !== el.tagName || sib.className !== el.className) return false;
-      const o = sib.getBoundingClientRect();
-      return Math.abs(o.top - r.top) < 4;
-    }));
+  /*
+   * One of a set, not a section: an item or an article, or one of siblings
+   * alike laid side by side (a grid of cards), when it has no heading of its
+   * own; or, heading and all, one of a row of lanes alike that each hold
+   * cards of their own (a board's columns).
+   */
+  const boxes = new Set<Element>();
+  const holdsBoxes = (n: Element): boolean => [...boxes].some((b) => b !== n && n.contains(b));
+  const listed = (el: Element, r: DOMRect): boolean => {
+    const row = Array.from(el.parentElement?.children ?? []).filter(
+      (sib) => sib !== el && sib.tagName === el.tagName && sib.className === el.className && Math.abs(sib.getBoundingClientRect().top - r.top) < 4,
+    );
+    if (!el.querySelector(HEADING)) return el.matches("li,article") || row.length > 0;
+    return row.length > 0 && holdsBoxes(el) && row.every(holdsBoxes);
+  };
   const ringed = (s: CSSStyleDeclaration): boolean =>
     (["Top", "Right", "Bottom", "Left"] as const).every((side) => s[`border${side}Style`] !== "none" && parseFloat(s[`border${side}Width`]) > 0 && (rgba(s[`border${side}Color`])?.[3] ?? 0) > 0);
-  const boxes = new Set<Element>();
   for (const el of all) {
     if (el.closest("script,style,template,noscript,svg") || el.matches(MEDIA + ",table,thead,tbody,tr,td,th") || !visible(el)) continue;
     const s = getComputedStyle(el);
@@ -301,6 +308,16 @@ export function probe(colourOf: (css: string) => Rgba | undefined): ProbeResult 
     for (let n = el.parentElement; n; n = n.parentElement) if (boxes.has(n)) depth += 1;
     wrappers.push({ name: named(el), depth });
   }
+  // A deck's slides, every one: each slide's fill over the stage, against the brightness most slides share.
+  const slides = Array.from(document.querySelectorAll(".deck-slide > section"));
+  const stage = behindOf(document.body) ?? [255, 255, 255];
+  const slideLums = slides.map((sec) => {
+    const f = rgba(getComputedStyle(sec).backgroundColor);
+    return lum(f && f[3] > 0 ? over(f, stage) : stage);
+  });
+  const middle = [...slideLums].sort((a, b) => a - b)[Math.floor(slideLums.length / 2)] ?? 0;
+  const odd = slideLums.flatMap((l, i) => (Math.abs(l - middle) > 0.35 ? [{ slide: i + 1, name: named(slides[i]!).slice(0, 60) }] : []));
+  const oddSlides = slides.length >= 2 && odd.length * 2 < slides.length ? odd.slice(0, 4) : [];
   const kosBg = colourOf(/--bg:([^;}]+)/.exec(document.getElementById("kos-tokens")?.textContent ?? "")?.[1]?.trim() ?? "");
   const bodyGround = behindOf(document.body);
   const rgb = (c: number[]): string => `rgb(${c.slice(0, 3).map(Math.round).join(", ")})`;
@@ -328,5 +345,6 @@ export function probe(colourOf: (css: string) => Rgba | undefined): ProbeResult 
     wrappers: wrappers.slice(0, 12),
     blankFigures: blankFigures.slice(0, 8),
     emptyBars: emptyBars.slice(0, 4),
+    oddSlides,
   };
 }

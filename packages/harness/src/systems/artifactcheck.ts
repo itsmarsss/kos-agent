@@ -156,6 +156,7 @@ const GONE: ProbeResult = {
   wrappers: [],
   blankFigures: [],
   emptyBars: [],
+  oddSlides: [],
 };
 
 /**
@@ -549,6 +550,10 @@ export function findingsOf(renders: Render[], tokenPlan = false): Finding[] {
     if (blanks.length) {
       const list = blanks.slice(0, 4).map((f) => `${f.name} reads "${f.text}"`).join("; ");
       add("figures", "figures", `${blanks.length} big figure${blanks.length === 1 ? "" : "s"} say nothing at rest (${list}). Leave a figure out until it has a value, or say in a sentence what is missing; a row of zeros is noise.`, true);
+    }
+    // A deck holds its slides to one another even with a plan of its own: never invert the title slide.
+    for (const o of r.width === "desktop" ? p.oddSlides : []) {
+      add("inverted", `slide ${o.slide}`, `Slide ${o.slide} (${o.name}) is much brighter or darker than the deck's other slides in ${r.theme}: an inverted slide. Give every slide the same ground, the title slide too, and set it apart with type and space.`, true);
     }
     if (p.emptyBars.length) {
       add(
