@@ -340,8 +340,10 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       const viaFrame = `var said = { steps: [] }, step = (n, f) => { try { f(); said.steps.push(n) } catch (e) { said.steps.push(n + ":" + e.message.slice(0, 60)) } };
         step("html", () => document.body.insertAdjacentHTML("beforeend", "<iframe></iframe>"));
         step("make", () => document.body.appendChild(document.createElement("iframe")));
-        var f = document.querySelector("iframe"), w = null;
-        step("reach", () => { w = window[0] || (f && (f.contentWindow || (f.contentDocument && f.contentDocument.defaultView))) });
+        step("edit", () => { var d = document.createElement("div"); d.contentEditable = "true"; d.textContent = "x"; document.body.appendChild(d); d.focus(); getSelection().selectAllChildren(d); document.execCommand("insertHTML", false, "<iframe></iframe><object></object><embed>") });
+        step("design", () => { document.designMode = "on"; getSelection().selectAllChildren(document.body); document.execCommand("insertHTML", false, "<iframe></iframe>"); document.designMode = "off" });
+        var f = document.querySelector("iframe, object, embed"), w = null;
+        step("reach", () => { w = window[0] || frames[0] || (f && (f.contentWindow || (f.contentDocument && f.contentDocument.defaultView))) });
         said.realm = !!w; said.tt = typeof trustedTypes;
         step("rtc", () => { said.rtc = !!(w && w.RTCPeerConnection) });
         top.postMessage({ census: said }, "*");
@@ -358,6 +360,10 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       const said = JSON.parse(framed.said ?? "{}") as { steps: string[]; realm: boolean };
       expect(said.steps[0]).toMatch(/^html:A KOS page cannot make that markup/);
       expect(said.steps[1]).toMatch(/^make:A KOS page cannot make <iframe>/);
+      // Editing's insertHTML, which no policy covers, is held to the same refusal, in an editable element and in design mode.
+      expect(said.steps[2]).toMatch(/^edit:A KOS page cannot make that markup/);
+      expect(said.steps[3]).toMatch(/^design:A KOS page cannot make that markup/);
+      // So no frame is there for an index to reach (window[0], frames[0]) either.
       expect(said.realm).toBe(false);
       await pause(1000);
       expect(stun.packets).toEqual([]);

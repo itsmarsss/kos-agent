@@ -85,7 +85,9 @@ export const WRAPPER_CSP = `${PAGE_CSP}; frame-src about:`;
  *    policy, which refuses their markup, prefixed or not; where a browser
  *    has no Trusted Types, the same refusal is set on each of those sinks
  *    (innerHTML, outerHTML, insertAdjacentHTML, document.write, DOMParser,
- *    ranges, setHTMLUnsafe) instead, so the rest of the guard still runs;
+ *    ranges, setHTML, setHTMLUnsafe) instead, so the rest of the guard still
+ *    runs; and editing's insertHTML command, which no policy covers, is held
+ *    to the same refusal in every browser;
  *  - the factories (createElement, createElementNS, createDocument) refuse
  *    them by name;
  *  - and since a parser can still make one (an XML document's entities, a
@@ -124,8 +126,10 @@ var setOf=function(o,k){var d=o&&Object.getOwnPropertyDescriptor(o,k);if(!d||!d.
 var argOf=function(o,k,i){var f=o&&o[k];if(typeof f!=="function")return;fix(o,k,function(){var a=[];for(var j=0;j<arguments.length;j++)a[j]=arguments[j];if(i<0){for(var n=0;n<a.length;n++)a[n]=vet(a[n])}else a[i]=vet(a[i]);return R(f,this,a)})};
 setOf(Element.prototype,"innerHTML");setOf(Element.prototype,"outerHTML");if(typeof ShadowRoot==="function")setOf(ShadowRoot.prototype,"innerHTML");
 argOf(Element.prototype,"insertAdjacentHTML",1);argOf(Element.prototype,"setHTMLUnsafe",0);if(typeof ShadowRoot==="function")argOf(ShadowRoot.prototype,"setHTMLUnsafe",0);
-argOf(Document.prototype,"write",-1);argOf(Document.prototype,"writeln",-1);argOf(DOMParser.prototype,"parseFromString",0);argOf(Range.prototype,"createContextualFragment",0);argOf(Document,"parseHTMLUnsafe",0);
+argOf(Document.prototype,"write",-1);argOf(Document.prototype,"writeln",-1);argOf(DOMParser.prototype,"parseFromString",0);argOf(Range.prototype,"createContextualFragment",0);argOf(Document,"parseHTMLUnsafe",0);argOf(Element.prototype,"setHTML",0);
 }
+var command=Document.prototype.execCommand;
+if(typeof command==="function")fix(Document.prototype,"execCommand",function(c,u,v){var a=[];for(var j=0;j<arguments.length;j++)a[j]=arguments[j];if(R(lower,Str(c),[])==="inserthtml")a[2]=vet(v);return R(command,this,a)});
 var make=Document.prototype.createElement,makeNS=Document.prototype.createElementNS,makeDoc=DOMImplementation.prototype.createDocument;
 fix(Document.prototype,"createElement",function(n,o){n=Str(n);if(bad(n))refuse("<"+n+">");return R(make,this,[n,o])});
 fix(Document.prototype,"createElementNS",function(ns,n,o){n=Str(n);if(bad(n))refuse("<"+n+">");return R(makeNS,this,[ns,n,o])});
