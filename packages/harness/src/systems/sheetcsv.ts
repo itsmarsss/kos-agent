@@ -12,7 +12,8 @@ import { Workbook, isError, sourceQuery, sourceRows, type Value } from "@kos/sha
  * RFC 4180: CRLF between rows, a field quoted when it holds a comma, a quote
  * or a line break. A UTF-8 byte-order mark leads, without which Excel reads
  * the file in the machine's code page and mangles every accent. A text cell
- * that a spreadsheet would run as a formula (=, +, @, or - before a word) is
+ * that a spreadsheet would run as a formula (=, +, -, @, a tab or a return
+ * first, unless the cell is a plain number like -3) is
  * led by an apostrophe, OWASP's guard against CSV injection: a row a
  * stranger's email filled cannot become a formula on the owner's machine.
  */
@@ -20,7 +21,9 @@ import { Workbook, isError, sourceQuery, sourceRows, type Value } from "@kos/sha
 const BOM = "\uFEFF";
 
 /** What a spreadsheet would start a formula with, in a text cell. */
-const FORMULA_START = /^([=+@\t\r]|-(?![\d.]))/;
+const FORMULA_START = /^[=+\-@\t\r]/;
+/** A text cell that is a number and nothing else, which a spreadsheet reads as that number: the one start it is left. */
+const PLAIN_NUMBER = /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/;
 
 function field(v: Value): string {
   if (v === null) return "";
@@ -28,7 +31,7 @@ function field(v: Value): string {
   if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
   // Fifteen digits, as a spreadsheet holds them: 169.11, not the 169.10999999999999 a sum of floats leaves.
   if (typeof v === "number") return Number.isFinite(v) ? String(Number(v.toPrecision(15))) : "";
-  const text = FORMULA_START.test(v) ? `'${v}` : v;
+  const text = FORMULA_START.test(v) && !PLAIN_NUMBER.test(v) ? `'${v}` : v;
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 

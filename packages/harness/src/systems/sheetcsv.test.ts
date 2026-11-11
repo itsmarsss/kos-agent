@@ -47,6 +47,9 @@ describe("a sheet's tab as CSV", () => {
   it("guards text a spreadsheet would run, but leaves a negative number a number", () => {
     const book: SheetBook = { sheets: [{ name: "T", columns: [{ label: "a" }, { label: "b", type: "number" }], rows: [["+1 sum", -4], ["@me", "-3"], ["-x", true], ["a\nb", null]] }] };
     expect(lines(tabCsv(book, 0))).toEqual(["a,b", "'+1 sum,-4", "'@me,-3", "'-x,TRUE", '"a\nb",', ""]);
+    // A minus before anything but a plain number is a formula's start: the DDE payload, a signed sum.
+    const dde: SheetBook = { sheets: [{ name: "T", columns: [{ label: "a" }], rows: [["-2+3+cmd|' /C calc'!A0"], ["-1.5e3"], ["-3-1"], ["\tx"], ["-"]] }] };
+    expect(lines(tabCsv(dde, 0))).toEqual(["a", "'-2+3+cmd|' /C calc'!A0", "-1.5e3", "'-3-1", "'\tx", "'-", ""]);
   });
 
   it("reads a source tab's rows through the bridge, by its own query, in its column order", async () => {
