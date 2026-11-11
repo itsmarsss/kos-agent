@@ -62,6 +62,9 @@ export const EDIT_GAP_MS = 2000;
  */
 export class EditConflict extends Error {}
 
+/** A change asked of an artifact in the trash: it is left as it is until the owner restores it. */
+export class ArtifactTrashed extends Error {}
+
 /** A write's leave to move an artifact: the owner the caller checked it has now. Without it, a write keeps it where it is. */
 export interface SaveOptions {
   from?: PageOwner;
@@ -98,6 +101,8 @@ export interface PageRecord {
   blobId?: string;
   /** The blob that made it has been removed: it is kept, the owner's to look at, restore or delete. */
   blobRemoved?: true;
+  /** When the owner put it in the trash: kept as it is, out of every list, until restored or deleted for good. */
+  trashedAt?: number;
   title: string;
   path: string;
   updatedAt: number;
@@ -131,10 +136,11 @@ interface Row {
   blob_id: string | null;
   /** From blob_ids: when the owning blob was removed. */
   blob_removed: number | null;
+  trashed_at: number | null;
 }
 
 /** A row's columns, with whether its blob was removed. */
-const COLS = `p.id, p.project_slug, p.title, p.path, p.updated_at, p.kind, p.meta, p.blob, p.blob_id, b.removed_at AS blob_removed`;
+const COLS = `p.id, p.project_slug, p.title, p.path, p.updated_at, p.kind, p.meta, p.blob, p.blob_id, b.removed_at AS blob_removed, p.trashed_at`;
 const FROM = `pages p LEFT JOIN blob_ids b ON b.id = p.blob_id`;
 
 /** What an HTML page declares besides its markup, kept on its row. */
@@ -151,6 +157,7 @@ const recordOf = (r: Row): PageRecord => {
     id: r.id,
     projectSlug: r.project_slug === WORKSPACE ? null : r.project_slug,
     ...(r.blob && r.blob_id ? { blob: r.blob, blobId: r.blob_id, ...(r.blob_removed !== null ? { blobRemoved: true as const } : {}) } : {}),
+    ...(r.trashed_at !== null ? { trashedAt: r.trashed_at } : {}),
     title: r.title,
     path: r.path,
     updatedAt: r.updated_at,
@@ -214,6 +221,8 @@ export class PageStore {
     // Its id, added once a blob was told apart from a later one of the same name.
     if (!cols.has("blob_id")) this.db.exec(`ALTER TABLE pages ADD COLUMN blob_id TEXT`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS pages_blob_id ON pages(blob_id)`);
+    // When the owner trashed it, added once an artifact could be set aside and brought back: every older row is in no trash.
+    if (!cols.has("trashed_at")) this.db.exec(`ALTER TABLE pages ADD COLUMN trashed_at INTEGER`);
     this.blobIds = new BlobIds(db, now);
     this.giveBlobIds();
   }
@@ -235,15 +244,20 @@ export class PageStore {
     return this.db.prepare(`SELECT ${COLS} FROM ${FROM} WHERE p.id = ?`).get(id) as Row | undefined;
   }
 
-  /** Every artifact, or one owner's: a project's, a blob's ({ blob, id }), or the workspace's own (null). */
-  list(owner?: PageOwner): PageRecord[] {
+  /**
+   * Every artifact, or one owner's: a project's, a blob's ({ blob, id }), or
+   * the workspace's own (null). What is in the trash is left out, or, with
+   * `trashed`, is all that is listed.
+   */
+  list(owner?: PageOwner, { trashed = false }: { trashed?: boolean } = {}): PageRecord[] {
     const blob = owner === undefined ? undefined : blobOf(owner);
+    const trash = trashed ? "p.trashed_at IS NOT NULL" : "p.trashed_at IS NULL";
     const rows = (
       owner === undefined
-        ? this.db.prepare(`SELECT ${COLS} FROM ${FROM} ORDER BY p.project_slug, p.title`).all()
+        ? this.db.prepare(`SELECT ${COLS} FROM ${FROM} WHERE ${trash} ORDER BY p.project_slug, p.title`).all()
         : blob
-          ? this.db.prepare(`SELECT ${COLS} FROM ${FROM} WHERE p.blob_id = ? ORDER BY p.title`).all(blob.id)
-          : this.db.prepare(`SELECT ${COLS} FROM ${FROM} WHERE p.project_slug = ? AND p.blob_id IS NULL ORDER BY p.title`).all(projectOf(owner) ?? WORKSPACE)
+          ? this.db.prepare(`SELECT ${COLS} FROM ${FROM} WHERE p.blob_id = ? AND ${trash} ORDER BY p.title`).all(blob.id)
+          : this.db.prepare(`SELECT ${COLS} FROM ${FROM} WHERE p.project_slug = ? AND p.blob_id IS NULL AND ${trash} ORDER BY p.title`).all(projectOf(owner) ?? WORKSPACE)
     ) as Row[];
     return rows.map(recordOf);
   }
@@ -516,6 +530,7 @@ export class PageStore {
     const projectSlug = projectOf(owner);
     const blob = blobOf(owner);
     const previous = this.row(id);
+    if (previous?.trashed_at != null) throw new ArtifactTrashed(`the artifact ${id} is in the trash, so it is left as it is; the owner can restore it from the Artifacts page's Trash`);
     if (previous) {
       const was = ownerOfRow(previous);
       const allowed = opts.from === undefined ? owner : opts.from;
@@ -560,7 +575,7 @@ export class PageStore {
     }
     this.keepVersion(owner, id, { at: ts, title, kind, body, meta });
     if (projectSlug) this.manifest.touchProject(projectSlug);
-    return recordOf({ id, project_slug: projectSlug ?? WORKSPACE, title, path: rel, updated_at: ts, kind, meta: metaText, blob: blob?.blob ?? null, blob_id: blob?.id ?? null, blob_removed: blob && this.blobIds.removed(blob.id) ? 1 : null });
+    return recordOf({ id, project_slug: projectSlug ?? WORKSPACE, title, path: rel, updated_at: ts, kind, meta: metaText, blob: blob?.blob ?? null, blob_id: blob?.id ?? null, blob_removed: blob && this.blobIds.removed(blob.id) ? 1 : null, trashed_at: null });
   }
 
   /** Where artifacts.check keeps an artifact's renders, which the gallery shows as its thumbnail. */
@@ -633,6 +648,95 @@ export class PageStore {
     if (v.kind === "html") return this.writeHtml(owner, { id, title: v.title, html: v.body, ...(v.meta ?? {}) });
     if (projectSlug === null) throw new Error(`page ${id} version ${version} is a widget spec, which needs a project`);
     return this.write(projectSlug, JSON.parse(v.body));
+  }
+
+  /** The artifact as stored, for a change that keeps its document: refused when it is gone. */
+  private loaded(id: string): LoadedPage {
+    const got = this.get(id);
+    if (!got) throw new Error(`artifact not found: ${id}`);
+    return got;
+  }
+
+  /** Write a loaded artifact again as `owner`, with what changes: through every check a write makes, kept as its next version. */
+  private rewrite(got: LoadedPage, owner: PageOwner, change: { id?: string; title?: string; description?: string }, opts: SaveOptions = {}): PageRecord {
+    if (got.kind === "html") {
+      const { description, ...page } = got.page;
+      const about = change.description ?? description;
+      return this.writeHtml(owner, { ...page, id: change.id ?? page.id, title: change.title ?? page.title, ...(about ? { description: about } : {}) }, opts);
+    }
+    const project = projectOf(owner);
+    if (project === null) throw new Error(`${got.record.id} is an older widget page, which needs a project`);
+    if (change.description !== undefined) throw new Error(`${got.record.id} is an older widget page, which has no description`);
+    return this.write(project, { ...got.spec, id: change.id ?? got.spec.id, title: change.title ?? got.spec.title }, opts);
+  }
+
+  /** Nothing new goes to a removed blob: what it made is kept as it was. */
+  private refuseRemovedBlob(owner: PageOwner): void {
+    const blob = blobOf(owner);
+    if (blob && this.blobIds.removed(blob.id)) throw new Error(`the blob ${blob.blob} was removed, so nothing new goes to it`);
+  }
+
+  /**
+   * A new title, a new description, or both. The id stays, so every
+   * reference to it (a mention, a chat's card) still finds it, and the
+   * change is kept as a version like any write.
+   */
+  rename(id: string, change: { title?: string; description?: string }): PageRecord {
+    const title = change.title?.trim();
+    if (change.title !== undefined && !title) throw new Error("a title is required");
+    if (title === undefined && change.description === undefined) throw new Error("say a new title or description");
+    const got = this.loaded(id);
+    return this.rewrite(got, ownerOfRecord(got.record), { ...(title ? { title } : {}), ...(change.description !== undefined ? { description: change.description.trim() } : {}) });
+  }
+
+  /** The id a copy of `id` takes: `<id>-copy`, then `-copy-2` and on, free in any case so its file is its own on any disk. */
+  private copyId(id: string): string {
+    const taken = (c: string): boolean => this.db.prepare(`SELECT 1 FROM pages WHERE id = ? COLLATE NOCASE`).get(c) !== undefined;
+    for (let n = 1; ; n++) {
+      const candidate = `${id}-copy${n === 1 ? "" : `-${n}`}`;
+      if (!taken(candidate)) return candidate;
+    }
+  }
+
+  /** A copy beside it, the same owner's, named "<title> copy": an artifact of its own, its history starting at this one version. */
+  duplicate(id: string): PageRecord {
+    const got = this.loaded(id);
+    if (got.record.trashedAt !== undefined) throw new ArtifactTrashed(`the artifact ${id} is in the trash; restore it before copying it`);
+    const owner = ownerOfRecord(got.record);
+    this.refuseRemovedBlob(owner);
+    return this.rewrite(got, owner, { id: this.copyId(id), title: `${got.record.title} copy` });
+  }
+
+  /**
+   * Give an artifact to another owner: a project, a blob or the workspace.
+   * The id stays, and its versions and captures go with it (save). It goes
+   * through every check a write makes as the new owner's, so one that reads
+   * its project's tables does not land where those tables are not.
+   */
+  move(id: string, to: PageOwner): PageRecord {
+    const got = this.loaded(id);
+    const from = ownerOfRecord(got.record);
+    if (ownerKey(from) === ownerKey(to)) throw new Error(`the artifact ${id} is already ${ownerWords(to)}`);
+    this.refuseRemovedBlob(to);
+    return this.rewrite(got, to, {}, { from });
+  }
+
+  /** Set an artifact aside: out of every list, its file and versions kept as they are, until it is restored or deleted for good. */
+  trash(id: string): PageRecord {
+    const row = this.row(id);
+    if (!row) throw new Error(`artifact not found: ${id}`);
+    if (row.trashed_at !== null) throw new Error(`the artifact ${id} is already in the trash`);
+    this.db.prepare(`UPDATE pages SET trashed_at = ? WHERE id = ?`).run(this.now(), id);
+    return this.record(id)!;
+  }
+
+  /** Bring an artifact back from the trash, to where it was. */
+  restore(id: string): PageRecord {
+    const row = this.row(id);
+    if (!row) throw new Error(`artifact not found: ${id}`);
+    if (row.trashed_at === null) throw new Error(`the artifact ${id} is not in the trash`);
+    this.db.prepare(`UPDATE pages SET trashed_at = NULL WHERE id = ?`).run(id);
+    return this.record(id)!;
   }
 
   /** Remove an artifact, its row, file, versions and captures: whatever of them is still there. */
