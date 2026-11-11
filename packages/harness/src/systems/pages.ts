@@ -194,6 +194,10 @@ const folderOf = (owner: PageOwner): string => {
  */
 const repairClosingTags = (html: string): string => html.replace(/<\\\//g, "</");
 
+/** A write's input with its HTML repaired, or as given when it has none (validation then says so). */
+const withRepairedClosingTags = (input: unknown): unknown =>
+  input !== null && typeof input === "object" && typeof (input as { html?: unknown }).html === "string" ? { ...input, html: repairClosingTags((input as { html: string }).html) } : input;
+
 /** The project a physical table belongs to: the longest slug that prefixes it. */
 export function ownerOf(table: string, slugs: string[]): string | undefined {
   let best: string | undefined;
@@ -452,8 +456,10 @@ export class PageStore {
    * the mistake is named now rather than on the owner's first save. A
    * workspace artifact (no project) has no tables or files to reach.
    */
-  writeHtml(owner: PageOwner, input: unknown, opts: SaveOptions = {}): PageRecord {
+  writeHtml(owner: PageOwner, given: unknown, opts: SaveOptions = {}): PageRecord {
     this.refuseUnknownOwner(owner);
+    // Repaired before anything reads it, so every check sees the bytes that are stored: a <\/ in a title or a script's text is a real end tag once stored.
+    const input = withRepairedClosingTags(given);
     const errors = validateHtmlPage(input);
     // The exits again, from the document as the browser parses it: a pattern misses one behind an entity or a quoted >.
     const exits = errors.length === 0 ? markupExits((input as HtmlPage).html) : [];
@@ -519,7 +525,7 @@ export class PageStore {
   private keepHtml(owner: PageOwner, page: HtmlPage, opts: SaveOptions): PageRecord {
     const { id: _id, title: _title, html: _html, ...declared } = page;
     const meta: HtmlMeta = Object.fromEntries(Object.entries(declared).filter(([, v]) => v !== undefined && v !== "")) as HtmlMeta;
-    return this.save(owner, page.id, page.title, "html", repairClosingTags(page.html), meta, opts);
+    return this.save(owner, page.id, page.title, "html", page.html, meta, opts);
   }
 
   /**

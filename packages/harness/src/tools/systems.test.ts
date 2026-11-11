@@ -676,6 +676,32 @@ describe("systems.migrate risk", () => {
       expect((await registry.execute("files.read", { path: "artifacts/memo.html" })).isError).toBe(false);
     });
 
+    it("checks the bytes it stores: a <\\/ end tag is repaired before any check reads it", async () => {
+      const offPage = '<title>Memo<\\/title><a href="&#104;ttps://example.com/x">x</a><title>t</title><h1>Memo</h1>';
+      const handler = '<h1>Memo</h1><script>const s = "<\\/script><a href=&#104;ttps://example.com/x>x</a>";</script>';
+      for (const html of [offPage, handler]) {
+        const got = await registry.execute("artifacts.write", { id: "leak", title: "Leak", html });
+        expect(got.isError, html).toBe(true);
+        expect(got.content).toMatch(/invalid artifact/);
+      }
+      const doc = '<article data-doc><h1>Brief</h1><p>Text</p></article>';
+      await registry.execute("artifacts.write", { id: "brief", kind: "doc", title: "Brief", html: doc });
+      const inArticle = await registry.execute("artifacts.write", { id: "brief", kind: "doc", title: "Brief", html: '<article data-doc><h1>Brief</h1><title>a<\\/title><img src=x onerror=alert(1)><title>b</title></article>' });
+      expect(inArticle.content).toMatch(/invalid artifact/);
+      await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<title>Memo</title><h1>Memo</h1>" });
+      for (const replace of ['<title>Memo<\\/title><a href="&#104;ttps://example.com/x">x</a><title>t</title>', '<script>const s = "<\\/script><a href=&#104;ttps://example.com/x>x</a>";</script><title>Memo</title>']) {
+        const got = await patch("memo", [{ find: "<title>Memo</title>", replace }]);
+        expect(got.content, replace).toMatch(/invalid artifact/);
+      }
+      expect((await patch("brief", [{ find: "<p>Text</p>", replace: "<p><title>a<\\/title><img src=x onerror=alert(1)><title>b</title></p>" }])).content).toMatch(/invalid artifact/);
+      expect(file("artifacts/memo.html")).toBe("<title>Memo</title><h1>Memo</h1>");
+      expect(file("artifacts/brief.html")).toBe(doc);
+      expect(store.record("leak")).toBeUndefined();
+      // A plain one is still repaired and stored repaired.
+      await registry.execute("artifacts.write", { id: "ok", title: "Ok", html: '<h1>Ok</h1><script>const s = "x";<\\/script>' });
+      expect(file("artifacts/ok.html")).toBe('<h1>Ok</h1><script>const s = "x";</script>');
+    });
+
     it("holds the result to every check a write holds", async () => {
       await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1>" });
       const leaving = await patch("memo", [{ find: "<h1>Memo</h1>", replace: '<h1>Memo</h1><iframe src="https://example.com"></iframe>' }]);
