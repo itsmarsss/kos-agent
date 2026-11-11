@@ -2,7 +2,7 @@ import type { SheetCell, SheetColumn } from "@kos/shared";
 import { parseDate } from "@kos/shared/sheetformula";
 import { describe, expect, it } from "vitest";
 
-import { autoMap, clipboardRows, coerce, detectDelimiter, importRows, isHeader, parseDelimited, parseNumber, planPaste, tableFromHtml } from "./sheetimport.js";
+import { autoMap, clipboardRows, coerce, decodeText, detectDelimiter, importRows, isHeader, parseDelimited, parseNumber, planPaste, tableFromHtml } from "./sheetimport.js";
 
 const COLUMNS: SheetColumn[] = [{ label: "Date", type: "date" }, { label: "Item" }, { label: "Amount", type: "currency", currency: "CAD" }, { label: "Paid", type: "bool" }];
 
@@ -24,6 +24,16 @@ describe("delimited text", () => {
     expect(detectDelimiter("date\titem\n2026-01-02\tMilk, 2%\n")).toBe("\t");
     expect(detectDelimiter('"a, b";c\n"d, e";f\n')).toBe(";");
     expect(detectDelimiter("just one column\nhere\n")).toBe(",");
+  });
+});
+
+describe("a file's bytes", () => {
+  it("reads UTF-8, keeping its BOM for the parser, and falls back to Windows-1252", () => {
+    const utf8 = new TextEncoder().encode("\uFEFFCaf\u00e9,\u20ac5").buffer;
+    expect(decodeText(utf8)).toBe("\uFEFFCaf\u00e9,\u20ac5");
+    expect(parseDelimited(decodeText(utf8), ",")).toEqual([["Caf\u00e9", "\u20ac5"]]);
+    const cp1252 = new Uint8Array([0x43, 0x61, 0x66, 0xe9, 0x2c, 0x80, 0x35]).buffer;
+    expect(decodeText(cp1252)).toBe("Caf\u00e9,\u20ac5");
   });
 });
 

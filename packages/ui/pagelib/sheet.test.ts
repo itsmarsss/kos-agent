@@ -363,7 +363,7 @@ describe("pasting, importing, and changing the shape", () => {
     click(root, "Import CSV");
     const input = root.querySelector<HTMLInputElement>("input[type=file]")!;
     const csv = "\uFEFFAmount;Category;Date\r\n12,50;Books;03.10.2026\r\n;;\r\nlots;Gifts;2026-10-04\r\n";
-    Object.defineProperty(input, "files", { value: [{ name: "october.csv", size: csv.length, text: () => Promise.resolve(csv) }] });
+    Object.defineProperty(input, "files", { value: [{ name: "october.csv", size: csv.length, arrayBuffer: () => Promise.resolve(new TextEncoder().encode(csv).buffer) }] });
     input.dispatchEvent(new Event("change"));
     await vi.waitFor(() => expect(root.querySelector(".sheet-import")).not.toBeNull());
     const panel = root.querySelector(".sheet-import")!;
@@ -502,7 +502,7 @@ describe("pasting, importing, and changing the shape", () => {
     click(root, "Import CSV");
     const input = root.querySelector<HTMLInputElement>("input[type=file]")!;
     const csv = "Item,Amount\nTea,4\n";
-    Object.defineProperty(input, "files", { value: [{ name: "a.csv", size: csv.length, text: () => Promise.resolve(csv), arrayBuffer: () => Promise.resolve(new TextEncoder().encode(csv).buffer) }] });
+    Object.defineProperty(input, "files", { value: [{ name: "a.csv", size: csv.length, arrayBuffer: () => Promise.resolve(new TextEncoder().encode(csv).buffer) }] });
     input.dispatchEvent(new Event("change"));
     await vi.waitFor(() => expect(root.querySelector(".sheet-import")).not.toBeNull());
     click(root, "Amount: column menu");
@@ -519,7 +519,7 @@ describe("pasting, importing, and changing the shape", () => {
     click(root, "Import CSV");
     const input = root.querySelector<HTMLInputElement>("input[type=file]")!;
     const csv = `Date,Category,Amount\n${Array.from({ length: 3000 }, (_, i) => `2026-10-01,${"A long description of a purchase ".repeat(4)}${i},12.5`).join("\n")}\n`;
-    Object.defineProperty(input, "files", { value: [{ name: "big.csv", size: csv.length, text: () => Promise.resolve(csv), arrayBuffer: () => Promise.resolve(new TextEncoder().encode(csv).buffer) }] });
+    Object.defineProperty(input, "files", { value: [{ name: "big.csv", size: csv.length, arrayBuffer: () => Promise.resolve(new TextEncoder().encode(csv).buffer) }] });
     input.dispatchEvent(new Event("change"));
     await vi.waitFor(() => expect(root.querySelector(".sheet-import")).not.toBeNull());
     const panel = root.querySelector(".sheet-import")!;

@@ -57,6 +57,21 @@ export function parseDelimited(text: string, delimiter: Delimiter): string[][] {
   return rows;
 }
 
+/** A file's bytes as text: UTF-8 when they are (its BOM kept for the parser to drop), else Windows-1252, as an older Excel on Windows saves a CSV. */
+export function decodeText(bytes: ArrayBuffer): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    // By hand, since a decoder may take windows-1252 for Latin-1 and miss its letters at 0x80 to 0x9f (the euro sign, curly quotes).
+    let text = "";
+    for (const b of new Uint8Array(bytes)) text += b >= 0x80 && b <= 0x9f ? CP1252[b - 0x80]! : String.fromCharCode(b);
+    return text;
+  }
+}
+
+/** Windows-1252's 0x80 to 0x9f; the five it leaves unassigned read as their Latin-1 controls. */
+const CP1252 = "\u20ac\u0081\u201a\u0192\u201e\u2026\u2020\u2021\u02c6\u2030\u0160\u2039\u0152\u008d\u017d\u008f\u0090\u2018\u2019\u201c\u201d\u2022\u2013\u2014\u02dc\u2122\u0161\u203a\u0153\u009d\u017e\u0178";
+
 /** The delimiter a file uses: the one that splits its first lines into the same number of fields, the most fields winning; a comma when none does. */
 export function detectDelimiter(text: string): Delimiter {
   const sample = text.replace(/^﻿/, "").split(/\r\n|\n|\r/).filter((l) => l.trim() !== "").slice(0, 10).join("\n");

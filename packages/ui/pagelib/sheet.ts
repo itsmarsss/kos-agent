@@ -27,7 +27,7 @@ import { Workbook, columnLetter, findColumn, formatValue, isError, isNumeric, li
 import { bar, line, pie } from "./chartdraw.js";
 import { SHEET_CSS } from "./sheet.css.js";
 import { importPanel, inlineBar, menu, TYPE_WORDS, type Action, type MenuItem } from "./sheetpanels.js";
-import { autoMap, clipboardRows, coerce, detectDelimiter, importRows, isHeader, parseDelimited, planPaste, type Delimiter, type PastePlan } from "./sheetimport.js";
+import { autoMap, clipboardRows, coerce, decodeText, detectDelimiter, importRows, isHeader, parseDelimited, planPaste, type Delimiter, type PastePlan } from "./sheetimport.js";
 import { deleteColumn, deleteRows, fillNewRows, freshLabel, insertColumn, insertRows, renameColumn, retypeColumn } from "./sheetshape.js";
 import { addStyle, editable, el, kos, ready, reason } from "./runtime.js";
 
@@ -852,8 +852,8 @@ class Sheet {
       input.remove();
       if (!file) return;
       if (file.size > IMPORT_BYTES_MAX) return this.say(`${file.name} is larger than an import reads (${IMPORT_BYTES_MAX / 1024 / 1024} MB)`, true);
-      file.text().then(
-        (text) => this.startImport(file.name, text),
+      file.arrayBuffer().then(
+        (bytes) => this.startImport(file.name, decodeText(bytes)),
         (e: unknown) => this.say(`${file.name} could not be read: ${reason(e)}`, true),
       );
     });
