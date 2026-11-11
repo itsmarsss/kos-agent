@@ -10,8 +10,9 @@ import { Workspace } from "../store/workspace.js";
 import { ProjectManifest } from "../systems/manifest.js";
 import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
+import type { CheckAsk } from "../systems/artifactcheck.js";
 import { RoleStore } from "../agents/roles.js";
-import { attendance, guested, ownership } from "../kernel/caller.js";
+import { attendance, guested, ownership, turn } from "../kernel/caller.js";
 import { filesModule } from "./files.js";
 import { systemsModule } from "./systems.js";
 
@@ -37,6 +38,8 @@ describe("systems.migrate risk", () => {
   let execute: ToolRegistry["execute"];
   // The artifacts' store, for what only the owner does: the trash.
   let store: PageStore;
+  // How each check was asked for, in order.
+  let asks: CheckAsk[] = [];
 
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "kos-systems-"));
@@ -64,12 +67,16 @@ describe("systems.migrate risk", () => {
         return callerBlob && id ? { name: callerBlob, id } : undefined;
       },
       turnMade: { note: (slug) => made.add(slug), made: () => [...made] },
-      checkArtifact: (id) => Promise.resolve({ text: `checked ${id}` }),
+      checkArtifact: (id, ask) => {
+        asks.push(ask ?? {});
+        return Promise.resolve({ text: `checked ${id}${ask?.final ? " after the fix" : ""}` });
+      },
     });
     caller = "c1";
     callerProject = undefined;
     callerBlob = undefined;
     made = new Set();
+    asks = [];
     await new ModuleLoader(ctx).load([systemsModule, filesModule]);
   });
 
@@ -475,13 +482,15 @@ describe("systems.migrate risk", () => {
     await refused("files.rm", { path: "projects" });
     expect(existsSync(join(root, "blobs/noter/artifacts/noter-doc.html"))).toBe(true);
     expect(existsSync(join(root, `${pages}/beds.html`))).toBe(true);
-    await allowed("files.mv", { from: "blobs/roster", to: "scratch/roster" });
-    // Each owner may take its own: the blob its versions, the project its pages.
+    // Nor its own: an artifact is taken away from the trash, by the owner, never by files.*.
+    expect(await refused("files.mv", { from: "blobs/roster", to: "scratch/roster" })).toMatch(/blobs\/roster holds the artifact roster-doc, which files.\* does not take away: .*trash/);
     callerBlob = "noter";
-    await allowed("files.rm", { path: "blobs/noter/artifacts/.history" });
+    await refused("files.rm", { path: "blobs/noter/artifacts/.history" });
     callerBlob = undefined;
     callerProject = slug;
-    await allowed("files.rm", { path: pages });
+    await refused("files.rm", { path: pages });
+    // A copy out is a read, and its own to make.
+    await allowed("files.cp", { from: `${pages}/beds.html`, to: "scratch/beds.html" });
     // A folder that holds no artifact is a folder.
     await allowed("files.mkdir", { path: "notes/old" });
     await allowed("files.rm", { path: "notes" });
@@ -628,6 +637,172 @@ describe("systems.migrate risk", () => {
     expect(store.record("beds")).toMatchObject({ title: "Beds", projectSlug: slug });
   });
 
+  describe("artifacts.patch", () => {
+    const patch = async (id: string, edits: unknown[]): Promise<{ isError: boolean; content: string }> => registry.execute("artifacts.patch", { id, edits });
+    const file = (path: string): string => readFileSync(join(root, path), "utf8");
+    const versions = async (id: string): Promise<number> => (JSON.parse((await registry.execute("artifacts.history", { id })).content) as unknown[]).length;
+
+    it("changes one piece, keeps a version, checks it, and answers in a line rather than the document", async () => {
+      const rows = Array.from({ length: 600 }, (_, i) => `<tr><td>Item ${i}</td><td>${i * 3}</td></tr>`).join("\n");
+      const html = `<h1>Ledger</h1>\n<table>\n${rows}\n</table>`;
+      expect(html.length).toBeGreaterThan(20_000);
+      await registry.execute("artifacts.write", { id: "ledger", title: "Ledger", html });
+      const got = await patch("ledger", [{ find: "<h1>Ledger</h1>", replace: "<h1>October ledger</h1>" }, { find: "<td>Item 7</td>", replace: "<td>Rent</td>" }]);
+      expect(got.isError, got.content).toBe(false);
+      expect(got.content.length).toBeLessThan(400);
+      const [line, check] = got.content.split("\n\n");
+      expect(JSON.parse(line!)).toEqual({ id: "ledger", title: "Ledger", artifactKind: "page", projectSlug: null, updatedAt: store.record("ledger")!.updatedAt, version: 2, edits: 2, replaced: 2, lines: { removed: 2, added: 2, of: 603 }, bytes: { before: html.length, after: html.length + 6 } });
+      expect(check).toBe("checked ledger");
+      // Its sizes are what is stored: a <\/ counts as the </ it is saved as.
+      const escaped = JSON.parse((await patch("ledger", [{ find: "<h1>October ledger</h1>", replace: "<h1>Ledger<\\/h1>" }])).content.split("\n\n")[0]!) as { bytes: { after: number } };
+      expect(escaped.bytes.after).toBe(Buffer.byteLength(file("artifacts/ledger.html")));
+      await patch("ledger", [{ find: "<h1>Ledger</h1>", replace: "<h1>October ledger</h1>" }]);
+      expect(file("artifacts/ledger.html")).toBe(html.replace("<h1>Ledger</h1>", "<h1>October ledger</h1>").replace("<td>Item 7</td>", "<td>Rent</td>"));
+      expect(await versions("ledger")).toBe(4);
+    });
+
+    it("checks once and once after the fix in a turn, and then no more, so nothing loops", async () => {
+      await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1><p>a</p>" });
+      const inTurn = (id: string, work: () => Promise<{ content: string }>): Promise<string> => turn.run(id, work).then((r) => r.content);
+      expect(await inTurn("t1", () => registry.execute("artifacts.check", { id: "memo" }))).toBe("checked memo");
+      expect((await inTurn("t1", () => patch("memo", [{ find: "<p>a</p>", replace: "<p>b</p>" }]))).split("\n\n")[1]).toBe("checked memo after the fix");
+      for (const call of [() => patch("memo", [{ find: "<p>b</p>", replace: "<p>c</p>" }]), () => registry.execute("artifacts.check", { id: "memo" })]) {
+        expect(await inTurn("t1", call)).toMatch(/Not checked again: it has had its check and the check after the fix in this turn/);
+      }
+      expect(file("artifacts/memo.html")).toBe("<h1>Memo</h1><p>c</p>");
+      // Outside a turn (a schedule's fixed actions) nothing is counted, and nothing carries over.
+      for (let i = 0; i < 4; i++) expect((await registry.execute("artifacts.check", { id: "memo" })).content).toBe("checked memo");
+      // A patch that comes first in its turn asks for the fix; the next is the check after it.
+      expect((await inTurn("t2", () => patch("memo", [{ find: "<p>c</p>", replace: "<p>d</p>" }]))).split("\n\n")[1]).toBe("checked memo");
+      expect((await inTurn("t2", () => patch("memo", [{ find: "<p>d</p>", replace: "<p>e</p>" }]))).split("\n\n")[1]).toBe("checked memo after the fix");
+    });
+
+    it("lets a request of several changes run to its end: every patch applies, and none says to stop", async () => {
+      await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1><table><tr><td>a</td></tr></table><p>x</p>" });
+      const steps = [
+        [{ find: "<h1>Memo</h1>", replace: "<h1>Notes</h1>" }],
+        [{ find: "<td>a</td>", replace: "<td>a</td><td>b</td>" }],
+        [{ find: "<p>x</p>", replace: '<p class="accent">x</p>' }],
+      ];
+      const said: string[] = [];
+      for (const edits of steps) said.push(await turn.run("t1", () => patch("memo", edits)).then((r) => r.content));
+      expect(file("artifacts/memo.html")).toBe('<h1>Notes</h1><table><tr><td>a</td><td>b</td></tr></table><p class="accent">x</p>');
+      expect(asks).toEqual([{ final: false, patch: true }, { final: true, patch: true }]);
+      expect(said[2]).toMatch(/Saved\. Not checked again: .* Make any other change the owner asked for, then finish without another check\./);
+      for (const words of said) expect(words).not.toMatch(/Finish here|Do not patch, write|tell the owner in a line what is left, and finish/);
+    });
+
+    it("leaves the artifact as it was when any edit fails, saying which and why", async () => {
+      await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1><p>Draft</p><p>Draft</p>" });
+      const missing = await patch("memo", [{ find: "<h1>Memo</h1>", replace: "<h1>Note</h1>" }, { find: "<h2>Gone</h2>", replace: "x" }]);
+      expect(missing.content).toMatch(/edit 2: find does not occur in the stored HTML/);
+      expect((await patch("memo", [{ find: "Draft", replace: "Final" }])).content).toMatch(/find occurs 2 times/);
+      expect((await patch("memo", [{ find: "Memo", replace: "Memo" }])).content).toMatch(/nothing changed/);
+      // A </ written as <\/ is stored as </, so it changes nothing either.
+      expect((await patch("memo", [{ find: "</h1>", replace: "<\\/h1>" }])).content).toMatch(/nothing changed/);
+      expect(file("artifacts/memo.html")).toBe("<h1>Memo</h1><p>Draft</p><p>Draft</p>");
+      expect(await versions("memo")).toBe(1);
+      expect((await patch("memo", [{ find: "Draft", replace: "Final", all: true }])).isError).toBe(false);
+      expect(file("artifacts/memo.html")).toBe("<h1>Memo</h1><p>Final</p><p>Final</p>");
+    });
+
+    it("is the only way to change part of a document: files.* gives an artifact's document no new content", async () => {
+      await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1>" });
+      await registry.execute("files.write", { path: "scratch/x.html", content: "<iframe></iframe>" });
+      await registry.execute("artifacts.check", { id: "memo" });
+      for (const path of ["artifacts/memo.html", "artifacts/Memo.html", "artifacts/.history/memo/1.json", "artifacts/.history/memo/9.json", "artifacts/.captures/memo/desktop-light.jpg"]) {
+        for (const [tool, args] of [
+          ["files.write", { path, content: "<iframe></iframe>" }],
+          ["files.edit", { path, find: "Memo", replace: "x" }],
+          ["files.cp", { from: "scratch/x.html", to: path }],
+          ["files.mv", { from: "scratch/x.html", to: path }],
+        ] as const) {
+          const got = await registry.execute(tool, args);
+          expect(got.content, `${tool} ${path}`).toMatch(/is part of the artifact memo, which files.\* does not change: change part of it with artifacts.patch/);
+        }
+        for (const [tool, args] of [
+          ["files.rm", { path }],
+          ["files.mv", { from: path, to: "scratch/gone" }],
+        ] as const) {
+          const got = await registry.execute(tool, args);
+          expect(got.content, `${tool} ${path}`).toMatch(/is part of the artifact memo, which files.\* does not take away: KOS never deletes an artifact; the owner puts one in the trash/);
+        }
+      }
+      for (const path of ["artifacts", "artifacts/.history", "artifacts/.history/memo", "artifacts/.captures/memo"]) {
+        expect((await registry.execute("files.rm", { path })).content, path).toMatch(/(holds|is part of) the artifact memo, which files.\* does not take away/);
+      }
+      expect(file("artifacts/memo.html")).toBe("<h1>Memo</h1>");
+      expect(existsSync(join(root, "artifacts/.history/memo/1.json"))).toBe(true);
+      expect(existsSync(join(root, "scratch/x.html"))).toBe(true);
+      expect((await registry.execute("files.read", { path: "artifacts/memo.html" })).isError).toBe(false);
+    });
+
+    it("checks the bytes it stores: a <\\/ end tag is repaired before any check reads it", async () => {
+      const offPage = '<title>Memo<\\/title><a href="&#104;ttps://example.com/x">x</a><title>t</title><h1>Memo</h1>';
+      const handler = '<h1>Memo</h1><script>const s = "<\\/script><a href=&#104;ttps://example.com/x>x</a>";</script>';
+      for (const html of [offPage, handler]) {
+        const got = await registry.execute("artifacts.write", { id: "leak", title: "Leak", html });
+        expect(got.isError, html).toBe(true);
+        expect(got.content).toMatch(/invalid artifact/);
+      }
+      const doc = '<article data-doc><h1>Brief</h1><p>Text</p></article>';
+      await registry.execute("artifacts.write", { id: "brief", kind: "doc", title: "Brief", html: doc });
+      const inArticle = await registry.execute("artifacts.write", { id: "brief", kind: "doc", title: "Brief", html: '<article data-doc><h1>Brief</h1><title>a<\\/title><img src=x onerror=alert(1)><title>b</title></article>' });
+      expect(inArticle.content).toMatch(/invalid artifact/);
+      await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<title>Memo</title><h1>Memo</h1>" });
+      for (const replace of ['<title>Memo<\\/title><a href="&#104;ttps://example.com/x">x</a><title>t</title>', '<script>const s = "<\\/script><a href=&#104;ttps://example.com/x>x</a>";</script><title>Memo</title>']) {
+        const got = await patch("memo", [{ find: "<title>Memo</title>", replace }]);
+        expect(got.content, replace).toMatch(/invalid artifact/);
+      }
+      expect((await patch("brief", [{ find: "<p>Text</p>", replace: "<p><title>a<\\/title><img src=x onerror=alert(1)><title>b</title></p>" }])).content).toMatch(/invalid artifact/);
+      expect(file("artifacts/memo.html")).toBe("<title>Memo</title><h1>Memo</h1>");
+      expect(file("artifacts/brief.html")).toBe(doc);
+      expect(store.record("leak")).toBeUndefined();
+      // A plain one is still repaired and stored repaired.
+      await registry.execute("artifacts.write", { id: "ok", title: "Ok", html: '<h1>Ok</h1><script>const s = "x";<\\/script>' });
+      expect(file("artifacts/ok.html")).toBe('<h1>Ok</h1><script>const s = "x";</script>');
+    });
+
+    it("holds the result to every check a write holds", async () => {
+      await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1>" });
+      const leaving = await patch("memo", [{ find: "<h1>Memo</h1>", replace: '<h1>Memo</h1><iframe src="https://example.com"></iframe>' }]);
+      expect(leaving.content).toMatch(/invalid artifact: a page cannot leave its frame/);
+      expect(file("artifacts/memo.html")).toBe("<h1>Memo</h1>");
+    });
+
+    it("patches a doc's stored article, held to what the owner's editor can save", async () => {
+      const html = '<article data-doc><h1>Brief</h1><h2 id="plan">Plan</h2><p>Ship in May.</p></article>';
+      await registry.execute("artifacts.write", { id: "brief", kind: "doc", title: "Brief", html });
+      expect((await patch("brief", [{ find: "Ship in May.", replace: "Ship in June." }])).isError).toBe(false);
+      expect(file("artifacts/brief.html")).toBe(html.replace("May", "June"));
+      expect((await patch("brief", [{ id: "plan", html: '<h2 id="plan">Plan, revised</h2>' }])).isError).toBe(false);
+      expect((await patch("brief", [{ find: "<p>", replace: "<p><script>x()</script>" }])).content).toMatch(/the text inside <article data-doc> is what the owner edits/);
+      expect((await patch("brief", [{ find: "<h1>Brief</h1>", replace: '<h1>Brief</h1><nav data-kos-gen="toc"></nav>' }])).content).toMatch(/data-kos-gen/);
+      expect(file("artifacts/brief.html")).toBe('<article data-doc><h1>Brief</h1><h2 id="plan">Plan, revised</h2><p>Ship in June.</p></article>');
+      expect(store.record("brief")?.artifactKind).toBe("doc");
+    });
+
+    it("reaches only what the chat may change, never in the trash, and never from a guest's words", async () => {
+      const { slug } = JSON.parse((await registry.execute("systems.project_create", { name: "Garden", type: "tracker" })).content) as { slug: string };
+      const other = (JSON.parse((await registry.execute("systems.project_create", { name: "Pantry", type: "tracker" })).content) as { slug: string }).slug;
+      await registry.execute("artifacts.write", { project: slug, id: "beds", title: "Beds", html: "<h1>Beds</h1>" });
+      await registry.execute("artifacts.write", { project: other, id: "shelf", title: "Shelf", html: "<h1>Shelf</h1>" });
+      await registry.execute("artifacts.write", { id: "old", title: "Old", html: "<h1>Old</h1>" });
+      store.trash("old");
+      made = new Set();
+      callerProject = slug;
+      const edit = [{ find: "<h1>", replace: "<h1 class=x>" }];
+      expect((await patch("shelf", edit)).content).toMatch(/This chat is Garden's, so Pantry's artifacts are not its to change/);
+      expect((await patch("old", edit)).content).toMatch(/in the trash/);
+      expect((await patch("nope", edit)).content).toMatch(/artifact not found: nope/);
+      const guest = await guested.run({ project: slug, chat: `project:${slug}` }, () => patch("beds", edit));
+      expect(guest.content).toMatch(/a guest's words started this work/);
+      expect([file(`projects/${slug}/pages/beds.html`), file(`projects/${other}/pages/shelf.html`), file("artifacts/old.html")]).toEqual(["<h1>Beds</h1>", "<h1>Shelf</h1>", "<h1>Old</h1>"]);
+      expect((await patch("beds", edit)).isError).toBe(false);
+      expect(registry.classify("artifacts.patch", { id: "beds", edits: edit }).tier).toBe(registry.classify("artifacts.write", { id: "beds" }).tier);
+    });
+  });
+
   it("tells the model the check is not available where KOS has no Chrome", async () => {
     const bare = new ToolRegistry();
     const manifest = new ProjectManifest(ws.db);
@@ -637,7 +812,12 @@ describe("systems.migrate risk", () => {
     expect(told("artifacts.write")).toMatch(/artifacts.check is not available/);
     expect(told("artifacts.write")).not.toMatch(/check once with artifacts.check/);
     expect(told("artifacts.check")).toMatch(/^Not available on this KOS/);
+    expect(told("artifacts.patch")).not.toMatch(/artifacts.check|findings/);
+    await bare.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1>" });
+    const patched = await bare.execute("artifacts.patch", { id: "memo", edits: [{ find: "Memo</h1>", replace: "Note</h1>" }] });
+    expect(JSON.parse(patched.content)).toMatchObject({ id: "memo", version: 2 });
     expect((await bare.execute("artifacts.guide", { kind: "doc" })).content).toMatch(/artifacts.check is not available here/);
     expect(registry.defs().find((d) => d.name === "artifacts.write")?.description).toMatch(/check once with artifacts.check/);
+    expect(registry.defs().find((d) => d.name === "artifacts.check")?.description).toMatch(/in one pass with artifacts.patch \(artifacts.write only for a redesign\)/);
   });
 });

@@ -26,6 +26,7 @@ import { foldedPath, type Workspace } from "../store/workspace.js";
 import { projectTable } from "./identifiers.js";
 import type { ProjectManifest } from "./manifest.js";
 import { unsavableDocText, withDocText } from "./artifactedit.js";
+import { applyPatch, type PatchEdit } from "./artifactpatch.js";
 import { BlobIds } from "./blobids.js";
 import { markupExits } from "./markup.js";
 import { BridgeRefusal, tablesRead } from "./pagebridge.js";
@@ -192,6 +193,10 @@ const folderOf = (owner: PageOwner): string => {
  * nothing. It has no meaning in HTML, so it is repaired on the way in.
  */
 const repairClosingTags = (html: string): string => html.replace(/<\\\//g, "</");
+
+/** A write's input with its HTML repaired, or as given when it has none (validation then says so). */
+const withRepairedClosingTags = (input: unknown): unknown =>
+  input !== null && typeof input === "object" && typeof (input as { html?: unknown }).html === "string" ? { ...input, html: repairClosingTags((input as { html: string }).html) } : input;
 
 /** The project a physical table belongs to: the longest slug that prefixes it. */
 export function ownerOf(table: string, slugs: string[]): string | undefined {
@@ -451,8 +456,10 @@ export class PageStore {
    * the mistake is named now rather than on the owner's first save. A
    * workspace artifact (no project) has no tables or files to reach.
    */
-  writeHtml(owner: PageOwner, input: unknown, opts: SaveOptions = {}): PageRecord {
+  writeHtml(owner: PageOwner, given: unknown, opts: SaveOptions = {}): PageRecord {
     this.refuseUnknownOwner(owner);
+    // Repaired before anything reads it, so every check sees the bytes that are stored: a <\/ in a title or a script's text is a real end tag once stored.
+    const input = withRepairedClosingTags(given);
     const errors = validateHtmlPage(input);
     // The exits again, from the document as the browser parses it: a pattern misses one behind an entity or a quoted >.
     const exits = errors.length === 0 ? markupExits((input as HtmlPage).html) : [];
@@ -518,7 +525,7 @@ export class PageStore {
   private keepHtml(owner: PageOwner, page: HtmlPage, opts: SaveOptions): PageRecord {
     const { id: _id, title: _title, html: _html, ...declared } = page;
     const meta: HtmlMeta = Object.fromEntries(Object.entries(declared).filter(([, v]) => v !== undefined && v !== "")) as HtmlMeta;
-    return this.save(owner, page.id, page.title, "html", repairClosingTags(page.html), meta, opts);
+    return this.save(owner, page.id, page.title, "html", page.html, meta, opts);
   }
 
   /**
@@ -560,6 +567,32 @@ export class PageStore {
     const record = this.writeHtml(ownerOfRecord(got.record), { ...page, html });
     this.lastEdit.set(id, now);
     return record;
+  }
+
+  /**
+   * Part of an artifact changed, the rest left as it is: the edits applied
+   * to its stored HTML (artifactpatch.ts), then the whole document written
+   * where it lives through writeHtml, so a patch is held to every check a
+   * write is and kept as a version. Refused in the trash, and for an older
+   * widget page, which has no HTML to patch. Who may patch it is the
+   * caller's to check, as for a write.
+   */
+  patch(id: string, edits: PatchEdit[]): { record: PageRecord; before: string; after: string; replaced: number } {
+    const got = this.loaded(id);
+    if (got.kind !== "html") throw new Error(`${id} is an older widget page, which has no HTML to patch; rewrite it as an artifact with artifacts.write`);
+    // Compared as it will be stored: a <\/ is a </ once saved, so an edit that only writes one so changes nothing.
+    const patched = applyPatch(got.page.html, edits);
+    const html = repairClosingTags(patched.html);
+    const { replaced } = patched;
+    if (html === got.page.html) throw new Error("nothing changed: every edit leaves the artifact as it is");
+    const record = this.writeHtml(ownerOfRecord(got.record), { ...got.page, html });
+    return { record, before: got.page.html, after: html, replaced };
+  }
+
+  /** The number of an artifact's newest kept version, or undefined before its first. */
+  latestVersion(id: string): number | undefined {
+    const row = this.row(id);
+    return row ? this.versionNumbers(this.historyDir(ownerOfRow(row), id)).at(-1) : undefined;
   }
 
   /**

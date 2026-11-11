@@ -197,6 +197,8 @@ describe("the page's frame", () => {
     expect(quoted.trimEnd().endsWith("```")).toBe(true);
     expect(quoted.length).toBeLessThan(500);
     expect(text).toMatch(/untrusted/);
+    // A fix is a targeted change: a patch, with a rewrite only for a redesign.
+    for (const asked of [request!, fixRequest("budget", true, undefined)]) expect(asked).toMatch(/fix it with artifacts.patch; write it whole with artifacts.write only for a redesign/);
   });
 
   it("refuses a library that is not a script, as a build without it answers with the app", async () => {

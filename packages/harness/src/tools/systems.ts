@@ -5,9 +5,12 @@ import { parseChangeSpec } from "../systems/migrate.js";
 import { deleteProject } from "../systems/remove.js";
 import type { CreateProjectInput } from "../systems/manifest.js";
 import { artifactGuide } from "../systems/artifactguide.js";
+import { PATCH_EDITS_MAX, patchEdits, patchSummary } from "../systems/artifactpatch.js";
+import { AFTER_PATCH } from "../systems/artifactcheck.js";
 import { ARTIFACT_KINDS, WORKSPACE_SCOPE, isArtifactKind } from "@kos/shared";
 import { maintains, reachable, type Reach } from "./fence.js";
 import { reachOf } from "./sql.js";
+import { turn } from "../kernel/caller.js";
 import { ownerOfRecord, type PageOwner, type PageStore } from "../systems/pages.js";
 
 /**
@@ -27,10 +30,25 @@ function writeDescription(canCheck: boolean): string {
   return [
     "Save an artifact: one self-contained HTML document of a kind (page: an app, dashboard or tool; doc: a designed document; deck: slides; sheet: a spreadsheet). It shows on the dashboard in a sandboxed frame with no network, reaching data only through window.kos, and every save keeps the old one as a version (artifacts.history, artifacts.rollback).",
     canCheck
-      ? "Read artifacts.guide({ kind }) first, every time: it says how KOS artifacts are designed, the structure each kind's runtime reads, the fonts, and what the frame refuses. Then write, check once with artifacts.check, fix what it reports in one pass, and finish."
+      ? "Read artifacts.guide({ kind }) first, every time: it says how KOS artifacts are designed, the structure each kind's runtime reads, the fonts, and what the frame refuses. Then write, check once with artifacts.check, fix what it reports in one pass with artifacts.patch, and finish. To change an artifact that exists, use artifacts.patch; write it whole again only for a redesign."
       : "Read artifacts.guide({ kind }) first, every time: it says how KOS artifacts are designed, the structure each kind's runtime reads, the fonts, and what the frame refuses. This KOS has no Chrome, so artifacts.check is not available: write once, carefully, and finish.",
     `project is the project whose data it shows. Omit it for a new workspace artifact that belongs to no project (a memo, a deck from notes); it then has no tables or files to read. In a blob's own thread, an artifact written without project is the blob's own, kept with its files, and like a workspace one it reads no tables. Rewriting an existing id without project keeps it where it is; name a project, or "${WORKSPACE_SCOPE}", only to move it. If a project fits but does not exist, call systems.project_create first; never file an artifact under an unrelated project because it exists.`,
     "title is a short specific name, not a caption; description is one sentence saying what it is for.",
+  ].join("\n");
+}
+
+/**
+ * The patch tool's description: when to patch rather than write, with an
+ * example. A patch is checked as it is saved, so there is no check to ask for
+ * after it.
+ */
+function patchDescription(canCheck: boolean): string {
+  return [
+    "Change part of an artifact and leave the rest as it is: a title, a sentence, a row, a colour, one section. Prefer it to artifacts.write for any targeted change; write the whole document only for a redesign or a new structure.",
+    'Read it first with artifacts.get, then give edits against that stored HTML. Each { find, replace } needs a find copied exactly from the HTML (whitespace and entities included) that occurs exactly once: make it long enough to be unique, or set all: true to change every occurrence. { id, html } replaces the one element with that id, whole. Edits apply in order and all or none: if one fails, nothing changes, and the error says which and why. Example: { "id": "q4", "edits": [{ "find": "<h1>Q3 review</h1>", "replace": "<h1>Q4 review</h1>" }, { "find": "<td>Rent</td><td>1,800</td>", "replace": "<td>Rent</td><td>1,950</td>" }] }',
+    canCheck
+      ? "The result is held to every check artifacts.write holds, kept as a version, and then checked as artifacts.check does; it returns the new version, what changed, and the check's findings. Fix what they report with one more patch, and finish."
+      : "The result is held to every check artifacts.write holds and kept as a version; it returns the new version and what changed.",
   ].join("\n");
 }
 
@@ -55,6 +73,7 @@ function refuseOutsideReach(project: string, reach: Reach): void {
 /** The artifact tools: a project's orchestrator is granted them for its own project's artifacts. */
 export const ARTIFACT_TOOLS = [
   "artifacts.write",
+  "artifacts.patch",
   "artifacts.list",
   "artifacts.get",
   "artifacts.history",
@@ -137,6 +156,46 @@ export function artifactFolderRefusal(pages: PageStore, folder: string, reach: R
   return undefined;
 }
 
+/** How many turns' check counts are kept: a turn's are only needed while it runs. */
+const TURNS_TALLIED = 64;
+
+/**
+ * How many times each artifact has been checked in the turn now running.
+ * KOS checks once and fixes in one pass: the first check asks for the fix,
+ * the second is the check after it and its findings go to the owner, and a
+ * third is not run, so no write, check and patch can go round for ever.
+ * A call made in no turn (a schedule's fixed actions, which run no model and
+ * have no run of their own to count by) is not counted: it does exactly what
+ * it says, so there is no loop to bound, and a count kept by its thread would
+ * carry from one run to the next.
+ */
+class CheckTally {
+  private readonly turns = new Map<string, Map<string, number>>();
+
+  constructor(private readonly key: () => string | undefined) {}
+
+  /** Checks so far this turn for an artifact, counting the one about to run; always the first outside a turn. */
+  take(id: string): number {
+    const k = this.key();
+    if (k === undefined) return 1;
+    let counts = this.turns.get(k);
+    if (!counts) {
+      counts = new Map();
+      this.turns.set(k, counts);
+      const oldest = this.turns.keys().next().value;
+      if (this.turns.size > TURNS_TALLIED && oldest !== undefined) this.turns.delete(oldest);
+    }
+    const n = (counts.get(id) ?? 0) + 1;
+    counts.set(id, n);
+    return n;
+  }
+}
+
+/** Said in place of a third check in one turn: a patch is still saved, and the rest of the request still goes ahead. */
+const CHECKED_ENOUGH = "Not checked again: it has had its check and the check after the fix in this turn.";
+const PATCH_NOT_CHECKED = `Saved. ${CHECKED_ENOUGH} ${AFTER_PATCH}`;
+const CHECK_NOT_RUN = `${CHECKED_ENOUGH} Do not check it again: make any other change the owner asked for, then tell the owner in a line what is left, and finish.`;
+
 /** Who a new artifact from this chat belongs to when it names none: a blob's thread makes its own; anywhere else, the workspace. */
 const defaultOwner = (reach: Reach): PageOwner => (reach.blob && !reach.project ? { blob: reach.blob.name, id: reach.blob.id } : null);
 
@@ -147,6 +206,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
     throw new Error("systems module requires manifest, migrator, and pages services");
   }
   const removed = (blobId: string): boolean => pages.blobIds.removed(blobId);
+  const tally = new CheckTally(() => turn.getStore());
   const refuseOtherOwnersPage = (owner: PageOwner, reach: Reach, what: "change" | "read" = "change"): void => {
     const why = whyNot(owner, reach, what, removed);
     if (why) throw new Error(`${why} are not its to ${what}.${handTo(owner, reach, removed)}`);
@@ -366,7 +426,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
       name: "artifacts.check",
       description: !checkArtifact
         ? "Not available on this KOS: it has no Chrome to render artifacts in. Do not call it; write to artifacts.guide and finish."
-        : "Render an artifact in KOS's own headless Chrome at desktop (1280 px) and phone (390 px) widths, light and dark, and report what is wrong: sideways overflow and the element causing it, text cut off by a box that hides its overflow, text drawn over other text, colours that stay the same in both themes, text below AA contrast, console errors, failed window.kos calls, regions empty at rest, formula errors, a missing visible title; with small screenshots. Check once after writing, fix everything it reports in one pass, write again, and finish: no check loops.",
+        : "Render an artifact in KOS's own headless Chrome at desktop (1280 px) and phone (390 px) widths, light and dark, and report what is wrong: sideways overflow and the element causing it, text cut off by a box that hides its overflow, text drawn over other text, colours that stay the same in both themes, text below AA contrast, console errors, failed window.kos calls, regions empty at rest, formula errors, a missing visible title; with small screenshots. Check once after writing, fix everything it reports in one pass with artifacts.patch (artifacts.write only for a redesign), and finish: no check loops. A patch checks itself as it saves, so it needs no check after it.",
       inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
     },
     async (input) => {
@@ -375,7 +435,8 @@ function defineSystemsTools(ctx: ModuleContext): void {
       const record = pages.record(id);
       if (record) refuseOtherOwnersPage(ownerOfRecord(record), reachOf(ctx), "read");
       if (record?.trashedAt !== undefined) throw new Error(`the artifact ${id} is in the trash, left as it is until the owner restores it; there is nothing to check`);
-      return checkArtifact(id);
+      const n = tally.take(id);
+      return n > 2 ? CHECK_NOT_RUN : checkArtifact(id, { final: n === 2 });
     },
     { floor: "safe" },
     { tags: ["systems"] },
@@ -471,6 +532,50 @@ function defineSystemsTools(ctx: ModuleContext): void {
     refuseOtherOwnersPage(ownerOfRecord(record), reach);
     return id;
   };
+
+  ctx.registerTool(
+    {
+      name: "artifacts.patch",
+      description: patchDescription(checkArtifact !== undefined),
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          edits: {
+            type: "array",
+            description: `applied in order, all or none, at most ${PATCH_EDITS_MAX}: { find, replace } (find occurs exactly once), { find, replace, all: true } (every occurrence), or { id, html } (the element with that id, replaced whole)`,
+            items: {
+              type: "object",
+              properties: {
+                find: { type: "string", description: "an exact piece of the stored HTML, as artifacts.get returns it" },
+                replace: { type: "string" },
+                all: { type: "boolean", description: "replace every occurrence of find, not just one" },
+                id: { type: "string", description: "the id of one element to replace whole" },
+                html: { type: "string", description: "the element's new outerHTML" },
+              },
+            },
+          },
+        },
+        required: ["id", "edits"],
+      },
+    },
+    async (input) => {
+      const id = changeable(input, reachOf(ctx));
+      const edits = patchEdits(input.edits);
+      const { record, before, after, replaced } = pages.patch(id, edits);
+      // What the chat's card needs to show it (kind, owner, when), then what changed; never the document.
+      const { id: kept, title, artifactKind, projectSlug, blob, updatedAt } = record;
+      const summary = JSON.stringify({ id: kept, title, artifactKind, projectSlug, ...(blob ? { blob } : {}), updatedAt, version: pages.latestVersion(id), edits: edits.length, replaced, ...patchSummary(before, after) });
+      if (!checkArtifact) return summary;
+      // The patch is kept whatever the check finds; a check that cannot run says so rather than failing what was saved.
+      const n = tally.take(id);
+      if (n > 2) return `${summary}\n\n${PATCH_NOT_CHECKED}`;
+      const checked = await checkArtifact(id, { final: n === 2, patch: true }).catch((err: unknown) => ({ text: `Saved, but the check could not run: ${err instanceof Error ? err.message : String(err)}` }));
+      return { ...checked, text: `${summary}\n\n${checked.text}` };
+    },
+    { floor: "safe" },
+    { tags: ["systems"] },
+  );
 
   ctx.registerTool(
     {

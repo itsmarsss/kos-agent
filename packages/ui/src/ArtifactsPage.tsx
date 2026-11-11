@@ -448,7 +448,7 @@ const ownerName = (r: Pick<PageSummary, "projectSlug" | "blob" | "blobRemoved">,
 
 /** What "Edit with KOS" sends: the owner's words, then which artifact they are about. */
 export function editRequest(words: string, record: PageSummary): string {
-  return `${words.trim()}\n\nThis is about @page:${record.id}, the ${KIND_WORD[record.artifactKind].toLowerCase()} "${record.title}". Read it with artifacts.get, change it, check it once with artifacts.check, and save it with artifacts.write under the same id, leaving project out so it stays where it is.`;
+  return `${words.trim()}\n\nThis is about @page:${record.id}, the ${KIND_WORD[record.artifactKind].toLowerCase()} "${record.title}". Read it with artifacts.get and change only what is asked with artifacts.patch, which checks it as it saves. Only for a redesign, write it whole with artifacts.write under the same id, leaving project out so it stays where it is, and check it once with artifacts.check.`;
 }
 
 /** What "Convert with KOS" sends to the owning chat: rewrite the widget page as an artifact under the same id. */

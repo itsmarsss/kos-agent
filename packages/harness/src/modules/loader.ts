@@ -3,6 +3,7 @@ import { capabilityKey, type ModuleManifest, type ScreenMemory } from "@kos/shar
 import type { ToolDef } from "../models/types.js";
 import type { ToolRisk } from "../risk/tiers.js";
 import type { ToolHandler, ToolMeta, ToolOutput, ToolRegistry } from "../agent/registry.js";
+import type { CheckAsk } from "../systems/artifactcheck.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import type { Db } from "../store/db.js";
 import type { NotifyPayload } from "../tools/notify.js";
@@ -38,7 +39,7 @@ export interface ModuleServices {
   /** The artifacts: pages, docs, decks and sheets, and the older widget specs. */
   pages?: PageStore;
   /** Render an artifact and say what is wrong with it (artifactcheck.ts); absent without a Chrome. */
-  checkArtifact?: (id: string) => Promise<ToolOutput>;
+  checkArtifact?: (id: string, ask?: CheckAsk) => Promise<ToolOutput>;
   /** Scheduled jobs, so a blueprint can carry a project's. */
   crons?: CronStore;
   /** The project the calling conversation belongs to, read at call time; undefined at the root. */

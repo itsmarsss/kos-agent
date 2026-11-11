@@ -224,3 +224,23 @@ export function docEditOf(text: string): string {
   }
   return serialize(fragment);
 }
+
+/** Where one element sits in the HTML as written, by its id, or why it cannot be addressed so. */
+export type ElementSpan = { start: number; end: number } | { refusal: string };
+
+/**
+ * The span of the one element whose id is `id`, as the browser would build
+ * it: its start tag to its end tag, offsets into `html`. Ids inside a
+ * script's text or a comment are not elements, so they are not found. An
+ * element with no end tag of its own (closed by the next one, or by the end
+ * of its parent) has no span written in the HTML to replace, so it is
+ * refused; a void or self-closed element is just its tag.
+ */
+export function elementSpan(html: string, id: string): ElementSpan {
+  const found = [...elements(parse(html, { sourceCodeLocationInfo: true }))].filter((el) => el.attrs.some((a) => a.name === "id" && a.value === id));
+  if (found.length !== 1) return { refusal: found.length ? `${found.length} elements have id="${id}"` : `no element has id="${id}"` };
+  const loc = found[0]!.sourceCodeLocation;
+  if (!loc?.startTag) return { refusal: `the element with id="${id}" was not written in the HTML as a tag` };
+  if (!loc.endTag && loc.endOffset !== loc.startTag.endOffset) return { refusal: `the element with id="${id}" has no end tag of its own, so where it ends is not written; give it one, or use find` };
+  return { start: loc.startOffset, end: loc.endOffset };
+}

@@ -21,6 +21,15 @@ describe("an artifact a turn wrote", () => {
     expect(writtenArtifact(write({ result: JSON.stringify(record).slice(0, 12), args: { id: "brief", kind: "doc", title: "Q4 brief", project: "garden" } }))?.projectSlug).toBe("garden");
   });
 
+  it("is read from a patch's summary line, before its check's words", () => {
+    const line = JSON.stringify({ id: "brief", title: "Q4 brief", artifactKind: "doc", projectSlug: "garden", updatedAt: record.updatedAt, version: 3, edits: 1, replaced: 1 });
+    const patch = (result: string): Tool => ({ kind: "tool", name: "artifacts.patch", summary: "Change artifact brief", args: { id: "brief", edits: [{ find: "a", replace: "b" }] }, result });
+    expect(writtenArtifact(patch(`${line}\n\nChecked "Q4 brief" (brief). Nothing to fix.`))).toEqual({ id: "brief", title: "Q4 brief", artifactKind: "doc", projectSlug: "garden", updatedAt: record.updatedAt });
+    expect(writtenArtifact(patch(line.slice(0, 50)))).toMatchObject({ id: "brief", title: "Q4 brief" });
+    expect(writtenArtifact(patch("tool error: edit 1: find does not occur in the stored HTML"))).toBeUndefined();
+    expect(writtenArtifact({ ...patch(line), isError: true })).toBeUndefined();
+  });
+
   it("is no artifact while running, held, refused, failed, or for another step", () => {
     const { result: _result, ...running } = write();
     expect(writtenArtifact(running)).toBeUndefined();
