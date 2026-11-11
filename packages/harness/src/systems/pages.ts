@@ -858,10 +858,13 @@ export class PageStore {
    * What the owner put in the trash is not deleted on its own: it goes to
    * the workspace's trash first, still trashed, with its versions and
    * captures, and without what reached the project's tables and files,
-   * which go with the project. Returns how many were removed and kept.
+   * which go with the project. One that has no free place there refuses
+   * the whole delete first (refuseTrashClash). Returns how many were
+   * removed and kept.
    */
   removeProject(projectSlug: string): { removed: number; keptInTrash: number } {
-    const trashed = this.db.prepare(`SELECT ${COLS} FROM ${FROM} WHERE p.project_slug = ? AND p.blob_id IS NULL AND p.trashed_at IS NOT NULL`).all(projectSlug) as Row[];
+    this.refuseTrashClash(projectSlug);
+    const trashed = this.projectTrash(projectSlug);
     for (const row of trashed) this.toWorkspaceTrash(row);
     const info = this.db
       .prepare(`DELETE FROM pages WHERE project_slug = ?`)
@@ -871,14 +874,32 @@ export class PageStore {
     return { removed: info.changes, keptInTrash: trashed.length };
   }
 
+  /**
+   * A project's trash, checked before the project goes: each artifact's
+   * file, versions and captures must have a free place in the workspace's,
+   * as a move's must. One that would land on something already there (a
+   * file left behind) is not dropped or written over: the delete is refused,
+   * naming it, before anything is removed.
+   */
+  refuseTrashClash(projectSlug: string): void {
+    for (const row of this.projectTrash(projectSlug)) {
+      const taken = trashMoves(row).find(([was, to]) => existsSync(this.workspace.resolve(was)) && existsSync(this.workspace.resolve(to)));
+      if (taken) throw new Error(`${taken[1]} is already there, so the project ${projectSlug} is not deleted: its trashed artifact ${row.id} would go there. Move that away or delete it, then delete the project again`);
+    }
+  }
+
+  private projectTrash(projectSlug: string): Row[] {
+    return this.db.prepare(`SELECT ${COLS} FROM ${FROM} WHERE p.project_slug = ? AND p.blob_id IS NULL AND p.trashed_at IS NOT NULL`).all(projectSlug) as Row[];
+  }
+
   /** A trashed artifact of a project going away, given to the workspace as it is: its file, versions and captures, its declarations of the project's data dropped. */
   private toWorkspaceTrash(row: Row): void {
-    const from = ownerOfRow(row);
-    const rel = join(folderOf(null), row.path.split(/[\\/]/).at(-1)!);
-    for (const [was, to] of [[row.path, rel], ...[".history", ".captures"].map((sub) => [join(folderOf(from), sub, row.id), join(folderOf(null), sub, row.id)])] as [string, string][]) {
+    const moves = trashMoves(row);
+    const rel = moves[0]![1];
+    for (const [was, to] of moves) {
       const src = this.workspace.resolve(was);
+      if (!existsSync(src)) continue;
       const dest = this.workspace.resolve(to);
-      if (!existsSync(src) || existsSync(dest)) continue;
       mkdirSync(dirname(dest), { recursive: true });
       renameSync(src, dest);
     }
@@ -887,4 +908,11 @@ export class PageStore {
     const declared = { ...meta, ...(Object.keys(kept).length ? { capabilities: kept } : {}) };
     this.db.prepare(`UPDATE pages SET project_slug = ?, path = ?, meta = ? WHERE id = ?`).run(WORKSPACE, rel, row.kind === "html" ? JSON.stringify(declared) : row.meta, row.id);
   }
+}
+
+/** Where a project's trashed artifact goes in the workspace's trash, as [from, to] pairs: its file first, then its versions and captures. */
+function trashMoves(row: Row): [string, string][] {
+  const from = ownerOfRow(row);
+  const file: [string, string] = [row.path, join(folderOf(null), row.path.split(/[\\/]/).at(-1)!)];
+  return [file, ...[".history", ".captures"].map((sub): [string, string] => [join(folderOf(from), sub, row.id), join(folderOf(null), sub, row.id)])];
 }

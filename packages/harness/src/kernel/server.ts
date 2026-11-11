@@ -1441,7 +1441,12 @@ export async function handleApiRequest(
     if (!kernel.manifest.get(slug)) {
       return { status: 404, body: { error: "project not found" } };
     }
-    return ok(kernel.deleteProject(slug));
+    // Refused whole, before anything goes, when its trash has no free place in the workspace's.
+    try {
+      return ok(kernel.deleteProject(slug));
+    } catch (err) {
+      return { status: 409, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
   }
 
   if (method === "GET" && path === "/api/pages") {

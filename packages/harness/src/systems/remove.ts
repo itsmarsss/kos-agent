@@ -31,6 +31,8 @@ export function deleteProject(
 ): DeleteProjectResult {
   const { manifest, migrator, pages } = services;
   if (!manifest.get(slug)) throw new Error(`unknown project: ${slug}`);
+  // Before the tables go: a delete refused for its trash leaves the project whole.
+  pages.refuseTrashClash(slug);
   const tablesDropped = migrator.dropProject(slug);
   const { removed: pagesRemoved, keptInTrash: trashKept } = pages.removeProject(slug);
   manifest.remove(slug);
