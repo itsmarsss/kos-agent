@@ -1805,7 +1805,7 @@ export function ChatsPage({
                                           className="is-danger"
                                           label="Delete project"
                                           confirmLabel="Delete for good"
-                                          text={`Delete ${p.name}? Its chats are kept; the rest goes.`}
+                                          text={`Delete ${p.name}? Its chats, and what of it is in the trash, are kept; the rest goes.`}
                                           onConfirm={() => {
                                             setMenuFor(null);
                                             void onDeleteProject!(p.slug).catch(() => undefined);

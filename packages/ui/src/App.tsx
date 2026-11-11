@@ -656,7 +656,8 @@ export function App(): React.ReactElement {
   const deleteProject = async (slug: string): Promise<void> => {
     const gone = await api.deleteProject(slug);
     setInspect(null);
-    flash("ok", `Deleted ${slug}: ${gone.tablesDropped.length} tables, ${gone.pagesRemoved} pages; ${gone.conversationsArchived} chats archived, ${gone.jobsDisabled} jobs off`);
+    const kept = gone.trashKept ? `; ${gone.trashKept} in its trash kept in the workspace's trash` : "";
+    flash("ok", `Deleted ${slug}: ${gone.tablesDropped.length} tables, ${gone.pagesRemoved} pages; ${gone.conversationsArchived} chats archived, ${gone.jobsDisabled} jobs off${kept}`);
     if (route.name === "project" && route.slug === slug) go({ name: "chats" });
     await refresh();
   };

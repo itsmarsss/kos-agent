@@ -192,6 +192,32 @@ describe("PageStore management", () => {
     expect(pages.record("brief")).toBeUndefined();
   });
 
+  it("keeps a deleted project's trash in the workspace's, still trashed, with its versions and captures", () => {
+    pages.writeHtml("budget", { id: "spend", title: "Spend", html: "<p>one</p>", capabilities: { query: true, ask: true, writes: [{ table: "budget_tx", columns: ["amount"] }] }, headline: { label: "N", query: "SELECT COUNT(*) FROM budget_tx" } });
+    pages.writeHtml("budget", { id: "spend", title: "Spend", html: "<p>two</p>" });
+    pages.writeHtml("budget", { id: "live", title: "Live", html: "<p>" });
+    mkdirSync(pages.capturesDir("spend"), { recursive: true });
+    writeFileSync(join(pages.capturesDir("spend"), "desktop-light.small.jpg"), "x");
+    // Its own declarations as written then, which reach the project's data.
+    ws.db.prepare(`UPDATE pages SET meta = ? WHERE id = 'spend'`).run(JSON.stringify({ capabilities: { query: true, ask: true, writes: [{ table: "budget_tx", columns: ["amount"] }], files: true }, headline: { label: "N", query: "SELECT 1" } }));
+    pages.trash("spend");
+    expect(pages.removeProject("budget")).toEqual({ removed: 1, keptInTrash: 1 });
+    expect(existsSync(join(root, "projects/budget"))).toBe(false);
+    expect(pages.record("live")).toBeUndefined();
+    const kept = pages.list(null, { trashed: true });
+    expect(kept.map((r) => [r.id, r.projectSlug, r.path])).toEqual([["spend", null, "artifacts/spend.html"]]);
+    expect(kept[0]!.trashedAt).toBeGreaterThan(0);
+    expect(readFileSync(join(root, "artifacts/spend.html"), "utf8")).toBe("<p>two</p>");
+    expect(pages.history("spend")).toHaveLength(2);
+    expect(existsSync(join(root, "artifacts/.captures/spend/desktop-light.small.jpg"))).toBe(true);
+    // What reached the project's data went with it; restored, it is a workspace artifact that reaches none.
+    pages.restore("spend");
+    const got = pages.get("spend");
+    expect(got?.kind === "html" && got.page.capabilities).toEqual({ query: true, ask: true });
+    expect(got?.kind === "html" && got.page.headline).toBeUndefined();
+    expect(pages.rename("spend", { title: "Old spend" }).title).toBe("Old spend");
+  });
+
   it("adds the trash column to a pages table from before it, every row out of the trash, and works after", () => {
     const old = mkdtempSync(join(tmpdir(), "kos-manage-old-"));
     try {

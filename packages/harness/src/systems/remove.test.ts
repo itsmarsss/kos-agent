@@ -71,6 +71,7 @@ describe("deleteProject cascade", () => {
       slug: "pantry",
       tablesDropped: ["pantry_items"],
       pagesRemoved: 1,
+      trashKept: 0,
     });
     expect(manifest.get("pantry")).toBeUndefined();
     expect(tableExists(ws, "pantry_items")).toBe(false);

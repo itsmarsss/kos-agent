@@ -801,14 +801,36 @@ export class PageStore {
   /**
    * Delete every page a project owns, records and files, and remove the
    * `projects/<slug>` folder so nothing is left on disk to re-discover.
-   * Returns the number of page records removed.
+   * What the owner put in the trash is not deleted on its own: it goes to
+   * the workspace's trash first, still trashed, with its versions and
+   * captures, and without what reached the project's tables and files,
+   * which go with the project. Returns how many were removed and kept.
    */
-  removeProject(projectSlug: string): number {
+  removeProject(projectSlug: string): { removed: number; keptInTrash: number } {
+    const trashed = this.db.prepare(`SELECT ${COLS} FROM ${FROM} WHERE p.project_slug = ? AND p.blob_id IS NULL AND p.trashed_at IS NOT NULL`).all(projectSlug) as Row[];
+    for (const row of trashed) this.toWorkspaceTrash(row);
     const info = this.db
       .prepare(`DELETE FROM pages WHERE project_slug = ?`)
       .run(projectSlug);
     const abs = this.workspace.resolve(join("projects", projectSlug));
     rmSync(abs, { recursive: true, force: true });
-    return info.changes;
+    return { removed: info.changes, keptInTrash: trashed.length };
+  }
+
+  /** A trashed artifact of a project going away, given to the workspace as it is: its file, versions and captures, its declarations of the project's data dropped. */
+  private toWorkspaceTrash(row: Row): void {
+    const from = ownerOfRow(row);
+    const rel = join(folderOf(null), row.path.split(/[\\/]/).at(-1)!);
+    for (const [was, to] of [[row.path, rel], ...[".history", ".captures"].map((sub) => [join(folderOf(from), sub, row.id), join(folderOf(null), sub, row.id)])] as [string, string][]) {
+      const src = this.workspace.resolve(was);
+      const dest = this.workspace.resolve(to);
+      if (!existsSync(src) || existsSync(dest)) continue;
+      mkdirSync(dirname(dest), { recursive: true });
+      renameSync(src, dest);
+    }
+    const { capabilities, headline: _headline, ...meta } = metaOf(row);
+    const { writes: _writes, files: _files, ...kept } = capabilities ?? {};
+    const declared = { ...meta, ...(Object.keys(kept).length ? { capabilities: kept } : {}) };
+    this.db.prepare(`UPDATE pages SET project_slug = ?, path = ?, meta = ? WHERE id = ?`).run(WORKSPACE, rel, row.kind === "html" ? JSON.stringify(declared) : row.meta, row.id);
   }
 }
