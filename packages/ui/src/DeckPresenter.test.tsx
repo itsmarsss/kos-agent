@@ -114,7 +114,7 @@ describe("the presenter view", () => {
   });
 
   it("keeps time, and holds and resets it", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["performance", "setInterval", "clearInterval"] });
     const { view } = await presenter();
     const time = within(view).getByRole("timer");
     expect(time.textContent).toBe("0:00");

@@ -61,8 +61,8 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
   const root = useRef<HTMLDivElement>(null);
   const current = useRef<ArtifactHandle>(null);
   const next = useRef<ArtifactHandle>(null);
-  const [now, setNow] = useState(() => Date.now());
-  const [clock, setClock] = useState(() => startClock(Date.now()));
+  const [now, setNow] = useState(() => performance.now());
+  const [clock, setClock] = useState(() => startClock(performance.now()));
   const [currentView, setCurrentView] = useState<DeckView>();
   const [nextView, setNextView] = useState<DeckView>();
   const count = currentView?.count || told;
@@ -143,20 +143,20 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
   useFollow(current, currentView, index, adopt);
   useFollow(next, nextView, after ?? index);
 
-  // The timer: ticking while it runs.
+  // The timer: ticking while it runs, on the monotonic clock, so a change of the wall clock never moves it.
   const running = clockRunning(clock);
   useEffect(() => {
     if (!running) return;
-    const tick = setInterval(() => setNow(Date.now()), TICK_MS);
+    const tick = setInterval(() => setNow(performance.now()), TICK_MS);
     return () => clearInterval(tick);
   }, [running]);
   const toggle = (): void => {
-    const t = Date.now();
+    const t = performance.now();
     setNow(t);
     setClock((c) => (clockRunning(c) ? pauseClock(c, t) : resumeClock(c, t)));
   };
   const reset = (): void => {
-    const t = Date.now();
+    const t = performance.now();
     setNow(t);
     setClock((c) => resetClock(c, t));
   };
