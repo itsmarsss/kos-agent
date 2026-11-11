@@ -141,8 +141,16 @@ export function enhance(article: HTMLElement): Enhanced {
       byId.set(h.id, b);
       list.append(el("li", { class: h.tagName === "H3" ? "sub" : undefined }, b));
     }
-    const wide = typeof matchMedia === "function" && matchMedia("(min-width: 1100px)").matches;
-    toc = el("nav", { class: "doc-toc", "aria-label": "Contents" }, el("details", { open: wide }, el("summary", {}, "Contents"), list));
+    const fold = el("details", {}, el("summary", {}, "Contents"), list);
+    // Open beside the text, folded above it. Followed, not read once: a frame can run its runtime before it has its width.
+    if (typeof matchMedia === "function") {
+      const wide = matchMedia("(min-width: 1100px)");
+      fold.open = wide.matches;
+      wide.addEventListener("change", (e) => {
+        fold.open = e.matches;
+      });
+    }
+    toc = el("nav", { class: "doc-toc", "aria-label": "Contents" }, fold);
     frame.classList.add("has-toc");
     frame.prepend(toc);
     if (typeof IntersectionObserver === "function") {
