@@ -42,6 +42,8 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
    */
   const [ask, setAsk] = useState(0);
   const asked = useRef(new Set<number>());
+  // What goes wrong in the room's deck is said to the presenter, never over the slide.
+  const roomTrouble = useCallback((words: string) => link.current?.post({ type: "trouble", words: `On the room's screen: ${words}` }), []);
   // A deck it could not read is said here, and to the presenter, who is the one looking.
   const said = (words: string): void => {
     setError(words);
@@ -191,7 +193,7 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
       {got && (
         <div className="audience-stage" onClick={tap}>
           <div className="audience-frame" inert>
-            <ArtifactPage ref={frame} record={got.record} page={got.page} locked presenting onDeck={setView} />
+            <ArtifactPage ref={frame} record={got.record} page={got.page} locked presenting onDeck={setView} onTrouble={roomTrouble} />
           </div>
         </div>
       )}

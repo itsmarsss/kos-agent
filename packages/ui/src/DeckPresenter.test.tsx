@@ -86,6 +86,12 @@ describe("the presenter view", () => {
     expect(said).toHaveLength(1);
     expect(said[0]!.textContent).toBe("The page hit an error: colour is not defined");
     expect(within(view).queryByText("Fix with KOS")).toBeNull();
+    // Put away, it stays away: the same words are not raised again.
+    fireEvent.click(within(view).getByRole("button", { name: "Dismiss" }));
+    expect(within(view).queryByRole("alert")).toBeNull();
+    const pageWin = (frames[0]!.contentWindow!.frames as unknown as Window[])[0]!;
+    act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "error", message: "colour is not defined" } })));
+    expect(within(view).queryByRole("alert")).toBeNull();
   });
 
   it("makes the dashboard under it inert while open, and gives it back", async () => {

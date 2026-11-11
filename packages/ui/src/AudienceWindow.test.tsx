@@ -101,6 +101,14 @@ describe("the audience window", () => {
     expect(read).toHaveBeenCalledTimes(3);
   });
 
+  it("tells the presenter what went wrong in its deck, and draws nothing over the slide", async () => {
+    const { heard } = await audience();
+    const pageWin = (document.querySelector<HTMLIFrameElement>("iframe.artifact-frame")!.contentWindow!.frames as unknown as Window[])[0]!;
+    act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "error", message: "boom" } })));
+    await waitFor(() => expect(heard).toContainEqual({ type: "trouble", words: "On the room's screen: The page hit an error: boom" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("moves from where it is, however fast the presses come", async () => {
     const { stage, heard } = await audience();
     // Three presses in one go, before any of them has drawn: each moves on from the last.

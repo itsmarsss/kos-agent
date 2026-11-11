@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, IconButton, PauseIcon, Pill, PlayIcon, RetryIcon, useOverlayScroll } from "@kos/kit";
+import { ChevronLeft, ChevronRight, CloseIcon, IconButton, PauseIcon, Pill, PlayIcon, RetryIcon, useOverlayScroll } from "@kos/kit";
 import type { HtmlPage } from "@kos/shared";
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactElement, type RefObject } from "react";
 import { createPortal } from "react-dom";
@@ -95,8 +95,14 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
   const caught = useRef(new Set<number>());
 
   // What went wrong in a slide's frame or the audience window, said once here and never over the slide.
+  // Each thing said once: the same error from both slides, or again after it was put away, is not raised again.
   const [trouble, setTrouble] = useState<string>();
-  const troubled = useCallback((words: string) => setTrouble((was) => was ?? words), []);
+  const raised = useRef(new Set<string>());
+  const troubled = useCallback((words: string) => {
+    if (raised.current.has(words)) return;
+    raised.current.add(words);
+    setTrouble(words);
+  }, []);
   useEffect(() => {
     const l = presentLink(session);
     link.current = l;
@@ -245,8 +251,13 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
         </div>
         <div className="presenter-acts">
           {trouble && (
-            <span className="presenter-trouble" role="alert" title={trouble}>
-              {trouble}
+            <span className="presenter-trouble">
+              <span role="alert" title={trouble}>
+                {trouble}
+              </span>
+              <IconButton tone="bare" label="Dismiss" onClick={() => setTrouble(undefined)}>
+                <CloseIcon size={12} title="" />
+              </IconButton>
             </span>
           )}
           {audience === "open" && <Pill tone="ok">Audience window open</Pill>}
