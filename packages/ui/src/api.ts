@@ -1,6 +1,6 @@
 /** Typed client for the KOS dashboard API. */
 
-import type { DrawnTheme, HtmlPage, ThemeMode as Theme } from "@kos/shared";
+import type { DrawnTheme, ExportFormat, HtmlPage, ThemeMode as Theme } from "@kos/shared";
 
 /** Whether a restart is wanted, and what it is waiting on. */
 export interface RestartState {
@@ -955,6 +955,31 @@ async function readError(res: Response, path: string): Promise<string> {
 /** An owner's edit refused because the artifact was saved since it was opened: reloading shows the newer one. */
 export class SaveConflict extends Error {}
 
+/** Hand bytes to the browser's own download, under this name. */
+function save(blob: Blob, name: string): void {
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = name;
+  a.click();
+  // The browser has the bytes once the click is handled; a beat later is safe.
+  setTimeout(() => URL.revokeObjectURL(href), 10_000);
+}
+
+/** The file name a Content-Disposition gives: its UTF-8 name when it has one (RFC 6266), else the plain one. */
+export function dispositionName(header: string | null): string | undefined {
+  if (!header) return undefined;
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (utf8) {
+    try {
+      return decodeURIComponent(utf8[1]!.trim());
+    } catch {
+      // A broken escape: the plain name below.
+    }
+  }
+  return /filename="([^"]*)"/i.exec(header)?.[1] || undefined;
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error(await readError(res, path));
@@ -1240,13 +1265,15 @@ export const api = {
     const url = `/api/file/download?path=${encodeURIComponent(path)}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(await readError(res, url));
-    const href = URL.createObjectURL(await res.blob());
-    const a = document.createElement("a");
-    a.href = href;
-    a.download = path.split("/").pop() ?? "file";
-    a.click();
-    // The browser has the bytes once the click is handled; a beat later is safe.
-    setTimeout(() => URL.revokeObjectURL(href), 10_000);
+    save(await res.blob(), path.split("/").pop() ?? "file");
+  },
+  /** An artifact as a file, saved under the name the server gives it: a PDF, Markdown, HTML, or a sheet's CSV (one tab, or every tab as a zip). */
+  exportArtifact: async (id: string, format: ExportFormat, options: { tab?: string; theme?: "light" | "dark" } = {}): Promise<void> => {
+    const query = new URLSearchParams({ format, ...(options.tab !== undefined ? { tab: options.tab } : {}), ...(options.theme ? { theme: options.theme } : {}) });
+    const url = `/api/artifacts/${encodeURIComponent(id)}/export?${query}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(await readError(res, url));
+    save(await res.blob(), dispositionName(res.headers.get("content-disposition")) ?? `artifact.${format}`);
   },
   spend: (days = 30) =>
     get<{

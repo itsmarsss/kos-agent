@@ -569,8 +569,8 @@ export function ArtifactViewer({
     saved(change.record);
   };
   const ops = useArtifactOps({ projects, onChanged: changed, onError: setError });
-  // Whatever the doc has not saved is saved first, so a rename or a move is made on the newest version.
-  const manage = record ? ops.items(record).map((item) => ({ ...item, act: () => void settle().then(item.act) })) : [];
+  // Whatever the doc has not saved is saved first, so a rename, a move or an export is made on the newest version.
+  const manage = record ? ops.items(record, page).map((item) => ({ ...item, act: () => void settle().then(item.act) })) : [];
 
   const convert = (): void => {
     if (!record?.projectSlug) return;
