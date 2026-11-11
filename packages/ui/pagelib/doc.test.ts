@@ -83,7 +83,7 @@ describe("kos-doc", () => {
   /** What the doc told the dashboard about its editing, last first. */
   const states = (spy: ReturnType<typeof vi.spyOn>): { editing: boolean; pending: boolean; status: string }[] =>
     spy.mock.calls.map((c) => c[0] as { __kos?: string }).filter((m): m is never => m.__kos === "edit").reverse();
-  /** The dashboard's edit bar, pressed. */
+  /** The viewer's head, pressed. */
   const press = (action: string): void => void window.dispatchEvent(new MessageEvent("message", { source: window, data: { __kos: "edit-do", action } }));
 
   it("offers editing to the dashboard only with kos.save, and not when locked", () => {
@@ -144,6 +144,19 @@ describe("kos-doc", () => {
     expect(states(told).some((s) => s.status === "Saved")).toBe(true);
     expect(article.querySelectorAll(".fn-ref")).toHaveLength(2);
     told.mockRestore();
+  });
+
+  it("numbers its notes again on leaving when a number was deleted, though the saved text is the same", async () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn().mockResolvedValue({ version: 2 }) };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const article = mount(ARTICLE);
+    startDoc();
+    press("edit");
+    article.querySelector(".fn-ref")!.remove();
+    article.dispatchEvent(new InputEvent("input", { inputType: "deleteContentBackward" }));
+    press("done");
+    await vi.waitFor(() => expect(article.hasAttribute("contenteditable")).toBe(false));
+    expect(article.querySelectorAll(".fn-ref")).toHaveLength(2);
   });
 
   it("saves on its own a moment after the owner stops typing, and Done just after a save waits out the gap rather than being refused", async () => {

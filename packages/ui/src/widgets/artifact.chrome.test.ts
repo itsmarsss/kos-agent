@@ -411,7 +411,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
         if (typeof m.menu === "string") { document.body.dataset.menu = m.menu; return; }
         // The bridge's channel for the owner's presses and keys, taken once as ArtifactPage takes it.
         if (m.__kos === "gestures") { ports += 1; document.body.dataset.ports = String(ports); if (ports === 1) e.ports[0].onmessage = () => { gestureAt = performance.now(); document.body.dataset.gestures = String(Number(document.body.dataset.gestures || 0) + 1); }; return; }
-        // The dashboard's edit bar: Edit once the doc says it can be edited.
+        // The viewer's head: Edit once the doc says it can be edited.
         if (m.__kos === "edit" && !m.editing && !document.body.dataset.asked) { document.body.dataset.asked = "1"; page.postMessage({ __kos: "edit-do", action: "edit" }, "*"); }
         if (m.__kos !== "call" || m.method !== "save") return;
         // What the dashboard checks before it relays a save: the owner's hand in this frame, as the browser reports it here.

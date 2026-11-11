@@ -174,7 +174,7 @@ export function enhance(article: HTMLElement): Enhanced {
   };
 }
 
-/** What the doc tells the dashboard about its editing, which draws the controls (ArtifactPage's edit bar). */
+/** What the doc tells the dashboard about its editing, which draws the controls in the viewer's head (ArtifactHead.tsx). */
 export interface EditState {
   __kos: "edit";
   editing: boolean;
@@ -184,7 +184,7 @@ export interface EditState {
   bad: boolean;
 }
 
-/** What the dashboard's edit bar asks of the doc. */
+/** What the viewer's head asks of the doc. */
 export type EditAction = "edit" | "done" | "discard" | "undo" | "redo";
 
 /**
@@ -221,6 +221,11 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
   const say = (status: string, bad = false): void => tell({ status, bad });
   /** The doc as editing began, so leaving redraws its contents and notes only when something changed. */
   let began = "";
+  /** Typed into since editing began: even a deleted note number, which the saved text never holds, needs the notes numbered again. */
+  let typed = false;
+  article.addEventListener("input", () => {
+    if (editor) typed = true;
+  });
 
   const begin = (): void => {
     if (editor) return;
@@ -228,6 +233,7 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
     article.querySelectorAll(".fn-ref").forEach((ref) => ref.setAttribute("contenteditable", "false"));
     savedInner = article.innerHTML;
     last = began = cleanDocHtml(article);
+    typed = false;
     article.setAttribute("contenteditable", "true");
     article.setAttribute("spellcheck", "true");
     document.documentElement.setAttribute("data-editing", "");
@@ -248,7 +254,7 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
     });
     tell({ editing: true, status: "", bad: false });
   };
-  const leave = (redraw = cleanDocHtml(article) !== began): void => {
+  const leave = (redraw = typed || cleanDocHtml(article) !== began || article.querySelectorAll(".fn-ref").length !== article.querySelectorAll(".fn").length): void => {
     editor = undefined;
     article.removeAttribute("contenteditable");
     article.removeAttribute("spellcheck");
