@@ -55,8 +55,8 @@ describe("the presenter view", () => {
     // Each frame, once it says where it is, is told the place: this one, and the one after it.
     current!.report({ index: 0, said: ["Open with the harvest.", "<b>not markup</b>"] });
     next!.report({ index: 0 });
-    expect(current!.told).toHaveBeenCalledWith({ __kos: "deck-do", action: "go", index: 1 }, "*");
-    expect(next!.told).toHaveBeenCalledWith({ __kos: "deck-do", action: "go", index: 2 }, "*");
+    expect(current!.told).toHaveBeenCalledWith(expect.objectContaining({ __kos: "deck-do", action: "go", index: 1 }), "*");
+    expect(next!.told).toHaveBeenCalledWith(expect.objectContaining({ __kos: "deck-do", action: "go", index: 2 }), "*");
     const notes = within(view).getByRole("region", { name: "Notes" });
     expect(within(notes).getByText("Open with the harvest.")).toBeTruthy();
     expect(within(notes).getByText("<b>not markup</b>")).toBeTruthy();
@@ -72,7 +72,7 @@ describe("the presenter view", () => {
     expect(within(view).getByText("Slide 4 of 4")).toBeTruthy();
     expect(within(view).getByText("End of the deck")).toBeTruthy();
     expect((within(view).getByRole("button", { name: "Next slide" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(current!.told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "go", index: 3 }, "*");
+    expect(current!.told).toHaveBeenLastCalledWith(expect.objectContaining({ __kos: "deck-do", action: "go", index: 3 }), "*");
   });
 
   it("raises a slide frame's trouble once, in its own head", async () => {

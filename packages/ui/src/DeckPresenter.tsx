@@ -29,9 +29,9 @@ export function useFollow(frame: RefObject<ArtifactHandle | null>, view: DeckVie
       follow.current = unfollowed;
       return;
     }
-    const s = followDeck(follow.current, want, view.index);
+    const s = followDeck(follow.current, want, view.index, view.went);
     follow.current = s.follow;
-    if (s.go !== undefined) frame.current?.go(s.go);
+    if (s.go) frame.current?.go(s.go.index, s.go.seq);
     if (s.moved !== undefined) onMoved?.(s.moved);
   }, [frame, view, want, onMoved]);
 }

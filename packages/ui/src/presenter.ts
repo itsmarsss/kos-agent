@@ -82,33 +82,38 @@ export function clockWords(ms: number): string {
 }
 
 /**
- * Keeping one deck frame on a slide: the place it was last told, and whether
- * it has shown that place since. A deck says where it is after everything it
- * does, so a report can still be of the place before a `go` landed; one that
- * differs before the frame has shown what it was told is that, and is let
- * pass. One that differs after is the deck moving on its own (a key in the
- * audience window), for the caller to follow or to put right.
+ * Keeping one deck frame on a slide: the place it was last told, and the
+ * number of that go. A deck says where it is after everything it does, and
+ * echoes the number of the last go it obeyed (`went`), or null once it moved
+ * on its own. A report that differs from the place told is the deck moving
+ * by itself only when it echoes the latest go (it obeyed, then moved; or the
+ * place was out of reach) or none at all; one that echoes an older go, or 0
+ * (none landed yet), is of a place before the latest go landed, and is let
+ * pass. So a run of moves pressed faster than the frame reports never
+ * bounces back.
  */
 export interface Follow {
   told: number | undefined;
-  shown: boolean;
+  seq: number;
 }
 
-export const unfollowed: Follow = { told: undefined, shown: false };
+export const unfollowed: Follow = { told: undefined, seq: 0 };
 
 export interface FollowStep {
   follow: Follow;
-  /** Tell the frame to go here. */
-  go?: number;
+  /** Tell the frame to go here, numbered. */
+  go?: { index: number; seq: number };
   /** The frame moved here on its own. */
   moved?: number;
 }
 
-/** What to do as the place wanted or the place the frame reports changes. */
-export function followDeck(f: Follow, want: number, seen: number): FollowStep {
-  // A new place: told, unless the frame already shows it and nothing told it is still in flight (a go not yet shown lands later, wherever it was going).
-  if (f.told !== want) return f.shown && seen === want ? { follow: { told: want, shown: true } } : { follow: { told: want, shown: false }, go: want };
-  if (seen === want) return { follow: f.shown ? f : { told: want, shown: true } };
-  if (!f.shown) return { follow: f };
-  return { follow: { told: seen, shown: true }, moved: seen };
+/** What to do as the place wanted or the place the frame reports (`seen`, with its `went`) changes. */
+export function followDeck(f: Follow, want: number, seen: number, went: number | null): FollowStep {
+  if (f.told !== want) {
+    const seq = f.seq + 1;
+    return { follow: { told: want, seq }, go: { index: want, seq } };
+  }
+  if (seen === want) return { follow: f };
+  if (went === null || went === f.seq) return { follow: { ...f, told: seen }, moved: seen };
+  return { follow: f };
 }

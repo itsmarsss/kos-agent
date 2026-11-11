@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clampSlide, clockElapsed, clockRunning, clockWords, followDeck, moveSlide, pauseClock, presenterKey, resetClock, resumeClock, slideAfter, startClock, unfollowed } from "./presenter.js";
+import { type Follow, clampSlide, clockElapsed, clockRunning, clockWords, followDeck, moveSlide, pauseClock, presenterKey, resetClock, resumeClock, slideAfter, startClock, unfollowed } from "./presenter.js";
 import { audienceHash, audienceRoute, presentSession, readSignal } from "./presentlink.js";
 
 describe("the presenter's place", () => {
@@ -90,62 +90,73 @@ describe("the audience window's link", () => {
 });
 
 describe("keeping a deck frame on a slide", () => {
-  it("tells a frame the place wanted, once, and knows when it is there", () => {
-    let s = followDeck(unfollowed, 3, 0);
-    expect(s.go).toBe(3);
-    // A report of the place before the go landed, as the deck's own report of handing over its bar: let pass.
-    s = followDeck(s.follow, 3, 0);
+  /** Run the moves wanted, then the frame's reports, as they come: the gos told, and the moves taken for the frame's own. */
+  const run = (start: Follow, wants: number[], reports: [number, number | null][]): { gos: number[]; moved: number[]; follow: Follow } => {
+    let f = start;
+    let want = wants[0]!;
+    let seen = start.told ?? 0;
+    let went: number | null = start.seq;
+    const gos: number[] = [];
+    const moved: number[] = [];
+    const take = (): void => {
+      const s = followDeck(f, want, seen, went);
+      f = s.follow;
+      if (s.go) gos.push(s.go.index);
+      if (s.moved !== undefined) {
+        moved.push(s.moved);
+        want = s.moved;
+      }
+    };
+    for (const w of wants) {
+      want = w;
+      take();
+    }
+    for (const [index, seq] of reports) {
+      seen = index;
+      went = seq;
+      take();
+    }
+    return { gos, moved, follow: f };
+  };
+
+  it("tells a frame never told anything, even where it seems to be, and once", () => {
+    let s = followDeck(unfollowed, 3, 0, 0);
+    expect(s.go).toEqual({ index: 3, seq: 1 });
+    // The report of handing over its bar, from before the go landed: let pass.
+    s = followDeck(s.follow, 3, 0, 0);
     expect(s.go).toBeUndefined();
     expect(s.moved).toBeUndefined();
-    s = followDeck(s.follow, 3, 3);
-    expect(s.follow).toEqual({ told: 3, shown: true });
-    // Already there, and nothing in flight: nothing to tell.
-    expect(followDeck({ told: 1, shown: true }, 0, 0)).toEqual({ follow: { told: 0, shown: true } });
-    // A frame never told anything is told, even where it seems to be.
-    expect(followDeck(unfollowed, 0, 0).go).toBe(0);
+    s = followDeck(s.follow, 3, 3, 1);
+    expect(s).toEqual({ follow: { told: 3, seq: 1 } });
+    expect(followDeck(unfollowed, 0, 0, 0).go).toEqual({ index: 0, seq: 1 });
   });
 
-  it("keeps a move made while a go is in flight: next then prev before the report", () => {
-    // On slide 2, shown; next: told 3.
-    let s = followDeck({ told: 2, shown: true }, 3, 2);
-    expect(s.go).toBe(3);
-    // Prev before the frame said anything: the report still says 2, but the go to 3 lands after it, so 2 is told again.
-    s = followDeck(s.follow, 2, 2);
-    expect(s.go).toBe(2);
-    // The frame lands on 3 (the first go), then 2: neither is a move of its own.
-    s = followDeck(s.follow, 2, 3);
-    expect(s.moved).toBeUndefined();
-    expect(s.go).toBeUndefined();
-    s = followDeck(s.follow, 2, 2);
-    expect(s.follow).toEqual({ told: 2, shown: true });
+  it("does not bounce on there and back: 3, 4, 3 before any report", () => {
+    const { gos, moved, follow } = run({ told: 2, seq: 1 }, [3, 4, 3], [
+      [3, 2],
+      [4, 3],
+      [3, 4],
+    ]);
+    expect(gos).toEqual([3, 4, 3]);
+    expect(moved).toEqual([]);
+    expect(follow).toEqual({ told: 3, seq: 4 });
   });
 
-  it("keeps Home pressed at startup before the first go landed", () => {
-    // Opened on slide 5; the frame first says 0, and is told 5.
-    let s = followDeck(unfollowed, 5, 0);
-    expect(s.go).toBe(5);
-    // Home before it shows 5: the frame still says 0, but 5 is on its way, so 0 is told.
-    s = followDeck(s.follow, 0, 0);
-    expect(s.go).toBe(0);
-    s = followDeck(s.follow, 0, 5);
-    expect(s.moved).toBeUndefined();
-    s = followDeck(s.follow, 0, 0);
-    expect(s.follow).toEqual({ told: 0, shown: true });
+  it("keeps next then prev before the report, and Home pressed at startup before the first go landed", () => {
+    expect(run({ told: 2, seq: 1 }, [3, 2], [[3, 2], [2, 3]]).moved).toEqual([]);
+    const home = run(unfollowed, [5, 0], [[0, 0], [5, 1], [0, 2]]);
+    expect(home.gos).toEqual([5, 0]);
+    expect(home.moved).toEqual([]);
+    expect(home.follow).toEqual({ told: 0, seq: 2 });
   });
 
-  it("follows a new place wanted, and lets the last one's reports pass", () => {
-    let s = followDeck({ told: 3, shown: true }, 4, 3);
-    expect(s.go).toBe(4);
-    s = followDeck(s.follow, 5, 3);
-    expect(s.go).toBe(5);
-    expect(followDeck(s.follow, 5, 4).moved).toBeUndefined();
-  });
-
-  it("says when the frame moved on its own, once it had shown its place", () => {
-    const s = followDeck({ told: 2, shown: true }, 2, 3);
-    expect(s.moved).toBe(3);
-    expect(s.follow).toEqual({ told: 3, shown: true });
-    // The caller follows: the place wanted is the frame's now, and nothing goes back.
-    expect(followDeck(s.follow, 3, 3).go).toBeUndefined();
+  it("follows the frame moving on its own, after obeying or with no go at all", () => {
+    // Obeyed the latest go, then a key moved it.
+    expect(run({ told: 2, seq: 1 }, [2], [[3, null]]).moved).toEqual([3]);
+    // The place told was out of its reach: it stopped at its end, having obeyed.
+    expect(run({ told: 2, seq: 1 }, [9], [[3, 2]]).moved).toEqual([3]);
+    // Followed: the place wanted is the frame's now, and nothing goes back.
+    const s = followDeck({ told: 2, seq: 1 }, 2, 3, null);
+    expect(followDeck(s.follow, 3, 3, null).go).toBeUndefined();
   });
 });

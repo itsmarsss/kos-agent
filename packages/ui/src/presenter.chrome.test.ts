@@ -212,16 +212,34 @@ describe.skipIf(!CHROME)("the presenter view and its audience window in a real C
     await until(async () => (await count()) === "Slide 3 of 4", "the presenter to follow the audience");
     await all(["3", "4"], "after the audience's next");
 
-    // Keys back to back, each before the frames have said where the last one took them: every window ends where the keys did.
-    // Pressed in the page, a task apart, so no frame's report can land between two of them.
-    await raw("Runtime.evaluate", { expression: `(async () => { for (const k of ["ArrowRight", "ArrowLeft", "ArrowLeft", "ArrowRight", "ArrowLeft"]) { dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true })); await new Promise((r) => setTimeout(r, 0)); } })()`, awaitPromise: true }, presenter);
-    await until(async () => (await count()) === "Slide 2 of 4", "the presenter on slide 2");
-    await all(["2", "3"], "after keys back to back");
-    await room("2");
-    // And it stays there: no late report is taken for a move of the frame's own.
-    await pause(500);
-    expect(await count()).toBe("Slide 2 of 4");
-    expect(await shown(audience)).toEqual(["2"]);
+    /*
+     * Keys back to back, each before the frames have said where the last one
+     * took them, pressed in the page a task apart so no report lands between
+     * two. Every window ends where the keys did; once the presenter shows the
+     * last place it shows no other, and the audience never says it moved.
+     */
+    await value(presenter, `(() => { window.__seen = []; window.__moved = 0; new MutationObserver(() => window.__seen.push(document.querySelector(".presenter-count").textContent)).observe(document.querySelector(".presenter-count"), { childList: true, subtree: true, characterData: true }); const c = new BroadcastChannel("kos-present:0123456789abcdef01234567"); c.onmessage = (e) => { if (e.data && e.data.type === "moved") window.__moved += 1; }; return true; })()`);
+    const burst = async (from: number, keys: string[]): Promise<void> => {
+      // The places the keys pass through, one a key: all the presenter may show, and in this order.
+      const path = keys.reduce<number[]>((p, k) => [...p, Math.max(1, Math.min(4, (p.at(-1) ?? from) + (k === "ArrowRight" ? 1 : -1)))], []);
+      const last = path.at(-1)!;
+      await value(presenter, `window.__seen = []`);
+      await raw("Runtime.evaluate", { expression: `(async () => { for (const k of ${JSON.stringify(keys)}) { dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true })); await new Promise((r) => setTimeout(r, 0)); } })()`, awaitPromise: true }, presenter);
+      const words = `Slide ${last} of 4`;
+      await until(async () => (await count()) === words, `the presenter on slide ${last}`);
+      await all([String(last), String(last + 1)], `after ${keys.join(", ")}`);
+      await room(String(last));
+      await pause(600);
+      const seen = (await value(presenter, `window.__seen`)) as string[];
+      expect(seen).toEqual(path.map((n) => `Slide ${n} of 4`));
+      expect(await count()).toBe(words);
+      expect(await shown(audience)).toEqual([String(last)]);
+      expect(await value(presenter, `window.__moved`)).toBe(0);
+    };
+    // From 3: forward, back, back, forward, back.
+    await burst(3, ["ArrowRight", "ArrowLeft", "ArrowLeft", "ArrowRight", "ArrowLeft"]);
+    // There and back: from 2, next, next, prev.
+    await burst(2, ["ArrowRight", "ArrowRight", "ArrowLeft"]);
 
     // Escape ends it, and the audience window closes with it.
     await key(presenter, "Escape", 27);

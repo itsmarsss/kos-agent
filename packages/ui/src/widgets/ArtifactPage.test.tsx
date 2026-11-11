@@ -560,14 +560,16 @@ describe("a frame as tall as its page", () => {
     const told = vi.spyOn(pageWin, "postMessage");
     say({ __kos: "deck", index: 2, count: 9, grid: false, notes: true, reading: false, hosted: false });
     expect(told).toHaveBeenCalledWith({ __kos: "deck-do", action: "host" }, "*");
-    expect(heard).toHaveBeenLastCalledWith({ index: 2, count: 9, grid: false, notes: true, reading: false, said: [] });
+    expect(heard).toHaveBeenLastCalledWith({ index: 2, count: 9, grid: false, notes: true, reading: false, said: [], went: null });
     told.mockClear();
     say({ __kos: "deck", index: 3, count: 9, grid: false, notes: true, reading: false, hosted: true });
     expect(told).not.toHaveBeenCalled();
     act(() => handle.current!.deck("next"));
     expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "next" }, "*");
-    act(() => handle.current!.go(5));
-    expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "go", index: 5 }, "*");
+    act(() => handle.current!.go(5, 7));
+    expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "go", index: 5, seq: 7 }, "*");
+    act(() => handle.current!.go(1));
+    expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "go", index: 1 }, "*");
   });
 
   it("passes on a slide's notes as strings only, capped", async () => {

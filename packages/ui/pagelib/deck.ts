@@ -37,11 +37,18 @@ export interface DeckReport {
   hosted: boolean;
   /** The current slide's notes as plain text, a block a line, for the presenter view to set as text. */
   said: string[];
+  /**
+   * Where the slide came from: the `seq` of the last `go` it obeyed, 0 when
+   * it was never told one, or null once it moved on its own since (a key, a
+   * tap). The presenter view tells a report of its latest go from one sent
+   * before it landed, and both from the deck moving by itself.
+   */
+  went: number | null;
 }
 
 /**
  * What the dashboard asks of the deck: to take over its bar, what the owner
- * pressed in it, or `go` with an `index`, which the presenter view sends to
+ * pressed in it, or `go` with an `index` and a `seq`, which the presenter view sends to
  * keep its slides and the audience's on one place.
  */
 export type DeckDo = "host" | "prev" | "next" | "grid" | "notes" | "go";
@@ -230,7 +237,7 @@ export function startDeck(): void {
   let hosted = false;
   const report = (): void => {
     if (window.top === window) return;
-    const told: DeckReport = { __kos: "deck", index: state.index, count: state.count, grid: state.grid, notes: state.notes, reading, hosted, said: noteLines(slides[state.index]!.querySelector("aside.notes")) };
+    const told: DeckReport = { __kos: "deck", index: state.index, count: state.count, grid: state.grid, notes: state.notes, reading, hosted, said: noteLines(slides[state.index]!.querySelector("aside.notes")), went };
     top?.postMessage(told, "*");
   };
   const host = (): void => {
@@ -239,9 +246,13 @@ export function startDeck(): void {
     bar.style.display = "none";
     document.body.style.setProperty("--deck-bar", "0px");
   };
-  const apply = (a: DeckAction): void => {
+  let went: number | null = 0;
+  const apply = (a: DeckAction, seq?: number): void => {
     const was = state.presenting;
+    const at = state.index;
     state = step(state, a);
+    if (seq !== undefined) went = seq;
+    else if (state.index !== at) went = null;
     // Asking the dashboard for the whole screen; it tells the deck back through kos:present.
     if (a.type === "present" && state.presenting && !was) kos()?.present?.();
     // And giving it back when the deck stops on its own (Escape, the grid), so the dashboard does not hold a screen nobody presents on.
@@ -298,13 +309,13 @@ export function startDeck(): void {
   });
 
   addEventListener("message", (e) => {
-    const m = (e.data ?? {}) as { __kos?: string; action?: DeckDo; index?: unknown };
+    const m = (e.data ?? {}) as { __kos?: string; action?: DeckDo; index?: unknown; seq?: unknown };
     if (e.source !== top || m.__kos !== "deck-do") return;
     if (m.action === "host") {
       host();
       render();
     } else if (m.action === "go") {
-      if (typeof m.index === "number" && Number.isInteger(m.index)) apply({ type: "go", index: m.index });
+      if (typeof m.index === "number" && Number.isInteger(m.index)) apply({ type: "go", index: m.index }, typeof m.seq === "number" && Number.isInteger(m.seq) && m.seq > 0 ? m.seq : undefined);
     } else if (m.action === "prev" || m.action === "next" || m.action === "grid" || m.action === "notes") apply({ type: m.action });
   });
   addEventListener("kos:present", (e) => apply({ type: "present", on: (e as CustomEvent<{ on?: boolean }>).detail?.on === true }));

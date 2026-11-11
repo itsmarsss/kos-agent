@@ -141,8 +141,8 @@ export interface ArtifactHandle {
   edit(action: EditTold["action"]): void;
   /** What the owner pressed among a deck's controls, which the viewer's head draws. */
   deck(action: DeckPress): void;
-  /** Take a deck to a slide: the presenter view keeps its slides and the audience's on one place. */
-  go(index: number): void;
+  /** Take a deck to a slide, numbered for its report to echo (`went`): the presenter view keeps its slides and the audience's on one place. */
+  go(index: number, seq?: number): void;
 }
 
 /** How a doc's editing stands, as the doc says (pagelib/doc.ts EditState). */
@@ -163,6 +163,8 @@ export interface DeckView {
   reading: boolean;
   /** The current slide's notes, a block a line: the page's own words, set only as text. */
   said: string[];
+  /** The `seq` of the last go the deck obeyed, 0 for none yet, null once it moved on its own (pagelib/deck.ts DeckReport). */
+  went: number | null;
 }
 
 /** What the viewer's head may press on a deck. */
@@ -464,7 +466,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         // Shown once its own bar has gone, so it does not jump as it fades in.
         if (flag(d.hosted)) show();
         else spoke.current = true;
-        setDeck({ index: count(d.index), count: count(d.count), grid: flag(d.grid), notes: flag(d.notes), reading: flag(d.reading), said: lines(d.said) });
+        setDeck({ index: count(d.index), count: count(d.count), grid: flag(d.grid), notes: flag(d.notes), reading: flag(d.reading), said: lines(d.said), went: typeof d.went === "number" && Number.isInteger(d.went) && d.went >= 0 ? d.went : null });
         if (!flag(d.hosted)) pageWindow()?.postMessage({ __kos: "deck-do", action: "host" }, "*");
         if (presenting && !inPlace.current) presentInPlace(true);
         return;
@@ -595,7 +597,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     });
   }, [editDo]);
   const deckDo = useCallback((action: DeckPress) => pageWindow()?.postMessage({ __kos: "deck-do", action }, "*"), [pageWindow]);
-  const go = useCallback((index: number) => pageWindow()?.postMessage({ __kos: "deck-do", action: "go", index }, "*"), [pageWindow]);
+  const go = useCallback((index: number, seq?: number) => pageWindow()?.postMessage({ __kos: "deck-do", action: "go", index, ...(seq === undefined ? {} : { seq }) }, "*"), [pageWindow]);
   // The channel goes with the frame.
   useEffect(() => () => gestures.current.port?.close(), []);
   useImperativeHandle(ref, () => ({ present, settle, edit: editDo, deck: deckDo, go }), [present, settle, editDo, deckDo, go]);
