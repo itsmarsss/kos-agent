@@ -622,6 +622,9 @@ select {
   grid-column: 1 / -1;
 }
 
+/* A page in the trash is only looked at: its forms and buttons are dimmed and do nothing. */
+.kos-page--readonly { opacity: 0.7; }
+
 /* Widget widths. Below 900px everything goes full width: a quarter-width
    tile on a phone is unreadable, and a table needs the whole row anyway. */
 .kos-cell {

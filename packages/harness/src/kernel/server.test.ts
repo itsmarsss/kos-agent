@@ -1763,6 +1763,14 @@ describe("handleApiRequest", () => {
       expect(rows).toEqual([{ title: "write tests" }]);
     });
 
+    it("refuses a page in the trash and writes nothing", async () => {
+      kernel.pages.trash("tasks");
+      const res = await mutate({ pageId: "tasks", widgetIndex: 1, op: "insert", values: { title: "from the trash" } });
+      expect(res.status).toBe(409);
+      expect((res.body as { error: string }).error).toContain("in the trash");
+      expect(kernel.workspace.db.prepare("SELECT COUNT(*) AS n FROM tasks").get()).toEqual({ n: 0 });
+    });
+
     it("ignores a table and columns supplied by the caller", async () => {
       const res = await mutate({
         pageId: "tasks",

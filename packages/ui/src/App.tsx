@@ -46,10 +46,9 @@ import { MemoryPage } from "./MemoryPage.js";
 import { InboxPage } from "./InboxPage.js";
 import { RunsTabs } from "./RunsTabs.js";
 import { Sidebar } from "./Sidebar.js";
+import { WidgetPage } from "./WidgetPage.js";
 import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
-import { PageHistory } from "./PageHistory.js";
-import { PageRenderer } from "./widgets/PageRenderer.js";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
 
@@ -929,9 +928,14 @@ export function App(): React.ReactElement {
             {pageError}
           </p>
         )}
-        {activePage && <PageHistory record={activePage.record} onRolledBack={() => api.anyPage(activePage.record.id).then(setActivePage)} />}
         {activePage && (
-          <PageRenderer spec={activePage.spec} data={activePage.data} />
+          <WidgetPage
+            page={activePage}
+            projects={projects}
+            onReload={() => api.anyPage(activePage.record.id).then(setActivePage)}
+            onGone={() => go(back)}
+            onError={(text) => flash("err", text)}
+          />
         )}
         {!activePage && !pageError && <p className="ops-muted">Loading…</p>}
       </>,

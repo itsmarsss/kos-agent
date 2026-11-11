@@ -1594,6 +1594,8 @@ export async function handleApiRequest(
     }
     const page = kernel.pages.get(pageId);
     if (!page || page.kind !== "spec") return { status: 404, body: { error: "page not found" } };
+    // A page in the trash is left as it is, its tables too: only a restore gives its widgets back their writes.
+    if (page.record.trashedAt !== undefined) return { status: 409, body: { error: "this page is in the trash, so its widgets change nothing; restore it first" } };
     const widget = page.spec.widgets[widgetIndex];
     if (!widget) return { status: 404, body: { error: "widget not found" } };
     if (!WRITE_CAPABLE.has(widget.type)) {
