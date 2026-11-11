@@ -51,6 +51,8 @@ export function sealedArgs(sealed: { loopback: number[] }): string[] {
     // Every connection goes to the proxy, loopback too (<-loopback), but KOS's own ports.
     `--proxy-server=${BLACK_HOLE}`,
     `--proxy-bypass-list=${["<-loopback>", ...sealed.loopback.map((port) => `127.0.0.1:${port}`)].join(";")}`,
+    // WebRTC's UDP, which no proxy carries: none but through the proxy, which is not there.
+    "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
   ];
 }
 

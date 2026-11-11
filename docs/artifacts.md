@@ -239,7 +239,9 @@ UTF-8. Each export, and each refusal, is kept in the audit log as
     `ChromeLaunch`, `@kos/browser`): its resolver finds no name
     (`--host-resolver-rules=MAP * ~NOTFOUND`), and every connection, to
     loopback too, goes to a proxy that is not there (`127.0.0.1:9`), but
-    the one port KOS serves the check's documents on. KOS's browser for the
+    the one port KOS serves the check's documents on; and WebRTC may send
+    no UDP but through that proxy
+    (`--force-webrtc-ip-handling-policy=disable_non_proxied_udp`). KOS's browser for the
     web is never launched so. On the dashboard, in the owner's own browser,
     this leak stands as below (What still leaves), held at write time.
   An artifact that tries to leave anyway is left with nothing in its frame,
