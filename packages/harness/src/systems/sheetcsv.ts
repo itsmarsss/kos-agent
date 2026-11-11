@@ -41,18 +41,45 @@ export function tabCsv(book: SheetBook, tab: number): string {
   return `${BOM}${lines.join("\r\n")}\r\n`;
 }
 
-/** A read of a project table, as window.kos answers one. */
-export type SourceRead = (sql: string) => Promise<{ rows: Record<string, unknown>[] }>;
+/** One page of a read, as window.kos answers one: truncated when the server cut it short. */
+export interface SourcePage {
+  rows: Record<string, unknown>[];
+  truncated?: boolean;
+}
 
-/** A source tab the export cannot read: its table refused it. */
+/** A read of a project table through the artifact's bridge, a page at a time (LIMIT ? OFFSET ?). */
+export type SourceRead = (sql: string, params: number[]) => Promise<SourcePage>;
+
+/** A source tab the export cannot read: its table refused it, or it is larger than an export takes. */
 export class SourceRefusal extends Error {}
 
+/** The rows the server answers a read with at most, so a page this long may have more after it. */
+export const SOURCE_PAGE = 500;
+/** The most rows an export reads from one table; past it, the table is the place to export from. */
+export const SOURCE_ROWS_MAX = 100_000;
+
+/** Every row a source tab's table holds, read a page at a time, up to SOURCE_ROWS_MAX. */
+async function allRows(tab: SheetTab, sql: string, read: SourceRead): Promise<Record<string, unknown>[]> {
+  const rows: Record<string, unknown>[] = [];
+  for (;;) {
+    let got: SourcePage;
+    try {
+      got = await read(`${sql} LIMIT ? OFFSET ?`, [SOURCE_PAGE, rows.length]);
+    } catch (err) {
+      throw new SourceRefusal(`the tab "${tab.name}" cannot be read: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    rows.push(...got.rows);
+    if (rows.length > SOURCE_ROWS_MAX) throw new SourceRefusal(`the tab "${tab.name}" has more than ${SOURCE_ROWS_MAX.toLocaleString("en-US")} rows; export its table from the project instead`);
+    if (!got.rows.length || (!got.truncated && got.rows.length < SOURCE_PAGE)) return rows;
+  }
+}
+
 /**
- * The workbook with each source tab holding the rows its table has now,
- * read through the artifact's own bridge one tab after another, so its
- * declarations, the server's checks and its queue hold as they do for the
- * frame. A tab whose read is refused refuses the export, saying which and
- * why.
+ * The workbook with each source tab holding every row its table has now
+ * (not the frame's first 500), read through the artifact's own bridge a
+ * page at a time and one tab after another, so its declarations, the
+ * server's checks and its queue hold as they do for the frame. A tab whose
+ * read is refused refuses the export, saying which and why.
  */
 export async function withSources(book: SheetBook, read: SourceRead): Promise<SheetBook> {
   const sheets: SheetTab[] = [];
@@ -63,13 +90,7 @@ export async function withSources(book: SheetBook, read: SourceRead): Promise<Sh
     }
     const sql = sourceQuery(tab);
     if (!sql) throw new SourceRefusal(`the tab "${tab.name}" reads no plain table, so it has nothing to export`);
-    let rows: Record<string, unknown>[];
-    try {
-      rows = (await read(sql)).rows;
-    } catch (err) {
-      throw new SourceRefusal(`the tab "${tab.name}" cannot be read: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    sheets.push({ ...tab, rows: sourceRows(tab, rows) });
+    sheets.push({ ...tab, rows: sourceRows(tab, await allRows(tab, sql, read)) });
   }
   return { ...book, sheets };
 }

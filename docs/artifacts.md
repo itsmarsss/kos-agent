@@ -272,8 +272,11 @@ UTF-8. Each export, and each refusal, is kept in the audit log as
 - **CSV** (`systems/sheetcsv.ts`) is a tab's values as the sheet works them
   out, with the runtime's own engine (`sheetformula.ts`, in `@kos/shared` so
   the server and the runtime share it): a formula as its result, a pivot as
-  its groups, a source tab as the rows its table holds now, read through the
-  artifact's own bridge. Numbers plain, to fifteen digits; no totals row;
+  its groups, a source tab as every row its table holds now (not the
+  frame's first 500), read through the artifact's own bridge 500 at a time
+  and one tab after another, up to 100,000 rows, past which the export is
+  refused and the table is the place to export from; a tab whose read is
+  refused refuses the export, naming the tab. Numbers plain, to fifteen digits; no totals row;
   RFC 4180 quoting and CRLF; a UTF-8 byte-order mark so Excel reads accents;
   a text cell a spreadsheet would run as a formula led by an apostrophe.
   Every tab of a sheet with more than one is a zip of a CSV each.

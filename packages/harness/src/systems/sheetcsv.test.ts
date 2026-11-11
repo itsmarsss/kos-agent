@@ -1,7 +1,7 @@
 import type { SheetBook } from "@kos/shared";
 import { describe, expect, it } from "vitest";
 
-import { SourceRefusal, tabCsv, withSources } from "./sheetcsv.js";
+import { SOURCE_PAGE, SOURCE_ROWS_MAX, SourceRefusal, tabCsv, withSources } from "./sheetcsv.js";
 
 const BOOK: SheetBook = {
   sheets: [
@@ -56,7 +56,7 @@ describe("a sheet's tab as CSV", () => {
       asked.push(sql);
       return { rows: [{ __key: 1, date: "2026-10-01", amount: 12 }] };
     });
-    expect(asked).toEqual(['SELECT "id" AS __key, "date", "amount", "Double" FROM "budget_tx"']);
+    expect(asked).toEqual(['SELECT "id" AS __key, "date", "amount", "Double" FROM "budget_tx" LIMIT ? OFFSET ?']);
     expect(lines(tabCsv(filled, 0))).toEqual(["When,amount,Double", "2026-10-01,12,", ""]);
     await expect(withSources({ sheets: [{ ...book.sheets[0]!, source: { table: "x y", key: "id" } }] }, async () => ({ rows: [] }))).rejects.toThrow(/no plain table/);
   });
@@ -77,5 +77,19 @@ describe("a sheet's tab as CSV", () => {
     const refused = withSources({ sheets: [tab("A", "a"), tab("Old", "gone")] }, read);
     await expect(refused).rejects.toBeInstanceOf(SourceRefusal);
     await expect(refused).rejects.toThrow('the tab "Old" cannot be read: this page cannot read that table');
+  });
+
+  it("reads every row of a table a page at a time, not the frame's first 500, and refuses one past the bound", async () => {
+    const table = (n: number) => async (_sql: string, params: number[]) => {
+      const [limit, offset] = params as [number, number];
+      const rows = Array.from({ length: Math.max(0, Math.min(limit, n - offset)) }, (_, i) => ({ n: offset + i + 1 }));
+      return { rows, truncated: rows.length === limit && offset + limit < n };
+    };
+    const book: SheetBook = { sheets: [{ name: "Big", columns: [{ label: "n", type: "number" }], source: { table: "big", key: "id" } }] };
+    const filled = await withSources(book, table(SOURCE_PAGE * 2 + 37));
+    const out = lines(tabCsv(filled, 0));
+    expect(out).toHaveLength(SOURCE_PAGE * 2 + 37 + 2);
+    expect(out.at(-2)).toBe(String(SOURCE_PAGE * 2 + 37));
+    await expect(withSources(book, table(SOURCE_ROWS_MAX + 1))).rejects.toThrow(/more than 100,000 rows; export its table from the project instead/);
   });
 });

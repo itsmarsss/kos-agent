@@ -1594,6 +1594,11 @@ describe("handleApiRequest", () => {
         const all = await get("books", "format=csv");
         expect(all.headers?.["content-type"]).toBe("application/zip");
         expect([...readZip(all.body as Buffer).keys()]).toEqual(["Shelf.csv", "Sums.csv"]);
+        // Every row of the table, not the 500 a frame's read is cut to.
+        kernel.workspace.db.exec(`INSERT INTO shelf_books (title) SELECT 'Book ' || value FROM json_each('[${Array.from({ length: 1200 }, (_, i) => i).join(",")}]')`);
+        const big = ((await get("books", "format=csv&tab=Shelf")).body as Buffer).toString("utf8").split("\r\n");
+        expect(big).toHaveLength(1203);
+        expect(big.at(-2)).toBe("Book 1199");
         expect(await get("books", "format=csv&tab=Nope")).toMatchObject({ status: 400, body: { error: 'the sheet has no tab called "Nope"' } });
         // A table the sheet can no longer read refuses the export in words, not as a server error.
         kernel.workspace.db.exec("DROP TABLE shelf_books");
