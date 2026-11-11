@@ -135,13 +135,42 @@ fix(Element.prototype,"setAttributeNS",function(ns,n,v){n=Str(n);if(inert(this,n
 ["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel","RTCRtpSender","RTCRtpReceiver","RTCRtpTransceiver","XSLTProcessor"].forEach(function(k){fix(window,k,undefined)});
 })();`;
 
-/** A page's own head and body, from a whole document or a fragment. */
+/**
+ * Text that holds no tags of the page's: a comment, and what a raw element
+ * holds (a script, a style, a textarea, a title), as the HTML parser reads
+ * them. A "<body>" in a script's string is not the page's body.
+ */
+const RAW = /<!--[\s\S]*?(?:-->|$)|(<(script|style|textarea|title|xmp|noscript)(?=[\s>/])[^>]*>)([\s\S]*?)(<\/\2\s*>|$)/gi;
+
+/** The page with that text blanked, at the same length, so a tag found in it is at the same place in the page. */
+function masked(html: string): string {
+  return html.replace(RAW, (whole: string, open: string | undefined, _tag: string | undefined, inner: string | undefined, close: string | undefined) =>
+    open === undefined ? " ".repeat(whole.length) : `${open}${" ".repeat(inner!.length)}${close}`,
+  );
+}
+
+/** A page's own head and body, from a whole document or a fragment; tags are looked for only where the parser would read them. */
 export function splitHtml(html: string): { head: string; body: string } {
-  const text = html.replace(/<!doctype[^>]*>/i, "").replace(/<\/?html[^>]*>/gi, "");
-  const head = /<head[^>]*>([\s\S]*?)<\/head>/i.exec(text);
-  const rest = head ? text.slice(0, head.index) + text.slice(head.index + head[0].length) : text;
-  const body = /<body[^>]*>([\s\S]*?)(<\/body>|$)/i.exec(rest);
-  return { head: head?.[1] ?? "", body: body ? body[1]! : rest };
+  // The doctype and the html tags go, from the page and its blanked copy alike, so the two stay aligned.
+  let text = "";
+  let blank = "";
+  const plain = masked(html);
+  let at = 0;
+  for (const m of plain.matchAll(/<!doctype[^>]*>|<\/?html(?=[\s>/])[^>]*>/gi)) {
+    text += html.slice(at, m.index);
+    blank += plain.slice(at, m.index);
+    at = m.index + m[0].length;
+  }
+  text += html.slice(at);
+  blank += plain.slice(at);
+  const head = /<head(?=[\s>/])[^>]*>([\s\S]*?)<\/head\s*>/i.exec(blank);
+  // What a tag holds, cut from the page where the blanked copy found it: after the tag's own ">", for as long as it held.
+  const inner = (from: string, m: RegExpExecArray): string => from.substr(m.index + m[0].indexOf(">") + 1, m[1]!.length);
+  const headText = head ? inner(text, head) : "";
+  const restText = head ? text.slice(0, head.index) + text.slice(head.index + head[0].length) : text;
+  const restBlank = head ? blank.slice(0, head.index) + blank.slice(head.index + head[0].length) : blank;
+  const body = /<body(?=[\s>/])[^>]*>([\s\S]*?)(<\/body\s*>|$)/i.exec(restBlank);
+  return { head: headText, body: body ? inner(restText, body) : restText };
 }
 
 /** The tokens as one :root rule, for the page and for a change of theme. */
