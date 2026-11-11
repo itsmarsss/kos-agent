@@ -161,10 +161,12 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
     setClock((c) => resetClock(c, t));
   };
 
-  // The keys, the dashboard's own while this is open; a control keeps its Space and Enter.
+  // The keys, the dashboard's own while this is open; a control keeps its Space and Enter, and whatever opens over this (a palette, a dialog) keeps all of its keys.
   useEffect(() => {
     const key = (e: KeyboardEvent): void => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const at = e.target instanceof Node ? e.target : null;
+      if (at && at !== document.body && at !== document.documentElement && !root.current?.contains(at)) return;
       if ((e.key === " " || e.key === "Enter") && (e.target as Element | null)?.closest?.("button, a, input, textarea, select")) return;
       const k = presenterKey(e.key, e.shiftKey);
       if (!k) return;

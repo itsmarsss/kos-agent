@@ -109,6 +109,13 @@ describe("the presenter view", () => {
     expect(at()).toBe("Slide 1 of 4");
     fireEvent.keyDown(within(view).getByRole("button", { name: "End" }), { key: " " });
     expect(at()).toBe("Slide 1 of 4");
+    // What opens over the presenter (a palette, a dialog) keeps its keys.
+    const over = document.body.appendChild(document.createElement("input"));
+    fireEvent.keyDown(over, { key: "ArrowRight" });
+    fireEvent.keyDown(over, { key: "Escape" });
+    expect(at()).toBe("Slide 1 of 4");
+    expect(ended).not.toHaveBeenCalled();
+    over.remove();
     // A shortcut with a modifier is the browser's.
     fireEvent.keyDown(view, { key: "ArrowRight", metaKey: true });
     expect(at()).toBe("Slide 1 of 4");
