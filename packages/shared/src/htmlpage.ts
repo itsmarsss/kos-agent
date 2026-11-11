@@ -52,6 +52,9 @@ export const HTML_PAGE_MAX = 400_000;
 
 /** A description is a sentence, not a page. */
 export const DESCRIPTION_MAX = 300;
+/** A rename's title and description, as the owner gives them: a name and a sentence, cut to what a card and a menu show. */
+export const RENAME_TITLE_MAX = 120;
+export const RENAME_DESCRIPTION_MAX = 280;
 /** More faces than this is a type specimen, not a design. */
 export const FONTS_MAX = 4;
 

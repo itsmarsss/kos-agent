@@ -6,6 +6,8 @@ export interface DeleteProjectResult {
   slug: string;
   tablesDropped: string[];
   pagesRemoved: number;
+  /** Its artifacts in the trash, kept in the workspace's trash rather than deleted on their own. */
+  trashKept: number;
 }
 
 /**
@@ -29,8 +31,10 @@ export function deleteProject(
 ): DeleteProjectResult {
   const { manifest, migrator, pages } = services;
   if (!manifest.get(slug)) throw new Error(`unknown project: ${slug}`);
+  // Before the tables go: a delete refused for its trash leaves the project whole.
+  pages.refuseTrashClash(slug);
   const tablesDropped = migrator.dropProject(slug);
-  const pagesRemoved = pages.removeProject(slug);
+  const { removed: pagesRemoved, keptInTrash: trashKept } = pages.removeProject(slug);
   manifest.remove(slug);
-  return { slug, tablesDropped, pagesRemoved };
+  return { slug, tablesDropped, pagesRemoved, trashKept };
 }

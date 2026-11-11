@@ -4,6 +4,7 @@ import {
   mkdirSync,
   writeFileSync,
   existsSync,
+  readFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -63,6 +64,25 @@ describe("deleteProject cascade", () => {
     return p.slug;
   }
 
+  it("refuses before anything goes when a trashed artifact's place in the workspace is taken", () => {
+    const slug = seed("Pantry");
+    pages.writeHtml(slug, { id: "memo", title: "Memo", html: "<p>kept</p>" });
+    pages.trash("memo");
+    // A file left behind where the workspace would keep it.
+    mkdirSync(ws.resolve("artifacts"), { recursive: true });
+    writeFileSync(ws.resolve("artifacts/memo.html"), "<p>stale</p>");
+    expect(() => deleteProject({ manifest, migrator, pages }, slug)).toThrow(/artifacts\/memo\.html is already there, so the project pantry is not deleted: its trashed artifact memo/);
+    expect(manifest.get(slug)).toBeDefined();
+    expect(tableExists(ws, "pantry_items")).toBe(true);
+    expect(pages.record("memo")).toMatchObject({ projectSlug: slug, path: "projects/pantry/pages/memo.html" });
+    expect(readFileSync(ws.resolve("projects/pantry/pages/memo.html"), "utf8")).toBe("<p>kept</p>");
+    expect(readFileSync(ws.resolve("artifacts/memo.html"), "utf8")).toBe("<p>stale</p>");
+    // Moved away, the delete goes through and the artifact is kept.
+    rmSync(ws.resolve("artifacts/memo.html"));
+    expect(deleteProject({ manifest, migrator, pages }, slug).trashKept).toBe(1);
+    expect(readFileSync(ws.resolve("artifacts/memo.html"), "utf8")).toBe("<p>kept</p>");
+  });
+
   it("drops the target's tables, ledger, pages, and folder", () => {
     const slug = seed("Pantry");
     const result = deleteProject({ manifest, migrator, pages }, slug);
@@ -71,6 +91,7 @@ describe("deleteProject cascade", () => {
       slug: "pantry",
       tablesDropped: ["pantry_items"],
       pagesRemoved: 1,
+      trashKept: 0,
     });
     expect(manifest.get("pantry")).toBeUndefined();
     expect(tableExists(ws, "pantry_items")).toBe(false);

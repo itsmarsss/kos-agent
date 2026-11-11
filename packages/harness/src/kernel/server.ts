@@ -14,10 +14,11 @@ import { DREAM_JOB, MEMORY_JOB, OBSERVE_JOB } from "../memory/job.js";
 import { runDisplayQuery } from "../systems/display.js";
 import type { Headline } from "../systems/headlines.js";
 import { BridgeRefusal } from "../systems/pagebridge.js";
-import { EditConflict } from "../systems/pages.js";
+import { ArtifactTrashed, EditConflict, type PageStore } from "../systems/pages.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
+import { MAINTENANCE } from "./caretaker.js";
 import {
   BEHAVIOUR_DEFAULTS,
   BEHAVIOUR_KEY,
@@ -616,6 +617,11 @@ export async function handleApiRequest(
   const extension = options.extensions?.find((e) => path === e.prefix || path.startsWith(`${e.prefix}/`));
   const notFound: ApiResponse = { status: 404, body: { error: "not found" } };
   if (extension?.open?.includes(path)) return (await extension.handle(req)) ?? notFound;
+
+  // A change asked by another site's page in the owner's browser is refused, token or none: with none, nothing else would stop it.
+  if (crossSiteWrite(req, options.allowedOrigins)) {
+    return { status: 403, body: { error: "a change to KOS is asked from the dashboard itself, not from another site" } };
+  }
 
   // A configured token guards every route. Reads leak workspace state just as
   // surely as writes change it. With no token the server is loopback-only.
@@ -1435,7 +1441,12 @@ export async function handleApiRequest(
     if (!kernel.manifest.get(slug)) {
       return { status: 404, body: { error: "project not found" } };
     }
-    return ok(kernel.deleteProject(slug));
+    // Refused whole, before anything goes, when its trash has no free place in the workspace's.
+    try {
+      return ok(kernel.deleteProject(slug));
+    } catch (err) {
+      return { status: 409, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
   }
 
   if (method === "GET" && path === "/api/pages") {
@@ -1465,19 +1476,10 @@ export async function handleApiRequest(
     const page = kernel.pages.version(decodeURIComponent(versionGet[1]!), Number(versionGet[2]));
     return page ? ok(page) : { status: 404, body: { error: "no such version" } };
   }
-  const bridgeCall = /^\/api\/pages\/([^/]+)\/(query|write|file|save|history|rollback|delete)$/.exec(path);
+  const bridgeCall = /^\/api\/pages\/([^/]+)\/(query|write|file|save|history|rollback)$/.exec(path);
   if (bridgeCall) {
     const id = decodeURIComponent(bridgeCall[1]!);
     const verb = bridgeCall[2]!;
-    // What a removed blob made is the owner's to keep or let go; nothing else is deleted from here. By its row, so one whose file went is let go too.
-    if (verb === "delete" && method === "POST") {
-      // A blob whose folder was deleted by hand is removed now, not at the next boot.
-      kernel.roles.retireDeleted();
-      const record = kernel.pages.record(id);
-      if (!record) return { status: 404, body: { error: "page not found" } };
-      if (!record.blobRemoved) return { status: 403, body: { error: "only what a removed blob made is deleted here" } };
-      return ok({ deleted: kernel.pages.remove(id) });
-    }
     const got = kernel.pages.get(id);
     if (!got) return { status: 404, body: { error: "page not found" } };
     if (verb === "history" && method === "GET") return ok(kernel.pages.history(id));
@@ -1500,17 +1502,43 @@ export async function handleApiRequest(
   /*
    * The Artifacts page: every artifact, each with whether a capture of it
    * exists and whether it is older than the artifact, so the gallery can
-   * show the capture or ask for a fresh one.
+   * show the capture or ask for a fresh one. `?trashed=1` lists the trash
+   * instead.
    */
   if (method === "GET" && path === "/api/artifacts") {
     // So what a hand-deleted blob made reads as a removed blob's, with its Delete, without a reboot.
     kernel.roles.retireDeleted();
+    const trashed = queryParams(req.url).get("trashed") === "1";
     return ok(
-      kernel.pages.list().map((record) => {
+      kernel.pages.list(undefined, { trashed }).map((record) => {
         const at = captureTime(kernel.pages.capturesDir(record.id));
         return { ...record, ...(at ? { capturedAt: at } : {}) };
       }),
     );
+  }
+
+  /*
+   * The owner's management of one artifact: rename, duplicate, move, trash,
+   * restore, and delete for good, which only one in the trash may be.
+   * Owner-only as every route past the token is: KOS's own tools rename,
+   * copy and move within their reach, and delete nothing. Each is audited.
+   */
+  const manage = method === "POST" ? /^\/api\/artifacts\/([^/]+)\/(rename|duplicate|move|trash|restore|delete)$/.exec(path) : null;
+  if (manage) {
+    const id = decodeURIComponent(manage[1]!);
+    const verb = manage[2]!;
+    if (!kernel.pages.record(id)) return { status: 404, body: { error: "artifact not found" } };
+    const args: Record<string, unknown> = { id, ...(verb === "rename" ? { title: body.title, description: body.description } : verb === "move" ? { project: body.project, blob: body.blob } : {}) };
+    const audit = (result: string, isError: boolean): void => void kernel.audit.record({ tool: `artifact.${verb}`, args, result, isError, userId: kernel.profile.ownerId });
+    try {
+      const done = manageArtifact(kernel.pages, id, verb, body);
+      audit(JSON.stringify(done), false);
+      return ok(done);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      audit(message, true);
+      return { status: err instanceof ArtifactTrashed ? 409 : 400, body: { error: message } };
+    }
   }
   const artifactRoute = /^\/api\/artifacts\/([^/]+)\/(thumb|check)$/.exec(path);
   if (artifactRoute) {
@@ -1525,6 +1553,7 @@ export async function handleApiRequest(
       return { status: 200, body: bytes, headers: { "content-type": "image/jpeg", "content-length": String(bytes.byteLength), "cache-control": "no-cache", "x-content-type-options": "nosniff" } };
     }
     if (artifactRoute[2] === "check" && method === "POST") {
+      if (got.record.trashedAt !== undefined) return { status: 409, body: { error: "this artifact is in the trash, so it is not drawn again" } };
       try {
         const report = await kernel.checker.check(id, "gallery");
         return ok({ findings: report.findings, capturedAt: captureTime(kernel.pages.capturesDir(id)) });
@@ -1570,6 +1599,8 @@ export async function handleApiRequest(
     }
     const page = kernel.pages.get(pageId);
     if (!page || page.kind !== "spec") return { status: 404, body: { error: "page not found" } };
+    // A page in the trash is left as it is, its tables too: only a restore gives its widgets back their writes.
+    if (page.record.trashedAt !== undefined) return { status: 409, body: { error: "this page is in the trash, so its widgets change nothing; restore it first" } };
     const widget = page.spec.widgets[widgetIndex];
     if (!widget) return { status: 404, body: { error: "widget not found" } };
     if (!WRITE_CAPABLE.has(widget.type)) {
@@ -3131,6 +3162,38 @@ export function authorized(req: ApiRequest, token: string): boolean {
   return x === token;
 }
 
+/**
+ * Whether a request that changes something came from a web page other than
+ * the dashboard's own. A browser says where a request came from (Origin on
+ * every POST, Sec-Fetch-Site beside it); a program that is not a browser
+ * (KOS for Mac, the CLI, a provider's webhook) says neither and is let by,
+ * as is any origin on the allowlist. An extension's origin is any other
+ * site's: KOS for Chrome pairs by an open route and works over the device
+ * socket, which its signatures prove, so it asks nothing here, and an id
+ * Chrome gives an unpacked copy is not one KOS could know to let by. The
+ * dashboard's own origin is its host as the request names it, or as a proxy
+ * in front passes it on; a browser that calls the request cross-site is
+ * believed over an Origin that matches it. An opaque origin ("null", a
+ * sandboxed frame such as an artifact's) is no one's.
+ */
+export function crossSiteWrite(req: ApiRequest, allowedOrigins: readonly string[] = []): boolean {
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return false;
+  const headers = req.headers ?? {};
+  const origin = header(headers, "origin");
+  if (origin !== undefined && allowedOrigins.includes(origin)) return false;
+  // The browser's own word wins over an Origin a proxy in front may have rewritten (the dashboard's dev server does).
+  if (header(headers, "sec-fetch-site") === "cross-site") return true;
+  if (origin === undefined) return false;
+  let host: string;
+  try {
+    host = new URL(origin).host;
+  } catch {
+    return true;
+  }
+  const own = [header(headers, "host"), header(headers, "x-forwarded-host")].filter((h): h is string => !!h);
+  return !own.includes(host);
+}
+
 function header(
   headers: Record<string, string | string[] | undefined>,
   name: string,
@@ -3138,6 +3201,29 @@ function header(
   const v = headers[name] ?? headers[name.toLowerCase()];
   if (Array.isArray(v)) return v[0];
   return v;
+}
+
+/** One of the owner's changes to an artifact, by its verb; delete is for good, so only one in the trash may be. */
+function manageArtifact(pages: PageStore, id: string, verb: string, body: Record<string, unknown>): unknown {
+  switch (verb) {
+    case "rename":
+      return pages.rename(id, { ...(typeof body.title === "string" ? { title: body.title } : {}), ...(typeof body.description === "string" ? { description: body.description } : {}) });
+    case "duplicate":
+      return pages.duplicate(id);
+    case "move": {
+      // Maintenance is where KOS repairs itself: nothing of the owner's is filed there, where only its repair chats would reach it.
+      const to = pages.destination(body);
+      if (to === MAINTENANCE.slug) throw new Error("Maintenance is where KOS repairs itself, not a place for the owner's artifacts; pick a project, a blob or the workspace");
+      return pages.move(id, to);
+    }
+    case "trash":
+      return pages.trash(id);
+    case "restore":
+      return pages.restore(id);
+    default:
+      if (pages.record(id)?.trashedAt === undefined) throw new Error("only an artifact in the trash is deleted for good; move it to the trash first");
+      return { id, deleted: pages.remove(id) };
+  }
 }
 
 function queryParams(url?: string): URLSearchParams {

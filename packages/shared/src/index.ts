@@ -45,6 +45,8 @@ export {
 } from "./pagespec-validate.js";
 export {
   DESCRIPTION_MAX,
+  RENAME_DESCRIPTION_MAX,
+  RENAME_TITLE_MAX,
   FONTS_MAX,
   HTML_PAGE_MAX,
   PAGE_LIBRARIES,

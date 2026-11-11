@@ -46,10 +46,9 @@ import { MemoryPage } from "./MemoryPage.js";
 import { InboxPage } from "./InboxPage.js";
 import { RunsTabs } from "./RunsTabs.js";
 import { Sidebar } from "./Sidebar.js";
+import { WidgetPage } from "./WidgetPage.js";
 import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
-import { PageHistory } from "./PageHistory.js";
-import { PageRenderer } from "./widgets/PageRenderer.js";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
 
@@ -654,9 +653,14 @@ export function App(): React.ReactElement {
   };
   /** Delete a project wherever it was asked from; a page that was showing it leaves it. */
   const deleteProject = async (slug: string): Promise<void> => {
-    const gone = await api.deleteProject(slug);
+    // A refusal (its trash has nowhere to go) is said wherever it was asked from, a menu included.
+    const gone = await api.deleteProject(slug).catch((err: unknown) => {
+      flash("err", err instanceof Error ? err.message : String(err));
+      throw err;
+    });
     setInspect(null);
-    flash("ok", `Deleted ${slug}: ${gone.tablesDropped.length} tables, ${gone.pagesRemoved} pages; ${gone.conversationsArchived} chats archived, ${gone.jobsDisabled} jobs off`);
+    const kept = gone.trashKept ? `; ${gone.trashKept} in its trash kept in the workspace's trash` : "";
+    flash("ok", `Deleted ${slug}: ${gone.tablesDropped.length} tables, ${gone.pagesRemoved} pages; ${gone.conversationsArchived} chats archived, ${gone.jobsDisabled} jobs off${kept}`);
     if (route.name === "project" && route.slug === slug) go({ name: "chats" });
     await refresh();
   };
@@ -928,9 +932,14 @@ export function App(): React.ReactElement {
             {pageError}
           </p>
         )}
-        {activePage && <PageHistory record={activePage.record} onRolledBack={() => api.anyPage(activePage.record.id).then(setActivePage)} />}
         {activePage && (
-          <PageRenderer spec={activePage.spec} data={activePage.data} />
+          <WidgetPage
+            page={activePage}
+            projects={projects}
+            onReload={() => api.anyPage(activePage.record.id).then(setActivePage)}
+            onGone={() => go(back)}
+            onError={(text) => flash("err", text)}
+          />
         )}
         {!activePage && !pageError && <p className="ops-muted">Loading…</p>}
       </>,

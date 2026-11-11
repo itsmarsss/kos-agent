@@ -31,6 +31,8 @@ export interface PageRendererProps {
    * of its own.
    */
   onRefresh?: (pageId: string) => Promise<Record<number, Row[]>>;
+  /** Drawn to be looked at only (a page in the trash): no widget is handed a write path. */
+  readOnly?: boolean;
 }
 
 async function defaultMutate(
@@ -94,6 +96,7 @@ export function PageRenderer({
   errors = NO_ERRORS,
   onMutate = defaultMutate,
   onRefresh = defaultRefresh,
+  readOnly = false,
 }: PageRendererProps): ReactElement {
   const [fresh, setFresh] = useState<Record<number, Row[]>>({});
 
@@ -139,7 +142,7 @@ export function PageRenderer({
   }
 
   return (
-    <div className="kos-page">
+    <div className={`kos-page${readOnly ? " kos-page--readonly" : ""}`} inert={readOnly}>
       <h1>{spec.title}</h1>
       {spec.widgets.map((widget, i) => {
         const Renderer = widgetRenderer(widget.type);
@@ -158,7 +161,7 @@ export function PageRenderer({
               <Renderer
                 widget={widget}
                 rows={fresh[i] ?? data[i] ?? []}
-                mutate={mutations[i]}
+                {...(readOnly ? {} : { mutate: mutations[i] })}
               />
             )}
           </ErrorBoundary>

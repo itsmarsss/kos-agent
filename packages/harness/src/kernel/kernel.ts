@@ -4300,6 +4300,12 @@ export class Kernel {
   async artifactCall(id: string, verb: "query" | "write" | "file" | "save", body: Record<string, unknown>): Promise<unknown> {
     const bridge = this.bridgeFor(id);
     if (!bridge) throw new BridgeRefusal("no such artifact");
+    // In the trash it is only looked at: its reads are answered, nothing it asks changes a table.
+    if (verb === "write" && this.pages.record(id)?.trashedAt !== undefined) {
+      const refusal = new BridgeRefusal("this artifact is in the trash, so it changes nothing; restore it to use it");
+      this.audit.record({ tool: "page.write", args: { page: id, table: body.table, op: body.op }, result: refusal.message, isError: true });
+      throw refusal;
+    }
     try {
       if (verb === "query") return await pageQuery(this.workspace.reader, this.pageQueries, bridge, body.sql, body.params, { key: id });
       if (verb === "write") return pageWrite(this.workspace.db, bridge, body);
@@ -4800,6 +4806,10 @@ export class Kernel {
         const why = record ? whyNot(ownerOfRecord(record), reach, "read", (id) => this.pages.blobIds.removed(id)) : undefined;
         if (why) {
           parts.push(`Page ${ref.id}: not shown; ${why} are not this chat's to read.`);
+          continue;
+        }
+        if (record?.trashedAt !== undefined) {
+          parts.push(`Page ${ref.id} ("${record.title}"): in the trash. The owner set it aside; it is left as it is until they restore it from the Artifacts page's Trash.`);
           continue;
         }
         const page = this.pages.get(ref.id);

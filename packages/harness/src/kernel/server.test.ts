@@ -11,7 +11,7 @@ import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { RATES_KEY } from "../ops/spend.js";
 import { cronSessionId } from "./session.js";
 import { caller } from "./caller.js";
-import { handleApiRequest, withFrames } from "./server.js";
+import { crossSiteWrite, handleApiRequest, mentionsOf, withFrames } from "./server.js";
 
 const stub: Inference = {
   async generate() {
@@ -1321,7 +1321,9 @@ describe("handleApiRequest", () => {
           return req.path === "/api/devices/none" ? undefined : { status: 200, body: { path: req.path } };
         },
       }];
-      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/devices/pair" }, { token: "secret", extensions })).status).toBe(200);
+      // KOS for Chrome pairs from its own origin, which no other route lets by.
+      const chrome = { host: "127.0.0.1:4317", origin: `chrome-extension://${"a".repeat(32)}`, "sec-fetch-site": "none" };
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/devices/pair", headers: chrome }, { token: "secret", extensions })).status).toBe(200);
       expect((await handleApiRequest(kernel, { method: "GET", path: "/api/devices" }, { token: "secret", extensions })).status).toBe(401);
       expect(seen).toEqual(["/api/devices/pair"]);
       const owner = { "x-kos-token": "secret" };
@@ -1331,6 +1333,39 @@ describe("handleApiRequest", () => {
       expect(seen).not.toContain("/api/devicesX");
       await handleApiRequest(kernel, { method: "GET", path: "/api/devicesX", headers: owner }, { token: "secret", extensions });
       expect(seen).not.toContain("/api/devicesX");
+    });
+
+    it("refuses a change another site's page or an extension asks for, and lets the dashboard and programs by", async () => {
+      kernel.pages.writeHtml(null, { id: "memo", title: "Memo", html: "<p>memo</p>" });
+      const post = (headers: Record<string, string>, path = "/api/artifacts/memo/rename") =>
+        handleApiRequest(kernel, { method: "POST", path, body: { title: "Taken" }, headers: { host: "127.0.0.1:4317", ...headers } });
+      const strangers: Record<string, string>[] = [
+        { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
+        { origin: "http://127.0.0.1:4422", "sec-fetch-site": "same-site" },
+        { origin: "null", "sec-fetch-site": "cross-site" },
+        { "sec-fetch-site": "cross-site" },
+        { origin: "chrome-extension://not-an-extension" },
+        // Any extension the owner has installed: KOS for Chrome itself asks nothing of these routes.
+        { origin: `chrome-extension://${"a".repeat(32)}`, "sec-fetch-site": "none" },
+        { origin: `chrome-extension://${"b".repeat(32)}`, "sec-fetch-site": "cross-site" },
+        // Another site's page through a proxy that rewrote its Origin to the dashboard's: the browser still says cross-site.
+        { origin: "http://127.0.0.1:4317", "sec-fetch-site": "cross-site" },
+      ];
+      for (const headers of strangers) {
+        const res = await post(headers);
+        expect(res.status, JSON.stringify(headers)).toBe(403);
+      }
+      // Every change, not only an artifact's.
+      expect((await post({ origin: "https://evil.example" }, "/api/memory")).status).toBe(403);
+      expect(kernel.pages.record("memo")?.title).toBe("Memo");
+      // A read is the browser's to keep from another site, by CORS.
+      expect((await handleApiRequest(kernel, { method: "GET", path: "/api/artifacts", headers: { host: "127.0.0.1:4317", origin: "https://evil.example" } })).status).toBe(200);
+      // The dashboard itself, through a proxy that passes its host on, an allowed origin, and a program that sends no origin.
+      expect((await post({ origin: "http://127.0.0.1:4317", "sec-fetch-site": "same-origin" })).status).toBe(200);
+      expect((await post({ host: "127.0.0.1:4317", "x-forwarded-host": "kos.example", origin: "https://kos.example" })).status).toBe(200);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/memo/rename", body: { title: "Allowed" }, headers: { host: "127.0.0.1:4317", origin: "https://ok.example" } }, { allowedOrigins: ["https://ok.example"] })).status).toBe(200);
+      expect((await post({})).status).toBe(200);
+      expect(crossSiteWrite({ method: "POST", path: "/api/x" })).toBe(false);
     });
 
     it("leaves the no-token loopback case open", async () => {
@@ -1382,6 +1417,18 @@ describe("handleApiRequest", () => {
       expect((read.body as { rows: unknown[] }).rows).toEqual([{ title: "Dune" }, { title: "Emma" }]);
     });
 
+    it("answers a trashed page's reads and refuses its writes, and draws it no new capture", async () => {
+      kernel.pages.trash("shelf");
+      const read = await bridge("query", { sql: "SELECT title FROM shelf_books" });
+      expect(read.status).toBe(200);
+      const write = await bridge("write", { table: "shelf_books", op: "insert", values: { title: "Emma" } });
+      expect(write.status).toBe(403);
+      expect(JSON.stringify(write.body)).toMatch(/in the trash/);
+      expect((kernel.workspace.db.prepare("SELECT COUNT(*) AS n FROM shelf_books").get() as { n: number }).n).toBe(1);
+      expect(kernel.audit.recent(5).find((r) => r.tool === "page.write")?.isError).toBe(true);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/shelf/check", body: {} })).status).toBe(409);
+    });
+
     it("answers an owner's edit made on an older version with a conflict", async () => {
       kernel.pages.writeHtml("shelf", { id: "note", kind: "doc", title: "Note", html: "<article data-doc><h1>Note</h1><p>one</p></article>" });
       const opened = kernel.pages.get("note")!.record.updatedAt;
@@ -1405,15 +1452,16 @@ describe("handleApiRequest", () => {
       const saved = await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/save", body: { edit: { doc: "<h1>Notes</h1><p>two</p>" }, base: rec.updatedAt } });
       expect(saved.status).toBe(200);
       expect(saved.body).toMatchObject({ blob: "noter", projectSlug: null });
-      // A living blob's is not deleted from the dashboard.
-      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(403);
+      // Nothing is deleted from the dashboard straight away: it goes to the trash first.
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/notes/delete", body: {} })).status).toBe(400);
       // Removed, its file goes and its folder stays with the work in it: the artifact is kept, marked as a removed blob's.
       expect((await handleApiRequest(kernel, { method: "POST", path: "/api/agents/delete", body: { name: "noter" } })).status).toBe(200);
       const list = (await handleApiRequest(kernel, { method: "GET", path: "/api/artifacts", body: {} })).body as { id: string; blob?: string; blobRemoved?: boolean }[];
       expect(list.find((p) => p.id === "notes")).toMatchObject({ blob: "noter", blobRemoved: true });
-      // The owner can still restore it, and delete it.
+      // The owner can still restore a version of it, and delete it.
       expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/rollback", body: { version: 1 } })).status).toBe(200);
-      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(200);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/notes/trash", body: {} })).status).toBe(200);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/notes/delete", body: {} })).status).toBe(200);
       expect(kernel.pages.get("notes")).toBeUndefined();
     });
 
@@ -1423,27 +1471,30 @@ describe("handleApiRequest", () => {
       expect((await handleApiRequest(kernel, { method: "POST", path: "/api/agents/delete", body: { name: "noter" } })).status).toBe(200);
       rmSync(join(root, "blobs/noter/artifacts/notes.html"));
       expect(kernel.pages.get("notes")).toBeUndefined();
-      const res = await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} });
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/notes/trash", body: {} })).status).toBe(200);
+      const res = await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/notes/delete", body: {} });
       expect(res).toMatchObject({ status: 200, body: { deleted: true } });
       expect(kernel.pages.record("notes")).toBeUndefined();
       expect(existsSync(join(root, "blobs/noter/artifacts/.history/notes"))).toBe(false);
-      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(404);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/notes/delete", body: {} })).status).toBe(404);
     });
 
-    it("lets the owner delete what a blob made once its folder was deleted by hand, without a reboot", async () => {
+    it("lists what a blob made as a removed blob's once its folder was deleted by hand, without a reboot", async () => {
       kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
       kernel.pages.writeHtml({ blob: "noter", id: kernel.roles.identity("noter")! }, { id: "notes", title: "Notes", html: "<p>n</p>" });
+      const listed = async (): Promise<{ id: string; blobRemoved?: boolean } | undefined> =>
+        ((await handleApiRequest(kernel, { method: "GET", path: "/api/artifacts", body: {} })).body as { id: string; blobRemoved?: boolean }[]).find((p) => p.id === "notes");
       // Its file moved aside for a moment is still a living blob's.
       const file = join(root, "blobs/noter/blob.md");
       const text = readFileSync(file, "utf8");
       rmSync(file);
-      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(403);
+      expect((await listed())?.blobRemoved).toBeUndefined();
       writeFileSync(file, text);
-      // The whole folder gone is the blob deleted: the list says so, and Delete works.
+      // The whole folder gone is the blob deleted: the list says so, and it can be let go.
       rmSync(join(root, "blobs/noter"), { recursive: true });
-      const list = (await handleApiRequest(kernel, { method: "GET", path: "/api/artifacts", body: {} })).body as { id: string; blobRemoved?: boolean }[];
-      expect(list.find((p) => p.id === "notes")).toMatchObject({ blobRemoved: true });
-      expect(await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).toMatchObject({ status: 200, body: { deleted: true } });
+      expect(await listed()).toMatchObject({ blobRemoved: true });
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/notes/trash", body: {} })).status).toBe(200);
+      expect(await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/notes/delete", body: {} })).toMatchObject({ status: 200, body: { deleted: true } });
       expect(kernel.pages.record("notes")).toBeUndefined();
     });
 
@@ -1506,6 +1557,88 @@ describe("handleApiRequest", () => {
       for (const shown of ["ROTATE-PROMPT", "VAULT-KEY", "VAULT-CHAT-BRIEF", "LOCKER-BRIEF"]) expect(own, shown).toContain(shown);
       const root = resolve(named, kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mine" }).id);
       for (const shown of ["ROTATE-PROMPT", "VAULT-KEY", "VAULT-CHAT-BRIEF", "LOCKER-BRIEF", "NOTER-BRIEF", "SHELF-CHAT-BRIEF"]) expect(root, shown).toContain(shown);
+    });
+
+    describe("the owner's management", () => {
+      const manage = (id: string, verb: string, body: Record<string, unknown> = {}, headers?: Record<string, string>) =>
+        handleApiRequest(kernel, { method: "POST", path: `/api/artifacts/${id}/${verb}`, body, ...(headers ? { headers } : {}) }, headers ? { token: "secret" } : {});
+      const audited = (verb: string) => kernel.audit.recent(50).filter((r) => r.tool === `artifact.${verb}`);
+      const listed = async (trashed = false): Promise<string[]> =>
+        ((await handleApiRequest(kernel, { method: "GET", path: "/api/artifacts", url: `/api/artifacts${trashed ? "?trashed=1" : ""}`, body: {} })).body as { id: string }[]).map((r) => r.id).sort();
+
+      it("is the owner's alone, behind the dashboard's token", async () => {
+        for (const verb of ["rename", "duplicate", "move", "trash", "restore", "delete"]) {
+          expect((await handleApiRequest(kernel, { method: "POST", path: `/api/artifacts/shelf/${verb}`, body: { title: "X" } }, { token: "secret" })).status, verb).toBe(401);
+        }
+        expect(kernel.pages.record("shelf")).toMatchObject({ title: "Shelf" });
+        expect((await manage("shelf", "rename", { title: "Books" }, { "x-kos-token": "secret" })).status).toBe(200);
+      });
+
+      it("renames, copies and moves an artifact under its id, each audited", async () => {
+        const renamed = await manage("shelf", "rename", { title: "Books", description: "Every book on the shelf." });
+        expect(renamed).toMatchObject({ status: 200, body: { id: "shelf", title: "Books", description: "Every book on the shelf." } });
+        expect(audited("rename")[0]).toMatchObject({ isError: false, userId: kernel.profile.ownerId });
+        expect(JSON.parse(audited("rename")[0]!.args)).toMatchObject({ id: "shelf", title: "Books" });
+        expect((await manage("shelf", "rename", { title: "x".repeat(121) })).status).toBe(400);
+        expect((await manage("shelf", "rename", { description: "x".repeat(281) })).status).toBe(400);
+        expect(kernel.pages.record("shelf")?.title).toBe("Books");
+
+        const copy = await manage("shelf", "duplicate");
+        expect(copy).toMatchObject({ status: 200, body: { id: "shelf-copy", title: "Books copy", projectSlug: "shelf" } });
+        expect(audited("duplicate")).toHaveLength(1);
+
+        kernel.pages.writeHtml(null, { id: "memo", title: "Memo", html: "<p>memo</p>" });
+        kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
+        expect(await manage("memo", "move", { project: "vault" })).toMatchObject({ status: 200, body: { id: "memo", projectSlug: "vault" } });
+        expect(await manage("memo", "move", { blob: "noter" })).toMatchObject({ status: 200, body: { blob: "noter" } });
+        expect(await manage("memo", "move", { project: "@workspace" })).toMatchObject({ status: 200, body: { projectSlug: null } });
+        expect(kernel.pages.history("memo")).toHaveLength(4);
+        // One that reads its project's tables does not go where they are not, and the refusal is audited too.
+        const refused = await manage("shelf", "move", { project: "vault" });
+        expect(refused.status).toBe(400);
+        expect((refused.body as { error: string }).error).toMatch(/not a table of project "vault"/);
+        expect(audited("move").map((r) => r.isError)).toEqual([true, false, false, false]);
+        expect((await manage("memo", "move", {})).status).toBe(400);
+        // Maintenance is KOS's repair shop: no artifact of the owner's is filed there from the dashboard.
+        const kept = await manage("memo", "move", { project: "maintenance" });
+        expect(kept.status).toBe(400);
+        expect((kept.body as { error: string }).error).toMatch(/where KOS repairs itself/);
+        expect((await manage("nope", "rename", { title: "X" })).status).toBe(404);
+      });
+
+      it("trashes into a list of its own, restores, and deletes for good only from the trash", async () => {
+        kernel.pages.writeHtml(null, { id: "memo", title: "Memo", html: "<p>memo</p>" });
+        expect((await manage("memo", "delete")).status).toBe(400);
+        expect(kernel.pages.record("memo")).toBeDefined();
+
+        expect(await manage("memo", "trash")).toMatchObject({ status: 200, body: { id: "memo", trashedAt: expect.any(Number) } });
+        expect(await listed()).toEqual(["shelf"]);
+        expect(await listed(true)).toEqual(["memo"]);
+        // Out of the project's list and the @ menu too.
+        expect((await manage("shelf", "trash")).status).toBe(200);
+        expect(((await handleApiRequest(kernel, { method: "GET", path: "/api/pages", url: "/api/pages?project=shelf", body: {} })).body as unknown[]).length).toBe(0);
+        expect(mentionsOf(kernel, "she", 10, "page")).toEqual([]);
+        // Still opened by its id, saying it is in the trash, and nothing changes it there.
+        expect((await handleApiRequest(kernel, { method: "GET", path: "/api/pages/memo", body: {} })).body).toMatchObject({ record: { trashedAt: expect.any(Number) } });
+        expect((await manage("memo", "rename", { title: "X" })).status).toBe(409);
+        expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/memo/rollback", body: { version: 1 } })).status).toBe(400);
+
+        expect(await manage("shelf", "restore")).toMatchObject({ status: 200, body: { id: "shelf" } });
+        expect(await listed()).toEqual(["shelf"]);
+        expect(await manage("memo", "delete")).toMatchObject({ status: 200, body: { id: "memo", deleted: true } });
+        expect(kernel.pages.record("memo")).toBeUndefined();
+        expect(audited("trash")).toHaveLength(2);
+        expect(audited("restore")).toHaveLength(1);
+        expect(audited("delete").map((r) => r.isError)).toEqual([false, true]);
+      });
+
+      it("tells a chat that mentions a trashed artifact where it is, without its body", () => {
+        kernel.pages.trash("shelf");
+        const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Shelf chat", projectSlug: "shelf" });
+        const said = (kernel as unknown as { resolveMentions: (t: string, c: string, w: { owner: boolean }) => string | null }).resolveMentions("@page:shelf", chat.id, { owner: true }) ?? "";
+        expect(said).toMatch(/Page shelf \("Shelf"\): in the trash/);
+        expect(said).not.toContain("<p>books</p>");
+      });
     });
 
     it("gives a guest's turn no artifact or file tool, so a guest never reaches the root's reach over a blob's artifacts", () => {
@@ -1634,6 +1767,14 @@ describe("handleApiRequest", () => {
         .prepare("SELECT title FROM tasks")
         .all() as Array<{ title: string }>;
       expect(rows).toEqual([{ title: "write tests" }]);
+    });
+
+    it("refuses a page in the trash and writes nothing", async () => {
+      kernel.pages.trash("tasks");
+      const res = await mutate({ pageId: "tasks", widgetIndex: 1, op: "insert", values: { title: "from the trash" } });
+      expect(res.status).toBe(409);
+      expect((res.body as { error: string }).error).toContain("in the trash");
+      expect(kernel.workspace.db.prepare("SELECT COUNT(*) AS n FROM tasks").get()).toEqual({ n: 0 });
     });
 
     it("ignores a table and columns supplied by the caller", async () => {
