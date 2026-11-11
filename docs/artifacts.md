@@ -21,7 +21,7 @@ does the hard parts.
 | `page` | an app, dashboard or tool | any HTML, with `window.kos` for data, `react` and `charts` if named | nothing: the kit's look, as pages always had |
 | `doc` | a report, plan, memo, brief or guide | one `<article data-doc>`: a header (`.kicker`, h1, `.lede`, `.byline`), h2 sections, `<span class="fn">` footnotes, figures, `blockquote.pull`, `aside.callout` | `kos-doc`: the reading column and type, numbered notes collected after the text, numbered figures, a table of contents at four or more sections (beside the text when wide, folded above it when narrow), and editing in place |
 | `deck` | slides | one `<main data-deck>`, a `<section>` per slide, `<aside class="notes">` for presenter notes; slide classes `.title`, `.statement`, `.split`, `.closing`, `.bleed` | `kos-deck`: 16:9 slides fitted to the frame and sized in container units, keys, clicks and swipes, a counter, a grid of slides, a notes panel, presenting, and a reading layout on a phone in portrait |
-| `sheet` | a spreadsheet | one `<script type="application/json" data-sheet>` holding a workbook: tabs with typed columns and rows, a live `source` table, or a `pivot`; `totals`, `freeze`, `charts` | `kos-sheet`: the grid with frozen header and columns, formulas (references, ranges, other tabs, SUM, AVERAGE, MIN, MAX, COUNT, COUNTA, ROUND, ABS, IF, SUMIF, COUNTIF, AVERAGEIF, CONCAT), sorting, filtering, number formats in tabular figures, totals, pivots, charts from ranges, and editing |
+| `sheet` | a spreadsheet | one `<script type="application/json" data-sheet>` holding a workbook: tabs with typed columns and rows, a live `source` table, or a `pivot`; `totals`, `freeze`, `charts` | `kos-sheet`: the grid with frozen header and columns, formulas (references, ranges, other tabs, and 37 functions: figures, lookups, dates, text), sorting, filtering, number formats in tabular figures, totals, pivots, charts from ranges, and editing: cells, pastes, CSV imports, columns and rows, with undo |
 
 The workbook's shape is `SheetBook` in `packages/shared/src/artifacts.ts`,
 and `artifacts.write` refuses a kind without its structure (a doc with no
@@ -321,7 +321,9 @@ Chrome, as on a machine without one.
   60 s for them all, past either of which the export is refused and the
   table is the place to export from (as it is when a page comes back cut
   short with no row in it); a tab whose read is
-  refused refuses the export, naming the tab. Numbers plain, to fifteen digits; no totals row;
+  refused refuses the export, naming the tab. TODAY and NOW are the export's
+  own time, as the runtime's are when it opens; a date column's date
+  arithmetic (a serial) is written as the ISO day it is. Numbers plain, to fifteen digits; no totals row;
   RFC 4180 quoting and CRLF; a UTF-8 byte-order mark so Excel reads accents;
   a text cell a spreadsheet would run as a formula led by an apostrophe.
   Every tab of a sheet with more than one is a zip of a CSV each.
@@ -478,6 +480,56 @@ they were; the markup it makes is the doc's own (no forms, frames or links
 off the page; a link goes to a heading, since a frame has nowhere else to
 go). An image is read from a file the owner picks and kept inline as data,
 up to 300 KB.
+
+### Editing a sheet
+
+A sheet is edited in its grid (`ui/pagelib/sheet.ts`). A tab kept with the
+artifact saves its whole workbook through `kos.save`, spaced as above; a tab
+over a table writes each change through the declared `kos.write` (an
+update, an insert, a delete) and reads the table again.
+
+- **Cells**: typed, or a formula. A typed value is read by its column's
+  type as a pasted one is (a date into ISO); what does not fit stays as
+  typed.
+- **Paste**: a range copied from Excel, Google Sheets or Numbers (their
+  tab-separated text, else their HTML table, read as text by patterns and
+  never parsed into a document) is laid from the focused cell down the rows
+  as shown, past the last as new rows. A block led by the tab's own header
+  is mapped by its names and adds its rows. Empty cells take it at once; a
+  paste that would replace filled cells asks in a bar in the sheet (the
+  frame refuses `window.confirm`): Replace, Add as new rows, or Cancel.
+- **Import CSV**: the frame's own file picker (a file input works in the
+  `allow-scripts` sandbox), up to 5 MB; quoting, a BOM, CRLF, comma,
+  semicolon or tab, with or without a header, each guessed and changeable;
+  a mapping from the file's columns to the tab's, a preview of the first
+  rows, then Add, which only appends.
+- **Values from outside** are data (`ui/pagelib/sheetimport.ts`): read by
+  the column's type (figures with separators, signs, codes and
+  parentheses; dates as people write them; yes and no), each that does not
+  fit named and left empty, and never a formula: a value starting with `=`
+  is kept as text in a text column, led by an apostrophe (`'=x` reads as
+  `=x`), and refused in any other.
+- **Columns**: a column's menu sorts, renames, retypes (its text read as the
+  new type where it can be), and, in a tab kept with the artifact, puts a
+  column in either side or deletes one, asking when it holds values.
+- **Rows**: picked by their numbers (Shift for a run, Cmd or Ctrl for one
+  more), put in above or below, deleted at once alone or after asking for
+  more.
+- **References follow** (`ui/pagelib/sheetshape.ts`, `rewriteRefs` in
+  `sheetformula.ts`): putting in or taking out rows and columns moves every
+  formula, chart range, total and pivot that names them, as a spreadsheet
+  does, and one that named what went reads `#REF!`.
+- **Undo** (the bar's Undo, or Cmd or Ctrl+Z in the grid) puts the workbook
+  back a change at a time, 50 deep, and saves that as the next version. A
+  table's rows are the table's, so a delete there always asks, and says
+  Undo cannot bring them back.
+
+A tab over a table changes no column, and `applyEdit` holds it so: an edit
+may rename or retype the columns that show a table, never change which of
+its columns the sheet reads. Adding or removing one is the table's schema,
+a migration (`systems.migrate`) made by the project's chat when the owner
+asks; the frame has no path to one, and the column menu says to ask KOS.
+A paste or import into a table writes at most 1,000 rows, one write each.
 
 ### Editing from anywhere, written in one place
 

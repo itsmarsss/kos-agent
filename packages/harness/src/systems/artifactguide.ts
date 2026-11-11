@@ -325,12 +325,22 @@ Put a short header (an h1 and one line of context) before the data, then one scr
 
 ## Formulas
 
-Rows are numbered from 1 below the header, and column A is the first column. A cell that starts with "=" is a formula: + - * / ^ and & (join text), comparisons, references like A1 and $A$1, ranges like C1:C40, other tabs as Expenses!C1:C40 or 'By category'!B2, and the functions SUM, AVERAGE, MIN, MAX, COUNT, COUNTA, ROUND, ABS, IF, SUMIF, COUNTIF, AVERAGEIF and CONCAT. Percent values are fractions (0.15 shows as 15%).
+Rows are numbered from 1 below the header, and column A is the first column. A cell that starts with "=" is a formula: + - * / ^ and & (join text), comparisons, references like A1 and $A$1, ranges like C1:C40, other tabs as Expenses!C1:C40 or 'By category'!B2, and these functions, with a spreadsheet's arguments and errors (#N/A, #VALUE!, #REF!, #DIV/0!, #NUM!):
+- figures: SUM, AVERAGE, MEDIAN, MIN, MAX, COUNT, COUNTA, ROUND, ROUNDUP, ROUNDDOWN, ABS, SUMIF, COUNTIF, AVERAGEIF;
+- logic and lookup: IF, IFERROR, VLOOKUP, XLOOKUP, INDEX, MATCH;
+- dates: TODAY, NOW, DATE, YEAR, MONTH, DAY, DATEDIF;
+- text: CONCAT, TEXTJOIN, LEFT, RIGHT, MID, LEN, UPPER, LOWER, TRIM.
+
+Percent values are fractions (0.15 shows as 15%). Dates are ISO text: a date less a date is the days between, a date plus 7 a week later, and TODAY and NOW are worked out when the sheet opens. Text that must start with "=" is written with an apostrophe first ("'=x").
 
 ## Data kept with it, or a project table
 
 - With rows, the data lives in the artifact. The owner edits cells in the grid, and each save becomes a new version.
 - With source: { table, key, orderBy }, the tab reads a project table live through window.kos. Name the PHYSICAL table. To let the owner edit it, declare the table in capabilities.writes with its editable columns, and give key as the column that identifies a row; edits go through KOS's guarded writes. Use a source tab whenever the data already lives in a project table, so the sheet never goes stale.
+
+## What the owner does in the grid
+
+The runtime gives the owner a spreadsheet's editing; write none of it. They type, paste ranges from other spreadsheets, import a CSV with a column mapping, add, rename, retype and delete columns, insert and delete rows, and undo. Pastes and imports add rows and fill empty cells, ask before replacing filled ones, and read values by the column's type, so typed columns matter. On a source tab they become the table's inserts and updates, and row deletes its deletes, so declare insert and delete in capabilities.writes when the owner should add or remove rows; its columns change only through a migration, which the owner asks you for.
 
 ## Principles
 
