@@ -1,6 +1,6 @@
 import { Face, Field, NavIcon } from "@kos/kit";
 import { RENAME_DESCRIPTION_MAX, RENAME_TITLE_MAX, WORKSPACE_SCOPE, relativeWords } from "@kos/shared";
-import { useEffect, useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 
 import { api, type PageSummary, type Project } from "./api.js";
 import type { MenuItem } from "./ArtifactHead.js";
@@ -205,27 +205,7 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
             }}
           >
             <p className="hint">It keeps its id and its versions, so mentions and links still find it. Its new owner is where it lives and who KOS asks about it.</p>
-            <div className="artifact-move-list" role="radiogroup" aria-label="Move to">
-              {places.map((p) => {
-                const here = p.key === placeKey(dialog.record);
-                const chosen = p.key === dialog.choice;
-                return (
-                  <button
-                    key={p.key}
-                    type="button"
-                    role="radio"
-                    aria-checked={chosen}
-                    disabled={here}
-                    className={`artifact-move-option${chosen ? " is-on" : ""}`}
-                    onClick={() => setDialog({ ...dialog, choice: p.key })}
-                  >
-                    {p.mark}
-                    <span className="artifact-move-name">{p.label}</span>
-                    {here && <span className="artifact-move-here">Here now</span>}
-                  </button>
-                );
-              })}
-            </div>
+            <MovePicker places={places} here={placeKey(dialog.record)} choice={dialog.choice} onChoose={(choice) => setDialog({ ...dialog, choice })} />
             <div className="file-dialog-actions">
               <button type="submit" className="btn btn--primary" disabled={busy || !dialog.choice}>
                 Move
@@ -249,6 +229,53 @@ export function restoreFromTrash(id: string): Promise<PageSummary> {
     trashChanged();
     return record;
   });
+}
+
+/**
+ * Where a move goes, as one radio group: one stop on the tab key (the place
+ * chosen, else the first that can be), the arrows walk the places and choose
+ * as they go, Home and End go to the ends. Where it is now is shown, not
+ * offered.
+ */
+function MovePicker({ places, here, choice, onChoose }: { places: Place[]; here: string; choice?: string; onChoose: (key: string) => void }): ReactElement {
+  const list = useRef<HTMLDivElement>(null);
+  const open = places.filter((p) => p.key !== here);
+  const stop = choice ?? open[0]?.key;
+  const keys = (e: KeyboardEvent<HTMLDivElement>): void => {
+    const at = open.findIndex((p) => p.key === stop);
+    const step = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : 0;
+    const to = e.key === "Home" ? 0 : e.key === "End" ? open.length - 1 : step ? (at + step + open.length) % open.length : -1;
+    const next = open[to];
+    if (!next) return;
+    e.preventDefault();
+    onChoose(next.key);
+    [...(list.current?.querySelectorAll<HTMLElement>("[data-place]") ?? [])].find((el) => el.dataset.place === next.key)?.focus();
+  };
+  return (
+    <div className="artifact-move-list" role="radiogroup" aria-label="Move to" ref={list} onKeyDown={keys}>
+      {places.map((p) => {
+        const isHere = p.key === here;
+        const chosen = p.key === choice;
+        return (
+          <button
+            key={p.key}
+            type="button"
+            role="radio"
+            data-place={p.key}
+            aria-checked={chosen}
+            disabled={isHere}
+            tabIndex={p.key === stop ? 0 : -1}
+            className={`artifact-move-option${chosen ? " is-on" : ""}`}
+            onClick={() => onChoose(p.key)}
+          >
+            {p.mark}
+            <span className="artifact-move-name">{p.label}</span>
+            {isHere && <span className="artifact-move-here">Here now</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 /** What a trashed artifact says where it is shown: that it is in the trash, with Restore and Delete forever for the owner. */

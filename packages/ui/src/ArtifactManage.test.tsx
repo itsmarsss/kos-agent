@@ -104,6 +104,31 @@ describe("managing an artifact from its viewer", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
+  it("walks the move picker with the arrows, one tab stop, choosing as it goes", async () => {
+    openViewer(BRIEF);
+    vi.spyOn(api, "agents").mockResolvedValue({ agents: [{ name: "noter" } as AgentInfo], invalid: [] });
+    fireEvent.click(await menuItem("Move to…"));
+    const picker = within(await screen.findByRole("dialog", { name: "Move “Q4 brief”" })).getByRole("radiogroup", { name: "Move to" });
+    await within(picker).findByRole("radio", { name: /noter/ });
+    const radio = (name: RegExp): HTMLElement => within(picker).getByRole("radio", { name });
+    const stops = (): string[] => within(picker).getAllByRole("radio").filter((r) => r.tabIndex === 0).map((r) => r.textContent ?? "");
+    expect(stops()).toEqual(["Workspace"]);
+    radio(/Workspace/).focus();
+    fireEvent.keyDown(picker, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(radio(/Garden/));
+    expect(radio(/Garden/).getAttribute("aria-checked")).toBe("true");
+    // Where it is now is passed over.
+    fireEvent.keyDown(picker, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(radio(/noter/));
+    fireEvent.keyDown(picker, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(radio(/Workspace/));
+    fireEvent.keyDown(picker, { key: "End" });
+    expect(document.activeElement).toBe(radio(/noter/));
+    fireEvent.keyDown(picker, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(radio(/Garden/));
+    expect(stops()).toEqual([expect.stringContaining("Garden")]);
+  });
+
   it("makes a copy and offers to open it", async () => {
     openViewer(BRIEF);
     vi.spyOn(api, "duplicateArtifact").mockResolvedValue({ ...BRIEF, id: "brief-copy", title: "Q4 brief copy" });
