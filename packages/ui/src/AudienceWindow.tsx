@@ -29,6 +29,9 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
   const [error, setError] = useState<string>();
   const [view, setView] = useState<DeckView>();
   const [want, setWant] = useState(0);
+  // The place now, for a key or a press to move from: never the one a handler was made with.
+  const place = useRef(want);
+  place.current = want;
   const [full, setFull] = useState(false);
 
   /*
@@ -86,6 +89,7 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
   }, [got]);
 
   const moved = useCallback((index: number): void => {
+    place.current = index;
     setWant(index);
     link.current?.post({ type: "moved", index });
   }, []);
@@ -129,11 +133,11 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
       const k = presenterKey(e.key, e.shiftKey);
       if (!k || k === "end") return;
       e.preventDefault();
-      moved(moveSlide(want, count, k));
+      moved(moveSlide(place.current, count, k));
     };
     addEventListener("keydown", key);
     return () => removeEventListener("keydown", key);
-  }, [count, fullScreen, moved, want]);
+  }, [count, fullScreen, moved]);
 
   /*
    * A press on the slide, which the window takes, not the deck's frame
@@ -154,7 +158,7 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
     if (!count || performance.now() - focusedAt.current < FOCUS_MS) return;
     const r = e.currentTarget.getBoundingClientRect();
     const back = e.clientX - r.left < r.width / 3;
-    moved(moveSlide(want, count, back ? "prev" : "next"));
+    moved(moveSlide(place.current, count, back ? "prev" : "next"));
   };
 
   return (

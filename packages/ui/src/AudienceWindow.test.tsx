@@ -86,6 +86,15 @@ describe("the audience window", () => {
     expect(read).toHaveBeenCalledTimes(3);
   });
 
+  it("moves from where it is, however fast the presses come", async () => {
+    const { stage, heard } = await audience();
+    // Three presses in one go, before any of them has drawn: each moves on from the last.
+    act(() => {
+      for (let i = 0; i < 3; i++) stage.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 900, detail: 1 }));
+    });
+    await waitFor(() => expect(heard.filter((s) => s.type === "moved")).toEqual([1, 2, 3].map((index) => ({ type: "moved", index }))));
+  });
+
   it("takes the press that brings the window forward as that alone", async () => {
     const { stage, heard } = await audience();
     act(() => void window.dispatchEvent(new FocusEvent("focus")));
