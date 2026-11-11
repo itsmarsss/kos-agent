@@ -31,12 +31,21 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
   const [want, setWant] = useState(0);
   const [full, setFull] = useState(false);
 
+  /*
+   * The deck, read again whenever the presenter presents a version this one
+   * is not (one saved between the presenter opening and this window, or
+   * since): each version asked for once, so two that cannot agree do not
+   * read it over and over. The presenter hears which this shows (hello).
+   */
+  const [ask, setAsk] = useState(0);
+  const asked = useRef(new Set<number>());
   useEffect(() => {
     let stale = false;
     api.anyPage(id).then(
       (p) => {
         if (stale) return;
-        if (p.kind === "html" && p.record.artifactKind === "deck") setGot({ record: p.record, page: p.page });
+        // The same version read again keeps its frame, rather than starting the deck over.
+        if (p.kind === "html" && p.record.artifactKind === "deck") setGot((was) => (was?.record.updatedAt === p.record.updatedAt ? was : { record: p.record, page: p.page }));
         else setError("This is not a deck, so it has nothing to present.");
       },
       (err: unknown) => !stale && setError(err instanceof Error ? err.message : String(err)),
@@ -44,7 +53,9 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
     return () => {
       stale = true;
     };
-  }, [id]);
+  }, [id, ask]);
+  const shownVersion = useRef<number | undefined>(undefined);
+  shownVersion.current = got?.record.updatedAt;
   useEffect(() => {
     if (got) document.title = `${got.record.title} · Audience`;
   }, [got]);
@@ -53,17 +64,26 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
     const l = presentLink(session);
     link.current = l;
     const stop = l.listen((signal) => {
-      if (signal.type === "go") setWant(signal.index);
-      else if (signal.type === "end") window.close();
+      if (signal.type === "go") {
+        setWant(signal.index);
+        const v = signal.version;
+        if (v !== undefined && shownVersion.current !== undefined && v !== shownVersion.current && !asked.current.has(v)) {
+          asked.current.add(v);
+          setAsk((n) => n + 1);
+        }
+      } else if (signal.type === "end") window.close();
     });
-    // Up: the presenter says where it is.
-    l.post({ type: "hello" });
     return () => {
       stop();
       l.close();
       link.current = null;
     };
   }, [session]);
+
+  // Up, and each time it has read the deck: the presenter says where it is, and hears which version this shows.
+  useEffect(() => {
+    if (got) link.current?.post({ type: "hello", version: got.record.updatedAt });
+  }, [got]);
 
   const moved = useCallback((index: number): void => {
     setWant(index);

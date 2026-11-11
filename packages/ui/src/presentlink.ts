@@ -8,25 +8,29 @@
  */
 
 export type PresentSignal =
-  /** The audience window is up: where is the presenter? */
-  | { type: "hello" }
-  /** The presenter's place, for the audience to show. */
-  | { type: "go"; index: number }
+  /** The audience window is up, showing this version (its `updatedAt`): where is the presenter? */
+  | { type: "hello"; version?: number }
+  /** The presenter's place, and the version it presents, for the audience to show. */
+  | { type: "go"; index: number; version?: number }
   /** The audience's deck moved on its own (a key pressed in that window), for the presenter to follow. */
   | { type: "moved"; index: number }
   /** Presenting is over: the audience window closes. */
   | { type: "end" };
+
+const stamp = (v: unknown): { version: number } | Record<string, never> => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? { version: v } : {});
 
 const place = (v: unknown): number | undefined => (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 10_000 ? v : undefined);
 
 /** A signal as heard, checked: anything else on the channel is no signal. */
 export function readSignal(data: unknown): PresentSignal | undefined {
   if (!data || typeof data !== "object") return undefined;
-  const m = data as { type?: unknown; index?: unknown };
-  if (m.type === "hello" || m.type === "end") return { type: m.type };
+  const m = data as { type?: unknown; index?: unknown; version?: unknown };
+  if (m.type === "hello") return { type: m.type, ...stamp(m.version) };
+  if (m.type === "end") return { type: m.type };
   if (m.type === "go" || m.type === "moved") {
     const index = place(m.index);
-    return index === undefined ? undefined : { type: m.type, index };
+    if (index === undefined) return undefined;
+    return m.type === "go" ? { type: m.type, index, ...stamp(m.version) } : { type: m.type, index };
   }
   return undefined;
 }

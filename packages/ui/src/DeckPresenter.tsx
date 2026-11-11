@@ -80,6 +80,10 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
   const [audience, setAudience] = useState<Audience>(opened ? "opening" : "closed");
   const [blocked, setBlocked] = useState(!opened);
   const link = useRef<PresentLink>(null);
+  // The version presented here, which the audience window loads too; drift is its saying it shows another.
+  const version = useRef(record.updatedAt);
+  version.current = record.updatedAt;
+  const [drift, setDrift] = useState(false);
 
   useEffect(() => {
     const l = presentLink(session);
@@ -87,7 +91,8 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
     const stop = l.listen((signal) => {
       if (signal.type === "hello") {
         setAudience("open");
-        l.post({ type: "go", index: place.current });
+        setDrift(signal.version !== undefined && signal.version !== version.current);
+        l.post({ type: "go", index: place.current, version: version.current });
       } else if (signal.type === "moved") setIndex(clampSlide(signal.index, slides.current));
     });
     return () => {
@@ -96,7 +101,7 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
       link.current = null;
     };
   }, [session]);
-  useEffect(() => link.current?.post({ type: "go", index }), [index]);
+  useEffect(() => link.current?.post({ type: "go", index, version: version.current }), [index]);
   // A window the owner closed is closed: there is no event for it in the window that opened it.
   useEffect(() => {
     const watch = setInterval(() => {
@@ -216,6 +221,9 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
             <span className="presenter-trouble" role="alert" title={trouble}>
               {trouble}
             </span>
+          )}
+          {audience === "open" && drift && (
+            <Pill title="The audience window shows another version of this deck, saved while presenting: end and present again to show one">Another version</Pill>
           )}
           {audience === "open" && <Pill tone="ok">Audience window open</Pill>}
           {audience === "opening" && <Pill>Opening the audience window</Pill>}

@@ -71,6 +71,22 @@ describe("the audience window", () => {
     expect(heard.filter((s) => s.type === "moved")).toEqual([]);
   });
 
+  it("says which version it shows, and reads the deck again for the one the presenter presents, once", async () => {
+    const { heard, say } = await audience();
+    await waitFor(() => expect(heard).toContainEqual({ type: "hello", version: 5 }));
+    const read = vi.mocked(api.anyPage);
+    read.mockResolvedValue({ ...deck, record: { ...deck.record, updatedAt: 9 } } as never);
+    say({ type: "go", index: 0, version: 9 });
+    await waitFor(() => expect(heard).toContainEqual({ type: "hello", version: 9 }));
+    expect(read).toHaveBeenCalledTimes(2);
+    // A version it cannot get is asked for once.
+    say({ type: "go", index: 0, version: 12 });
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(3));
+    say({ type: "go", index: 1, version: 12 });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(read).toHaveBeenCalledTimes(3);
+  });
+
   it("moves on a single press, and the presenter hears it", async () => {
     const { stage, heard } = await audience();
     fireEvent.click(stage, { detail: 1, clientX: 900 });

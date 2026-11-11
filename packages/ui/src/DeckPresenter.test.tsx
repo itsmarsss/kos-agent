@@ -123,11 +123,16 @@ describe("the presenter view", () => {
   it("keeps the audience window on its place, follows it when it moves, and closes it on End", async () => {
     const audience = { closed: false, close: vi.fn() };
     const { view, heard, say, ended } = await presenter(audience as unknown as Window);
-    say({ type: "hello" });
+    say({ type: "hello", version: record.updatedAt });
     await waitFor(() => expect(within(view).getByText("Audience window open")).toBeTruthy());
-    expect(heard).toContainEqual({ type: "go", index: 1 });
+    // The place, with the version presented, for the audience to load the same one.
+    expect(heard).toContainEqual({ type: "go", index: 1, version: record.updatedAt });
+    expect(within(view).queryByText("Another version")).toBeNull();
     fireEvent.keyDown(view, { key: "ArrowRight" });
-    await waitFor(() => expect(heard).toContainEqual({ type: "go", index: 2 }));
+    await waitFor(() => expect(heard).toContainEqual({ type: "go", index: 2, version: record.updatedAt }));
+    // An audience window that could only load another version: said quietly.
+    say({ type: "hello", version: record.updatedAt + 1 });
+    await waitFor(() => expect(within(view).getByText("Another version")).toBeTruthy());
     // A key in the audience window moved its deck: the presenter follows.
     say({ type: "moved", index: 0 });
     await waitFor(() => expect(within(view).getByText("Slide 1 of 4")).toBeTruthy());

@@ -71,6 +71,9 @@ describe("the presenter's timer", () => {
 describe("the audience window's link", () => {
   it("hears only signals it knows, with a place that is a slide", () => {
     expect(readSignal({ type: "hello" })).toEqual({ type: "hello" });
+    expect(readSignal({ type: "hello", version: 17 })).toEqual({ type: "hello", version: 17 });
+    expect(readSignal({ type: "go", index: 2, version: 17 })).toEqual({ type: "go", index: 2, version: 17 });
+    expect(readSignal({ type: "go", index: 2, version: "17" })).toEqual({ type: "go", index: 2 });
     expect(readSignal({ type: "end", extra: 1 })).toEqual({ type: "end" });
     expect(readSignal({ type: "go", index: 3 })).toEqual({ type: "go", index: 3 });
     expect(readSignal({ type: "moved", index: 0 })).toEqual({ type: "moved", index: 0 });
