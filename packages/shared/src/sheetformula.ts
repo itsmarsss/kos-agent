@@ -190,6 +190,7 @@ export type Node =
   | { k: "bin"; op: string; a: Node; b: Node }
   | { k: "call"; name: string; args: Node[] }
   | { k: "gone" }
+  | { k: "empty" }
   | { k: "bad"; why: string };
 
 const LEVELS: string[][] = [["=", "<>", "<", ">", "<=", ">="], ["&"], ["+", "-"], ["*", "/"], ["^"]];
@@ -263,7 +264,9 @@ export function parseFormula(text: string): Node {
           const args: Node[] = [];
           if (peek()?.t !== ")") {
             for (;;) {
-              args.push(level(0));
+              // An argument left out (XLOOKUP(15,A1:A3,B1:B3,,-1)) is there, and empty.
+              const skipped = peek()?.t === "," || peek()?.t === ")";
+              args.push(skipped ? { k: "empty" } : level(0));
               if (peek()?.t === ",") {
                 p += 1;
                 continue;
@@ -451,7 +454,18 @@ type Arg = Value | Cells;
 const flat = (args: Arg[]): Value[] => args.flatMap((a) => (Array.isArray(a) ? a : [a]));
 const widthOf = (a: Cells): number => a.width ?? 1;
 /** A range one row or one column across, or undefined for a table. */
-const vector = (a: Arg): Value[] | undefined => (!Array.isArray(a) ? [a] : widthOf(a) === 1 || a.length === widthOf(a) ? a : undefined);
+/**
+ * A range one row or one column across: its values as read (a column's rows
+ * past its tab's last are not read, so there may be fewer) and its length as
+ * written, which is what two ranges are matched by; undefined for a table.
+ */
+const vector = (a: Arg): { values: Value[]; length: number } | undefined => {
+  if (!Array.isArray(a)) return { values: [a], length: 1 };
+  const w = widthOf(a);
+  const h = a.height ?? Math.ceil(a.length / w);
+  if (w === 1) return { values: a, length: h };
+  return h === 1 ? { values: a, length: w } : undefined;
+};
 
 /** Whether two values are the same for an exact lookup: numbers by value, text in any case, a date's text against its serial. */
 function sameValue(a: Value, b: Value): boolean {
@@ -486,14 +500,32 @@ function wildcard(pattern: string): RegExp {
  * default), -1 the last at or above it in a list sorted down; -1 when none.
  */
 function position(want: Value, list: readonly Value[], type: 0 | 1 | -1): number {
-  if (type === 0) return list.findIndex((v) => sameValue(v, want));
+  if (type === 0) {
+    // Text with * or ? matches as a pattern, as an exact lookup reads it; ~ makes the next one literal.
+    if (typeof want === "string" && /[*?~]/.test(want)) {
+      const re = wildcard(want);
+      return list.findIndex((v) => typeof v === "string" && re.test(v));
+    }
+    return list.findIndex((v) => sameValue(v, want));
+  }
+  // A binary search, as a spreadsheet's approximate match is: on a sorted list the last at or past the value; on an unsorted one, what that search lands on.
+  let lo = 0;
+  let hi = list.length - 1;
   let found = -1;
-  for (let i = 0; i < list.length; i++) {
-    const v = list[i]!;
-    if (!comparable(v, want)) continue;
-    const c = compare(v, want);
-    if (type === 1 ? c > 0 : c < 0) break;
-    found = i;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    // A value of another type (or empty) is stepped over toward the low end, as if it were not there.
+    let at = mid;
+    while (at >= lo && !comparable(list[at]!, want)) at -= 1;
+    if (at < lo) {
+      lo = mid + 1;
+      continue;
+    }
+    const c = compare(list[at]!, want);
+    if (type === 1 ? c <= 0 : c >= 0) {
+      found = at;
+      lo = mid + 1;
+    } else hi = at - 1;
   }
   return found;
 }
@@ -781,6 +813,8 @@ export class Workbook {
         return err("#NAME?", node.why);
       case "gone":
         return err("#REF!", "it named a row or column that was deleted");
+      case "empty":
+        return null;
       case "ref": {
         const tt = node.sheet === undefined ? t : this.tabIndex(node.sheet);
         if (tt < 0) return err("#REF!", `there is no tab "${node.sheet}"`);
@@ -857,6 +891,8 @@ export class Workbook {
     };
     const need = (n: number, m = n): SheetError | undefined =>
       argNodes.length < n || argNodes.length > m ? err("#VALUE!", `${name} takes ${n === m ? n : `${n} to ${m}`} arguments`) : undefined;
+    /** Whether an argument was written, not left out. */
+    const given = (i: number): boolean => argNodes[i] !== undefined && argNodes[i]!.k !== "empty";
     /** One argument as a single value, a number, a date's serial, or text. */
     const one = (i: number): Value => this.scalar(this.evaluate(argNodes[i]!, t));
     const num = (i: number): number | SheetError => toNumber(one(i));
@@ -894,7 +930,7 @@ export class Workbook {
         if (bad) return bad;
         const x = num(0);
         if (isError(x)) return x;
-        const places = argNodes[1] ? num(1) : 0;
+        const places = given(1) ? num(1) : 0;
         if (isError(places)) return places;
         return roundAt(x, places, name === "ROUND" ? "half" : name === "ROUNDUP" ? "up" : "down");
       }
@@ -910,6 +946,7 @@ export class Workbook {
         const c = one(0);
         if (isError(c)) return c;
         if (truthy(c)) return one(1);
+        // A branch left empty is there, and empty; one not written at all is FALSE.
         return argNodes[2] ? one(2) : false;
       }
       case "CONCAT":
@@ -927,7 +964,7 @@ export class Workbook {
         const range = Array.isArray(rangeArg) ? rangeArg : [rangeArg!];
         const crit = this.scalar(critArg!);
         if (isError(crit)) return crit;
-        const over = sumArg === undefined ? range : Array.isArray(sumArg) ? sumArg : [sumArg];
+        const over = !given(2) ? range : Array.isArray(sumArg) ? sumArg : [sumArg!];
         const picked: number[] = [];
         let count = 0;
         range.forEach((v, i) => {
@@ -1005,7 +1042,9 @@ export class Workbook {
         const w = widthOf(table);
         if (c < 1) return err("#VALUE!", "VLOOKUP's column number starts at 1");
         if (c > w) return err("#REF!", `the table has ${w} column${w === 1 ? "" : "s"}, so there is no column ${c}`);
-        const approx = argNodes[3] ? truthy(one(3)) : true;
+        const approxArg = given(3) ? one(3) : true;
+        if (isError(approxArg)) return approxArg;
+        const approx = truthy(approxArg);
         const first = table.filter((_, i) => i % w === 0);
         const at = position(want, first, approx ? 1 : 0);
         return at < 0 ? err("#N/A", `${toText(want)} is not in the table's first column`) : (table[at * w + c - 1] ?? null);
@@ -1017,9 +1056,9 @@ export class Workbook {
         if (isError(want)) return want;
         const range = cells(1);
         if (isError(range)) return range;
-        const list = vector(range);
+        const list = vector(range)?.values;
         if (!list) return err("#N/A", "MATCH looks in one row or one column");
-        const type = argNodes[2] ? num(2) : 1;
+        const type = given(2) ? num(2) : 1;
         if (isError(type)) return type;
         const at = position(want, list, Math.sign(type) as 0 | 1 | -1);
         return at < 0 ? err("#N/A", `${toText(want)} is not in the range`) : at + 1;
@@ -1033,7 +1072,7 @@ export class Workbook {
         const h = range.height ?? Math.ceil(range.length / w);
         const first = num(1);
         if (isError(first)) return first;
-        const second = argNodes[2] ? num(2) : undefined;
+        const second = given(2) ? num(2) : undefined;
         if (second !== undefined && isError(second)) return second;
         let [r, c] = [Math.trunc(first), second === undefined ? undefined : Math.trunc(second)];
         // One index into a single row or column counts along it.
@@ -1054,12 +1093,15 @@ export class Workbook {
         const [look, back] = [cells(1), cells(2)];
         if (isError(look)) return look;
         if (isError(back)) return back;
-        const list = vector(look);
-        const results = vector(back);
-        if (!list || !results) return err("#VALUE!", "XLOOKUP looks in one row or one column and returns from one");
-        if (results.length !== list.length) return err("#VALUE!", "the lookup and return ranges are not the same size");
-        const mode = argNodes[4] ? num(4) : 0;
-        const search = argNodes[5] ? num(5) : 1;
+        const lookIn = vector(look);
+        const backFrom = vector(back);
+        if (!lookIn || !backFrom) return err("#VALUE!", "XLOOKUP looks in one row or one column and returns from one");
+        // Matched as written, so B2:B4 against Other!D5:D7 is three and three however many rows each tab has.
+        if (backFrom.length !== lookIn.length) return err("#VALUE!", "the lookup and return ranges are not the same size");
+        const list = lookIn.values;
+        const results = backFrom.values;
+        const mode = given(4) ? num(4) : 0;
+        const search = given(5) ? num(5) : 1;
         if (isError(mode)) return mode;
         if (isError(search)) return search;
         if (![0, -1, 1, 2].includes(mode)) return err("#VALUE!", "XLOOKUP's match mode is 0, -1, 1 or 2");
@@ -1073,7 +1115,7 @@ export class Workbook {
           at = order.find((i) => list[i] !== null && !isError(list[i]) && re.test(toText(list[i]!))) ?? -1;
         } else at = nearest(want, list, mode as -1 | 1, order);
         if (at >= 0) return results[at] ?? null;
-        return argNodes[3] ? one(3) : err("#N/A", `${toText(want)} is not in the lookup range`);
+        return given(3) ? one(3) : err("#N/A", `${toText(want)} is not in the lookup range`);
       }
       case "TEXTJOIN": {
         if (argNodes.length < 3) return err("#VALUE!", "TEXTJOIN takes a delimiter, whether to skip empty cells, and the text");
@@ -1092,7 +1134,7 @@ export class Workbook {
         if (bad) return bad;
         const s = text(0);
         if (isError(s)) return s;
-        const n = argNodes[1] ? num(1) : 1;
+        const n = given(1) ? num(1) : 1;
         if (isError(n)) return n;
         if (n < 0) return err("#VALUE!", `${name} cannot take fewer than no characters`);
         const k = Math.trunc(n);

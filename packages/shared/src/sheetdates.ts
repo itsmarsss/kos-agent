@@ -41,10 +41,13 @@ const pad = (n: number, w = 2): string => String(n).padStart(w, "0");
 
 /** A serial as ISO text: the day alone, or with its time when it has one. */
 export function isoOf(serial: number): string {
-  const { year, month, day } = partsOf(serial);
+  // To the second first, so a time a hair short of midnight is the next day at 00:00, not this one's 24:00.
+  const total = Math.round(serial * 86_400);
+  const whole = Math.floor(total / 86_400);
+  const secs = total - whole * 86_400;
+  const { year, month, day } = partsOf(whole);
   const date = `${pad(year, 4)}-${pad(month)}-${pad(day)}`;
-  const secs = Math.round((serial - Math.floor(serial)) * 86_400);
-  if (secs === 0 || secs === 86_400) return date;
+  if (secs === 0) return date;
   return `${date} ${pad(Math.floor(secs / 3600))}:${pad(Math.floor(secs / 60) % 60)}${secs % 60 ? `:${pad(secs % 60)}` : ""}`;
 }
 

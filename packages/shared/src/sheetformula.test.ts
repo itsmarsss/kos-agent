@@ -1,7 +1,7 @@
 import { SHEET_ROWS_MAX, type SheetBook } from "./artifacts.js";
 import { describe, expect, it, vi } from "vitest";
 
-import { Workbook, aggregate, columnIndex, columnLetter, findColumn, formatValue, isError, literalOf, meets, parseFormula, sortValue, sourceQuery, totalsRow, type Value } from "./sheetformula.js";
+import { Workbook, aggregate, columnIndex, isoOf, columnLetter, findColumn, formatValue, isError, literalOf, meets, parseFormula, sortValue, sourceQuery, totalsRow, type Value } from "./sheetformula.js";
 
 /** A one-tab workbook of these rows, every column a number unless typed. */
 function book(rows: (string | number | boolean | null)[][], extra: Partial<SheetBook> = {}): Workbook {
@@ -250,13 +250,44 @@ describe("lookups", () => {
     expect(over('=XLOOKUP("linus",A1:A3,C1:C3)')).toBe("Helsinki");
     expect(over('=XLOOKUP("bob",A1:A3,C1:C3,"nobody")')).toBe("nobody");
     expect(over('=XLOOKUP("bob",A1:A3,C1:C3)')).toMatchObject({ error: "#N/A" });
-    expect(over("=XLOOKUP(60,B1:B3,A1:A3,,-1)")).toMatchObject({ error: "#NAME?" });
+    // An argument left out is the default: no fallback, so a nearest match still answers.
+    expect(over("=XLOOKUP(60,B1:B3,A1:A3,,-1)")).toBe("linus");
+    expect(over("=XLOOKUP(99,B1:B3,A1:A3,,)")).toMatchObject({ error: "#N/A" });
     expect(over('=XLOOKUP(60,B1:B3,A1:A3,"none",-1)')).toBe("linus");
     expect(over('=XLOOKUP(60,B1:B3,A1:A3,"none",1)')).toBe("grace");
     expect(over('=XLOOKUP("g*",A1:A3,B1:B3,"none",2)')).toBe(85);
     expect(over('=XLOOKUP("?da",A1:A3,B1:B3,"none",2)')).toBe(36);
     expect(calc('=XLOOKUP("a",A1:A3,B1:B3,"none",0,-1)', [["a", 1], ["b", 2], ["a", 3]])).toBe(3);
     expect(over("=XLOOKUP(36,B1:B3,A1:A2)")).toMatchObject({ error: "#VALUE!" });
+  });
+
+  it("matches ranges of the same size wherever they stand, past a tab's rows and on another tab", () => {
+    const wb = new Workbook({
+      sheets: [
+        { name: "A", columns: [{ label: "k" }, { label: "out" }], rows: [["x", null], ["y", null], ["z", '=XLOOKUP("y",A1:A3,B!B5:B7,"none")'], [null, "=XLOOKUP(\"q\",A2:A4,B!B1:B3,\"none\")"]] },
+        { name: "B", columns: [{ label: "a" }, { label: "b" }], rows: [[1, "one"], [2, "two"], [3, "three"], [4, "four"], [5, "five"], [6, "six"]] },
+      ],
+    });
+    expect(wb.value(0, 3, 1)).toBe("six");
+    // A2:A4 runs past A's last row, and still stands against three rows of B.
+    expect(wb.value(0, 4, 1)).toBe("none");
+  });
+
+  it("reads wildcards in an exact VLOOKUP and MATCH, and passes VLOOKUP's fourth argument's error on", () => {
+    expect(over('=VLOOKUP("gr*",A1:C3,3,FALSE)')).toBe("New York");
+    expect(over('=MATCH("?inus",A1:A3,0)')).toBe(3);
+    expect(calc('=MATCH("a~*",A1:A2,0)', [["ab"], ["a*"]])).toBe(2);
+    expect(over('=VLOOKUP("ada",A1:C3,2,1/0)')).toMatchObject({ error: "#DIV/0!" });
+  });
+
+  it("finds an approximate match by a binary search, as a spreadsheet does", () => {
+    // Sorted: the last at or below, the last of equal ones.
+    expect(calc("=MATCH(20,A1:A5)", [[10], [20], [20], [30], [40]])).toBe(3);
+    expect(calc("=VLOOKUP(35,A1:B4,2)", [[10, "a"], [20, "b"], [30, "c"], [40, "d"]])).toBe("c");
+    // Unsorted: where the search lands, not a scan's first.
+    expect(calc("=MATCH(25,A1:A5)", [[10], [50], [20], [30], [5]])).toBe(3);
+    // Text among numbers is stepped over.
+    expect(calc("=MATCH(25,A1:A4)", [[10], ["x"], [20], [30]])).toBe(3);
   });
 
   it("indexes and matches", () => {
@@ -311,6 +342,12 @@ describe("dates", () => {
     expect(at("=YEAR(TODAY())")).toBe(2026);
   });
 
+  it("writes a time a hair short of midnight as the next day", () => {
+    expect(isoOf(46337.99999999)).toBe("2026-11-12");
+    expect(isoOf(46337.5)).toBe("2026-11-11 12:00");
+    expect(isoOf(46337)).toBe("2026-11-11");
+  });
+
   it("subtracts dates to days and adds days to a date", () => {
     expect(at("=B1-A1", [["2026-01-01", "2026-03-01"]], "date")).toBe(59);
     expect(at("=TODAY()-A1", [["2026-11-01"]], "date")).toBe(10);
@@ -348,6 +385,12 @@ describe("dates", () => {
 });
 
 describe("more functions", () => {
+  it("treats an argument left out as left out", () => {
+    expect(calc('=SUMIF(A1:A3,">1",)', [[1], [2], [3]])).toBe(5);
+    expect(calc("=ROUND(2.5,)")).toBe(3);
+    expect(calc('=IF(FALSE,1,)')).toBe(null);
+  });
+
   it("takes the median", () => {
     expect(calc("=MEDIAN(A1:A4)", [[4], [1], [3], [2]])).toBe(2.5);
     expect(calc("=MEDIAN(5,1,9)")).toBe(5);
