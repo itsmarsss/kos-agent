@@ -18,6 +18,7 @@ afterEach(() => {
 const projects = [
   { slug: "budget", name: "Household budget" },
   { slug: "garden", name: "Garden" },
+  { slug: "maintenance", name: "Maintenance", type: "system" },
 ] as Project[];
 const at = (n: number): number => Date.now() - n * 60_000;
 const BRIEF: ArtifactSummary = { id: "brief", projectSlug: "budget", title: "Q4 brief", description: "What we decided and why.", path: "", updatedAt: at(10), kind: "html", artifactKind: "doc", capturedAt: at(1) };

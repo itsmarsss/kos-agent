@@ -146,7 +146,9 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
         </span>
       ),
     },
-    ...[...projects]
+    // Not Maintenance (a system project): it is where KOS repairs itself, not a place for the owner's work.
+    ...projects
+      .filter((p) => p.type !== "system")
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((p): Place => ({ key: `project:${p.slug}`, to: { project: p.slug }, label: p.name, mark: <ProjectMark slug={p.slug} name={p.name} colour={p.colour} /> })),
     ...blobs.map((name): Place => ({ key: `blob:${name}`, to: { blob: name }, label: name, mark: <Face seed={name} size={20} /> })),

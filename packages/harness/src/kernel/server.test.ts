@@ -1564,6 +1564,10 @@ describe("handleApiRequest", () => {
         expect((refused.body as { error: string }).error).toMatch(/not a table of project "vault"/);
         expect(audited("move").map((r) => r.isError)).toEqual([true, false, false, false]);
         expect((await manage("memo", "move", {})).status).toBe(400);
+        // Maintenance is KOS's repair shop: no artifact of the owner's is filed there from the dashboard.
+        const kept = await manage("memo", "move", { project: "maintenance" });
+        expect(kept.status).toBe(400);
+        expect((kept.body as { error: string }).error).toMatch(/where KOS repairs itself/);
         expect((await manage("nope", "rename", { title: "X" })).status).toBe(404);
       });
 

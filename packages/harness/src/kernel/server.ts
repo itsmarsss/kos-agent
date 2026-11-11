@@ -18,6 +18,7 @@ import { ArtifactTrashed, EditConflict, type PageStore } from "../systems/pages.
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
+import { MAINTENANCE } from "./caretaker.js";
 import {
   BEHAVIOUR_DEFAULTS,
   BEHAVIOUR_KEY,
@@ -3165,8 +3166,12 @@ function manageArtifact(pages: PageStore, id: string, verb: string, body: Record
       return pages.rename(id, { ...(typeof body.title === "string" ? { title: body.title } : {}), ...(typeof body.description === "string" ? { description: body.description } : {}) });
     case "duplicate":
       return pages.duplicate(id);
-    case "move":
-      return pages.move(id, pages.destination(body));
+    case "move": {
+      // Maintenance is where KOS repairs itself: nothing of the owner's is filed there, where only its repair chats would reach it.
+      const to = pages.destination(body);
+      if (to === MAINTENANCE.slug) throw new Error("Maintenance is where KOS repairs itself, not a place for the owner's artifacts; pick a project, a blob or the workspace");
+      return pages.move(id, to);
+    }
     case "trash":
       return pages.trash(id);
     case "restore":
