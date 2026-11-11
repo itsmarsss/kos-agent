@@ -47,6 +47,8 @@ const PREVIEW_ROWS = 5;
 
 /** The shortest a grid is drawn, however little room the frame has. */
 const SHEET_MIN_HEIGHT = 320;
+/** The shortest it is drawn under an open panel, which then keeps a few rows in view. */
+const SHEET_PANEL_MIN_HEIGHT = 180;
 /** How far in from its right edge a phone fades a grid with more to see (sheet.css.ts). */
 const SHEET_FADE = 40;
 /** Where the stylesheet's phone layout starts (sheet.css.ts). */
@@ -217,7 +219,8 @@ class Sheet {
     if (!scroll || this.book.charts?.length || document.querySelectorAll(".sheet").length > 1) return;
     const pad = parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
     const room = Math.floor(innerHeight - (scroll.getBoundingClientRect().top + scrollY) - pad - 2);
-    this.root.style.setProperty("--sheet-height", `${Math.max(SHEET_MIN_HEIGHT, room)}px`);
+    // While a panel asks something, the grid may be shorter, so the frame stays one view tall around both.
+    this.root.style.setProperty("--sheet-height", `${Math.max(this.panel ? SHEET_PANEL_MIN_HEIGHT : SHEET_MIN_HEIGHT, room)}px`);
   }
 
   /** The workbook as it is evaluated: source tabs carry the rows read for them. */
