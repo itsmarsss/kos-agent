@@ -7084,15 +7084,27 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
   background: transparent;
   color-scheme: normal;
 }
-/* Until the page says how tall it is. */
-.artifact-frame[data-layout="fit"] { height: 16rem; }
+/*
+ * Until it has drawn, a skeleton holds the frame's place and the frame fades
+ * in over it: at the height it last took (remembered per artifact), or a
+ * reading screen's worth the first time, so the page does not jump.
+ */
+.artifact-stage { position: relative; min-width: 0; }
+.artifact-skeleton { display: block; width: 100%; }
+.artifact-stage:has(> .artifact-frame) > .artifact-skeleton { position: absolute; inset: 0; z-index: 1; }
+.artifact-frame { transition: opacity 180ms cubic-bezier(0.32, 0.72, 0, 1); }
+.artifact-stage:not([data-shown]) > .artifact-frame { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .artifact-frame { transition: none; }
+}
+.artifact-frame[data-layout="fit"], .artifact-skeleton--fit { height: min(70vh, 40rem); }
 /* The slide's 16:9 at the frame's width (less the stage's 12px padding); never taller than the view. Its controls are the viewer's head, so the deck's own bar is away. */
-.artifact-frame[data-layout="deck"] {
+.artifact-frame[data-layout="deck"], .artifact-skeleton--deck {
   height: min(calc((100cqw - 24px) * 9 / 16 + 24px), calc(100dvh - var(--artifact-top) - 1.5rem));
   min-height: 12rem;
   border-radius: var(--r-md);
 }
-.artifact-frame[data-layout="sheet"] { height: calc(100dvh - var(--artifact-top) - 4rem); min-height: 22rem; }
+.artifact-frame[data-layout="sheet"], .artifact-skeleton--sheet { height: calc(100dvh - var(--artifact-top) - 4rem); min-height: 22rem; }
 .artifact-ask { padding: 0.8rem 1rem; border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: var(--r-md); background: var(--panel); }
 .artifact-ask p { margin: 0 0 0.4rem; }
 .artifact-ask blockquote { margin: 0 0 0.6rem; padding: 0.4rem 0.7rem; border-left: 2px solid var(--accent); color: var(--text); white-space: pre-wrap; }

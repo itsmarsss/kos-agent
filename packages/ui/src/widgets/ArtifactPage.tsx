@@ -1,3 +1,4 @@
+import { Skeleton } from "@kos/kit";
 import { COLOURS, RADII, TYPE, artifactAssets, fontById, fontFaceCss, fontStackVars, type HtmlPage } from "@kos/shared";
 import kitCss from "@kos/kit/kit.css?raw";
 import pageCss from "@kos/kit/page.css?raw";
@@ -5,7 +6,7 @@ import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, 
 
 import { SaveConflict, api, type PageSummary } from "../api.js";
 import { fitsContent, pageDocument, tokenRule, wrapperDocument } from "@kos/shared";
-import { heightGate, ownerIn, revealAllowed, revealInDashboard, saveAllowed, type EditTold, type HeightGate, type Reveal } from "./frameheight.js";
+import { heightGate, ownerIn, rememberHeight, rememberedHeight, revealAllowed, revealInDashboard, saveAllowed, type EditTold, type HeightGate, type Reveal } from "./frameheight.js";
 
 /**
  * An HTML page, the way a Claude artifact is shown: the agent's document in a
@@ -160,6 +161,16 @@ export type DeckPress = "prev" | "next" | "grid" | "notes";
 const flag = (v: unknown): boolean => v === true;
 const count = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(10_000, Math.round(v))) : 0);
 
+/**
+ * How long after its document loads a frame is shown without having said
+ * anything: a page or a doc that never reports its height, a deck that never
+ * says where it is. A sheet says neither, so it is shown once it has drawn.
+ */
+const SHOW_ANYWAY_MS = 1500;
+const SHEET_DRAWN_MS = 120;
+/** A page's first heights come in a burst as its fonts and runtime land: it is shown once they have been quiet this long, at the last. */
+const FIRST_QUIET_MS = 160;
+
 /** How long settle waits on a doc to save before letting the frame go anyway: a page saying it is editing cannot hold the dashboard. */
 export const SETTLE_MS = 2500;
 
@@ -191,7 +202,17 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const [asked, setAsked] = useState<Asked>();
   const [told, setTold] = useState<string>();
   const [conflict, setConflict] = useState<string>();
-  const [height, setHeight] = useState<number>();
+  // Opened at the height it last took, so the dashboard does not jump when the page reports.
+  const [height, setHeight] = useState<number | undefined>(() => rememberedHeight(record.id));
+  // Drawn: until then a skeleton holds its place, and the frame fades in over it.
+  const [shown, setShown] = useState(false);
+  const shownRef = useRef(false);
+  const showLater = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const show = useCallback((): void => {
+    clearTimeout(showLater.current);
+    shownRef.current = true;
+    setShown(true);
+  }, []);
   const [edit, setEdit] = useState<EditState>();
   const [deck, setDeck] = useState<DeckView>();
   const editRef = useRef<EditState | undefined>(undefined);
@@ -236,7 +257,10 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     let stale = false;
     loads.current = 0;
     gate.current = heightGate();
-    setHeight(undefined);
+    setHeight(rememberedHeight(record.id));
+    setShown(false);
+    shownRef.current = false;
+    clearTimeout(showLater.current);
     setEdit(undefined);
     setDeck(undefined);
     setLeft(false);
@@ -255,8 +279,9 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       .catch((err: unknown) => !stale && setError(err instanceof Error ? err.message : String(err)));
     return () => {
       stale = true;
+      clearTimeout(showLater.current);
     };
-  }, [page, locked]);
+  }, [page, locked, record.id]);
 
   // The page's own window: the frame inside the wrapper. A cross-origin frame's frames can be named, not read, and naming one not there yet throws.
   const pageWindow = useCallback((): Window | undefined => {
@@ -300,7 +325,18 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         if (layout !== "fit") return;
         const owner = ownerIn(frame.current);
         const next = gate.current?.accept((m as { height?: unknown }).height, owner);
-        if (next !== undefined) setHeight(next);
+        if (next !== undefined) rememberHeight(record.id, next);
+        if (shownRef.current) {
+          if (next !== undefined) setHeight(next);
+        } else {
+          // Not shown yet: the skeleton keeps its height until the page's first heights have settled, then the frame takes the last and fades in.
+          const settled = next ?? rememberedHeight(record.id);
+          clearTimeout(showLater.current);
+          showLater.current = setTimeout(() => {
+            if (settled !== undefined) setHeight(settled);
+            show();
+          }, FIRST_QUIET_MS);
+        }
         const reveal = (m as { reveal?: Reveal }).reveal;
         if (reveal && typeof reveal === "object" && revealAllowed(frame.current, gestures.current.at)) revealInDashboard(frame.current, reveal, 16 + coverHeight());
         return;
@@ -319,6 +355,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       // A deck's place, for the viewer's head: the first report hands the deck's bar to the head.
       if (m.__kos === "deck") {
         const d = m as Record<string, unknown>;
+        show();
         setDeck({ index: count(d.index), count: count(d.count), grid: flag(d.grid), notes: flag(d.notes), reading: flag(d.reading) });
         if (!flag(d.hosted)) pageWindow()?.postMessage({ __kos: "deck-do", action: "host" }, "*");
         return;
@@ -377,7 +414,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     };
     window.addEventListener("message", heard);
     return () => window.removeEventListener("message", heard);
-  }, [coverHeight, layout, left, locked, onSaved, page.capabilities?.ask, pageWindow, present, record.id, reply]);
+  }, [coverHeight, layout, left, locked, onSaved, page.capabilities?.ask, pageWindow, present, record.id, reply, show]);
 
   // A deck or a sheet fills the view below where it starts on the page, so that is measured, not guessed.
   useLayoutEffect(() => {
@@ -535,22 +572,29 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         </div>
       )}
       {told && <p className="hint">{told}</p>}
-      {doc !== undefined && !left && (
-        <iframe
-          ref={frame}
-          className="artifact-frame"
-          data-layout={layout}
-          {...(layout === "fit" && height !== undefined ? { style: { height } } : {})}
-          title={frameTitle}
-          sandbox="allow-scripts"
-          referrerPolicy="no-referrer"
-          srcDoc={doc}
-          onLoad={() => {
-            // The first load is the wrapper; any after it is the wrapper being sent elsewhere, which its sandbox should never allow.
-            loads.current += 1;
-            if (loads.current > 1) setLeft(true);
-          }}
-        />
+      {!left && (
+        <div className="artifact-stage" data-layout={layout} data-shown={shown ? "" : undefined}>
+          {!shown && <Skeleton className={`artifact-skeleton artifact-skeleton--${layout}`} {...(layout === "fit" && height !== undefined ? { height } : {})} radius="var(--r-md)" />}
+          {doc !== undefined && (
+            <iframe
+              ref={frame}
+              className="artifact-frame"
+              data-layout={layout}
+              {...(layout === "fit" && height !== undefined ? { style: { height } } : {})}
+              title={frameTitle}
+              sandbox="allow-scripts"
+              referrerPolicy="no-referrer"
+              srcDoc={doc}
+              onLoad={() => {
+                // The first load is the wrapper; any after it is the wrapper being sent elsewhere, which its sandbox should never allow.
+                loads.current += 1;
+                if (loads.current > 1) setLeft(true);
+                clearTimeout(showLater.current);
+                showLater.current = setTimeout(show, layout === "sheet" ? SHEET_DRAWN_MS : SHOW_ANYWAY_MS);
+              }}
+            />
+          )}
+        </div>
       )}
     </div>
   );

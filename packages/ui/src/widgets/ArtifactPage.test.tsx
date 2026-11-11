@@ -13,6 +13,7 @@ beforeAll(() => {
 });
 
 afterEach(() => {
+  sessionStorage.clear();
   cleanup();
   vi.restoreAllMocks();
 });
@@ -260,6 +261,9 @@ describe("a frame as tall as its page", () => {
     return { el, pageWin, say };
   }
 
+  /** A page's first heights settle before the frame is shown and takes them. */
+  const quiet = (): Promise<void> => act(() => new Promise<void>((r) => setTimeout(r, 200)));
+
   /** The bridge's channel for the owner's presses, handed over as the bridge does; returns a press. */
   async function gestureChannel(say: (data: unknown) => void): Promise<() => Promise<void>> {
     const channel = new MessageChannel();
@@ -275,12 +279,31 @@ describe("a frame as tall as its page", () => {
     const { el, say } = await frame();
     expect(el.dataset.layout).toBe("fit");
     say({ __kos: "height", height: 1834.4 });
+    await quiet();
     expect(el.style.height).toBe("1834px");
+  });
+
+  it("opens at the height it last took, behind a skeleton until its page reports, so nothing jumps", async () => {
+    const first = await frame();
+    expect(first.el.closest(".artifact-stage")!.hasAttribute("data-shown")).toBe(false);
+    expect(document.querySelector(".artifact-skeleton")).not.toBeNull();
+    first.say({ __kos: "height", height: 1200 });
+    // Its first heights may come in a burst: the skeleton holds until they settle.
+    expect(first.el.closest(".artifact-stage")!.hasAttribute("data-shown")).toBe(false);
+    await quiet();
+    expect(first.el.closest(".artifact-stage")!.hasAttribute("data-shown")).toBe(true);
+    expect(document.querySelector(".artifact-skeleton")).toBeNull();
+    cleanup();
+    // Opened again: at that height at once, before its page has said a word.
+    const again = await frame();
+    expect(again.el.style.height).toBe("1200px");
+    expect((document.querySelector(".artifact-skeleton") as HTMLElement).style.height).toBe("1200px");
   });
 
   it("caps the height, since it is the page's to say", async () => {
     const { el, say } = await frame();
     say({ __kos: "height", height: 10_000_000 });
+    await quiet();
     expect(el.style.height).toBe(`${FRAME_HEIGHT_MAX}px`);
     say({ __kos: "height", height: "900" });
     say({ __kos: "height", height: Number.NaN });
@@ -295,6 +318,7 @@ describe("a frame as tall as its page", () => {
     say({ __kos: "height", height: 700 }, other);
     expect(el.style.height).toBe("");
     say({ __kos: "height", height: 700 });
+    await quiet();
     expect(el.style.height).toBe("700px");
   });
 

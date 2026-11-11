@@ -70,6 +70,34 @@ export function heightGate(now: () => number = () => performance.now()): HeightG
   };
 }
 
+/**
+ * The height each artifact's frame last took, so it opens at that height
+ * rather than starting short and jumping once its page reports. Kept for the
+ * tab's session (sessionStorage), and in memory where storage is refused.
+ */
+const HEIGHT_KEY = "kos.frameHeight.";
+/** Where the browser refuses storage. */
+const unstored = new Map<string, number>();
+
+export function rememberedHeight(id: string): number | undefined {
+  let kept: number | undefined;
+  try {
+    const stored = sessionStorage.getItem(HEIGHT_KEY + id);
+    kept = stored === null ? undefined : Number(stored);
+  } catch {
+    kept = unstored.get(id);
+  }
+  return kept !== undefined && Number.isFinite(kept) && kept >= FRAME_HEIGHT_MIN && kept <= FRAME_HEIGHT_MAX ? kept : undefined;
+}
+
+export function rememberHeight(id: string, height: number): void {
+  try {
+    sessionStorage.setItem(HEIGHT_KEY + id, String(height));
+  } catch {
+    unstored.set(id, height);
+  }
+}
+
 /** Where on its page a jump lands, as the bridge reports it: page pixels from the page's top. */
 export interface Reveal {
   top?: unknown;
