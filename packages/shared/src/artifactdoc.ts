@@ -261,7 +261,7 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 addEventListener("load",measure);
 Element.prototype.scrollIntoView=function(o){if(inner())into.call(this,o);reveal(this,o===false?"end":o&&typeof o==="object"&&o.block||"start")};
 }
-${colourOf.toString()}
+var colourOf=${colourOf.toString()};
 var grounded=0;
 function ground(){var b=document.body,t=/--bg:([^;}]+)/.exec((document.getElementById("kos-tokens")||{}).textContent||"");if(!b||!t)return;
 var moving=[b,root].reduce(function(all,n){return all.concat(n.getAnimations?n.getAnimations().filter(function(x){return x.playState==="running"&&!!x.effect&&x.effect.getComputedTiming().endTime!==Infinity}):[])},[]);
