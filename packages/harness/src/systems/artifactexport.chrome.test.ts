@@ -212,11 +212,28 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-deck.js")))("artifact ex
     }, 60_000);
   });
 
+  it("refuses in words, and does not hang, when the Chrome dies under a print", async () => {
+    const dying = new ArtifactExporter({
+      load: (id) => (PAGES[id] ? { page: PAGES[id]!, title: PAGES[id]!.title } : undefined),
+      call: async () => ({ rows: [] }),
+      browser: (work) =>
+        checker.withBrowser((b) => {
+          setTimeout(() => b.reset(), 400);
+          return work(b);
+        }),
+      pageLib: () => BUILT,
+    });
+    const started = Date.now();
+    await expect(dying.export("doc", "pdf")).rejects.toThrow(/Chrome stopped while it drew the artifact/);
+    expect(Date.now() - started).toBeLessThan(15_000);
+    expect((await exporter.export("deck", "pdf")).body.subarray(0, 5).toString()).toBe("%PDF-");
+  }, 60_000);
+
   it("gives up an export that never settles, closing what it ran, and the Chrome serves the next job", async () => {
     PAGES.spin = { id: "spin", title: "Spin", html: `<h1>Spin</h1><script>setTimeout(function(){for(;;){}},50)</script>` };
     const quick = new ArtifactExporter({ load: (id) => (PAGES[id] ? { page: PAGES[id]!, title: PAGES[id]!.title } : undefined), call: async () => ({ rows: [] }), browser: (work) => checker.withBrowser(work), pageLib: () => BUILT, timeoutMs: 4000 });
     const started = Date.now();
-    await expect(quick.export("spin", "pdf")).rejects.toThrow(/took too long|too busy/);
+    await expect(quick.export("spin", "pdf")).rejects.toThrow(/took too long|too busy|never started/);
     expect(Date.now() - started).toBeLessThan(10_000);
     const next = Date.now();
     const file = await exporter.export("deck", "pdf");

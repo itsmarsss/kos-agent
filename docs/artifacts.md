@@ -266,11 +266,17 @@ UTF-8. Each export, and each refusal, is kept in the audit log as
   server rebuilds it with parse5 against an allowlist of what a printed page
   is made of (`systems/printsafe.ts`: no script, frame, object, form, link,
   meta or base, no handler, `srcdoc` or `javascript:`, no `foreignObject` or
-  SVG animation, a `use` or link only to `#id`, images only as `data:`, and
-  every `url()` in a style to anything but `data:` or `#id` dropped), under
-  its own policy that loads and runs nothing, and puts it in a second sealed
-  tab with no request at all (`Page.setDocumentContent`), with scripts off
-  and the network offline on the tab and every frame Chrome attaches. A deck prints by its
+  SVG animation, a `use` or link only to `#id`, images only as `data:`, a
+  style holding its text and no element, in SVG too, and every `url()` and
+  `@import` to anything but `data:` or `#id` dropped, in a style and in an
+  SVG paint attribute alike, with its CSS escapes read first, so `u\rl(` is
+  `url(`), under its own policy, built as the head's first node, that loads
+  and runs nothing, and puts it in a second sealed tab with no request at
+  all (`Page.setDocumentContent`), with scripts off and the network offline
+  on the tab and every frame Chrome attaches. Each of those locks is proven
+  alone (`exportrender.chrome.test.ts`: a control with both off connects,
+  each on its own lets nothing through). A Chrome that dies under a render
+  or a print refuses the export in words, and the next starts a fresh one. A deck prints by its
   runtime's print rules on 16:9 pages, every slide whole and nothing after
   the last; a doc on US Letter with margins, on white, its runtime's print
   rules keeping a heading with what follows it and a figure, table, quote

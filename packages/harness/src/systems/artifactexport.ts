@@ -97,6 +97,8 @@ export const EXPORT_MS = 60_000;
 const BROWSER_QUEUE_MAX = 3;
 /** How long a render waits for its runtime to draw and its reads to be answered. */
 const SETTLE_MS = 8000;
+/** What the CDP client says when the Chrome it talked to is gone. */
+const BROWSER_GONE = /hung up|connection closed|not connected to the browser|Target closed|could not reach the browser/i;
 /** How long a frame has to answer KOS's question about it; a frame that cannot is busy for good. */
 const ANSWER_MS = 3000;
 /** Quiet time after the last read before the page is taken as drawn. */
@@ -299,6 +301,11 @@ class Job {
     this.reset = browser.reset;
   }
 
+  /** Whether the Chrome this job was handed has gone. */
+  get browserGone(): boolean {
+    return this.cdp !== undefined && !this.cdp.open;
+  }
+
   track = (targetId: string): void => {
     this.targets.add(targetId);
     if (this.aborted) this.close(targetId);
@@ -392,6 +399,10 @@ export class ArtifactExporter {
     const running = this.options.browser((browser) => {
       job.start(browser);
       return work(browser.cdp, job);
+    }).catch((err: unknown) => {
+      // The Chrome went from under the work (a crash, a stop): said in words, and the next export starts a fresh one.
+      if (!job.aborted && (job.browserGone || BROWSER_GONE.test(String(err)))) throw new ExportRefusal("KOS's Chrome stopped while it drew the artifact, so there is nothing to export; try again");
+      throw err;
     });
     void running.catch(() => undefined).finally(() => (this.printing -= 1));
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -488,7 +499,7 @@ export class ArtifactExporter {
       job.abort();
       throw new ExportRefusal("the artifact kept its frame too busy to finish drawing, so there is nothing to print; ask KOS to fix it");
     }
-    throw new Error("the artifact's frame never started: its document may be malformed");
+    throw new ExportRefusal("the artifact's frame never started: its document may be malformed");
   }
 
   /**
