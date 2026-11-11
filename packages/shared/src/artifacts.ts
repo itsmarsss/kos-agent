@@ -42,12 +42,16 @@ export const KIND_RUNTIME: Record<ArtifactKind, string | undefined> = {
   sheet: "kos-sheet",
 };
 
-/** The fonts a kind starts from when the artifact names none (artifactfonts.ts). */
+/**
+ * The fonts a kind starts from when the artifact names none (artifactfonts.ts).
+ * Every kind is set in KOS's own face, the system's, so an artifact reads as
+ * part of the dashboard; a doc adds a reading serif for its running text only.
+ */
 export const KIND_FONTS: Record<ArtifactKind, readonly string[]> = {
   page: [],
-  doc: ["newsreader", "public-sans", "ibm-plex-mono"],
-  deck: ["bricolage-grotesque", "public-sans"],
-  sheet: ["public-sans", "ibm-plex-mono"],
+  doc: ["newsreader"],
+  deck: [],
+  sheet: [],
 };
 
 /**

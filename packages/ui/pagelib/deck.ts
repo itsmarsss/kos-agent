@@ -11,7 +11,7 @@
  */
 
 import { DECK_CSS } from "./deck.css.js";
-import { addStyle, el, interactive, kos, ready } from "./runtime.js";
+import { addStyle, el, interactive, keepRanges, kos, ready } from "./runtime.js";
 
 export interface DeckState {
   index: number;
@@ -127,6 +127,8 @@ export function startDeck(): void {
   let state = initialDeck(slides.length);
   let reading = typeof matchMedia === "function" && matchMedia(READ_QUERY).matches;
 
+  // Ranges of figures ("Ch. 1–6") stay on one line; a deck is not edited, so the spans are never saved.
+  keepRanges(deck, "h1, h2, h3, h4, p, li, td, th, figcaption, .kicker, .big");
   deck.setAttribute("aria-roledescription", "slide deck");
   // Each slide in a frame that is its size container, so its own padding and type scale with it.
   const frames = slides.map((s, i) => {
@@ -195,6 +197,8 @@ export function startDeck(): void {
     state = step(state, a);
     // Asking the dashboard for the whole screen; it tells the deck back through kos:present.
     if (a.type === "present" && state.presenting && !was) kos()?.present?.();
+    // And giving it back when the deck stops on its own (Escape, the grid), so the dashboard does not hold a screen nobody presents on.
+    else if (was && !state.presenting) kos()?.present?.(false);
     render();
   };
 

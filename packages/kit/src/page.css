@@ -4,34 +4,54 @@
  * light or dark), kit.css's pieces (card, pill, tag, label, hint, chips,
  * empty), and these page-level basics. A page that writes plain markup reads
  * as KOS; one that wants its own look can still restyle anything.
+ *
+ * A frame is always shown inside something that gives it a gutter: the
+ * dashboard's column, or artifacts.check's view of it. So the body has no
+ * padding and the page's edges line up with the dashboard's head. Full
+ * screen (data-present), or on a ground of its own (data-ground="own", both
+ * marked by the bridge), the page takes its own, so text never meets the
+ * edge of its colour.
  */
 
 *, *::before, *::after { box-sizing: border-box; }
 html { color-scheme: var(--scheme, dark); }
 body {
   margin: 0;
-  padding: 20px;
+  padding: 0;
   background: var(--bg);
   color: var(--text);
   font: var(--text-md, 14px) / 1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 }
-@media (max-width: 560px) { body { padding: 14px; } }
-h1 { font-size: var(--text-xl); font-weight: 650; margin: 0 0 4px; }
+:where(html[data-present], html[data-ground="own"]) body { padding: 20px; }
+@media (max-width: 560px) { :where(html[data-present], html[data-ground="own"]) body { padding: 16px; } }
+h1 { font-size: var(--text-xl); font-weight: 600; letter-spacing: -0.02em; margin: 0 0 4px; }
 h2 { font-size: var(--text-lg); font-weight: 600; margin: 18px 0 8px; }
 h3 { font-size: var(--text-md); font-weight: 600; margin: 14px 0 6px; }
 p { margin: 0 0 10px; }
 a { color: var(--accent); }
 code, pre, .mono { font-family: var(--mono); font-size: 0.92em; }
 img, svg, canvas, video { max-width: 100%; }
+/* What must not break across lines: a range (pages 1 to 6 with an en dash), a figure and its unit. */
+.nowrap { white-space: nowrap; }
 
 /* A row of tiles that wraps to fit, down to a phone's width. */
 .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .stack { display: flex; flex-direction: column; gap: 12px; }
 
+/*
+ * A bar's measure: a track and its fill, the fill as wide as --value (a
+ * percentage) or as a child block given its own width. A fill must be a
+ * block: an inline span ignores width and draws nothing.
+ */
+.meter { height: 8px; border-radius: 999px; background: var(--panel-2); overflow: hidden; }
+.meter::before, .meter > * { content: ""; display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.meter::before { width: var(--value, 0%); }
+.meter:has(> *)::before { content: none; }
+
 /* A figure with its word under it. */
 .stat { display: flex; flex-direction: column; gap: 2px; }
-.stat-value { font-size: var(--text-2xl); font-weight: 650; font-variant-numeric: tabular-nums; }
+.stat-value { font-size: var(--text-2xl); font-weight: 600; font-variant-numeric: tabular-nums; }
 .stat-label { color: var(--muted); font-size: var(--text-sm); }
 
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }

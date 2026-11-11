@@ -3,15 +3,17 @@
  * size inside it is in cqw (a hundredth of the slide's width), so a slide
  * reads the same full screen, in the frame, and as a thumbnail in the grid,
  * with no scaling by script. On a phone held upright the slides stack and
- * their type keeps a readable floor. Selectors sit in :where() or one class,
- * before the agent's own CSS, so the artifact restyles anything.
+ * their type keeps a readable floor. A slide is KOS's panel with a 1 px
+ * line on KOS's ground, its type KOS's face, and every slide, the title one
+ * too, follows the theme. Selectors sit in :where() or one class, before the
+ * agent's own CSS, so the artifact restyles anything.
  */
 export const DECK_CSS = String.raw`
 :where(:root) {
-  --font-display: var(--font-bricolage-grotesque, "Bricolage Grotesque", -apple-system, "Segoe UI", Roboto, sans-serif);
-  --font-body: var(--font-public-sans, "Public Sans", -apple-system, "Segoe UI", Roboto, sans-serif);
-  --font-ui: var(--font-public-sans, "Public Sans", -apple-system, "Segoe UI", Roboto, sans-serif);
-  --font-mono: var(--font-ibm-plex-mono, "IBM Plex Mono", ui-monospace, Menlo, monospace);
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-display: var(--font-ui);
+  --font-body: var(--font-ui);
+  --font-mono: var(--mono, ui-monospace, Menlo, monospace);
   --deck-title: 6.4cqw;
   --deck-heading: 3.9cqw;
   --deck-body: 2.25cqw;
@@ -21,7 +23,7 @@ export const DECK_CSS = String.raw`
   --deck-bar: 52px;
   --deck-notes-h: 0px;
 }
-:where(html[data-kind="deck"]) body { margin: 0; padding: 0; background: var(--panel-2, var(--bg)); color: var(--text); font-family: var(--font-body); overflow: hidden; height: 100dvh; }
+:where(html[data-kind="deck"]) body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--font-body); overflow: hidden; height: 100dvh; }
 
 /* The stage: the current slide, centred, as large as the frame allows. Each slide sits in a
    frame of KOS's (.deck-slide) that is its size container, so the slide's own padding and
@@ -33,9 +35,9 @@ export const DECK_CSS = String.raw`
   box-sizing: border-box;
   width: min(100%, calc((100dvh - var(--deck-bar) - var(--deck-notes-h) - 24px) * 16 / 9));
   aspect-ratio: 16 / 9;
-  border-radius: 6px;
+  border-radius: var(--r-md, 10px);
   overflow: hidden;
-  box-shadow: 0 0 0 1px var(--line), 0 18px 48px rgba(0, 0, 0, 0.16);
+  box-shadow: 0 0 0 1px var(--line);
 }
 /* Only the current slide shows, whatever display the artifact gives its slides. */
 body:not(.deck-grid):not(.deck-read) .deck-slide:not(.current) { display: none !important; }
@@ -50,7 +52,7 @@ body:not(.deck-grid):not(.deck-read) .deck-slide:not(.current) { display: none !
   justify-content: center;
   gap: var(--deck-gap);
   padding: var(--deck-pad);
-  background: var(--slide-bg, var(--bg));
+  background: var(--slide-bg, var(--panel));
   color: var(--slide-ink, var(--text));
   font-size: var(--deck-body);
   line-height: 1.35;
@@ -58,14 +60,14 @@ body:not(.deck-grid):not(.deck-read) .deck-slide:not(.current) { display: none !
 :where(.deck-slide) > section > * { margin: 0; min-width: 0; }
 
 /* Type, all in slide units. */
-:where([data-deck]) h1 { font: 650 var(--deck-title) / 1.02 var(--font-display); letter-spacing: -0.02em; text-wrap: balance; }
-:where([data-deck]) h2 { font: 620 var(--deck-heading) / 1.1 var(--font-display); letter-spacing: -0.012em; text-wrap: balance; }
-:where([data-deck]) h3 { font: 650 calc(var(--deck-body) * 1.05) / 1.25 var(--font-ui); }
+:where([data-deck]) h1 { font: 700 var(--deck-title) / 1.05 var(--font-display); letter-spacing: -0.025em; text-wrap: balance; }
+:where([data-deck]) h2 { font: 600 var(--deck-heading) / 1.12 var(--font-display); letter-spacing: -0.02em; text-wrap: balance; }
+:where([data-deck]) h3 { font: 600 calc(var(--deck-body) * 1.05) / 1.25 var(--font-ui); }
 :where([data-deck]) :where(p, li, td, th, dd, dt) { font-size: var(--deck-body); text-wrap: pretty; }
 :where([data-deck]) :where(ul, ol) { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: calc(var(--deck-gap) * 0.5); }
 :where([data-deck]) li::marker { color: var(--accent); }
 :where([data-deck]) :where(small, .muted, figcaption) { font-size: var(--deck-small); color: var(--muted); }
-:where([data-deck]) .kicker { font: 650 var(--deck-small) / 1.2 var(--font-ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); }
+:where([data-deck]) .kicker { font: 600 var(--deck-small) / 1.2 var(--font-ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 :where([data-deck]) :where(code, .mono) { font-family: var(--font-mono); font-size: 0.9em; }
 :where([data-deck]) table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
 :where([data-deck]) :where(th, td) { text-align: left; padding: 0.5cqw 1.2cqw 0.5cqw 0; border-bottom: 1px solid var(--line); }
@@ -79,13 +81,13 @@ body:not(.deck-grid):not(.deck-read) .deck-slide:not(.current) { display: none !
 :where(.deck-slide) > section.title h1 { max-width: 18ch; }
 :where(.deck-slide) > section.title :where(p:not(.kicker)) { font-size: calc(var(--deck-body) * 1.15); color: var(--muted); max-width: 46ch; }
 :where(.deck-slide) > section.statement { justify-content: center; }
-:where(.deck-slide) > section.statement :where(p, h2, blockquote) { font: 560 calc(var(--deck-heading) * 1.18) / 1.15 var(--font-display); letter-spacing: -0.015em; max-width: 24ch; text-wrap: balance; margin: 0; }
+:where(.deck-slide) > section.statement :where(p, h2, blockquote) { font: 600 calc(var(--deck-heading) * 1.18) / 1.15 var(--font-display); letter-spacing: -0.015em; max-width: 24ch; text-wrap: balance; margin: 0; }
 :where(.deck-slide) > section.split { display: grid; grid-template-columns: 1fr 1fr; align-items: center; column-gap: calc(var(--deck-pad) * 0.75); }
 :where(.deck-slide) > section.closing { justify-content: center; align-items: flex-start; }
 :where(.deck-slide) > section.closing h2 { font-size: calc(var(--deck-title) * 0.85); }
 :where(.deck-slide) > section.bleed { padding: 0; }
 :where([data-deck]) .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); grid-auto-flow: column; gap: calc(var(--deck-gap) * 1.2); align-items: start; }
-:where([data-deck]) .big { font: 680 calc(var(--deck-title) * 1.6) / 0.95 var(--font-display); letter-spacing: -0.03em; font-variant-numeric: tabular-nums lining-nums; }
+:where([data-deck]) .big { font: 700 calc(var(--deck-title) * 1.6) / 0.95 var(--font-display); letter-spacing: -0.03em; font-variant-numeric: tabular-nums lining-nums; }
 :where([data-deck]) aside.notes { display: none !important; }
 
 /* Controls. */
@@ -128,7 +130,7 @@ body.deck-present .deck-slide { width: min(100vw, calc(100dvh * 16 / 9)); border
 /* A phone held upright: slides stack as cards and the type keeps a floor. */
 body.deck-read { overflow-y: auto; height: auto; --deck-bar: 0px; }
 body.deck-read .deck-bar, body.deck-read .deck-notes { display: none; }
-body.deck-read :where([data-deck]) { height: auto; display: flex; flex-direction: column; gap: 14px; padding: 16px; }
+body.deck-read :where([data-deck]) { height: auto; display: flex; flex-direction: column; gap: 14px; padding: 0 0 16px; }
 body.deck-read .deck-slide { width: 100%; aspect-ratio: auto; }
 body.deck-read :where(.deck-slide) > section {
   height: auto; min-height: 56cqw; padding: max(var(--deck-pad), 20px);

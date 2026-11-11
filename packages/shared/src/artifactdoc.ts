@@ -1,3 +1,5 @@
+import { colourOf } from "./colourof.js";
+
 /**
  * The documents an HTML page runs as: the page itself, held in a wrapper.
  *
@@ -35,6 +37,22 @@ export const fitsContent = (kind: string | undefined): boolean => FIT_KINDS.incl
 
 /** The tallest the dashboard lets a page's frame grow: the height is the page's to say, so it is capped. */
 export const FRAME_HEIGHT_MAX = 50_000;
+
+/**
+ * Queries one frame has with the server at once. The server lets a page have
+ * one running and four waiting (pagequeries.ts); the bridge holds the rest,
+ * so a page that asks for ten at once gets ten answers, and two frames of the
+ * same artifact (the viewer and a check's render) still fit.
+ */
+export const FRAME_QUERIES = 2;
+
+/**
+ * How long a frame waits on one query's answer before giving its turn up:
+ * the server stops a query at 2 s, so a reply this late is one that is not
+ * coming (the relay dropped it, the dashboard went away). It is refused in
+ * words the page can show, and a late answer is ignored.
+ */
+export const FRAME_QUERY_WAIT_MS = 10_000;
 
 /** What a page may load: nothing from the network. */
 export const PAGE_CSP = [
@@ -159,6 +177,17 @@ export function tokenRule(tokens: Record<string, string>, mode: "light" | "dark"
  * a jump scroll the dashboard only just after one. A save is the shell's to
  * allow, not the page's: it is relayed while the owner's hand is in the
  * frame, or just after the shell's own Done.
+ *
+ * A page that paints a ground of its own (its body's background is not
+ * KOS's --bg) is marked data-ground="own" on its root, now and on each theme
+ * change (read once a background transition on either has settled, so a
+ * colour caught mid-fade is never taken for one of its own), so the kit and
+ * the runtimes give it back the gutter the dashboard's
+ * column otherwise gives: its text never runs to the edge of its colour.
+ *
+ * Queries go out FRAME_QUERIES at a time, in the order asked; the rest wait
+ * in the frame, so how many a page asks at once is never a refusal. One with
+ * no answer in FRAME_QUERY_WAIT_MS gives its turn up and is refused.
  */
 export const BRIDGE_SCRIPT = `(function(){
 var gestures=new MessageChannel(),gport=gestures.port1,tell=MessagePort.prototype.postMessage,apply=Reflect.apply,listen=EventTarget.prototype.addEventListener;
@@ -180,24 +209,42 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 addEventListener("load",measure);
 Element.prototype.scrollIntoView=function(o){if(inner())into.call(this,o);reveal(this,o===false?"end":o&&typeof o==="object"&&o.block||"start")};
 }
-function call(method,args){return new Promise(function(resolve,reject){var id=++seq;waiting[id]={resolve:resolve,reject:reject};top.postMessage({__kos:"call",id:id,method:method,args:args},"*");});}
+${colourOf.toString()}
+var grounded=0;
+function ground(){var b=document.body,t=/--bg:([^;}]+)/.exec((document.getElementById("kos-tokens")||{}).textContent||"");if(!b||!t)return;
+var moving=[b,root].reduce(function(all,n){return all.concat(n.getAnimations?n.getAnimations().filter(function(x){return x.playState==="running"&&!!x.effect&&x.effect.getComputedTiming().endTime!==Infinity}):[])},[]);
+if(moving.length){Promise.all(moving.map(function(x){return x.finished.catch(function(){})})).then(reground);return}
+var bs=getComputedStyle(b),hs=getComputedStyle(root),own=bs.backgroundImage!=="none"||hs.backgroundImage!=="none";
+if(!own){var c=colourOf(bs.backgroundColor);if(!c||c[3]===0)c=colourOf(hs.backgroundColor);var k=colourOf(t[1].trim());own=!!c&&!!k&&c[3]>0&&Math.max(Math.abs(c[0]-k[0]),Math.abs(c[1]-k[1]),Math.abs(c[2]-k[2]))>2}
+if(own)root.dataset.ground="own";else delete root.dataset.ground}
+function reground(){cancelAnimationFrame(grounded);grounded=requestAnimationFrame(ground)}
+function watchGround(){ground();var o={attributes:true,attributeFilter:["style","class"]};var mo=new MutationObserver(reground);mo.observe(root,o);if(document.body)mo.observe(document.body,o);var st=new MutationObserver(reground);st.observe(document.head,{childList:true,subtree:true,characterData:true});
+["transitionend","transitioncancel"].forEach(function(t){document.addEventListener(t,function(e){if(e.target===root||e.target===document.body)reground()},true)})}
+if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",watchGround);else watchGround();
+addEventListener("load",ground);
+function call(method,args,sent){return new Promise(function(resolve,reject){var id=++seq;if(sent)sent.id=id;waiting[id]={resolve:resolve,reject:reject};top.postMessage({__kos:"call",id:id,method:method,args:args},"*");});}
+var asking=0,asks=[];
+function send(a){var sent={},over=false,timer=setTimeout(function(){if(end())a.reject(new Error("the query had no answer in ${FRAME_QUERY_WAIT_MS / 1000} s; KOS may be busy, so try again"))},${FRAME_QUERY_WAIT_MS});
+function end(){if(over)return false;over=true;clearTimeout(timer);delete waiting[sent.id];asking--;ask();return true}
+asking++;call("query",a.args,sent).then(function(r){if(end())a.resolve(r)},function(e){if(end())a.reject(e)})}
+function ask(){while(asking<${FRAME_QUERIES}&&asks.length)send(asks.shift())}
 function report(message){try{top.postMessage({__kos:"error",message:String(message).slice(0,2000)},"*");}catch(_){}}
 addEventListener("message",function(e){
 if(e.source!==top)return;var m=e.data||{};
 if(m.__kos==="reply"){var w=waiting[m.id];if(!w)return;delete waiting[m.id];if(m.error)w.reject(new Error(m.error));else w.resolve(m.result);}
-else if(m.__kos==="theme"){mode=m.mode;document.documentElement.dataset.mode=m.mode;document.documentElement.dataset.theme=m.mode;var s=document.getElementById("kos-tokens");if(s)s.textContent=m.rule;themeFns.forEach(function(f){try{f(m.mode)}catch(err){report(err&&err.message||err)}});}
+else if(m.__kos==="theme"){mode=m.mode;document.documentElement.dataset.mode=m.mode;document.documentElement.dataset.theme=m.mode;var s=document.getElementById("kos-tokens");if(s)s.textContent=m.rule;themeFns.forEach(function(f){try{f(m.mode)}catch(err){report(err&&err.message||err)}});ground();}
 else if(m.__kos==="present"){var on=m.on===true;if(on)document.documentElement.dataset.present="on";else delete document.documentElement.dataset.present;dispatchEvent(new CustomEvent("kos:present",{detail:{on:on}}));}
 });
 document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href^='#']"):null;if(!a||e.defaultPrevented)return;e.preventDefault();var id=decodeURIComponent(a.getAttribute("href").slice(1)),t=id?document.getElementById(id):null,b=matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth";if(t)t.scrollIntoView({behavior:b,block:"start"});else if(!id){if(!fit||inner())scrollTo({top:0,behavior:b});if(fit)reveal(null,"start")}});
 addEventListener("error",function(e){report(e.message||"The page hit an error")});
 addEventListener("unhandledrejection",function(e){var r=e.reason;report(r&&r.message?r.message:String(r))});
 var kos={
-query:function(sql,params){return call("query",{sql:sql,params:params})},
+query:function(sql,params){return new Promise(function(resolve,reject){asks.push({args:{sql:sql,params:params},resolve:resolve,reject:reject});ask()})},
 write:function(table,op,values,key){return call("write",{table:table,op:op,values:values,key:key}).then(function(r){refreshFns.forEach(function(f){try{f()}catch(err){report(err&&err.message||err)}});return r})},
 files:Object.freeze({read:function(path){return call("file",{path:path})}}),
 ask:function(text){return call("ask",{text:String(text)})},
 save:function(edit){return call("save",{edit:edit})},
-present:function(){top.postMessage({__kos:"present"},"*")},
+present:function(on){top.postMessage({__kos:"present",on:on!==false},"*")},
 onTheme:function(f){themeFns.push(f)},
 refresh:function(f){refreshFns.push(f)}
 };

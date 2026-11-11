@@ -127,10 +127,13 @@ in one pass and finishes.
 `artifacts.guide({ kind })` returns KOS's design guide
 (`systems/artifactguide.ts`): the general part, then the kind's. It is read
 on demand, not sent with every prompt. It covers deciding the treatment,
-grounding the artifact in its subject and real data, a token plan in the
-artifact's `:root`, both themes at the token level, type, layout, charts,
-being complete at rest, avoiding the generated look, copy, naming and
-building cleanly, then the kind's structure and conventions.
+grounding the artifact in its subject and real data, building on KOS's own
+tokens and face (the default, so an artifact sits on the dashboard as part
+of KOS; only a piece meant to stand apart, a poster or an invitation, writes
+a token plan of its own), both themes, type, layout (sections set apart by
+rules and space, cards only for discrete objects), charts, being complete at
+rest, avoiding the generated look, copy, naming and building cleanly, then
+the kind's structure and conventions.
 
 `artifacts.write` takes the project (omitted for a new workspace artifact;
 omitted on a rewrite, the artifact stays where it is, and `"@workspace"`
@@ -260,9 +263,10 @@ OFL) families, latin only, variable where the family is, in
 
 An artifact names the ones it uses in `fonts`; the frame inlines only those,
 as `data:` URLs (which its policy allows), and sets `--font-<id>` to each
-family's stack with real fallbacks. A doc starts from Newsreader, Public Sans
-and Plex Mono, a deck from Bricolage Grotesque and Public Sans, a sheet from
-Public Sans and Plex Mono, and a page from the system face KOS uses.
+family's stack with real fallbacks. Every kind starts from the system face
+KOS itself is set in; a doc adds Newsreader for its running text only, which
+reads well on KOS's ground in both themes. The other families are for a
+piece that names them.
 `artifactfonts.ts` in `@kos/shared` is the list.
 
 ## Checking before the owner sees it
@@ -270,7 +274,8 @@ Public Sans and Plex Mono, and a page from the system face KOS uses.
 `artifacts.check({ id })` (`systems/artifactcheck.ts`) draws the artifact
 exactly as the dashboard does (the same wrapper, document, policy, guard,
 bridge, tokens, kit CSS, fonts and runtime, from the dashboard's build in
-`dist/page-lib`) in a headless Chrome KOS starts for it and closes when idle,
+`dist/page-lib`, held in a column with the dashboard's gutter on KOS's
+ground) in a headless Chrome KOS starts for it and closes when idle,
 at 1280 and 390 px wide, in light and in dark, with the machine's own
 preference set to the other theme so an artifact that follows the OS rather
 than KOS's toggle is caught. Its `window.kos` reads are answered by the same
@@ -288,7 +293,14 @@ server-side checks; it never writes. It then measures the frame
 - boxes drawn as regions that hold nothing at rest;
 - a formula error showing in a sheet;
 - no visible title;
-- an attempt to leave the frame.
+- an attempt to leave the frame;
+- and, as small findings after the rest, the generated look the guide warns
+  of: a large area in the other theme's brightness (an inverted slide or
+  band), three or more wide bordered boxes each wrapping a section (a head
+  and a table, list, chart, form or box; not cards for objects, nor lanes
+  side by side), big figures reading a placeholder or a whole row of zeros,
+  bar tracks that all draw no fill, and, from an artifact that declares no
+  token plan of its own, an inverted area or a ground other than KOS's.
 
 With the words come two small screenshots, the desktop in light and the
 phone in dark, which the model sees. Each render's screenshot is kept in
@@ -464,7 +476,16 @@ Before the page's own markup the frame gets:
 - KOS's tokens as CSS variables, for the dashboard's theme at that moment,
   and again whenever the owner switches theme;
 - `kit.css` and `page.css` from `@kos/kit`, so plain markup and the kit's
-  classes read as KOS, whatever the kind;
+  classes read as KOS, whatever the kind. The body has KOS's ground and face
+  and no padding: the frame is always held by something that gives it a
+  gutter (the dashboard's column, the check's view), so its edges line up
+  with the dashboard's head; full screen (`data-present`), or when the page
+  paints a ground of its own (the bridge marks `data-ground="own"` when the
+  body's background is not KOS's `--bg`), it takes its own, so its text
+  never meets the edge of its colour. Each runtime starts from the same ground: a doc's text on it in a
+  reading serif under headings in KOS's face, a deck's slides as KOS's panel
+  with a 1 px line (the title slide too, never inverted), a sheet's grid on
+  KOS's panel;
 - the fonts it names, as `@font-face` rules with the files inlined, and
   `--font-<id>` stacks for every bundled family;
 - the `window.kos` bridge, which talks to the dashboard as `top`, reports
@@ -488,7 +509,7 @@ Before the page's own markup the frame gets:
 | `kos.theme`, `kos.onTheme(fn)` | The dashboard's theme, and its changes. |
 | `kos.refresh(fn)` | Run again after the page's own writes. |
 | `kos.save(edit)` | A doc's or a sheet's edit, made by the owner in the runtime, kept as the next version (above). Refused for a page or a deck. |
-| `kos.present()` | Ask the dashboard to show the artifact full screen; it then posts `present` on and off, which sets `data-present` on `<html>` and fires `kos:present`. |
+| `kos.present(on?)` | Ask the dashboard to show the artifact full screen (`kos.present(false)` gives it back); it then posts `present` on and off, which sets `data-present` on `<html>` and fires `kos:present`. Where the browser has no full screen for an element (Safari on an iPhone) or refuses, the artifact presents in place in its frame, and Escape or Present again ends it. |
 
 The dashboard only relays these, for its own frame. The server decides each
 one (`packages/harness/src/systems/pagebridge.ts`) against the page's stored
@@ -507,7 +528,10 @@ declarations:
   time waiting for a turn included: SQLite cannot be interrupted from Node,
   so a recursive CTE that never ends would otherwise hold the server. A page
   has one query running and four waiting at most; more are refused, so one
-  page cannot starve the rest. Headlines run the same way, with 1 s, and are
+  page cannot starve the rest. The bridge sends a frame's queries two at a
+  time and holds the rest in the frame, so a page that asks for ten at once
+  (`Promise.all` over its charts) gets ten answers, and the viewer and a
+  check's render of the same artifact still fit. Headlines run the same way, with 1 s, and are
   kept for 30 s or until the page changes; the page list waits on them for
   1.2 s at most. Closing KOS kills every child, and a child whose server
   goes exits by itself.
