@@ -489,4 +489,28 @@ describe("pasting, importing, and changing the shape", () => {
     click(root.querySelector(".sheet-panel")!, "Delete row");
     await vi.waitFor(() => expect(writes).toHaveBeenCalledWith([{ table: "supplies", op: "delete", key: { column: "id", value: 9 } }]));
   });
+
+  it("drops a pending paste and an import preview when the tab's shape changes under them", async () => {
+    const { root } = owned();
+    focusCell(root, 1, 1);
+    paste(root, "Snacks");
+    expect(root.querySelector(".sheet-panel")!.textContent).toContain("would replace");
+    click(root, "Category: column menu");
+    click(root, "Insert column left");
+    expect(root.querySelector(".sheet-panel")).toBeNull();
+    root.querySelector<HTMLInputElement>(".sheet-rename")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    click(root, "Import CSV");
+    const input = root.querySelector<HTMLInputElement>("input[type=file]")!;
+    const csv = "Item,Amount\nTea,4\n";
+    Object.defineProperty(input, "files", { value: [{ name: "a.csv", size: csv.length, text: () => Promise.resolve(csv), arrayBuffer: () => Promise.resolve(new TextEncoder().encode(csv).buffer) }] });
+    input.dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect(root.querySelector(".sheet-import")).not.toBeNull());
+    click(root, "Amount: column menu");
+    click(root, "Number");
+    expect(root.querySelector(".sheet-import")).toBeNull();
+    click(root, "Row 2");
+    click(root, "Insert below");
+    expect(root.querySelector(".sheet-rowbar")!.textContent).toContain("1 row picked");
+    expect(root.querySelector("tr.picked")!.getAttribute("data-row")).toBe("3");
+  });
 });

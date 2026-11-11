@@ -576,6 +576,8 @@ class Sheet {
       return after();
     }
     this.keepUndo();
+    // A bar's plan counted the cells as they were; an import only appends, so its preview stands.
+    if (!this.importing) this.panel = undefined;
     const rows = tab.rows!;
     while (rows.length < row) rows.push(tab.columns.map(() => null));
     const r = rows[row - 1]!;
@@ -624,8 +626,17 @@ class Sheet {
     if (this.undos.length > UNDO_MAX) this.undos.shift();
   }
 
-  /** Change the workbook kept with the artifact, undoably: worked out, drawn and saved. */
+  /** Drop what was worked out on the workbook as it was: a bar's plan, an import's preview, the picked rows. A change moves the cells they name. */
+  private forgetPending(): void {
+    this.panel = undefined;
+    this.importing = undefined;
+    this.picked.clear();
+    this.pickedKeys.clear();
+  }
+
+  /** Change the workbook kept with the artifact, undoably: worked out, drawn and saved, anything pending on it dropped. */
   private change(fn: () => void): void {
+    this.forgetPending();
     this.keepUndo();
     fn();
     this.redraw();
@@ -640,8 +651,7 @@ class Sheet {
     this.book.sheets.splice(0, this.book.sheets.length, ...was.sheets);
     if (was.charts) this.book.charts = was.charts;
     else delete this.book.charts;
-    this.panel = undefined;
-    this.picked.clear();
+    this.forgetPending();
     this.sort = undefined;
     this.redraw();
     this.scheduleSave();
@@ -1093,8 +1103,9 @@ class Sheet {
     const at = where === "above" ? rows[0]! : rows[rows.length - 1]! + 1;
     this.sort = undefined;
     this.filter.text = "";
-    this.picked = new Set(rows.map((_, i) => at + i));
     this.change(() => insertRows(this.book, t, at, rows.map(() => tab.columns.map(() => null))));
+    this.picked = new Set(rows.map((_, i) => at + i));
+    this.refreshPicks();
     this.moveTo(at, this.focus.col);
   }
 
