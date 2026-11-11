@@ -156,6 +156,10 @@ describe.skipIf(!chrome)("artifacts.check in Chrome", () => {
     expect(reportWords(report)).toMatch(/Nothing to fix.*do not check again/);
     const tool = await checker.tool("good");
     expect(tool.images).toHaveLength(2);
+    // After a patch, a clean check is its words alone.
+    const quiet = await checker.tool("good", { quiet: true });
+    expect(quiet.images).toBeUndefined();
+    expect(quiet.text).not.toMatch(/pictures/);
   }, 45_000);
 
   it("leaves a distinctive piece's own ground alone when it declares a token plan", async () => {

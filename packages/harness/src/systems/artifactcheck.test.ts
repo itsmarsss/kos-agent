@@ -42,6 +42,7 @@ describe("the check's report", () => {
     expect(final).toMatch(/Do not patch, write or check it again: tell the owner in a line what is left/);
     expect(final).not.toMatch(/Fix all of these/);
     expect(reportWords(report(["Overflow at 390 px"]))).toMatch(/Fix all of these in one pass with artifacts.patch/);
+    expect(reportWords(report([]), { quiet: true })).not.toMatch(/pictures/);
   });
 });
 

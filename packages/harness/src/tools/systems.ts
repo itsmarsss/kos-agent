@@ -560,7 +560,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
       // The patch is kept whatever the check finds; a check that cannot run says so rather than failing what was saved.
       const n = tally.take(id);
       if (n > 2) return `${summary}\n\n${CHECKED_ENOUGH}`;
-      const checked = await checkArtifact(id, { final: n === 2 }).catch((err: unknown) => ({ text: `Saved, but the check could not run: ${err instanceof Error ? err.message : String(err)}` }));
+      const checked = await checkArtifact(id, { final: n === 2, quiet: true }).catch((err: unknown) => ({ text: `Saved, but the check could not run: ${err instanceof Error ? err.message : String(err)}` }));
       return { ...checked, text: `${summary}\n\n${checked.text}` };
     },
     { floor: "safe" },
