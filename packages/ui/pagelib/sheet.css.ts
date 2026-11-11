@@ -55,7 +55,7 @@ export const SHEET_CSS = String.raw`
 .sheet-panel p { margin: 0; }
 .sheet-panel-notes { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
 .sheet-panel-refusal { color: var(--danger); }
-.sheet-panel-actions, .sheet-rowbar { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sheet-panel-actions, .sheet-rowbar { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
 .sheet-rowbar { padding: 8px 10px; }
 .sheet-rowbar > span { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 4px; }
 .sheet-panel button, .sheet-rowbar button { font: 500 13px / 1 var(--font-ui); color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm, 7px); padding: 8px 12px; cursor: pointer; }
@@ -65,7 +65,8 @@ export const SHEET_CSS = String.raw`
 .sheet-panel :where(button, select, input):focus-visible, .sheet-rowbar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sheet-panel select { font: 400 13px / 1.2 var(--font-ui); color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm, 7px); padding: 6px 8px; min-width: 0; max-width: 100%; }
 .sheet-import-options { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
-.sheet-import-options label { display: inline-flex; gap: 6px; align-items: center; }
+.sheet-import-options label { display: inline-flex; flex-direction: row; gap: 6px; align-items: center; font-size: 13px; color: var(--text); }
+.sheet-import-options input[type="checkbox"] { width: auto; margin: 0; accent-color: var(--accent); }
 .sheet-import-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 1fr)); gap: 8px 12px; }
 .sheet-import-map label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .sheet-import-map span { font: 600 11px / 1.2 var(--font-ui); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); overflow-wrap: anywhere; }

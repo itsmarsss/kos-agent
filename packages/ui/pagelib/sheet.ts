@@ -640,8 +640,10 @@ class Sheet {
   private show(panel: HTMLElement | undefined, keep?: string | null): void {
     this.panel = panel;
     this.root.querySelector(":scope > .sheet-panel")?.remove();
+    if (panel) this.root.querySelector(":scope > .sheet-scroll")?.before(panel);
+    // The grid takes what the panel leaves, or has back.
+    this.fit();
     if (!panel) return;
-    this.root.querySelector(":scope > .sheet-scroll")?.before(panel);
     const controls = [...panel.querySelectorAll<HTMLElement>("button, select, input")];
     const again = keep ? controls.find((c) => c.getAttribute("aria-label") === keep) : undefined;
     (again ?? controls.find((c) => c.matches("button.primary, button.danger")) ?? controls[0])?.focus();
@@ -1025,6 +1027,7 @@ class Sheet {
     }
     this.root.querySelector(":scope > .sheet-rowbar")?.remove();
     if (this.picked.size && this.editable(this.tab)) this.root.querySelector(":scope > .sheet-tools")?.after(this.rowBar());
+    this.fit();
   }
 
   private rowBar(): HTMLElement {
