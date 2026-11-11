@@ -150,6 +150,8 @@ class Sheet {
   /** The rows picked by their numbers, and the one a shift-press runs from. */
   private picked = new Set<number>();
   private pickedFrom: number | undefined;
+  /** For a tab over a table, each picked row's key as it was when picked, which a delete names. */
+  private pickedKeys = new Map<number, unknown>();
 
   constructor(
     private readonly book: SheetBook,
@@ -219,6 +221,13 @@ class Sheet {
       } catch (e) {
         this.loaded.set(i, { keys: [], rows: [], error: reason(e) });
       }
+    }
+    // Rows read again may stand in other places: nothing picked or planned on the ones before carries over.
+    if (i === this.tab) {
+      this.picked.clear();
+      this.pickedKeys.clear();
+      this.panel = undefined;
+      this.importing = undefined;
     }
     this.wb = this.workbook();
     this.render();
@@ -694,24 +703,26 @@ class Sheet {
     const from = shown.indexOf(this.focus.row);
     const col = this.focus.col;
     const plan = this.planFor(block, from < 0 ? [] : shown.slice(from), col);
-    if (!plan.replaces) return void this.applyPaste(plan);
+    // A table's keys as they are now, which the writes name, however the rows are read again before a choice.
+    const keys = [...(this.loaded.get(t)?.keys ?? [])];
+    if (!plan.replaces) return void this.applyPaste(plan, keys);
     const asRows = this.planFor(block, [], col);
     this.show(
       inlineBar(`This paste would replace ${plural(plan.replaces, "filled cell")}.`, this.pasteNotes(plan), [
-        { label: "Replace", tone: "primary", run: () => void this.applyPaste(plan) },
-        { label: asRows.added.length === 1 ? "Add as a new row" : `Add as ${asRows.added.length} new rows`, run: () => void this.applyPaste(asRows) },
+        { label: "Replace", tone: "primary", run: () => void this.applyPaste(plan, keys) },
+        { label: asRows.added.length === 1 ? "Add as a new row" : `Add as ${asRows.added.length} new rows`, run: () => void this.applyPaste(asRows, keys) },
         { label: "Cancel", run: () => this.dismiss() },
       ]),
     );
   }
 
-  private async applyPaste(plan: PastePlan): Promise<void> {
+  private async applyPaste(plan: PastePlan, keys: readonly unknown[]): Promise<void> {
     const t = this.tab;
     const notes = this.pasteNotes(plan);
     const said = [plan.cells.length && plural(plan.cells.length, "cell"), plan.added.length && plural(plan.added.length, "new row")].filter(Boolean).join(" and ");
     if (!said) return this.show(inlineBar("Nothing in the paste fits this tab.", notes, [this.dismissal()]));
     this.panel = undefined;
-    const done = this.book.sheets[t]!.source ? await this.writeTable(t, plan.cells, plan.added) : this.keepRows(t, plan.cells, plan.added);
+    const done = this.book.sheets[t]!.source ? await this.writeTable(t, plan.cells, plan.added, keys) : this.keepRows(t, plan.cells, plan.added);
     if (!done) return;
     const first = plan.cells[0];
     if (first) this.moveTo(first.row, first.col);
@@ -743,10 +754,9 @@ class Sheet {
    * in one transaction, then the table read again. A refusal changes
    * nothing, and the bar says so.
    */
-  private async writeTable(t: number, cells: PastePlan["cells"], added: SheetCell[][]): Promise<boolean> {
+  private async writeTable(t: number, cells: PastePlan["cells"], added: SheetCell[][], keys: readonly unknown[]): Promise<boolean> {
     const tab = this.book.sheets[t]!;
     const src = tab.source!;
-    const keys = this.loaded.get(t)?.keys ?? [];
     const name = (c: number): string => tab.columns[c]!.column ?? tab.columns[c]!.label;
     const updates = new Map<number, Record<string, SheetCell>>();
     for (const c of cells) updates.set(c.row, { ...updates.get(c.row), [name(c.col)]: c.cell });
@@ -867,7 +877,7 @@ class Sheet {
         add: () => {
           this.importing = undefined;
           this.panel = undefined;
-          const added = tab.source ? this.writeTable(t, [], got.rows) : Promise.resolve(this.keepRows(t, [], got.rows));
+          const added = tab.source ? this.writeTable(t, [], got.rows, []) : Promise.resolve(this.keepRows(t, [], got.rows));
           void added.then((ok) => {
             if (ok && got.errors.length) this.show(inlineBar(`Added ${plural(got.rows.length, "row")} from ${imp.file}. ${plural(got.errors.length, "value")} did not fit and ${got.errors.length === 1 ? "was" : "were"} left empty.`, got.errors, [this.dismissal()]));
             else if (ok) this.show(undefined);
@@ -1029,6 +1039,8 @@ class Sheet {
       this.picked = this.picked.size === 1 && this.picked.has(r) ? new Set() : new Set([r]);
       this.pickedFrom = r;
     }
+    const keys = this.loaded.get(this.tab)?.keys ?? [];
+    this.pickedKeys = new Map([...this.picked].map((p) => [p, keys[p - 1]]));
     this.refreshPicks();
   }
 
@@ -1094,7 +1106,7 @@ class Sheet {
     const cancel: Action = { label: "Cancel", run: () => this.dismiss() };
     if (tab.source) {
       const them = rows.length === 1 ? "it" : "them";
-      return this.show(inlineBar(`Delete ${plural(rows.length, "row")} from the table ${tab.source.table}? Undo cannot bring ${them} back.`, [], [{ label: rows.length === 1 ? "Delete row" : `Delete ${rows.length} rows`, tone: "danger", run: () => void this.deleteTableRows(t, rows) }, cancel], true));
+      return this.show(inlineBar(`Delete ${plural(rows.length, "row")} from the table ${tab.source.table}? Undo cannot bring ${them} back.`, [], [{ label: rows.length === 1 ? "Delete row" : `Delete ${rows.length} rows`, tone: "danger", run: () => void this.deleteTableRows(t, rows.map((r) => this.pickedKeys.get(r))) }, cancel], true));
     }
     const go = (): void => {
       this.panel = undefined;
@@ -1105,12 +1117,13 @@ class Sheet {
     this.show(inlineBar(`Delete ${rows.length} rows? Undo brings them back.`, [], [{ label: `Delete ${rows.length} rows`, tone: "danger", run: go }, cancel], true));
   }
 
-  private async deleteTableRows(t: number, rows: readonly number[]): Promise<void> {
+  /** Delete a table's rows by the keys they had when picked, never by where they stand now. */
+  private async deleteTableRows(t: number, keys: readonly unknown[]): Promise<void> {
     const src = this.book.sheets[t]!.source!;
-    const keys = this.loaded.get(t)?.keys ?? [];
     this.panel = undefined;
     this.picked.clear();
-    await this.writeAll(t, rows.map((r) => ({ table: src.table, op: "delete", key: { column: src.key, value: keys[r - 1] } })), "Deleted");
+    this.pickedKeys.clear();
+    await this.writeAll(t, keys.map((value) => ({ table: src.table, op: "delete", key: { column: src.key, value } })), "Deleted");
   }
 
   private drawCharts(): void {

@@ -464,4 +464,29 @@ describe("pasting, importing, and changing the shape", () => {
     click(root.querySelector(".sheet-panel")!, "Delete row");
     await vi.waitFor(() => expect(writes).toHaveBeenCalledWith([{ table: "supplies", op: "delete", key: { column: "id", value: 9 } }]));
   });
+
+  it("deletes the row picked, by its key, or nothing when the table is read again in between", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ __key: 7, item: "Paint" }, { __key: 9, item: "Glue" }] });
+    const writes = vi.fn().mockResolvedValue({ done: 1, results: [{ changes: 1 }] });
+    const write = vi.fn().mockResolvedValue({ changes: 1 });
+    (window as { kos?: unknown }).kos = { query, write, writes, save: vi.fn().mockResolvedValue({}) };
+    const root = mount({ sheets: [{ name: "S", columns: [{ label: "Item", column: "item" }], source: { table: "supplies", key: "id" } }] });
+    await vi.waitFor(() => expect(cells(root)).toHaveLength(2));
+    click(root, "Row 2");
+    click(root, "Delete row");
+    expect(root.querySelector(".sheet-panel")).not.toBeNull();
+    // Another edit reads the table again, its rows now the other way round: the pick and its question go.
+    query.mockResolvedValue({ rows: [{ __key: 9, item: "Glue" }, { __key: 7, item: "Paint" }] });
+    const td = root.querySelector<HTMLTableCellElement>('td[data-row="1"][data-col="0"]')!;
+    td.dispatchEvent(new KeyboardEvent("keydown", { key: "P", bubbles: true }));
+    td.querySelector("input")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await vi.waitFor(() => expect(cells(root).map((r) => r[0])).toEqual(["Glue", "Paint"]));
+    expect(root.querySelector(".sheet-panel")).toBeNull();
+    expect(root.querySelector(".sheet-rowbar")).toBeNull();
+    expect(writes).not.toHaveBeenCalled();
+    click(root, "Row 1");
+    click(root, "Delete row");
+    click(root.querySelector(".sheet-panel")!, "Delete row");
+    await vi.waitFor(() => expect(writes).toHaveBeenCalledWith([{ table: "supplies", op: "delete", key: { column: "id", value: 9 } }]));
+  });
 });
