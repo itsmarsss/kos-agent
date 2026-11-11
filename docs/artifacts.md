@@ -111,15 +111,62 @@ and a guest's mentions show nothing but the channels they name.
 When a blob is removed its file goes and its folder stays with the work in
 it, as its files do, and its artifacts are kept: listed as "Removed blob:
 <name>", read but never changed by KOS, and the owner's to look at, restore
-or delete (`POST /api/pages/<id>/delete`, for a removed blob's only, by its
-row, so one whose file is already gone is let go too). Their
-viewer offers no way to the blob's page, which is gone, nor Edit with KOS.
+or put in the trash like any other (below), by its row, so one whose file is
+already gone is let go too. Their viewer offers no way to the blob's page,
+which is gone, nor Edit with KOS.
+
+## Managing artifacts
+
+The owner renames, copies, moves and deletes artifacts from the dashboard:
+the viewer head's menu and each gallery card's menu (`ArtifactManage.tsx`).
+
+- **Rename**: a new title, description, or both, in a small dialog. The id
+  stays, so `@page:` mentions, the chat's artifact cards and links still find
+  it, and the rename is kept as a version.
+- **Duplicate**: a copy beside it, the same owner's, titled "<title> copy"
+  under the first free id `<id>-copy`, `-copy-2` and on (free in any case).
+  The copy's history starts with it; the original's stays its own.
+- **Move**: to any project, the workspace, or a living blob, which becomes
+  its owner. Ids are global (one artifact's wherever it lives), so the id and
+  every reference to it are kept, and its versions and captures go with it.
+  It goes through every check a write makes as the new owner's, so one that
+  reads its project's tables, or an older widget page, stays where those
+  are; nothing goes to a removed blob.
+- **Delete** moves it to the trash (`pages.trashed_at`), never deletes it.
+  A trashed artifact drops out of the gallery, the rails, the project's
+  page list and its headline, the `@` menu and `artifacts.list`; it keeps its
+  file and versions as they were, and nothing changes it (a write, an edit,
+  a rollback, a rename, a copy or a move is refused until it is restored),
+  nor may a new artifact take its id. Opened by its id (a mention, a chat's
+  card, a link) it says it is in the trash, with Restore and Delete forever;
+  a chat's card for it says so too. KOS, told of one by a mention, hears
+  that it is in the trash and not its body.
+- **Trash** is a view of the gallery (Trash in its head), with Restore and
+  Delete forever on each card. Delete forever asks once (`ConfirmButton`)
+  and removes the row, file, versions and captures. Nothing in the trash is
+  deleted on its own, however long it waits; no purge is decided.
+
+The routes are `POST /api/artifacts/<id>/{rename,duplicate,move,trash,restore,delete}`
+(`move` takes `{ project }`, `"@workspace"` for the workspace, or `{ blob }`;
+`delete` only from the trash) and `GET /api/artifacts?trashed=1`. They are
+the owner's, behind the dashboard's token like every route, and each is kept
+in the audit log as `artifact.<verb>`, refusals too.
+
+KOS has `artifacts.rename`, `artifacts.duplicate` and `artifacts.move`, and
+no tool that trashes or deletes. Each is held to the fence above for
+changing, at both ends of a move: a project's chat moves its own artifacts
+and the workspace's, never into or out of another project, nor into a blob;
+the owner's own turn at the root reaches the workspace and blobs but no
+project's; Maintenance reaches all. A guest's turn has none of them, and a
+call that a guest's words started is refused. `artifacts.list` leaves the
+trash out unless asked (`trashed: true`).
 
 ## How an artifact is written
 
 The tools are `artifacts.guide`, `artifacts.write`, `artifacts.check`,
 `artifacts.list`, `artifacts.get`, `artifacts.history` and
-`artifacts.rollback`. The agent's instructions say an artifact is one of the
+`artifacts.rollback`, with `artifacts.rename`, `artifacts.duplicate` and
+`artifacts.move` (Managing artifacts, above). The agent's instructions say an artifact is one of the
 four kinds, that "make me a doc, slides or a spreadsheet" names the kind, and
 that it reads the guide, writes, checks once, fixes what the check reports
 in one pass and finishes.
