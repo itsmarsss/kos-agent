@@ -185,6 +185,74 @@ project's; Maintenance reaches all. A guest's turn has none of them, and a
 call that a guest's words started is refused. `artifacts.list` leaves the
 trash out unless asked (`trashed: true`).
 
+## Exporting artifacts
+
+The owner takes an artifact away as a file from the same two menus, the
+viewer's and each gallery card's, which list only what its kind has
+(`KIND_EXPORTS`, `@kos/shared` `artifactexport.ts`):
+
+| Kind | Formats |
+| --- | --- |
+| `doc` | PDF, Markdown, HTML |
+| `deck` | PDF (a slide a page), HTML |
+| `sheet` | CSV (all tabs, or one; the viewer lists each tab), HTML |
+| `page` | PDF, HTML |
+
+The file downloads straight from the menu; while it is made the dashboard
+says so, and a failure says why. The route is
+`GET /api/artifacts/<id>/export?format=pdf|md|html|csv`, with `&tab=` for one
+of a sheet's tabs and `&theme=light|dark` (light unless dark is asked; the
+dashboard asks for its own palette for HTML and light for a PDF). It is the
+owner's: behind the token like every route, and refused when another site's
+page asks for it (`fromAnotherSite`, the reading `crossSiteWrite` makes, for
+any method), since a request it started would carry the owner's data off as
+a download and print in KOS's Chrome. It refuses what is in the trash, an
+older widget page, and a format the kind does not have. The name is the
+title's (`exportName`), sent as `Content-Disposition` in ASCII and in full
+UTF-8. Each export, and each refusal, is kept in the audit log as
+`artifact.export`. The work is `ArtifactExporter` (`systems/artifactexport.ts`).
+
+- **PDF** is printed by the Chrome `artifacts.check` keeps, never the
+  machine's print dialog, so nothing asks the owner for a permission. The
+  checker's queue (`ArtifactChecker.withBrowser`) runs one job at a time,
+  a check or an export, the owner's ahead of the gallery's redraws; three
+  exports waiting at most, and each given up after 60 s. The artifact is
+  drawn as the HTML export below, its reads answered live by the same
+  server-side checks the frame's are and never written, then printed with
+  `Page.printToPDF`. A deck prints by its runtime's print rules on 16:9
+  pages, every slide whole and nothing after the last; a doc on US Letter
+  with margins, on white, its runtime's print rules keeping a heading with
+  what follows it and a figure, table, quote or code block whole where it
+  fits; a page on Letter, KOS's ground to the paper's edges.
+- **HTML** is one file that opens anywhere, offline: the artifact's markup
+  with its kind's runtime, its libraries, KOS's tokens for the chosen theme,
+  the kit's stylesheet and the fonts it names, inlined (dropped for their
+  system stacks past 600 KB, which four families do not reach), under the
+  frame's own policy and guard, so the file opens no connection. Its
+  `window.kos` reaches nothing: an artifact that reads (a page's
+  `kos.query`, a sheet's source tab) is drawn once in KOS's Chrome first and
+  what its reads answered is frozen into the file, answered from it by the
+  same call; a write, an ask or a save is refused in words, and with no
+  save no runtime offers editing. Nothing of the dashboard goes in: no
+  token, no address, only the artifact and what its own reads answered.
+  Served with `Content-Security-Policy: sandbox`, so a browser that drew it
+  on the dashboard's origin would run nothing there.
+- **Markdown** (`systems/docmarkdown.ts`) is the doc's article read with
+  parse5 and written as CommonMark with GitHub's tables, task lists and
+  footnotes: the header's kicker, title, lede and byline, headings, lists
+  and checklists, tables (with a caption, a spanned cell padded), figures
+  numbered as the doc numbers them, pull quotes and callouts as quotes,
+  code fenced with its language, links, and `.fn` notes as `[^n]`. A drawing
+  (an SVG or canvas chart) has no Markdown; its figure keeps its caption.
+- **CSV** (`systems/sheetcsv.ts`) is a tab's values as the sheet works them
+  out, with the runtime's own engine (`sheetformula.ts`, in `@kos/shared` so
+  the server and the runtime share it): a formula as its result, a pivot as
+  its groups, a source tab as the rows its table holds now, read through the
+  artifact's own bridge. Numbers plain, to fifteen digits; no totals row;
+  RFC 4180 quoting and CRLF; a UTF-8 byte-order mark so Excel reads accents;
+  a text cell a spreadsheet would run as a formula led by an apostrophe.
+  Every tab of a sheet with more than one is a zip of a CSV each.
+
 ## How an artifact is written
 
 The tools are `artifacts.guide`, `artifacts.write`, `artifacts.check`,
