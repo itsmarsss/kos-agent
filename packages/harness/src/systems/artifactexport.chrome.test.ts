@@ -95,6 +95,7 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-deck.js")))("artifact ex
     expect(html).toMatch(/^<!doctype html><html data-theme="light"><head><meta http-equiv="Content-Security-Policy" content="default-src 'none';.*connect-src 'none'.*frame-src about:">/);
     expect(html).toContain('<iframe sandbox="allow-scripts" allow="fullscreen"');
     expect(await openSaved(html, "document.getElementById('out')?.textContent", (v) => !!v && v !== "waiting")).toBe("3 books");
+    expect(await openSaved(html, "document.getElementById('out') ? typeof RTCPeerConnection + ' ' + typeof webkitRTCPeerConnection : ''", (v) => !!v)).toBe("undefined undefined");
   }, 60_000);
 
   describe("an artifact that tries to send what it read somewhere", () => {

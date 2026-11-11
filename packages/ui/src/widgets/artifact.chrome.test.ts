@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { FRAME_QUERY_WAIT_MS, GUARD_SCRIPT, pageDocument, wrapperDocument } from "@kos/shared";
+import { FRAME_QUERY_WAIT_MS, GUARD_SCRIPT, RTC_GUARD, pageDocument, wrapperDocument } from "@kos/shared";
 import { DONE_MS, REVEAL_MS, ownerIn, revealAllowed, saveAllowed } from "./frameheight.js";
 
 /**
@@ -274,7 +274,8 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
 
   const page = (code: string): string => pageDocument({ html: attempt(`const XHTML = "${XHTML}"; ${code}`), tokens: {}, mode: "dark", css: "", libraries: [] });
   /** The same page with the guard taken out, for the controls. */
-  const unguarded = (code: string): string => page(code).replace(`<script>${GUARD_SCRIPT}</script>`, "").replace("; require-trusted-types-for 'script'; trusted-types default", "");
+  const unguarded = (code: string): string =>
+    page(code).replace(`<script>${RTC_GUARD}</script>`, "").replace(`<script>${GUARD_SCRIPT}</script>`, "").replace("; require-trusted-types-for 'script'; trusted-types default", "");
 
   it("sees a leak when there is one: the flat frame KOS had sends a navigation's request", async () => {
     const flat = await run("control", page(attempts(E).href!).replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'">`));

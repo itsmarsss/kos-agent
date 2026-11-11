@@ -1,6 +1,7 @@
 import type { CdpClient } from "@kos/browser";
 import {
   GUARD_SCRIPT,
+  RTC_GUARD,
   KIND_EXPORTS,
   PAGE_GUARD_CSP,
   WRAPPER_CSP,
@@ -226,6 +227,8 @@ export function exportDocument({ page, title, mode, assets, answers }: ExportDoc
     `<meta http-equiv="Content-Security-Policy" content="${PAGE_GUARD_CSP}">`,
     '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
+    // WebRTC goes whatever the browser: the guard after it needs Trusted Types.
+    `<script>${RTC_GUARD}</script>`,
     `<script>if(typeof trustedTypes==="object"&&trustedTypes)${GUARD_SCRIPT}</script>`,
     `<style id="kos-tokens">${tokenRule(assets.tokens[mode], mode)}</style>`,
     `<style>${`${assets.css}\n${fontStackVars()}\n${faces(page, assets)}\n${EXPORT_CSS}`.replace(/<\/style/gi, "")}</style>`,

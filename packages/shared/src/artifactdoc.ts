@@ -89,9 +89,8 @@ export const WRAPPER_CSP = `${PAGE_CSP}; frame-src about:`;
  *    document made elsewhere), nothing holding one may be adopted, imported
  *    or put into a document, by any of the methods that place a node.
  *
- * A <link> that exists anyway takes no rel or href. WebRTC, which reaches
- * the network beside the policy, and XSLT, which builds elements from data,
- * are taken away. Every replacement is fixed in place, and what it checks
+ * A <link> that exists anyway takes no rel or href. XSLT, which builds
+ * elements from data, is taken away; WebRTC is RTC_GUARD's, before this. Every replacement is fixed in place, and what it checks
  * with (a node's type and name, querySelector) is held from before the page
  * could change it.
  */
@@ -132,8 +131,16 @@ var setA=Element.prototype.setAttribute,setANS=Element.prototype.setAttributeNS;
 function inert(el,n){return bad(R(nameOf,el,[]))&&ATTRS[local(n)]===true}
 fix(Element.prototype,"setAttribute",function(n,v){n=Str(n);if(inert(this,n))return;return R(setA,this,[n,v])});
 fix(Element.prototype,"setAttributeNS",function(ns,n,v){n=Str(n);if(inert(this,n))return;return R(setANS,this,[ns,n,v])});
-["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel","RTCRtpSender","RTCRtpReceiver","RTCRtpTransceiver","XSLTProcessor"].forEach(function(k){fix(window,k,undefined)});
+["XSLTProcessor"].forEach(function(k){fix(window,k,undefined)});
 })();`;
+
+/**
+ * WebRTC taken away, first and on its own: it reaches the network beside
+ * any policy (a STUN request carries what the page puts in it), so it is not
+ * left to the guard, which stops at its first line where a browser has no
+ * Trusted Types.
+ */
+export const RTC_GUARD = `(function(){["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel","RTCRtpSender","RTCRtpReceiver","RTCRtpTransceiver"].forEach(function(k){try{Object.defineProperty(window,k,{value:undefined,writable:false,configurable:false})}catch(e){}})})();`;
 
 /**
  * Text that holds no tags of the page's: a comment, and what a raw element
@@ -305,6 +312,7 @@ export function pageDocument({ html, tokens, mode, css, libraries, kind = "page"
     `<html data-mode="${mode}" data-theme="${mode}" data-kind="${kind.replace(/[^a-z]/g, "")}"${locked ? " data-locked" : ""}><head>`,
     `<meta http-equiv="Content-Security-Policy" content="${PAGE_GUARD_CSP}">`,
     '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
+    `<script>${RTC_GUARD}</script>`,
     `<script>${GUARD_SCRIPT}</script>`,
     `<style id="kos-tokens">${tokenRule(tokens, mode)}</style>`,
     `<style>${css.replace(/<\/style/gi, "")}</style>`,
