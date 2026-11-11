@@ -371,6 +371,61 @@ describe("one artifact, full size", () => {
     expect(document.activeElement).toBe(more);
   });
 
+  it("draws the doc as saved on Back to current after a save and a preview, so the next save keeps the edit", async () => {
+    const record = { ...ART[3]!, artifactKind: "doc" as const };
+    const savedAt = record.updatedAt + 500;
+    const opened = { record, kind: "html", page: { id: "ledger", title: "Ledger", kind: "doc", html: "<p>first draft</p>" } };
+    const newest = { record: { ...record, updatedAt: savedAt }, kind: "html", page: { id: "ledger", title: "Ledger", kind: "doc", html: "<p>saved edit</p>" } };
+    const read = vi.spyOn(api, "anyPage").mockResolvedValue(opened as never);
+    vi.spyOn(api, "pageHistory").mockResolvedValue([
+      { version: 1, at: at(90), title: "Ledger", kind: "html" },
+      { version: 2, at: at(1), title: "Ledger", kind: "html" },
+    ]);
+    vi.spyOn(api, "pageVersion").mockResolvedValue({ id: "ledger", title: "Ledger", kind: "doc", html: "<p>first draft</p>" } as never);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
+    const save = vi.spyOn(api, "savePage").mockResolvedValue(newest.record);
+    render(<ArtifactViewer id="ledger" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
+    const frameOf = (): Promise<HTMLIFrameElement> =>
+      waitFor(() => {
+        const f = document.querySelector<HTMLIFrameElement>("iframe.artifact-frame");
+        if (!f) throw new Error("no frame yet");
+        return f;
+      });
+    /** The doc's frame, its page window standing in, saving its whole document after the dashboard's own Done. */
+    const saveFrom = async (el: HTMLIFrameElement, id: number, doc: string): Promise<void> => {
+      const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+      Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+      const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
+      // The owner's hand in the frame, over the bridge's channel, so the dashboard's Done opens a save.
+      const gestures = new MessageChannel();
+      act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "gestures" }, ports: [gestures.port2] })));
+      gestures.port1.postMessage(0);
+      await new Promise((r) => setTimeout(r, 20));
+      say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
+      fireEvent.click(await screen.findByRole("button", { name: "Done" }));
+      await act(async () => {
+        say({ __kos: "call", id, method: "save", args: { edit: { doc } } });
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      say({ __kos: "edit", editing: false, pending: false, status: "Saved", bad: false });
+    };
+    await saveFrom(await frameOf(), 1, "<p>saved edit</p>");
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    // History, an older version previewed, then back: the newest is read, and drawn as it was saved.
+    read.mockResolvedValue(newest as never);
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    const rows = within(await screen.findByRole("dialog", { name: "History" })).getAllByRole("listitem");
+    fireEvent.click(within(rows[1]!).getByRole("button", { name: "Preview" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Back to current" }));
+    await waitFor(() => expect((document.querySelector("iframe.artifact-frame") as HTMLIFrameElement).getAttribute("srcdoc")).toContain("saved edit"));
+    expect(document.querySelector("iframe.artifact-frame")!.getAttribute("srcdoc")).not.toContain("first draft");
+    // The next save is made on the saved version, from the frame that holds the edit.
+    await saveFrom(await frameOf(), 2, "<p>saved edit, and more</p>");
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1]![2]).toBe(savedAt);
+  });
+
   it("restores on the version the doc's own last save made, not the one first opened", async () => {
     const record = { ...ART[3]!, artifactKind: "doc" as const };
     vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "ledger", title: "Ledger", kind: "doc", html: "<p>x</p>" } } as never);

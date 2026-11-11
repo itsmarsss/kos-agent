@@ -525,13 +525,20 @@ export function ArtifactViewer({
     setRecord(r);
   };
 
+  /*
+   * The version the page drawn was read at: not the newest saved, which a
+   * frame's own save moves on while the page it was opened with stays.
+   */
+  const pageAt = useRef<{ id: string; at: number } | undefined>(undefined);
   const show = (got: AnyPagePayload): void => {
-    // The version already shown, read again, keeps its frame: the deck does not start over.
-    const same = latest.current?.id === got.record.id && latest.current.updatedAt === got.record.updatedAt;
+    // The very version drawn, read again, keeps its frame: a deck does not start over. Anything newer is drawn anew.
+    const same = pageAt.current?.id === got.record.id && pageAt.current.at === got.record.updatedAt;
     setPreview(undefined);
     saved(got.record);
     setOlder(got.kind !== "html");
-    if (got.kind === "html") setPage((was) => (same && was ? was : got.page));
+    if (got.kind !== "html") return;
+    pageAt.current = { id: got.record.id, at: got.record.updatedAt };
+    setPage((was) => (same && was ? was : got.page));
   };
   const load = (): Promise<void> => api.anyPage(id).then(show);
   const failed = (err: unknown): void => setError(err instanceof Error ? err.message : String(err));
