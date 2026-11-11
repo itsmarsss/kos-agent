@@ -560,12 +560,57 @@ describe("a frame as tall as its page", () => {
     const told = vi.spyOn(pageWin, "postMessage");
     say({ __kos: "deck", index: 2, count: 9, grid: false, notes: true, reading: false, hosted: false });
     expect(told).toHaveBeenCalledWith({ __kos: "deck-do", action: "host" }, "*");
-    expect(heard).toHaveBeenLastCalledWith({ index: 2, count: 9, grid: false, notes: true, reading: false });
+    expect(heard).toHaveBeenLastCalledWith({ index: 2, count: 9, grid: false, notes: true, reading: false, said: [] });
     told.mockClear();
     say({ __kos: "deck", index: 3, count: 9, grid: false, notes: true, reading: false, hosted: true });
     expect(told).not.toHaveBeenCalled();
     act(() => handle.current!.deck("next"));
     expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "next" }, "*");
+    act(() => handle.current!.go(5));
+    expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "go", index: 5 }, "*");
+  });
+
+  it("passes on a slide's notes as strings only, capped", async () => {
+    const heard = vi.fn();
+    render(<ArtifactPage record={record} page={{ ...page, kind: "deck" }} onDeck={heard} />);
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
+    say({ __kos: "deck", index: 0, count: 2, hosted: true, said: ["Open with the harvest.", 7, { html: "<b>" }, "x".repeat(5000)] });
+    expect(heard.mock.lastCall![0].said).toEqual(["Open with the harvest.", "x".repeat(2000)]);
+    say({ __kos: "deck", index: 0, count: 2, hosted: true, said: "<p>not a list</p>" });
+    expect(heard.mock.lastCall![0].said).toEqual([]);
+    say({ __kos: "deck", index: 0, count: 2, hosted: true, said: Array.from({ length: 90 }, () => "line") });
+    expect(heard.mock.lastCall![0].said).toHaveLength(60);
+  });
+
+  it("keeps a presenting deck presenting in place, never full screen, whatever stops it", async () => {
+    const full = vi.fn().mockResolvedValue(undefined);
+    HTMLElement.prototype.requestFullscreen = full;
+    render(<ArtifactPage record={record} page={{ ...page, kind: "deck" }} presenting />);
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const told = vi.spyOn(pageWin, "postMessage");
+    const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
+    // The first report: the bar handed over, then presenting, in place.
+    say({ __kos: "deck", index: 0, count: 3, hosted: false });
+    expect(told.mock.calls.map((c) => c[0])).toEqual([{ __kos: "deck-do", action: "host" }, { __kos: "present", on: true }]);
+    told.mockClear();
+    // Told again only when the deck stops: its own Escape or grid sends present off.
+    say({ __kos: "deck", index: 1, count: 3, hosted: true });
+    expect(told).not.toHaveBeenCalled();
+    say({ __kos: "present", on: false });
+    expect(told).toHaveBeenLastCalledWith({ __kos: "present", on: true }, "*");
+    // The deck asking for the screen gets none, and Escape in the dashboard does not end it.
+    say({ __kos: "present", on: true });
+    act(() => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(full).not.toHaveBeenCalled();
+    expect(told).not.toHaveBeenCalledWith({ __kos: "present", on: false }, "*");
+    // Full screen around it, and back, leaves it presenting.
+    act(() => void document.dispatchEvent(new Event("fullscreenchange")));
+    expect(told).toHaveBeenLastCalledWith({ __kos: "present", on: true }, "*");
   });
 
   it("finishes a doc's editing before the frame goes, saving what waits", async () => {
