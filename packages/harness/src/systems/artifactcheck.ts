@@ -98,7 +98,7 @@ export function artifactFrame(page: HtmlPage, mode: Theme, assets: FrameAssets):
 }
 
 /** The dashboard's gutter around an artifact, by the view's width, under the 12 px between its head and the frame: the frame never has one of its own. */
-const GUTTER = { wide: 20, narrow: 16 } as const;
+const GUTTER = { wide: 24, narrow: 16 } as const;
 
 /**
  * The top document the check loads: the wrapper in a frame as the dashboard
