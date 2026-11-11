@@ -141,6 +141,8 @@ export interface ArtifactHandle {
   edit(action: EditTold["action"]): void;
   /** What the owner pressed among a deck's controls, which the viewer's head draws. */
   deck(action: DeckPress): void;
+  /** Take a deck to a slide, numbered for its report to echo (`went`): the presenter view keeps its slides and the audience's on one place. */
+  go(index: number, seq?: number): void;
 }
 
 /** How a doc's editing stands, as the doc says (pagelib/doc.ts EditState). */
@@ -159,12 +161,19 @@ export interface DeckView {
   notes: boolean;
   /** A phone held upright: the slides stack, with nothing to move between. */
   reading: boolean;
+  /** The current slide's notes, a block a line: the page's own words, set only as text. */
+  said: string[];
+  /** The `seq` of the last go the deck obeyed, 0 for none yet, null once it moved on its own (pagelib/deck.ts DeckReport). */
+  went: number | null;
 }
 
 /** What the viewer's head may press on a deck. */
 export type DeckPress = "prev" | "next" | "grid" | "notes";
 
 const flag = (v: unknown): boolean => v === true;
+const LEFT_WORDS = "This page tried to leave KOS, so it was stopped.";
+/** A deck's notes as it reports them: strings only, as many and as long as the deck sends at most (pagelib/deck.ts noteLines). */
+const lines = (v: unknown): string[] => (Array.isArray(v) ? v.filter((l): l is string => typeof l === "string").slice(0, 60).map((l) => l.slice(0, 2000)) : []);
 const count = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(10_000, Math.round(v))) : 0);
 
 /**
@@ -197,10 +206,23 @@ export interface ArtifactPageProps {
   onDeck?: (view: DeckView | undefined) => void;
   /** What sticks over the frame's top as the dashboard scrolls (the viewer's head): a doc's contents and a jump keep clear of it. */
   cover?: RefObject<HTMLElement | null>;
+  /**
+   * A deck that presents from its first report and keeps presenting, in
+   * place: the presenter view's slides and the audience window. Whatever
+   * stops it (Escape or the grid in its frame) is answered by presenting
+   * again, and full screen around it leaves it presenting.
+   */
+  presenting?: boolean;
+  /**
+   * What went wrong in a presenting frame (an error, an attempt to leave),
+   * said here rather than drawn over the slide the room sees: the presenter
+   * view raises it in its own head.
+   */
+  onTrouble?: (words: string) => void;
   ref?: Ref<ArtifactHandle>;
 }
 
-export function ArtifactPage({ record, page, onSaved, onReload, locked = false, onEdit, onDeck, cover, ref }: ArtifactPageProps): ReactElement {
+export function ArtifactPage({ record, page, onSaved, onReload, locked = false, onEdit, onDeck, cover, presenting = false, onTrouble, ref }: ArtifactPageProps): ReactElement {
   const box = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const loads = useRef(0);
@@ -327,6 +349,10 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   useEffect(() => {
     if (error) show();
   }, [error, show]);
+  const trouble = left ? LEFT_WORDS : error ? `The page hit an error: ${error}` : undefined;
+  useEffect(() => {
+    if (presenting && trouble) onTrouble?.(trouble);
+  }, [presenting, trouble, onTrouble]);
 
   // The page's own window: the frame inside the wrapper. A cross-origin frame's frames can be named, not read, and naming one not there yet throws.
   const pageWindow = useCallback((): Window | undefined => {
@@ -358,6 +384,11 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     (on: boolean): void => {
       const el = box.current;
       if (!el) return;
+      // Kept presenting: never full screen of its own, and back on whenever the deck stops.
+      if (presenting) {
+        if (!on) presentInPlace(true);
+        return;
+      }
       const full = document.fullscreenElement === el;
       if (!on) {
         if (full) void document.exitFullscreen?.().catch(() => undefined);
@@ -368,16 +399,16 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       if (document.fullscreenEnabled && el.requestFullscreen) void el.requestFullscreen().catch(() => presentInPlace(true));
       else presentInPlace(true);
     },
-    [presentInPlace],
+    [presentInPlace, presenting],
   );
   const present = useCallback((): void => setPresenting(!(inPlace.current || document.fullscreenElement === box.current)), [setPresenting]);
   useEffect(() => {
     const key = (e: KeyboardEvent): void => {
-      if (e.key === "Escape" && inPlace.current) presentInPlace(false);
+      if (e.key === "Escape" && inPlace.current && !presenting) presentInPlace(false);
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [presentInPlace]);
+  }, [presentInPlace, presenting]);
   const reply = useCallback(
     (id: unknown, body: { result?: unknown; error?: string }) => {
       pageWindow()?.postMessage({ __kos: "reply", id, ...body }, "*");
@@ -435,8 +466,9 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         // Shown once its own bar has gone, so it does not jump as it fades in.
         if (flag(d.hosted)) show();
         else spoke.current = true;
-        setDeck({ index: count(d.index), count: count(d.count), grid: flag(d.grid), notes: flag(d.notes), reading: flag(d.reading) });
+        setDeck({ index: count(d.index), count: count(d.count), grid: flag(d.grid), notes: flag(d.notes), reading: flag(d.reading), said: lines(d.said), went: typeof d.went === "number" && Number.isInteger(d.went) && d.went >= 0 ? d.went : null });
         if (!flag(d.hosted)) pageWindow()?.postMessage({ __kos: "deck-do", action: "host" }, "*");
+        if (presenting && !inPlace.current) presentInPlace(true);
         return;
       }
       // A doc's editing, for the controls in the viewer's head.
@@ -459,7 +491,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       }
       if (m.__kos !== "call") return;
       const args = m.args ?? {};
-      if (locked && (m.method === "save" || m.method === "write" || m.method === "ask")) return reply(m.id, { error: "this is an older version, shown to look at: restore it to change it" });
+      if (locked && (m.method === "save" || m.method === "write" || m.method === "ask"))
+        return reply(m.id, { error: presenting ? "this deck is being presented; it changes nothing now" : "this is an older version, shown to look at: restore it to change it" });
       if (m.method === "ask") {
         if (!page.capabilities?.ask) return reply(m.id, { error: "this page does not declare ask" });
         const text = String(args.text ?? "").slice(0, 4000);
@@ -494,7 +527,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     };
     window.addEventListener("message", heard);
     return () => window.removeEventListener("message", heard);
-  }, [coverHeight, layout, left, locked, onSaved, page.capabilities?.ask, page.kind, pageWindow, record.id, reply, setPresenting, show, widthKey]);
+  }, [coverHeight, layout, left, locked, onSaved, page.capabilities?.ask, page.kind, pageWindow, presentInPlace, presenting, record.id, reply, setPresenting, show, widthKey]);
 
   // A deck or a sheet fills the view below where it starts on the page, so that is measured, not guessed.
   useLayoutEffect(() => {
@@ -506,10 +539,10 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     return () => window.removeEventListener("resize", place);
   }, [layout, doc]);
 
-  // Full screen, and back: the frame is told either way, so a deck presents and stops presenting with it.
+  // Full screen, and back: the frame is told either way, so a deck presents and stops presenting with it; one presenting in place stays on.
   useEffect(() => {
     const changed = (): void => {
-      const on = document.fullscreenElement !== null && document.fullscreenElement === box.current;
+      const on = (document.fullscreenElement !== null && document.fullscreenElement === box.current) || inPlace.current;
       pageWindow()?.postMessage({ __kos: "present", on }, "*");
     };
     document.addEventListener("fullscreenchange", changed);
@@ -564,9 +597,10 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     });
   }, [editDo]);
   const deckDo = useCallback((action: DeckPress) => pageWindow()?.postMessage({ __kos: "deck-do", action }, "*"), [pageWindow]);
+  const go = useCallback((index: number, seq?: number) => pageWindow()?.postMessage({ __kos: "deck-do", action: "go", index, ...(seq === undefined ? {} : { seq }) }, "*"), [pageWindow]);
   // The channel goes with the frame.
   useEffect(() => () => gestures.current.port?.close(), []);
-  useImperativeHandle(ref, () => ({ present, settle, edit: editDo, deck: deckDo }), [present, settle, editDo, deckDo]);
+  useImperativeHandle(ref, () => ({ present, settle, edit: editDo, deck: deckDo, go }), [present, settle, editDo, deckDo, go]);
 
   // Where the dashboard's view is over a page as tall as its content, for a doc's contents to follow: numbers only, once a frame.
   useEffect(() => {
@@ -629,9 +663,9 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
           </div>
         </div>
       )}
-      {(error || left) && (
+      {trouble && !presenting && (
         <div className="ops-alert ops-alert--err artifact-error" role="alert">
-          <span>{left ? "This page tried to leave KOS, so it was stopped." : `The page hit an error: ${error}`}</span>
+          <span>{trouble}</span>
           <button
             type="button"
             className="btn btn--sm"

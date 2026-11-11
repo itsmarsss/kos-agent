@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { initialDeck, keyAction, startDeck, step, tapAction, type DeckAction } from "./deck.js";
+import { initialDeck, keyAction, noteLines, startDeck, step, tapAction, type DeckAction } from "./deck.js";
 
 const run = (actions: DeckAction[], count = 4) => actions.reduce(step, initialDeck(count));
 
@@ -139,6 +139,29 @@ describe("kos-deck in a page", () => {
     expect(document.body.classList.contains("deck-present")).toBe(false);
   });
 
+  it("goes to the slide the dashboard names, and leaves the grid to show it", () => {
+    const slides = mount();
+    const go = (index: unknown): void => void dispatchEvent(new MessageEvent("message", { source: window, data: { __kos: "deck-do", action: "go", index } }));
+    key("g");
+    go(2);
+    expect(slides[2]!.classList.contains("current")).toBe(true);
+    expect(document.body.classList.contains("deck-grid")).toBe(false);
+    // Past the end stops at it; anything but a whole number is not a place.
+    go(9);
+    expect(slides[2]!.classList.contains("current")).toBe(true);
+    go("0");
+    go(0.5);
+    expect(slides[2]!.classList.contains("current")).toBe(true);
+    go(0);
+    expect(slides[0]!.classList.contains("current")).toBe(true);
+  });
+
+  it("hears a go only from the window holding it", () => {
+    const slides = mount();
+    dispatchEvent(new MessageEvent("message", { source: null, data: { __kos: "deck-do", action: "go", index: 2 } }));
+    expect(slides[0]!.classList.contains("current")).toBe(true);
+  });
+
   it("puts each slide in a frame of its own and takes Enter in the grid to open one", () => {
     const slides = mount();
     expect(slides.every((s) => s.parentElement!.classList.contains("deck-slide"))).toBe(true);
@@ -155,5 +178,31 @@ describe("kos-deck in a page", () => {
     const button = slides[1]!.querySelector("button")!;
     button.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
     expect(slides[0]!.classList.contains("current")).toBe(true);
+  });
+});
+
+describe("a slide's notes as text", () => {
+  const notes = (html: string): Element => {
+    const aside = document.createElement("aside");
+    aside.innerHTML = html;
+    return aside;
+  };
+
+  it("says a block a line, items with a bullet, loose text a line of its own", () => {
+    expect(noteLines(notes("Open with the <b>headline</b>."))).toEqual(["Open with the headline."]);
+    expect(noteLines(notes("<p>First,  the\n number.</p><ul><li>Then <em>why</em></li><li><p>And what next</p></li></ul>Close."))).toEqual(["First, the number.", "\u2022 Then why", "\u2022 And what next", "Close."]);
+    expect(noteLines(notes("One<br>Two"))).toEqual(["One", "Two"]);
+  });
+
+  it("says nothing for no notes, and never a script's or a style's text", () => {
+    expect(noteLines(null)).toEqual([]);
+    expect(noteLines(notes("<p> </p><li></li>"))).toEqual([]);
+    expect(noteLines(notes("<style>p{}</style><script>x()</script><p>Said</p>"))).toEqual(["Said"]);
+  });
+
+  it("keeps a report small: at most sixty lines, each cut", () => {
+    const lines = noteLines(notes(`${"<p>line</p>".repeat(80)}<p>${"x".repeat(3000)}</p>`));
+    expect(lines).toHaveLength(60);
+    expect(noteLines(notes(`<p>${"x".repeat(3000)}</p>`))[0]).toHaveLength(2000);
   });
 });
