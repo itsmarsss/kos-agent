@@ -517,7 +517,7 @@ export function ArtifactViewer({
   const [edit, setEdit] = useState<EditState>();
   const [deck, setDeck] = useState<DeckView>();
   // The presenter view, while it is open: its presentation's name, the audience window it opened, and where it began.
-  const [presenter, setPresenter] = useState<{ session: string; audience: Window | null; start: number; count: number }>();
+  const [presenter, setPresenter] = useState<{ id: string; session: string; audience: Window | null; start: number; count: number }>();
   // The newest version as saved, read when a restore is sent: the doc's own save just before it is the version it is made on.
   const latest = useRef<PageSummary | undefined>(undefined);
   const saved = (r: PageSummary): void => {
@@ -551,6 +551,8 @@ export function ArtifactViewer({
   useEffect(() => {
     setError(undefined);
     setCopy(undefined);
+    // Presenting was of the one before: it ends, and its audience window closes.
+    setPresenter(undefined);
     if (initial?.record.id === id && !record) {
       show(initial);
       return;
@@ -585,7 +587,7 @@ export function ArtifactViewer({
   /** The presenter view, from the owner's press: the audience window opens in the same press, or the browser blocks it. */
   const presentNotes = (artifact: string, at: DeckView): void => {
     const session = presentSession();
-    setPresenter({ session, audience: openAudience(artifact, session), start: at.index, count: at.count });
+    setPresenter({ id: artifact, session, audience: openAudience(artifact, session), start: at.index, count: at.count });
   };
 
   const ask = (): void => {
@@ -696,11 +698,15 @@ export function ArtifactViewer({
       {record && page && !preview && !trashed && (
         <ArtifactPage ref={frame} record={record} page={page} onSaved={saved} onReload={() => void load().catch(failed)} onEdit={setEdit} onDeck={setDeck} cover={head} />
       )}
-      {presenter && record && page && (
+      {presenter && record && page && record.id === presenter.id && (
         <DeckPresenter
+          key={presenter.session}
           record={record}
           page={page}
-          {...presenter}
+          session={presenter.session}
+          audience={presenter.audience}
+          start={presenter.start}
+          count={presenter.count}
           onEnd={(index) => {
             setPresenter(undefined);
             frame.current?.go(index);

@@ -317,6 +317,31 @@ describe("one artifact, full size", () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "More" })));
   });
 
+  it("ends presenting when the viewer is given another artifact, closing the audience window", async () => {
+    const record = ART[2]!;
+    const pitch = { record, kind: "html", page: { id: "pitch", title: "Garden pitch", kind: "deck", html: "<main data-deck><section>a</section></main>" } };
+    const other = { record: { ...record, id: "other", title: "Other deck" }, kind: "html", page: { ...pitch.page, id: "other", title: "Other deck" } };
+    vi.spyOn(api, "anyPage").mockImplementation((id: string) => Promise.resolve((id === "pitch" ? pitch : other) as never));
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
+    const audience = { closed: false, close: vi.fn() };
+    vi.spyOn(window, "open").mockReturnValue(audience as unknown as Window);
+    const { rerender } = render(<ArtifactViewer id="pitch" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
+    const el = await waitFor(() => {
+      const f = document.querySelector<HTMLIFrameElement>("iframe.artifact-frame");
+      if (!f) throw new Error("no frame yet");
+      return f;
+    });
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "deck", index: 0, count: 4, hosted: true } })));
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(within(screen.getByRole("menu", { name: "More" })).getByRole("menuitem", { name: "Present with notes" }));
+    expect(screen.getByRole("dialog", { name: "Presenting Garden pitch" })).toBeTruthy();
+    rerender(<ArtifactViewer id="other" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(audience.close).toHaveBeenCalled();
+  });
+
   it("keeps its description and the rest in a menu the keyboard can walk", async () => {
     const record = ART[2]!;
     vi.spyOn(api, "anyPage").mockResolvedValue({ record: { ...record, description: "Why the garden, in six slides." }, kind: "html", page: { id: "pitch", title: "Garden pitch", kind: "deck", html: "<main data-deck><section>a</section></main>" } } as never);
