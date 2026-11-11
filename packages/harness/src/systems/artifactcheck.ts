@@ -159,12 +159,20 @@ const GONE: ProbeResult = {
 };
 
 /**
- * Whether the artifact writes a token plan of its own: a custom property
- * set to a literal colour on :root. Only such a piece (a poster, an
- * invitation) is meant to leave KOS's ground.
+ * Whether the artifact writes a token plan of its own: on :root, a ground
+ * and an ink set to literal colours, or three colours or more. Only such a
+ * piece (a poster, an invitation) is meant to leave KOS's ground; one stray
+ * literal is not a plan.
  */
-export const declaresTokenPlan = (html: string): boolean =>
-  /:root\b[^{]*\{[^}]*--[\w-]+\s*:\s*(#[0-9a-f]{3,8}\b|(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\()/i.test(html);
+export function declaresTokenPlan(html: string): boolean {
+  const colours = [...html.matchAll(/:root\b[^{]*\{([^}]*)\}/gi)].flatMap((rule) =>
+    [...rule[1]!.matchAll(/--([\w-]+)\s*:\s*(#[0-9a-f]{3,8}\b|(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\()/gi)].map((d) => d[1]!.toLowerCase()),
+  );
+  const names = new Set(colours);
+  const ground = [...names].some((n) => /(^|-)(bg|background|ground|paper|surface|page|canvas)$/.test(n));
+  const ink = [...names].some((n) => /(^|-)(ink|text|fg|foreground|body-text)$/.test(n));
+  return (ground && ink) || names.size >= 3;
+}
 
 /** What one render saw, besides the measurement. */
 interface Render {
@@ -546,7 +554,7 @@ export function findingsOf(renders: Render[], tokenPlan = false): Finding[] {
       add(
         "bars",
         "bars",
-        `${p.emptyBars.length} bar tracks draw no fill at ${where(r)} (${p.emptyBars.join("; ")}): a fill given width: % as an inline element (a span) ignores it. Make the fill a block (a div, or display: block), or use the kit's <div class="meter" style="--value: 42%">.`,
+        `${p.emptyBars.length} bar${p.emptyBars.length === 1 ? "" : "s"} cannot draw their fill at ${where(r)} (${p.emptyBars.join("; ")}): an inline fill (a span) ignores its width, and a .meter needs --value. Make the fill a block (a div, or display: block), or use the kit's <div class="meter" style="--value: 42%">.`,
         true,
       );
     }
