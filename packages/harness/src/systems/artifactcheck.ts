@@ -200,11 +200,13 @@ export interface CheckerOptions {
   chrome?: () => string | undefined;
 }
 
-/** A check waiting its turn. */
-interface Waiting {
-  id: string;
-  resolve: (report: CheckReport) => void;
-  reject: (err: unknown) => void;
+/** Who is waiting on the Chrome: the agent's checks and the owner's exports first, then the gallery's redraws. */
+export type Lane = "agent" | "gallery";
+
+/** What work on the check's Chrome is handed: the browser, and a loopback URL that serves a document once. */
+export interface CheckBrowser {
+  cdp: CdpClient;
+  serve(html: string): Promise<string>;
 }
 
 /** How long a render may take to settle: its runtime drawn and its queries answered. */
@@ -270,8 +272,8 @@ export class ArtifactChecker {
   private cdp: CdpClient | undefined;
   private profile: string | undefined;
   private idle: ReturnType<typeof setTimeout> | undefined;
-  /** Checks waiting their turn: the agent's first, then the gallery's redraws. */
-  private readonly waiting: Record<"agent" | "gallery", Waiting[]> = { agent: [], gallery: [] };
+  /** Work waiting its turn on the one Chrome: the agent's checks and the owner's exports first, then the gallery's redraws. */
+  private readonly waiting: Record<Lane, (() => Promise<void>)[]> = { agent: [], gallery: [] };
   private draining = false;
   /** Serves each render's top document once, on loopback: Chrome loads it as a page loads the dashboard. */
   private server: Server | undefined;
@@ -285,9 +287,22 @@ export class ArtifactChecker {
    * agent's check waits only for the one running, never behind a gallery
    * full of redraws, which can be eight checks of a few seconds each.
    */
-  check(id: string, from: "agent" | "gallery" = "gallery"): Promise<CheckReport> {
+  check(id: string, from: Lane = "gallery"): Promise<CheckReport> {
+    return this.queue(from, () => this.run(id));
+  }
+
+  /**
+   * Other work on the same Chrome (an export's render, a print), alone: it
+   * waits for whatever is drawing now and goes ahead of the gallery's
+   * redraws, so a print never shares the browser with a check.
+   */
+  withBrowser<T>(work: (browser: CheckBrowser) => Promise<T>): Promise<T> {
+    return this.queue("agent", async () => work({ cdp: await this.browser(), serve: (html) => this.serve(html) }));
+  }
+
+  private queue<T>(lane: Lane, work: () => Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
-      this.waiting[from].push({ id, resolve, reject });
+      this.waiting[lane].push(() => work().then(resolve, reject));
       void this.drain();
     });
   }
@@ -296,9 +311,7 @@ export class ArtifactChecker {
     if (this.draining) return;
     this.draining = true;
     try {
-      for (let job = this.waiting.agent.shift() ?? this.waiting.gallery.shift(); job; job = this.waiting.agent.shift() ?? this.waiting.gallery.shift()) {
-        await this.run(job.id).then(job.resolve, job.reject);
-      }
+      for (let job = this.waiting.agent.shift() ?? this.waiting.gallery.shift(); job; job = this.waiting.agent.shift() ?? this.waiting.gallery.shift()) await job();
     } finally {
       this.draining = false;
     }

@@ -11,6 +11,7 @@ import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { RATES_KEY } from "../ops/spend.js";
 import { cronSessionId } from "./session.js";
 import { caller } from "./caller.js";
+import { readZip } from "../files/zip.js";
 import { crossSiteWrite, handleApiRequest, mentionsOf, withFrames } from "./server.js";
 
 const stub: Inference = {
@@ -1557,6 +1558,81 @@ describe("handleApiRequest", () => {
       for (const shown of ["ROTATE-PROMPT", "VAULT-KEY", "VAULT-CHAT-BRIEF", "LOCKER-BRIEF"]) expect(own, shown).toContain(shown);
       const root = resolve(named, kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mine" }).id);
       for (const shown of ["ROTATE-PROMPT", "VAULT-KEY", "VAULT-CHAT-BRIEF", "LOCKER-BRIEF", "NOTER-BRIEF", "SHELF-CHAT-BRIEF"]) expect(root, shown).toContain(shown);
+    });
+
+    describe("the owner's exports", () => {
+      const BOOK = (source: boolean): string =>
+        `<h1>Books</h1><script type="application/json" data-sheet>${JSON.stringify({
+          sheets: [
+            source ? { name: "Shelf", columns: [{ label: "title" }], source: { table: "shelf_books", key: "id" } } : { name: "Shelf", columns: [{ label: "title" }], rows: [["Emma"]] },
+            { name: "Sums", columns: [{ label: "n", type: "number" }, { label: "twice", type: "number" }], rows: [[2, "=A1*2"]] },
+          ],
+        })}</script>`;
+      const get = (id: string, query: string, headers?: Record<string, string>, token?: string) =>
+        handleApiRequest(kernel, { method: "GET", path: `/api/artifacts/${id}/export`, url: `/api/artifacts/${id}/export?${query}`, ...(headers ? { headers } : {}) }, token ? { token } : {});
+      const audited = () => kernel.audit.recent(50).filter((r) => r.tool === "artifact.export");
+
+      beforeEach(() => {
+        kernel.pages.writeHtml("shelf", { id: "brief", kind: "doc", title: "Shelf: the brief", html: '<article data-doc><h1>The brief</h1><p>Read <strong>Emma</strong><span class="fn">By Austen.</span>.</p></article>' });
+        kernel.pages.writeHtml("shelf", { id: "books", kind: "sheet", title: "Books", html: BOOK(true) });
+        kernel.pages.writeHtml("shelf", { id: "pitch", kind: "deck", title: "Pitch", html: "<main data-deck><section><h1>Pitch</h1></section></main>" });
+      });
+
+      it("sends a doc as Markdown, named from its title, and keeps it in the audit log", async () => {
+        const res = await get("brief", "format=md");
+        expect(res.status).toBe(200);
+        expect((res.body as Buffer).toString("utf8")).toBe("# The brief\n\nRead **Emma**[^1].\n\n[^1]: By Austen.\n");
+        expect(res.headers).toMatchObject({ "content-type": "text/markdown; charset=utf-8", "content-disposition": `attachment; filename="Shelf the brief.md"; filename*=UTF-8''Shelf%20the%20brief.md`, "cache-control": "no-store" });
+        expect(audited()[0]).toMatchObject({ isError: false, result: expect.stringMatching(/^Shelf the brief\.md, \d+ bytes$/) });
+      });
+
+      it("sends a sheet's tab as CSV read through its own bridge, and every tab as a zip", async () => {
+        const one = await get("books", "format=csv&tab=Shelf");
+        expect(one.headers?.["content-type"]).toBe("text/csv; charset=utf-8");
+        expect((one.body as Buffer).toString("utf8")).toBe("\uFEFFtitle\r\nDune\r\n");
+        expect(((await get("books", "format=csv&tab=sums")).body as Buffer).toString()).toBe("\uFEFFn,twice\r\n2,4\r\n");
+        const all = await get("books", "format=csv");
+        expect(all.headers?.["content-type"]).toBe("application/zip");
+        expect([...readZip(all.body as Buffer).keys()]).toEqual(["Shelf.csv", "Sums.csv"]);
+        expect(await get("books", "format=csv&tab=Nope")).toMatchObject({ status: 400, body: { error: 'the sheet has no tab called "Nope"' } });
+      });
+
+      it("sends a doc as one HTML file with its runtime and data, and nothing of the dashboard's", async () => {
+        const res = await get("brief", "format=html&theme=dark", { "x-kos-token": "secret-token-value" }, "secret-token-value");
+        expect(res.status).toBe(200);
+        const html = (res.body as Buffer).toString("utf8");
+        expect(html).toMatch(/^<!doctype html><html data-mode="dark" data-theme="dark" data-kind="doc" data-export>/);
+        expect(html).toContain("<title>Shelf: the brief</title>");
+        expect(html).toContain('<article data-doc><h1>The brief</h1>');
+        expect(html).toContain("default-src 'none'");
+        expect(html).not.toContain("secret-token-value");
+        expect(res.headers?.["content-security-policy"]).toBe("sandbox; default-src 'none'");
+      });
+
+      it("refuses what the kind has not, an unknown format, the trash, an older widget page and an unknown id", async () => {
+        expect(await get("pitch", "format=md")).toMatchObject({ status: 400, body: { error: "a deck exports as pdf, html, not md" } });
+        expect(await get("books", "format=pdf")).toMatchObject({ status: 400 });
+        expect(await get("brief", "format=docx")).toMatchObject({ status: 400, body: { error: "format is one of pdf, md, html or csv" } });
+        expect(await get("brief", "format=md&tab=x")).toMatchObject({ status: 400 });
+        kernel.pages.trash("brief");
+        expect(await get("brief", "format=md")).toMatchObject({ status: 409, body: { error: expect.stringMatching(/in the trash/) } });
+        kernel.pages.write("shelf", { id: "old", title: "Old", widgets: [{ type: "stat", label: "N", query: "SELECT 1 AS n" }] });
+        expect((await get("old", "format=html")).status).toBe(404);
+        expect((await get("nothing", "format=html")).status).toBe(404);
+        expect(audited().every((r) => r.isError)).toBe(true);
+        expect(audited()).toHaveLength(7);
+      });
+
+      it("is the owner's: behind the token, and refused to another site's page even as a read", async () => {
+        expect((await get("brief", "format=md", {}, "secret")).status).toBe(401);
+        expect((await get("brief", "format=md", { "x-kos-token": "secret" }, "secret")).status).toBe(200);
+        const strangers: Record<string, string>[] = [{ "sec-fetch-site": "cross-site" }, { host: "127.0.0.1:4317", origin: "https://evil.example" }];
+        for (const headers of strangers) {
+          expect((await get("brief", "format=md", headers)).status, JSON.stringify(headers)).toBe(403);
+        }
+        expect((await get("brief", "format=md", { host: "127.0.0.1:4317", "sec-fetch-site": "same-origin" })).status).toBe(200);
+        expect(audited().find((r) => r.isError)?.result).toMatch(/from another site/);
+      });
     });
 
     describe("the owner's management", () => {

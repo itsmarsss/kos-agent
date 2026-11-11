@@ -26,7 +26,8 @@ function field(v: Value): string {
   if (v === null) return "";
   if (isError(v)) return v.error;
   if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
-  if (typeof v === "number") return Number.isFinite(v) ? String(v) : "";
+  // Fifteen digits, as a spreadsheet holds them: 169.11, not the 169.10999999999999 a sum of floats leaves.
+  if (typeof v === "number") return Number.isFinite(v) ? String(Number(v.toPrecision(15))) : "";
   const text = FORMULA_START.test(v) ? `'${v}` : v;
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }

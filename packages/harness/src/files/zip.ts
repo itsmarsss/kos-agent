@@ -71,7 +71,10 @@ function endRecord(buf: Buffer): number {
  * above makes. No zip64: an entry or an archive over 4 GB is not one KOS
  * writes.
  */
-export function writeZip(entries: Record<string, string | Uint8Array>, { deflate = false } = {}): Uint8Array {
+export function writeZip(entries: Record<string, string | Uint8Array>, { deflate = false, at = new Date() } = {}): Uint8Array {
+  // When each entry was made, as DOS keeps it: local time, two-second steps, from 1980.
+  const time = (at.getHours() << 11) | (at.getMinutes() << 5) | (at.getSeconds() >> 1);
+  const date = ((Math.max(at.getFullYear(), 1980) - 1980) << 9) | ((at.getMonth() + 1) << 5) | at.getDate();
   const locals: Buffer[] = [];
   const centrals: Buffer[] = [];
   let offset = 0;
@@ -85,6 +88,8 @@ export function writeZip(entries: Record<string, string | Uint8Array>, { deflate
     // Bit 11: the name is UTF-8, so a tab called "Dépenses" opens as itself.
     local.writeUInt16LE(0x0800, 6);
     local.writeUInt16LE(deflate ? 8 : 0, 8);
+    local.writeUInt16LE(time, 10);
+    local.writeUInt16LE(date, 12);
     local.writeUInt32LE(crc32(raw), 14);
     local.writeUInt32LE(data.length, 18);
     local.writeUInt32LE(raw.length, 22);
@@ -94,6 +99,8 @@ export function writeZip(entries: Record<string, string | Uint8Array>, { deflate
     central.writeUInt16LE(20, 6);
     central.writeUInt16LE(0x0800, 8);
     central.writeUInt16LE(deflate ? 8 : 0, 10);
+    central.writeUInt16LE(time, 12);
+    central.writeUInt16LE(date, 14);
     central.writeUInt32LE(crc32(raw), 16);
     central.writeUInt32LE(data.length, 20);
     central.writeUInt32LE(raw.length, 24);

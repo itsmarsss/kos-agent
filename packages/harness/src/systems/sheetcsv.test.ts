@@ -27,11 +27,16 @@ describe("a sheet's tab as CSV", () => {
     expect(csv.startsWith("﻿")).toBe(true);
     expect(lines(csv)).toEqual([
       "Date,Category,Amount,Share",
-      `2026-10-01,Housing,1650,${1650 / 1819.5}`,
-      `2026-10-02,"Food, ""fresh""",56.5,${56.5 / 1819.5}`,
+      `2026-10-01,Housing,1650,${Number((1650 / 1819.5).toPrecision(15))}`,
+      `2026-10-02,"Food, ""fresh""",56.5,${Number((56.5 / 1819.5).toPrecision(15))}`,
       "2026-10-04,#NAME?,113,#DIV/0!",
       "",
     ]);
+  });
+
+  it("writes a number to the fifteen digits a spreadsheet keeps", () => {
+    const book: SheetBook = { sheets: [{ name: "T", columns: [{ label: "n", type: "number" }], rows: [["=56.37+112.74"]] }] };
+    expect(lines(tabCsv(book, 0))[1]).toBe("169.11");
   });
 
   it("writes a pivot as its groups", () => {

@@ -39,8 +39,8 @@ export const DECK_CSS = String.raw`
   overflow: hidden;
   box-shadow: 0 0 0 1px var(--line);
 }
-/* Only the current slide shows, whatever display the artifact gives its slides. */
-body:not(.deck-grid):not(.deck-read) .deck-slide:not(.current) { display: none !important; }
+/* Only the current slide shows, whatever display the artifact gives its slides; on paper, every one. */
+@media screen { body:not(.deck-grid):not(.deck-read) .deck-slide:not(.current) { display: none !important; } }
 :where(.deck-slide) > section {
   box-sizing: border-box;
   width: 100%;
@@ -144,10 +144,13 @@ body.deck-read :where(.deck-slide) > section.bleed { padding: 0; }
   body:not(.deck-grid):not(.deck-read) .deck-slide.current { animation: kos-slide-in 180ms ease-out; }
 }
 @keyframes kos-slide-in { from { opacity: 0.4; } to { opacity: 1; } }
+/* On paper, a slide a page: each 16:9 page filled to its edges, nothing after the last. */
 @media print {
+  @page { size: 13.333in 7.5in; margin: 0; }
   .deck-bar, .deck-notes { display: none; }
   body { height: auto; overflow: visible; }
-  :where([data-deck]) { height: auto; display: block; }
-  .deck-slide { display: block !important; width: 100%; break-after: page; box-shadow: none; }
+  :where([data-deck]) { height: auto; display: block; padding: 0; }
+  .deck-slide { display: block !important; width: 100%; break-after: page; break-inside: avoid; box-shadow: none; border-radius: 0; }
+  .deck-slide:last-of-type { break-after: auto; }
 }
 `;
