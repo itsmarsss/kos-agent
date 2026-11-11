@@ -4,19 +4,25 @@
  * light or dark), kit.css's pieces (card, pill, tag, label, hint, chips,
  * empty), and these page-level basics. A page that writes plain markup reads
  * as KOS; one that wants its own look can still restyle anything.
+ *
+ * A frame is always shown inside something that gives it a gutter: the
+ * dashboard's column, or artifacts.check's view of it. So the body has no
+ * padding and the page's edges line up with the dashboard's head. Full
+ * screen, the bridge marks the root data-present and the page takes its own.
  */
 
 *, *::before, *::after { box-sizing: border-box; }
 html { color-scheme: var(--scheme, dark); }
 body {
   margin: 0;
-  padding: 20px;
+  padding: 0;
   background: var(--bg);
   color: var(--text);
   font: var(--text-md, 14px) / 1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 }
-@media (max-width: 560px) { body { padding: 14px; } }
-h1 { font-size: var(--text-xl); font-weight: 650; margin: 0 0 4px; }
+:where(html[data-present]) body { padding: 20px; }
+@media (max-width: 560px) { :where(html[data-present]) body { padding: 16px; } }
+h1 { font-size: var(--text-xl); font-weight: 600; letter-spacing: -0.02em; margin: 0 0 4px; }
 h2 { font-size: var(--text-lg); font-weight: 600; margin: 18px 0 8px; }
 h3 { font-size: var(--text-md); font-weight: 600; margin: 14px 0 6px; }
 p { margin: 0 0 10px; }
@@ -31,7 +37,7 @@ img, svg, canvas, video { max-width: 100%; }
 
 /* A figure with its word under it. */
 .stat { display: flex; flex-direction: column; gap: 2px; }
-.stat-value { font-size: var(--text-2xl); font-weight: 650; font-variant-numeric: tabular-nums; }
+.stat-value { font-size: var(--text-2xl); font-weight: 600; font-variant-numeric: tabular-nums; }
 .stat-label { color: var(--muted); font-size: var(--text-sm); }
 
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }

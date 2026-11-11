@@ -270,7 +270,8 @@ piece that names them.
 `artifacts.check({ id })` (`systems/artifactcheck.ts`) draws the artifact
 exactly as the dashboard does (the same wrapper, document, policy, guard,
 bridge, tokens, kit CSS, fonts and runtime, from the dashboard's build in
-`dist/page-lib`) in a headless Chrome KOS starts for it and closes when idle,
+`dist/page-lib`, held in a column with the dashboard's gutter on KOS's
+ground) in a headless Chrome KOS starts for it and closes when idle,
 at 1280 and 390 px wide, in light and in dark, with the machine's own
 preference set to the other theme so an artifact that follows the OS rather
 than KOS's toggle is caught. Its `window.kos` reads are answered by the same
@@ -440,7 +441,14 @@ Before the page's own markup the frame gets:
 - KOS's tokens as CSS variables, for the dashboard's theme at that moment,
   and again whenever the owner switches theme;
 - `kit.css` and `page.css` from `@kos/kit`, so plain markup and the kit's
-  classes read as KOS, whatever the kind;
+  classes read as KOS, whatever the kind. The body has KOS's ground and face
+  and no padding: the frame is always held by something that gives it a
+  gutter (the dashboard's column, the check's view), so its edges line up
+  with the dashboard's head; full screen, marked `data-present`, it takes its
+  own. Each runtime starts from the same ground: a doc's text on it in a
+  reading serif under headings in KOS's face, a deck's slides as KOS's panel
+  with a 1 px line (the title slide too, never inverted), a sheet's grid on
+  KOS's panel;
 - the fonts it names, as `@font-face` rules with the files inlined, and
   `--font-<id>` stacks for every bundled family;
 - the `window.kos` bridge, which talks to the dashboard as `top`, reports

@@ -556,7 +556,8 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     expect(probe.page).toBeLessThanOrEqual(probe.view);
     expect(probe.grids).toHaveLength(2);
     for (const grid of probe.grids) {
-      expect(grid.box).toBeLessThan(probe.view);
+      // The sheet has no gutter of its own (the dashboard's column gives it one), so its box may fill the view, never pass it.
+      expect(grid.box).toBeLessThanOrEqual(probe.view);
       expect(grid.wide).toBeGreaterThan(grid.box);
       expect(grid.scrolled).toBe(400);
       expect(grid.held).toBe(true);

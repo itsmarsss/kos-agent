@@ -11,18 +11,22 @@
  * narrows first, its short words wrapping to two lines at most and its free
  * text cut on one, and past that its key figure holds at the right edge and
  * the tools say how many columns are out of view.
+ * It sits on KOS's ground in KOS's face; the dashboard's column gives it its
+ * gutter, and full screen (data-present) it takes its own.
  * Selectors are one class deep, before the agent's own CSS.
  */
 export const SHEET_CSS = String.raw`
 :where(:root) {
-  --font-display: var(--font-public-sans, "Public Sans", -apple-system, "Segoe UI", Roboto, sans-serif);
-  --font-body: var(--font-public-sans, "Public Sans", -apple-system, "Segoe UI", Roboto, sans-serif);
-  --font-ui: var(--font-public-sans, "Public Sans", -apple-system, "Segoe UI", Roboto, sans-serif);
-  --font-mono: var(--font-ibm-plex-mono, "IBM Plex Mono", ui-monospace, Menlo, monospace);
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-display: var(--font-ui);
+  --font-body: var(--font-ui);
+  --font-mono: var(--mono, ui-monospace, Menlo, monospace);
   --sheet-row: 34px;
   --sheet-height: max(320px, calc(100dvh - 220px));
+  --sheet-gutter: 0px;
 }
-:where(html[data-kind="sheet"]) body { font-family: var(--font-body); background: var(--bg); color: var(--text); padding: clamp(16px, 3vw, 28px); }
+:where(html[data-present]) { --sheet-gutter: clamp(16px, 3vw, 28px); }
+:where(html[data-kind="sheet"]) body { font-family: var(--font-body); background: var(--bg); color: var(--text); padding: var(--sheet-gutter); }
 
 .sheet { display: flex; flex-direction: column; gap: 12px; min-width: 0; font: 400 14px / 1.4 var(--font-ui); }
 .sheet + .sheet { margin-top: 32px; }
@@ -44,7 +48,7 @@ export const SHEET_CSS = String.raw`
 .sheet-status { font-size: 13px; color: var(--muted); }
 .sheet-status.bad { color: var(--danger); }
 
-.sheet-scroll { overflow: auto; max-width: calc(100vw - 2 * clamp(16px, 3vw, 28px)); max-height: var(--sheet-height); border: 1px solid var(--line); border-radius: var(--r-md, 10px); background: var(--panel); overscroll-behavior: contain; }
+.sheet-scroll { overflow: auto; max-width: calc(100vw - 2 * var(--sheet-gutter)); max-height: var(--sheet-height); border: 1px solid var(--line); border-radius: var(--r-md, 10px); background: var(--panel); overscroll-behavior: contain; }
 .sheet-grid { border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums lining-nums; min-width: 100%; width: max-content; }
 .sheet-grid :where(th, td) { height: var(--sheet-row); padding: 0 12px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 36ch; text-align: left; background: var(--panel); }
 .sheet-grid thead th { position: sticky; top: 0; z-index: 2; background: var(--panel-2); vertical-align: bottom; padding: 6px 0 0; font-weight: 600; min-width: var(--sheet-col, auto); }
@@ -72,7 +76,7 @@ export const SHEET_CSS = String.raw`
 .sheet-grid td input { all: unset; box-sizing: border-box; width: 100%; min-width: 8ch; height: 100%; padding: 0 10px; font: inherit; color: var(--text); background: var(--bg); }
 .sheet-grid td.editing.num input { text-align: right; }
 .sheet-grid td input.formula { font-family: var(--font-mono); font-size: 13px; text-align: left; }
-.sheet-grid tfoot :where(th, td) { position: sticky; bottom: 0; z-index: 1; background: var(--panel-2); font-weight: 650; border-top: 1px solid var(--line-strong, var(--line)); border-bottom: 0; }
+.sheet-grid tfoot :where(th, td) { position: sticky; bottom: 0; z-index: 1; background: var(--panel-2); font-weight: 700; border-top: 1px solid var(--line-strong, var(--line)); border-bottom: 0; }
 .sheet-grid tfoot th.rownum { z-index: 3; font: 600 11px / 1 var(--font-ui); letter-spacing: 0.08em; text-transform: uppercase; }
 .sheet-grid tfoot .frozen { z-index: 3; }
 .sheet-empty { padding: 28px 16px; color: var(--muted); text-align: center; }

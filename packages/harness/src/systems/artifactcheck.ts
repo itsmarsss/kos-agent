@@ -95,15 +95,20 @@ export function artifactFrame(page: HtmlPage, mode: Theme, assets: FrameAssets):
   );
 }
 
+/** The dashboard's gutter around an artifact, by the view's width, under the 12 px between its head and the frame: the frame never has one of its own. */
+const GUTTER = { wide: 20, narrow: 16 } as const;
+
 /**
- * The top document the check loads: the wrapper in a frame filling the
- * view, and the dashboard's side of the bridge, which hands each call to
- * KOS through a CDP binding and passes the answer back down.
+ * The top document the check loads: the wrapper in a frame as the dashboard
+ * holds it (in a column with its gutter, on KOS's ground), and the
+ * dashboard's side of the bridge, which hands each call to KOS through a CDP
+ * binding and passes the answer back down.
  */
-export function hostDocument(frame: string): string {
+export function hostDocument(frame: string, ground = "transparent"): string {
   const attr = frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  const css = `html,body{margin:0;height:100%}body{box-sizing:border-box;padding:12px ${GUTTER.wide}px 0;background:${ground.replace(/[;{}<]/g, "")}}@media (max-width:560px){body{padding:12px ${GUTTER.narrow}px 0}}iframe{display:block;border:0;width:100%;height:100%}`;
   return [
-    "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><style>html,body{margin:0;height:100%}iframe{display:block;border:0;width:100%;height:100%}</style></head><body>",
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body>`,
     `<iframe sandbox="allow-scripts" srcdoc="${attr}"></iframe>`,
     "<script>",
     // The wrapper says only that the page left; the page's own frame calls and reports. Nothing else is heard.
@@ -336,7 +341,7 @@ export class ArtifactChecker {
     const renders: Render[] = [];
     for (const width of ["desktop", "phone"] as const) {
       for (const theme of ["light", "dark"] as const) {
-        renders.push(await this.render(cdp, id, artifactFrame(got.page, theme, assets), width, theme));
+        renders.push(await this.render(cdp, id, hostDocument(artifactFrame(got.page, theme, assets), assets.tokens[theme]["--bg"]), width, theme));
       }
     }
     const dir = this.options.captures(id);
@@ -352,7 +357,7 @@ export class ArtifactChecker {
   }
 
   /** Draw the artifact once, at a width and in a theme, and measure it. */
-  private async render(cdp: CdpClient, id: string, frame: string, width: Width, theme: Theme): Promise<Render> {
+  private async render(cdp: CdpClient, id: string, host: string, width: Width, theme: Theme): Promise<Render> {
     const { targetId } = (await cdp.send("Target.createTarget", { url: "about:blank" })) as { targetId: string };
     const { sessionId } = (await cdp.send("Target.attachToTarget", { targetId, flatten: true })) as { sessionId: string };
     const sessions = new Set([sessionId]);
@@ -414,7 +419,7 @@ export class ArtifactChecker {
       await cdp.send("Emulation.setDeviceMetricsOverride", { width: size.width, height: size.height, deviceScaleFactor: 1, mobile: size.mobile }, sessionId);
       // The OS says the other theme: an artifact must follow KOS's toggle, not the machine's setting.
       await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme === "light" ? "dark" : "light" }] }, sessionId);
-      await cdp.send("Page.navigate", { url: await this.serve(hostDocument(frame)) }, sessionId);
+      await cdp.send("Page.navigate", { url: await this.serve(host) }, sessionId);
       const start = Date.now();
       await sleep(400);
       while (Date.now() - start < SETTLE_MS && (inFlight > 0 || Date.now() - lastCall < QUIET_MS)) await sleep(100);
