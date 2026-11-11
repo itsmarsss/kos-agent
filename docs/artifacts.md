@@ -296,9 +296,11 @@ server-side checks; it never writes. It then measures the frame
 - an attempt to leave the frame;
 - and, as small findings after the rest, the generated look the guide warns
   of: a large area in the other theme's brightness (an inverted slide or
-  band), three or more wide bordered boxes wrapping sections, big figures
-  reading 0, a dash or nothing, and a ground other than KOS's from an
-  artifact that declares no token plan of its own.
+  band), three or more wide bordered boxes each wrapping a section (a head
+  and a table, list, chart, form or box; not cards for objects, nor lanes
+  side by side), big figures reading a placeholder or a whole row of zeros,
+  bar tracks that all draw no fill, and, from an artifact that declares no
+  token plan of its own, an inverted area or a ground other than KOS's.
 
 With the words come two small screenshots, the desktop in light and the
 phone in dark, which the model sees. Each render's screenshot is kept in

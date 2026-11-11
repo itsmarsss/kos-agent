@@ -34,7 +34,7 @@ export const WIDTHS = { desktop: { width: 1280, height: 800, mobile: false }, ph
 export type Width = keyof typeof WIDTHS;
 
 export interface Finding {
-  kind: "overflow" | "clipped" | "overlap" | "theme" | "contrast" | "console" | "bridge" | "empty" | "title" | "formula" | "left" | "inverted" | "boxes" | "figures" | "ground";
+  kind: "overflow" | "clipped" | "overlap" | "theme" | "contrast" | "console" | "bridge" | "empty" | "title" | "formula" | "left" | "inverted" | "boxes" | "figures" | "ground" | "bars";
   text: string;
   /** About the look rather than something broken: reported after the rest. */
   small?: true;
@@ -155,6 +155,7 @@ const GONE: ProbeResult = {
   inverted: [],
   wrappers: [],
   blankFigures: [],
+  emptyBars: [],
 };
 
 /**
@@ -527,7 +528,8 @@ export function findingsOf(renders: Render[], tokenPlan = false): Finding[] {
     for (const e of r.errors) add("console", e, `Console error at ${where(r)}: ${e.slice(0, 300)}`);
     for (const b of r.bridge) add("bridge", b, `A window.kos call failed at ${where(r)}: ${b.slice(0, 300)}`);
     if (r.left) add("left", "left", "The artifact tried to navigate its frame away, which KOS stops. Remove whatever changes location or follows a link off the page.");
-    for (const i of p.inverted) {
+    // A piece with its own token plan chooses its own brightness; only one on KOS's ground is held to the theme.
+    for (const i of tokenPlan ? [] : p.inverted) {
       add(
         "inverted",
         i.name,
@@ -536,9 +538,17 @@ export function findingsOf(renders: Render[], tokenPlan = false): Finding[] {
       );
     }
     const blanks = p.blankFigures;
-    if (blanks.some((f) => !/^[$€£]?\s?0/.test(f.text)) || blanks.length >= 2) {
+    if (blanks.length) {
       const list = blanks.slice(0, 4).map((f) => `${f.name} reads "${f.text}"`).join("; ");
       add("figures", "figures", `${blanks.length} big figure${blanks.length === 1 ? "" : "s"} say nothing at rest (${list}). Leave a figure out until it has a value, or say in a sentence what is missing; a row of zeros is noise.`, true);
+    }
+    if (p.emptyBars.length) {
+      add(
+        "bars",
+        "bars",
+        `${p.emptyBars.length} bar tracks draw no fill at ${where(r)} (${p.emptyBars.join("; ")}): a fill given width: % as an inline element (a span) ignores it. Make the fill a block (a div, or display: block), or use the kit's <div class="meter" style="--value: 42%">.`,
+        true,
+      );
     }
     if (r.width === "desktop") {
       const wrappers = p.wrappers;

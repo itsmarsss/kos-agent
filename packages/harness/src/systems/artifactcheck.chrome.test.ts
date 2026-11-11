@@ -47,10 +47,19 @@ const POSTER = `<style>
 @media (prefers-color-scheme: dark){:root:not([data-theme=light]){--paper:#11141b;--ink:#e6e9f0;--quiet:#9aa3b5;--mark:#86a4ff}}
 :root[data-theme=dark]{--paper:#11141b;--ink:#e6e9f0;--quiet:#9aa3b5;--mark:#86a4ff}
 body{background:var(--paper);color:var(--ink)} p{color:var(--quiet)}
-</style><h1>Harvest supper</h1><p>Saturday 21 November, at the pavilion.</p>`;
+</style><h1>Harvest supper</h1><p>Saturday 21 November, at the pavilion.</p><section style="background:var(--ink);color:var(--paper);height:240px;padding:24px"><p style="color:var(--paper)">Bring a dish</p></section>`;
 
 /** A section wrapped in a bordered box, as a generated dashboard draws each one. */
-const boxed = (title: string): string => `<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px"><div>${title}</div><table><tr><td>Mon</td><td>2</td></tr></table></div>`;
+const boxed = (title: string): string => `<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px"><h2>${title}</h2><table><tr><td>Mon</td><td>2</td></tr></table></div>`;
+
+/** Big figures in a row, each with its label. */
+const figures = (...values: string[]): string => `<div class="grid">${values.map((v, i) => `<div><span style="font-size:28px;font-weight:600">${v}</span> <span>figure ${i + 1}</span></div>`).join("")}</div>`;
+
+/** A card for one object: a book, its author, its state. */
+const book = (title: string): string => `<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:8px"><h3>${title}</h3><p>Albert Camus, 1942</p><span class="pill">reading</span></div>`;
+
+/** A board's lane: a heading and its cards, side by side with the other lanes. */
+const lane = (name: string): string => `<div class="lane" style="border:1px solid var(--line);border-radius:10px;padding:12px;flex:1"><h2>${name}</h2><ul style="list-style:none;padding:0">${book("The Stranger")}${book("The Plague")}</ul></div>`;
 
 /** A closed fold of a few lines, as the doc runtime's contents are on a phone. */
 const FOLD = `<details><summary>Contents</summary><ol><li>Why</li><li>What</li><li>Cost</li><li>When</li></ol></details>`;
@@ -79,7 +88,15 @@ const PLANTED: Record<string, { html: string; expect: Finding["kind"] }> = {
   // A title band in the ink colour: dark on a light page, light on a dark one.
   inverted: { html: `<h1>Inverted</h1><section style="background:var(--text);color:var(--bg);height:320px;padding:24px"><p>Season review</p></section>`, expect: "inverted" },
   boxes: { html: `<h1>Boxes</h1>${boxed("Open now")}${boxed("Needs a nudge")}${boxed("Recent")}`, expect: "boxes" },
-  zeros: { html: `<h1>Zeros</h1><div class="grid"><div class="stat"><span class="stat-value">0</span><span class="stat-label">Reading</span></div><div class="stat"><span class="stat-value">0</span><span class="stat-label">Finished</span></div><div class="stat"><span class="stat-value">—</span><span class="stat-label">Pages</span></div></div>`, expect: "figures" },
+  zeros: { html: `<h1>Zeros</h1>${figures("0", "0", "$0.00")}`, expect: "figures" },
+  placeholder: { html: `<h1>Placeholder</h1>${figures("12", "—")}`, expect: "figures" },
+  // One zero among real figures is news ("0 overdue"), not noise; a status dot is an empty leaf, not a figure.
+  "one zero": { html: `<h1>One zero</h1>${figures("12", "0", "3")}<p><span class="dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);font-size:28px"></span> on track</p>`, expect: "none" as never },
+  // Cards for objects, and a board's lanes side by side: not sections in boxes.
+  cards: { html: `<h1>Cards</h1>${book("The Stranger")}${book("The Plague")}${book("The Fall")}<div style="display:flex;gap:12px">${lane("Reading")}${lane("Queued")}</div>`, expect: "none" as never },
+  // Fills that are inline spans given a width draw nothing; the kit's meter and block fills draw.
+  bars: { html: `<h1>Bars</h1>${["Housing", "Groceries"].map((c) => `<p>${c}</p><div style="height:8px;background:var(--panel-2)"><span style="width:60%;background:var(--accent)"></span></div>`).join("")}`, expect: "bars" },
+  meters: { html: `<h1>Meters</h1><p>Housing</p><div class="meter" style="--value: 60%"></div><p>Groceries</p><div class="meter"><div style="width:30%"></div></div><p>Fun</p><div class="meter"><div style="width:0%"></div></div>`, expect: "none" as never },
   ground: { html: `<style>body{background:var(--panel-2)}</style><h1>Ground</h1><p>A slab of its own.</p>`, expect: "ground" },
 };
 
@@ -139,11 +156,11 @@ describe.skipIf(!chrome)("artifacts.check in Chrome", () => {
     if (planted.expect === "bridge") expect(report.findings.find((f) => f.kind === "bridge")?.text).toMatch(/kos\.query: the query cannot run here/);
     if (planted.expect === "console") expect(report.findings.some((f) => /the chart had no data/.test(f.text))).toBe(true);
     if (planted.expect === "empty") expect(report.findings.find((f) => f.kind === "empty")?.text).toMatch(/div\.chart/);
-    if (["inverted", "boxes", "figures", "ground"].includes(planted.expect)) {
+    if (["inverted", "boxes", "figures", "ground", "bars"].includes(planted.expect)) {
       expect(report.findings.find((f) => f.kind === planted.expect)?.small).toBe(true);
       expect(reportWords(report)).toContain(`[${planted.expect}, small]`);
     }
-    if (planted.expect === "figures") expect(report.findings.find((f) => f.kind === "figures")?.text).toMatch(/reads "—"/);
+    if (id === "placeholder") expect(report.findings.find((f) => f.kind === "figures")?.text).toMatch(/reads "—"/);
     expect(reportWords(report)).toMatch(/one pass.*Do not check again/s);
   }, 45_000);
 });

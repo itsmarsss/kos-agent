@@ -47,8 +47,10 @@ export interface ProbeResult {
   inverted: { name: string; width: number; height: number }[];
   /** Wide boxes with a border all round, each wrapping a section's content (a table, a list, a chart, a form, another box). */
   wrappers: { name: string; depth: number }[];
-  /** Big figures that read 0, a dash, a placeholder or nothing: the figure's box, and what it reads. */
+  /** Big figures that say nothing: a placeholder (a dash, n/a), or a zero in a row of figures that all read zero. */
   blankFigures: { name: string; text: string }[];
+  /** Bar tracks whose fills all draw at no width, when no bar on the page draws: a fill that ignores its width. */
+  emptyBars: string[];
 }
 
 /** The function serialised into the frame; it must not close over anything. */
@@ -212,17 +214,37 @@ export function probe(): ProbeResult {
   /*
    * The look: what the guide calls generated. A large area in the other
    * theme's brightness (an inverted slide or band), boxes wrapping each
-   * section, and big figures with nothing to say.
+   * section, big figures with nothing to say, and bars that draw nothing.
    */
   const dark = document.documentElement.dataset.theme === "dark";
   const inverted: ProbeResult["inverted"] = [];
   const wrappers: ProbeResult["wrappers"] = [];
   const blankFigures: ProbeResult["blankFigures"] = [];
+  /** Every big figure, by the row it sits in (its tile's parent), to tell a row of zeros from one zero among figures. */
+  const figureRows = new Map<Element | null, { name: string; text: string; blank: boolean }[]>();
+  const tracks = { empty: [] as string[], drawn: 0 };
   const rootSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
   const STRUCTURE = "table,ul,ol,svg,canvas,input,select,textarea,button,figure";
   // A runtime's own furniture (a sheet's grid and charts, a doc's contents, a deck's frames) is KOS's, not the artifact's.
   const runtimes = (el: Element): boolean => typeof el.className === "string" && /(^|\s)(sheet|doc|deck)-/.test(el.className);
-  const BLANK = /^(0|0[.,]0+|0\s?%|[$€£]\s?0([.,]0+)?|[-–—]+|n\/?a|null|undefined|NaN|tbd|…|\.\.\.|--)$/i;
+  const ZERO = /^[$€£]?\s?0([.,]0+)?\s?%?$/;
+  const PLACEHOLDER = /^([-–—]+|n\/?a|null|undefined|NaN|tbd|…|\.\.\.)$/i;
+  const FIGURE = /^[$€£]?\s?[-+]?[\d.,]+\s?(%|[a-z]{1,3})?$/i;
+  // A section's head: a heading, or a short first line set bold.
+  const headed = (el: Element): boolean => {
+    if (el.querySelector("h1,h2,h3,h4,h5,h6,[role=heading]")) return true;
+    const first = el.firstElementChild;
+    const text = (first?.textContent ?? "").trim();
+    return !!first && text.length > 0 && text.length <= 60 && Number(getComputedStyle(first).fontWeight) >= 600;
+  };
+  // One of a set of objects: an item or an article, or one of siblings alike laid side by side (a grid of cards, a board's lanes).
+  const listed = (el: Element, r: DOMRect): boolean =>
+    el.matches("li,article") ||
+    Array.from(el.parentElement?.children ?? []).some((sib) => {
+      if (sib === el || sib.tagName !== el.tagName || sib.className !== el.className) return false;
+      const o = sib.getBoundingClientRect();
+      return Math.abs(o.top - r.top) < 4;
+    });
   const ringed = (s: CSSStyleDeclaration): boolean =>
     (["Top", "Right", "Bottom", "Left"] as const).every((side) => s[`border${side}Style`] !== "none" && parseFloat(s[`border${side}Width`]) > 0 && (rgba(s[`border${side}Color`])?.[3] ?? 0) > 0);
   const boxes = new Set<Element>();
@@ -241,17 +263,30 @@ export function probe(): ProbeResult {
     }
     if (ringed(s) && !runtimes(el)) boxes.add(el);
     const own = (el.textContent ?? "").replace(/\s+/g, " ").trim();
-    const size = parseFloat(s.fontSize);
-    const figureClass = typeof el.className === "string" && /(stat|kpi|metric|figure|big)/i.test(el.className);
-    if (el.children.length === 0 && (figureClass || size >= Math.max(20, rootSize * 1.4)) && (own === "" ? figureClass : BLANK.test(own))) {
+    // A figure: a leaf in large type reading a number or a placeholder, with words beside it (its label).
+    if (el.children.length === 0 && own && parseFloat(s.fontSize) >= Math.max(20, rootSize * 1.4) && (FIGURE.test(own) || PLACEHOLDER.test(own))) {
       const label = (el.parentElement?.textContent ?? "").replace(/\s+/g, " ").trim();
-      if (label.length > own.length) blankFigures.push({ name: named(el.parentElement ?? el), text: own });
+      if (label.length > own.length) {
+        const row = el.parentElement?.parentElement ?? null;
+        figureRows.set(row, [...(figureRows.get(row) ?? []), { name: named(el.parentElement ?? el), text: own, blank: ZERO.test(own) || PLACEHOLDER.test(own) }]);
+        if (PLACEHOLDER.test(own)) blankFigures.push({ name: named(el.parentElement ?? el), text: own });
+      }
+    }
+    // A bar's track: short, wide and painted, holding its fill.
+    if (fill && fill[3] > 0 && r.height <= 16 && r.width >= 60 && r.width >= r.height * 6 && el.children.length > 0) {
+      const drawn = Array.from(el.children).some((c) => c.getBoundingClientRect().width >= 1);
+      if (drawn) tracks.drawn += 1;
+      else tracks.empty.push(named(el));
     }
   }
+  for (const figures of figureRows.values()) {
+    if (figures.length >= 2 && figures.every((f) => f.blank)) for (const f of figures) if (ZERO.test(f.text)) blankFigures.push({ name: f.name, text: f.text });
+  }
+  // A section wrapper: a wide box with a border all round, holding a head and structure (a table, a list, a chart, a form, another box), and not one of a set of objects.
   for (const el of boxes) {
     const r = el.getBoundingClientRect();
-    if (r.width < view.width * 0.4 || r.height < 80) continue;
-    const holds = el.querySelector(STRUCTURE) !== null || [...boxes].some((b) => b !== el && el.contains(b)) || el.children.length >= 3;
+    if (r.width < view.width * 0.4 || r.height < 80 || listed(el, r) || !headed(el)) continue;
+    const holds = el.querySelector(STRUCTURE) !== null || [...boxes].some((b) => b !== el && el.contains(b));
     if (!holds) continue;
     let depth = 1;
     for (let n = el.parentElement; n; n = n.parentElement) if (boxes.has(n)) depth += 1;
@@ -287,5 +322,6 @@ export function probe(): ProbeResult {
     inverted: inverted.filter((e, i) => !inverted.some((o, j) => j < i && e.name !== o.name && o.width >= e.width && o.height >= e.height)).slice(0, 4),
     wrappers: wrappers.slice(0, 12),
     blankFigures: blankFigures.slice(0, 8),
+    emptyBars: tracks.drawn === 0 && tracks.empty.length >= 2 ? tracks.empty.slice(0, 4) : [],
   };
 }
