@@ -51,13 +51,15 @@ export interface DeckPresenterProps {
   audience: Window | null;
   /** Presenting is over, on this slide. */
   onEnd: (index: number) => void;
+  /** The audience window shows a newer version than this: read the deck again. */
+  onStale?: () => void;
 }
 
 const TICK_MS = 500;
 /** How often the presenter looks whether the audience window was closed. */
 const WATCH_MS = 1000;
 
-export function DeckPresenter({ record, page, start, count: told, session, audience: opened, onEnd }: DeckPresenterProps): ReactElement {
+export function DeckPresenter({ record, page, start, count: told, session, audience: opened, onEnd, onStale }: DeckPresenterProps): ReactElement {
   const root = useRef<HTMLDivElement>(null);
   const current = useRef<ArtifactHandle>(null);
   const next = useRef<ArtifactHandle>(null);
@@ -80,10 +82,17 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
   const [audience, setAudience] = useState<Audience>(opened ? "opening" : "closed");
   const [blocked, setBlocked] = useState(!opened);
   const link = useRef<PresentLink>(null);
-  // The version presented here, which the audience window loads too; drift is its saying it shows another.
+  /*
+   * The version presented here, which the audience window loads too. An
+   * audience showing a newer one (saved since this was read) has the presenter
+   * read the deck again, once for each; one showing an older one reads it
+   * again itself, told the version with every place.
+   */
   const version = useRef(record.updatedAt);
   version.current = record.updatedAt;
-  const [drift, setDrift] = useState(false);
+  const stale = useRef(onStale);
+  stale.current = onStale;
+  const caught = useRef(new Set<number>());
 
   useEffect(() => {
     const l = presentLink(session);
@@ -91,7 +100,11 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
     const stop = l.listen((signal) => {
       if (signal.type === "hello") {
         setAudience("open");
-        setDrift(signal.version !== undefined && signal.version !== version.current);
+        const v = signal.version;
+        if (v !== undefined && v > version.current && !caught.current.has(v)) {
+          caught.current.add(v);
+          stale.current?.();
+        }
         l.post({ type: "go", index: place.current, version: version.current });
       } else if (signal.type === "moved") setIndex(clampSlide(signal.index, slides.current));
     });
@@ -101,7 +114,8 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
       link.current = null;
     };
   }, [session]);
-  useEffect(() => link.current?.post({ type: "go", index, version: version.current }), [index]);
+  // The place, and the version with it: told again when this reads a newer one.
+  useEffect(() => link.current?.post({ type: "go", index, version: record.updatedAt }), [index, record.updatedAt]);
   // A window the owner closed is closed: there is no event for it in the window that opened it.
   useEffect(() => {
     const watch = setInterval(() => {
@@ -233,9 +247,6 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
             <span className="presenter-trouble" role="alert" title={trouble}>
               {trouble}
             </span>
-          )}
-          {audience === "open" && drift && (
-            <Pill title="The audience window shows another version of this deck, saved while presenting: end and present again to show one">Another version</Pill>
           )}
           {audience === "open" && <Pill tone="ok">Audience window open</Pill>}
           {audience === "opening" && <Pill>Opening the audience window</Pill>}

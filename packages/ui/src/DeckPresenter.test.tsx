@@ -20,7 +20,7 @@ const record = { id: "pitch", projectSlug: null, title: "Garden pitch", path: ""
 const page = { id: "pitch", title: "Garden pitch", kind: "deck" as const, html: "<main data-deck><section>a</section></main>" };
 
 /** The presenter view, its two deck frames standing in as page windows, and the other end of its channel. */
-async function presenter(audience: Window | null = null): Promise<{ view: HTMLElement; slides: { report: (data: Record<string, unknown>) => void; told: ReturnType<typeof vi.spyOn> }[]; heard: PresentSignal[]; say: (s: PresentSignal) => void; ended: ReturnType<typeof vi.fn> }> {
+async function presenter(audience: Window | null = null, onStale?: () => void): Promise<{ view: HTMLElement; slides: { report: (data: Record<string, unknown>) => void; told: ReturnType<typeof vi.spyOn> }[]; heard: PresentSignal[]; say: (s: PresentSignal) => void; ended: ReturnType<typeof vi.fn> }> {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
   const ended = vi.fn();
   const session = "0123456789abcdef01234567";
@@ -30,7 +30,7 @@ async function presenter(audience: Window | null = null): Promise<{ view: HTMLEl
     const s = readSignal(e.data);
     if (s) heard.push(s);
   };
-  render(<DeckPresenter record={record} page={page} start={1} count={4} session={session} audience={audience} onEnd={ended} />);
+  render(<DeckPresenter record={record} page={page} start={1} count={4} session={session} audience={audience} onEnd={ended} {...(onStale ? { onStale } : {})} />);
   const view = screen.getByRole("dialog", { name: "Presenting Garden pitch" });
   const frames = await waitFor(() => {
     const f = [...view.querySelectorAll<HTMLIFrameElement>("iframe.artifact-frame")];
@@ -142,17 +142,22 @@ describe("the presenter view", () => {
 
   it("keeps the audience window on its place, follows it when it moves, and closes it on End", async () => {
     const audience = { closed: false, close: vi.fn() };
-    const { view, heard, say, ended } = await presenter(audience as unknown as Window);
+    const stale = vi.fn();
+    const { view, heard, say, ended } = await presenter(audience as unknown as Window, stale);
     say({ type: "hello", version: record.updatedAt });
     await waitFor(() => expect(within(view).getByText("Audience window open")).toBeTruthy());
     // The place, with the version presented, for the audience to load the same one.
     expect(heard).toContainEqual({ type: "go", index: 1, version: record.updatedAt });
-    expect(within(view).queryByText("Another version")).toBeNull();
+    expect(stale).not.toHaveBeenCalled();
     fireEvent.keyDown(view, { key: "ArrowRight" });
     await waitFor(() => expect(heard).toContainEqual({ type: "go", index: 2, version: record.updatedAt }));
-    // An audience window that could only load another version: said quietly.
+    // An audience window showing a newer version than this: the presenter reads the deck again, once for it; an older one is the audience's to catch up.
     say({ type: "hello", version: record.updatedAt + 1 });
-    await waitFor(() => expect(within(view).getByText("Another version")).toBeTruthy());
+    await waitFor(() => expect(stale).toHaveBeenCalledTimes(1));
+    say({ type: "hello", version: record.updatedAt + 1 });
+    say({ type: "hello", version: record.updatedAt - 1 });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(stale).toHaveBeenCalledTimes(1);
     // A key in the audience window moved its deck: the presenter follows.
     say({ type: "moved", index: 0 });
     await waitFor(() => expect(within(view).getByText("Slide 1 of 4")).toBeTruthy());

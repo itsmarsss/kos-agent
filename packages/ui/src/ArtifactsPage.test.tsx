@@ -300,8 +300,13 @@ describe("one artifact, full size", () => {
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "More" }));
     fireEvent.click(within(screen.getByRole("menu", { name: "More" })).getByRole("menuitem", { name: "Present with notes" }));
-    // The audience window is the dashboard's own page, opened in the owner's press.
+    // The audience window is the dashboard's own page, opened in the owner's press; the deck is read again, so the presenter starts from the newest version.
     expect(open).toHaveBeenCalledTimes(1);
+    expect(api.anyPage).toHaveBeenCalledTimes(2);
+    // The same version read again keeps the viewer's frame: its deck does not start over.
+    await act(() => new Promise<void>((r) => setTimeout(r, 0)));
+    expect(el.isConnected).toBe(true);
+    expect(document.querySelector("iframe.artifact-frame")).toBe(el);
     expect(String(open.mock.calls[0]![0])).toMatch(/#\/audience\/pitch\/[0-9a-f]{24}$/);
     const view = screen.getByRole("dialog", { name: "Presenting Garden pitch" });
     expect(within(view).getByText("Slide 3 of 4")).toBeTruthy();

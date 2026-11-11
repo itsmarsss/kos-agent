@@ -526,10 +526,12 @@ export function ArtifactViewer({
   };
 
   const show = (got: AnyPagePayload): void => {
+    // The version already shown, read again, keeps its frame: the deck does not start over.
+    const same = latest.current?.id === got.record.id && latest.current.updatedAt === got.record.updatedAt;
     setPreview(undefined);
     saved(got.record);
     setOlder(got.kind !== "html");
-    if (got.kind === "html") setPage(got.page);
+    if (got.kind === "html") setPage((was) => (same && was ? was : got.page));
   };
   const load = (): Promise<void> => api.anyPage(id).then(show);
   const failed = (err: unknown): void => setError(err instanceof Error ? err.message : String(err));
@@ -584,10 +586,15 @@ export function ArtifactViewer({
     onOpenChat({ project: record.projectSlug });
   };
 
-  /** The presenter view, from the owner's press: the audience window opens in the same press, or the browser blocks it. */
+  /*
+   * The presenter view, from the owner's press: the audience window opens in
+   * the same press (or the browser blocks it), and the deck is read again so
+   * the presenter starts from the newest version, as the audience does.
+   */
   const presentNotes = (artifact: string, at: DeckView): void => {
     const session = presentSession();
     setPresenter({ id: artifact, session, audience: openAudience(artifact, session), start: at.index, count: at.count });
+    void load().catch(failed);
   };
 
   const ask = (): void => {
@@ -707,6 +714,7 @@ export function ArtifactViewer({
           audience={presenter.audience}
           start={presenter.start}
           count={presenter.count}
+          onStale={() => void load().catch(failed)}
           onEnd={(index) => {
             setPresenter(undefined);
             frame.current?.go(index);
