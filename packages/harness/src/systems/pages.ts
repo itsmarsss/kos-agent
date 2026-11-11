@@ -545,28 +545,67 @@ export class PageStore {
    * one artifact's wherever it lives, so a write never takes another
    * owner's: the row it would replace must be the same owner's, or, for a
    * move the caller decided on, the owner it checked (`from`).
+   *
+   * Ids are told apart in any case, as a case-insensitive disk tells their
+   * files apart: a new id, or one moving owner, that another artifact holds
+   * in another case is refused before anything is written. A move puts its
+   * versions and captures in place first and its file and row after, and
+   * undoes what it did if any step fails, so a failed move leaves the
+   * artifact whole where it was.
    */
   private save(owner: PageOwner, id: string, title: string, kind: PageKind, body: string, meta: HtmlMeta | null, opts: SaveOptions): PageRecord {
     const projectSlug = projectOf(owner);
     const blob = blobOf(owner);
     const previous = this.row(id);
     if (previous?.trashed_at != null) throw new ArtifactTrashed(`the artifact ${id} is in the trash, so it is left as it is; the owner can restore it from the Artifacts page's Trash`);
-    if (previous) {
-      const was = ownerOfRow(previous);
+    const was = previous ? ownerOfRow(previous) : undefined;
+    if (was !== undefined) {
       const allowed = opts.from === undefined ? owner : opts.from;
       if (ownerKey(was) !== ownerKey(allowed)) throw new Error(`the artifact ${id} is ${ownerWords(was)}, so it is not written as ${ownerWords(owner)}`);
     }
+    const moving = was !== undefined && ownerKey(was) !== ownerKey(owner);
+    if (!previous || moving) {
+      const twin = this.db.prepare(`SELECT id FROM pages WHERE id = ? COLLATE NOCASE AND id != ?`).get(id, id) as { id: string } | undefined;
+      if (twin) throw new Error(`the id ${id} is ${twin.id} in another case, which another artifact holds, and a disk that ignores case would take one for the other; give it another id`);
+    }
     const rel = join(folderOf(owner), `${id}.${kind === "html" ? "html" : "json"}`);
     const abs = this.workspace.resolve(rel);
-    mkdirSync(dirname(abs), { recursive: true });
-    writeFileSync(abs, body);
-    // A page that changed kind leaves its old file behind otherwise.
+    const undo: (() => void)[] = [];
+    try {
+      // An artifact moved between owners takes its history and captures with it, before anything else changes.
+      if (moving) {
+        for (const sub of [".history", ".captures"]) {
+          const from = this.workspace.resolve(join(folderOf(was), sub, id));
+          const to = this.workspace.resolve(join(folderOf(owner), sub, id));
+          if (!existsSync(from)) continue;
+          if (existsSync(to)) throw new Error(`${join(folderOf(owner), sub, id)} is already there, so the artifact ${id} is not moved over it`);
+          mkdirSync(dirname(to), { recursive: true });
+          renameSync(from, to);
+          undo.push(() => renameSync(to, from));
+        }
+        if (existsSync(abs)) throw new Error(`${rel} is already there, so the artifact ${id} is not moved over it`);
+      }
+      mkdirSync(dirname(abs), { recursive: true });
+      writeFileSync(abs, body);
+      if (moving) undo.push(() => unlinkSync(abs));
+      this.writeRow({ id, projectSlug: projectSlug ?? WORKSPACE, title, path: rel, ts: this.now(), kind, meta: meta ? JSON.stringify(meta) : null, blob: blob?.blob ?? null, blobId: blob?.id ?? null });
+    } catch (err) {
+      for (const step of undo.reverse()) step();
+      throw err;
+    }
+    // A page that changed kind or owner leaves its old file behind otherwise.
     if (previous && previous.path !== rel) {
       const old = this.workspace.resolve(previous.path);
       if (existsSync(old)) unlinkSync(old);
     }
-    const ts = this.now();
-    const metaText = meta ? JSON.stringify(meta) : null;
+    const saved = this.row(id)!;
+    this.keepVersion(owner, id, { at: saved.updated_at, title, kind, body, meta });
+    if (projectSlug) this.manifest.touchProject(projectSlug);
+    return recordOf(saved);
+  }
+
+  /** An artifact's row, made or replaced: what it is, whose, and where its file is. */
+  private writeRow(row: { id: string; projectSlug: string; title: string; path: string; ts: number; kind: PageKind; meta: string | null; blob: string | null; blobId: string | null }): void {
     this.db
       .prepare(
         `INSERT INTO pages (id, project_slug, title, path, updated_at, kind, meta, blob, blob_id)
@@ -581,21 +620,7 @@ export class PageStore {
            kind = excluded.kind,
            meta = excluded.meta`,
       )
-      .run({ id, projectSlug: projectSlug ?? WORKSPACE, title, path: rel, ts, kind, meta: metaText, blob: blob?.blob ?? null, blobId: blob?.id ?? null });
-    // An artifact moved between owners takes its history and captures with it.
-    const was = previous ? ownerOfRow(previous) : undefined;
-    if (was !== undefined && ownerKey(was) !== ownerKey(owner)) {
-      for (const sub of [".history", ".captures"]) {
-        const from = this.workspace.resolve(join(folderOf(was), sub, id));
-        const to = this.workspace.resolve(join(folderOf(owner), sub, id));
-        if (!existsSync(from)) continue;
-        mkdirSync(dirname(to), { recursive: true });
-        renameSync(from, to);
-      }
-    }
-    this.keepVersion(owner, id, { at: ts, title, kind, body, meta });
-    if (projectSlug) this.manifest.touchProject(projectSlug);
-    return recordOf({ id, project_slug: projectSlug ?? WORKSPACE, title, path: rel, updated_at: ts, kind, meta: metaText, blob: blob?.blob ?? null, blob_id: blob?.id ?? null, blob_removed: blob && this.blobIds.removed(blob.id) ? 1 : null, trashed_at: null });
+      .run(row);
   }
 
   /** Where artifacts.check keeps an artifact's renders, which the gallery shows as its thumbnail. */

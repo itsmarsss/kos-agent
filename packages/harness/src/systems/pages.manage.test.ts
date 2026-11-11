@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -106,6 +106,48 @@ describe("PageStore management", () => {
     expect(() => pages.duplicate("n")).toThrow(/was removed/);
     expect(pages.move("n", "diary")).toMatchObject({ projectSlug: "diary" });
     expect(pages.record("n")?.blob).toBeUndefined();
+  });
+
+  it("refuses an id another artifact holds in another case, a trashed one too, before anything is written", () => {
+    pages.writeHtml("diary", { id: "notes", title: "Notes", html: "<p>diary</p>" });
+    expect(() => pages.writeHtml(null, { id: "Notes", title: "Mine", html: "<p>mine</p>" })).toThrow(/is notes in another case/);
+    // One from before the rule, in the workspace beside it: a move into the diary would take the diary's file on a disk that ignores case.
+    mkdirSync(join(root, "artifacts"), { recursive: true });
+    writeFileSync(join(root, "artifacts/Notes.html"), "<p>old</p>");
+    ws.db.prepare(`INSERT INTO pages (id, project_slug, title, path, updated_at, kind, meta) VALUES ('Notes', '', 'Old', 'artifacts/Notes.html', 1, 'html', '{}')`).run();
+    expect(() => pages.move("Notes", "diary")).toThrow(/in another case/);
+    expect(readFileSync(join(root, "projects/diary/pages/notes.html"), "utf8")).toBe("<p>diary</p>");
+    expect(pages.record("Notes")?.projectSlug).toBeNull();
+    // Rewritten where it is, it is let be: the two already live apart.
+    expect(pages.rename("Notes", { title: "Older" }).title).toBe("Older");
+    // In the trash, the id is still taken.
+    pages.writeHtml("diary", { id: "plan", title: "Plan", html: "<p>" });
+    pages.trash("plan");
+    expect(() => pages.writeHtml(null, { id: "PLAN", title: "Plan", html: "<p>" })).toThrow(/in another case/);
+  });
+
+  it("leaves an artifact whole where it was when its move fails part way", () => {
+    pages.writeHtml(null, { id: "memo", title: "Memo", html: "<p>one</p>" });
+    mkdirSync(pages.capturesDir("memo"), { recursive: true });
+    writeFileSync(join(pages.capturesDir("memo"), "desktop-light.small.jpg"), "x");
+    // The captures cannot go: their new folder takes nothing.
+    const locked = join(root, "projects/diary/pages/.captures");
+    mkdirSync(locked, { recursive: true });
+    chmodSync(locked, 0o555);
+    try {
+      expect(() => pages.move("memo", "diary")).toThrow();
+    } finally {
+      chmodSync(locked, 0o755);
+    }
+    expect(pages.record("memo")).toMatchObject({ projectSlug: null, path: "artifacts/memo.html" });
+    expect(existsSync(join(root, "artifacts/.history/memo/1.json"))).toBe(true);
+    expect(existsSync(join(root, "artifacts/.captures/memo/desktop-light.small.jpg"))).toBe(true);
+    expect(existsSync(join(root, "projects/diary/pages/.history/memo"))).toBe(false);
+    expect(existsSync(join(root, "projects/diary/pages/memo.html"))).toBe(false);
+    expect(pages.history("memo")).toHaveLength(1);
+    // Once it can, it goes, whole.
+    expect(pages.move("memo", "diary").projectSlug).toBe("diary");
+    expect(existsSync(join(root, "projects/diary/pages/.captures/memo/desktop-light.small.jpg"))).toBe(true);
   });
 
   it("trashes an artifact out of every list, keeps it as it is, and restores it where it was", () => {
