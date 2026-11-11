@@ -797,6 +797,7 @@ Before the page's own markup the frame gets:
 | --- | --- |
 | `kos.query(sql, params?)` | A single read-only SELECT over the page's project's tables, at most 500 rows and 2 s. |
 | `kos.write(table, op, values, key?)` | One insert, update or delete on a declared table, through the same guarded mutation path the widgets use. |
+| `kos.writes([{ table, op, values, key }])` | Up to 1,000 of them, each checked as one is, made in one transaction: all or none, a refusal naming which and why. An update or delete changes the one row its key names; a key matching more is refused. |
 | `kos.files.read(path)` | A text file inside the project's folder, up to 256 KB. |
 | `kos.ask(text)` | The owner sees the text and chooses whether to send it to the project's chat. |
 | `kos.theme`, `kos.onTheme(fn)` | The dashboard's theme, and its changes. |

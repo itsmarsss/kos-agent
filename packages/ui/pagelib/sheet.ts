@@ -118,6 +118,9 @@ interface Importing {
   map: number[];
 }
 
+/** One write in a batch to a table. */
+type TableWrite = { table: string; op: "insert" | "update" | "delete"; values?: Record<string, unknown>; key?: { column: string; value: unknown } };
+
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 class Sheet {
@@ -736,9 +739,9 @@ class Sheet {
 
   /**
    * Set cells and add rows in a tab over a table: an update for each row
-   * changed, an insert for each added, one after another through the
-   * declared writes, then the table read again. A refusal stops there and
-   * says how far it got.
+   * changed and an insert for each added, sent as one batch the server makes
+   * in one transaction, then the table read again. A refusal changes
+   * nothing, and the bar says so.
    */
   private async writeTable(t: number, cells: PastePlan["cells"], added: SheetCell[][]): Promise<boolean> {
     const tab = this.book.sheets[t]!;
@@ -747,30 +750,41 @@ class Sheet {
     const name = (c: number): string => tab.columns[c]!.column ?? tab.columns[c]!.label;
     const updates = new Map<number, Record<string, SheetCell>>();
     for (const c of cells) updates.set(c.row, { ...updates.get(c.row), [name(c.col)]: c.cell });
-    const inserts = added.map((row) => Object.fromEntries(row.flatMap((v, c) => (v === null ? [] : [[name(c), v]]))));
-    const total = updates.size + inserts.length;
-    if (total > TABLE_ROWS_IN) {
-      this.show(inlineBar(`One paste or import writes at most ${TABLE_ROWS_IN} rows into a table, and this one has ${total}.`, [], [this.dismissal()]));
+    const writes: TableWrite[] = [...updates].map(([row, values]) => ({ table: src.table, op: "update", values, key: { column: src.key, value: keys[row - 1] } }));
+    for (const row of added) writes.push({ table: src.table, op: "insert", values: Object.fromEntries(row.flatMap((v, c) => (v === null ? [] : [[name(c), v]]))) });
+    if (writes.length > TABLE_ROWS_IN) {
+      this.show(inlineBar(`One paste or import writes at most ${TABLE_ROWS_IN} rows into a table, and this one has ${writes.length}.`, [], [this.dismissal()]));
       return false;
     }
+    return this.writeAll(t, writes, "Saved");
+  }
+
+  /**
+   * Writes to a table as one batch, then the table read again; the status
+   * says what happened from what the server answered: all of them (and how
+   * many found their row already gone), or none, with why.
+   */
+  private async writeAll(t: number, writes: TableWrite[], verb: "Saved" | "Deleted"): Promise<boolean> {
+    const bridge = kos();
+    const total = writes.length;
     this.render();
-    let done = 0;
+    this.say(`${verb === "Saved" ? "Saving" : "Deleting"} ${plural(total, "row")}\u2026`);
+    let outcome: { done: number; gone: number; error?: string };
     try {
-      for (const [row, values] of updates) {
-        this.say(`Saving ${done + 1} of ${total}\u2026`);
-        await kos()!.write(src.table, "update", values, { column: src.key, value: keys[row - 1] });
-        done += 1;
-      }
-      for (const values of inserts) {
-        this.say(`Saving ${done + 1} of ${total}\u2026`);
-        await kos()!.write(src.table, "insert", values);
-        done += 1;
-      }
-      this.say(`Saved ${plural(total, "row")}`);
+      if (!bridge?.writes) throw new Error("this KOS cannot write several rows at once; reload the dashboard");
+      const got = await bridge.writes(writes);
+      outcome = { done: got.done, gone: got.results.filter((r, i) => writes[i]!.op !== "insert" && r.changes === 0).length };
     } catch (e) {
-      this.say(done ? `Saved ${done} of ${total} rows, then: ${reason(e)}` : `Not saved: ${reason(e)}`, true);
+      outcome = { done: 0, gone: 0, error: reason(e) };
     }
     await this.load(t);
+    if (outcome.error !== undefined) {
+      this.say(`Not ${verb.toLowerCase()}: nothing changed`, true);
+      this.show(inlineBar(`Nothing was ${verb.toLowerCase()}, so the table is as it was.`, [outcome.error], [this.dismissal()], true));
+      return false;
+    }
+    const gone = outcome.gone ? `; ${outcome.gone === 1 ? "1 was" : `${outcome.gone} were`} already gone` : "";
+    this.say(`${verb} ${plural(outcome.done - outcome.gone, "row")}${gone}`);
     return true;
   }
 
@@ -1096,19 +1110,7 @@ class Sheet {
     const keys = this.loaded.get(t)?.keys ?? [];
     this.panel = undefined;
     this.picked.clear();
-    this.render();
-    let done = 0;
-    try {
-      for (const r of rows) {
-        this.say(`Deleting ${done + 1} of ${rows.length}\u2026`);
-        await kos()!.write(src.table, "delete", {}, { column: src.key, value: keys[r - 1] });
-        done += 1;
-      }
-      this.say(`Deleted ${plural(done, "row")}`);
-    } catch (e) {
-      this.say(done ? `Deleted ${done} of ${rows.length} rows, then: ${reason(e)}` : `Not deleted: ${reason(e)}`, true);
-    }
-    await this.load(t);
+    await this.writeAll(t, rows.map((r) => ({ table: src.table, op: "delete", key: { column: src.key, value: keys[r - 1] } })), "Deleted");
   }
 
   private drawCharts(): void {

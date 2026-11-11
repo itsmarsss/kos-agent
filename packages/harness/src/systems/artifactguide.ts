@@ -172,7 +172,7 @@ A page is the general kind: anything that is not a document, a deck or a sheet. 
 
 Every call is a promise. A page in a project reads that project and nothing else; a workspace page has no tables or files.
 - kos.query(sql, params?) returns { rows, truncated }: one read-only SELECT over this project's own tables, at most 500 rows and 2 s. Use ? placeholders for values. Name the PHYSICAL tables systems.migrate reported (they carry the project's prefix). KOS answers a page's queries a couple at a time, in order, so ask for a few that each return what a view needs rather than one per figure.
-- kos.write(table, op, values, key?): op is insert, update or delete; key is { column, value } for update and delete. Only tables and columns declared in capabilities.writes: [{ table, columns, allow? }], allow being any of insert, update, delete (default insert and update).
+- kos.write(table, op, values, key?): op is insert, update or delete; key is { column, value } for update and delete. Only tables and columns declared in capabilities.writes: [{ table, columns, allow? }], allow being any of insert, update, delete (default insert and update). kos.writes([{ table, op, values, key }]) makes several in one transaction, all or none.
 - kos.files.read(path) returns { text }: a text file inside the project's folder, when capabilities.files is true.
 - kos.ask(text): offers a message to the project's chat, which the owner confirms. Needs capabilities.ask.
 - kos.theme is "light" or "dark"; kos.onTheme(fn) hears a change; kos.refresh(fn) registers what to run again after the page's own writes.

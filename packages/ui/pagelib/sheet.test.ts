@@ -326,16 +326,36 @@ describe("pasting, importing, and changing the shape", () => {
 
   it("pastes into a tab over a table as its updates and inserts", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [{ __key: 7, item: "Paint", cost: null }] });
-    const write = vi.fn().mockResolvedValue({ changes: 1 });
-    (window as { kos?: unknown }).kos = { query, write };
+    const writes = vi.fn().mockResolvedValue({ done: 2, results: [{ changes: 1 }, { changes: 1 }] });
+    (window as { kos?: unknown }).kos = { query, write: vi.fn(), writes };
     const root = mount({ sheets: [{ name: "S", columns: [{ label: "Item", column: "item" }, { label: "Cost", column: "cost", type: "currency" }], source: { table: "supplies", key: "id" } }] });
     await vi.waitFor(() => expect(cells(root)).toHaveLength(1));
     focusCell(root, 1, 1);
     paste(root, "30\n12");
-    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(2));
-    expect(write.mock.calls[0]).toEqual(["supplies", "update", { cost: 30 }, { column: "id", value: 7 }]);
-    expect(write.mock.calls[1]).toEqual(["supplies", "insert", { cost: 12 }]);
+    await vi.waitFor(() => expect(writes).toHaveBeenCalledTimes(1));
+    expect(writes.mock.calls[0]![0]).toEqual([
+      { table: "supplies", op: "update", values: { cost: 30 }, key: { column: "id", value: 7 } },
+      { table: "supplies", op: "insert", values: { cost: 12 } },
+    ]);
     await vi.waitFor(() => expect(root.querySelector(".sheet-status")!.textContent).toBe("Saved 2 rows"));
+  });
+
+  it("says nothing changed when the table refuses a batch, and how many rows were already gone when it takes one", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ __key: 7, item: "Paint", cost: 1 }, { __key: 8, item: "Glue", cost: 2 }] });
+    const writes = vi.fn().mockRejectedValueOnce(new Error("change 2 of 2: column not editable by this widget: cost; nothing was changed")).mockResolvedValueOnce({ done: 2, results: [{ changes: 1 }, { changes: 0 }] });
+    (window as { kos?: unknown }).kos = { query, write: vi.fn(), writes };
+    const root = mount({ sheets: [{ name: "S", columns: [{ label: "Item", column: "item" }, { label: "Cost", column: "cost", type: "currency" }], source: { table: "supplies", key: "id" } }] });
+    await vi.waitFor(() => expect(cells(root)).toHaveLength(2));
+    focusCell(root, 1, 0);
+    paste(root, "Oil\nTape");
+    click(root, "Replace");
+    await vi.waitFor(() => expect(root.querySelector(".sheet-panel")?.textContent).toContain("Nothing was saved, so the table is as it was."));
+    expect(root.querySelector(".sheet-panel")!.textContent).toContain("nothing was changed");
+    expect(root.querySelector(".sheet-status")!.textContent).toBe("Not saved: nothing changed");
+    focusCell(root, 1, 0);
+    paste(root, "Oil\nTape");
+    click(root, "Replace");
+    await vi.waitFor(() => expect(root.querySelector(".sheet-status")!.textContent).toBe("Saved 1 row; 1 was already gone"));
   });
 
   it("imports a CSV through the file picker with a preview and a mapping, adding its rows", async () => {
@@ -428,8 +448,8 @@ describe("pasting, importing, and changing the shape", () => {
 
   it("changes no column of a tab over a table, and asks before deleting its rows, which Undo cannot bring back", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [{ __key: 7, item: "Paint" }, { __key: 9, item: "Glue" }] });
-    const write = vi.fn().mockResolvedValue({ changes: 1 });
-    (window as { kos?: unknown }).kos = { query, write, save: vi.fn().mockResolvedValue({}) };
+    const writes = vi.fn().mockResolvedValue({ done: 1, results: [{ changes: 1 }] });
+    (window as { kos?: unknown }).kos = { query, write: vi.fn(), writes, save: vi.fn().mockResolvedValue({}) };
     const root = mount({ sheets: [{ name: "S", columns: [{ label: "Item", column: "item" }], source: { table: "supplies", key: "id" } }] });
     await vi.waitFor(() => expect(cells(root)).toHaveLength(2));
     click(root, "Item: column menu");
@@ -442,6 +462,6 @@ describe("pasting, importing, and changing the shape", () => {
     click(root, "Delete row");
     expect(root.querySelector(".sheet-panel")!.textContent).toContain("Delete 1 row from the table supplies? Undo cannot bring it back.");
     click(root.querySelector(".sheet-panel")!, "Delete row");
-    await vi.waitFor(() => expect(write).toHaveBeenCalledWith("supplies", "delete", {}, { column: "id", value: 9 }));
+    await vi.waitFor(() => expect(writes).toHaveBeenCalledWith([{ table: "supplies", op: "delete", key: { column: "id", value: 9 } }]));
   });
 });
