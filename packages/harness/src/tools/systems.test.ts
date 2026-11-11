@@ -660,6 +660,22 @@ describe("systems.migrate risk", () => {
       expect(file("artifacts/memo.html")).toBe("<h1>Memo</h1><p>Final</p><p>Final</p>");
     });
 
+    it("is the only way to change part of a document: files.* gives an artifact's document no new content", async () => {
+      await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1>" });
+      await registry.execute("files.write", { path: "scratch/x.html", content: "<iframe></iframe>" });
+      for (const [tool, args] of [
+        ["files.write", { path: "artifacts/memo.html", content: "<iframe></iframe>" }],
+        ["files.edit", { path: "artifacts/Memo.html", find: "Memo", replace: "x" }],
+        ["files.cp", { from: "scratch/x.html", to: "artifacts/memo.html" }],
+        ["files.mv", { from: "scratch/x.html", to: "artifacts/memo.html" }],
+      ] as const) {
+        const got = await registry.execute(tool, args);
+        expect(got.content, tool).toMatch(/is the artifact memo's document, which files.\* does not change: change part of it with artifacts.patch/);
+      }
+      expect(file("artifacts/memo.html")).toBe("<h1>Memo</h1>");
+      expect((await registry.execute("files.read", { path: "artifacts/memo.html" })).isError).toBe(false);
+    });
+
     it("holds the result to every check a write holds", async () => {
       await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1>" });
       const leaving = await patch("memo", [{ find: "<h1>Memo</h1>", replace: '<h1>Memo</h1><iframe src="https://example.com"></iframe>' }]);

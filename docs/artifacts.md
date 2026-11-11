@@ -251,6 +251,9 @@ the document. A doc is patched in its stored form: what its runtime draws
 an edit that adds `data-kos-gen` is refused. The guide and the agent's
 instructions say to patch a targeted change and rewrite with
 `artifacts.write` only for a redesign; "Edit with KOS" asks the same.
+`files.write`, `files.edit`, and a `files.cp` or `files.mv` onto it never
+give an artifact's document new content, which would skip every check and
+keep no version; they point to `artifacts.patch`.
 
 ## The owner's edits
 

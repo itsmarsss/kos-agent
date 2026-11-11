@@ -68,16 +68,26 @@ function usable(ws: Workspace, path: string): string {
 }
 
 function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
-  /** An artifact's file, version or capture is reached as the artifacts tools reach it: by its owner's chats. */
-  const fenced = (path: string, what: "read" | "change", whole = false): string => {
+  /**
+   * An artifact's file, version or capture is reached as the artifacts tools
+   * reach it: by its owner's chats. Its document is never given new content
+   * here (`replace`: a write, an edit, a copy or move onto it), which would
+   * skip every check a write makes and keep no version.
+   */
+  const fenced = (path: string, what: "read" | "change" | "replace", whole = false): string => {
     const abs = usable(ws, path);
     const pages = ctx.services?.pages;
     if (!pages) return abs;
     const rel = relative(ws.root, abs);
     const reach = reachOf(ctx);
+    const as = what === "replace" ? "change" : what;
     // A folder taken whole (rm, mv, cp) takes every artifact under it, so each one's owner must be this chat's to reach.
-    const why = artifactFileRefusal(pages, rel, reach, what) ?? (whole ? artifactFolderRefusal(pages, rel, reach, what) : undefined);
+    const why = artifactFileRefusal(pages, rel, reach, as) ?? (whole ? artifactFolderRefusal(pages, rel, reach, as) : undefined);
     if (why) throw new Error(why);
+    const record = what === "replace" ? pages.recordAt(rel) : undefined;
+    if (record && foldedPath(ws.root, rel) === foldedPath(ws.root, record.path)) {
+      throw new Error(`${rel} is the artifact ${record.id}'s document, which files.* does not change: change part of it with artifacts.patch, or all of it with artifacts.write, so it is checked and kept as a version`);
+    }
     return abs;
   };
   ctx.registerTool(
@@ -117,7 +127,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const abs = fenced(str(input, "path"), "change");
+      const abs = fenced(str(input, "path"), "replace");
       mkdirSync(dirname(abs), { recursive: true });
       writeFileSync(abs, str(input, "content"));
       return "ok";
@@ -140,7 +150,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const abs = fenced(str(input, "path"), "change");
+      const abs = fenced(str(input, "path"), "replace");
       const before = readFileSync(abs, "utf8");
       const find = str(input, "find");
       if (!before.includes(find)) throw new Error("find string not present");
@@ -199,7 +209,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const to = fenced(str(input, "to"), "change");
+      const to = fenced(str(input, "to"), "replace");
       mkdirSync(dirname(to), { recursive: true });
       copyFileSync(fenced(str(input, "from"), "read", true), to);
       return "ok";
@@ -218,7 +228,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const to = fenced(str(input, "to"), "change");
+      const to = fenced(str(input, "to"), "replace");
       mkdirSync(dirname(to), { recursive: true });
       renameSync(fenced(str(input, "from"), "change", true), to);
       return "ok";
