@@ -618,6 +618,11 @@ export async function handleApiRequest(
   const notFound: ApiResponse = { status: 404, body: { error: "not found" } };
   if (extension?.open?.includes(path)) return (await extension.handle(req)) ?? notFound;
 
+  // A change asked by another site's page in the owner's browser is refused, token or none: with none, nothing else would stop it.
+  if (crossSiteWrite(req, options.allowedOrigins)) {
+    return { status: 403, body: { error: "a change to KOS is asked from the dashboard itself, not from another site" } };
+  }
+
   // A configured token guards every route. Reads leak workspace state just as
   // surely as writes change it. With no token the server is loopback-only.
   if (options.token && !authorized(req, options.token)) {
@@ -3148,6 +3153,35 @@ export function authorized(req: ApiRequest, token: string): boolean {
   if (auth?.startsWith("Bearer ") && auth.slice(7) === token) return true;
   const x = header(headers, "x-kos-token");
   return x === token;
+}
+
+/** The extensions KOS for Chrome runs as: their pages and worker send their own origin. */
+const EXTENSION_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
+
+/**
+ * Whether a request that changes something came from a web page other than
+ * the dashboard's own. A browser says where a request came from (Origin on
+ * every POST, Sec-Fetch-Site beside it); a program that is not a browser
+ * (KOS for Mac, the CLI, a provider's webhook) says neither and is let by,
+ * as are KOS for Chrome's own origin and any origin on the allowlist. The
+ * dashboard's own origin is its host as the request names it, or as a proxy
+ * in front passes it on. An opaque origin ("null", a sandboxed frame such
+ * as an artifact's) is no one's.
+ */
+export function crossSiteWrite(req: ApiRequest, allowedOrigins: readonly string[] = []): boolean {
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return false;
+  const headers = req.headers ?? {};
+  const origin = header(headers, "origin");
+  if (origin !== undefined && (EXTENSION_ORIGIN.test(origin) || allowedOrigins.includes(origin))) return false;
+  if (origin === undefined) return header(headers, "sec-fetch-site") === "cross-site";
+  let host: string;
+  try {
+    host = new URL(origin).host;
+  } catch {
+    return true;
+  }
+  const own = [header(headers, "host"), header(headers, "x-forwarded-host")].filter((h): h is string => !!h);
+  return !own.includes(host);
 }
 
 function header(

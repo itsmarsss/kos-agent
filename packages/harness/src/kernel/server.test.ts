@@ -11,7 +11,7 @@ import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { RATES_KEY } from "../ops/spend.js";
 import { cronSessionId } from "./session.js";
 import { caller } from "./caller.js";
-import { handleApiRequest, mentionsOf, withFrames } from "./server.js";
+import { crossSiteWrite, handleApiRequest, mentionsOf, withFrames } from "./server.js";
 
 const stub: Inference = {
   async generate() {
@@ -1331,6 +1331,34 @@ describe("handleApiRequest", () => {
       expect(seen).not.toContain("/api/devicesX");
       await handleApiRequest(kernel, { method: "GET", path: "/api/devicesX", headers: owner }, { token: "secret", extensions });
       expect(seen).not.toContain("/api/devicesX");
+    });
+
+    it("refuses a change another site's page asks for, and lets the dashboard, KOS for Chrome and programs by", async () => {
+      kernel.pages.writeHtml(null, { id: "memo", title: "Memo", html: "<p>memo</p>" });
+      const post = (headers: Record<string, string>, path = "/api/artifacts/memo/rename") =>
+        handleApiRequest(kernel, { method: "POST", path, body: { title: "Taken" }, headers: { host: "127.0.0.1:4317", ...headers } });
+      for (const headers of [
+        { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
+        { origin: "http://127.0.0.1:4422", "sec-fetch-site": "same-site" },
+        { origin: "null", "sec-fetch-site": "cross-site" },
+        { "sec-fetch-site": "cross-site" },
+        { origin: "chrome-extension://not-an-extension" },
+      ]) {
+        const res = await post(headers);
+        expect(res.status, JSON.stringify(headers)).toBe(403);
+      }
+      // Every change, not only an artifact's.
+      expect((await post({ origin: "https://evil.example" }, "/api/memory")).status).toBe(403);
+      expect(kernel.pages.record("memo")?.title).toBe("Memo");
+      // A read is the browser's to keep from another site, by CORS.
+      expect((await handleApiRequest(kernel, { method: "GET", path: "/api/artifacts", headers: { host: "127.0.0.1:4317", origin: "https://evil.example" } })).status).toBe(200);
+      // The dashboard itself, through a proxy that passes its host on, KOS for Chrome, an allowed origin, and a program that sends no origin.
+      expect((await post({ origin: "http://127.0.0.1:4317", "sec-fetch-site": "same-origin" })).status).toBe(200);
+      expect((await post({ host: "127.0.0.1:4317", "x-forwarded-host": "kos.example", origin: "https://kos.example" })).status).toBe(200);
+      expect((await post({ origin: `chrome-extension://${"a".repeat(32)}`, "sec-fetch-site": "none" })).status).toBe(200);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/memo/rename", body: { title: "Allowed" }, headers: { host: "127.0.0.1:4317", origin: "https://ok.example" } }, { allowedOrigins: ["https://ok.example"] })).status).toBe(200);
+      expect((await post({})).status).toBe(200);
+      expect(crossSiteWrite({ method: "POST", path: "/api/x" })).toBe(false);
     });
 
     it("leaves the no-token loopback case open", async () => {

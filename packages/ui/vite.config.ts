@@ -21,7 +21,12 @@ export default defineConfig({
         changeOrigin: true,
         configure: (proxy) => proxy.on("proxyReqWs", (req) => req.setHeader("origin", new URL(apiTarget).origin)),
       },
-      "/api": { target: apiTarget, changeOrigin: true },
+      // A change from another site is refused, by its origin: through the proxy the dashboard's is the API's own too.
+      "/api": {
+        target: apiTarget,
+        changeOrigin: true,
+        configure: (proxy) => proxy.on("proxyReq", (req) => req.getHeader("origin") && req.setHeader("origin", new URL(apiTarget).origin)),
+      },
     },
   },
 });
