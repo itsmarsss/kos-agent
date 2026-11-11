@@ -49,7 +49,7 @@ Write down, for yourself, three things: the one subject, who reads it, and the s
 ## Build on KOS's tokens
 
 The frame sets KOS's tokens for the current theme and paints KOS's ground, so plain markup reads as KOS. Build from them; define no colours of your own.
-- Colour: --bg (the ground), --panel (a surface set apart), --panel-2 (a control, a row under the pointer), --line and --line-strong (rules, borders), --text, --muted, --faint (labels, times), --accent (what to act on, a link, the chosen thing; never kickers, rules or decoration) with --on-accent, and --ok, --warn, --danger. A tint is color-mix(in srgb, var(--accent) 14%, transparent).
+- Colour: --bg (the ground), --panel (a surface set apart), --panel-2 (a control, a row under the pointer), --line and --line-strong (rules, borders), --text, --muted (secondary words, labels, times), --faint (decoration only: it is below AA for text), --accent (what to act on, a link, the chosen thing; never kickers, rules or decoration) with --on-accent, and --ok, --warn, --danger. A tint is color-mix(in srgb, var(--accent) 14%, transparent).
 - Type: the system face, already on the body; sizes --text-xs to --text-2xl; var(--mono) for code and ids; weights 400, 500, 600 and 700 only.
 - Shape: --r-sm (7 px) for a control, --r-md (10 px) for a box. Borders separate; only what floats casts a shadow.
 - Leave the body's background, colour, font and padding alone: the dashboard sets the frame in its column, with its gutter, so the artifact's edges line up with its head.
@@ -62,7 +62,7 @@ A short example, for a cycling training log:
     .day { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); }
     .day.today { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
     section + section { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--line); }
-    .label { font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+    .label { font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 
 ## Both themes
 

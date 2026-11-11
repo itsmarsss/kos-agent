@@ -41,6 +41,8 @@ describe("artifactGuide", () => {
     expect(text).toMatch(/KOS's own look, the default/);
     expect(text).toMatch(/Distinctive, only for a piece clearly meant to stand apart/);
     expect(text).not.toMatch(/--paper: #/);
+    // --faint is below AA for text in light: labels are --muted.
+    expect(text).not.toMatch(/color: var\(--faint\)/);
   });
 
   it("names the generated looks the check now looks for", () => {
