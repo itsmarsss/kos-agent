@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { GUARD_SCRIPT, pageDocument, wrapperDocument } from "@kos/shared";
+import { FRAME_QUERY_WAIT_MS, GUARD_SCRIPT, pageDocument, wrapperDocument } from "@kos/shared";
 import { DONE_MS, REVEAL_MS, ownerIn, revealAllowed, saveAllowed } from "./frameheight.js";
 
 /**
@@ -390,6 +390,39 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
    * a block from the "/" menu, then a save of its own through kos.save once
    * the typing stops, which the bridge sends only at the owner's hand.
    */
+  /*
+   * Queries go out two at a time, and one whose answer never comes gives its
+   * turn up after a bounded wait, refused in words: the rest still run.
+   */
+  it("answers a page's queries two at a time, and gives up on one that never comes back", async () => {
+    const html = `<script>
+      const out = {};
+      ["never", "a", "b", "c"].forEach((q) => kos.query(q).then((r) => { out[q] = r.rows[0].v }, (e) => { out[q] = "refused: " + e.message }).then(() => top.postMessage({ out }, "*")));
+    </script>`;
+    const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [] }));
+    pages.set("/queries", `<!doctype html><body><iframe id="f" sandbox="allow-scripts" srcdoc="${srcdoc(frame)}"></iframe><script>
+      const f = document.getElementById("f");
+      let open = 0, most = 0, asked = [];
+      addEventListener("message", (e) => {
+        const page = f.contentWindow.frames[0], m = e.data || {};
+        if (e.source !== page) return;
+        if (m.out) { document.body.dataset.out = JSON.stringify(m.out); return; }
+        if (m.__kos !== "call" || m.method !== "query") return;
+        asked.push(m.args.sql); open += 1; most = Math.max(most, open);
+        document.body.dataset.most = String(most); document.body.dataset.asked = asked.join(",");
+        if (m.args.sql === "never") return;
+        setTimeout(() => { open -= 1; page.postMessage({ __kos: "reply", id: m.id, result: { rows: [{ v: m.args.sql }] } }, "*"); }, 50);
+      });
+    </script></body>`);
+    await send("Page.navigate", { url: `${base}/queries` });
+    await until("(JSON.parse(document.body.dataset.out || '{}').c || '') === 'c'");
+    expect(String(await value("document.body.dataset.most"))).toBe("2");
+    await until("'never' in JSON.parse(document.body.dataset.out || '{}')", FRAME_QUERY_WAIT_MS + 5_000);
+    const out = JSON.parse(String(await value("document.body.dataset.out"))) as Record<string, string>;
+    expect(out).toEqual({ a: "a", b: "b", c: "c", never: `refused: the query had no answer in ${FRAME_QUERY_WAIT_MS / 1000} s; KOS may be busy, so try again` });
+    expect(String(await value("document.body.dataset.asked"))).toBe("never,a,b,c");
+  }, FRAME_QUERY_WAIT_MS + 20_000);
+
   it("edits a doc in place, markdown and the slash menu, and saves on its own through the bridge", async () => {
     const { build } = await import("esbuild");
     const bundled = await build({ entryPoints: [join(import.meta.dirname, "../../pagelib/doc.ts")], bundle: true, write: false, format: "iife", target: "chrome120", charset: "ascii", logLevel: "silent" });

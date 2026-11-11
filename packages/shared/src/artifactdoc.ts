@@ -44,6 +44,14 @@ export const FRAME_HEIGHT_MAX = 50_000;
  */
 export const FRAME_QUERIES = 2;
 
+/**
+ * How long a frame waits on one query's answer before giving its turn up:
+ * the server stops a query at 2 s, so a reply this late is one that is not
+ * coming (the relay dropped it, the dashboard went away). It is refused in
+ * words the page can show, and a late answer is ignored.
+ */
+export const FRAME_QUERY_WAIT_MS = 10_000;
+
 /** What a page may load: nothing from the network. */
 export const PAGE_CSP = [
   "default-src 'none'",
@@ -169,7 +177,8 @@ export function tokenRule(tokens: Record<string, string>, mode: "light" | "dark"
  * frame, or just after the shell's own Done.
  *
  * Queries go out FRAME_QUERIES at a time, in the order asked; the rest wait
- * in the frame, so how many a page asks at once is never a refusal.
+ * in the frame, so how many a page asks at once is never a refusal. One with
+ * no answer in FRAME_QUERY_WAIT_MS gives its turn up and is refused.
  */
 export const BRIDGE_SCRIPT = `(function(){
 var gestures=new MessageChannel(),gport=gestures.port1,tell=MessagePort.prototype.postMessage,apply=Reflect.apply,listen=EventTarget.prototype.addEventListener;
@@ -191,9 +200,12 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 addEventListener("load",measure);
 Element.prototype.scrollIntoView=function(o){if(inner())into.call(this,o);reveal(this,o===false?"end":o&&typeof o==="object"&&o.block||"start")};
 }
-function call(method,args){return new Promise(function(resolve,reject){var id=++seq;waiting[id]={resolve:resolve,reject:reject};top.postMessage({__kos:"call",id:id,method:method,args:args},"*");});}
+function call(method,args,sent){return new Promise(function(resolve,reject){var id=++seq;if(sent)sent.id=id;waiting[id]={resolve:resolve,reject:reject};top.postMessage({__kos:"call",id:id,method:method,args:args},"*");});}
 var asking=0,asks=[];
-function ask(){while(asking<${FRAME_QUERIES}&&asks.length){var a=asks.shift();asking++;call("query",a.args).then(a.resolve,a.reject).then(function(){asking--;ask()})}}
+function send(a){var sent={},over=false,timer=setTimeout(function(){if(end())a.reject(new Error("the query had no answer in ${FRAME_QUERY_WAIT_MS / 1000} s; KOS may be busy, so try again"))},${FRAME_QUERY_WAIT_MS});
+function end(){if(over)return false;over=true;clearTimeout(timer);delete waiting[sent.id];asking--;ask();return true}
+asking++;call("query",a.args,sent).then(function(r){if(end())a.resolve(r)},function(e){if(end())a.reject(e)})}
+function ask(){while(asking<${FRAME_QUERIES}&&asks.length)send(asks.shift())}
 function report(message){try{top.postMessage({__kos:"error",message:String(message).slice(0,2000)},"*");}catch(_){}}
 addEventListener("message",function(e){
 if(e.source!==top)return;var m=e.data||{};
