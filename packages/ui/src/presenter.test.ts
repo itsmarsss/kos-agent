@@ -72,6 +72,10 @@ describe("the audience window's link", () => {
   it("hears only signals it knows, with a place that is a slide", () => {
     expect(readSignal({ type: "hello" })).toEqual({ type: "hello" });
     expect(readSignal({ type: "hello", version: 17 })).toEqual({ type: "hello", version: 17 });
+    expect(readSignal({ type: "trouble", words: " It broke " })).toEqual({ type: "trouble", words: "It broke" });
+    expect((readSignal({ type: "trouble", words: "x".repeat(900) }) as { words: string }).words).toHaveLength(400);
+    expect(readSignal({ type: "trouble", words: 7 })).toBeUndefined();
+    expect(readSignal({ type: "trouble", words: "  " })).toBeUndefined();
     expect(readSignal({ type: "go", index: 2, version: 17 })).toEqual({ type: "go", index: 2, version: 17 });
     expect(readSignal({ type: "go", index: 2, version: "17" })).toEqual({ type: "go", index: 2 });
     expect(readSignal({ type: "end", extra: 1 })).toEqual({ type: "end" });

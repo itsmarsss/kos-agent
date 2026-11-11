@@ -94,6 +94,9 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
   stale.current = onStale;
   const caught = useRef(new Set<number>());
 
+  // What went wrong in a slide's frame or the audience window, said once here and never over the slide.
+  const [trouble, setTrouble] = useState<string>();
+  const troubled = useCallback((words: string) => setTrouble((was) => was ?? words), []);
   useEffect(() => {
     const l = presentLink(session);
     link.current = l;
@@ -107,13 +110,14 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
         }
         l.post({ type: "go", index: place.current, version: version.current });
       } else if (signal.type === "moved") setIndex(clampSlide(signal.index, slides.current));
+      else if (signal.type === "trouble") troubled(signal.words);
     });
     return () => {
       stop();
       l.close();
       link.current = null;
     };
-  }, [session]);
+  }, [session, troubled]);
   // The place, and the version with it: told again when this reads a newer one.
   useEffect(() => link.current?.post({ type: "go", index, version: record.updatedAt }), [index, record.updatedAt]);
   // A window the owner closed is closed: there is no event for it in the window that opened it.
@@ -212,9 +216,6 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
     };
   }, []);
 
-  // What went wrong in a slide's frame, said once here and never over the slide.
-  const [trouble, setTrouble] = useState<string>();
-  const troubled = useCallback((words: string) => setTrouble((was) => was ?? words), []);
   // The notes and the slide they are of, from one report, so the label never names a slide the notes are not yet of.
   const said = currentView?.said ?? [];
   const saidOf = (currentView?.index ?? index) + 1;

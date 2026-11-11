@@ -46,6 +46,21 @@ async function audience(): Promise<{ box: HTMLElement; stage: HTMLElement; heard
 }
 
 describe("the audience window", () => {
+  it("says it is up before the deck is read, and tells the presenter when it cannot read it", async () => {
+    vi.spyOn(api, "anyPage").mockRejectedValue(new Error("not found"));
+    const presenter = new BroadcastChannel(`kos-present:${session}`);
+    const heard: PresentSignal[] = [];
+    presenter.onmessage = (e) => {
+      const s = readSignal(e.data);
+      if (s) heard.push(s);
+    };
+    render(<AudienceWindow id="pitch" session={session} />);
+    await waitFor(() => expect(heard).toContainEqual({ type: "hello" }));
+    await waitFor(() => expect(heard).toContainEqual({ type: "trouble", words: "The audience window could not load the deck: not found" }));
+    expect(screen.getByRole("alert").textContent).toBe("not found");
+    presenter.close();
+  });
+
   it("hides its bar and the pointer when the mouse rests, and shows them when it moves", async () => {
     const { box } = await audience();
     vi.useFakeTimers();

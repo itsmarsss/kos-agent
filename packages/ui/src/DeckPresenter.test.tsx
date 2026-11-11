@@ -158,6 +158,9 @@ describe("the presenter view", () => {
     say({ type: "hello", version: record.updatedAt - 1 });
     await new Promise((r) => setTimeout(r, 50));
     expect(stale).toHaveBeenCalledTimes(1);
+    // What went wrong over there is said here, as text.
+    say({ type: "trouble", words: "The audience window could not load the deck: <b>gone</b>" });
+    await waitFor(() => expect(within(view).getByRole("alert").textContent).toBe("The audience window could not load the deck: <b>gone</b>"));
     // A key in the audience window moved its deck: the presenter follows.
     say({ type: "moved", index: 0 });
     await waitFor(() => expect(within(view).getByText("Slide 1 of 4")).toBeTruthy());

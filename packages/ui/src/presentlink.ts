@@ -15,7 +15,12 @@ export type PresentSignal =
   /** The audience's deck moved on its own (a key pressed in that window), for the presenter to follow. */
   | { type: "moved"; index: number }
   /** Presenting is over: the audience window closes. */
-  | { type: "end" };
+  | { type: "end" }
+  /** What went wrong in the audience window, in its words, for the presenter to show (as text). */
+  | { type: "trouble"; words: string };
+
+/** At most this much of what the audience window says went wrong. */
+const TROUBLE_CHARS = 400;
 
 const stamp = (v: unknown): { version: number } | Record<string, never> => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? { version: v } : {});
 
@@ -27,6 +32,10 @@ export function readSignal(data: unknown): PresentSignal | undefined {
   const m = data as { type?: unknown; index?: unknown; version?: unknown };
   if (m.type === "hello") return { type: m.type, ...stamp(m.version) };
   if (m.type === "end") return { type: m.type };
+  if (m.type === "trouble") {
+    const words = (data as { words?: unknown }).words;
+    return typeof words === "string" && words.trim() ? { type: m.type, words: words.trim().slice(0, TROUBLE_CHARS) } : undefined;
+  }
   if (m.type === "go" || m.type === "moved") {
     const index = place(m.index);
     if (index === undefined) return undefined;

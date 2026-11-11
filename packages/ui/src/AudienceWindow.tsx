@@ -42,6 +42,11 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
    */
   const [ask, setAsk] = useState(0);
   const asked = useRef(new Set<number>());
+  // A deck it could not read is said here, and to the presenter, who is the one looking.
+  const said = (words: string): void => {
+    setError(words);
+    link.current?.post({ type: "trouble", words: `The audience window could not load the deck: ${words}` });
+  };
   useEffect(() => {
     let stale = false;
     api.anyPage(id).then(
@@ -49,9 +54,9 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
         if (stale) return;
         // The same version read again keeps its frame, rather than starting the deck over.
         if (p.kind === "html" && p.record.artifactKind === "deck") setGot((was) => (was?.record.updatedAt === p.record.updatedAt ? was : { record: p.record, page: p.page }));
-        else setError("This is not a deck, so it has nothing to present.");
+        else said("This is not a deck, so it has nothing to present.");
       },
-      (err: unknown) => !stale && setError(err instanceof Error ? err.message : String(err)),
+      (err: unknown) => !stale && said(err instanceof Error ? err.message : String(err)),
     );
     return () => {
       stale = true;
@@ -76,6 +81,8 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
         }
       } else if (signal.type === "end") window.close();
     });
+    // Up, before the deck is read: the presenter knows the window is there, and hears again once it has the deck (below).
+    l.post({ type: "hello" });
     return () => {
       stop();
       l.close();
