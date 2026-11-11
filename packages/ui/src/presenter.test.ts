@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clampSlide, clockElapsed, clockRunning, clockWords, moveSlide, pauseClock, presenterKey, resetClock, resumeClock, slideAfter, startClock } from "./presenter.js";
+import { clampSlide, clockElapsed, clockRunning, clockWords, followDeck, moveSlide, pauseClock, presenterKey, resetClock, resumeClock, slideAfter, startClock, unfollowed } from "./presenter.js";
 import { audienceHash, audienceRoute, presentSession, readSignal } from "./presentlink.js";
 
 describe("the presenter's place", () => {
@@ -83,5 +83,36 @@ describe("the audience window's link", () => {
     expect(presentSession()).not.toBe(session);
     expect(audienceRoute(audienceHash("pitch deck/2", session))).toEqual({ id: "pitch deck/2", session });
     for (const bad of ["#/artifacts/pitch", "#/audience/pitch", "#/audience/pitch/NOT-HEX", "#/audience/%E0%A4%A/abcdef0123"]) expect(audienceRoute(bad)).toBeUndefined();
+  });
+});
+
+describe("keeping a deck frame on a slide", () => {
+  it("tells a frame the place wanted, once, and knows when it is there", () => {
+    let s = followDeck(unfollowed, 3, 0);
+    expect(s.go).toBe(3);
+    // A report of the place before the go landed, as the deck's own report of handing over its bar: let pass.
+    s = followDeck(s.follow, 3, 0);
+    expect(s.go).toBeUndefined();
+    expect(s.moved).toBeUndefined();
+    s = followDeck(s.follow, 3, 3);
+    expect(s.follow).toEqual({ told: 3, shown: true });
+    // Already there: nothing to tell.
+    expect(followDeck(unfollowed, 0, 0)).toEqual({ follow: { told: 0, shown: true } });
+  });
+
+  it("follows a new place wanted, and lets the last one's reports pass", () => {
+    let s = followDeck({ told: 3, shown: true }, 4, 3);
+    expect(s.go).toBe(4);
+    s = followDeck(s.follow, 5, 3);
+    expect(s.go).toBe(5);
+    expect(followDeck(s.follow, 5, 4).moved).toBeUndefined();
+  });
+
+  it("says when the frame moved on its own, once it had shown its place", () => {
+    const s = followDeck({ told: 2, shown: true }, 2, 3);
+    expect(s.moved).toBe(3);
+    expect(s.follow).toEqual({ told: 3, shown: true });
+    // The caller follows: the place wanted is the frame's now, and nothing goes back.
+    expect(followDeck(s.follow, 3, 3).go).toBeUndefined();
   });
 });

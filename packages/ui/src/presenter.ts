@@ -80,3 +80,34 @@ export function clockWords(ms: number): string {
   const sec = String(s % 60).padStart(2, "0");
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
 }
+
+/**
+ * Keeping one deck frame on a slide: the place it was last told, and whether
+ * it has shown that place since. A deck says where it is after everything it
+ * does, so a report can still be of the place before a `go` landed; one that
+ * differs before the frame has shown what it was told is that, and is let
+ * pass. One that differs after is the deck moving on its own (a key in the
+ * audience window), for the caller to follow or to put right.
+ */
+export interface Follow {
+  told: number | undefined;
+  shown: boolean;
+}
+
+export const unfollowed: Follow = { told: undefined, shown: false };
+
+export interface FollowStep {
+  follow: Follow;
+  /** Tell the frame to go here. */
+  go?: number;
+  /** The frame moved here on its own. */
+  moved?: number;
+}
+
+/** What to do as the place wanted or the place the frame reports changes. */
+export function followDeck(f: Follow, want: number, seen: number): FollowStep {
+  if (f.told !== want) return seen === want ? { follow: { told: want, shown: true } } : { follow: { told: want, shown: false }, go: want };
+  if (seen === want) return { follow: f.shown ? f : { told: want, shown: true } };
+  if (!f.shown) return { follow: f };
+  return { follow: { told: seen, shown: true }, moved: seen };
+}
