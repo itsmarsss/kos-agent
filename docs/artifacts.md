@@ -28,7 +28,7 @@ and `artifacts.write` refuses a kind without its structure (a doc with no
 article, a deck with no slides, a sheet whose data is not a valid workbook)
 with the reason. The runtimes are KOS's own build, inlined like the
 libraries, and each is small: about 17 KB for the doc, 15 KB for the deck,
-33 KB for the sheet, minified.
+80 KB for the sheet (its formula engine and editing), minified.
 
 ## Where artifacts live
 

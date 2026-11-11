@@ -19,7 +19,9 @@
  * are its migrations', changed by asking KOS.
  */
 
-import { SHEET_ROWS_MAX, type SheetBook, type SheetCell, type SheetColumn, type SheetColumnType, type SheetTab } from "@kos/shared";
+import type { SheetBook, SheetCell, SheetColumn, SheetColumnType, SheetTab } from "@kos/shared";
+// The one module, not the package's index, which would inline all of @kos/shared into the runtime.
+import { SHEET_ROWS_MAX } from "@kos/shared/artifacts";
 import { Workbook, columnLetter, findColumn, formatValue, isError, isNumeric, literalOf, sortValue, sourceQuery, sourceRows, totalsRow, type Value } from "@kos/shared/sheetformula";
 
 import { bar, line, pie } from "./chartdraw.js";
