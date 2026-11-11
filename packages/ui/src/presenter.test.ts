@@ -96,8 +96,38 @@ describe("keeping a deck frame on a slide", () => {
     expect(s.moved).toBeUndefined();
     s = followDeck(s.follow, 3, 3);
     expect(s.follow).toEqual({ told: 3, shown: true });
-    // Already there: nothing to tell.
-    expect(followDeck(unfollowed, 0, 0)).toEqual({ follow: { told: 0, shown: true } });
+    // Already there, and nothing in flight: nothing to tell.
+    expect(followDeck({ told: 1, shown: true }, 0, 0)).toEqual({ follow: { told: 0, shown: true } });
+    // A frame never told anything is told, even where it seems to be.
+    expect(followDeck(unfollowed, 0, 0).go).toBe(0);
+  });
+
+  it("keeps a move made while a go is in flight: next then prev before the report", () => {
+    // On slide 2, shown; next: told 3.
+    let s = followDeck({ told: 2, shown: true }, 3, 2);
+    expect(s.go).toBe(3);
+    // Prev before the frame said anything: the report still says 2, but the go to 3 lands after it, so 2 is told again.
+    s = followDeck(s.follow, 2, 2);
+    expect(s.go).toBe(2);
+    // The frame lands on 3 (the first go), then 2: neither is a move of its own.
+    s = followDeck(s.follow, 2, 3);
+    expect(s.moved).toBeUndefined();
+    expect(s.go).toBeUndefined();
+    s = followDeck(s.follow, 2, 2);
+    expect(s.follow).toEqual({ told: 2, shown: true });
+  });
+
+  it("keeps Home pressed at startup before the first go landed", () => {
+    // Opened on slide 5; the frame first says 0, and is told 5.
+    let s = followDeck(unfollowed, 5, 0);
+    expect(s.go).toBe(5);
+    // Home before it shows 5: the frame still says 0, but 5 is on its way, so 0 is told.
+    s = followDeck(s.follow, 0, 0);
+    expect(s.go).toBe(0);
+    s = followDeck(s.follow, 0, 5);
+    expect(s.moved).toBeUndefined();
+    s = followDeck(s.follow, 0, 0);
+    expect(s.follow).toEqual({ told: 0, shown: true });
   });
 
   it("follows a new place wanted, and lets the last one's reports pass", () => {

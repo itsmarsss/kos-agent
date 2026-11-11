@@ -106,7 +106,8 @@ export interface FollowStep {
 
 /** What to do as the place wanted or the place the frame reports changes. */
 export function followDeck(f: Follow, want: number, seen: number): FollowStep {
-  if (f.told !== want) return seen === want ? { follow: { told: want, shown: true } } : { follow: { told: want, shown: false }, go: want };
+  // A new place: told, unless the frame already shows it and nothing told it is still in flight (a go not yet shown lands later, wherever it was going).
+  if (f.told !== want) return f.shown && seen === want ? { follow: { told: want, shown: true } } : { follow: { told: want, shown: false }, go: want };
   if (seen === want) return { follow: f.shown ? f : { told: want, shown: true } };
   if (!f.shown) return { follow: f };
   return { follow: { told: seen, shown: true }, moved: seen };

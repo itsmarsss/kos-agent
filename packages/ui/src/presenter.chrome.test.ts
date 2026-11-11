@@ -212,6 +212,17 @@ describe.skipIf(!CHROME)("the presenter view and its audience window in a real C
     await until(async () => (await count()) === "Slide 3 of 4", "the presenter to follow the audience");
     await all(["3", "4"], "after the audience's next");
 
+    // Keys back to back, each before the frames have said where the last one took them: every window ends where the keys did.
+    // Pressed in the page, a task apart, so no frame's report can land between two of them.
+    await raw("Runtime.evaluate", { expression: `(async () => { for (const k of ["ArrowRight", "ArrowLeft", "ArrowLeft", "ArrowRight", "ArrowLeft"]) { dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true })); await new Promise((r) => setTimeout(r, 0)); } })()`, awaitPromise: true }, presenter);
+    await until(async () => (await count()) === "Slide 2 of 4", "the presenter on slide 2");
+    await all(["2", "3"], "after keys back to back");
+    await room("2");
+    // And it stays there: no late report is taken for a move of the frame's own.
+    await pause(500);
+    expect(await count()).toBe("Slide 2 of 4");
+    expect(await shown(audience)).toEqual(["2"]);
+
     // Escape ends it, and the audience window closes with it.
     await key(presenter, "Escape", 27);
     await until(async () => {
