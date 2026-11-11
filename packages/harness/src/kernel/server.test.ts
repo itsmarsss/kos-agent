@@ -1614,7 +1614,8 @@ describe("handleApiRequest", () => {
         expect(html).toContain('<iframe sandbox="allow-scripts" allow="fullscreen"');
         expect(html).toContain("<html data-mode=&quot;dark&quot; data-theme=&quot;dark&quot; data-kind=&quot;doc&quot; data-export>");
         expect(html).toContain("<title>Shelf: the brief</title>");
-        expect(html).toContain('<article data-doc><h1>The brief</h1>');
+        // As the browser parsed it, its link, meta and base hints taken out first.
+        expect(html).toContain('<article data-doc=&quot;&quot;><h1>The brief</h1>');
         expect(html).toContain("default-src 'none'");
         expect(html).not.toContain("secret-token-value");
         expect(res.headers?.["content-security-policy"]).toBe("sandbox; default-src 'none'");
