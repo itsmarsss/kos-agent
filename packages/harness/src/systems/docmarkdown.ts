@@ -42,9 +42,15 @@ interface Context {
 /**
  * Markdown's own characters in running text, escaped so they read as
  * themselves: an underscore only where it could start or end emphasis, so
- * snake_case stays as written.
+ * snake_case stays as written; a tilde, which GitHub reads as strikethrough
+ * when doubled; and an ampersand that would start an entity, so "&amp;" in
+ * the text stays those five characters.
  */
-const escapeText = (text: string): string => text.replace(/([\\`*[\]<])/g, "\\$1").replace(/(^|[^\p{L}\p{N}])_|_(?=[^\p{L}\p{N}]|$)/gu, (m) => m.replace("_", "\\_"));
+const escapeText = (text: string): string =>
+  text
+    .replace(/([\\`*[\]<~])/g, "\\$1")
+    .replace(/&(?=#\d+;|#x[\da-f]+;|[a-z][a-z\d]*;)/gi, "\\&")
+    .replace(/(^|[^\p{L}\p{N}])_|_(?=[^\p{L}\p{N}]|$)/gu, (m) => m.replace("_", "\\_"));
 
 /** What would start a block at the head of a line (a heading, a quote, a list item, a rule), escaped; a digit cannot be, so a number's dot is. */
 const escapeLineStart = (line: string): string =>
@@ -72,8 +78,8 @@ function wrap(mark: string, inner: string): string {
   return m[2] ? `${m[1]}${mark}${m[2]}${mark}${m[3]}` : inner;
 }
 
-/** A URL in a link or an image: spaces and parentheses would end it. */
-const url = (href: string): string => href.trim().replace(/[\s()<>]/g, (c) => encodeURIComponent(c));
+/** A URL in a link or an image: spaces, parentheses and angle brackets would end it, so each is percent-encoded (encodeURIComponent leaves parentheses). */
+const url = (href: string): string => href.trim().replace(/[\s()<>]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`);
 
 /** Running text as Markdown, its whitespace collapsed as a browser draws it. */
 function inline(nodes: Node[], ctx: Context): string {
@@ -229,7 +235,8 @@ function figure(el: Element, ctx: Context): string {
 function block(el: Element, ctx: Context): string {
   const tag = el.tagName;
   const heading = /^h([1-6])$/.exec(tag);
-  if (heading) return `${"#".repeat(Number(heading[1]))} ${inline(el.childNodes, ctx).replace(/\\\n/g, " ").trim()}`;
+  // A heading's trailing #s would read as its closing sequence and vanish.
+  if (heading) return `${"#".repeat(Number(heading[1]))} ${inline(el.childNodes, ctx).replace(/\\\n/g, " ").trim().replace(/(#+)$/, "\\$1")}`;
   switch (tag) {
     case "p": {
       const text = paragraph(inline(el.childNodes, ctx));
@@ -310,5 +317,6 @@ export function docMarkdown(html: string): string {
   const ctx: Context = { notes: [], figures: 0 };
   const body = root ? blocks(root.childNodes, ctx) : [];
   const notes = ctx.notes.map((note, i) => prefixed(note, `[^${i + 1}]: `, "    "));
-  return `${[...body, ...(notes.length ? [notes.join("\n")] : [])].join("\n\n").replace(/\n{3,}/g, "\n\n").trim()}\n`;
+  // Never collapse blank lines here: inside a fenced block they are the code's own.
+  return `${[...body, ...(notes.length ? [notes.join("\n")] : [])].join("\n\n").trim()}\n`;
 }

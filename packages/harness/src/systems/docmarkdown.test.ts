@@ -57,4 +57,11 @@ describe("a doc as Markdown", () => {
   it("reads the body when there is no article, and leaves out scripts and styles", () => {
     expect(docMarkdown("<style>p{}</style><h1>Plain</h1><p>Text</p><script>x()</script>")).toBe("# Plain\n\nText\n");
   });
+
+  it("keeps a code block's blank lines, encodes a URL's parentheses, and escapes a heading's closing #, tildes and entities", () => {
+    const md = docMarkdown(
+      doc(`<h2>Learning C#</h2><pre><code>one\n\n\n\ntwo</code></pre><p><a href="#notes-(draft)">Notes</a> and ~~not struck~~ and &amp;amp; or &amp;#169; but R&amp;D stays.</p>`),
+    );
+    expect(md).toBe("## Learning C\\#\n\n```\none\n\n\n\ntwo\n```\n\n[Notes](#notes-%28draft%29) and \\~\\~not struck\\~\\~ and \\&amp; or \\&#169; but R&D stays.\n");
+  });
 });
