@@ -240,8 +240,17 @@ UTF-8. Each export, and each refusal, is kept in the audit log as
   its work has truly ended. The artifact is drawn in its wrapper, its reads
   answered live by the same server-side checks the frame's are and never
   written; then the frame as it was drawn (its markup without scripts, its
-  stylesheets, a canvas as its picture) is printed with `Page.printToPDF`
-  in a second sealed tab that runs no script. A deck prints by its
+  stylesheets, a canvas as its picture) is printed with `Page.printToPDF`.
+  That snapshot is read in the artifact's frame after its code ran, which
+  can replace every method the reading calls, so it is untrusted text: the
+  server rebuilds it with parse5 against an allowlist of what a printed page
+  is made of (`systems/printsafe.ts`: no script, frame, object, form, link,
+  meta or base, no handler, `srcdoc` or `javascript:`, no `foreignObject` or
+  SVG animation, a `use` or link only to `#id`, images only as `data:`, and
+  every `url()` in a style to anything but `data:` or `#id` dropped), under
+  its own policy that loads and runs nothing, and puts it in a second sealed
+  tab with no request at all (`Page.setDocumentContent`), with scripts off
+  and the network offline on the tab and every frame Chrome attaches. A deck prints by its
   runtime's print rules on 16:9 pages, every slide whole and nothing after
   the last; a doc on US Letter with margins, on white, its runtime's print
   rules keeping a heading with what follows it and a figure, table, quote

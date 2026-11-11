@@ -22,6 +22,7 @@ import { writeZip } from "../files/zip.js";
 import { artifactFrame, defaultPageLib, hostDocument, loadAssets, type CheckBrowser, type FrameAssets, type Theme } from "./artifactcheck.js";
 import { docMarkdown } from "./docmarkdown.js";
 import { SNAPSHOT, SealedTab, type RelayedCall } from "./exportrender.js";
+import { printDocument } from "./printsafe.js";
 import { SourceRefusal, tabCsv, withSources, type SourcePage } from "./sheetcsv.js";
 
 /**
@@ -50,7 +51,9 @@ import { SourceRefusal, tabCsv, withSources, type SourcePage } from "./sheetcsv.
  * is heard from that document alone. The artifact is drawn in its wrapper as
  * on the dashboard (hostDocument), its reads answered live through the same
  * checks, read-only. A PDF is then the frame as it was drawn (SNAPSHOT),
- * printed in a second sealed tab that runs no script at all, in the light
+ * which the artifact's own code had the last word on, so it is rebuilt on
+ * the server against an allowlist (printsafe.ts) and printed in a second
+ * sealed tab with no request, no script in any frame and no network, in the light
  * theme unless asked otherwise: a deck by its own print rules on 16:9 pages,
  * a doc on Letter with margins, keeping headings with what follows and
  * figures and tables whole. An export given up past its timeout has its
@@ -343,7 +346,7 @@ export class ArtifactExporter {
     }
     const pdf = await this.inChrome(async (cdp, serve, job) => {
       const { snapshot } = await this.draw(cdp, serve, job, id, page, theme, assets, true);
-      return this.print(cdp, serve, job, kind, snapshot!, assets.tokens[theme]);
+      return this.print(cdp, job, kind, snapshot!, assets.tokens[theme]);
     });
     return { body: pdf, type: "application/pdf", name: exportName(title, "pdf") };
   }
@@ -485,18 +488,20 @@ export class ArtifactExporter {
     throw new Error("the artifact's frame never started: its document may be malformed");
   }
 
-  /** The drawn frame printed in a sealed tab that runs no script, on the kind's paper. */
-  private async print(cdp: CdpClient, serve: CheckBrowser["serve"], job: Job, kind: string, snapshot: string, tokens: Record<string, string>): Promise<Buffer> {
-    const extra = `<style>@media print{html{padding:0}}${kind === "page" ? paperGround(tokens) : ""}</style>`;
-    const html = snapshot.includes("</head>") ? snapshot.replace("</head>", `${extra}</head>`) : snapshot;
-    const tab = await SealedTab.open(cdp, { scripts: false, track: job.track });
+  /**
+   * The drawn frame printed: its snapshot, which the artifact's own code had
+   * the last word on, rebuilt on the server as a document safe to print
+   * (printsafe.ts), put in a sealed tab with no request (setDocumentContent)
+   * that runs no script in any frame and is offline from the start.
+   */
+  private async print(cdp: CdpClient, job: Job, kind: string, snapshot: string, tokens: Record<string, string>): Promise<Buffer> {
+    const html = printDocument(snapshot, `@media print{html{padding:0}}${kind === "page" ? paperGround(tokens) : ""}`);
+    const tab = await SealedTab.open(cdp, { scripts: false, offline: true, track: job.track });
     try {
       const view = kind === "deck" ? VIEW.deck : VIEW.other;
       await cdp.send("Emulation.setDeviceMetricsOverride", { ...view, deviceScaleFactor: 1, mobile: false }, tab.sessionId);
-      const loaded = tab.loaded(5000);
-      await tab.navigate(await serve(html));
-      await loaded;
-      await sleep(150);
+      await tab.setContent(html);
+      await sleep(300);
       if (job.aborted) throw new Error("the export was given up");
       const printed = (await cdp.send(
         "Page.printToPDF",

@@ -101,10 +101,16 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-deck.js")))("artifact ex
     let listener: Server;
     let base: string;
     const hits: string[] = [];
+    const sockets: string[] = [];
     beforeAll(async () => {
       listener = createServer((req, res) => {
         hits.push(req.url ?? "");
         res.end("ok");
+      });
+      // A WebSocket is no request Fetch sees: counted on its own.
+      listener.on("upgrade", (req, socket) => {
+        sockets.push(req.url ?? "");
+        socket.destroy();
       });
       await new Promise<void>((ok) => listener.listen(0, "127.0.0.1", ok));
       base = `http://127.0.0.1:${(listener.address() as AddressInfo).port}`;
@@ -120,6 +126,27 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-deck.js")))("artifact ex
       PAGES["leaky doc"] = { id: "leaky doc", kind: "doc", title: "Leaky doc", html: `<article data-doc><h1>Leaky doc</h1><p>Text.</p></article>${leak("doc").replace("<h1>Leaky</h1>", "")}` };
     });
     afterAll(() => listener?.close());
+
+    it("prints what its own code hands back as the snapshot without running any of it", async () => {
+      sockets.length = 0;
+      hits.length = 0;
+      const ws = base.replace("http:", "ws:");
+      // The snapshot is read in the artifact's frame after its code, so the code can say what it is: here a page that runs and calls out.
+      const evil = `<html><head><meta http-equiv="refresh" content="0;url=${base}/refresh"><link rel="preconnect" href="${base}/pre"></head><body><h1>Evil print</h1>` +
+        `<iframe sandbox="allow-scripts" srcdoc="<script>new WebSocket('${ws}/frame')</script>"></iframe>` +
+        `<svg><script>new WebSocket("${ws}/svg")</script><foreignObject><iframe srcdoc="<script>new WebSocket('${ws}/foreign')</script>"></iframe></foreignObject></svg>` +
+        `<img src="${base}/img"><p style="background:url(${base}/css)">x</p></body></html>`;
+      PAGES.override = {
+        id: "override",
+        title: "Override",
+        html: `<h1>Override</h1><script>var evil=${JSON.stringify(evil).replace(/</g, "\\u003c")};Object.defineProperty(Element.prototype,"outerHTML",{get:function(){return evil},configurable:true});</script>`,
+      };
+      const file = await exporter.export("override", "pdf");
+      expect((await pdfText(new Uint8Array(file.body))).text).toMatch(/Evil print/);
+      await new Promise((r) => setTimeout(r, 1500));
+      expect(hits).toEqual([]);
+      expect(sockets).toEqual([]);
+    }, 60_000);
 
     it("reaches nothing while KOS draws it for an HTML export or prints it", async () => {
       asked.length = 0;

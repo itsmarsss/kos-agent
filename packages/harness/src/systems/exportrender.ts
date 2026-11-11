@@ -23,8 +23,10 @@ import { parseRelay } from "./artifactcheck.js";
  */
 
 export interface SealedOptions {
-  /** Whether the tab runs scripts: a snapshot to print runs none. */
+  /** Whether the tab runs scripts: a snapshot to print runs none, in its frame or any other. */
   scripts: boolean;
+  /** Whether the tab is offline from the start (DevTools' own network emulation), which no socket, WebSocket or prefetch passes. */
+  offline?: boolean;
   /** Told each target the tab is, so whoever holds the job can close it. */
   track: (targetId: string) => void;
 }
@@ -60,6 +62,7 @@ export class SealedTab {
     readonly targetId: string,
     readonly sessionId: string,
     private readonly relay: ((call: RelayedCall | "left") => void) | undefined,
+    private readonly options: SealedOptions,
   ) {
     this.sessions.add(sessionId);
   }
@@ -69,17 +72,32 @@ export class SealedTab {
     const { targetId } = (await cdp.send("Target.createTarget", { url: "about:blank" })) as { targetId: string };
     options.track(targetId);
     const { sessionId } = (await cdp.send("Target.attachToTarget", { targetId, flatten: true })) as { sessionId: string };
-    const tab = new SealedTab(cdp, targetId, sessionId, relay);
+    const tab = new SealedTab(cdp, targetId, sessionId, relay, options);
     tab.off = cdp.on((e) => tab.heard(e));
-    await cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*" }] }, sessionId);
-    await cdp.send("Runtime.enable", {}, sessionId);
+    await tab.lock(sessionId);
     await cdp.send("Page.enable", {}, sessionId);
-    if (!options.scripts) await cdp.send("Emulation.setScriptExecutionDisabled", { value: true }, sessionId);
     if (relay) await cdp.send("Runtime.addBinding", { name: "kosRelay" }, sessionId);
     await cdp.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, sessionId);
     const tree = (await cdp.send("Page.getFrameTree", {}, sessionId)) as { frameTree: { frame: { id: string } } };
     tab.mainFrame = tree.frameTree.frame.id;
     return tab;
+  }
+
+  /** The locks every session of the tab gets, its own and each frame's Chrome attaches beside it. */
+  private async lock(session: string): Promise<void> {
+    const { cdp, options } = this;
+    await cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*" }] }, session);
+    if (options.offline) {
+      await cdp.send("Network.enable", {}, session);
+      await cdp.send("Network.emulateNetworkConditions", { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 }, session);
+    }
+    if (!options.scripts) await cdp.send("Emulation.setScriptExecutionDisabled", { value: true }, session);
+    await cdp.send("Runtime.enable", {}, session);
+  }
+
+  /** Put this document in the tab's own frame, with no request at all. */
+  async setContent(html: string): Promise<void> {
+    await this.cdp.send("Page.setDocumentContent", { frameId: this.mainFrame, html }, this.sessionId);
   }
 
   /** Load the one document the tab may have. */
@@ -123,11 +141,11 @@ export class SealedTab {
     if (e.method === "Target.attachedToTarget") {
       const child = p.sessionId as string;
       this.sessions.add(child);
-      void (async () => {
-        await this.cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*" }] }, child).catch(() => undefined);
-        await this.cdp.send("Runtime.enable", {}, child).catch(() => undefined);
-        await this.cdp.send("Runtime.runIfWaitingForDebugger", {}, child).catch(() => undefined);
-      })();
+      // Held until it has the tab's locks: a frame in a process of its own gets no script, no network, no request the tab would refuse.
+      void this.lock(child)
+        .catch(() => undefined)
+        .then(() => this.cdp.send("Runtime.runIfWaitingForDebugger", {}, child))
+        .catch(() => undefined);
     } else if (e.method === "Fetch.requestPaused") {
       const url = (p.request as { url: string }).url;
       const requestId = p.requestId as string;
@@ -162,7 +180,10 @@ export class SealedTab {
  * script: its markup with the scripts, links, frames and refreshes taken
  * out, every stylesheet it ended with (a runtime's, a library's rules put in
  * through the CSSOM) written as one, a canvas as the picture it drew, and
- * the frame's own scroll set aside. Run in the frame.
+ * the frame's own scroll set aside. Run in the frame, after the artifact's
+ * own code, which can replace every method this calls: what comes back is
+ * the artifact's word, not KOS's, and is only ever printed once printsafe.ts
+ * has rebuilt it.
  */
 export const SNAPSHOT = String.raw`(function(){
 var root=document.documentElement,clone=root.cloneNode(true);
