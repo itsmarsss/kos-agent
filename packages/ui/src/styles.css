@@ -7189,9 +7189,10 @@ html.has-presenter { overflow: hidden; }
 .presenter-main, .presenter-side { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .presenter-main { gap: 12px; }
 .presenter-side { gap: 16px; }
-.presenter-stage { flex: 1; min-height: 0; container-type: size; display: grid; place-items: center; }
+.presenter-stage { flex: 1; min-height: 0; container-type: size; display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .presenter-slide { position: relative; aspect-ratio: 16 / 9; border-radius: var(--r-md); overflow: hidden; box-shadow: 0 0 0 1px var(--line); background: var(--panel); }
-.presenter-slide--current { width: min(100cqw, calc(100cqh * 16 / 9)); cursor: pointer; }
+/* As large as the column allows, leaving the controls' row under it. */
+.presenter-slide--current { width: min(100cqw, calc((100cqh - 44px) * 16 / 9)); flex: none; cursor: pointer; }
 .presenter-slide--next { width: 100%; }
 .presenter-slide--next[data-end] .presenter-frame { visibility: hidden; }
 .presenter-end { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: var(--text-md); }
@@ -7212,7 +7213,7 @@ html.has-presenter { overflow: hidden; }
   .presenter { overflow-y: auto; grid-template-rows: auto auto; }
   .presenter-head { flex-wrap: wrap; }
   .presenter-body { grid-template-columns: minmax(0, 1fr); padding: 16px; }
-  .presenter-stage { container-type: normal; display: block; }
+  .presenter-stage { container-type: normal; }
   .presenter-slide--current { width: 100%; }
   .presenter-slide--next { width: min(100%, 22rem); }
 }

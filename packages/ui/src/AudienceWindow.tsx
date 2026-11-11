@@ -94,7 +94,7 @@ export function AudienceWindow({ id, session }: { id: string; session: string })
         <header className="audience-bar">
           <span className="audience-words">
             <span className="label">Audience</span>
-            <span>{got ? `${got.record.title}: drag this window to the screen the room sees, then` : "Opening the deck"}</span>
+            <span>{got ? `${got.record.title}: drag this window to the screen the room sees, then press Full screen` : "Opening the deck"}</span>
           </span>
           <button type="button" className="btn btn--sm" disabled={!got} onClick={fullScreen}>
             <FullscreenIcon />

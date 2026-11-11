@@ -234,18 +234,18 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
                 <ArtifactPage ref={current} record={record} page={page} locked presenting onDeck={setCurrentView} />
               </div>
             </div>
+            <nav className="presenter-steer" aria-label="Slides">
+              <IconButton label="Previous slide" disabled={index === 0} onClick={() => go("prev")}>
+                <ChevronLeft size={16} title="" />
+              </IconButton>
+              <span className="presenter-count" aria-live="polite">
+                Slide {index + 1} of {count}
+              </span>
+              <IconButton label="Next slide" disabled={after === undefined} onClick={() => go("next")}>
+                <ChevronRight size={16} title="" />
+              </IconButton>
+            </nav>
           </div>
-          <nav className="presenter-steer" aria-label="Slides">
-            <IconButton label="Previous slide" disabled={index === 0} onClick={() => go("prev")}>
-              <ChevronLeft size={16} title="" />
-            </IconButton>
-            <span className="presenter-count" aria-live="polite">
-              Slide {index + 1} of {count}
-            </span>
-            <IconButton label="Next slide" disabled={after === undefined} onClick={() => go("next")}>
-              <ChevronRight size={16} title="" />
-            </IconButton>
-          </nav>
         </section>
         <aside className="presenter-side">
           <section className="presenter-next" aria-label="Next slide">
