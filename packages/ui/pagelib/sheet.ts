@@ -101,6 +101,9 @@ class Sheet {
   private resizeWatch: ResizeObserver | undefined;
   /** The sheet's content width as its observer last saw it, which a chart's layout depends on. */
   private chartsAt = 0;
+  /** The frame a resize waits for before it redraws, and the width it saw last. */
+  private resizeFrame = 0;
+  private resizeAt = 0;
 
   constructor(
     private readonly book: SheetBook,
@@ -114,12 +117,17 @@ class Sheet {
     if (typeof ResizeObserver === "function") {
       // The charts follow the width the observer sees, so a change of height alone never redraws them; drawn before the sheet was laid out, they are drawn again once it is.
       this.resizeWatch = new ResizeObserver(([e]) => {
-        const w = Math.round(e?.contentRect.width ?? 0);
-        if (w !== 0 && w !== this.chartsAt) {
-          this.chartsAt = w;
-          this.drawCharts();
-        }
-        this.markMore();
+        this.resizeAt = Math.round(e?.contentRect.width ?? 0);
+        // Redrawn on the next frame, outside the observer's callback: a redraw changes the sheet's height, which the observer would otherwise have to report again in the same frame.
+        if (this.resizeFrame) return;
+        this.resizeFrame = (globalThis.requestAnimationFrame ?? setTimeout)(() => {
+          this.resizeFrame = 0;
+          if (this.resizeAt !== 0 && this.resizeAt !== this.chartsAt) {
+            this.chartsAt = this.resizeAt;
+            this.drawCharts();
+          }
+          this.markMore();
+        }) as unknown as number;
       });
       this.resizeWatch.observe(this.root);
     }
