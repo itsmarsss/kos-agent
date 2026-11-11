@@ -457,7 +457,12 @@ function defineSystemsTools(ctx: ModuleContext): void {
     { tags: ["systems"] },
   );
 
-  /** The artifact a management call names, held to who may change it: never from a guest's words, which run no artifact tool at all. */
+  /**
+   * The artifact a management call names, held to who may change it. A
+   * guest's turn is offered none of these tools (GUEST_TOOLS); work a guest's
+   * words started and that was handed on to a chat that has them is refused
+   * here, wherever it ran.
+   */
   const changeable = (input: Record<string, unknown>, reach: Reach): string => {
     if (reach.guest) throw new Error("a guest's words started this work, and artifacts are the owner's and KOS's to change; tell the owner (notify) what was asked");
     const id = str(input, "id");

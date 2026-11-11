@@ -1160,7 +1160,6 @@ export const api = {
   /** One kept version of an HTML artifact, to look at before restoring it. */
   pageVersion: (id: string, version: number) => get<HtmlPage>(`/api/pages/${encodeURIComponent(id)}/versions/${version}`),
   /** Put a page back as it was at a version; `base`, the version it was opened at, refuses one made on a page changed since (409). */
-  /** Delete what a removed blob made, which is the owner's alone to let go. */
   pageRollback: (id: string, version: number, base?: number) => post<PageSummary>(`/api/pages/${encodeURIComponent(id)}/rollback`, { version, ...(base !== undefined ? { base } : {}) }),
   mutate: (req: MutateRequest) => post<MutateResult>("/api/mutate", req),
   conversations: (includeArchived = false) =>
