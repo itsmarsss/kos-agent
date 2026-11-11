@@ -7228,7 +7228,8 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .artifact-card-time { margin-left: auto; white-space: nowrap; }
 
 /* One artifact, full size: its head, then the artifact as part of the page. */
-.artifact-view { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+/* A container, so the head folds by the room the viewer has (beside a chat, it is narrow on a wide screen), not by the window. */
+.artifact-view { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; container: artifact-view / inline-size; }
 /* The viewer's head: one compact row that sticks over the artifact as it scrolls by (ArtifactHead.tsx). */
 .artifact-view-head {
   position: sticky;
@@ -7241,10 +7242,17 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
   min-height: 46px;
   padding: 8px 0;
   margin-top: -8px;
+  border-bottom: 1px solid var(--line);
+}
+/* The frosted ground on a layer of its own: a backdrop filter on the head itself would make it the box its fixed menus are placed in. */
+.artifact-view-head::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
   background: color-mix(in srgb, var(--bg) 95%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--line);
 }
 .artifact-view-back { flex: none; }
 /* Sized by the row, never by the title, so a long one is cut rather than widening the page. */
@@ -7283,6 +7291,7 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .artifact-view-menu { position: fixed; z-index: 60; min-width: 12rem; max-width: min(20rem, calc(100vw - 16px)); padding: 3px; border-color: var(--line-strong); transform-origin: top right; }
 .artifact-view-menu button { padding: 0.4rem 0.55rem; }
 .artifact-view-menu button[aria-checked="true"] { color: var(--accent); }
+.artifact-view-menu [role="menu"] { display: flex; flex-direction: column; }
 .artifact-view-about { margin: 0 0 3px; padding: 6px 8px 9px; color: var(--muted); font-size: var(--text-sm); line-height: 1.45; border-bottom: 1px solid var(--line); }
 /* Wider, the row holds these itself. */
 .artifact-view-menu button.artifact-view-narrow, .artifact-view-menu-wrap.artifact-view-narrow { display: none; }
@@ -7309,12 +7318,6 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
   .artifact-card-desc { display: none; }
   .artifact-card-meta { flex-wrap: wrap; gap: 4px 6px; }
   .artifact-card-owner { order: -1; flex-basis: 100%; }
-  /* A phone: one line, the title and the menu; Done stays in reach while editing. */
-  .artifact-view-head { gap: 6px; }
-  .artifact-view-wide, .artifact-view-meta, .artifact-view-sep, .artifact-view-status, .artifact-view-owner > span:last-child { display: none; }
-  .artifact-view-owner { margin-left: 0; padding: 3px; }
-  .artifact-view-menu button.artifact-view-narrow { display: block; }
-  .artifact-view-menu-wrap.artifact-view-narrow { display: block; }
 }
 
 /* —— a project's or a blob's artifacts (ArtifactRail.tsx), and one open in place of the thread —— */
@@ -7345,6 +7348,15 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 }
 .chats-view.has-inline > :not(.chats-inline) { display: none; }
 .chats-inline { flex: 1; min-height: 0; overflow-y: auto; padding: 0.25rem 0.75rem 3rem; }
+/* Narrow (a phone, or beside a chat): one line, the title and the menu; Done, and a save that failed, stay in reach. */
+@container artifact-view (max-width: 560px) {
+  .artifact-view-head { gap: 6px; }
+  .artifact-view-wide, .artifact-view-meta, .artifact-view-sep, .artifact-view-status:not(.is-bad), .artifact-view-owner > span:last-child { display: none; }
+  .artifact-view-status { max-width: 9rem; }
+  .artifact-view-owner { margin-left: 0; padding: 3px; }
+  .artifact-view-menu button.artifact-view-narrow { display: block; }
+  .artifact-view-menu-wrap.artifact-view-narrow { display: block; }
+}
 /* Below the phone bar, which sticks at the top of a narrow window; in place of a chat, at the top of its own scroll. */
 @media (max-width: 860px) {
   .artifact-view-head { top: 3.25rem; }

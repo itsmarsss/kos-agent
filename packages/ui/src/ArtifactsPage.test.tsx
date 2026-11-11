@@ -262,6 +262,30 @@ describe("one artifact, full size", () => {
     expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "notes" }, "*");
   });
 
+  it("keeps its description and the rest in a menu the keyboard can walk", async () => {
+    const record = ART[2]!;
+    vi.spyOn(api, "anyPage").mockResolvedValue({ record: { ...record, description: "Why the garden, in six slides." }, kind: "html", page: { id: "pitch", title: "Garden pitch", kind: "deck", html: "<main data-deck><section>a</section></main>" } } as never);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
+    render(<ArtifactViewer id="pitch" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
+    const more = await screen.findByRole("button", { name: "More" });
+    fireEvent.click(more);
+    const menu = screen.getByRole("menu", { name: "More" });
+    // The description is said about the menu, not one of its items.
+    expect(within(menu).queryByText("Why the garden, in six slides.")).toBeNull();
+    expect(menu.getAttribute("aria-describedby")).toBeTruthy();
+    expect(document.getElementById(menu.getAttribute("aria-describedby")!)!.textContent).toBe("Why the garden, in six slides.");
+    const items = within(menu).getAllByRole("menuitem");
+    await waitFor(() => expect(document.activeElement).toBe(items[0]));
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(items[1]);
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(items[items.length - 1]);
+    fireEvent.keyDown(menu, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    expect(document.activeElement).toBe(more);
+  });
+
   it("restores on the version the doc's own last save made, not the one first opened", async () => {
     const record = { ...ART[3]!, artifactKind: "doc" as const };
     vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "ledger", title: "Ledger", kind: "doc", html: "<p>x</p>" } } as never);

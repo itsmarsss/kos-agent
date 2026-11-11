@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight, IconButton, MoreIcon, Tag, arrive, ease, useDismiss } from "@kos/kit";
 import { relativeWords } from "@kos/shared";
 import { AnimatePresence, m } from "motion/react";
-import { useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type Ref } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactElement, type ReactNode, type Ref } from "react";
 
 import type { PageSummary } from "./api.js";
 import { ConfirmButton } from "./kit.js";
@@ -182,39 +182,76 @@ function ViewerMenu({ about, items }: { about?: string; items: MenuItem[] }): Re
   const [open, setOpen] = useState(false);
   const [place, setPlace] = useState<CSSProperties>({});
   const wrap = useRef<HTMLDivElement>(null);
-  useDismiss(open, () => setOpen(false), { inside: [wrap] });
+  const button = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const aboutId = useId();
+  // Escape closes it here and gives the focus back to its button.
+  const close = (refocus: boolean): void => {
+    setOpen(false);
+    if (refocus) button.current?.focus();
+  };
+  useDismiss(open, () => close(false), { inside: [wrap], escape: false });
+  // The focus moves into it as it opens, onto the first item the row has no room for.
+  useEffect(() => {
+    if (open) visible()[0]?.focus();
+  }, [open]);
   if (!about && !items.length) return null;
-  const toggle = (button: HTMLElement): void => {
-    const r = button.getBoundingClientRect();
-    setPlace({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
+  const visible = (): HTMLElement[] => [...(list.current?.querySelectorAll<HTMLElement>("[role^='menuitem']") ?? [])].filter((el) => getComputedStyle(el).display !== "none");
+  const keys = (e: KeyboardEvent<HTMLDivElement>): void => {
+    const all = visible();
+    const at = all.indexOf(document.activeElement as HTMLElement);
+    const go = (i: number): void => {
+      e.preventDefault();
+      all[(i + all.length) % all.length]?.focus();
+    };
+    if (e.key === "ArrowDown") go(at + 1);
+    else if (e.key === "ArrowUp") go(at < 0 ? -1 : at - 1);
+    else if (e.key === "Home") go(0);
+    else if (e.key === "End") go(-1);
+    else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      close(true);
+    } else if (e.key === "Tab") close(false);
+  };
+  const toggle = (): void => {
+    const r = button.current?.getBoundingClientRect();
+    if (r) setPlace({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
     setOpen((v) => !v);
   };
   // Only the narrow ones: the menu has nothing more to say wider when it holds no description and nothing else.
   const wideEmpty = !about && items.every((i) => i.narrow);
   return (
     <div className={`artifact-view-menu-wrap${wideEmpty ? " artifact-view-narrow" : ""}`} ref={wrap}>
-      <IconButton className="artifact-view-more" label="More" aria-haspopup="menu" aria-expanded={open} onClick={(e) => toggle(e.currentTarget)}>
+      <IconButton ref={button} className="artifact-view-more" label="More" aria-haspopup="menu" aria-expanded={open} onClick={toggle}>
         <MoreIcon title="" />
       </IconButton>
       <AnimatePresence>
         {open && (
-          <m.div className="chats-menu artifact-view-menu" role="menu" style={place} variants={arrive} initial="hidden" animate="show" exit="hidden" transition={ease}>
-            {about && <p className="artifact-view-about">{about}</p>}
-            {items.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                role={item.pressed === undefined ? "menuitem" : "menuitemcheckbox"}
-                {...(item.pressed === undefined ? {} : { "aria-checked": item.pressed })}
-                className={item.narrow ? "artifact-view-narrow" : undefined}
-                onClick={() => {
-                  setOpen(false);
-                  item.act();
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
+          <m.div className="chats-menu artifact-view-menu" style={place} variants={arrive} initial="hidden" animate="show" exit="hidden" transition={ease} onKeyDown={keys}>
+            {about && (
+              <p className="artifact-view-about" id={aboutId}>
+                {about}
+              </p>
+            )}
+            <div role="menu" aria-label="More" ref={list} {...(about ? { "aria-describedby": aboutId } : {})}>
+              {items.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  tabIndex={-1}
+                  role={item.pressed === undefined ? "menuitem" : "menuitemcheckbox"}
+                  {...(item.pressed === undefined ? {} : { "aria-checked": item.pressed })}
+                  className={item.narrow ? "artifact-view-narrow" : undefined}
+                  onClick={() => {
+                    close(false);
+                    item.act();
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
           </m.div>
         )}
       </AnimatePresence>
