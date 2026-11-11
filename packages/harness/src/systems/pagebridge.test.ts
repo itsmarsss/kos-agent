@@ -174,8 +174,8 @@ describe("the page bridge", () => {
   it("changes one row by its key, refusing a key that names more", () => {
     const page = bridge({ capabilities: { writes: [{ table: "budget_tx", columns: ["amount", "note"], allow: ["insert", "update", "delete"] }] } });
     ws.db.exec("INSERT INTO budget_tx (amount, note) VALUES (1, 'dup'), (2, 'dup')");
-    expect(() => pageWrite(ws.db, page, { table: "budget_tx", op: "update", key: { column: "note", value: "dup" }, values: { amount: 9 } })).toThrow(/names 2 rows/);
-    expect(() => pageWrite(ws.db, page, { table: "budget_tx", op: "delete", key: { column: "note", value: "dup" } })).toThrow(/names 2 rows/);
+    expect(() => pageWrite(ws.db, page, { table: "budget_tx", op: "update", key: { column: "note", value: "dup" }, values: { amount: 9 } })).toThrow(/names more than one row/);
+    expect(() => pageWrite(ws.db, page, { table: "budget_tx", op: "delete", key: { column: "note", value: "dup" } })).toThrow(/names more than one row/);
     expect(ws.db.prepare("SELECT COUNT(*) AS n FROM budget_tx WHERE note = 'dup' AND amount < 3").get()).toEqual({ n: 2 });
     expect(pageWrite(ws.db, page, { table: "budget_tx", op: "delete", key: { column: "id", value: 1 } }).changes).toBe(1);
     // Already gone: nothing changes, and the result says so.

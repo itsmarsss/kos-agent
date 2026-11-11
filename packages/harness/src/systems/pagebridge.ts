@@ -168,8 +168,9 @@ function applyEdit(db: Db, target: MutationTarget, edit: WidgetEdit): MutationRe
     if (edit.op !== "insert") {
       const table = assertIdentifier(target.table, "table");
       const column = assertIdentifier(edit.key.column, "key column");
-      const { n } = db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${column} = ?`).get(edit.key.value) as { n: number };
-      if (n > 1) throw new BridgeRefusal(`the key ${edit.key.column} = ${String(edit.key.value)} names ${n} rows, and a page changes one row at a time`);
+      // Two matches are enough to know: a key column with no index is scanned only that far.
+      const { n } = db.prepare(`SELECT COUNT(*) AS n FROM (SELECT 1 FROM ${table} WHERE ${column} = ? LIMIT 2)`).get(edit.key.value) as { n: number };
+      if (n > 1) throw new BridgeRefusal(`the key ${edit.key.column} = ${String(edit.key.value)} names more than one row, and a page changes one row at a time`);
     }
     return executeMutation(db, target, edit);
   } catch (err) {
