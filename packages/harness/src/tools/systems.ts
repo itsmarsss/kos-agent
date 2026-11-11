@@ -5,6 +5,7 @@ import { parseChangeSpec } from "../systems/migrate.js";
 import { deleteProject } from "../systems/remove.js";
 import type { CreateProjectInput } from "../systems/manifest.js";
 import { artifactGuide } from "../systems/artifactguide.js";
+import { PATCH_EDITS_MAX, patchEdits, patchSummary } from "../systems/artifactpatch.js";
 import { ARTIFACT_KINDS, WORKSPACE_SCOPE, isArtifactKind } from "@kos/shared";
 import { maintains, reachable, type Reach } from "./fence.js";
 import { reachOf } from "./sql.js";
@@ -34,6 +35,21 @@ function writeDescription(canCheck: boolean): string {
   ].join("\n");
 }
 
+/**
+ * The patch tool's description: when to patch rather than write, with an
+ * example. A patch is checked as it is saved, so there is no check to ask for
+ * after it.
+ */
+function patchDescription(canCheck: boolean): string {
+  return [
+    "Change part of an artifact and leave the rest as it is: a title, a sentence, a row, a colour, one section. Prefer it to artifacts.write for any targeted change; write the whole document only for a redesign or a new structure.",
+    'Read it first with artifacts.get, then give edits against that stored HTML. Each { find, replace } needs a find copied exactly from the HTML (whitespace and entities included) that occurs exactly once: make it long enough to be unique, or set all: true to change every occurrence. { id, html } replaces the one element with that id, whole. Edits apply in order and all or none: if one fails, nothing changes, and the error says which and why. Example: { "id": "q4", "edits": [{ "find": "<h1>Q3 review</h1>", "replace": "<h1>Q4 review</h1>" }, { "find": "<td>Rent</td><td>1,800</td>", "replace": "<td>Rent</td><td>1,950</td>" }] }',
+    canCheck
+      ? "The result is held to every check artifacts.write holds, kept as a version, and then checked as artifacts.check does; it returns the new version, what changed, and the check's findings. Fix what they report with one more patch, and finish."
+      : "The result is held to every check artifacts.write holds and kept as a version; it returns the new version and what changed.",
+  ].join("\n");
+}
+
 function str(input: Record<string, unknown>, key: string): string {
   const v = input[key];
   if (typeof v !== "string" || v === "") throw new Error(`missing arg: ${key}`);
@@ -55,6 +71,7 @@ function refuseOutsideReach(project: string, reach: Reach): void {
 /** The artifact tools: a project's orchestrator is granted them for its own project's artifacts. */
 export const ARTIFACT_TOOLS = [
   "artifacts.write",
+  "artifacts.patch",
   "artifacts.list",
   "artifacts.get",
   "artifacts.history",
@@ -471,6 +488,46 @@ function defineSystemsTools(ctx: ModuleContext): void {
     refuseOtherOwnersPage(ownerOfRecord(record), reach);
     return id;
   };
+
+  ctx.registerTool(
+    {
+      name: "artifacts.patch",
+      description: patchDescription(checkArtifact !== undefined),
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          edits: {
+            type: "array",
+            description: `applied in order, all or none, at most ${PATCH_EDITS_MAX}: { find, replace } (find occurs exactly once), { find, replace, all: true } (every occurrence), or { id, html } (the element with that id, replaced whole)`,
+            items: {
+              type: "object",
+              properties: {
+                find: { type: "string", description: "an exact piece of the stored HTML, as artifacts.get returns it" },
+                replace: { type: "string" },
+                all: { type: "boolean", description: "replace every occurrence of find, not just one" },
+                id: { type: "string", description: "the id of one element to replace whole" },
+                html: { type: "string", description: "the element's new outerHTML" },
+              },
+            },
+          },
+        },
+        required: ["id", "edits"],
+      },
+    },
+    async (input) => {
+      const id = changeable(input, reachOf(ctx));
+      const edits = patchEdits(input.edits);
+      const { record, before, after, replaced } = pages.patch(id, edits);
+      const summary = JSON.stringify({ id: record.id, title: record.title, version: pages.latestVersion(id), edits: edits.length, replaced, ...patchSummary(before, after) });
+      if (!checkArtifact) return summary;
+      // The patch is kept whatever the check finds; a check that cannot run says so rather than failing what was saved.
+      const checked = await checkArtifact(id).catch((err: unknown) => ({ text: `Saved, but the check could not run: ${err instanceof Error ? err.message : String(err)}` }));
+      return { ...checked, text: `${summary}\n\n${checked.text}` };
+    },
+    { floor: "safe" },
+    { tags: ["systems"] },
+  );
 
   ctx.registerTool(
     {

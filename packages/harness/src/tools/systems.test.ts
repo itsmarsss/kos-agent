@@ -628,6 +628,78 @@ describe("systems.migrate risk", () => {
     expect(store.record("beds")).toMatchObject({ title: "Beds", projectSlug: slug });
   });
 
+  describe("artifacts.patch", () => {
+    const patch = async (id: string, edits: unknown[]): Promise<{ isError: boolean; content: string }> => registry.execute("artifacts.patch", { id, edits });
+    const file = (path: string): string => readFileSync(join(root, path), "utf8");
+    const versions = async (id: string): Promise<number> => (JSON.parse((await registry.execute("artifacts.history", { id })).content) as unknown[]).length;
+
+    it("changes one piece, keeps a version, checks it, and answers in a line rather than the document", async () => {
+      const rows = Array.from({ length: 600 }, (_, i) => `<tr><td>Item ${i}</td><td>${i * 3}</td></tr>`).join("\n");
+      const html = `<h1>Ledger</h1>\n<table>\n${rows}\n</table>`;
+      expect(html.length).toBeGreaterThan(20_000);
+      await registry.execute("artifacts.write", { id: "ledger", title: "Ledger", html });
+      const got = await patch("ledger", [{ find: "<h1>Ledger</h1>", replace: "<h1>October ledger</h1>" }, { find: "<td>Item 7</td>", replace: "<td>Rent</td>" }]);
+      expect(got.isError, got.content).toBe(false);
+      expect(got.content.length).toBeLessThan(400);
+      const [line, check] = got.content.split("\n\n");
+      expect(JSON.parse(line!)).toEqual({ id: "ledger", title: "Ledger", version: 2, edits: 2, replaced: 2, lines: { removed: 2, added: 2, of: 603 }, bytes: { before: html.length, after: html.length + 6 } });
+      expect(check).toBe("checked ledger");
+      expect(file("artifacts/ledger.html")).toBe(html.replace("<h1>Ledger</h1>", "<h1>October ledger</h1>").replace("<td>Item 7</td>", "<td>Rent</td>"));
+      expect(await versions("ledger")).toBe(2);
+    });
+
+    it("leaves the artifact as it was when any edit fails, saying which and why", async () => {
+      await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1><p>Draft</p><p>Draft</p>" });
+      const missing = await patch("memo", [{ find: "<h1>Memo</h1>", replace: "<h1>Note</h1>" }, { find: "<h2>Gone</h2>", replace: "x" }]);
+      expect(missing.content).toMatch(/edit 2: find does not occur in the stored HTML/);
+      expect((await patch("memo", [{ find: "Draft", replace: "Final" }])).content).toMatch(/find occurs 2 times/);
+      expect((await patch("memo", [{ find: "Memo", replace: "Memo" }])).content).toMatch(/nothing changed/);
+      expect(file("artifacts/memo.html")).toBe("<h1>Memo</h1><p>Draft</p><p>Draft</p>");
+      expect(await versions("memo")).toBe(1);
+      expect((await patch("memo", [{ find: "Draft", replace: "Final", all: true }])).isError).toBe(false);
+      expect(file("artifacts/memo.html")).toBe("<h1>Memo</h1><p>Final</p><p>Final</p>");
+    });
+
+    it("holds the result to every check a write holds", async () => {
+      await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1>" });
+      const leaving = await patch("memo", [{ find: "<h1>Memo</h1>", replace: '<h1>Memo</h1><iframe src="https://example.com"></iframe>' }]);
+      expect(leaving.content).toMatch(/invalid artifact: a page cannot leave its frame/);
+      expect(file("artifacts/memo.html")).toBe("<h1>Memo</h1>");
+    });
+
+    it("patches a doc's stored article, held to what the owner's editor can save", async () => {
+      const html = '<article data-doc><h1>Brief</h1><h2 id="plan">Plan</h2><p>Ship in May.</p></article>';
+      await registry.execute("artifacts.write", { id: "brief", kind: "doc", title: "Brief", html });
+      expect((await patch("brief", [{ find: "Ship in May.", replace: "Ship in June." }])).isError).toBe(false);
+      expect(file("artifacts/brief.html")).toBe(html.replace("May", "June"));
+      expect((await patch("brief", [{ id: "plan", html: '<h2 id="plan">Plan, revised</h2>' }])).isError).toBe(false);
+      expect((await patch("brief", [{ find: "<p>", replace: "<p><script>x()</script>" }])).content).toMatch(/the text inside <article data-doc> is what the owner edits/);
+      expect((await patch("brief", [{ find: "<h1>Brief</h1>", replace: '<h1>Brief</h1><nav data-kos-gen="toc"></nav>' }])).content).toMatch(/data-kos-gen/);
+      expect(file("artifacts/brief.html")).toBe('<article data-doc><h1>Brief</h1><h2 id="plan">Plan, revised</h2><p>Ship in June.</p></article>');
+      expect(store.record("brief")?.artifactKind).toBe("doc");
+    });
+
+    it("reaches only what the chat may change, never in the trash, and never from a guest's words", async () => {
+      const { slug } = JSON.parse((await registry.execute("systems.project_create", { name: "Garden", type: "tracker" })).content) as { slug: string };
+      const other = (JSON.parse((await registry.execute("systems.project_create", { name: "Pantry", type: "tracker" })).content) as { slug: string }).slug;
+      await registry.execute("artifacts.write", { project: slug, id: "beds", title: "Beds", html: "<h1>Beds</h1>" });
+      await registry.execute("artifacts.write", { project: other, id: "shelf", title: "Shelf", html: "<h1>Shelf</h1>" });
+      await registry.execute("artifacts.write", { id: "old", title: "Old", html: "<h1>Old</h1>" });
+      store.trash("old");
+      made = new Set();
+      callerProject = slug;
+      const edit = [{ find: "<h1>", replace: "<h1 class=x>" }];
+      expect((await patch("shelf", edit)).content).toMatch(/This chat is Garden's, so Pantry's artifacts are not its to change/);
+      expect((await patch("old", edit)).content).toMatch(/in the trash/);
+      expect((await patch("nope", edit)).content).toMatch(/artifact not found: nope/);
+      const guest = await guested.run({ project: slug, chat: `project:${slug}` }, () => patch("beds", edit));
+      expect(guest.content).toMatch(/a guest's words started this work/);
+      expect([file(`projects/${slug}/pages/beds.html`), file(`projects/${other}/pages/shelf.html`), file("artifacts/old.html")]).toEqual(["<h1>Beds</h1>", "<h1>Shelf</h1>", "<h1>Old</h1>"]);
+      expect((await patch("beds", edit)).isError).toBe(false);
+      expect(registry.classify("artifacts.patch", { id: "beds", edits: edit }).tier).toBe(registry.classify("artifacts.write", { id: "beds" }).tier);
+    });
+  });
+
   it("tells the model the check is not available where KOS has no Chrome", async () => {
     const bare = new ToolRegistry();
     const manifest = new ProjectManifest(ws.db);

@@ -26,6 +26,7 @@ import { foldedPath, type Workspace } from "../store/workspace.js";
 import { projectTable } from "./identifiers.js";
 import type { ProjectManifest } from "./manifest.js";
 import { unsavableDocText, withDocText } from "./artifactedit.js";
+import { applyPatch, type PatchEdit } from "./artifactpatch.js";
 import { BlobIds } from "./blobids.js";
 import { markupExits } from "./markup.js";
 import { BridgeRefusal, tablesRead } from "./pagebridge.js";
@@ -560,6 +561,29 @@ export class PageStore {
     const record = this.writeHtml(ownerOfRecord(got.record), { ...page, html });
     this.lastEdit.set(id, now);
     return record;
+  }
+
+  /**
+   * Part of an artifact changed, the rest left as it is: the edits applied
+   * to its stored HTML (artifactpatch.ts), then the whole document written
+   * where it lives through writeHtml, so a patch is held to every check a
+   * write is and kept as a version. Refused in the trash, and for an older
+   * widget page, which has no HTML to patch. Who may patch it is the
+   * caller's to check, as for a write.
+   */
+  patch(id: string, edits: PatchEdit[]): { record: PageRecord; before: string; after: string; replaced: number } {
+    const got = this.loaded(id);
+    if (got.kind !== "html") throw new Error(`${id} is an older widget page, which has no HTML to patch; rewrite it as an artifact with artifacts.write`);
+    const { html, replaced } = applyPatch(got.page.html, edits);
+    if (html === got.page.html) throw new Error("nothing changed: every edit leaves the artifact as it is");
+    const record = this.writeHtml(ownerOfRecord(got.record), { ...got.page, html });
+    return { record, before: got.page.html, after: html, replaced };
+  }
+
+  /** The number of an artifact's newest kept version, or undefined before its first. */
+  latestVersion(id: string): number | undefined {
+    const row = this.row(id);
+    return row ? this.versionNumbers(this.historyDir(ownerOfRow(row), id)).at(-1) : undefined;
   }
 
   /**
