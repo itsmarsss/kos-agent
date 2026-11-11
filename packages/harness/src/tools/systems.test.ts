@@ -788,5 +788,6 @@ describe("systems.migrate risk", () => {
     expect(JSON.parse(patched.content)).toMatchObject({ id: "memo", version: 2 });
     expect((await bare.execute("artifacts.guide", { kind: "doc" })).content).toMatch(/artifacts.check is not available here/);
     expect(registry.defs().find((d) => d.name === "artifacts.write")?.description).toMatch(/check once with artifacts.check/);
+    expect(registry.defs().find((d) => d.name === "artifacts.check")?.description).toMatch(/in one pass with artifacts.patch \(artifacts.write only for a redesign\)/);
   });
 });
