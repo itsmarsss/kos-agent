@@ -198,6 +198,8 @@ export interface CheckerOptions {
   pageLib?: () => string;
   /** A Chrome binary to use instead of the first one found. */
   chrome?: () => string | undefined;
+  /** The longest one job may hold the Chrome; JOB_MS unless a test says less. */
+  jobMs?: number;
 }
 
 /** Who is waiting on the Chrome: the agent's checks and the owner's exports first, then the gallery's redraws. */
@@ -207,12 +209,16 @@ export type Lane = "agent" | "gallery";
 export interface CheckBrowser {
   cdp: CdpClient;
   serve(html: string): Promise<string>;
+  /** Stop this Chrome, for work given up whose page may still be spinning its renderer: the next job starts a fresh one. */
+  reset(): void;
 }
 
 /** How long a render may take to settle: its runtime drawn and its queries answered. */
 const SETTLE_MS = 6000;
 /** Quiet time after the last bridge call before measuring. */
 const QUIET_MS = 700;
+/** The longest one job (a check's four renders, an export) may hold the Chrome before it is stopped. */
+export const JOB_MS = 120_000;
 /** The Chrome goes once nothing has been checked for this long. */
 const IDLE_MS = 90_000;
 const PROFILE_PREFIX = "kos-check-";
@@ -297,12 +303,33 @@ export class ArtifactChecker {
    * redraws, so a print never shares the browser with a check.
    */
   withBrowser<T>(work: (browser: CheckBrowser) => Promise<T>): Promise<T> {
-    return this.queue("agent", async () => work({ cdp: await this.browser(), serve: (html) => this.serve(html) }));
+    return this.queue("agent", async () => {
+      const cdp = await this.browser();
+      // Only the Chrome this work was handed: one started since for the next job is left alone.
+      return work({ cdp, serve: (html) => this.serve(html), reset: () => this.cdp === cdp && this.close() });
+    });
   }
 
+  /**
+   * One job at a time, each held to a ceiling: one that never ends (a page
+   * spinning its renderer, a print that hangs) is given up and the Chrome
+   * stopped, so whatever it ran goes with it and the next job starts a fresh
+   * one rather than waiting behind it.
+   */
   private queue<T>(lane: Lane, work: () => Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
-      this.waiting[lane].push(() => work().then(resolve, reject));
+      this.waiting[lane].push(() => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const ceiling = new Promise<never>((_, fail) => {
+          timer = setTimeout(() => {
+            this.close();
+            fail(new Error("the render took too long, so KOS stopped it"));
+          }, this.options.jobMs ?? JOB_MS);
+        });
+        return Promise.race([work(), ceiling])
+          .then(resolve, reject)
+          .finally(() => clearTimeout(timer));
+      });
       void this.drain();
     });
   }
