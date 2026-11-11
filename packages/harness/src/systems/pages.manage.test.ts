@@ -41,6 +41,12 @@ describe("PageStore management", () => {
     expect(pages.rename("plan", { title: "Plan B" }).description).toBe("What happens in spring.");
     expect(pages.rename("plan", { description: "" }).description).toBeUndefined();
     expect(() => pages.rename("plan", { title: " " })).toThrow(/title is required/);
+    // Trimmed, then held to a name and a sentence.
+    expect(pages.rename("plan", { title: ` ${"t".repeat(120)} ` }).title).toHaveLength(120);
+    expect(() => pages.rename("plan", { title: "t".repeat(121) })).toThrow(/at most 120/);
+    expect(pages.rename("plan", { description: ` ${"d".repeat(280)} ` }).description).toHaveLength(280);
+    expect(() => pages.rename("plan", { description: "d".repeat(281) })).toThrow(/at most 280/);
+    expect(pages.record("plan")?.description).toHaveLength(280);
     expect(() => pages.rename("plan", {})).toThrow(/new title or description/);
     expect(() => pages.rename("nope", { title: "X" })).toThrow(/not found/);
   });

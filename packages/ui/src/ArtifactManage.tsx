@@ -1,5 +1,5 @@
 import { Face, Field, NavIcon } from "@kos/kit";
-import { WORKSPACE_SCOPE, relativeWords } from "@kos/shared";
+import { RENAME_DESCRIPTION_MAX, RENAME_TITLE_MAX, WORKSPACE_SCOPE, relativeWords } from "@kos/shared";
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 
 import { api, type PageSummary, type Project } from "./api.js";
@@ -170,11 +170,11 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
             }}
           >
             <Field label="Title">
-              <input className="kos-input" value={dialog.title} autoFocus maxLength={120} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, title: e.target.value })} />
+              <input className="kos-input" value={dialog.title} autoFocus maxLength={RENAME_TITLE_MAX} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, title: e.target.value })} />
             </Field>
             {dialog.record.kind === "html" && (
               <Field label="Description" hint="One sentence: what it is for.">
-                <textarea className="kos-input artifact-dialog-about" rows={2} maxLength={280} value={dialog.description} onChange={(e) => setDialog({ ...dialog, description: e.target.value })} />
+                <textarea className="kos-input artifact-dialog-about" rows={2} maxLength={RENAME_DESCRIPTION_MAX} value={dialog.description} onChange={(e) => setDialog({ ...dialog, description: e.target.value })} />
               </Field>
             )}
             <div className="file-dialog-actions">

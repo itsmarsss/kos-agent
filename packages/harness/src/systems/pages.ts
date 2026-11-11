@@ -7,6 +7,8 @@ import {
   sheetDataOf,
   sheetErrors,
   sheetTables,
+  RENAME_DESCRIPTION_MAX,
+  RENAME_TITLE_MAX,
   validateHtmlPage,
   validatePageSpec,
   withSheetData,
@@ -775,6 +777,8 @@ export class PageStore {
   rename(id: string, change: { title?: string; description?: string }): PageRecord {
     const title = change.title?.trim();
     if (change.title !== undefined && !title) throw new Error("a title is required");
+    if (title !== undefined && title.length > RENAME_TITLE_MAX) throw new Error(`a title is at most ${RENAME_TITLE_MAX} characters`);
+    if ((change.description?.trim().length ?? 0) > RENAME_DESCRIPTION_MAX) throw new Error(`a description is one sentence of at most ${RENAME_DESCRIPTION_MAX} characters`);
     const got = this.loaded(id);
     // An older widget page has no description, so clearing one changes nothing.
     const description = got.kind === "spec" && change.description?.trim() === "" ? undefined : change.description?.trim();

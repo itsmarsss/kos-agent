@@ -1544,6 +1544,9 @@ describe("handleApiRequest", () => {
         expect(renamed).toMatchObject({ status: 200, body: { id: "shelf", title: "Books", description: "Every book on the shelf." } });
         expect(audited("rename")[0]).toMatchObject({ isError: false, userId: kernel.profile.ownerId });
         expect(JSON.parse(audited("rename")[0]!.args)).toMatchObject({ id: "shelf", title: "Books" });
+        expect((await manage("shelf", "rename", { title: "x".repeat(121) })).status).toBe(400);
+        expect((await manage("shelf", "rename", { description: "x".repeat(281) })).status).toBe(400);
+        expect(kernel.pages.record("shelf")?.title).toBe("Books");
 
         const copy = await manage("shelf", "duplicate");
         expect(copy).toMatchObject({ status: 200, body: { id: "shelf-copy", title: "Books copy", projectSlug: "shelf" } });
