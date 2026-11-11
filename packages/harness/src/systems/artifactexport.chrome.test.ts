@@ -72,7 +72,8 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-deck.js")))("artifact ex
     expect(file.name).toBe("Garden water plan.pdf");
     const read = await pdfText(new Uint8Array(file.body));
     expect(read.pages).toBeGreaterThanOrEqual(1);
-    expect(read.text).toMatch(/Garden water plan/);
+    // In reading order: the lede after the title, before the first section.
+    expect(read.text).toMatch(/Garden water plan\s+Four rain tanks cover a third of summer watering\.\s+Why/);
     expect(read.text).toMatch(/\$4,800/);
   }, 60_000);
 

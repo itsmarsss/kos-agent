@@ -170,6 +170,8 @@ export const DOC_CSS = String.raw`
   :where([data-doc], .doc-notes) :where(h1, h2, h3, h4) { break-after: avoid; break-inside: avoid; }
   :where([data-doc]) :where(figure, table, pre, blockquote, aside, .doc-table, img, svg) { break-inside: avoid; }
   :where([data-doc], .doc-notes) :where(p, li) { orphans: 3; widows: 3; }
+  /* The same ink without opacity, which a PDF paints as a group of its own after the rest, so the lede read out of order. */
+  :where([data-doc]) .lede { opacity: 1; color: color-mix(in srgb, var(--text) 86%, var(--panel)); }
 }
 @media (prefers-reduced-motion: reduce) { .flash { animation: none; } html { scroll-behavior: auto; } }
 `;
