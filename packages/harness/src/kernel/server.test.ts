@@ -1620,6 +1620,14 @@ describe("handleApiRequest", () => {
         expect(res.headers?.["content-security-policy"]).toBe("sandbox; default-src 'none'");
       });
 
+      it("names a file whose title runs long in emoji, and keeps it as sent", async () => {
+        kernel.pages.rename("brief", { title: `${"a".repeat(99)}\u{1F33F}\u{1F33F}` });
+        const res = await get("brief", "format=md");
+        expect(res.status).toBe(200);
+        expect(res.headers?.["content-disposition"]).toContain(`filename*=UTF-8''${"a".repeat(99)}%F0%9F%8C%BF.md`);
+        expect(audited()[0]).toMatchObject({ isError: false });
+      });
+
       it("refuses what the kind has not, an unknown format, the trash, an older widget page and an unknown id", async () => {
         expect(await get("pitch", "format=md")).toMatchObject({ status: 400, body: { error: "a deck exports as pdf, html, not md" } });
         expect(await get("books", "format=pdf")).toMatchObject({ status: 400 });

@@ -31,16 +31,16 @@ const NAME_MAX = 100;
 /**
  * A file name from an artifact's title: what no disk takes (slashes, colons,
  * control characters, the characters Windows reserves) dropped, its spaces
- * collapsed, cut to a length every disk takes; "artifact" when nothing is
- * left.
+ * collapsed, cut to a length every disk takes (in characters, never inside
+ * one); "artifact" when nothing is left.
  */
 export function exportName(title: string, extension: string): string {
   const base = title
     .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .replace(/^\.+/, "")
-    .slice(0, NAME_MAX)
-    .trim();
-  return `${base || "artifact"}.${extension}`;
+    .replace(/^\.+/, "");
+  // Cut by code points: cutting by UTF-16 units can split an emoji's pair, which no header can carry.
+  const cut = [...base].slice(0, NAME_MAX).join("").trim();
+  return `${cut || "artifact"}.${extension}`;
 }

@@ -1569,20 +1569,18 @@ export async function handleApiRequest(
     if (!isExportFormat(format)) return refuse(400, "format is one of pdf, md, html or csv");
     try {
       const file = await kernel.exporter.export(id, format, { theme, ...(tab !== undefined ? { tab } : {}) });
-      void kernel.audit.record({ tool: "artifact.export", args, result: `${file.name}, ${file.body.byteLength} bytes`, isError: false, userId: kernel.profile.ownerId });
-      return {
-        status: 200,
-        body: file.body,
-        headers: {
-          "content-type": file.type,
-          "content-length": String(file.body.byteLength),
-          "content-disposition": attachment(file.name),
-          "cache-control": "no-store",
-          "x-content-type-options": "nosniff",
-          // A file to save, never a page on the dashboard's origin: should a browser draw it anyway, it runs nothing there.
-          "content-security-policy": "sandbox; default-src 'none'",
-        },
+      const headers = {
+        "content-type": file.type,
+        "content-length": String(file.body.byteLength),
+        "content-disposition": attachment(file.name),
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        // A file to save, never a page on the dashboard's origin: should a browser draw it anyway, it runs nothing there.
+        "content-security-policy": "sandbox; default-src 'none'",
       };
+      // Kept as sent only once there is a response to send.
+      void kernel.audit.record({ tool: "artifact.export", args, result: `${file.name}, ${file.body.byteLength} bytes`, isError: false, userId: kernel.profile.ownerId });
+      return { status: 200, body: file.body, headers };
     } catch (err) {
       return refuse(err instanceof ExportRefusal ? 400 : 500, err instanceof Error ? err.message : String(err));
     }
