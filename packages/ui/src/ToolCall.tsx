@@ -4,6 +4,7 @@ import { pathsIn, stepMechanics } from "@kos/shared";
 import { ChevronDown, ChevronRight, StepPicture } from "@kos/kit";
 
 import type { ChatEvent } from "./api.js";
+import { ArtifactStep, writtenArtifact } from "./ArtifactStep.js";
 import { Decision } from "./Decision.js";
 import { hrefFor } from "./routes.js";
 
@@ -66,6 +67,9 @@ export function ToolCall({
   deciding?: ReadonlySet<number>;
 }): ReactElement {
   const [open, setOpen] = useState(false);
+  // An artifact written is shown as itself, not as the step that wrote it.
+  const written = writtenArtifact(event);
+  if (written) return <ArtifactStep art={written} />;
   const running = event.result === undefined;
   const queued = event.pendingId !== undefined;
   // A step said by what it is for keeps how it did it here, under the line.

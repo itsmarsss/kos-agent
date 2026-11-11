@@ -339,6 +339,12 @@ for a deck (the frame goes full screen and tells the deck to present), and Edit
 with KOS (the owner says what should change, and it goes to the chat that
 owns the artifact: the project's, the blob's thread, or KOS at the root).
 
+When a turn writes one, the chat shows it as a card in place of the
+`artifacts.write` step (`ArtifactStep.tsx`): its capture (or its kind's
+mark until there is one), title, kind and owner, with Open, which goes to
+it here, and Open beside, which opens it in place of the thread as the
+list beside a project's chat does.
+
 The same viewer shows an artifact opened from its project (`#/page/<id>`),
 and in place of the chat when one is picked from the Artifacts list beside a
 project's or a blob's chat (`ArtifactRail.tsx`): what that project or blob

@@ -3159,6 +3159,50 @@ li:hover .chats-item-when { opacity: 0; }
 .is-error .toolcall-state { color: var(--danger); }
 
 .toolcall-body { border-top: 1px solid var(--line); padding: 0.5rem 0.6rem; }
+
+/* —— an artifact a turn wrote, in place of its step (ArtifactStep.tsx) ——
+   A card, as the gallery's is: its capture or its kind's mark, its title,
+   kind and owner, and the ways to open it. */
+.artifact-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  align-self: stretch;
+  min-width: 0;
+  max-width: 36rem;
+  padding: 8px 10px 8px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel);
+}
+.artifact-step-thumb {
+  all: unset;
+  box-sizing: border-box;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 76px;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--faint);
+  cursor: pointer;
+}
+.artifact-step-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+.artifact-step-thumb svg { width: 20px; height: 20px; }
+.artifact-step-body { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
+.artifact-step-title { color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-step-meta { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); font-size: var(--text-sm); }
+.artifact-step-owner { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.artifact-step-owner > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-step-owner .project-mark { width: 16px; height: 16px; font-size: 9.5px; border-radius: 4px; flex: none; }
+.artifact-step-acts { display: flex; gap: 4px; flex: none; }
+@media (max-width: 480px) {
+  .artifact-step-acts .btn--ghost { display: none; }
+}
+
 .toolcall-part + .toolcall-part { margin-top: 0.5rem; }
 .toolcall-label {
   display: block;
