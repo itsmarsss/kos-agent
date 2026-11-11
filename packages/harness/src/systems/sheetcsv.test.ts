@@ -39,6 +39,23 @@ describe("a sheet's tab as CSV", () => {
     expect(lines(tabCsv(book, 0))[1]).toBe("169.11");
   });
 
+  it("works out the new functions and the date as the runtime does, a date sum as the day it is", () => {
+    const book: SheetBook = {
+      sheets: [
+        {
+          name: "T",
+          columns: [{ label: "Name" }, { label: "Due", type: "date" }, { label: "Left", type: "number" }, { label: "Next", type: "date" }],
+          rows: [
+            ["  ada  lovelace ", "2026-11-20", "=B1-TODAY()", "=B1+7"],
+            ['=UPPER(TRIM(A1))', '=TEXT(1)', '=XLOOKUP("x",A1:A1,C1:C1,"none")', "=DATE(2026,12,1)"],
+          ],
+        },
+      ],
+    };
+    const now = (): Date => new Date(2026, 10, 11, 12, 0);
+    expect(lines(tabCsv(book, 0, { now }))).toEqual(["Name,Due,Left,Next", "  ada  lovelace ,2026-11-20,9,2026-11-27", "ADA LOVELACE,#NAME?,none,2026-12-01", ""]);
+  });
+
   it("writes a pivot as its groups", () => {
     expect(lines(tabCsv(BOOK, 1))[0]).toBe("Category,Amount");
     expect(lines(tabCsv(BOOK, 1))).toContain("Housing,1650");

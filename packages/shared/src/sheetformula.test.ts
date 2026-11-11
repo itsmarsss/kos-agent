@@ -221,6 +221,177 @@ describe("functions", () => {
   });
 });
 
+describe("lookups", () => {
+  const people: (string | number | null)[][] = [
+    ["ada", 36, "London"],
+    ["grace", 85, "New York"],
+    ["linus", 54, "Helsinki"],
+  ];
+  /** A formula over a three-column table of names, ages and cities, put under it. */
+  const over = (formula: string): Value => {
+    const wb = new Workbook({
+      sheets: [{ name: "P", columns: [{ label: "Name" }, { label: "Age", type: "number" }, { label: "City" }, { label: "Out" }], rows: [...people.map((r) => [...r, null]), [null, null, null, formula]] }],
+    });
+    return wb.value(0, people.length + 1, 3);
+  };
+
+  it("finds a row with VLOOKUP, exact or nearest below", () => {
+    expect(over('=VLOOKUP("Grace",A1:C3,3,FALSE)')).toBe("New York");
+    expect(over('=VLOOKUP("bob",A1:C3,2,FALSE)')).toMatchObject({ error: "#N/A" });
+    expect(over("=VLOOKUP(60,B1:C3,2,FALSE)")).toMatchObject({ error: "#N/A" });
+    // Approximate by default, on a sorted first column: the last at or below.
+    expect(calc("=VLOOKUP(25,A1:B3,2)", [[0, 1], [20, 2], [50, 3]])).toBe(2);
+    expect(calc("=VLOOKUP(-1,A1:B3,2)", [[0, 1], [20, 2], [50, 3]])).toMatchObject({ error: "#N/A" });
+    expect(over('=VLOOKUP("ada",A1:C3,4,FALSE)')).toMatchObject({ error: "#REF!" });
+    expect(over('=VLOOKUP("ada",A1:C3,0,FALSE)')).toMatchObject({ error: "#VALUE!" });
+  });
+
+  it("finds with XLOOKUP, falling back, nearest, from the end and by wildcard", () => {
+    expect(over('=XLOOKUP("linus",A1:A3,C1:C3)')).toBe("Helsinki");
+    expect(over('=XLOOKUP("bob",A1:A3,C1:C3,"nobody")')).toBe("nobody");
+    expect(over('=XLOOKUP("bob",A1:A3,C1:C3)')).toMatchObject({ error: "#N/A" });
+    expect(over("=XLOOKUP(60,B1:B3,A1:A3,,-1)")).toMatchObject({ error: "#NAME?" });
+    expect(over('=XLOOKUP(60,B1:B3,A1:A3,"none",-1)')).toBe("linus");
+    expect(over('=XLOOKUP(60,B1:B3,A1:A3,"none",1)')).toBe("grace");
+    expect(over('=XLOOKUP("g*",A1:A3,B1:B3,"none",2)')).toBe(85);
+    expect(over('=XLOOKUP("?da",A1:A3,B1:B3,"none",2)')).toBe(36);
+    expect(calc('=XLOOKUP("a",A1:A3,B1:B3,"none",0,-1)', [["a", 1], ["b", 2], ["a", 3]])).toBe(3);
+    expect(over("=XLOOKUP(36,B1:B3,A1:A2)")).toMatchObject({ error: "#VALUE!" });
+  });
+
+  it("indexes and matches", () => {
+    expect(over('=INDEX(C1:C3,MATCH("grace",A1:A3,0))')).toBe("New York");
+    expect(over("=INDEX(A1:C3,3,2)")).toBe(54);
+    expect(over("=INDEX(A1:C1,2)")).toBe(36);
+    expect(over("=INDEX(A1:C3,4,1)")).toMatchObject({ error: "#REF!" });
+    expect(over("=INDEX(A1:C3,2)")).toMatchObject({ error: "#VALUE!" });
+    expect(over("=INDEX(A1:A3,0)")).toMatchObject({ error: "#VALUE!" });
+    // A row inside the range but past the data is empty, not outside it.
+    expect(over("=INDEX(A1:A20,10)")).toBe(null);
+    expect(over("=MATCH(54,B1:B3,0)")).toBe(3);
+    expect(calc("=MATCH(25,A1:A3)", [[10], [20], [30]])).toBe(2);
+    expect(calc("=MATCH(25,A1:A3,-1)", [[30], [20], [10]])).toBe(1);
+    expect(over('=MATCH("zed",A1:A3,0)')).toMatchObject({ error: "#N/A" });
+    expect(over("=MATCH(1,A1:C3,0)")).toMatchObject({ error: "#N/A" });
+  });
+});
+
+describe("dates", () => {
+  const clock = (): Date => new Date(2026, 10, 11, 9, 30, 5);
+  /** A formula's value with the rows typed as given, read on a fixed clock. */
+  const at = (formula: string, rows: (string | number | null)[][] = [[]], type: "date" | "number" | "text" = "number"): Value => {
+    const width = Math.max(...rows.map((r) => r.length), 1);
+    const wb = new Workbook(
+      { sheets: [{ name: "D", columns: Array.from({ length: width }, (_, i) => ({ label: columnLetter(i), type })), rows: [...rows, [formula, ...Array(width - 1).fill(null)]] }] },
+      { now: clock },
+    );
+    return wb.value(0, rows.length + 1, 0);
+  };
+
+  it("reads TODAY and NOW from the clock it is given, once for the workbook", () => {
+    expect(at("=TODAY()")).toBe("2026-11-11");
+    expect(at("=NOW()")).toBe("2026-11-11 09:30:05");
+    expect(at("=TODAY(1)")).toMatchObject({ error: "#VALUE!" });
+    let reads = 0;
+    const wb = new Workbook({ sheets: [{ name: "D", columns: [{ label: "a" }, { label: "b" }], rows: [["=NOW()", "=NOW()"]] }] }, { now: () => new Date(2026, 0, 1, 0, 0, reads++) });
+    expect(wb.value(0, 1, 0)).toBe(wb.value(0, 1, 1));
+    expect(reads).toBe(1);
+  });
+
+  it("makes a date and takes one apart", () => {
+    expect(at("=DATE(2026,2,29)")).toBe("2026-03-01");
+    expect(at("=DATE(2026,13,1)")).toBe("2027-01-01");
+    expect(at("=DATE(99,1,1)")).toBe("1999-01-01");
+    expect(at("=DATE(10000,1,1)")).toMatchObject({ error: "#NUM!" });
+    expect(at("=YEAR(A1)", [["2024-02-29"]], "date")).toBe(2024);
+    expect(at("=MONTH(A1)", [["2024-02-29"]], "date")).toBe(2);
+    expect(at("=DAY(A1)", [["2024-02-29"]], "date")).toBe(29);
+    expect(at('=YEAR("soon")')).toMatchObject({ error: "#VALUE!" });
+    expect(at('=DAY("2026-02-30")')).toMatchObject({ error: "#VALUE!" });
+    expect(at("=YEAR(TODAY())")).toBe(2026);
+  });
+
+  it("subtracts dates to days and adds days to a date", () => {
+    expect(at("=B1-A1", [["2026-01-01", "2026-03-01"]], "date")).toBe(59);
+    expect(at("=TODAY()-A1", [["2026-11-01"]], "date")).toBe(10);
+    const plus = at("=A1+7", [["2026-12-28"]], "date");
+    expect(formatValue(plus, { label: "d", type: "date" })).toBe("Jan 4, 2027");
+    expect(at("=A1>DATE(2026,1,1)", [["2026-06-01"]], "date")).toBe(true);
+  });
+
+  it("counts whole units between dates with DATEDIF", () => {
+    const span = (a: string, b: string, unit: string): Value => at(`=DATEDIF(A1,B1,"${unit}")`, [[a, b]], "date");
+    expect(span("2020-05-15", "2026-11-11", "Y")).toBe(6);
+    expect(span("2020-05-15", "2026-11-11", "M")).toBe(77);
+    expect(span("2026-01-31", "2026-03-01", "M")).toBe(1);
+    expect(span("2026-01-01", "2026-03-01", "D")).toBe(59);
+    expect(span("2020-05-15", "2026-11-11", "YM")).toBe(5);
+    expect(span("2026-01-31", "2026-03-01", "MD")).toBe(1);
+    expect(span("2026-01-10", "2026-03-04", "MD")).toBe(22);
+    expect(span("2020-05-15", "2026-11-11", "YD")).toBe(180);
+    expect(span("2026-03-01", "2026-01-01", "D")).toMatchObject({ error: "#NUM!" });
+    expect(span("2026-01-01", "2026-03-01", "W")).toMatchObject({ error: "#NUM!" });
+  });
+});
+
+describe("more functions", () => {
+  it("takes the median", () => {
+    expect(calc("=MEDIAN(A1:A4)", [[4], [1], [3], [2]])).toBe(2.5);
+    expect(calc("=MEDIAN(5,1,9)")).toBe(5);
+    expect(calc("=MEDIAN(A1:A2)", [[null], [null]])).toMatchObject({ error: "#NUM!" });
+    expect(calc("=MEDIAN(A1:A2)", [["=1/0"], [1]])).toMatchObject({ error: "#DIV/0!" });
+  });
+
+  it("catches an error with IFERROR and passes a value through", () => {
+    expect(calc('=IFERROR(1/0,"none")')).toBe("none");
+    expect(calc("=IFERROR(4/2,0)")).toBe(2);
+    expect(calc('=IFERROR(VLOOKUP(9,A1:B1,2,FALSE),"missing")', [[1, 2]])).toBe("missing");
+    expect(calc("=IFERROR(1)")).toMatchObject({ error: "#VALUE!" });
+  });
+
+  it("rounds up and down, away from and toward zero", () => {
+    expect(calc("=ROUNDUP(2.341,2)")).toBe(2.35);
+    expect(calc("=ROUNDUP(-2.341,1)")).toBe(-2.4);
+    expect(calc("=ROUNDUP(1201,-2)")).toBe(1300);
+    expect(calc("=ROUNDDOWN(2.349,2)")).toBe(2.34);
+    expect(calc("=ROUNDDOWN(-2.349,1)")).toBe(-2.3);
+    expect(calc("=ROUNDDOWN(1.1*3,1)")).toBe(3.3);
+    expect(calc("=ROUNDUP(2.5)")).toMatchObject({ error: "#VALUE!" });
+    expect(calc('=ROUNDUP("x",1)')).toMatchObject({ error: "#VALUE!" });
+  });
+
+  it("joins text with a delimiter, skipping empty cells when asked", () => {
+    expect(calc('=TEXTJOIN(", ",TRUE,A1:A3)', [["a"], [null], ["c"]])).toBe("a, c");
+    expect(calc('=TEXTJOIN("-",FALSE,A1:A3)', [["a"], [null], ["c"]])).toBe("a--c");
+    expect(calc('=TEXTJOIN("",TRUE,"x",1,TRUE)')).toBe("x1TRUE");
+    expect(calc('=TEXTJOIN(",",TRUE)')).toMatchObject({ error: "#VALUE!" });
+  });
+
+  it("cuts, measures, cases and trims text", () => {
+    expect(calc('=LEFT("Groceries",4)')).toBe("Groc");
+    expect(calc('=LEFT("Groceries")')).toBe("G");
+    expect(calc('=RIGHT("Groceries",3)')).toBe("ies");
+    expect(calc('=RIGHT("abc",0)')).toBe("");
+    expect(calc('=RIGHT("abc",10)')).toBe("abc");
+    expect(calc('=MID("Groceries",3,4)')).toBe("ocer");
+    expect(calc('=MID("abc",5,2)')).toBe("");
+    expect(calc('=LEN("hello")')).toBe(5);
+    expect(calc("=LEN(A1)", [[null]])).toBe(0);
+    expect(calc("=LEFT(1234.5,2)")).toBe("12");
+    expect(calc('=UPPER("ab")&LOWER("CD")')).toBe("ABcd");
+    expect(calc('=TRIM("  two   words ")')).toBe("two words");
+    expect(calc('=LEFT("abc",-1)')).toMatchObject({ error: "#VALUE!" });
+    expect(calc('=MID("abc",0,1)')).toMatchObject({ error: "#VALUE!" });
+    expect(calc("=LEN(1/0)")).toMatchObject({ error: "#DIV/0!" });
+  });
+
+  it("keeps text led by an apostrophe and an equals sign as text", () => {
+    const wb = new Workbook({ sheets: [{ name: "T", columns: [{ label: "a" }, { label: "b" }], rows: [["'=SUM(1,2)", "=LEN(A1)"]] }] });
+    expect(wb.value(0, 1, 0)).toBe("=SUM(1,2)");
+    expect(wb.value(0, 1, 1)).toBe(9);
+  });
+});
+
 describe("values and criteria", () => {
   it("reads numeric text in a numeric column", () => {
     expect(literalOf("1,234.50", { label: "x", type: "currency" })).toBe(1234.5);

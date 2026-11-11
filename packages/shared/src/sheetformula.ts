@@ -6,14 +6,20 @@
  * values, not its formulas).
  *
  * Data rows are numbered from 1 (the header is not a row) and column A is
- * the first column. A cell is a value, or a formula starting with "=".
+ * the first column. A cell is a value, or a formula starting with "=";
+ * text that starts with "=" and is not a formula is kept led by an
+ * apostrophe ("'=x" reads as "=x"), as a spreadsheet keeps it. Dates are ISO
+ * text, and arithmetic on one is on its serial (sheetdates.ts).
  * Precedence follows the common spreadsheet one: comparison, then &, then
  * + and -, then * and /, then ^, then a unary minus (so -2^2 is 4).
  */
 
 import type { SheetAggregate, SheetBook, SheetCell, SheetColumn, SheetTab } from "./artifacts.js";
+import { dateDiff, isoOf, isoSerial, localIso, partsOf, serialOf, type DateDiffUnit } from "./sheetdates.js";
 
-export type ErrorCode = "#REF!" | "#DIV/0!" | "#NAME?" | "#VALUE!" | "#CYCLE!";
+export { isoOf } from "./sheetdates.js";
+
+export type ErrorCode = "#REF!" | "#DIV/0!" | "#NAME?" | "#VALUE!" | "#N/A" | "#NUM!" | "#CYCLE!";
 
 export interface SheetError {
   error: ErrorCode;
@@ -282,6 +288,7 @@ const NUMERIC = new Set(["number", "currency", "percent"]);
 export function literalOf(cell: SheetCell | undefined, column: SheetColumn | undefined): Value {
   if (cell === undefined || cell === null || cell === "") return null;
   if (typeof cell !== "string") return cell;
+  if (cell.startsWith("'=")) return cell.slice(1);
   if (column && NUMERIC.has(column.type ?? "text")) {
     const pct = column.type === "percent" && /%\s*$/.test(cell);
     const n = Number(cell.replace(/[,$€£¥\s%]/g, ""));
@@ -300,13 +307,26 @@ function toNumber(v: Value): number | SheetError {
   if (typeof v === "boolean") return v ? 1 : 0;
   if (v === null || v === "") return 0;
   const n = Number(v.replace(/,/g, ""));
-  return Number.isFinite(n) ? n : err("#VALUE!", `"${v}" is not a number`);
+  if (Number.isFinite(n)) return n;
+  return isoSerial(v) ?? err("#VALUE!", `"${v}" is not a number`);
+}
+
+/** A value as a date's serial: a number is one already, ISO text names one. */
+function toDate(v: Value): number | SheetError {
+  if (isError(v)) return v;
+  if (typeof v === "number") return v;
+  if (v === null) return 0;
+  const s = typeof v === "string" ? isoSerial(v) : undefined;
+  return s ?? err("#VALUE!", `"${toText(v)}" is not a date`);
 }
 
 const toText = (v: Value): string => (v === null ? "" : typeof v === "boolean" ? (v ? "TRUE" : "FALSE") : typeof v === "number" ? String(v) : isError(v) ? v.error : v);
 
 function compare(a: Value, b: Value): number {
   if (typeof a === "number" && typeof b === "number") return a - b;
+  // A date's text against a number is its serial against the number.
+  if (typeof a === "number" && typeof b === "string" && isoSerial(b) !== undefined) return a - isoSerial(b)!;
+  if (typeof b === "number" && typeof a === "string" && isoSerial(a) !== undefined) return isoSerial(a)! - b;
   if (a === null && typeof b === "number") return -b;
   if (b === null && typeof a === "number") return a;
   const x = toText(a).toLowerCase();
@@ -364,9 +384,95 @@ export function aggregate(fn: SheetAggregate, values: readonly Value[]): Value {
 
 // —— the workbook ——
 
-type Arg = Value | Value[];
+/** A range's values row by row, with how many columns it spans. */
+type Cells = Value[] & { width?: number; height?: number };
+type Arg = Value | Cells;
 
 const flat = (args: Arg[]): Value[] => args.flatMap((a) => (Array.isArray(a) ? a : [a]));
+const widthOf = (a: Cells): number => a.width ?? 1;
+/** A range one row or one column across, or undefined for a table. */
+const vector = (a: Arg): Value[] | undefined => (!Array.isArray(a) ? [a] : widthOf(a) === 1 || a.length === widthOf(a) ? a : undefined);
+
+/** Whether two values are the same for an exact lookup: numbers by value, text in any case, a date's text against its serial. */
+function sameValue(a: Value, b: Value): boolean {
+  if (isError(a) || isError(b) || a === null || b === null) return false;
+  if (typeof a === typeof b) return typeof a === "string" ? a.toLowerCase() === (b as string).toLowerCase() : a === b;
+  return (typeof a === "number" || typeof b === "number") && typeof a !== "boolean" && typeof b !== "boolean" && compare(a, b) === 0 && isoSerial(String(typeof a === "string" ? a : b)) !== undefined;
+}
+
+/** Whether a lookup may order these two: numbers with numbers (dates among them), text with text. */
+const comparable = (a: Value, b: Value): boolean => {
+  const kind = (v: Value): string => (typeof v === "number" || (typeof v === "string" && isoSerial(v) !== undefined) ? "n" : typeof v);
+  return a !== null && b !== null && !isError(a) && kind(a) === kind(b);
+};
+
+/** A wildcard pattern as XLOOKUP's match mode 2 reads one: * any run, ? one character, ~ the next literally. */
+function wildcard(pattern: string): RegExp {
+  const literal = (c: string): string => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let src = "";
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i]!;
+    if (c === "~" && i + 1 < pattern.length) src += literal(pattern[++i]!);
+    else if (c === "*") src += ".*";
+    else if (c === "?") src += ".";
+    else src += literal(c);
+  }
+  return new RegExp(`^${src}$`, "is");
+}
+
+/**
+ * Where a value is in a list, as MATCH and XLOOKUP find it: 0 the first
+ * equal; 1 the last one at or below it in a list sorted up (MATCH's
+ * default), -1 the last at or above it in a list sorted down; -1 when none.
+ */
+function position(want: Value, list: readonly Value[], type: 0 | 1 | -1): number {
+  if (type === 0) return list.findIndex((v) => sameValue(v, want));
+  let found = -1;
+  for (let i = 0; i < list.length; i++) {
+    const v = list[i]!;
+    if (!comparable(v, want)) continue;
+    const c = compare(v, want);
+    if (type === 1 ? c > 0 : c < 0) break;
+    found = i;
+  }
+  return found;
+}
+
+/** XLOOKUP's nearest match: exact, else the next smaller (-1) or larger (1) anywhere in the list, searched from either end. */
+function nearest(want: Value, list: readonly Value[], mode: -1 | 1, order: number[]): number {
+  let best = -1;
+  for (const i of order) {
+    const v = list[i]!;
+    if (!comparable(v, want)) continue;
+    const c = compare(v, want);
+    if (c === 0) return i;
+    if (mode === -1 ? c > 0 : c < 0) continue;
+    if (best < 0 || (mode === -1 ? compare(v, list[best]!) > 0 : compare(v, list[best]!) < 0)) best = i;
+  }
+  return best;
+}
+
+/** A number rounded at so many places: half away from zero, always away from it, or toward it. */
+function roundAt(n: number, places: number, how: "half" | "up" | "down"): number {
+  const p = Math.trunc(places);
+  const scale = (x: number): number => (p >= 0 ? x * 10 ** p : x / 10 ** -p);
+  const unscale = (x: number): number => (p >= 0 ? x / 10 ** p : x * 10 ** -p);
+  // Fifteen digits first, so 2.345 * 100 is 234.5, not the 234.49999... a float leaves.
+  const x = Number(scale(Math.abs(n)).toPrecision(15));
+  const r = how === "half" ? Math.round(x) : how === "up" ? Math.ceil(x) : Math.floor(x);
+  return Math.sign(n) * unscale(r) || 0;
+}
+
+/** Whether a condition holds, as IF reads one: text when it is not empty, else its truth. */
+const truthy = (v: Value): boolean => (typeof v === "string" ? v !== "" : Boolean(v));
+
+const DATE_UNITS: readonly DateDiffUnit[] = ["Y", "M", "D", "MD", "YM", "YD"];
+
+/** What a workbook is worked out with besides its cells. */
+export interface WorkbookOptions {
+  /** The clock TODAY and NOW read, once per workbook; the machine's when absent. */
+  now?: () => Date;
+}
 
 /** A cell of a tab, by row (from 1) and column (from 0). */
 interface Cell {
@@ -392,8 +498,18 @@ export class Workbook {
   private readonly busy = new Set<string>();
   private readonly pivots = new Map<number, { columns: SheetColumn[]; rows: Value[][] }>();
   private readonly parsed = new Map<string, Node>();
+  private clock: Date | undefined;
 
-  constructor(readonly book: SheetBook) {}
+  constructor(
+    readonly book: SheetBook,
+    private readonly options: WorkbookOptions = {},
+  ) {}
+
+  /** The time this workbook is worked out at: read once, so every TODAY and NOW in it agree. */
+  private now(): Date {
+    this.clock ??= this.options.now?.() ?? new Date();
+    return this.clock;
+  }
 
   tabIndex(name: string | undefined): number {
     if (name === undefined) return 0;
@@ -538,7 +654,7 @@ export class Workbook {
     if (t < 0) return err("#REF!", `there is no tab "${sheet}"`);
     if (node.k === "range" || node.k === "ref") {
       const v = this.evaluate(node, t);
-      return Array.isArray(v) ? v : [v];
+      return Array.isArray(v) ? [...v] : [v];
     }
     return err("#REF!", `"${ref}" is not a range`);
   }
@@ -611,10 +727,12 @@ export class Workbook {
       case "range": {
         const tt = node.sheet === undefined ? t : this.tabIndex(node.sheet);
         if (tt < 0) return err("#REF!", `there is no tab "${node.sheet}"`);
-        const out: Value[] = [];
+        const out: Cells = [];
         const lastRow = Math.min(node.row2, Math.max(this.rowCount(tt), node.row));
         if (node.col2 >= this.columns(tt).length) return err("#REF!", `column ${columnLetter(node.col2)} is outside the sheet`);
         for (let r = node.row; r <= lastRow; r++) for (let c = node.col; c <= node.col2; c++) out.push(this.value(tt, r, c));
+        out.width = node.col2 - node.col + 1;
+        out.height = node.row2 - node.row + 1;
         return out;
       }
       case "neg": {
@@ -676,6 +794,20 @@ export class Workbook {
     };
     const need = (n: number, m = n): SheetError | undefined =>
       argNodes.length < n || argNodes.length > m ? err("#VALUE!", `${name} takes ${n === m ? n : `${n} to ${m}`} arguments`) : undefined;
+    /** One argument as a single value, a number, a date's serial, or text. */
+    const one = (i: number): Value => this.scalar(this.evaluate(argNodes[i]!, t));
+    const num = (i: number): number | SheetError => toNumber(one(i));
+    const date = (i: number): number | SheetError => toDate(one(i));
+    const text = (i: number): string | SheetError => {
+      const v = one(i);
+      return isError(v) ? v : toText(v);
+    };
+    /** One argument as a range, a single value read as a range of one. */
+    const cells = (i: number): Cells | SheetError => {
+      const v = this.evaluate(argNodes[i]!, t);
+      if (Array.isArray(v)) return v;
+      return isError(v) ? v : Object.assign([v], { width: 1, height: 1 });
+    };
     switch (name) {
       case "SUM":
       case "AVERAGE":
@@ -692,32 +824,30 @@ export class Workbook {
         return flat(args()).filter((v) => typeof v === "number").length;
       case "COUNTA":
         return flat(args()).filter((v) => v !== null && v !== "").length;
-      case "ROUND": {
-        const bad = need(1, 2);
+      case "ROUND":
+      case "ROUNDUP":
+      case "ROUNDDOWN": {
+        const bad = name === "ROUND" ? need(1, 2) : need(2);
         if (bad) return bad;
-        const [x, d] = args().map((a) => toNumber(this.scalar(a)));
-        if (isError(x!)) return x;
-        const places = d === undefined ? 0 : d;
+        const x = num(0);
+        if (isError(x)) return x;
+        const places = argNodes[1] ? num(1) : 0;
         if (isError(places)) return places;
-        const f = 10 ** Math.trunc(places);
-        const n = x as number;
-        // Half away from zero, and 2.345 is 2.35 although 2.345 * 100 is 234.49999...
-        return (Math.sign(n) * Math.round(Math.abs(n) * f * (1 + Number.EPSILON))) / f;
+        return roundAt(x, places, name === "ROUND" ? "half" : name === "ROUNDUP" ? "up" : "down");
       }
       case "ABS": {
         const bad = need(1);
         if (bad) return bad;
-        const x = toNumber(this.scalar(this.evaluate(argNodes[0]!, t)));
+        const x = num(0);
         return isError(x) ? x : Math.abs(x);
       }
       case "IF": {
         const bad = need(2, 3);
         if (bad) return bad;
-        const c = this.scalar(this.evaluate(argNodes[0]!, t));
+        const c = one(0);
         if (isError(c)) return c;
-        const truthy = typeof c === "string" ? c !== "" : Boolean(c);
-        if (truthy) return this.scalar(this.evaluate(argNodes[1]!, t));
-        return argNodes[2] ? this.scalar(this.evaluate(argNodes[2], t)) : false;
+        if (truthy(c)) return one(1);
+        return argNodes[2] ? one(2) : false;
       }
       case "CONCAT":
       case "CONCATENATE": {
@@ -746,6 +876,189 @@ export class Workbook {
         if (name === "COUNTIF") return count;
         if (name === "SUMIF") return picked.reduce((a, b) => a + b, 0);
         return picked.length ? picked.reduce((a, b) => a + b, 0) / picked.length : err("#DIV/0!", "no row meets the criterion");
+      }
+      case "MEDIAN": {
+        const ns = numbers(args());
+        if (isError(ns)) return ns;
+        if (!ns.length) return err("#NUM!", "there are no numbers to take the median of");
+        const sorted = [...ns].sort((a, b) => a - b);
+        const mid = sorted.length >> 1;
+        return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+      }
+      case "IFERROR": {
+        const bad = need(2);
+        if (bad) return bad;
+        const v = one(0);
+        return isError(v) ? one(1) : v;
+      }
+      case "TODAY":
+      case "NOW":
+        return need(0) ?? localIso(this.now(), name === "NOW");
+      case "DATE": {
+        const bad = need(3);
+        if (bad) return bad;
+        const parts = [num(0), num(1), num(2)];
+        const e = parts.find(isError);
+        if (e) return e;
+        const [y, m, d] = (parts as number[]).map(Math.trunc) as [number, number, number];
+        if (y < 0 || y > 9999) return err("#NUM!", `${y} is not a year a date can have`);
+        const serial = serialOf(y < 1900 ? y + 1900 : y, m, d);
+        return serial < 0 ? err("#NUM!", "that date is before 1900") : isoOf(serial);
+      }
+      case "YEAR":
+      case "MONTH":
+      case "DAY": {
+        const bad = need(1);
+        if (bad) return bad;
+        const s = date(0);
+        if (isError(s)) return s;
+        if (s < 0) return err("#NUM!", "a date before 1900");
+        const p = partsOf(s);
+        return name === "YEAR" ? p.year : name === "MONTH" ? p.month : p.day;
+      }
+      case "DATEDIF": {
+        const bad = need(3);
+        if (bad) return bad;
+        const [a, b, unit] = [date(0), date(1), text(2)];
+        if (isError(a)) return a;
+        if (isError(b)) return b;
+        if (isError(unit)) return unit;
+        const u = unit.trim().toUpperCase() as DateDiffUnit;
+        if (!DATE_UNITS.includes(u)) return err("#NUM!", `DATEDIF's unit is one of ${DATE_UNITS.join(", ")}`);
+        if (a > b) return err("#NUM!", "the start date is after the end date");
+        return dateDiff(a, b, u);
+      }
+      case "VLOOKUP": {
+        const bad = need(3, 4);
+        if (bad) return bad;
+        const want = one(0);
+        if (isError(want)) return want;
+        const table = cells(1);
+        if (isError(table)) return table;
+        const col = num(2);
+        if (isError(col)) return col;
+        const c = Math.trunc(col);
+        const w = widthOf(table);
+        if (c < 1) return err("#VALUE!", "VLOOKUP's column number starts at 1");
+        if (c > w) return err("#REF!", `the table has ${w} column${w === 1 ? "" : "s"}, so there is no column ${c}`);
+        const approx = argNodes[3] ? truthy(one(3)) : true;
+        const first = table.filter((_, i) => i % w === 0);
+        const at = position(want, first, approx ? 1 : 0);
+        return at < 0 ? err("#N/A", `${toText(want)} is not in the table's first column`) : (table[at * w + c - 1] ?? null);
+      }
+      case "MATCH": {
+        const bad = need(2, 3);
+        if (bad) return bad;
+        const want = one(0);
+        if (isError(want)) return want;
+        const range = cells(1);
+        if (isError(range)) return range;
+        const list = vector(range);
+        if (!list) return err("#N/A", "MATCH looks in one row or one column");
+        const type = argNodes[2] ? num(2) : 1;
+        if (isError(type)) return type;
+        const at = position(want, list, Math.sign(type) as 0 | 1 | -1);
+        return at < 0 ? err("#N/A", `${toText(want)} is not in the range`) : at + 1;
+      }
+      case "INDEX": {
+        const bad = need(2, 3);
+        if (bad) return bad;
+        const range = cells(0);
+        if (isError(range)) return range;
+        const w = widthOf(range);
+        const h = range.height ?? Math.ceil(range.length / w);
+        const first = num(1);
+        if (isError(first)) return first;
+        const second = argNodes[2] ? num(2) : undefined;
+        if (second !== undefined && isError(second)) return second;
+        let [r, c] = [Math.trunc(first), second === undefined ? undefined : Math.trunc(second)];
+        // One index into a single row or column counts along it.
+        if (c === undefined) {
+          if (w === 1) c = 1;
+          else if (h === 1) [r, c] = [1, r];
+          else return err("#VALUE!", "INDEX into a table takes a row and a column");
+        }
+        if (r < 1 || c < 1) return err("#VALUE!", "INDEX counts rows and columns from 1");
+        if (r > h || c > w) return err("#REF!", `the range is ${h} by ${w}, so there is no row ${r}, column ${c}`);
+        return range[(r - 1) * w + c - 1] ?? null;
+      }
+      case "XLOOKUP": {
+        const bad = need(3, 6);
+        if (bad) return bad;
+        const want = one(0);
+        if (isError(want)) return want;
+        const [look, back] = [cells(1), cells(2)];
+        if (isError(look)) return look;
+        if (isError(back)) return back;
+        const list = vector(look);
+        const results = vector(back);
+        if (!list || !results) return err("#VALUE!", "XLOOKUP looks in one row or one column and returns from one");
+        if (results.length !== list.length) return err("#VALUE!", "the lookup and return ranges are not the same size");
+        const mode = argNodes[4] ? num(4) : 0;
+        const search = argNodes[5] ? num(5) : 1;
+        if (isError(mode)) return mode;
+        if (isError(search)) return search;
+        if (![0, -1, 1, 2].includes(mode)) return err("#VALUE!", "XLOOKUP's match mode is 0, -1, 1 or 2");
+        if (![1, -1, 2, -2].includes(search)) return err("#VALUE!", "XLOOKUP's search mode is 1, -1, 2 or -2");
+        const order = list.map((_, i) => i);
+        if (search < 0) order.reverse();
+        let at: number;
+        if (mode === 0) at = order.find((i) => sameValue(list[i]!, want)) ?? -1;
+        else if (mode === 2) {
+          const re = wildcard(toText(want));
+          at = order.find((i) => list[i] !== null && !isError(list[i]) && re.test(toText(list[i]!))) ?? -1;
+        } else at = nearest(want, list, mode as -1 | 1, order);
+        if (at >= 0) return results[at] ?? null;
+        return argNodes[3] ? one(3) : err("#N/A", `${toText(want)} is not in the lookup range`);
+      }
+      case "TEXTJOIN": {
+        if (argNodes.length < 3) return err("#VALUE!", "TEXTJOIN takes a delimiter, whether to skip empty cells, and the text");
+        const delim = text(0);
+        if (isError(delim)) return delim;
+        const skip = one(1);
+        if (isError(skip)) return skip;
+        const vs = flat(argNodes.slice(2).map((a) => this.evaluate(a, t)));
+        const e = vs.find(isError);
+        if (e) return e;
+        return vs.filter((v) => !truthy(skip) || (v !== null && v !== "")).map(toText).join(delim);
+      }
+      case "LEFT":
+      case "RIGHT": {
+        const bad = need(1, 2);
+        if (bad) return bad;
+        const s = text(0);
+        if (isError(s)) return s;
+        const n = argNodes[1] ? num(1) : 1;
+        if (isError(n)) return n;
+        if (n < 0) return err("#VALUE!", `${name} cannot take fewer than no characters`);
+        const k = Math.trunc(n);
+        return name === "LEFT" ? s.slice(0, k) : k === 0 ? "" : s.slice(-k);
+      }
+      case "MID": {
+        const bad = need(3);
+        if (bad) return bad;
+        const [s, start, len] = [text(0), num(1), num(2)];
+        if (isError(s)) return s;
+        if (isError(start)) return start;
+        if (isError(len)) return len;
+        if (start < 1) return err("#VALUE!", "MID counts characters from 1");
+        if (len < 0) return err("#VALUE!", "MID cannot take fewer than no characters");
+        const from = Math.trunc(start) - 1;
+        return s.slice(from, from + Math.trunc(len));
+      }
+      case "LEN":
+      case "UPPER":
+      case "LOWER":
+      case "TRIM": {
+        const bad = need(1);
+        if (bad) return bad;
+        const s = text(0);
+        if (isError(s)) return s;
+        if (name === "LEN") return s.length;
+        if (name === "UPPER") return s.toUpperCase();
+        if (name === "LOWER") return s.toLowerCase();
+        // Spaces only, as a spreadsheet trims: none at either end, one between words.
+        return s.replace(/^ +| +$/g, "").replace(/ {2,}/g, " ");
       }
       default:
         return err("#NAME?", `${name} is not a function KOS sheets know`);
@@ -801,6 +1114,9 @@ export function formatValue(v: Value, column: SheetColumn | undefined): string {
       }
       case "number":
         return d === undefined ? nf("n", { maximumFractionDigits: 2 }).format(v) : nf(`n:${d}`, { minimumFractionDigits: d, maximumFractionDigits: d }).format(v);
+      case "date":
+        // A serial, as date arithmetic leaves one: shown as the day it is.
+        return Number.isFinite(v) && v >= 0 ? formatValue(isoOf(v), column) : String(v);
       default:
         return Number.isInteger(v) ? String(v) : nf("n", { maximumFractionDigits: 4 }).format(v);
     }

@@ -1,5 +1,5 @@
-import type { SheetBook, SheetTab } from "@kos/shared";
-import { Workbook, isError, sourceQuery, sourceRows, type Value } from "@kos/shared/sheetformula";
+import type { SheetBook, SheetColumn, SheetTab } from "@kos/shared";
+import { Workbook, isError, isoOf, sourceQuery, sourceRows, type Value, type WorkbookOptions } from "@kos/shared/sheetformula";
 
 /**
  * A sheet's tab as CSV, for a spreadsheet elsewhere: the column labels, then
@@ -25,8 +25,10 @@ const FORMULA_START = /^[=+\-@\t\r]/;
 /** A text cell that is a number and nothing else, which a spreadsheet reads as that number: the one start it is left. */
 const PLAIN_NUMBER = /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/;
 
-function field(v: Value): string {
+function field(v: Value, column: SheetColumn | undefined): string {
   if (v === null) return "";
+  // A date column's serial (a date plus days) as the day it is, which a spreadsheet reads as a date.
+  if (typeof v === "number" && column?.type === "date" && Number.isFinite(v) && v >= 0) return isoOf(v);
   if (isError(v)) return v.error;
   if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
   // Fifteen digits, as a spreadsheet holds them: 169.11, not the 169.10999999999999 a sum of floats leaves.
@@ -35,12 +37,12 @@ function field(v: Value): string {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-/** One tab of a workbook (source tabs already holding their rows) as CSV text. */
-export function tabCsv(book: SheetBook, tab: number): string {
-  const wb = new Workbook(book);
+/** One tab of a workbook (source tabs already holding their rows) as CSV text, TODAY and NOW read as the runtime reads them, when it is made. */
+export function tabCsv(book: SheetBook, tab: number, options: WorkbookOptions = {}): string {
+  const wb = new Workbook(book, options);
   const columns = wb.columns(tab);
-  const lines = [columns.map((c) => field(c.label)).join(",")];
-  for (let row = 1; row <= wb.rowCount(tab); row++) lines.push(columns.map((_, col) => field(wb.value(tab, row, col))).join(","));
+  const lines = [columns.map((c) => field(c.label, undefined)).join(",")];
+  for (let row = 1; row <= wb.rowCount(tab); row++) lines.push(columns.map((c, col) => field(wb.value(tab, row, col), c)).join(","));
   return `${BOM}${lines.join("\r\n")}\r\n`;
 }
 
