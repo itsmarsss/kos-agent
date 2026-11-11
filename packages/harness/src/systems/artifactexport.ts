@@ -94,6 +94,10 @@ export interface ExporterOptions {
   pageLib?: () => string;
   /** How long one export may take, its wait for the Chrome included; EXPORT_MS unless a test says less. */
   timeoutMs?: number;
+  /** For a test: how many times slower the drawing tab's CPU runs (CDP's throttling), as on a slow machine. */
+  cpuThrottle?: number;
+  /** For a test: the longest the drawing waits for the frame to start and its reads to finish; DRAW_MS unless less. */
+  drawMs?: number;
 }
 
 /** A frozen read: what the artifact asked, by the key its bridge made, and what came back. */
@@ -103,14 +107,18 @@ export type Answers = Record<string, { result: unknown } | { error: string }>;
 export const EXPORT_MS = 60_000;
 /** Exports waiting on the Chrome at once; past it, the owner is told to wait. */
 const BROWSER_QUEUE_MAX = 3;
-/** How long a render waits for its runtime to draw and its reads to be answered. */
-const SETTLE_MS = 8000;
+/**
+ * The longest a render waits for the artifact's frame to have loaded and its
+ * reads to be done: generous, since a slow machine takes its time, and well
+ * inside the export's own timeout and the Chrome's job ceiling.
+ */
+export const DRAW_MS = 30_000;
 /** What the CDP client says when the Chrome it talked to is gone. */
 const BROWSER_GONE = /hung up|connection closed|not connected to the browser|Target closed|could not reach the browser/i;
 /** How long a frame has to answer KOS's question about it; a frame that cannot is busy for good. */
 const ANSWER_MS = 3000;
-/** Quiet time after the last read before the page is taken as drawn. */
-const QUIET_MS = 700;
+/** How long the frame must have been loaded with no read waiting or new before what it read is taken as all it reads. */
+const QUIET_MS = 1000;
 /** Past this the fonts stay out of an HTML file and their stacks fall back to the system's: four families are about half of it. */
 const FONT_BUDGET = 600_000;
 /** What a read said, at most, frozen in a file: a page of 500 rows fits many times over. */
@@ -477,16 +485,30 @@ export class ArtifactExporter {
           lastCall = Date.now();
         });
     };
-    const tab = await SealedTab.open(cdp, { scripts: true, offline: true, track: job.track }, relay);
+    const tab = await SealedTab.open(cdp, { scripts: true, offline: true, track: job.track, ...(this.options.cpuThrottle ? { cpuThrottle: this.options.cpuThrottle } : {}) }, relay);
     try {
       const view = kind === "deck" ? VIEW.deck : VIEW.other;
       await cdp.send("Emulation.setDeviceMetricsOverride", { ...view, deviceScaleFactor: 1, mobile: false }, tab.sessionId);
       await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }] }, tab.sessionId);
       await tab.navigate(hostDocument(artifactFrame({ ...page, html: withoutExits(page.html) }, theme, assets), assets.tokens[theme]["--bg"]));
+      // Drawn once the frame has loaded and nothing has been read, or waited on, for a quiet while: a slow machine is waited for, not frozen half-read.
       const start = Date.now();
-      await sleep(400);
-      while (!job.aborted && Date.now() - start < SETTLE_MS && (inFlight > 0 || Date.now() - lastCall < QUIET_MS)) await sleep(100);
-      if (job.aborted) throw new Error("the export was given up");
+      const ceiling = this.options.drawMs ?? DRAW_MS;
+      let loadedAt: number | undefined;
+      for (;;) {
+        if (job.aborted) throw new Error("the export was given up");
+        // A frame that left has nothing more to read; what to make of that is below.
+        if (left) break;
+        loadedAt ??= (await this.frameLoaded(cdp, tab)) ? Date.now() : undefined;
+        if (loadedAt !== undefined && inFlight === 0 && Date.now() - Math.max(loadedAt, lastCall) >= QUIET_MS) break;
+        if (Date.now() - start > ceiling) {
+          if (inFlight > 0) throw new ExportRefusal(`the artifact was still waiting on ${inFlight} of its reads after ${Math.round(ceiling / 1000)} s, so KOS did not export it with its data half read; try again`);
+          if (loadedAt === undefined) throw new ExportRefusal(`the artifact's frame had not finished loading after ${Math.round(ceiling / 1000)} s, so there is nothing whole to export; try again`);
+          // Loaded, nothing waiting, but reading again and again: what it has read is whole.
+          break;
+        }
+        await sleep(100);
+      }
       if (!snapshot) return { answers };
       // A frame that tried to leave is refused by its wrapper and left with nothing to print.
       if (left) throw new ExportRefusal("the artifact tried to leave its frame, which KOS stops, so there is nothing to print; ask KOS to fix it");
@@ -494,6 +516,17 @@ export class ArtifactExporter {
     } finally {
       await tab.close();
     }
+  }
+
+  /** Whether the artifact's own frame has loaded: its document complete, with its bridge and runtime in it. A frame too busy to say is not yet. */
+  private async frameLoaded(cdp: CdpClient, tab: SealedTab): Promise<boolean> {
+    for (const c of tab.contexts) {
+      const got = (await cdp
+        .send("Runtime.evaluate", { expression: 'typeof window.kos==="object"&&!!document.documentElement.dataset.kind&&document.readyState==="complete"', contextId: c.id, returnByValue: true }, c.sessionId, ANSWER_MS)
+        .catch(() => undefined)) as { result?: { value?: unknown } } | undefined;
+      if (got?.result?.value === true) return true;
+    }
+    return false;
   }
 
   /**

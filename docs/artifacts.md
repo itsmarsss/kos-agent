@@ -299,7 +299,11 @@ Chrome, as on a machine without one.
   do not reach), under the frame's own policy and guard. Its `window.kos`
   reaches nothing: a page, a sheet with a source tab, or a doc or deck that
   names `kos` is drawn once in KOS's Chrome first, and what its reads
-  answered is frozen into the file, answered from it by the same call; a
+  answered is frozen into the file, answered from it by the same call. The
+  drawing waits, however slow the machine, until the frame has loaded and
+  no read has been waiting or new for a second, up to 30 s; one still
+  waiting on a read then is refused in words rather than exported half
+  read (a frame that never loads, the same); a
   write, an ask or a save is refused in words, and with no save no runtime
   offers editing. Nothing of the dashboard goes in: no token, no address,
   only the artifact and what its own reads answered. Served with

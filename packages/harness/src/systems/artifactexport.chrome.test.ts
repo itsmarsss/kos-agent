@@ -66,6 +66,33 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-deck.js")))("artifact ex
     rmSync(captures, { recursive: true, force: true });
   });
 
+  describe("on a slow machine", () => {
+    // A page as the server test's: it reads once its script runs, and shows what it read.
+    const READER: HtmlPage = { id: "slow reader", title: "Slow reader", html: '<h1>Reader</h1><p id="out">-</p><script>kos.query("SELECT title FROM shelf").then(function(r){out.textContent=r.rows[0].title})</script>' };
+    const LATE: HtmlPage = { id: "late reader", title: "Late reader", html: '<h1>Reader</h1><p id="out">-</p><script>addEventListener("load",function(){setTimeout(function(){kos.query("SELECT title FROM late").then(function(r){out.textContent=r.rows[0].title})},300)})</script>' };
+    const slow = (options: { call?: (id: string, verb: "query" | "file", args: Record<string, unknown>) => Promise<unknown>; drawMs?: number } = {}): ArtifactExporter =>
+      new ArtifactExporter({
+        load: (id) => ({ "slow reader": READER, "late reader": LATE })[id] ? { page: ({ "slow reader": READER, "late reader": LATE } as Record<string, HtmlPage>)[id]!, title: id } : undefined,
+        call: options.call ?? (async () => ({ rows: [{ title: "Dune" }], truncated: false })),
+        browser: (work) => checker.withBrowser(work),
+        pageLib: () => BUILT,
+        cpuThrottle: 40,
+        ...(options.drawMs ? { drawMs: options.drawMs } : {}),
+      });
+
+    it("waits for the frame to start and its reads to settle before it freezes them, its CPU forty times slower", async () => {
+      for (const id of ["slow reader", "late reader"]) {
+        const html = (await slow().export(id, "html")).body.toString("utf8");
+        expect(html, id).toContain("&quot;rows&quot;:[{&quot;title&quot;:&quot;Dune&quot;}]");
+      }
+    }, 90_000);
+
+    it("refuses in words, rather than freeze half its data, when a read is still waiting at the ceiling", async () => {
+      const never = slow({ call: () => new Promise(() => undefined), drawMs: 4000 });
+      await expect(never.export("slow reader", "html")).rejects.toThrow(/still waiting on 1 of its reads/);
+    }, 60_000);
+  });
+
   it("prints a doc on Letter pages, its text and its table in it", async () => {
     const file = await exporter.export("doc", "pdf");
     expect(file.body.subarray(0, 5).toString()).toBe("%PDF-");
