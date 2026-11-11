@@ -1,5 +1,5 @@
 import type { SheetBook } from "@kos/shared";
-import { Workbook, rewriteRefs } from "@kos/shared/sheetformula";
+import { Workbook, rewriteRefs, type Ref } from "@kos/shared/sheetformula";
 import { describe, expect, it } from "vitest";
 
 import { deleteColumn, deleteRows, freshLabel, insertColumn, insertRows, renameColumn, retypeColumn } from "./sheetshape.js";
@@ -25,7 +25,7 @@ const book = (): SheetBook => ({
 
 describe("rewriting references", () => {
   it("moves each reference as it is told, keeping $ marks and tab names, and writes #REF! for one that went", () => {
-    const right = (r: { col: number; col2?: number }): typeof r => ({ ...r, col: r.col + 1, ...(r.col2 !== undefined ? { col2: r.col2 + 1 } : {}) });
+    const right = (r: Ref): Ref => ({ ...r, col: r.col + 1, ...(r.col2 !== undefined ? { col2: r.col2 + 1 } : {}) });
     expect(rewriteRefs("=SUM($A$1:B2)+Other!C3*'My tab'!$D4", right)).toBe("=SUM($B$1:C2)+Other!D3*'My tab'!$E4");
     expect(rewriteRefs('=A1&"A1"', () => null)).toBe('=#REF!&"A1"');
     expect(rewriteRefs("=Other!A1+1", () => null)).toBe("=#REF!+1");

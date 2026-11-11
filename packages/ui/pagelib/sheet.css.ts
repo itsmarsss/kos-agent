@@ -29,7 +29,7 @@ export const SHEET_CSS = String.raw`
 :where(html[data-present], html[data-ground="own"]) { --sheet-gutter: clamp(16px, 3vw, 28px); }
 :where(html[data-kind="sheet"]) body { font-family: var(--font-body); background: var(--bg); color: var(--text); padding: var(--sheet-gutter); }
 
-.sheet { display: flex; flex-direction: column; gap: 12px; min-width: 0; font: 400 14px / 1.4 var(--font-ui); }
+.sheet { position: relative; display: flex; flex-direction: column; gap: 12px; min-width: 0; font: 400 14px / 1.4 var(--font-ui); }
 .sheet + .sheet { margin-top: 32px; }
 .sheet-error { border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); color: var(--danger); border-radius: var(--r-sm, 7px); padding: 12px 14px; font: 400 14px / 1.45 var(--font-ui); }
 
@@ -49,6 +49,44 @@ export const SHEET_CSS = String.raw`
 .sheet-status { font-size: 13px; color: var(--muted); }
 .sheet-status.bad { color: var(--danger); }
 
+/* What the owner decides before anything filled is replaced or deleted, and the import's preview: under the tools, never over the grid. */
+.sheet-panel, .sheet-rowbar { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md, 10px); background: var(--panel); font-size: 13px; color: var(--text); }
+.sheet-panel.danger { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+.sheet-panel p { margin: 0; }
+.sheet-panel-notes { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
+.sheet-panel-refusal { color: var(--danger); }
+.sheet-panel-actions, .sheet-rowbar { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sheet-rowbar { padding: 8px 10px; }
+.sheet-rowbar > span { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 4px; }
+.sheet-panel button, .sheet-rowbar button { font: 500 13px / 1 var(--font-ui); color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm, 7px); padding: 8px 12px; cursor: pointer; }
+.sheet-panel button:hover, .sheet-rowbar button:hover { border-color: var(--line-strong, var(--line)); }
+.sheet-panel button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
+:where(.sheet-panel, .sheet-rowbar) button.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
+.sheet-panel :where(button, select, input):focus-visible, .sheet-rowbar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sheet-panel select { font: 400 13px / 1.2 var(--font-ui); color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm, 7px); padding: 6px 8px; min-width: 0; max-width: 100%; }
+.sheet-import-options { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
+.sheet-import-options label { display: inline-flex; gap: 6px; align-items: center; }
+.sheet-import-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 1fr)); gap: 8px 12px; }
+.sheet-import-map label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sheet-import-map span { font: 600 11px / 1.2 var(--font-ui); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); overflow-wrap: anywhere; }
+.sheet-import-shown { color: var(--muted); }
+.sheet-import-preview { overflow: auto; border: 1px solid var(--line); border-radius: var(--r-sm, 7px); }
+.sheet-import-preview table { border-collapse: collapse; width: max-content; min-width: 100%; font-variant-numeric: tabular-nums; }
+.sheet-import-preview :where(th, td) { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; }
+.sheet-import-preview th { background: var(--panel-2); font-weight: 600; font-size: 12px; }
+.sheet-import-preview tr:last-child td { border-bottom: 0; }
+
+/* A column's menu, under its header. */
+.sheet-menu { position: absolute; z-index: 20; min-width: 200px; padding: 6px; display: flex; flex-direction: column; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md, 10px); box-shadow: var(--float, 0 12px 32px rgba(0, 0, 0, 0.3)); font: 400 13px / 1.2 var(--font-ui); }
+.sheet-menu button { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--r-sm, 7px); color: var(--text); cursor: pointer; }
+.sheet-menu button:hover, .sheet-menu button:focus-visible { background: var(--panel-2); }
+.sheet-menu button.danger { color: var(--danger); }
+.sheet-menu button[role="menuitemradio"]::before { content: ""; width: 12px; color: var(--accent); }
+.sheet-menu button[aria-checked="true"]::before { content: "\2713"; }
+.sheet-menu-group { padding: 8px 10px 4px; font: 600 11px / 1 var(--font-ui); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.sheet-menu-note { margin: 0; padding: 6px 10px; max-width: 26ch; color: var(--muted); line-height: 1.35; }
+.sheet-menu-rule { height: 1px; margin: 5px 4px; background: var(--line); }
+
 .sheet-scroll { overflow: auto; max-width: calc(100vw - 2 * var(--sheet-gutter)); max-height: var(--sheet-height); border: 1px solid var(--line); border-radius: var(--r-md, 10px); background: var(--panel); overscroll-behavior: contain; }
 .sheet-grid { border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums lining-nums; min-width: 100%; width: max-content; }
 .sheet-grid :where(th, td) { height: var(--sheet-row); padding: 0 12px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 36ch; text-align: left; background: var(--panel); }
@@ -58,11 +96,19 @@ export const SHEET_CSS = String.raw`
 .sheet-grid thead .letter { font: 500 10px / 1 var(--font-mono); color: var(--muted); letter-spacing: 0.04em; }
 .sheet-grid thead .name { font: 600 12px / 1.2 var(--font-ui); color: var(--text); letter-spacing: 0.01em; display: flex; gap: 4px; align-items: center; }
 .sheet-grid thead .name::after { content: ""; color: var(--accent); font-size: 10px; }
+.sheet-grid thead th:has(.sheet-colmenu) button:first-child { padding-right: 30px; }
+.sheet-grid thead .sheet-colmenu { all: unset; position: absolute; right: 4px; bottom: 5px; width: 22px; height: 22px; display: grid; place-items: center; border-radius: var(--r-sm, 7px); color: var(--muted); cursor: pointer; font: 600 14px / 1 var(--font-ui); opacity: 0.55; }
+.sheet-grid thead th:hover .sheet-colmenu, .sheet-grid thead .sheet-colmenu:focus-visible, .sheet-grid thead .sheet-colmenu[aria-expanded="true"] { opacity: 1; background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
+.sheet-grid thead .sheet-colmenu:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.sheet-grid thead th.renaming > :not(.sheet-rename) { visibility: hidden; }
+.sheet-grid thead .sheet-rename { position: absolute; inset: 4px; box-sizing: border-box; width: auto; padding: 0 8px; font: 600 12px / 1 var(--font-ui); color: var(--text); background: var(--bg); border: 0; border-radius: var(--r-sm, 7px); box-shadow: inset 0 0 0 2px var(--accent); outline: none; }
 .sheet-grid thead th[aria-sort="ascending"] .name::after { content: "▲"; }
 .sheet-grid thead th[aria-sort="descending"] .name::after { content: "▼"; }
 .sheet-grid thead th.num button { align-items: flex-end; }
 .sheet-grid .rownum { position: sticky; left: 0; z-index: 1; background: var(--panel-2); color: var(--muted); font: 500 11px / 1 var(--font-mono); text-align: right; padding: 0 10px; min-width: 3.5ch; }
 .sheet-grid thead th.rownum { z-index: 3; }
+.sheet-grid .rownum .pick { all: unset; display: block; width: 100%; cursor: pointer; text-align: right; border-radius: 4px; }
+.sheet-grid .rownum .pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sheet-grid .frozen { position: sticky; z-index: 1; }
 .sheet-grid thead th.frozen { z-index: 3; }
 .sheet-grid .frozen-edge { box-shadow: 1px 0 0 var(--line-strong, var(--line)); }
@@ -71,6 +117,8 @@ export const SHEET_CSS = String.raw`
 .sheet-grid td.bool { text-align: center; color: var(--ok); }
 .sheet-grid td.formula { color: var(--text); }
 .sheet-grid tbody tr:hover :where(td, th) { background: color-mix(in srgb, var(--accent) 5%, var(--panel)); }
+.sheet-grid tbody tr.picked :where(td, th) { background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+.sheet-grid tbody tr.picked .rownum { color: var(--accent); font-weight: 700; }
 .sheet-grid td:focus { outline: none; }
 .sheet-grid td.focus { box-shadow: inset 0 0 0 2px var(--accent); }
 .sheet-grid td.editing { padding: 0; box-shadow: inset 0 0 0 2px var(--accent); }
