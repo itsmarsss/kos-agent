@@ -6,6 +6,7 @@ import { deleteProject } from "../systems/remove.js";
 import type { CreateProjectInput } from "../systems/manifest.js";
 import { artifactGuide } from "../systems/artifactguide.js";
 import { PATCH_EDITS_MAX, patchEdits, patchSummary } from "../systems/artifactpatch.js";
+import { AFTER_PATCH } from "../systems/artifactcheck.js";
 import { ARTIFACT_KINDS, WORKSPACE_SCOPE, isArtifactKind } from "@kos/shared";
 import { maintains, reachable, type Reach } from "./fence.js";
 import { reachOf } from "./sql.js";
@@ -185,8 +186,10 @@ class CheckTally {
   }
 }
 
-/** Said in place of a third check in one turn. */
-const CHECKED_ENOUGH = "Not checked again: it has had its check and the check after the fix in this turn. Do not patch, write or check it again; tell the owner in a line what is left, and finish.";
+/** Said in place of a third check in one turn: a patch is still saved, and the rest of the request still goes ahead. */
+const CHECKED_ENOUGH = "Not checked again: it has had its check and the check after the fix in this turn.";
+const PATCH_NOT_CHECKED = `Saved. ${CHECKED_ENOUGH} ${AFTER_PATCH}`;
+const CHECK_NOT_RUN = `${CHECKED_ENOUGH} Do not check it again: make any other change the owner asked for, then tell the owner in a line what is left, and finish.`;
 
 /** Who a new artifact from this chat belongs to when it names none: a blob's thread makes its own; anywhere else, the workspace. */
 const defaultOwner = (reach: Reach): PageOwner => (reach.blob && !reach.project ? { blob: reach.blob.name, id: reach.blob.id } : null);
@@ -428,7 +431,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
       if (record) refuseOtherOwnersPage(ownerOfRecord(record), reachOf(ctx), "read");
       if (record?.trashedAt !== undefined) throw new Error(`the artifact ${id} is in the trash, left as it is until the owner restores it; there is nothing to check`);
       const n = tally.take(id);
-      return n > 2 ? CHECKED_ENOUGH : checkArtifact(id, { final: n === 2 });
+      return n > 2 ? CHECK_NOT_RUN : checkArtifact(id, { final: n === 2 });
     },
     { floor: "safe" },
     { tags: ["systems"] },
@@ -561,8 +564,8 @@ function defineSystemsTools(ctx: ModuleContext): void {
       if (!checkArtifact) return summary;
       // The patch is kept whatever the check finds; a check that cannot run says so rather than failing what was saved.
       const n = tally.take(id);
-      if (n > 2) return `${summary}\n\n${CHECKED_ENOUGH}`;
-      const checked = await checkArtifact(id, { final: n === 2, quiet: true }).catch((err: unknown) => ({ text: `Saved, but the check could not run: ${err instanceof Error ? err.message : String(err)}` }));
+      if (n > 2) return `${summary}\n\n${PATCH_NOT_CHECKED}`;
+      const checked = await checkArtifact(id, { final: n === 2, patch: true }).catch((err: unknown) => ({ text: `Saved, but the check could not run: ${err instanceof Error ? err.message : String(err)}` }));
       return { ...checked, text: `${summary}\n\n${checked.text}` };
     },
     { floor: "safe" },

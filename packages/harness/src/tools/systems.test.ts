@@ -10,6 +10,7 @@ import { Workspace } from "../store/workspace.js";
 import { ProjectManifest } from "../systems/manifest.js";
 import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
+import type { CheckAsk } from "../systems/artifactcheck.js";
 import { RoleStore } from "../agents/roles.js";
 import { attendance, guested, ownership, turn } from "../kernel/caller.js";
 import { filesModule } from "./files.js";
@@ -37,6 +38,8 @@ describe("systems.migrate risk", () => {
   let execute: ToolRegistry["execute"];
   // The artifacts' store, for what only the owner does: the trash.
   let store: PageStore;
+  // How each check was asked for, in order.
+  let asks: CheckAsk[] = [];
 
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "kos-systems-"));
@@ -64,12 +67,16 @@ describe("systems.migrate risk", () => {
         return callerBlob && id ? { name: callerBlob, id } : undefined;
       },
       turnMade: { note: (slug) => made.add(slug), made: () => [...made] },
-      checkArtifact: (id, ask) => Promise.resolve({ text: `checked ${id}${ask?.final ? " after the fix" : ""}` }),
+      checkArtifact: (id, ask) => {
+        asks.push(ask ?? {});
+        return Promise.resolve({ text: `checked ${id}${ask?.final ? " after the fix" : ""}` });
+      },
     });
     caller = "c1";
     callerProject = undefined;
     callerBlob = undefined;
     made = new Set();
+    asks = [];
     await new ModuleLoader(ctx).load([systemsModule, filesModule]);
   });
 
@@ -662,6 +669,21 @@ describe("systems.migrate risk", () => {
       // A patch that comes first in its turn asks for the fix; the next is the check after it.
       expect((await inTurn("t2", () => patch("memo", [{ find: "<p>c</p>", replace: "<p>d</p>" }]))).split("\n\n")[1]).toBe("checked memo");
       expect((await inTurn("t2", () => patch("memo", [{ find: "<p>d</p>", replace: "<p>e</p>" }]))).split("\n\n")[1]).toBe("checked memo after the fix");
+    });
+
+    it("lets a request of several changes run to its end: every patch applies, and none says to stop", async () => {
+      await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1><table><tr><td>a</td></tr></table><p>x</p>" });
+      const steps = [
+        [{ find: "<h1>Memo</h1>", replace: "<h1>Notes</h1>" }],
+        [{ find: "<td>a</td>", replace: "<td>a</td><td>b</td>" }],
+        [{ find: "<p>x</p>", replace: '<p class="accent">x</p>' }],
+      ];
+      const said: string[] = [];
+      for (const edits of steps) said.push(await turn.run("t1", () => patch("memo", edits)).then((r) => r.content));
+      expect(file("artifacts/memo.html")).toBe('<h1>Notes</h1><table><tr><td>a</td><td>b</td></tr></table><p class="accent">x</p>');
+      expect(asks).toEqual([{ final: false, patch: true }, { final: true, patch: true }]);
+      expect(said[2]).toMatch(/Saved\. Not checked again: .* Make any other change the owner asked for, then finish without another check\./);
+      for (const words of said) expect(words).not.toMatch(/Finish here|Do not patch, write|tell the owner in a line what is left, and finish/);
     });
 
     it("leaves the artifact as it was when any edit fails, saying which and why", async () => {

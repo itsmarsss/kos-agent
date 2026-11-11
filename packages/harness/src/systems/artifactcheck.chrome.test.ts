@@ -157,7 +157,7 @@ describe.skipIf(!chrome)("artifacts.check in Chrome", () => {
     const tool = await checker.tool("good");
     expect(tool.images).toHaveLength(2);
     // After a patch, a clean check is its words alone.
-    const quiet = await checker.tool("good", { quiet: true });
+    const quiet = await checker.tool("good", { patch: true });
     expect(quiet.images).toBeUndefined();
     expect(quiet.text).not.toMatch(/pictures/);
   }, 45_000);
