@@ -109,7 +109,7 @@ Pair deliberately: a serif body with a grotesque for labels, or one sans in two 
 
 ## Charts
 
-Draw them to scale from zero unless the subject says otherwise, with axis labels only at values the chart reaches. Colour series from tokens, leave room for labels, and label directly rather than with a legend when there are few series. Use SVG or the charts library, never a canvas with no text alternative.
+Draw them to scale from zero unless the subject says otherwise, with axis labels only at values the chart reaches. A bar drawn in HTML is the kit's <div class="meter" style="--value: 42%">, or a fill that is a block (a div) given width as a percentage; an inline span ignores its width and draws nothing. Colour series from tokens, leave room for labels, and label directly rather than with a legend when there are few series. Use SVG or the charts library, never a canvas with no text alternative.
 
 ## Complete at rest
 

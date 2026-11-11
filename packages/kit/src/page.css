@@ -39,6 +39,16 @@ img, svg, canvas, video { max-width: 100%; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .stack { display: flex; flex-direction: column; gap: 12px; }
 
+/*
+ * A bar's measure: a track and its fill, the fill as wide as --value (a
+ * percentage) or as a child block given its own width. A fill must be a
+ * block: an inline span ignores width and draws nothing.
+ */
+.meter { height: 8px; border-radius: 999px; background: var(--panel-2); overflow: hidden; }
+.meter::before, .meter > * { content: ""; display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.meter::before { width: var(--value, 0%); }
+.meter:has(> *)::before { content: none; }
+
 /* A figure with its word under it. */
 .stat { display: flex; flex-direction: column; gap: 2px; }
 .stat-value { font-size: var(--text-2xl); font-weight: 600; font-variant-numeric: tabular-nums; }
