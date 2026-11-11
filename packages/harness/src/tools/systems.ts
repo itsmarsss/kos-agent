@@ -164,15 +164,20 @@ const TURNS_TALLIED = 64;
  * KOS checks once and fixes in one pass: the first check asks for the fix,
  * the second is the check after it and its findings go to the owner, and a
  * third is not run, so no write, check and patch can go round for ever.
+ * A call made in no turn (a schedule's fixed actions, which run no model and
+ * have no run of their own to count by) is not counted: it does exactly what
+ * it says, so there is no loop to bound, and a count kept by its thread would
+ * carry from one run to the next.
  */
 class CheckTally {
   private readonly turns = new Map<string, Map<string, number>>();
 
-  constructor(private readonly key: () => string) {}
+  constructor(private readonly key: () => string | undefined) {}
 
-  /** Checks so far this turn for an artifact, counting the one about to run. */
+  /** Checks so far this turn for an artifact, counting the one about to run; always the first outside a turn. */
   take(id: string): number {
     const k = this.key();
+    if (k === undefined) return 1;
     let counts = this.turns.get(k);
     if (!counts) {
       counts = new Map();
@@ -201,7 +206,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
     throw new Error("systems module requires manifest, migrator, and pages services");
   }
   const removed = (blobId: string): boolean => pages.blobIds.removed(blobId);
-  const tally = new CheckTally(() => turn.getStore() ?? ctx.services?.callerConversation?.() ?? "");
+  const tally = new CheckTally(() => turn.getStore());
   const refuseOtherOwnersPage = (owner: PageOwner, reach: Reach, what: "change" | "read" = "change"): void => {
     const why = whyNot(owner, reach, what, removed);
     if (why) throw new Error(`${why} are not its to ${what}.${handTo(owner, reach, removed)}`);

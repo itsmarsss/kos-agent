@@ -666,6 +666,8 @@ describe("systems.migrate risk", () => {
         expect(await inTurn("t1", call)).toMatch(/Not checked again: it has had its check and the check after the fix in this turn/);
       }
       expect(file("artifacts/memo.html")).toBe("<h1>Memo</h1><p>c</p>");
+      // Outside a turn (a schedule's fixed actions) nothing is counted, and nothing carries over.
+      for (let i = 0; i < 4; i++) expect((await registry.execute("artifacts.check", { id: "memo" })).content).toBe("checked memo");
       // A patch that comes first in its turn asks for the fix; the next is the check after it.
       expect((await inTurn("t2", () => patch("memo", [{ find: "<p>c</p>", replace: "<p>d</p>" }]))).split("\n\n")[1]).toBe("checked memo");
       expect((await inTurn("t2", () => patch("memo", [{ find: "<p>d</p>", replace: "<p>e</p>" }]))).split("\n\n")[1]).toBe("checked memo after the fix");
