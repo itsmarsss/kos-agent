@@ -790,7 +790,7 @@ class Sheet {
   }
 
   /** Start previewing a CSV's text: its delimiter, whether it leads with the tab's header, and its mapping, each as the file suggests. */
-  startImport(file: string, text: string): void {
+  private startImport(file: string, text: string): void {
     const delimiter = detectDelimiter(text);
     this.importing = { file, text, delimiter, header: false, map: [] };
     this.readAs(delimiter);
