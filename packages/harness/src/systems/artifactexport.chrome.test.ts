@@ -131,6 +131,23 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-deck.js")))("artifact ex
     });
     afterAll(() => listener?.close());
 
+    it("opens no connection and resolves no name when it sends itself to a host or a loopback port, in a check or an export", async () => {
+      connections.length = 0;
+      hits.length = 0;
+      const port = base.split(":").pop()!;
+      const go = (url: string) => `<h1>Away</h1><script>setTimeout(function(){var d=document;d["loc"+"ation"]["hr"+"ef"]=${JSON.stringify(url)}},30)</script>`;
+      PAGES["away host"] = { id: "away host", title: "Away host", html: go(`http://leak-${port}.example.test:${port}/host`) };
+      PAGES["away loopback"] = { id: "away loopback", title: "Away loopback", html: go(`${base}/loopback`) };
+      for (const id of ["away host", "away loopback"]) {
+        await checker.check(id).catch(() => undefined);
+        await exporter.export(id, "html");
+        await exporter.export(id, "pdf").catch(() => undefined);
+      }
+      await new Promise((r) => setTimeout(r, 800));
+      expect(connections).toEqual([]);
+      expect(hits).toEqual([]);
+    }, 120_000);
+
     it("opens no connection for a preconnect, a DNS prefetch, a prerender or a refresh it was stored with", async () => {
       connections.length = 0;
       hits.length = 0;

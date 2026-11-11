@@ -233,10 +233,15 @@ UTF-8. Each export, and each refusal, is kept in the audit log as
     every `link`, `meta` and `base` out of the artifact before drawing or
     saving it (`withoutHints`, `systems/printsafe.ts`), whatever the stored
     lint passed, and the guard refuses making one from script;
-  - a navigation's own lookup (Chrome resolves the host a frame is sent to
-    before the wrapper's policy refuses it): the same as on the dashboard,
-    held at write time only (see What still leaves, below); offline, the
-    tab sends no request after it.
+  - a navigation's own lookup and connection (Chrome resolves the host a
+    frame is sent to, and connects, before the wrapper's policy refuses it):
+    the Chrome that checks and exports is launched sealed (`sealed` in
+    `ChromeLaunch`, `@kos/browser`): its resolver finds no name
+    (`--host-resolver-rules=MAP * ~NOTFOUND`), and every connection, to
+    loopback too, goes to a proxy that is not there (`127.0.0.1:9`), but
+    the one port KOS serves the check's documents on. KOS's browser for the
+    web is never launched so. On the dashboard, in the owner's own browser,
+    this leak stands as below (What still leaves), held at write time.
   An artifact that tries to leave anyway is left with nothing in its frame,
   and its PDF is refused in words. `artifactexport.chrome.test.ts` plants
   ones that try every way (a computed location, top's, a popup, an image,
@@ -497,7 +502,7 @@ piece that names them.
 exactly as the dashboard does (the same wrapper, document, policy, guard,
 bridge, tokens, kit CSS, fonts and runtime, from the dashboard's build in
 `dist/page-lib`, held in a column with the dashboard's gutter on KOS's
-ground) in a headless Chrome KOS starts for it and closes when idle,
+ground) in a headless Chrome KOS starts for it, sealed from the network but for the loopback port it serves the render on, and closes when idle,
 at 1280 and 390 px wide, in light and in dark, with the machine's own
 preference set to the other theme so an artifact that follows the OS rather
 than KOS's toggle is caught. Its `window.kos` reads are answered by the same

@@ -37,6 +37,15 @@ describe("finding and starting Chrome", () => {
     expect(chromeArgs({ port: 9225, profileDir: "/w", headed: true })[0]).not.toBe("--headless=new");
   });
 
+  it("cuts a sealed Chrome off at its resolver and proxy, but its own loopback ports, and leaves the web browser's network alone", () => {
+    const sealed = chromeArgs({ port: 9225, profileDir: "/w", sealed: { loopback: [4100, 4101] } });
+    expect(sealed).toContain("--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1");
+    expect(sealed).toContain("--proxy-server=127.0.0.1:9");
+    expect(sealed).toContain("--proxy-bypass-list=<-loopback>;127.0.0.1:4100;127.0.0.1:4101");
+    const web = chromeArgs({ port: 9225, profileDir: "/w" });
+    expect(web.some((a) => /host-resolver|proxy/.test(a))).toBe(false);
+  });
+
   it("allows extensions to be loaded over the protocol when it has some, and reads the launch afresh each start", async () => {
     const withExtensions = chromeArgs({ port: 9225, profileDir: "/w", extensions: ["/x/one", "", "/x/two"] });
     expect(withExtensions).toContain("--enable-unsafe-extension-debugging");

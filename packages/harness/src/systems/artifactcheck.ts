@@ -379,7 +379,13 @@ export class ArtifactChecker {
     void sweepProfiles().catch(() => undefined);
     this.profile = mkdtempSync(join(tmpdir(), PROFILE_PREFIX));
     const binary = this.options.chrome?.();
-    this.chrome = new ChromeHost({ port: await freePort(), profileDir: this.profile, launch: () => ({ ...(binary ? { binary } : {}), windowSize: { width: 1280, height: 800 } }) });
+    // Sealed: it draws what KOS did not write, so it reaches nothing but the port KOS serves its documents on.
+    const loopback = await this.servePort();
+    this.chrome = new ChromeHost({
+      port: await freePort(),
+      profileDir: this.profile,
+      launch: () => ({ ...(binary ? { binary } : {}), windowSize: { width: 1280, height: 800 }, sealed: { loopback: [loopback] } }),
+    });
     const url = await this.chrome.ensure();
     const cdp = new CdpClient((u) => new WebSocket(u) as unknown as CdpSocket);
     await cdp.dial(url, () => {
@@ -391,7 +397,15 @@ export class ArtifactChecker {
 
   /** A URL that answers with this document, once. */
   private async serve(html: string): Promise<string> {
-    if (!this.serverUrl) {
+    await this.servePort();
+    const key = randomUUID();
+    this.documents.set(key, html);
+    return this.serverUrl + key;
+  }
+
+  /** The loopback port KOS serves each render's document on, started before the Chrome so the Chrome may reach it and nothing else. */
+  private async servePort(): Promise<number> {
+    if (!this.server) {
       const server = createHttpServer((req, res) => {
         const key = (req.url ?? "").slice(1);
         const body = this.documents.get(key);
@@ -404,9 +418,7 @@ export class ArtifactChecker {
       this.server = server;
       this.serverUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}/`;
     }
-    const key = randomUUID();
-    this.documents.set(key, html);
-    return this.serverUrl + key;
+    return (this.server.address() as { port: number }).port;
   }
 
   private async run(id: string): Promise<CheckReport> {
