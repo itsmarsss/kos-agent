@@ -397,11 +397,24 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
    */
   it("gives a page on a ground of its own its gutter back, and none to one on KOS's", async () => {
     const css = readFileSync(join(import.meta.dirname, "../../../kit/src/page.css"), "utf8");
-    const report = `<script>addEventListener("load", () => setTimeout(() => top.postMessage({ seen: { ground: document.documentElement.dataset.ground || "", pad: getComputedStyle(document.body).paddingLeft } }, "*"), 50))</script>`;
-    for (const [path, html, want] of [
-      ["/kos-ground", `<h1>On KOS</h1>${report}`, { ground: "", pad: "0px" }],
-      ["/own-ground", `<style>body{background:#f2efe6}</style><h1>Its own</h1>${report}`, { ground: "own", pad: "20px" }],
-    ] as const) {
+    const report = (then = ""): string =>
+      `<script>addEventListener("load", () => { ${then}; setTimeout(() => top.postMessage({ seen: { ground: document.documentElement.dataset.ground || "", pad: getComputedStyle(document.body).paddingLeft } }, "*"), 150) })</script>`;
+    const KOS = { ground: "", pad: "0px" };
+    const OWN = { ground: "own", pad: "20px" };
+    const cases: [string, string, typeof KOS][] = [
+      ["/kos-ground", `<h1>On KOS</h1>${report()}`, KOS],
+      ["/own-hex", `<style>body{background:#f2efe6}</style><h1>Its own</h1>${report()}`, OWN],
+      // KOS's own ground written another way is still KOS's.
+      ["/kos-mixed", `<style>body{background:color-mix(in srgb, var(--bg) 100%, transparent)}</style><h1>Mixed</h1>${report()}`, KOS],
+      ["/own-oklch", `<style>body{background:oklch(0.95 0.02 80)}</style><h1>Oklch</h1>${report()}`, OWN],
+      ["/own-hsl", `<style>body{background:hsl(40 30% 92%)}</style><h1>Hsl</h1>${report()}`, OWN],
+      ["/own-gradient", `<style>body{background:linear-gradient(#0c0e12, #1a2030)}</style><h1>Gradient</h1>${report()}`, OWN],
+      ["/own-html", `<style>html{background:#f2efe6}body{background:transparent}</style><h1>Its html</h1>${report()}`, OWN],
+      // Changed after it loads, by a class on the body or a theme callback: heard again.
+      ["/own-later", `<style>.paper{background:#f2efe6}</style><h1>Later</h1>${report("document.body.classList.add('paper')")}`, OWN],
+      ["/own-on-theme", `<style>.paper{background:#f2efe6}</style><h1>On theme</h1>${report("kos.onTheme(() => document.body.classList.add('paper')); dispatchEvent(new MessageEvent('message', { data: { __kos: 'theme', mode: 'dark', rule: document.getElementById('kos-tokens').textContent }, source: top }))")}`, OWN],
+    ];
+    for (const [path, html, want] of cases) {
       const frame = wrapperDocument(pageDocument({ html, tokens: { "--bg": "#0c0e12", "--text": "#e7ebf3" }, mode: "dark", css, libraries: [] }));
       pages.set(path, `<!doctype html><body><iframe id="f" sandbox="allow-scripts" style="width:800px;height:400px" srcdoc="${srcdoc(frame)}"></iframe><script>
         addEventListener("message", (e) => { if (e.data && e.data.seen) document.body.dataset.seen = JSON.stringify(e.data.seen); });
@@ -409,9 +422,9 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       await send("Emulation.setDeviceMetricsOverride", { width: 900, height: 600, deviceScaleFactor: 1, mobile: false });
       await send("Page.navigate", { url: `${base}${path}` });
       await until("!!document.body.dataset.seen");
-      expect(JSON.parse(String(await value("document.body.dataset.seen")))).toEqual(want);
+      expect(JSON.parse(String(await value("document.body.dataset.seen"))), path).toEqual(want);
     }
-  }, 30_000);
+  }, 60_000);
 
   /*
    * Queries go out two at a time, and one whose answer never comes gives its

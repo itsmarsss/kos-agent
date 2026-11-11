@@ -1,3 +1,5 @@
+import { colourOf } from "./colourof.js";
+
 /**
  * The documents an HTML page runs as: the page itself, held in a wrapper.
  *
@@ -205,10 +207,15 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 addEventListener("load",measure);
 Element.prototype.scrollIntoView=function(o){if(inner())into.call(this,o);reveal(this,o===false?"end":o&&typeof o==="object"&&o.block||"start")};
 }
-function ground(){var b=document.body,t=/--bg:\\s*#([0-9a-f]{6})\\b/i.exec((document.getElementById("kos-tokens")||{}).textContent||""),m=b&&/rgba?\\(([^)]+)\\)/.exec(getComputedStyle(b).backgroundColor);if(!t||!m)return;
-var p=m[1].split(/[\\s,\\/]+/).filter(Boolean).map(Number),k=[0,2,4].map(function(i){return parseInt(t[1].substr(i,2),16)});
-if((p.length<4||p[3]>0)&&(p[0]!==k[0]||p[1]!==k[1]||p[2]!==k[2]))root.dataset.ground="own";else delete root.dataset.ground}
-if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",ground);else ground();
+${colourOf.toString()}
+var grounded=0;
+function ground(){var b=document.body,t=/--bg:([^;}]+)/.exec((document.getElementById("kos-tokens")||{}).textContent||"");if(!b||!t)return;
+var bs=getComputedStyle(b),hs=getComputedStyle(root),own=bs.backgroundImage!=="none"||hs.backgroundImage!=="none";
+if(!own){var c=colourOf(bs.backgroundColor);if(!c||c[3]===0)c=colourOf(hs.backgroundColor);var k=colourOf(t[1].trim());own=!!c&&!!k&&c[3]>0&&Math.max(Math.abs(c[0]-k[0]),Math.abs(c[1]-k[1]),Math.abs(c[2]-k[2]))>2}
+if(own)root.dataset.ground="own";else delete root.dataset.ground}
+function reground(){cancelAnimationFrame(grounded);grounded=requestAnimationFrame(ground)}
+function watchGround(){ground();var o={attributes:true,attributeFilter:["style","class"]};var mo=new MutationObserver(reground);mo.observe(root,o);if(document.body)mo.observe(document.body,o);var st=new MutationObserver(reground);st.observe(document.head,{childList:true,subtree:true,characterData:true})}
+if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",watchGround);else watchGround();
 addEventListener("load",ground);
 function call(method,args,sent){return new Promise(function(resolve,reject){var id=++seq;if(sent)sent.id=id;waiting[id]={resolve:resolve,reject:reject};top.postMessage({__kos:"call",id:id,method:method,args:args},"*");});}
 var asking=0,asks=[];
@@ -220,7 +227,7 @@ function report(message){try{top.postMessage({__kos:"error",message:String(messa
 addEventListener("message",function(e){
 if(e.source!==top)return;var m=e.data||{};
 if(m.__kos==="reply"){var w=waiting[m.id];if(!w)return;delete waiting[m.id];if(m.error)w.reject(new Error(m.error));else w.resolve(m.result);}
-else if(m.__kos==="theme"){mode=m.mode;document.documentElement.dataset.mode=m.mode;document.documentElement.dataset.theme=m.mode;var s=document.getElementById("kos-tokens");if(s)s.textContent=m.rule;ground();themeFns.forEach(function(f){try{f(m.mode)}catch(err){report(err&&err.message||err)}});}
+else if(m.__kos==="theme"){mode=m.mode;document.documentElement.dataset.mode=m.mode;document.documentElement.dataset.theme=m.mode;var s=document.getElementById("kos-tokens");if(s)s.textContent=m.rule;themeFns.forEach(function(f){try{f(m.mode)}catch(err){report(err&&err.message||err)}});ground();}
 else if(m.__kos==="present"){var on=m.on===true;if(on)document.documentElement.dataset.present="on";else delete document.documentElement.dataset.present;dispatchEvent(new CustomEvent("kos:present",{detail:{on:on}}));}
 });
 document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href^='#']"):null;if(!a||e.defaultPrevented)return;e.preventDefault();var id=decodeURIComponent(a.getAttribute("href").slice(1)),t=id?document.getElementById(id):null,b=matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth";if(t)t.scrollIntoView({behavior:b,block:"start"});else if(!id){if(!fit||inner())scrollTo({top:0,behavior:b});if(fit)reveal(null,"start")}});
