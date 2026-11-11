@@ -33,16 +33,24 @@ function pageLib(): string {
   return dir;
 }
 
-/** A page written to the guide: a token plan for both themes, nothing literal, nothing empty. */
+/** A page written to the guide: KOS's tokens, sections set apart by rules, nothing literal, nothing empty. */
 const GOOD = `<style>
-:root{--paper:#fbfaf7;--ink:#1d2330;--quiet:#5a6275;--rule:#d9dce3;--mark:#2f5bd3}
-@media (prefers-color-scheme: dark){:root:not([data-theme=light]){--paper:#11141b;--ink:#e6e9f0;--quiet:#9aa3b5;--rule:#2a303c;--mark:#86a4ff}}
-:root[data-theme=dark]{--paper:#11141b;--ink:#e6e9f0;--quiet:#9aa3b5;--rule:#2a303c;--mark:#86a4ff}
-body{background:var(--paper);color:var(--ink);padding:24px 16px;margin:0}
-main{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
-p{color:var(--quiet)} .entry{border:1px solid var(--rule);padding:12px;color:var(--ink)}
-</style><main><h1>Garden log</h1><a id="jump" href="#days">Jump to the days</a><p>Watering, week of 3 November.</p><div class="entry">Tomatoes: 2 L on Monday</div><table id="days"><tr><th>Day</th><th>Litres</th></tr><tr><td>Mon</td><td>2</td></tr></table></main>
+/* layout: one column, the log over its table */
+main{max-width:640px;display:flex;flex-direction:column;gap:12px}
+p{color:var(--muted)} section{border-top:1px solid var(--line);padding-top:12px} .entry{border:1px solid var(--line);border-radius:var(--r-md);padding:12px;background:var(--panel)}
+</style><main><h1>Garden log</h1><a id="jump" href="#days">Jump to the days</a><p>Watering, week of 3 November.</p><div class="entry">Tomatoes: 2 L on Monday</div><section><table id="days"><tr><th>Day</th><th>Litres</th></tr><tr><td>Mon</td><td>2</td></tr></table></section></main>
 <script>jump.click();kos.query("SELECT 1 AS n").then(function(r){document.querySelector("p").textContent += " " + r.rows.length + " row."})</script>`;
+
+/** A distinctive piece with its own token plan, for both themes: its own ground is its to choose. */
+const POSTER = `<style>
+:root{--paper:#fbfaf7;--ink:#1d2330;--quiet:#5a6275;--mark:#2f5bd3}
+@media (prefers-color-scheme: dark){:root:not([data-theme=light]){--paper:#11141b;--ink:#e6e9f0;--quiet:#9aa3b5;--mark:#86a4ff}}
+:root[data-theme=dark]{--paper:#11141b;--ink:#e6e9f0;--quiet:#9aa3b5;--mark:#86a4ff}
+body{background:var(--paper);color:var(--ink)} p{color:var(--quiet)}
+</style><h1>Harvest supper</h1><p>Saturday 21 November, at the pavilion.</p>`;
+
+/** A section wrapped in a bordered box, as a generated dashboard draws each one. */
+const boxed = (title: string): string => `<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px"><div>${title}</div><table><tr><td>Mon</td><td>2</td></tr></table></div>`;
 
 /** A closed fold of a few lines, as the doc runtime's contents are on a phone. */
 const FOLD = `<details><summary>Contents</summary><ol><li>Why</li><li>What</li><li>Cost</li><li>When</li></ol></details>`;
@@ -68,6 +76,11 @@ const PLANTED: Record<string, { html: string; expect: Finding["kind"] }> = {
   untitled: { html: `<p>Just a line of text, no heading.</p>`, expect: "title" },
   formula: { html: `<h1>Sheet</h1><table><tr><td>#REF!</td></tr></table>`, expect: "formula" },
   leaving: { html: `<h1>Leaving</h1><script>setTimeout(function(){ var a = document.createElement("a"); a.href = "https://example.com/x"; document.body.append(a); a.click(); }, 50)</script>`, expect: "left" },
+  // A title band in the ink colour: dark on a light page, light on a dark one.
+  inverted: { html: `<h1>Inverted</h1><section style="background:var(--text);color:var(--bg);height:320px;padding:24px"><p>Season review</p></section>`, expect: "inverted" },
+  boxes: { html: `<h1>Boxes</h1>${boxed("Open now")}${boxed("Needs a nudge")}${boxed("Recent")}`, expect: "boxes" },
+  zeros: { html: `<h1>Zeros</h1><div class="grid"><div class="stat"><span class="stat-value">0</span><span class="stat-label">Reading</span></div><div class="stat"><span class="stat-value">0</span><span class="stat-label">Finished</span></div><div class="stat"><span class="stat-value">—</span><span class="stat-label">Pages</span></div></div>`, expect: "figures" },
+  ground: { html: `<style>body{background:var(--panel-2)}</style><h1>Ground</h1><p>A slab of its own.</p>`, expect: "ground" },
 };
 
 const chrome = findChrome(undefined);
@@ -82,6 +95,7 @@ describe.skipIf(!chrome)("artifacts.check in Chrome", () => {
     lib = pageLib();
     captures = mkdtempSync(join(tmpdir(), "kos-captures-"));
     pages.good = { id: "good", title: "Garden log", html: GOOD };
+    pages.poster = { id: "poster", title: "Harvest supper", html: POSTER };
     for (const [id, p] of Object.entries(PLANTED)) pages[id] = { id, title: id, html: p.html };
     checker = new ArtifactChecker({
       load: (id) => (pages[id] ? { page: pages[id]!, title: pages[id]!.title } : undefined),
@@ -109,6 +123,11 @@ describe.skipIf(!chrome)("artifacts.check in Chrome", () => {
     expect(tool.images).toHaveLength(2);
   }, 45_000);
 
+  it("leaves a distinctive piece's own ground alone when it declares a token plan", async () => {
+    const report = await checker.check("poster");
+    expect(report.findings).toEqual([]);
+  }, 45_000);
+
   it.each(Object.entries(PLANTED))("reports the planted problem in %s", async (id, planted) => {
     const report = await checker.check(id);
     const kinds = report.findings.map((f) => f.kind);
@@ -120,6 +139,11 @@ describe.skipIf(!chrome)("artifacts.check in Chrome", () => {
     if (planted.expect === "bridge") expect(report.findings.find((f) => f.kind === "bridge")?.text).toMatch(/kos\.query: the query cannot run here/);
     if (planted.expect === "console") expect(report.findings.some((f) => /the chart had no data/.test(f.text))).toBe(true);
     if (planted.expect === "empty") expect(report.findings.find((f) => f.kind === "empty")?.text).toMatch(/div\.chart/);
+    if (["inverted", "boxes", "figures", "ground"].includes(planted.expect)) {
+      expect(report.findings.find((f) => f.kind === planted.expect)?.small).toBe(true);
+      expect(reportWords(report)).toContain(`[${planted.expect}, small]`);
+    }
+    if (planted.expect === "figures") expect(report.findings.find((f) => f.kind === "figures")?.text).toMatch(/reads "—"/);
     expect(reportWords(report)).toMatch(/one pass.*Do not check again/s);
   }, 45_000);
 });

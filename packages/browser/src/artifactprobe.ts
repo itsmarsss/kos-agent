@@ -41,6 +41,14 @@ export interface ProbeResult {
   clipped: { name: string; by: string }[];
   /** Two runs of text drawn over each other. */
   overlaps: { a: string; b: string }[];
+  /** KOS's own ground for the theme, from the tokens the shell set, and what shows behind the body's text. */
+  ground: { kos: string; body: string };
+  /** Large areas painted in the other theme's brightness: a dark slab on a light page, a light one on a dark page. */
+  inverted: { name: string; width: number; height: number }[];
+  /** Wide boxes with a border all round, each wrapping a section's content (a table, a list, a chart, a form, another box). */
+  wrappers: { name: string; depth: number }[];
+  /** Big figures that read 0, a dash, a placeholder or nothing: the figure's box, and what it reads. */
+  blankFigures: { name: string; text: string }[];
 }
 
 /** The function serialised into the frame; it must not close over anything. */
@@ -201,6 +209,62 @@ export function probe(): ProbeResult {
       if (w > 4 && h > 4 && a.r.width > 0 && b.r.width > 0) overlaps.push({ a: named(a.el), b: named(b.el) });
     }
   }
+  /*
+   * The look: what the guide calls generated. A large area in the other
+   * theme's brightness (an inverted slide or band), boxes wrapping each
+   * section, and big figures with nothing to say.
+   */
+  const dark = document.documentElement.dataset.theme === "dark";
+  const inverted: ProbeResult["inverted"] = [];
+  const wrappers: ProbeResult["wrappers"] = [];
+  const blankFigures: ProbeResult["blankFigures"] = [];
+  const rootSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const STRUCTURE = "table,ul,ol,svg,canvas,input,select,textarea,button,figure";
+  // A runtime's own furniture (a sheet's grid and charts, a doc's contents, a deck's frames) is KOS's, not the artifact's.
+  const runtimes = (el: Element): boolean => typeof el.className === "string" && /(^|\s)(sheet|doc|deck)-/.test(el.className);
+  const BLANK = /^(0|0[.,]0+|0\s?%|[$€£]\s?0([.,]0+)?|[-–—]+|n\/?a|null|undefined|NaN|tbd|…|\.\.\.|--)$/i;
+  const ringed = (s: CSSStyleDeclaration): boolean =>
+    (["Top", "Right", "Bottom", "Left"] as const).every((side) => s[`border${side}Style`] !== "none" && parseFloat(s[`border${side}Width`]) > 0 && (rgba(s[`border${side}Color`])?.[3] ?? 0) > 0);
+  const boxes = new Set<Element>();
+  for (const el of all) {
+    if (el.closest("script,style,template,noscript,svg") || el.matches(MEDIA + ",table,thead,tbody,tr,td,th") || !visible(el)) continue;
+    const s = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    const fill = rgba(s.backgroundColor);
+    if (fill && fill[3] >= 0.6 && r.width >= view.width * 0.5 && r.height >= 100) {
+      const seen = shown(el, r);
+      const back = behindOf(el);
+      if (seen && seen.height >= 100 && back) {
+        const l = lum(back);
+        if ((dark && l > 0.45) || (!dark && l < 0.18)) inverted.push({ name: named(el), width: Math.round(seen.width), height: Math.round(seen.height) });
+      }
+    }
+    if (ringed(s) && !runtimes(el)) boxes.add(el);
+    const own = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+    const size = parseFloat(s.fontSize);
+    const figureClass = typeof el.className === "string" && /(stat|kpi|metric|figure|big)/i.test(el.className);
+    if (el.children.length === 0 && (figureClass || size >= Math.max(20, rootSize * 1.4)) && (own === "" ? figureClass : BLANK.test(own))) {
+      const label = (el.parentElement?.textContent ?? "").replace(/\s+/g, " ").trim();
+      if (label.length > own.length) blankFigures.push({ name: named(el.parentElement ?? el), text: own });
+    }
+  }
+  for (const el of boxes) {
+    const r = el.getBoundingClientRect();
+    if (r.width < view.width * 0.4 || r.height < 80) continue;
+    const holds = el.querySelector(STRUCTURE) !== null || [...boxes].some((b) => b !== el && el.contains(b)) || el.children.length >= 3;
+    if (!holds) continue;
+    let depth = 1;
+    for (let n = el.parentElement; n; n = n.parentElement) if (boxes.has(n)) depth += 1;
+    wrappers.push({ name: named(el), depth });
+  }
+  const kosBg = /--bg:([^;}]+)/.exec(document.getElementById("kos-tokens")?.textContent ?? "")?.[1];
+  const probeEl = document.createElement("span");
+  probeEl.style.backgroundColor = kosBg ?? "";
+  document.body.append(probeEl);
+  const kosGround = getComputedStyle(probeEl).backgroundColor;
+  probeEl.remove();
+  const bodyGround = behindOf(document.body);
+
   // The element that pushes past the edge, not every child it carries along.
   const overflow = [...wide].filter((el) => !el.parentElement || !wide.has(el.parentElement)).map((el) => ({ name: named(el), right: Math.round(el.getBoundingClientRect().right) }));
   // Report the outermost of each nest: an empty card's empty body is the same finding.
@@ -218,5 +282,10 @@ export function probe(): ProbeResult {
     formulaErrors,
     clipped,
     overlaps,
+    ground: { kos: kosBg ? kosGround : "", body: bodyGround ? `rgb(${bodyGround.map(Math.round).join(", ")})` : "" },
+    // The outermost of each: a slide inside a dark stage is one finding.
+    inverted: inverted.filter((e, i) => !inverted.some((o, j) => j < i && e.name !== o.name && o.width >= e.width && o.height >= e.height)).slice(0, 4),
+    wrappers: wrappers.slice(0, 12),
+    blankFigures: blankFigures.slice(0, 8),
   };
 }

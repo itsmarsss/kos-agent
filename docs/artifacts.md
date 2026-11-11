@@ -289,7 +289,12 @@ server-side checks; it never writes. It then measures the frame
 - boxes drawn as regions that hold nothing at rest;
 - a formula error showing in a sheet;
 - no visible title;
-- an attempt to leave the frame.
+- an attempt to leave the frame;
+- and, as small findings after the rest, the generated look the guide warns
+  of: a large area in the other theme's brightness (an inverted slide or
+  band), three or more wide bordered boxes wrapping sections, big figures
+  reading 0, a dash or nothing, and a ground other than KOS's from an
+  artifact that declares no token plan of its own.
 
 With the words come two small screenshots, the desktop in light and the
 phone in dark, which the model sees. Each render's screenshot is kept in

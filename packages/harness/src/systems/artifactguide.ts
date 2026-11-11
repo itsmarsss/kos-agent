@@ -16,7 +16,7 @@ const kindDefaults = (kind: ArtifactKind): string => {
 };
 
 /** The workflow's last steps where KOS has a Chrome to check in, and where it has none. */
-const CHECK_STEPS = `4. Check it once with artifacts.check({ id }). It renders the artifact in KOS's own headless Chrome at 1280 px and 390 px wide, light and dark, and reports sideways overflow and the element causing it, text cut off by a box that hides its overflow, text drawn over other text, colours that stay the same in both themes, text below AA contrast, console errors, failed bridge calls, regions empty at rest, a missing visible title, and a small screenshot.
+const CHECK_STEPS = `4. Check it once with artifacts.check({ id }). It renders the artifact in KOS's own headless Chrome at 1280 px and 390 px wide, light and dark, and reports sideways overflow and the element causing it, text cut off by a box that hides its overflow, text drawn over other text, colours that stay the same in both themes, text below AA contrast, console errors, failed bridge calls, regions empty at rest, a missing visible title, and, marked small, the generated look (an inverted slide or band, bordered boxes wrapping sections, big figures reading 0 or a dash, a ground other than KOS's without a token plan), with a small screenshot.
 5. Fix everything the check reports in one pass, write again, then finish. Do not check again in a loop; one check, one round of fixes.`;
 const NO_CHECK_STEPS = `4. This KOS has no Chrome to render artifacts in, so artifacts.check is not available here; do not call it. Before writing, read the HTML over once against this guide (tokens for both themes, nothing wider than a 390 px phone, no empty regions at rest, a visible title), then write once and finish.`;
 
