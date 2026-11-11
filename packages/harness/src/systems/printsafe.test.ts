@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { PRINT_CSP, printCss, printDocument } from "./printsafe.js";
+import { PRINT_CSP, printCss, printDocument, withoutHints } from "./printsafe.js";
 
 describe("a snapshot made safe to print", () => {
   it("keeps the page's markup and styles, under its own policy first in the head", () => {
@@ -32,5 +32,13 @@ describe("a snapshot made safe to print", () => {
       ' p{background:none;mask:url( "#m" )} @font-face{src:url(data:font/woff2;base64,AA)} b{background:none("http://x" 1x)}',
     );
     expect(printDocument('<p style="background:url(//x/y)">a</p>')).toContain('<p style="background:none">a</p>');
+  });
+});
+
+describe("an artifact without its hints", () => {
+  it("drops every link, meta and base, in any case and in a template, and keeps its scripts' text as written", () => {
+    const out = withoutHints('<HEAD><LINK REL=preconnect href="http://x"><meta http-equiv=refresh content="0;url=http://x"><base href="http://x/"></HEAD><body><template><link rel="prefetch" href="http://x"></template><p>a</p><script>var s = "<link rel=x>";</script></body>');
+    expect(out.replace(/<script>[\s\S]*?<\/script>/, "")).not.toMatch(/<link|<meta|<base/i);
+    expect(out).toContain('<p>a</p><script>var s = "<link rel=x>";</script>');
   });
 });

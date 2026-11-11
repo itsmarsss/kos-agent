@@ -219,15 +219,30 @@ UTF-8. Each export, and each refusal, is kept in the audit log as
   frame (scripts only: no popups, no top navigation, no forms) inside the
   wrapper whose policy lets that frame hold `about:` documents alone, where
   a navigation, a popup or a request goes nowhere. KOS's renders add a
-  second lock, a sealed tab (`systems/exportrender.ts`): every request but
-  the one document KOS serves it is paused and failed (Fetch, on the tab and
-  on every frame Chrome attaches beside it), a window it opens is closed,
-  and the relay binding is heard only from that document's own context, not
-  from the artifact's frame nor anything the tab becomes after. An artifact
-  that tries to leave anyway is left with nothing in its frame, and its PDF
-  is refused in words. `artifactexport.chrome.test.ts` plants one that
-  tries every way (a computed location, top's, a popup, an image, the
-  binding called straight) and counts no request, in a render for HTML, in
+  sealed tab (`systems/exportrender.ts`), offline from the start
+  (DevTools' own network emulation), on the tab and on every frame Chrome
+  attaches beside it. Its one document is answered by KOS through the
+  request's interception, under a name no resolver knows, so no socket is
+  opened for it. Every other request is paused and failed (Fetch), a window
+  it opens is closed, and the relay binding is heard only from that
+  document's own context, not from the artifact's frame nor anything the
+  tab becomes after. What each of the ways out that Fetch never sees meets:
+  - a WebSocket: the frame's policy (`connect-src 'none'`), and the tab
+    being offline; a print runs no script at all;
+  - a preconnect, a DNS prefetch or a prerender hint: the exporter takes
+    every `link`, `meta` and `base` out of the artifact before drawing or
+    saving it (`withoutHints`, `systems/printsafe.ts`), whatever the stored
+    lint passed, and the guard refuses making one from script;
+  - a navigation's own lookup (Chrome resolves the host a frame is sent to
+    before the wrapper's policy refuses it): the same as on the dashboard,
+    held at write time only (see What still leaves, below); offline, the
+    tab sends no request after it.
+  An artifact that tries to leave anyway is left with nothing in its frame,
+  and its PDF is refused in words. `artifactexport.chrome.test.ts` plants
+  ones that try every way (a computed location, top's, a popup, an image,
+  the binding called straight, stored hints, a snapshot that hands back its
+  own frames, SVG script, `foreignObject` and a refresh) and counts no
+  request, connection or WebSocket on a listener, in a render for HTML, in
   a print, and in the saved file opened from disk.
 - **PDF** is printed by the Chrome `artifacts.check` keeps, never the
   machine's print dialog, so nothing asks the owner for a permission. The

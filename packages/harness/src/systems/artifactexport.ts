@@ -22,7 +22,7 @@ import { writeZip } from "../files/zip.js";
 import { artifactFrame, defaultPageLib, hostDocument, loadAssets, type CheckBrowser, type FrameAssets, type Theme } from "./artifactcheck.js";
 import { docMarkdown } from "./docmarkdown.js";
 import { SNAPSHOT, SealedTab, type RelayedCall } from "./exportrender.js";
-import { printDocument } from "./printsafe.js";
+import { printDocument, withoutHints } from "./printsafe.js";
 import { SourceRefusal, tabCsv, withSources, type SourcePage } from "./sheetcsv.js";
 
 /**
@@ -340,12 +340,12 @@ export class ArtifactExporter {
     if (format === "csv") return this.csv(id, page, title, tab);
     const assets = loadAssets((this.options.pageLib ?? defaultPageLib)());
     if (format === "html") {
-      const answers = reads(page) ? (await this.inChrome((cdp, serve, job) => this.draw(cdp, serve, job, id, page, theme, assets, false))).answers : {};
-      const html = savedFile(exportDocument({ page, title, mode: theme, assets, answers }), title, theme, assets.tokens[theme]["--bg"] ?? "transparent");
+      const answers = reads(page) ? (await this.inChrome((cdp, job) => this.draw(cdp, job, id, page, theme, assets, false))).answers : {};
+      const html = savedFile(exportDocument({ page: { ...page, html: withoutHints(page.html) }, title, mode: theme, assets, answers }), title, theme, assets.tokens[theme]["--bg"] ?? "transparent");
       return { body: Buffer.from(html, "utf8"), type: "text/html; charset=utf-8", name: exportName(title, "html") };
     }
-    const pdf = await this.inChrome(async (cdp, serve, job) => {
-      const { snapshot } = await this.draw(cdp, serve, job, id, page, theme, assets, true);
+    const pdf = await this.inChrome(async (cdp, job) => {
+      const { snapshot } = await this.draw(cdp, job, id, page, theme, assets, true);
       return this.print(cdp, job, kind, snapshot!, assets.tokens[theme]);
     });
     return { body: pdf, type: "application/pdf", name: exportName(title, "pdf") };
@@ -382,13 +382,13 @@ export class ArtifactExporter {
    * and given up past the timeout, its tabs closed so whatever it ran stops.
    * It counts against the limit until its work has truly ended.
    */
-  private async inChrome<T>(work: (cdp: CdpClient, serve: CheckBrowser["serve"], job: Job) => Promise<T>): Promise<T> {
+  private async inChrome<T>(work: (cdp: CdpClient, job: Job) => Promise<T>): Promise<T> {
     if (this.printing >= BROWSER_QUEUE_MAX) throw new ExportRefusal("KOS is already exporting several artifacts; try again in a moment");
     this.printing += 1;
     const job = new Job();
     const running = this.options.browser((browser) => {
       job.start(browser);
-      return work(browser.cdp, browser.serve, job);
+      return work(browser.cdp, job);
     });
     void running.catch(() => undefined).finally(() => (this.printing -= 1));
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -407,7 +407,7 @@ export class ArtifactExporter {
    * the dashboard's are, and never a write. Then keep what they answered,
    * and, to print, the frame as it was drawn.
    */
-  private async draw(cdp: CdpClient, serve: CheckBrowser["serve"], job: Job, id: string, page: HtmlPage, theme: Theme, assets: FrameAssets, snapshot: boolean): Promise<Drawn> {
+  private async draw(cdp: CdpClient, job: Job, id: string, page: HtmlPage, theme: Theme, assets: FrameAssets, snapshot: boolean): Promise<Drawn> {
     const kind = page.kind ?? "page";
     const answers: Answers = {};
     let size = 0;
@@ -443,12 +443,12 @@ export class ArtifactExporter {
           lastCall = Date.now();
         });
     };
-    const tab = await SealedTab.open(cdp, { scripts: true, track: job.track }, relay);
+    const tab = await SealedTab.open(cdp, { scripts: true, offline: true, track: job.track }, relay);
     try {
       const view = kind === "deck" ? VIEW.deck : VIEW.other;
       await cdp.send("Emulation.setDeviceMetricsOverride", { ...view, deviceScaleFactor: 1, mobile: false }, tab.sessionId);
       await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }] }, tab.sessionId);
-      await tab.navigate(await serve(hostDocument(artifactFrame(page, theme, assets), assets.tokens[theme]["--bg"])));
+      await tab.navigate(hostDocument(artifactFrame({ ...page, html: withoutHints(page.html) }, theme, assets), assets.tokens[theme]["--bg"]));
       const start = Date.now();
       await sleep(400);
       while (!job.aborted && Date.now() - start < SETTLE_MS && (inFlight > 0 || Date.now() - lastCall < QUIET_MS)) await sleep(100);

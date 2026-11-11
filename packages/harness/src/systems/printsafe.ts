@@ -156,3 +156,27 @@ export function printDocument(snapshot: string, extraCss = ""): string {
   // The policy first in the head, before any style; the head is always there, as parse5 builds one.
   return `<!doctype html>${html ? body.replace(/<head>/i, `<head>${head}`).replace(/<\/head>/i, `${style}</head>`) : `<html><head>${head}${style}</head><body>${body}</body></html>`}`;
 }
+
+/** What reaches out before any policy or interception sees it: a preconnect or DNS prefetch hint, a refresh, a base. */
+const HINTS = new Set(["link", "meta", "base"]);
+
+function dropHints(parent: Parent): void {
+  parent.childNodes = parent.childNodes.filter((n) => !("tagName" in n && HINTS.has(n.tagName.toLowerCase())));
+  for (const n of parent.childNodes) {
+    if ("tagName" in n) dropHints(n.tagName === "template" ? (n as DefaultTreeAdapterMap["template"]).content : n);
+  }
+}
+
+/**
+ * The artifact's own document with every link, meta and base taken out,
+ * however it was written, before KOS draws or exports it. A preconnect or a
+ * DNS prefetch is made by the browser's network service beside any request
+ * interception or page policy, so the only sure stop is never to hand the
+ * hint over; the write-time lint refuses them too, but an export does not
+ * rely on what was stored.
+ */
+export function withoutHints(html: string): string {
+  const document = parse(html);
+  dropHints(document);
+  return serialize(document);
+}

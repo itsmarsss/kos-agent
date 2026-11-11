@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { CdpClient, CdpEvent } from "@kos/browser";
 
 import { parseRelay } from "./artifactcheck.js";
@@ -8,8 +10,12 @@ import { parseRelay } from "./artifactcheck.js";
  *
  *  - Every request the tab or any frame in it makes is paused (Fetch, on the
  *    tab and on every frame Chrome attaches beside it) and failed, but the one
- *    document KOS serves it, once. A navigation, a prefetch, an image, a
- *    reload: refused before a byte is sent.
+ *    document KOS answers itself, once, with no socket. A navigation, an
+ *    image, a reload: refused before a byte is sent.
+ *  - It can be offline from the start (DevTools' network emulation), which
+ *    is what stops a WebSocket and what a preconnect would open: neither is
+ *    a request Fetch sees. The exporter also takes every link, meta and base
+ *    out of the artifact before it is drawn (withoutHints).
  *  - A window it opens is closed as it appears.
  *  - The kosRelay binding (a read relayed by the host document, or its word
  *    that the artifact's frame tried to leave) is heard only from the document KOS served, in the
@@ -21,6 +27,9 @@ import { parseRelay } from "./artifactcheck.js";
  * the dashboard (hostDocument), which stop the leaving on their own; this is
  * the second lock.
  */
+
+/** Where a sealed tab's one document claims to come from: a name no resolver answers, which KOS answers itself. */
+const DOCUMENT_ORIGIN = "http://export.kos.invalid";
 
 export interface SealedOptions {
   /** Whether the tab runs scripts: a snapshot to print runs none, in its frame or any other. */
@@ -52,6 +61,8 @@ export class SealedTab {
   /** What was refused, by URL: none, for an artifact that behaves. */
   readonly refused: string[] = [];
   private allowed: string | undefined;
+  /** The document the one allowed request is answered with. */
+  private document: string | undefined;
   private mainFrame: string | undefined;
   private relayContext: number | undefined;
   private off: () => void = () => undefined;
@@ -100,9 +111,15 @@ export class SealedTab {
     await this.cdp.send("Page.setDocumentContent", { frameId: this.mainFrame, html }, this.sessionId);
   }
 
-  /** Load the one document the tab may have. */
-  async navigate(url: string): Promise<void> {
+  /**
+   * Load the one document the tab may have, answered by KOS itself through
+   * the request's interception: no socket is opened for it, so the tab can be
+   * offline from the start.
+   */
+  async navigate(html: string): Promise<void> {
+    const url = `${DOCUMENT_ORIGIN}/${randomUUID()}`;
     this.allowed = url;
+    this.document = html;
     await this.cdp.send("Page.navigate", { url }, this.sessionId);
   }
 
@@ -149,9 +166,13 @@ export class SealedTab {
     } else if (e.method === "Fetch.requestPaused") {
       const url = (p.request as { url: string }).url;
       const requestId = p.requestId as string;
-      if (url === this.allowed && session === this.sessionId) {
+      if (url === this.allowed && session === this.sessionId && this.document !== undefined) {
+        const body = Buffer.from(this.document, "utf8").toString("base64");
         this.allowed = undefined;
-        void this.cdp.send("Fetch.continueRequest", { requestId }, session).catch(() => undefined);
+        this.document = undefined;
+        void this.cdp
+          .send("Fetch.fulfillRequest", { requestId, responseCode: 200, responseHeaders: [{ name: "content-type", value: "text/html; charset=utf-8" }, { name: "cache-control", value: "no-store" }], body }, session)
+          .catch(() => undefined);
       } else {
         this.refused.push(url);
         void this.cdp.send("Fetch.failRequest", { requestId, errorReason: "BlockedByClient" }, session).catch(() => undefined);

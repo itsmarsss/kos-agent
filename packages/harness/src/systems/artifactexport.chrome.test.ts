@@ -102,11 +102,14 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-deck.js")))("artifact ex
     let base: string;
     const hits: string[] = [];
     const sockets: string[] = [];
+    const connections: number[] = [];
     beforeAll(async () => {
       listener = createServer((req, res) => {
         hits.push(req.url ?? "");
         res.end("ok");
       });
+      // A preconnect is a connection with no request: counted as one.
+      listener.on("connection", () => void connections.push(Date.now()));
       // A WebSocket is no request Fetch sees: counted on its own.
       listener.on("upgrade", (req, socket) => {
         sockets.push(req.url ?? "");
@@ -127,8 +130,25 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-deck.js")))("artifact ex
     });
     afterAll(() => listener?.close());
 
+    it("opens no connection for a preconnect, a DNS prefetch, a prerender or a refresh it was stored with", async () => {
+      connections.length = 0;
+      hits.length = 0;
+      const host = base.replace("http://", "");
+      PAGES.hints = {
+        id: "hints",
+        title: "Hints",
+        html: `<head><link rel="preconnect" href="${base}"><link rel="dns-prefetch" href="//${host}"><link rel="prerender" href="${base}/pre"><meta http-equiv="refresh" content="0;url=${base}/refresh"><base href="${base}/"></head><body><h1>Hints</h1><p>Plain.</p></body>`,
+      };
+      await exporter.export("hints", "html");
+      await exporter.export("hints", "pdf");
+      await new Promise((r) => setTimeout(r, 800));
+      expect(connections).toEqual([]);
+      expect(hits).toEqual([]);
+    }, 60_000);
+
     it("prints what its own code hands back as the snapshot without running any of it", async () => {
       sockets.length = 0;
+      connections.length = 0;
       hits.length = 0;
       const ws = base.replace("http:", "ws:");
       // The snapshot is read in the artifact's frame after its code, so the code can say what it is: here a page that runs and calls out.
@@ -146,6 +166,7 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-deck.js")))("artifact ex
       await new Promise((r) => setTimeout(r, 1500));
       expect(hits).toEqual([]);
       expect(sockets).toEqual([]);
+      expect(connections).toEqual([]);
     }, 60_000);
 
     it("reaches nothing while KOS draws it for an HTML export or prints it", async () => {
