@@ -584,6 +584,32 @@ describe("systems.migrate risk", () => {
     expect(store.record("old")?.title).toBe("Old");
   });
 
+  it("lets nothing change a trashed artifact's file, versions or captures, nor check it, though it can still be read", async () => {
+    await registry.execute("artifacts.write", { id: "memo", title: "Memo", html: "<h1>Memo</h1>" });
+    store.trash("memo");
+    expect((await registry.execute("files.read", { path: "artifacts/memo.html" })).content).toContain("<h1>Memo</h1>");
+    for (const [tool, args] of [
+      ["files.write", { path: "artifacts/memo.html", content: "<h1>x</h1>" }],
+      ["files.edit", { path: "artifacts/memo.html", find: "Memo", replace: "x" }],
+      ["files.rm", { path: "artifacts/memo.html" }],
+      ["files.rm", { path: "artifacts/.history/memo/1.json" }],
+      ["files.mv", { from: "artifacts/memo.html", to: "scratch/memo.html" }],
+      ["files.rm", { path: "artifacts" }],
+    ] as const) {
+      const got = await registry.execute(tool, args);
+      expect(got.isError, `${tool} ${JSON.stringify(args)}`).toBe(true);
+      expect(got.content).toMatch(/the owner put in the trash/);
+    }
+    expect(readFileSync(join(root, "artifacts/memo.html"), "utf8")).toBe("<h1>Memo</h1>");
+    expect(existsSync(join(root, "artifacts/.history/memo/1.json"))).toBe(true);
+    const check = await registry.execute("artifacts.check", { id: "memo" });
+    expect(check.isError).toBe(true);
+    expect(check.content).toMatch(/in the trash.*nothing to check/);
+    // Restored, it is a file like any artifact's again.
+    store.restore("memo");
+    expect((await registry.execute("artifacts.check", { id: "memo" })).content).toBe("checked memo");
+  });
+
   it("refuses every management call that a guest's words started", async () => {
     const { slug } = JSON.parse((await registry.execute("systems.project_create", { name: "Garden", type: "tracker" })).content) as { slug: string };
     await registry.execute("artifacts.write", { project: slug, id: "beds", title: "Beds", html: "<h1>Beds</h1>" });

@@ -1382,6 +1382,18 @@ describe("handleApiRequest", () => {
       expect((read.body as { rows: unknown[] }).rows).toEqual([{ title: "Dune" }, { title: "Emma" }]);
     });
 
+    it("answers a trashed page's reads and refuses its writes, and draws it no new capture", async () => {
+      kernel.pages.trash("shelf");
+      const read = await bridge("query", { sql: "SELECT title FROM shelf_books" });
+      expect(read.status).toBe(200);
+      const write = await bridge("write", { table: "shelf_books", op: "insert", values: { title: "Emma" } });
+      expect(write.status).toBe(403);
+      expect(JSON.stringify(write.body)).toMatch(/in the trash/);
+      expect((kernel.workspace.db.prepare("SELECT COUNT(*) AS n FROM shelf_books").get() as { n: number }).n).toBe(1);
+      expect(kernel.audit.recent(5).find((r) => r.tool === "page.write")?.isError).toBe(true);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/shelf/check", body: {} })).status).toBe(409);
+    });
+
     it("answers an owner's edit made on an older version with a conflict", async () => {
       kernel.pages.writeHtml("shelf", { id: "note", kind: "doc", title: "Note", html: "<article data-doc><h1>Note</h1><p>one</p></article>" });
       const opened = kernel.pages.get("note")!.record.updatedAt;

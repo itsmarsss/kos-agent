@@ -1542,6 +1542,7 @@ export async function handleApiRequest(
       return { status: 200, body: bytes, headers: { "content-type": "image/jpeg", "content-length": String(bytes.byteLength), "cache-control": "no-cache", "x-content-type-options": "nosniff" } };
     }
     if (artifactRoute[2] === "check" && method === "POST") {
+      if (got.record.trashedAt !== undefined) return { status: 409, body: { error: "this artifact is in the trash, so it is not drawn again" } };
       try {
         const report = await kernel.checker.check(id, "gallery");
         return ok({ findings: report.findings, capturedAt: captureTime(kernel.pages.capturesDir(id)) });

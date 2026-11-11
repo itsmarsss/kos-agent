@@ -102,6 +102,9 @@ const handTo = (owner: PageOwner, reach: Reach, removed: (blobId: string) => boo
       ? ` Ask the blob with blobs.dispatch to ${owner.blob}.`
       : "";
 
+/** What a change to a trashed artifact is told, by any road: it waits for the owner. */
+const IN_TRASH = "which the owner put in the trash: it is left as it is until they restore it from the Artifacts page's Trash";
+
 /**
  * Why a chat may not reach the artifact a workspace path is part of (its
  * file, a version or a capture), or undefined when it may or the path is no
@@ -111,6 +114,7 @@ const handTo = (owner: PageOwner, reach: Reach, removed: (blobId: string) => boo
 export function artifactFileRefusal(pages: PageStore, path: string, reach: Reach, what: "change" | "read"): string | undefined {
   const record = pages.recordAt(path);
   if (!record) return undefined;
+  if (what === "change" && record.trashedAt !== undefined) return `${path} is part of the artifact ${record.id}, ${IN_TRASH}`;
   const owner = ownerOfRecord(record);
   const removed = (blobId: string): boolean => pages.blobIds.removed(blobId);
   const why = whyNot(owner, reach, what, removed);
@@ -125,6 +129,7 @@ export function artifactFileRefusal(pages: PageStore, path: string, reach: Reach
 export function artifactFolderRefusal(pages: PageStore, folder: string, reach: Reach, what: "change" | "read"): string | undefined {
   const removed = (blobId: string): boolean => pages.blobIds.removed(blobId);
   for (const record of pages.recordsUnder(folder)) {
+    if (what === "change" && record.trashedAt !== undefined) return `${folder} holds the artifact ${record.id}, ${IN_TRASH}`;
     const owner = ownerOfRecord(record);
     const why = whyNot(owner, reach, what, removed);
     if (why) return `${folder} holds the artifact ${record.id}; ${why} are not this chat's to ${what}.${handTo(owner, reach, removed)}`;
@@ -369,6 +374,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
       const id = str(input, "id");
       const record = pages.record(id);
       if (record) refuseOtherOwnersPage(ownerOfRecord(record), reachOf(ctx), "read");
+      if (record?.trashedAt !== undefined) throw new Error(`the artifact ${id} is in the trash, left as it is until the owner restores it; there is nothing to check`);
       return checkArtifact(id);
     },
     { floor: "safe" },

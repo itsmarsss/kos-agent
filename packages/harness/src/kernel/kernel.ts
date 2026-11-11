@@ -4300,6 +4300,12 @@ export class Kernel {
   async artifactCall(id: string, verb: "query" | "write" | "file" | "save", body: Record<string, unknown>): Promise<unknown> {
     const bridge = this.bridgeFor(id);
     if (!bridge) throw new BridgeRefusal("no such artifact");
+    // In the trash it is only looked at: its reads are answered, nothing it asks changes a table.
+    if (verb === "write" && this.pages.record(id)?.trashedAt !== undefined) {
+      const refusal = new BridgeRefusal("this artifact is in the trash, so it changes nothing; restore it to use it");
+      this.audit.record({ tool: "page.write", args: { page: id, table: body.table, op: body.op }, result: refusal.message, isError: true });
+      throw refusal;
+    }
     try {
       if (verb === "query") return await pageQuery(this.workspace.reader, this.pageQueries, bridge, body.sql, body.params, { key: id });
       if (verb === "write") return pageWrite(this.workspace.db, bridge, body);
