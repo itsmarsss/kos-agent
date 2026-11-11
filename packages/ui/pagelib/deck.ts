@@ -35,10 +35,64 @@ export interface DeckReport {
   reading: boolean;
   /** The dashboard draws the controls, so the deck's own bar is away. */
   hosted: boolean;
+  /** The current slide's notes as plain text, a block a line, for the presenter view to set as text. */
+  said: string[];
+  /**
+   * Where the slide came from: the `seq` of the last `go` it obeyed, 0 when
+   * it was never told one, or null once it moved on its own since (a key, a
+   * tap). The presenter view tells a report of its latest go from one sent
+   * before it landed, and both from the deck moving by itself.
+   */
+  went: number | null;
 }
 
-/** What the dashboard asks of the deck: to take over its bar, or what the owner pressed in it. */
-export type DeckDo = "host" | "prev" | "next" | "grid" | "notes";
+/**
+ * What the dashboard asks of the deck: to take over its bar, what the owner
+ * pressed in it, or `go` with an `index` and a `seq`, which the presenter view sends to
+ * keep its slides and the audience's on one place.
+ */
+export type DeckDo = "host" | "prev" | "next" | "grid" | "notes" | "go";
+
+/** At most this many blocks of a slide's notes, each cut to this many characters: a report stays small. */
+const SAID_BLOCKS = 60;
+const SAID_CHARS = 2000;
+/** What starts a line of its own in a slide's notes; anything else runs on in the line it is in. */
+const BLOCK = /^(P|LI|H[1-6]|BLOCKQUOTE|PRE|DT|DD|UL|OL|DL|DIV|SECTION|FIGURE|TABLE|TR|BR)$/;
+
+/**
+ * A slide's notes as plain text, a block a line: each paragraph, heading or
+ * list item (a bullet before an item), loose text a line of its own. Never
+ * markup: the dashboard sets these as text.
+ */
+export function noteLines(notes: Element | null | undefined): string[] {
+  const lines: string[] = [];
+  let run = "";
+  // A list item's bullet, for the first line said in it.
+  let lead = "";
+  const flush = (): void => {
+    const line = run.replace(/\s+/g, " ").trim().slice(0, SAID_CHARS);
+    run = "";
+    if (line === "") return;
+    lines.push(`${lead}${line}`);
+    lead = "";
+  };
+  const walk = (node: Node): void => {
+    for (const child of node.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE) run += child.textContent ?? "";
+      else if (child.nodeType !== Node.ELEMENT_NODE || /^(SCRIPT|STYLE|TEMPLATE)$/.test((child as Element).tagName)) continue;
+      else if (BLOCK.test((child as Element).tagName)) {
+        flush();
+        if ((child as Element).tagName === "LI") lead = "\u2022 ";
+        walk(child);
+        flush();
+        lead = "";
+      } else walk(child);
+    }
+  };
+  if (notes) walk(notes);
+  flush();
+  return lines.slice(0, SAID_BLOCKS);
+}
 
 export type DeckAction =
   | { type: "next" | "prev" | "first" | "last" | "grid" | "notes" | "escape" }
@@ -183,8 +237,8 @@ export function startDeck(): void {
   let hosted = false;
   const report = (): void => {
     if (window.top === window) return;
-    const said: DeckReport = { __kos: "deck", index: state.index, count: state.count, grid: state.grid, notes: state.notes, reading, hosted };
-    top?.postMessage(said, "*");
+    const told: DeckReport = { __kos: "deck", index: state.index, count: state.count, grid: state.grid, notes: state.notes, reading, hosted, said: noteLines(slides[state.index]!.querySelector("aside.notes")), went };
+    top?.postMessage(told, "*");
   };
   const host = (): void => {
     if (hosted) return;
@@ -192,9 +246,13 @@ export function startDeck(): void {
     bar.style.display = "none";
     document.body.style.setProperty("--deck-bar", "0px");
   };
-  const apply = (a: DeckAction): void => {
+  let went: number | null = 0;
+  const apply = (a: DeckAction, seq?: number): void => {
     const was = state.presenting;
+    const at = state.index;
     state = step(state, a);
+    if (seq !== undefined) went = seq;
+    else if (state.index !== at) went = null;
     // Asking the dashboard for the whole screen; it tells the deck back through kos:present.
     if (a.type === "present" && state.presenting && !was) kos()?.present?.();
     // And giving it back when the deck stops on its own (Escape, the grid), so the dashboard does not hold a screen nobody presents on.
@@ -251,11 +309,13 @@ export function startDeck(): void {
   });
 
   addEventListener("message", (e) => {
-    const m = (e.data ?? {}) as { __kos?: string; action?: DeckDo };
+    const m = (e.data ?? {}) as { __kos?: string; action?: DeckDo; index?: unknown; seq?: unknown };
     if (e.source !== top || m.__kos !== "deck-do") return;
     if (m.action === "host") {
       host();
       render();
+    } else if (m.action === "go") {
+      if (typeof m.index === "number" && Number.isInteger(m.index)) apply({ type: "go", index: m.index }, typeof m.seq === "number" && Number.isInteger(m.seq) && m.seq > 0 ? m.seq : undefined);
     } else if (m.action === "prev" || m.action === "next" || m.action === "grid" || m.action === "notes") apply({ type: m.action });
   });
   addEventListener("kos:present", (e) => apply({ type: "present", on: (e as CustomEvent<{ on?: boolean }>).detail?.on === true }));

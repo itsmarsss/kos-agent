@@ -11,6 +11,8 @@ import type { Route } from "./routes.js";
 import { Select } from "./Select.js";
 import { ArtifactHead, ArtifactMenu, type MenuItem } from "./ArtifactHead.js";
 import { TrashNotice, useArtifactOps, type ArtifactChange } from "./ArtifactManage.js";
+import { DeckPresenter } from "./DeckPresenter.js";
+import { openAudience, presentSession } from "./presentlink.js";
 import { hrefFor } from "./routes.js";
 import { ArtifactPage, type ArtifactHandle, type DeckView, type EditState } from "./widgets/ArtifactPage.js";
 
@@ -514,6 +516,8 @@ export function ArtifactViewer({
   // The frame's own controls, drawn in the head: a doc's editing, a deck's place.
   const [edit, setEdit] = useState<EditState>();
   const [deck, setDeck] = useState<DeckView>();
+  // The presenter view, while it is open: its presentation's name, the audience window it opened, and where it began.
+  const [presenter, setPresenter] = useState<{ id: string; session: string; audience: Window | null; start: number; count: number }>();
   // The newest version as saved, read when a restore is sent: the doc's own save just before it is the version it is made on.
   const latest = useRef<PageSummary | undefined>(undefined);
   const saved = (r: PageSummary): void => {
@@ -521,11 +525,20 @@ export function ArtifactViewer({
     setRecord(r);
   };
 
+  /*
+   * The version the page drawn was read at: not the newest saved, which a
+   * frame's own save moves on while the page it was opened with stays.
+   */
+  const pageAt = useRef<{ id: string; at: number } | undefined>(undefined);
   const show = (got: AnyPagePayload): void => {
+    // The very version drawn, read again, keeps its frame: a deck does not start over. Anything newer is drawn anew.
+    const same = pageAt.current?.id === got.record.id && pageAt.current.at === got.record.updatedAt;
     setPreview(undefined);
     saved(got.record);
     setOlder(got.kind !== "html");
-    if (got.kind === "html") setPage(got.page);
+    if (got.kind !== "html") return;
+    pageAt.current = { id: got.record.id, at: got.record.updatedAt };
+    setPage((was) => (same && was ? was : got.page));
   };
   const load = (): Promise<void> => api.anyPage(id).then(show);
   const failed = (err: unknown): void => setError(err instanceof Error ? err.message : String(err));
@@ -547,6 +560,8 @@ export function ArtifactViewer({
   useEffect(() => {
     setError(undefined);
     setCopy(undefined);
+    // Presenting was of the one before: it ends, and its audience window closes.
+    setPresenter(undefined);
     if (initial?.record.id === id && !record) {
       show(initial);
       return;
@@ -578,6 +593,17 @@ export function ArtifactViewer({
     onOpenChat({ project: record.projectSlug });
   };
 
+  /*
+   * The presenter view, from the owner's press: the audience window opens in
+   * the same press (or the browser blocks it), and the deck is read again so
+   * the presenter starts from the newest version, as the audience does.
+   */
+  const presentNotes = (artifact: string, at: DeckView): void => {
+    const session = presentSession();
+    setPresenter({ id: artifact, session, audience: openAudience(artifact, session), start: at.index, count: at.count });
+    void load().catch(failed);
+  };
+
   const ask = (): void => {
     if (!record || !words.trim()) return;
     void api.message(editRequest(words, record), chatIdOf(whose)).catch(() => undefined);
@@ -604,6 +630,7 @@ export function ArtifactViewer({
           asking={asking}
           manage={manage}
           {...(record.artifactKind === "deck" && !older ? { onPresent: () => frame.current?.present() } : {})}
+          {...(record.artifactKind === "deck" && page && deck && !deck.reading && !preview && !trashed ? { onPresentNotes: () => presentNotes(record.id, deck) } : {})}
           {...(edit ? { edit } : {})}
           onEdit={(action) => frame.current?.edit(action)}
           {...(deck ? { deck } : {})}
@@ -684,6 +711,24 @@ export function ArtifactViewer({
       {record && page && !preview && trashed && <ArtifactPage key="trashed" ref={frame} record={record} page={page} locked onDeck={setDeck} cover={head} />}
       {record && page && !preview && !trashed && (
         <ArtifactPage ref={frame} record={record} page={page} onSaved={saved} onReload={() => void load().catch(failed)} onEdit={setEdit} onDeck={setDeck} cover={head} />
+      )}
+      {presenter && record && page && record.id === presenter.id && (
+        <DeckPresenter
+          key={presenter.session}
+          record={record}
+          page={page}
+          session={presenter.session}
+          audience={presenter.audience}
+          start={presenter.start}
+          count={presenter.count}
+          onStale={() => void load().catch(failed)}
+          onEnd={(index) => {
+            setPresenter(undefined);
+            frame.current?.go(index);
+            // Back on the menu it was opened from, once the dashboard is not inert.
+            requestAnimationFrame(() => head.current?.querySelector<HTMLElement>(".artifact-view-more")?.focus());
+          }}
+        />
       )}
       {!record && !error && (
         <div className="artifact-view-loading" aria-busy="true" aria-label="Loading the artifact">

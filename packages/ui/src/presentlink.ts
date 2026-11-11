@@ -1,0 +1,102 @@
+/**
+ * The presenter view and its audience window, kept on one slide. The
+ * audience window is the dashboard's own page (`#/audience/<id>/<session>`,
+ * AudienceWindow.tsx), opened from the owner's press, which frames the deck
+ * the way the viewer does; the artifact never opens a window, its sandbox
+ * refusing that by design. The two windows speak over a BroadcastChannel
+ * named for the presentation, and each drives only its own deck frames.
+ */
+
+export type PresentSignal =
+  /** The audience window is up, showing this version (its `updatedAt`): where is the presenter? */
+  | { type: "hello"; version?: number }
+  /** The presenter's place, and the version it presents, for the audience to show. */
+  | { type: "go"; index: number; version?: number }
+  /** The audience's deck moved on its own (a key pressed in that window), for the presenter to follow. */
+  | { type: "moved"; index: number }
+  /** Presenting is over: the audience window closes. */
+  | { type: "end" }
+  /** What went wrong in the audience window, in its words, for the presenter to show (as text). */
+  | { type: "trouble"; words: string };
+
+/** At most this much of what the audience window says went wrong. */
+const TROUBLE_CHARS = 400;
+
+const stamp = (v: unknown): { version: number } | Record<string, never> => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? { version: v } : {});
+
+const place = (v: unknown): number | undefined => (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 10_000 ? v : undefined);
+
+/** A signal as heard, checked: anything else on the channel is no signal. */
+export function readSignal(data: unknown): PresentSignal | undefined {
+  if (!data || typeof data !== "object") return undefined;
+  const m = data as { type?: unknown; index?: unknown; version?: unknown };
+  if (m.type === "hello") return { type: m.type, ...stamp(m.version) };
+  if (m.type === "end") return { type: m.type };
+  if (m.type === "trouble") {
+    const words = (data as { words?: unknown }).words;
+    return typeof words === "string" && words.trim() ? { type: m.type, words: words.trim().slice(0, TROUBLE_CHARS) } : undefined;
+  }
+  if (m.type === "go" || m.type === "moved") {
+    const index = place(m.index);
+    if (index === undefined) return undefined;
+    return m.type === "go" ? { type: m.type, index, ...stamp(m.version) } : { type: m.type, index };
+  }
+  return undefined;
+}
+
+export interface PresentLink {
+  post(signal: PresentSignal): void;
+  /** Hear the other window's signals; returns the way to stop. */
+  listen(heard: (signal: PresentSignal) => void): () => void;
+  close(): void;
+}
+
+/** The channel for one presentation, between windows of the dashboard's own origin. */
+export function presentLink(session: string): PresentLink {
+  const channel = new BroadcastChannel(`kos-present:${session}`);
+  return {
+    post: (signal) => channel.postMessage(signal),
+    listen: (heard) => {
+      const on = (e: MessageEvent): void => {
+        const signal = readSignal(e.data);
+        if (signal) heard(signal);
+      };
+      channel.addEventListener("message", on);
+      return () => channel.removeEventListener("message", on);
+    },
+    close: () => channel.close(),
+  };
+}
+
+/** A name for one presentation: random, and made where randomUUID is not (a dashboard on plain http). */
+export function presentSession(): string {
+  return [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+const AUDIENCE = /^#\/audience\/([^/]+)\/([0-9a-f]{8,64})$/;
+
+export const audienceHash = (id: string, session: string): string => `#/audience/${encodeURIComponent(id)}/${session}`;
+
+/** The audience window's route, or none: it is drawn alone, without the dashboard around it (main.tsx). */
+export function audienceRoute(hash: string): { id: string; session: string } | undefined {
+  const m = AUDIENCE.exec(hash);
+  if (!m) return undefined;
+  try {
+    return { id: decodeURIComponent(m[1]!), session: m[2]! };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Open the audience window, from the owner's press (a pop-up needs one): the
+ * dashboard's own page at the audience route, a window of its own to drag
+ * onto the projector. None when the browser blocks it.
+ */
+export function openAudience(id: string, session: string): Window | null {
+  const url = `${location.origin}${location.pathname}${audienceHash(id, session)}`;
+  const audience = window.open(url, `kos-audience-${session}`, "popup,width=1280,height=760");
+  // It hears the presenter over the channel alone: it holds no way back into this window.
+  if (audience) audience.opener = null;
+  return audience;
+}

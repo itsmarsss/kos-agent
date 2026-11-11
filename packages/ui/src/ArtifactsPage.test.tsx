@@ -269,6 +269,84 @@ describe("one artifact, full size", () => {
     expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "notes" }, "*");
   });
 
+  it("presents a deck with its notes from the menu: the presenter view here, the slide in an audience window", async () => {
+    const record = ART[2]!;
+    vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "pitch", title: "Garden pitch", kind: "deck", html: "<main data-deck><section>a</section></main>" } } as never);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
+    const audience = { closed: false, close: vi.fn() };
+    const open = vi.spyOn(window, "open").mockReturnValue(audience as unknown as Window);
+    render(<ArtifactViewer id="pitch" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
+    const el = await waitFor(() => {
+      const f = document.querySelector<HTMLIFrameElement>("iframe.artifact-frame");
+      if (!f) throw new Error("no frame yet");
+      return f;
+    });
+    const menuItems = (): string[] => {
+      fireEvent.click(screen.getByRole("button", { name: "More" }));
+      const names = within(screen.getByRole("menu", { name: "More" })).queryAllByRole("menuitem").map((i) => i.textContent ?? "");
+      fireEvent.keyDown(screen.getByRole("menu", { name: "More" }), { key: "Escape" });
+      return names;
+    };
+    // Not until the deck has said where it is, and never on a phone held upright, where its slides stack.
+    expect(menuItems()).not.toContain("Present with notes");
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const told = vi.spyOn(pageWin, "postMessage");
+    const report = (data: Record<string, unknown>): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "deck", count: 4, grid: false, notes: false, hosted: true, ...data } })));
+    report({ index: 2, reading: true });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    expect(menuItems()).not.toContain("Present with notes");
+    report({ index: 2, reading: false });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(within(screen.getByRole("menu", { name: "More" })).getByRole("menuitem", { name: "Present with notes" }));
+    // The audience window is the dashboard's own page, opened in the owner's press; the deck is read again, so the presenter starts from the newest version.
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(api.anyPage).toHaveBeenCalledTimes(2);
+    // The same version read again keeps the viewer's frame: its deck does not start over.
+    await act(() => new Promise<void>((r) => setTimeout(r, 0)));
+    expect(el.isConnected).toBe(true);
+    expect(document.querySelector("iframe.artifact-frame")).toBe(el);
+    expect(String(open.mock.calls[0]![0])).toMatch(/#\/audience\/pitch\/[0-9a-f]{24}$/);
+    const view = screen.getByRole("dialog", { name: "Presenting Garden pitch" });
+    expect(within(view).getByText("Slide 3 of 4")).toBeTruthy();
+    expect(within(view).getByText("Opening the audience window")).toBeTruthy();
+    fireEvent.keyDown(view, { key: "ArrowRight" });
+    expect(within(view).getByText("Slide 4 of 4")).toBeTruthy();
+    // Escape ends it: the audience window closes, and the viewer's deck is where the presenter left it.
+    fireEvent.keyDown(view, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(audience.close).toHaveBeenCalled();
+    expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "go", index: 3 }, "*");
+    // The focus goes back to the menu it was opened from.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "More" })));
+  });
+
+  it("ends presenting when the viewer is given another artifact, closing the audience window", async () => {
+    const record = ART[2]!;
+    const pitch = { record, kind: "html", page: { id: "pitch", title: "Garden pitch", kind: "deck", html: "<main data-deck><section>a</section></main>" } };
+    const other = { record: { ...record, id: "other", title: "Other deck" }, kind: "html", page: { ...pitch.page, id: "other", title: "Other deck" } };
+    vi.spyOn(api, "anyPage").mockImplementation((id: string) => Promise.resolve((id === "pitch" ? pitch : other) as never));
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
+    const audience = { closed: false, close: vi.fn() };
+    vi.spyOn(window, "open").mockReturnValue(audience as unknown as Window);
+    const { rerender } = render(<ArtifactViewer id="pitch" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
+    const el = await waitFor(() => {
+      const f = document.querySelector<HTMLIFrameElement>("iframe.artifact-frame");
+      if (!f) throw new Error("no frame yet");
+      return f;
+    });
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "deck", index: 0, count: 4, hosted: true } })));
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(within(screen.getByRole("menu", { name: "More" })).getByRole("menuitem", { name: "Present with notes" }));
+    expect(screen.getByRole("dialog", { name: "Presenting Garden pitch" })).toBeTruthy();
+    rerender(<ArtifactViewer id="other" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(audience.close).toHaveBeenCalled();
+  });
+
   it("keeps its description and the rest in a menu the keyboard can walk", async () => {
     const record = ART[2]!;
     vi.spyOn(api, "anyPage").mockResolvedValue({ record: { ...record, description: "Why the garden, in six slides." }, kind: "html", page: { id: "pitch", title: "Garden pitch", kind: "deck", html: "<main data-deck><section>a</section></main>" } } as never);
@@ -291,6 +369,61 @@ describe("one artifact, full size", () => {
     fireEvent.keyDown(menu, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     expect(document.activeElement).toBe(more);
+  });
+
+  it("draws the doc as saved on Back to current after a save and a preview, so the next save keeps the edit", async () => {
+    const record = { ...ART[3]!, artifactKind: "doc" as const };
+    const savedAt = record.updatedAt + 500;
+    const opened = { record, kind: "html", page: { id: "ledger", title: "Ledger", kind: "doc", html: "<p>first draft</p>" } };
+    const newest = { record: { ...record, updatedAt: savedAt }, kind: "html", page: { id: "ledger", title: "Ledger", kind: "doc", html: "<p>saved edit</p>" } };
+    const read = vi.spyOn(api, "anyPage").mockResolvedValue(opened as never);
+    vi.spyOn(api, "pageHistory").mockResolvedValue([
+      { version: 1, at: at(90), title: "Ledger", kind: "html" },
+      { version: 2, at: at(1), title: "Ledger", kind: "html" },
+    ]);
+    vi.spyOn(api, "pageVersion").mockResolvedValue({ id: "ledger", title: "Ledger", kind: "doc", html: "<p>first draft</p>" } as never);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
+    const save = vi.spyOn(api, "savePage").mockResolvedValue(newest.record);
+    render(<ArtifactViewer id="ledger" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
+    const frameOf = (): Promise<HTMLIFrameElement> =>
+      waitFor(() => {
+        const f = document.querySelector<HTMLIFrameElement>("iframe.artifact-frame");
+        if (!f) throw new Error("no frame yet");
+        return f;
+      });
+    /** The doc's frame, its page window standing in, saving its whole document after the dashboard's own Done. */
+    const saveFrom = async (el: HTMLIFrameElement, id: number, doc: string): Promise<void> => {
+      const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+      Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+      const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
+      // The owner's hand in the frame, over the bridge's channel, so the dashboard's Done opens a save.
+      const gestures = new MessageChannel();
+      act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "gestures" }, ports: [gestures.port2] })));
+      gestures.port1.postMessage(0);
+      await new Promise((r) => setTimeout(r, 20));
+      say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
+      fireEvent.click(await screen.findByRole("button", { name: "Done" }));
+      await act(async () => {
+        say({ __kos: "call", id, method: "save", args: { edit: { doc } } });
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      say({ __kos: "edit", editing: false, pending: false, status: "Saved", bad: false });
+    };
+    await saveFrom(await frameOf(), 1, "<p>saved edit</p>");
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    // History, an older version previewed, then back: the newest is read, and drawn as it was saved.
+    read.mockResolvedValue(newest as never);
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    const rows = within(await screen.findByRole("dialog", { name: "History" })).getAllByRole("listitem");
+    fireEvent.click(within(rows[1]!).getByRole("button", { name: "Preview" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Back to current" }));
+    await waitFor(() => expect((document.querySelector("iframe.artifact-frame") as HTMLIFrameElement).getAttribute("srcdoc")).toContain("saved edit"));
+    expect(document.querySelector("iframe.artifact-frame")!.getAttribute("srcdoc")).not.toContain("first draft");
+    // The next save is made on the saved version, from the frame that holds the edit.
+    await saveFrom(await frameOf(), 2, "<p>saved edit, and more</p>");
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1]![2]).toBe(savedAt);
   });
 
   it("restores on the version the doc's own last save made, not the one first opened", async () => {

@@ -181,6 +181,19 @@ export const MoreIcon = ({ size, title = "More" }: IconProps = {}): ReactElement
   </Icon>
 );
 
+/** Hold a running thing (a timer), and go on with it. */
+export const PauseIcon = ({ size, title = "Pause" }: IconProps = {}): ReactElement => (
+  <Icon title={title} size={size}>
+    <path d="M9 6v12M15 6v12" />
+  </Icon>
+);
+
+export const PlayIcon = ({ size, title = "Resume" }: IconProps = {}): ReactElement => (
+  <Icon title={title} size={size}>
+    <path d="M8 5.5v13l10.5-6.5L8 5.5Z" />
+  </Icon>
+);
+
 /** A glyph that only decorates its button: the button carries the name and the tooltip. */
 function Glyph({ children, size }: { children: ReactNode; size: number }): ReactElement {
   return (
