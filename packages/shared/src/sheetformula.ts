@@ -69,7 +69,8 @@ export function findColumn(columns: readonly SheetColumn[], ref: string): number
 type Token =
   | { t: "num"; v: number }
   | { t: "str"; v: string }
-  | { t: "ref"; sheet?: string; col: number; row: number; col2?: number; row2?: number }
+  | { t: "ref"; sheet?: string; col: number; row: number; col2?: number; row2?: number; from: number; cell: number; end: number }
+  | { t: "gone"; v?: undefined }
   | { t: "name"; v: string }
   | { t: "op"; v: string }
   | { t: "("; v?: undefined }
@@ -77,6 +78,8 @@ type Token =
   | { t: ","; v?: undefined };
 
 const CELL = /^\$?([A-Za-z]{1,3})\$?([0-9]+)/;
+/** What a reference to a deleted row or column is rewritten as, as a spreadsheet writes it. */
+const GONE = "#REF!";
 
 class FormulaSyntax extends Error {}
 
@@ -91,11 +94,11 @@ function tokenize(src: string): Token[] {
     if (after !== undefined && /[A-Za-z0-9_(]/.test(after)) return undefined;
     return { col: columnIndex(m[1]!), row: Number(m[2]), end: at + m[0].length };
   };
-  const refFrom = (at: number, sheet?: string): number => {
+  const refFrom = (at: number, from: number, sheet?: string): number => {
     const a = cellAt(at);
     if (!a) throw new FormulaSyntax(`expected a cell after ${sheet ? `${sheet}!` : "here"}`);
     let end = a.end;
-    const tok: Token = { t: "ref", col: a.col, row: a.row, ...(sheet !== undefined ? { sheet } : {}) };
+    const tok: Token & { t: "ref" } = { t: "ref", col: a.col, row: a.row, ...(sheet !== undefined ? { sheet } : {}), from, cell: at, end };
     if (src[end] === ":") {
       const b = cellAt(end + 1);
       if (!b) throw new FormulaSyntax("a range needs a cell after the colon");
@@ -103,6 +106,7 @@ function tokenize(src: string): Token[] {
       tok.row2 = b.row;
       end = b.end;
     }
+    tok.end = end;
     out.push(tok);
     return end;
   };
@@ -136,19 +140,22 @@ function tokenize(src: string): Token[] {
     } else if (c === "'") {
       const close = src.indexOf("'!", i + 1);
       if (close === -1) throw new FormulaSyntax("a quoted tab name needs '! after it");
-      i = refFrom(close + 2, src.slice(i + 1, close));
+      i = refFrom(close + 2, i, src.slice(i + 1, close));
     } else if (/[A-Za-z_$]/.test(c)) {
       const m = /^[A-Za-z_][A-Za-z0-9_.]*/.exec(src.slice(i));
       if (m && src[i + m[0].length] === "!") {
-        i = refFrom(i + m[0].length + 1, m[0]);
+        i = refFrom(i + m[0].length + 1, i, m[0]);
       } else if (cellAt(i)) {
-        i = refFrom(i);
+        i = refFrom(i, i);
       } else if (m) {
         out.push({ t: "name", v: m[0].toUpperCase() });
         i += m[0].length;
       } else {
         throw new FormulaSyntax(`unexpected "${c}"`);
       }
+    } else if (src.startsWith(GONE, i)) {
+      out.push({ t: "gone" });
+      i += GONE.length;
     } else if (c === "(" || c === ")" || c === ",") {
       out.push({ t: c });
       i += 1;
@@ -182,6 +189,7 @@ export type Node =
   | { k: "neg"; x: Node }
   | { k: "bin"; op: string; a: Node; b: Node }
   | { k: "call"; name: string; args: Node[] }
+  | { k: "gone" }
   | { k: "bad"; why: string };
 
 const LEVELS: string[][] = [["=", "<>", "<", ">", "<=", ">="], ["&"], ["+", "-"], ["*", "/"], ["^"]];
@@ -242,6 +250,8 @@ export function parseFormula(text: string): Node {
           row2: Math.max(tok.row, tok.row2),
         };
       }
+      case "gone":
+        return { k: "gone" };
       case "(": {
         const inner = level(0);
         expect(")");
@@ -278,6 +288,53 @@ export function parseFormula(text: string): Node {
   } catch (e) {
     return { k: "bad", why: (e as Error).message };
   }
+}
+
+/** A reference as rewriteRefs offers it: a cell, or a range when it has a second corner. */
+export interface Ref {
+  sheet?: string;
+  col: number;
+  row: number;
+  col2?: number;
+  row2?: number;
+}
+
+const CORNERS = /^(\$?)([A-Za-z]{1,3})(\$?)(\d+)(?::(\$?)([A-Za-z]{1,3})(\$?)(\d+))?$/;
+
+/**
+ * A formula with each of its references put through `move`: what it gives
+ * back is written in the reference's place, its $ marks kept, and null
+ * writes #REF!, so inserting and deleting rows and columns keeps formulas
+ * pointing at the same cells, as a spreadsheet does. Text that is not a
+ * formula, or does not parse, is left as it is.
+ */
+export function rewriteRefs(formula: string, move: (ref: Ref) => Ref | null): string {
+  if (!formula.startsWith("=")) return formula;
+  const src = formula.slice(1);
+  let tokens: Token[];
+  try {
+    tokens = tokenize(src);
+  } catch {
+    return formula;
+  }
+  let out = "";
+  let last = 0;
+  for (const tok of tokens) {
+    if (tok.t !== "ref") continue;
+    const ref: Ref = { ...(tok.sheet !== undefined ? { sheet: tok.sheet } : {}), col: tok.col, row: tok.row, ...(tok.col2 !== undefined ? { col2: tok.col2, row2: tok.row2! } : {}) };
+    const next = move(ref);
+    const m = CORNERS.exec(src.slice(tok.cell, tok.end));
+    if (!next || !m) {
+      out += src.slice(last, tok.from) + (next ? src.slice(tok.from, tok.end) : GONE);
+    } else {
+      const corner = (dc: string, col: number, dr: string, row: number): string => `${dc}${columnLetter(col)}${dr}${row}`;
+      const first = corner(m[1]!, next.col, m[3]!, next.row);
+      const text = m[6] !== undefined && next.col2 !== undefined && next.row2 !== undefined ? `${first}:${corner(m[5]!, next.col2, m[7]!, next.row2)}` : first;
+      out += src.slice(last, tok.cell) + text;
+    }
+    last = tok.end;
+  }
+  return last === 0 ? formula : `=${out}${src.slice(last)}`;
 }
 
 // —— values ——
@@ -719,6 +776,8 @@ export class Workbook {
         return node.v;
       case "bad":
         return err("#NAME?", node.why);
+      case "gone":
+        return err("#REF!", "it named a row or column that was deleted");
       case "ref": {
         const tt = node.sheet === undefined ? t : this.tabIndex(node.sheet);
         if (tt < 0) return err("#REF!", `there is no tab "${node.sheet}"`);
