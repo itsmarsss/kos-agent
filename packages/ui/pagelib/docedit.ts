@@ -144,7 +144,7 @@ function selectBack(n: number): boolean {
 }
 
 /** The headings of the doc, given an id of their own if they have none, for a link to go to. */
-function headings(article: HTMLElement): { id: string; text: string }[] {
+function headings(article: HTMLElement): { id: string; text: string; el: HTMLElement }[] {
   const taken = new Set<string>();
   return [...article.querySelectorAll<HTMLElement>("h1, h2, h3")].flatMap((h) => {
     const text = h.textContent?.trim() ?? "";
@@ -155,7 +155,7 @@ function headings(article: HTMLElement): { id: string; text: string }[] {
       h.id = id;
     }
     taken.add(h.id);
-    return [{ id: h.id, text }];
+    return [{ id: h.id, text, el: h }];
   });
 }
 
@@ -226,6 +226,8 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
               const b = el("button", { type: "button" }, h.text);
               b.addEventListener("mousedown", (e) => e.preventDefault());
               b.addEventListener("click", () => {
+                // An id the runtime gave the heading is taken out on save; one a link goes to is the doc's own.
+                h.el.removeAttribute("data-kos-gen-id");
                 run("createLink", `#${h.id}`);
                 sections.hidden = true;
                 changed();

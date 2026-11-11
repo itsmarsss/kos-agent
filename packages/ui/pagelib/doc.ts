@@ -188,6 +188,14 @@ export interface EditState {
 export type EditAction = "edit" | "done" | "discard" | "undo" | "redo";
 
 /**
+ * While editing, the doc stays laid out as it reads: its contents beside it,
+ * its column where it was, its notes numbered. A note's text stays at the end
+ * until its number is pressed, which opens it in the line to be edited.
+ */
+const EDIT_CSS = `[data-doc][contenteditable="true"] .fn:not(.fn-shown) { display: none; }
+[data-doc][contenteditable="true"] .fn-ref { cursor: pointer; }`;
+
+/**
  * Editing: the doc becomes editable where it is (docedit.ts holds the
  * formats, the "/" menu and the markdown), each pause in typing saved as a
  * new version through kos.save. Its controls (Edit, Done, Discard, Undo,
@@ -211,12 +219,15 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
     top?.postMessage({ ...state }, "*");
   };
   const say = (status: string, bad = false): void => tell({ status, bad });
+  /** The doc as editing began, so leaving redraws its contents and notes only when something changed. */
+  let began = "";
 
   const begin = (): void => {
     if (editor) return;
-    enhanced.undo();
+    // What the runtime added stays, and is never typed into; the save takes it out again (cleanDocHtml).
+    article.querySelectorAll(".fn-ref").forEach((ref) => ref.setAttribute("contenteditable", "false"));
     savedInner = article.innerHTML;
-    last = cleanDocHtml(article);
+    last = began = cleanDocHtml(article);
     article.setAttribute("contenteditable", "true");
     article.setAttribute("spellcheck", "true");
     document.documentElement.setAttribute("data-editing", "");
@@ -237,12 +248,17 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
     });
     tell({ editing: true, status: "", bad: false });
   };
-  const leave = (): void => {
+  const leave = (redraw = cleanDocHtml(article) !== began): void => {
     editor = undefined;
     article.removeAttribute("contenteditable");
     article.removeAttribute("spellcheck");
     document.documentElement.removeAttribute("data-editing");
-    enhanced = start();
+    article.querySelectorAll(".fn-shown").forEach((n) => n.classList.remove("fn-shown"));
+    // Numbered again and the contents rebuilt for what the owner wrote; untouched, it stays as it was.
+    if (redraw) {
+      enhanced.undo();
+      enhanced = start();
+    } else article.querySelectorAll(".fn-ref").forEach((ref) => ref.removeAttribute("contenteditable"));
     tell({ editing: false, pending: false });
   };
   const finish = async (): Promise<void> => {
@@ -253,7 +269,8 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
     if (!editor) return;
     editor.discard();
     article.innerHTML = savedInner;
-    leave();
+    // The markup put back has lost what the runtime's buttons listened with.
+    leave(true);
     say("Changes since the last save were put back");
   };
   const act = (action: EditAction): void => {
@@ -266,6 +283,19 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
       article.dispatchEvent(new InputEvent("input", { inputType: action === "undo" ? "historyUndo" : "historyRedo" }));
     }
   };
+  // A note's number, while editing, opens its text in the line to edit, and closes it again.
+  article.addEventListener(
+    "click",
+    (e) => {
+      const ref = editor ? (e.target as Element).closest?.(".fn-ref") : null;
+      const note = ref?.previousElementSibling;
+      if (!note?.classList.contains("fn")) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      note.classList.toggle("fn-shown");
+    },
+    true,
+  );
   addEventListener("message", (e) => {
     const m = (e.data ?? {}) as { __kos?: string; action?: EditAction };
     if (e.source === top && m.__kos === "edit-do" && m.action && article.isConnected) act(m.action);
@@ -320,5 +350,6 @@ export function startDoc(): void {
 // Inlined in a frame it runs as a script; imported by a test it waits to be called.
 if (typeof document !== "undefined" && document.currentScript) {
   addStyle(DOC_CSS, "kos-doc-css");
+  addStyle(EDIT_CSS, "kos-doc-edit-css");
   ready(startDoc);
 }

@@ -198,7 +198,11 @@ menu of blocks at the start of an empty line (headings, lists, a
 checklist, a quote, a divider, a table, a callout, an image from a file),
 markdown typed at a line's start (`# `, `## `, `- `, `1. `, `> `, `[] `)
 and around words (`**bold**`, `` `code` ``). A drop is taken as plain text,
-as a paste is. Its controls are the dashboard's, in the viewer's head
+as a paste is. Editing leaves the doc laid out as it reads: its contents,
+its column and its numbered notes stay where they were, the numbers never
+typed into; pressing one opens its note in the line to edit. Leaving
+editing numbers the notes and builds the contents again only when
+something changed. Its controls are the dashboard's, in the viewer's head
 that stays in view as the doc scrolls by (Edit, then Undo, Redo, Discard,
 Done and how the save stands): the doc says how its editing stands
 (`{__kos: "edit", editing, pending, status}`) and the dashboard sends what
