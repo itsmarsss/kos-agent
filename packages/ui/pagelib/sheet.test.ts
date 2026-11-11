@@ -310,7 +310,7 @@ describe("pasting, importing, and changing the shape", () => {
     const panel = root.querySelector(".sheet-panel")!;
     expect(panel.textContent).toContain("This paste would replace 1 filled cell.");
     click(root, "Add as 2 new rows");
-    expect(root.querySelector(".sheet-panel")!.textContent).toContain('Row 1, Amount: "lots" is not a number');
+    expect(root.querySelector(".sheet-panel")!.textContent).toContain('New row 1, Amount: "lots" is not a number');
     expect(cells(root)[5]![1]).toBe("=HYPERLINK(1)");
     expect(root.querySelector('td[data-row="6"][data-col="1"]')!.classList.contains("formula")).toBe(false);
   });
@@ -371,7 +371,7 @@ describe("pasting, importing, and changing the shape", () => {
     expect(panel.querySelector<HTMLInputElement>("input[type=checkbox]")!.checked).toBe(true);
     expect([...panel.querySelectorAll<HTMLSelectElement>(".sheet-import-map select")].map((s) => s.value)).toEqual(["2", "1", "0"]);
     expect([...panel.querySelectorAll("tbody tr")].map((tr) => tr.textContent)).toEqual(["Oct 3, 2026Books$12.50", "Oct 4, 2026Gifts"]);
-    expect(panel.textContent).toContain('Row 4, Amount: "lots" is not a number');
+    expect(panel.textContent).toContain('File row 4, Amount: "lots" is not a number');
     // Mapping a column to nothing leaves it empty.
     const category = panel.querySelector<HTMLSelectElement>('select[aria-label="Fills Category"]')!;
     category.focus();

@@ -121,14 +121,14 @@ describe("mapping and importing", () => {
       ["2026-01-02", "Milk", 4.5, null],
       ["2026-01-03", "Bread", null, null],
     ]);
-    expect(got.errors).toEqual(['Row 4, Amount: "lots" is not a number']);
+    expect(got.errors).toEqual(['File row 4, Amount: "lots" is not a number']);
   });
 
   it("adds no row for a line whose mapped columns are all empty, so the count is what is added", () => {
     const rows = parseDelimited("Item,Amount,Note\nMilk,4,\n,,only a note\n,lots,\n", ",");
     const got = importRows(rows, true, autoMap(rows[0], 3, COLUMNS), COLUMNS);
     expect(got.rows).toEqual([[null, "Milk", 4, null]]);
-    expect(got.errors).toEqual(['Row 4, Amount: "lots" is not a number']);
+    expect(got.errors).toEqual(['File row 4, Amount: "lots" is not a number']);
   });
 });
 
@@ -171,7 +171,7 @@ describe("a paste", () => {
 
   it("names what does not fit and what reaches past the last column", () => {
     const plan = planPaste([["x", "=SUM(A1:A9)", "extra"]], [3], 2, COLUMNS, at);
-    expect(plan.errors).toEqual(['Row 1, Amount: "x" is not a number', 'Row 1, Paid: "=SUM(A1:A9)" is a formula, and what comes in is kept as values']);
+    expect(plan.errors).toEqual(['Row 3, Amount: "x" is not a number', 'Row 3, Paid: "=SUM(A1:A9)" is a formula, and what comes in is kept as values']);
     expect(plan.dropped).toBe(1);
     // A new row with nothing that fits in it is not added.
     expect(plan.added).toEqual([]);

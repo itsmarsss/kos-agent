@@ -197,8 +197,8 @@ export function autoMap(header: readonly string[] | undefined, width: number, co
   return columns.map((_, i) => (i < width ? i : -1));
 }
 
-/** A row's place in what came in: a line of a file, or a row of a paste. */
-const where = (line: number, column: SheetColumn | undefined, col: number): string => `Row ${line}, ${column?.label ?? `column ${col + 1}`}`;
+/** Where a value that did not fit came from, as the owner finds it: "File row 4" (its rows counted with the header), "Row 3" (a row of the grid, by its number) or "New row 2" (one a paste adds). */
+const where = (place: string, column: SheetColumn | undefined, col: number): string => `${place}, ${column?.label ?? `column ${col + 1}`}`;
 
 /** Rows to add from a file, mapped onto the tab's columns; a line with nothing for a mapped column adds nothing, and a value that does not fit leaves its cell empty and says so. */
 export function importRows(rows: readonly string[][], header: boolean, map: readonly number[], columns: readonly SheetColumn[]): { rows: SheetCell[][]; errors: string[] } {
@@ -211,7 +211,7 @@ export function importRows(rows: readonly string[][], header: boolean, map: read
       if (from < 0) return null;
       const got = coerce(fields[from] ?? "", c);
       if ("cell" in got) return got.cell;
-      errors.push(`${where(i + 1, c, col)}: ${got.error}`);
+      errors.push(`${where(`File row ${i + 1}`, c, col)}: ${got.error}`);
       return null;
     });
     // A line with nothing for any mapped column adds nothing (and a table would refuse an insert of no values).
@@ -258,7 +258,7 @@ export function planPaste(block: readonly string[][], targets: readonly number[]
       if (from < 0 || from >= fields.length) return;
       const got = coerce(fields[from]!, c);
       if ("error" in got) {
-        plan.errors.push(`${where(i + 1, c, k)}: ${got.error}`);
+        plan.errors.push(`${where(row === undefined ? `New row ${plan.added.length + 1}` : `Row ${row}`, c, k)}: ${got.error}`);
         return;
       }
       if (row === undefined) {
