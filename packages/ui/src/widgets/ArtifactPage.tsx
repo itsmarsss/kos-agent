@@ -1,11 +1,12 @@
+import { Skeleton } from "@kos/kit";
 import { COLOURS, RADII, TYPE, artifactAssets, fontById, fontFaceCss, fontStackVars, type HtmlPage } from "@kos/shared";
 import kitCss from "@kos/kit/kit.css?raw";
 import pageCss from "@kos/kit/page.css?raw";
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type Ref, type RefObject } from "react";
 
 import { SaveConflict, api, type PageSummary } from "../api.js";
 import { fitsContent, pageDocument, tokenRule, wrapperDocument } from "@kos/shared";
-import { heightGate, ownerIn, revealAllowed, revealInDashboard, saveAllowed, type EditTold, type HeightGate, type Reveal } from "./frameheight.js";
+import { heightBucket, heightGate, ownerIn, rememberHeight, rememberedHeight, revealAllowed, revealInDashboard, saveAllowed, type EditTold, type HeightGate, type Reveal } from "./frameheight.js";
 
 /**
  * An HTML page, the way a Claude artifact is shown: the agent's document in a
@@ -82,6 +83,12 @@ function fontFile(file: string): Promise<string> {
   return got;
 }
 
+/** Drop the libraries and fonts kept: for a test that serves them afresh. */
+export function forgetAssets(): void {
+  fetched.clear();
+  fontFiles.clear();
+}
+
 /**
  * The faces an artifact uses, as @font-face rules with the files inlined (its
  * frame has no network), and the named stacks. A font that will not load
@@ -130,15 +137,47 @@ export interface ArtifactHandle {
    * Resolves once it has, or after a few seconds whatever happened.
    */
   settle(): Promise<void>;
+  /** What the owner pressed among a doc's editing controls, which the viewer's head draws. */
+  edit(action: EditTold["action"]): void;
+  /** What the owner pressed among a deck's controls, which the viewer's head draws. */
+  deck(action: DeckPress): void;
 }
 
 /** How a doc's editing stands, as the doc says (pagelib/doc.ts EditState). */
-interface EditState {
+export interface EditState {
   editing: boolean;
   pending: boolean;
   status: string;
   bad: boolean;
 }
+
+/** Where a deck is, as the deck says (pagelib/deck.ts DeckReport). */
+export interface DeckView {
+  index: number;
+  count: number;
+  grid: boolean;
+  notes: boolean;
+  /** A phone held upright: the slides stack, with nothing to move between. */
+  reading: boolean;
+}
+
+/** What the viewer's head may press on a deck. */
+export type DeckPress = "prev" | "next" | "grid" | "notes";
+
+const flag = (v: unknown): boolean => v === true;
+const count = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(10_000, Math.round(v))) : 0);
+
+/**
+ * How long after its document loads a frame is shown without having said
+ * anything: a page or a doc that never reports its height, a deck that never
+ * says where it is. A sheet says neither, so it is shown once it has drawn.
+ */
+const SHOW_ANYWAY_MS = 1500;
+const SHEET_DRAWN_MS = 120;
+/** A page's first heights come in a burst as its fonts and runtime land: it is shown once they have been quiet this long, at the last. */
+const FIRST_QUIET_MS = 160;
+/** The frame's fade in (styles.css): the skeleton stays under it until it is done, so nothing blank shows between. */
+const FADE_MS = 200;
 
 /** How long settle waits on a doc to save before letting the frame go anyway: a page saying it is editing cannot hold the dashboard. */
 export const SETTLE_MS = 2500;
@@ -152,10 +191,16 @@ export interface ArtifactPageProps {
   onReload?: () => void;
   /** An older version, shown to look at: nothing in it is saved or written. */
   locked?: boolean;
+  /** A doc's editing as it changes, for the viewer's head to draw its controls; undefined once the frame has none. */
+  onEdit?: (state: EditState | undefined) => void;
+  /** A deck's place as it changes, for the viewer's head to draw its controls; undefined once the frame has none. */
+  onDeck?: (view: DeckView | undefined) => void;
+  /** What sticks over the frame's top as the dashboard scrolls (the viewer's head): a doc's contents and a jump keep clear of it. */
+  cover?: RefObject<HTMLElement | null>;
   ref?: Ref<ArtifactHandle>;
 }
 
-export function ArtifactPage({ record, page, onSaved, onReload, locked = false, ref }: ArtifactPageProps): ReactElement {
+export function ArtifactPage({ record, page, onSaved, onReload, locked = false, onEdit, onDeck, cover, ref }: ArtifactPageProps): ReactElement {
   const box = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const loads = useRef(0);
@@ -165,12 +210,54 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const [asked, setAsked] = useState<Asked>();
   const [told, setTold] = useState<string>();
   const [conflict, setConflict] = useState<string>();
+  // Opened at the height it last took at this width (read once the box is laid out), so the dashboard does not jump when the page reports.
   const [height, setHeight] = useState<number>();
+  /*
+   * Drawn: until then a skeleton holds its place, and the frame fades in
+   * over it, the skeleton kept under it until the fade is done. Shown once
+   * the page's first heights have settled (a page or a doc), once a deck
+   * says it has handed over its bar, once a sheet has drawn, or a while
+   * after the document loaded when the page has said nothing.
+   */
+  const [shown, setShown] = useState(false);
+  const [covered, setCovered] = useState(true);
+  const shownRef = useRef(false);
+  // Something was heard from the page, so the load's fallback is not needed.
+  const spoke = useRef(false);
+  // The last height heard before showing: the one the frame takes as it fades in.
+  const first = useRef<number | undefined>(undefined);
+  const quietTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const anywayTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const fadeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const clearTimers = useCallback((): void => {
+    clearTimeout(quietTimer.current);
+    clearTimeout(anywayTimer.current);
+    clearTimeout(fadeTimer.current);
+  }, []);
+  const show = useCallback((): void => {
+    if (shownRef.current) return;
+    clearTimers();
+    shownRef.current = true;
+    if (first.current !== undefined) setHeight(first.current);
+    setShown(true);
+    fadeTimer.current = setTimeout(() => setCovered(false), FADE_MS);
+  }, [clearTimers]);
   const [edit, setEdit] = useState<EditState>();
+  const [deck, setDeck] = useState<DeckView>();
   const editRef = useRef<EditState | undefined>(undefined);
   useEffect(() => {
     editRef.current = edit;
-  }, [edit]);
+    onEdit?.(locked ? undefined : edit);
+  }, [edit, locked, onEdit]);
+  useEffect(() => onDeck?.(deck), [deck, onDeck]);
+  // The head's controls go with the frame.
+  useEffect(
+    () => () => {
+      onEdit?.(undefined);
+      onDeck?.(undefined);
+    },
+    [onEdit, onDeck],
+  );
   const settled = useRef<(() => void)[]>([]);
   // What the dashboard last told the doc's editing to do: a save just after its own Done is the owner's.
   const sent = useRef<EditTold | undefined>(undefined);
@@ -199,8 +286,14 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     let stale = false;
     loads.current = 0;
     gate.current = heightGate();
-    setHeight(undefined);
+    setShown(false);
+    setCovered(true);
+    shownRef.current = false;
+    spoke.current = false;
+    first.current = undefined;
+    clearTimers();
     setEdit(undefined);
+    setDeck(undefined);
     setLeft(false);
     setError(undefined);
     setConflict(undefined);
@@ -217,11 +310,33 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       .catch((err: unknown) => !stale && setError(err instanceof Error ? err.message : String(err)));
     return () => {
       stale = true;
+      clearTimers();
     };
-  }, [page, locked]);
+  }, [page, locked, record.id, clearTimers]);
 
-  // The page's own window: the frame inside the wrapper. A cross-origin frame's frames can be named, not read.
-  const pageWindow = useCallback((): Window | undefined => frame.current?.contentWindow?.frames[0] ?? undefined, []);
+  // What it last took at this width, read once the box is laid out and before it is painted.
+  const widthKey = useCallback((): string => `${record.id}@${heightBucket(box.current?.clientWidth ?? 0)}`, [record.id]);
+  useLayoutEffect(() => {
+    setHeight(rememberedHeight(widthKey()));
+  }, [page, locked, widthKey]);
+  // A page that hit an error shows as it is, with no skeleton shimmering over it.
+  useEffect(() => {
+    if (error) show();
+  }, [error, show]);
+
+  // The page's own window: the frame inside the wrapper. A cross-origin frame's frames can be named, not read, and naming one not there yet throws.
+  const pageWindow = useCallback((): Window | undefined => {
+    try {
+      return frame.current?.contentWindow?.frames[0] ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }, []);
+  // How far down the view what sticks over the frame reaches: its height and where it sticks.
+  const coverHeight = useCallback((): number => {
+    const el = cover?.current;
+    return el ? el.offsetHeight + (parseFloat(getComputedStyle(el).top) || 0) : 0;
+  }, [cover]);
   const present = useCallback((): void => {
     const el = box.current;
     if (!el) return;
@@ -251,9 +366,20 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         if (layout !== "fit") return;
         const owner = ownerIn(frame.current);
         const next = gate.current?.accept((m as { height?: unknown }).height, owner);
-        if (next !== undefined) setHeight(next);
+        // An older version shown to look at may be another height: what is remembered is the current one's.
+        if (next !== undefined && !locked) rememberHeight(widthKey(), next);
+        if (shownRef.current) {
+          if (next !== undefined) setHeight(next);
+        } else {
+          // Not shown yet: the skeleton keeps its height until the page's first heights have settled, then the frame takes the last and fades in.
+          spoke.current = true;
+          clearTimeout(anywayTimer.current);
+          if (next !== undefined) first.current = next;
+          clearTimeout(quietTimer.current);
+          quietTimer.current = setTimeout(show, FIRST_QUIET_MS);
+        }
         const reveal = (m as { reveal?: Reveal }).reveal;
-        if (reveal && typeof reveal === "object" && revealAllowed(frame.current, gestures.current.at)) revealInDashboard(frame.current, reveal);
+        if (reveal && typeof reveal === "object" && revealAllowed(frame.current, gestures.current.at)) revealInDashboard(frame.current, reveal, 16 + coverHeight());
         return;
       }
       // The bridge's channel for the owner's presses and keys, sent before any of the page's own code runs: the first is the one.
@@ -267,8 +393,20 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         };
         return;
       }
-      // A doc's editing, for the edit bar above the frame.
+      // A deck's place, for the viewer's head: the first report hands the deck's bar to the head.
+      if (m.__kos === "deck") {
+        if (page.kind !== "deck") return;
+        const d = m as Record<string, unknown>;
+        // Shown once its own bar has gone, so it does not jump as it fades in.
+        if (flag(d.hosted)) show();
+        else spoke.current = true;
+        setDeck({ index: count(d.index), count: count(d.count), grid: flag(d.grid), notes: flag(d.notes), reading: flag(d.reading) });
+        if (!flag(d.hosted)) pageWindow()?.postMessage({ __kos: "deck-do", action: "host" }, "*");
+        return;
+      }
+      // A doc's editing, for the controls in the viewer's head.
       if (m.__kos === "edit") {
+        if (page.kind !== "doc") return;
         const d = m as Partial<EditState>;
         const next: EditState = { editing: d.editing === true, pending: d.pending === true, status: String(d.status ?? "").slice(0, 300), bad: d.bad === true };
         setEdit(next);
@@ -321,7 +459,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     };
     window.addEventListener("message", heard);
     return () => window.removeEventListener("message", heard);
-  }, [layout, left, locked, onSaved, page.capabilities?.ask, pageWindow, present, record.id, reply]);
+  }, [coverHeight, layout, left, locked, onSaved, page.capabilities?.ask, page.kind, pageWindow, present, record.id, reply, show, widthKey]);
 
   // A deck or a sheet fills the view below where it starts on the page, so that is measured, not guessed.
   useLayoutEffect(() => {
@@ -390,9 +528,10 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       settled.current.push(finish);
     });
   }, [editDo]);
+  const deckDo = useCallback((action: DeckPress) => pageWindow()?.postMessage({ __kos: "deck-do", action }, "*"), [pageWindow]);
   // The channel goes with the frame.
   useEffect(() => () => gestures.current.port?.close(), []);
-  useImperativeHandle(ref, () => ({ present, settle }), [present, settle]);
+  useImperativeHandle(ref, () => ({ present, settle, edit: editDo, deck: deckDo }), [present, settle, editDo, deckDo]);
 
   // Where the dashboard's view is over a page as tall as its content, for a doc's contents to follow: numbers only, once a frame.
   useEffect(() => {
@@ -403,9 +542,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       const el = frame.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      // The view starts below whatever sticks over it: the edit bar, where it sticks.
-      const stuck = box.current?.querySelector<HTMLElement>(".artifact-edit-bar");
-      const bar = stuck ? stuck.offsetHeight + (parseFloat(getComputedStyle(stuck).top) || 0) : 0;
+      // The view starts below whatever sticks over it: the viewer's head, where it sticks.
+      const bar = coverHeight();
       pageWindow()?.postMessage({ __kos: "view", top: Math.max(0, Math.round(bar - r.top)), height: Math.round(window.innerHeight - Math.max(0, r.top, bar)) }, "*");
     };
     const soon = (): void => {
@@ -419,7 +557,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       window.removeEventListener("scroll", soon, { capture: true });
       window.removeEventListener("resize", soon);
     };
-  }, [layout, page.kind, pageWindow, height]);
+  }, [coverHeight, layout, page.kind, pageWindow, height]);
 
   const frameTitle = useMemo(() => page.title || record.title, [page.title, record.title]);
 
@@ -479,49 +617,29 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         </div>
       )}
       {told && <p className="hint">{told}</p>}
-      {edit && !locked && (
-        <div className="artifact-edit-bar" role="toolbar" aria-label="Editing">
-          <span className={`artifact-edit-status${edit.bad ? " is-bad" : ""}`} role="status" aria-live="polite">
-            {edit.status || (edit.editing ? (edit.pending ? "Editing" : "Editing, all saved") : "")}
-          </span>
-          {edit.editing ? (
-            <>
-              <button type="button" className="btn btn--ghost btn--sm" title="Undo (Cmd+Z)" onClick={() => editDo("undo")}>
-                Undo
-              </button>
-              <button type="button" className="btn btn--ghost btn--sm" title="Redo (Shift+Cmd+Z)" onClick={() => editDo("redo")}>
-                Redo
-              </button>
-              <button type="button" className="btn btn--ghost btn--sm" title="Put back what is not yet saved, and stop editing" onClick={() => editDo("discard")}>
-                Discard
-              </button>
-              <button type="button" className="btn btn--primary btn--sm" title="Save and stop editing (Cmd+S)" onClick={() => editDo("done")}>
-                Done
-              </button>
-            </>
-          ) : (
-            <button type="button" className="btn btn--sm" title="Edit the text in place" onClick={() => editDo("edit")}>
-              Edit
-            </button>
+      {!left && (
+        <div className="artifact-stage" data-layout={layout} data-shown={shown ? "" : undefined}>
+          {covered && !error && <Skeleton className={`artifact-skeleton artifact-skeleton--${layout}`} {...(layout === "fit" && height !== undefined ? { height } : {})} radius="var(--r-md)" />}
+          {doc !== undefined && (
+            <iframe
+              ref={frame}
+              className="artifact-frame"
+              data-layout={layout}
+              {...(layout === "fit" && height !== undefined ? { style: { height } } : {})}
+              title={frameTitle}
+              sandbox="allow-scripts"
+              referrerPolicy="no-referrer"
+              srcDoc={doc}
+              onLoad={() => {
+                // The first load is the wrapper; any after it is the wrapper being sent elsewhere, which its sandbox should never allow.
+                loads.current += 1;
+                if (loads.current > 1) setLeft(true);
+                // The page may have spoken before its wrapper finished loading: then its own timing stands.
+                if (loads.current === 1 && !spoke.current) anywayTimer.current = setTimeout(show, layout === "sheet" ? SHEET_DRAWN_MS : SHOW_ANYWAY_MS);
+              }}
+            />
           )}
         </div>
-      )}
-      {doc !== undefined && !left && (
-        <iframe
-          ref={frame}
-          className="artifact-frame"
-          data-layout={layout}
-          {...(layout === "fit" && height !== undefined ? { style: { height } } : {})}
-          title={frameTitle}
-          sandbox="allow-scripts"
-          referrerPolicy="no-referrer"
-          srcDoc={doc}
-          onLoad={() => {
-            // The first load is the wrapper; any after it is the wrapper being sent elsewhere, which its sandbox should never allow.
-            loads.current += 1;
-            if (loads.current > 1) setLeft(true);
-          }}
-        />
       )}
     </div>
   );

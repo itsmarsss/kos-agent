@@ -55,6 +55,7 @@ describe("kos-deck in a page", () => {
   afterEach(() => {
     document.body.innerHTML = "";
     document.body.className = "";
+    document.body.removeAttribute("style");
     delete (window as { kos?: unknown }).kos;
   });
 
@@ -116,6 +117,25 @@ describe("kos-deck in a page", () => {
     dispatchEvent(new CustomEvent("kos:present", { detail: { on: true } }));
     expect(document.body.classList.contains("deck-present")).toBe(true);
     key("Escape");
+    expect(document.body.classList.contains("deck-present")).toBe(false);
+  });
+
+  it("hands its bar to the dashboard that holds it, and moves as the dashboard asks", () => {
+    const slides = mount();
+    // In a test the window is its own top, as the dashboard is the frame's.
+    const ask = (action: string): void => void dispatchEvent(new MessageEvent("message", { source: window, data: { __kos: "deck-do", action } }));
+    expect(document.querySelector<HTMLElement>(".deck-bar")!.style.display).toBe("");
+    ask("host");
+    expect(document.querySelector<HTMLElement>(".deck-bar")!.style.display).toBe("none");
+    expect(document.body.style.getPropertyValue("--deck-bar")).toBe("0px");
+    ask("next");
+    expect(slides[1]!.classList.contains("current")).toBe(true);
+    ask("notes");
+    expect(document.body.classList.contains("deck-notes-on")).toBe(true);
+    ask("grid");
+    expect(document.body.classList.contains("deck-grid")).toBe(true);
+    // Only what the dashboard may press.
+    ask("present");
     expect(document.body.classList.contains("deck-present")).toBe(false);
   });
 

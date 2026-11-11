@@ -21,6 +21,25 @@ export interface DeckState {
   presenting: boolean;
 }
 
+/**
+ * What the deck tells the dashboard holding it, after every change, so the
+ * dashboard's own head can draw the deck's controls (ArtifactPage.tsx).
+ */
+export interface DeckReport {
+  __kos: "deck";
+  index: number;
+  count: number;
+  grid: boolean;
+  notes: boolean;
+  /** A phone held upright: the slides stack to be read, with nothing to move between. */
+  reading: boolean;
+  /** The dashboard draws the controls, so the deck's own bar is away. */
+  hosted: boolean;
+}
+
+/** What the dashboard asks of the deck: to take over its bar, or what the owner pressed in it. */
+export type DeckDo = "host" | "prev" | "next" | "grid" | "notes";
+
 export type DeckAction =
   | { type: "next" | "prev" | "first" | "last" | "grid" | "notes" | "escape" }
   | { type: "go"; index: number }
@@ -151,6 +170,25 @@ export function startDeck(): void {
     const said = slides[state.index]!.querySelector("aside.notes");
     notes.replaceChildren(el("span", { class: "deck-notes-label" }, `Notes, slide ${state.index + 1}`), ...(said ? [...said.childNodes].map((n) => n.cloneNode(true)) : [el("span", { class: "deck-notes-none" }, "No notes for this slide.")]));
     if (state.grid) frames[state.index]!.scrollIntoView?.({ block: "nearest" });
+    report();
+  };
+  /*
+   * Inside the dashboard the deck's controls are the dashboard's, in the
+   * viewer's head: the deck says where it is, and the dashboard says what was
+   * pressed. Standalone (a check's render, a file opened on its own), the
+   * deck keeps its own bar.
+   */
+  let hosted = false;
+  const report = (): void => {
+    if (window.top === window) return;
+    const said: DeckReport = { __kos: "deck", index: state.index, count: state.count, grid: state.grid, notes: state.notes, reading, hosted };
+    top?.postMessage(said, "*");
+  };
+  const host = (): void => {
+    if (hosted) return;
+    hosted = true;
+    bar.style.display = "none";
+    document.body.style.setProperty("--deck-bar", "0px");
   };
   const apply = (a: DeckAction): void => {
     const was = state.presenting;
@@ -208,6 +246,14 @@ export function startDeck(): void {
     touch = undefined;
   });
 
+  addEventListener("message", (e) => {
+    const m = (e.data ?? {}) as { __kos?: string; action?: DeckDo };
+    if (e.source !== top || m.__kos !== "deck-do") return;
+    if (m.action === "host") {
+      host();
+      render();
+    } else if (m.action === "prev" || m.action === "next" || m.action === "grid" || m.action === "notes") apply({ type: m.action });
+  });
   addEventListener("kos:present", (e) => apply({ type: "present", on: (e as CustomEvent<{ on?: boolean }>).detail?.on === true }));
   if (typeof matchMedia === "function") {
     matchMedia(READ_QUERY).addEventListener?.("change", (m) => {

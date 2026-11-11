@@ -25,6 +25,7 @@ import { ProjectMark } from "./ProjectMark.js";
 import { ProjectPanel } from "./ProjectPanel.js";
 import { ArtifactRail, ArtifactStrip, type RailOwner, useOwnedArtifacts } from "./ArtifactRail.js";
 import { ArtifactViewer, chatIdOf, rootChatId, type ViewerHandle } from "./ArtifactsPage.js";
+import { ArtifactOpen, type ArtifactOpeners } from "./ArtifactStep.js";
 import { RailGroup, useRailFolds } from "./RailGroup.js";
 import {
   api,
@@ -738,6 +739,11 @@ export function ChatsPage({
     else setInline(a.id);
   };
   const railProps = { items: owned, ...(inline ? { open: inline } : {}), onOpen: openOwned };
+  // An artifact a turn made opens on its own page, or here in place of the thread, as the rail opens one.
+  const artifactOpeners = useMemo<ArtifactOpeners>(
+    () => ({ projects, open: (id) => void (window.location.hash = hrefFor({ name: "artifacts", id })), beside: setInline }),
+    [projects],
+  );
 
   const q = query.trim().toLowerCase();
   const matches = (c: Conversation): boolean => !q || c.title.toLowerCase().includes(q);
@@ -1423,437 +1429,303 @@ export function ChatsPage({
   );
 
   return (
-    <div
-      className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active ? "has-active" : ""} ${listOpen ? "is-list-open" : ""} ${project || agent ? "is-project" : ""} ${(project || agent) && !panelOpen ? "panel-hidden" : ""} ${resizing ? "is-resizing" : ""}`}
-      style={{ "--rail-w": `${railW}px`, "--panel-w": `${panelW}px` } as CSSProperties}
-    >
-      {narrow && listOpen && (
-        <div className="chats-backdrop" aria-hidden="true" onClick={() => setListOpen(false)} />
-      )}
-      {project ? (
-        /* The project's own rail: its orchestrator above, its agents below,
-           and nothing from outside it. Back is the way out. */
-        <aside className="chats-list chats-list--project">
-          <div className="chats-list-head">
-            <button type="button" className="chats-back" onClick={project.onBack}>
-              <ChevronLeft size={14} />
-              All chats
-            </button>
-            <div className="chats-project-head">
-              <span className="chats-project-name">{projectRecord?.name ?? project.slug}</span>
-              <span className="chats-project-sub">
-                {projectRecord
-                  ? projectRecord.description
-                    ? `${projectRecord.type} · ${projectRecord.description}`
-                    : projectRecord.type
-                  : "Not in the manifest"}
-              </span>
-            </div>
-            <input
-              className="chats-search"
-              value={query}
-              placeholder="Search agents…"
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </div>
-          <div className="chats-pinned">
-            {projectOrchestrator ? (
-              <a
-                className={`chats-root ${projectOrchestrator.id === activeId ? "is-active" : ""}`}
-                href={hrefOf(projectOrchestrator)}
-                onClick={(e) => {
-                  e.preventDefault();
-                  onOpen(projectOrchestrator.id);
-                }}
-              >
-                <span className="chats-root-text">
-                  <span className="chats-root-title">
-                    Orchestrator
-                    <ThreadDot live={progress[projectOrchestrator.id]} chat={projectOrchestrator} waiting={waitingOn.has(projectOrchestrator.id)} />
-                    <QueuedMark n={projectOrchestrator.queued} />
-                  </span>
-                  <span className="chats-root-sub">Plans the work and runs the agents</span>
-                </span>
-              </a>
-            ) : (
-              <div className="chats-root is-pending" aria-busy="true">
-                <span className="chats-root-text">
-                  <span className="chats-root-title">Orchestrator</span>
-                  <span className="chats-root-sub">
-                    {projectRecord ? "Starting…" : "No such project"}
-                  </span>
+    <ArtifactOpen.Provider value={artifactOpeners}>
+      <div
+        className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active ? "has-active" : ""} ${listOpen ? "is-list-open" : ""} ${project || agent ? "is-project" : ""} ${(project || agent) && !panelOpen ? "panel-hidden" : ""} ${resizing ? "is-resizing" : ""}`}
+        style={{ "--rail-w": `${railW}px`, "--panel-w": `${panelW}px` } as CSSProperties}
+      >
+        {narrow && listOpen && (
+          <div className="chats-backdrop" aria-hidden="true" onClick={() => setListOpen(false)} />
+        )}
+        {project ? (
+          /* The project's own rail: its orchestrator above, its agents below,
+             and nothing from outside it. Back is the way out. */
+          <aside className="chats-list chats-list--project">
+            <div className="chats-list-head">
+              <button type="button" className="chats-back" onClick={project.onBack}>
+                <ChevronLeft size={14} />
+                All chats
+              </button>
+              <div className="chats-project-head">
+                <span className="chats-project-name">{projectRecord?.name ?? project.slug}</span>
+                <span className="chats-project-sub">
+                  {projectRecord
+                    ? projectRecord.description
+                      ? `${projectRecord.type} · ${projectRecord.description}`
+                      : projectRecord.type
+                    : "Not in the manifest"}
                 </span>
               </div>
-            )}
-          </div>
-          <div className="label chats-group-head">
-            <span>Agents</span>
-            {/* Like New chat: the thread opens empty and the first message
-                names it. A form asking for a name, a brief and a task first
-                was three fields in the way of saying what you wanted. */}
-            <button
-              type="button"
-              className="chats-group-add"
-              aria-label="New agent"
-              title="Start an agent: a thread of this project, named by its first message"
-              disabled={creating}
-              onClick={() => void startAgent()}
-            >
-              +
-            </button>
-          </div>
-          <ul className="chats-flat">
-            {shownAgents.map((c) => renderChat(c))}
-            {shownAgents.length === 0 && (
-              <li><Empty inline className="chats-empty">
-                {q
-                  ? "Nothing matches."
-                  : "No agents yet. The orchestrator starts them as work comes up, or start one with +."}
-              </Empty></li>
-            )}
-          </ul>
-          {/* The project's schedule, under its agents: a job that works this
-              project belongs with it, as its agents do, rather than in one
-              list of everything KOS runs. The line between is the owner's
-              to drag: the two lists used to split the rail in half whatever
-              was in them, so a project with one job gave it half the column. */}
-          {!narrow && (
-            <Gutter
-              className="chats-gutter--sched"
-              label="the schedule"
-              value={schedH}
-              min={SCHED_H.min}
-              max={SCHED_H.max}
-              fallback={SCHED_H.fallback}
-              grows="up"
-              onChange={setSchedH}
-              onDone={(h) => saveWidth(SCHED_H, h)}
-              collapsed={schedShut}
-              onCollapse={() => setSchedShut(true)}
-              onExpand={() => setSchedShut(false)}
-            />
-          )}
-          <div className={`chats-sched ${schedShut ? "is-shut" : ""}`} style={!narrow && !schedShut ? { height: schedH } : undefined}>
+              <input
+                className="chats-search"
+                value={query}
+                placeholder="Search agents…"
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+            <div className="chats-pinned">
+              {projectOrchestrator ? (
+                <a
+                  className={`chats-root ${projectOrchestrator.id === activeId ? "is-active" : ""}`}
+                  href={hrefOf(projectOrchestrator)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onOpen(projectOrchestrator.id);
+                  }}
+                >
+                  <span className="chats-root-text">
+                    <span className="chats-root-title">
+                      Orchestrator
+                      <ThreadDot live={progress[projectOrchestrator.id]} chat={projectOrchestrator} waiting={waitingOn.has(projectOrchestrator.id)} />
+                      <QueuedMark n={projectOrchestrator.queued} />
+                    </span>
+                    <span className="chats-root-sub">Plans the work and runs the agents</span>
+                  </span>
+                </a>
+              ) : (
+                <div className="chats-root is-pending" aria-busy="true">
+                  <span className="chats-root-text">
+                    <span className="chats-root-title">Orchestrator</span>
+                    <span className="chats-root-sub">
+                      {projectRecord ? "Starting…" : "No such project"}
+                    </span>
+                  </span>
+                </div>
+              )}
+            </div>
             <div className="label chats-group-head">
-              <button
-                type="button"
-                className="chats-group-fold"
-                aria-expanded={!schedShut}
-                title={schedShut ? "Show the schedule" : "Fold the schedule away"}
-                onClick={() => setSchedShut((v) => !v)}
-              >
-                Schedule
-              </button>
+              <span>Agents</span>
+              {/* Like New chat: the thread opens empty and the first message
+                  names it. A form asking for a name, a brief and a task first
+                  was three fields in the way of saying what you wanted. */}
               <button
                 type="button"
                 className="chats-group-add"
-                aria-label="New schedule"
-                title="Schedule a job for this project"
-                onClick={() => onEditCron(undefined, project.slug)}
+                aria-label="New agent"
+                title="Start an agent: a thread of this project, named by its first message"
+                disabled={creating}
+                onClick={() => void startAgent()}
               >
                 +
               </button>
             </div>
             <ul className="chats-flat">
-              {crons
-                .filter((c) => c.projectSlug === project.slug)
-                .map((c) => (
-                  <li key={c.id}>
-                    <button type="button" className="chats-item chats-job" onClick={() => onEditCron(c)} title="Edit this schedule">
-                      <span className="chats-item-top">
-                        <StatusDot state={c.running ? "working" : c.enabled ? "read" : "error"} label={c.running ? "running" : c.enabled ? "on" : "off"} />
-                        <span className="chats-item-title">{c.name}</span>
-                        <span className="chats-item-when ops-mono">{c.schedule}</span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              {crons.every((c) => c.projectSlug !== project.slug) && (
-                <li><Empty inline className="chats-empty">Nothing scheduled for this project. Add one with +, or ask the orchestrator.</Empty></li>
+              {shownAgents.map((c) => renderChat(c))}
+              {shownAgents.length === 0 && (
+                <li><Empty inline className="chats-empty">
+                  {q
+                    ? "Nothing matches."
+                    : "No agents yet. The orchestrator starts them as work comes up, or start one with +."}
+                </Empty></li>
               )}
             </ul>
-          </div>
-        </aside>
-      ) : agent ? (
-        /* The agent's own rail: its thread above, the chats it runs inside
-           projects below. Back is the way out. */
-        <aside className="chats-list chats-list--project">
-          <div className="chats-list-head">
-            <button type="button" className="chats-back" onClick={agent.onBack}>
-              <ChevronLeft size={14} />
-              All blobs
-            </button>
-            <div className="chats-project-head">
-              <span className="chats-project-name">{agentThread?.title ?? agent.name}</span>
-              <span className="chats-project-sub">A blob · blobs/{agent.name}/</span>
+            {/* The project's schedule, under its agents: a job that works this
+                project belongs with it, as its agents do, rather than in one
+                list of everything KOS runs. The line between is the owner's
+                to drag: the two lists used to split the rail in half whatever
+                was in them, so a project with one job gave it half the column. */}
+            {!narrow && (
+              <Gutter
+                className="chats-gutter--sched"
+                label="the schedule"
+                value={schedH}
+                min={SCHED_H.min}
+                max={SCHED_H.max}
+                fallback={SCHED_H.fallback}
+                grows="up"
+                onChange={setSchedH}
+                onDone={(h) => saveWidth(SCHED_H, h)}
+                collapsed={schedShut}
+                onCollapse={() => setSchedShut(true)}
+                onExpand={() => setSchedShut(false)}
+              />
+            )}
+            <div className={`chats-sched ${schedShut ? "is-shut" : ""}`} style={!narrow && !schedShut ? { height: schedH } : undefined}>
+              <div className="label chats-group-head">
+                <button
+                  type="button"
+                  className="chats-group-fold"
+                  aria-expanded={!schedShut}
+                  title={schedShut ? "Show the schedule" : "Fold the schedule away"}
+                  onClick={() => setSchedShut((v) => !v)}
+                >
+                  Schedule
+                </button>
+                <button
+                  type="button"
+                  className="chats-group-add"
+                  aria-label="New schedule"
+                  title="Schedule a job for this project"
+                  onClick={() => onEditCron(undefined, project.slug)}
+                >
+                  +
+                </button>
+              </div>
+              <ul className="chats-flat">
+                {crons
+                  .filter((c) => c.projectSlug === project.slug)
+                  .map((c) => (
+                    <li key={c.id}>
+                      <button type="button" className="chats-item chats-job" onClick={() => onEditCron(c)} title="Edit this schedule">
+                        <span className="chats-item-top">
+                          <StatusDot state={c.running ? "working" : c.enabled ? "read" : "error"} label={c.running ? "running" : c.enabled ? "on" : "off"} />
+                          <span className="chats-item-title">{c.name}</span>
+                          <span className="chats-item-when ops-mono">{c.schedule}</span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                {crons.every((c) => c.projectSlug !== project.slug) && (
+                  <li><Empty inline className="chats-empty">Nothing scheduled for this project. Add one with +, or ask the orchestrator.</Empty></li>
+                )}
+              </ul>
             </div>
-          </div>
-          <div className="chats-pinned">
-            {agentThread && (
-              <a
-                className={`chats-root ${agentThread.id === activeId ? "is-active" : ""}`}
-                href={hrefOf(agentThread)}
-                onClick={(e) => {
-                  e.preventDefault();
-                  onOpen(agentThread.id);
+          </aside>
+        ) : agent ? (
+          /* The agent's own rail: its thread above, the chats it runs inside
+             projects below. Back is the way out. */
+          <aside className="chats-list chats-list--project">
+            <div className="chats-list-head">
+              <button type="button" className="chats-back" onClick={agent.onBack}>
+                <ChevronLeft size={14} />
+                All blobs
+              </button>
+              <div className="chats-project-head">
+                <span className="chats-project-name">{agentThread?.title ?? agent.name}</span>
+                <span className="chats-project-sub">A blob · blobs/{agent.name}/</span>
+              </div>
+            </div>
+            <div className="chats-pinned">
+              {agentThread && (
+                <a
+                  className={`chats-root ${agentThread.id === activeId ? "is-active" : ""}`}
+                  href={hrefOf(agentThread)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onOpen(agentThread.id);
+                  }}
+                >
+                  <Face seed={agent.name} size={26} mood={moodOf(agentThread.activity)} />
+                  <span className="chats-root-text">
+                    <span className="chats-root-title">
+                      {agentThread.title}
+                      <ThreadDot live={progress[agentThread.id]} chat={agentThread} waiting={waitingOn.has(agentThread.id)} />
+                      <QueuedMark n={agentThread.queued} />
+                    </span>
+                    <span className="chats-root-sub">Its home thread: talk to it here, and its schedule runs here</span>
+                  </span>
+                </a>
+              )}
+              <div className="label chats-group-head">
+                <span>In projects</span>
+              </div>
+              <ul className="chats-flat">
+                {/* Every instance carries the agent's own name, so the row is
+                    named for the project it is in: that is what tells them apart. */}
+                {agentInstances.map((c) => renderChat(c, c.projectSlug ? projectName(c.projectSlug) : c.title))}
+                {agentInstances.length === 0 && (
+                  <li><Empty inline className="chats-empty">Not working in any project. A project's orchestrator can dispatch it into one.</Empty></li>
+                )}
+              </ul>
+            </div>
+          </aside>
+        ) : (
+          <aside className="chats-list chats-list--root">
+            <div className="chats-list-head chats-list-head--root">
+              <label className="chats-find">
+                <SearchIcon />
+                <input
+                  className="chats-search"
+                  value={query}
+                  placeholder={showArchived ? "Search archived…" : "Search chats…"}
+                  aria-label={showArchived ? "Search archived chats" : "Search chats"}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape" && query) {
+                      e.stopPropagation();
+                      setQuery("");
+                    }
+                  }}
+                />
+                {query && (
+                  <button type="button" className="chats-find-clear" aria-label="Clear search" onClick={() => setQuery("")}>
+                    <CloseIcon size={12} title="" />
+                  </button>
+                )}
+              </label>
+              {/* New chat opens the landing, where you choose a chat, a project,
+                  or hand it to KOS, rather than dropping into an empty thread.
+                  A square beside the search rather than a bar of its own: it
+                  took the rail's whole first row to say two words. */}
+              <IconButton
+                className="chats-compose"
+                label="New chat"
+                title="New chat"
+                onClick={() => {
+                  if (narrow) setListOpen(false);
+                  window.location.hash = hrefFor({ name: "chats" });
                 }}
               >
-                <Face seed={agent.name} size={26} mood={moodOf(agentThread.activity)} />
-                <span className="chats-root-text">
-                  <span className="chats-root-title">
-                    {agentThread.title}
-                    <ThreadDot live={progress[agentThread.id]} chat={agentThread} waiting={waitingOn.has(agentThread.id)} />
-                    <QueuedMark n={agentThread.queued} />
-                  </span>
-                  <span className="chats-root-sub">Its home thread: talk to it here, and its schedule runs here</span>
-                </span>
-              </a>
-            )}
-            <div className="label chats-group-head">
-              <span>In projects</span>
+                <ComposeIcon />
+              </IconButton>
             </div>
-            <ul className="chats-flat">
-              {/* Every instance carries the agent's own name, so the row is
-                  named for the project it is in: that is what tells them apart. */}
-              {agentInstances.map((c) => renderChat(c, c.projectSlug ? projectName(c.projectSlug) : c.title))}
-              {agentInstances.length === 0 && (
-                <li><Empty inline className="chats-empty">Not working in any project. A project's orchestrator can dispatch it into one.</Empty></li>
-              )}
-            </ul>
-          </div>
-        </aside>
-      ) : (
-        <aside className="chats-list chats-list--root">
-          <div className="chats-list-head chats-list-head--root">
-            <label className="chats-find">
-              <SearchIcon />
-              <input
-                className="chats-search"
-                value={query}
-                placeholder={showArchived ? "Search archived…" : "Search chats…"}
-                aria-label={showArchived ? "Search archived chats" : "Search chats"}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape" && query) {
-                    e.stopPropagation();
-                    setQuery("");
-                  }
-                }}
-              />
-              {query && (
-                <button type="button" className="chats-find-clear" aria-label="Clear search" onClick={() => setQuery("")}>
-                  <CloseIcon size={12} title="" />
-                </button>
-              )}
-            </label>
-            {/* New chat opens the landing, where you choose a chat, a project,
-                or hand it to KOS, rather than dropping into an empty thread.
-                A square beside the search rather than a bar of its own: it
-                took the rail's whole first row to say two words. */}
-            <IconButton
-              className="chats-compose"
-              label="New chat"
-              title="New chat"
-              onClick={() => {
-                if (narrow) setListOpen(false);
-                window.location.hash = hrefFor({ name: "chats" });
-              }}
-            >
-              <ComposeIcon />
-            </IconButton>
-          </div>
-          {onCreateProject && <NewProjectDialog open={makingProject} onClose={() => setMakingProject(false)} onCreate={onCreateProject} />}
+            {onCreateProject && <NewProjectDialog open={makingProject} onClose={() => setMakingProject(false)} onCreate={onCreateProject} />}
 
-          {/* One scroll for the whole rail. The projects used to stand still
-              while only the chats under them scrolled, so with ten projects
-              the chats had a strip at the bottom of the screen. */}
-          <div className="chats-scroll" ref={railScroll}>
-            {showArchived ? (
-              <section className="rail-group is-open">
-                <div className="rail-group-head">
-                  <span className="rail-group-fold">
-                    <span className="rail-group-title">Archived</span>
-                    {shownArchived.length > 0 && <Count n={shownArchived.length} />}
-                  </span>
-                </div>
-                <ul className="chats-flat">
-                  {shownArchived.map((c) => renderChat(c))}
-                  {shownArchived.length === 0 && <li><Empty inline className="chats-empty">{q ? "Nothing matches." : "Nothing archived."}</Empty></li>}
-                </ul>
-              </section>
-            ) : (
-              <>
-                {/* The streams: KOS, which routes the work, and each surface's
-                    one continuous thread. Ways in rather than threads being
-                    worked in, so they lead and do not fold. */}
-                {(shownKos || shownSurfaces.length > 0) && (
-                  <ul className="chats-streams">
-                    {orchestrator && shownKos && (
-                      <li>
-                        <a
-                          className={`chats-item ${orchestrator.id === activeId ? "is-active" : ""}`}
-                          href={hrefFor({ name: "chats", id: orchestrator.id })}
-                          title="Routes your work to projects and blobs"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            onOpen(orchestrator.id);
-                          }}
-                        >
-                          {orchestrator.id === activeId && (
-                            <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />
-                          )}
-                          <span className="chats-item-top">
-                            <span className="chats-lead">
-                              <Face seed={KOS_SEED} look={faceLookOf(kos)} size={18} mood={moodOf(orchestrator.activity)} label="KOS" />
-                            </span>
-                            <span className="chats-item-title chats-item-title--strong">{orchestrator.title}</span>
-                            {stirring(orchestrator) && <ThreadDot live={progress[orchestrator.id]} chat={orchestrator} waiting={waitingOn.has(orchestrator.id)} />}
-                            <kbd className="chats-kbd">⌘K</kbd>
-                          </span>
-                        </a>
-                      </li>
-                    )}
-                    {shownSurfaces.map((c) => (
-                      <li key={c.id}>
-                        <a
-                          className={`chats-item ${c.id === activeId ? "is-active" : ""}`}
-                          href={hrefFor({ name: "chats", id: c.id })}
-                          title={`Everything said on ${surfaceName(c.channel ?? c.title)} arrives here`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            onOpen(c.id);
-                          }}
-                        >
-                          {c.id === activeId && <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />}
-                          <span className="chats-item-top">
-                            <span className="chats-lead chats-lead--glyph">
-                              <HashIcon />
-                            </span>
-                            <span className="chats-item-title">{surfaceName(c.channel ?? c.title)}</span>
-                            {stirring(c) && <ThreadDot live={progress[c.id]} chat={c} waiting={waitingOn.has(c.id)} />}
-                            <span className="chats-item-when">{relative(c.updatedAt)}</span>
-                          </span>
-                        </a>
-                      </li>
-                    ))}
+            {/* One scroll for the whole rail. The projects used to stand still
+                while only the chats under them scrolled, so with ten projects
+                the chats had a strip at the bottom of the screen. */}
+            <div className="chats-scroll" ref={railScroll}>
+              {showArchived ? (
+                <section className="rail-group is-open">
+                  <div className="rail-group-head">
+                    <span className="rail-group-fold">
+                      <span className="rail-group-title">Archived</span>
+                      {shownArchived.length > 0 && <Count n={shownArchived.length} />}
+                    </span>
+                  </div>
+                  <ul className="chats-flat">
+                    {shownArchived.map((c) => renderChat(c))}
+                    {shownArchived.length === 0 && <li><Empty inline className="chats-empty">{q ? "Nothing matches." : "Nothing archived."}</Empty></li>}
                   </ul>
-                )}
-
-                {(!q || shownProjects.length > 0) && (
-                  <RailGroup
-                    title="Projects"
-                    count={shownProjects.length}
-                    open={q !== "" || folds.isOpen("projects")}
-                    {...(q ? {} : { onToggle: () => folds.toggle("projects") })}
-                    action={
-                      onCreateProject && (
-                        <IconButton
-                          className="rail-group-add"
-                          label="New project"
-                          title="Make an empty project: a chat of its own, and nothing else until something is put there"
-                          onClick={() => setMakingProject(true)}
-                        >
-                          +
-                        </IconButton>
-                      )
-                    }
-                  >
-                    {ownProjects === 0 ? (
-                      <Empty inline className="chats-group-empty">None yet. Make one with +, or ask KOS and it stands one up when the work needs its own space.</Empty>
-                    ) : (
-                      /* A row is the project. It opens as its own page, with
-                         its orchestrator and agents; nothing unfolds here. */
-                      <ul className="chats-projects">
-                        {shownProjects.map((p) => {
-                          // Keyed apart from the chats' menus: a project's own
-                          // thread is a conversation with an id of its own.
-                          const menuKey = `proj:${p.slug}`;
-                          return (
-                            <li key={p.slug}>
-                              <div className="chats-row">
-                                {onDeleteProject && p.listed && (
-                                  <IconButton
-                                    className="chats-more"
-                                    label={`Actions for ${p.name}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setMenuFor(menuFor === menuKey ? null : menuKey);
-                                    }}
-                                  >
-                                    <MoreIcon />
-                                  </IconButton>
-                                )}
-                                <AnimatePresence>
-                                  {menuFor === menuKey && (
-                                    <m.div
-                                      className="chats-menu"
-                                      role="menu"
-                                      ref={holdMenu}
-                                      initial={{ opacity: 0, scale: 0.96, y: -4 }}
-                                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                                      exit={{ opacity: 0, scale: 0.97, y: -3 }}
-                                      transition={ease}
-                                    >
-                                      <ConfirmButton
-                                        className="is-danger"
-                                        label="Delete project"
-                                        confirmLabel="Delete for good"
-                                        text={`Delete ${p.name}? Its chats are kept; the rest goes.`}
-                                        onConfirm={() => {
-                                          setMenuFor(null);
-                                          void onDeleteProject!(p.slug).catch(() => undefined);
-                                        }}
-                                      />
-                                    </m.div>
-                                  )}
-                                </AnimatePresence>
-                                <a
-                                  className={`chats-item ${p.thread?.id === activeId ? "is-active" : ""}`}
-                                  href={hrefFor({ name: "project", slug: p.slug })}
-                                  title={p.type}
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    onOpenProject(p.slug);
-                                  }}
-                                >
-                                  {p.thread?.id === activeId && (
-                                    <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />
-                                  )}
-                                  <span className="chats-item-top">
-                                    <span className="chats-lead">
-                                      <ProjectMark slug={p.slug} name={p.name} colour={p.colour} />
-                                    </span>
-                                    <span className="chats-item-title">{p.name}</span>
-                                    {p.busy && <StatusDot state="working" label="working" />}
-                                  </span>
-                                </a>
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                  </RailGroup>
-                )}
-
-                {/* Threads a schedule runs in. Above the chats rather than under
-                    them, so opening the section does not mean scrolling past
-                    every chat; shut until opened, because it is reference
-                    rather than what the owner is doing now. */}
-                {scheduled.length > 0 && (
-                  <RailGroup
-                    title="Scheduled"
-                    count={scheduled.length}
-                    {...(runningJobs > 0 ? { note: `${runningJobs} running` } : {})}
-                    open={q !== "" || folds.isOpen("scheduled")}
-                    {...(q ? {} : { onToggle: () => folds.toggle("scheduled") })}
-                  >
-                    <ul className="chats-jobs">
-                      {scheduled.map((c) => (
+                </section>
+              ) : (
+                <>
+                  {/* The streams: KOS, which routes the work, and each surface's
+                      one continuous thread. Ways in rather than threads being
+                      worked in, so they lead and do not fold. */}
+                  {(shownKos || shownSurfaces.length > 0) && (
+                    <ul className="chats-streams">
+                      {orchestrator && shownKos && (
+                        <li>
+                          <a
+                            className={`chats-item ${orchestrator.id === activeId ? "is-active" : ""}`}
+                            href={hrefFor({ name: "chats", id: orchestrator.id })}
+                            title="Routes your work to projects and blobs"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              onOpen(orchestrator.id);
+                            }}
+                          >
+                            {orchestrator.id === activeId && (
+                              <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />
+                            )}
+                            <span className="chats-item-top">
+                              <span className="chats-lead">
+                                <Face seed={KOS_SEED} look={faceLookOf(kos)} size={18} mood={moodOf(orchestrator.activity)} label="KOS" />
+                              </span>
+                              <span className="chats-item-title chats-item-title--strong">{orchestrator.title}</span>
+                              {stirring(orchestrator) && <ThreadDot live={progress[orchestrator.id]} chat={orchestrator} waiting={waitingOn.has(orchestrator.id)} />}
+                              <kbd className="chats-kbd">⌘K</kbd>
+                            </span>
+                          </a>
+                        </li>
+                      )}
+                      {shownSurfaces.map((c) => (
                         <li key={c.id}>
                           <a
-                            className={`chats-item chats-item--job ${c.id === activeId ? "is-active" : ""}`}
+                            className={`chats-item ${c.id === activeId ? "is-active" : ""}`}
                             href={hrefFor({ name: "chats", id: c.id })}
+                            title={`Everything said on ${surfaceName(c.channel ?? c.title)} arrives here`}
                             onClick={(e) => {
                               e.preventDefault();
                               onOpen(c.id);
@@ -1861,884 +1733,1020 @@ export function ChatsPage({
                           >
                             {c.id === activeId && <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />}
                             <span className="chats-item-top">
-                              <span className="chats-lead">
-                                <ThreadDot live={progress[c.id]} chat={c} waiting={waitingOn.has(c.id)} />
+                              <span className="chats-lead chats-lead--glyph">
+                                <HashIcon />
                               </span>
-                              <span className="chats-item-title">{c.title}</span>
-                              <QueuedMark n={c.queued} />
+                              <span className="chats-item-title">{surfaceName(c.channel ?? c.title)}</span>
+                              {stirring(c) && <ThreadDot live={progress[c.id]} chat={c} waiting={waitingOn.has(c.id)} />}
                               <span className="chats-item-when">{relative(c.updatedAt)}</span>
                             </span>
                           </a>
                         </li>
                       ))}
                     </ul>
-                  </RailGroup>
-                )}
+                  )}
 
-                {(!q || filtered.length > 0) && (
-                  <RailGroup
-                    title="Chats"
-                    count={filtered.length}
-                    open={q !== "" || folds.isOpen("chats")}
-                    {...(q ? {} : { onToggle: () => folds.toggle("chats") })}
-                  >
-                    <ul className="chats-flat">
-                      {filtered.map((c) => renderChat(c))}
-                      {filtered.length === 0 && (
-                        <li><Empty inline className="chats-empty">No direct chats. Type on the landing, or let KOS route work to a project.</Empty></li>
+                  {(!q || shownProjects.length > 0) && (
+                    <RailGroup
+                      title="Projects"
+                      count={shownProjects.length}
+                      open={q !== "" || folds.isOpen("projects")}
+                      {...(q ? {} : { onToggle: () => folds.toggle("projects") })}
+                      action={
+                        onCreateProject && (
+                          <IconButton
+                            className="rail-group-add"
+                            label="New project"
+                            title="Make an empty project: a chat of its own, and nothing else until something is put there"
+                            onClick={() => setMakingProject(true)}
+                          >
+                            +
+                          </IconButton>
+                        )
+                      }
+                    >
+                      {ownProjects === 0 ? (
+                        <Empty inline className="chats-group-empty">None yet. Make one with +, or ask KOS and it stands one up when the work needs its own space.</Empty>
+                      ) : (
+                        /* A row is the project. It opens as its own page, with
+                           its orchestrator and agents; nothing unfolds here. */
+                        <ul className="chats-projects">
+                          {shownProjects.map((p) => {
+                            // Keyed apart from the chats' menus: a project's own
+                            // thread is a conversation with an id of its own.
+                            const menuKey = `proj:${p.slug}`;
+                            return (
+                              <li key={p.slug}>
+                                <div className="chats-row">
+                                  {onDeleteProject && p.listed && (
+                                    <IconButton
+                                      className="chats-more"
+                                      label={`Actions for ${p.name}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setMenuFor(menuFor === menuKey ? null : menuKey);
+                                      }}
+                                    >
+                                      <MoreIcon />
+                                    </IconButton>
+                                  )}
+                                  <AnimatePresence>
+                                    {menuFor === menuKey && (
+                                      <m.div
+                                        className="chats-menu"
+                                        role="menu"
+                                        ref={holdMenu}
+                                        initial={{ opacity: 0, scale: 0.96, y: -4 }}
+                                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                                        exit={{ opacity: 0, scale: 0.97, y: -3 }}
+                                        transition={ease}
+                                      >
+                                        <ConfirmButton
+                                          className="is-danger"
+                                          label="Delete project"
+                                          confirmLabel="Delete for good"
+                                          text={`Delete ${p.name}? Its chats are kept; the rest goes.`}
+                                          onConfirm={() => {
+                                            setMenuFor(null);
+                                            void onDeleteProject!(p.slug).catch(() => undefined);
+                                          }}
+                                        />
+                                      </m.div>
+                                    )}
+                                  </AnimatePresence>
+                                  <a
+                                    className={`chats-item ${p.thread?.id === activeId ? "is-active" : ""}`}
+                                    href={hrefFor({ name: "project", slug: p.slug })}
+                                    title={p.type}
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      onOpenProject(p.slug);
+                                    }}
+                                  >
+                                    {p.thread?.id === activeId && (
+                                      <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />
+                                    )}
+                                    <span className="chats-item-top">
+                                      <span className="chats-lead">
+                                        <ProjectMark slug={p.slug} name={p.name} colour={p.colour} />
+                                      </span>
+                                      <span className="chats-item-title">{p.name}</span>
+                                      {p.busy && <StatusDot state="working" label="working" />}
+                                    </span>
+                                  </a>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
                       )}
-                    </ul>
-                  </RailGroup>
-                )}
+                    </RailGroup>
+                  )}
 
-                {q && !shownKos && shownSurfaces.length === 0 && shownProjects.length === 0 && scheduled.length === 0 && filtered.length === 0 && (
-                  <Empty inline className="chats-empty">Nothing matches.</Empty>
-                )}
-              </>
-            )}
-          </div>
+                  {/* Threads a schedule runs in. Above the chats rather than under
+                      them, so opening the section does not mean scrolling past
+                      every chat; shut until opened, because it is reference
+                      rather than what the owner is doing now. */}
+                  {scheduled.length > 0 && (
+                    <RailGroup
+                      title="Scheduled"
+                      count={scheduled.length}
+                      {...(runningJobs > 0 ? { note: `${runningJobs} running` } : {})}
+                      open={q !== "" || folds.isOpen("scheduled")}
+                      {...(q ? {} : { onToggle: () => folds.toggle("scheduled") })}
+                    >
+                      <ul className="chats-jobs">
+                        {scheduled.map((c) => (
+                          <li key={c.id}>
+                            <a
+                              className={`chats-item chats-item--job ${c.id === activeId ? "is-active" : ""}`}
+                              href={hrefFor({ name: "chats", id: c.id })}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                onOpen(c.id);
+                              }}
+                            >
+                              {c.id === activeId && <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />}
+                              <span className="chats-item-top">
+                                <span className="chats-lead">
+                                  <ThreadDot live={progress[c.id]} chat={c} waiting={waitingOn.has(c.id)} />
+                                </span>
+                                <span className="chats-item-title">{c.title}</span>
+                                <QueuedMark n={c.queued} />
+                                <span className="chats-item-when">{relative(c.updatedAt)}</span>
+                              </span>
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </RailGroup>
+                  )}
 
-          {/* The places you go now and then, at the foot and staying there
-              while the rail scrolls: where KOS repairs itself, and the
-              archive. Neither is a filter on the list you are reading. */}
-          <div className="chats-foot">
-            {!showArchived &&
-              systemProjects.map((p) => (
-                <a
-                  key={p.slug}
-                  className="chats-foot-btn"
-                  href={hrefFor({ name: "project", slug: p.slug })}
-                  title="Where KOS repairs itself"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onOpenProject(p.slug);
-                  }}
-                >
-                  <WrenchIcon />
-                  {p.name}
-                  {p.busy && <StatusDot state="working" label="working" />}
-                </a>
-              ))}
-            <button
-              type="button"
-              className={`chats-foot-btn ${showArchived ? "is-on" : ""}`}
-              onClick={() => setShowArchived((v) => !v)}
-            >
-              {showArchived ? <ChevronLeft size={14} /> : <ArchiveIcon />}
-              {showArchived ? "Back to chats" : "Archived"}
-            </button>
-          </div>
-        </aside>
-      )}
+                  {(!q || filtered.length > 0) && (
+                    <RailGroup
+                      title="Chats"
+                      count={filtered.length}
+                      open={q !== "" || folds.isOpen("chats")}
+                      {...(q ? {} : { onToggle: () => folds.toggle("chats") })}
+                    >
+                      <ul className="chats-flat">
+                        {filtered.map((c) => renderChat(c))}
+                        {filtered.length === 0 && (
+                          <li><Empty inline className="chats-empty">No direct chats. Type on the landing, or let KOS route work to a project.</Empty></li>
+                        )}
+                      </ul>
+                    </RailGroup>
+                  )}
 
-      <section className={`chats-view${inline ? " has-inline" : ""}`}>
-        {inline && (
-          <div className="chats-inline" ref={inlineScroll}>
-            <ArtifactViewer
-              ref={viewer}
-              id={inline}
-              projects={projects}
-              backLabel="← Back to the chat"
-              onBack={() => setInline(undefined)}
-              onOpenChat={(owner) => {
-                // The thread the request went to: the project's, the blob's, or KOS at the root.
-                setInline(undefined);
-                const id = chatIdOf(owner);
-                if (id) onOpen(id);
-                // Not named (the settings did not load): the chat list, which is what shows once the artifact closes.
-                else void rootChatId().then(onOpen, () => undefined);
-              }}
-            />
-          </div>
-        )}
-        {undo && (
-          <div className="chats-undo" role="status">
-            <span>Archived “{undo.title}”.</span>
-            <button
-              type="button"
-              className="link"
-              onClick={() => {
-                const back = undo;
-                setUndo(null);
-                void api.archiveConversation(back.id, false).then(() => {
-                  onChanged();
-                  onOpen(back.id);
-                });
-              }}
-            >
-              Undo
-            </button>
-          </div>
-        )}
-        {!active && (project || agent) ? (
-          /* Inside a project there is no landing: the thread is the
-             orchestrator's by default, and it is being stood up if it is not
-             there yet. Inside an agent, likewise its own thread. */
-          <>
-            <div className="chats-view-path">{listToggle}</div>
-            <div className="chats-placeholder">
-              <p className="ops-muted">
-                {agent
-                  ? `No thread for a blob called ${agent.name} yet.`
-                  : !projectRecord
-                    ? `No project called ${project!.slug}.`
-                    : needsOrchestrator
-                      ? "Starting the orchestrator…"
-                      : "No such thread in this project."}
-              </p>
+                  {q && !shownKos && shownSurfaces.length === 0 && shownProjects.length === 0 && scheduled.length === 0 && filtered.length === 0 && (
+                    <Empty inline className="chats-empty">Nothing matches.</Empty>
+                  )}
+                </>
+              )}
             </div>
-          </>
-        ) : !active ? (
-          <>
-          {/* The toggle is here too: with the list folded and no chat open
-              there was no button to bring it back. */}
-          <div className="chats-view-path">{listToggle}</div>
-          <div className="chats-placeholder">
-            {/* Opening KOS lands here. It used to say "pick a chat"; a front
-                door should offer the way in. */}
-            <m.div
-              className="chats-welcome"
-              variants={stagger}
-              initial="hidden"
-              animate="show"
-            >
-              <m.span className="chats-welcome-glyph" variants={card}>
-                <Face seed={KOS_SEED} look={faceLookOf(kos)} size={56} mood={moodOf(orchestrator?.activity)} label="KOS" />
-              </m.span>
-              <m.div className="chats-welcome-head" variants={card}>
-                <p className="chats-welcome-title">What do you want done?</p>
-                <p className="chats-welcome-sub">
-                  KOS routes it to the right project or blob, or stands a new one up.
-                </p>
-              </m.div>
-              {/* The question has to be answerable here. A button that leads
-                  to an empty chat is a detour; typing is the way in. */}
-              <m.form
-                className="chats-welcome-form"
-                variants={card}
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void startFromLanding();
+
+            {/* The places you go now and then, at the foot and staying there
+                while the rail scrolls: where KOS repairs itself, and the
+                archive. Neither is a filter on the list you are reading. */}
+            <div className="chats-foot">
+              {!showArchived &&
+                systemProjects.map((p) => (
+                  <a
+                    key={p.slug}
+                    className="chats-foot-btn"
+                    href={hrefFor({ name: "project", slug: p.slug })}
+                    title="Where KOS repairs itself"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onOpenProject(p.slug);
+                    }}
+                  >
+                    <WrenchIcon />
+                    {p.name}
+                    {p.busy && <StatusDot state="working" label="working" />}
+                  </a>
+                ))}
+              <button
+                type="button"
+                className={`chats-foot-btn ${showArchived ? "is-on" : ""}`}
+                onClick={() => setShowArchived((v) => !v)}
+              >
+                {showArchived ? <ChevronLeft size={14} /> : <ArchiveIcon />}
+                {showArchived ? "Back to chats" : "Archived"}
+              </button>
+            </div>
+          </aside>
+        )}
+
+        <section className={`chats-view${inline ? " has-inline" : ""}`}>
+          {inline && (
+            <div className="chats-inline" ref={inlineScroll}>
+              <ArtifactViewer
+                ref={viewer}
+                id={inline}
+                projects={projects}
+                backTo="the chat"
+                onBack={() => setInline(undefined)}
+                onOpenChat={(owner) => {
+                  // The thread the request went to: the project's, the blob's, or KOS at the root.
+                  setInline(undefined);
+                  const id = chatIdOf(owner);
+                  if (id) onOpen(id);
+                  // Not named (the settings did not load): the chat list, which is what shows once the artifact closes.
+                  else void rootChatId().then(onOpen, () => undefined);
+                }}
+              />
+            </div>
+          )}
+          {undo && (
+            <div className="chats-undo" role="status">
+              <span>Archived “{undo.title}”.</span>
+              <button
+                type="button"
+                className="link"
+                onClick={() => {
+                  const back = undo;
+                  setUndo(null);
+                  void api.archiveConversation(back.id, false).then(() => {
+                    onChanged();
+                    onOpen(back.id);
+                  });
                 }}
               >
-                <div className="chats-welcome-field">
-                  <textarea
-                    className="hl-area chats-welcome-input"
-                    rows={2}
-                    autoFocus
-                    value={opening}
-                    placeholder={
-                      mode === "project"
-                        ? "Describe the project to build…"
-                        : mode === "chat"
-                          ? "Start a chat…"
-                          : "Ask, or tell KOS what to build…"
-                    }
-                    onChange={(e) => setOpening(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        e.currentTarget.form?.requestSubmit();
-                      }
-                    }}
-                  />
-                  <div className="chats-welcome-actions">
-                    <div
-                      className="chats-mode"
-                      role="radiogroup"
-                      aria-label="What to create"
-                    >
-                      {(
-                        [
-                          ["kos", "Ask KOS"],
-                          ["chat", "Chat"],
-                          ["project", "Project"],
-                        ] as const
-                      ).map(([m, label]) => (
-                        <button
-                          key={m}
-                          type="button"
-                          role="radio"
-                          aria-checked={mode === m}
-                          className={`chats-mode-opt ${mode === m ? "is-active" : ""}`}
-                          onClick={() => setMode(m)}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      type="submit"
-                      className="btn btn--primary btn--capsule"
-                      disabled={creating || !opening.trim()}
-                    >
-                      {creating
-                        ? "Opening…"
-                        : mode === "project"
-                          ? "Create"
-                          : mode === "chat"
-                            ? "Start"
-                            : "Ask KOS"}
-                    </button>
-                  </div>
-                </div>
-              </m.form>
-              {tree.roots.length > 0 && (
-                <m.div className="chats-welcome-recent" variants={card}>
-                  <span className="label">Recent</span>
-                  <ul>
-                    {tree.roots.slice(0, 5).map((c) => (
-                      <li key={c.id}>
-                        <RefChip kind="chat" onClick={() => onOpen(c.id)}>
-                          {c.title}
-                        </RefChip>
-                      </li>
-                    ))}
-                  </ul>
+                Undo
+              </button>
+            </div>
+          )}
+          {!active && (project || agent) ? (
+            /* Inside a project there is no landing: the thread is the
+               orchestrator's by default, and it is being stood up if it is not
+               there yet. Inside an agent, likewise its own thread. */
+            <>
+              <div className="chats-view-path">{listToggle}</div>
+              <div className="chats-placeholder">
+                <p className="ops-muted">
+                  {agent
+                    ? `No thread for a blob called ${agent.name} yet.`
+                    : !projectRecord
+                      ? `No project called ${project!.slug}.`
+                      : needsOrchestrator
+                        ? "Starting the orchestrator…"
+                        : "No such thread in this project."}
+                </p>
+              </div>
+            </>
+          ) : !active ? (
+            <>
+            {/* The toggle is here too: with the list folded and no chat open
+                there was no button to bring it back. */}
+            <div className="chats-view-path">{listToggle}</div>
+            <div className="chats-placeholder">
+              {/* Opening KOS lands here. It used to say "pick a chat"; a front
+                  door should offer the way in. */}
+              <m.div
+                className="chats-welcome"
+                variants={stagger}
+                initial="hidden"
+                animate="show"
+              >
+                <m.span className="chats-welcome-glyph" variants={card}>
+                  <Face seed={KOS_SEED} look={faceLookOf(kos)} size={56} mood={moodOf(orchestrator?.activity)} label="KOS" />
+                </m.span>
+                <m.div className="chats-welcome-head" variants={card}>
+                  <p className="chats-welcome-title">What do you want done?</p>
+                  <p className="chats-welcome-sub">
+                    KOS routes it to the right project or blob, or stands a new one up.
+                  </p>
                 </m.div>
-              )}
-            </m.div>
-          </div>
-          </>
-        ) : (
-          <>
-            <header className="chats-view-head">
-              <div className="chats-view-title">
-                {/* The list toggle and the lineage share a row above the
-                    title: the toggle is the same panel glyph as the
-                    workspace's, mirrored, and the title line keeps only the
-                    title. A chevron in it, next to the crumbs' own, read as
-                    two kinds of arrow for two different things. */}
-                <div className="chats-view-path">
-                  {listToggle}
-                  {(() => {
-                    const crumbs: { label: string; id: string }[] = [];
-                    if (orchestrator && active.id !== orchestrator.id) crumbs.push({ label: "KOS", id: orchestrator.id });
-                    if (active.projectSlug && active.kind !== "project") {
-                      crumbs.push({
-                        label: projectName(active.projectSlug),
-                        id: `project:${active.projectSlug}`,
-                      });
-                    }
-                    return crumbs.length > 0 ? (
-                      <nav className="chats-crumbs" aria-label="Where this chat sits">
-                        {crumbs.map((c) => (
-                          <button key={c.id} type="button" className="link" onClick={() => onOpen(c.id)}>
-                            {c.label}
+                {/* The question has to be answerable here. A button that leads
+                    to an empty chat is a detour; typing is the way in. */}
+                <m.form
+                  className="chats-welcome-form"
+                  variants={card}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void startFromLanding();
+                  }}
+                >
+                  <div className="chats-welcome-field">
+                    <textarea
+                      className="hl-area chats-welcome-input"
+                      rows={2}
+                      autoFocus
+                      value={opening}
+                      placeholder={
+                        mode === "project"
+                          ? "Describe the project to build…"
+                          : mode === "chat"
+                            ? "Start a chat…"
+                            : "Ask, or tell KOS what to build…"
+                      }
+                      onChange={(e) => setOpening(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          e.currentTarget.form?.requestSubmit();
+                        }
+                      }}
+                    />
+                    <div className="chats-welcome-actions">
+                      <div
+                        className="chats-mode"
+                        role="radiogroup"
+                        aria-label="What to create"
+                      >
+                        {(
+                          [
+                            ["kos", "Ask KOS"],
+                            ["chat", "Chat"],
+                            ["project", "Project"],
+                          ] as const
+                        ).map(([m, label]) => (
+                          <button
+                            key={m}
+                            type="button"
+                            role="radio"
+                            aria-checked={mode === m}
+                            className={`chats-mode-opt ${mode === m ? "is-active" : ""}`}
+                            onClick={() => setMode(m)}
+                          >
+                            {label}
                           </button>
                         ))}
-                      </nav>
-                    ) : null;
-                  })()}
-                </div>
-                <h1>
-                  {active.role && <Face seed={active.role} size={30} mood={moodOf(active.activity)} />}
-                  {active.kind === "orchestrator" && <Face seed={KOS_SEED} look={faceLookOf(kos)} size={30} mood={moodOf(active.activity)} label="KOS" />}
-                  {active.title}
-                  {active.kind === "project" && <span className="chats-role">orchestrator</span>}
-                  {active.kind === "chat" && active.projectSlug && !active.role && <span className="chats-role">agent</span>}
-                  {(active.kind === "agent" || active.role) && <span className="chats-role">blob</span>}
-                </h1>
-                {/* Inside the project the rail lists the agents, so the count
-                    would say what is already in view. */}
-                {active.kind === "project" && !project && (
-                  <p className="chats-lineage">
-                    {projectSummary(tree.byProject.get(active.projectSlug ?? "") ?? [])}
-                  </p>
+                      </div>
+                      <button
+                        type="submit"
+                        className="btn btn--primary btn--capsule"
+                        disabled={creating || !opening.trim()}
+                      >
+                        {creating
+                          ? "Opening…"
+                          : mode === "project"
+                            ? "Create"
+                            : mode === "chat"
+                              ? "Start"
+                              : "Ask KOS"}
+                      </button>
+                    </div>
+                  </div>
+                </m.form>
+                {tree.roots.length > 0 && (
+                  <m.div className="chats-welcome-recent" variants={card}>
+                    <span className="label">Recent</span>
+                    <ul>
+                      {tree.roots.slice(0, 5).map((c) => (
+                        <li key={c.id}>
+                          <RefChip kind="chat" onClick={() => onOpen(c.id)}>
+                            {c.title}
+                          </RefChip>
+                        </li>
+                      ))}
+                    </ul>
+                  </m.div>
                 )}
-                {active.brief && <p className="chats-brief">{active.brief}</p>}
-                {/* Counts are not something anyone came here to read. Only
-                    the tool scope is said, and only when it is not the
-                    default, because that is a capability the chat lacks. */}
-                <div className="chats-meta">
-                  {active.toolAllow !== null && (
-                    <span>
-                      {active.toolAllow.length === 0
-                        ? "no tools"
-                        : `scoped to ${active.toolAllow.join(", ")}`}
-                    </span>
+              </m.div>
+            </div>
+            </>
+          ) : (
+            <>
+              <header className="chats-view-head">
+                <div className="chats-view-title">
+                  {/* The list toggle and the lineage share a row above the
+                      title: the toggle is the same panel glyph as the
+                      workspace's, mirrored, and the title line keeps only the
+                      title. A chevron in it, next to the crumbs' own, read as
+                      two kinds of arrow for two different things. */}
+                  <div className="chats-view-path">
+                    {listToggle}
+                    {(() => {
+                      const crumbs: { label: string; id: string }[] = [];
+                      if (orchestrator && active.id !== orchestrator.id) crumbs.push({ label: "KOS", id: orchestrator.id });
+                      if (active.projectSlug && active.kind !== "project") {
+                        crumbs.push({
+                          label: projectName(active.projectSlug),
+                          id: `project:${active.projectSlug}`,
+                        });
+                      }
+                      return crumbs.length > 0 ? (
+                        <nav className="chats-crumbs" aria-label="Where this chat sits">
+                          {crumbs.map((c) => (
+                            <button key={c.id} type="button" className="link" onClick={() => onOpen(c.id)}>
+                              {c.label}
+                            </button>
+                          ))}
+                        </nav>
+                      ) : null;
+                    })()}
+                  </div>
+                  <h1>
+                    {active.role && <Face seed={active.role} size={30} mood={moodOf(active.activity)} />}
+                    {active.kind === "orchestrator" && <Face seed={KOS_SEED} look={faceLookOf(kos)} size={30} mood={moodOf(active.activity)} label="KOS" />}
+                    {active.title}
+                    {active.kind === "project" && <span className="chats-role">orchestrator</span>}
+                    {active.kind === "chat" && active.projectSlug && !active.role && <span className="chats-role">agent</span>}
+                    {(active.kind === "agent" || active.role) && <span className="chats-role">blob</span>}
+                  </h1>
+                  {/* Inside the project the rail lists the agents, so the count
+                      would say what is already in view. */}
+                  {active.kind === "project" && !project && (
+                    <p className="chats-lineage">
+                      {projectSummary(tree.byProject.get(active.projectSlug ?? "") ?? [])}
+                    </p>
                   )}
+                  {active.brief && <p className="chats-brief">{active.brief}</p>}
+                  {/* Counts are not something anyone came here to read. Only
+                      the tool scope is said, and only when it is not the
+                      default, because that is a capability the chat lacks. */}
+                  <div className="chats-meta">
+                    {active.toolAllow !== null && (
+                      <span>
+                        {active.toolAllow.length === 0
+                          ? "no tools"
+                          : `scoped to ${active.toolAllow.join(", ")}`}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <div className="chats-view-actions">
-                {(project || agent) && (
-                  /* An icon, not words: beside Configure and Archive a third
-                     label squeezed the title into two lines. */
-                  <IconButton
-                    className={`chats-panel-toggle ${panelOpen ? "is-on" : ""}`}
-                    aria-pressed={panelOpen}
-                    label={panelOpen ? "Hide the workspace panel" : "Show the workspace panel"}
-                    title={panelOpen ? "Hide files, pages and tables" : "Show files, pages and tables"}
-                    onClick={togglePanel}
-                  >
-                    <PanelIcon on={panelOpen} />
-                  </IconButton>
-                )}
-                <button
-                  type="button"
-                  className="head-act"
-                  onClick={() => setEditing((v) => !v)}
-                >
-                  <GearIcon />
-                  {editing ? "Close" : "Configure"}
-                </button>
-                {active.kind !== "orchestrator" && (
+                <div className="chats-view-actions">
+                  {(project || agent) && (
+                    /* An icon, not words: beside Configure and Archive a third
+                       label squeezed the title into two lines. */
+                    <IconButton
+                      className={`chats-panel-toggle ${panelOpen ? "is-on" : ""}`}
+                      aria-pressed={panelOpen}
+                      label={panelOpen ? "Hide the workspace panel" : "Show the workspace panel"}
+                      title={panelOpen ? "Hide files, pages and tables" : "Show files, pages and tables"}
+                      onClick={togglePanel}
+                    >
+                      <PanelIcon on={panelOpen} />
+                    </IconButton>
+                  )}
                   <button
                     type="button"
                     className="head-act"
-                    onClick={() => {
-                      const was = { id: active.id, title: active.title };
-                      void api.archiveConversation(active.id).then(() => {
-                        onChanged();
-                        setUndo(was);
-                        window.location.hash = "#/";
-                      });
-                    }}
+                    onClick={() => setEditing((v) => !v)}
                   >
-                    <ArchiveIcon />
-                    Archive
+                    <GearIcon />
+                    {editing ? "Close" : "Configure"}
                   </button>
-                )}
-              </div>
-            </header>
-
-            <Modal
-              open={editing}
-              title={`Configure “${active.title}”`}
-              onClose={() => setEditing(false)}
-            >
-              <ChatConfig
-                key={active.id}
-                conversation={active}
-                onSaved={onChanged}
-                onClose={() => setEditing(false)}
-              />
-            </Modal>
-
-            {/* Handing a chat on: KOS drafts the brief, the owner sends it
-                to a chat or project, which runs with it. The door the agent
-                used to find through the sql tool, as a menu item. */}
-            <Modal open={handingOff !== null} title={handingOff ? `Hand off “${handingOff.title}”` : "Hand off"} onClose={() => setHandingOff(null)}>
-              {handingOff && (
-                <HandoffForm
-                  key={handingOff.id}
-                  from={handingOff}
-                  projects={projects}
-                  conversations={conversations}
-                  onClose={() => setHandingOff(null)}
-                  onDone={() => {
-                    setHandingOff(null);
-                    onChanged();
-                  }}
-                />
-              )}
-            </Modal>
-
-            {/* Renaming is the one thing about a chat an owner changes most,
-                and it was reachable only by knowing to type /rename. */}
-            <Modal
-              open={renaming !== null}
-              title="Rename chat"
-              onClose={() => setRenaming(null)}
-            >
-              <form
-                className="rename-form"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const next = renaming?.title.trim();
-                  if (!renaming || !next) return;
-                  void api
-                    .renameConversation(renaming.id, next)
-                    .then(() => {
-                      setRenaming(null);
-                      onChanged();
-                    })
-                    .catch(() => setRenaming(null));
-                }}
-              >
-                <input
-                  className="kos-input"
-                  autoFocus
-                  value={renaming?.title ?? ""}
-                  onChange={(e) =>
-                    setRenaming((r) => (r ? { ...r, title: e.target.value } : r))
-                  }
-                />
-                <div className="rename-actions">
-                  <button
-                    type="submit"
-                    className="btn btn--primary"
-                    disabled={!renaming?.title.trim()}
-                  >
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={() => setRenaming(null)}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </Modal>
-
-            {/* The thread knows the chats and agents by name, so a chip can
-                read "Lane A" rather than the id it is addressed by. */}
-            <MentionNames resolve={nameFor} hrefOf={channelHref}>
-            <div className="chats-thread" ref={threadScroll}>
-              {visible.length === 0 && <Empty inline>Nothing said yet.</Empty>}
-              {(() => {
-                // Owner turns are numbered in order, because rewind addresses
-                // them by position rather than by any id a transcript keeps.
-                let owner = -1;
-                return visible.map((e, i) => {
-                  const turn = e.kind === "message" && e.role === "you" ? ++owner : -1;
-                  return renderEvent(e, i, turn);
-                });
-              })()}
-              {/* Said somewhere else (Discord, a phone, another tab): the
-                  words show now, as they would had they been typed here,
-                  rather than when the turn ends. This tab's own message is
-                  already in the list above. */}
-              {live?.said && sendingIn !== activeId && !visible.some((e) => e.kind === "message" && e.role === "you" && e.text === live.said) && (
-                <div className="turn turn--you">
-                  <div className="bubble bubble--you">
-                    <Markdown text={live.said} />
-                  </div>
-                  {live.origin ? <OriginLine origin={live.origin} linkFor={roomLink} /> : live.from && live.from !== "dashboard" && <span className="turn-via">via {live.from}</span>}
-                  {live.files && live.files.length > 0 && <AttachmentStrip items={live.files} />}
-                </div>
-              )}
-              {live ? (
-                <LiveTurn
-                  live={live}
-                  waiting={activeId !== undefined && (waitingOn.has(activeId) || active?.activity === "needs-you")}
-                />
-              ) : (
-                sendingIn === activeId && (
-                  // The same markup a running turn uses, not a lookalike:
-                  // built separately it picked up the bubble's font size and
-                  // colour and read as a different kind of thing.
-                  <div className="bubble bubble--kos live">
-                    <div className="live-head">
-                      <WorkingDots />
-                      <span className="live-what">Sending</span>
-                    </div>
-                  </div>
-                )
-              )}
-
-              {/* A build this conversation started. It runs somewhere else and
-                  for minutes, so the chat says it exists and links to it
-                  rather than going quiet and leaving the reader to find the
-                  Blobs page on their own. */}
-              {mine.map((b) => (
-                <button
-                  type="button"
-                  className={`chat-agent chat-agent--${b.status}`}
-                  key={b.id}
-                  onClick={() => onOpenAgent(b.id)}
-                >
-                  <StatusDot state={buildDot(b.status)} label={b.status} />
-                  <span className="chat-agent-main">
-                    <span className="chat-agent-dir">{b.dir}</span>
-                    <span className="chat-agent-latest">{b.latest}</span>
-                  </span>
-                  <span className="chat-agent-go">Open log →</span>
-                </button>
-              ))}
-
-              {/* Waiting on a decision, and not attached to any tool call in
-                  this transcript. A build's requests arrive this way: the
-                  chat showed "I'll continue once the result comes through"
-                  and then nothing, because the thing waiting on the owner was
-                  invisible from here. */}
-              <AnimatePresence initial={false}>
-              {loose.map((a) => (
-                <m.div
-                  className="loose-approval"
-                  key={a.id}
-                  layout
-                  initial={{ opacity: 0, scale: 0.98, y: 6 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.12 } }}
-                  transition={spring}
-                >
-                  <LooseAsk ask={a} />
-                  <div className="loose-approval-actions">
-                    <Decision
-                      id={a.id}
-                      deciding={deciding}
-                      onDecide={(id, ok, remember) => onDecide(String(id), ok, remember)}
-                    />
-                  </div>
-                </m.div>
-              ))}
-              </AnimatePresence>
-
-              {notes.map((n) => (
-                <m.div
-                  className="chats-note"
-                  key={n.id}
-                  variants={listItem}
-                  initial="hidden"
-                  animate="show"
-                >
-                  {/* A command's answer is a reply to something you did, not
-                      part of the conversation, and it sat there until the
-                      chat was reloaded. */}
-                  <IconButton
-                    className="note-close"
-                    label="Dismiss"
-                    onClick={() =>
-                      setNotes((all) => all.filter((x) => x.id !== n.id))
-                    }
-                  >
-                    <CloseIcon size={12} title="" />
-                  </IconButton>
-                  <Markdown text={n.text} />
-                  {/* Also at the end: a long answer meant scrolling back to
-                      the top to reach the corner. */}
-                  <button
-                    type="button"
-                    className="btn btn--sm note-done"
-                    onClick={() =>
-                      setNotes((all) => all.filter((x) => x.id !== n.id))
-                    }
-                  >
-                    Dismiss
-                  </button>
-                </m.div>
-              ))}
-
-              {/* Sent, taken, and waiting for the turn ahead of it. Shown
-                  after the running turn because that is the order they will
-                  be answered in. */}
-              {/* Nothing queued runs until the turn ahead of it finishes, and
-                  the only lever on that is stopping the turn. Offered once,
-                  above the queue, rather than on every message: it acts on
-                  the running turn, not on any one of them. */}
-              {pending.length > 0 && running && (
-                <div className="queued-head">
-                  <span>
-                    {pending.length} waiting on the turn in progress
-                  </span>
-                  <button
-                    type="button"
-                    className="btn btn--sm"
-                    title="Stop what KOS is doing now so the next message starts"
-                    onClick={() => stop()}
-                  >
-                    Interrupt and send next
-                  </button>
-                </div>
-              )}
-
-              <AnimatePresence initial={false}>
-              {/* A queued message whose turn has just begun is already on
-                  the screen as the live turn's own words; shown here too it
-                  would read twice until the next fetch. */}
-              {pending.filter((p) => !(live?.said && !live.ended && p.text === live.said)).map((p) => (
-                <m.div
-                  className="queued"
-                  key={p.id}
-                  layout
-                  variants={listItem}
-                  initial="hidden"
-                  animate="show"
-                  exit="exit"
-                  transition={ease}
-                >
-                  {editingQueued?.id === p.id ? (
-                    <div className="queued-edit">
-                      <textarea
-                        className="kos-input"
-                        rows={3}
-                        value={editingQueued.text}
-                        autoFocus
-                        onChange={(e) =>
-                          setEditingQueued({ id: p.id, text: e.target.value })
-                        }
-                      />
-                      <div className="queued-actions">
-                        <button
-                          type="button"
-                          className="btn btn--primary"
-                          onClick={() => void saveQueued(p.id)}
-                        >
-                          Save
-                        </button>
-                        <button
-                          type="button"
-                          className="btn"
-                          onClick={() => setEditingQueued(null)}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="bubble bubble--you is-queued">
-                        {p.text}
-                        <span className="label queued-mark">queued</span>
-                      </div>
-                      {/* Where it came from, as it will read once sent: a
-                          message waiting from Discord is one here too. */}
-                      {p.origin && <OriginLine origin={p.origin} linkFor={roomLink} />}
-                      {/* What came with it, by name: the files are kept when the turn runs. */}
-                      {p.attachments.length > 0 && <AttachmentStrip items={p.attachments} />}
-                      <div className="queued-actions">
-                        <IconButton
-
-                          label="Edit before it runs"
-                          onClick={() => setEditingQueued({ id: p.id, text: p.text })}
-                        >
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton
-
-                          label="Copy"
-                          onClick={() => void navigator.clipboard.writeText(p.text)}
-                        >
-                          <CopyIcon />
-                        </IconButton>
-                        <IconButton
-
-                          label="Ask this in a copy of the chat instead"
-                          onClick={() => void forkQueued(p.id)}
-                        >
-                          <ForkIcon />
-                        </IconButton>
-                        <IconButton tone="danger"
-
-                          label="Drop it before it runs"
-                          onClick={() => void dropQueued(p.id)}
-                        >
-                          {/* Drawn like the others. A text cross sat on a
-                              different baseline and at a different weight
-                              from the icons beside it. */}
-                          <CloseIcon size={15} title="" />
-                        </IconButton>
-                      </div>
-                    </>
+                  {active.kind !== "orchestrator" && (
+                    <button
+                      type="button"
+                      className="head-act"
+                      onClick={() => {
+                        const was = { id: active.id, title: active.title };
+                        void api.archiveConversation(active.id).then(() => {
+                          onChanged();
+                          setUndo(was);
+                          window.location.hash = "#/";
+                        });
+                      }}
+                    >
+                      <ArchiveIcon />
+                      Archive
+                    </button>
                   )}
-                </m.div>
-              ))}
-              </AnimatePresence>
-            </div>
-            </MentionNames>
+                </div>
+              </header>
 
-            <div
-              className={`chats-composer composer ${drop.over ? "is-over" : ""}`}
-              {...drop.handlers}
-            >
-              <div className="composer-box">
-              <AttachmentStrip
-                items={attachments.files.map((f) => ({
-                  name: f.name,
-                  ...(f.mediaType.startsWith("image/")
-                    ? { src: `data:${f.mediaType};base64,${f.data}` }
-                    : {}),
-                }))}
-                onRemove={attachments.remove}
-              />
-              <div className="composer-input">
-                <AutocompleteMenu
-                  suggestions={suggestions}
-                  cursor={acCursor}
-                  onPick={choose}
+              <Modal
+                open={editing}
+                title={`Configure “${active.title}”`}
+                onClose={() => setEditing(false)}
+              >
+                <ChatConfig
+                  key={active.id}
+                  conversation={active}
+                  onSaved={onChanged}
+                  onClose={() => setEditing(false)}
                 />
-                <HighlightedInput value={draft} textareaRef={inputRef} channels={channelNames}>
-                <textarea
-                  className="hl-area"
-                  ref={inputRef}
-                  rows={1}
-                  value={draft}
-                  placeholder={`Message ${active.title.length > 32 ? "KOS" : active.title}, / for commands, @ to name things`}
-                  onChange={(e) => {
-                    setDraft(e.target.value);
-                    syncTrigger();
+              </Modal>
+
+              {/* Handing a chat on: KOS drafts the brief, the owner sends it
+                  to a chat or project, which runs with it. The door the agent
+                  used to find through the sql tool, as a menu item. */}
+              <Modal open={handingOff !== null} title={handingOff ? `Hand off “${handingOff.title}”` : "Hand off"} onClose={() => setHandingOff(null)}>
+                {handingOff && (
+                  <HandoffForm
+                    key={handingOff.id}
+                    from={handingOff}
+                    projects={projects}
+                    conversations={conversations}
+                    onClose={() => setHandingOff(null)}
+                    onDone={() => {
+                      setHandingOff(null);
+                      onChanged();
+                    }}
+                  />
+                )}
+              </Modal>
+
+              {/* Renaming is the one thing about a chat an owner changes most,
+                  and it was reachable only by knowing to type /rename. */}
+              <Modal
+                open={renaming !== null}
+                title="Rename chat"
+                onClose={() => setRenaming(null)}
+              >
+                <form
+                  className="rename-form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const next = renaming?.title.trim();
+                    if (!renaming || !next) return;
+                    void api
+                      .renameConversation(renaming.id, next)
+                      .then(() => {
+                        setRenaming(null);
+                        onChanged();
+                      })
+                      .catch(() => setRenaming(null));
                   }}
-                  onClick={syncTrigger}
-                  onBlur={() => setTrigger(null)}
-                  onKeyUp={(e) => {
-                    // Arrows move the caret, so the trigger is re-read after
-                    // them too, but not while the menu owns them.
-                    if (suggestions.length === 0) syncTrigger();
-                    else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-                      syncTrigger();
+                >
+                  <input
+                    className="kos-input"
+                    autoFocus
+                    value={renaming?.title ?? ""}
+                    onChange={(e) =>
+                      setRenaming((r) => (r ? { ...r, title: e.target.value } : r))
                     }
-                  }}
-                  onKeyDown={(e) => {
-                    if (suggestions.length > 0) {
-                      if (e.key === "ArrowDown") {
-                        e.preventDefault();
-                        setAcCursor((c) => (c + 1) % suggestions.length);
-                        return;
+                  />
+                  <div className="rename-actions">
+                    <button
+                      type="submit"
+                      className="btn btn--primary"
+                      disabled={!renaming?.title.trim()}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => setRenaming(null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </Modal>
+
+              {/* The thread knows the chats and agents by name, so a chip can
+                  read "Lane A" rather than the id it is addressed by. */}
+              <MentionNames resolve={nameFor} hrefOf={channelHref}>
+              <div className="chats-thread" ref={threadScroll}>
+                {visible.length === 0 && <Empty inline>Nothing said yet.</Empty>}
+                {(() => {
+                  // Owner turns are numbered in order, because rewind addresses
+                  // them by position rather than by any id a transcript keeps.
+                  let owner = -1;
+                  return visible.map((e, i) => {
+                    const turn = e.kind === "message" && e.role === "you" ? ++owner : -1;
+                    return renderEvent(e, i, turn);
+                  });
+                })()}
+                {/* Said somewhere else (Discord, a phone, another tab): the
+                    words show now, as they would had they been typed here,
+                    rather than when the turn ends. This tab's own message is
+                    already in the list above. */}
+                {live?.said && sendingIn !== activeId && !visible.some((e) => e.kind === "message" && e.role === "you" && e.text === live.said) && (
+                  <div className="turn turn--you">
+                    <div className="bubble bubble--you">
+                      <Markdown text={live.said} />
+                    </div>
+                    {live.origin ? <OriginLine origin={live.origin} linkFor={roomLink} /> : live.from && live.from !== "dashboard" && <span className="turn-via">via {live.from}</span>}
+                    {live.files && live.files.length > 0 && <AttachmentStrip items={live.files} />}
+                  </div>
+                )}
+                {live ? (
+                  <LiveTurn
+                    live={live}
+                    waiting={activeId !== undefined && (waitingOn.has(activeId) || active?.activity === "needs-you")}
+                  />
+                ) : (
+                  sendingIn === activeId && (
+                    // The same markup a running turn uses, not a lookalike:
+                    // built separately it picked up the bubble's font size and
+                    // colour and read as a different kind of thing.
+                    <div className="bubble bubble--kos live">
+                      <div className="live-head">
+                        <WorkingDots />
+                        <span className="live-what">Sending</span>
+                      </div>
+                    </div>
+                  )
+                )}
+
+                {/* A build this conversation started. It runs somewhere else and
+                    for minutes, so the chat says it exists and links to it
+                    rather than going quiet and leaving the reader to find the
+                    Blobs page on their own. */}
+                {mine.map((b) => (
+                  <button
+                    type="button"
+                    className={`chat-agent chat-agent--${b.status}`}
+                    key={b.id}
+                    onClick={() => onOpenAgent(b.id)}
+                  >
+                    <StatusDot state={buildDot(b.status)} label={b.status} />
+                    <span className="chat-agent-main">
+                      <span className="chat-agent-dir">{b.dir}</span>
+                      <span className="chat-agent-latest">{b.latest}</span>
+                    </span>
+                    <span className="chat-agent-go">Open log →</span>
+                  </button>
+                ))}
+
+                {/* Waiting on a decision, and not attached to any tool call in
+                    this transcript. A build's requests arrive this way: the
+                    chat showed "I'll continue once the result comes through"
+                    and then nothing, because the thing waiting on the owner was
+                    invisible from here. */}
+                <AnimatePresence initial={false}>
+                {loose.map((a) => (
+                  <m.div
+                    className="loose-approval"
+                    key={a.id}
+                    layout
+                    initial={{ opacity: 0, scale: 0.98, y: 6 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.12 } }}
+                    transition={spring}
+                  >
+                    <LooseAsk ask={a} />
+                    <div className="loose-approval-actions">
+                      <Decision
+                        id={a.id}
+                        deciding={deciding}
+                        onDecide={(id, ok, remember) => onDecide(String(id), ok, remember)}
+                      />
+                    </div>
+                  </m.div>
+                ))}
+                </AnimatePresence>
+
+                {notes.map((n) => (
+                  <m.div
+                    className="chats-note"
+                    key={n.id}
+                    variants={listItem}
+                    initial="hidden"
+                    animate="show"
+                  >
+                    {/* A command's answer is a reply to something you did, not
+                        part of the conversation, and it sat there until the
+                        chat was reloaded. */}
+                    <IconButton
+                      className="note-close"
+                      label="Dismiss"
+                      onClick={() =>
+                        setNotes((all) => all.filter((x) => x.id !== n.id))
                       }
-                      if (e.key === "ArrowUp") {
-                        e.preventDefault();
-                        setAcCursor(
-                          (c) => (c - 1 + suggestions.length) % suggestions.length,
-                        );
-                        return;
+                    >
+                      <CloseIcon size={12} title="" />
+                    </IconButton>
+                    <Markdown text={n.text} />
+                    {/* Also at the end: a long answer meant scrolling back to
+                        the top to reach the corner. */}
+                    <button
+                      type="button"
+                      className="btn btn--sm note-done"
+                      onClick={() =>
+                        setNotes((all) => all.filter((x) => x.id !== n.id))
                       }
-                      if (e.key === "Enter" || e.key === "Tab") {
-                        const picked = suggestions[acCursor];
-                        if (picked) {
+                    >
+                      Dismiss
+                    </button>
+                  </m.div>
+                ))}
+
+                {/* Sent, taken, and waiting for the turn ahead of it. Shown
+                    after the running turn because that is the order they will
+                    be answered in. */}
+                {/* Nothing queued runs until the turn ahead of it finishes, and
+                    the only lever on that is stopping the turn. Offered once,
+                    above the queue, rather than on every message: it acts on
+                    the running turn, not on any one of them. */}
+                {pending.length > 0 && running && (
+                  <div className="queued-head">
+                    <span>
+                      {pending.length} waiting on the turn in progress
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      title="Stop what KOS is doing now so the next message starts"
+                      onClick={() => stop()}
+                    >
+                      Interrupt and send next
+                    </button>
+                  </div>
+                )}
+
+                <AnimatePresence initial={false}>
+                {/* A queued message whose turn has just begun is already on
+                    the screen as the live turn's own words; shown here too it
+                    would read twice until the next fetch. */}
+                {pending.filter((p) => !(live?.said && !live.ended && p.text === live.said)).map((p) => (
+                  <m.div
+                    className="queued"
+                    key={p.id}
+                    layout
+                    variants={listItem}
+                    initial="hidden"
+                    animate="show"
+                    exit="exit"
+                    transition={ease}
+                  >
+                    {editingQueued?.id === p.id ? (
+                      <div className="queued-edit">
+                        <textarea
+                          className="kos-input"
+                          rows={3}
+                          value={editingQueued.text}
+                          autoFocus
+                          onChange={(e) =>
+                            setEditingQueued({ id: p.id, text: e.target.value })
+                          }
+                        />
+                        <div className="queued-actions">
+                          <button
+                            type="button"
+                            className="btn btn--primary"
+                            onClick={() => void saveQueued(p.id)}
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() => setEditingQueued(null)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="bubble bubble--you is-queued">
+                          {p.text}
+                          <span className="label queued-mark">queued</span>
+                        </div>
+                        {/* Where it came from, as it will read once sent: a
+                            message waiting from Discord is one here too. */}
+                        {p.origin && <OriginLine origin={p.origin} linkFor={roomLink} />}
+                        {/* What came with it, by name: the files are kept when the turn runs. */}
+                        {p.attachments.length > 0 && <AttachmentStrip items={p.attachments} />}
+                        <div className="queued-actions">
+                          <IconButton
+
+                            label="Edit before it runs"
+                            onClick={() => setEditingQueued({ id: p.id, text: p.text })}
+                          >
+                            <EditIcon />
+                          </IconButton>
+                          <IconButton
+
+                            label="Copy"
+                            onClick={() => void navigator.clipboard.writeText(p.text)}
+                          >
+                            <CopyIcon />
+                          </IconButton>
+                          <IconButton
+
+                            label="Ask this in a copy of the chat instead"
+                            onClick={() => void forkQueued(p.id)}
+                          >
+                            <ForkIcon />
+                          </IconButton>
+                          <IconButton tone="danger"
+
+                            label="Drop it before it runs"
+                            onClick={() => void dropQueued(p.id)}
+                          >
+                            {/* Drawn like the others. A text cross sat on a
+                                different baseline and at a different weight
+                                from the icons beside it. */}
+                            <CloseIcon size={15} title="" />
+                          </IconButton>
+                        </div>
+                      </>
+                    )}
+                  </m.div>
+                ))}
+                </AnimatePresence>
+              </div>
+              </MentionNames>
+
+              <div
+                className={`chats-composer composer ${drop.over ? "is-over" : ""}`}
+                {...drop.handlers}
+              >
+                <div className="composer-box">
+                <AttachmentStrip
+                  items={attachments.files.map((f) => ({
+                    name: f.name,
+                    ...(f.mediaType.startsWith("image/")
+                      ? { src: `data:${f.mediaType};base64,${f.data}` }
+                      : {}),
+                  }))}
+                  onRemove={attachments.remove}
+                />
+                <div className="composer-input">
+                  <AutocompleteMenu
+                    suggestions={suggestions}
+                    cursor={acCursor}
+                    onPick={choose}
+                  />
+                  <HighlightedInput value={draft} textareaRef={inputRef} channels={channelNames}>
+                  <textarea
+                    className="hl-area"
+                    ref={inputRef}
+                    rows={1}
+                    value={draft}
+                    placeholder={`Message ${active.title.length > 32 ? "KOS" : active.title}, / for commands, @ to name things`}
+                    onChange={(e) => {
+                      setDraft(e.target.value);
+                      syncTrigger();
+                    }}
+                    onClick={syncTrigger}
+                    onBlur={() => setTrigger(null)}
+                    onKeyUp={(e) => {
+                      // Arrows move the caret, so the trigger is re-read after
+                      // them too, but not while the menu owns them.
+                      if (suggestions.length === 0) syncTrigger();
+                      else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                        syncTrigger();
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (suggestions.length > 0) {
+                        if (e.key === "ArrowDown") {
                           e.preventDefault();
-                          choose(picked);
+                          setAcCursor((c) => (c + 1) % suggestions.length);
+                          return;
+                        }
+                        if (e.key === "ArrowUp") {
+                          e.preventDefault();
+                          setAcCursor(
+                            (c) => (c - 1 + suggestions.length) % suggestions.length,
+                          );
+                          return;
+                        }
+                        if (e.key === "Enter" || e.key === "Tab") {
+                          const picked = suggestions[acCursor];
+                          if (picked) {
+                            e.preventDefault();
+                            choose(picked);
+                            return;
+                          }
+                        }
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          setTrigger(null);
                           return;
                         }
                       }
-                      if (e.key === "Escape") {
+                      // Cmd or Ctrl with Enter stops the turn. Enter alone
+                      // sends, so the interrupt needs a modifier or every
+                      // message would be a stop.
+                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                         e.preventDefault();
-                        setTrigger(null);
+                        if (running) stop();
                         return;
                       }
+                      composerKeyDown(e, () => void send());
+                    }}
+                  />
+                  </HighlightedInput>
+                </div>
+                <div className="sheet-composer-bar">
+                  <AttachButton onAdd={(l) => void attachments.add(l)} />
+                  <VoiceInput
+                    onText={(said) =>
+                      // Appended rather than replacing: dictation is usually one
+                      // sentence at a time, and typing around it should work.
+                      setDraft((d) => (d ? `${d.replace(/\s+$/, "")} ${said}` : said))
                     }
-                    // Cmd or Ctrl with Enter stops the turn. Enter alone
-                    // sends, so the interrupt needs a modifier or every
-                    // message would be a stop.
-                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                      e.preventDefault();
-                      if (running) stop();
-                      return;
-                    }
-                    composerKeyDown(e, () => void send());
-                  }}
-                />
-                </HighlightedInput>
+                  />
+                  <ModelPicker />
+                  {/* The hint took the widest slot in the row to say something
+                      every chat surface already does. The space is the model's. */}
+                  {/* Beside Send rather than under the title: how full the chat
+                      is matters when you are about to add to it, which is here.
+                      Keyed off sendingIn so it re-reads once a turn lands. */}
+                  <ContextMeter
+                    conversationId={active.id}
+                    refreshKey={sendingIn === null ? 1 : 0}
+                  />
+                  <span className="composer-spacer" />
+                  {running ? (
+                    <button
+                      type="button"
+                      className="send send--stop"
+                      aria-label={stopping ? "Stopping" : "Stop"}
+                      title="Stop (Cmd+Enter)"
+                      disabled={stopping}
+                      onClick={stop}
+                    >
+                      <StopIcon />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="send"
+                      aria-label="Send"
+                      title="Send (Enter)"
+                      onClick={() => void send()}
+                      disabled={draft.trim() === "" && attachments.files.length === 0}
+                    >
+                      <SendIcon />
+                    </button>
+                  )}
+                </div>
+                </div>
               </div>
-              <div className="sheet-composer-bar">
-                <AttachButton onAdd={(l) => void attachments.add(l)} />
-                <VoiceInput
-                  onText={(said) =>
-                    // Appended rather than replacing: dictation is usually one
-                    // sentence at a time, and typing around it should work.
-                    setDraft((d) => (d ? `${d.replace(/\s+$/, "")} ${said}` : said))
-                  }
-                />
-                <ModelPicker />
-                {/* The hint took the widest slot in the row to say something
-                    every chat surface already does. The space is the model's. */}
-                {/* Beside Send rather than under the title: how full the chat
-                    is matters when you are about to add to it, which is here.
-                    Keyed off sendingIn so it re-reads once a turn lands. */}
-                <ContextMeter
-                  conversationId={active.id}
-                  refreshKey={sendingIn === null ? 1 : 0}
-                />
-                <span className="composer-spacer" />
-                {running ? (
-                  <button
-                    type="button"
-                    className="send send--stop"
-                    aria-label={stopping ? "Stopping" : "Stop"}
-                    title="Stop (Cmd+Enter)"
-                    disabled={stopping}
-                    onClick={stop}
-                  >
-                    <StopIcon />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="send"
-                    aria-label="Send"
-                    title="Send (Enter)"
-                    onClick={() => void send()}
-                    disabled={draft.trim() === "" && attachments.files.length === 0}
-                  >
-                    <SendIcon />
-                  </button>
-                )}
-              </div>
-              </div>
-            </div>
-          </>
+            </>
+          )}
+          {(project || agent) && <ArtifactStrip {...railProps} />}
+        </section>
+
+        {project && (
+          /* Mounted while hidden, so hiding is the column sliding shut rather
+             than the panel vanishing; it polls nothing until it is back. */
+          <ProjectPanel
+            slug={project.slug}
+            rail={<ArtifactRail {...railProps} />}
+            onOpenFile={project.onOpenFile}
+            onChanged={onChanged}
+            onError={project.onError}
+            hidden={!panelOpen}
+          />
         )}
-        {(project || agent) && <ArtifactStrip {...railProps} />}
-      </section>
+        {agent && (
+          <AgentPanel
+            name={agent.name}
+            onOpenFile={agent.onOpenFile}
+            onChanged={onChanged}
+            onError={agent.onError}
+            onNotice={onNotice}
+            onRemoved={agent.onRemoved}
+            hidden={!panelOpen}
+            rail={<ArtifactRail {...railProps} />}
+          />
+        )}
 
-      {project && (
-        /* Mounted while hidden, so hiding is the column sliding shut rather
-           than the panel vanishing; it polls nothing until it is back. */
-        <ProjectPanel
-          slug={project.slug}
-          rail={<ArtifactRail {...railProps} />}
-          onOpenFile={project.onOpenFile}
-          onChanged={onChanged}
-          onError={project.onError}
-          hidden={!panelOpen}
-        />
-      )}
-      {agent && (
-        <AgentPanel
-          name={agent.name}
-          onOpenFile={agent.onOpenFile}
-          onChanged={onChanged}
-          onError={agent.onError}
-          onNotice={onNotice}
-          onRemoved={agent.onRemoved}
-          hidden={!panelOpen}
-          rail={<ArtifactRail {...railProps} />}
-        />
-      )}
-
-      {/* The columns are the owner's to size. The handles sit in the gaps. */}
-      {!narrow && (
-        <Gutter
-          className="chats-gutter--rail"
-          label="the chat list"
-          value={railW}
-          min={RAIL_W.min}
-          max={RAIL_W.max}
-          fallback={RAIL_W.fallback}
-          grows="right"
-          onChange={(w) => {
-            setResizing(true);
-            setRailW(w);
-          }}
-          onDone={(w) => {
-            setResizing(false);
-            saveWidth(RAIL_W, w);
-          }}
-          // Pushed past its narrowest: shut; dragged back out: open again.
-          collapsed={collapsed}
-          onCollapse={() => setCollapsed(true)}
-          onExpand={() => setCollapsed(false)}
-        />
-      )}
-      {(project || agent) && !narrow && (
-        <Gutter
-          className="chats-gutter--panel"
-          label="the workspace panel"
-          value={panelW}
-          min={PANEL_W.min}
-          max={PANEL_W.max}
-          fallback={PANEL_W.fallback}
-          grows="left"
-          onChange={(w) => {
-            setResizing(true);
-            setPanelW(w);
-          }}
-          onDone={(w) => {
-            setResizing(false);
-            saveWidth(PANEL_W, w);
-          }}
-          collapsed={!panelOpen}
-          onCollapse={() => {
-            if (panelOpen) togglePanel();
-          }}
-          onExpand={() => {
-            if (!panelOpen) togglePanel();
-          }}
-        />
-      )}
-    </div>
+        {/* The columns are the owner's to size. The handles sit in the gaps. */}
+        {!narrow && (
+          <Gutter
+            className="chats-gutter--rail"
+            label="the chat list"
+            value={railW}
+            min={RAIL_W.min}
+            max={RAIL_W.max}
+            fallback={RAIL_W.fallback}
+            grows="right"
+            onChange={(w) => {
+              setResizing(true);
+              setRailW(w);
+            }}
+            onDone={(w) => {
+              setResizing(false);
+              saveWidth(RAIL_W, w);
+            }}
+            // Pushed past its narrowest: shut; dragged back out: open again.
+            collapsed={collapsed}
+            onCollapse={() => setCollapsed(true)}
+            onExpand={() => setCollapsed(false)}
+          />
+        )}
+        {(project || agent) && !narrow && (
+          <Gutter
+            className="chats-gutter--panel"
+            label="the workspace panel"
+            value={panelW}
+            min={PANEL_W.min}
+            max={PANEL_W.max}
+            fallback={PANEL_W.fallback}
+            grows="left"
+            onChange={(w) => {
+              setResizing(true);
+              setPanelW(w);
+            }}
+            onDone={(w) => {
+              setResizing(false);
+              saveWidth(PANEL_W, w);
+            }}
+            collapsed={!panelOpen}
+            onCollapse={() => {
+              if (panelOpen) togglePanel();
+            }}
+            onExpand={() => {
+              if (!panelOpen) togglePanel();
+            }}
+          />
+        )}
+      </div>
+    </ArtifactOpen.Provider>
   );
 }
 

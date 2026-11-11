@@ -237,9 +237,58 @@ describe("one artifact, full size", () => {
     expect(titles()).toEqual(["New notes"]);
   });
 
+  it("draws a deck's controls in its one head row: the slide, notes, grid and one Present", async () => {
+    const record = ART[2]!;
+    vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "pitch", title: "Garden pitch", kind: "deck", html: "<main data-deck><section>a</section></main>" } } as never);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
+    render(<ArtifactViewer id="pitch" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
+    const el = await waitFor(() => {
+      const f = document.querySelector<HTMLIFrameElement>("iframe.artifact-frame");
+      if (!f) throw new Error("no frame yet");
+      return f;
+    });
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const told = vi.spyOn(pageWin, "postMessage");
+    act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "deck", index: 0, count: 4, grid: false, notes: false, reading: false, hosted: true } })));
+    const head = screen.getByRole("banner");
+    expect(within(head).getByRole("heading", { level: 1 }).textContent).toBe("Garden pitch");
+    expect(within(head).getByText("1 / 4")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Present" })).toHaveLength(1);
+    expect((within(head).getByRole("button", { name: "Previous slide" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(head).getByRole("button", { name: "Next slide" }));
+    expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "next" }, "*");
+    fireEvent.click(within(head).getByRole("button", { name: "Notes" }));
+    expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "notes" }, "*");
+  });
+
+  it("keeps its description and the rest in a menu the keyboard can walk", async () => {
+    const record = ART[2]!;
+    vi.spyOn(api, "anyPage").mockResolvedValue({ record: { ...record, description: "Why the garden, in six slides." }, kind: "html", page: { id: "pitch", title: "Garden pitch", kind: "deck", html: "<main data-deck><section>a</section></main>" } } as never);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
+    render(<ArtifactViewer id="pitch" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
+    const more = await screen.findByRole("button", { name: "More" });
+    fireEvent.click(more);
+    const menu = screen.getByRole("menu", { name: "More" });
+    // The description is said about the menu, not one of its items.
+    expect(within(menu).queryByText("Why the garden, in six slides.")).toBeNull();
+    expect(menu.getAttribute("aria-describedby")).toBeTruthy();
+    expect(document.getElementById(menu.getAttribute("aria-describedby")!)!.textContent).toBe("Why the garden, in six slides.");
+    const items = within(menu).getAllByRole("menuitem");
+    await waitFor(() => expect(document.activeElement).toBe(items[0]));
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(items[1]);
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(items[items.length - 1]);
+    fireEvent.keyDown(menu, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    expect(document.activeElement).toBe(more);
+  });
+
   it("restores on the version the doc's own last save made, not the one first opened", async () => {
-    const record = { ...ART[3]!, artifactKind: "page" as const };
-    vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "ledger", title: "Ledger", html: "<p>x</p>" } } as never);
+    const record = { ...ART[3]!, artifactKind: "doc" as const };
+    vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "ledger", title: "Ledger", kind: "doc", html: "<p>x</p>" } } as never);
     vi.spyOn(api, "pageHistory").mockResolvedValue([
       { version: 1, at: at(90), title: "Ledger", kind: "html" },
       { version: 2, at: at(40), title: "Ledger", kind: "html" },
@@ -262,7 +311,9 @@ describe("one artifact, full size", () => {
     gestures.port1.postMessage(0);
     await new Promise((r) => setTimeout(r, 20));
     say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
-    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    // While editing, the head's row holds the editing and History waits in its menu.
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "History" }));
     const rows = within(await screen.findByRole("dialog", { name: "History" })).getAllByRole("listitem");
     fireEvent.click(within(rows[1]!).getByRole("button", { name: "Restore" }));
     fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Restore" })).getByRole("button", { name: "Restore" }));
@@ -276,8 +327,8 @@ describe("one artifact, full size", () => {
   });
 
   it("finishes an open doc's editing before the dashboard moves elsewhere", async () => {
-    const record = { ...ART[3]!, artifactKind: "page" as const };
-    vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "ledger", title: "Ledger", html: "<p>x</p>" } } as never);
+    const record = { ...ART[3]!, artifactKind: "doc" as const };
+    vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "ledger", title: "Ledger", kind: "doc", html: "<p>x</p>" } } as never);
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
     render(<ArtifactViewer id="ledger" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
     const el = await waitFor(() => {

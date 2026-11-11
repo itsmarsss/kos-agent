@@ -70,6 +70,47 @@ export function heightGate(now: () => number = () => performance.now()): HeightG
   };
 }
 
+/**
+ * The height each artifact's frame last took, so it opens at that height
+ * rather than starting short and jumping once its page reports. Kept by the
+ * artifact and the width it was drawn at (a page is taller in the narrow
+ * place beside a chat than full size), in memory and for the tab's session
+ * (sessionStorage), memory first.
+ */
+const HEIGHT_KEY = "kos.frameHeight.";
+const heights = new Map<string, number>();
+
+/** A width as a bucket of 160 px: near enough that a page wraps the same. */
+export const heightBucket = (width: number): number => Math.round(width / 160);
+
+const fits = (h: number | undefined): h is number => h !== undefined && Number.isFinite(h) && h >= FRAME_HEIGHT_MIN && h <= FRAME_HEIGHT_MAX;
+
+export function rememberedHeight(key: string): number | undefined {
+  const kept = heights.get(key);
+  if (fits(kept)) return kept;
+  try {
+    const stored = sessionStorage.getItem(HEIGHT_KEY + key);
+    const h = stored === null ? undefined : Number(stored);
+    return fits(h) ? h : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function rememberHeight(key: string, height: number): void {
+  heights.set(key, height);
+  try {
+    sessionStorage.setItem(HEIGHT_KEY + key, String(height));
+  } catch {
+    // Storage refused: memory alone.
+  }
+}
+
+/** Forget every height kept: for a test that opens the same artifact afresh. */
+export function forgetHeights(): void {
+  heights.clear();
+}
+
 /** Where on its page a jump lands, as the bridge reports it: page pixels from the page's top. */
 export interface Reveal {
   top?: unknown;
