@@ -120,18 +120,30 @@ which is gone, nor Edit with KOS.
 The owner renames, copies, moves and deletes artifacts from the dashboard:
 the viewer head's menu and each gallery card's menu (`ArtifactManage.tsx`).
 
-- **Rename**: a new title, description, or both, in a small dialog. The id
-  stays, so `@page:` mentions, the chat's artifact cards and links still find
-  it, and the rename is kept as a version.
+- **Rename**: a new title (120 characters at most), description (280), or
+  both, trimmed, in a small dialog; an older widget page has a title only.
+  The id stays, so `@page:` mentions, the chat's artifact cards and links
+  still find it, and the rename is kept as a version. A rename checks
+  nothing of the document, which it leaves as it was, so an artifact written
+  before a rule it would now fail can still be renamed.
 - **Duplicate**: a copy beside it, the same owner's, titled "<title> copy"
   under the first free id `<id>-copy`, `-copy-2` and on (free in any case).
-  The copy's history starts with it; the original's stays its own.
+  The copy's history starts with it; the original's stays its own. It is
+  written as any new artifact is, every check held, and without the
+  original's headline, so the project's card shows one figure.
 - **Move**: to any project, the workspace, or a living blob, which becomes
   its owner. Ids are global (one artifact's wherever it lives), so the id and
   every reference to it are kept, and its versions and captures go with it.
-  It goes through every check a write makes as the new owner's, so one that
-  reads its project's tables, or an older widget page, stays where those
-  are; nothing goes to a removed blob.
+  Its document is not checked again, but what it reaches is, against the new
+  owner: one that writes, reads or sheets its project's tables, holds a
+  headline or reads its files, or an older widget page, stays where those
+  are, so a move hands it no data. Nothing goes to a removed blob, and the
+  dashboard files nothing in Maintenance, which is KOS's repair shop (a
+  Maintenance chat may still move within its own reach). Its versions and
+  captures move first, then its file and row, and a failure part way puts
+  back what moved. An id is told apart from another in any case, as a disk
+  that ignores case tells their files apart: an id that is another's in
+  another case is refused for a new artifact or a move.
 - **Delete** moves it to the trash (`pages.trashed_at`), never deletes it.
   A trashed artifact drops out of the gallery, the rails, the project's
   page list and its headline, the `@` menu and `artifacts.list`; it keeps its
@@ -144,13 +156,25 @@ the viewer head's menu and each gallery card's menu (`ArtifactManage.tsx`).
 - **Trash** is a view of the gallery (Trash in its head), with Restore and
   Delete forever on each card. Delete forever asks once (`ConfirmButton`)
   and removes the row, file, versions and captures. Nothing in the trash is
-  deleted on its own, however long it waits; no purge is decided.
+  deleted on its own, however long it waits; no purge is decided. Deleting a
+  project keeps what of it is in the trash: it goes to the workspace's
+  trash, still trashed, with its versions and captures, and without what
+  reached the project's tables and files.
+- In the trash nothing changes it by any road: `files.*` refuses to write,
+  edit, move or delete its file, versions or captures (it can still be read),
+  its frame's `kos.write` is refused while its reads are answered, and
+  `artifacts.check` and the gallery's redraw leave it as it was drawn.
 
 The routes are `POST /api/artifacts/<id>/{rename,duplicate,move,trash,restore,delete}`
 (`move` takes `{ project }`, `"@workspace"` for the workspace, or `{ blob }`;
 `delete` only from the trash) and `GET /api/artifacts?trashed=1`. They are
 the owner's, behind the dashboard's token like every route, and each is kept
-in the audit log as `artifact.<verb>`, refusals too.
+in the audit log as `artifact.<verb>`, refusals too. Like every change the
+API takes, they are refused when another site's page asks (`crossSiteWrite`,
+`kernel/server.ts`): an Origin that is not the dashboard's own host (or the
+one a proxy passes on), KOS for Chrome's or on the allowlist, or a
+`Sec-Fetch-Site: cross-site` with none. KOS for Mac and the CLI send no
+origin and are let by.
 
 KOS has `artifacts.rename`, `artifacts.duplicate` and `artifacts.move`, and
 no tool that trashes or deletes. Each is held to the fence above for
