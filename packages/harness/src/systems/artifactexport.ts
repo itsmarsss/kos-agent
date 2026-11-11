@@ -182,7 +182,7 @@ refresh:function(){}
 };
 Object.defineProperty(kos,"theme",{get:function(){return ${JSON.stringify(mode)}},enumerable:true});
 Object.defineProperty(window,"kos",{value:Object.freeze(kos)});
-${colourOf.toString()}
+var colourOf=${colourOf.toString()};
 function ground(){var b=document.body,t=/--bg:([^;}]+)/.exec((document.getElementById("kos-tokens")||{}).textContent||"");if(!b||!t)return;
 var bs=getComputedStyle(b),c=colourOf(bs.backgroundColor),k=colourOf(t[1].trim());
 var mine=bs.backgroundImage!=="none"||(!!c&&!!k&&c[3]>0&&Math.max(Math.abs(c[0]-k[0]),Math.abs(c[1]-k[1]),Math.abs(c[2]-k[2]))>2);
