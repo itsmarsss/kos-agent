@@ -580,7 +580,10 @@ export class PageStore {
   patch(id: string, edits: PatchEdit[]): { record: PageRecord; before: string; after: string; replaced: number } {
     const got = this.loaded(id);
     if (got.kind !== "html") throw new Error(`${id} is an older widget page, which has no HTML to patch; rewrite it as an artifact with artifacts.write`);
-    const { html, replaced } = applyPatch(got.page.html, edits);
+    // Compared as it will be stored: a <\/ is a </ once saved, so an edit that only writes one so changes nothing.
+    const patched = applyPatch(got.page.html, edits);
+    const html = repairClosingTags(patched.html);
+    const { replaced } = patched;
     if (html === got.page.html) throw new Error("nothing changed: every edit leaves the artifact as it is");
     const record = this.writeHtml(ownerOfRecord(got.record), { ...got.page, html });
     return { record, before: got.page.html, after: html, replaced };

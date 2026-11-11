@@ -653,8 +653,12 @@ describe("systems.migrate risk", () => {
       const [line, check] = got.content.split("\n\n");
       expect(JSON.parse(line!)).toEqual({ id: "ledger", title: "Ledger", artifactKind: "page", projectSlug: null, updatedAt: store.record("ledger")!.updatedAt, version: 2, edits: 2, replaced: 2, lines: { removed: 2, added: 2, of: 603 }, bytes: { before: html.length, after: html.length + 6 } });
       expect(check).toBe("checked ledger");
+      // Its sizes are what is stored: a <\/ counts as the </ it is saved as.
+      const escaped = JSON.parse((await patch("ledger", [{ find: "<h1>October ledger</h1>", replace: "<h1>Ledger<\\/h1>" }])).content.split("\n\n")[0]!) as { bytes: { after: number } };
+      expect(escaped.bytes.after).toBe(Buffer.byteLength(file("artifacts/ledger.html")));
+      await patch("ledger", [{ find: "<h1>Ledger</h1>", replace: "<h1>October ledger</h1>" }]);
       expect(file("artifacts/ledger.html")).toBe(html.replace("<h1>Ledger</h1>", "<h1>October ledger</h1>").replace("<td>Item 7</td>", "<td>Rent</td>"));
-      expect(await versions("ledger")).toBe(2);
+      expect(await versions("ledger")).toBe(4);
     });
 
     it("checks once and once after the fix in a turn, and then no more, so nothing loops", async () => {
@@ -694,6 +698,8 @@ describe("systems.migrate risk", () => {
       expect(missing.content).toMatch(/edit 2: find does not occur in the stored HTML/);
       expect((await patch("memo", [{ find: "Draft", replace: "Final" }])).content).toMatch(/find occurs 2 times/);
       expect((await patch("memo", [{ find: "Memo", replace: "Memo" }])).content).toMatch(/nothing changed/);
+      // A </ written as <\/ is stored as </, so it changes nothing either.
+      expect((await patch("memo", [{ find: "</h1>", replace: "<\\/h1>" }])).content).toMatch(/nothing changed/);
       expect(file("artifacts/memo.html")).toBe("<h1>Memo</h1><p>Draft</p><p>Draft</p>");
       expect(await versions("memo")).toBe(1);
       expect((await patch("memo", [{ find: "Draft", replace: "Final", all: true }])).isError).toBe(false);
