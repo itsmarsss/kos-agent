@@ -20,7 +20,10 @@ export type PatchEdit = { find: string; replace: string; all?: boolean } | { id:
 export const PATCH_EDITS_MAX = 50;
 
 /** What the runtime draws into a doc and takes out again before it is saved: never part of what is stored. */
-const GENERATED = /data-kos-gen/i;
+const GENERATED = /data-kos-gen/gi;
+
+/** How many times the generated mark is written in some HTML. */
+const generatedMarks = (html: string): number => html.match(GENERATED)?.length ?? 0;
 
 /** A model writing JSON escapes a closing tag as <\/; it is stored as </ (PageStore.keepHtml), so it is matched so. */
 const unescapeClosing = (s: string): string => s.replace(/<\\\//g, "</");
@@ -61,8 +64,6 @@ export function applyPatch(html: string, edits: PatchEdit[]): { html: string; re
   let replaced = 0;
   for (const [i, edit] of edits.entries()) {
     const n = `edit ${i + 1}`;
-    const added = "find" in edit ? edit.replace : edit.html;
-    if (GENERATED.test(added)) throw new Error(`${n} adds data-kos-gen markup, which a doc's runtime draws and takes out again; patch the stored HTML (artifacts.get), not the page as drawn`);
     if ("find" in edit) {
       const at = occurrences(out, edit.find);
       if (at.length === 0) {
@@ -79,6 +80,8 @@ export function applyPatch(html: string, edits: PatchEdit[]): { html: string; re
       replaced += 1;
     }
   }
+  // Counted over the whole result, not each edit, so two edits cannot build the mark between them.
+  if (generatedMarks(out) > generatedMarks(html)) throw new Error("the edits add data-kos-gen markup, which a doc's runtime draws and takes out again; patch the stored HTML (artifacts.get), not the page as drawn");
   return { html: out, replaced };
 }
 

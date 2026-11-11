@@ -59,6 +59,13 @@ describe("applyPatch", () => {
 
   it("refuses generated doc markup, which the runtime draws and never stores", () => {
     expect(() => applyPatch(DOC, patchEdits([{ find: "Draft", replace: '<nav data-kos-gen="toc">x</nav>', all: true }]))).toThrow(/data-kos-gen/);
+    // Built across two edits, each harmless alone.
+    const split = patchEdits([{ find: "<h1>Q3 review</h1>", replace: '<h1>Q3 review</h1><nav data-kos-XX="toc"></nav>' }, { find: "data-kos-XX", replace: "data-kos-gen" }]);
+    expect(() => applyPatch(DOC, split)).toThrow(/the edits add data-kos-gen/);
+    // One already there (an older write) is left as it was, and may be taken out.
+    const marked = '<p data-kos-gen="x">a</p><p>b</p>';
+    expect(applyPatch(marked, patchEdits([{ find: "<p>b</p>", replace: "<p>c</p>" }])).html).toBe('<p data-kos-gen="x">a</p><p>c</p>');
+    expect(applyPatch(marked, patchEdits([{ find: ' data-kos-gen="x"', replace: "" }])).html).toBe("<p>a</p><p>b</p>");
   });
 
   it("refuses edits of the wrong shape", () => {
