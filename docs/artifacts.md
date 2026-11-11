@@ -579,7 +579,7 @@ keeps its own title below, so the head says it once, small, and its
 description waits in the row's menu. The frame's own controls are in that
 row too, so there is one toolbar: a doc's editing (below), and a deck's
 slide, notes and grid, which the deck reports (`{__kos: "deck", index,
-count, grid, notes, reading, hosted}`) and the dashboard presses
+count, grid, notes, reading, hosted, said}`) and the dashboard presses
 (`{__kos: "deck-do", action}`), its own bar handed over on the first
 report and kept when it stands alone. On a phone the row is the title and
 the menu, with Done in reach while editing. The actions: History (a drawer of every version,
@@ -591,6 +591,36 @@ Present
 for a deck (the frame goes full screen and tells the deck to present), and Edit
 with KOS (the owner says what should change, and it goes to the chat that
 owns the artifact: the project's, the blob's thread, or KOS at the root).
+
+A deck can also be presented with its notes (Present with notes in the
+row's menu, in a window wider than 900 px with a pointer, never on a phone;
+a touch screen with no pointer, a tablet too, is not offered it, its Present
+being the one there).
+The presenter view (`DeckPresenter.tsx`) covers the dashboard: the current
+slide large, the next one smaller, the current slide's notes, an elapsed
+timer with pause and reset, the place and its controls; arrows, Space,
+Page Up and Down, Home and End move, Escape ends. The same press opens an
+audience window to drag onto the projector: the dashboard's own page at
+`#/audience/<id>/<session>` (`AudienceWindow.tsx`), drawn without the
+dashboard around it, which frames the deck as the viewer does, loads the
+version the presenter presents (or the presenter says it shows another), and
+offers Full screen (its button, or F); a press on the slide moves it at once,
+the left third back; its bar and the pointer
+go when the mouse rests. The dashboard under the presenter is inert, and a
+deck's error, on either screen, is said in the presenter's head (the room's
+as "On the room's screen: ..."), never over a slide, and can be put away.
+Present with notes reads the deck again first, and each move is numbered
+(`seq`, echoed by the deck as `went`), so moves pressed faster than the
+frames report never bounce. The artifact never opens a window; its sandbox refuses that.
+Each window drives only its own deck frames: the presenter's two and the
+audience's are kept presenting in place (`ArtifactPage`'s `presenting`) and
+told the place with `{__kos: "deck-do", action: "go", index}`, and the two
+windows keep one place over a BroadcastChannel named for the presentation
+(`presentlink.ts`): the presenter's moves go to the audience, and a key
+pressed in the audience window moves the presenter too. The notes come from
+the deck's own report (`said`, a block a line of plain text, set by the
+dashboard only as text). With the pop-up blocked or closed, the presenter
+says so and opens it again from a press; ending closes it.
 
 When a turn writes one, the chat shows it as a card in place of the
 `artifacts.write` step (`ArtifactStep.tsx`): its capture (or its kind's
