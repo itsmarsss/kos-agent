@@ -379,8 +379,8 @@ class Sheet {
 
     const body = el("tbody");
     for (const r of rows) {
-      const num = picking ? el("button", { type: "button", class: "pick", "aria-pressed": String(this.picked.has(r)), "aria-label": `Row ${r}` }, String(r)) : String(r);
-      if (typeof num !== "string") num.addEventListener("click", (e) => this.pick(r, rows, e));
+      const num = picking ? el("button", { type: "button", class: "pick", tabindex: "-1", "aria-pressed": String(this.picked.has(r)), "aria-label": `Row ${r}` }, String(r)) : String(r);
+      if (typeof num !== "string") num.addEventListener("click", (e) => this.pick(r, rows, { run: e.shiftKey, add: e.metaKey || e.ctrlKey }));
       const tr = el("tr", { class: this.picked.has(r) ? "picked" : undefined, "data-row": String(r) }, el("th", { class: "rownum", scope: "row" }, num));
       columns.forEach((c, i) => tr.append(this.cell(t, r, i, values[r - 1]![i] ?? null, c, kinds(c, i))));
       body.append(tr);
@@ -493,6 +493,11 @@ class Sheet {
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
       e.preventDefault();
       return this.undo();
+    }
+    // Shift+Space picks the focused cell's row, or lets it go, as a press on its number with Cmd does.
+    if (e.key === " " && e.shiftKey && !this.book.sheets[this.tab]!.pivot && this.editable(this.tab)) {
+      e.preventDefault();
+      return this.pick(Number(td.dataset.row), this.shownRows(), { run: false, add: true });
     }
     const row = Number(td.dataset.row);
     const col = Number(td.dataset.col);
@@ -970,7 +975,8 @@ class Sheet {
       if (!box.contains(e.target as Node) && e.target !== anchor) this.menuOpen?.close();
     };
     const key = (e: KeyboardEvent): void => {
-      if (e.key !== "Escape") return;
+      // Escape, or Tab out of it, closes the menu and gives its button the focus back.
+      if (e.key !== "Escape" && e.key !== "Tab") return;
       e.preventDefault();
       this.menuOpen?.close();
       anchor.focus();
@@ -1065,12 +1071,12 @@ class Sheet {
     this.show(inlineBar(`Delete the column ${label} and its ${plural(filled, "value")}? Undo brings it back.`, [], [{ label: "Delete column", tone: "danger", run: go }, { label: "Cancel", run: () => this.dismiss() }], true));
   }
 
-  /** Pick rows by their numbers: a press picks one (or none, pressed again), Shift a run of them as shown, Cmd or Ctrl one more. */
-  private pick(r: number, shown: readonly number[], e: MouseEvent): void {
-    if (e.shiftKey && this.pickedFrom !== undefined && shown.includes(this.pickedFrom)) {
+  /** Pick rows by their numbers: a press picks one (or none, pressed again), Shift a run of them as shown, Cmd or Ctrl (or Shift+Space in a cell) one more or one fewer. */
+  private pick(r: number, shown: readonly number[], how: { run: boolean; add: boolean }): void {
+    if (how.run && this.pickedFrom !== undefined && shown.includes(this.pickedFrom)) {
       const [a, b] = [shown.indexOf(this.pickedFrom), shown.indexOf(r)].sort((x, y) => x - y);
       this.picked = new Set(shown.slice(a!, b! + 1));
-    } else if (e.metaKey || e.ctrlKey) {
+    } else if (how.add) {
       if (!this.picked.delete(r)) this.picked.add(r);
       this.pickedFrom = r;
     } else {

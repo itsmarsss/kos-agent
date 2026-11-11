@@ -526,4 +526,22 @@ describe("pasting, importing, and changing the shape", () => {
     expect(panel.querySelector(".sheet-panel-refusal")!.textContent).toMatch(/past the 400 KB an artifact keeps.*project table/);
     expect([...panel.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Cancel"]);
   });
+
+  it("picks a row from the keyboard, keeps row numbers out of the tab order, and closes the column menu on Tab", () => {
+    const { root } = owned();
+    expect([...root.querySelectorAll(".pick")].every((b) => b.getAttribute("tabindex") === "-1")).toBe(true);
+    focusCell(root, 2, 1);
+    root.querySelector("td.focus")!.dispatchEvent(new KeyboardEvent("keydown", { key: " ", shiftKey: true, bubbles: true }));
+    expect(root.querySelector(".sheet-rowbar")!.textContent).toContain("1 row picked");
+    expect(root.querySelector("td.editing")).toBeNull();
+    focusCell(root, 3, 1);
+    root.querySelector("td.focus")!.dispatchEvent(new KeyboardEvent("keydown", { key: " ", shiftKey: true, bubbles: true }));
+    expect(root.querySelector(".sheet-rowbar")!.textContent).toContain("2 rows picked");
+    const more = root.querySelector<HTMLButtonElement>('button[aria-label="Item: column menu"], button[aria-label="Category: column menu"]')!;
+    more.click();
+    expect(root.querySelector(".sheet-menu")).not.toBeNull();
+    document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    expect(root.querySelector(".sheet-menu")).toBeNull();
+    expect(document.activeElement).toBe(more);
+  });
 });
