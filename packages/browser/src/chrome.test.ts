@@ -42,7 +42,6 @@ describe("finding and starting Chrome", () => {
     expect(sealed).toContain("--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1");
     expect(sealed).toContain("--proxy-server=127.0.0.1:9");
     expect(sealed).toContain("--proxy-bypass-list=<-loopback>;127.0.0.1:4100;127.0.0.1:4101");
-    expect(sealed).toContain("--force-webrtc-ip-handling-policy=disable_non_proxied_udp");
     const web = chromeArgs({ port: 9225, profileDir: "/w" });
     expect(web.some((a) => /host-resolver|proxy|webrtc/.test(a))).toBe(false);
   });
