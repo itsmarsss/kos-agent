@@ -57,7 +57,7 @@ const WIDGET_PAGE_WORDS = "This is an older widget page; open it from its projec
 const haystack = (a: ArtifactSummary, project: string): string => `${a.title} ${a.description ?? ""} ${project}`.toLowerCase();
 
 /** The dashboard's palette now, followed as the owner changes it: the thumbnails match it. */
-function useDashboardTheme(): "light" | "dark" {
+export function useDashboardTheme(): "light" | "dark" {
   const read = (): "light" | "dark" => (document.documentElement.dataset.theme === "light" ? "light" : "dark");
   const [theme, setTheme] = useState(read);
   useEffect(() => {

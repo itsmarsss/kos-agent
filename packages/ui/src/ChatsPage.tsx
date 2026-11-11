@@ -739,7 +739,7 @@ export function ChatsPage({
     else setInline(a.id);
   };
   const railProps = { items: owned, ...(inline ? { open: inline } : {}), onOpen: openOwned };
-  // An artifact a turn made opens on its own page, or beside the thread as the rail opens one.
+  // An artifact a turn made opens on its own page, or here in place of the thread, as the rail opens one.
   const artifactOpeners = useMemo<ArtifactOpeners>(
     () => ({ projects, open: (id) => void (window.location.hash = hrefFor({ name: "artifacts", id })), beside: setInline }),
     [projects],

@@ -342,7 +342,7 @@ owns the artifact: the project's, the blob's thread, or KOS at the root).
 When a turn writes one, the chat shows it as a card in place of the
 `artifacts.write` step (`ArtifactStep.tsx`): its capture (or its kind's
 mark until there is one), title, kind and owner, with Open, which goes to
-it here, and Open beside, which opens it in place of the thread as the
+it on its own page, and Open here, which opens it in place of the thread as the
 list beside a project's chat does.
 
 The same viewer shows an artifact opened from its project (`#/page/<id>`),

@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ChatEvent } from "./api.js";
-import { ArtifactOpen, writtenArtifact } from "./ArtifactStep.js";
+import { ArtifactOpen, THUMB_RETRY_MS, writtenArtifact } from "./ArtifactStep.js";
 import { ToolCall } from "./ToolCall.js";
 
 afterEach(cleanup);
@@ -15,7 +15,10 @@ const write = (over: Partial<Tool> = {}): Tool => ({ kind: "tool", name: "artifa
 describe("an artifact a turn wrote", () => {
   it("is read from the record the store kept, else from what was asked when the record was cut short", () => {
     expect(writtenArtifact(write())).toEqual({ id: "brief", title: "Q4 brief", artifactKind: "doc", projectSlug: "garden", updatedAt: record.updatedAt });
-    expect(writtenArtifact(write({ result: JSON.stringify(record).slice(0, 40) }))).toEqual({ id: "brief", title: "Q4 brief", artifactKind: "doc", projectSlug: null });
+    // Cut short: its owner is still read from what survives of it.
+    expect(writtenArtifact(write({ result: JSON.stringify(record).slice(0, 40) }))).toEqual({ id: "brief", title: "Q4 brief", artifactKind: "doc", projectSlug: "garden" });
+    // Cut before its owner: the project the call named.
+    expect(writtenArtifact(write({ result: JSON.stringify(record).slice(0, 12), args: { id: "brief", kind: "doc", title: "Q4 brief", project: "garden" } }))?.projectSlug).toBe("garden");
   });
 
   it("is no artifact while running, held, refused, failed, or for another step", () => {
@@ -27,7 +30,7 @@ describe("an artifact a turn wrote", () => {
     expect(writtenArtifact(write({ name: "artifacts.get" }))).toBeUndefined();
   });
 
-  it("shows as a card in place of the step, opened on its page or beside the thread", () => {
+  it("shows as a card in place of the step, opened on its page or in place of the thread", () => {
     const open = vi.fn();
     const beside = vi.fn();
     const { container } = render(
@@ -42,16 +45,27 @@ describe("an artifact a turn wrote", () => {
     expect(container.querySelector("img")!.getAttribute("src")).toContain("/api/artifacts/brief/thumb");
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
     expect(open).toHaveBeenCalledWith("brief");
-    fireEvent.click(screen.getByRole("button", { name: "Open beside" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open here" }));
     expect(beside).toHaveBeenCalledWith("brief");
   });
 
-  it("shows its kind's mark until a capture exists, and only Open where nothing is beside the chat", () => {
-    const { container } = render(<ToolCall event={write()} />);
-    fireEvent.error(container.querySelector("img")!);
-    expect(container.querySelector("img")).toBeNull();
-    expect(container.querySelector(".artifact-step-thumb svg")).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "Open beside" })).toBeNull();
+  it("shows its kind's mark until a capture exists, asks once more a little later, and only Open where the chat has no room", () => {
+    vi.useFakeTimers();
+    let container: HTMLElement;
+    try {
+      ({ container } = render(<ToolCall event={write()} />));
+      fireEvent.error(container.querySelector("img")!);
+      expect(container.querySelector("img")).toBeNull();
+      expect(container.querySelector(".artifact-step-thumb svg")).not.toBeNull();
+      act(() => void vi.advanceTimersByTime(THUMB_RETRY_MS));
+      expect(container.querySelector("img")!.getAttribute("src")).toContain("try=1");
+      fireEvent.error(container.querySelector("img")!);
+      act(() => void vi.advanceTimersByTime(THUMB_RETRY_MS * 2));
+      expect(container.querySelector("img")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(screen.queryByRole("button", { name: "Open here" })).toBeNull();
     window.location.hash = "";
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
     expect(window.location.hash).toBe("#/artifacts/brief");
