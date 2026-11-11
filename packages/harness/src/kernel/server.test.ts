@@ -1405,15 +1405,16 @@ describe("handleApiRequest", () => {
       const saved = await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/save", body: { edit: { doc: "<h1>Notes</h1><p>two</p>" }, base: rec.updatedAt } });
       expect(saved.status).toBe(200);
       expect(saved.body).toMatchObject({ blob: "noter", projectSlug: null });
-      // A living blob's is not deleted from the dashboard.
-      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(403);
+      // Nothing is deleted from the dashboard straight away: it goes to the trash first.
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/notes/delete", body: {} })).status).toBe(400);
       // Removed, its file goes and its folder stays with the work in it: the artifact is kept, marked as a removed blob's.
       expect((await handleApiRequest(kernel, { method: "POST", path: "/api/agents/delete", body: { name: "noter" } })).status).toBe(200);
       const list = (await handleApiRequest(kernel, { method: "GET", path: "/api/artifacts", body: {} })).body as { id: string; blob?: string; blobRemoved?: boolean }[];
       expect(list.find((p) => p.id === "notes")).toMatchObject({ blob: "noter", blobRemoved: true });
-      // The owner can still restore it, and delete it.
+      // The owner can still restore a version of it, and delete it.
       expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/rollback", body: { version: 1 } })).status).toBe(200);
-      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(200);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/notes/trash", body: {} })).status).toBe(200);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/notes/delete", body: {} })).status).toBe(200);
       expect(kernel.pages.get("notes")).toBeUndefined();
     });
 
@@ -1423,27 +1424,30 @@ describe("handleApiRequest", () => {
       expect((await handleApiRequest(kernel, { method: "POST", path: "/api/agents/delete", body: { name: "noter" } })).status).toBe(200);
       rmSync(join(root, "blobs/noter/artifacts/notes.html"));
       expect(kernel.pages.get("notes")).toBeUndefined();
-      const res = await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} });
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/notes/trash", body: {} })).status).toBe(200);
+      const res = await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/notes/delete", body: {} });
       expect(res).toMatchObject({ status: 200, body: { deleted: true } });
       expect(kernel.pages.record("notes")).toBeUndefined();
       expect(existsSync(join(root, "blobs/noter/artifacts/.history/notes"))).toBe(false);
-      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(404);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/notes/delete", body: {} })).status).toBe(404);
     });
 
-    it("lets the owner delete what a blob made once its folder was deleted by hand, without a reboot", async () => {
+    it("lists what a blob made as a removed blob's once its folder was deleted by hand, without a reboot", async () => {
       kernel.roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
       kernel.pages.writeHtml({ blob: "noter", id: kernel.roles.identity("noter")! }, { id: "notes", title: "Notes", html: "<p>n</p>" });
+      const listed = async (): Promise<{ id: string; blobRemoved?: boolean } | undefined> =>
+        ((await handleApiRequest(kernel, { method: "GET", path: "/api/artifacts", body: {} })).body as { id: string; blobRemoved?: boolean }[]).find((p) => p.id === "notes");
       // Its file moved aside for a moment is still a living blob's.
       const file = join(root, "blobs/noter/blob.md");
       const text = readFileSync(file, "utf8");
       rmSync(file);
-      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).status).toBe(403);
+      expect((await listed())?.blobRemoved).toBeUndefined();
       writeFileSync(file, text);
-      // The whole folder gone is the blob deleted: the list says so, and Delete works.
+      // The whole folder gone is the blob deleted: the list says so, and it can be let go.
       rmSync(join(root, "blobs/noter"), { recursive: true });
-      const list = (await handleApiRequest(kernel, { method: "GET", path: "/api/artifacts", body: {} })).body as { id: string; blobRemoved?: boolean }[];
-      expect(list.find((p) => p.id === "notes")).toMatchObject({ blobRemoved: true });
-      expect(await handleApiRequest(kernel, { method: "POST", path: "/api/pages/notes/delete", body: {} })).toMatchObject({ status: 200, body: { deleted: true } });
+      expect(await listed()).toMatchObject({ blobRemoved: true });
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/notes/trash", body: {} })).status).toBe(200);
+      expect(await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/notes/delete", body: {} })).toMatchObject({ status: 200, body: { deleted: true } });
       expect(kernel.pages.record("notes")).toBeUndefined();
     });
 

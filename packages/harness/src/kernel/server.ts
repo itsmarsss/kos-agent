@@ -1465,19 +1465,10 @@ export async function handleApiRequest(
     const page = kernel.pages.version(decodeURIComponent(versionGet[1]!), Number(versionGet[2]));
     return page ? ok(page) : { status: 404, body: { error: "no such version" } };
   }
-  const bridgeCall = /^\/api\/pages\/([^/]+)\/(query|write|file|save|history|rollback|delete)$/.exec(path);
+  const bridgeCall = /^\/api\/pages\/([^/]+)\/(query|write|file|save|history|rollback)$/.exec(path);
   if (bridgeCall) {
     const id = decodeURIComponent(bridgeCall[1]!);
     const verb = bridgeCall[2]!;
-    // What a removed blob made is the owner's to keep or let go; nothing else is deleted from here. By its row, so one whose file went is let go too.
-    if (verb === "delete" && method === "POST") {
-      // A blob whose folder was deleted by hand is removed now, not at the next boot.
-      kernel.roles.retireDeleted();
-      const record = kernel.pages.record(id);
-      if (!record) return { status: 404, body: { error: "page not found" } };
-      if (!record.blobRemoved) return { status: 403, body: { error: "only what a removed blob made is deleted here" } };
-      return ok({ deleted: kernel.pages.remove(id) });
-    }
     const got = kernel.pages.get(id);
     if (!got) return { status: 404, body: { error: "page not found" } };
     if (verb === "history" && method === "GET") return ok(kernel.pages.history(id));
