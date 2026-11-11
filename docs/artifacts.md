@@ -127,10 +127,13 @@ in one pass and finishes.
 `artifacts.guide({ kind })` returns KOS's design guide
 (`systems/artifactguide.ts`): the general part, then the kind's. It is read
 on demand, not sent with every prompt. It covers deciding the treatment,
-grounding the artifact in its subject and real data, a token plan in the
-artifact's `:root`, both themes at the token level, type, layout, charts,
-being complete at rest, avoiding the generated look, copy, naming and
-building cleanly, then the kind's structure and conventions.
+grounding the artifact in its subject and real data, building on KOS's own
+tokens and face (the default, so an artifact sits on the dashboard as part
+of KOS; only a piece meant to stand apart, a poster or an invitation, writes
+a token plan of its own), both themes, type, layout (sections set apart by
+rules and space, cards only for discrete objects), charts, being complete at
+rest, avoiding the generated look, copy, naming and building cleanly, then
+the kind's structure and conventions.
 
 `artifacts.write` takes the project (omitted for a new workspace artifact;
 omitted on a rewrite, the artifact stays where it is, and `"@workspace"`
@@ -256,9 +259,10 @@ OFL) families, latin only, variable where the family is, in
 
 An artifact names the ones it uses in `fonts`; the frame inlines only those,
 as `data:` URLs (which its policy allows), and sets `--font-<id>` to each
-family's stack with real fallbacks. A doc starts from Newsreader, Public Sans
-and Plex Mono, a deck from Bricolage Grotesque and Public Sans, a sheet from
-Public Sans and Plex Mono, and a page from the system face KOS uses.
+family's stack with real fallbacks. Every kind starts from the system face
+KOS itself is set in; a doc adds Newsreader for its running text only, which
+reads well on KOS's ground in both themes. The other families are for a
+piece that names them.
 `artifactfonts.ts` in `@kos/shared` is the list.
 
 ## Checking before the owner sees it
