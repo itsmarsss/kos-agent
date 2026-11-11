@@ -12,10 +12,11 @@
  */
 
 import type { SheetBook, SheetCell, SheetColumn, SheetTab } from "@kos/shared";
-import { Workbook, columnLetter, findColumn, formatValue, isError, isNumeric, literalOf, sortValue, sourceQuery, sourceRows, totalsRow, type Value } from "@kos/shared/sheetformula";
+import { Workbook, columnLetter, findColumn, formatValue, isError, isNumeric, sortValue, sourceQuery, sourceRows, totalsRow, type Value } from "@kos/shared/sheetformula";
 
 import { bar, line, pie } from "./chartdraw.js";
 import { SHEET_CSS } from "./sheet.css.js";
+import { coerce } from "./sheetimport.js";
 import { addStyle, editable, el, kos, ready, reason } from "./runtime.js";
 
 /** How long after an edit the workbook is saved, so a run of edits is one version. */
@@ -57,13 +58,13 @@ export function wraps(column: SheetColumn, cells: readonly Value[]): boolean {
   return !lengths.length || lengths[Math.floor(lengths.length / 2)]! <= TWO_LINES;
 }
 
-/** What an owner typed, as a cell to store: a formula stays text, a number in a numeric column becomes one. */
+/** What an owner typed, as a cell to store: a formula stays one, a value is read by the column's type as a paste is (a date into ISO), and what does not fit stays as typed. */
 export function cellFromInput(text: string, column: SheetColumn | undefined): SheetCell {
   const t = text.trim();
   if (t === "") return null;
   if (t.startsWith("=")) return t;
-  const v = literalOf(t, column);
-  return isError(v) ? t : v;
+  const got = coerce(t, column);
+  return "cell" in got ? got.cell : t;
 }
 
 /** The rows of a view: filtered by text in one column or any, then sorted, as data row numbers (from 1). */

@@ -86,3 +86,42 @@ export function dateDiff(start: number, end: number, unit: DateDiffUnit): number
     }
   }
 }
+
+const MONTH_NAMES = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/** A two-digit year as a spreadsheet reads one: 00 to 29 this century, 30 to 99 the last. */
+const fullYear = (y: string): number => (y.length > 2 ? Number(y) : Number(y) + (Number(y) < 30 ? 2000 : 1900));
+
+/** The ISO text of a calendar day, or undefined when there is no such day. */
+function isoDay(year: number, month: number, day: number, time = ""): string | undefined {
+  const text = `${pad(year, 4)}-${pad(month)}-${pad(day)}${time}`;
+  return isoSerial(text) === undefined ? undefined : text;
+}
+
+/**
+ * A date as people write one, as ISO text: 2026-11-12 (a time kept),
+ * 2026/11/12, 11/12/2026 (month first, as the owner's spreadsheet writes it
+ * unless the first number cannot be a month), 12.11.2026 (day first), and a
+ * month by name (Nov 12, 2026; 12 November 2026; 12-Nov-26). Undefined when
+ * it is none of these, or no real day.
+ */
+export function parseDate(text: string): string | undefined {
+  const t = text.trim().replace(/^[a-z]{3,9},?\s+(?=\w)/i, (w) => (MONTH_NAMES.includes(w.slice(0, 3).toLowerCase()) ? w : ""));
+  let m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(t);
+  if (m) {
+    const time = m[4] ? ` ${pad(Number(m[4]))}:${m[5]}${m[6] ? `:${m[6]}` : ""}` : "";
+    return isoDay(Number(m[1]), Number(m[2]), Number(m[3]), time);
+  }
+  m = /^(\d{1,2})([-/.])(\d{1,2})\2(\d{2}|\d{4})$/.exec(t);
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[3])];
+    const dayFirst = m[2] === "." || a > 12;
+    return isoDay(fullYear(m[4]!), dayFirst ? b : a, dayFirst ? a : b);
+  }
+  const month = (name: string): number => MONTH_NAMES.indexOf(name.slice(0, 3).toLowerCase()) + 1;
+  m = /^([a-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})$/i.exec(t);
+  if (m && month(m[1]!)) return isoDay(Number(m[3]), month(m[1]!), Number(m[2]));
+  m = /^(\d{1,2})(?:st|nd|rd|th)?[\s-]+([a-z]{3,9})\.?,?[\s-]+(\d{2}|\d{4})$/i.exec(t);
+  if (m && month(m[2]!)) return isoDay(fullYear(m[3]!), month(m[2]!), Number(m[1]));
+  return undefined;
+}

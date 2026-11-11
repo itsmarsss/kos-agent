@@ -17,7 +17,7 @@
 import type { SheetAggregate, SheetBook, SheetCell, SheetColumn, SheetTab } from "./artifacts.js";
 import { dateDiff, isoOf, isoSerial, localIso, partsOf, serialOf, type DateDiffUnit } from "./sheetdates.js";
 
-export { isoOf } from "./sheetdates.js";
+export { isoOf, parseDate } from "./sheetdates.js";
 
 export type ErrorCode = "#REF!" | "#DIV/0!" | "#NAME?" | "#VALUE!" | "#N/A" | "#NUM!" | "#CYCLE!";
 

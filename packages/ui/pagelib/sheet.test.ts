@@ -44,6 +44,8 @@ describe("pure helpers", () => {
     expect(cellFromInput("=A1*2", { label: "x", type: "number" })).toBe("=A1*2");
     expect(cellFromInput("", { label: "x" })).toBe(null);
     expect(cellFromInput("12", { label: "x" })).toBe("12");
+    expect(cellFromInput("Nov 3, 2026", { label: "x", type: "date" })).toBe("2026-11-03");
+    expect(cellFromInput("soon", { label: "x", type: "date" })).toBe("soon");
   });
 
   it("filters in one column or any, and sorts without losing row numbers", () => {
