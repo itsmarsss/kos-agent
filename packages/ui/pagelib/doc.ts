@@ -12,7 +12,7 @@ import { DOC_CSS } from "./doc.css.js";
 import { DOC_EDIT_MAX } from "@kos/shared/artifacts";
 
 import { startEditor, type Editor } from "./docedit.js";
-import { addStyle, editable, el, kos, ready, reducedMotion } from "./runtime.js";
+import { addStyle, editable, el, keepRanges, kos, ready, reducedMotion } from "./runtime.js";
 
 /** How many h2s make a document long enough for a table of contents. */
 export const TOC_MIN = 4;
@@ -96,6 +96,9 @@ export function enhance(article: HTMLElement): Enhanced {
     h.setAttribute(GEN_ID, "");
   }
 
+  // Ranges of figures stay on one line, unwrapped again before anything is saved or compared.
+  keepRanges(article, "h1, h2, h3, h4, .kicker, .lede, th, td, figcaption, li", (span) => span.setAttribute(GEN, WRAP));
+
   // Tables scroll inside their own wrapper.
   for (const table of article.querySelectorAll("table")) {
     if (table.parentElement?.classList.contains("doc-table")) continue;
@@ -132,6 +135,7 @@ export function enhance(article: HTMLElement): Enhanced {
   const sections = headings.filter((h) => h.tagName === "H2");
   let toc: HTMLElement | undefined;
   let watcher: IntersectionObserver | undefined;
+  let unfollow: (() => void) | undefined;
   if (sections.length >= TOC_MIN) {
     const list = el("ol");
     const byId = new Map<string, HTMLButtonElement>();
@@ -141,8 +145,18 @@ export function enhance(article: HTMLElement): Enhanced {
       byId.set(h.id, b);
       list.append(el("li", { class: h.tagName === "H3" ? "sub" : undefined }, b));
     }
-    const wide = typeof matchMedia === "function" && matchMedia("(min-width: 1100px)").matches;
-    toc = el("nav", { class: "doc-toc", "aria-label": "Contents" }, el("details", { open: wide }, el("summary", {}, "Contents"), list));
+    const fold = el("details", {}, el("summary", {}, "Contents"), list);
+    // Open beside the text, folded above it. Followed, not read once: a frame can run its runtime before it has its width.
+    if (typeof matchMedia === "function") {
+      const query = matchMedia("(min-width: 1100px)");
+      const follow = (): void => {
+        fold.open = query.matches;
+      };
+      follow();
+      query.addEventListener("change", follow);
+      unfollow = () => query.removeEventListener("change", follow);
+    }
+    toc = el("nav", { class: "doc-toc", "aria-label": "Contents" }, fold);
     frame.classList.add("has-toc");
     frame.prepend(toc);
     if (typeof IntersectionObserver === "function") {
@@ -166,6 +180,7 @@ export function enhance(article: HTMLElement): Enhanced {
   return {
     undo() {
       watcher?.disconnect();
+      unfollow?.();
       toc?.remove();
       endnotes?.remove();
       frame.classList.remove("has-toc");

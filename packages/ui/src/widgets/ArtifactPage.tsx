@@ -204,6 +204,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const box = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const loads = useRef(0);
+  // Whether the deck presents in its frame, where the browser gave no full screen (see setPresenting).
+  const inPlace = useRef(false);
   const [doc, setDoc] = useState<string>();
   const [error, setError] = useState<string>();
   const [left, setLeft] = useState(false);
@@ -285,6 +287,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   useEffect(() => {
     let stale = false;
     loads.current = 0;
+    // A new document starts not presenting: the old one's in-place present went with it.
+    inPlace.current = false;
     gate.current = heightGate();
     setShown(false);
     setCovered(true);
@@ -337,12 +341,43 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     const el = cover?.current;
     return el ? el.offsetHeight + (parseFloat(getComputedStyle(el).top) || 0) : 0;
   }, [cover]);
-  const present = useCallback((): void => {
-    const el = box.current;
-    if (!el) return;
-    if (el.requestFullscreen) void el.requestFullscreen().catch(() => pageWindow()?.postMessage({ __kos: "present", on: true }, "*"));
-    else pageWindow()?.postMessage({ __kos: "present", on: true }, "*");
-  }, [pageWindow]);
+  /*
+   * Presenting: full screen where the browser gives an element the whole
+   * screen, and the frame hears it from fullscreenchange. Where it has none
+   * (Safari on an iPhone) or refuses, the deck presents in place: the frame
+   * is told on, and off again from the deck, Escape, or Present pressed again.
+   */
+  const presentInPlace = useCallback(
+    (on: boolean): void => {
+      inPlace.current = on;
+      pageWindow()?.postMessage({ __kos: "present", on }, "*");
+    },
+    [pageWindow],
+  );
+  const setPresenting = useCallback(
+    (on: boolean): void => {
+      const el = box.current;
+      if (!el) return;
+      const full = document.fullscreenElement === el;
+      if (!on) {
+        if (full) void document.exitFullscreen?.().catch(() => undefined);
+        else if (inPlace.current) presentInPlace(false);
+        return;
+      }
+      if (full || inPlace.current) return;
+      if (document.fullscreenEnabled && el.requestFullscreen) void el.requestFullscreen().catch(() => presentInPlace(true));
+      else presentInPlace(true);
+    },
+    [presentInPlace],
+  );
+  const present = useCallback((): void => setPresenting(!(inPlace.current || document.fullscreenElement === box.current)), [setPresenting]);
+  useEffect(() => {
+    const key = (e: KeyboardEvent): void => {
+      if (e.key === "Escape" && inPlace.current) presentInPlace(false);
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [presentInPlace]);
   const reply = useCallback(
     (id: unknown, body: { result?: unknown; error?: string }) => {
       pageWindow()?.postMessage({ __kos: "reply", id, ...body }, "*");
@@ -417,9 +452,9 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         setError((current) => current ?? String(m.message ?? "The page hit an error"));
         return;
       }
-      // The owner pressed present inside it: the frame goes full screen, which only this side can do.
+      // The owner pressed present inside it, or the deck stopped presenting: full screen is only this side's to give or take.
       if (m.__kos === "present") {
-        present();
+        setPresenting((m as { on?: unknown }).on !== false);
         return;
       }
       if (m.__kos !== "call") return;
@@ -459,7 +494,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     };
     window.addEventListener("message", heard);
     return () => window.removeEventListener("message", heard);
-  }, [coverHeight, layout, left, locked, onSaved, page.capabilities?.ask, page.kind, pageWindow, present, record.id, reply, show, widthKey]);
+  }, [coverHeight, layout, left, locked, onSaved, page.capabilities?.ask, page.kind, pageWindow, record.id, reply, setPresenting, show, widthKey]);
 
   // A deck or a sheet fills the view below where it starts on the page, so that is measured, not guessed.
   useLayoutEffect(() => {

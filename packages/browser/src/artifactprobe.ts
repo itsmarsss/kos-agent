@@ -41,10 +41,29 @@ export interface ProbeResult {
   clipped: { name: string; by: string }[];
   /** Two runs of text drawn over each other. */
   overlaps: { a: string; b: string }[];
+  /** KOS's own ground for the theme, from the tokens the shell set, and what shows behind the body's text. */
+  ground: { kos: string; body: string };
+  /** Large areas painted in the other theme's brightness: a dark slab on a light page, a light one on a dark page. */
+  inverted: { name: string; width: number; height: number }[];
+  /** Wide boxes with a border all round, each wrapping a section's content (a table, a list, a chart, a form, another box). */
+  wrappers: { name: string; depth: number }[];
+  /** Big figures that say nothing: a placeholder (a dash, n/a), or a zero in a row of figures that all read zero. */
+  blankFigures: { name: string; text: string }[];
+  /** A deck's slides whose brightness stands apart from the rest (an inverted title slide), by number, hidden slides included. */
+  oddSlides: { slide: number; name: string }[];
+  /** Bars whose fill cannot draw: an inline fill (it ignores width), a fill given a width that draws none, a .meter with no --value. */
+  emptyBars: string[];
 }
 
-/** The function serialised into the frame; it must not close over anything. */
-export function probe(): ProbeResult {
+import type { Rgba } from "@kos/shared";
+
+/**
+ * The function serialised into the frame; it must not close over anything.
+ * It is handed @kos/shared's colourOf, serialised beside it, so every colour
+ * a browser computes (oklch, color-mix, hsl) is read the same way the bridge
+ * reads a page's ground.
+ */
+export function probe(colourOf: (css: string) => Rgba | undefined): ProbeResult {
   const view = { width: document.documentElement.clientWidth, height: window.innerHeight };
   const named = (el: Element): string => {
     const id = el.id ? `#${el.id}` : "";
@@ -64,12 +83,7 @@ export function probe(): ProbeResult {
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
   };
-  const rgba = (c: string): [number, number, number, number] | undefined => {
-    const m = /rgba?\(([^)]+)\)/.exec(c);
-    if (!m) return undefined;
-    const p = m[1]!.split(/[\s,/]+/).filter(Boolean).map(Number);
-    return [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0, p[3] ?? 1];
-  };
+  const rgba = (c: string): Rgba | undefined => colourOf(c);
   const over = (top: [number, number, number, number], base: [number, number, number]): [number, number, number] => [
     top[0] * top[3] + base[0] * (1 - top[3]),
     top[1] * top[3] + base[1] * (1 - top[3]),
@@ -201,6 +215,113 @@ export function probe(): ProbeResult {
       if (w > 4 && h > 4 && a.r.width > 0 && b.r.width > 0) overlaps.push({ a: named(a.el), b: named(b.el) });
     }
   }
+  /*
+   * The look: what the guide calls generated. A large area in the other
+   * theme's brightness (an inverted slide or band), boxes wrapping each
+   * section, big figures with nothing to say, and bars that draw nothing.
+   */
+  const dark = document.documentElement.dataset.theme === "dark";
+  const inverted: ProbeResult["inverted"] = [];
+  const wrappers: ProbeResult["wrappers"] = [];
+  const blankFigures: ProbeResult["blankFigures"] = [];
+  /** Every big figure, by the row it sits in (its tile's parent), to tell a row of zeros from one zero among figures. */
+  const figureRows = new Map<Element | null, { name: string; text: string; blank: boolean }[]>();
+  const emptyBars: string[] = [];
+  const rootSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  // What a section holds; a button alone is an object's action, not structure.
+  const STRUCTURE = "table,ul,ol,svg,canvas,input,select,textarea,figure";
+  // A runtime's own furniture (a sheet's grid and charts, a doc's contents, a deck's frames) is KOS's, not the artifact's.
+  const runtimes = (el: Element): boolean => typeof el.className === "string" && /(^|\s)(sheet|doc|deck)-/.test(el.className);
+  const ZERO = /^[$€£]?\s?0([.,]0+)?\s?%?$/;
+  const PLACEHOLDER = /^([-–—]+|n\/?a|null|undefined|NaN|tbd|…|\.\.\.)$/i;
+  const FIGURE = /^[$€£]?\s?[-+]?[\d.,]+\s?(%|[a-z]{1,3})?$/i;
+  // A section's head: a heading, or a short first line set bold.
+  const HEADING = "h1,h2,h3,h4,h5,h6,[role=heading]";
+  const headed = (el: Element): boolean => {
+    if (el.querySelector(HEADING)) return true;
+    const first = el.firstElementChild;
+    const text = (first?.textContent ?? "").trim();
+    return !!first && text.length > 0 && text.length <= 60 && Number(getComputedStyle(first).fontWeight) >= 600;
+  };
+  /*
+   * One of a set, not a section: an item or an article, or one of siblings
+   * alike laid side by side (a grid of cards), when it has no heading of its
+   * own; or, heading and all, one of a row of lanes alike that each hold
+   * cards of their own (a board's columns).
+   */
+  const boxes = new Set<Element>();
+  const holdsBoxes = (n: Element): boolean => [...boxes].some((b) => b !== n && n.contains(b));
+  const listed = (el: Element, r: DOMRect): boolean => {
+    const row = Array.from(el.parentElement?.children ?? []).filter(
+      (sib) => sib !== el && sib.tagName === el.tagName && sib.className === el.className && Math.abs(sib.getBoundingClientRect().top - r.top) < 4,
+    );
+    if (!el.querySelector(HEADING)) return el.matches("li,article") || row.length > 0;
+    return row.length > 0 && holdsBoxes(el) && row.every(holdsBoxes);
+  };
+  const ringed = (s: CSSStyleDeclaration): boolean =>
+    (["Top", "Right", "Bottom", "Left"] as const).every((side) => s[`border${side}Style`] !== "none" && parseFloat(s[`border${side}Width`]) > 0 && (rgba(s[`border${side}Color`])?.[3] ?? 0) > 0);
+  for (const el of all) {
+    if (el.closest("script,style,template,noscript,svg") || el.matches(MEDIA + ",table,thead,tbody,tr,td,th") || !visible(el)) continue;
+    const s = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    const fill = rgba(s.backgroundColor);
+    if (fill && fill[3] >= 0.6 && r.width >= view.width * 0.5 && r.height >= 100) {
+      const seen = shown(el, r);
+      const back = behindOf(el);
+      if (seen && seen.height >= 100 && back) {
+        const l = lum(back);
+        if ((dark && l > 0.45) || (!dark && l < 0.18)) inverted.push({ name: named(el), width: Math.round(seen.width), height: Math.round(seen.height) });
+      }
+    }
+    if (ringed(s) && !runtimes(el)) boxes.add(el);
+    const own = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+    // A figure: the kit's .stat-value, or a leaf in large type, reading a number or a placeholder, with words beside it (its label).
+    const big = el.classList.contains("stat-value") || parseFloat(s.fontSize) >= Math.min(22, rootSize * 1.375);
+    if (el.children.length === 0 && own && big && (FIGURE.test(own) || PLACEHOLDER.test(own))) {
+      const label = (el.parentElement?.textContent ?? "").replace(/\s+/g, " ").trim();
+      if (label.length > own.length) {
+        const row = el.parentElement?.parentElement ?? null;
+        figureRows.set(row, [...(figureRows.get(row) ?? []), { name: named(el.parentElement ?? el), text: own, blank: ZERO.test(own) || PLACEHOLDER.test(own) }]);
+        if (PLACEHOLDER.test(own)) blankFigures.push({ name: named(el.parentElement ?? el), text: own });
+      }
+    }
+    // A bar's track: short, wide and painted, holding its fill. A bar at zero is data; a fill that cannot draw is a bug.
+    if (fill && fill[3] > 0 && r.height <= 16 && r.width >= 60 && r.width >= r.height * 6) {
+      const broken = Array.from(el.children).some((c) => {
+        const given = (c as HTMLElement).style?.width ?? "";
+        return getComputedStyle(c).display === "inline" || (parseFloat(given) > 0 && c.getBoundingClientRect().width < 1);
+      });
+      const unset = el.matches(".meter") && el.children.length === 0 && !s.getPropertyValue("--value").trim();
+      if (broken || unset) emptyBars.push(named(el));
+    }
+  }
+  for (const figures of figureRows.values()) {
+    if (figures.length >= 2 && figures.every((f) => f.blank)) for (const f of figures) if (ZERO.test(f.text)) blankFigures.push({ name: f.name, text: f.text });
+  }
+  // A section wrapper: a wide box with a border all round, holding a head and structure (a table, a list, a chart, a form, another box), and not one of a set of objects.
+  for (const el of boxes) {
+    const r = el.getBoundingClientRect();
+    if (r.width < view.width * 0.25 || r.height < 80 || listed(el, r) || !headed(el)) continue;
+    const holds = el.querySelector(STRUCTURE) !== null || [...boxes].some((b) => b !== el && el.contains(b));
+    if (!holds) continue;
+    let depth = 1;
+    for (let n = el.parentElement; n; n = n.parentElement) if (boxes.has(n)) depth += 1;
+    wrappers.push({ name: named(el), depth });
+  }
+  // A deck's slides, every one: each slide's fill over the stage, against the brightness most slides share.
+  const slides = Array.from(document.querySelectorAll(".deck-slide > section"));
+  const stage = behindOf(document.body) ?? [255, 255, 255];
+  const slideLums = slides.map((sec) => {
+    const f = rgba(getComputedStyle(sec).backgroundColor);
+    return lum(f && f[3] > 0 ? over(f, stage) : stage);
+  });
+  const middle = [...slideLums].sort((a, b) => a - b)[Math.floor(slideLums.length / 2)] ?? 0;
+  const odd = slideLums.flatMap((l, i) => (Math.abs(l - middle) > 0.35 ? [{ slide: i + 1, name: named(slides[i]!).slice(0, 60) }] : []));
+  const oddSlides = slides.length >= 2 && odd.length * 2 < slides.length ? odd.slice(0, 4) : [];
+  const kosBg = colourOf(/--bg:([^;}]+)/.exec(document.getElementById("kos-tokens")?.textContent ?? "")?.[1]?.trim() ?? "");
+  const bodyGround = behindOf(document.body);
+  const rgb = (c: number[]): string => `rgb(${c.slice(0, 3).map(Math.round).join(", ")})`;
+
   // The element that pushes past the edge, not every child it carries along.
   const overflow = [...wide].filter((el) => !el.parentElement || !wide.has(el.parentElement)).map((el) => ({ name: named(el), right: Math.round(el.getBoundingClientRect().right) }));
   // Report the outermost of each nest: an empty card's empty body is the same finding.
@@ -218,5 +339,12 @@ export function probe(): ProbeResult {
     formulaErrors,
     clipped,
     overlaps,
+    ground: { kos: kosBg ? rgb(kosBg) : "", body: bodyGround ? rgb(bodyGround) : "" },
+    // The outermost of each: a slide inside a dark stage is one finding.
+    inverted: inverted.filter((e, i) => !inverted.some((o, j) => j < i && e.name !== o.name && o.width >= e.width && o.height >= e.height)).slice(0, 4),
+    wrappers: wrappers.slice(0, 12),
+    blankFigures: blankFigures.slice(0, 8),
+    emptyBars: emptyBars.slice(0, 4),
+    oddSlides,
   };
 }

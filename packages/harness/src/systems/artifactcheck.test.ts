@@ -5,7 +5,7 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { ArtifactChecker, hostDocument, parseRelay, reportWords, sweepProfiles, type CheckReport } from "./artifactcheck.js";
+import { ArtifactChecker, declaresTokenPlan, hostDocument, parseRelay, reportWords, sweepProfiles, type CheckReport } from "./artifactcheck.js";
 
 /**
  * The check's words and its host page, apart from Chrome: what the page
@@ -124,5 +124,15 @@ describe("the check's left-behind profiles", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("declaresTokenPlan", () => {
+  it("takes a ground and an ink, or several colours, as a plan, and one stray literal as none", () => {
+    expect(declaresTokenPlan("<style>:root{--paper:#fbfaf7;--ink:#1d2330}</style>")).toBe(true);
+    expect(declaresTokenPlan("<style>:root{--a:#111;--b:oklch(0.5 0.1 40);--c:rgb(1 2 3)}</style>")).toBe(true);
+    expect(declaresTokenPlan("<style>:root{--brand:#2f5bd3}</style>")).toBe(false);
+    expect(declaresTokenPlan("<style>:root{--doc-measure:60ch;--gap:12px}</style>")).toBe(false);
+    expect(declaresTokenPlan("<style>.x{--paper:#fff;--ink:#000}</style>")).toBe(false);
   });
 });

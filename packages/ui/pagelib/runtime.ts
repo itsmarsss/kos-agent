@@ -17,7 +17,7 @@ export interface KosBridge {
   query(sql: string, params?: unknown[]): Promise<{ rows: Record<string, unknown>[]; truncated?: boolean }>;
   write(table: string, op: "insert" | "update" | "delete", values: Record<string, unknown>, key?: { column: string; value: unknown }): Promise<unknown>;
   save?: (edit: ArtifactEdit) => Promise<unknown>;
-  present?: () => void;
+  present?: (on?: boolean) => void;
 }
 
 export const kos = (): KosBridge | undefined => (window as unknown as { kos?: KosBridge }).kos;
@@ -67,3 +67,34 @@ export const interactive = (target: EventTarget | null): boolean =>
 
 /** Whether the owner asked for less motion. */
 export const reducedMotion = (): boolean => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/** A range of figures with an en dash ("Ch. 1–6", "2026–2027"), the one thing a line must not break inside. */
+const RANGE = /\b\d{1,4}\s?–\s?\d{1,4}\b/g;
+
+/**
+ * Keep each range of figures in the text of what `selector` matches on one
+ * line: wrapped in a `.nowrap` span of the runtime's own, which `mark` can
+ * mark further (a doc marks it to be unwrapped, so it is never saved).
+ */
+export function keepRanges(root: ParentNode, selector: string, mark?: (span: HTMLElement) => void): void {
+  for (const host of root.querySelectorAll(selector)) {
+    const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+    const texts: Text[] = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) texts.push(n as Text);
+    for (const text of texts) {
+      if (text.parentElement?.closest(".nowrap")) continue;
+      const parts: Node[] = [];
+      let at = 0;
+      for (const m of text.data.matchAll(RANGE)) {
+        if (m.index > at) parts.push(document.createTextNode(text.data.slice(at, m.index)));
+        const span = el("span", { class: "nowrap" }, m[0]);
+        mark?.(span);
+        parts.push(span);
+        at = m.index + m[0].length;
+      }
+      if (!parts.length) continue;
+      if (at < text.data.length) parts.push(document.createTextNode(text.data.slice(at)));
+      text.replaceWith(...parts);
+    }
+  }
+}

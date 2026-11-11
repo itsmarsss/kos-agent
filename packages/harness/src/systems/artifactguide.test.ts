@@ -35,6 +35,21 @@ describe("artifactGuide", () => {
     expect(text).toContain("data-theme and data-mode");
   });
 
+  it("starts from KOS's own tokens and keeps a token plan for a distinctive piece", () => {
+    const text = artifactGuide();
+    for (const token of ["--bg", "--panel", "--line", "--text", "--muted", "--accent"]) expect(text).toContain(token);
+    expect(text).toMatch(/KOS's own look, the default/);
+    expect(text).toMatch(/Distinctive, only for a piece clearly meant to stand apart/);
+    expect(text).not.toMatch(/--paper: #/);
+    // --faint is below AA for text in light: labels are --muted.
+    expect(text).not.toMatch(/color: var\(--faint\)/);
+  });
+
+  it("names the generated looks the check now looks for", () => {
+    const text = artifactGuide();
+    for (const look of [/inverted title slide or band/, /figure tiles reading 0/, /a card around every section/, /duplicate headers/, /many queries at once/]) expect(text).toMatch(look);
+  });
+
   it("says to check once and fix in one pass", () => {
     expect(artifactGuide()).toContain("Fix everything the check reports in one pass, write again, then finish.");
   });
@@ -53,7 +68,7 @@ describe("artifactGuide", () => {
       const n = words(part);
       if (name === "general") expect(n).toBeGreaterThan(1200);
       else expect(n, name).toBeGreaterThan(400);
-      expect(n, name).toBeLessThan(name === "general" ? 2200 : 900);
+      expect(n, name).toBeLessThan(name === "general" ? 2400 : 900);
     }
   });
 

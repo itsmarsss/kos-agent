@@ -7,7 +7,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { findChrome } from "@kos/browser";
 import { COLOURS, type HtmlPage } from "@kos/shared";
 
+import Database from "better-sqlite3";
+
 import { ArtifactChecker, reportWords, type Finding } from "./artifactcheck.js";
+import { PageQueries } from "./pagequeries.js";
 
 /**
  * artifacts.check in a real Chrome, on pages planted with one problem each,
@@ -30,16 +33,33 @@ function pageLib(): string {
   return dir;
 }
 
-/** A page written to the guide: a token plan for both themes, nothing literal, nothing empty. */
+/** A page written to the guide: KOS's tokens, sections set apart by rules, nothing literal, nothing empty. */
 const GOOD = `<style>
-:root{--paper:#fbfaf7;--ink:#1d2330;--quiet:#5a6275;--rule:#d9dce3;--mark:#2f5bd3}
-@media (prefers-color-scheme: dark){:root:not([data-theme=light]){--paper:#11141b;--ink:#e6e9f0;--quiet:#9aa3b5;--rule:#2a303c;--mark:#86a4ff}}
-:root[data-theme=dark]{--paper:#11141b;--ink:#e6e9f0;--quiet:#9aa3b5;--rule:#2a303c;--mark:#86a4ff}
-body{background:var(--paper);color:var(--ink);padding:24px 16px;margin:0}
-main{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
-p{color:var(--quiet)} .entry{border:1px solid var(--rule);padding:12px;color:var(--ink)}
-</style><main><h1>Garden log</h1><a id="jump" href="#days">Jump to the days</a><p>Watering, week of 3 November.</p><div class="entry">Tomatoes: 2 L on Monday</div><table id="days"><tr><th>Day</th><th>Litres</th></tr><tr><td>Mon</td><td>2</td></tr></table></main>
+/* layout: one column, the log over its table */
+main{max-width:640px;display:flex;flex-direction:column;gap:12px}
+p{color:var(--muted)} section{border-top:1px solid var(--line);padding-top:12px} .entry{border:1px solid var(--line);border-radius:var(--r-md);padding:12px;background:var(--panel)}
+</style><main><h1>Garden log</h1><a id="jump" href="#days">Jump to the days</a><p>Watering, week of 3 November.</p><div class="entry">Tomatoes: 2 L on Monday</div><section><table id="days"><tr><th>Day</th><th>Litres</th></tr><tr><td>Mon</td><td>2</td></tr></table></section></main>
 <script>jump.click();kos.query("SELECT 1 AS n").then(function(r){document.querySelector("p").textContent += " " + r.rows.length + " row."})</script>`;
+
+/** A distinctive piece with its own token plan, for both themes: its own ground is its to choose. */
+const POSTER = `<style>
+:root{--paper:#fbfaf7;--ink:#1d2330;--quiet:#5a6275;--mark:#2f5bd3}
+@media (prefers-color-scheme: dark){:root:not([data-theme=light]){--paper:#11141b;--ink:#e6e9f0;--quiet:#9aa3b5;--mark:#86a4ff}}
+:root[data-theme=dark]{--paper:#11141b;--ink:#e6e9f0;--quiet:#9aa3b5;--mark:#86a4ff}
+body{background:var(--paper);color:var(--ink)} p{color:var(--quiet)}
+</style><h1>Harvest supper</h1><p>Saturday 21 November, at the pavilion.</p><section style="background:var(--ink);color:var(--paper);height:240px;padding:24px"><p style="color:var(--paper)">Bring a dish</p></section>`;
+
+/** A section wrapped in a bordered box, as a generated dashboard draws each one. */
+const boxed = (title: string): string => `<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px"><h2>${title}</h2><table><tr><td>Mon</td><td>2</td></tr></table></div>`;
+
+/** Big figures in a row, each with its label. */
+const figures = (...values: string[]): string => `<div class="grid">${values.map((v, i) => `<div><span style="font-size:28px;font-weight:600">${v}</span> <span>figure ${i + 1}</span></div>`).join("")}</div>`;
+
+/** A card for one object: a book, its author, its state. */
+const book = (title: string): string => `<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:8px"><h3>${title}</h3><p>Albert Camus, 1942</p><span class="pill">reading</span></div>`;
+
+/** A board's lane: a heading and its cards, side by side with the other lanes. */
+const lane = (name: string): string => `<div class="lane" style="border:1px solid var(--line);border-radius:10px;padding:12px;flex:1 1 220px;min-width:0"><h2>${name}</h2><ul style="list-style:none;padding:0">${book("The Stranger")}${book("The Plague")}</ul></div>`;
 
 /** A closed fold of a few lines, as the doc runtime's contents are on a phone. */
 const FOLD = `<details><summary>Contents</summary><ol><li>Why</li><li>What</li><li>Cost</li><li>When</li></ol></details>`;
@@ -65,6 +85,37 @@ const PLANTED: Record<string, { html: string; expect: Finding["kind"] }> = {
   untitled: { html: `<p>Just a line of text, no heading.</p>`, expect: "title" },
   formula: { html: `<h1>Sheet</h1><table><tr><td>#REF!</td></tr></table>`, expect: "formula" },
   leaving: { html: `<h1>Leaving</h1><script>setTimeout(function(){ var a = document.createElement("a"); a.href = "https://example.com/x"; document.body.append(a); a.click(); }, 50)</script>`, expect: "left" },
+  // A title band in the ink colour: dark on a light page, light on a dark one.
+  inverted: { html: `<h1>Inverted</h1><section style="background:var(--text);color:var(--bg);height:320px;padding:24px"><p>Season review</p></section>`, expect: "inverted" },
+  boxes: { html: `<h1>Boxes</h1>${boxed("Open now")}${boxed("Needs a nudge")}${boxed("Recent")}`, expect: "boxes" },
+  zeros: { html: `<h1>Zeros</h1>${figures("0", "0", "$0.00")}`, expect: "figures" },
+  // The kit's own stat tiles, as a generated dashboard writes them.
+  "kit zeros": { html: `<h1>Kit zeros</h1><div class="grid"><div class="stat"><span class="stat-value">0</span><span class="stat-label">Figure 1</span></div><div class="stat"><span class="stat-value">0</span><span class="stat-label">Figure 2</span></div><div class="stat"><span class="stat-value">$0.00</span><span class="stat-label">Figure 3</span></div></div>`, expect: "figures" },
+  "kit dashes": { html: `<h1>Kit dashes</h1><div class="grid"><div class="stat"><span class="stat-value">—</span><span class="stat-label">Figure 1</span></div><div class="stat"><span class="stat-value">—</span><span class="stat-label">Figure 2</span></div><div class="stat"><span class="stat-value">—</span><span class="stat-label">Figure 3</span></div></div>`, expect: "figures" },
+  placeholder: { html: `<h1>Placeholder</h1>${figures("12", "—")}`, expect: "figures" },
+  // One zero among real figures is news ("0 overdue"), not noise; a status dot is an empty leaf, not a figure.
+  "one zero": { html: `<h1>One zero</h1>${figures("12", "0", "3")}<p><span class="dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);font-size:28px"></span> on track</p>`, expect: "none" as never },
+  // Cards for objects, and a board's lanes side by side: not sections in boxes.
+  cards: { html: `<h1>Cards</h1>${book("The Stranger")}${book("The Plague")}${book("The Fall")}<div style="display:flex;gap:12px">${lane("Reading")}${lane("Queued")}</div>`, expect: "none" as never },
+  // A board of three lanes, each its heading over cards of its own: one set, not three sections in boxes.
+  board: { html: `<h1>Board</h1><div style="display:flex;flex-wrap:wrap;gap:12px">${lane("Queued")}${lane("Reading")}${lane("Finished")}</div>`, expect: "none" as never },
+  // A deck with a plan of its own whose title slide alone is inverted, the rest hidden as the runtime hides them.
+  "odd slide": { html: `<style>:root{--paper:#fbfaf7;--ink:#1d2330}@media (prefers-color-scheme: dark){:root:not([data-theme=light]){--paper:#11141b;--ink:#e6e9f0}}:root[data-theme=dark]{--paper:#11141b;--ink:#e6e9f0}body{background:var(--paper);color:var(--ink)}</style><h1>Deck</h1><div class="deck-slide"><section style="background:var(--ink);color:var(--paper);height:300px;padding:24px"><h2 style="color:var(--paper)">Westside 2027</h2></section></div><div class="deck-slide" style="display:none"><section style="background:var(--paper);color:var(--ink);height:300px;padding:24px"><h2 style="color:var(--ink)">Harvest</h2></section></div><div class="deck-slide" style="display:none"><section style="background:var(--paper);color:var(--ink);height:300px;padding:24px"><h2 style="color:var(--ink)">Water</h2></section></div><div class="deck-slide" style="display:none"><section style="background:var(--paper);color:var(--ink);height:300px;padding:24px"><h2 style="color:var(--ink)">Ask</h2></section></div>`, expect: "inverted" },
+  "even slides": { html: `<style>:root{--paper:#fbfaf7;--ink:#1d2330}@media (prefers-color-scheme: dark){:root:not([data-theme=light]){--paper:#11141b;--ink:#e6e9f0}}:root[data-theme=dark]{--paper:#11141b;--ink:#e6e9f0}body{background:var(--paper);color:var(--ink)}</style><h1>Deck</h1><div class="deck-slide"><section style="background:var(--paper);color:var(--ink);height:300px;padding:24px"><h2 style="color:var(--ink)">Westside 2027</h2></section></div><div class="deck-slide" style="display:none"><section style="background:var(--paper);color:var(--ink);height:300px;padding:24px"><h2 style="color:var(--ink)">Harvest</h2></section></div><div class="deck-slide" style="display:none"><section style="background:var(--paper);color:var(--ink);height:300px;padding:24px"><h2 style="color:var(--ink)">Water</h2></section></div>`, expect: "none" as never },
+  // Object cards stacked: a bold title and a button, no section in them.
+  "object cards": { html: `<h1>Tasks</h1>${["Water the beds", "Order tanks", "Book the hall"].map((t) => `<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:8px"><div style="font-weight:600">${t}</div><p>Due Friday</p><button class="btn">Open</button></div>`).join("")}`, expect: "none" as never },
+  // Section cards side by side, each with its own heading and table: sections in boxes still.
+  "side boxes": { html: `<h1>Side</h1><div style="display:flex;gap:12px">${["Open", "Due", "Done"].map((t) => `<div class="card" style="flex:1;border:1px solid var(--line);border-radius:10px;padding:12px"><h2>${t}</h2><table><tr><td>Mon</td><td>2</td></tr></table></div>`).join("")}</div>`, expect: "boxes" },
+  // Fills that are inline spans given a width draw nothing; the kit's meter and block fills draw.
+  bars: { html: `<h1>Bars</h1>${["Housing", "Groceries"].map((c) => `<p>${c}</p><div style="height:8px;background:var(--panel-2)"><span style="width:60%;background:var(--accent)"></span></div>`).join("")}`, expect: "bars" },
+  "unset meter": { html: `<h1>Unset</h1><p>Housing</p><div class="meter"></div>`, expect: "bars" },
+  // A month of real zeros: block fills at 0% are data, not a bug.
+  "zero bars": { html: `<h1>Zero bars</h1>${["Housing", "Groceries", "Fun"].map((c) => `<p>${c}</p><div style="height:8px;width:300px;background:var(--panel-2)"><div style="width:0%;height:100%;background:var(--accent)"></div></div>`).join("")}`, expect: "none" as never },
+  meters: { html: `<h1>Meters</h1><p>Housing</p><div class="meter" style="--value: 60%"></div><p>Groceries</p><div class="meter"><div style="width:30%"></div></div><p>Fun</p><div class="meter"><div style="width:0%"></div></div>`, expect: "none" as never },
+  ground: { html: `<style>body{background:var(--panel-2)}</style><h1>Ground</h1><p>A slab of its own.</p>`, expect: "ground" },
+  // Colours a browser computes outside rgb(): read as they draw, not as white or black.
+  "oklch ground": { html: `<style>body{background:oklch(0.62 0.12 40)}</style><h1>Oklch</h1><p>A slab of its own.</p>`, expect: "ground" },
+  "mixed kos ground": { html: `<style>body{background:color-mix(in srgb, var(--bg) 100%, transparent)}</style><h1>Mixed</h1><p>KOS's ground, mixed.</p>`, expect: "none" as never },
 };
 
 const chrome = findChrome(undefined);
@@ -79,6 +130,7 @@ describe.skipIf(!chrome)("artifacts.check in Chrome", () => {
     lib = pageLib();
     captures = mkdtempSync(join(tmpdir(), "kos-captures-"));
     pages.good = { id: "good", title: "Garden log", html: GOOD };
+    pages.poster = { id: "poster", title: "Harvest supper", html: POSTER };
     for (const [id, p] of Object.entries(PLANTED)) pages[id] = { id, title: id, html: p.html };
     checker = new ArtifactChecker({
       load: (id) => (pages[id] ? { page: pages[id]!, title: pages[id]!.title } : undefined),
@@ -106,6 +158,11 @@ describe.skipIf(!chrome)("artifacts.check in Chrome", () => {
     expect(tool.images).toHaveLength(2);
   }, 45_000);
 
+  it("leaves a distinctive piece's own ground alone when it declares a token plan", async () => {
+    const report = await checker.check("poster");
+    expect(report.findings).toEqual([]);
+  }, 45_000);
+
   it.each(Object.entries(PLANTED))("reports the planted problem in %s", async (id, planted) => {
     const report = await checker.check(id);
     const kinds = report.findings.map((f) => f.kind);
@@ -117,6 +174,12 @@ describe.skipIf(!chrome)("artifacts.check in Chrome", () => {
     if (planted.expect === "bridge") expect(report.findings.find((f) => f.kind === "bridge")?.text).toMatch(/kos\.query: the query cannot run here/);
     if (planted.expect === "console") expect(report.findings.some((f) => /the chart had no data/.test(f.text))).toBe(true);
     if (planted.expect === "empty") expect(report.findings.find((f) => f.kind === "empty")?.text).toMatch(/div\.chart/);
+    if (id === "oklch ground") expect(report.findings.find((f) => f.kind === "ground")?.text).not.toMatch(/rgb\((0, 0, 0|255, 255, 255)\)/);
+    if (["inverted", "boxes", "figures", "ground", "bars"].includes(planted.expect)) {
+      expect(report.findings.find((f) => f.kind === planted.expect)?.small).toBe(true);
+      expect(reportWords(report)).toContain(`[${planted.expect}, small]`);
+    }
+    if (id === "placeholder") expect(report.findings.find((f) => f.kind === "figures")?.text).toMatch(/reads "—"/);
     expect(reportWords(report)).toMatch(/one pass.*Do not check again/s);
   }, 45_000);
 });
@@ -154,5 +217,51 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-sheet.js")))("each runti
   it.each(Object.keys(KINDS))("the %s runtime's own chrome passes, in both themes and widths", async (id) => {
     const report = await checker.check(id);
     expect(report.findings).toEqual([]);
+  }, 45_000);
+});
+
+/** Ten queries at once, as a dashboard's charts ask them, then whether all ten came back. */
+const MANY = `<h1>Reading</h1><p id="out">waiting</p><script>Promise.all(Array.from({ length: 10 }, function (_, i) { return kos.query("SELECT n + ? AS n FROM books", [i]) })).then(function (all) { out.textContent = all.length + " answered" }, function (e) { out.textContent = "query failed: " + e.message })</script>`;
+
+describe.skipIf(!chrome)("artifacts.check over real page queries", () => {
+  let dir: string;
+  let queries: PageQueries;
+  let checker: ArtifactChecker;
+  let lib: string;
+  const pages: Record<string, HtmlPage> = {
+    many: { id: "many", title: "Reading", html: MANY },
+    broken: { id: "broken", title: "Broken", html: `<h1>Broken</h1><p id="out">waiting</p><script>kos.query("SELECT missing FROM books").then(function () {}, function (e) { out.textContent = "query failed" })</script>` },
+  };
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "kos-queries-"));
+    const db = new Database(join(dir, "kos.sqlite"));
+    db.exec("CREATE TABLE books (n INTEGER); INSERT INTO books VALUES (1), (2), (3);");
+    db.close();
+    queries = new PageQueries(join(dir, "kos.sqlite"));
+    lib = pageLib();
+    checker = new ArtifactChecker({
+      load: (id) => (pages[id] ? { page: pages[id]!, title: pages[id]!.title } : undefined),
+      call: (id, _verb, args) => queries.run(String(args.sql), (args.params as number[] | undefined) ?? [], { key: id }),
+      captures: (id) => join(dir, "captures", id),
+      pageLib: () => lib,
+    });
+  });
+
+  afterAll(() => {
+    checker?.close();
+    queries?.close();
+    rmSync(lib, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("answers ten queries asked at once, in every render, with nothing to report", async () => {
+    const report = await checker.check("many");
+    expect(report.findings).toEqual([]);
+  }, 45_000);
+
+  it("reports a query the page's own SQL breaks", async () => {
+    const report = await checker.check("broken");
+    expect(report.findings.find((f) => f.kind === "bridge")?.text).toMatch(/kos\.query: no such column: missing/);
   }, 45_000);
 });

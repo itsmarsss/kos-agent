@@ -13,7 +13,7 @@ const RUBRIC = {
     "2. Clear hierarchy: a visible title, a deliberate type scale, readable body text, consistent edges, spacing and alignment across repeated elements.",
     "3. Both themes are designed: the dark pictures are a real dark design with readable text and the light ones a real light design; neither looks broken, washed out or simply inverted.",
     "4. Nothing overlaps, is clipped or runs off the side at phone width; the phone layout is a real one-column layout, not a shrunken desktop.",
-    "5. It avoids the generated look: no purple-to-blue gradient hero, no emoji as section markers, not everything centred, not rounded cards around everything, no numbered 01/02/03 markers on things that are not a sequence.",
+    "5. It looks like part of KOS and avoids the generated look: KOS's own ground, colours and face unless it is clearly a poster or brand piece, no palette or slab of its own, no inverted title slide or band, no card around every section, no row of figures reading 0 or a dash, no duplicate header, no purple-to-blue gradient hero, no emoji as section markers, not everything centred, no numbered 01/02/03 markers on things that are not a sequence.",
   ],
   page: "6. As a dashboard: a summary before detail, figures with their units, charts drawn to scale with readable labels, in a working state with the data shown.",
   doc: "6. As a document: a lede that states the point, sections with plain headings, comfortable line length, tables or figures where they help; it reads like a designed brief, not a web page.",

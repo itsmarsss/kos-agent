@@ -152,11 +152,13 @@ export { MENTION_KINDS, MENTION_SOURCE, type MentionKind } from "./mentions.js";
 export { MATH, displayMathAt, mathOf, type MathSource } from "./math.js";
 export { desaturateHex, hexOfHsv, hsvOfHex, type Hsv } from "./colour.js";
 export { COLOURS, EASE, FLOAT_SHADOW, isDrawnTheme, isThemeMode, LIGHT_COLOURS, RADII, readDashboardTheme, resolveThemeMode, SPRING, TYPE, type ColourToken, type DashboardTheme, type DrawnTheme, type ThemeMode } from "./design.js";
+export { colourOf, type Rgba } from "./colourof.js";
 export { listAt, startsList, type MdList, type MdListItem } from "./lists.js";
 export {
   BRIDGE_SCRIPT,
   FIT_KINDS,
   FRAME_HEIGHT_MAX,
+  FRAME_QUERY_WAIT_MS,
   GUARD_SCRIPT,
   PAGE_CSP,
   PAGE_GUARD_CSP,

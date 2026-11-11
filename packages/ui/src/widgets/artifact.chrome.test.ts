@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { GUARD_SCRIPT, pageDocument, wrapperDocument } from "@kos/shared";
+import { FRAME_QUERY_WAIT_MS, GUARD_SCRIPT, pageDocument, wrapperDocument } from "@kos/shared";
 import { DONE_MS, REVEAL_MS, ownerIn, revealAllowed, saveAllowed } from "./frameheight.js";
 
 /**
@@ -390,6 +390,78 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
    * a block from the "/" menu, then a save of its own through kos.save once
    * the typing stops, which the bridge sends only at the owner's hand.
    */
+  /*
+   * A page on KOS's ground has no gutter of its own (the dashboard's column
+   * gives it one); a page that paints its own ground is marked so, and gets
+   * its gutter back, so its text never meets the edge of its colour.
+   */
+  it("gives a page on a ground of its own its gutter back, and none to one on KOS's", async () => {
+    const css = readFileSync(join(import.meta.dirname, "../../../kit/src/page.css"), "utf8");
+    const report = (then = ""): string =>
+      `<script>addEventListener("load", () => { ${then}; setTimeout(() => top.postMessage({ seen: { ground: document.documentElement.dataset.ground || "", pad: getComputedStyle(document.body).paddingLeft } }, "*"), 700) })</script>`;
+    const KOS = { ground: "", pad: "0px" };
+    const OWN = { ground: "own", pad: "20px" };
+    const cases: [string, string, typeof KOS][] = [
+      ["/kos-ground", `<h1>On KOS</h1>${report()}`, KOS],
+      ["/own-hex", `<style>body{background:#f2efe6}</style><h1>Its own</h1>${report()}`, OWN],
+      // KOS's own ground written another way is still KOS's.
+      ["/kos-mixed", `<style>body{background:color-mix(in srgb, var(--bg) 100%, transparent)}</style><h1>Mixed</h1>${report()}`, KOS],
+      ["/own-oklch", `<style>body{background:oklch(0.95 0.02 80)}</style><h1>Oklch</h1>${report()}`, OWN],
+      ["/own-hsl", `<style>body{background:hsl(40 30% 92%)}</style><h1>Hsl</h1>${report()}`, OWN],
+      ["/own-gradient", `<style>body{background:linear-gradient(#0c0e12, #1a2030)}</style><h1>Gradient</h1>${report()}`, OWN],
+      ["/own-html", `<style>html{background:#f2efe6}body{background:transparent}</style><h1>Its html</h1>${report()}`, OWN],
+      // Changed after it loads, by a class on the body or a theme callback: heard again.
+      ["/own-breathing", `<style>@keyframes breathe{50%{opacity:.96}}body{background:#f2efe6;animation:breathe 4s infinite}</style><h1>Breathing</h1>${report()}`, OWN],
+      ["/own-later", `<style>.paper{background:#f2efe6}</style><h1>Later</h1>${report("document.body.classList.add('paper')")}`, OWN],
+      // A ground that fades with the theme is read once it settles: KOS's still, after a flip mid-fade.
+      ["/kos-fading", `<style>body{transition:background-color .25s}</style><h1>Fading</h1>${report("const s = document.getElementById('kos-tokens'), r = s.textContent; s.textContent = r.replace(/--bg:[^;}]+/, '--bg:#f4f5f8'); dispatchEvent(new MessageEvent('message', { data: { __kos: 'theme', mode: 'light', rule: s.textContent }, source: top })); setTimeout(() => dispatchEvent(new MessageEvent('message', { data: { __kos: 'theme', mode: 'dark', rule: r }, source: top })), 100)")}`, KOS],
+      ["/own-on-theme", `<style>.paper{background:#f2efe6}</style><h1>On theme</h1>${report("kos.onTheme(() => document.body.classList.add('paper')); dispatchEvent(new MessageEvent('message', { data: { __kos: 'theme', mode: 'dark', rule: document.getElementById('kos-tokens').textContent }, source: top }))")}`, OWN],
+    ];
+    for (const [path, html, want] of cases) {
+      const frame = wrapperDocument(pageDocument({ html, tokens: { "--bg": "#0c0e12", "--text": "#e7ebf3" }, mode: "dark", css, libraries: [] }));
+      pages.set(path, `<!doctype html><body><iframe id="f" sandbox="allow-scripts" style="width:800px;height:400px" srcdoc="${srcdoc(frame)}"></iframe><script>
+        addEventListener("message", (e) => { if (e.data && e.data.seen) document.body.dataset.seen = JSON.stringify(e.data.seen); });
+      </script></body>`);
+      await send("Emulation.setDeviceMetricsOverride", { width: 900, height: 600, deviceScaleFactor: 1, mobile: false });
+      await send("Page.navigate", { url: `${base}${path}` });
+      await until("!!document.body.dataset.seen");
+      expect(JSON.parse(String(await value("document.body.dataset.seen"))), path).toEqual(want);
+    }
+  }, 60_000);
+
+  /*
+   * Queries go out two at a time, and one whose answer never comes gives its
+   * turn up after a bounded wait, refused in words: the rest still run.
+   */
+  it("answers a page's queries two at a time, and gives up on one that never comes back", async () => {
+    const html = `<script>
+      const out = {};
+      ["never", "a", "b", "c"].forEach((q) => kos.query(q).then((r) => { out[q] = r.rows[0].v }, (e) => { out[q] = "refused: " + e.message }).then(() => top.postMessage({ out }, "*")));
+    </script>`;
+    const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [] }));
+    pages.set("/queries", `<!doctype html><body><iframe id="f" sandbox="allow-scripts" srcdoc="${srcdoc(frame)}"></iframe><script>
+      const f = document.getElementById("f");
+      let open = 0, most = 0, asked = [];
+      addEventListener("message", (e) => {
+        const page = f.contentWindow.frames[0], m = e.data || {};
+        if (e.source !== page) return;
+        if (m.out) { document.body.dataset.out = JSON.stringify(m.out); return; }
+        if (m.__kos !== "call" || m.method !== "query") return;
+        asked.push(m.args.sql); open += 1; most = Math.max(most, open);
+        document.body.dataset.most = String(most); document.body.dataset.asked = asked.join(",");
+        if (m.args.sql === "never") return;
+        setTimeout(() => { open -= 1; page.postMessage({ __kos: "reply", id: m.id, result: { rows: [{ v: m.args.sql }] } }, "*"); }, 50);
+      });
+    </script></body>`);
+    await send("Page.navigate", { url: `${base}/queries` });
+    await until("(JSON.parse(document.body.dataset.out || '{}').c || '') === 'c'");
+    expect(String(await value("document.body.dataset.most"))).toBe("2");
+    await until("'never' in JSON.parse(document.body.dataset.out || '{}')", FRAME_QUERY_WAIT_MS + 5_000);
+    const out = JSON.parse(String(await value("document.body.dataset.out"))) as Record<string, string>;
+    expect(out).toEqual({ a: "a", b: "b", c: "c", never: `refused: the query had no answer in ${FRAME_QUERY_WAIT_MS / 1000} s; KOS may be busy, so try again` });
+    expect(String(await value("document.body.dataset.asked"))).toBe("never,a,b,c");
+  }, FRAME_QUERY_WAIT_MS + 20_000);
+
   it("edits a doc in place, markdown and the slash menu, and saves on its own through the bridge", async () => {
     const { build } = await import("esbuild");
     const bundled = await build({ entryPoints: [join(import.meta.dirname, "../../pagelib/doc.ts")], bundle: true, write: false, format: "iife", target: "chrome120", charset: "ascii", logLevel: "silent" });
@@ -556,7 +628,8 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     expect(probe.page).toBeLessThanOrEqual(probe.view);
     expect(probe.grids).toHaveLength(2);
     for (const grid of probe.grids) {
-      expect(grid.box).toBeLessThan(probe.view);
+      // The sheet has no gutter of its own (the dashboard's column gives it one), so its box may fill the view, never pass it.
+      expect(grid.box).toBeLessThanOrEqual(probe.view);
       expect(grid.wide).toBeGreaterThan(grid.box);
       expect(grid.scrolled).toBe(400);
       expect(grid.held).toBe(true);
