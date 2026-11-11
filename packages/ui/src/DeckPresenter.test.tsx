@@ -61,8 +61,11 @@ describe("the presenter view", () => {
     expect(within(notes).getByText("Open with the harvest.")).toBeTruthy();
     expect(within(notes).getByText("<b>not markup</b>")).toBeTruthy();
     expect(notes.querySelector("b")).toBeNull();
+    // Named for the slide its report is of, even while the frame has yet to show the presenter's place.
+    expect(within(notes).getByText("Notes, slide 1")).toBeTruthy();
     current!.report({ index: 1, said: [] });
     expect(within(notes).getByText("No notes for this slide.")).toBeTruthy();
+    expect(within(notes).getByText("Notes, slide 2")).toBeTruthy();
     // To the last: the next slide says the deck ends, and next stops.
     fireEvent.click(within(view).getByRole("button", { name: "Next slide" }));
     fireEvent.keyDown(view, { key: "End" });

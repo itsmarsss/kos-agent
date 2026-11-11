@@ -199,7 +199,9 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
   // What went wrong in a slide's frame, said once here and never over the slide.
   const [trouble, setTrouble] = useState<string>();
   const troubled = useCallback((words: string) => setTrouble((was) => was ?? words), []);
+  // The notes and the slide they are of, from one report, so the label never names a slide the notes are not yet of.
   const said = currentView?.said ?? [];
+  const saidOf = (currentView?.index ?? index) + 1;
   const notesScroll = useOverlayScroll<HTMLDivElement>();
   const tap = (e: MouseEvent<HTMLDivElement>): void => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -282,7 +284,7 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
             </div>
           </section>
           <section className="presenter-notes" aria-label="Notes">
-            <span className="label">Notes, slide {index + 1}</span>
+            <span className="label">Notes, slide {saidOf}</span>
             <div className="presenter-notes-body" ref={notesScroll}>
               {said.length ? said.map((line, i) => <p key={i}>{line}</p>) : <p className="presenter-notes-none">No notes for this slide.</p>}
             </div>
