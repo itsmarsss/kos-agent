@@ -1321,7 +1321,9 @@ describe("handleApiRequest", () => {
           return req.path === "/api/devices/none" ? undefined : { status: 200, body: { path: req.path } };
         },
       }];
-      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/devices/pair" }, { token: "secret", extensions })).status).toBe(200);
+      // KOS for Chrome pairs from its own origin, which no other route lets by.
+      const chrome = { host: "127.0.0.1:4317", origin: `chrome-extension://${"a".repeat(32)}`, "sec-fetch-site": "none" };
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/devices/pair", headers: chrome }, { token: "secret", extensions })).status).toBe(200);
       expect((await handleApiRequest(kernel, { method: "GET", path: "/api/devices" }, { token: "secret", extensions })).status).toBe(401);
       expect(seen).toEqual(["/api/devices/pair"]);
       const owner = { "x-kos-token": "secret" };
@@ -1333,7 +1335,7 @@ describe("handleApiRequest", () => {
       expect(seen).not.toContain("/api/devicesX");
     });
 
-    it("refuses a change another site's page asks for, and lets the dashboard, KOS for Chrome and programs by", async () => {
+    it("refuses a change another site's page or an extension asks for, and lets the dashboard and programs by", async () => {
       kernel.pages.writeHtml(null, { id: "memo", title: "Memo", html: "<p>memo</p>" });
       const post = (headers: Record<string, string>, path = "/api/artifacts/memo/rename") =>
         handleApiRequest(kernel, { method: "POST", path, body: { title: "Taken" }, headers: { host: "127.0.0.1:4317", ...headers } });
@@ -1343,6 +1345,9 @@ describe("handleApiRequest", () => {
         { origin: "null", "sec-fetch-site": "cross-site" },
         { "sec-fetch-site": "cross-site" },
         { origin: "chrome-extension://not-an-extension" },
+        // Any extension the owner has installed: KOS for Chrome itself asks nothing of these routes.
+        { origin: `chrome-extension://${"a".repeat(32)}`, "sec-fetch-site": "none" },
+        { origin: `chrome-extension://${"b".repeat(32)}`, "sec-fetch-site": "cross-site" },
         // Another site's page through a proxy that rewrote its Origin to the dashboard's: the browser still says cross-site.
         { origin: "http://127.0.0.1:4317", "sec-fetch-site": "cross-site" },
       ];
@@ -1355,10 +1360,9 @@ describe("handleApiRequest", () => {
       expect(kernel.pages.record("memo")?.title).toBe("Memo");
       // A read is the browser's to keep from another site, by CORS.
       expect((await handleApiRequest(kernel, { method: "GET", path: "/api/artifacts", headers: { host: "127.0.0.1:4317", origin: "https://evil.example" } })).status).toBe(200);
-      // The dashboard itself, through a proxy that passes its host on, KOS for Chrome, an allowed origin, and a program that sends no origin.
+      // The dashboard itself, through a proxy that passes its host on, an allowed origin, and a program that sends no origin.
       expect((await post({ origin: "http://127.0.0.1:4317", "sec-fetch-site": "same-origin" })).status).toBe(200);
       expect((await post({ host: "127.0.0.1:4317", "x-forwarded-host": "kos.example", origin: "https://kos.example" })).status).toBe(200);
-      expect((await post({ origin: `chrome-extension://${"a".repeat(32)}`, "sec-fetch-site": "none" })).status).toBe(200);
       expect((await handleApiRequest(kernel, { method: "POST", path: "/api/artifacts/memo/rename", body: { title: "Allowed" }, headers: { host: "127.0.0.1:4317", origin: "https://ok.example" } }, { allowedOrigins: ["https://ok.example"] })).status).toBe(200);
       expect((await post({})).status).toBe(200);
       expect(crossSiteWrite({ method: "POST", path: "/api/x" })).toBe(false);

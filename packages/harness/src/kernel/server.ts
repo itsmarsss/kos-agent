@@ -3162,15 +3162,15 @@ export function authorized(req: ApiRequest, token: string): boolean {
   return x === token;
 }
 
-/** The extensions KOS for Chrome runs as: their pages and worker send their own origin. */
-const EXTENSION_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
-
 /**
  * Whether a request that changes something came from a web page other than
  * the dashboard's own. A browser says where a request came from (Origin on
  * every POST, Sec-Fetch-Site beside it); a program that is not a browser
  * (KOS for Mac, the CLI, a provider's webhook) says neither and is let by,
- * as are KOS for Chrome's own origin and any origin on the allowlist. The
+ * as is any origin on the allowlist. An extension's origin is any other
+ * site's: KOS for Chrome pairs by an open route and works over the device
+ * socket, which its signatures prove, so it asks nothing here, and an id
+ * Chrome gives an unpacked copy is not one KOS could know to let by. The
  * dashboard's own origin is its host as the request names it, or as a proxy
  * in front passes it on; a browser that calls the request cross-site is
  * believed over an Origin that matches it. An opaque origin ("null", a
@@ -3180,7 +3180,7 @@ export function crossSiteWrite(req: ApiRequest, allowedOrigins: readonly string[
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return false;
   const headers = req.headers ?? {};
   const origin = header(headers, "origin");
-  if (origin !== undefined && (EXTENSION_ORIGIN.test(origin) || allowedOrigins.includes(origin))) return false;
+  if (origin !== undefined && allowedOrigins.includes(origin)) return false;
   // The browser's own word wins over an Origin a proxy in front may have rewritten (the dashboard's dev server does).
   if (header(headers, "sec-fetch-site") === "cross-site") return true;
   if (origin === undefined) return false;
