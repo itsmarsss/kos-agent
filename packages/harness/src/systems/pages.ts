@@ -450,12 +450,7 @@ export class PageStore {
    * workspace artifact (no project) has no tables or files to reach.
    */
   writeHtml(owner: PageOwner, input: unknown, opts: SaveOptions = {}): PageRecord {
-    const projectSlug = projectOf(owner);
-    const blob = blobOf(owner);
-    if (projectSlug !== null && !this.manifest.get(projectSlug)) {
-      throw new Error(`unknown project: ${projectSlug}`);
-    }
-    if (blob !== null && !ROLE_NAME.test(blob.blob)) throw new Error(`not a blob's name: ${blob.blob}`);
+    this.refuseUnknownOwner(owner);
     const errors = validateHtmlPage(input);
     // The exits again, from the document as the browser parses it: a pattern misses one behind an entity or a quoted >.
     const exits = errors.length === 0 ? markupExits((input as HtmlPage).html) : [];
@@ -465,6 +460,27 @@ export class PageStore {
     if (unsavable) errors.push(`the text inside <article data-doc> is what the owner edits, and the editor could not save it back: ${unsavable}. Keep the article to text, headings, lists, tables, figures and SVG with plain styles; put scripts, styles and anything else outside it, or add data-locked to the article if it is not to be edited`);
     if (errors.length > 0) throw new Error(`invalid artifact: ${errors.join("; ")}`);
     const page = input as HtmlPage;
+    this.refuseOutsideOwner(owner, page);
+    return this.keepHtml(owner, page, opts);
+  }
+
+  /** An owner a write can name: a project the manifest has, a blob by a blob's name, or the workspace. */
+  private refuseUnknownOwner(owner: PageOwner): void {
+    const projectSlug = projectOf(owner);
+    const blob = blobOf(owner);
+    if (projectSlug !== null && !this.manifest.get(projectSlug)) throw new Error(`unknown project: ${projectSlug}`);
+    if (blob !== null && !ROLE_NAME.test(blob.blob)) throw new Error(`not a blob's name: ${blob.blob}`);
+  }
+
+  /**
+   * What an artifact reaches must be its owner's to reach: the tables it
+   * writes, its sheet reads and its headline queries, its owner's own, and
+   * a blob's or a workspace artifact none, nor files. Held on every write,
+   * and on a move, where a new owner must not hand it another's data.
+   */
+  private refuseOutsideOwner(owner: PageOwner, page: HtmlPage): void {
+    const projectSlug = projectOf(owner);
+    const blob = blobOf(owner);
     if (projectSlug === null) {
       const reaches = [page.capabilities?.writes?.length ? "capabilities.writes" : "", page.capabilities?.files ? "capabilities.files" : "", page.headline ? "a headline" : ""].filter(Boolean);
       const whose = blob ? `a blob's artifact (${blob.blob}'s)` : "a workspace artifact";
@@ -494,6 +510,10 @@ export class PageStore {
         throw new Error(`headline.query: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+  }
+
+  /** An HTML artifact's file and row, its declarations kept on the row: the last step of every write, after its checks. */
+  private keepHtml(owner: PageOwner, page: HtmlPage, opts: SaveOptions): PageRecord {
     const { id: _id, title: _title, html: _html, ...declared } = page;
     const meta: HtmlMeta = Object.fromEntries(Object.entries(declared).filter(([, v]) => v !== undefined && v !== "")) as HtmlMeta;
     return this.save(owner, page.id, page.title, "html", repairClosingTags(page.html), meta, opts);
@@ -703,17 +723,42 @@ export class PageStore {
     return got;
   }
 
-  /** Write a loaded artifact again as `owner`, with what changes: through every check a write makes, kept as its next version. */
-  private rewrite(got: LoadedPage, owner: PageOwner, change: { id?: string; title?: string; description?: string }, opts: SaveOptions = {}): PageRecord {
+  /**
+   * Write a loaded artifact again as `owner`, with what changes, kept as its
+   * next version. What a change checks is what it changes:
+   *
+   * - `all`, a copy: a new artifact, so every check a write makes;
+   * - `reach`, a move: the document is the one already kept, so only what it
+   *   reaches is held again, against its new owner, and a move can hand it
+   *   no data its new owner lacks;
+   * - `none`, a rename: its words about itself change, nothing it holds or
+   *   reaches does.
+   *
+   * So an artifact written before a rule it would now fail can still be
+   * renamed or moved, and the fence on who may ask for either stays with
+   * the caller.
+   */
+  private rewrite(got: LoadedPage, owner: PageOwner, change: { id?: string; title?: string; description?: string }, checks: "all" | "reach" | "none", opts: SaveOptions = {}): PageRecord {
     if (got.kind === "html") {
-      const { description, ...page } = got.page;
+      const { description, ...rest } = got.page;
       const about = change.description ?? description;
-      return this.writeHtml(owner, { ...page, id: change.id ?? page.id, title: change.title ?? page.title, ...(about ? { description: about } : {}) }, opts);
+      const page: HtmlPage = { ...rest, id: change.id ?? rest.id, title: change.title ?? rest.title, ...(about ? { description: about } : {}) };
+      if (checks === "all") return this.writeHtml(owner, page, opts);
+      this.refuseUnknownOwner(owner);
+      if (checks === "reach") this.refuseOutsideOwner(owner, page);
+      return this.keepHtml(owner, page, opts);
     }
     const project = projectOf(owner);
     if (project === null) throw new Error(`${got.record.id} is an older widget page, which needs a project`);
     if (change.description !== undefined) throw new Error(`${got.record.id} is an older widget page, which has no description`);
-    return this.write(project, { ...got.spec, id: change.id ?? got.spec.id, title: change.title ?? got.spec.title }, opts);
+    const spec: PageSpec = { ...got.spec, id: change.id ?? got.spec.id, title: change.title ?? got.spec.title };
+    if (checks === "all") return this.write(project, spec, opts);
+    this.refuseUnknownOwner(project);
+    if (checks === "reach") {
+      this.assertMutationTablesExist(project, spec);
+      this.assertQueriesStayInProject(project, spec);
+    }
+    return this.save(project, spec.id, spec.title, "spec", JSON.stringify(spec, null, 2), null, opts);
   }
 
   /** Nothing new goes to a removed blob: what it made is kept as it was. */
@@ -734,7 +779,7 @@ export class PageStore {
     // An older widget page has no description, so clearing one changes nothing.
     const description = got.kind === "spec" && change.description?.trim() === "" ? undefined : change.description?.trim();
     if (title === undefined && description === undefined) throw new Error("say a new title or description");
-    return this.rewrite(got, ownerOfRecord(got.record), { ...(title ? { title } : {}), ...(description !== undefined ? { description } : {}) });
+    return this.rewrite(got, ownerOfRecord(got.record), { ...(title ? { title } : {}), ...(description !== undefined ? { description } : {}) }, "none");
   }
 
   /** The id a copy of `id` takes: `<id>-copy`, then `-copy-2` and on, free in any case so its file is its own on any disk. */
@@ -751,7 +796,7 @@ export class PageStore {
     const got = this.loaded(id);
     const owner = ownerOfRecord(got.record);
     this.refuseRemovedBlob(owner);
-    return this.rewrite(got, owner, { id: this.copyId(id), title: `${got.record.title} copy` });
+    return this.rewrite(got, owner, { id: this.copyId(id), title: `${got.record.title} copy` }, "all");
   }
 
   /**
@@ -765,7 +810,7 @@ export class PageStore {
     const from = ownerOfRecord(got.record);
     if (ownerKey(from) === ownerKey(to)) throw new Error(`the artifact ${id} is already ${ownerWords(to)}`);
     this.refuseRemovedBlob(to);
-    return this.rewrite(got, to, {}, { from });
+    return this.rewrite(got, to, {}, "reach", { from });
   }
 
   /** Set an artifact aside: out of every list, its file and versions kept as they are, until it is restored or deleted for good. */

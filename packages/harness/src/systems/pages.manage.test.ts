@@ -97,6 +97,26 @@ describe("PageStore management", () => {
     expect(() => pages.move("old", null)).toThrow(/needs a project/);
   });
 
+  it("renames and moves an artifact written before a rule it now fails, holding only what a move reaches", () => {
+    // Written when an off-page link passed: today's write refuses it.
+    const html = '<p>See <a href="https://x.example/">the source</a>.</p>';
+    expect(() => pages.writeHtml("budget", { id: "old", title: "Old", html })).toThrow(/cannot leave its frame/);
+    mkdirSync(join(root, "projects/budget/pages"), { recursive: true });
+    writeFileSync(join(root, "projects/budget/pages/old.html"), html);
+    const meta = JSON.stringify({ capabilities: { writes: [{ table: "budget_tx", columns: ["amount"] }] } });
+    ws.db.prepare(`INSERT INTO pages (id, project_slug, title, path, updated_at, kind, meta) VALUES ('old', 'budget', 'Old', 'projects/budget/pages/old.html', 1, 'html', ?)`).run(meta);
+    expect(pages.rename("old", { title: "Older", description: "From before." })).toMatchObject({ title: "Older", description: "From before." });
+    // A move still holds what it reaches against its new owner: the budget's table is not the diary's or the workspace's.
+    expect(() => pages.move("old", "diary")).toThrow(/"budget_tx" is not a table of project "diary"/);
+    expect(() => pages.move("old", null)).toThrow(/belongs to no project/);
+    // Without that, it moves as it is.
+    ws.db.prepare(`UPDATE pages SET meta = '{}' WHERE id = 'old'`).run();
+    expect(pages.move("old", null)).toMatchObject({ projectSlug: null, path: "artifacts/old.html" });
+    expect(readFileSync(join(root, "artifacts/old.html"), "utf8")).toBe(html);
+    // A copy is a new artifact, written as any is today.
+    expect(() => pages.duplicate("old")).toThrow(/cannot leave its frame/);
+  });
+
   it("moves nothing to a removed blob, and copies nothing into one, though its work can be moved out", () => {
     const roles = new RoleStore(ws, pages.blobIds);
     roles.write({ name: "noter", description: "Keeps notes", brief: "You keep notes.", memory: "own" });
