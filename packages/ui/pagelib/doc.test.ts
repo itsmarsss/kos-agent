@@ -35,6 +35,14 @@ describe("kos-doc", () => {
     expect(article.nextElementSibling?.classList.contains("doc-notes")).toBe(true);
   });
 
+  it("keeps a range of figures on one line, and never stores the span that does it", () => {
+    const article = mount(`<header><h1>BU354 Ch. 1–6 Cram Sheet</h1><p class="lede">Weeks 3 – 5 and pages 10–12.</p></header><p>Chapters 1–6 in a paragraph stay as written.</p><ul><li>Rows 2–4</li></ul>`);
+    const stored = article.innerHTML;
+    enhance(article);
+    expect([...article.querySelectorAll(".nowrap")].map((n) => n.textContent)).toEqual(["1–6", "3 – 5", "10–12", "2–4"]);
+    expect(cleanDocHtml(article)).toBe(stored.trim());
+  });
+
   it("gives headings ids, wraps tables, and makes no links", () => {
     const article = mount(ARTICLE);
     enhance(article);
@@ -144,6 +152,28 @@ describe("kos-doc", () => {
     expect(states(told).some((s) => s.status === "Saved")).toBe(true);
     expect(article.querySelectorAll(".fn-ref")).toHaveLength(2);
     told.mockRestore();
+  });
+
+  it("saves an edit with no trace of the spans that keep a range together, and counts them as no change", async () => {
+    const save = vi.fn().mockResolvedValue({ version: 2 });
+    (window as { kos?: unknown }).kos = { save };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const article = mount(`<header><h1>BU354 Ch. 1–6 Cram Sheet</h1></header><h2>Weeks 3–5</h2><p>Read it twice.</p>`);
+    startDoc();
+    expect(article.querySelectorAll(".nowrap")).toHaveLength(2);
+    press("edit");
+    press("done");
+    await vi.waitFor(() => expect(article.hasAttribute("contenteditable")).toBe(false));
+    expect(save).not.toHaveBeenCalled();
+    press("edit");
+    article.querySelector("p")!.textContent = "Read it three times.";
+    article.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: "s" }));
+    press("done");
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    const sent = (save.mock.calls[0]![0] as { doc: string }).doc;
+    expect(sent).toContain("<h1>BU354 Ch. 1–6 Cram Sheet</h1>");
+    expect(sent).toContain("<h2>Weeks 3–5</h2>");
+    expect(sent).not.toContain("nowrap");
   });
 
   it("numbers its notes again on leaving when a number was deleted, though the saved text is the same", async () => {
