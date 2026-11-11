@@ -653,7 +653,11 @@ export function App(): React.ReactElement {
   };
   /** Delete a project wherever it was asked from; a page that was showing it leaves it. */
   const deleteProject = async (slug: string): Promise<void> => {
-    const gone = await api.deleteProject(slug);
+    // A refusal (its trash has nowhere to go) is said wherever it was asked from, a menu included.
+    const gone = await api.deleteProject(slug).catch((err: unknown) => {
+      flash("err", err instanceof Error ? err.message : String(err));
+      throw err;
+    });
     setInspect(null);
     const kept = gone.trashKept ? `; ${gone.trashKept} in its trash kept in the workspace's trash` : "";
     flash("ok", `Deleted ${slug}: ${gone.tablesDropped.length} tables, ${gone.pagesRemoved} pages; ${gone.conversationsArchived} chats archived, ${gone.jobsDisabled} jobs off${kept}`);
