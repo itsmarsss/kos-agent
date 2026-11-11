@@ -232,8 +232,11 @@ describe("a blob's artifact, from a chat at the root", () => {
     kernels.splice(0);
     const after = await boot();
     const res = await after.approve(asked.id);
-    expect(res).toMatchObject({ ok: true, isError: false, message: "ok" });
-    expect(existsSync(join(root, NOTE))).toBe(false);
+    // Past the fence, as the owner's own: what stops it is that files.* takes no artifact away, which is the trash's to do.
+    expect(res).toMatchObject({ ok: true, isError: true });
+    expect(res.message).toMatch(/is part of the artifact notes, which files.\* does not take away/);
+    expect(res.message).not.toMatch(/not this chat's/);
+    expect(existsSync(join(root, NOTE))).toBe(true);
   });
 
   it("gives a guest's orphaned approval none of it", async () => {

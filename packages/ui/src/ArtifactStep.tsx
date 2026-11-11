@@ -50,23 +50,26 @@ function cutField(raw: string, name: string): string | null | undefined {
 }
 
 /**
- * The artifact an artifacts.write step wrote: from its result (the record the
- * store kept), else from what it was asked to write. Nothing for any other
- * step, one still running, held for approval or failed, or a write that
- * names no id and title.
+ * The artifact an artifacts.write or artifacts.patch step wrote: from its
+ * result (the record the store kept, or a patch's summary line before its
+ * check), else from what it was asked to write. Nothing for any other step,
+ * one still running, held for approval or failed, or a write that names no
+ * id and title.
  */
 export function writtenArtifact(event: Extract<ChatEvent, { kind: "tool" }>): WrittenArtifact | undefined {
-  if (event.name !== "artifacts.write" || event.result === undefined || event.isError || event.pendingId !== undefined) return undefined;
+  if ((event.name !== "artifacts.write" && event.name !== "artifacts.patch") || event.result === undefined || event.isError || event.pendingId !== undefined) return undefined;
   // What the store kept is a record; anything else (a refusal in words) is no artifact.
   if (!event.result.trimStart().startsWith("{")) return undefined;
+  // A patch's summary is its first line; the check's words follow it.
+  const result = event.name === "artifacts.patch" ? event.result.trimStart().split("\n")[0]! : event.result;
   let kept: Record<string, unknown> = {};
   try {
-    const parsed: unknown = JSON.parse(event.result);
+    const parsed: unknown = JSON.parse(result);
     if (parsed && typeof parsed === "object") kept = parsed as Record<string, unknown>;
   } catch {
     // A record cut short in the transcript: what survives of it, then the arguments.
     for (const name of ["id", "title", "projectSlug", "blob", "artifactKind"]) {
-      const v = cutField(event.result, name);
+      const v = cutField(result, name);
       if (v !== undefined) kept[name] = v;
     }
   }

@@ -16,8 +16,8 @@ const kindDefaults = (kind: ArtifactKind): string => {
 };
 
 /** The workflow's last steps where KOS has a Chrome to check in, and where it has none. */
-const CHECK_STEPS = `4. Check it once with artifacts.check({ id }). It renders the artifact in KOS's own headless Chrome at 1280 px and 390 px wide, light and dark, and reports sideways overflow and the element causing it, text cut off by a box that hides its overflow, text drawn over other text, colours that stay the same in both themes, text below AA contrast, console errors, failed bridge calls, regions empty at rest, a missing visible title, and, marked small, the generated look (an inverted slide or band, bordered boxes wrapping sections, big figures reading 0 or a dash, a ground other than KOS's without a token plan), with a small screenshot.
-5. Fix everything the check reports in one pass, write again, then finish. Do not check again in a loop; one check, one round of fixes.`;
+const CHECK_STEPS = `4. Check it once with artifacts.check({ id }). It renders the artifact in headless Chrome at 1280 px and 390 px wide, light and dark, and reports sideways overflow and its cause, clipped or overlapping text, colours that stay the same in both themes, contrast below AA, console errors, failed bridge calls, empty regions, a missing title and, marked small, the generated look, with a small screenshot. A patch is checked as it saves.
+5. Fix everything the check reports in one pass, with artifacts.patch, then finish. Do not check again in a loop; one check, one round of fixes.`;
 const NO_CHECK_STEPS = `4. This KOS has no Chrome to render artifacts in, so artifacts.check is not available here; do not call it. Before writing, read the HTML over once against this guide (tokens for both themes, nothing wider than a 390 px phone, no empty regions at rest, a visible title), then write once and finish.`;
 
 const GENERAL = `# How KOS makes an artifact
@@ -28,7 +28,7 @@ An artifact is one HTML document KOS writes for the owner: a page (an app, dashb
 
 1. Read this guide for the kind you are making: artifacts.guide({ kind }).
 2. Decide the treatment and the subject (below) before writing markup.
-3. Write it with artifacts.write: project (omit it for a new workspace artifact, which then has no tables or files to read; rewriting an existing id without it keeps the artifact where it is), id, kind, title, description, html, and fonts, capabilities, libraries or headline when needed.
+3. Write it with artifacts.write: project (omit it for a new workspace artifact, which then has no tables or files to read; rewriting an existing id without it keeps the artifact where it is), id, kind, title, description, html, and fonts, capabilities, libraries or headline when needed. To change one that exists, read it with artifacts.get and change only what was asked with artifacts.patch: each find copied exactly from the stored HTML and occurring once, or an element's id. Write it whole again only for a redesign or a new structure.
 ${CHECK_STEPS}
 
 ## Decide the treatment first
@@ -83,7 +83,7 @@ The body takes its background and colour from the plan; KOS then gives it a gutt
 KOS's own look needs no fonts: it is the system face, and a doc brings its reading serif. A distinctive piece names the bundled ones it uses in artifacts.write's fonts (ids below); KOS inlines them as var(--font-<id>), with a fallback stack.
 ${fontList()}
 
-Pair deliberately: a serif body with a grotesque for labels, or one sans in two weights with a mono for figures; two families usual, three the most, a display face at one or two sizes.
+Pair deliberately (a serif body with grotesque labels, or one sans with a mono for figures): two families usual, three the most.
 
 ## Typography
 
@@ -131,7 +131,7 @@ These read as made by a machine, so do not reach for them by default:
 - emoji as section markers or bullets;
 - everything centred;
 - 01 / 02 / 03 markers on content that is not a sequence;
-- many queries at once, one per figure: ask for what a view needs in one query (GROUP BY, a CTE) and keep a page to a handful.
+- many queries at once, one per figure, where one (GROUP BY, a CTE) serves a view.
 When the owner gives a direction (a colour, a face, a reference, a mood), follow it over this list.
 
 ## Copy
@@ -151,7 +151,7 @@ The title is a short specific noun phrase, a name and not a caption: "Halifax Re
 - Summary before detail: what answers the main question first, the rows after.
 - Show state in form: a pill for a status, chips for filters, a tag for a category.
 - Keep ok, warn and danger apart from the accent, which means "act here", not "good".
-- Interactive things look it: rows that open show a hover and a cursor.
+- Rows that open show a hover and a cursor.
 
 ## Build cleanly
 

@@ -51,7 +51,14 @@ describe("artifactGuide", () => {
   });
 
   it("says to check once and fix in one pass", () => {
-    expect(artifactGuide()).toContain("Fix everything the check reports in one pass, write again, then finish.");
+    expect(artifactGuide()).toContain("Fix everything the check reports in one pass, with artifacts.patch, then finish.");
+  });
+
+  it("changes what exists with a patch, and writes it whole only for a redesign", () => {
+    for (const canCheck of [true, false]) {
+      expect(artifactGuide("doc", canCheck)).toMatch(/To change one that exists, read it with artifacts.get and change only what was asked with artifacts.patch: each find copied exactly from the stored HTML and occurring once/);
+      expect(artifactGuide("doc", canCheck)).toMatch(/whole again only for a redesign/);
+    }
   });
 
   it("holds the runtimes' structure for each kind", () => {
