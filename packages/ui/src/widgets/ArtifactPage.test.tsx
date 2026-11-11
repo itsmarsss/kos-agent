@@ -379,19 +379,42 @@ describe("a frame as tall as its page", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("draws a doc's editing controls above its frame, as the doc says, and sends what the owner presses", async () => {
-    const { pageWin, say } = await frame();
+  it("tells the viewer how a doc's editing stands, and sends the doc what the owner presses in the viewer's head", async () => {
+    const handle: { current: ArtifactHandle | null } = { current: null };
+    const heard = vi.fn();
+    render(<ArtifactPage ref={handle} record={record} page={page} onEdit={heard} />);
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
     const told = vi.spyOn(pageWin, "postMessage");
-    say({ __kos: "edit", editing: false, pending: false, status: "", bad: false });
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    expect(told).toHaveBeenCalledWith({ __kos: "edit-do", action: "edit" }, "*");
     say({ __kos: "edit", editing: true, pending: true, status: "Saving…", bad: false });
-    const bar = screen.getByRole("toolbar", { name: "Editing" });
-    expect(bar.textContent).toContain("Saving…");
-    for (const [name, action] of [["Undo", "undo"], ["Redo", "redo"], ["Discard", "discard"], ["Done", "done"]] as const) {
-      fireEvent.click(screen.getByRole("button", { name }));
+    expect(heard).toHaveBeenLastCalledWith({ editing: true, pending: true, status: "Saving…", bad: false });
+    // The frame draws no bar of its own: the head is the one toolbar.
+    expect(screen.queryByRole("toolbar")).toBeNull();
+    for (const action of ["edit", "undo", "redo", "discard", "done"] as const) {
+      act(() => handle.current!.edit(action));
       expect(told).toHaveBeenLastCalledWith({ __kos: "edit-do", action }, "*");
     }
+  });
+
+  it("hands a deck's bar to the viewer's head, and moves the deck as the head asks", async () => {
+    const handle: { current: ArtifactHandle | null } = { current: null };
+    const heard = vi.fn();
+    render(<ArtifactPage ref={handle} record={record} page={{ ...page, kind: "deck" }} onDeck={heard} />);
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
+    const told = vi.spyOn(pageWin, "postMessage");
+    say({ __kos: "deck", index: 2, count: 9, grid: false, notes: true, reading: false, hosted: false });
+    expect(told).toHaveBeenCalledWith({ __kos: "deck-do", action: "host" }, "*");
+    expect(heard).toHaveBeenLastCalledWith({ index: 2, count: 9, grid: false, notes: true, reading: false });
+    told.mockClear();
+    say({ __kos: "deck", index: 3, count: 9, grid: false, notes: true, reading: false, hosted: true });
+    expect(told).not.toHaveBeenCalled();
+    act(() => handle.current!.deck("next"));
+    expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "next" }, "*");
   });
 
   it("finishes a doc's editing before the frame goes, saving what waits", async () => {
@@ -444,31 +467,31 @@ describe("a doc's saves, which are the owner's", () => {
   it("relays a save just after the dashboard's own Done, with no hand in the frame, and never after Discard, Undo or Edit", async () => {
     const saved = vi.spyOn(api, "savePage").mockResolvedValue({ ...record, updatedAt: 2 });
     hand(false);
-    const { say, save, press } = await frame();
+    const { handle, say, save, press } = await frame();
     say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
     // A page saving on its own, the owner's hand nowhere: refused.
     save(1);
     expect(saved).not.toHaveBeenCalled();
     await press();
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    act(() => handle.current!.edit("done"));
     save(2);
     expect(saved).toHaveBeenCalledTimes(1);
     // One save for one Done.
     save(2);
     expect(saved).toHaveBeenCalledTimes(1);
-    for (const name of ["Discard", "Undo"]) {
-      fireEvent.click(screen.getByRole("button", { name }));
+    for (const action of ["discard", "undo"] as const) {
+      act(() => handle.current!.edit(action));
       save(3);
-      expect(saved, name).toHaveBeenCalledTimes(1);
+      expect(saved, action).toHaveBeenCalledTimes(1);
     }
     say({ __kos: "edit", editing: false, pending: false, status: "", bad: false });
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    act(() => handle.current!.edit("edit"));
     save(4);
     expect(saved).toHaveBeenCalledTimes(1);
     // Done, and then too long: the window has passed.
     say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
     await press();
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    act(() => handle.current!.edit("done"));
     vi.spyOn(performance, "now").mockReturnValue(performance.now() + DONE_MS + 100);
     save(5);
     expect(saved).toHaveBeenCalledTimes(1);
@@ -482,7 +505,7 @@ describe("a doc's saves, which are the owner's", () => {
     say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
     const leaving = handle.current!.settle();
     save(7);
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    act(() => handle.current!.edit("done"));
     save(8);
     expect(saved).not.toHaveBeenCalled();
     say({ __kos: "edit", editing: false, pending: false, status: "", bad: false });
@@ -490,10 +513,10 @@ describe("a doc's saves, which are the owner's", () => {
     // Touched, saved once by Done; then untouched again, the next Done saves nothing.
     say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
     await press();
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    act(() => handle.current!.edit("done"));
     save(9);
     expect(saved).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    act(() => handle.current!.edit("done"));
     save(10);
     expect(saved).toHaveBeenCalledTimes(1);
   });

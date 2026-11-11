@@ -237,6 +237,31 @@ describe("one artifact, full size", () => {
     expect(titles()).toEqual(["New notes"]);
   });
 
+  it("draws a deck's controls in its one head row: the slide, notes, grid and one Present", async () => {
+    const record = ART[2]!;
+    vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "pitch", title: "Garden pitch", kind: "deck", html: "<main data-deck><section>a</section></main>" } } as never);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200, headers: { "content-type": "text/javascript" } }));
+    render(<ArtifactViewer id="pitch" projects={projects} onBack={() => undefined} onOpenChat={() => undefined} />);
+    const el = await waitFor(() => {
+      const f = document.querySelector<HTMLIFrameElement>("iframe.artifact-frame");
+      if (!f) throw new Error("no frame yet");
+      return f;
+    });
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const told = vi.spyOn(pageWin, "postMessage");
+    act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "deck", index: 0, count: 4, grid: false, notes: false, reading: false, hosted: true } })));
+    const head = screen.getByRole("banner");
+    expect(within(head).getByRole("heading", { level: 1 }).textContent).toBe("Garden pitch");
+    expect(within(head).getByText("1 / 4")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Present" })).toHaveLength(1);
+    expect((within(head).getByRole("button", { name: "Previous slide" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(head).getByRole("button", { name: "Next slide" }));
+    expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "next" }, "*");
+    fireEvent.click(within(head).getByRole("button", { name: "Notes" }));
+    expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "notes" }, "*");
+  });
+
   it("restores on the version the doc's own last save made, not the one first opened", async () => {
     const record = { ...ART[3]!, artifactKind: "page" as const };
     vi.spyOn(api, "anyPage").mockResolvedValue({ record, kind: "html", page: { id: "ledger", title: "Ledger", html: "<p>x</p>" } } as never);
@@ -262,7 +287,9 @@ describe("one artifact, full size", () => {
     gestures.port1.postMessage(0);
     await new Promise((r) => setTimeout(r, 20));
     say({ __kos: "edit", editing: true, pending: true, status: "", bad: false });
-    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    // While editing, the head's row holds the editing and History waits in its menu.
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "History" }));
     const rows = within(await screen.findByRole("dialog", { name: "History" })).getAllByRole("listitem");
     fireEvent.click(within(rows[1]!).getByRole("button", { name: "Restore" }));
     fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Restore" })).getByRole("button", { name: "Restore" }));

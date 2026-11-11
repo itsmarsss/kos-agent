@@ -198,7 +198,7 @@ menu of blocks at the start of an empty line (headings, lists, a
 checklist, a quote, a divider, a table, a callout, an image from a file),
 markdown typed at a line's start (`# `, `## `, `- `, `1. `, `> `, `[] `)
 and around words (`**bold**`, `` `code` ``). A drop is taken as plain text,
-as a paste is. Its controls are the dashboard's, in a bar above the frame
+as a paste is. Its controls are the dashboard's, in the viewer's head
 that stays in view as the doc scrolls by (Edit, then Undo, Redo, Discard,
 Done and how the save stands): the doc says how its editing stands
 (`{__kos: "edit", editing, pending, status}`) and the dashboard sends what
@@ -315,8 +315,17 @@ still waiting. An older widget-spec page is listed too, marked as one; it
 has no capture, and its viewer offers Convert with KOS, which asks its
 project's chat to rewrite it as an HTML artifact under the same id.
 
-Opening one shows it full size under a head with its title, kind, owner
-and when it changed, and its actions: History (a drawer of every version,
+Opening one shows it full size under one compact row that sticks as it
+scrolls (`ArtifactHead.tsx`): back, the owner and the title as a
+breadcrumb, the kind and when it changed, and its actions; the artifact
+keeps its own title below, so the head says it once, small, and its
+description waits in the row's menu. The frame's own controls are in that
+row too, so there is one toolbar: a doc's editing (below), and a deck's
+slide, notes and grid, which the deck reports (`{__kos: "deck", index,
+count, grid, notes, reading, hosted}`) and the dashboard presses
+(`{__kos: "deck-do", action}`), its own bar handed over on the first
+report and kept when it stands alone. On a phone the row is the title and
+the menu, with Done in reach while editing. The actions: History (a drawer of every version,
 newest first, each older one with Preview, which shows that version in place
 with nothing in it saved, written or asked, and Restore, which like an edit
 names the version it was made on and is refused with a 409 when one was
@@ -376,7 +385,7 @@ shown (its project, the viewer, full screen):
 - A doc's contents beside the text stay in view: the dashboard tells the doc
   where its view is over the frame (`{__kos: "view", top, height}`, numbers
   only, once a frame), and the doc moves its contents to match.
-- A deck is a 16:9 stage as wide as the room, under its bar, never taller
+- A deck is a 16:9 stage as wide as the room, under the viewer's head, never taller
   than the view; a sheet fills the view below where its frame starts, and
   its runtime gives the grid what is left under its head and tools, so only
   the grid scrolls. On a phone, sideways too: the grid's box is contained

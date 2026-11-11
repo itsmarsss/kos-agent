@@ -7086,9 +7086,9 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 }
 /* Until the page says how tall it is. */
 .artifact-frame[data-layout="fit"] { height: 16rem; }
-/* The slide's 16:9 at the frame's width (less the stage's 12px padding), and the deck's 52px bar; never taller than the view. */
+/* The slide's 16:9 at the frame's width (less the stage's 12px padding); never taller than the view. Its controls are the viewer's head, so the deck's own bar is away. */
 .artifact-frame[data-layout="deck"] {
-  height: min(calc((100cqw - 24px) * 9 / 16 + 24px + 52px), calc(100dvh - var(--artifact-top) - 4rem));
+  height: min(calc((100cqw - 24px) * 9 / 16 + 24px), calc(100dvh - var(--artifact-top) - 1.5rem));
   min-height: 12rem;
   border-radius: var(--r-md);
 }
@@ -7172,16 +7172,63 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 
 /* One artifact, full size: its head, then the artifact as part of the page. */
 .artifact-view { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
-.artifact-view-back { all: unset; align-self: flex-start; cursor: pointer; color: var(--muted); font-size: var(--text-base); }
-.artifact-view-back:hover { color: var(--accent); }
-.artifact-view-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-.artifact-view-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem 1rem; flex-wrap: wrap; padding-bottom: 0.85rem; border-bottom: 1px solid var(--line); }
-.artifact-view-titles { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 18rem; }
-.artifact-view-title { margin: 0; font-size: var(--text-2xl); letter-spacing: -0.02em; line-height: 1.2; overflow-wrap: anywhere; }
-.artifact-view-meta { display: flex; gap: 6px 12px; align-items: center; color: var(--faint); font-size: var(--text-sm); flex-wrap: wrap; }
-.artifact-view-owner { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
-.artifact-view-acts { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
-.artifact-view-desc { margin: 2px 0 0; color: var(--muted); max-width: 46rem; line-height: 1.5; }
+/* The viewer's head: one compact row that sticks over the artifact as it scrolls by (ArtifactHead.tsx). */
+.artifact-view-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 46px;
+  padding: 8px 0;
+  margin-top: -8px;
+  background: color-mix(in srgb, var(--bg) 95%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.artifact-view-back { flex: none; }
+/* Sized by the row, never by the title, so a long one is cut rather than widening the page. */
+.artifact-view-crumbs { display: flex; align-items: center; gap: 8px; width: 0; min-width: 0; flex: 1 1 auto; }
+.artifact-view-owner {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  max-width: 14rem;
+  padding: 3px 6px;
+  margin-left: -6px;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: var(--text-base);
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 140ms ease-out, color 140ms ease-out;
+}
+.artifact-view-owner > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+button.artifact-view-owner { cursor: pointer; }
+button.artifact-view-owner:hover { color: var(--text); background: var(--panel-2); }
+button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.artifact-view-sep { display: inline-flex; flex: none; color: var(--faint); margin-left: -2px; }
+.artifact-view-title { margin: 0; min-width: 0; font-size: var(--text-lg); font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.artifact-view-meta { display: inline-flex; align-items: center; gap: 8px; flex: none; color: var(--faint); font-size: var(--text-sm); white-space: nowrap; }
+.artifact-view-acts { display: flex; align-items: center; gap: 4px; flex: none; }
+.artifact-view-acts .btn[aria-pressed="true"] { color: var(--accent); background: var(--accent-dim); }
+.artifact-view-status { max-width: 16rem; margin-right: 6px; color: var(--muted); font-size: var(--text-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.artifact-view-status.is-bad { color: var(--danger); }
+.artifact-view-deck { display: inline-flex; align-items: center; gap: 2px; margin-right: 6px; }
+.artifact-view-count { min-width: 5.5ch; text-align: center; color: var(--text); font-size: var(--text-sm); font-weight: 500; font-variant-numeric: tabular-nums; }
+.artifact-view-menu-wrap { flex: none; }
+.artifact-view-menu { position: fixed; z-index: 60; min-width: 12rem; max-width: min(20rem, calc(100vw - 16px)); padding: 3px; border-color: var(--line-strong); transform-origin: top right; }
+.artifact-view-menu button { padding: 0.4rem 0.55rem; }
+.artifact-view-menu button[aria-checked="true"] { color: var(--accent); }
+.artifact-view-about { margin: 0 0 3px; padding: 6px 8px 9px; color: var(--muted); font-size: var(--text-sm); line-height: 1.45; border-bottom: 1px solid var(--line); }
+/* Wider, the row holds these itself. */
+.artifact-view-menu button.artifact-view-narrow, .artifact-view-menu-wrap.artifact-view-narrow { display: none; }
 .artifact-view-loading { display: flex; flex-direction: column; gap: 10px; }
 .artifact-ask-edit { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); }
 .artifact-ask-edit label { color: var(--muted); font-size: var(--text-base); }
@@ -7205,8 +7252,12 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
   .artifact-card-desc { display: none; }
   .artifact-card-meta { flex-wrap: wrap; gap: 4px 6px; }
   .artifact-card-owner { order: -1; flex-basis: 100%; }
-  .artifact-view-acts { width: 100%; }
-  .artifact-view-title { font-size: var(--text-xl); }
+  /* A phone: one line, the title and the menu; Done stays in reach while editing. */
+  .artifact-view-head { gap: 6px; }
+  .artifact-view-wide, .artifact-view-meta, .artifact-view-sep, .artifact-view-status, .artifact-view-owner > span:last-child { display: none; }
+  .artifact-view-owner { margin-left: 0; padding: 3px; }
+  .artifact-view-menu button.artifact-view-narrow { display: block; }
+  .artifact-view-menu-wrap.artifact-view-narrow { display: block; }
 }
 
 /* —— a project's or a blob's artifacts (ArtifactRail.tsx), and one open in place of the thread —— */
@@ -7237,25 +7288,8 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 }
 .chats-view.has-inline > :not(.chats-inline) { display: none; }
 .chats-inline { flex: 1; min-height: 0; overflow-y: auto; padding: 0.25rem 0.75rem 3rem; }
-/* A doc's editing controls: above its frame, kept in view while the doc scrolls by. */
-.artifact-edit-bar {
-  position: sticky;
-  top: 0;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-  padding: 0.45rem 0;
-  background: color-mix(in srgb, var(--bg) 92%, transparent);
-  backdrop-filter: blur(6px);
-  border-bottom: 1px solid var(--line);
-}
-.artifact-edit-status { margin-right: auto; color: var(--muted); font-size: var(--text-sm); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.artifact-edit-status.is-bad { color: var(--danger); }
-/* Below the phone bar, which sticks at the top of a narrow window. */
+/* Below the phone bar, which sticks at the top of a narrow window; in place of a chat, at the top of its own scroll. */
 @media (max-width: 860px) {
-  .artifact-edit-bar { top: 3.25rem; }
+  .artifact-view-head { top: 3.25rem; }
 }
-.chats-inline .artifact-edit-bar { top: 0; }
+.chats-inline .artifact-view-head { top: 0; }

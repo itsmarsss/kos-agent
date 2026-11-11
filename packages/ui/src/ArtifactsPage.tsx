@@ -8,9 +8,9 @@ import { Drawer } from "./Drawer.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { VersionList } from "./PageHistory.js";
 import type { Route } from "./routes.js";
-import { ConfirmButton } from "./kit.js";
 import { Select } from "./Select.js";
-import { ArtifactPage, type ArtifactHandle } from "./widgets/ArtifactPage.js";
+import { ArtifactHead } from "./ArtifactHead.js";
+import { ArtifactPage, type ArtifactHandle, type DeckView, type EditState } from "./widgets/ArtifactPage.js";
 
 /**
  * Everything KOS has made for the owner, in one place: pages, docs, decks and
@@ -387,7 +387,7 @@ export function ArtifactViewer({
   id,
   projects,
   onBack,
-  backLabel = "← Artifacts",
+  backTo = "Artifacts",
   onOpenChat,
   onOpenOwner,
   initial,
@@ -398,8 +398,8 @@ export function ArtifactViewer({
   /** The artifact already loaded by whoever shows this, so it is not fetched twice. */
   initial?: AnyPagePayload;
   onBack: () => void;
-  /** What going back says: where it goes. */
-  backLabel?: string;
+  /** Where going back goes, as a place: "Artifacts", "Home", "the chat". */
+  backTo?: string;
   /** Go to the chat the request went to: the project's, the blob's, or KOS at the root. */
   onOpenChat: (owner: ArtifactOwner) => void;
   /** Go to whoever owns it: its project's page or its blob's. */
@@ -416,6 +416,10 @@ export function ArtifactViewer({
   /** An older version shown in place of the current one, to look at before restoring it. */
   const [preview, setPreview] = useState<{ version: PageVersion; page: HtmlPage }>();
   const frame = useRef<ArtifactHandle>(null);
+  const head = useRef<HTMLElement>(null);
+  // The frame's own controls, drawn in the head: a doc's editing, a deck's place.
+  const [edit, setEdit] = useState<EditState>();
+  const [deck, setDeck] = useState<DeckView>();
   // The newest version as saved, read when a restore is sent: the doc's own save just before it is the version it is made on.
   const latest = useRef<PageSummary | undefined>(undefined);
   const saved = (r: PageSummary): void => {
@@ -476,52 +480,32 @@ export function ArtifactViewer({
 
   return (
     <div className="artifact-view">
-      <button type="button" className="ops-back artifact-view-back" onClick={() => void settle().then(onBack)}>
-        {backLabel}
-      </button>
-      {record && (
-        <header className="artifact-view-head">
-          <div className="artifact-view-titles">
-            <h1 className="artifact-view-title">{record.title}</h1>
-            <span className="artifact-view-meta">
-              <Tag>{older ? "Older widget page" : KIND_WORD[record.artifactKind]}</Tag>
-              <span className="artifact-view-owner">
-                <OwnerMark record={record} projects={projects} />
-              </span>
-              <span>Updated {relativeWords(Math.round(record.updatedAt / 1000))}</span>
-            </span>
-            {record.description && <p className="artifact-view-desc">{record.description}</p>}
-          </div>
-          <div className="artifact-view-acts">
-            <button type="button" className="btn btn--ghost btn--sm" aria-expanded={history} onClick={() => setHistory(true)}>
-              History
-            </button>
-            {whose && onOpenOwner && !record.blobRemoved && (
-              <button type="button" className="btn btn--ghost btn--sm" onClick={() => void settle().then(() => onOpenOwner(whose))}>
-                Open {owner}
-              </button>
-            )}
-            {record.artifactKind === "deck" && !older && (
-              <button type="button" className="btn btn--sm" onClick={() => frame.current?.present()}>
-                Present
-              </button>
-            )}
-            {/* What a removed blob made is kept as it is: KOS no longer changes it, and the owner may let it go. */}
-            {record.blobRemoved ? (
-              <ConfirmButton
-                label="Delete"
-                text={`Delete “${record.title}”, which the removed blob ${record.blob} made, and its versions?`}
-                onConfirm={() => void api.deletePage(record.id).then(onBack, failed)}
-              />
-            ) : (
-              !older && (
-                <button type="button" className="btn btn--primary btn--sm" aria-expanded={asking} onClick={() => setAsking((v) => !v)}>
-                  Edit with KOS
-                </button>
-              )
-            )}
-          </div>
-        </header>
+      {record ? (
+        <ArtifactHead
+          ref={head}
+          record={record}
+          owner={<OwnerMark record={record} projects={projects} />}
+          ownerName={owner}
+          kind={older ? "Older widget page" : KIND_WORD[record.artifactKind]}
+          backTo={backTo}
+          onBack={() => void settle().then(onBack)}
+          {...(whose && onOpenOwner && !record.blobRemoved ? { onOpenOwner: () => void settle().then(() => onOpenOwner(whose)) } : {})}
+          history={history}
+          onHistory={() => setHistory(true)}
+          {...(!record.blobRemoved && !older ? { onAsk: () => setAsking((v) => !v) } : {})}
+          asking={asking}
+          {...(record.blobRemoved ? { onDelete: () => void api.deletePage(record.id).then(onBack, failed) } : {})}
+          {...(record.artifactKind === "deck" && !older ? { onPresent: () => frame.current?.present() } : {})}
+          {...(edit ? { edit } : {})}
+          onEdit={(action) => frame.current?.edit(action)}
+          {...(deck ? { deck } : {})}
+          onDeck={(action) => frame.current?.deck(action)}
+        />
+      ) : (
+        <div className="artifact-view-head" aria-hidden="true">
+          <Skeleton width={26} height={26} radius="50%" />
+          <Skeleton width="min(24rem, 50%)" height={16} />
+        </div>
       )}
       {asking && record && (
         <form
@@ -574,12 +558,12 @@ export function ArtifactViewer({
           </span>
         </div>
       )}
-      {record && preview && <ArtifactPage key={`v${preview.version.version}`} record={record} page={preview.page} locked />}
-      {record && page && !preview && <ArtifactPage ref={frame} record={record} page={page} onSaved={saved} onReload={() => void load().catch(failed)} />}
+      {record && preview && <ArtifactPage key={`v${preview.version.version}`} ref={frame} record={record} page={preview.page} locked onDeck={setDeck} cover={head} />}
+      {record && page && !preview && (
+        <ArtifactPage ref={frame} record={record} page={page} onSaved={saved} onReload={() => void load().catch(failed)} onEdit={setEdit} onDeck={setDeck} cover={head} />
+      )}
       {!record && !error && (
         <div className="artifact-view-loading" aria-busy="true" aria-label="Loading the artifact">
-          <Skeleton width="40%" height={26} />
-          <Skeleton width="25%" height={14} />
           <Skeleton height="60vh" radius="var(--r-md)" />
         </div>
       )}

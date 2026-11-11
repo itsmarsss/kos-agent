@@ -1938,7 +1938,7 @@ export function ChatsPage({
               ref={viewer}
               id={inline}
               projects={projects}
-              backLabel="← Back to the chat"
+              backTo="the chat"
               onBack={() => setInline(undefined)}
               onOpenChat={(owner) => {
                 // The thread the request went to: the project's, the blob's, or KOS at the root.
