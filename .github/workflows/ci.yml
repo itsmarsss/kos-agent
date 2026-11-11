@@ -23,8 +23,16 @@ jobs:
           cache: pnpm
 
       # search.grep shells out to ripgrep; without it those tests only skip.
+      # Ubuntu's mirrors are sometimes out of reach from the runners, so the
+      # release from GitHub stands in.
       - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
+        run: |
+          if ! (sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep); then
+            v=14.1.1
+            curl -fsSL --retry 3 "https://github.com/BurntSushi/ripgrep/releases/download/$v/ripgrep-$v-x86_64-unknown-linux-musl.tar.gz" | tar -xz -C /tmp
+            sudo install /tmp/ripgrep-$v-x86_64-unknown-linux-musl/rg /usr/local/bin/rg
+          fi
+          rg --version
 
       - run: pnpm install --frozen-lockfile
 
