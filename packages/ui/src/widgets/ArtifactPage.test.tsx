@@ -585,6 +585,22 @@ describe("a frame as tall as its page", () => {
     expect(heard.mock.lastCall![0].said).toHaveLength(60);
   });
 
+  it("says a presenting deck's trouble to the presenter, never over the slide, and refuses a change in words that fit", async () => {
+    const trouble = vi.fn();
+    render(<ArtifactPage record={record} page={{ ...page, kind: "deck" }} locked presenting onTrouble={trouble} />);
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const told = vi.spyOn(pageWin, "postMessage");
+    const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
+    say({ __kos: "call", id: 1, method: "write", args: {} });
+    expect(told).toHaveBeenLastCalledWith({ __kos: "reply", id: 1, error: "this deck is being presented; it changes nothing now" }, "*");
+    say({ __kos: "error", message: "boom" });
+    expect(trouble).toHaveBeenCalledWith("The page hit an error: boom");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("Fix with KOS")).toBeNull();
+  });
+
   it("keeps a presenting deck presenting in place, never full screen, whatever stops it", async () => {
     const full = vi.fn().mockResolvedValue(undefined);
     HTMLElement.prototype.requestFullscreen = full;

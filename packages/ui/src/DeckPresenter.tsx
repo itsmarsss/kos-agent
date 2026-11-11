@@ -183,6 +183,9 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
     };
   }, []);
 
+  // What went wrong in a slide's frame, said once here and never over the slide.
+  const [trouble, setTrouble] = useState<string>();
+  const troubled = useCallback((words: string) => setTrouble((was) => was ?? words), []);
   const said = currentView?.said ?? [];
   const notesScroll = useOverlayScroll<HTMLDivElement>();
   const tap = (e: MouseEvent<HTMLDivElement>): void => {
@@ -209,6 +212,11 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
           </IconButton>
         </div>
         <div className="presenter-acts">
+          {trouble && (
+            <span className="presenter-trouble" role="alert" title={trouble}>
+              {trouble}
+            </span>
+          )}
           {audience === "open" && <Pill tone="ok">Audience window open</Pill>}
           {audience === "opening" && <Pill>Opening the audience window</Pill>}
           {audience === "closed" && (
@@ -231,7 +239,7 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
           <div className="presenter-stage">
             <div className="presenter-slide presenter-slide--current" onClick={tap}>
               <div className="presenter-frame" inert>
-                <ArtifactPage ref={current} record={record} page={page} locked presenting onDeck={setCurrentView} />
+                <ArtifactPage ref={current} record={record} page={page} locked presenting onDeck={setCurrentView} onTrouble={troubled} />
               </div>
             </div>
             <nav className="presenter-steer" aria-label="Slides">
@@ -252,7 +260,7 @@ export function DeckPresenter({ record, page, start, count: told, session, audie
             <span className="label">{after === undefined ? "Next" : `Next, slide ${after + 1}`}</span>
             <div className="presenter-slide presenter-slide--next" data-end={after === undefined ? "" : undefined}>
               <div className="presenter-frame" inert>
-                <ArtifactPage ref={next} record={record} page={page} locked presenting onDeck={setNextView} />
+                <ArtifactPage ref={next} record={record} page={page} locked presenting onDeck={setNextView} onTrouble={troubled} />
               </div>
               {after === undefined && <span className="presenter-end">End of the deck</span>}
             </div>

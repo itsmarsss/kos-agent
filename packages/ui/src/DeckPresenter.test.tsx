@@ -72,6 +72,19 @@ describe("the presenter view", () => {
     expect(current!.told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "go", index: 3 }, "*");
   });
 
+  it("raises a slide frame's trouble once, in its own head", async () => {
+    const { view } = await presenter();
+    const frames = [...view.querySelectorAll<HTMLIFrameElement>("iframe.artifact-frame")];
+    for (const el of frames) {
+      const pageWin = (el.contentWindow!.frames as unknown as Window[])[0]!;
+      act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "error", message: "colour is not defined" } })));
+    }
+    const said = within(view).getAllByRole("alert");
+    expect(said).toHaveLength(1);
+    expect(said[0]!.textContent).toBe("The page hit an error: colour is not defined");
+    expect(within(view).queryByText("Fix with KOS")).toBeNull();
+  });
+
   it("takes the keys a presenter reaches for, leaving a control its own Space", async () => {
     const { view, ended } = await presenter();
     const at = (): string => within(view).getByText(/^Slide \d of 4$/).textContent!;

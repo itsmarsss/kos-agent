@@ -169,6 +169,7 @@ export interface DeckView {
 export type DeckPress = "prev" | "next" | "grid" | "notes";
 
 const flag = (v: unknown): boolean => v === true;
+const LEFT_WORDS = "This page tried to leave KOS, so it was stopped.";
 /** A deck's notes as it reports them: strings only, as many and as long as the deck sends at most (pagelib/deck.ts noteLines). */
 const lines = (v: unknown): string[] => (Array.isArray(v) ? v.filter((l): l is string => typeof l === "string").slice(0, 60).map((l) => l.slice(0, 2000)) : []);
 const count = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(10_000, Math.round(v))) : 0);
@@ -210,10 +211,16 @@ export interface ArtifactPageProps {
    * again, and full screen around it leaves it presenting.
    */
   presenting?: boolean;
+  /**
+   * What went wrong in a presenting frame (an error, an attempt to leave),
+   * said here rather than drawn over the slide the room sees: the presenter
+   * view raises it in its own head.
+   */
+  onTrouble?: (words: string) => void;
   ref?: Ref<ArtifactHandle>;
 }
 
-export function ArtifactPage({ record, page, onSaved, onReload, locked = false, onEdit, onDeck, cover, presenting = false, ref }: ArtifactPageProps): ReactElement {
+export function ArtifactPage({ record, page, onSaved, onReload, locked = false, onEdit, onDeck, cover, presenting = false, onTrouble, ref }: ArtifactPageProps): ReactElement {
   const box = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const loads = useRef(0);
@@ -340,6 +347,10 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   useEffect(() => {
     if (error) show();
   }, [error, show]);
+  const trouble = left ? LEFT_WORDS : error ? `The page hit an error: ${error}` : undefined;
+  useEffect(() => {
+    if (presenting && trouble) onTrouble?.(trouble);
+  }, [presenting, trouble, onTrouble]);
 
   // The page's own window: the frame inside the wrapper. A cross-origin frame's frames can be named, not read, and naming one not there yet throws.
   const pageWindow = useCallback((): Window | undefined => {
@@ -478,7 +489,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       }
       if (m.__kos !== "call") return;
       const args = m.args ?? {};
-      if (locked && (m.method === "save" || m.method === "write" || m.method === "ask")) return reply(m.id, { error: "this is an older version, shown to look at: restore it to change it" });
+      if (locked && (m.method === "save" || m.method === "write" || m.method === "ask"))
+        return reply(m.id, { error: presenting ? "this deck is being presented; it changes nothing now" : "this is an older version, shown to look at: restore it to change it" });
       if (m.method === "ask") {
         if (!page.capabilities?.ask) return reply(m.id, { error: "this page does not declare ask" });
         const text = String(args.text ?? "").slice(0, 4000);
@@ -649,9 +661,9 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
           </div>
         </div>
       )}
-      {(error || left) && (
+      {trouble && !presenting && (
         <div className="ops-alert ops-alert--err artifact-error" role="alert">
-          <span>{left ? "This page tried to leave KOS, so it was stopped." : `The page hit an error: ${error}`}</span>
+          <span>{trouble}</span>
           <button
             type="button"
             className="btn btn--sm"
