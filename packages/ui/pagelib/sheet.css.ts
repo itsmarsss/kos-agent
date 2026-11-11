@@ -173,4 +173,9 @@ export const SHEET_CSS = String.raw`
   .sheet-grid .frozen:nth-child(2) { max-width: 12ch; box-shadow: 1px 0 0 var(--line-strong, var(--line)); }
   .sheet-tools input { max-width: none; }
 }
+/* On a touch screen nothing hovers, and a press on the header sorts, so the column menu always shows there: still over the corner, taking no width, the column's letter under it faded out (only that line; the name below is whole). */
+@media (max-width: 560px) and (hover: none) {
+  .sheet-grid thead .sheet-colmenu { top: 3px; height: 14px; opacity: 1; pointer-events: auto; background: none; color: var(--muted); font-size: 13px; }
+  .sheet-grid thead th:has(.sheet-colmenu) button:first-child { mask: linear-gradient(to left, transparent 24px, #000 34px) top / 100% 12px no-repeat, linear-gradient(#000 0 0) bottom / 100% calc(100% - 12px) no-repeat; }
+}
 `;

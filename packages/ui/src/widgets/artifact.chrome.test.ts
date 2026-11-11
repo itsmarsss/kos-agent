@@ -838,6 +838,40 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 
+  /*
+   * On a touch screen a press on a header sorts, so its column menu shows
+   * without one: every ⋯ is drawn, over the header's corner, and the grid is
+   * as wide as it is without them.
+   */
+  it("shows each column's menu on a touch screen, taking no width", async () => {
+    const menus = `() => { const grid = document.querySelector(".sheet-scroll"); const all = [...document.querySelectorAll(".sheet-grid thead .sheet-colmenu")]; const shown = all.filter((b) => parseFloat(getComputedStyle(b).opacity) > 0 && getComputedStyle(b).pointerEvents !== "none").length; const wide = grid.scrollWidth; const kept = all.map((b) => [b, b.parentNode]); kept.forEach(([b]) => b.remove()); const bare = grid.scrollWidth; kept.forEach(([b, p]) => p.append(b)); return { buttons: all.length, shown, wide, bare, touch: matchMedia("(hover: none)").matches }; }`;
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    // The sandboxed frames may run in a process of their own, each a target told the same as the page.
+    const from = events.length;
+    await send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+    // A touch screen, as Chrome emulates one: (hover: none) and a coarse pointer. (Emulation.setEmulatedMedia's hover feature does not reach the media query.)
+    const touchOn = async (enabled: boolean): Promise<void> => {
+      const params = enabled ? { enabled, maxTouchPoints: 5 } : { enabled };
+      await send("Emulation.setTouchEmulationEnabled", params);
+      for (const e of events.slice(from).filter((e) => e.method === "Target.attachedToTarget")) await sendTo((e.params as { sessionId: string }).sessionId, "Emulation.setTouchEmulationEnabled", params).catch(() => undefined);
+    };
+    await sheetPage("/touch", `<h1>October</h1>${sheetData(paid())}`, { menus });
+    await ask<{ buttons: number }>("menus", (m) => m.buttons > 0);
+    await touchOn(true);
+    const touch = await ask<{ buttons: number; shown: number; wide: number; bare: number; touch: boolean }>("menus", (m) => m.touch);
+    expect(touch.touch).toBe(true);
+    expect(touch.buttons).toBe(5);
+    expect(touch.shown).toBe(5);
+    expect(touch.wide).toBe(touch.bare);
+    // With a pointer that hovers, the same phone keeps them hidden until a header is hovered or focused.
+    await touchOn(false);
+    const mouse = await ask<{ buttons: number; shown: number; wide: number; bare: number; touch: boolean }>("menus", (m) => !m.touch);
+    expect(mouse.shown).toBe(0);
+    expect(mouse.wide).toBe(mouse.bare);
+    await send("Target.setAutoAttach", { autoAttach: false, waitForDebuggerOnStart: false, flatten: true });
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
   /** The same with notes and whether a receipt was kept: seven columns, the notes far out of view on a phone. */
   const noted = (): Record<string, unknown> => {
     const five = paid() as { columns: unknown[]; rows: unknown[][] };
