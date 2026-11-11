@@ -129,7 +129,8 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
         ]
       : [
           { label: "Rename…", act: () => setDialog({ kind: "rename", record, title: record.title, description: record.description ?? "" }) },
-          { label: "Duplicate", act: () => void run(() => did("duplicate", api.duplicateArtifact(record.id))) },
+          // Nothing new goes to a removed blob, so its work is moved out, not copied where it is.
+          ...(record.blobRemoved ? [] : [{ label: "Duplicate", act: () => void run(() => did("duplicate", api.duplicateArtifact(record.id))) }]),
           { label: "Move to…", act: () => setDialog({ kind: "move", record }) },
           { label: "Move to trash", act: () => void run(() => did("trash", api.trashArtifact(record.id))), danger: true },
         ];

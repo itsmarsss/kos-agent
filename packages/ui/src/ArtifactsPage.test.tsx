@@ -220,6 +220,9 @@ describe("one artifact, full size", () => {
     expect(screen.queryByRole("button", { name: "Edit with KOS" })).toBeNull();
     expect(screen.getByRole("button", { name: "History" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "More" }));
+    // Nothing new goes to a removed blob: its work is moved out, never copied in place.
+    expect(screen.queryByRole("menuitem", { name: "Duplicate" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Move to…" })).toBeTruthy();
     fireEvent.click(screen.getByRole("menuitem", { name: "Move to trash" }));
     await waitFor(() => expect(trashed).toHaveBeenCalledWith("notes"));
     expect(await screen.findByText(/This artifact is in the trash/)).toBeTruthy();
