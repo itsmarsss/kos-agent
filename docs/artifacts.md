@@ -593,7 +593,9 @@ with KOS (the owner says what should change, and it goes to the chat that
 owns the artifact: the project's, the blob's thread, or KOS at the root).
 
 A deck can also be presented with its notes (Present with notes in the
-row's menu, in a window wider than 900 px with a pointer, never on a phone).
+row's menu, in a window wider than 900 px with a pointer, never on a phone;
+a touch screen with no pointer, a tablet too, is not offered it, its Present
+being the one there).
 The presenter view (`DeckPresenter.tsx`) covers the dashboard: the current
 slide large, the next one smaller, the current slide's notes, an elapsed
 timer with pause and reset, the place and its controls; arrows, Space,
@@ -605,7 +607,11 @@ version the presenter presents (or the presenter says it shows another), and
 offers Full screen (its button, or F); a press on the slide moves it at once,
 the left third back; its bar and the pointer
 go when the mouse rests. The dashboard under the presenter is inert, and a
-deck's error is said in the presenter's head, never over the room's slide. The artifact never opens a window; its sandbox refuses that.
+deck's error, on either screen, is said in the presenter's head (the room's
+as "On the room's screen: ..."), never over a slide, and can be put away.
+Present with notes reads the deck again first, and each move is numbered
+(`seq`, echoed by the deck as `went`), so moves pressed faster than the
+frames report never bounce. The artifact never opens a window; its sandbox refuses that.
 Each window drives only its own deck frames: the presenter's two and the
 audience's are kept presenting in place (`ArtifactPage`'s `presenting`) and
 told the place with `{__kos: "deck-do", action: "go", index}`, and the two
