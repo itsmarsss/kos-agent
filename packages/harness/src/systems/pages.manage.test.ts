@@ -67,6 +67,11 @@ describe("PageStore management", () => {
     const got = pages.get("spend-copy");
     expect(got?.kind === "html" && got.page.html).toBe("<p>two</p>");
     expect(got?.kind === "html" && got.page.capabilities?.writes?.[0]?.table).toBe("budget_tx");
+    // The project's card keeps one figure: the copy has no headline of its own.
+    pages.writeHtml("budget", { id: "board", title: "Board", html: "<p>", headline: { label: "Spent", query: "SELECT SUM(amount) FROM budget_tx" } });
+    const board = pages.get(pages.duplicate("board").id);
+    expect(board?.kind === "html" && board.page.headline).toBeUndefined();
+    expect((pages.get("board") as { page: { headline?: unknown } }).page.headline).toBeDefined();
     expect(pages.history("spend-copy").map((v) => v.version)).toEqual([1]);
     expect(pages.history("spend")).toHaveLength(2);
     // The next copy takes the next free id, in any case.

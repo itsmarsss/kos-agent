@@ -795,12 +795,17 @@ export class PageStore {
     }
   }
 
-  /** A copy beside it, the same owner's, named "<title> copy": an artifact of its own, its history starting at this one version. */
+  /**
+   * A copy beside it, the same owner's, named "<title> copy": an artifact of
+   * its own, its history starting at this one version. Not its headline: the
+   * project's card shows one figure, the original's, not a second of the same.
+   */
   duplicate(id: string): PageRecord {
     const got = this.loaded(id);
     const owner = ownerOfRecord(got.record);
     this.refuseRemovedBlob(owner);
-    return this.rewrite(got, owner, { id: this.copyId(id), title: `${got.record.title} copy` }, "all");
+    const source: LoadedPage = got.kind === "html" ? { ...got, page: (({ headline: _headline, ...page }) => page)(got.page) } : got;
+    return this.rewrite(source, owner, { id: this.copyId(id), title: `${got.record.title} copy` }, "all");
   }
 
   /**
