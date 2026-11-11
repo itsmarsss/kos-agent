@@ -33,3 +33,11 @@ describe("WebRTC, taken away", () => {
     expect(doc.indexOf(RTC_GUARD)).toBeLessThan(doc.indexOf(GUARD_SCRIPT));
   });
 });
+
+describe("the bridge's own helpers", () => {
+  it("binds the colour reader to the name the bridge calls, whatever a minified build names the function", () => {
+    const doc = pageDocument({ html: "<p>x</p>", tokens: {}, mode: "dark", css: "", libraries: [] });
+    expect(doc).toMatch(/var colourOf=function/);
+    expect(doc).toContain("colourOf(bs.backgroundColor)");
+  });
+});
