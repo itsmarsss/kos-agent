@@ -555,4 +555,17 @@ describe("pasting, importing, and changing the shape", () => {
     click(root, "Add row");
     expect(root.querySelector('td[data-row="4"][data-col="2"]')!.getAttribute("title")).toBe("=B4*0.1");
   });
+
+  it("undoes the last change on the tab it was made in, and says so from another", () => {
+    const { root } = owned();
+    focusCell(root, 1, 1);
+    paste(root, "Snacks");
+    click(root, "Replace");
+    tab(root, "Check");
+    const undo = [...root.querySelectorAll<HTMLButtonElement>(".sheet-tools button")].find((b) => b.textContent!.startsWith("Undo"))!;
+    expect(undo.textContent).toBe("Undo (in Expenses)");
+    undo.click();
+    expect(root.querySelector('.sheet-tabs [aria-selected="true"]')!.textContent).toBe("Expenses");
+    expect(cells(root)[0]![1]).toBe("Groceries");
+  });
 });

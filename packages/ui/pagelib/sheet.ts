@@ -168,7 +168,7 @@ class Sheet {
   /** The column menu open now, and what closes it. */
   private menuOpen: { box: HTMLElement; close: () => void } | undefined;
   /** The workbook before each change the owner made to it here, newest last. */
-  private undos: string[] = [];
+  private undos: { book: string; tab: number }[] = [];
   /** The rows picked by their numbers, and the one a shift-press runs from. */
   private picked = new Set<number>();
   private pickedFrom: number | undefined;
@@ -326,7 +326,14 @@ class Sheet {
       b.addEventListener("click", run);
       tools.append(b);
     };
-    if (this.undos.length && editable()) tool("Undo", () => this.undo());
+    const undo = this.undos.at(-1);
+    if (undo && editable()) {
+      tool("Undo", () => this.undo());
+      // The workbook goes back as a whole, so the button says which tab its change was in when it is not this one.
+      const where = undo.tab !== t ? ` (in ${this.book.sheets[undo.tab]?.name ?? "another tab"})` : "";
+      tools.lastElementChild!.setAttribute("title", `Undo the last change${where}`);
+      if (where) tools.lastElementChild!.textContent = `Undo${where}`;
+    }
     if (tab.rows && this.editable(t)) tool("Add row", () => this.addRow());
     if (!tab.pivot && this.editable(t)) tool("Import CSV", () => this.pickFile());
     parts.push(tools);
@@ -651,7 +658,7 @@ class Sheet {
 
   /** Keep the workbook as it is now, so the change about to be made can be undone. */
   private keepUndo(): void {
-    this.undos.push(JSON.stringify(this.book));
+    this.undos.push({ book: JSON.stringify(this.book), tab: this.tab });
     if (this.undos.length > UNDO_MAX) this.undos.shift();
   }
 
@@ -672,11 +679,17 @@ class Sheet {
     this.scheduleSave();
   }
 
-  /** The workbook as it was before the last change made here, saved as the next version. A table's rows are the table's, and are not undone. */
+  /** The workbook as it was before the last change made here, whichever tab it was in, saved as the next version. A table's rows are the table's, and are not undone. */
   private undo(): void {
     const last = this.undos.pop();
     if (!last || !editable()) return;
-    const was = JSON.parse(last) as SheetBook;
+    const was = JSON.parse(last.book) as SheetBook;
+    // Shown on the tab its change was made in, so what goes back is in view.
+    if (last.tab !== this.tab) {
+      this.tab = last.tab;
+      this.filter = { text: "", column: -1 };
+      this.focus = { row: 1, col: 0 };
+    }
     this.book.sheets.splice(0, this.book.sheets.length, ...was.sheets);
     if (was.charts) this.book.charts = was.charts;
     else delete this.book.charts;
