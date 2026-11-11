@@ -21,7 +21,7 @@
 
 import type { SheetBook, SheetCell, SheetColumn, SheetColumnType, SheetTab } from "@kos/shared";
 // The one module, not the package's index, which would inline all of @kos/shared into the runtime.
-import { SHEET_ROWS_MAX } from "@kos/shared/artifacts";
+import { HTML_PAGE_MAX, SHEET_ROWS_MAX } from "@kos/shared/artifacts";
 import { Workbook, columnLetter, findColumn, formatValue, isError, isNumeric, literalOf, sortValue, sourceQuery, sourceRows, totalsRow, type Value } from "@kos/shared/sheetformula";
 
 import { bar, line, pie } from "./chartdraw.js";
@@ -116,6 +116,26 @@ interface Importing {
   delimiter: Delimiter;
   header: boolean;
   map: number[];
+}
+
+/**
+ * About how long the stored page would be holding this workbook: the data as
+ * a save writes it (a "<" escaped to six characters), and the rest of the
+ * agent's markup as the frame holds it. KOS keeps an artifact to
+ * HTML_PAGE_MAX, so rows past that could be shown but never saved.
+ */
+function pageSize(book: SheetBook): number {
+  const data = JSON.stringify(book).replace(/</g, "\\u003c").length;
+  const rest = [...document.body.children].filter((n) => !n.hasAttribute("data-kos-gen") && !n.matches("script[data-sheet]")).reduce((n, e) => n + e.outerHTML.length, 0);
+  return data + rest;
+}
+
+/** Why rows cannot be added to a tab kept with the artifact, when they would make it too long to save. */
+function tooLong(book: SheetBook, t: number, added: readonly SheetCell[][]): string | undefined {
+  const next = { ...book, sheets: book.sheets.map((s, i) => (i === t ? { ...s, rows: [...(s.rows ?? []), ...added] } : s)) };
+  const size = pageSize(next);
+  if (size <= HTML_PAGE_MAX) return undefined;
+  return `These rows would make the sheet about ${Math.ceil(size / 1000)} KB, past the ${HTML_PAGE_MAX / 1000} KB an artifact keeps, so they could not be saved. Rows this many belong in a project table, which a tab reads with source.`;
 }
 
 /** One write in a batch to a table. */
@@ -747,6 +767,11 @@ class Sheet {
       this.show(inlineBar(`A tab holds at most ${SHEET_ROWS_MAX} rows, and this would make ${rows.length + added.length}.`, ["A ledger this long belongs in a project table, which a tab reads with source."], [this.dismissal()]));
       return false;
     }
+    const long = added.length ? tooLong(this.book, t, added) : undefined;
+    if (long) {
+      this.show(inlineBar("These rows cannot be added here.", [long], [this.dismissal()]));
+      return false;
+    }
     this.change(() => {
       for (const c of cells) {
         const row = rows[c.row - 1]!;
@@ -858,7 +883,9 @@ class Sheet {
     const room = tab.source ? TABLE_ROWS_IN : SHEET_ROWS_MAX - tab.rows!.length;
     const refusal =
       got.rows.length <= room
-        ? undefined
+        ? tab.source
+          ? undefined
+          : tooLong(this.book, t, got.rows)
         : tab.source
           ? `An import writes at most ${TABLE_ROWS_IN} rows into a table, and this file has ${got.rows.length}.`
           : `A tab holds at most ${SHEET_ROWS_MAX} rows, and this file would make ${tab.rows!.length + got.rows.length}.`;

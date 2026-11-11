@@ -513,4 +513,17 @@ describe("pasting, importing, and changing the shape", () => {
     expect(root.querySelector(".sheet-rowbar")!.textContent).toContain("1 row picked");
     expect(root.querySelector("tr.picked")!.getAttribute("data-row")).toBe("3");
   });
+
+  it("refuses an import into the artifact's own tab that would make it too long to save, pointing to a table", async () => {
+    const { root } = owned();
+    click(root, "Import CSV");
+    const input = root.querySelector<HTMLInputElement>("input[type=file]")!;
+    const csv = `Date,Category,Amount\n${Array.from({ length: 3000 }, (_, i) => `2026-10-01,${"A long description of a purchase ".repeat(4)}${i},12.5`).join("\n")}\n`;
+    Object.defineProperty(input, "files", { value: [{ name: "big.csv", size: csv.length, text: () => Promise.resolve(csv), arrayBuffer: () => Promise.resolve(new TextEncoder().encode(csv).buffer) }] });
+    input.dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect(root.querySelector(".sheet-import")).not.toBeNull());
+    const panel = root.querySelector(".sheet-import")!;
+    expect(panel.querySelector(".sheet-panel-refusal")!.textContent).toMatch(/past the 400 KB an artifact keeps.*project table/);
+    expect([...panel.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Cancel"]);
+  });
 });

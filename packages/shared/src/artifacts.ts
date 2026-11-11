@@ -130,6 +130,9 @@ export type ArtifactEdit = { doc: string } | { sheet: SheetBook };
 
 const COLUMN_TYPES: readonly SheetColumnType[] = ["text", "number", "currency", "percent", "date", "bool"];
 const AGGREGATES: readonly SheetAggregate[] = ["sum", "average", "min", "max", "count"];
+/** Large enough for a rich page with inlined data, small enough to keep the frame quick. */
+export const HTML_PAGE_MAX = 400_000;
+
 /** Enough for a real ledger; a bigger one belongs in a project table. */
 export const SHEET_ROWS_MAX = 5000;
 

@@ -1,5 +1,7 @@
 import { fontById } from "./artifactfonts.js";
-import { ARTIFACT_KINDS, isArtifactKind, sheetErrors, type ArtifactKind } from "./artifacts.js";
+import { ARTIFACT_KINDS, HTML_PAGE_MAX, isArtifactKind, sheetErrors, type ArtifactKind } from "./artifacts.js";
+
+export { HTML_PAGE_MAX };
 import type { MutationTarget } from "./pagespec.js";
 
 /**
@@ -47,8 +49,7 @@ export interface HtmlPage {
   headline?: PageHeadline;
 }
 
-/** Large enough for a rich page with inlined data, small enough to keep the frame quick. */
-export const HTML_PAGE_MAX = 400_000;
+
 
 /** A description is a sentence, not a page. */
 export const DESCRIPTION_MAX = 300;
