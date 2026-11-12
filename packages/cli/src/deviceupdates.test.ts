@@ -49,6 +49,18 @@ describe("a KOS for Mac rebuild", () => {
     expect(() => process.kill(pid, 0)).toThrow();
   });
 
+  it("kills what ignores TERM once the grace is up, and says it was stopped at the time", async () => {
+    const pidFile = join((dir ||= mkdtempSync(join(tmpdir(), "deviceupdates-test-"))), "stubborn.pid");
+    const installer = macInstaller(tmpdir(), () => undefined, { install: script(`trap '' TERM; echo $$ > "${pidFile}"; while true; do sleep 1; done`), timeoutMs: 1_500, graceMs: 300 });
+    const started = Date.now();
+    expect(await installer.install(() => undefined)).toMatchObject({ ok: false, why: expect.stringMatching(/was stopped$/) });
+    // Answered at the time, not when (or if) the build ended.
+    expect(Date.now() - started).toBeLessThan(1_400 + 1_500);
+    const pid = Number(readFileSync(pidFile, "utf8"));
+    await new Promise((r) => setTimeout(r, 1_000));
+    expect(() => process.kill(pid, 0)).toThrow();
+  });
+
   it("says a locked signing key in the owner's words, and otherwise the build's last line", async () => {
     const locked = macInstaller(tmpdir(), () => undefined, { install: script(`echo "Built"; echo "error: errSecInternalComponent" >&2; exit 1`) });
     expect(await locked.install(() => undefined)).toEqual({ ok: false, why: "the signing key is locked, and macOS asks for its PIN only in your own Terminal" });

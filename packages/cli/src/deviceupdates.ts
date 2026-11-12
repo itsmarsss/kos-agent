@@ -19,6 +19,8 @@ import { readStamp, sourceBuild, STAMP_FILE, type Build, type BuildKind, type Co
 
 /** The longest a rebuild may take: past it, a hung swift build or a prompt nobody can answer is stopped. */
 export const INSTALL_TIMEOUT_MS = 15 * 60_000;
+/** How long a stopped build has to end on TERM before its whole group is killed. */
+export const KILL_GRACE_MS = 10_000;
 /** What a build and its signing need of the host's environment, and no more: the host's own secrets stay with it. */
 const CHILD_ENV = ["HOME", "PATH", "TMPDIR", "DEVELOPER_DIR", "LANG", "USER", "LOGNAME", "KOS_DEVICE_SIGNING_KEYCHAIN"];
 
@@ -55,12 +57,14 @@ export interface InstallerOptions {
   signing?: string;
   install?: string;
   timeoutMs?: number;
+  graceMs?: number;
 }
 
 export function macInstaller(app: string, log: (line: string) => void, options: InstallerOptions = {}): MacInstaller {
   const signing = options.signing ?? process.env.KOS_DEVICE_MAC_SIGNING?.trim();
   const install = options.install ?? process.env.KOS_DEVICE_MAC_INSTALL?.trim();
   const timeoutMs = options.timeoutMs ?? INSTALL_TIMEOUT_MS;
+  const graceMs = options.graceMs ?? KILL_GRACE_MS;
   const commands = { signing: `cd ${quote(app)} && scripts/signing.sh setup`, install: `cd ${quote(app)} && scripts/bundle.sh --install` };
   return {
     signed: () =>
@@ -82,22 +86,31 @@ export function macInstaller(app: string, log: (line: string) => void, options: 
           line(text);
         };
         for (const stream of [child.stdout, child.stderr]) createInterface({ input: stream }).on("line", heard);
-        let timedOut = false;
-        const timer = setTimeout(() => {
-          timedOut = true;
+        let settled = false;
+        const finish = (result: { ok: true } | { ok: false; why: string }): void => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(result);
+        };
+        const signal = (name: NodeJS.Signals): void => {
           try {
-            if (child.pid) process.kill(-child.pid, "SIGTERM");
+            if (child.pid) process.kill(-child.pid, name);
           } catch {
             // Gone already.
           }
+        };
+        // Past its time: TERM to the whole group, then KILL to whatever ignored it. Said from here, whether or not it ends.
+        const timer = setTimeout(() => {
+          signal("SIGTERM");
+          setTimeout(() => signal("SIGKILL"), graceMs).unref();
+          finish({ ok: false, why: `the build took longer than ${Math.round(timeoutMs / 60_000)} minutes and was stopped` });
         }, timeoutMs);
         const done = (code: number | null, error?: Error): void => {
-          clearTimeout(timer);
-          if (code === 0 && !timedOut) return resolve({ ok: true });
-          if (timedOut) return resolve({ ok: false, why: `the build took longer than ${Math.round(timeoutMs / 60_000)} minutes and was stopped` });
+          if (code === 0) return finish({ ok: true });
           // codesign asks for the signing key's PIN, which only the owner's own Terminal can show.
-          if (locked) return resolve({ ok: false, why: "the signing key is locked, and macOS asks for its PIN only in your own Terminal" });
-          resolve({ ok: false, why: error?.message ?? (last || `the build stopped (exit ${code ?? "by a signal"})`) });
+          if (locked) return finish({ ok: false, why: "the signing key is locked, and macOS asks for its PIN only in your own Terminal" });
+          finish({ ok: false, why: error?.message ?? (last || `the build stopped (exit ${code ?? "by a signal"})`) });
         };
         child.on("error", (err) => done(null, err));
         child.on("close", (code) => done(code));
