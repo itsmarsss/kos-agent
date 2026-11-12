@@ -31,12 +31,14 @@ import {
   parseModelSettings,
   createDashboardServer,
   createDashboardSocket,
+  handleApiRequest,
   createPressHandler,
   primarySessionId,
   surfaceSessionId,
   startSiteServer,
   SurfaceDownError,
   type ApprovalRequest,
+  type DashboardServerOptions,
   type NotifyPayload,
   type NotifySent,
   type OutboundMessage,
@@ -551,7 +553,18 @@ export async function runHost(options: HostOptions): Promise<void> {
     halted: () => kernel.killSwitch.halted,
     face: () => kernel.kosDrawing(),
     theme: () => kernel.dashboardTheme(),
-    panels: { chrome: panelDeps("chrome", chromeChat), mac: panelDeps("mac", macChat), phone: { ...panelDeps("phone", phoneChat), glance, artifacts: phoneArtifacts } },
+    panels: {
+      chrome: panelDeps("chrome", chromeChat),
+      mac: panelDeps("mac", macChat),
+      phone: {
+        ...panelDeps("phone", phoneChat),
+        glance,
+        artifacts: phoneArtifacts,
+        // The dashboard's own handler, with no token: the phone is proved on its line. Only a phone's panel is given it.
+        dashboard: (req) => handleApiRequest(kernel, req, dashboard),
+        audit: (entry) => void kernel.audit.record({ ...entry, userId: kernel.profile.ownerId }),
+      },
+    },
     lan: {
       // The dashboard's port plus two: the sites take plus one.
       port: lanPort(options.port),
@@ -688,12 +701,12 @@ export async function runHost(options: HostOptions): Promise<void> {
     workspace: kernel.workspace.root,
   };
 
-  const server = createDashboardServer(kernel, {
+  /** The dashboard as the server answers it, but for the token, which a phone's asks of it go without. */
+  const dashboard: DashboardServerOptions = {
     ...(staticDir ? { staticDir } : {}),
     // So the settings page can save an API key without anyone opening a
     // dotfile. Refused if it ever resolves inside the workspace.
     envPath: envFilePath(),
-    ...(options.token ? { token: options.token } : {}),
     ...(options.hookSecret ? { hookSecret: options.hookSecret } : {}),
     host: options.host,
     meta,
@@ -710,7 +723,8 @@ export async function runHost(options: HostOptions): Promise<void> {
           },
         }
       : {}),
-  });
+  };
+  const server = createDashboardServer(kernel, { ...dashboard, ...(options.token ? { token: options.token } : {}) });
 
   // A chat that borrowed the owner's Chrome browses there.
   kernel.setBrowserElsewhere(computer.chrome);
