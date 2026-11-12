@@ -337,8 +337,11 @@ describe("emptying the trash", () => {
     await waitFor(() => expect(gone.mock.calls.map((c) => c[0])).toEqual(["old", "memo"]));
     expect(await screen.findByText("The trash is empty")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Empty trash" })).toBeNull();
+    expect(screen.getByRole("heading", { name: /^Trash/ }).textContent).toBe("Trash0");
     fireEvent.click(screen.getByRole("button", { name: "Back to artifacts" }));
     expect(cards()).toEqual(["Q4 brief"]);
+    // The way back to the trash no longer counts what went.
+    expect(screen.getByRole("button", { name: /^Trash/ }).textContent).toBe("Trash");
   });
 
   it("says it empties what the filters hide too", async () => {
@@ -353,15 +356,19 @@ describe("emptying the trash", () => {
   });
 
   it("stops at the first that cannot be deleted, keeping it and the rest, and says why", async () => {
+    const LAST: ArtifactSummary = { ...OLD, id: "last", title: "Last memo", trashedAt: at(7) };
     vi.spyOn(api, "artifacts").mockResolvedValue([BRIEF]);
-    vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD, MEMO]);
+    vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD, MEMO, LAST]);
     render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Trash2" }));
-    vi.spyOn(api, "deleteArtifact").mockRejectedValue(new Error("the disk is read-only"));
+    fireEvent.click(await screen.findByRole("button", { name: "Trash3" }));
+    const gone = vi.spyOn(api, "deleteArtifact").mockImplementation((id) => (id === "memo" ? Promise.reject(new Error("the disk is read-only")) : Promise.resolve({ id, deleted: true })));
     fireEvent.click(screen.getByRole("button", { name: "Empty trash" }));
     fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Empty trash" }));
     expect((await screen.findByRole("alert")).textContent).toBe("the disk is read-only");
-    expect(cards("Trash")).toEqual(["Old memo", "Spare memo"]);
+    // The first went, the second failed, and the third was never tried.
+    expect(gone.mock.calls.map((c) => c[0])).toEqual(["old", "memo"]);
+    expect(cards("Trash")).toEqual(["Spare memo", "Last memo"]);
+    expect(screen.getByRole("heading", { name: /^Trash/ }).textContent).toBe("Trash2");
   });
 });
 
