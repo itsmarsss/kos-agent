@@ -7,7 +7,8 @@ import OSLog
 /// few things the owner does from one go through here too. A request goes by
 /// a call number of the phone's own and its answer comes back by it; one KOS
 /// does not answer in time is given up on, and one asked off the line fails
-/// at once.
+/// at once. KOS takes a few at a time from a phone, so the rest wait here
+/// for a turn rather than being refused there.
 @MainActor
 public final class Dashboard {
   /// Why a page could not be read or a thing done, in the owner's words.
@@ -22,8 +23,13 @@ public final class Dashboard {
   private static let log = Logger(subsystem: "com.itsmarsss.kos-phone", category: "dashboard")
   private var calls = 0
   private var waiting: [Int: CheckedContinuation<DashboardReply, Never>] = [:]
+  /// Requests waiting for one of KOS's few turns, in the order asked.
+  private var queued: [CheckedContinuation<Void, Never>] = []
   private let within: Duration
   private let sleep: @Sendable (Duration) async -> Void
+
+  /// How many KOS takes from a phone at once (docs/computer.md, The dashboard's pages).
+  public static let atOnce = 4
 
   /// A file of a few megabytes can take a while over the Wi-Fi, so a call waits longer than a read in an artifact.
   public init(within: Duration = .seconds(25), sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
@@ -53,14 +59,19 @@ public final class Dashboard {
 
   /// KOS's answer, to the request it is for.
   public func received(_ reply: DashboardReply) {
-    waiting.removeValue(forKey: reply.call)?.resume(returning: reply)
+    guard let wait = waiting.removeValue(forKey: reply.call) else { return }
+    wait.resume(returning: reply)
+    if !queued.isEmpty { queued.removeFirst().resume() }
   }
 
   /// Off the line, or another KOS: nothing asked of the last one is waited on.
   public func reset() {
-    let left = waiting
+    let left = waiting, behind = queued
     waiting = [:]
+    queued = []
     for (call, wait) in left { wait.resume(returning: DashboardReply(call: call, error: "The line to KOS closed.")) }
+    // Those waiting a turn go on, and are told the line is down as they are asked.
+    for turn in behind { turn.resume() }
   }
 
   private func json(_ method: String, _ path: String, query: [String: String] = [:], body: JSONValue? = nil) async throws -> JSONValue {
@@ -75,6 +86,7 @@ public final class Dashboard {
 
   /// Asked, and waited on until KOS answers, the wait runs out, or the line closes; any answer but a good one throws.
   private func ask(_ request: DashboardRequest) async throws -> DashboardReply {
+    if waiting.count >= Self.atOnce { await withCheckedContinuation { queued.append($0) } }
     let reply = await withCheckedContinuation { wait in
       waiting[request.call] = wait
       guard tell(.dashboard(request)) else { return received(DashboardReply(call: request.call, error: "Not connected to KOS.")) }

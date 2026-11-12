@@ -171,6 +171,21 @@ struct BoardTests {
     #expect(rig.line.sent.isEmpty)
   }
 
+  @Test func pastFourAtOnceTheRestWaitTheirTurnHere() async throws {
+    let rig = try await Rig.online()
+    let kos = Routed(rig: rig)
+    let pages = (0..<5).map { rig.phone.board.files.folder("f\($0)") }
+    let reads = pages.map { page in Task { await page.refresh() } }
+    await kos.await(5)
+    #expect(kos.asked.count == Dashboard.atOnce)
+    try await kos.answer("/api/files", query: ["path": "f0"], #"{"path":"f0","entries":[]}"#)
+    await kos.await(5)
+    #expect(kos.asked.count == 5)
+    for path in ["f1", "f2", "f3", "f4"] { try await kos.answer("/api/files", query: ["path": path], #"{"path":"\#(path)","entries":[]}"#) }
+    for read in reads { await read.value }
+    #expect(pages.allSatisfy { $0.value?.entries == [] })
+  }
+
   @Test func whatWasReadStaysWhileItIsReadAgainAndAFailureSaysWhy() async throws {
     let rig = try await Rig.online()
     let kos = Routed(rig: rig)
