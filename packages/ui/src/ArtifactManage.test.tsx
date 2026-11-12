@@ -94,6 +94,9 @@ describe("managing an artifact from its viewer", () => {
     const picker = within(dialog).getByRole("radiogroup", { name: "Move to" });
     await within(picker).findByRole("radio", { name: /noter/ });
     expect(within(picker).getAllByRole("radio").map((r) => r.querySelector(".artifact-move-name")?.textContent)).toEqual(["Workspace", "Garden", "Household budget", "noter"]);
+    // The projects and the blobs each a group under its name.
+    expect(within(within(picker).getByRole("group", { name: "Blobs" })).getAllByRole("radio").map((r) => r.textContent)).toEqual(["noter"]);
+    expect(within(picker).getByRole("group", { name: "Projects" })).toBeTruthy();
     const here = within(picker).getByRole("radio", { name: /Household budget/ }) as HTMLButtonElement;
     expect(here.disabled).toBe(true);
     expect(here.textContent).toContain("Here now");

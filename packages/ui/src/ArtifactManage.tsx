@@ -1,7 +1,7 @@
 import { CheckIcon, Face, Field, NavIcon, WorkingDots, spring } from "@kos/kit";
 import { EXPORT_WORDS, KIND_EXPORTS, RENAME_DESCRIPTION_MAX, RENAME_TITLE_MAX, WORKSPACE_SCOPE, relativeWords, sheetDataOf, type ExportFormat, type HtmlPage } from "@kos/shared";
 import { AnimatePresence, m } from "motion/react";
-import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 
 import { api, type PageSummary, type Project } from "./api.js";
 import type { MenuItem } from "./ArtifactHead.js";
@@ -68,6 +68,9 @@ interface Place {
   mark: ReactNode;
   group: "Workspace" | "Projects" | "Blobs";
 }
+
+/** The move picker's groups, in its order. */
+const GROUPS: readonly Place["group"][] = ["Workspace", "Projects", "Blobs"];
 
 /** How many places the move picker lists before it offers a search over them. */
 const FIND_FROM = 8;
@@ -328,6 +331,7 @@ export function restoreFromTrash(id: string): Promise<PageSummary> {
  */
 function MovePicker({ places, here, choice, onChoose }: { places: Place[]; here: string; choice?: string; onChoose: (key: string | undefined) => void }): ReactElement {
   const list = useRef<HTMLDivElement>(null);
+  const ids = useId();
   const [find, setFind] = useState("");
   const q = find.trim().toLowerCase();
   const shown = q ? places.filter((p) => p.label.toLowerCase().includes(q)) : places;
@@ -355,17 +359,15 @@ function MovePicker({ places, here, choice, onChoose }: { places: Place[]; here:
       )}
       <div className="artifact-move-list" role="radiogroup" aria-label="Move to" ref={list} onKeyDown={keys}>
         {shown.length === 0 && <p className="empty-line">Nowhere by that name.</p>}
-        {shown.map((p, i) => {
-          const isHere = p.key === here;
-          const chosen = p.key === choice;
-          return (
-            <Fragment key={p.key}>
-              {p.group !== shown[i - 1]?.group && p.group !== "Workspace" && (
-                <p className="label artifact-move-group" aria-hidden="true">
-                  {p.group}
-                </p>
-              )}
+        {GROUPS.map((group) => {
+          const inGroup = shown.filter((p) => p.group === group);
+          if (inGroup.length === 0) return null;
+          const options = inGroup.map((p) => {
+            const isHere = p.key === here;
+            const chosen = p.key === choice;
+            return (
               <button
+                key={p.key}
                 type="button"
                 role="radio"
                 data-place={p.key}
@@ -380,7 +382,18 @@ function MovePicker({ places, here, choice, onChoose }: { places: Place[]; here:
                 {isHere && <span className="artifact-move-here">Here now</span>}
                 {chosen && <CheckIcon size={14} title="" />}
               </button>
-            </Fragment>
+            );
+          });
+          // The workspace is one place, not a group of them.
+          return group === "Workspace" ? (
+            <Fragment key={group}>{options}</Fragment>
+          ) : (
+            <div key={group} role="group" aria-labelledby={`${ids}-${group}`} className="artifact-move-group-list">
+              <p className="label artifact-move-group" id={`${ids}-${group}`}>
+                {group}
+              </p>
+              {options}
+            </div>
           );
         })}
       </div>

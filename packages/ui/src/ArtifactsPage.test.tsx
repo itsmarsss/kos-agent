@@ -99,8 +99,14 @@ describe("the Artifacts page", () => {
     // A doc to begin with; the arrows walk the kinds as a radio group.
     const kinds = within(dialog).getByRole("radiogroup", { name: "Kind" });
     expect(within(kinds).getByRole("radio", { name: /Doc/ }).getAttribute("aria-checked")).toBe("true");
+    // Each named by its kind alone, what it is for read as its description.
+    const deck = within(kinds).getByRole("radio", { name: "Deck" });
+    expect(document.getElementById(deck.getAttribute("aria-describedby")!)?.textContent).toBe("Slides to present, 16:9");
+    fireEvent.keyDown(kinds, { key: "End" });
+    expect(within(kinds).getByRole("radio", { name: "Page" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.keyDown(kinds, { key: "Home" });
     fireEvent.keyDown(kinds, { key: "ArrowRight" });
-    expect(within(kinds).getByRole("radio", { name: /Deck/ }).getAttribute("aria-checked")).toBe("true");
+    expect(deck.getAttribute("aria-checked")).toBe("true");
     expect(within(dialog).getByText("Goes to KOS")).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Owner" }));
     fireEvent.click(await screen.findByRole("option", { name: "Household budget" }));

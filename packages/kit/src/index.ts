@@ -37,5 +37,6 @@ export { Tex } from "./Tex.js";
 export { Tooltip, type TooltipAnchorProps, type TooltipProps } from "./Tooltip.js";
 export { AskSteps, Countdown, QuoteLine, quoteSource, Card, Chips, Collapse, Count, Empty, type CardProps, type ChipOption, DrawerRow, Elapsed, formatElapsed, IconButton, IconLink, Pill, Section, Skeleton, StatusDot, StepPicture, Switch, Tag, WorkingDots, type DotState, type IconButtonProps, type Tone } from "./kit.js";
 export { useDismiss, type DismissOptions } from "./useDismiss.js";
+export { useFocusTrap } from "./useFocusTrap.js";
 export { overlayScroll, useOverlayScroll } from "./OverlayScroll.js";
 export * from "./icons.js";

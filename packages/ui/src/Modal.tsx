@@ -1,7 +1,7 @@
-import type { ReactElement, ReactNode } from "react";
+import { useRef, type ReactElement, type ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 
-import { CloseIcon, ease, IconButton, spring, useDismiss } from "@kos/kit";
+import { CloseIcon, ease, IconButton, spring, useDismiss, useFocusTrap } from "@kos/kit";
 
 
 /**
@@ -24,6 +24,9 @@ export function Modal({
   children: ReactNode;
 }): ReactElement {
   useDismiss(open, onClose, { away: false, scroll: false, resize: false, escape: "dialog" });
+  // The tab key stays in the dialog, and the focus goes back to what opened it.
+  const box = useRef<HTMLDivElement>(null);
+  useFocusTrap(box, open);
 
   return (
     <AnimatePresence>
@@ -44,6 +47,7 @@ export function Modal({
           */}
           <div className="modal-wrap">
           <m.div
+            ref={box}
             className={size ? `modal modal--${size}` : "modal"}
             role="dialog"
             aria-modal="true"

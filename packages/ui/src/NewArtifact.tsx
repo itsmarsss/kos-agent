@@ -1,6 +1,6 @@
 import { Face, Field, NavIcon } from "@kos/kit";
 import type { ArtifactKind } from "@kos/shared";
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
 
 import { api, type Project } from "./api.js";
 import { chatIdOf, KIND_WORD, type ArtifactOwner } from "./artifactowner.js";
@@ -61,6 +61,7 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked }: NewArtif
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
   const tiles = useRef<HTMLDivElement>(null);
+  const ids = useId();
 
   // The living blobs, read as it opens: one made since the page loaded is offered too.
   useEffect(() => {
@@ -123,9 +124,10 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked }: NewArtif
   const keys = (e: KeyboardEvent<HTMLDivElement>): void => {
     const at = KINDS.findIndex((k) => k.kind === kind);
     const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
-    if (!step) return;
+    const to = e.key === "Home" ? 0 : e.key === "End" ? KINDS.length - 1 : step ? (at + step + KINDS.length) % KINDS.length : -1;
+    const next = KINDS[to];
+    if (!next) return;
     e.preventDefault();
-    const next = KINDS[(at + step + KINDS.length) % KINDS.length]!;
     setKind(next.kind);
     tiles.current?.querySelector<HTMLElement>(`[data-kind="${next.kind}"]`)?.focus();
   };
@@ -139,8 +141,11 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked }: NewArtif
           void ask();
         }}
       >
-        <Field label="Kind" group>
-          <div className="new-artifact-kinds" role="radiogroup" aria-label="Kind" ref={tiles} onKeyDown={keys}>
+        <div className="kos-field">
+          <span className="kos-field-label" id={`${ids}-kind`}>
+            Kind
+          </span>
+          <div className="new-artifact-kinds" role="radiogroup" aria-labelledby={`${ids}-kind`} ref={tiles} onKeyDown={keys}>
             {KINDS.map((k) => (
               <button
                 key={k.kind}
@@ -148,6 +153,8 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked }: NewArtif
                 role="radio"
                 data-kind={k.kind}
                 aria-checked={k.kind === kind}
+                aria-labelledby={`${ids}-${k.kind}`}
+                aria-describedby={`${ids}-${k.kind}-about`}
                 tabIndex={k.kind === kind ? 0 : -1}
                 className={`new-artifact-kind${k.kind === kind ? " is-on" : ""}`}
                 onClick={() => setKind(k.kind)}
@@ -155,12 +162,16 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked }: NewArtif
                 <span className="tile" aria-hidden="true">
                   <NavIcon name={k.kind} />
                 </span>
-                <span className="new-artifact-kind-name">{KIND_WORD[k.kind]}</span>
-                <span className="new-artifact-kind-about">{k.about}</span>
+                <span className="new-artifact-kind-name" id={`${ids}-${k.kind}`}>
+                  {KIND_WORD[k.kind]}
+                </span>
+                <span className="new-artifact-kind-about" id={`${ids}-${k.kind}-about`}>
+                  {k.about}
+                </span>
               </button>
             ))}
           </div>
-        </Field>
+        </div>
         <Field label="Owner">
           <Select className="new-artifact-owner" label="Owner" value={owner} options={owners} onChange={setOwner} />
         </Field>

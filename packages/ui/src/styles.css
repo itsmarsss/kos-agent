@@ -7445,6 +7445,7 @@ html.has-presenter { overflow: hidden; }
 .artifact-dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 4px; }
 .artifact-dialog-note { margin-right: auto; color: var(--faint); font-size: var(--text-sm); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artifact-move { display: flex; flex-direction: column; gap: 8px; }
+.artifact-move-group-list { display: flex; flex-direction: column; gap: 2px; }
 .artifact-move-group { padding: 8px 9px 3px; }
 .artifact-move-option > svg:last-child { flex: none; color: var(--accent); }
 /* New artifact (NewArtifact.tsx): the four kinds as tiles, chosen as a radio group. */
