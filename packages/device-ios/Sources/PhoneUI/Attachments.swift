@@ -4,20 +4,22 @@ import PhotosUI
 import SwiftUI
 
 /// The files going with the next words, over the box: a picture as its
-/// thumbnail, a file as its mark and name, each with a cross to leave it out.
+/// thumbnail, a file as its mark and kind, each with a cross on its corner to
+/// leave it out. Four at most, which fit the narrowest phone in one row, so
+/// nothing scrolls and nothing clips a cross.
 struct AttachmentStrip: View {
   let files: [AttachmentTray.File]
   let remove: (String) -> Void
 
   var body: some View {
-    ScrollView(.horizontal) {
-      HStack(spacing: 10) {
-        ForEach(files) { file in
-          AttachmentChip(file: file) { remove(file.id) }
-        }
+    HStack(spacing: AttachmentChip.cross / 2 + 8) {
+      ForEach(files) { file in
+        AttachmentChip(file: file) { remove(file.id) }
       }
     }
-    .scrollIndicators(.hidden)
+    // Room over the row for the crosses, which stand out past each chip's corner.
+    .padding(.top, AttachmentChip.cross / 2)
+    .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Going with your words")
   }
@@ -29,9 +31,9 @@ struct AttachmentChip: View {
   let remove: () -> Void
 
   static let side: CGFloat = 56
-  /// The cross's drawn size, and how far in from the corner; it takes a thumb's 44 points.
+  /// The cross's drawn size, and how far its middle sits in from the corner; it takes a thumb's 44 points.
   static let cross: CGFloat = 22
-  static let inset: CGFloat = 4
+  static let inset: CGFloat = 3
 
   private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous) }
 
@@ -52,8 +54,8 @@ struct AttachmentChip: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        // Inside the corner, as the box's own crosses are: nothing of a chip reaches its neighbour.
-        .offset(x: 22 - Self.cross / 2 - Self.inset, y: Self.cross / 2 + Self.inset - 22)
+        // On the corner, standing out past it as iOS sets one, clear of what the chip shows.
+        .offset(x: 22 - Self.inset, y: Self.inset - 22)
         .accessibilityLabel("Leave out \(file.name)")
       }
       .accessibilityElement(children: .contain)
