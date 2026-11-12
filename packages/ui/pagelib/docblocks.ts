@@ -757,6 +757,13 @@ export function normalise(article: Element): void {
     strike.replaceWith(s);
   }
   for (const font of article.querySelectorAll("font")) font.replaceWith(...font.childNodes);
+  // The <br> that held an empty line open, left behind once words were typed before it; a line break typed at the end is two.
+  for (const block of article.querySelectorAll("p, h1, h2, h3, h4, h5, h6, li, summary, blockquote, figcaption, td, th")) {
+    const last = [...block.childNodes].filter((n) => !(n instanceof Text && !n.data) && !isList(n)).at(-1);
+    if (!(last instanceof Element) || last.tagName !== "BR") continue;
+    const before = last.previousSibling;
+    if (before && !(before instanceof Element && before.tagName === "BR") && !isEmpty(block)) last.remove();
+  }
   for (const li of article.querySelectorAll("ul.checklist > li:not([data-checked])")) li.setAttribute("data-checked", "false");
   for (const li of article.querySelectorAll("ul:not(.checklist) > li[data-checked], ol > li[data-checked]")) li.removeAttribute("data-checked");
 }

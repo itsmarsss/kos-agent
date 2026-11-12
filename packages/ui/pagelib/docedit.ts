@@ -90,8 +90,14 @@ export const SLASH_ITEMS: readonly SlashItem[] = [
 
 /** The blocks whose name has every word typed after the slash. */
 export const slashMatches = (query: string): SlashItem[] => {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  return SLASH_ITEMS.filter((item) => words.every((w) => item.label.toLowerCase().split(/[\s-]+/).some((part) => part.startsWith(w))));
+  // "to-do", "todo" and "to do" all find the to-do list.
+  const flat = (s: string): string => s.toLowerCase().replace(/-/g, "");
+  const words = flat(query).split(/\s+/).filter(Boolean);
+  return SLASH_ITEMS.filter((item) => {
+    const parts = item.label.toLowerCase().split(/[\s-]+/);
+    const label = flat(item.label);
+    return words.every((w) => parts.some((part) => part.startsWith(w)) || label.split(" ").some((part) => part.startsWith(w)));
+  });
 };
 
 /**
@@ -174,6 +180,20 @@ function idFor(block: HTMLElement): string {
 }
 
 const caretOf = (sel: Selection | null): Caret | undefined => (sel && sel.rangeCount ? { node: sel.getRangeAt(0).startContainer, offset: sel.getRangeAt(0).startOffset } : undefined);
+
+/**
+ * The selection's ends as nodes and offsets, to put back after its block
+ * moves: a Range would collapse to the old parent as the block is taken out.
+ */
+function holdCaret(): () => void {
+  const sel = getSelection();
+  if (!sel || !sel.rangeCount) return () => undefined;
+  const { anchorNode, anchorOffset, focusNode, focusOffset } = sel;
+  return () => {
+    if (!anchorNode?.isConnected || !focusNode?.isConnected) return;
+    sel.setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset);
+  };
+}
 
 /** Put the caret at a place, or at a node's start (or end). */
 function place(caret: Caret | Node, end = false): void {
@@ -669,15 +689,13 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
     handle.style.left = `${Math.round(r.left - inset - handle.offsetWidth - 4 + scrollX)}px`;
     handle.style.top = `${Math.round(top + scrollY)}px`;
   }
-  /** The innermost block at a height on the page, within the text's width and a little either side. */
-  const blockAtPoint = (x: number, y: number): HTMLElement | undefined => {
+  /** The innermost block at a height on the page, within the text's width and a little either side (or at any x, for a drag or a sweep down the margin). */
+  const blockAtPoint = (x: number | undefined, y: number): HTMLElement | undefined => {
     let best: HTMLElement | undefined;
     let area = Infinity;
-    const box = article.getBoundingClientRect();
-    if (x < box.left - 12 || x > box.right + 12) return undefined;
     for (const b of allBlocks(article)) {
       const r = b.getBoundingClientRect();
-      if (!r.height || y < r.top - 6 || y > r.bottom + 6 || x < r.left - 96 || x > r.right + 24) continue;
+      if (!r.height || y < r.top - 6 || y > r.bottom + 6 || (x !== undefined && (x < r.left - 96 || x > r.right + 24))) continue;
       const a = r.height * r.width;
       if (a < area) {
         area = a;
@@ -730,8 +748,7 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
       dragging = { blocks: moving };
       document.documentElement.classList.add("doc-dragging");
     }
-    const box = article.getBoundingClientRect();
-    const target = blockAtPoint(box.left + 8, e.clientY);
+    const target = blockAtPoint(undefined, e.clientY);
     if (!target || dragging.blocks.some((b) => b === target || b.contains(target) || target.contains(b))) {
       drop.hidden = true;
       dragging.target = undefined;
@@ -850,14 +867,10 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
     tell("Duplicated");
   }
   function moveAll(blocks: HTMLElement[], dir: -1 | 1): void {
-    const sel = getSelection();
-    const r = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : undefined;
+    const at = holdCaret();
     history.record();
     if (!moveBlocks(article, blocks, dir)) return;
-    if (!picked.length && r) {
-      sel?.removeAllRanges();
-      sel?.addRange(r);
-    }
+    if (!picked.length) at();
     changed();
     blocks[0]?.scrollIntoView({ block: "nearest" });
     tell(dir < 0 ? "Moved up" : "Moved down");
@@ -933,7 +946,9 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
     if (table) {
       const r = (table.parentElement?.classList.contains("doc-table") ? table.parentElement : table).getBoundingClientRect();
       tableTools.style.left = `${Math.round(r.left + scrollX)}px`;
-      tableTools.style.top = `${Math.round(r.bottom + 6 + scrollY)}px`;
+      // Above the table, over the line before it, rather than over the rows the owner is typing into or the text after.
+      const above = r.top - tableTools.offsetHeight - 6;
+      tableTools.style.top = `${Math.round((above > 0 ? above : r.bottom + 6) + scrollY)}px`;
     }
   }
 
@@ -1089,11 +1104,10 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
     }
     if (block.tagName !== "LI") return;
     e.preventDefault();
-    const r = getSelection()!.getRangeAt(0).cloneRange();
+    const at = holdCaret();
     history.record();
     if (e.shiftKey ? outdent(block) : indent(block)) {
-      getSelection()?.removeAllRanges();
-      getSelection()?.addRange(r);
+      at();
       changed();
     }
   }
@@ -1297,17 +1311,20 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
   let sweep: HTMLElement | undefined;
   const marginDown = (e: PointerEvent): void => {
     const target = e.target as Element;
-    if (e.button !== 0 || article.contains(target) || target.closest(".doc-handle, .doc-menu, .doc-format, .doc-tabletools, .doc-codetools, .doc-toc, .doc-notes, button, a, input")) return;
+    // The article runs the frame's width; its margins either side of the text are the article itself.
+    if (e.button !== 0 || (target !== article && article.contains(target)) || target.closest(".doc-handle, .doc-menu, .doc-format, .doc-tabletools, .doc-codetools, .doc-toc, .doc-notes, button, a, input")) return;
     const box = article.getBoundingClientRect();
     if (e.clientY < box.top || e.clientY > box.bottom) return;
-    sweep = blockAtPoint(box.left + 8, e.clientY);
-    if (!sweep) return;
+    const at = blockAtPoint(undefined, e.clientY);
+    const r = at?.getBoundingClientRect();
+    if (!at || !r || (e.clientX >= r.left - 4 && e.clientX <= r.right + 4)) return;
+    sweep = at;
     e.preventDefault();
     pick([sweep]);
   };
   const marginMove = (e: PointerEvent): void => {
     if (!sweep || !(e.buttons & 1)) return;
-    const to = blockAtPoint(article.getBoundingClientRect().left + 8, e.clientY);
+    const to = blockAtPoint(undefined, e.clientY);
     if (to) pick(span(sweep, to), sweep);
   };
   const marginUp = (): void => {
@@ -1411,6 +1428,8 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
       sel!.removeAllRanges();
       sel!.addRange(r);
     }
+    // A selection of words made while blocks were picked ends the picking.
+    if (picked.length && sel && !sel.isCollapsed && sel.anchorNode && article.contains(sel.anchorNode)) unpick();
     placeBar();
     placeTools();
     placeholder();

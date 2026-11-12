@@ -209,7 +209,9 @@ html.doc-dragging, html.doc-dragging * { cursor: grabbing !important; user-selec
 .doc-format > button[data-format="strike"] { text-decoration: line-through; }
 
 .doc-menu { width: 264px; max-height: min(360px, 70vh); overflow-y: auto; padding: 3px; display: flex; flex-direction: column; gap: 1px; overscroll-behavior: contain; }
-.doc-menu.doc-colours { width: 200px; }
+.doc-menu.doc-colours { width: 196px; max-height: none; }
+.doc-menu.doc-colours > button { min-height: 28px; padding-block: 2px; }
+.doc-menu.doc-colours .doc-menu-group { padding-block: 6px 3px; }
 .doc-menu > button { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 4px 8px; border-radius: 7px; font-weight: 400; color: var(--text); }
 .doc-menu > button.on { background: var(--panel-2); }
 .doc-menu > button:focus-visible { outline: none; background: var(--panel-2); }
