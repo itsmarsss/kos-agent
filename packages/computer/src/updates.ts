@@ -231,8 +231,8 @@ export class DeviceUpdates {
     this.statuses.set(device, status);
     if (action === "reload" && want) {
       if (attempt?.outcome !== "told") store.setAttempt({ device, build: want.id, ...(line.build ? { from: line.build.id } : {}), outcome: "told" });
+      // The owner's ask stands until the Chrome says it reloads: told again on a new line, it is still theirs.
       this.tell(device, status, { action: "reload", ...(owner ? { force: true } : {}) });
-      this.asked.delete(device);
     } else if (action === "install" && want) {
       this.asked.delete(device);
       store.setAttempt({ device, build: want.id, ...(line.build ? { from: line.build.id } : {}), outcome: "installing" });
@@ -250,8 +250,10 @@ export class DeviceUpdates {
     if (!want || data.build !== want.id || data.state !== "reloading") return;
     const attempt = this.deps.store.attempt(device, want.id);
     if (attempt?.outcome !== "told") return;
+    const owner = this.asked.get(device) === want.id;
+    this.asked.delete(device);
     this.deps.store.setAttempt({ device, build: want.id, outcome: "reloading" });
-    this.audit(device, "chrome", attempt.from, want.id, "reloading", false);
+    this.audit(device, "chrome", attempt.from, want.id, "reloading", owner);
     this.statuses.set(device, { state: "updating", build: want });
   }
 

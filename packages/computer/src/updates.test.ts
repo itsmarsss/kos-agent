@@ -126,7 +126,7 @@ describe("KOS for Chrome behind", () => {
   });
 
   it("that reloaded and is still behind is not told again, and says so, until the owner presses Update now", async () => {
-    const { pair, connect, updates, outcomes } = setup();
+    const { pair, connect, updates, outcomes, audits } = setup();
     const chrome = pair("chrome", "Chrome");
     const line = await connect(chrome, OLD);
     line.event("update.state", { build: NEW.id, state: "reloading" });
@@ -139,6 +139,8 @@ describe("KOS for Chrome behind", () => {
     expect(again.updates.map((u) => u.action)).toEqual([undefined]);
     expect(await updates.updateNow(chrome.id)).toMatchObject({ state: "behind", reason: "idle" });
     expect(again.updates.at(-1)).toMatchObject({ action: "reload", force: true });
+    again.event("update.state", { build: NEW.id, state: "reloading" });
+    expect(audits.at(-1)).toMatchObject({ args: { kind: "chrome", outcome: "reloading", by: "owner" } });
   });
 
   it("is told again on a new line until it reloads: a line that dropped before it was idle is not a reload", async () => {
