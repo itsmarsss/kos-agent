@@ -26,7 +26,8 @@ export function Modal({
   useDismiss(open, onClose, { away: false, scroll: false, resize: false, escape: "dialog" });
   // The tab key stays in the dialog, and the focus goes back to what opened it.
   const box = useRef<HTMLDivElement>(null);
-  useFocusTrap(box, open);
+  const body = useRef<HTMLDivElement>(null);
+  useFocusTrap(box, open, body);
 
   return (
     <AnimatePresence>
@@ -63,7 +64,9 @@ export function Modal({
                 <CloseIcon title="" />
               </IconButton>
             </header>
-            <div className="modal-body">{children}</div>
+            <div className="modal-body" ref={body}>
+              {children}
+            </div>
           </m.div>
           </div>
         </>

@@ -8,12 +8,13 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
  * to what had it (the button that opened it) when it shuts.
  *
  * Opening, the focus goes in unless something inside already took it (an
- * autofocused field). Tab past the last control comes round to the first,
+ * autofocused field): to the first control in `start` when given (the
+ * dialog's body), else the first there is. Tab past the last control comes round to the first,
  * and Shift+Tab before the first to the last. Shutting, the focus returns
  * only if it was still inside, or nowhere: a dialog shut by a press on
  * something else leaves the focus there.
  */
-export function useFocusTrap(ref: RefObject<HTMLElement | null>, active: boolean): void {
+export function useFocusTrap(ref: RefObject<HTMLElement | null>, active: boolean, start?: RefObject<HTMLElement | null>): void {
   useEffect(() => {
     if (!active) return;
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -22,7 +23,10 @@ export function useFocusTrap(ref: RefObject<HTMLElement | null>, active: boolean
     // After the content has had its own say (autoFocus runs as it mounts).
     const enter = requestAnimationFrame(() => {
       const el = box();
-      if (el && !el.contains(document.activeElement)) (stops()[0] ?? el).focus();
+      if (!el || el.contains(document.activeElement)) return;
+      // Where the dialog's own content begins, when it says, rather than its head's Close.
+      const first = start?.current?.querySelector<HTMLElement>(FOCUSABLE) ?? stops()[0];
+      (first ?? el).focus();
     });
     const keys = (e: KeyboardEvent): void => {
       const el = box();
