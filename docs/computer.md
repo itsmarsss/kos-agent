@@ -11,8 +11,6 @@ Two packages, one protocol:
 - `packages/computer` (`@kos/computer`): the KOS side. Pairing, the socket
   devices connect to, sessions, and the `computer.*` tools.
 - `packages/device-macos`: KOS for Mac, a menu bar app.
-- `packages/device-ios`: KOS for iPhone, a phone that only chats (see
-  [A phone](#a-phone)).
 - `packages/device-shared`: the Swift both apps share: the wire, the kit
   they are drawn from, and the line to KOS.
 - `packages/browser-extension`: KOS for Chrome, a device that offers a
@@ -182,8 +180,8 @@ device socket alone.
   (4319 beside 4317), on every interface unless `KOS_DEVICE_LAN_HOST` names
   one. `urls` are `https://` and each home network address of the host.
 - **Private addresses only.** A connection from outside 10/8, 172.16/12,
-  192.168/16, 169.254/16, 127/8, 100.64/10 (a tailnet), `::1`, fc00::/7 and
-  fe80::/10 (and their IPv4-mapped forms) is dropped before TLS.
+  192.168/16, 169.254/16, 127/8, `::1`, fc00::/7 and fe80::/10 (and their
+  IPv4-mapped forms) is dropped before TLS.
 - **TLS only, pinned.** KOS makes its own ECDSA P-256 key and a self-signed
   certificate once, kept outside the workspace with the device host key
   (`~/.kos/device-lan.pem`, mode 0600; `KOS_DEVICE_LAN_CERT_FILE` moves it).
@@ -194,15 +192,20 @@ device socket alone.
 - **What it serves.** `GET /api/devices/lan` answers `{ "kos": true,
   "protocol": 1 }`, so a phone can see the certificate before it sends a
   code. `POST /api/devices/pair` pairs as on loopback, for platform `"ios"`
-  only (403 otherwise), its JSON body at most 4 KB (413). The upgrade at
-  `/api/devices/socket` is the device socket, which here takes phones alone:
-  any other device is closed with `4003`, a proved one with `not a phone:
-  only phones connect over Wi-Fi`. Every other path is a 404, the dashboard
-  and the rest of the API among them.
-- **Rate limits.** Five pairing attempts a minute from one address and
-  thirty from all (429 with `Retry-After`), twenty socket upgrades a minute
-  from one address; a wrong code still counts toward voiding every open code.
-  A request whose headers take more than ten seconds is dropped.
+  only (403 otherwise), its JSON body at most 4 KB (413, said before the
+  body is read when its length says so). The upgrade at
+  `/api/devices/socket` is the device socket, which here takes phones alone,
+  in frames of at most 512 KB: any other device is closed with `4003`, a
+  proved one with `not a phone: only phones connect over Wi-Fi`. Every other
+  path is a 404, the dashboard and the rest of the API among them.
+- **Limits.** Five pairing attempts a minute from one address and thirty
+  from all, twenty socket upgrades a minute from one address and sixty from
+  all (429 with `Retry-After`, and the connection closed); a wrong code still
+  counts toward voiding every open code. An IPv6 address counts as its /64.
+  At most eight connections from one address and 64 in all, and two device
+  sockets from one address and sixteen in all (429). A connection whose TLS
+  handshake, or whose request with its body, takes more than ten seconds is
+  dropped.
 
 While it is on, a code made on the dashboard also carries `lan { url, urls,
 pin, words }`, and the dashboard offers the phone link

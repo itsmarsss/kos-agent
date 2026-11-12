@@ -130,9 +130,18 @@ export interface DeviceSocketServer {
   close(): void;
 }
 
-/** `admit`, when given, narrows which proved devices this server's sockets carry (hub.accept). */
-export function deviceSocketServer(hubOf: () => DeviceHub | undefined, admit?: (device: Device) => boolean): DeviceSocketServer {
-  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
+export interface DeviceSocketOptions {
+  /** Narrows which proved devices this server's sockets carry (hub.accept). */
+  admit?: (device: Device) => boolean;
+  /** The largest frame a device may send; the protocol's 16 MB unless less. */
+  maxPayload?: number;
+  /** Sockets open at once. */
+  maxSockets?: number;
+}
+
+export function deviceSocketServer(hubOf: () => DeviceHub | undefined, options: DeviceSocketOptions = {}): DeviceSocketServer {
+  const { admit, maxPayload = MAX_FRAME_BYTES, maxSockets = MAX_SOCKETS } = options;
+  const wss = new WebSocketServer({ noServer: true, maxPayload });
   const alive = new WeakSet<WebSocket>();
   // A connection that stops answering pings is a laptop that went to sleep
   // without saying goodbye; dropping it ends its session.
@@ -152,7 +161,7 @@ export function deviceSocketServer(hubOf: () => DeviceHub | undefined, admit?: (
     upgrade(req, socket, head) {
       if ((req.url ?? "").split("?")[0] !== SOCKET_PATH) return false;
       const hub = hubOf();
-      if (!hub || wss.clients.size >= MAX_SOCKETS) {
+      if (!hub || wss.clients.size >= maxSockets) {
         socket.write("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
         socket.destroy();
         return true;

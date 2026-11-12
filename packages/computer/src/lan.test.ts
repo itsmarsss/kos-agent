@@ -1,11 +1,11 @@
 import { generateKeyPairSync, type KeyObject } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { request } from "node:https";
 import { connect, createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { TLSSocket } from "node:tls";
+import { connect as tlsConnect, type TLSSocket } from "node:tls";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 
@@ -13,8 +13,8 @@ import { openDatabase } from "@kos/harness";
 
 import { DeviceHub } from "./hub.js";
 import { rawPublicKey, signText } from "./keys.js";
-import { DeviceLan, RateLimit, isPrivateAddress } from "./lan.js";
-import { pinOf } from "./lancert.js";
+import { DeviceLan, RateLimit, addressKey, isPrivateAddress, type LanLimits } from "./lan.js";
+import { makeLanCert, pinOf } from "./lancert.js";
 import { REFUSED_REASON } from "./link.js";
 import { deviceProof, PROTOCOL_VERSION, SOCKET_PATH } from "./protocol.js";
 import { DeviceStore } from "./store.js";
@@ -36,11 +36,37 @@ afterEach(async () => {
   dir = undefined;
 });
 
-function setup(over: { port?: number; forced?: boolean } = {}) {
+function setup(over: { port?: number; forced?: boolean; limits?: Partial<LanLimits>; cert?: string } = {}) {
   const hub = new DeviceHub({ store: new DeviceStore(openDatabase(":memory:")), hostKey, halted: () => false, log: () => undefined });
   dir = mkdtempSync(join(tmpdir(), "kos-lan-"));
-  lan = new DeviceLan(() => hub, { port: over.port ?? 0, host: "127.0.0.1", certPath: join(dir, "device-lan.pem"), forced: over.forced ?? false });
+  const certPath = join(dir, "device-lan.pem");
+  if (over.cert !== undefined) writeFileSync(certPath, over.cert, { mode: 0o600 });
+  lan = new DeviceLan(() => hub, { port: over.port ?? 0, host: "127.0.0.1", certPath, forced: over.forced ?? false, ...(over.limits ? { limits: over.limits } : {}) });
   return { hub, lan };
+}
+
+/** Raw bytes to the listener over TLS, and everything it answers until it hangs up. */
+function raw(port: number, text: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = tlsConnect({ host: "127.0.0.1", port, rejectUnauthorized: false }, () => socket.write(text));
+    const chunks: Buffer[] = [];
+    socket.on("data", (c: Buffer) => chunks.push(c));
+    socket.on("close", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    socket.on("error", reject);
+  });
+}
+
+/** An upgrade to the device socket: the status line KOS answers, and the socket while it is open. */
+function upgradeTo(port: number): Promise<{ status: number; ws?: WebSocket }> {
+  return new Promise((resolve) => {
+    const ws = new WebSocket(`wss://127.0.0.1:${port}${SOCKET_PATH}`, { rejectUnauthorized: false });
+    ws.on("unexpected-response", (_req, res) => {
+      resolve({ status: res.statusCode ?? 0 });
+      ws.terminate();
+    });
+    ws.on("upgrade", () => resolve({ status: 101, ws }));
+    ws.on("error", () => resolve({ status: 0 }));
+  });
 }
 
 interface Answer {
@@ -219,6 +245,61 @@ describe("the Wi-Fi listener", () => {
     expect(lan.pairing()).toBeUndefined();
   });
 
+  it("ends where it was last asked when it is turned on and off at once", async () => {
+    const port = await freePort();
+    const { lan } = setup({ port });
+    const on = lan.sync(true);
+    const off = await lan.sync(false);
+    expect((await on).on).toBe(false);
+    expect(off.on).toBe(false);
+    expect(await listening(port)).toBe(false);
+  });
+
+  it("stays off and says why when its certificate cannot serve, and computer use goes on", async () => {
+    // A key and a certificate that each read well but do not belong together.
+    const one = makeLanCert(Date.now());
+    const other = makeLanCert(Date.now());
+    const { lan } = setup({ cert: `${one.key}${other.cert}` });
+    const status = await lan.sync(true);
+    expect(status.on).toBe(false);
+    expect(status.error).toMatch(/certificate could not be used/);
+    expect(lan.pairing()).toBeUndefined();
+  });
+
+  it("turns away a body too large before reading it, and hangs up", async () => {
+    const { lan } = setup();
+    const { port } = await lan.sync(true);
+    const answer = await raw(port, "POST /api/devices/pair HTTP/1.1\r\nHost: kos\r\nContent-Type: application/json\r\nContent-Length: 1000000\r\n\r\n");
+    expect(answer).toMatch(/^HTTP\/1\.1 413 /);
+    expect(answer.toLowerCase()).toContain("connection: close");
+  });
+
+  it("takes so many pairing attempts a minute from every address together", async () => {
+    const { lan } = setup({ limits: { pairsPerAddress: 100, pairsInAll: 3 } });
+    const { port } = await lan.sync(true);
+    const key = generateKeyPairSync("ed25519").privateKey;
+    for (let i = 0; i < 3; i++) expect((await ask(port, "POST", "/api/devices/pair", pairBody("WRNG-CODE", key))).status).toBe(403);
+    const over = await ask(port, "POST", "/api/devices/pair", pairBody("WRNG-CODE", key));
+    expect(over.status).toBe(429);
+    expect(over.headers.connection).toBe("close");
+  });
+
+  it("takes so many socket upgrades a minute, and so many sockets open from one address", async () => {
+    const { lan } = setup({ limits: { upgradesInAll: 3, socketsPerAddress: 1 } });
+    const { port } = await lan.sync(true);
+    const first = await upgradeTo(port);
+    expect(first.status).toBe(101);
+    // One address holds its share open: the next is turned away while it does.
+    expect((await upgradeTo(port)).status).toBe(429);
+    first.ws?.close();
+    await new Promise<void>((r) => first.ws?.once("close", () => r()));
+    // The third of the minute is the last; the fourth waits, whoever asks.
+    const third = await upgradeTo(port);
+    expect(third.status).toBe(101);
+    third.ws?.terminate();
+    expect((await upgradeTo(port)).status).toBe(429);
+  });
+
   it("says why when its port is taken", async () => {
     const taken = createServer();
     await new Promise<void>((r) => taken.listen(0, "127.0.0.1", () => r()));
@@ -231,14 +312,21 @@ describe("the Wi-Fi listener", () => {
 });
 
 describe("who the Wi-Fi listener serves", () => {
-  it("takes the private networks, a tailnet and loopback", () => {
-    for (const a of ["10.0.0.5", "172.16.0.1", "172.31.255.255", "192.168.1.20", "169.254.3.4", "127.0.0.1", "100.64.0.1", "100.127.1.1", "::1", "fd7a:115c:a1e0::1", "fc00::1", "fe80::1", "fe80::1%en0", "::ffff:192.168.1.20", "[::1]"]) {
+  it("takes the private networks and loopback", () => {
+    for (const a of ["10.0.0.5", "172.16.0.1", "172.31.255.255", "192.168.1.20", "169.254.3.4", "127.0.0.1", "::1", "fe9f::1", "febf:1::2", "fd7a:115c:a1e0::1", "fc00::1", "fe80::1", "fe80::1%en0", "::ffff:192.168.1.20", "[::1]"]) {
       expect(isPrivateAddress(a), a).toBe(true);
     }
   });
 
   it("refuses every public address, and what is not an address", () => {
     for (const a of ["8.8.8.8", "172.32.0.1", "172.15.0.1", "192.169.0.1", "100.128.0.1", "1.1.1.1", "::ffff:8.8.8.8", "2001:4860:4860::8888", "fec0::1", "", "localhost", "192.168.1"]) {
+      expect(isPrivateAddress(a), a).toBe(false);
+    }
+  });
+
+  it("refuses a carrier's shared range, and IPv6 that only starts like a private range", () => {
+    // fc::1 is 00fc::1 and fe8::1 is 0fe8::1: neither is unique-local or link-local.
+    for (const a of ["100.64.0.1", "100.127.1.1", "::ffff:100.64.0.1", "fc::1", "fd::1", "fe8::1"]) {
       expect(isPrivateAddress(a), a).toBe(false);
     }
   });
@@ -256,5 +344,26 @@ describe("a rate limit", () => {
     expect(limit.take("a")).toBe(30);
     now = 60_001;
     expect(limit.take("a")).toBe(0);
+  });
+
+  it("forgets the least recently used key in a flood, not one still in use", () => {
+    const limit = new RateLimit(1, 60_000, () => 0);
+    expect(limit.take("a")).toBe(0);
+    for (let i = 0; i < 999; i++) limit.take(`k${i}`);
+    // Used again, so it is the most recent: the next new key pushes out k0.
+    expect(limit.take("a")).toBe(60);
+    limit.take("new");
+    expect(limit.take("a")).toBe(60);
+    expect(limit.take("k0")).toBe(0);
+  });
+
+  it("counts an IPv6 address by its /64, and an IPv4 one by itself", () => {
+    expect(addressKey("2001:db8:1:2::5")).toBe(addressKey("2001:db8:1:2:aaaa:bbbb:cccc:1"));
+    expect(addressKey("2001:db8:1:2::5")).toBe("2001:db8:1:2::/64");
+    expect(addressKey("2001:db8:1:3::5")).not.toBe(addressKey("2001:db8:1:2::5"));
+    expect(addressKey("fe80::1%en0")).toBe("fe80:0:0:0::/64");
+    expect(addressKey("[::1]")).toBe("0:0:0:0::/64");
+    expect(addressKey("::ffff:192.168.1.20")).toBe("192.168.1.20");
+    expect(addressKey("192.168.1.21")).toBe("192.168.1.21");
   });
 });

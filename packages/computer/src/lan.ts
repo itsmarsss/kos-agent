@@ -34,6 +34,10 @@ export interface LanOptions {
   now?: () => number;
   /** This host's addresses on its networks; the system's unless a test says. */
   addresses?: () => string[];
+  /** LAN_LIMITS unless a test turns some down. */
+  limits?: Partial<LanLimits>;
+  /** Where it says what went wrong once it listens; the console's error stream unless given. */
+  log?: (line: string) => void;
 }
 
 /** Where the listener stands, as the dashboard shows it. */
@@ -62,11 +66,40 @@ export interface LanPairing {
 const PAIR_PATH = `${PREFIX}/pair`;
 const PROBE_PATH = `${PREFIX}/lan`;
 const MAX_BODY = 4 * 1024;
+/** A phone's frames are chat: words, a choice, a decision. */
+const MAX_FRAME_BYTES = 512 * 1024;
 const MINUTE = 60_000;
-const PAIRS_PER_ADDRESS = 5;
-const PAIRS_IN_ALL = 30;
-const UPGRADES_PER_ADDRESS = 20;
 const HEADERS_WITHIN_MS = 10_000;
+
+/** How much the listener takes, from one address and from all. */
+export interface LanLimits {
+  /** Pairing attempts a minute. */
+  pairsPerAddress: number;
+  pairsInAll: number;
+  /** Socket upgrades a minute. */
+  upgradesPerAddress: number;
+  upgradesInAll: number;
+  /** Connections open at once. */
+  connectionsPerAddress: number;
+  connectionsInAll: number;
+  /** Device sockets open at once. */
+  socketsPerAddress: number;
+  socketsInAll: number;
+}
+
+export const LAN_LIMITS: LanLimits = {
+  pairsPerAddress: 5,
+  pairsInAll: 30,
+  upgradesPerAddress: 20,
+  upgradesInAll: 60,
+  connectionsPerAddress: 8,
+  connectionsInAll: 64,
+  socketsPerAddress: 2,
+  socketsInAll: 16,
+};
+
+/** Keys a rate limit keeps at most; past that the least recently used goes. */
+const MAX_KEYS = 1000;
 
 /** Count of what each key did in the last window; a key past its limit waits for its oldest to age out. */
 export class RateLimit {
@@ -82,33 +115,76 @@ export class RateLimit {
   take(key: string): number {
     const now = this.now();
     const recent = (this.seen.get(key) ?? []).filter((t) => now - t < this.windowMs);
-    if (recent.length >= this.limit) {
-      this.seen.set(key, recent);
-      return Math.max(1, Math.ceil((recent[0]! + this.windowMs - now) / 1000));
-    }
-    recent.push(now);
+    // Set anew, so the map's order is the order keys were last used in.
+    this.seen.delete(key);
     this.seen.set(key, recent);
-    // Many addresses at once is a flood: the oldest keys go first, so memory stays bounded.
-    if (this.seen.size > 1000) this.seen.delete(this.seen.keys().next().value!);
+    // Many addresses at once is a flood: the least recently used go first, so memory stays bounded.
+    if (this.seen.size > MAX_KEYS) this.seen.delete(this.seen.keys().next().value!);
+    if (recent.length >= this.limit) return Math.max(1, Math.ceil((recent[0]! + this.windowMs - now) / 1000));
+    recent.push(now);
     return 0;
   }
 }
 
+/** How many of something each key holds open at once. */
+class Open {
+  private readonly held = new Map<string, number>();
+
+  constructor(private readonly perKey: number) {}
+
+  /** Hold one for `key` until `closed` fires; false, holding nothing, when the key has its share. */
+  hold(key: string, closed: (release: () => void) => void): boolean {
+    const count = this.held.get(key) ?? 0;
+    if (count >= this.perKey) return false;
+    this.held.set(key, count + 1);
+    closed(() => {
+      const left = (this.held.get(key) ?? 1) - 1;
+      if (left > 0) this.held.set(key, left);
+      else this.held.delete(key);
+    });
+    return true;
+  }
+}
+
+/** An address without brackets, zone or IPv4 mapping, lowercase. */
+function bareAddress(address: string): string {
+  const bare = address.replace(/^\[|\]$/g, "").replace(/%.*$/, "").toLowerCase();
+  return bare.startsWith("::ffff:") && isIPv4(bare.slice(7)) ? bare.slice(7) : bare;
+}
+
+/**
+ * What a limit counts an address as: an IPv4 address itself, an IPv6 one
+ * by its /64, since one home network hands each device a whole /64 to pick
+ * addresses from.
+ */
+export function addressKey(address: string): string {
+  const bare = bareAddress(address);
+  if (!isIPv6(bare)) return bare;
+  const [head = "", tail = ""] = bare.split("::");
+  const front = head ? head.split(":") : [];
+  const back = bare.includes("::") ? (tail ? tail.split(":") : []) : [];
+  const groups = [...front, ...Array<string>(Math.max(0, 8 - front.length - back.length)).fill("0"), ...back];
+  return `${groups
+    .slice(0, 4)
+    .map((g) => g.replace(/^0+(?=.)/, ""))
+    .join(":")}::/64`;
+}
+
 /**
  * Whether an address is on a private network: RFC 1918, link-local,
- * loopback, a Tailscale tailnet (100.64.0.0/10), and the IPv6 unique-local,
- * link-local and loopback ranges, in IPv4-mapped form too.
+ * loopback, and the IPv6 unique-local, link-local and loopback ranges, in
+ * IPv4-mapped form too. 100.64.0.0/10 is not among them: carriers share
+ * it out behind their own NAT, so it is no sign of a home network.
  */
 export function isPrivateAddress(address: string): boolean {
-  const bare = address.replace(/^\[|\]$/g, "").replace(/%.*$/, "").toLowerCase();
-  const mapped = bare.startsWith("::ffff:") ? bare.slice(7) : bare;
-  if (isIPv4(mapped)) {
-    const [a, b] = mapped.split(".").map(Number) as [number, number];
-    return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
+  const bare = bareAddress(address);
+  if (isIPv4(bare)) {
+    const [a, b] = bare.split(".").map(Number) as [number, number];
+    return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
   }
   if (!isIPv6(bare)) return false;
   if (bare === "::1") return true;
-  return /^f[cd][0-9a-f]{0,2}:/.test(bare) || /^fe[89ab][0-9a-f]?:/.test(bare);
+  return /^f[cd][0-9a-f]{2}:/.test(bare) || /^fe[89ab][0-9a-f]:/.test(bare);
 }
 
 /** A home network's own IPv4 addresses of this host: the ones a phone on the Wi-Fi can reach. */
@@ -120,28 +196,47 @@ function homeAddresses(): string[] {
     .map((i) => i.address);
 }
 
-const json = (res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void => {
-  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...headers });
+/** An answer in JSON; `close` ends the connection once it is sent, for a caller turned away. */
+const json = (res: ServerResponse, status: number, body: unknown, options: { headers?: Record<string, string>; close?: boolean } = {}): void => {
+  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...(options.close ? { connection: "close" } : {}), ...options.headers });
+  // Held now: the response lets go of its socket as it finishes.
+  const socket = res.socket;
+  if (options.close) res.once("finish", () => socket?.destroySoon());
   res.end(JSON.stringify(body));
 };
+
+/** An upgrade turned away before it is a socket. */
+function refuse(socket: Duplex, status: string, retryAfter?: number): void {
+  socket.end(`HTTP/1.1 ${status}\r\n${retryAfter ? `Retry-After: ${retryAfter}\r\n` : ""}Connection: close\r\n\r\n`, () => socket.destroy());
+}
 
 export class DeviceLan {
   private server: Server | undefined;
   private sockets: DeviceSocketServer | undefined;
   private cert: LanCert | undefined;
   private error: string | undefined;
+  /** What the owner last asked for; the queue works toward it. */
+  private wanted = false;
+  /** Each sync waits for the one before, so turning it on and off at once ends where it was last asked. */
+  private queue: Promise<unknown> = Promise.resolve();
+  private readonly limits: LanLimits;
   private readonly pairsByAddress: RateLimit;
   private readonly pairsInAll: RateLimit;
-  private readonly upgrades: RateLimit;
+  private readonly upgradesByAddress: RateLimit;
+  private readonly upgradesInAll: RateLimit;
+  private readonly log: (line: string) => void;
 
   constructor(
     private readonly hubOf: () => DeviceHub | undefined,
     private readonly options: LanOptions,
   ) {
     const now = options.now ?? Date.now;
-    this.pairsByAddress = new RateLimit(PAIRS_PER_ADDRESS, MINUTE, now);
-    this.pairsInAll = new RateLimit(PAIRS_IN_ALL, MINUTE, now);
-    this.upgrades = new RateLimit(UPGRADES_PER_ADDRESS, MINUTE, now);
+    this.limits = { ...LAN_LIMITS, ...options.limits };
+    this.pairsByAddress = new RateLimit(this.limits.pairsPerAddress, MINUTE, now);
+    this.pairsInAll = new RateLimit(this.limits.pairsInAll, MINUTE, now);
+    this.upgradesByAddress = new RateLimit(this.limits.upgradesPerAddress, MINUTE, now);
+    this.upgradesInAll = new RateLimit(this.limits.upgradesInAll, MINUTE, now);
+    this.log = options.log ?? ((line) => console.error(line));
   }
 
   get on(): boolean {
@@ -149,12 +244,11 @@ export class DeviceLan {
   }
 
   /** On when the owner wants it (or the host forces it) and computer use is on; off otherwise. */
-  async sync(wanted: boolean): Promise<LanStatus> {
-    const want = (wanted || this.options.forced) && this.hubOf() !== undefined;
-    if (want && !this.server) await this.start();
-    else if (!want && this.server) await this.stop();
-    if (!want) this.error = undefined;
-    return this.status();
+  sync(wanted: boolean): Promise<LanStatus> {
+    this.wanted = wanted;
+    const run = this.queue.then(() => this.apply());
+    this.queue = run.catch(() => undefined);
+    return run;
   }
 
   status(): LanStatus {
@@ -177,7 +271,19 @@ export class DeviceLan {
   }
 
   async close(): Promise<void> {
-    await this.stop();
+    await this.sync(false);
+  }
+
+  private want(): boolean {
+    return (this.wanted || this.options.forced) && this.hubOf() !== undefined;
+  }
+
+  private async apply(): Promise<LanStatus> {
+    if (this.want() && !this.server) await this.start();
+    // Asked off while it was starting: the latest ask wins.
+    if (!this.want() && this.server) await this.stop();
+    if (!this.want()) this.error = undefined;
+    return this.status();
   }
 
   /** The port it listens on: the one bound while on (a test asks for any), else the one configured. */
@@ -195,23 +301,39 @@ export class DeviceLan {
   }
 
   private async start(): Promise<void> {
+    let server: Server;
     try {
       this.cert ??= loadLanCert(this.options.certPath, this.options.now);
+      server = createServer({
+        key: this.cert.key,
+        cert: this.cert.cert,
+        minVersion: "TLSv1.2",
+        handshakeTimeout: HEADERS_WITHIN_MS,
+        headersTimeout: HEADERS_WITHIN_MS,
+        requestTimeout: HEADERS_WITHIN_MS,
+        // Checked every second, so a request past its ten seconds goes then, not up to thirty later.
+        connectionsCheckingInterval: 1000,
+      });
     } catch (err) {
-      this.error = `the Wi-Fi certificate could not be read: ${err instanceof Error ? err.message : String(err)}`;
+      // A certificate that cannot serve leaves the listener off; computer use goes on without it.
+      this.cert = undefined;
+      this.error = `the Wi-Fi certificate could not be used: ${err instanceof Error ? err.message : String(err)}`;
       return;
     }
-    // Phones only, whatever else holds a key.
-    const sockets = deviceSocketServer(this.hubOf, (device) => kindOf(device) === "phone");
-    const server = createServer({ key: this.cert.key, cert: this.cert.cert, minVersion: "TLSv1.2", handshakeTimeout: HEADERS_WITHIN_MS, headersTimeout: HEADERS_WITHIN_MS, requestTimeout: HEADERS_WITHIN_MS });
-    // Before TLS: an address off the private networks gets nothing at all.
+    server.maxConnections = this.limits.connectionsInAll;
+    // Phones only, whatever else holds a key, with frames the size of a chat's.
+    const sockets = deviceSocketServer(this.hubOf, { admit: (device) => kindOf(device) === "phone", maxPayload: MAX_FRAME_BYTES, maxSockets: this.limits.socketsInAll });
+    const connections = new Open(this.limits.connectionsPerAddress);
+    const socketsOpen = new Open(this.limits.socketsPerAddress);
+    // Before TLS: an address off the private networks gets nothing at all, nor one holding its share open.
     server.on("connection", (socket: Socket) => {
-      if (!isPrivateAddress(socket.remoteAddress ?? "")) socket.destroy();
+      const address = socket.remoteAddress ?? "";
+      if (!isPrivateAddress(address) || !connections.hold(addressKey(address), (release) => socket.once("close", release))) socket.destroy();
     });
     server.on("tlsClientError", (_err, socket) => socket.destroy());
     server.on("clientError", (_err, socket: Duplex) => socket.destroy());
     server.on("request", (req, res) => void this.request(req, res));
-    server.on("upgrade", (req, socket, head) => this.upgrade(req, socket, head, sockets));
+    server.on("upgrade", (req, socket, head) => this.upgrade(req, socket, head, sockets, socketsOpen));
     const listened = await new Promise<string | undefined>((resolve) => {
       server.once("error", (err) => resolve(err.message));
       server.listen(this.options.port, this.options.host, () => resolve(undefined));
@@ -222,11 +344,12 @@ export class DeviceLan {
       this.error = `could not listen on port ${this.options.port}: ${listened}`;
       return;
     }
+    // Whatever goes wrong once it listens is said, never thrown.
+    server.on("error", (err) => this.log(`devices: the Wi-Fi listener: ${err.message}`));
     this.error = undefined;
     this.server = server;
     this.sockets = sockets;
   }
-
   private async stop(): Promise<void> {
     const server = this.server;
     this.server = undefined;
@@ -246,10 +369,11 @@ export class DeviceLan {
     if (req.method === "GET" && path === PROBE_PATH) return json(res, 200, { kos: true, protocol: PROTOCOL_VERSION });
     if (req.method !== "POST" || path !== PAIR_PATH) return json(res, 404, { error: "not found" });
 
-    const wait = this.pairsByAddress.take(address) || this.pairsInAll.take("all");
-    if (wait) return json(res, 429, { error: "too many pairing attempts; wait a minute" }, { "retry-after": String(wait) });
+    const wait = this.pairsByAddress.take(addressKey(address)) || this.pairsInAll.take("all");
+    if (wait) return json(res, 429, { error: "too many pairing attempts; wait a minute" }, { headers: { "retry-after": String(wait) }, close: true });
+    if (Number(req.headers["content-length"] ?? 0) > MAX_BODY) return json(res, 413, { error: "too large" }, { close: true });
     const body = await readBody(req);
-    if (body === "too large") return json(res, 413, { error: "too large" });
+    if (body === "too large") return json(res, 413, { error: "too large" }, { close: true });
     let input: Record<string, unknown>;
     try {
       const parsed: unknown = JSON.parse(body);
@@ -269,14 +393,14 @@ export class DeviceLan {
     }
   }
 
-  private upgrade(req: IncomingMessage, socket: Duplex, head: Buffer, sockets: DeviceSocketServer): void {
+  private upgrade(req: IncomingMessage, socket: Duplex, head: Buffer, sockets: DeviceSocketServer, open: Open): void {
     const address = req.socket.remoteAddress ?? "";
     if (!isPrivateAddress(address) || (req.url ?? "").split("?")[0] !== SOCKET_PATH) return void socket.destroy();
-    const wait = this.upgrades.take(address);
-    if (wait) {
-      socket.write(`HTTP/1.1 429 Too Many Requests\r\nRetry-After: ${wait}\r\nConnection: close\r\n\r\n`);
-      return void socket.destroy();
-    }
+    const key = addressKey(address);
+    const wait = this.upgradesByAddress.take(key) || this.upgradesInAll.take("all");
+    if (wait) return refuse(socket, "429 Too Many Requests", wait);
+    // A phone needs one line; a few addresses cannot take every one there is.
+    if (!open.hold(key, (release) => socket.once("close", release))) return refuse(socket, "429 Too Many Requests");
     if (!sockets.upgrade(req, socket, head)) socket.destroy();
   }
 }
