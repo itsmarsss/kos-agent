@@ -799,7 +799,7 @@ describe("a doc's saves, which are the owner's", () => {
   });
 
   it("opens a mentioned artifact at the owner's press, never by a bad id or one the owner has none of", async () => {
-    vi.spyOn(api, "pages").mockResolvedValue([{ ...record, id: "deck-one", title: "Deck one", artifactKind: "deck" }]);
+    const pages = vi.spyOn(api, "pages").mockResolvedValue([{ ...record, id: "deck-one", title: "Deck one", artifactKind: "deck" }]);
     const { pageWin, say, press } = await frame();
     vi.spyOn(document, "activeElement", "get").mockReturnValue(screen.getByTitle("Budget"));
     hand(true);
@@ -816,6 +816,12 @@ describe("a doc's saves, which are the owner's", () => {
     say({ __kos: "call", id: 52, method: "open", args: { id: "deck-one" } });
     await waitFor(() => expect(window.location.hash).toBe("#/artifacts/deck-one"));
     expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 52, result: { opened: true } }, "*");
+    // One made since the list was fetched: the miss fetches it again, and it opens.
+    pages.mockResolvedValue([{ ...record, id: "deck-one", title: "Deck one", artifactKind: "deck" }, { ...record, id: "made-now", title: "Made now", artifactKind: "doc" }]);
+    await press();
+    say({ __kos: "call", id: 54, method: "open", args: { id: "made-now" } });
+    await waitFor(() => expect(window.location.hash).toBe("#/artifacts/made-now"));
+    expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 54, result: { opened: true } }, "*");
   });
 
   it("relays a save just after the dashboard's own Done, with no hand in the frame, and never after Discard, Undo or Edit", async () => {

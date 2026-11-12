@@ -523,9 +523,11 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         if (m.method === "open") {
           const first = openRefusal(state, args.id);
           if (first) return reply(m.id, { error: first });
-          // Only an artifact the owner has: the list, fetched once for this frame, is asked after the press is judged.
-          known.current ??= api.pages().then((list) => new Set(list.map((p) => p.id)), () => new Set<string>());
-          void known.current.then((ids) => {
+          // Only an artifact the owner has: the list, kept for this frame, is asked after the press is judged; a miss fetches it
+          // again, once, for an artifact made since.
+          const fetchKnown = (): Promise<Set<string>> => api.pages().then((list) => new Set(list.map((p) => p.id)), () => new Set<string>());
+          void (known.current ??= fetchKnown()).then(async (had) => {
+            const ids = had.has(String(args.id)) ? had : await (known.current = fetchKnown());
             const no = openRefusal(state, args.id, (id) => ids.has(id));
             if (no) return reply(m.id, { error: no });
             window.location.hash = hrefFor({ name: "artifacts", id: String(args.id) });
