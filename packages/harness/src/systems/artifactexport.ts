@@ -94,6 +94,10 @@ export interface ExporterOptions {
   pageLib?: () => string;
   /** How long one export may take, its wait for the Chrome included; EXPORT_MS unless a test says less. */
   timeoutMs?: number;
+  /** For a test: how many times slower the drawing tab's CPU runs (CDP's throttling), as on a slow machine. */
+  cpuThrottle?: number;
+  /** For a test: the longest the drawing waits for the frame to start and its reads to finish; DRAW_MS unless less. */
+  drawMs?: number;
 }
 
 /** A frozen read: what the artifact asked, by the key its bridge made, and what came back. */
@@ -103,14 +107,18 @@ export type Answers = Record<string, { result: unknown } | { error: string }>;
 export const EXPORT_MS = 60_000;
 /** Exports waiting on the Chrome at once; past it, the owner is told to wait. */
 const BROWSER_QUEUE_MAX = 3;
-/** How long a render waits for its runtime to draw and its reads to be answered. */
-const SETTLE_MS = 8000;
+/**
+ * The longest a render waits for the artifact's frame to have loaded and its
+ * reads to be done: generous, since a slow machine takes its time, and well
+ * inside the export's own timeout and the Chrome's job ceiling.
+ */
+export const DRAW_MS = 30_000;
 /** What the CDP client says when the Chrome it talked to is gone. */
 const BROWSER_GONE = /hung up|connection closed|not connected to the browser|Target closed|could not reach the browser/i;
 /** How long a frame has to answer KOS's question about it; a frame that cannot is busy for good. */
 const ANSWER_MS = 3000;
-/** Quiet time after the last read before the page is taken as drawn. */
-const QUIET_MS = 700;
+/** How long the frame must have been loaded with no read waiting or new before what it read is taken as all it reads. */
+const QUIET_MS = 1000;
 /** Past this the fonts stay out of an HTML file and their stacks fall back to the system's: four families are about half of it. */
 const FONT_BUDGET = 600_000;
 /** What a read said, at most, frozen in a file: a page of 500 rows fits many times over. */
@@ -445,8 +453,10 @@ export class ArtifactExporter {
     const kind = page.kind ?? "page";
     const answers: Answers = {};
     let size = 0;
-    let inFlight = 0;
-    let lastCall = Date.now();
+    /** Each read's key, once asked: whether it has had an answer (a refusal is one), and how many of it are out now. */
+    const reads = new Map<string, { answered: boolean; out: number }>();
+    /** When a key never asked before was first asked: what the quiet window counts from. */
+    let lastNew = Date.now();
     let left = false;
     const relay = (call: RelayedCall | "left"): void => {
       if (call === "left") {
@@ -455,8 +465,12 @@ export class ArtifactExporter {
       }
       const key = JSON.stringify([call.method, call.args]);
       const verb = call.method === "query" || call.method === "file" ? call.method : undefined;
-      inFlight += 1;
-      lastCall = Date.now();
+      const read = reads.get(key) ?? { answered: false, out: 0 };
+      if (!reads.has(key)) {
+        reads.set(key, read);
+        lastNew = Date.now();
+      }
+      read.out += 1;
       // Reads only: an export, like a check, never writes, asks or saves.
       const asked = verb ? this.options.call(id, verb, call.args) : Promise.reject(new Error("an export only reads"));
       void asked
@@ -473,20 +487,55 @@ export class ArtifactExporter {
           },
         )
         .finally(() => {
-          inFlight -= 1;
-          lastCall = Date.now();
+          read.out -= 1;
+          read.answered = true;
         });
     };
-    const tab = await SealedTab.open(cdp, { scripts: true, offline: true, track: job.track }, relay);
+    /** Reads out whose key has never been answered: what an export may not freeze without. */
+    const unanswered = (): number => [...reads.values()].filter((r) => !r.answered && r.out > 0).length;
+    /** Calls out that KOS has heard: a bridge holding no more than these holds nothing KOS has not seen. */
+    const heard = (): number => [...reads.values()].reduce((n, r) => n + r.out, 0);
+    const tab = await SealedTab.open(cdp, { scripts: true, offline: true, track: job.track, ...(this.options.cpuThrottle ? { cpuThrottle: this.options.cpuThrottle } : {}) }, relay);
     try {
       const view = kind === "deck" ? VIEW.deck : VIEW.other;
       await cdp.send("Emulation.setDeviceMetricsOverride", { ...view, deviceScaleFactor: 1, mobile: false }, tab.sessionId);
       await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }] }, tab.sessionId);
       await tab.navigate(hostDocument(artifactFrame({ ...page, html: withoutExits(page.html) }, theme, assets), assets.tokens[theme]["--bg"]));
+      /*
+       * Drawn once the frame has loaded, its bridge holds no call KOS has not
+       * heard (so a read the frame made has reached KOS), KOS has none unanswered,
+       * and no read new to it has been asked for a quiet while. A poller's
+       * repeats of a read already answered are not new: they neither hold
+       * the export up nor make it half read. A slow machine is waited for,
+       * up to the ceiling, never frozen half read.
+       */
       const start = Date.now();
-      await sleep(400);
-      while (!job.aborted && Date.now() - start < SETTLE_MS && (inFlight > 0 || Date.now() - lastCall < QUIET_MS)) await sleep(100);
-      if (job.aborted) throw new Error("the export was given up");
+      const ceiling = this.options.drawMs ?? DRAW_MS;
+      let loadedAt: number | undefined;
+      for (;;) {
+        if (job.aborted) throw new Error("the export was given up");
+        // The Chrome went: nothing more will be drawn, so the wait ends at once and is said in words (inChrome).
+        if (job.browserGone) throw new Error("the browser hung up");
+        // A frame that left has nothing more to read; what to make of that is below.
+        if (left) break;
+        const state = await this.frameState(cdp, tab);
+        if (state?.loaded) loadedAt ??= Date.now();
+        // The frame gave a read up before KOS heard of it: whatever it froze now would be without that read.
+        if ((state?.dropped ?? 0) > 0) throw new ExportRefusal("the artifact gave up on a read before it reached KOS, as on a machine too busy to draw it, so KOS did not export it without its data; try again");
+        const quiet = loadedAt !== undefined && Date.now() - Math.max(loadedAt, lastNew) >= QUIET_MS;
+        // Every call the bridge holds is one KOS has heard (a poller's repeat on its way), and none of those is new.
+        if (quiet && state !== undefined && state.pending <= heard() && unanswered() === 0) break;
+        if (Date.now() - start > ceiling) {
+          const waiting = unanswered();
+          if (waiting > 0) throw new ExportRefusal(`the artifact was still waiting on ${waiting} of its reads after ${Math.round(ceiling / 1000)} s, so KOS did not export it with its data half read; try again`);
+          if (loadedAt === undefined) throw new ExportRefusal(`the artifact's frame had not finished loading after ${Math.round(ceiling / 1000)} s, so there is nothing whole to export; try again`);
+          // Its bridge still holds calls KOS never heard of: they may be reads it has no answer for.
+          if ((state?.pending ?? 0) > 0 && reads.size === 0) throw new ExportRefusal(`the artifact's reads had not reached KOS after ${Math.round(ceiling / 1000)} s, so KOS did not export it without its data; try again`);
+          // Loaded, every read it made answered, and only repeating them: what it has read is whole.
+          break;
+        }
+        await sleep(100);
+      }
       if (!snapshot) return { answers };
       // A frame that tried to leave is refused by its wrapper and left with nothing to print.
       if (left) throw new ExportRefusal("the artifact tried to leave its frame, which KOS stops, so there is nothing to print; ask KOS to fix it");
@@ -494,6 +543,29 @@ export class ArtifactExporter {
     } finally {
       await tab.close();
     }
+  }
+
+  /**
+   * The artifact's own frame as its bridge says it stands: loaded (its
+   * document complete, with the bridge and runtime in it), and how many of
+   * its calls are out or queued, and how many it gave up on unanswered.
+   * Undefined while no frame can say, or one is too busy to.
+   */
+  private async frameState(cdp: CdpClient, tab: SealedTab): Promise<{ loaded: boolean; pending: number; dropped: number } | undefined> {
+    for (const c of tab.contexts) {
+      const got = (await cdp
+        .send(
+          "Runtime.evaluate",
+          { expression: 'typeof window.kos==="object"&&!!document.documentElement.dataset.kind?{loaded:document.readyState==="complete",pending:Number(window.kos.pending),dropped:Number(window.kos.dropped)}:null', contextId: c.id, returnByValue: true },
+          c.sessionId,
+          ANSWER_MS,
+        )
+        .catch(() => undefined)) as { result?: { value?: { loaded: boolean; pending: number; dropped: number } | null } } | undefined;
+      const value = got?.result?.value;
+      const count = (n: number): number => (Number.isFinite(n) ? n : 0);
+      if (value && typeof value.loaded === "boolean") return { loaded: value.loaded, pending: count(value.pending), dropped: count(value.dropped) };
+    }
+    return undefined;
   }
 
   /**

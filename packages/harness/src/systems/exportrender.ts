@@ -36,6 +36,8 @@ export interface SealedOptions {
   scripts: boolean;
   /** Whether the tab is offline from the start (DevTools' own network emulation), which no socket, WebSocket or prefetch passes. */
   offline?: boolean;
+  /** For a test: how many times slower every frame's CPU runs, as on a slow machine. */
+  cpuThrottle?: number;
   /** Told each target the tab is, so whoever holds the job can close it. */
   track: (targetId: string) => void;
 }
@@ -103,6 +105,7 @@ export class SealedTab {
       await cdp.send("Network.emulateNetworkConditions", { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 }, session);
     }
     if (!options.scripts) await cdp.send("Emulation.setScriptExecutionDisabled", { value: true }, session);
+    if (options.cpuThrottle) await cdp.send("Emulation.setCPUThrottlingRate", { rate: options.cpuThrottle }, session);
     await cdp.send("Runtime.enable", {}, session);
   }
 
@@ -142,6 +145,8 @@ export class SealedTab {
 
   async close(): Promise<void> {
     this.off();
+    // A throttled renderer can outlive its tab and draw the next one: it is given back its full speed first.
+    if (this.options.cpuThrottle) await Promise.all([...this.sessions].map((s) => this.cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 }, s).catch(() => undefined)));
     await this.cdp.send("Target.closeTarget", { targetId: this.targetId }).catch(() => undefined);
   }
 
