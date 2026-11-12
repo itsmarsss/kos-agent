@@ -83,8 +83,12 @@ const placeKey = (r: Pick<PageSummary, "projectSlug" | "blob" | "blobRemoved">):
 export const deleteWords = (title: string): string => `Delete “${title}” for good, with every version? This cannot be undone.`;
 
 /** What "Empty trash" says before everything in it goes, naming what the view's filters hide, which goes too. */
-export const emptyWords = (n: number, hidden = 0): string =>
-  `Delete ${n === 1 ? "the one artifact" : `all ${n} artifacts`} in the trash for good${hidden > 0 ? `, the ${hidden} your filters hide included` : ""}, with every version? This cannot be undone.`;
+export function emptyWords(n: number, hidden = 0): string {
+  const one = n === 1;
+  const what = one ? "the one artifact" : `all ${n} artifacts`;
+  const unseen = hidden === 0 ? "" : one ? ", though your filters hide it" : `, including ${hidden} your filters hide`;
+  return `Delete ${what} in the trash for good${unseen}? Every version goes with ${one ? "it" : "them"}. This cannot be undone.`;
+}
 
 type Dialog = { kind: "rename"; record: PageSummary; title: string; description: string } | { kind: "move"; record: PageSummary; choice?: string };
 

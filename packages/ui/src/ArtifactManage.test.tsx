@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { api, dispositionName, type AgentInfo, type ArtifactSummary, type Project } from "./api.js";
+import { emptyWords } from "./ArtifactManage.js";
 import { ArtifactViewer, ArtifactsPage } from "./ArtifactsPage.js";
 import { ArtifactOpen, ArtifactStep } from "./ArtifactStep.js";
 
@@ -352,7 +353,13 @@ describe("emptying the trash", () => {
     fireEvent.change(screen.getByLabelText("Search the trash"), { target: { value: "spare" } });
     expect(cards("Trash")).toEqual(["Spare memo"]);
     fireEvent.click(screen.getByRole("button", { name: "Empty trash" }));
-    expect((await screen.findByRole("alertdialog")).textContent).toContain("Delete all 2 artifacts in the trash for good, the 1 your filters hide included");
+    expect((await screen.findByRole("alertdialog")).textContent).toContain("Delete all 2 artifacts in the trash for good, including 1 your filters hide? Every version goes with them. This cannot be undone.");
+  });
+
+  it("says one in the trash as one", () => {
+    expect(emptyWords(1)).toBe("Delete the one artifact in the trash for good? Every version goes with it. This cannot be undone.");
+    expect(emptyWords(1, 1)).toBe("Delete the one artifact in the trash for good, though your filters hide it? Every version goes with it. This cannot be undone.");
+    expect(emptyWords(3)).toBe("Delete all 3 artifacts in the trash for good? Every version goes with them. This cannot be undone.");
   });
 
   it("stops at the first that cannot be deleted, keeping it and the rest, and says why", async () => {
