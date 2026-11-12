@@ -856,7 +856,8 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       for (const e of events.slice(from).filter((e) => e.method === "Target.attachedToTarget")) await sendTo((e.params as { sessionId: string }).sessionId, "Emulation.setTouchEmulationEnabled", params).catch(() => undefined);
     };
     await sheetPage("/touch", `<h1>October</h1>${sheetData(paid())}`, { menus });
-    await ask<{ buttons: number }>("menus", (m) => m.buttons > 0);
+    // A headless Chrome with no mouse (as on Linux CI) is a no-hover screen already; only one with a mouse can show the hovering half.
+    const before = await ask<{ buttons: number; touch: boolean }>("menus", (m) => m.buttons > 0);
     await touchOn(true);
     // Waited out: the menus fade in and out, and a slow machine reads them mid-fade.
     const touch = await ask<{ buttons: number; shown: number; wide: number; bare: number; touch: boolean }>("menus", (m) => m.touch && m.shown === m.buttons);
@@ -866,9 +867,11 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     expect(touch.wide).toBe(touch.bare);
     // With a pointer that hovers, the same phone keeps them hidden until a header is hovered or focused.
     await touchOn(false);
-    const mouse = await ask<{ buttons: number; shown: number; wide: number; bare: number; touch: boolean }>("menus", (m) => !m.touch && m.shown === 0);
-    expect(mouse.shown).toBe(0);
-    expect(mouse.wide).toBe(mouse.bare);
+    if (!before.touch) {
+      const mouse = await ask<{ buttons: number; shown: number; wide: number; bare: number; touch: boolean }>("menus", (m) => !m.touch && m.shown === 0);
+      expect(mouse.shown).toBe(0);
+      expect(mouse.wide).toBe(mouse.bare);
+    }
     await send("Target.setAutoAttach", { autoAttach: false, waitForDebuggerOnStart: false, flatten: true });
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
