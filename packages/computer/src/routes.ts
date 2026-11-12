@@ -162,6 +162,11 @@ export interface DeviceSocketOptions {
   loopback?: boolean;
 }
 
+/** A request a proxy passed on: on loopback, but from wherever the proxy's own client was. */
+export function isForwarded(headers: IncomingMessage["headers"]): boolean {
+  return Object.keys(headers).some((name) => name === "x-forwarded-for" || name === "forwarded" || name === "x-real-ip" || name.startsWith("tailscale-"));
+}
+
 /** An address on this computer: 127/8 or ::1, as itself or IPv4-mapped. */
 export function isLoopback(address: string | undefined): boolean {
   const a = (address ?? "").replace(/^::ffff:/i, "");
@@ -199,7 +204,7 @@ export function deviceSocketServer(hubOf: () => DeviceHub | undefined, options: 
         alive.add(ws);
         ws.on("pong", () => alive.add(ws));
         ws.on("error", () => ws.terminate());
-        hub.accept(asSocket(ws), { ...(admit ? { admit } : {}), local: loopback && isLoopback(req.socket.remoteAddress) });
+        hub.accept(asSocket(ws), { ...(admit ? { admit } : {}), local: loopback && isLoopback(req.socket.remoteAddress) && !isForwarded(req.headers) });
       });
       return true;
     },

@@ -7,7 +7,7 @@ import type { DashboardTheme, FaceDrawing } from "@kos/shared";
 import type { Build, BuildKind } from "./builds.js";
 import { OwnerChrome } from "./chrome.js";
 import { DeviceHub } from "./hub.js";
-import { loadHostKey } from "./keys.js";
+import { loadHostKey, loadLocalKey } from "./keys.js";
 import { DeviceLan, type LanOptions } from "./lan.js";
 import { CHROME_PANEL, DevicePanel, MAC_PANEL, PHONE_PANEL, type PanelDeps } from "./panel.js";
 import { deviceRoutes, deviceSocketServer } from "./routes.js";
@@ -29,6 +29,8 @@ export interface ComputerUseOptions {
   hostKeyPath: string;
   /** KOS's key as base64 PKCS#8, for a host whose home does not persist. */
   hostKeyEnv?: string;
+  /** Where the secret a KOS for Mac on this computer proves it is here with is kept; none, and no Mac is taken as here. */
+  localKeyPath?: string;
   /** The conversation calling a tool, read at call time. */
   caller(): string | undefined;
   titleOf(conversation: string): string;
@@ -102,6 +104,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         halted: options.halted,
         face: options.face,
         theme: options.theme,
+        ...(options.localKeyPath ? { localKey: loadLocalKey(options.localKeyPath) } : {}),
       });
       const devices = hub;
       if (options.updates && !updates) {

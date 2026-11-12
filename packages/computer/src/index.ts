@@ -1,7 +1,7 @@
 export * from "./protocol.js";
 export { BUILD_SOURCES, STAMP_FILE, buildFiles, buildId, commitOf, readBuild, readStamp, sourceBuild, stampOf, type Build, type BuildKind } from "./builds.js";
 export { DeviceUpdates, buildKindOf, decide, type DecideInput, type Decision, type MacInstaller, type UpdateAction, type UpdateReason, type UpdateState, type UpdateStatus, type UpdatesDeps } from "./updates.js";
-export { loadHostKey, nonce, publicKeyFromRaw, rawPublicKey, signText, verifyText, type HostKey } from "./keys.js";
+export { hereProof, loadHostKey, loadLocalKey, nonce, publicKeyFromRaw, rawPublicKey, signText, verifyHere, verifyText, type HostKey } from "./keys.js";
 export { DeviceStore, cleanName, DEFAULT_SETTINGS, MAX_ASK_MINUTES, type ComputerSettings, type Device, type UpdateAttempt, type UpdateOutcome } from "./store.js";
 export { PairingCodes, CODE_TTL_MS, type PairingCode } from "./pairing.js";
 export { DeviceError, DeviceLink, type Socket } from "./link.js";
@@ -12,7 +12,7 @@ export { ARTIFACT_DOCUMENT_BYTES, ARTIFACTS_LISTED, type ArtifactTheme, type Pan
 export { DASHBOARD_IN_FLIGHT, DashboardRelay, admit, type DashboardAsk, type DashboardDeps, type PanelDashboard } from "./dashboard.js";
 export { ATTACH_FILE_BYTES, ATTACH_FILES, ATTACH_PART_CHARS, AttachmentInbox } from "./inbox.js";
 export { COMPUTER_MANIFEST, computerModule, pageText, refusalText, type ComputerToolsDeps } from "./tools.js";
-export { PREFIX, deviceRoutes, deviceSocketServer, isLoopback, type DeviceSocketServer, type LanControl } from "./routes.js";
+export { PREFIX, deviceRoutes, deviceSocketServer, isForwarded, isLoopback, type DeviceSocketServer, type LanControl } from "./routes.js";
 export { DeviceLan, RateLimit, isPrivateAddress, type LanOptions, type LanPairing, type LanStatus } from "./lan.js";
 export { loadLanCert, makeLanCert, pinOf, readLanCert, type LanCert } from "./lancert.js";
 export { createComputerUse, type ComputerUse, type ComputerUseOptions } from "./computeruse.js";

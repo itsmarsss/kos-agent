@@ -87,6 +87,10 @@ export interface Hello extends DeviceState {
   app: AppInfo;
   /** The build of the app, as stamped when it was built; an app that sends none, or none that reads, is of a build KOS does not know. */
   build?: Build;
+  /** A Chrome's: how it was installed (`development` is Load unpacked, the only kind a reload brings new code to). */
+  install?: string;
+  /** KOS for Mac's proof that it runs on the computer KOS runs on (keys.ts, hereProof). */
+  here?: string;
 }
 
 export interface Welcome {
@@ -292,6 +296,8 @@ export function readFrame(text: string): FromDevice | undefined {
         signature: raw.signature,
         app: { version: app.version, platform: app.platform, os: app.os },
         ...(build ? { build } : {}),
+        ...(isString(raw.install) && raw.install.length <= 20 ? { install: raw.install } : {}),
+        ...(isString(raw.here) && raw.here.length <= 64 ? { here: raw.here } : {}),
         consent,
         permissions,
         displays,

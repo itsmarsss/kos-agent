@@ -61,6 +61,11 @@ export class FakeDevice {
     },
   };
 
+  /** The nonce KOS challenged this line with, once it has. */
+  get challenged(): string | undefined {
+    return this.challenge;
+  }
+
   /** What this device would send, said to the hub. */
   send(message: Record<string, unknown>): void {
     this.toHost?.(JSON.stringify(message));

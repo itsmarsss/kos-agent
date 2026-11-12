@@ -64,6 +64,8 @@ export interface HubDeps {
   halted: () => boolean;
   /** KOS's face as the owner set it, for every device to draw KOS by. */
   face?: () => FaceDrawing;
+  /** The secret a KOS for Mac on this computer proves it is here with (keys.ts, loadLocalKey). */
+  localKey?: Buffer;
   /** The dashboard's theme and the palette it was last drawn in, for every device that follows the dashboard to draw. */
   theme?: () => DashboardTheme;
   now?: () => number;
@@ -192,6 +194,7 @@ export class DeviceHub {
       lookup: (id) => this.deps.store.get(id),
       ...(admit ? { admit } : {}),
       ...(local ? { local } : {}),
+      ...(this.deps.localKey ? { localKey: this.deps.localKey } : {}),
       onReady: (link) => this.ready(link),
       onState: () => this.changed(),
       onEvent: (link, event) => this.event(link, event),
@@ -227,10 +230,10 @@ export class DeviceHub {
   }
 
   /** A device's line as it stands: the build it said it runs and whether it is on this computer; undefined while it is offline. */
-  lineOf(deviceId: string): { build?: Build; local: boolean } | undefined {
+  lineOf(deviceId: string): { build?: Build; install?: string; local: boolean } | undefined {
     const link = this.links.get(deviceId);
     if (!link?.ready) return undefined;
-    return { ...(link.build ? { build: link.build } : {}), local: link.local };
+    return { ...(link.build ? { build: link.build } : {}), ...(link.install ? { install: link.install } : {}), local: link.local };
   }
 
   /** Tell one device something that needs no answer; nothing when it is offline. */
