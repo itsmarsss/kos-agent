@@ -1,6 +1,7 @@
 import DeviceCore
 import DeviceKit
 import Foundation
+import OSLog
 
 /// The owner's artifacts on the phone (docs/computer.md, Artifacts): the
 /// ones changed last, to pick from, and the one open, as KOS drew it for
@@ -76,6 +77,7 @@ public final class ArtifactShelf: ObservableObject {
   /// What the shelf says to KOS; the app sends it on the line.
   public var tell: (ChatEvent) -> Void = { _ in }
 
+  private static let log = Logger(subsystem: "com.itsmarsss.kos-phone", category: "artifacts")
   private var calls = 0
   private var reads: [Int: (Answer) -> Void] = [:]
   /// How long a read waits on KOS before the page is told it is not coming; the page's own bridge waits ten seconds.
@@ -137,6 +139,8 @@ public final class ArtifactShelf: ObservableObject {
   public func received(_ opened: ArtifactOpened) {
     guard case .loading(let id, let title) = shown, opened.id == id else { return }
     if let error = opened.error {
+      // Why is KOS's to say in its own words, which are not always the owner's: kept in the log, and shown plainly.
+      Self.log.notice("artifact \(id, privacy: .public) did not open: \(error, privacy: .public)")
       shown = .failed(id: id, title: title, why: error)
     } else if let document = opened.document, let themes = opened.themes {
       shown = .open(
