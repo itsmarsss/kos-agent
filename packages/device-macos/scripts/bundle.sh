@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds "KOS for Mac.app" into build/, signed ad hoc. --install puts it in ~/Applications in
 # place of the running one and opens it. The app carries its build (docs/computer.md, Builds),
-# stamped by the checkout's own tool, so KOS's packages must be built first (pnpm build).
+# stamped by the checkout's own tool once KOS's packages are built (pnpm build); without it the app
+# is built unstamped, which KOS reads as a build it does not know.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -9,7 +10,6 @@ APP="build/KOS for Mac.app"
 STAMP="../computer/dist/stamp.js"
 # KOS runs this with its own Node, which a launchd PATH may not have.
 NODE="${KOS_NODE:-node}"
-[[ -f "$STAMP" ]] || { echo "Build KOS first (pnpm build): $STAMP stamps the app's build" >&2; exit 1; }
 
 swift build -c release --product KOSDevice
 BIN="$(swift build -c release --show-bin-path)/KOSDevice"
@@ -24,7 +24,11 @@ rm -rf "$ICONSET"
 swift scripts/icon.swift "$ICONSET"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 rm -rf "$ICONSET"
-"$NODE" "$STAMP" mac "$APP/Contents/Resources/build.json"
+if [[ -f "$STAMP" ]] && "$NODE" "$STAMP" mac "$APP/Contents/Resources/build.json"; then
+  echo "Stamped its build"
+else
+  echo "warning: built unstamped; build KOS first (pnpm build) so KOS knows which build this is" >&2
+fi
 
 # With a key of the owner's own (scripts/signing.sh setup), every build is the same
 # app to macOS and keeps its permissions; without one, ad hoc.

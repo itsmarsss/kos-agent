@@ -7,9 +7,10 @@ the security model are in [docs/computer.md](../../docs/computer.md).
 
 ## Build and install
 
-Needs macOS 14 or later, the Xcode Command Line Tools, and KOS's packages
-built (`pnpm build` at the root): each build is stamped with its build id
-(docs/computer.md, Builds and updates).
+Needs macOS 14 or later and the Xcode Command Line Tools. With KOS's
+packages built (`pnpm build` at the root) each build is stamped with its
+build id (docs/computer.md, Builds and updates); without them it is built
+unstamped, which KOS reads as a build it does not know.
 
 ```sh
 ./scripts/bundle.sh            # builds build/KOS for Mac.app

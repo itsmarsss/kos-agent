@@ -53,6 +53,7 @@ struct BuildsTests {
     #expect(try Inbound.decode(Data(badBuild.utf8)) == .update(UpdateNotice(state: .current)))
   }
 
+  #if os(macOS)
   @Test func provesItIsOnKOSsComputerAsKOSChecks() throws {
     let file = FileManager.default.temporaryDirectory.appendingPathComponent("here-\(UUID().uuidString).key")
     defer { try? FileManager.default.removeItem(at: file) }
@@ -61,4 +62,5 @@ struct BuildsTests {
     try "\(Data(repeating: 7, count: 32).base64EncodedString())\n".write(to: file, atomically: true, encoding: .utf8)
     #expect(HereProof.sign(hostNonce: "bm9uY2U=", deviceId: "dev_1", keyFile: file) == "DSnyF6p7ejzOZvXRYLSqCV1MlQQXTSs1ZKKIBztwwZ0=")
   }
+  #endif
 }

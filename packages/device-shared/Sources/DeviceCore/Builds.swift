@@ -87,6 +87,7 @@ public struct UpdateNotice: Equatable, Sendable {
   public var key: String { "\(build?.id ?? "-"):\(state.rawValue):\(reason?.rawValue ?? "-")" }
 }
 
+#if os(macOS)
 /// How a device on the computer KOS runs on proves it is there (docs/computer.md,
 /// Builds and updates): the secret KOS keeps in a file only the owner can read,
 /// as HMAC-SHA256 over KOS's nonce bound to this device's id. KOS rebuilds a Mac
@@ -105,3 +106,4 @@ public enum HereProof {
     return Data(mac).base64EncodedString()
   }
 }
+#endif
