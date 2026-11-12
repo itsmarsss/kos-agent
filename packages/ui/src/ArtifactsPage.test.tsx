@@ -135,6 +135,26 @@ describe("the Artifacts page", () => {
     expect(asked).not.toHaveBeenCalled();
   });
 
+  it("goes back to the workspace when the owner chosen is no longer offered", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([]);
+    const agents = vi.spyOn(api, "agents").mockResolvedValue({ agents: [{ name: "noter" } as AgentInfo], invalid: [] });
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={() => undefined} />);
+    const open = async (): Promise<HTMLElement> => {
+      fireEvent.click((await screen.findAllByRole("button", { name: "New artifact" }))[0]!);
+      return screen.findByRole("dialog", { name: "New artifact" });
+    };
+    let dialog = await open();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Owner" }));
+    fireEvent.click(await screen.findByRole("option", { name: "noter" }));
+    expect(within(dialog).getByText("Goes to noter's chat")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // The blob is removed before the dialog opens again.
+    agents.mockResolvedValue({ agents: [], invalid: [] });
+    dialog = await open();
+    await waitFor(() => expect(within(dialog).getByText("Goes to KOS")).toBeTruthy());
+  });
+
   it("asks KOS at the root for a workspace artifact, and a blob in its own thread", () => {
     expect(newRequest("doc", " A memo ", null)).toMatch(/^A memo\n\nMake this as a doc with artifacts\.write, leaving project out so it is a workspace artifact\./);
     expect(newRequest("sheet", "Budget", { blob: "noter" })).toContain("leaving project out so it is your own");

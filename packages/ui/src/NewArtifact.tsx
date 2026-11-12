@@ -83,6 +83,11 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked }: NewArtif
       .map((p) => ({ value: p.slug, label: p.name, icon: <ProjectMark slug={p.slug} name={p.name} colour={p.colour} /> })),
     ...blobs.map((name) => ({ value: `${BLOB}${name}`, label: name, icon: <Face seed={name} size={14} /> })),
   ];
+  // One no longer offered (a blob removed, a project gone since) goes back to the workspace, rather than sending to nowhere.
+  const offered = owners.map((o) => o.value).join("\n");
+  useEffect(() => {
+    if (!offered.split("\n").includes(owner)) setOwner(WORKSPACE);
+  }, [offered, owner]);
   const ownerName = owners.find((o) => o.value === owner)?.label ?? "Workspace";
   const chosen = KINDS.find((k) => k.kind === kind)!;
 
