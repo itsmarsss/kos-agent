@@ -240,6 +240,12 @@ export function tokenRule(tokens: Record<string, string>, mode: "light" | "dark"
  * Queries go out FRAME_QUERIES at a time, in the order asked; the rest wait
  * in the frame, so how many a page asks at once is never a refusal. One with
  * no answer in FRAME_QUERY_WAIT_MS gives its turn up and is refused.
+ * How many of its calls are out (sent and not answered) or still queued is
+ * kos.pending, read-only, kept in the bridge's own closure: an export waits
+ * for it to reach 0, so a read the frame made but KOS has not heard yet is
+ * not frozen as missing; kos.dropped, how many it gave up on unanswered,
+ * tells an export that a read never reached KOS in time. A page can only
+ * mislead its own export with either.
  */
 export const BRIDGE_SCRIPT = `(function(){
 var gestures=new MessageChannel(),gport=gestures.port1,tell=MessagePort.prototype.postMessage,apply=Reflect.apply,listen=EventTarget.prototype.addEventListener;
@@ -276,7 +282,8 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 addEventListener("load",ground);
 function call(method,args,sent){return new Promise(function(resolve,reject){var id=++seq;if(sent)sent.id=id;waiting[id]={resolve:resolve,reject:reject};top.postMessage({__kos:"call",id:id,method:method,args:args},"*");});}
 var asking=0,asks=[];
-function send(a){var sent={},over=false,timer=setTimeout(function(){if(end())a.reject(new Error("the query had no answer in ${FRAME_QUERY_WAIT_MS / 1000} s; KOS may be busy, so try again"))},${FRAME_QUERY_WAIT_MS});
+var dropped=0;
+function send(a){var sent={},over=false,timer=setTimeout(function(){if(end()){dropped++;a.reject(new Error("the query had no answer in ${FRAME_QUERY_WAIT_MS / 1000} s; KOS may be busy, so try again"))}},${FRAME_QUERY_WAIT_MS});
 function end(){if(over)return false;over=true;clearTimeout(timer);delete waiting[sent.id];asking--;ask();return true}
 asking++;call("query",a.args,sent).then(function(r){if(end())a.resolve(r)},function(e){if(end())a.reject(e)})}
 function ask(){while(asking<${FRAME_QUERIES}&&asks.length)send(asks.shift())}
@@ -302,6 +309,8 @@ onTheme:function(f){themeFns.push(f)},
 refresh:function(f){refreshFns.push(f)}
 };
 Object.defineProperty(kos,"theme",{get:function(){return mode},enumerable:true});
+Object.defineProperty(kos,"pending",{get:function(){return Object.keys(waiting).length+asks.length},enumerable:false});
+Object.defineProperty(kos,"dropped",{get:function(){return dropped},enumerable:false});
 Object.defineProperty(window,"kos",{value:Object.freeze(kos)});
 })();`;
 
