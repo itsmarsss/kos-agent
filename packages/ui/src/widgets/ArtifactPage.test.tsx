@@ -824,6 +824,43 @@ describe("a doc's saves, which are the owner's", () => {
     expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 54, result: { opened: true } }, "*");
   });
 
+  it("fetches the list again for a miss at most once a press, sharing one in flight, and keeps the list a failed fetch would empty", async () => {
+    const deck = { ...record, id: "deck-one", title: "Deck one", artifactKind: "deck" as const };
+    // The first fetch fails: nothing is kept, so the next open asks again.
+    const pages = vi.spyOn(api, "pages").mockRejectedValueOnce(new Error("offline")).mockResolvedValue([deck]);
+    const { pageWin, say, press } = await frame();
+    vi.spyOn(document, "activeElement", "get").mockReturnValue(screen.getByTitle("Budget"));
+    hand(true);
+    const replies = vi.spyOn(pageWin, "postMessage");
+    const open = (id: number, artifact: string): void => say({ __kos: "call", id, method: "open", args: { id: artifact } });
+    const answered = (id: number): Promise<void> => waitFor(() => expect(replies.mock.calls.some(([m]) => (m as { id?: number }).id === id)).toBe(true));
+    await press();
+    open(60, "deck-one");
+    // The failed first fetch is no list: the miss it makes fetches again for this press, and finds it.
+    await waitFor(() => expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 60, result: { opened: true } }, "*"));
+    expect(pages).toHaveBeenCalledTimes(2);
+    // Kept now: a hit asks nothing.
+    open(61, "deck-one");
+    await waitFor(() => expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 61, result: { opened: true } }, "*"));
+    expect(pages).toHaveBeenCalledTimes(2);
+    // Two misses at one press share one refetch; a third at that press asks nothing more.
+    await press();
+    open(62, "gone-a");
+    open(63, "gone-b");
+    await Promise.all([answered(62), answered(63)]);
+    open(64, "gone-c");
+    await answered(64);
+    expect(pages).toHaveBeenCalledTimes(3);
+    // A refetch that fails keeps the list it had.
+    pages.mockRejectedValue(new Error("offline"));
+    await press();
+    open(65, "gone-d");
+    await answered(65);
+    expect(pages).toHaveBeenCalledTimes(4);
+    open(66, "deck-one");
+    await waitFor(() => expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 66, result: { opened: true } }, "*"));
+  });
+
   it("relays a save just after the dashboard's own Done, with no hand in the frame, and never after Discard, Undo or Edit", async () => {
     const saved = vi.spyOn(api, "savePage").mockResolvedValue({ ...record, updatedAt: 2 });
     hand(false);
