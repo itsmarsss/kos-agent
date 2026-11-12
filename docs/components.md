@@ -64,7 +64,7 @@ those to this table by hand.
 | `Countdown` | How long an ask has before it lapses, ticking ("lapses in 42s"), in the warning tone for its last 15 s | kit | kit (`AskCard`, `ConsentCard`) | |
 | `QuoteLine` | What the owner quoted with their words, on a soft tint with a hairline edge: a head with `QuoteIcon`, a label and where it came from (a page's site by `quoteSource`, an app's name), then the words in quotes cut to `lines` by line-clamp, the whole in a `Tooltip` when cut. `label` and `onRemove` make it the composer's attachment ("Selected text", its × a bare `IconButton`); bare, it heads the owner's bubble | kit (`.quoted`; the thread's bubble) | kit (the composer's `.composer-quote`, `.msg--you`) | `QuoteCard` (Controls), in the composer and `Bubble` |
 | `Face` | KOS's face, or a blob's; `KosLook`/`useKosLook` and `AgentFaces` give the looks, `lookOf`, `moodOf`, `faceLookOf`, `faceDataUrl` read them | kit | kit (`drawing`, as a KOS sends it) | `KOSFace` (`KOSFace.swift`) with `FaceLook` |
-| `Field` | A label, the control, then a hint or an error; `badge`, `meta`; `Req` marks it required | kit; a setting in a list is `FieldRow` (`ui/src/kit.tsx`), whose words open on a click | kit (the popup's pairing); a setting row is `Setting`/`Toggle` in `popup.tsx` | `KOSField`, and `SwitchRow` for a setting (Controls); `RowText(setting: true)` is the popup's `.setting .line-text--wrap` |
+| `Field` | A label, the control, then a hint or an error; `badge`, `meta`; `Req` marks it required | kit; a setting in a list is `FieldRow` (`ui/src/kit.tsx`), whose words open on a click (its `note`, a line of where it stands now, never folds) | kit (the popup's pairing); a setting row is `Setting`/`Toggle` in `popup.tsx` | `KOSField`, and `SwitchRow` for a setting (Controls); `RowText(setting: true)` is the popup's `.setting .line-text--wrap` |
 | `ConfirmButton` | A delete that asks once, beside itself; `icon` draws it as a symbol named by its label (a claim's Forget) | `ui/src/kit.tsx` | | |
 | `Select` | A dropdown in KOS's look, an option with a mark before it (a project's tile, a blob's face); Escape is its own | `ui/src/Select.tsx` (`popover.ts` places it) | the model chip's menu; a native `.kos-picker` for several KOS | SwiftUI `Menu` with `.chip()` |
 | `Drawer`, `Modal` | A sheet from the right; a dialog, `size="sm"` for a short form (Rename, Move) | `ui/src/Drawer.tsx`, `ui/src/Modal.tsx` | | |
@@ -93,6 +93,7 @@ those to this table by hand.
 | Tile | A symbol on its tone's tint | `.tile` (kit) | `.tile` | `Tile` (Controls) |
 | Capsule chip | The steps of a turn, the model, the mode | `.composer-engine` | `.steps-head`, `.model`, `.mode`: one rule | `Chip` and `.chip()` (Controls); `opens:` adds the chevron (the steps chip, the model menu) |
 | Hairline, MenuRow | Small pieces | | | `Hairline`, `MenuRow` (Controls) |
+| Command | A command for the owner to run in Terminal, selectable, with Copy | a `code` line (a device's in `DevicesPanel.tsx`) | | `CommandBox` (Controls; the update notice) |
 
 ## The chat
 
