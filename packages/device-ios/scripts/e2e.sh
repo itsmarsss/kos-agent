@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # The phone end to end, against a scratch KOS: a copy of a workspace with its schedules, daemons and channels
 # off, answering from a stub model that costs nothing. The Swift client pairs over KOS's Wi-Fi listener (bound
-# to loopback here), says something and hears back, approves an ask, and is sent the dashboard's theme.
+# to loopback here), says something and hears back, approves an ask, sends a picture the turn is shown, reads
+# an artifact KOS made as the dashboard draws it, and is sent the dashboard's theme.
 #
 #   scripts/e2e.sh <template workspace> [KOS checkout, default this one]
 #
 # Ports: the dashboard on KOS_E2E_PORT (4425), sites on the next, the Wi-Fi listener on the one after, the
-# stub model on the one after that. The KOS checkout's packages/cli/dist must be built (pnpm build:ts).
+# stub model on the one after that, and KOS's own browser on the one after that. The KOS checkout's
+# packages/cli/dist and packages/ui/dist must be built (pnpm build:ts, pnpm build:ui): the artifact is drawn
+# from the dashboard's build.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -15,6 +18,7 @@ ROOT="$(cd "${2:-../..}" && pwd)"
 PORT="${KOS_E2E_PORT:-4425}"
 LAN=$((PORT + 2))
 MODEL=$((PORT + 3))
+BROWSER=$((PORT + 4))
 DIR="$(mktemp -d "${TMPDIR:-/tmp}/kos-phone-e2e.XXXXXX")"
 WS="$DIR/ws"
 DASH="http://127.0.0.1:$PORT"
@@ -27,7 +31,7 @@ stop() {
 }
 trap stop EXIT
 
-for p in "$PORT" $((PORT + 1)) "$LAN" "$MODEL"; do
+for p in "$PORT" $((PORT + 1)) "$LAN" "$MODEL" "$BROWSER"; do
   if lsof -iTCP:"$p" -sTCP:LISTEN -n -P >/dev/null 2>&1; then echo "port $p is in use" >&2; exit 1; fi
 done
 
@@ -51,7 +55,7 @@ PIDS+=($!)
 env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
   DISCORD_TOKEN= KOS_OWNER_DISCORD= KOS_DISCORD_GUILD= KOS_OWNER_IMESSAGE= \
   KOS_DEVICE_KEY_FILE="$DIR/device-host.key" KOS_DEVICE_LAN_CERT_FILE="$DIR/device-lan.pem" \
-  KOS_DEVICE_LAN_HOST=127.0.0.1 KOS_DEVICE_LAN_PORT="$LAN" KOS_BROWSER_PORT=$((PORT + 4810)) \
+  KOS_DEVICE_LAN_HOST=127.0.0.1 KOS_DEVICE_LAN_PORT="$LAN" KOS_BROWSER_PORT="$BROWSER" \
   node "$ROOT/packages/cli/dist/main.js" serve --workspace "$WS" --host 127.0.0.1 --port "$PORT" --no-discord > "$DIR/host.log" 2>&1 &
 PIDS+=($!)
 

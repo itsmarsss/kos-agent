@@ -1,7 +1,9 @@
 import DeviceCore
 import DeviceKit
 import DeviceLink
+import CoreGraphics
 import Foundation
+import ImageIO
 import OSLog
 import Testing
 
@@ -35,7 +37,7 @@ struct EndToEndTests {
     #expect((response as? HTTPURLResponse)?.statusCode == 200, "\(path)")
   }
 
-  @Test func pairsTalksApprovesAndFollowsTheTheme() async throws {
+  @Test func pairsTalksApprovesSendsAPictureReadsAnArtifactAndFollowsTheTheme() async throws {
     let link = try #require(try PairingLink.parse(env["KOS_E2E_LINK"]!))
     // What the listener shows is the certificate the link pins: the probe a typed address would make agrees.
     #expect(try await PairingClient.probe(link.address) == link.pin)
@@ -86,6 +88,44 @@ struct EndToEndTests {
       #expect(FileManager.default.fileExists(atPath: "\(ws)/phone-e2e.txt"), "the approved command did not run")
     }
 
+    // A picture with the words: sent ahead in parts, and the turn is shown it.
+    phone.tray.addPicture(try Self.photo())
+    let named = phone.tray.files.map(\.name)
+    phone.chat.say("what is in this picture", files: named)
+    try await until("the picture's answer", 30) { phone.chat.lines.contains(.kos("I see 1 picture.")) || phone.chat.error != nil }
+    #expect(phone.chat.error == nil, "\(phone.chat.error ?? "")")
+    #expect(phone.chat.lines.contains(.you("what is in this picture", files: named)))
+    #expect(phone.tray.files.isEmpty)
+
+    // An artifact KOS makes, read on the phone as the dashboard draws it: listed, opened, its reads answered by KOS.
+    phone.chat.say("make the e2e doc")
+    try await until("the doc's turn", 30) { phone.chat.lines.filter { $0 == .kos("Done: the file is made.") }.count >= 2 }
+    phone.artifacts.list()
+    try await until("the artifacts") { phone.artifacts.recent.contains { $0.id == "phone-e2e-doc" } }
+    #expect(phone.artifacts.recent.first { $0.id == "phone-e2e-doc" }?.kind == "doc")
+    phone.artifacts.open("phone-e2e-doc", dark: true)
+    try await until("the doc drawn", 30) {
+      if case .open = phone.artifacts.shown { return true }
+      return false
+    }
+    guard case .open(let doc) = phone.artifacts.shown else { return }
+    #expect(doc.title == "Phone e2e" && doc.kind == "doc" && doc.dark)
+    // The dashboard's frame, read-only, with the runtime, the policy and the bridge inline: nothing to fetch.
+    #expect(doc.document.contains("Read on the phone, as the dashboard draws it."))
+    #expect(doc.document.contains("data-locked"))
+    #expect(doc.document.contains("default-src &#39;none&#39;") || doc.document.contains("default-src 'none'"))
+    #expect(!doc.themes.light.isEmpty && !doc.themes.dark.isEmpty)
+    var answer: ArtifactShelf.Answer?
+    phone.artifacts.read("file", args: .object(["path": .string("notes.md")])) { answer = $0 }
+    try await until("the read's answer") { answer != nil }
+    if case .failure(let refused) = answer { #expect(!refused.message.isEmpty) }
+    phone.artifacts.open("no-such-artifact", dark: false)
+    try await until("the refusal") {
+      if case .failed = phone.artifacts.shown { return true }
+      return false
+    }
+    phone.artifacts.close()
+
     // The dashboard's theme, sent as the owner changes it.
     try await post("/api/settings/theme", #"{"theme":"dark"}"#)
     try await until("the dark theme") { phone.mode == .dark }
@@ -98,6 +138,18 @@ struct EndToEndTests {
 
     phone.unpair()
     #expect(try vault.load().isEmpty)
+  }
+
+  /// A camera's picture, big enough that the phone brings it down before it sends it.
+  static func photo() throws -> Data {
+    let context = try #require(CGContext(data: nil, width: 3000, height: 2000, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    context.setFillColor(CGColor(red: 0.9, green: 0.5, blue: 0.2, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: 3000, height: 2000))
+    let out = NSMutableData()
+    let destination = try #require(CGImageDestinationCreateWithData(out, "public.png" as CFString, 1, nil))
+    CGImageDestinationAddImage(destination, try #require(context.makeImage()), nil)
+    #expect(CGImageDestinationFinalize(destination))
+    return out as Data
   }
 
   @Test func aLineToAnotherCertificateIsRefused() async throws {
