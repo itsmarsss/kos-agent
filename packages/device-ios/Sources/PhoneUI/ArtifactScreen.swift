@@ -33,6 +33,8 @@ struct ArtifactScreen<Frame: View>: View {
   /// The dashboard's gutter around a frame on a narrow screen, and its room under the head (artifactcheck.ts, GUTTER).
   static var gutter: CGFloat { 16 }
   static var above: CGFloat { 12 }
+  /// The room around a slide on its side, so its edge shows.
+  static var slideInset: CGFloat { 8 }
   /// How tall the fade at the frame's foot is.
   static var fade: CGFloat { 20 }
 
@@ -46,7 +48,18 @@ struct ArtifactScreen<Frame: View>: View {
     VStack(spacing: 0) {
       if let shown = shelf.shown {
         if let place = staged, case .open(let artifact) = shown {
-          frame(artifact, scheme == .dark, deck).accessibilityLabel(artifact.title)
+          // The frame the slide's own size, so it carries the dashboard's slide edge, which a held deck leaves to it.
+          GeometryReader { box in
+            let width = min(box.size.width, box.size.height * 16 / 9)
+            let shape = RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous)
+            frame(artifact, scheme == .dark, deck)
+              .frame(width: width, height: width * 9 / 16)
+              .clipShape(shape)
+              .overlay(shape.strokeBorder(Theme.line))
+              .frame(maxWidth: .infinity, maxHeight: .infinity)
+          }
+          .padding(Self.slideInset)
+          .accessibilityLabel(artifact.title)
           Hairline()
           DeckBar(place: place, press: deck.press, close: close)
         } else {
