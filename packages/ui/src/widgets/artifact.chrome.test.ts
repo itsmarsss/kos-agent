@@ -875,7 +875,8 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   it("keeps a frozen column against the row numbers as the view crosses a phone's width", async () => {
     const pin = `() => { const cell = document.querySelector(".sheet-grid tbody td.frozen"); return { rownum: document.querySelector(".sheet-grid thead .rownum").offsetWidth, left: getComputedStyle(cell).left }; }`;
     const view = (width: number): Promise<Record<string, unknown>> => send("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: width < 600 });
-    const pinned = (p: { rownum: number; left: string }): boolean => p.left === `${p.rownum}px`;
+    // Within a pixel: a phone sets its first column a fraction over the row numbers, never short of them.
+    const pinned = (p: { rownum: number; left: string }): boolean => Math.abs(parseFloat(p.left) - p.rownum) <= 1;
     await view(1200);
     await sheetPage("/pin", sheetData(months(8, 1)), { pin });
     const wide = await ask("pin", pinned);
@@ -883,7 +884,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await view(390);
     const phone = await ask("pin", (p: { rownum: number; left: string }) => p.rownum !== wide.rownum && pinned(p));
     expect(phone.rownum).toBeLessThan(wide.rownum);
-    expect(phone.left).toBe(`${phone.rownum}px`);
+    expect(pinned(phone)).toBe(true);
     await view(1200);
     const back = await ask("pin", (p: { rownum: number; left: string }) => p.rownum === wide.rownum && pinned(p));
     expect(back.left).toBe(`${wide.rownum}px`);
@@ -912,49 +913,43 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       rows: four.rows.map(([date, category, item, amount], i) => [date, item, category, amount, ["Visa", "Debit", "Mastercard"][i % 3]]),
     };
   };
-  /** Where the key column's cells and the cue stand against the grid's box, and whether its fade reaches them. */
+  /** Where the key column's cells stand against the grid's box, and whether more of the row runs past its right edge. */
   const keyed = `() => {
     const grid = document.querySelector(".sheet-scroll");
     const box = grid.getBoundingClientRect();
     const right = box.left + grid.clientLeft + grid.clientWidth;
     const keys = [...grid.querySelectorAll(".key")].map((c) => c.getBoundingClientRect());
-    const fade = grid.classList.contains("more") ? parseFloat(getComputedStyle(grid).getPropertyValue("--sheet-fade")) : 0;
     return {
-      more: grid.classList.contains("more"),
+      more: Math.ceil(grid.scrollLeft + grid.clientWidth) < grid.scrollWidth - 1,
       held: grid.classList.contains("held"),
-      fade: getComputedStyle(grid).getPropertyValue("--sheet-fade").trim(),
       keys: keys.length,
       inside: keys.every((r) => r.left >= box.left && r.right <= right + 0.5),
-      clear: keys.every((r) => r.right <= right - fade + 0.5),
-      cue: document.querySelector(".sheet-more").textContent,
-      cueShown: document.querySelector(".sheet-more").getBoundingClientRect().width > 0,
       page: document.documentElement.scrollWidth,
     };
   }`;
-  type Keyed = { more: boolean; held: boolean; fade: string; keys: number; inside: boolean; clear: boolean; cue: string; cueShown: boolean; page: number };
+  type Keyed = { more: boolean; held: boolean; keys: number; inside: boolean; page: number };
 
   /*
    * The eval's expenses on a phone: a date, a category, an item and the
-   * amount fit the box whole, so the amount is not cut at its edge. Cells
-   * draw tighter there, and the totals' label is a sigma, not a word.
+   * amount fit the box whole, each on one line, so the amount is not cut at
+   * its edge. Cells draw tighter there, and the totals' label is a sigma.
    */
   it("fits a four-column sheet whole on a phone", async () => {
-    const fit = `() => { const grid = document.querySelector(".sheet-scroll"); return { wide: grid.scrollWidth, box: grid.clientWidth, more: grid.classList.contains("more"), label: document.querySelector("tfoot .rownum").getAttribute("aria-label") }; }`;
+    const fit = `() => { const grid = document.querySelector(".sheet-scroll"); return { wide: grid.scrollWidth, box: grid.clientWidth, rows: [...grid.querySelectorAll("tbody tr")].map((tr) => tr.getBoundingClientRect().height), line: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sheet-row")), label: document.querySelector("tfoot .rownum").getAttribute("aria-label") }; }`;
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await sheetPage("/fit", `<h1>October</h1>${sheetData(expenses(1))}`, { fit });
-    const probe = await ask<{ wide: number; box: number; more: boolean; label: string }>("fit", (p) => p.box > 0);
+    const probe = await ask<{ wide: number; box: number; rows: number[]; line: number; label: string }>("fit", (p) => p.box > 0);
     expect(probe.wide).toBeLessThanOrEqual(probe.box);
-    expect(probe.more).toBe(false);
+    expect(Math.max(...probe.rows)).toBeLessThanOrEqual(probe.line + 1);
     expect(probe.label).toBe("Total");
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 
   /*
    * One more column than a phone holds: the amount, the figure the sheet
-   * totals, is whole inside the box and never faded, in every row and the
-   * total, and the tools say a column is out of view; scrolled to the end it
-   * stands where it is and the cue goes. Narrower still, it holds at the
-   * edge, the columns before it sliding under it, and the fade lets it be.
+   * totals, is whole inside the box in every row and the total; scrolled to
+   * the end it stands where it is. Narrower still, it holds at the edge, the
+   * columns before it sliding under it.
    */
   it("keeps a five-column expense sheet's amount whole in its box on a phone", async () => {
     const end = `() => { const grid = document.querySelector(".sheet-scroll"); grid.scrollLeft = grid.scrollWidth; return grid.scrollLeft; }`;
@@ -962,7 +957,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     // The column menus' buttons take no width on a phone: the grid is as wide with them as without.
     const menus = `() => { const grid = document.querySelector(".sheet-scroll"); const buttons = document.querySelectorAll(".sheet-grid thead .sheet-colmenu").length; const wide = grid.scrollWidth; const kept = [...document.querySelectorAll(".sheet-colmenu")].map((b) => [b, b.parentNode]); kept.forEach(([b]) => b.remove()); const bare = grid.scrollWidth; kept.forEach(([b, p]) => p.append(b)); return { buttons, wide, bare }; }`;
     await sheetPage("/paid", `<h1>October</h1>${sheetData(paid())}`, { keyed, end, menus });
-    const start = await ask<Keyed>("keyed", (p) => p.more && p.cue !== "");
+    const start = await ask<Keyed>("keyed", (p) => p.more);
     const menu = await ask<{ buttons: number; wide: number; bare: number }>("menus");
     expect(menu.buttons).toBe(5);
     expect(menu.wide).toBe(menu.bare);
@@ -970,23 +965,15 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     // The header, four rows and the total.
     expect(start.keys).toBe(6);
     expect(start.inside).toBe(true);
-    expect(start.clear).toBe(true);
-    // How many columns are out of view follows the font's widths (Linux's fallback faces run wider than the Mac's), so the count is held to at least one, not to a number.
-    expect(Number(/^(\d+) more columns? \u2192$/.exec(start.cue)?.[1])).toBeGreaterThanOrEqual(1);
-    expect(start.cueShown).toBe(true);
     expect(await ask<number>("end", (x) => x > 0)).toBeGreaterThan(0);
     const scrolled = await ask<Keyed>("keyed", (p) => !p.more);
     expect(scrolled.inside).toBe(true);
     expect(scrolled.held).toBe(false);
-    expect(scrolled.cue).toBe("");
-    expect(scrolled.cueShown).toBe(false);
     await send("Emulation.setDeviceMetricsOverride", { width: 320, height: 700, deviceScaleFactor: 1, mobile: true });
     await sheetPage("/paid-narrow", `<h1>October</h1>${sheetData(paid())}`, { keyed });
     const narrow = await ask<Keyed>("keyed", (p) => p.held);
+    expect(narrow.held).toBe(true);
     expect(narrow.inside).toBe(true);
-    expect(narrow.clear).toBe(true);
-    expect(narrow.fade).toBe("0px");
-    expect(Number(/^(\d+) more columns? \u2192$/.exec(narrow.cue)?.[1])).toBeGreaterThanOrEqual(1);
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 
@@ -1040,9 +1027,9 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   };
 
   /*
-   * Notes scrolled out of view on a phone do not set the rows' height: free
-   * text stays on one line, cut, and the short words beside the amount wrap
-   * to two lines at most, so no row stands far taller than a line's.
+   * Notes scrolled out of view on a phone do not set the rows' height:
+   * every cell keeps to one line, cut past its width, so every row is a
+   * line's height and the row, pressed, reads whole.
    */
   it("keeps a seven-column sheet's rows to what reads in them on a phone", async () => {
     const heights = `() => {
@@ -1054,50 +1041,33 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await sheetPage("/noted", `<h1>October</h1>${sheetData(noted())}`, { heights, keyed });
     const probe = await ask<{ rows: number[]; line: number; notesWrap: string; page: number }>("heights", (p) => p.rows.length === 4);
     expect(probe.notesWrap).toBe("nowrap");
-    expect(Math.max(...probe.rows)).toBeLessThanOrEqual(probe.line * 2.5);
+    expect(Math.max(...probe.rows)).toBeLessThanOrEqual(probe.line + 1);
     expect(probe.page).toBeLessThanOrEqual(390);
     const key = await ask<Keyed>("keyed", (p) => p.more);
     expect(key.inside).toBe(true);
-    expect(key.clear).toBe(true);
-    await send("Emulation.clearDeviceMetricsOverride");
-  }, 30_000);
-
-  /* A grid far wider than a phone says how much is out of view; a desktop, with its scrollbar, does not. */
-  it("says how many columns a wide grid has out of view on a phone, and only there", async () => {
-    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
-    await sheetPage("/cue", `<h1>The year</h1>${sheetData(months(8, 1))}`, { keyed });
-    const phone = await ask<Keyed>("keyed", (p) => p.more && p.cue !== "");
-    expect(phone.cue).toMatch(/^(\d+) more columns \u2192$/);
-    expect(Number(/\d+/.exec(phone.cue)![0])).toBeGreaterThanOrEqual(7);
-    expect(phone.cueShown).toBe(true);
-    // The key column, the first month, is in view at the start, so the edge fades in full.
-    expect(phone.held).toBe(false);
-    expect(phone.fade).toBe("40px");
-    await send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false });
-    await sheetPage("/cue-wide", `<h1>The year</h1>${sheetData({ ...months(8, 1), columns: [{ label: "Line" }, ...Array.from({ length: 30 }, (_, i) => ({ label: `Month ${i + 1}`, type: "currency", currency: "CAD" }))] })}`, { keyed });
-    const desktop = await ask<Keyed>("keyed", (p) => p.more);
-    expect(desktop.cueShown).toBe(false);
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 
   /*
-   * Wider than the box, the grid fades out at its right edge so a phone's
-   * last column reads as more to come, not the end of the row; scrolled to
-   * the end, the fade goes, and the frozen first column stays where it was.
+   * A press on a row's first column at a phone's width reads it whole (the
+   * others take typing, the sheet being editable here): a sheet up from the
+   * frame's foot, as wide as the frame, each field labelled; Escape closes
+   * it. (Where the focus goes is held in sheet.test.ts: a frame without the
+   * window's focus here takes none.)
    */
-  it("fades a wide grid's right edge until it is scrolled to the end", async () => {
-    const edge = `() => { const grid = document.querySelector(".sheet-scroll"); return { more: grid.classList.contains("more"), mask: getComputedStyle(grid).maskImage, left: grid.querySelector("tbody td.frozen").getBoundingClientRect().left - grid.getBoundingClientRect().left }; }`;
-    const end = `() => { const grid = document.querySelector(".sheet-scroll"); grid.scrollLeft = grid.scrollWidth; return grid.scrollLeft; }`;
+  it("opens a pressed row whole at a phone's width, and Escape closes it", async () => {
+    const press = `() => { const cell = document.querySelector('.sheet-grid tbody tr[data-row="2"] td[data-col="0"]'); cell.click(); const box = document.querySelector(".sheet-detail-box"); if (!box) return null; const r = box.getBoundingClientRect(); return { left: r.left, right: r.right, bottom: r.bottom, view: innerWidth, high: innerHeight, title: box.getAttribute("aria-label"), labels: [...box.querySelectorAll("dt")].map((d) => d.textContent) }; }`;
+    const escape = `() => { document.querySelector(".sheet-detail-box button")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return !!document.querySelector(".sheet-detail"); }`;
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
-    await sheetPage("/edge", `<h1>The year</h1>${sheetData(months(8, 1))}`, { edge, end });
-    type Edge = { more: boolean; mask: string; left: number };
-    const start = await ask<Edge>("edge", (p) => p.more);
-    expect(start.mask).toMatch(/linear-gradient/);
-    expect(await ask<number>("end", (x) => x > 0)).toBeGreaterThan(0);
-    const scrolled = await ask<Edge>("edge", (p) => !p.more);
-    expect(scrolled.more).toBe(false);
-    expect(scrolled.mask).toBe("none");
-    expect(Math.abs(scrolled.left - start.left)).toBeLessThan(1);
+    await sheetPage("/row", `<h1>October</h1>${sheetData(paid())}`, { press, escape });
+    type Press = { left: number; right: number; bottom: number; view: number; high: number; title: string; labels: string[] };
+    const open = await ask<Press | null>("press", (p) => p !== null);
+    expect(open!.left).toBe(0);
+    expect(open!.right).toBe(open!.view);
+    expect(Math.round(open!.bottom)).toBe(open!.high);
+    expect(open!.title).toBe("Oct 1, 2026");
+    expect(open!.labels).toEqual(["Date", "Description", "Category", "Amount", "Payment method"]);
+    expect(await ask<boolean>("escape", (shown) => !shown)).toBe(false);
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 

@@ -143,7 +143,7 @@ export const SHEET_CSS = String.raw`
 @media (max-width: 560px) {
   /* A phone's grid: the row numbers and the first column, the row's name, stay put while the rest scrolls sideways under them, and the header stays put while it scrolls down. A cell keeps to one line, cut past its width; a press on its row reads it whole. */
   .sheet-scroll { contain: inline-size; }
-  .sheet-grid :where(th, td) { padding: 0 10px; max-width: 18ch; font-size: 14px; }
+  .sheet-grid :where(th, td) { padding: 0 8px; max-width: 18ch; font-size: 13px; }
   .sheet-grid thead th:not(.rownum) { min-width: 6ch; }
   .sheet-grid tbody tr { cursor: default; }
   .sheet-grid .lead { position: sticky; left: var(--sheet-lead, 0px) !important; max-width: 16ch; box-shadow: 1px 0 0 var(--line-strong, var(--line)); }
@@ -152,7 +152,7 @@ export const SHEET_CSS = String.raw`
   /* Over the key figure too, which slides under them once the grid scrolls past it. */
   .sheet-grid .rownum, .sheet-grid .lead { z-index: 2; }
   .sheet-grid thead th.rownum, .sheet-grid thead th.lead, .sheet-grid tfoot th.rownum, .sheet-grid tfoot td.lead { z-index: 4; }
-  .sheet-grid .frozen:not(.lead) { position: static; left: auto !important; }
+  .sheet-grid .frozen:not(.lead) { left: auto !important; }
   .sheet-grid .frozen-edge:not(.lead) { box-shadow: none; }
   /* The key figure holds at the right edge over what it has not reached yet, its shadow saying the columns slide under it. */
   .sheet-grid .key { position: sticky; right: 0; z-index: 1; }
@@ -167,9 +167,9 @@ export const SHEET_CSS = String.raw`
   .sheet-tools .sheet-rows { display: inline-flex; align-items: center; height: 36px; flex: none; }
   .sheet-tools .sheet-spacer { display: none; }
   .sheet-tools:has(button) { flex-wrap: wrap; }
-  .sheet-grid thead button { padding: 0 10px 6px; }
+  .sheet-grid thead button { padding: 0 8px 6px; }
   /* A column's menu takes no width on a phone: it lies over the header's corner, shown once the header is pressed or focused, so the grid is as narrow as it was without it. */
-  .sheet-grid thead th:has(.sheet-colmenu) button:first-child { padding-right: 10px; }
+  .sheet-grid thead th:has(.sheet-colmenu) button:first-child { padding-right: 8px; }
   .sheet-grid thead .sheet-colmenu { top: 2px; right: 2px; bottom: auto; width: 20px; height: 20px; opacity: 0; pointer-events: none; background: var(--panel-2); }
   .sheet-grid thead th:focus-within .sheet-colmenu, .sheet-grid thead th:hover .sheet-colmenu, .sheet-grid thead .sheet-colmenu[aria-expanded="true"] { opacity: 1; pointer-events: auto; }
   /* A sigma for the totals' label, so the row numbers' column is no wider than its numbers. */
@@ -200,7 +200,7 @@ export const SHEET_CSS = String.raw`
 :where(:root[data-surface="phone"]) { background: var(--bg); }
 :where(:root[data-surface="phone"][data-kind="sheet"]) body { padding: 12px 16px 0; }
 :where(:root[data-surface="phone"]) .sheet-scroll { margin-inline: -16px; max-width: 100vw; border: 0; border-radius: 0; background: var(--bg); }
-:where(:root[data-surface="phone"]) .sheet-grid :where(th, td) { background: var(--bg); border-right: 0; }
+:where(:root[data-surface="phone"]) .sheet-grid :where(th, td) { background: var(--bg); border-right: 0; padding-inline: 10px; font-size: 14px; }
 :where(:root[data-surface="phone"]) .sheet-grid thead th { background: var(--bg); padding-top: 0; vertical-align: middle; border-bottom-color: var(--line-strong, var(--line)); }
 :where(:root[data-surface="phone"]) .sheet-grid thead button { padding-block: 0; }
 :where(:root[data-surface="phone"]) .sheet-grid thead .letter { display: none; }
