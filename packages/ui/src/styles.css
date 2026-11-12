@@ -1457,19 +1457,19 @@ select {
 }
 
 /* —— list pages —— */
-/* One page container. Schedule and History sat in a card while Knowledge and
-   Agents were loose on the background, which is most of why moving between
-   them read as moving between different applications. */
+/* One page container, on the page's ground as every page is. Schedule and
+   History sat in a card while Knowledge and Agents were loose on the
+   background, which is most of why moving between them read as moving
+   between different applications; then the card went round every list page
+   while Projects, Files and Artifacts sat on the ground. Now no page is a
+   card: what a page lists is, each a panel (a table, a fact, a build). */
 .list-page,
 .know,
 .builds {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 0.75rem 0.85rem 1rem;
+  min-width: 0;
 }
 
 .list-head {
@@ -1533,6 +1533,8 @@ select {
 .list-table {
   max-height: none;
   flex: 1;
+  background: var(--panel);
+  border-radius: var(--r-md);
 }
 
 .ops-select,
