@@ -51,6 +51,8 @@ public final class PairingFlow: ObservableObject {
   public var current: () -> String? = { nil }
 
   private let pairer: Pairer
+  /// Each certificate asked for, counted, so only the latest one's answer is shown.
+  private var probes = 0
 
   public init(pairer: Pairer, name: String = "iPhone") {
     self.pairer = pairer
@@ -68,10 +70,10 @@ public final class PairingFlow: ObservableObject {
   public var underway: Bool { step != .enter }
 
   /// A pairing link opened from elsewhere (the dashboard on this phone, a message): read as if pasted, and
-  /// confirmed by the owner before anything is sent.
+  /// confirmed by the owner before anything is sent. One opened while another is being asked about, checked
+  /// or paired is let go: the owner answers what is in front of them, never a step swapped under them.
   public func open(_ url: URL) async {
-    guard url.scheme?.lowercased() == PairingLink.scheme, step != .pairing else { return }
-    step = .enter
+    guard url.scheme?.lowercased() == PairingLink.scheme, step == .enter else { return }
     address = url.absoluteString
     code = ""
     await next()
@@ -124,11 +126,15 @@ public final class PairingFlow: ObservableObject {
       return
     }
     step = .checking
+    probes += 1
+    let probe = probes
     do {
       let pin = try await pairer.probe(link.address)
-      guard step == .checking else { return }
+      // Gone back and checking another KOS since: this answer is that one's no longer.
+      guard step == .checking, probe == probes else { return }
       step = .confirm(Check(link: link, pin: pin, words: CertificatePin.words(pin) ?? pin))
     } catch {
+      guard step == .checking, probe == probes else { return }
       fail(error)
     }
   }

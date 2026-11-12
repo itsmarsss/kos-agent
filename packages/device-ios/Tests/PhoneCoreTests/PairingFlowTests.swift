@@ -158,4 +158,63 @@ struct PairingFlowTests {
     #expect(pairer.pairs.isEmpty)
     #expect(flow.code.isEmpty)
   }
+
+  @Test func aCertificateAskedForBeforeGoingBackIsNotShownForTheNextKOS() async throws {
+    let gated = GatedPairer()
+    let flow = PairingFlow(pairer: gated)
+    flow.address = "192.168.1.20:4319"
+    flow.code = "K7QX-M2PA"
+    let first = Task { await flow.next() }
+    await gated.until(1)
+    flow.back()
+    flow.address = "192.168.1.31:4319"
+    let second = Task { await flow.next() }
+    await gated.until(2)
+    // The first KOS answers late: the owner is still waiting on the second.
+    gated.answer(0, Pins.kos)
+    await first.value
+    #expect(flow.step == .checking)
+    gated.answer(1, Pins.kos)
+    await second.value
+    guard case .confirm(let check) = flow.step else { Issue.record("not asking to compare"); return }
+    #expect(check.link.address.display == "192.168.1.31:4319")
+  }
+
+  @Test func aLinkOpenedWhileTheOwnerIsAskedIsLetGo() async throws {
+    let (flow, pairer, _) = flow()
+    await flow.open(URL(string: "kos-device://pair?url=https://192.168.1.20:4319&code=K7QX-M2PA&pin=\(Pins.kos)")!)
+    guard case .confirm(let shown) = flow.step else { Issue.record("not asking to compare"); return }
+    await flow.open(URL(string: "kos-device://pair?url=https://192.168.1.66:4319&code=ZZZZ-ZZZZ&pin=\(Pins.kos)")!)
+    #expect(flow.step == .confirm(shown))
+    flow.current = { "https://192.168.1.20:4319" }
+    flow.dismiss()
+    await flow.open(URL(string: "kos-device://pair?url=https://192.168.1.31:4319&code=K7QX-M2PA&pin=\(Pins.kos)")!)
+    guard case .replace(let asked) = flow.step else { Issue.record("not asking to replace"); return }
+    await flow.open(URL(string: "kos-device://pair?url=https://192.168.1.66:4319&code=ZZZZ-ZZZZ&pin=\(Pins.kos)")!)
+    #expect(flow.step == .replace(asked))
+    #expect(pairer.pairs.isEmpty)
+  }
+}
+
+/// A pairer whose certificates come when the test says, one per ask, in order.
+final class GatedPairer: Pairer, @unchecked Sendable {
+  private let lock = NSLock()
+  private var asked: [CheckedContinuation<String, Error>] = []
+
+  func probe(_ address: KOSAddress) async throws -> String {
+    try await withCheckedThrowingContinuation { answer in lock.withLock { asked.append(answer) } }
+  }
+
+  func pair(_ link: PairingLink, name: String, pin: String?) async throws -> Pairing {
+    Pairing(deviceId: "dev_phone", address: link.address.base.absoluteString, hostKey: Pins.hostKey, deviceKey: DeviceKey().rawRepresentation, name: name, pin: pin)
+  }
+
+  /// Waits until `count` certificates have been asked for.
+  func until(_ count: Int) async {
+    while lock.withLock({ asked.count }) < count { await Task.yield() }
+  }
+
+  func answer(_ index: Int, _ pin: String) {
+    lock.withLock { asked[index] }.resume(returning: pin)
+  }
 }
