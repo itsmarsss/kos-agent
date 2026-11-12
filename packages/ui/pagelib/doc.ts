@@ -16,6 +16,9 @@ import { saveQueue, startEditor, type Editor } from "./docedit.js";
 import { setView } from "./docui.js";
 import { addStyle, editable, el, keepRanges, kos, ready, reducedMotion } from "./runtime.js";
 
+/** Whether a click is the owner's own; a test stands in for the browser here, which alone makes trusted events. */
+export const clicks = { trusted: (e: Event): boolean => e.isTrusted };
+
 /** How many h2s make a document long enough for a table of contents. */
 export const TOC_MIN = 4;
 
@@ -270,8 +273,17 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
     if (editor) typed = true;
   });
 
-  const begin = (): void => {
-    if (editor) return;
+  let starting = false;
+  const begin = async (): Promise<void> => {
+    if (editor || starting) return;
+    // A tick still waiting is kept first, so the snapshot editing starts from is the doc as saved with it.
+    if (unkept || tickBusy) {
+      starting = true;
+      if (unkept) await flushTicks();
+      else await ticking;
+      starting = false;
+      if (editor) return;
+    }
     // What the runtime added stays, and is never typed into; the save takes it out again (cleanDocHtml).
     article.querySelectorAll(".fn-ref").forEach((ref) => ref.setAttribute("contenteditable", "false"));
     savedInner = article.innerHTML;
@@ -315,7 +327,7 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
     // Not editing: Done (or the frame going) waits for a tick still to be kept.
     if (!editor) {
       await ticking;
-      if (ticks.size) await flushTicks();
+      if (unkept) await flushTicks();
       return;
     }
     if (await editor.stop()) leave();
@@ -329,7 +341,7 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
     say("Changes since the last save were put back");
   };
   const act = (action: EditAction): void => {
-    if (action === "edit") begin();
+    if (action === "edit") void begin();
     else if (action === "done") void finish();
     else if (action === "discard") discard();
     else if (editor) {
@@ -339,50 +351,59 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
   };
   // Reading, a to-do is ticked where it is and kept at once: the tick goes onto the doc as last saved, never the live article
   // (a toggle opened, a chart drawn into it), in the same line of saves as editing's.
-  const ticks = new Map<number, boolean>();
+  /** A tick made while reading and not yet kept. */
+  let unkept = false;
   let ticking: Promise<boolean> = Promise.resolve(true);
-  const flushTicks = (): Promise<boolean> =>
-    (ticking = queue.run(async () => {
+  /** A tick's save waiting its turn or out. */
+  let tickBusy = false;
+  const flushTicks = (): Promise<boolean> => {
+    tickBusy = true;
+    const run = (ticking = queue.run(async () => {
+      unkept = false;
       const base = document.createElement("template");
       base.innerHTML = last;
       const items = [...base.content.querySelectorAll("ul.checklist > li")];
-      const live = article.querySelectorAll("ul.checklist > li").length;
-      const wanted = new Map(ticks);
-      ticks.clear();
-      if (items.length !== live) {
+      const live = [...article.querySelectorAll("ul.checklist > li")];
+      if (items.length !== live.length) {
         tell({ pending: false });
         say("Not saved: the doc changed since it was drawn; reload it to tick this", true);
         return false;
       }
-      for (const [i, done] of wanted) items[i]?.setAttribute("data-checked", String(done));
+      // Every item's state as it stands, so a tick a refused save left behind goes with the next.
+      live.forEach((li, i) => items[i]!.setAttribute("data-checked", li.getAttribute("data-checked") === "true" ? "true" : "false"));
       const html = base.innerHTML;
       if (html === last) {
-        tell({ pending: ticks.size > 0 });
+        tell({ pending: unkept });
         return true;
       }
       say("Saving…");
       return save({ doc: html }).then(
         () => {
           last = html;
-          tell({ pending: ticks.size > 0 });
+          tell({ pending: unkept });
           say("Saved");
           return true;
         },
         (err: unknown) => {
-          tell({ pending: ticks.size > 0 });
+          unkept = true;
+          tell({ pending: true });
           say(`Not saved: ${err instanceof Error ? err.message : String(err)}`, true);
           return false;
         },
       );
-    }, () => ticks.size === 0));
+    }, () => !unkept));
+    void run.finally(() => {
+      if (ticking === run) tickBusy = false;
+    });
+    return run;
+  };
   article.addEventListener("click", (e) => {
-    const box = editor || !e.isTrusted ? null : (e.target as Element).closest?.(".todo-box");
+    const box = editor || !clicks.trusted(e) ? null : (e.target as Element).closest?.(".todo-box");
     if (!box || !article.contains(box)) return;
     e.preventDefault();
-    const li = box.parentElement!;
-    const index = [...article.querySelectorAll("ul.checklist > li")].indexOf(li);
-    ticks.set(index, toggleTodo(li));
+    toggleTodo(box.parentElement!);
     ensureTodoBoxes(article);
+    unkept = true;
     tell({ pending: true });
     void flushTicks();
   });

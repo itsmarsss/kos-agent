@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { TOC_MIN, cleanDocHtml, enhance, slugOf, startDoc } from "./doc.js";
+import { TOC_MIN, cleanDocHtml, clicks, enhance, slugOf, startDoc } from "./doc.js";
 import { DOC_EDIT_MAX } from "@kos/shared/artifacts";
 
 import { AUTOSAVE_GAP_MS, AUTOSAVE_MS, IMAGE_MAX, inlineMark, saveQueue, shortcutOf, slashMatches } from "./docedit.js";
@@ -293,6 +293,51 @@ describe("kos-doc", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(save).not.toHaveBeenCalled();
     expect(article.querySelector("li")!.getAttribute("data-checked")).toBe("false");
+  });
+
+  /** A to-do's box pressed by the owner, as the browser would report it. */
+  const tick = (box: Element): void => {
+    const trusted = vi.spyOn(clicks, "trusted").mockReturnValue(true);
+    (box as HTMLElement).click();
+    trusted.mockRestore();
+  };
+  const list = `<ul class="checklist"><li data-checked="false">A</li><li data-checked="false">B</li></ul>`;
+
+  it("keeps two ticks made in one gap when Edit is pressed before the second is saved", async () => {
+    vi.useFakeTimers();
+    const save = vi.fn().mockResolvedValue({ version: 2 });
+    (window as { kos?: unknown }).kos = { save };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const article = mount(list);
+    startDoc();
+    const [a, b] = [...article.querySelectorAll(".todo-box")];
+    tick(a!);
+    await vi.advanceTimersByTimeAsync(100);
+    tick(b!);
+    press("edit");
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_GAP_MS + 100);
+    expect(article.getAttribute("contenteditable")).toBe("true");
+    press("done");
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_GAP_MS * 2);
+    vi.useRealTimers();
+    expect(save.mock.calls.at(-1)![0]).toEqual({ doc: list.replace(/"false"/g, '"true"') });
+  });
+
+  it("carries a tick whose save was refused into the next", async () => {
+    vi.useFakeTimers();
+    const save = vi.fn().mockRejectedValueOnce(new Error("busy")).mockResolvedValue({ version: 2 });
+    (window as { kos?: unknown }).kos = { save };
+    const article = mount(list);
+    startDoc();
+    const [a, b] = [...article.querySelectorAll(".todo-box")];
+    tick(a!);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(save).toHaveBeenCalledTimes(1);
+    tick(b!);
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_GAP_MS + 100);
+    vi.useRealTimers();
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save.mock.calls[1]![0]).toEqual({ doc: list.replace(/"false"/g, '"true"') });
   });
 
   it("keeps saves in one line, each the gap after the last", async () => {
