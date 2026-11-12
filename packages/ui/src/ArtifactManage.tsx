@@ -1,7 +1,7 @@
-import { Face, Field, NavIcon, WorkingDots, spring } from "@kos/kit";
+import { CheckIcon, Face, Field, NavIcon, WorkingDots, spring } from "@kos/kit";
 import { EXPORT_WORDS, KIND_EXPORTS, RENAME_DESCRIPTION_MAX, RENAME_TITLE_MAX, WORKSPACE_SCOPE, relativeWords, sheetDataOf, type ExportFormat, type HtmlPage } from "@kos/shared";
 import { AnimatePresence, m } from "motion/react";
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 
 import { api, type PageSummary, type Project } from "./api.js";
 import type { MenuItem } from "./ArtifactHead.js";
@@ -60,13 +60,17 @@ export type ArtifactChange =
   | { op: "rename" | "duplicate" | "move" | "trash" | "restore"; record: PageSummary }
   | { op: "delete"; id: string };
 
-/** Where an artifact can go, as the move picker lists it. */
+/** Where an artifact can go, as the move picker lists it, under its group's name. */
 interface Place {
   key: string;
   to: { project: string } | { blob: string };
   label: string;
   mark: ReactNode;
+  group: "Workspace" | "Projects" | "Blobs";
 }
+
+/** How many places the move picker lists before it offers a search over them. */
+const FIND_FROM = 8;
 
 /** Where it is now, as a place's key; a removed blob's is no living blob's place, so none is marked. */
 const placeKey = (r: Pick<PageSummary, "projectSlug" | "blob" | "blobRemoved">): string =>
@@ -74,6 +78,10 @@ const placeKey = (r: Pick<PageSummary, "projectSlug" | "blob" | "blobRemoved">):
 
 /** What "Delete forever" says before it goes. */
 export const deleteWords = (title: string): string => `Delete “${title}” for good, with every version? This cannot be undone.`;
+
+/** What "Empty trash" says before everything in it goes. */
+export const emptyWords = (n: number): string =>
+  `Delete ${n === 1 ? "the one artifact" : `all ${n} artifacts`} in the trash for good, with every version? This cannot be undone.`;
 
 type Dialog = { kind: "rename"; record: PageSummary; title: string; description: string } | { kind: "move"; record: PageSummary; choice?: string };
 
@@ -112,6 +120,8 @@ export interface ArtifactOps {
   items: (record: PageSummary, page?: HtmlPage) => MenuItem[];
   restore: (record: PageSummary) => void;
   remove: (record: PageSummary) => void;
+  /** Delete everything given for good, one at a time, each said as it goes; the first failure stops the rest. */
+  empty: (records: PageSummary[]) => void;
   busy: boolean;
   /** The dialogs, drawn once by the view. */
   dialogs: ReactNode;
@@ -154,6 +164,23 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
 
   const restore = (record: PageSummary): void => void run(() => did("restore", api.restoreArtifact(record.id)));
   const remove = (record: PageSummary): void => void run(() => api.deleteArtifact(record.id).then(() => ({ op: "delete", id: record.id })));
+  const empty = (records: PageSummary[]): void => {
+    if (busy || records.length === 0) return;
+    setBusy(true);
+    void (async () => {
+      try {
+        for (const record of records) {
+          await api.deleteArtifact(record.id);
+          onChanged({ op: "delete", id: record.id });
+        }
+      } catch (err) {
+        onError(err instanceof Error ? err.message : String(err));
+      } finally {
+        trashChanged();
+        setBusy(false);
+      }
+    })();
+  };
 
   const exportAs = (record: PageSummary, format: ExportFormat, tab?: string): void => {
     if (exporting) return;
@@ -185,6 +212,7 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
       key: "workspace",
       to: { project: WORKSPACE_SCOPE },
       label: "Workspace",
+      group: "Workspace",
       mark: (
         <span className="tile artifact-move-ws" aria-hidden="true">
           <NavIcon name="files" />
@@ -195,8 +223,8 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
     ...projects
       .filter((p) => p.type !== "system")
       .sort((a, b) => a.name.localeCompare(b.name))
-      .map((p): Place => ({ key: `project:${p.slug}`, to: { project: p.slug }, label: p.name, mark: <ProjectMark slug={p.slug} name={p.name} colour={p.colour} /> })),
-    ...blobs.map((name): Place => ({ key: `blob:${name}`, to: { blob: name }, label: name, mark: <Face seed={name} size={20} /> })),
+      .map((p): Place => ({ key: `project:${p.slug}`, to: { project: p.slug }, label: p.name, group: "Projects", mark: <ProjectMark slug={p.slug} name={p.name} colour={p.colour} /> })),
+    ...blobs.map((name): Place => ({ key: `blob:${name}`, to: { blob: name }, label: name, group: "Blobs", mark: <Face seed={name} size={20} /> })),
   ];
 
   const dialogs = (
@@ -217,10 +245,10 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
           </m.div>
         )}
       </AnimatePresence>
-      <Modal open={dialog?.kind === "rename"} title="Rename" onClose={() => setDialog(null)}>
+      <Modal open={dialog?.kind === "rename"} title="Rename" size="sm" onClose={() => setDialog(null)}>
         {dialog?.kind === "rename" && (
           <form
-            className="file-dialog artifact-dialog"
+            className="artifact-dialog"
             onSubmit={(e) => {
               e.preventDefault();
               const title = dialog.title.trim();
@@ -238,25 +266,25 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
             </Field>
             {dialog.record.kind === "html" && (
               <Field label="Description" hint="One sentence: what it is for.">
-                <textarea className="kos-input artifact-dialog-about" rows={2} maxLength={RENAME_DESCRIPTION_MAX} value={dialog.description} onChange={(e) => setDialog({ ...dialog, description: e.target.value })} />
+                <textarea className="kos-input artifact-dialog-about" rows={3} maxLength={RENAME_DESCRIPTION_MAX} value={dialog.description} onChange={(e) => setDialog({ ...dialog, description: e.target.value })} />
               </Field>
             )}
-            <div className="file-dialog-actions">
+            <div className="artifact-dialog-actions">
+              <button type="button" className="btn btn--ghost" onClick={() => setDialog(null)}>
+                Cancel
+              </button>
               <button type="submit" className="btn btn--primary" disabled={busy || !dialog.title.trim()}>
                 Save
-              </button>
-              <button type="button" className="btn" onClick={() => setDialog(null)}>
-                Cancel
               </button>
             </div>
           </form>
         )}
       </Modal>
 
-      <Modal open={moving} title={moving ? `Move “${dialog.record.title}”` : "Move"} onClose={() => setDialog(null)}>
+      <Modal open={moving} title={moving ? `Move “${dialog.record.title}”` : "Move"} size="sm" onClose={() => setDialog(null)}>
         {dialog?.kind === "move" && (
           <form
-            className="file-dialog artifact-dialog"
+            className="artifact-dialog"
             onSubmit={(e) => {
               e.preventDefault();
               const place = places.find((p) => p.key === dialog.choice);
@@ -267,12 +295,12 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
           >
             <p className="hint">It keeps its id and its versions, so mentions and links still find it. Its new owner is where it lives and who KOS asks about it.</p>
             <MovePicker places={places} here={placeKey(dialog.record)} choice={dialog.choice} onChoose={(choice) => setDialog({ ...dialog, choice })} />
-            <div className="file-dialog-actions">
+            <div className="artifact-dialog-actions">
+              <button type="button" className="btn btn--ghost" onClick={() => setDialog(null)}>
+                Cancel
+              </button>
               <button type="submit" className="btn btn--primary" disabled={busy || !dialog.choice}>
                 Move
-              </button>
-              <button type="button" className="btn" onClick={() => setDialog(null)}>
-                Cancel
               </button>
             </div>
           </form>
@@ -281,7 +309,7 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
     </>
   );
 
-  return { items, restore, remove, busy, dialogs };
+  return { items, restore, remove, empty, busy, dialogs };
 }
 
 /** Bring an artifact back from the trash from anywhere that names it (a chat's card), for every card that shows it. */
@@ -293,15 +321,18 @@ export function restoreFromTrash(id: string): Promise<PageSummary> {
 }
 
 /**
- * Where a move goes, as one radio group: one stop on the tab key (the place
- * chosen, else the first that can be), the arrows walk the places and choose
- * as they go, Home and End go to the ends. Where it is now is shown, not
- * offered.
+ * Where a move goes, as one radio group under each group's name: one stop on
+ * the tab key (the place chosen, else the first that can be), the arrows walk
+ * the places and choose as they go, Home and End go to the ends. Where it is
+ * now is shown, not offered. A long list gets a search over it.
  */
 function MovePicker({ places, here, choice, onChoose }: { places: Place[]; here: string; choice?: string; onChoose: (key: string) => void }): ReactElement {
   const list = useRef<HTMLDivElement>(null);
-  const open = places.filter((p) => p.key !== here);
-  const stop = choice ?? open[0]?.key;
+  const [find, setFind] = useState("");
+  const q = find.trim().toLowerCase();
+  const shown = q ? places.filter((p) => p.label.toLowerCase().includes(q)) : places;
+  const open = shown.filter((p) => p.key !== here);
+  const stop = open.some((p) => p.key === choice) ? choice : open[0]?.key;
   const keys = (e: KeyboardEvent<HTMLDivElement>): void => {
     const at = open.findIndex((p) => p.key === stop);
     const step = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : 0;
@@ -313,28 +344,41 @@ function MovePicker({ places, here, choice, onChoose }: { places: Place[]; here:
     [...(list.current?.querySelectorAll<HTMLElement>("[data-place]") ?? [])].find((el) => el.dataset.place === next.key)?.focus();
   };
   return (
-    <div className="artifact-move-list" role="radiogroup" aria-label="Move to" ref={list} onKeyDown={keys}>
-      {places.map((p) => {
-        const isHere = p.key === here;
-        const chosen = p.key === choice;
-        return (
-          <button
-            key={p.key}
-            type="button"
-            role="radio"
-            data-place={p.key}
-            aria-checked={chosen}
-            disabled={isHere}
-            tabIndex={p.key === stop ? 0 : -1}
-            className={`artifact-move-option${chosen ? " is-on" : ""}`}
-            onClick={() => onChoose(p.key)}
-          >
-            {p.mark}
-            <span className="artifact-move-name">{p.label}</span>
-            {isHere && <span className="artifact-move-here">Here now</span>}
-          </button>
-        );
-      })}
+    <div className="artifact-move">
+      {places.length > FIND_FROM && (
+        <input className="kos-input artifact-move-find" type="search" placeholder="Find a place" aria-label="Find a place" value={find} onChange={(e) => setFind(e.target.value)} />
+      )}
+      <div className="artifact-move-list" role="radiogroup" aria-label="Move to" ref={list} onKeyDown={keys}>
+        {shown.length === 0 && <p className="empty-line">Nowhere by that name.</p>}
+        {shown.map((p, i) => {
+          const isHere = p.key === here;
+          const chosen = p.key === choice;
+          return (
+            <Fragment key={p.key}>
+              {p.group !== shown[i - 1]?.group && p.group !== "Workspace" && (
+                <p className="label artifact-move-group" aria-hidden="true">
+                  {p.group}
+                </p>
+              )}
+              <button
+                type="button"
+                role="radio"
+                data-place={p.key}
+                aria-checked={chosen}
+                disabled={isHere}
+                tabIndex={p.key === stop ? 0 : -1}
+                className={`artifact-move-option${chosen ? " is-on" : ""}`}
+                onClick={() => onChoose(p.key)}
+              >
+                {p.mark}
+                <span className="artifact-move-name">{p.label}</span>
+                {isHere && <span className="artifact-move-here">Here now</span>}
+                {chosen && <CheckIcon size={14} title="" />}
+              </button>
+            </Fragment>
+          );
+        })}
+      </div>
     </div>
   );
 }

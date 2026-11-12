@@ -13,11 +13,14 @@ export function Modal({
   open,
   title,
   onClose,
+  size,
   children,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
+  /** A short form (a name, a choice of place) in a narrower box than a dialog's usual. */
+  size?: "sm";
   children: ReactNode;
 }): ReactElement {
   useDismiss(open, onClose, { away: false, scroll: false, resize: false, escape: "dialog" });
@@ -41,7 +44,7 @@ export function Modal({
           */}
           <div className="modal-wrap">
           <m.div
-            className="modal"
+            className={size ? `modal modal--${size}` : "modal"}
             role="dialog"
             aria-modal="true"
             aria-label={title}
