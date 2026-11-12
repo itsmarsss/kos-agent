@@ -206,6 +206,16 @@ describe("to-dos", () => {
     expect(box.hasAttribute("aria-label")).toBe(false);
     expect(cleanDocHtml(a)).toBe(`<ul class="checklist"><li data-checked="true">milk</li></ul>`);
   });
+
+  it("names an item's box by its own words, not by the items nested under it", () => {
+    const a = mount(`<ul class="checklist"><li data-checked="false">Pack <em>bags</em><ul class="checklist"><li data-checked="false">socks</li></ul></li></ul>`);
+    ensureTodoBoxes(a);
+    const [outer, inner] = [...a.querySelectorAll(".todo-box")];
+    expect(outer!.getAttribute("aria-label")).toBe("Pack bags");
+    expect(outer!.hasAttribute("aria-labelledby")).toBe(false);
+    expect(document.getElementById(inner!.getAttribute("aria-labelledby")!)!.textContent).toBe("socks");
+    expect(cleanDocHtml(a)).not.toMatch(/id=|aria/);
+  });
 });
 
 describe("tables", () => {

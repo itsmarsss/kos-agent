@@ -737,13 +737,18 @@ export function ensureTodoBoxes(root: Element): void {
       li.prepend(box);
     }
     box.setAttribute("aria-checked", String(done));
-    // Named by the item's own words: an id of the runtime's (data-kos-gen-id, taken off on save) when it has none.
-    if (!li.id) {
-      li.id = `kos-todo-${++todos}`;
-      li.setAttribute("data-kos-gen-id", "");
+    // Named by the item's own words, not the items nested under it: through the item itself (an id of the runtime's, data-kos-gen-id, taken off on save, when it has none), or its words when it holds a list.
+    if (li.querySelector(":scope > ul, :scope > ol")) {
+      box.removeAttribute("aria-labelledby");
+      box.setAttribute("aria-label", inlineOf(li).map((n) => n.textContent ?? "").join("").replace(/\s+/g, " ").trim() || "To-do");
+    } else {
+      if (!li.id) {
+        li.id = `kos-todo-${++todos}`;
+        li.setAttribute("data-kos-gen-id", "");
+      }
+      box.setAttribute("aria-labelledby", li.id);
+      box.removeAttribute("aria-label");
     }
-    box.setAttribute("aria-labelledby", li.id);
-    box.removeAttribute("aria-label");
   }
   // A box whose item stopped being a to-do goes.
   for (const box of root.querySelectorAll(".todo-box")) if (!box.parentElement?.matches("ul.checklist > li")) box.remove();
