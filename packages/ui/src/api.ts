@@ -346,7 +346,7 @@ export interface DeviceUpdate {
   state: "current" | "behind" | "updating" | "unknown";
   /** What KOS would hand it. */
   build?: DeviceBuild;
-  reason?: "unbuilt" | "unstamped" | "remote" | "store" | "idle" | "signing" | "xcode" | "off" | "failed" | "stuck";
+  reason?: "unbuilt" | "unstamped" | "remote" | "unproved" | "store" | "idle" | "signing" | "xcode" | "off" | "failed" | "stuck";
   detail?: string;
   /** KOS for Mac: what the owner runs by hand. */
   command?: string;

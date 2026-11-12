@@ -121,6 +121,11 @@ export class DeviceLink {
     return this.here;
   }
 
+  /** On loopback with no proxy between, proved or not. */
+  get loopback(): boolean {
+    return this.deps.local === true;
+  }
+
   get ready(): boolean {
     return this.device !== undefined && !this.closed;
   }

@@ -143,6 +143,7 @@ export function updateWords(d: PairedDevice): { pill: string; tone: Tone; why?: 
     signing: "Signing is not set up, so an update here would ask for Screen Recording and Accessibility again. Set it up once, or Update anyway",
     xcode: "Run KOS for iPhone again from Xcode on your Mac",
     remote: "On another computer: update it there",
+    unproved: u.detail ?? "KOS can't tell this Mac is its own",
     store: "Installed from the store; Chrome updates it",
     off: "Updating on their own is off",
     failed: `The update did not finish${u.detail ? `: ${u.detail}` : ""}`,
@@ -156,7 +157,7 @@ export function updateWords(d: PairedDevice): { pill: string; tone: Tone; why?: 
 /** Whether Update now can do anything for it: a Chrome or a Mac on this computer that KOS has a newer build for. */
 export function canUpdate(d: PairedDevice): boolean {
   const u = d.update;
-  if (!u || !d.online || d.kind === "phone" || u.reason === "remote" || u.reason === "store" || u.reason === "unbuilt") return false;
+  if (!u || !d.online || d.kind === "phone" || u.reason === "remote" || u.reason === "unproved" || u.reason === "store" || u.reason === "unbuilt") return false;
   return u.state === "behind" || (d.kind === "computer" && u.state === "unknown" && u.reason === "unstamped" && d.local === true);
 }
 

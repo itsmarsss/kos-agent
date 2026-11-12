@@ -74,10 +74,10 @@ describe("deciding a device's update", () => {
 /** A hub with updates on, a stub installer, and devices to connect as KOS for Chrome, KOS for Mac and KOS for iPhone would. */
 type Installed = { ok: true } | { ok: false; why: string };
 
-function setup(over: { signed?: boolean; install?: () => Promise<Installed>; idle?: () => boolean; want?: Partial<Record<BuildKind, Build>>; store?: DeviceStore } = {}) {
+function setup(over: { signed?: boolean; install?: () => Promise<Installed>; idle?: () => boolean; want?: Partial<Record<BuildKind, Build>>; store?: DeviceStore; localProblem?: string } = {}) {
   const store = over.store ?? new DeviceStore(openDatabase(":memory:"));
   const localKey = Buffer.alloc(32, 7);
-  const hub = new DeviceHub({ store, hostKey, halted: () => false, log: () => undefined, localKey });
+  const hub = new DeviceHub({ store, hostKey, halted: () => false, log: () => undefined, ...(over.localProblem ? {} : { localKey }) });
   const audits: AuditEntry[] = [];
   const installs: string[] = [];
   const want: Partial<Record<BuildKind, Build>> = { chrome: NEW, mac: NEW, phone: NEW, ...over.want };
@@ -91,7 +91,7 @@ function setup(over: { signed?: boolean; install?: () => Promise<Installed>; idl
     commands: { signing: "cd app && scripts/signing.sh setup", install: "cd app && scripts/bundle.sh --install" },
   };
   const hashed: BuildKind[] = [];
-  const updates = new DeviceUpdates({ hub, store, expected: (k, fresh) => (fresh && hashed.push(k), want[k]), mac, idle: over.idle ?? (() => true), audit: (e) => audits.push(e), log: () => undefined });
+  const updates = new DeviceUpdates({ hub, store, expected: (k, fresh) => (fresh && hashed.push(k), want[k]), mac, idle: over.idle ?? (() => true), ...(over.localProblem ? { localProblem: over.localProblem } : {}), audit: (e) => audits.push(e), log: () => undefined });
   updates.start();
   const pair = (platform: string, name: string): FakeDevice => {
     const fake = new FakeDevice();
@@ -339,6 +339,20 @@ describe("where a device runs", () => {
     await connect(mac, OLD, true, { here: "bm90IHRoZSBwcm9vZg==" });
     expect(updates.statusOf(mac.id)).toMatchObject({ reason: "remote" });
     expect(installs).toEqual([]);
+  });
+
+  it("is unproved for a Mac on loopback while this computer's secret will not read: nothing installed, and why", async () => {
+    const why = "KOS can't tell this Mac is its own: remove ~/.kos/device-local.key and KOS makes another";
+    const { pair, connect, updates, installs, hub } = setup({ localProblem: why });
+    const routes = deviceRoutes(() => hub, (id) => id, undefined, () => updates);
+    const mac = pair("macos", "Studio");
+    await connect(mac, OLD);
+    expect(updates.statusOf(mac.id)).toEqual({ state: "behind", build: NEW, reason: "unproved", detail: why });
+    expect(installs).toEqual([]);
+    expect(await routes.handle({ method: "GET", path: PREFIX })).toMatchObject({ body: { devices: [{ update: { reason: "unproved", detail: why } }] } });
+    // A Chrome on the same line is not asked to prove anything.
+    const chrome = pair("chrome", "Chrome");
+    expect((await connect(chrome, OLD)).updates[0]).toMatchObject({ action: "reload" });
   });
 
   it("knows a Chrome installed from the store updates through Chrome, not KOS", async () => {

@@ -85,6 +85,10 @@ describe("a device's build, in words", () => {
     const store = { ...chrome, update: { state: "behind" as const, build, reason: "store" as const } };
     expect(updateWords(store)?.why).toBe("Installed from the store; Chrome updates it");
     expect(canUpdate(store)).toBe(false);
+    const why = "KOS can't tell this Mac is its own: remove ~/.kos/device-local.key and KOS makes another";
+    const unproved = { ...mac, update: { state: "behind" as const, build, reason: "unproved" as const, detail: why } };
+    expect(updateWords(unproved)).toEqual({ pill: "Behind", tone: "warn", why });
+    expect(canUpdate(unproved)).toBe(false);
     expect(canUpdate({ ...behind, update: { ...behind.update, reason: "remote" } })).toBe(false);
     expect(canUpdate({ ...behind, online: false })).toBe(false);
     // A KOS for Mac from before stamps can be rebuilt here; a Chrome from before them cannot hear KOS's word.

@@ -72,6 +72,8 @@ export interface ComputerUse {
 
 export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   let store: DeviceStore | undefined;
+  let localKey: Buffer | undefined;
+  let localProblem: string | undefined;
   let hub: DeviceHub | undefined;
   let updates: DeviceUpdates | undefined;
   let chrome: OwnerChrome | undefined;
@@ -98,13 +100,22 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       // Made on first activation, when the store exists; kept across a switch
       // off and on so the devices' connections are the only thing that resets.
       store ??= new DeviceStore(requireServices(ctx).db);
+      // A secret that will not read stops only KOS rebuilding the Mac on its own, never computer use.
+      if (options.localKeyPath && !localKey && !localProblem) {
+        try {
+          localKey = loadLocalKey(options.localKeyPath);
+        } catch (err) {
+          localProblem = `KOS can't tell this Mac is its own: remove ${options.localKeyPath} and KOS makes another`;
+          (options.updates?.log ?? ((line: string) => console.error(line)))(`devices: ${localProblem} (${err instanceof Error ? err.message : String(err)})`);
+        }
+      }
       hub ??= new DeviceHub({
         store,
         hostKey: loadHostKey({ path: options.hostKeyPath, ...(options.hostKeyEnv ? { env: options.hostKeyEnv } : {}) }),
         halted: options.halted,
         face: options.face,
         theme: options.theme,
-        ...(options.localKeyPath ? { localKey: loadLocalKey(options.localKeyPath) } : {}),
+        ...(localKey ? { localKey } : {}),
       });
       const devices = hub;
       if (options.updates && !updates) {
@@ -116,6 +127,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
           ...(installer ? { mac: installer } : {}),
           // Its window holds no session or ask, and no turn runs in the Mac's chats.
           idle: (device) => !devices.inUse(device) && !mac.busy(),
+          ...(localProblem ? { localProblem } : {}),
           ...(options.audit ? { audit: options.audit } : {}),
           ...(log ? { log } : {}),
         });

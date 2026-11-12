@@ -23,11 +23,11 @@ export type UpdateState = "current" | "behind" | "updating" | "unknown";
 /**
  * Why a device is where it is: KOS has no build of its own to hand it, the
  * app says no build (stamped before builds were), it runs on another
- * computer, it is a Chrome installed from the store (Chrome updates it), it is waiting for an idle window, KOS for Mac's signing is not
+ * computer, it may run here but KOS cannot check (its secret is unreadable), it is a Chrome installed from the store (Chrome updates it), it is waiting for an idle window, KOS for Mac's signing is not
  * set up, an iPhone needs Xcode, the owner turned updates off, or the last
  * try failed or left it behind.
  */
-export type UpdateReason = "unbuilt" | "unstamped" | "remote" | "store" | "idle" | "signing" | "xcode" | "off" | "failed" | "stuck";
+export type UpdateReason = "unbuilt" | "unstamped" | "remote" | "unproved" | "store" | "idle" | "signing" | "xcode" | "off" | "failed" | "stuck";
 
 export interface UpdateStatus {
   state: UpdateState;
@@ -63,6 +63,8 @@ export interface DecideInput {
   idle?: boolean;
   /** KOS for Chrome: how Chrome says it was installed; only `development` (Load unpacked) reloads into new code. */
   install?: string;
+  /** Why KOS cannot tell whether a Mac on loopback is its own, when it cannot: its secret would not read. */
+  unproved?: string;
 }
 
 export interface Decision {
@@ -84,7 +86,7 @@ export function decide(i: DecideInput): Decision {
   if (i.running?.id === want.id) return none({ state: "current", build: want });
   if (i.kind === "phone") return behind("xcode");
   if (i.kind === "chrome" && i.install !== undefined && i.install !== "development") return behind("store");
-  if (!i.local) return behind("remote");
+  if (!i.local) return i.unproved ? behind("unproved", i.unproved) : behind("remote");
   const outcome = i.attempt?.outcome;
   if (outcome && IN_FLIGHT.has(outcome)) return none({ state: "updating", build: want });
   if (!i.owner) {
@@ -118,6 +120,8 @@ export interface UpdatesDeps {
   mac?: MacInstaller;
   /** No session, ask or turn on the device. */
   idle(device: string): boolean;
+  /** Why no Mac can prove it is on this computer, when the secret would not read: said as such a Mac's reason. */
+  localProblem?: string;
   audit?(entry: AuditEntry): void;
   log?(line: string): void;
 }
@@ -229,6 +233,7 @@ export class DeviceUpdates {
       owner,
       ...(line.build ? { running: line.build } : {}),
       ...(line.install ? { install: line.install } : {}),
+      ...(mac && line.loopback && this.deps.localProblem ? { unproved: this.deps.localProblem } : {}),
       ...(want ? { want } : {}),
     };
     if (mac && input.local && want && line.build?.id !== want.id) {

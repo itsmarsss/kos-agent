@@ -230,10 +230,10 @@ export class DeviceHub {
   }
 
   /** A device's line as it stands: the build it said it runs and whether it is on this computer; undefined while it is offline. */
-  lineOf(deviceId: string): { build?: Build; install?: string; local: boolean } | undefined {
+  lineOf(deviceId: string): { build?: Build; install?: string; local: boolean; loopback: boolean } | undefined {
     const link = this.links.get(deviceId);
     if (!link?.ready) return undefined;
-    return { ...(link.build ? { build: link.build } : {}), ...(link.install ? { install: link.install } : {}), local: link.local };
+    return { ...(link.build ? { build: link.build } : {}), ...(link.install ? { install: link.install } : {}), local: link.local, loopback: link.loopback };
   }
 
   /** Tell one device something that needs no answer; nothing when it is offline. */

@@ -405,7 +405,11 @@ random bytes KOS keeps in `~/.kos/device-local.key` (mode 0600;
 KOS for Mac always reads `~/.kos/device-local.key`), sent as `here`, base64 HMAC-SHA256 with
 that secret over `kos-device/1|here|<KOS nonce>|<device id>`. A Chrome is
 taken on the header rule alone: a Chrome elsewhere told to reload only
-reloads its own folder.
+reloads its own folder. A secret file that does not read is never
+overwritten; computer use goes on as ever, no Mac counts as on this
+computer (so KOS installs nothing by itself), and a Mac on loopback is
+`unproved`, with the file to remove in `detail`, said once in the host's
+log too.
 
 **When.** On every connection KOS compares, settles an update in flight
 (back on the new build: `updated`; reloaded or reinstalled and still not:
@@ -615,7 +619,8 @@ build stands with the one it would hand it now:
 `state` is `current`, `behind`, `updating` or `unknown`; `build` the build
 KOS would hand it; `reason`, when it is not current, why: `unbuilt` (KOS
 has none to compare with), `unstamped` (the app said no build), `remote`
-(it runs on another computer), `store` (a Chrome installed from the store,
+(it runs on another computer), `unproved` (it may run here, but KOS cannot
+read the secret it would check), `store` (a Chrome installed from the store,
 which Chrome updates), `idle` (waiting for no session and no turn
 on it), `signing` (KOS for Mac's signing key is not set up), `xcode` (a
 phone), `off` (the owner turned updating on their own off), `failed` (with
