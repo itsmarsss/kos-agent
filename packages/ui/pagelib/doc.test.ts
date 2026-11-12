@@ -444,6 +444,41 @@ describe("kos-doc", () => {
     expect(article.textContent).toBe("TwoOne");
   });
 
+  it("keeps a wide table's tools at the right of what shows of it, inside the window", () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn() };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const article = mount(`<p>Above</p><table><tr><td>Wide</td></tr></table>`);
+    startDoc();
+    press("edit");
+    const box = (left: number, right: number, top = 100, bottom = 200): DOMRect => new DOMRect(left, top, right - left, bottom - top);
+    // A table far wider than the column, scrolling inside its wrapper, which stops at 700 in a window 1024 wide.
+    const rects = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      if (this.tagName === "TABLE") return box(40, 2400);
+      if (this.classList.contains("doc-table")) return box(40, 700);
+      return box(0, 0, 0, 0);
+    });
+    const lines = Range.prototype.getClientRects;
+    Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+    const tools = document.querySelector<HTMLElement>(".doc-tabletools")!;
+    Object.defineProperty(tools, "offsetWidth", { value: 180, configurable: true });
+    Object.defineProperty(tools, "offsetHeight", { value: 34, configurable: true });
+    const place = (cell: Node): number => {
+      getSelection()!.collapse(cell, 0);
+      document.dispatchEvent(new Event("selectionchange"));
+      return parseFloat(tools.style.left);
+    };
+    const cell = article.querySelector("td")!.firstChild!;
+    expect(place(cell)).toBe(700 - 180);
+    expect(tools.hidden).toBe(false);
+    // A wrapper reaching past the window's edge: the tools stay inside it.
+    rects.mockImplementation(function (this: Element) {
+      return this.tagName === "TABLE" || this.classList.contains("doc-table") ? box(40, 1600) : box(0, 0, 0, 0);
+    });
+    expect(place(cell)).toBe(innerWidth - 180 - 8);
+    rects.mockRestore();
+    Range.prototype.getClientRects = lines;
+  });
+
   it("takes a drop as plain text, as a paste is", () => {
     (window as { kos?: unknown }).kos = { save: vi.fn() };
     const run = vi.fn();

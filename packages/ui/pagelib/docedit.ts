@@ -972,17 +972,20 @@ export function startEditor(article: HTMLElement, { save, say, onPending, queue 
   }
 
   /**
-   * The table's tools at its right edge, at the first place that covers no
-   * words of the blocks beside it: above the table, else below it, else
-   * above anyway; then held to the part of the table in view, so a long one
-   * keeps them at hand.
+   * The table's tools at the right edge of what shows of it (a wide table
+   * scrolls inside its wrapper), at the first place that covers no words of
+   * the blocks beside it: above the table, else below it, else above anyway;
+   * then held to the part of the table in view, so a long one keeps them at
+   * hand, and to the window side to side.
    */
   function placeTableTools(table: HTMLTableElement): void {
     const block = blockOf(article, table) ?? table;
     const r = block.getBoundingClientRect();
     const w = tableTools.offsetWidth;
     const h = tableTools.offsetHeight;
-    const left = r.right - w;
+    const wrap = table.closest(".doc-table");
+    const right = wrap ? Math.min(r.right, wrap.getBoundingClientRect().right) : r.right;
+    const left = Math.min(Math.max(8, right - w), innerWidth - w - 8);
     const all = allBlocks(article);
     const at = all.indexOf(block);
     const lines = (b: HTMLElement | undefined): DOMRect[] => {
@@ -999,7 +1002,7 @@ export function startEditor(article: HTMLElement, { save, say, onPending, queue 
     const chosen = free(above) ? above : free(below) ? below : above;
     const seen = seenPart();
     const top = chosen === below ? Math.min(below, seen.bottom - h - 6) : Math.min(Math.max(above, seen.top + 6), r.bottom - h);
-    tableTools.style.left = `${Math.round(Math.max(0, left) + scrollX)}px`;
+    tableTools.style.left = `${Math.round(left + scrollX)}px`;
     tableTools.style.top = `${Math.round(Math.max(top, r.top - h - 6) + scrollY)}px`;
   }
 
