@@ -72,6 +72,13 @@ public enum GlanceWords {
     return "\(day.string(from: at)) \(time)"
   }
 
+  /// When KOS last answered: "Updated just now", "Updated 3m ago".
+  public static func updated(_ at: Date, now: Date = Date()) -> String {
+    let minutes = Int((now.timeIntervalSince(at) / 60).rounded(.down))
+    if minutes < 1 { return "Updated just now" }
+    return minutes < 60 ? "Updated \(minutes)m ago" : "Updated \(minutes / 60)h ago"
+  }
+
   /// How long a job has been failing: "for 12m", "for 3h", "for 2d".
   public static func failingFor(since: Date, now: Date = Date()) -> String {
     let minutes = max(0, Int((now.timeIntervalSince(since) / 60).rounded()))
