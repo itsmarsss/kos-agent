@@ -244,10 +244,24 @@ the answer is nothing.
 
 ## Projects
 
-A card per project: its mark in its colour, its name, kind and when it was last touched, a status pill, what it is for, its pages as chips, and Chat and Details. Details opens the drawer:
+The list pages' head (the count, a search over names, kinds and what each
+is for, the sort, Recent or Name, and New project), then a card per project,
+one shape each: its mark in its colour, its name and kind, what it is for in
+two lines, the figure a page offers, and a foot of what it holds (agents,
+tables, artifacts) and when anything in it last moved. A card says when the
+project wants the owner, and is otherwise quiet: Job failing (one of its
+schedules, the error on hover), Needs you, Chat failed, Working, or a status
+other than active. Projects are grouped by status only when there is more
+than one, Maintenance last. The card opens the project; Details opens the drawer:
 rows and tables, pages, sites, schedules, status, type, which module it came
 from, its chat, its folder, and the schema history. A project made from a
-blueprint says so. **Colour**, on the project's own page beside Open in Files, gives it a colour of its own, a swatch or anything from the picker; it tints the project's column and its mark, and From the name lets it go. **New project** makes an empty one: a name and a kind,
+blueprint says so.
+
+A project's own page is its chat between two columns: its orchestrator,
+agents and schedule on the left, and on the right who it is (the mark, name,
+kind and status, what it is for, and how many agents, artifacts, tables and
+schedules it has) over its folder, artifacts, tables and sites, each a
+section under a hairline. **Colour**, there beside Open in Files, gives it a colour of its own, a swatch or anything from the picker; it tints the project's column and its mark, and From the name lets it go. **New project** makes an empty one: a name and a kind,
 then a chat of its own and nothing else until you or KOS put something
 there. **Edit**, in the drawer's head, changes the name, what it is for, the
 kind and the colour; the slug stays, since it names the folder and the

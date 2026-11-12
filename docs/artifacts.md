@@ -118,7 +118,8 @@ which is gone, nor Edit with KOS.
 ## Managing artifacts
 
 The owner renames, copies, moves and deletes artifacts from the dashboard:
-the viewer head's menu and each gallery card's menu (`ArtifactManage.tsx`).
+the viewer head's menu, each gallery card's menu and the trash's rows
+(`ArtifactManage.tsx`).
 
 - **Rename**: a new title (120 characters at most), description (280), or
   both, trimmed, in a small dialog; an older widget page has a title only.
@@ -153,9 +154,12 @@ the viewer head's menu and each gallery card's menu (`ArtifactManage.tsx`).
   card, a link) it says it is in the trash, with Restore and Delete forever;
   a chat's card for it says so too. KOS, told of one by a mention, hears
   that it is in the trash and not its body.
-- **Trash** is a view of the gallery (Trash in its head), with Restore and
-  Delete forever on each card. Delete forever asks once (`ConfirmButton`)
-  and removes the row, file, versions and captures. Nothing in the trash is
+- **Trash** is a view of the gallery (Trash at the end of its filter bar): a
+  list, each row its capture, title, kind, owner and when it went there,
+  opening it, with Restore and Delete forever beside it, and Empty trash in
+  the head. Delete forever and Empty trash ask once (`ConfirmButton`) and
+  remove the row, file, versions and captures; Empty trash deletes each in
+  turn and stops at the first that fails, keeping it and the rest. Nothing in the trash is
   deleted on its own, however long it waits; no purge is decided. Deleting a
   project keeps what of it is in the trash: it goes to the workspace's
   trash, still trashed, with its versions and captures, and without what
@@ -681,15 +685,24 @@ the artifact's `.captures/<id>/`.
 
 Artifacts on the dashboard's nav is a gallery of every artifact across
 projects, blobs and the workspace, newest first. Its head holds the count, a
-search over titles, descriptions and owners, and New artifact, which opens KOS's
-root chat with "Make a " in the composer for the owner to finish. Under it,
-the kinds as chips with how many each holds (one row that scrolls sideways
-on a phone), the owner (Everyone's, the workspace, each project, each blob),
-and Recent or By owner: one grid, or a section per owner with the
-workspace's own last. A card is a 16:10 capture cropped from the top, the
-title, one line of description, the kind, the owner's mark and name (a
-project's mark, or a blob's face), and when it changed. While the list loads the grid is drawn
-as skeleton cards; with nothing made it says so, beside New artifact.
+search over titles, descriptions and owners, and New artifact, the page's one
+primary action. Under it, one bar of filters: the kinds as chips with how
+many each holds (one row that scrolls sideways on a phone), then the owner
+(All owners, the workspace, each project, each blob), the sort (Recent, or
+By owner: a section per owner with the workspace's own last) and Trash with
+its count. A card is a 16:10 capture cropped from the top, the title, one
+line of description when it has one, then one quiet line of its kind, the
+owner's mark and name (a project's mark, or a blob's face) and when it
+changed. On a phone the cards are rows, the capture small at the start.
+While the list loads the grid is drawn as skeleton cards; with nothing made
+it says so, beside New artifact.
+
+New artifact is a dialog (`NewArtifact.tsx`): the kind as four tiles (doc,
+deck, sheet, page, a radio group the arrows walk), the owner (the
+workspace, any project but Maintenance, any living blob) and a sentence for
+KOS. Ask KOS sends it to the owner's own chat, as Edit with KOS does (the
+project's, the blob's thread, KOS at the root for the workspace), with the
+kind and where to write it, and goes there.
 
 The thumbnail is the capture `artifacts.check` keeps, in the dashboard's
 theme, not a live render: a gallery of live frames would start every
