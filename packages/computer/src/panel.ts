@@ -184,6 +184,8 @@ export class DevicePanel implements ChannelAdapter {
   private readonly inbox = new AttachmentInbox();
   /** The artifacts a device opens, when this panel's devices may. */
   private readonly reader: ArtifactReader | undefined;
+  /** Each device's artifact on its way, and the one it asked for since, which replaces any asked before it. */
+  private readonly opening = new Map<string, Record<string, unknown> | undefined>();
 
   constructor(
     private readonly place: PanelPlace,
@@ -203,7 +205,10 @@ export class DevicePanel implements ChannelAdapter {
     }
     const offEvents = hub.onDeviceEvent((device, event) => this.heard(device, event));
     // An ask going up or down on a device, the owner taking over or handing back: told as it happens.
-    const offChange = hub.onChange(() => this.tellState());
+    const offChange = hub.onChange(() => {
+      this.tellState();
+      this.prune();
+    });
     this.unsubscribe = () => {
       offEvents();
       offChange();
@@ -595,7 +600,7 @@ export class DevicePanel implements ChannelAdapter {
         if (this.reader) void this.tell(device, "chat.artifacts", this.reader.list());
         return;
       case "chat.artifact":
-        if (this.reader) void this.tell(device, "chat.artifact", this.reader.open(device, data), ARTIFACT_TIMEOUT_MS);
+        this.openFor(device, data);
         return;
       case "chat.read":
         if (this.reader) void this.reader.read(device, data).then((answer) => (answer ? this.tell(device, "chat.read", answer) : undefined));
@@ -609,6 +614,28 @@ export class DevicePanel implements ChannelAdapter {
       default:
         return;
     }
+  }
+
+  /** One artifact on its way to a device at a time: one asked for meanwhile waits, the latest replacing any before it. */
+  private openFor(device: string, data: Record<string, unknown>): void {
+    if (!this.reader) return;
+    if (this.opening.has(device)) {
+      this.opening.set(device, data);
+      return;
+    }
+    this.opening.set(device, undefined);
+    void this.tell(device, "chat.artifact", this.reader.open(device, data), ARTIFACT_TIMEOUT_MS).finally(() => {
+      const next = this.opening.get(device);
+      this.opening.delete(device);
+      if (next) this.openFor(device, next);
+    });
+  }
+
+  /** What a device off its line had on the way (files, the artifact it had open) goes with it, unpaired or gone. */
+  private prune(): void {
+    const online = new Set(this.hub?.list().filter((d) => d.online).map((d) => d.id) ?? []);
+    this.inbox.keepOnly(online);
+    this.reader?.keepOnly(online);
   }
 
   /** The models, as asked or as just changed; a list that cannot be had says so rather than nothing. */

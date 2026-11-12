@@ -215,8 +215,10 @@ describe("KOS for iPhone's artifacts", () => {
     const { artifacts, opened } = shelf();
     const { pair } = setup({ place: PHONE_PANEL, artifacts });
     const phone = pair("ios");
-    for (const ask of [{ id: "plan", theme: "dark" }, { id: "../etc", theme: "dark" }, { id: 7 }, { id: "a".repeat(200) }, { id: "nope" }, { id: "broken", theme: "light" }]) phone.event("chat.artifact", ask);
-    await flush();
+    for (const ask of [{ id: "plan", theme: "dark" }, { id: "../etc", theme: "dark" }, { id: 7 }, { id: "a".repeat(200) }, { id: "nope" }, { id: "broken", theme: "light" }]) {
+      phone.event("chat.artifact", ask);
+      await flush();
+    }
     expect(sent(phone, "chat.artifact")).toEqual([
       { ...plan, document: "<!doctype html><p>plan</p>", themes: { light: ":root{--bg:#fff}", dark: ":root{--bg:#000}" }, theme: "dark" },
       { id: "../etc", error: "That is not an artifact's id." },
@@ -227,6 +229,32 @@ describe("KOS for iPhone's artifacts", () => {
     ]);
     // A bad id never reaches the host.
     expect(opened).toEqual([["plan", "dark"], ["nope", "light"], ["broken", "light"]]);
+  });
+
+  it("sends one at a time to a device, the latest it asked for meanwhile replacing the rest", async () => {
+    const { artifacts, opened } = shelf();
+    const { pair } = setup({ place: PHONE_PANEL, artifacts });
+    const phone = pair("ios");
+    for (const id of ["plan", "nope", "broken", "plan"]) phone.event("chat.artifact", { id, theme: "light" });
+    await flush();
+    expect(opened.map(([id]) => id)).toEqual(["plan", "plan"]);
+    expect(sent(phone, "chat.artifact")).toHaveLength(2);
+  });
+
+  it("forgets what a device had open once it is off its line", async () => {
+    const { artifacts } = shelf();
+    const { pair, hub } = setup({ place: PHONE_PANEL, artifacts });
+    const phone = pair("ios");
+    phone.event("chat.artifact", { id: "plan", theme: "light" });
+    await flush();
+    phone.drop();
+    await flush();
+    // The same phone back on a new line has nothing open until it opens something again.
+    hub.accept(phone.socket);
+    phone.hello();
+    phone.event("chat.read", { artifact: "plan", call: 1, method: "query", args: { sql: "SELECT 1" } });
+    await flush();
+    expect(sent(phone, "chat.read")).toEqual([{ artifact: "plan", call: 1, error: "That artifact is not open here." }]);
   });
 
   it("refuses one too big to send to a phone", async () => {
@@ -274,7 +302,7 @@ describe("KOS for iPhone's artifacts", () => {
 });
 
 describe("files with the owner's words", () => {
-  const picture = Buffer.from("receipt").toString("base64");
+  const picture = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46]).toString("base64");
 
   it("go with the words that name them, sent ahead in parts", async () => {
     const { panel, pair } = setup({ place: PHONE_PANEL });

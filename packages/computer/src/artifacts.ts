@@ -41,7 +41,7 @@ export interface PanelArtifacts {
 
 /** How many a device is sent to choose from. */
 export const ARTIFACTS_LISTED = 30;
-/** The largest frame a device is sent: a phone's line takes 16 MB, and an artifact is rarely a tenth of this. */
+/** The largest `chat.artifact` a device is sent, as JSON: a phone's line takes 16 MB, and an artifact is rarely a tenth of this. */
 export const ARTIFACT_DOCUMENT_BYTES = 8 * 1024 * 1024;
 const ID_MAX = 120;
 
@@ -68,9 +68,11 @@ export class ArtifactReader {
       return { id, error: err instanceof Error ? err.message : String(err) };
     }
     if (!view) return { id, error: "There is no artifact by that id that opens here." };
-    if (Buffer.byteLength(view.document, "utf8") > ARTIFACT_DOCUMENT_BYTES) return { id, error: "That artifact is too big to show on a phone. Open it on the dashboard." };
+    const answer = { ...view, theme };
+    // Measured as it goes on the line, escaped and with everything around it, so it always fits a phone's frame.
+    if (Buffer.byteLength(JSON.stringify(answer), "utf8") > ARTIFACT_DOCUMENT_BYTES) return { id, error: "That artifact is too big to show on a phone. Open it on the dashboard." };
     this.opened.set(device, id);
-    return { ...view, theme };
+    return answer;
   }
 
   /** What `chat.read` carries for one read the device's open artifact asked, or undefined for an ask that is not one. */
@@ -88,8 +90,8 @@ export class ArtifactReader {
     }
   }
 
-  /** A device gone: what it had open goes with it. */
-  forget(device: string): void {
-    this.opened.delete(device);
+  /** The devices not on a line: what they had open goes with them. */
+  keepOnly(online: ReadonlySet<string>): void {
+    for (const device of this.opened.keys()) if (!online.has(device)) this.opened.delete(device);
   }
 }
