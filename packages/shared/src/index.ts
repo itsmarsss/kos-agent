@@ -34,10 +34,11 @@ export type {
   HomePanel,
   PanelKind,
   Widget,
+  WidgetOutline,
   WidgetSpan,
   WidgetType,
 } from "./pagespec.js";
-export { DEFAULT_HOME, parseHomeLayout } from "./pagespec.js";
+export { DEFAULT_HOME, SPAN_COLUMNS, outlineOf, parseHomeLayout, widgetSpan } from "./pagespec.js";
 export {
   isReadOnlyQuery,
   isValidPageSpec,
@@ -152,7 +153,7 @@ export { MENTION_KINDS, MENTION_SOURCE, type MentionKind } from "./mentions.js";
 export { MATH, displayMathAt, mathOf, type MathSource } from "./math.js";
 export { desaturateHex, hexOfHsv, hsvOfHex, type Hsv } from "./colour.js";
 export { COLOURS, EASE, FLOAT_SHADOW, isDrawnTheme, isThemeMode, LIGHT_COLOURS, RADII, readDashboardTheme, resolveThemeMode, SPRING, TYPE, type ColourToken, type DashboardTheme, type DrawnTheme, type ThemeMode } from "./design.js";
-export { colourOf, type Rgba } from "./colourof.js";
+export { colourOf, sameGround, type Rgba } from "./colourof.js";
 export { listAt, startsList, type MdList, type MdListItem } from "./lists.js";
 export {
   BRIDGE_SCRIPT,

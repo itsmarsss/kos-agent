@@ -124,10 +124,9 @@ describe("kos-deck in a page", () => {
     const slides = mount();
     // In a test the window is its own top, as the dashboard is the frame's.
     const ask = (action: string): void => void dispatchEvent(new MessageEvent("message", { source: window, data: { __kos: "deck-do", action } }));
-    expect(document.querySelector<HTMLElement>(".deck-bar")!.style.display).toBe("");
+    expect(document.body.classList.contains("deck-hosted")).toBe(false);
     ask("host");
-    expect(document.querySelector<HTMLElement>(".deck-bar")!.style.display).toBe("none");
-    expect(document.body.style.getPropertyValue("--deck-bar")).toBe("0px");
+    expect(document.body.classList.contains("deck-hosted")).toBe(true);
     ask("next");
     expect(slides[1]!.classList.contains("current")).toBe(true);
     ask("notes");

@@ -6,7 +6,7 @@ import { dirname, extname, join, normalize, relative, resolve, sep } from "node:
 import { parseHomeLayout,
   CHAT_COMMANDS,
 } from "@kos/shared";
-import { isExportFormat, stepMechanics, summarizeAction } from "@kos/shared";
+import { isExportFormat, outlineOf, stepMechanics, summarizeAction, type WidgetOutline } from "@kos/shared";
 import type { PendingAction } from "../ops/approvals.js";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
@@ -1503,7 +1503,9 @@ export async function handleApiRequest(
   /*
    * The Artifacts page: every artifact, each with whether a capture of it
    * exists and whether it is older than the artifact, so the gallery can
-   * show the capture or ask for a fresh one. `?trashed=1` lists the trash
+   * show the capture or ask for a fresh one. An older widget page, which
+   * the check never draws, comes with its outline (each widget's type and
+   * width) for the gallery to draw instead. `?trashed=1` lists the trash
    * instead.
    */
   if (method === "GET" && path === "/api/artifacts") {
@@ -1513,7 +1515,8 @@ export async function handleApiRequest(
     return ok(
       kernel.pages.list(undefined, { trashed }).map((record) => {
         const at = captureTime(kernel.pages.capturesDir(record.id));
-        return { ...record, ...(at ? { capturedAt: at } : {}) };
+        const widgets = record.kind === "spec" ? widgetOutline(kernel, record.id) : undefined;
+        return { ...record, ...(at ? { capturedAt: at } : {}), ...(widgets ? { outline: widgets } : {}) };
       }),
     );
   }
@@ -3541,6 +3544,16 @@ function parseCronInput(body: Record<string, unknown>): CreateCronInput | string
 function captureTime(dir: string): number | undefined {
   const file = join(dir, "desktop-light.small.jpg");
   return existsSync(file) ? statSync(file).mtimeMs : undefined;
+}
+
+/** An older widget page's outline, for its card; none when its spec cannot be read. */
+function widgetOutline(kernel: Kernel, id: string): WidgetOutline[] | undefined {
+  try {
+    const got = kernel.pages.get(id);
+    return got?.kind === "spec" ? outlineOf(got.spec) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Longest the page list waits on its headlines, each of which has its own deadline too. */

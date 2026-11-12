@@ -586,6 +586,45 @@ describe("a frame as tall as its page", () => {
     expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "go", index: 1 }, "*");
   });
 
+  it("shows a deck's notes under it, as text, while they are on and the slides are not a grid", async () => {
+    render(<ArtifactPage record={record} page={{ ...page, kind: "deck" }} />);
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
+    const notes = (): HTMLElement | null => screen.queryByRole("region", { name: "Presenter notes" });
+    say({ __kos: "deck", index: 1, count: 3, grid: false, notes: false, reading: false, hosted: true, said: ["Lead with <b>yield</b>"] });
+    expect(notes()).toBeNull();
+    say({ __kos: "deck", index: 1, count: 3, grid: false, notes: true, reading: false, hosted: true, said: ["Lead with <b>yield</b>"] });
+    expect(notes()!.textContent).toBe("Notes, slide 2Lead with <b>yield</b>");
+    expect(notes()!.querySelector("b")).toBeNull();
+    // The slide makes room for them in the view (styles.css, --notes-room).
+    expect(el.closest(".artifact")!.hasAttribute("data-notes")).toBe(true);
+    say({ __kos: "deck", index: 2, count: 3, grid: false, notes: true, reading: false, hosted: true, said: [] });
+    expect(notes()!.textContent).toContain("No notes for this slide.");
+    say({ __kos: "deck", index: 2, count: 3, grid: true, notes: true, reading: false, hosted: true, said: [] });
+    expect(notes()).toBeNull();
+    expect(el.closest(".artifact")!.hasAttribute("data-notes")).toBe(false);
+  });
+
+  it("draws no notes of its own while the deck has the screen, and draws them again after", async () => {
+    const handle: { current: ArtifactHandle | null } = { current: null };
+    render(<ArtifactPage ref={handle} record={record} page={{ ...page, kind: "deck" }} />);
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
+    const notes = (): HTMLElement | null => screen.queryByRole("region", { name: "Presenter notes" });
+    say({ __kos: "deck", index: 0, count: 3, grid: false, notes: true, reading: false, hosted: true, said: ["Open on the stakes"] });
+    expect(notes()).not.toBeNull();
+    // No full screen here, so it presents in place: the notes would sit under the slide the room sees.
+    Object.defineProperty(document, "fullscreenEnabled", { value: false, configurable: true });
+    act(() => handle.current!.present());
+    expect(notes()).toBeNull();
+    act(() => handle.current!.present());
+    expect(notes()).not.toBeNull();
+  });
+
   it("passes on a slide's notes as strings only, capped", async () => {
     const heard = vi.fn();
     render(<ArtifactPage record={record} page={{ ...page, kind: "deck" }} onDeck={heard} />);

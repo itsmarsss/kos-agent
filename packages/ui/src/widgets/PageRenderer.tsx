@@ -1,4 +1,4 @@
-import { isValidPageSpec, validatePageSpec, type PageSpec } from "@kos/shared";
+import { isValidPageSpec, validatePageSpec, widgetSpan, type PageSpec } from "@kos/shared";
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 
 import { api, type MutateKey, type MutateOp } from "../api.js";
@@ -56,26 +56,6 @@ async function defaultMutate(
 async function defaultRefresh(pageId: string): Promise<Record<number, Row[]>> {
   const payload = await api.page(pageId);
   return payload.data;
-}
-
-/**
- * Default width per widget type. A stat is a few words and reads as a tile;
- * a chart or table needs the full row to be legible. Stacking everything full
- * width turns a five-widget page into three screens of scrolling.
- */
-const DEFAULT_SPAN: Record<string, string> = {
-  stat: "quarter",
-  form: "half",
-  markdown: "half",
-  list: "half",
-  card: "full",
-  table: "full",
-  chart: "full",
-  custom_html: "full",
-};
-
-function spanOf(widget: { type: string; span?: string }): string {
-  return widget.span ?? DEFAULT_SPAN[widget.type] ?? "full";
 }
 
 /** Stable identity so the default never looks like fresh data every render. */
@@ -148,7 +128,7 @@ export function PageRenderer({
         const Renderer = widgetRenderer(widget.type);
         const failed = errors[i];
         return (
-          <div className={`kos-cell kos-cell--${spanOf(widget)}`} key={i}>
+          <div className={`kos-cell kos-cell--${widgetSpan(widget)}`} key={i}>
           <ErrorBoundary label={widget.title ?? widget.type}>
             {failed ? (
               <div className="kos-widget kos-widget-failed" role="alert">

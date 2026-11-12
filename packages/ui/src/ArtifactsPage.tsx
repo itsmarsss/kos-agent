@@ -1,5 +1,5 @@
 import { Chips, Count, Empty, Face, NavIcon, PlusIcon, Skeleton, Tag, type ChipOption } from "@kos/kit";
-import { WORKSPACE_SCOPE, relativeWords, type ArtifactKind, type HtmlPage } from "@kos/shared";
+import { SPAN_COLUMNS, WORKSPACE_SCOPE, relativeWords, type ArtifactKind, type HtmlPage, type WidgetOutline } from "@kos/shared";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
 
 import { api, type AnyPagePayload, type ArtifactSummary, type PageSummary, type PageVersion, type Project } from "./api.js";
@@ -54,6 +54,10 @@ const isWidgetPage = (a: { kind: string }): boolean => a.kind !== "html";
 
 const isStale = (a: ArtifactSummary): boolean => !isWidgetPage(a) && (!a.capturedAt || a.capturedAt < a.updatedAt);
 
+/** An older widget page's kind, in its tag: short, as the others are; its title says the rest. */
+export const WIDGET_PAGE_TAG = "Widgets";
+const WIDGET_PAGE_HINT = "An older widget page, made before artifacts; KOS can convert it";
+
 /** What the viewer says of an older widget page. */
 const WIDGET_PAGE_WORDS = "This is an older widget page; open it from its project.";
 
@@ -92,6 +96,8 @@ function ArtifactCard({ a, projects, theme, onOpen, menu }: { a: ArtifactSummary
         <span className="artifact-thumb" data-kind={a.artifactKind}>
           {a.capturedAt ? (
             <img src={`/api/artifacts/${encodeURIComponent(a.id)}/thumb?theme=${theme}&v=${Math.round(a.capturedAt)}`} alt="" loading="lazy" />
+          ) : a.outline?.length ? (
+            <WidgetOutlineThumb outline={a.outline} />
           ) : (
             <span className="artifact-thumb-mark">
               <NavIcon name={a.artifactKind} />
@@ -102,7 +108,7 @@ function ArtifactCard({ a, projects, theme, onOpen, menu }: { a: ArtifactSummary
           <span className="artifact-card-title">{a.title}</span>
           <span className="artifact-card-desc">{a.description || "\u00a0"}</span>
           <span className="artifact-card-meta">
-            {isWidgetPage(a) ? <Tag title="Made before artifacts; KOS can convert it">Older widget page</Tag> : <Tag>{KIND_WORD[a.artifactKind]}</Tag>}
+            {isWidgetPage(a) ? <Tag title={WIDGET_PAGE_HINT}>{WIDGET_PAGE_TAG}</Tag> : <Tag>{KIND_WORD[a.artifactKind]}</Tag>}
             <span className="artifact-card-owner">
               <OwnerMark record={a} projects={projects} />
             </span>
@@ -116,6 +122,25 @@ function ArtifactCard({ a, projects, theme, onOpen, menu }: { a: ArtifactSummary
       {/* Beside the card's button, not in it: a button holds no other. */}
       <ArtifactMenu className="artifact-card-menu" label={`Actions for ${a.title}`} items={menu} />
     </div>
+  );
+}
+
+/**
+ * An older widget page, which artifacts.check never draws, as the shape its
+ * spec gives it: a title, then each widget in its width on the page's twelve
+ * columns, marked by its type. Drawn in the theme's own lines, so it reads as
+ * a quiet sketch of the page rather than a broken capture.
+ */
+function WidgetOutlineThumb({ outline }: { outline: WidgetOutline[] }): ReactElement {
+  return (
+    <span className="artifact-outline" aria-hidden="true">
+      <span className="artifact-outline-title" />
+      <span className="artifact-outline-grid">
+        {outline.map((w, i) => (
+          <span key={i} className="artifact-outline-cell" data-type={w.type} style={{ gridColumn: `span ${SPAN_COLUMNS[w.span]}` }} />
+        ))}
+      </span>
+    </span>
   );
 }
 
@@ -278,7 +303,7 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
   );
 
   return (
-    <div className="list-page artifacts">
+    <div className="artifacts">
       <PageHead
         title={inTrash ? "Trash" : "Artifacts"}
         {...(source ? { count: source.length } : {})}
@@ -620,7 +645,7 @@ export function ArtifactViewer({
           record={record}
           owner={<OwnerMark record={record} projects={projects} />}
           ownerName={owner}
-          kind={older ? "Older widget page" : KIND_WORD[record.artifactKind]}
+          kind={older ? WIDGET_PAGE_TAG : KIND_WORD[record.artifactKind]}
           backTo={backTo}
           onBack={() => void settle().then(onBack)}
           {...(whose && onOpenOwner && !record.blobRemoved ? { onOpenOwner: () => void settle().then(() => onOpenOwner(whose)) } : {})}

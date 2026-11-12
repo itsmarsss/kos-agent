@@ -10,7 +10,8 @@
  * padding and the page's edges line up with the dashboard's head. Full
  * screen (data-present), or on a ground of its own (data-ground="own", both
  * marked by the bridge), the page takes its own, so text never meets the
- * edge of its colour.
+ * edge of its colour; one nearly KOS's ("near") is painted KOS's instead, by the
+ * document's own #kos-near rule (artifactdoc.ts).
  */
 
 *, *::before, *::after { box-sizing: border-box; }

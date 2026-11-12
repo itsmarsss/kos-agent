@@ -451,6 +451,8 @@ export interface PageSummary {
 export interface ArtifactSummary extends PageSummary {
   /** When artifacts.check last drew it, in ms; absent before its first check. */
   capturedAt?: number;
+  /** An older widget page's shape, which the check never draws: its card draws this instead. */
+  outline?: import("@kos/shared").WidgetOutline[];
 }
 
 /** One kept write of a page, newest last. */

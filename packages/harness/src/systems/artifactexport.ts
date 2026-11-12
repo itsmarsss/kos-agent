@@ -11,6 +11,7 @@ import {
   fontById,
   fontFaceCss,
   fontStackVars,
+  sameGround,
   sheetDataOf,
   splitHtml,
   tokenRule,
@@ -191,9 +192,11 @@ refresh:function(){}
 Object.defineProperty(kos,"theme",{get:function(){return ${JSON.stringify(mode)}},enumerable:true});
 Object.defineProperty(window,"kos",{value:Object.freeze(kos)});
 var colourOf=${colourOf.toString()};
+var sameGround=${sameGround.toString()};
 function ground(){var b=document.body,t=/--bg:([^;}]+)/.exec((document.getElementById("kos-tokens")||{}).textContent||"");if(!b||!t)return;
-var bs=getComputedStyle(b),c=colourOf(bs.backgroundColor),k=colourOf(t[1].trim());
-var mine=bs.backgroundImage!=="none"||(!!c&&!!k&&c[3]>0&&Math.max(Math.abs(c[0]-k[0]),Math.abs(c[1]-k[1]),Math.abs(c[2]-k[2]))>2);
+var bs=getComputedStyle(b),c=colourOf(bs.backgroundColor),k=colourOf(t[1].trim()),text=t.input;
+var kit=[/--panel:([^;}]+)/,/--panel-2:([^;}]+)/].map(function(re){var m=re.exec(text);return m?colourOf(m[1].trim()):null}).filter(Boolean);
+var mine=bs.backgroundImage!=="none"||(!!c&&!!k&&c[3]>0&&!sameGround(c,k,kit));
 if(mine)root.dataset.ground="own";else delete root.dataset.ground}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",ground);else ground();
 addEventListener("load",ground);

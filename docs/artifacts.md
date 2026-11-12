@@ -698,8 +698,9 @@ costs nothing to show. A missing capture, or one older than the artifact,
 is redrawn when the gallery opens, one at a time in the background
 (`POST /api/artifacts/<id>/check`), at most eight in a visit; until then the
 card shows its kind. An agent's `artifacts.check` goes ahead of any redraws
-still waiting. An older widget-spec page is listed too, marked as one; it
-has no capture, and its viewer offers Convert with KOS, which asks its
+still waiting. An older widget-spec page is listed too, tagged Widgets; it
+has no capture, so its card draws the outline its spec gives (each widget's
+type in its width, sent with the list), and its viewer offers Convert with KOS, which asks its
 project's chat to rewrite it as an HTML artifact under the same id.
 
 Opening one shows it full size under one compact row that sticks as it
@@ -711,7 +712,11 @@ row too, so there is one toolbar: a doc's editing (below), and a deck's
 slide, notes and grid, which the deck reports (`{__kos: "deck", index,
 count, grid, notes, reading, hosted, said}`) and the dashboard presses
 (`{__kos: "deck-do", action}`), its own bar handed over on the first
-report and kept when it stands alone. On a phone the row is the title and
+report and kept when it stands alone. Held (`deck-hosted`), the slide is
+the whole frame, which the dashboard sizes to its 16:9 on the page's
+ground, and the notes are the dashboard's, as text under it: the slide shrinks to
+leave them up to `min(30dvh, 220px)` of the view, and they scroll past
+that; they are not drawn while the frame has the screen. On a phone the row is the title and
 the menu, with Done in reach while editing. The actions: History (a drawer of every version,
 newest first, each older one with Preview, which shows that version in place
 with nothing in it saved, written or asked, and Restore, which like an edit
@@ -883,7 +888,18 @@ Before the page's own markup the frame gets:
   with the dashboard's head; full screen (`data-present`), or when the page
   paints a ground of its own (the bridge marks `data-ground="own"` when the
   body's background is not KOS's `--bg`), it takes its own, so its text
-  never meets the edge of its colour. Each runtime starts from the same ground: a doc's text on it in a
+  never meets the edge of its colour. One rule decides whether a ground is
+  KOS's, for the bridge, the check and the export (`sameGround` in
+  `colourof.ts`): `--bg`, or within a Lab distance of 3.75 of it (a tunable,
+  not a perceptual law), and never the kit's `--panel` or `--panel-2` (to 2
+  a channel), which are the page's own. Each theme is decided on its own,
+  against that theme's tokens, so a ground near KOS's in one theme only is
+  KOS's there and its own in the other. One that is KOS's but not exactly
+  `--bg` is marked `near` and painted `--bg` by the document's own
+  `#kos-near` rule, with no slab or gutter; the bridge lifts that rule (its
+  disabled flag) to read the page's colour, never touches the page's
+  `data-theme`, and writes the mark only when it changes. One whose
+  background fades cannot be repainted, so it stays `own`, gutter and all. Each runtime starts from the same ground: a doc's text on it in a
   reading serif under headings in KOS's face, a deck's slides as KOS's panel
   with a 1 px line (the title slide too, never inverted), a sheet's grid on
   KOS's panel;
