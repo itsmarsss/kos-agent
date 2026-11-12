@@ -4,7 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { api, type AgentInfo, type ArtifactSummary, type Project } from "./api.js";
 import { ArtifactViewer, ArtifactsPage, chatOf, convertRequest, editRequest, settleOpenViewers } from "./ArtifactsPage.js";
-import { newRequest } from "./NewArtifact.js";
+import { HANDOFF_MS, newRequest } from "./NewArtifact.js";
 import { hrefFor, NAV, parseRoute } from "./routes.js";
 
 beforeAll(() => {
@@ -145,6 +145,47 @@ describe("the Artifacts page", () => {
     expect((within(dialog).getByLabelText("What should it be?") as HTMLTextAreaElement).value).toBe("A memo on the move");
     expect(within(dialog).getByRole("button", { name: "Ask KOS" })).toBeTruthy();
     expect(asked).not.toHaveBeenCalled();
+  });
+
+  it("hands over to the chat once the send has been on its way a moment, the answer still to come", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([]);
+    vi.spyOn(api, "agents").mockResolvedValue({ agents: [], invalid: [] });
+    vi.spyOn(api, "message").mockReturnValue(new Promise(() => undefined));
+    const asked = vi.fn();
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "New artifact" }))[0]!);
+    const dialog = await screen.findByRole("dialog", { name: "New artifact" });
+    fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "A memo" } });
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Ask KOS" }));
+      await act(() => vi.advanceTimersByTimeAsync(HANDOFF_MS - 100));
+      expect(asked).not.toHaveBeenCalled();
+      await act(() => vi.advanceTimersByTimeAsync(200));
+      expect(asked).toHaveBeenCalledWith(null);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("moves nobody when the page went before the send handed over", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([]);
+    vi.spyOn(api, "agents").mockResolvedValue({ agents: [], invalid: [] });
+    vi.spyOn(api, "message").mockReturnValue(new Promise(() => undefined));
+    const asked = vi.fn();
+    const { unmount } = render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "New artifact" }))[0]!);
+    const dialog = await screen.findByRole("dialog", { name: "New artifact" });
+    fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "A memo" } });
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Ask KOS" }));
+      unmount();
+      await vi.advanceTimersByTimeAsync(HANDOFF_MS + 100);
+      expect(asked).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("goes back to the workspace when the owner chosen is no longer offered", async () => {

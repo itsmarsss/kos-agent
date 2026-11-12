@@ -62,6 +62,14 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked }: NewArtif
   const [error, setError] = useState<string>();
   const tiles = useRef<HTMLDivElement>(null);
   const ids = useId();
+  // Whether the dialog is still on the page: a send that ends after it went (the owner left) moves nobody anywhere.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   // The living blobs, read as it opens: one made since the page loaded is offered too.
   useEffect(() => {
@@ -108,12 +116,14 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked }: NewArtif
     try {
       await Promise.race([send, new Promise((r) => setTimeout(r, HANDOFF_MS))]);
     } catch (err) {
+      if (!mounted.current) return;
       setSending(false);
       setError(`Could not ask KOS: ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
     // A failure after the handover is the chat's to show, not an unhandled one here.
     send.catch(() => undefined);
+    if (!mounted.current) return;
     setSending(false);
     setWords("");
     onClose();
