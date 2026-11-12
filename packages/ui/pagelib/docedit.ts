@@ -1490,10 +1490,14 @@ export function startEditor(article: HTMLElement, { save, say, onPending, queue 
     const sel = getSelection();
     const anchor = sel?.isCollapsed && sel.anchorNode && article.contains(sel.anchorNode) ? sel.anchorNode : null;
     const before = anchor instanceof Element && anchor !== article ? anchor.childNodes[sel!.anchorOffset - 1] : undefined;
+    // Undo puts the caret back at the start of the text after it, which has lost its zero-width character.
+    const behind = anchor instanceof Text && sel!.anchorOffset === 0 && !anchor.data.startsWith("\u200b") ? anchor.previousSibling : null;
     const fixed =
       before instanceof Element && before.getAttribute("contenteditable") === "false" && !(before.nextSibling instanceof Text)
         ? before
-        : (anchor instanceof Element ? anchor : anchor?.parentElement)?.closest('[contenteditable="false"]');
+        : behind instanceof Element && behind.getAttribute("contenteditable") === "false" && !behind.classList.contains("todo-box")
+          ? behind
+          : (anchor instanceof Element ? anchor : anchor?.parentElement)?.closest('[contenteditable="false"]');
     if (fixed && fixed !== article && article.contains(fixed)) {
       // A caret after it needs a character to stand on: a zero-width one, which no save keeps (cleanDocHtml). Text after it with
       // none (emptied by a Backspace, then put back by Undo) is given one too.

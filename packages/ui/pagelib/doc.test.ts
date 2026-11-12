@@ -473,6 +473,28 @@ describe("kos-doc", () => {
     expect(cleanDocHtml(article)).not.toContain("\u200b");
   });
 
+  it("gives back the zero-width step when Undo puts the caret at the start of the text after a chip", async () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn() };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const article = mount(`<p><span class="mention" data-artifact="deck-one">Deck one</span>x</p><ul class="checklist"><li data-checked="false">y</li></ul>`);
+    startDoc();
+    press("edit");
+    const chip = article.querySelector<HTMLElement>(".mention")!;
+    const text = chip.nextSibling as Text;
+    getSelection()!.collapse(text, 0);
+    document.dispatchEvent(new Event("selectionchange"));
+    await vi.waitFor(() => expect(text.data).toBe("\u200bx"));
+    expect(getSelection()!.anchorNode).toBe(text);
+    expect(getSelection()!.anchorOffset).toBe(1);
+    // A to-do's box takes no zero-width step: the caret stays where it was put.
+    const box = article.querySelector(".todo-box")!;
+    getSelection()!.collapse(box.nextSibling!, 0);
+    document.dispatchEvent(new Event("selectionchange"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect((box.nextSibling as Text).data).toBe("y");
+    expect(getSelection()!.anchorOffset).toBe(0);
+  });
+
   it("says quietly in the head when an open was refused", async () => {
     const told = vi.spyOn(window, "postMessage");
     (window as { kos?: unknown }).kos = { save: vi.fn(), open: vi.fn().mockRejectedValue(new Error("there is no artifact by that id")) };
