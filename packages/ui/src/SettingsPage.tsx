@@ -335,7 +335,16 @@ export function SettingsPage({
   const searchRef = useRef<HTMLInputElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   const paneScroll = useOverlayScroll(paneRef);
-  const railScroll = useOverlayScroll<HTMLElement>();
+  const railRef = useRef<HTMLElement>(null);
+  const railScroll = useOverlayScroll(railRef);
+  // On a phone the rail is a strip that scrolls sideways: keep the open section in sight on it.
+  const loaded = data !== null;
+  useEffect(() => {
+    const rail = railRef.current;
+    const on = rail?.querySelector<HTMLElement>(".set-rail-item.is-on");
+    if (!rail || !on || rail.scrollWidth <= rail.clientWidth) return;
+    rail.scrollTo({ left: Math.max(0, on.offsetLeft - (rail.clientWidth - on.offsetWidth) / 2), behavior: "auto" });
+  }, [active, loaded]);
   const jump = (hit: SettingHit): void => {
     setActive(hit.section);
     setQuery("");
@@ -679,7 +688,7 @@ export function SettingsPage({
 
   return (
     <div className="settings-page">
-      <nav className="set-rail" aria-label="Settings sections" ref={railScroll}>
+      <div className="set-side">
         <div className="set-search">
           <input
             ref={searchRef}
@@ -707,6 +716,7 @@ export function SettingsPage({
             }}
           />
         </div>
+        <nav className={`set-rail${query.trim() ? " set-rail--found" : ""}`} aria-label="Settings sections" ref={railScroll}>
         {query.trim() ? (
           <div className="set-results" role="listbox" aria-label="Settings found">
             {hits.length === 0 && <Empty inline className="set-results-none">Nothing called that. Try another word.</Empty>}
@@ -746,7 +756,8 @@ export function SettingsPage({
             ))}
           </div>
         ))}
-      </nav>
+        </nav>
+      </div>
 
       {/* Keyed on the tab, so moving between them is a change you can follow
           rather than one frame replaced by another. */}

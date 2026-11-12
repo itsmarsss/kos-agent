@@ -3887,14 +3887,14 @@ li:hover .chats-item-when { opacity: 0; }
   max-width: 62rem;
 }
 @media (max-width: 52rem) {
-  .settings-page { grid-template-columns: 1fr; }
+  .settings-page { grid-template-columns: minmax(0, 1fr); }
 }
+/* The search and the rail under it, sticking as the pane scrolls. */
+.set-side { display: flex; flex-direction: column; min-width: 0; position: sticky; top: 1rem; }
 .set-rail {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
-  position: sticky;
-  top: 1rem;
 }
 .set-rail-item {
   display: flex;
@@ -3942,8 +3942,9 @@ li:hover .chats-item-when { opacity: 0; }
   grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
 }
+.ops-page--split .set-side { position: static; min-height: 0; }
 .ops-page--split .set-rail {
-  position: static;
+  flex: 1;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -3958,21 +3959,17 @@ li:hover .chats-item-when { opacity: 0; }
 }
 @media (max-width: 52rem) {
   .ops-page--split { height: auto; overflow: visible; padding-bottom: 2rem; }
-  .ops-page--split .set-pane-scroll { overflow: visible; }
+  /* The page's own gutter on both sides of a card. */
+  .ops-page--split .set-pane-scroll { overflow: visible; padding-right: 0; }
   /* The rail is a strip here, and a strip scrolls sideways on its own;
      left visible, its labels ran the whole page out to 1400px. */
-  .ops-page--split .set-rail { overflow: auto hidden; }
+  .ops-page--split .set-rail { flex: none; overflow: auto hidden; padding: 0; }
+  .ops-page--split .set-rail--found { overflow: visible; }
 }
 
 /* Finding a setting: a search over the rail, its best matches in place of
    the sections, and the setting it opens flashed where it sits. */
-.set-search {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding-bottom: 0.6rem;
-  background: var(--bg);
-}
+.set-search { padding-bottom: 0.6rem; }
 .set-search-input { width: 100%; }
 .set-results { display: flex; flex-direction: column; gap: 0.15rem; }
 .set-result mark { background: none; color: var(--accent); font-weight: 700; }
@@ -5974,19 +5971,26 @@ a.health {
 /* Settings on a phone: the rail is a strip across the top, not a column the
    card hides under. */
 @media (max-width: 52rem) {
-  .set-rail {
-    position: sticky;
+  /* The search on its own line, then one row of sections under it, the
+     whole sticking under the phone bar. The search sat inside the row,
+     squeezed to a sliver, and made the strip twice the height of its tabs. */
+  .set-side {
     top: 3.25rem;
     z-index: 5;
-    flex-direction: row;
-    gap: 0.25rem;
     margin: 0 -1rem;
-    padding: 0.4rem 1rem;
-    overflow-x: auto;
-    scrollbar-width: none;
+    padding: 0.5rem 1rem 0.4rem;
     background: var(--bg);
     border-bottom: 1px solid var(--line);
   }
+  .set-search { padding-bottom: 0.4rem; }
+  .set-rail {
+    position: relative;
+    flex-direction: row;
+    gap: 0.25rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .set-rail--found { flex-direction: column; overflow: visible; }
   .set-rail::-webkit-scrollbar { display: none; }
   .set-rail-group { flex-direction: row; gap: 0.25rem; }
   .set-rail-group + .set-rail-group { margin-top: 0; }
