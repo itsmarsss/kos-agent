@@ -2,7 +2,7 @@
 import type { SheetBook } from "@kos/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { SAVE_DELAY_MS, SAVE_GAP_MS, cellFromInput, keyColumn, readBook, startSheets, viewRows, wraps } from "./sheet.js";
+import { ROW_FIELDS_MAX, ROW_VALUE_MAX, SAVE_DELAY_MS, SAVE_GAP_MS, cellFromInput, keyColumn, readBook, rowReport, startSheets, viewRows } from "./sheet.js";
 
 const BOOK: SheetBook = {
   sheets: [
@@ -85,14 +85,27 @@ describe("pure helpers", () => {
     expect(keyColumn(columns.slice(0, 2), { Item: "count" }, 0)).toBe(-1);
   });
 
-  it("wraps a phone's short words, never its figures or its free text", () => {
-    const notes = ["Paid early to keep the discount on the lease", "Split with Sam, he sends his half Friday", "Ok"];
-    expect(wraps({ label: "Category" }, ["Housing", "Groceries", null])).toBe(true);
-    expect(wraps({ label: "Notes" }, notes)).toBe(false);
-    // One long note among short words is cut by the clamp, not taken for free text.
-    expect(wraps({ label: "Item" }, ["Rent", notes[0]!, "Pizza night"])).toBe(true);
-    expect(wraps({ label: "Amount", type: "currency" }, [1650])).toBe(false);
-    expect(wraps({ label: "Empty" }, [])).toBe(true);
+  it("tells a row with every field labelled, as the grid shows it, cut to its caps", () => {
+    const columns = [{ label: "Item" }, { label: "Paid", type: "currency" as const, currency: "USD" }, { label: "Done", type: "bool" as const }, { label: "Due", type: "date" as const }];
+    expect(rowReport("Costs", columns, ["Cedar", 18.5, true, "2026-03-14"], 1)).toEqual({
+      __kos: "row",
+      sheet: "Costs",
+      title: "Cedar",
+      fields: [
+        { label: "Item", value: "Cedar", numeric: false },
+        { label: "Paid", value: "$18.50", numeric: true },
+        { label: "Done", value: "Yes", numeric: false },
+        { label: "Due", value: "Mar 14, 2026", numeric: false },
+      ],
+    });
+    // A row with no name is named by its number; a missing cell is empty.
+    expect(rowReport("Costs", columns, [null], 4).title).toBe("Row 4");
+    expect(rowReport("Costs", columns, [null], 4).fields[1]!.value).toBe("");
+    const wide = Array.from({ length: ROW_FIELDS_MAX + 5 }, (_, i) => ({ label: `C${i}` }));
+    const long = rowReport("Notes", wide, ["x".repeat(ROW_VALUE_MAX + 10)], 1);
+    expect(long.fields).toHaveLength(ROW_FIELDS_MAX);
+    expect(long.title).toHaveLength(ROW_VALUE_MAX);
+    expect(long.fields[0]!.value).toHaveLength(ROW_VALUE_MAX);
   });
 
   it("explains a workbook it cannot read", () => {
@@ -111,9 +124,47 @@ describe("kos-sheet in a page", () => {
     expect([...root.querySelectorAll("tbody .rownum")].map((n) => n.textContent)).toEqual(["1", "2", "3", "4"]);
     expect(root.querySelector("thead th.num")).not.toBeNull();
     expect(root.querySelector("thead th.frozen")).not.toBeNull();
-    // Words wrap on a phone and the amount holds at its right edge: every cell of each column says so.
-    expect([...root.querySelectorAll("tbody tr:first-child td")].map((td) => ["wrap", "key"].filter((c) => td.classList.contains(c)).join())).toEqual(["", "wrap", "key"]);
+    // A phone holds the first column beside the row numbers and the amount at its right edge: every cell of each column says so.
+    expect([...root.querySelectorAll("tbody tr:first-child td")].map((td) => ["lead", "key"].filter((c) => td.classList.contains(c)).join())).toEqual(["lead", "", "key"]);
     expect(root.querySelector("tfoot td.key")?.textContent).toBe("$1,597.50");
+  });
+
+  it("on the phone, tells the app the row pressed and hides the heading its bar already shows", () => {
+    document.documentElement.setAttribute("data-surface", "phone");
+    document.documentElement.setAttribute("data-title", "September");
+    const told = vi.spyOn(window, "postMessage").mockImplementation(() => undefined);
+    try {
+      const root = mount();
+      expect(document.querySelector("h1")!.style.display).toBe("none");
+      root.querySelector<HTMLElement>('tbody tr[data-row="2"] td[data-col="2"]')!.click();
+      expect(told).toHaveBeenCalledWith(expect.objectContaining({ __kos: "row", sheet: "Expenses", title: "Sep 3, 2026" }), "*");
+      expect((told.mock.calls[0]![0] as { fields: unknown[] }).fields[2]).toEqual({ label: "Amount", value: "$52.00", numeric: true });
+      expect(root.querySelector(".sheet-detail")).toBeNull();
+    } finally {
+      told.mockRestore();
+      document.documentElement.removeAttribute("data-surface");
+      document.documentElement.removeAttribute("data-title");
+    }
+  });
+
+  it("at a narrow width, opens a row it cannot edit over the grid's foot, and Escape closes it", () => {
+    vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("max-width"), addEventListener: () => undefined }));
+    try {
+      const root = mount();
+      expect(document.querySelector("h1")!.style.display).toBe("");
+      const cell = root.querySelector<HTMLElement>('tbody tr[data-row="1"] td[data-col="1"]')!;
+      cell.click();
+      const box = root.querySelector(".sheet-detail [role=dialog]")!;
+      expect(box.getAttribute("aria-label")).toBe("Sep 2, 2026");
+      expect([...box.querySelectorAll("dt")].map((n) => n.textContent)).toEqual(["Date", "Category", "Amount"]);
+      expect(box.querySelector("dd.num")!.textContent).toBe("$84.10");
+      expect(document.activeElement?.textContent).toBe("Close");
+      box.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      expect(root.querySelector(".sheet-detail")).toBeNull();
+      expect(document.activeElement).toBe(cell);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("sorts by a header and filters, totalling what is shown", () => {

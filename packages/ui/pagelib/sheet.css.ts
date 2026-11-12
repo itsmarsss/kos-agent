@@ -7,13 +7,14 @@
  * grid's auto track), and the page never scrolls sideways. Wider, the box
  * sizes to its grid, so a sheet held by something sized to its content is
  * never clipped, up to the view less the page's gutters, past which the grid
- * scrolls in its box rather than the page sideways. On a phone the grid
- * narrows first, its short words wrapping to two lines at most and its free
- * text cut on one, and past that its key figure holds at the right edge and
- * the tools say how many columns are out of view.
+ * scrolls in its box rather than the page sideways. On a narrow screen the
+ * row numbers and the first column stay put, cells keep to one line, its key
+ * figure holds at the right edge, and a press on a row reads it whole.
  * It sits on KOS's ground in KOS's face; the dashboard's column gives it its
  * gutter; full screen (data-present), or on a ground of its own
- * (data-ground="own"), it takes its own.
+ * (data-ground="own"), it takes its own. In the phone's app
+ * (data-surface="phone") it is part of the app: no box, the grid edge to edge
+ * on the app's ground with hairlines between rows, the text in its gutter.
  * Selectors are one class deep, before the agent's own CSS.
  */
 export const SHEET_CSS = String.raw`
@@ -42,7 +43,6 @@ export const SHEET_CSS = String.raw`
 .sheet-tools input, .sheet-tools select { font: 400 13px / 1.2 var(--font-ui); color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm, 7px); padding: 7px 10px; min-width: 0; }
 .sheet-tools input { flex: 1 1 180px; max-width: 320px; }
 .sheet-tools .sheet-rows { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
-.sheet-tools .sheet-more { display: none; }
 .sheet-tools .sheet-spacer { flex: 1; }
 .sheet-tools button { font: 500 13px / 1 var(--font-ui); color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm, 7px); padding: 8px 12px; cursor: pointer; }
 .sheet-tools button:hover { border-color: var(--line-strong, var(--line)); }
@@ -141,46 +141,78 @@ export const SHEET_CSS = String.raw`
 .sheet-charts .kos-chart text { fill: var(--muted); font: 11px var(--font-ui); font-variant-numeric: tabular-nums; }
 .sheet-charts .kos-chart .axis { stroke: var(--line); }
 @media (max-width: 560px) {
-  /* More to the right: the grid fades out at the box's right edge, its border does not, and never over the key column held there (the runtime narrows the fade). Phones only, where scrollbars float over the content and leave the fade alone. */
-  .sheet-scroll.more { mask: linear-gradient(to left, transparent, #000 var(--sheet-fade, 40px)), linear-gradient(#000 0 0) top / 100% 1px no-repeat, linear-gradient(#000 0 0) bottom / 100% 1px no-repeat, linear-gradient(#000 0 0) right / 1px 100% no-repeat; }
-  /* A phone holds four columns, not two: tighter cells, a sigma for the totals' label, and only the row numbers and a frozen first column stay put sideways; the other frozen columns keep their header and total in view. */
-  .sheet { font-size: 13px; }
+  /* A phone's grid: the row numbers and the first column, the row's name, stay put while the rest scrolls sideways under them, and the header stays put while it scrolls down. A cell keeps to one line, cut past its width; a press on its row reads it whole. */
   .sheet-scroll { contain: inline-size; }
-  .sheet-grid :where(th, td) { padding: 0 5px; max-width: 14ch; font-size: 13px; }
-  /* The grid narrows to the box before it scrolls: words wrap, and a width the sheet asked for is a desktop's. */
-  .sheet-grid { width: 100%; }
-  .sheet-grid thead th { min-width: 0; }
-  .sheet-grid .wrap { white-space: normal; overflow-wrap: break-word; }
-  .sheet-grid td.wrap { padding-block: 6px; line-height: 1.25; }
-  /* Two lines at most, cut after, so a row is as tall as what reads in it. */
-  .sheet-grid td.wrap .lines { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+  .sheet-grid :where(th, td) { padding: 0 10px; max-width: 18ch; font-size: 14px; }
+  .sheet-grid thead th:not(.rownum) { min-width: 6ch; }
+  .sheet-grid tbody tr { cursor: default; }
+  .sheet-grid .lead { position: sticky; left: var(--sheet-lead, 0px) !important; max-width: 16ch; box-shadow: -1px 0 0 var(--panel), 1px 0 0 var(--line-strong, var(--line)); }
+  /* Over the key figure too, which slides under them once the grid scrolls past it. */
+  .sheet-grid .rownum, .sheet-grid .lead { z-index: 2; }
+  .sheet-grid thead th.rownum, .sheet-grid thead th.lead, .sheet-grid tfoot th.rownum, .sheet-grid tfoot td.lead { z-index: 4; }
+  .sheet-grid .frozen:not(.lead) { position: static; left: auto !important; }
+  .sheet-grid .frozen-edge:not(.lead) { box-shadow: none; }
   /* The key figure holds at the right edge over what it has not reached yet, its shadow saying the columns slide under it. */
   .sheet-grid .key { position: sticky; right: 0; z-index: 1; }
   .sheet-grid thead th.key, .sheet-grid tfoot td.key { z-index: 3; }
   .sheet-scroll.held .sheet-grid .key { overflow: visible; box-shadow: -1px 0 0 var(--line-strong, var(--line)); }
-  .sheet-scroll.held .sheet-grid .key::before { content: ""; position: absolute; top: 0; bottom: 0; right: 100%; width: 14px; background: linear-gradient(to left, color-mix(in srgb, #000 22%, transparent), transparent); pointer-events: none; }
-  /* The toolbar's pieces one height, as a phone's row of controls should be: the field, the select (drawn by the sheet, not the browser, whose own is shorter), and the count. */
-  .sheet-tools input, .sheet-tools select, .sheet-tools button { box-sizing: border-box; height: 36px; padding-block: 0; }
-  .sheet-tools select { appearance: none; -webkit-appearance: none; padding-right: 28px; background: var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238a94a6' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 11px center / 10px 6px; }
-  .sheet-tools .sheet-rows { display: inline-flex; align-items: center; min-height: 36px; }
-  /* How many columns are out of view, which the fade alone does not say: a quiet count, a short line of its own when the row is full, never a link. */
-  .sheet-tools .sheet-more:not(:empty) { display: inline; color: var(--muted); font: 400 13px / 1.2 var(--font-ui); font-variant-numeric: tabular-nums; }
-  .sheet-grid thead button { padding: 0 5px 6px; }
+  .sheet-scroll.held .sheet-grid .key::before { content: ""; position: absolute; top: 0; bottom: 0; right: 100%; width: 12px; background: linear-gradient(to left, color-mix(in srgb, #000 14%, transparent), transparent); pointer-events: none; }
+  /* One row of tools, one height: the filter takes the row, in any column, and the count sits beside it. */
+  .sheet-tools { flex-wrap: nowrap; }
+  .sheet-tools select { display: none; }
+  .sheet-tools input { flex: 1 1 auto; max-width: none; }
+  .sheet-tools input, .sheet-tools button { box-sizing: border-box; height: 36px; padding-block: 0; }
+  .sheet-tools .sheet-rows { display: inline-flex; align-items: center; height: 36px; flex: none; }
+  .sheet-tools .sheet-spacer { display: none; }
+  .sheet-tools:has(button) { flex-wrap: wrap; }
+  .sheet-grid thead button { padding: 0 10px 6px; }
   /* A column's menu takes no width on a phone: it lies over the header's corner, shown once the header is pressed or focused, so the grid is as narrow as it was without it. */
-  .sheet-grid thead th:has(.sheet-colmenu) button:first-child { padding-right: 5px; }
+  .sheet-grid thead th:has(.sheet-colmenu) button:first-child { padding-right: 10px; }
   .sheet-grid thead .sheet-colmenu { top: 2px; right: 2px; bottom: auto; width: 20px; height: 20px; opacity: 0; pointer-events: none; background: var(--panel-2); }
   .sheet-grid thead th:focus-within .sheet-colmenu, .sheet-grid thead th:hover .sheet-colmenu, .sheet-grid thead .sheet-colmenu[aria-expanded="true"] { opacity: 1; pointer-events: auto; }
-  .sheet-grid .rownum { padding: 0 4px; min-width: 2ch; }
+  /* A sigma for the totals' label, so the row numbers' column is no wider than its numbers. */
+  .sheet-grid .rownum { padding: 0 6px; min-width: 2ch; }
   .sheet-grid tfoot th.rownum .word { display: none; }
   .sheet-grid tfoot th.rownum::after { content: "\03A3"; content: "\03A3" / ""; font: 600 13px / 1 var(--font-ui); letter-spacing: 0; }
-  .sheet-grid .frozen:not(:nth-child(2)) { left: auto !important; }
-  .sheet-grid .frozen-edge { box-shadow: none; }
-  .sheet-grid .frozen:nth-child(2) { max-width: 12ch; box-shadow: 1px 0 0 var(--line-strong, var(--line)); }
-  .sheet-tools input { max-width: none; }
 }
 /* On a touch screen nothing hovers, and a press on the header sorts, so the column menu always shows there: still over the corner, taking no width, the column's letter under it faded out (only that line; the name below is whole). */
 @media (max-width: 560px) and (hover: none) {
   .sheet-grid thead .sheet-colmenu { top: 3px; height: 14px; opacity: 1; pointer-events: auto; background: none; color: var(--muted); font-size: 13px; }
   .sheet-grid thead th:has(.sheet-colmenu) button:first-child { mask: linear-gradient(to left, transparent 24px, #000 34px) top / 100% 12px no-repeat, linear-gradient(#000 0 0) bottom / 100% calc(100% - 12px) no-repeat; }
 }
+/* A row read whole at a narrow width: a sheet up from the foot, full width, a label and its value a line. */
+.sheet-detail { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; justify-content: flex-end; background: color-mix(in srgb, #000 32%, transparent); }
+.sheet-detail-box { display: flex; flex-direction: column; max-height: min(80dvh, 640px); background: var(--bg); color: var(--text); border-top: 1px solid var(--line); border-radius: var(--r-lg, 14px) var(--r-lg, 14px) 0 0; font: 400 15px / 1.4 var(--font-ui); }
+.sheet-detail-box header { display: flex; align-items: center; gap: 12px; padding: 14px 16px 12px; border-bottom: 1px solid var(--line); }
+.sheet-detail-box h2 { flex: 1; min-width: 0; margin: 0; font: 600 17px / 1.3 var(--font-ui); overflow-wrap: anywhere; }
+.sheet-detail-box header button { flex: none; height: 32px; padding: 0 14px; font: 500 13px / 1 var(--font-ui); color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; cursor: pointer; }
+.sheet-detail-box header button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sheet-detail-box dl { margin: 0; padding: 0 16px calc(12px + env(safe-area-inset-bottom, 0px)); overflow-y: auto; overscroll-behavior: contain; }
+.sheet-detail-box dl > div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.sheet-detail-box dl > div:last-child { border-bottom: 0; }
+.sheet-detail-box dt { flex: none; max-width: 45%; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.sheet-detail-box dd { margin: 0; min-width: 0; text-align: right; overflow-wrap: anywhere; white-space: pre-wrap; }
+.sheet-detail-box dd.num { font-variant-numeric: tabular-nums lining-nums; }
+
+/* In the phone's app: no box and no card, the grid edge to edge on the app's ground, hairlines between rows, the header and the row numbers quiet, the text in the app's 16 px gutter. */
+:where(:root[data-surface="phone"]) { background: var(--bg); }
+:where(:root[data-surface="phone"][data-kind="sheet"]) body { padding: 12px 16px 0; }
+:where(:root[data-surface="phone"]) .sheet-scroll { margin-inline: -16px; max-width: 100vw; border: 0; border-radius: 0; background: var(--bg); }
+:where(:root[data-surface="phone"]) .sheet-grid :where(th, td) { background: var(--bg); border-right: 0; }
+:where(:root[data-surface="phone"]) .sheet-grid thead th { background: var(--bg); padding-top: 0; vertical-align: middle; border-bottom-color: var(--line-strong, var(--line)); }
+:where(:root[data-surface="phone"]) .sheet-grid thead button { padding-block: 0; }
+:where(:root[data-surface="phone"]) .sheet-grid thead .letter { display: none; }
+:where(:root[data-surface="phone"]) .sheet-grid thead .name { font: 600 12px / 1.2 var(--font-ui); color: var(--muted); }
+:where(:root[data-surface="phone"]) .sheet-grid .rownum { background: var(--bg); padding-left: 16px; }
+:where(:root[data-surface="phone"]) .sheet-grid tr > :last-child { padding-right: 16px; }
+:where(:root[data-surface="phone"]) .sheet-grid tbody tr:hover :where(td, th) { background: var(--bg); }
+:where(:root[data-surface="phone"]) .sheet-grid tbody tr:active :where(td, th) { background: var(--panel-2); }
+:where(:root[data-surface="phone"]) .sheet-grid td.focus:not(:focus-visible) { box-shadow: none; }
+:where(:root[data-surface="phone"]) .sheet-grid tfoot :where(th, td) { background: var(--bg); }
+:where(:root[data-surface="phone"]) .sheet-grid .key { box-shadow: none; }
+:where(:root[data-surface="phone"]) .sheet-grid .lead { box-shadow: -1px 0 0 var(--bg); }
+:where(:root[data-surface="phone"]) .sheet-scroll:not(.at-start) .sheet-grid .lead { box-shadow: -1px 0 0 var(--bg), 1px 0 0 var(--line); }
+:where(:root[data-surface="phone"]) .sheet-scroll.held .sheet-grid .key { box-shadow: -1px 0 0 var(--line); }
+:where(:root[data-surface="phone"]) .sheet-scroll.held .sheet-grid .key::before { content: none; }
+:where(:root[data-surface="phone"]) .sheet-tabs { margin-inline: -16px; padding-inline: 12px; }
 `;

@@ -26,10 +26,10 @@ import { Workbook, columnLetter, findColumn, formatValue, isError, isNumeric, li
 
 import { bar, line, pie } from "./chartdraw.js";
 import { SHEET_CSS } from "./sheet.css.js";
-import { importPanel, inlineBar, menu, TYPE_WORDS, type Action, type MenuItem } from "./sheetpanels.js";
+import { importPanel, inlineBar, menu, rowDetail, TYPE_WORDS, type Action, type MenuItem } from "./sheetpanels.js";
 import { autoMap, clipboardRows, coerce, decodeText, detectDelimiter, importRows, isHeader, parseDelimited, planPaste, type Delimiter, type PastePlan } from "./sheetimport.js";
 import { deleteColumn, deleteRows, fillNewRows, freshLabel, insertColumn, insertRows, renameColumn, retypeColumn } from "./sheetshape.js";
-import { addStyle, editable, el, kos, ready, reason } from "./runtime.js";
+import { addStyle, editable, el, hideRepeatedTitle, kos, onPhone, ready, reason } from "./runtime.js";
 
 /** How long after an edit the workbook is saved, so a run of edits is one version. */
 export const SAVE_DELAY_MS = 600;
@@ -49,10 +49,11 @@ const PREVIEW_ROWS = 5;
 const SHEET_MIN_HEIGHT = 320;
 /** The shortest it is drawn under an open panel, which then keeps a few rows in view. */
 const SHEET_PANEL_MIN_HEIGHT = 180;
-/** How far in from its right edge a phone fades a grid with more to see (sheet.css.ts). */
-const SHEET_FADE = 40;
 /** Where the stylesheet's phone layout starts (sheet.css.ts). */
 const PHONE_QUERY = "(max-width: 560px)";
+/** The most fields a row opened on a phone carries, and the most characters of each. */
+export const ROW_FIELDS_MAX = 200;
+export const ROW_VALUE_MAX = 2000;
 
 /**
  * The column a phone holds at the grid's right edge while there is more to
@@ -66,19 +67,23 @@ export function keyColumn(columns: readonly SheetColumn[], totals: SheetTab["tot
   return figure >= 0 ? figure : columns.findIndex((c, i) => i >= freeze && c.type === "currency");
 }
 
-/** Past this many characters a cell runs over two lines of a phone's column. */
-const TWO_LINES = 28;
+/** A row opened on a phone, as the sheet tells the app around it, which draws it as a sheet of its own. */
+export interface RowReport {
+  __kos: "row";
+  sheet: string;
+  title: string;
+  fields: { label: string; value: string; numeric: boolean }[];
+}
 
 /**
- * Whether a column holds words a phone wraps, up to two lines, so the grid
- * narrows rather than runs off. Free text, most of whose cells two lines
- * would not hold (notes, descriptions), stays on one line and is cut: wrapped,
- * it would make every row tall, out of view as much as in it.
+ * A row with every field labelled, each value as the grid shows it. The row
+ * is named by its first column, or by its number when that is empty; what is
+ * past the caps is cut, so one row never floods the app.
  */
-export function wraps(column: SheetColumn, cells: readonly Value[]): boolean {
-  if ((column.type ?? "text") !== "text") return false;
-  const lengths = cells.filter((v) => v !== null && v !== "").map((v) => formatValue(v, column).length).sort((a, b) => a - b);
-  return !lengths.length || lengths[Math.floor(lengths.length / 2)]! <= TWO_LINES;
+export function rowReport(sheet: string, columns: readonly SheetColumn[], row: readonly Value[], n: number): RowReport {
+  const cut = (text: string): string => text.slice(0, ROW_VALUE_MAX);
+  const fields = columns.slice(0, ROW_FIELDS_MAX).map((c, i) => ({ label: cut(c.label), value: cut(formatValue(row[i] ?? null, c)), numeric: isNumeric(c) }));
+  return { __kos: "row", sheet: cut(sheet), title: fields[0]?.value || `Row ${n}`, fields };
 }
 
 /** What an owner typed, as a cell to store: a formula stays one, a value is read by the column's type as a paste is (a date into ISO), and what does not fit stays as typed. */
@@ -196,13 +201,18 @@ class Sheet {
             this.chartsAt = this.resizeAt;
             this.drawCharts();
           }
-          this.markMore();
+          this.markHeld();
         }) as unknown as number;
       });
       this.resizeWatch.observe(this.root);
     }
-    // The phone's tighter cells move where each frozen column starts.
-    globalThis.matchMedia?.(PHONE_QUERY)?.addEventListener("change", () => this.pin());
+    // The phone's tighter cells move where each frozen column starts; it has no column picker, so its filter is in any.
+    globalThis.matchMedia?.(PHONE_QUERY)?.addEventListener("change", (e) => {
+      if (e.matches && this.filter.column >= 0) {
+        this.filter.column = -1;
+        this.render();
+      } else this.pin();
+    });
     addEventListener("resize", () => this.fit());
     this.root.addEventListener("paste", (e) => this.paste(e));
     this.render();
@@ -320,7 +330,7 @@ class Sheet {
       this.filter.column = Number(which.value);
       this.renderGrid();
     });
-    const tools = el("div", { class: "sheet-tools" }, search, which, el("span", { class: "sheet-rows" }), el("span", { class: "sheet-more", "aria-hidden": "true" }), el("span", { class: "sheet-spacer" }), this.status);
+    const tools = el("div", { class: "sheet-tools" }, search, which, el("span", { class: "sheet-rows" }), el("span", { class: "sheet-spacer" }), this.status);
     const tool = (label: string, run: () => void): void => {
       const b = el("button", { type: "button" }, label);
       b.addEventListener("click", run);
@@ -342,7 +352,7 @@ class Sheet {
     const err = this.loaded.get(t)?.error;
     if (err) parts.push(el("p", { class: "sheet-error", role: "alert" }, `The rows could not be read: ${err}`));
     const scroll = el("div", { class: "sheet-scroll" });
-    scroll.addEventListener("scroll", () => this.markMore(), { passive: true });
+    scroll.addEventListener("scroll", () => this.markHeld(), { passive: true });
     parts.push(scroll);
     if (this.book.charts?.length) parts.push(el("div", { class: "sheet-charts" }));
     this.root.replaceChildren(...parts);
@@ -357,9 +367,9 @@ class Sheet {
     const values = this.wb.values(t);
     const rows = given ?? viewRows(values, columns, this.filter, this.sort);
     const freeze = Math.max(0, Math.min(tab.freeze ?? 0, columns.length));
-    const key = keyColumn(columns, tab.totals, freeze);
-    const wrapped = columns.map((c, i) => wraps(c, values.map((row) => row[i] ?? null)));
-    const kinds = (c: SheetColumn, i: number): (string | false)[] => [isNumeric(c) && "num", wrapped[i]! && "wrap", i === key && "key", i < freeze && "frozen", i === freeze - 1 && "frozen-edge"];
+    // A phone always holds the first column, the row's name, beside the row numbers.
+    const key = keyColumn(columns, tab.totals, Math.max(1, freeze));
+    const kinds = (c: SheetColumn, i: number): (string | false)[] => [isNumeric(c) && "num", i === 0 && "lead", i === key && "key", i < freeze && "frozen", i === freeze - 1 && "frozen-edge"];
     const count = this.root.querySelector(".sheet-rows");
     if (count) count.textContent = rows.length === values.length ? `${values.length} rows` : `${rows.length} of ${values.length} rows`;
 
@@ -393,6 +403,9 @@ class Sheet {
       if (typeof num !== "string") num.addEventListener("click", (e) => this.pick(r, rows, { run: e.shiftKey, add: e.metaKey || e.ctrlKey }));
       const tr = el("tr", { class: this.picked.has(r) ? "picked" : undefined, "data-row": String(r) }, el("th", { class: "rownum", scope: "row" }, num));
       columns.forEach((c, i) => tr.append(this.cell(t, r, i, values[r - 1]![i] ?? null, c, kinds(c, i))));
+      tr.addEventListener("click", (e) => {
+        if (this.opensRow(e.target)) this.openRow(r);
+      });
       body.append(tr);
     }
     const table = el("table", { class: "sheet-grid", role: "grid", "aria-label": tab.name, "aria-rowcount": String(rows.length + 1) }, el("thead", {}, headRow), body);
@@ -416,35 +429,52 @@ class Sheet {
     const scroll = this.root.querySelector(".sheet-scroll")!;
     scroll.replaceChildren(table);
     (globalThis.requestAnimationFrame ?? setTimeout)(() => {
-      if (freeze) this.pin();
-      this.markMore();
+      this.pin();
+      this.markHeld();
     });
   }
 
   /**
-   * Mark a grid with more to its right, and say how many columns are out of
-   * view. A phone cut the last column at the box's edge, and it read as the
-   * end of the row rather than a grid that scrolls. The key column is held
-   * when it reaches into the edge's fade with more past it: the fade then
-   * narrows to what shows past it, so the figure is never faded, and its
-   * shadow says what slides under it.
+   * Mark the key column held at the grid's right edge while more of the row
+   * runs past it, so its shadow says what slides under it, and the grid at
+   * its start, where nothing slides under the first column yet. A phone cut
+   * the amount of a row off at its edge, and the row read as having none.
    */
-  private markMore(): void {
+  private markHeld(): void {
     const scroll = this.root.querySelector<HTMLElement>(".sheet-scroll");
+    const key = scroll?.querySelector(".sheet-grid thead th.key")?.getBoundingClientRect();
     if (!scroll) return;
     const more = Math.ceil(scroll.scrollLeft + scroll.clientWidth) < scroll.scrollWidth - 1;
-    const head = [...scroll.querySelectorAll<HTMLElement>(".sheet-grid thead th:not(.rownum)")];
-    const keyCell = head.find((th) => th.classList.contains("key"));
-    const key = keyCell?.getBoundingClientRect();
     const right = scroll.getBoundingClientRect().left + scroll.clientLeft + scroll.clientWidth;
-    const held = more && !!key && key.right > right - SHEET_FADE;
-    const edge = held ? key.left : right;
-    const out = head.filter((th) => th !== keyCell && th.getBoundingClientRect().right > edge + 1).length;
-    scroll.classList.toggle("more", more);
-    scroll.classList.toggle("held", held);
-    scroll.style.setProperty("--sheet-fade", `${held ? Math.max(0, Math.floor(right - key.right)) : SHEET_FADE}px`);
-    const cue = this.root.querySelector(".sheet-more");
-    if (cue) cue.textContent = out ? `${out} more column${out === 1 ? "" : "s"} \u2192` : "";
+    scroll.classList.toggle("held", more && !!key && key.right >= right - 1);
+    scroll.classList.toggle("at-start", scroll.scrollLeft <= 0);
+  }
+
+  /**
+   * Whether a press on a row opens it with every field labelled: anywhere on
+   * a phone, where the grid only reads; at a narrow width, anywhere on a row
+   * the owner cannot edit here, else only on its first column, so a press on
+   * any other cell still picks it to type in.
+   */
+  private opensRow(target: EventTarget | null): boolean {
+    if (!(target instanceof Element) || target.closest("button, input")) return false;
+    if (onPhone()) return true;
+    if (!globalThis.matchMedia?.(PHONE_QUERY)?.matches) return false;
+    return !this.editable(this.tab) || target.closest("td.lead") !== null;
+  }
+
+  /** Open a row: told to the phone's app, which draws it, else drawn here, over the grid's foot. */
+  private openRow(r: number): void {
+    const report = rowReport(this.book.sheets[this.tab]!.name, this.wb.columns(this.tab), this.wb.values(this.tab)[r - 1] ?? [], r);
+    if (onPhone()) return top?.postMessage(report, "*");
+    this.root.querySelector(":scope > .sheet-detail")?.remove();
+    const back = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    const box = rowDetail(report, () => {
+      box.remove();
+      back?.focus({ preventScroll: true });
+    });
+    this.root.append(box);
+    box.querySelector<HTMLButtonElement>("button")?.focus();
   }
 
   /** Pin the frozen columns of the grid drawn now, at the widths it has now. */
@@ -466,7 +496,7 @@ class Sheet {
         "data-col": String(col),
         title: isError(v) ? `${v.error} ${v.why}` : formula ? raw : undefined,
       },
-      typeof v === "boolean" ? (v ? "✓" : "") : kinds.includes("wrap") ? el("span", { class: "lines" }, formatValue(v, column)) : formatValue(v, column),
+      typeof v === "boolean" ? (v ? "✓" : "") : formatValue(v, column),
     );
     if (typeof v === "boolean") td.setAttribute("aria-label", v ? "Yes" : "No");
     td.addEventListener("click", () => this.moveTo(row, col));
@@ -530,6 +560,7 @@ class Sheet {
       case "Enter":
       case "F2":
         e.preventDefault();
+        if (!this.editable(this.tab) && this.opensRow(td)) return this.openRow(row);
         return this.edit(td);
       case "Delete":
       case "Backspace":
@@ -1224,10 +1255,12 @@ function colOf(range: string): number {
 
 const cls = (...names: (string | false | undefined)[]): string | undefined => names.filter(Boolean).join(" ") || undefined;
 
-/** Keep the first columns in view: each frozen cell sits at the width of what is left of it. */
+/** Keep the first columns in view: each frozen cell sits at the width of what is left of it, and a phone's first column at the row numbers'. */
 function pinColumns(table: HTMLTableElement): void {
   const head = table.tHead?.rows[0];
   if (!head) return;
+  // A phone's first column a fraction over the numbers rather than short of them, so nothing sliding under shows through a seam.
+  table.style.setProperty("--sheet-lead", `${Math.floor(head.cells[0]?.getBoundingClientRect().width ?? 0)}px`);
   const freeze = head.querySelectorAll(".frozen").length;
   let left = head.cells[0]?.offsetWidth ?? 0;
   const lefts: number[] = [];
@@ -1262,6 +1295,7 @@ export function readBook(text: string): SheetBook | string {
 }
 
 export function startSheets(): void {
+  hideRepeatedTitle();
   for (const script of document.querySelectorAll<HTMLScriptElement>('script[type="application/json"][data-sheet]')) {
     const book = readBook(script.textContent ?? "");
     if (typeof book === "string") script.after(el("p", { class: "sheet-error", role: "alert" }, book));
