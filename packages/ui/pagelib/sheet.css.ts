@@ -143,10 +143,11 @@ export const SHEET_CSS = String.raw`
 @media (max-width: 560px) {
   /* A phone's grid: the row numbers and the first column, the row's name, stay put while the rest scrolls sideways under them, and the header stays put while it scrolls down. A cell keeps to one line, cut past its width; a press on its row reads it whole. */
   .sheet-scroll { contain: inline-size; }
-  .sheet-grid :where(th, td) { padding: 0 8px; max-width: 18ch; font-size: 13px; }
+  /* Cut at 15ch and set close, so four columns fit a phone whole in a wider face too, as Linux's is. */
+  .sheet-grid :where(th, td) { padding: 0 6px; max-width: 15ch; font-size: 13px; }
   .sheet-grid thead th:not(.rownum) { min-width: 6ch; }
   .sheet-grid tbody tr { cursor: default; }
-  .sheet-grid .lead { position: sticky; left: var(--sheet-lead, 0px) !important; max-width: 16ch; box-shadow: 1px 0 0 var(--line-strong, var(--line)); }
+  .sheet-grid .lead { position: sticky; left: var(--sheet-lead, 0px) !important; max-width: 14ch; box-shadow: 1px 0 0 var(--line-strong, var(--line)); }
   /* Once the rest slides under it, a pixel of ground at its left edge, so nothing shows through the seam with the row numbers. */
   .sheet-scroll:not(.at-start) .sheet-grid .lead { box-shadow: -1px 0 0 var(--panel), 1px 0 0 var(--line-strong, var(--line)); }
   /* Over the key figure too, which slides under them once the grid scrolls past it. */
