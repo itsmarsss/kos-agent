@@ -228,6 +228,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const loads = useRef(0);
   // Whether the deck presents in its frame, where the browser gave no full screen (see setPresenting).
   const inPlace = useRef(false);
+  // Whether the frame has the screen, full screen or presenting in place: the dashboard's notes are not drawn then.
+  const [staged, setStaged] = useState(false);
   const [doc, setDoc] = useState<string>();
   const [error, setError] = useState<string>();
   const [left, setLeft] = useState(false);
@@ -311,6 +313,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     loads.current = 0;
     // A new document starts not presenting: the old one's in-place present went with it.
     inPlace.current = false;
+    setStaged(false);
     gate.current = heightGate();
     setShown(false);
     setCovered(true);
@@ -376,6 +379,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const presentInPlace = useCallback(
     (on: boolean): void => {
       inPlace.current = on;
+      setStaged(on || document.fullscreenElement === box.current);
       pageWindow()?.postMessage({ __kos: "present", on }, "*");
     },
     [pageWindow],
@@ -543,6 +547,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   useEffect(() => {
     const changed = (): void => {
       const on = (document.fullscreenElement !== null && document.fullscreenElement === box.current) || inPlace.current;
+      setStaged(on);
       pageWindow()?.postMessage({ __kos: "present", on }, "*");
     };
     document.addEventListener("fullscreenchange", changed);
@@ -628,6 +633,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     };
   }, [coverHeight, layout, page.kind, pageWindow, height]);
 
+  // A deck's notes, the dashboard's own under the slide: not in the presenter view's slides, nor while the frame has the screen.
+  const notesShown = !!deck?.notes && !deck.grid && !deck.reading && !presenting && !staged;
   const frameTitle = useMemo(() => page.title || record.title, [page.title, record.title]);
 
   return (
@@ -710,7 +717,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
           )}
         </div>
       )}
-      {deck?.notes && !deck.grid && !deck.reading && !presenting && (
+      {notesShown && deck && (
         <section className="artifact-notes" aria-label="Presenter notes">
           <span className="label">Notes, slide {deck.index + 1}</span>
           {deck.said.length ? deck.said.map((line, i) => <p key={i}>{line}</p>) : <p className="artifact-notes-none">No notes for this slide.</p>}
