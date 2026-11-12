@@ -6,10 +6,12 @@
  * code and highlight in the text; a link is kept only when it goes to a
  * place in this doc. Styles, classes, ids, scripts and anything that loads
  * are dropped, so what lands is the doc's own markup and passes the server's
- * allowlist as typed text would.
+ * allowlist as typed text would. The doc's own marks (a callout, a colour, a
+ * highlight, a mention by an artifact's id) come through, so a copy within a
+ * doc keeps them.
  */
 
-import { DOC_EDIT_MAX } from "@kos/shared/artifacts";
+import { ARTIFACT_ID_RE, DOC_EDIT_MAX } from "@kos/shared/artifacts";
 
 /** What a pasted element becomes: a tag of the doc's, "unwrap" to keep only what it holds, "drop" to lose it whole. */
 const MAP: Record<string, string> = {
@@ -21,7 +23,10 @@ const MAP: Record<string, string> = {
   MARK: "mark", SUB: "sub", SUP: "sup", A: "a", DETAILS: "details", SUMMARY: "summary",
 };
 const DROP = new Set(["SCRIPT", "STYLE", "META", "LINK", "TITLE", "HEAD", "TEMPLATE", "IFRAME", "OBJECT", "EMBED", "NOSCRIPT", "SVG", "CANVAS", "VIDEO", "AUDIO", "SOURCE", "INPUT", "BUTTON", "SELECT", "TEXTAREA", "FORM", "BASE", "COLGROUP", "COL"]);
-const BLOCKS = new Set(["p", "h1", "h2", "h3", "ul", "ol", "blockquote", "pre", "hr", "table", "figure", "details"]);
+/** The colours a doc's words and highlights take (tc-*, hl-*), and a callout's. */
+const TONE = /^(tc|hl)-(muted|accent|ok|warn|danger)$/;
+const CALLOUTS = new Set(["warn", "ok", "danger", "note"]);
+const BLOCKS = new Set(["p", "h1", "h2", "h3", "ul", "ol", "blockquote", "pre", "hr", "table", "figure", "details", "aside"]);
 /**
  * The biggest image file a doc takes inline. Base64 makes it about 4/3 its
  * size, and the edit as a whole saves at most DOC_EDIT_MAX characters, so a
@@ -60,7 +65,37 @@ export function cleanPaste(source: ParentNode, owner: Document): DocumentFragmen
       if (DROP.has(tag)) continue;
       // Google Docs wraps a whole paste in a bold that is not bold.
       const fake = tag === "B" && /font-weight\s*:\s*normal/i.test(el.getAttribute("style") ?? "");
+      const classes = [...el.classList];
+      // The doc's own marks, copied from it or another doc: a callout and its colour, a colour, a highlight, a mention.
+      if (tag === "ASIDE" && classes.includes("callout")) {
+        const aside = owner.createElement("aside");
+        aside.className = ["callout", ...classes.filter((c) => CALLOUTS.has(c))].join(" ");
+        copy(el, aside);
+        into.appendChild(aside);
+        continue;
+      }
+      if (tag === "SPAN" && classes.includes("mention")) {
+        const id = el.getAttribute("data-artifact") ?? "";
+        if (ARTIFACT_ID_RE.test(id) && id.length <= 120) {
+          const chip = owner.createElement("span");
+          chip.className = "mention";
+          chip.setAttribute("data-artifact", id);
+          chip.textContent = (el.textContent ?? "").slice(0, 200);
+          into.appendChild(chip);
+        } else into.appendChild(owner.createTextNode(el.textContent ?? ""));
+        continue;
+      }
+      const colour = tag === "SPAN" ? classes.find((c) => TONE.test(c) && c.startsWith("tc-")) : undefined;
       const to = fake ? undefined : MAP[tag];
+      if (colour) {
+        const span = owner.createElement("span");
+        span.className = colour;
+        let target: Node = span;
+        for (const m of styleMarks(el)) target = target.appendChild(owner.createElement(m));
+        copy(el, target);
+        into.appendChild(span);
+        continue;
+      }
       if (!to) {
         const marks = tag === "SPAN" ? styleMarks(el) : [];
         let target: Node = into;
@@ -85,8 +120,15 @@ export function cleanPaste(source: ParentNode, owner: Document): DocumentFragmen
         made.setAttribute("src", el.getAttribute("src")!.replace(/\s+/g, ""));
         made.setAttribute("alt", el.getAttribute("alt") ?? "");
       }
-      if ((to === "td" || to === "th") && el.getAttribute("colspan")) made.setAttribute("colspan", String(Math.min(20, parseInt(el.getAttribute("colspan")!, 10) || 1)));
-      if ((to === "td" || to === "th") && el.getAttribute("rowspan")) made.setAttribute("rowspan", String(Math.min(50, parseInt(el.getAttribute("rowspan")!, 10) || 1)));
+      for (const span of ["colspan", "rowspan"]) {
+        const n = parseInt(el.getAttribute(span) ?? "", 10);
+        if ((to === "td" || to === "th") && el.hasAttribute(span)) made.setAttribute(span, String(Math.min(50, Math.max(1, Number.isFinite(n) ? n : 1))));
+      }
+      if (to === "mark") {
+        const hl = classes.find((c) => TONE.test(c) && c.startsWith("hl-"));
+        if (hl) made.className = hl;
+      }
+      if (to === "details" && el.hasAttribute("open")) made.setAttribute("open", "");
       // A to-do from another editor: a checklist item, ticked or not.
       if (to === "li") {
         const box = el.querySelector('input[type="checkbox"]');
@@ -123,7 +165,7 @@ export function cleanPaste(source: ParentNode, owner: Document): DocumentFragmen
 function tidy(root: DocumentFragment, owner: Document): void {
   // A paragraph inside a paragraph, from a div of divs: the outer one goes.
   for (const p of [...root.querySelectorAll("p")]) {
-    if (p.querySelector("p, h1, h2, h3, ul, ol, blockquote, pre, table, figure, hr, details")) p.replaceWith(...p.childNodes);
+    if (p.querySelector("p, h1, h2, h3, ul, ol, blockquote, pre, table, figure, hr, details, aside")) p.replaceWith(...p.childNodes);
   }
   for (const el of [...root.querySelectorAll("li > p, td > p, th > p, blockquote > p:only-child, summary > p")]) {
     if (el.nextSibling) el.after(owner.createElement("br"));

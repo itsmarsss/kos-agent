@@ -273,6 +273,19 @@ describe("a paste", () => {
     expect(paste(`<ul><li>a</li><li><input type="checkbox" checked>b</li></ul>`)).toBe(`<ul><li>a</li><li>b</li></ul>`);
   });
 
+  it("keeps the doc's own marks when copied within a doc, and only valid ones", () => {
+    const got = paste(
+      `<aside class="callout warn x" style="color:red"><p>Risk</p></aside><p><mark class="hl-ok">green</mark> <mark class="hl-evil">plain</mark> <span class="tc-danger" style="font-weight:700">red</span> <span class="tc-nope">no</span> ` +
+        `<span class="mention" data-artifact="q4-plan" contenteditable="false">Q4 Plan</span> <span class="mention" data-artifact="../x">Bad</span></p>` +
+        `<table><tr><td colspan="0" rowspan="999">a</td><td colspan="-3">b</td></tr></table>`,
+    );
+    expect(got).toBe(
+      `<aside class="callout warn"><p>Risk</p></aside><p><mark class="hl-ok">green</mark> <mark>plain</mark> <span class="tc-danger"><strong>red</strong></span> no ` +
+        `<span class="mention" data-artifact="q4-plan">Q4 Plan</span> Bad</p>` +
+        `<table><tbody><tr><td colspan="1" rowspan="50">a</td><td colspan="1">b</td></tr></tbody></table>`,
+    );
+  });
+
   it("tells words from blocks", () => {
     expect(isInline(cleanPaste(parseClipboard("<span>just <b>words</b></span>")!.body, document))).toBe(true);
     expect(isInline(cleanPaste(parseClipboard("<p>a</p><p>b</p>")!.body, document))).toBe(false);
