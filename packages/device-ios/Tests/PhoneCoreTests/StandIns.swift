@@ -14,6 +14,7 @@ final class FakeLine: Line {
   var onRemoved: (() -> Void)?
   var onFace: ((FaceDrawing) -> Void)?
   var onTheme: ((DashboardTheme) -> Void)?
+  var onUpdate: ((UpdateNotice) -> Void)?
   var state: () -> DeviceState = { .phone }
 
   private(set) var started: Pairing?

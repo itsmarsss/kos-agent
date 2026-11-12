@@ -174,6 +174,16 @@ extension RenderTests {
     try render("settings", only: ["390"]) { Tabbed(tab: .more) { SettingsScreen(phone: phone, reader: phone.reader) } }
   }
 
+  /// KOS has a newer build: the quiet row atop More, and the steps in Settings.
+  @Test func anUpdateIsReady() throws {
+    let phone = Phone.preview()
+    conversation(phone)
+    phone.glance.received(Self.glance())
+    phone.update = UpdateNotice(state: .behind, build: Build(id: "0123456789ab", commit: String(repeating: "b", count: 40)), reason: .xcode)
+    try render("more-update") { Tabbed(tab: .more, badges: [.inbox: 3]) { MoreScreen(phone: phone) } }
+    try render("settings-update") { Tabbed(tab: .more) { SettingsScreen(phone: phone, reader: phone.reader) } }
+  }
+
   @Test func theRuns() throws {
     let phone = Phone.preview()
     online(phone)

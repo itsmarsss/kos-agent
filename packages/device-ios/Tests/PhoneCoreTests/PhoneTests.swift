@@ -175,6 +175,20 @@ struct PhoneTests {
     #expect(Rig(paired: Rig.pairing, preferences: preferences).phone.chat.face.fill == 0x8B5CF6)
   }
 
+  @Test func aNewerBuildIsReadyWhenKOSSaysThisOneIsBehindAndForgottenWithThePairing() async throws {
+    let rig = try await Rig.online()
+    #expect(!rig.phone.updateReady)
+    let build = Build(id: "0123456789ab", commit: String(repeating: "b", count: 40))
+    rig.line.onUpdate?(UpdateNotice(state: .behind, build: build, reason: .xcode))
+    #expect(rig.phone.updateReady)
+    #expect(rig.phone.update?.build == build)
+    rig.line.onUpdate?(UpdateNotice(state: .current, build: build))
+    #expect(!rig.phone.updateReady)
+    rig.line.onUpdate?(UpdateNotice(state: .behind, build: build, reason: .xcode))
+    rig.phone.unpair()
+    #expect(rig.phone.update == nil)
+  }
+
   @Test func unpairingTellsKOSAndForgetsItHere() async throws {
     let rig = try await Rig.online()
     let line = rig.line

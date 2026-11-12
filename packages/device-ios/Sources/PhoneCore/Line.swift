@@ -11,6 +11,7 @@ public protocol Line: AnyObject {
   var onRemoved: (() -> Void)? { get set }
   var onFace: ((FaceDrawing) -> Void)? { get set }
   var onTheme: ((DashboardTheme) -> Void)? { get set }
+  var onUpdate: ((UpdateNotice) -> Void)? { get set }
   var state: () -> DeviceState { get set }
 
   func start(_ pairing: Pairing)

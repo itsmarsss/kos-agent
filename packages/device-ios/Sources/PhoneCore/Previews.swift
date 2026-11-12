@@ -11,6 +11,7 @@ public final class QuietLine: Line {
   public var onRemoved: (() -> Void)?
   public var onFace: ((FaceDrawing) -> Void)?
   public var onTheme: ((DashboardTheme) -> Void)?
+  public var onUpdate: ((UpdateNotice) -> Void)?
   public var state: () -> DeviceState = { .phone }
 
   public init() {}
