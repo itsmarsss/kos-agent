@@ -1795,6 +1795,16 @@ select {
 }
 .menu-body button:hover { background: var(--panel-2); }
 .menu-body .is-danger { color: var(--danger); }
+/* A doc's @ mention: the dashboard's own picker of artifacts, over the doc. */
+.mention-picker { position: fixed; z-index: 60; width: 320px; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--r-md); box-shadow: var(--float); padding: 3px; }
+.mention-picker-search { all: unset; box-sizing: border-box; padding: 8px 10px; margin-bottom: 3px; border-bottom: 1px solid var(--line); font-size: var(--text-base); color: var(--text); }
+.mention-picker-search::placeholder { color: var(--muted); }
+.mention-picker [role="listbox"] { display: flex; flex-direction: column; gap: 1px; max-height: 280px; overflow-y: auto; }
+.mention-picker button { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; border-radius: var(--r-sm); }
+.mention-picker button.on { background: var(--panel-2); }
+.mention-picker button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-picker button small { flex: none; color: var(--muted); font-size: var(--text-xs); }
+.mention-picker-none { margin: 0; padding: 8px 10px; color: var(--muted); }
 
 .needs-you {
   margin-bottom: 2rem;

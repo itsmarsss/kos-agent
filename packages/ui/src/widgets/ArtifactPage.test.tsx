@@ -104,6 +104,20 @@ describe("the page's frame", () => {
     expect(call).toHaveBeenCalledWith("budget", "query", { sql: "SELECT 1" });
   });
 
+  it("refuses a page's mention and open, and a doc's without the owner's press, answering each", async () => {
+    const { pageWin } = await frame();
+    const replies = vi.spyOn(pageWin, "postMessage");
+    const location = window.location.hash;
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "call", id: 21, method: "mention", args: { x: 1, y: 1 } } }));
+      window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "call", id: 22, method: "open", args: { id: "brief" } } }));
+    });
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ __kos: "reply", id: 21, error: expect.stringMatching(/only a doc/) as unknown }), "*");
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ __kos: "reply", id: 22, error: expect.stringMatching(/only a doc/) as unknown }), "*");
+    expect(window.location.hash).toBe(location);
+    expect(document.querySelector(".mention-picker")).toBeNull();
+  });
+
   /** Whether the owner's hand is on the dashboard now, as the browser says. */
   const hand = (isActive: boolean): void => {
     Object.defineProperty(navigator, "userActivation", { value: { isActive, hasBeenActive: isActive }, configurable: true });
@@ -717,6 +731,82 @@ describe("a doc's saves, which are the owner's", () => {
     return { handle, pageWin, say, save, press };
   }
 
+  it("opens the picker for a mention only while editing and at the owner's press, one at a time, and answers with the pick", async () => {
+    vi.spyOn(api, "pages").mockResolvedValue([{ ...record, id: "deck-one", title: "Deck one", artifactKind: "deck" }]);
+    const { handle, pageWin, say, press } = await frame();
+    const el = screen.getByTitle("Budget");
+    vi.spyOn(document, "activeElement", "get").mockReturnValue(el);
+    hand(true);
+    const replies = vi.spyOn(pageWin, "postMessage");
+    const ask = (id: number, args: unknown = { x: 10, y: 99_999 }): void => say({ __kos: "call", id, method: "mention", args });
+    // Not editing yet: refused, even at a press.
+    await press();
+    ask(31);
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 31, error: expect.stringMatching(/being edited/) as unknown }), "*");
+    // The page saying it is editing is not enough: the dashboard sent no Edit.
+    say({ __kos: "edit", editing: true, pending: false, status: "", bad: false });
+    await press();
+    ask(35);
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 35, error: expect.stringMatching(/being edited/) as unknown }), "*");
+    act(() => handle.current!.edit("edit"));
+    // No press a moment ago: refused.
+    await new Promise((r) => setTimeout(r, 600));
+    ask(32);
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 32, error: expect.stringMatching(/owner's press/) as unknown }), "*");
+    await press();
+    ask(33);
+    const picker = await waitFor(() => document.querySelector<HTMLElement>(".mention-picker")!);
+    // Opened inside the frame's visible part, though the page asked far below it.
+    expect(parseFloat(picker.style.top)).toBeLessThanOrEqual(window.innerHeight);
+    ask(34);
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 34, error: expect.stringMatching(/already open/) as unknown }), "*");
+    const option = await waitFor(() => screen.getByRole("option", { name: /Deck one/ }));
+    act(() => option.click());
+    expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 33, result: { id: "deck-one", title: "Deck one" } }, "*");
+    expect(document.querySelector(".mention-picker")).toBeNull();
+    // After the dashboard's Done, the page still saying it edits asks for nothing.
+    act(() => handle.current!.edit("done"));
+    await press();
+    ask(36);
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 36, error: expect.stringMatching(/being edited/) as unknown }), "*");
+  });
+
+  it("closes the picker with no pick when the window loses focus, as a press back in the doc does", async () => {
+    vi.spyOn(api, "pages").mockResolvedValue([]);
+    const { handle, pageWin, say, press } = await frame();
+    vi.spyOn(document, "activeElement", "get").mockReturnValue(screen.getByTitle("Budget"));
+    hand(true);
+    const replies = vi.spyOn(pageWin, "postMessage");
+    act(() => handle.current!.edit("edit"));
+    say({ __kos: "edit", editing: true, pending: false, status: "", bad: false });
+    await press();
+    say({ __kos: "call", id: 41, method: "mention", args: { x: 1, y: 1 } });
+    await waitFor(() => expect(document.querySelector(".mention-picker")).not.toBeNull());
+    act(() => void window.dispatchEvent(new Event("blur")));
+    expect(document.querySelector(".mention-picker")).toBeNull();
+    expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 41, result: null }, "*");
+  });
+
+  it("opens a mentioned artifact at the owner's press, never by a bad id or one the owner has none of", async () => {
+    vi.spyOn(api, "pages").mockResolvedValue([{ ...record, id: "deck-one", title: "Deck one", artifactKind: "deck" }]);
+    const { pageWin, say, press } = await frame();
+    vi.spyOn(document, "activeElement", "get").mockReturnValue(screen.getByTitle("Budget"));
+    hand(true);
+    const replies = vi.spyOn(pageWin, "postMessage");
+    window.location.hash = "#/artifacts/budget";
+    await press();
+    say({ __kos: "call", id: 51, method: "open", args: { id: "../settings" } });
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 51, error: expect.stringMatching(/not an artifact's id/) as unknown }), "*");
+    expect(window.location.hash).toBe("#/artifacts/budget");
+    say({ __kos: "call", id: 53, method: "open", args: { id: "elsewhere" } });
+    await waitFor(() => expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 53, error: expect.stringMatching(/no artifact/) as unknown }), "*"));
+    expect(window.location.hash).toBe("#/artifacts/budget");
+    await press();
+    say({ __kos: "call", id: 52, method: "open", args: { id: "deck-one" } });
+    await waitFor(() => expect(window.location.hash).toBe("#/artifacts/deck-one"));
+    expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 52, result: { opened: true } }, "*");
+  });
+
   it("relays a save just after the dashboard's own Done, with no hand in the frame, and never after Discard, Undo or Edit", async () => {
     const saved = vi.spyOn(api, "savePage").mockResolvedValue({ ...record, updatedAt: 2 });
     hand(false);
@@ -886,10 +976,12 @@ describe("an artifact's kind", () => {
     expect(src).toContain(PAGE_GUARD_CSP.replace(/'/g, "'"));
   });
 
-  it("keeps the bridge to what it was, plus writes, save and present", () => {
+  it("keeps the bridge to what it was, plus writes, save, a doc's mention and open, and present", () => {
     const doc = pageDocument({ html: "<p>", tokens: {}, mode: "light", css: "", libraries: [] });
     const api = /var kos=\{([\s\S]*?)\n\};/.exec(doc)?.[1] ?? "";
-    expect([...api.matchAll(/^(\w+):/gm)].map((m) => m[1])).toEqual(["query", "write", "writes", "files", "ask", "save", "present", "onTheme", "refresh"]);
+    expect([...api.matchAll(/^(\w+):/gm)].map((m) => m[1])).toEqual(["query", "write", "writes", "files", "ask", "save", "mention", "open", "present", "onTheme", "refresh"]);
     expect(doc).toContain('data-theme="light"');
+    // A press is stamped as it goes down and as it lifts, so a long press on a doc's mention still counts.
+    for (const ev of ["pointerdown", "pointerup", "keydown"]) expect(doc).toContain(`["${ev}",stamp,true]`);
   });
 });

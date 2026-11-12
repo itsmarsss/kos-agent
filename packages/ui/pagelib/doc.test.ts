@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { TOC_MIN, cleanDocHtml, enhance, slugOf, startDoc } from "./doc.js";
+import { TOC_MIN, cleanDocHtml, clicks, enhance, slugOf, startDoc } from "./doc.js";
 import { DOC_EDIT_MAX } from "@kos/shared/artifacts";
 
-import { AUTOSAVE_GAP_MS, AUTOSAVE_MS, IMAGE_MAX, inlineMark, shortcutOf, slashMatches } from "./docedit.js";
+import { AUTOSAVE_GAP_MS, AUTOSAVE_MS, IMAGE_MAX, inlineMark, saveQueue, shortcutOf, slashMatches } from "./docedit.js";
 
 const ARTICLE = `<header><p class="kicker">Plan</p><h1>Garden plan</h1><p class="lede">What goes where.</p></header>
 <h2>Beds</h2><p>Three beds<span class="fn">Each 1.2 m by 3 m.</span> along the fence.</p>
@@ -282,6 +282,146 @@ describe("kos-doc", () => {
     told.mockRestore();
   });
 
+  it("ticks no to-do for a click a script made, only for the owner's own (the Chrome test presses one)", async () => {
+    const save = vi.fn().mockResolvedValue({ version: 2 });
+    (window as { kos?: unknown }).kos = { save };
+    const article = mount(`<ul class="checklist"><li data-checked="false">Milk</li><li data-checked="true">Eggs</li></ul>`);
+    startDoc();
+    const boxes = [...article.querySelectorAll<HTMLButtonElement>(".todo-box")];
+    expect(boxes.map((b) => [b.getAttribute("role"), b.getAttribute("aria-checked")])).toEqual([["checkbox", "false"], ["checkbox", "true"]]);
+    boxes[0]!.click();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(save).not.toHaveBeenCalled();
+    expect(article.querySelector("li")!.getAttribute("data-checked")).toBe("false");
+  });
+
+  /** A to-do's box pressed by the owner, as the browser would report it. */
+  const tick = (box: Element): void => {
+    const trusted = vi.spyOn(clicks, "trusted").mockReturnValue(true);
+    (box as HTMLElement).click();
+    trusted.mockRestore();
+  };
+  const list = `<ul class="checklist"><li data-checked="false">A</li><li data-checked="false">B</li></ul>`;
+
+  it("keeps two ticks made in one gap when Edit is pressed before the second is saved", async () => {
+    vi.useFakeTimers();
+    const save = vi.fn().mockResolvedValue({ version: 2 });
+    (window as { kos?: unknown }).kos = { save };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const article = mount(list);
+    startDoc();
+    const [a, b] = [...article.querySelectorAll(".todo-box")];
+    tick(a!);
+    await vi.advanceTimersByTimeAsync(100);
+    tick(b!);
+    press("edit");
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_GAP_MS + 100);
+    expect(article.getAttribute("contenteditable")).toBe("true");
+    press("done");
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_GAP_MS * 2);
+    vi.useRealTimers();
+    expect(save.mock.calls.at(-1)![0]).toEqual({ doc: list.replace(/"false"/g, '"true"') });
+  });
+
+  it("carries a tick whose save was refused into the next", async () => {
+    vi.useFakeTimers();
+    const save = vi.fn().mockRejectedValueOnce(new Error("busy")).mockResolvedValue({ version: 2 });
+    (window as { kos?: unknown }).kos = { save };
+    const article = mount(list);
+    startDoc();
+    const [a, b] = [...article.querySelectorAll(".todo-box")];
+    tick(a!);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(save).toHaveBeenCalledTimes(1);
+    tick(b!);
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_GAP_MS + 100);
+    vi.useRealTimers();
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save.mock.calls[1]![0]).toEqual({ doc: list.replace(/"false"/g, '"true"') });
+  });
+
+  it("keeps saves in one line, each the gap after the last", async () => {
+    vi.useFakeTimers();
+    const queue = saveQueue();
+    const at: number[] = [];
+    const run = (): Promise<boolean> => queue.run(async () => (at.push(Date.now()), true));
+    void run();
+    void run();
+    const last = run();
+    await vi.runAllTimersAsync();
+    await last;
+    expect(at[1]! - at[0]!).toBeGreaterThanOrEqual(AUTOSAVE_GAP_MS);
+    expect(at[2]! - at[1]!).toBeGreaterThanOrEqual(AUTOSAVE_GAP_MS);
+    vi.useRealTimers();
+  });
+
+  it("gives a locked doc's to-dos boxes that cannot be ticked", () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn() };
+    const article = mount(`<ul class="checklist"><li data-checked="false">Milk</li></ul>`, "data-locked");
+    startDoc();
+    expect(article.querySelector(".todo-box")!.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("opens a mentioned artifact through kos.open when pressed, but not while editing nor for a bad id", () => {
+    const open = vi.fn().mockResolvedValue({ opened: true });
+    (window as { kos?: unknown }).kos = { save: vi.fn(), open };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const article = mount(`<p>See <span class="mention" data-artifact="q4-plan">Q4 Plan</span> <span class="mention" data-artifact="../x">X</span></p>`);
+    startDoc();
+    const [chip, bad] = [...article.querySelectorAll<HTMLElement>(".mention")];
+    expect([chip!.getAttribute("role"), chip!.getAttribute("tabindex")]).toEqual(["link", "0"]);
+    chip!.click();
+    bad!.click();
+    expect(open.mock.calls).toEqual([["q4-plan"]]);
+    press("edit");
+    chip!.click();
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts a picked mention in as a chip and a plain space, nothing of the editor's kept", async () => {
+    const save = vi.fn().mockResolvedValue({ version: 2 });
+    const mention = vi.fn().mockResolvedValue({ id: "deck-one", title: "Deck one" });
+    (window as { kos?: unknown }).kos = { save, mention };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    // jsdom lays nothing out: a caret's box is all zeros, as an empty line's would be.
+    Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+    const article = mount(`<p>See @</p>`);
+    startDoc();
+    press("edit");
+    const text = article.querySelector("p")!.firstChild as Text;
+    getSelection()!.collapse(text, text.length);
+    article.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: "@" }));
+    expect(mention).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(article.querySelector(".mention")).not.toBeNull());
+    expect(cleanDocHtml(article)).toBe('<p>See <span class="mention" data-artifact="deck-one">Deck one</span> </p>');
+  });
+
+  it("says quietly in the head when an open was refused", async () => {
+    const told = vi.spyOn(window, "postMessage");
+    (window as { kos?: unknown }).kos = { save: vi.fn(), open: vi.fn().mockRejectedValue(new Error("there is no artifact by that id")) };
+    const article = mount(`<p><span class="mention" data-artifact="gone">Gone</span></p>`);
+    startDoc();
+    article.querySelector<HTMLElement>(".mention")!.click();
+    await vi.waitFor(() => expect(states(told).some((s) => s.status === "Not opened: there is no artifact by that id")).toBe(true));
+    told.mockRestore();
+  });
+
+  it("undoes a block's move from the dashboard's Undo, and redoes it", () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn() };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const article = mount(`<p>One</p><p>Two</p>`);
+    startDoc();
+    press("edit");
+    const two = article.children[1]!;
+    getSelection()!.collapse(two.firstChild, 1);
+    article.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", metaKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+    expect(article.textContent).toBe("TwoOne");
+    press("undo");
+    expect(article.textContent).toBe("OneTwo");
+    press("redo");
+    expect(article.textContent).toBe("TwoOne");
+  });
+
   it("takes a drop as plain text, as a paste is", () => {
     (window as { kos?: unknown }).kos = { save: vi.fn() };
     const run = vi.fn();
@@ -311,7 +451,10 @@ describe("what the doc editor reads as markdown", () => {
     expect(shortcutOf("-")).toBe("ul");
     expect(shortcutOf("1.")).toBe("ol");
     expect(shortcutOf(">")).toBe("quote");
-    expect(shortcutOf("[]")).toBe("check");
+    expect(shortcutOf("[]")).toBe("todo");
+    expect(shortcutOf("```")).toBe("code");
+    expect(shortcutOf("---")).toBe("divider");
+    expect(shortcutOf(">>")).toBe("toggle");
     expect(shortcutOf("####")).toBeUndefined();
     expect(shortcutOf("a")).toBeUndefined();
   });
@@ -319,6 +462,8 @@ describe("what the doc editor reads as markdown", () => {
   it("closes bold and code around words just typed", () => {
     expect(inlineMark("it is **very**")).toEqual({ tag: "strong", words: "very", length: 8 });
     expect(inlineMark("run `kos`")).toEqual({ tag: "code", words: "kos", length: 5 });
+    expect(inlineMark("not ~~this~~")).toEqual({ tag: "s", words: "this", length: 8 });
+    expect(inlineMark("an *aside*")).toEqual({ tag: "em", words: "aside", length: 7 });
     expect(inlineMark("a * b")).toBeUndefined();
     expect(inlineMark("****")).toBeUndefined();
   });
@@ -326,7 +471,9 @@ describe("what the doc editor reads as markdown", () => {
   it("finds a block in the slash menu by the start of its words", () => {
     expect(slashMatches("").length).toBeGreaterThan(8);
     expect(slashMatches("head 2").map((i) => i.id)).toEqual(["h2"]);
-    expect(slashMatches("list").map((i) => i.id)).toEqual(["ul", "ol"]);
+    expect(slashMatches("list").map((i) => i.id)).toEqual(["ul", "ol", "todo"]);
+    expect(slashMatches("tog").map((i) => i.id)).toEqual(["toggle"]);
+    expect(slashMatches("to").map((i) => i.id)).toEqual(["todo", "toggle"]);
     expect(slashMatches("img")).toEqual([]);
     expect(slashMatches("image").map((i) => i.id)).toEqual(["image"]);
   });

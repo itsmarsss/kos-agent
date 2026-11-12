@@ -6,6 +6,9 @@ import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, 
 
 import { SaveConflict, api, type PageSummary } from "../api.js";
 import { fitsContent, pageDocument, tokenRule, wrapperDocument } from "@kos/shared";
+import { hrefFor } from "../routes.js";
+import { mentionRefusal, openRefusal, pickerPlace } from "./docbridge.js";
+import { MentionPicker } from "./MentionPicker.js";
 import { heightBucket, heightGate, ownerIn, rememberHeight, rememberedHeight, revealAllowed, revealInDashboard, saveAllowed, type EditTold, type HeightGate, type Reveal } from "./frameheight.js";
 
 /**
@@ -235,6 +238,19 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const [left, setLeft] = useState(false);
   const [asked, setAsked] = useState<Asked>();
   const [told, setTold] = useState<string>();
+  /** A doc's @ mention, asked for at this place in the view: the dashboard's picker answers it. */
+  const [mention, setMention] = useState<{ x: number; y: number }>();
+  /** The page's call the open picker answers, so there is one at a time. */
+  const mentionAsk = useRef<unknown>(undefined);
+  /** The owner's artifacts' ids, for a mention's open to name only one of them. */
+  const known = useRef<Promise<Set<string>> | undefined>(undefined);
+  /**
+   * Whether the doc is being edited, for the picker's gate: the dashboard's
+   * own last word (Edit sent, and no Done or Discard since), and the doc
+   * saying so too. The doc's claim alone is the page's, so it is not enough.
+   */
+  const editing = useRef(false);
+  const framed = useRef(false);
   const [conflict, setConflict] = useState<string>();
   // Opened at the height it last took at this width (read once the box is laid out), so the dashboard does not jump when the page reports.
   const [height, setHeight] = useState<number>();
@@ -331,6 +347,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     gestures.current.port?.close();
     gestures.current = { at: Number.NEGATIVE_INFINITY, since: performance.now(), stale: frame.current };
     sent.current = undefined;
+    editing.current = framed.current = false;
+    known.current = undefined;
     const { scripts, fonts } = artifactAssets(page);
     void Promise.all([Promise.all(scripts.map(library)), fontCss(fonts)])
       .then(([libraries, faces]) => {
@@ -481,6 +499,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         const d = m as Partial<EditState>;
         const next: EditState = { editing: d.editing === true, pending: d.pending === true, status: String(d.status ?? "").slice(0, 300), bad: d.bad === true };
         setEdit(next);
+        framed.current = next.editing;
         if (!next.editing && !next.pending) settled.current.splice(0).forEach((f) => f());
         return;
       }
@@ -495,6 +514,29 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       }
       if (m.__kos !== "call") return;
       const args = m.args ?? {};
+      // A doc's kos.mention (the owner typed "@") and kos.open (the owner pressed a mention): each held to its gates in docbridge.ts, and answered.
+      if (m.method === "mention" || m.method === "open") {
+        const state = { kind: page.kind, locked, presenting, pressed: revealAllowed(frame.current, gestures.current.at) };
+        if (m.method === "open") {
+          const first = openRefusal(state, args.id);
+          if (first) return reply(m.id, { error: first });
+          // Only an artifact the owner has: the list, fetched once for this frame, is asked after the press is judged.
+          known.current ??= api.pages().then((list) => new Set(list.map((p) => p.id)), () => new Set<string>());
+          void known.current.then((ids) => {
+            const no = openRefusal(state, args.id, (id) => ids.has(id));
+            if (no) return reply(m.id, { error: no });
+            window.location.hash = hrefFor({ name: "artifacts", id: String(args.id) });
+            reply(m.id, { result: { opened: true } });
+          });
+          return;
+        }
+        const no = mentionRefusal({ ...state, editing: editing.current && framed.current, asking: mentionAsk.current !== undefined }, args);
+        if (no) return reply(m.id, { error: no });
+        const at = args as { x: number; y: number };
+        mentionAsk.current = m.id;
+        setMention(pickerPlace(at, frame.current.getBoundingClientRect(), { width: window.innerWidth, height: window.innerHeight }));
+        return;
+      }
       if (locked && (m.method === "save" || m.method === "write" || m.method === "ask"))
         return reply(m.id, { error: presenting ? "this deck is being presented; it changes nothing now" : "this is an older version, shown to look at: restore it to change it" });
       if (m.method === "ask") {
@@ -570,6 +612,23 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     };
   }, [pageWindow]);
 
+  /** The picker's answer to the doc's kos.mention: the artifact picked, or null when it closed without one. */
+  const answerMention = useCallback(
+    (picked: { id: string; title: string } | null, refocus = true) => {
+      const id = mentionAsk.current;
+      mentionAsk.current = undefined;
+      setMention(undefined);
+      if (id === undefined) return;
+      if (refocus) frame.current?.focus();
+      reply(id, { result: picked });
+    },
+    [reply],
+  );
+  // Editing ended, or another version or document took the frame: the picker goes with it.
+  useEffect(() => {
+    if (!edit?.editing) answerMention(null, false);
+  }, [answerMention, edit?.editing]);
+
   const send = useCallback(
     (text: string) => {
       void api.message(text, chat).catch(() => undefined);
@@ -583,6 +642,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       // A Done opens a save only for what the owner's hand did in this document since it loaded or last saved.
       const touched = gestures.current.at > gestures.current.since;
       sent.current = { action, at: performance.now(), ...(action === "done" && touched ? { touched } : {}) };
+      if (action === "edit") editing.current = true;
+      else if (action === "done" || action === "discard") editing.current = false;
       pageWindow()?.postMessage({ __kos: "edit-do", action }, "*");
     },
     [pageWindow],
@@ -693,6 +754,14 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         </div>
       )}
       {told && <p className="hint">{told}</p>}
+      {mention && (
+        <MentionPicker
+          at={mention}
+          exclude={record.id}
+          onPick={(a) => answerMention({ id: a.id, title: a.title })}
+          onClose={(refocus) => answerMention(null, refocus)}
+        />
+      )}
       {!left && (
         <div className="artifact-stage" data-layout={layout} data-shown={shown ? "" : undefined}>
           {covered && !error && <Skeleton className={`artifact-skeleton artifact-skeleton--${layout}`} {...(layout === "fit" && height !== undefined ? { height } : {})} radius="var(--r-md)" />}

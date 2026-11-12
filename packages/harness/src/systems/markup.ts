@@ -1,5 +1,7 @@
 import { parse, parseFragment, serialize, type DefaultTreeAdapterMap } from "parse5";
 
+import { ARTIFACT_ID_RE } from "@kos/shared";
+
 /**
  * Markup read as a browser reads it, not as a pattern matches it.
  *
@@ -221,6 +223,9 @@ export function docEditOf(text: string): string {
     if (!DOC_TAGS.has(tag)) throw refuseTag(tag);
     const odd = el.attrs.find((a) => !allowedAttr(el, a));
     if (odd) throw code(`the attribute ${attrName(odd)} on <${tag}>, which a doc's text does not carry`);
+    // A mention names an artifact the dashboard opens: by an artifact's id and nothing else.
+    const names = el.attrs.find((a) => a.name === "data-artifact")?.value;
+    if (names !== undefined && /(^|\s)mention(\s|$)/.test(el.attrs.find((a) => a.name === "class")?.value ?? "") && !ARTIFACT_ID_RE.test(names)) throw code(`a mention of "${names.slice(0, 40)}", which is not an artifact's id`);
   }
   return serialize(fragment);
 }

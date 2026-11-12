@@ -1,6 +1,55 @@
 import { describe, expect, it } from "vitest";
 
+import { unsavableDocText, withDocText } from "./artifactedit.js";
 import { docEditOf, markupExits } from "./markup.js";
+
+/** Every block the editor makes, as it stores them (ui/pagelib/docblocks.ts). */
+const BLOCKS =
+  '<ul class="checklist"><li data-checked="true">Book the room</li><li data-checked="false">Send the agenda<ul class="checklist"><li data-checked="false">Draft</li></ul></li></ul>' +
+  '<details open=""><summary>Why we chose it</summary><p>Cost, then reach.</p></details><details><summary>Closed</summary><p>Hidden.</p></details>' +
+  '<aside class="callout"><p>Note</p></aside><aside class="callout warn"><p>Risk</p></aside><aside class="callout ok"><p>Settled</p></aside><aside class="callout danger"><p>Stop</p></aside><aside class="callout note"><p>Aside</p></aside>' +
+  '<pre><code class="language-python">print("hi")\n</code></pre><hr>' +
+  '<p><s>gone</s> <u>under</u> <em>it</em> <mark>yellow</mark> <mark class="hl-ok">green</mark> <span class="tc-danger">red</span> <code>x</code> <a href="#why">why</a></p>' +
+  '<p>See <span class="mention" data-artifact="q4-plan">Q4 Plan</span> for more.</p>' +
+  '<ol><li>one<ol><li>nested</li></ol></li></ol><blockquote>Quote</blockquote>' +
+  '<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td><br></td><td colspan="1">2</td></tr></tbody></table>' +
+  '<figure><img src="data:image/png;base64,iVBORw0KGgo=" alt="dot"><figcaption>dot</figcaption></figure>';
+
+describe("the editor's blocks, kept as a doc's text", () => {
+  it("takes every block the editor makes, written back out unchanged", () => {
+    expect(docEditOf(BLOCKS)).toBe(BLOCKS);
+  });
+
+  it("saves them in place of an article's text, and holds an agent's doc written with them savable", () => {
+    const page = `<!doctype html><html><head><style>p{}</style></head><body><article data-doc><p>old</p></article><script>1</script></body></html>`;
+    const saved = withDocText(page, BLOCKS);
+    expect(saved).toBe(page.replace("<p>old</p>", BLOCKS));
+    expect(unsavableDocText(saved)).toBeUndefined();
+  });
+
+  it("still refuses what a block could be made to carry: controls, handlers, code, and anything from outside", () => {
+    const refused = [
+      '<ul class="checklist"><li data-checked="true"><input type="checkbox" checked>x</li></ul>',
+      '<ul class="checklist"><li><button class="todo-box" role="checkbox">x</button></li></ul>',
+      '<details ontoggle="alert(1)" open><summary>x</summary></details>',
+      "<details><summary>x<script>alert(1)</script></summary></details>",
+      '<span class="mention" data-artifact="x" onclick="alert(1)">x</span>',
+      '<a class="mention" href="https://example.com/">x</a>',
+      '<a class="mention" href="/artifacts/x">x</a>',
+      '<pre><code class="language-js" style="background:url(https://x.example/a.png)">x</code></pre>',
+      '<mark style="background-image:image-set(\'x.png\' 1x)">x</mark>',
+      '<figure><img src="https://example.com/p.png"></figure>',
+      '<figure><img src="data:image/png;base64,AA" srcset="https://x.example/a.png 2x"></figure>',
+      '<aside class="callout"><style>*{}</style></aside>',
+      '<summary><iframe src="data:text/html,x"></iframe></summary>',
+      "<details><summary>x</summary><article>y</article></details>",
+      '<span class="mention" data-artifact="../settings">x</span>',
+      '<span class="chip mention" data-artifact="a b">x</span>',
+      '<span class="mention" data-artifact="">x</span>',
+    ];
+    for (const html of refused) expect(() => docEditOf(html), html).toThrow();
+  });
+});
 
 describe("the owner's edit to a doc, parsed", () => {
   it("takes the editor's blocks and the doc's structure, written back out as parsed", () => {

@@ -449,28 +449,92 @@ spaces its saves to match.
 
 ### Editing a doc
 
-Edit makes the doc editable where it is drawn, as a document editor does
-(`ui/pagelib/docedit.ts`): a bar of formats over a selection (bold, italic,
-code, a link to one of the doc's headings, H1 to H3, lists, quote), a "/"
-menu of blocks at the start of an empty line (headings, lists, a
-checklist, a quote, a divider, a table, a callout, an image from a file),
-markdown typed at a line's start (`# `, `## `, `- `, `1. `, `> `, `[] `)
-and around words (`**bold**`, `` `code` ``). A drop is taken as plain text,
-as a paste is. Editing leaves the doc laid out as it reads: its contents,
-its column and its numbered notes stay where they were, the numbers never
+Edit makes the doc editable where it is drawn, block by block, as Notion or
+a document editor does (`ui/pagelib/docedit.ts`, its operations in
+`docblocks.ts`). A block is a paragraph, a heading, a list item, a to-do, a
+quote, a callout, a code block, a toggle, a table, a figure or a divider.
+Beside the block under the pointer, "+" adds a line below with the "/"
+menu open, and a handle drags the block (or the blocks picked) to another
+place, a line showing where it lands; pressed, the handle opens the block's
+menu: turn into another kind, a callout's colour, a code block's language,
+duplicate, move up or down, copy a link to it (`#id`, which pasted over
+words links them there) and delete.
+
+The "/" menu, at a word's start, inserts any block: text, three headings,
+bulleted, numbered and to-do lists, a toggle, a quote, a callout, code, a
+divider, a table, an image from a file, or a mention. Markdown at a line's
+start does the same (`#`, `##`, `###`, `-`, `1.`, `[]`, `>`, `>>`, `!`,
+three backticks, `---`), and around words (`**bold**`, `*italic*`,
+`~~strike~~`, `` `code` ``). A bar over a selection turns the blocks it
+touches into another kind and sets bold, italic, underline, strike, code, a
+link to one of the doc's headings, and a colour or a highlight from KOS's
+tokens; Cmd+B, I, U, E, K and Cmd+Shift+X do the same. Enter splits a
+block (a heading's end goes on as text, an empty list item leaves its list,
+an empty last line leaves a callout or toggle), Backspace at a block's start
+makes it text and then joins it to the one before, Tab and Shift+Tab nest
+and un-nest list items and move between a table's cells, Cmd+Shift+Up and
+Down move a block, and Cmd+D duplicates it. Escape picks the caret's block,
+or every block a selection touches; a press in the margin and a drag down
+it, or Shift and a press, picks a run. Picked blocks are deleted, moved,
+duplicated, turned into another kind or opened in a menu (Enter goes back
+into the text); a second Escape is Done. A table shows its rows and
+columns' controls while the caret is in it, and a code block its language.
+
+Undo and Redo are the editor's own (`dochistory.ts`): each block
+operation, format and paste is a step, and a run of typing is one, so undo
+puts back a move as surely as a word. A paste keeps the structure of what
+was copied (`docpaste.ts`): headings, paragraphs, lists and to-dos, quotes,
+code with its language, tables, dividers, bold, italic, underline, strike,
+code and highlight, and a picture only when it is held as data; styles,
+classes, ids, links off the page and everything that loads or runs are
+dropped. A pasted or dropped picture file, like one picked, is kept in the
+doc as data, up to 112 KB (`IMAGE_MAX`: half an edit once base64 has
+grown it), and a picture pasted as data is held to the same length; KOS
+gives a frame nowhere to store files, so there is no upload and no URL. A
+drop of anything else is plain text.
+
+An `@` at a word's start calls `kos.mention()`, and the dashboard opens
+its own artifact picker (`MentionPicker.tsx`) at the caret, kept inside the
+part of the frame in view. The picker is the dashboard's, not the frame's,
+so the doc never sees the list of artifacts, only the one the owner picks
+(`{id, title}`, or null when the picker closes), which goes in as a chip:
+`<span class="mention" data-artifact="id">Title</span>`. Pressed while
+reading, the chip calls `kos.open(id)`. The dashboard takes both only from a
+doc, not presenting and not an older version, within half a second of the
+owner's press or key in its frame (the gesture channel), a mention only
+while the doc is being edited and one at a time, and an open only for an
+artifact's id (`ARTIFACT_ID_RE`), which a save also requires of a mention
+(`docbridge.ts`, `markup.ts`). The picker closes on Escape, a press
+elsewhere, the window losing focus (a press back in the doc) and the end of
+editing, and Tab stays inside it while it is open.
+
+What is stored stays the doc's own markup: a to-do is
+`<ul class="checklist"><li data-checked="true">`, a toggle
+`<details><summary>`, a callout `<aside class="callout">` (with `.warn`,
+`.ok`, `.danger` or `.note`), code `<pre><code class="language-*">`, a
+colour `<span class="tc-*">` and a highlight `<mark class="hl-*">`. What
+the runtime adds (a to-do's box, a button the reader ticks with a pointer or
+a key, kept at once while reading; an empty line's placeholder; a chip's
+role) is marked and taken out before a save, so an edit stores only what was
+written. Editing leaves the doc laid out as it reads: its contents, its
+column and its numbered notes stay where they were, the numbers never
 typed into; pressing one opens its note in the line to edit. Leaving
 editing numbers the notes and builds the contents again only when
 something changed. Its controls are the dashboard's, in the viewer's head
 that stays in view as the doc scrolls by (Edit, then Undo, Redo, Discard,
 Done and how the save stands): the doc says how its editing stands
 (`{__kos: "edit", editing, pending, status}`) and the dashboard sends what
-the owner pressed (`{__kos: "edit-do", action}`). The selection's format bar
-stays in the frame.
+the owner pressed (`{__kos: "edit-do", action}`). The editor's own bars and
+menus stay in the frame, outside the article.
 
 It saves on its own 1.2 s after the owner stops typing, through the same
 `kos.save`, so the gesture, conflict and rate rules above all hold. Saves run
-one after another, and each waits out the 2.1 s since the last, so Done (or
-Cmd+S, or Escape) just after one is never refused as too soon; Done saves
+one after another, editing's and a reader's ticks in one line
+(`saveQueue`), and each waits out the 2.1 s since the last, so Done (or
+Cmd+S, or a second Escape) just after one is never refused as too soon. A
+tick is put on the doc as last saved, never on the article as it stands
+(a toggle opened, a script's drawing), and says it is waiting, so the frame
+going finishes it as it does an edit; Done saves
 what is waiting and draws the doc again, and stays in editing if the save
 was refused. Discard puts back what was not yet saved and leaves editing.
 An edit longer than the server takes (`DOC_EDIT_MAX`, 300,000 characters) is
@@ -483,15 +547,17 @@ page that says it is editing holds the dashboard 2.5 s at most
 edit saved, not the one first opened. An artifact opened beside a thread
 while that wait runs stays open.
 
-It runs inside the doc's frame, on the browser's own editing
-(contenteditable and its commands), not on an editor library's model: a
-schema would drop what the agent wrote and it did not know (a callout, a
-pull quote, a footnote, a class), and undo is the browser's. Nothing new
-leaves the frame, so the frame's policy, Trusted Types and the guard are as
-they were; the markup it makes is the doc's own (no forms, frames or links
-off the page; a link goes to a heading, since a frame has nowhere else to
-go). An image is read from a file the owner picks and kept inline as data,
-up to 300 KB.
+It runs inside the doc's frame, on the article's own markup and the
+browser's editing (contenteditable), not on an editor library's model: a
+schema would drop what the agent wrote and it did not know (a pull quote, a
+footnote, a class). Nothing leaves the frame but window.kos (`kos.save`,
+`kos.mention`, `kos.open`), so the frame's policy, Trusted Types and the
+guard are as they were; the
+markup it makes is the doc's own (no forms, frames or links off the page; a
+link goes to a part of the doc, since a frame has nowhere else to go), and
+the server's allowlist (`markup.ts`) takes every block it makes and still
+refuses a control, a handler, a script or a style, and anything from
+outside.
 
 ### Editing a sheet
 
@@ -861,6 +927,8 @@ Before the page's own markup the frame gets:
 | `kos.theme`, `kos.onTheme(fn)` | The dashboard's theme, and its changes. |
 | `kos.refresh(fn)` | Run again after the page's own writes. |
 | `kos.save(edit)` | A doc's or a sheet's edit, made by the owner in the runtime, kept as the next version (above). Refused for a page or a deck. |
+| `kos.mention({x, y})` | A doc being edited asks the dashboard's artifact picker to open at that place in the frame; resolves to the artifact the owner picks, `{id, title}`, or null. Only at the owner's press or key, one at a time (above). |
+| `kos.open(id)` | A doc asks the dashboard to open the artifact with that id, as a pressed mention does. Only at the owner's press. |
 | `kos.present(on?)` | Ask the dashboard to show the artifact full screen (`kos.present(false)` gives it back); it then posts `present` on and off, which sets `data-present` on `<html>` and fires `kos:present`. Where the browser has no full screen for an element (Safari on an iPhone) or refuses, the artifact presents in place in its frame, and Escape or Present again ends it. |
 
 The dashboard only relays these, for its own frame. The server decides each

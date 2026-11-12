@@ -183,6 +183,7 @@ export {
   WORKSPACE_SCOPE,
   artifactAssets,
   isArtifactKind,
+  ARTIFACT_ID_RE,
   DOC_EDIT_MAX,
   sheetErrors,
   sheetTables,
