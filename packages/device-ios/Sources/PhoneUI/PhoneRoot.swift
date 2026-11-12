@@ -76,5 +76,9 @@ private struct Reading: ViewModifier {
       .foregroundStyle(Theme.text)
       .tint(Theme.accent)
       .preferredColorScheme(mode.colorScheme)
+    #if os(iOS)
+      .onAppear { Orientation.viewer(open: true) }
+      .onDisappear { Orientation.viewer(open: false) }
+    #endif
   }
 }

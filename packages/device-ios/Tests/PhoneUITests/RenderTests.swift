@@ -30,8 +30,8 @@ struct RenderTests {
   }
 
   /// Draws the view once, in one phone and theme.
-  func draw<V: View>(_ name: String, phone: (name: String, size: CGSize), theme: String, _ view: @escaping () -> V) throws {
-    let host = NSHostingView(rootView: PhoneFrame(size: phone.size) { view() })
+  func draw<V: View>(_ name: String, phone: (name: String, size: CGSize), theme: String, landscape: Bool = false, _ view: @escaping () -> V) throws {
+    let host = NSHostingView(rootView: PhoneFrame(size: phone.size, landscape: landscape) { view() })
     host.frame = CGRect(origin: .zero, size: phone.size)
     let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
     window.appearance = NSAppearance(named: theme == "dark" ? .darkAqua : .aqua)
@@ -255,19 +255,25 @@ struct StandInPairer: Pairer {
 /// The phone around a screen: the status bar over the top safe area, the home indicator in the bottom one.
 struct PhoneFrame<Content: View>: View {
   let size: CGSize
+  /// On its side: no status bar, the island's side kept clear, the home indicator lower, and iPhone's compact height.
+  var landscape = false
   @ViewBuilder let content: () -> Content
 
   static var top: CGFloat { 59 }
   static var bottom: CGFloat { 34 }
+  static var side: CGFloat { 59 }
+  static var low: CGFloat { 21 }
 
   var body: some View {
     content()
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .padding(.top, Self.top)
-      .padding(.bottom, Self.bottom)
-      .overlay(alignment: .top) { StatusBar().frame(height: Self.top) }
+      .environment(\.verticalSizeClass, landscape ? .compact : .regular)
+      .padding(.top, landscape ? 0 : Self.top)
+      .padding(.bottom, landscape ? Self.low : Self.bottom)
+      .padding(.horizontal, landscape ? Self.side : 0)
+      .overlay(alignment: .top) { if !landscape { StatusBar().frame(height: Self.top) } }
       .overlay(alignment: .bottom) {
-        Capsule().fill(Theme.text).frame(width: 134, height: 5).padding(.bottom, 8)
+        Capsule().fill(Theme.text).frame(width: landscape ? 210 : 134, height: 5).padding(.bottom, 8)
       }
       .frame(width: size.width, height: size.height)
       .background(Theme.bg)

@@ -11,8 +11,9 @@ import WebKit
 /// the wrapper, hears the page's frame alone and answers its window.kos.
 /// Reads go to KOS; `open` opens another artifact on the phone, only just
 /// after the owner's press in the frame; everything else is refused, since
-/// the phone only shows. A deck is held as the dashboard holds one, its
-/// controls the viewer's (DeckRemote), one slide at a time. A navigation anywhere is refused, a link off the
+/// the phone only shows. A deck is the deck runtime's own: upright, its
+/// slides read as a column; on its side, one slide at a time, held as the
+/// dashboard holds one, its controls the viewer's (DeckRemote). A navigation anywhere is refused, a link off the
 /// page opens in the browser only at the owner's tap, and a content rule
 /// list blocks every load but the document's own, under the policy. The
 /// same view runs on a Mac, where it is tested and drawn.
@@ -46,8 +47,8 @@ struct ArtifactFrame {
     if(m.__kos==="gestures"){if(port||!e.ports[0])return;port=e.ports[0];port.onmessage=function(){pressed=performance.now()};return}
     if(m.__kos==="error"){tell({error:String(m.message||"").slice(0,300)});return}
     if(m.__kos==="deck"){
-    if(m.hosted!==true){down({__kos:"deck-do",action:"stage"});down({__kos:"deck-do",action:"host"})}
-    tell({deck:{index:Number(m.index)||0,count:Number(m.count)||0}});return}
+    if(m.hosted!==true&&m.reading!==true)down({__kos:"deck-do",action:"host"});
+    tell({deck:{index:Number(m.index)||0,count:Number(m.count)||0,reading:m.reading===true}});return}
     if(m.__kos!=="call"||typeof m.id!=="number")return;
     var id=m.id,args=m.args&&typeof m.args==="object"?m.args:{};
     if(m.method==="query"||m.method==="file"){tell({read:{call:id,method:m.method,args:args}});return}
@@ -124,7 +125,7 @@ struct ArtifactFrame {
       } else if let id = body["open"] as? String, ArtifactLink.isId(id) {
         frame.open(id)
       } else if let place = body["deck"] as? [String: Any], let index = place["index"] as? Int, let count = place["count"] as? Int {
-        frame.deck.place = count > 0 ? DeckRemote.Place(index: min(max(index, 0), count - 1), count: count) : nil
+        frame.deck.place = count > 0 ? DeckRemote.Place(index: min(max(index, 0), count - 1), count: count, reading: place["reading"] as? Bool ?? false) : nil
       }
     }
 
@@ -223,6 +224,8 @@ final class DeckRemote: ObservableObject {
   struct Place: Equatable {
     let index: Int
     let count: Int
+    /// Read as a column, as the runtime lays a deck out upright on a phone: nothing to move between.
+    var reading = false
   }
 
   @Published var place: Place?

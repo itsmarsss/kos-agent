@@ -5,10 +5,12 @@ import SwiftUI
 
 /// One of the owner's artifacts, full screen, to read: its kind, title and
 /// owner in a bar with Close, then the artifact as the dashboard draws it
-/// (ArtifactFrame), read-only. A deck moves slide to slide by its own
-/// swipes and taps, a sheet scrolls its grid sideways, a doc reads at the
-/// phone's width; each follows the phone's light and dark as its own theme
-/// handling allows. Nothing here edits, shares or sends.
+/// (ArtifactFrame), read-only. A doc reads at the phone's width and a sheet
+/// scrolls its grid sideways. A deck held upright reads as the dashboard's
+/// narrow column of numbered slides; turned on its side it fills the screen
+/// a slide at a time, moved by its own swipes and taps or the bar under it,
+/// which holds Close there. Each follows the phone's light and dark as its own
+/// theme handling allows. Nothing here edits, shares or sends.
 struct ArtifactScreen<Frame: View>: View {
   @ObservedObject var shelf: ArtifactShelf
   let close: () -> Void
@@ -18,6 +20,7 @@ struct ArtifactScreen<Frame: View>: View {
   var now: Date = Date()
   @StateObject private var deck = DeckRemote()
   @Environment(\.colorScheme) private var scheme
+  @Environment(\.verticalSizeClass) private var height
 
   init(shelf: ArtifactShelf, close: @escaping () -> Void, now: Date = Date(), deck: DeckRemote? = nil, @ViewBuilder frame: @escaping (ArtifactShelf.Artifact, Bool, DeckRemote) -> Frame) {
     self.shelf = shelf
@@ -31,13 +34,25 @@ struct ArtifactScreen<Frame: View>: View {
   static var gutter: CGFloat { 16 }
   static var above: CGFloat { 12 }
 
+  /// A deck on its side, one slide at a time: the slide takes the screen, with nothing over it but its own bar.
+  private var staged: DeckRemote.Place? {
+    guard height == .compact, case .open(let artifact) = shelf.shown, artifact.kind == "deck", let place = deck.place, !place.reading else { return nil }
+    return place
+  }
+
   var body: some View {
     VStack(spacing: 0) {
       if let shown = shelf.shown {
-        ArtifactBar(shown: shown, now: now, close: close)
-        Hairline()
-        content(shown)
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+        if let place = staged, case .open(let artifact) = shown {
+          frame(artifact, scheme == .dark, deck).accessibilityLabel(artifact.title)
+          Hairline()
+          DeckBar(place: place, press: deck.press, close: close)
+        } else {
+          ArtifactBar(shown: shown, now: now, close: close)
+          Hairline()
+          content(shown)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
       }
     }
     .background(Theme.bg.ignoresSafeArea())
@@ -47,31 +62,24 @@ struct ArtifactScreen<Frame: View>: View {
   private func content(_ shown: ArtifactShelf.Shown) -> some View {
     switch shown {
     case .open(let artifact):
-      // In the gutter the dashboard's column gives every frame, above the home indicator, as the deck's bar is.
-      let framed = frame(artifact, scheme == .dark, deck)
+      // In the gutter the dashboard's column gives every frame, above the home indicator.
+      frame(artifact, scheme == .dark, deck)
         .padding(.horizontal, Self.gutter)
         .padding(.top, Self.above)
         .accessibilityLabel(artifact.title)
-      if artifact.kind == "deck", let place = deck.place {
-        VStack(spacing: 0) {
-          framed
-          Hairline()
-          DeckBar(place: place, press: deck.press)
-        }
-      } else {
-        framed
-      }
     case .loading:
       VStack(spacing: 10) {
         ProgressView().controlSize(.regular)
         Text("Opening").font(.kos(.dense)).foregroundStyle(Theme.muted)
       }
       .accessibilityElement(children: .combine)
-    case .failed(let id, let title, let why):
+    case .failed(let id, let title, _):
+      // In the owner's words: why it failed is KOS's account, kept in the log (ArtifactShelf).
       VStack(spacing: 12) {
         Tile("exclamationmark.triangle", tint: Theme.warn)
-        Text("It did not open").font(.kos(.title, .semibold))
-        Text(why).font(.kos(.dense)).foregroundStyle(Theme.muted).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+        Text("Couldn't open this").font(.kos(.title, .semibold))
+        Text("KOS couldn't get it ready. Try again, or open it on the dashboard.")
+          .font(.kos(.dense)).foregroundStyle(Theme.muted).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
         Button("Try again") { shelf.open(id, title: title, dark: scheme == .dark) }
           .buttonStyle(KOSButtonStyle(.secondary, capsule: true))
           .frame(minHeight: 44)
@@ -106,11 +114,12 @@ struct ArtifactWebFrame: View {
   }
 }
 
-/// A deck's controls under its slide, the dashboard's head's on a phone: back, where it is, and on, at the thumb.
-/// A swipe or a tap on the slide moves it too.
+/// A deck's controls under its slide on its side, the dashboard's head's on a phone: Close, then back, where it is,
+/// and on, at the thumb. A swipe or a tap on the slide moves it too.
 struct DeckBar: View {
   let place: DeckRemote.Place
   let press: (String) -> Void
+  let close: () -> Void
 
   var body: some View {
     HStack(spacing: 16) {
@@ -124,7 +133,9 @@ struct DeckBar: View {
         .disabled(place.index >= place.count - 1)
     }
     .frame(maxWidth: .infinity)
-    .padding(.vertical, 8)
+    .overlay(alignment: .leading) { HeaderButton(symbol: "xmark", label: "Close", action: close) }
+    .padding(.horizontal, 8)
+    .padding(.vertical, 6)
     .background(Theme.bg)
   }
 }
