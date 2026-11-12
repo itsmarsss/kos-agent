@@ -16,7 +16,7 @@ struct Thread: View {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 12) {
           if chat.lines.isEmpty && chat.sending.isEmpty && chat.notices.isEmpty {
-            EmptyThread(online: chat.usable, ask: chat.say)
+            EmptyThread(online: chat.usable) { chat.say($0) }
           }
           ForEach(chat.items) { item in
             ItemView(item: item, chat: chat)
@@ -67,7 +67,7 @@ private struct ItemView: View {
         ChatMarkdown(notice.text)
       }
     case .sending(_, let text):
-      Bubble(text: text, files: []).opacity(0.6).accessibilityLabel("Sending: \(text)")
+      Bubble(text: text, files: chat.sendingFiles[text] ?? []).opacity(0.6).accessibilityLabel("Sending: \(text)")
     case .story(_, let story):
       // A turn on the go: its steps so far, live, and what KOS is saying after them, streamed.
       let told = ChatModel.read(story.text)

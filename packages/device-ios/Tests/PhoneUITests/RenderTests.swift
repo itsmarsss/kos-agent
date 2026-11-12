@@ -3,6 +3,7 @@ import DeviceCore
 import DeviceKit
 import SwiftUI
 import Testing
+import WebKit
 
 @testable import PhoneCore
 @testable import PhoneUI
@@ -17,37 +18,42 @@ struct RenderTests {
 
   /// Draws the view in each phone and theme; the sizes it was drawn at.
   @discardableResult
-  private func render<V: View>(_ name: String, only: [String]? = nil, _ view: @escaping () -> V) throws -> Int {
+  func render<V: View>(_ name: String, only: [String]? = nil, _ view: @escaping () -> V) throws -> Int {
     var drawn = 0
     for phone in Self.phones where only?.contains(phone.name) ?? true {
-      for (theme, appearance) in [("dark", NSAppearance.Name.darkAqua), ("light", .aqua)] {
-        let host = NSHostingView(rootView: PhoneFrame(size: phone.size) { view() })
-        host.frame = CGRect(origin: .zero, size: phone.size)
-        let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
-        window.appearance = NSAppearance(named: appearance)
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        if let dir = ProcessInfo.processInfo.environment["KOS_SNAPSHOT_DIR"] {
-          let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-          host.cacheDisplay(in: host.bounds, to: rep)
-          let png = try #require(rep.representation(using: .png, properties: [:]))
-          try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name)-\(phone.name)-\(theme).png"))
-        }
-        #expect(host.fittingSize.width <= phone.size.width + 0.5, "\(name) is wider than the \(phone.name) phone")
+      for theme in ["dark", "light"] {
+        try draw(name, phone: phone, theme: theme, view)
         drawn += 1
       }
     }
     return drawn
   }
 
+  /// Draws the view once, in one phone and theme.
+  func draw<V: View>(_ name: String, phone: (name: String, size: CGSize), theme: String, _ view: @escaping () -> V) throws {
+    let host = NSHostingView(rootView: PhoneFrame(size: phone.size) { view() })
+    host.frame = CGRect(origin: .zero, size: phone.size)
+    let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.appearance = NSAppearance(named: theme == "dark" ? .darkAqua : .aqua)
+    window.contentView = host
+    host.layoutSubtreeIfNeeded()
+    if let dir = ProcessInfo.processInfo.environment["KOS_SNAPSHOT_DIR"] {
+      let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+      host.cacheDisplay(in: host.bounds, to: rep)
+      let png = try #require(rep.representation(using: .png, properties: [:]))
+      try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name)-\(phone.name)-\(theme).png"))
+    }
+    #expect(host.fittingSize.width <= phone.size.width + 0.5, "\(name) is wider than the \(phone.name) phone")
+  }
+
   // MARK: Fixtures
 
-  private func online(_ phone: Phone) {
+  func online(_ phone: Phone) {
     phone.chat.paired = true
     phone.chat.link = .connected
   }
 
-  private func conversation(_ phone: Phone) {
+  func conversation(_ phone: Phone) {
     online(phone)
     phone.chat.show(
       conversation: "phone:owner", title: "Saturday plans",
@@ -193,7 +199,7 @@ struct RenderTests {
       .init(id: "c5", title: "Scout", updated: now.addingTimeInterval(-4 * 86_400), place: .blob("scout")),
     ])
     try render("chats") {
-      SheetOver(height: 0.7) { ChatScreen(phone: phone) } sheet: { ChatPicker(chat: phone.chat) { _ in } }
+      SheetOver(height: 0.7) { ChatScreen(phone: phone) } sheet: { ChatPicker(chat: phone.chat, shelf: phone.artifacts) { _ in } read: { _ in } }
     }
   }
 

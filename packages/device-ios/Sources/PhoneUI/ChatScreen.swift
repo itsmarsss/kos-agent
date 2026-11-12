@@ -15,7 +15,10 @@ public struct ChatScreen: View {
   @State private var seenAsks: Set<String> = []
   /// The settings sheet's own height, once it has been laid out.
   @State private var moreHeight: CGFloat = 0
+  /// An artifact picked in the chats sheet, opened once the sheet has gone.
+  @State private var reading: ArtifactItem?
   @Environment(\.accessibilityReduceMotion) private var still
+  @Environment(\.colorScheme) private var scheme
 
   enum Sheet: String, Identifiable {
     case ask, glance, chats, more
@@ -34,13 +37,20 @@ public struct ChatScreen: View {
       Hairline()
       if let line = LineBanner.words(chat) { LineBanner(words: line, tone: chat.link == .connecting ? .muted : .warn) }
       Thread(chat: chat, review: { open(.ask) })
+        // An artifact KOS names in its words opens here at a tap, to read.
+        .environment(\.chatOpensArtifacts, true)
+        .environment(\.openURL, OpenURLAction { url in
+          guard let id = ArtifactLink.id(url) else { return .systemAction }
+          phone.artifacts.open(id, dark: scheme == .dark)
+          return .handled
+        })
     }
     // The chat's words at the dashboard's size, as the Mac's window sets them.
     .font(.kos(.body))
     .safeAreaInset(edge: .bottom, spacing: 0) {
-      Composer(chat: chat, voice: phone.voice, reader: phone.reader)
+      Composer(chat: chat, voice: phone.voice, tray: phone.tray)
     }
-    .sheet(item: $sheet) { which in
+    .sheet(item: $sheet, onDismiss: openPicked) { which in
       sheetBody(which)
         .presentationBackground(Theme.panel)
         .presentationDragIndicator(.visible)
@@ -56,8 +66,17 @@ public struct ChatScreen: View {
 
   private func open(_ which: Sheet) {
     if which == .glance { glance.ask() }
-    if which == .chats { chat.list() }
+    if which == .chats {
+      chat.list()
+      phone.artifacts.list()
+    }
     sheet = which
+  }
+
+  private func openPicked() {
+    guard let item = reading else { return }
+    reading = nil
+    phone.artifacts.open(item.id, title: item.title, dark: scheme == .dark)
   }
 
   @ViewBuilder
@@ -70,9 +89,12 @@ public struct ChatScreen: View {
       GlanceSheet(glance: glance)
         .presentationDetents([.medium, .large])
     case .chats:
-      ChatPicker(chat: chat) { id in
+      ChatPicker(chat: chat, shelf: phone.artifacts) { id in
         sheet = nil
         if let id { chat.switchTo(id) } else { chat.say("/new") }
+      } read: { item in
+        reading = item
+        sheet = nil
       }
       .presentationDetents([.medium, .large])
     case .more:

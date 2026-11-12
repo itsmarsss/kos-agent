@@ -7,9 +7,10 @@ import Foundation
 /// and the chat, glance and voice the screens draw.
 ///
 /// It talks to one KOS. Its calls are the chat calls KOS for Mac's window
-/// takes, drawn the same way (ChatCalls), and the glance; any other call is
-/// refused, since a phone has no screen for KOS to see or work. Its words go
-/// as the `phone` surface's, beside nothing.
+/// takes, drawn the same way (ChatCalls), the glance and the artifacts; any
+/// other call is refused, since a phone has no screen for KOS to see or work.
+/// Its words go as the `phone` surface's, beside nothing, with the files
+/// picked for them.
 @MainActor
 public final class Phone: ObservableObject {
   /// What this app is to KOS (docs/computer.md, A phone).
@@ -17,6 +18,8 @@ public final class Phone: ObservableObject {
 
   public let chat = ChatModel()
   public let glance = GlanceModel()
+  public let artifacts: ArtifactShelf
+  public let tray = AttachmentTray()
   public let voice: VoiceModel
   public let reader: ReplyReader
   public let pairing: PairingFlow
@@ -67,6 +70,7 @@ public final class Phone: ObservableObject {
     self.preferences = preferences
     self.timing = timing
     voice = VoiceModel(recognizer: recognizer)
+    artifacts = ArtifactShelf(sleep: timing.sleep)
     reader = ReplyReader(speaker: speaker, preferences: preferences)
     pairing = PairingFlow(pairer: pairer, name: name)
     theme = preferences.value(KeptTheme.self, Keys.theme)?.theme
@@ -136,7 +140,10 @@ public final class Phone: ObservableObject {
     defer { wasOnline = online }
     if online && !wasOnline { opened() }
     // Words on their way when the line dropped were never taken: they go back to the owner.
-    if !online && wasOnline && !chat.sending.isEmpty { chat.giveBack("The line to KOS dropped. Your words are back in the box.") }
+    if !online && wasOnline && !chat.sending.isEmpty {
+      chat.giveBack("The line to KOS dropped. Your words are back in the box.")
+      tray.giveBack()
+    }
   }
 
   /// Shown the chat, the chats and the glance, and told when KOS does not show it.
@@ -161,6 +168,7 @@ public final class Phone: ObservableObject {
         glance.received(try call.params(Glance.self))
         return try? Outbound.reply(id: call.id, result: EmptyResult())
       }
+      if let artifact = try artifactCall(call) { return artifact }
       guard let method = ChatMethod(rawValue: call.method) else {
         return try? Outbound.reply(id: call.id, error: .badRequest("KOS for iPhone only chats: it has no \(call.method)."))
       }
@@ -170,10 +178,15 @@ public final class Phone: ObservableObject {
         showing?.cancel()
         showing = nil
         // Words the chat does not have yet are still KOS's to take: the wait on them goes on.
-        if chat.sending.isEmpty { heardBack() }
+        if chat.sending.isEmpty {
+          heardBack()
+          tray.kept()
+        }
         reader.shown(conversation: chat.conversation, lines: chat.lines)
       case .status:
         heardBack()
+        // Refused with the words (a file that did not arrive whole), they are back in the box, and so are the files.
+        if chat.error != nil { tray.giveBack() } else if (try? call.params(ChatStatus.self))?.taken == true { tray.kept() }
       case .other:
         if chat.asks.count > asks { haptics.attention() }
         // Decided elsewhere: the glance's row goes as the chat's card does.
@@ -185,6 +198,17 @@ public final class Phone: ObservableObject {
     } catch {
       return try? Outbound.reply(id: call.id, error: DeviceError(.internal, error.localizedDescription))
     }
+  }
+
+  /// A call about the owner's artifacts, answered; nil for any other.
+  private func artifactCall(_ call: Call) throws -> Data? {
+    switch call.method {
+    case ArtifactItem.listMethod: artifacts.received(try call.params(ArtifactList.self))
+    case ArtifactOpened.method: artifacts.received(try call.params(ArtifactOpened.self))
+    case ArtifactReadAnswer.method: artifacts.received(try call.params(ArtifactReadAnswer.self))
+    default: return nil
+    }
+    return try Outbound.reply(id: call.id, result: EmptyResult())
   }
 
   private func faced(_ face: FaceDrawing) {
@@ -228,6 +252,8 @@ public final class Phone: ObservableObject {
     chat.link = nil
     chat.face = .kos
     glance.reset()
+    artifacts.reset()
+    tray.reset()
     wasOnline = false
   }
 
@@ -254,7 +280,12 @@ public final class Phone: ObservableObject {
       self?.tell(.stop)
     }
     glance.askKOS = { [weak self] in self?.tell(.glance) }
-    voice.send = { [weak self] words in self?.chat.say(words) }
+    artifacts.tell = { [weak self] event in self?.tell(event) }
+    // Spoken words take the files picked for them, as typed ones do.
+    voice.send = { [weak self] words in
+      guard let self else { return }
+      self.chat.say(words, files: self.tray.files.map(\.name))
+    }
     // The owner's voice wins: a reply being read stops for it.
     voice.willListen = { [weak self] in self?.reader.stop() }
     // A turn ending changes what is running: the glance is asked again.
@@ -299,8 +330,13 @@ public final class Phone: ObservableObject {
     tell(.decide(approval: id, approved: approved, remember: remember))
   }
 
+  /// The owner's words, with the files picked for them sent ahead in parts; a command goes alone, and the files wait.
   private func say(_ text: String) {
-    tell(.send(text: text, beside: .none))
+    let files = ChatMenus.isCommand(text) ? [] : tray.take()
+    for file in files {
+      for part in AttachmentPart.parts(id: file.id, name: file.name, mediaType: file.mediaType, bytes: file.bytes) { tell(.attach(part)) }
+    }
+    tell(.send(text: text, beside: .none, files: files.map(\.id)))
     // KOS says it has the words at once; nothing back in a while is a KOS that cannot talk here.
     taking?.cancel()
     let sleep = timing.sleep, within = timing.takeWithin
@@ -308,6 +344,7 @@ public final class Phone: ObservableObject {
       await sleep(within)
       guard !Task.isCancelled else { return }
       self?.chat.giveBack("KOS did not take that. It may not be reachable now; your words are back in the box.")
+      self?.tray.giveBack()
     }
   }
 

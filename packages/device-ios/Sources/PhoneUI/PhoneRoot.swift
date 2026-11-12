@@ -21,7 +21,9 @@ public struct PhoneRoot: View {
       if phone.paired == nil {
         PairingScreen(flow: phone.pairing, problem: phone.problem)
       } else {
-        ChatScreen(phone: phone).modifier(Repairing(flow: phone.pairing, problem: phone.problem))
+        ChatScreen(phone: phone)
+          .modifier(Repairing(flow: phone.pairing, problem: phone.problem))
+          .modifier(Reading(shelf: phone.artifacts, mode: phone.mode))
       }
     }
     .id(textSize)
@@ -51,5 +53,28 @@ private struct Repairing: ViewModifier {
         .background(Theme.bg.ignoresSafeArea())
         .presentationDetents([.large])
     }
+  }
+}
+
+/// An artifact open: the viewer over the chat, full screen on a phone, in the app's theme; closed, it goes.
+private struct Reading: ViewModifier {
+  @ObservedObject var shelf: ArtifactShelf
+  let mode: ThemeMode
+  @Environment(\.openURL) private var openURL
+
+  func body(content: Content) -> some View {
+    let open = Binding(get: { shelf.shown != nil }, set: { if !$0 { shelf.close() } })
+    #if os(iOS)
+      content.fullScreenCover(isPresented: open) { viewer }
+    #else
+      content.sheet(isPresented: open) { viewer.frame(width: 390, height: 800) }
+    #endif
+  }
+
+  private var viewer: some View {
+    ArtifactScreen(shelf: shelf, openLink: { openURL($0) }, close: shelf.close)
+      .foregroundStyle(Theme.text)
+      .tint(Theme.accent)
+      .preferredColorScheme(mode.colorScheme)
   }
 }

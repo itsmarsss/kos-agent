@@ -1,15 +1,24 @@
+import DeviceCore
 import DeviceKit
 import PhoneCore
 import SwiftUI
 
 /// The phone's own chats, as the Mac window's switcher lists its own, each
 /// under where it lives: with KOS at the root, in a project, or a blob's.
-/// A new chat on top; the one shown marked.
+/// A new chat on top; the one shown marked. Under it, the few artifacts
+/// changed last, to open and read: what KOS made is one tap from the chat
+/// it was asked in, with no more buttons in the chat's own bar.
 struct ChatPicker: View {
   @ObservedObject var chat: ChatModel
+  @ObservedObject var shelf: ArtifactShelf
   var now: Date = Date()
   /// The chat picked, or nil for a new one.
   let pick: (String?) -> Void
+  /// An artifact picked, to open.
+  let read: (ArtifactItem) -> Void
+
+  /// How many artifacts the picker offers: the last few, under the new chat, so the chats stay in reach.
+  static let artifactsShown = 3
 
   /// The chats by where they live: KOS first, then each project, then each blob, in the order KOS gave them.
   static func groups(_ chats: [ChatModel.Pick]) -> [(title: String, kind: String?, chats: [ChatModel.Pick])] {
@@ -62,6 +71,24 @@ struct ChatPicker: View {
           .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        if !shelf.recent.isEmpty {
+          KOSSection("Recent artifacts") {
+            Card(padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), spacing: 0) {
+              ForEach(shelf.recent.prefix(Self.artifactsShown)) { item in
+                MenuRow(height: 48, action: { read(item) }) { _ in
+                  HStack(spacing: 10) {
+                    Tile(ArtifactKindMark.symbol(item.kind), tint: Theme.violet, small: true)
+                    Text(item.title).font(.kos(.body)).lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 8)
+                    Text(ChatTime.relative(Date(timeIntervalSince1970: item.updatedAt / 1000), now: now)).font(.kos(.tiny)).monospacedDigit().foregroundStyle(Theme.faint)
+                  }
+                }
+                .accessibilityLabel("\(ArtifactKindMark.word(item.kind)): \(item.title)")
+                .accessibilityHint("Opens it to read")
+              }
+            }
+          }
+        }
         if chat.chats.isEmpty {
           Text("Loading your chats").font(.kos(.dense)).foregroundStyle(Theme.faint)
         }
