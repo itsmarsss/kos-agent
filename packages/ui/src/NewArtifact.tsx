@@ -27,6 +27,15 @@ const KINDS: readonly { kind: ArtifactKind; about: string; example: string }[] =
 const WORKSPACE = "@workspace";
 const BLOB = "blob:";
 
+/**
+ * How long the dialog waits on the send before handing over. The answer to a
+ * message comes when its turn ends, minutes away; a request that is refused
+ * or cannot be sent fails at once, and that is the failure the dialog keeps
+ * the owner's words for. Past this the turn is running, and its chat, where
+ * the owner is taken, shows it as it goes, a late failure included.
+ */
+export const HANDOFF_MS = 1500;
+
 const ownerOfValue = (value: string): ArtifactOwner => (value === WORKSPACE ? null : value.startsWith(BLOB) ? { blob: value.slice(BLOB.length) } : { project: value });
 
 /** What the owner's chat is asked: the owner's words, then the kind, where it goes, and how to finish. */
@@ -48,6 +57,8 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked }: NewArtif
   const [owner, setOwner] = useState(WORKSPACE);
   const [words, setWords] = useState("");
   const [blobs, setBlobs] = useState<string[]>([]);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string>();
   const tiles = useRef<HTMLDivElement>(null);
 
   // The living blobs, read as it opens: one made since the page loaded is offered too.
@@ -76,14 +87,29 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked }: NewArtif
   const chosen = KINDS.find((k) => k.kind === kind)!;
 
   const close = (): void => {
+    if (sending) return;
     setWords("");
+    setError(undefined);
     onClose();
   };
-  const ask = (): void => {
-    if (!words.trim()) return;
+  const ask = async (): Promise<void> => {
+    if (!words.trim() || sending) return;
     const whose = ownerOfValue(owner);
-    void api.message(newRequest(kind, words, whose), chatIdOf(whose)).catch(() => undefined);
-    close();
+    setSending(true);
+    setError(undefined);
+    const send = api.message(newRequest(kind, words, whose), chatIdOf(whose));
+    try {
+      await Promise.race([send, new Promise((r) => setTimeout(r, HANDOFF_MS))]);
+    } catch (err) {
+      setSending(false);
+      setError(`Could not ask KOS: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    // A failure after the handover is the chat's to show, not an unhandled one here.
+    send.catch(() => undefined);
+    setSending(false);
+    setWords("");
+    onClose();
     onAsked(whose);
   };
 
@@ -104,7 +130,7 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked }: NewArtif
         className="artifact-dialog new-artifact"
         onSubmit={(e) => {
           e.preventDefault();
-          ask();
+          void ask();
         }}
       >
         <Field label="Kind" group>
@@ -143,18 +169,23 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked }: NewArtif
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
-                ask();
+                void ask();
               }
             }}
           />
         </Field>
+        {error && (
+          <p className="ops-alert ops-alert--err" role="alert">
+            {error}
+          </p>
+        )}
         <div className="artifact-dialog-actions">
           <span className="artifact-dialog-note">Goes to {owner === WORKSPACE ? "KOS" : `${ownerName}'s chat`}</span>
-          <button type="button" className="btn btn--ghost" onClick={close}>
+          <button type="button" className="btn btn--ghost" disabled={sending} onClick={close}>
             Cancel
           </button>
-          <button type="submit" className="btn btn--primary" disabled={!words.trim()}>
-            Ask KOS
+          <button type="submit" className="btn btn--primary" disabled={!words.trim() || sending} aria-busy={sending || undefined}>
+            {sending ? "Asking…" : "Ask KOS"}
           </button>
         </div>
       </form>

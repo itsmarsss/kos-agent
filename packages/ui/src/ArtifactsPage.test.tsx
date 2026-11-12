@@ -110,8 +110,29 @@ describe("the Artifacts page", () => {
     fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "Ten slides on the quarter" } });
     fireEvent.click(ask);
     expect(sent).toHaveBeenCalledWith(newRequest("deck", "Ten slides on the quarter", { project: "budget" }), "project:budget");
-    expect(asked).toHaveBeenCalledWith({ project: "budget" });
+    await waitFor(() => expect(asked).toHaveBeenCalledWith({ project: "budget" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("keeps the dialog and the words when the request cannot be sent, and says why", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([]);
+    vi.spyOn(api, "agents").mockResolvedValue({ agents: [], invalid: [] });
+    let refuse: (err: Error) => void = () => undefined;
+    vi.spyOn(api, "message").mockReturnValue(new Promise((_, reject) => (refuse = reject)));
+    const asked = vi.fn();
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "New artifact" }))[0]!);
+    const dialog = await screen.findByRole("dialog", { name: "New artifact" });
+    fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "A memo on the move" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Ask KOS" }));
+    // Said while it is on its way, and not sent twice.
+    const busy = within(dialog).getByRole("button", { name: "Asking…" }) as HTMLButtonElement;
+    expect(busy.disabled).toBe(true);
+    refuse(new Error("KOS is halted"));
+    expect((await within(dialog).findByRole("alert")).textContent).toBe("Could not ask KOS: KOS is halted");
+    expect((within(dialog).getByLabelText("What should it be?") as HTMLTextAreaElement).value).toBe("A memo on the move");
+    expect(within(dialog).getByRole("button", { name: "Ask KOS" })).toBeTruthy();
+    expect(asked).not.toHaveBeenCalled();
   });
 
   it("asks KOS at the root for a workspace artifact, and a blob in its own thread", () => {
