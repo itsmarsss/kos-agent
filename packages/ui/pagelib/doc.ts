@@ -19,6 +19,9 @@ import { addStyle, editable, el, keepRanges, kos, ready, reducedMotion } from ".
 /** Whether a click is the owner's own; a test stands in for the browser here, which alone makes trusted events. */
 export const clicks = { trusted: (e: Event): boolean => e.isTrusted };
 
+/** Where the doc says something to the owner outside editing (the head's status, once the doc can be edited); nowhere until then. */
+let notice: (text: string) => void = () => undefined;
+
 /** How many h2s make a document long enough for a table of contents. */
 export const TOC_MIN = 4;
 
@@ -265,6 +268,7 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
     top?.postMessage({ ...state }, "*");
   };
   const say = (status: string, bad = false): void => tell({ status, bad });
+  notice = (text) => say(text, true);
   /** The doc as editing began, so leaving redraws its contents and notes only when something changed. */
   let began = "";
   /** Typed into since editing began: even a deleted note number, which the saved text never holds, needs the notes numbered again. */
@@ -475,7 +479,8 @@ export function startDoc(): void {
     if (e instanceof KeyboardEvent && e.key !== "Enter") return;
     e.preventDefault();
     const id = chip.getAttribute("data-artifact") ?? "";
-    if (ARTIFACT_ID_RE.test(id)) void kos()?.open?.(id).catch(() => undefined);
+    // A refused open is said quietly in the head, where the doc's status goes.
+    if (ARTIFACT_ID_RE.test(id)) void kos()?.open?.(id).catch((err: unknown) => notice(`Not opened: ${err instanceof Error ? err.message : String(err)}`));
   };
   article.addEventListener("click", open);
   article.addEventListener("keydown", open);

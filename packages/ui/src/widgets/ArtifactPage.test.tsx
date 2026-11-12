@@ -748,7 +748,8 @@ describe("a doc's saves, which are the owner's", () => {
     expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 41, result: null }, "*");
   });
 
-  it("opens a mentioned artifact at the owner's press, never by a bad id", async () => {
+  it("opens a mentioned artifact at the owner's press, never by a bad id or one the owner has none of", async () => {
+    vi.spyOn(api, "pages").mockResolvedValue([{ ...record, id: "deck-one", title: "Deck one", artifactKind: "deck" }]);
     const { pageWin, say, press } = await frame();
     vi.spyOn(document, "activeElement", "get").mockReturnValue(screen.getByTitle("Budget"));
     hand(true);
@@ -758,8 +759,12 @@ describe("a doc's saves, which are the owner's", () => {
     say({ __kos: "call", id: 51, method: "open", args: { id: "../settings" } });
     expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 51, error: expect.stringMatching(/not an artifact's id/) as unknown }), "*");
     expect(window.location.hash).toBe("#/artifacts/budget");
+    say({ __kos: "call", id: 53, method: "open", args: { id: "elsewhere" } });
+    await waitFor(() => expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 53, error: expect.stringMatching(/no artifact/) as unknown }), "*"));
+    expect(window.location.hash).toBe("#/artifacts/budget");
+    await press();
     say({ __kos: "call", id: 52, method: "open", args: { id: "deck-one" } });
-    expect(window.location.hash).toBe("#/artifacts/deck-one");
+    await waitFor(() => expect(window.location.hash).toBe("#/artifacts/deck-one"));
     expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 52, result: { opened: true } }, "*");
   });
 
@@ -937,5 +942,7 @@ describe("an artifact's kind", () => {
     const api = /var kos=\{([\s\S]*?)\n\};/.exec(doc)?.[1] ?? "";
     expect([...api.matchAll(/^(\w+):/gm)].map((m) => m[1])).toEqual(["query", "write", "writes", "files", "ask", "save", "mention", "open", "present", "onTheme", "refresh"]);
     expect(doc).toContain('data-theme="light"');
+    // A press is stamped as it goes down and as it lifts, so a long press on a doc's mention still counts.
+    for (const ev of ["pointerdown", "pointerup", "keydown"]) expect(doc).toContain(`["${ev}",stamp,true]`);
   });
 });

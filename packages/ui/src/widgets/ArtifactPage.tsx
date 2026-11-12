@@ -240,6 +240,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const [mention, setMention] = useState<{ x: number; y: number }>();
   /** The page's call the open picker answers, so there is one at a time. */
   const mentionAsk = useRef<unknown>(undefined);
+  /** The owner's artifacts' ids, for a mention's open to name only one of them. */
+  const known = useRef<Promise<Set<string>> | undefined>(undefined);
   /**
    * Whether the doc is being edited, for the picker's gate: the dashboard's
    * own last word (Edit sent, and no Done or Discard since), and the doc
@@ -343,6 +345,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     gestures.current = { at: Number.NEGATIVE_INFINITY, since: performance.now(), stale: frame.current };
     sent.current = undefined;
     editing.current = framed.current = false;
+    known.current = undefined;
     const { scripts, fonts } = artifactAssets(page);
     void Promise.all([Promise.all(scripts.map(library)), fontCss(fonts)])
       .then(([libraries, faces]) => {
@@ -511,10 +514,17 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       if (m.method === "mention" || m.method === "open") {
         const state = { kind: page.kind, locked, presenting, pressed: revealAllowed(frame.current, gestures.current.at) };
         if (m.method === "open") {
-          const no = openRefusal(state, args.id);
-          if (no) return reply(m.id, { error: no });
-          window.location.hash = hrefFor({ name: "artifacts", id: String(args.id) });
-          return reply(m.id, { result: { opened: true } });
+          const first = openRefusal(state, args.id);
+          if (first) return reply(m.id, { error: first });
+          // Only an artifact the owner has: the list, fetched once for this frame, is asked after the press is judged.
+          known.current ??= api.pages().then((list) => new Set(list.map((p) => p.id)), () => new Set<string>());
+          void known.current.then((ids) => {
+            const no = openRefusal(state, args.id, (id) => ids.has(id));
+            if (no) return reply(m.id, { error: no });
+            window.location.hash = hrefFor({ name: "artifacts", id: String(args.id) });
+            reply(m.id, { result: { opened: true } });
+          });
+          return;
         }
         const no = mentionRefusal({ ...state, editing: editing.current && framed.current, asking: mentionAsk.current !== undefined }, args);
         if (no) return reply(m.id, { error: no });

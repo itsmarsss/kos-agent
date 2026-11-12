@@ -378,6 +378,16 @@ describe("kos-doc", () => {
     expect(open).toHaveBeenCalledTimes(1);
   });
 
+  it("says quietly in the head when an open was refused", async () => {
+    const told = vi.spyOn(window, "postMessage");
+    (window as { kos?: unknown }).kos = { save: vi.fn(), open: vi.fn().mockRejectedValue(new Error("there is no artifact by that id")) };
+    const article = mount(`<p><span class="mention" data-artifact="gone">Gone</span></p>`);
+    startDoc();
+    article.querySelector<HTMLElement>(".mention")!.click();
+    await vi.waitFor(() => expect(states(told).some((s) => s.status === "Not opened: there is no artifact by that id")).toBe(true));
+    told.mockRestore();
+  });
+
   it("undoes a block's move from the dashboard's Undo, and redoes it", () => {
     (window as { kos?: unknown }).kos = { save: vi.fn() };
     document.execCommand = vi.fn() as typeof document.execCommand;
