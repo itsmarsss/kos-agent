@@ -11,6 +11,10 @@ Two packages, one protocol:
 - `packages/computer` (`@kos/computer`): the KOS side. Pairing, the socket
   devices connect to, sessions, and the `computer.*` tools.
 - `packages/device-macos`: KOS for Mac, a menu bar app.
+- `packages/device-ios`: KOS for iPhone, a phone that only chats (see
+  [A phone](#a-phone)).
+- `packages/device-shared`: the Swift both apps share: the wire, the kit
+  they are drawn from, and the line to KOS.
 - `packages/browser-extension`: KOS for Chrome, a device that offers a
   Chrome's tabs instead of a screen (see [browser-extension.md](browser-extension.md)).
 - `packages/device-ios`: KOS for iPhone, a device that only chats. It pairs

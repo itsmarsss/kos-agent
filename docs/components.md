@@ -13,7 +13,12 @@ label styles, three icon buttons, eleven hand-made switches.
 
 The web kit is `@kos/kit`: its React components, and `kit.css`, which both
 web apps load before their own sheet. KOS for Mac cannot share code with
-them, so it keeps the same pieces under the same names in Swift.
+them, so it keeps the same pieces under the same names in Swift. Those live in
+`packages/device-shared` (`DeviceKit`: `Theme.swift`, `Controls.swift`,
+`KOSFace.swift`, `ChatMarkdown.swift`, `ChatModel.swift`, and the chat's
+`Bubble`, `Steps` and `Working` in `ChatPieces.swift`), and KOS for iPhone
+(packages/device-ios) draws from the same ones; the column below names them
+for both.
 
 ## Tokens
 
