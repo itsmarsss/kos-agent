@@ -496,7 +496,8 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     const html = `<style>body{background:#15161a}</style><h1>Watching</h1><script>
       document.documentElement.dataset.theme = "dim";
       let seen = 0;
-      new MutationObserver((records) => { seen += records.length; document.body.classList.add("touched"); }).observe(document.documentElement, { attributes: true });
+      // The true loop: a write on the body each time, the same class, which is a mutation every time (classList.add is one only once).
+      new MutationObserver((records) => { seen += records.length; document.body.className = document.body.className; }).observe(document.documentElement, { attributes: true });
       addEventListener("load", () => setTimeout(() => top.postMessage({ watched: { seen, theme: document.documentElement.dataset.theme, ground: document.documentElement.dataset.ground || "", bg: getComputedStyle(document.body).backgroundColor } }, "*"), 1500));
     </script>`;
     const frame = wrapperDocument(pageDocument({ html, tokens: { "--bg": "#0c0e12", "--panel": "#12151c", "--panel-2": "#181c26", "--text": "#e7ebf3" }, mode: "dark", css, libraries: [] }));
