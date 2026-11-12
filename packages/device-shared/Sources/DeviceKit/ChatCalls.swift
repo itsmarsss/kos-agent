@@ -22,7 +22,8 @@ public enum ChatCalls {
       model.show(
         conversation: p.chat ?? p.conversation, title: p.title, lines: p.messages.compactMap(line),
         notice: p.notice.map { ($0.text, $0.from, $0.waiting ?? false) }, auto: p.auto ?? false,
-        pictures: Dictionary(uniqueKeysWithValues: (p.pictures ?? [:]).compactMap { k, v in Int(k).map { ($0, v) } }))
+        // Keys that read as the same number ("7" and "07") keep the last: never a trap on a duplicate.
+        pictures: Dictionary((p.pictures ?? [:]).compactMap { k, v in Int(k).map { ($0, v) } }, uniquingKeysWith: { _, last in last }))
       return .shown
     case .status:
       let p = try call.params(ChatStatus.self)

@@ -33,6 +33,12 @@ struct ChatCallsTests {
     #expect(model.pictures[4] == Data("ABC".utf8))
   }
 
+  @Test func picturesWhoseKeysReadAsOneNumberKeepOneRatherThanTrap() throws {
+    let model = ChatModel()
+    try draw(model, "chat.show", #"{"chat":"c1","title":"Chat","messages":[],"pictures":{"4":"QUJD","04":"QUJD","x":"QUJD"}}"#)
+    #expect(Array(model.pictures.keys) == [4])
+  }
+
   @Test func aStatusTellsTheTurnAndAStepsPictureAlone() throws {
     let model = ChatModel()
     try draw(model, "chat.show", #"{"chat":"c1","title":"Chat","messages":[]}"#)
