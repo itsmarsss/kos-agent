@@ -867,7 +867,12 @@ shown (its project, the viewer, full screen):
   the frame: the sheet posts `{__kos: "row", sheet, title, fields: [{label,
   value, numeric}]}` to the app (at most 200 fields, each value as the grid
   shows it, cut to 2000 characters; the title is the first column, or "Row
-  n" when that is empty), which draws it as a sheet of its own.
+  n" when that is empty), which draws it as a sheet of its own, taking it
+  only from a sheet and only just after the owner's press. Where the
+  columns do not all fit, the grid comes to rest on whole columns after the
+  first, and one the held total would cover in part is drawn blank under a
+  quiet mark that more lie that way. On the dashboard at narrow width a
+  press opens a row only on a sheet that cannot be edited there.
 
 ## What an artifact runs in
 

@@ -254,7 +254,12 @@ And the actions, `POST`, each with exactly its body: `/api/approve` (`{
 (`{}`, out of the trash). An approval is not decided through the handler:
 it is decided as `chat.decide` decides one, the phone as its decider, so it
 settles everywhere as a phone's decision does, and answers `{ "id",
-"approved", "outcome"? }`. Every action is written to the audit log as
+"approved", "outcome" }`; one with no outcome (no such ask waiting, or not
+the owner's to decide) is an `error`. Run now does not wait on the run,
+which can outlast a phone's wait: it answers `202 { "accepted": true, "id"
+}` once the job is under way, or at once `{ "ok": false, "error" }` with why
+it did not fire (`halted`, `rate_limited`, already running), which is
+written down as not done. Every action is written to the audit log as
 `device.dashboard`, with the device, the method, the path and the body.
 Nothing else is asked, read or write.
 
@@ -267,8 +272,12 @@ Nothing else is asked, read or write.
   that is absolute or steps up (`..`) is refused before the route is
   asked; the route's own jail is the fence.
 - An answer of more than 8 MB as JSON, the base64 in it, is refused in
-  words. Four asks are on the way from a phone at once; a fifth is refused
-  in words, so KOS for iPhone holds the rest until one is answered.
+  words; a picture's or a PDF's bytes are refused by their size in their
+  folder's listing before any is read. Four asks are on the way from a phone at once; a fifth is refused
+  in words, so KOS for iPhone holds the rest until one is answered and
+  hands each freed turn straight to the next. An ask's turn is given back
+  when it is answered or after 25 s, the phone's own wait, whichever is
+  first, so the two keep the same count.
 - Phones only: every other device kind's asks go unanswered.
 
 **Files with the words.** A device's frames over the Wi-Fi are at most
