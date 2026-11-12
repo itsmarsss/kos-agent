@@ -70,6 +70,12 @@ describe("the artifact's frame", () => {
     expect(open).toContain('data-theme=&quot;dark&quot; data-kind=&quot;doc&quot;>');
     expect(locked).toContain('data-kind=&quot;doc&quot; data-locked>');
   });
+
+  it("marks the phone's surface and the title its bar shows, only when asked", () => {
+    const phone = artifactFrame({ ...page, title: 'Plan "B" & more' }, "light", assets, { locked: true, surface: "phone" });
+    expect(phone).toContain("data-locked data-surface=&quot;phone&quot; data-title=&quot;Plan &amp;quot;B&amp;quot; &amp;amp; more&quot;>");
+    expect(artifactFrame(page, "light", assets, { locked: true })).not.toContain("data-surface");
+  });
 });
 
 describe("the check's host page", () => {

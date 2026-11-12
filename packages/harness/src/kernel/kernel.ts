@@ -4324,8 +4324,8 @@ export class Kernel {
 
   /**
    * An HTML artifact drawn for a device with no dashboard (KOS for iPhone): the frame the dashboard builds from its
-   * own build, in an older version's read-only look, in one theme, with each theme's tokens as the rule the frame's
-   * bridge switches to. None for one in the trash, an older widget page, or no artifact at all.
+   * own build, in an older version's read-only look, on the phone's surface, in one theme, with each theme's tokens
+   * as the rule the frame's bridge switches to. None for one in the trash, an older widget page, or no artifact at all.
    */
   artifactView(id: string, theme: "light" | "dark"): { record: PageRecord; document: string; themes: { light: string; dark: string } } | undefined {
     const got = this.pages.get(id);
@@ -4333,7 +4333,7 @@ export class Kernel {
     const assets = loadAssets(defaultPageLib());
     return {
       record: got.record,
-      document: artifactFrame(got.page, theme, assets, { locked: true }),
+      document: artifactFrame(got.page, theme, assets, { locked: true, surface: "phone" }),
       themes: { light: tokenRule(assets.tokens.light, "light"), dark: tokenRule(assets.tokens.dark, "dark") },
     };
   }

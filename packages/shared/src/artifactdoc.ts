@@ -350,13 +350,18 @@ export interface PageDocumentInput {
   kind?: string;
   /** An older version shown to look at: the runtimes offer no editing. */
   locked?: boolean;
+  /**
+   * Where the frame is shown when it is not the dashboard: on a phone the app's own bar names the artifact and its
+   * ground runs to the frame's edges, so the runtimes drop their boxes and a heading that repeats the title.
+   */
+  surface?: { name: "phone"; title: string };
 }
 
-export function pageDocument({ html, tokens, mode, css, libraries, kind = "page", locked = false }: PageDocumentInput): string {
+export function pageDocument({ html, tokens, mode, css, libraries, kind = "page", locked = false, surface }: PageDocumentInput): string {
   const { head, body } = splitHtml(html);
   return [
     "<!doctype html>",
-    `<html data-mode="${mode}" data-theme="${mode}" data-kind="${kind.replace(/[^a-z]/g, "")}"${locked ? " data-locked" : ""}><head>`,
+    `<html data-mode="${mode}" data-theme="${mode}" data-kind="${kind.replace(/[^a-z]/g, "")}"${locked ? " data-locked" : ""}${surface ? ` data-surface="${surface.name}" data-title="${attr(surface.title)}"` : ""}><head>`,
     `<meta http-equiv="Content-Security-Policy" content="${PAGE_GUARD_CSP}">`,
     '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
     `<script>${RTC_GUARD}</script>`,

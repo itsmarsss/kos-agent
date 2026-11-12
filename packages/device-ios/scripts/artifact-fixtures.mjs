@@ -1,5 +1,5 @@
 // A doc, a deck and a sheet as KOS draws them for a phone (docs/computer.md, Artifacts), for the viewer's renders:
-// the dashboard's frame, from its own build, read-only, in each theme, with each theme's rule. The renders load them
+// the dashboard's frame, from its own build, read-only on the phone's surface, in each theme, with each theme's rule. The renders load them
 // in the viewer's own web view, so what is drawn is what a phone would draw.
 //
 //   node scripts/artifact-fixtures.mjs <out dir>
@@ -67,7 +67,7 @@ const themes = { light: tokenRule(assets.tokens.light, "light"), dark: tokenRule
 mkdirSync(out, { recursive: true });
 for (const [kind, title, html] of [["doc", "Beds for the new season", doc], ["deck", "Garden plan", deck], ["sheet", "Garden costs", sheet]]) {
   const page = { id: `garden-${kind}`, kind, title, html };
-  const documents = { light: artifactFrame(page, "light", assets, { locked: true }), dark: artifactFrame(page, "dark", assets, { locked: true }) };
+  const documents = { light: artifactFrame(page, "light", assets, { locked: true, surface: "phone" }), dark: artifactFrame(page, "dark", assets, { locked: true, surface: "phone" }) };
   writeFileSync(join(out, `${kind}.json`), JSON.stringify({ id: page.id, title, kind, documents, themes }));
 }
 console.log(`wrote doc, deck and sheet to ${out}`);

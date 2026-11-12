@@ -86,8 +86,9 @@ export function loadAssets(dir: string): FrameAssets {
 /**
  * The artifact's whole frame as the dashboard builds it: the wrapper holding the page's document. `locked` is the
  * dashboard's look at an older version, which the runtimes offer no editing in: KOS for iPhone's read-only view.
+ * `surface: "phone"` is that view's place in the phone app, under its own bar, edge to edge on its ground.
  */
-export function artifactFrame(page: HtmlPage, mode: Theme, assets: FrameAssets, { locked = false }: { locked?: boolean } = {}): string {
+export function artifactFrame(page: HtmlPage, mode: Theme, assets: FrameAssets, { locked = false, surface }: { locked?: boolean; surface?: "phone" } = {}): string {
   const { scripts, fonts } = artifactAssets(page);
   const libraries = scripts.map((name) => {
     const code = assets.script(name);
@@ -96,7 +97,7 @@ export function artifactFrame(page: HtmlPage, mode: Theme, assets: FrameAssets, 
   });
   const faces = fontFaceCss(fonts.flatMap((id) => fontById(id) ?? []), assets.font);
   return wrapperDocument(
-    pageDocument({ html: page.html, tokens: assets.tokens[mode], mode, css: `${assets.css}\n${fontStackVars()}\n${faces}`, libraries, kind: page.kind ?? "page", locked }),
+    pageDocument({ html: page.html, tokens: assets.tokens[mode], mode, css: `${assets.css}\n${fontStackVars()}\n${faces}`, libraries, kind: page.kind ?? "page", locked, ...(surface ? { surface: { name: surface, title: page.title } } : {}) }),
   );
 }
 
