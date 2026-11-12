@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { Empty, Field, Pill, Switch } from "@kos/kit";
 
-import { api, type ComputerSettings, type DeviceCode, type PairedDevice } from "./api.js";
+import { api, type ComputerSettings, type DeviceCode, type LanStatus, type PairedDevice } from "./api.js";
 import { ConfirmButton, FieldRow } from "./kit.js";
 import { agoWords } from "./schedulewords.js";
 import { Select } from "./Select.js";
@@ -47,24 +47,61 @@ function SessionRules({ settings, onChange }: { settings: ComputerSettings; onCh
   );
 }
 
+/**
+ * Phones on the home Wi-Fi: off until the owner turns it on. On, KOS opens a
+ * listener of its own for them, which pairs and carries the device socket and
+ * nothing else; the dashboard stays on this computer alone.
+ */
+function PhoneRules({ settings, lan, onChange }: { settings: ComputerSettings; lan: LanStatus | undefined; onChange: (patch: Partial<ComputerSettings>) => void }): ReactElement {
+  const on = settings.lan || lan?.forced === true;
+  const where = lan?.on ? `${lan.urls.join(", ") || `port ${lan.port}, but this computer has no address on a home network`}. Your iPhone checks KOS shows ${lan.words}.` : undefined;
+  return (
+    <div className="set-group device-rules">
+      <h3>Phones</h3>
+      <Field group className="set-field"
+        label="Phones on this Wi-Fi"
+        hint={
+          lan?.error ??
+          (lan?.forced
+            ? `On, set by KOS_DEVICE_LAN on the host. ${where ?? ""}`
+            : on
+              ? `KOS for iPhone reaches KOS at ${where ?? "its own address."} Only pairing and the device line answer there; the dashboard stays on this computer.`
+              : "Off by default. On, KOS for iPhone on your home Wi-Fi can pair and chat with KOS over a line of its own, encrypted and pinned at pairing; the dashboard stays on this computer.")
+        }
+      >
+        <Switch label="Phones on this Wi-Fi" on={on} disabled={lan?.forced === true} onChange={(next) => onChange({ lan: next })} />
+      </Field>
+    </div>
+  );
+}
+
+/** The link KOS for iPhone pairs from: the Wi-Fi address, the code, and the certificate it pins. */
+export function phoneLink(url: string, code: string, pin: string): string {
+  return `${pairingLink(url, code)}&pin=${encodeURIComponent(pin)}`;
+}
+
 /** The link KOS for Mac opens itself on, with this dashboard's address in it. */
 export function pairingLink(origin: string, code: string): string {
   return `kos-device://pair?url=${encodeURIComponent(origin)}&code=${encodeURIComponent(code)}`;
 }
 
 function platformName(platform: string): string {
-  return platform === "macos" ? "macOS" : platform === "chrome" ? "Chrome" : platform;
+  return platform === "macos" ? "macOS" : platform === "chrome" ? "Chrome" : platform === "ios" ? "iOS" : platform;
 }
 
 /** What is missing for KOS to use it, in the owner's words. */
 function missing(d: PairedDevice): string | undefined {
-  if (!d.permissions || d.kind === "browser") return undefined;
+  if (!d.permissions || d.kind !== "computer") return undefined;
   const lacks = [!d.permissions.screen && "Screen Recording", !d.permissions.input && "Accessibility"].filter(Boolean);
   return lacks.length ? `Needs ${lacks.join(" and ")} on the computer` : undefined;
 }
 
 export function describeDevice(d: PairedDevice, now = Date.now()): string {
   const browser = d.kind === "browser";
+  if (d.kind === "phone") {
+    const seen = d.online ? "online" : d.lastSeen ? `offline, last seen ${agoWords(d.lastSeen, now)}` : "never connected";
+    return `Your phone${d.os ? `, iOS ${d.os}` : ""}, through KOS for iPhone · chat only, no computer use · ${seen}`;
+  }
   if (!d.online) return d.lastSeen ? `Offline, last seen ${agoWords(d.lastSeen, now)}` : browser ? "Never connected. Pair it from KOS for Chrome." : "Never connected. Open KOS for Mac on it.";
   const parts = [
     browser
@@ -147,6 +184,12 @@ function PairingCode({ code, now, onDone }: { code: DeviceCode; now: number; onD
           ? `On a Mac, open KOS for Mac and paste the link, or enter ${origin} and this code. In Chrome, paste the link into KOS for Chrome. Good for ${left} more minute${left === 1 ? "" : "s"}, once.`
           : "This code has expired. Make another."}
       </p>
+      {code.lan && left > 0 && (
+        <p className="hint">
+          On an iPhone on this Wi-Fi, paste the phone link into KOS for iPhone, or enter {code.lan.url} and this code. Check your iPhone shows{" "}
+          <strong>{code.lan.words}</strong> before you pair.
+        </p>
+      )}
       <div className="set-inline">
         <a className="btn btn--primary btn--sm" href={link}>
           Open KOS for Mac
@@ -154,6 +197,11 @@ function PairingCode({ code, now, onDone }: { code: DeviceCode; now: number; onD
         <button type="button" className="btn btn--sm" onClick={() => copy("link", link)}>
           {copied === "link" ? "Link copied" : "Copy link"}
         </button>
+        {code.lan && (
+          <button type="button" className="btn btn--sm" onClick={() => copy("phone", phoneLink(code.lan!.url, code.code, code.lan!.pin))}>
+            {copied === "phone" ? "Phone link copied" : "Copy phone link"}
+          </button>
+        )}
         <button type="button" className="btn btn--sm btn--ghost" onClick={() => copy("code", code.code)}>
           {copied === "code" ? "Code copied" : "Copy code"}
         </button>
@@ -168,6 +216,7 @@ function PairingCode({ code, now, onDone }: { code: DeviceCode; now: number; onD
 export function DevicesPanel(): ReactElement {
   const [devices, setDevices] = useState<PairedDevice[] | null>(null);
   const [settings, setSettings] = useState<ComputerSettings | null>(null);
+  const [lan, setLan] = useState<LanStatus | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState<DeviceCode | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -180,6 +229,7 @@ export function DevicesPanel(): ReactElement {
         setError(null);
         setDevices(r.devices);
         setSettings(r.settings);
+        setLan(r.lan);
         // A device that appears while a code is up is the one that used it.
         const before = known.current;
         known.current = new Set(r.devices.map((d) => d.id));
@@ -204,7 +254,14 @@ export function DevicesPanel(): ReactElement {
 
   const change = (patch: Partial<ComputerSettings>): void => {
     if (settings) setSettings({ ...settings, ...patch });
-    void api.setComputerSettings(patch).then(setSettings, (err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+    void api.setComputerSettings(patch).then(
+      (next) => {
+        setSettings(next);
+        // The listener follows the setting at once; its address and words come with the next read.
+        if (patch.lan !== undefined) load();
+      },
+      (err: unknown) => setError(err instanceof Error ? err.message : String(err)),
+    );
   };
 
   const add = (): void => {
@@ -235,6 +292,7 @@ export function DevicesPanel(): ReactElement {
         </div>
       )}
       {settings && <SessionRules settings={settings} onChange={change} />}
+      {settings && <PhoneRules settings={settings} lan={lan} onChange={change} />}
     </>
   );
 }

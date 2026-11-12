@@ -338,8 +338,8 @@ export interface PairedDevice {
   id: string;
   name: string;
   platform: string;
-  /** A computer running KOS for Mac, or a Chrome running KOS for Chrome. */
-  kind: "computer" | "browser";
+  /** A computer running KOS for Mac, a Chrome running KOS for Chrome, or a phone running KOS for iPhone. */
+  kind: "computer" | "browser" | "phone";
   pairedAt: number;
   lastSeen: number | null;
   online: boolean;
@@ -355,11 +355,28 @@ export interface PairedDevice {
 export interface ComputerSettings {
   askMinutes: number;
   unattended: boolean;
+  /** Whether phones on the home Wi-Fi may reach KOS, over its own listener. */
+  lan: boolean;
+}
+
+/** Where the Wi-Fi listener for phones stands. */
+export interface LanStatus {
+  on: boolean;
+  /** On by the host's configuration (KOS_DEVICE_LAN=1), whatever the setting says. */
+  forced: boolean;
+  port: number;
+  urls: string[];
+  /** The certificate's pin, and the words a phone shows for it. */
+  pin: string;
+  words: string;
+  error?: string;
 }
 
 export interface DeviceCode {
   code: string;
   expiresAt: number;
+  /** While phones may pair over Wi-Fi: where a phone reaches KOS, and the certificate it pins. */
+  lan?: { url: string; urls: string[]; pin: string; words: string };
 }
 
 /** What a job's runs have cost, once it has run. */
@@ -1497,7 +1514,7 @@ export const api = {
   createCaller: (name: string, readTags: string[], writeGlobal: boolean) =>
     post<{ caller: CallerInfo; token: string }>("/api/callers", { name, readTags, writeGlobal }),
   revokeCaller: (id: number) => post<{ id: number; revoked: boolean }>("/api/callers/revoke", { id }),
-  devices: () => get<{ devices: PairedDevice[]; settings: ComputerSettings }>("/api/devices"),
+  devices: () => get<{ devices: PairedDevice[]; settings: ComputerSettings; lan?: LanStatus }>("/api/devices"),
   setComputerSettings: (patch: Partial<ComputerSettings>) => post<ComputerSettings>("/api/devices/settings", patch),
   deviceCode: () => post<DeviceCode>("/api/devices/pairings"),
   renameDevice: (id: string, name: string) => post<PairedDevice>("/api/devices/rename", { id, name }),
