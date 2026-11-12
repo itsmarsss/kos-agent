@@ -580,7 +580,8 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await pause(QUIET_MS);
     const saved = String(await value("document.body.dataset.saved || ''"));
     expect(saved).toContain("<h2>Water</h2>");
-    expect(saved).toMatch(/<p>it is(&nbsp;| )<strong>wet<\/strong>(&nbsp;| )now<\/p><hr><h2>Next<\/h2>/);
+    // The divider takes the "/" line's place, with a new line after it to go on writing in.
+    expect(saved).toMatch(/<p>it is(&nbsp;| )<strong>wet<\/strong>(&nbsp;| )now<\/p><hr><p><br><\/p><h2>Next<\/h2>/);
     expect(saved).toContain("<hr>");
     expect(saved).not.toContain("/div");
     expect(saved).not.toContain("contenteditable");
@@ -594,6 +595,118 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await until("!ownerIn(f)");
     expect(await value("ownerIn(f)")).toBe(false);
     expect(await value("saveAllowed(f, undefined)")).toBe(false);
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
+  it("drags a block by its handle and makes a to-do through the slash menu, saved as the doc's own markup", async () => {
+    const { build } = await import("esbuild");
+    const bundled = await build({ entryPoints: [join(import.meta.dirname, "../../pagelib/doc.ts")], bundle: true, write: false, format: "iife", target: "chrome120", charset: "ascii", logLevel: "silent" });
+    // Where things are in the doc, told to the dashboard on asking, so the test presses what the owner would see.
+    const html = `<article data-doc><p>One</p><p>Two</p><p>Three</p></article><script>
+      addEventListener("message", (e) => {
+        if (!e.data || e.data.ask !== "where") return;
+        const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, left: r.left, top: r.top, bottom: r.bottom }; };
+        const ps = [...document.querySelectorAll("article > p")];
+        const menu = document.querySelector(".doc-slash");
+        top.postMessage({ where: { blocks: ps.map((p) => [p.textContent, box(p)]), grip: document.querySelector(".doc-handle:not([hidden])") ? box(document.querySelector(".doc-grip")) : null, menu: menu && !menu.hidden ? menu.querySelector('[aria-selected="true"]')?.textContent ?? "" : null } }, "*");
+      });
+    </script>`;
+    const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [bundled.outputFiles[0]!.text], kind: "doc" }));
+    pages.set("/blocks", `<!doctype html><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:800px;height:560px" srcdoc="${srcdoc(frame)}"></iframe><script>
+      const f = document.getElementById("f");
+      addEventListener("message", (e) => {
+        const page = f.contentWindow.frames[0], m = e.data || {};
+        if (e.source !== page) return;
+        if (m.where) { window.where = m.where; return; }
+        if (m.__kos === "edit" && !m.editing && !document.body.dataset.asked) { document.body.dataset.asked = "1"; page.postMessage({ __kos: "edit-do", action: "edit" }, "*"); }
+        if (m.__kos === "edit" && m.editing) document.body.dataset.editing = "1";
+        if (m.__kos !== "call" || m.method !== "save") return;
+        document.body.dataset.saved = m.args.edit.doc;
+        page.postMessage({ __kos: "reply", id: m.id, result: {} }, "*");
+      });
+      window.ask = () => { window.where = undefined; f.contentWindow.frames[0].postMessage({ ask: "where" }, "*"); };
+    </script></body>`);
+    await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
+    await send("Page.navigate", { url: `${base}/blocks` });
+    await until("document.body.dataset.editing === '1'");
+    type Box = { x: number; y: number; left: number; top: number; bottom: number };
+    type Where = { blocks: [string, Box][]; grip: Box | null; menu: string | null };
+    const where = async (ready: (w: Where) => boolean = () => true): Promise<Where> => {
+      let last: Where | undefined;
+      for (const end = Date.now() + BOUND_MS; Date.now() < end; await pause(50)) {
+        await value("ask()");
+        await pause(30);
+        last = (await value("window.where")) as Where | undefined;
+        if (last && ready(last)) return last;
+      }
+      throw new Error(`the doc never said where things are as wanted: ${JSON.stringify(last)}`);
+    };
+    const mouse = (type: string, x: number, y: number, buttons = 0): Promise<unknown> =>
+      send("Input.dispatchMouseEvent", { type, x, y, button: type === "mouseMoved" && !buttons ? "none" : "left", buttons, clickCount: 1 });
+    // The pointer over "Three" shows its handle; the handle dragged above "One" moves it there.
+    const three = (await where()).blocks[2]![1];
+    await mouse("mouseMoved", three.x - 100, three.y);
+    const grip = (await where((w) => !!w.grip && Math.abs(w.grip.y - three.y) < 20)).grip!;
+    const one = (await where()).blocks[0]![1];
+    await mouse("mouseMoved", grip.x, grip.y);
+    await mouse("mousePressed", grip.x, grip.y, 1);
+    for (let i = 1; i <= 8; i++) await mouse("mouseMoved", grip.x, grip.y + ((one.top + 3 - grip.y) * i) / 8, 1);
+    await mouse("mouseReleased", grip.x, one.top + 3);
+    const moved = await where((w) => w.blocks.map((b) => b[0]).join() === "Three,One,Two");
+    // Into the end of "Two", a new line, and the "/" menu: Enter once it shows the to-do picked.
+    const two = moved.blocks[2]![1];
+    await mouse("mousePressed", two.left + 200, two.y, 1);
+    await mouse("mouseReleased", two.left + 200, two.y);
+    const key = async (k: string): Promise<void> => {
+      const enter = k === "Enter";
+      await send("Input.dispatchKeyEvent", { type: "keyDown", key: k, text: enter ? "\r" : k, ...(enter ? { code: "Enter", windowsVirtualKeyCode: 13 } : {}) });
+      await send("Input.dispatchKeyEvent", { type: "keyUp", key: k, ...(enter ? { code: "Enter", windowsVirtualKeyCode: 13 } : {}) });
+    };
+    await send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "End", code: "End", windowsVirtualKeyCode: 35 });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", key: "End", code: "End", windowsVirtualKeyCode: 35 });
+    await key("Enter");
+    for (const k of "/to-do") await key(k);
+    await where((w) => (w.menu ?? "").startsWith("To-do list"));
+    await key("Enter");
+    for (const k of "Milk") await key(k);
+    await until("(document.body.dataset.saved || '').includes('Milk')");
+    const saved = String(await value("document.body.dataset.saved"));
+    expect(saved).toBe('<p>Three</p><p>One</p><p>Two</p><ul class="checklist"><li data-checked="false">Milk</li></ul>');
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
+  it("keeps a to-do ticked while reading onto the doc as saved, not what a script or the reader changed in it", async () => {
+    const { build } = await import("esbuild");
+    const bundled = await build({ entryPoints: [join(import.meta.dirname, "../../pagelib/doc.ts")], bundle: true, write: false, format: "iife", target: "chrome120", charset: "ascii", logLevel: "silent" });
+    // After the runtime has drawn the doc, a script draws into it and opens its toggle, as a page's own code may.
+    const html = `<article data-doc><details><summary>More</summary><p>Hidden</p></details><ul class="checklist"><li data-checked="false">Milk</li></ul></article><script>
+      setTimeout(() => { const a = document.querySelector("article"); a.querySelector("details").open = true; a.insertAdjacentHTML("beforeend", "<p>drawn</p>"); }, 300);
+      addEventListener("message", (e) => { if (e.data && e.data.ask === "box") { const r = document.querySelector(".todo-box").getBoundingClientRect(); top.postMessage({ box: { x: r.left + r.width / 2, y: r.top + r.height / 2 } }, "*"); } });
+    </script>`;
+    const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [bundled.outputFiles[0]!.text], kind: "doc" }));
+    pages.set("/tick", `<!doctype html><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:800px;height:400px" srcdoc="${srcdoc(frame)}"></iframe><script>
+      const f = document.getElementById("f");
+      addEventListener("message", (e) => {
+        const page = f.contentWindow.frames[0], m = e.data || {};
+        if (e.source !== page) return;
+        if (m.box) { window.box = m.box; return; }
+        if (m.__kos !== "call" || m.method !== "save") return;
+        document.body.dataset.saved = m.args.edit.doc;
+        page.postMessage({ __kos: "reply", id: m.id, result: {} }, "*");
+      });
+    </script></body>`);
+    await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 400, deviceScaleFactor: 1, mobile: false });
+    await send("Page.navigate", { url: `${base}/tick` });
+    await pause(700);
+    let box: { x: number; y: number } | undefined;
+    for (const end = Date.now() + BOUND_MS; !box && Date.now() < end; await pause(50)) {
+      await value(`window.box = undefined; f.contentWindow.frames[0].postMessage({ ask: "box" }, "*")`);
+      await pause(30);
+      box = (await value("window.box")) as typeof box;
+    }
+    for (const t of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type: t, x: box!.x, y: box!.y, button: "left", clickCount: 1 });
+    await until("document.body.dataset.saved");
+    expect(String(await value("document.body.dataset.saved"))).toBe('<details><summary>More</summary><p>Hidden</p></details><ul class="checklist"><li data-checked="true">Milk</li></ul>');
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 

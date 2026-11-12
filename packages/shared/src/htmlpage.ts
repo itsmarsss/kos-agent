@@ -1,5 +1,5 @@
 import { fontById } from "./artifactfonts.js";
-import { ARTIFACT_KINDS, HTML_PAGE_MAX, isArtifactKind, sheetErrors, type ArtifactKind } from "./artifacts.js";
+import { ARTIFACT_KINDS, HTML_PAGE_MAX, ARTIFACT_ID_RE, isArtifactKind, sheetErrors, type ArtifactKind } from "./artifacts.js";
 
 export { HTML_PAGE_MAX };
 import type { MutationTarget } from "./pagespec.js";
@@ -58,8 +58,6 @@ export const RENAME_TITLE_MAX = 120;
 export const RENAME_DESCRIPTION_MAX = 280;
 /** More faces than this is a type specimen, not a design. */
 export const FONTS_MAX = 4;
-
-const ID_RE = /^[a-z][a-z0-9_-]*$/i;
 
 /**
  * Ways a page could try to leave its frame, refused when it is written.
@@ -255,7 +253,7 @@ export function validateHtmlPage(page: unknown): string[] {
   if (typeof page !== "object" || page === null) return ["page must be an object"];
   const p = page as Record<string, unknown>;
   const errors: string[] = [];
-  if (typeof p.id !== "string" || !ID_RE.test(p.id)) errors.push("id must be letters, digits, _ or -, starting with a letter");
+  if (typeof p.id !== "string" || !ARTIFACT_ID_RE.test(p.id)) errors.push("id must be letters, digits, _ or -, starting with a letter");
   if (typeof p.title !== "string" || !p.title.trim()) errors.push("title is required");
   if (typeof p.html !== "string" || !p.html.trim()) errors.push("html is required");
   else if (p.html.length > HTML_PAGE_MAX) errors.push(`html is ${p.html.length} characters; the most is ${HTML_PAGE_MAX}`);

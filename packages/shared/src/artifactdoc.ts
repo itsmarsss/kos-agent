@@ -251,7 +251,7 @@ export const BRIDGE_SCRIPT = `(function(){
 var gestures=new MessageChannel(),gport=gestures.port1,tell=MessagePort.prototype.postMessage,apply=Reflect.apply,listen=EventTarget.prototype.addEventListener;
 top.postMessage({__kos:"gestures"},"*",[gestures.port2]);
 function stamp(e){if(e.isTrusted)apply(tell,gport,[0])}
-apply(listen,window,["pointerdown",stamp,true]);apply(listen,window,["keydown",stamp,true]);
+apply(listen,window,["pointerdown",stamp,true]);apply(listen,window,["pointerup",stamp,true]);apply(listen,window,["keydown",stamp,true]);
 var seq=0,waiting={},themeFns=[],refreshFns=[],mode=document.documentElement.dataset.mode||"dark";
 var root=document.documentElement,fit=${JSON.stringify(FIT_KINDS)}.indexOf(root.dataset.kind||"page")>=0,last=-1,timer=0,retry=0,wait=500,into=Element.prototype.scrollIntoView;
 function inner(){return root.scrollHeight>innerHeight+1}
@@ -304,6 +304,8 @@ writes:function(list){return call("write",{writes:list}).then(function(r){refres
 files:Object.freeze({read:function(path){return call("file",{path:path})}}),
 ask:function(text){return call("ask",{text:String(text)})},
 save:function(edit){return call("save",{edit:edit})},
+mention:function(at){at=at||{};return call("mention",{x:Number(at.x),y:Number(at.y)})},
+open:function(id){return call("open",{id:String(id)})},
 present:function(on){top.postMessage({__kos:"present",on:on!==false},"*")},
 onTheme:function(f){themeFns.push(f)},
 refresh:function(f){refreshFns.push(f)}

@@ -9,16 +9,33 @@
  */
 
 import { DOC_CSS } from "./doc.css.js";
-import { DOC_EDIT_MAX } from "@kos/shared/artifacts";
+import { ARTIFACT_ID_RE, DOC_EDIT_MAX } from "@kos/shared/artifacts";
 
-import { startEditor, type Editor } from "./docedit.js";
+import { ensureTodoBoxes, toggleTodo } from "./docblocks.js";
+import { saveQueue, startEditor, type Editor } from "./docedit.js";
+import { setView } from "./docui.js";
 import { addStyle, editable, el, keepRanges, kos, ready, reducedMotion } from "./runtime.js";
+
+/** Whether a click is the owner's own; a test stands in for the browser here, which alone makes trusted events. */
+export const clicks = { trusted: (e: Event): boolean => e.isTrusted };
+
+/** Where the doc says something to the owner outside editing (the head's status, once the doc can be edited); nowhere until then. */
+let notice: (text: string) => void = () => undefined;
 
 /** How many h2s make a document long enough for a table of contents. */
 export const TOC_MIN = 4;
 
 const GEN = "data-kos-gen";
 const GEN_ID = "data-kos-gen-id";
+const GEN_ATTRS = "data-kos-gen-attrs";
+
+/** Give an element of the agent's an attribute of the runtime's, taken off again before a save. */
+function genAttr(node: Element, name: string, value: string): void {
+  if (node.hasAttribute(name) && !(node.getAttribute(GEN_ATTRS) ?? "").split(" ").includes(name)) return;
+  node.setAttribute(name, value);
+  const names = new Set((node.getAttribute(GEN_ATTRS) ?? "").split(" ").filter(Boolean)).add(name);
+  node.setAttribute(GEN_ATTRS, [...names].join(" "));
+}
 const WRAP = "wrap";
 
 /** A heading's text as an id: lower case, words joined by dashes, unique in the page. */
@@ -43,11 +60,17 @@ export function stripGenerated(root: Element): void {
     if (node.getAttribute(GEN) === WRAP) node.replaceWith(...node.childNodes);
     else node.remove();
   }
+  // Attributes the runtime put on the agent's own elements (a chip's role), named on the element.
+  for (const node of [...root.querySelectorAll(`[${GEN_ATTRS}]`)]) {
+    for (const name of (node.getAttribute(GEN_ATTRS) ?? "").split(" ")) if (name) node.removeAttribute(name);
+    node.removeAttribute(GEN_ATTRS);
+  }
   for (const node of [...root.querySelectorAll(`[${GEN_ID}]`)]) {
     node.removeAttribute("id");
     node.removeAttribute(GEN_ID);
   }
   root.querySelectorAll(".fn-shown").forEach((n) => n.classList.remove("fn-shown"));
+  root.querySelectorAll("[data-kos-ph]").forEach((n) => n.removeAttribute("data-kos-ph"));
 }
 
 /**
@@ -62,6 +85,9 @@ export function cleanDocHtml(article: Element): string {
     node.removeAttribute("contenteditable");
     node.removeAttribute("spellcheck");
   }
+  // The editor's zero-width step out of a mark just typed is no character of the doc's.
+  const walker = copy.ownerDocument.createTreeWalker(copy, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) if ((n as Text).data.includes("\u200b")) (n as Text).data = (n as Text).data.replace(/\u200b/g, "");
   return copy.innerHTML.trim();
 }
 
@@ -98,6 +124,13 @@ export function enhance(article: HTMLElement): Enhanced {
 
   // Ranges of figures stay on one line, unwrapped again before anything is saved or compared.
   keepRanges(article, "h1, h2, h3, h4, .kicker, .lede, th, td, figcaption, li", (span) => span.setAttribute(GEN, WRAP));
+
+  // To-dos get a box to tick, by pointer or by key; a mention of another artifact is a link to it.
+  ensureTodoBoxes(article);
+  for (const chip of article.querySelectorAll(".mention[data-artifact]")) {
+    genAttr(chip, "role", "link");
+    genAttr(chip, "tabindex", "0");
+  }
 
   // Tables scroll inside their own wrapper.
   for (const table of article.querySelectorAll("table")) {
@@ -223,17 +256,19 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
   const bridge = kos();
   if (article.hasAttribute("data-locked") || !editable() || !bridge?.save) return;
   const save = bridge.save.bind(bridge);
+  const queue = saveQueue();
   let enhanced = start();
   let editor: Editor | undefined;
   /** The article as last saved (or as editing began), to put back on Discard; and its clean HTML, to skip a save that changes nothing. */
   let savedInner = "";
-  let last = "";
+  let last = cleanDocHtml(article);
   const state: EditState = { __kos: "edit", editing: false, pending: false, status: "", bad: false };
   const tell = (change: Partial<EditState>): void => {
     Object.assign(state, change);
     top?.postMessage({ ...state }, "*");
   };
   const say = (status: string, bad = false): void => tell({ status, bad });
+  notice = (text) => say(text, true);
   /** The doc as editing began, so leaving redraws its contents and notes only when something changed. */
   let began = "";
   /** Typed into since editing began: even a deleted note number, which the saved text never holds, needs the notes numbered again. */
@@ -242,8 +277,17 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
     if (editor) typed = true;
   });
 
-  const begin = (): void => {
-    if (editor) return;
+  let starting = false;
+  const begin = async (): Promise<void> => {
+    if (editor || starting) return;
+    // A tick still waiting is kept first, so the snapshot editing starts from is the doc as saved with it.
+    if (unkept || tickBusy) {
+      starting = true;
+      if (unkept) await flushTicks();
+      else await ticking;
+      starting = false;
+      if (editor) return;
+    }
     // What the runtime added stays, and is never typed into; the save takes it out again (cleanDocHtml).
     article.querySelectorAll(".fn-ref").forEach((ref) => ref.setAttribute("contenteditable", "false"));
     savedInner = article.innerHTML;
@@ -254,6 +298,7 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
     document.documentElement.setAttribute("data-editing", "");
     article.focus();
     editor = startEditor(article, {
+      queue,
       say,
       onPending: (pending) => tell({ pending }),
       // An edit that changes nothing is no version; the server refuses one anyway. One too long would only be refused.
@@ -283,7 +328,12 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
     tell({ editing: false, pending: false });
   };
   const finish = async (): Promise<void> => {
-    if (!editor) return;
+    // Not editing: Done (or the frame going) waits for a tick still to be kept.
+    if (!editor) {
+      await ticking;
+      if (unkept) await flushTicks();
+      return;
+    }
     if (await editor.stop()) leave();
   };
   const discard = (): void => {
@@ -295,15 +345,72 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
     say("Changes since the last save were put back");
   };
   const act = (action: EditAction): void => {
-    if (action === "edit") begin();
+    if (action === "edit") void begin();
     else if (action === "done") void finish();
     else if (action === "discard") discard();
     else if (editor) {
       article.focus();
-      document.execCommand(action);
-      article.dispatchEvent(new InputEvent("input", { inputType: action === "undo" ? "historyUndo" : "historyRedo" }));
+      editor[action]();
     }
   };
+  // Reading, a to-do is ticked where it is and kept at once: the tick goes onto the doc as last saved, never the live article
+  // (a toggle opened, a chart drawn into it), in the same line of saves as editing's.
+  /** A tick made while reading and not yet kept. */
+  let unkept = false;
+  let ticking: Promise<boolean> = Promise.resolve(true);
+  /** A tick's save waiting its turn or out. */
+  let tickBusy = false;
+  const flushTicks = (): Promise<boolean> => {
+    tickBusy = true;
+    const run = (ticking = queue.run(async () => {
+      unkept = false;
+      const base = document.createElement("template");
+      base.innerHTML = last;
+      const items = [...base.content.querySelectorAll("ul.checklist > li")];
+      const live = [...article.querySelectorAll("ul.checklist > li")];
+      if (items.length !== live.length) {
+        tell({ pending: false });
+        say("Not saved: the doc changed since it was drawn; reload it to tick this", true);
+        return false;
+      }
+      // Every item's state as it stands, so a tick a refused save left behind goes with the next.
+      live.forEach((li, i) => items[i]!.setAttribute("data-checked", li.getAttribute("data-checked") === "true" ? "true" : "false"));
+      const html = base.innerHTML;
+      if (html === last) {
+        tell({ pending: unkept });
+        return true;
+      }
+      say("Saving…");
+      return save({ doc: html }).then(
+        () => {
+          last = html;
+          tell({ pending: unkept });
+          say("Saved");
+          return true;
+        },
+        (err: unknown) => {
+          unkept = true;
+          tell({ pending: true });
+          say(`Not saved: ${err instanceof Error ? err.message : String(err)}`, true);
+          return false;
+        },
+      );
+    }, () => !unkept));
+    void run.finally(() => {
+      if (ticking === run) tickBusy = false;
+    });
+    return run;
+  };
+  article.addEventListener("click", (e) => {
+    const box = editor || !clicks.trusted(e) ? null : (e.target as Element).closest?.(".todo-box");
+    if (!box || !article.contains(box)) return;
+    e.preventDefault();
+    toggleTodo(box.parentElement!);
+    ensureTodoBoxes(article);
+    unkept = true;
+    tell({ pending: true });
+    void flushTicks();
+  });
   // A note's number, while editing, opens its text in the line to edit, and closes it again.
   article.addEventListener(
     "click",
@@ -343,6 +450,7 @@ function followView(): void {
   addEventListener("message", (e) => {
     const m = (e.data ?? {}) as { __kos?: string; top?: unknown; height?: unknown };
     if (e.source !== top || m.__kos !== "view" || typeof m.top !== "number" || typeof m.height !== "number") return;
+    setView(m.top, m.height);
     const toc = document.querySelector<HTMLElement>(".doc-toc");
     if (!toc) return;
     if (!matchMedia("(min-width: 1100px)").matches) {
@@ -364,8 +472,22 @@ export function startDoc(): void {
   if (!article) return;
   const start = (): Enhanced => enhance(article);
   followView();
-  if (article.hasAttribute("data-locked") || !editable()) start();
-  else editing(article, start);
+  // A mention opens what it names, in the dashboard, which knows where that is; never while its words are being edited.
+  const open = (e: Event): void => {
+    const chip = (e.target as Element).closest?.(".mention[data-artifact]");
+    if (!chip || article.getAttribute("contenteditable") === "true") return;
+    if (e instanceof KeyboardEvent && e.key !== "Enter") return;
+    e.preventDefault();
+    const id = chip.getAttribute("data-artifact") ?? "";
+    // A refused open is said quietly in the head, where the doc's status goes.
+    if (ARTIFACT_ID_RE.test(id)) void kos()?.open?.(id).catch((err: unknown) => notice(`Not opened: ${err instanceof Error ? err.message : String(err)}`));
+  };
+  article.addEventListener("click", open);
+  article.addEventListener("keydown", open);
+  if (article.hasAttribute("data-locked") || !editable()) {
+    start();
+    article.querySelectorAll(".todo-box").forEach((b) => b.setAttribute("disabled", ""));
+  } else editing(article, start);
 }
 
 // Inlined in a frame it runs as a script; imported by a test it waits to be called.

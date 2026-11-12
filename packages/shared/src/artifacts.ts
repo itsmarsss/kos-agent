@@ -131,6 +131,9 @@ export type ArtifactEdit = { doc: string } | { sheet: SheetBook };
 const COLUMN_TYPES: readonly SheetColumnType[] = ["text", "number", "currency", "percent", "date", "bool"];
 const AGGREGATES: readonly SheetAggregate[] = ["sum", "average", "min", "max", "count"];
 /** Large enough for a rich page with inlined data, small enough to keep the frame quick. */
+/** An artifact's id: letters, digits, _ or -, starting with a letter. A doc's mention names one, and the dashboard opens only one so named. */
+export const ARTIFACT_ID_RE = /^[a-z][a-z0-9_-]*$/i;
+
 export const HTML_PAGE_MAX = 400_000;
 
 /** Enough for a real ledger; a bigger one belongs in a project table. */
