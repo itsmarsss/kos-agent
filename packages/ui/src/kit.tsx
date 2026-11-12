@@ -20,7 +20,8 @@ import { ease, useDismiss } from "@kos/kit";
  * every item was a name, then a checkbox on a line of its own, then its
  * description, and four of them read as twelve lines.
  */
-export function FieldRow({ label, hint, badge, meta, className, children }: { label: string; hint?: ReactNode; badge?: ReactNode; meta?: ReactNode; className?: string; children: ReactNode }): ReactElement {
+/** `note` is a line under the hint that a click does not have to open: where the thing stands now (a device's build). */
+export function FieldRow({ label, hint, note, badge, meta, className, children }: { label: string; hint?: ReactNode; note?: ReactNode; badge?: ReactNode; meta?: ReactNode; className?: string; children: ReactNode }): ReactElement {
   // A row's words open on click: a skill's description can run to a
   // paragraph of triggers, and fourteen of those is a wall.
   const [open, setOpen] = useState(false);
@@ -32,6 +33,7 @@ export function FieldRow({ label, hint, badge, meta, className, children }: { la
           {badge}
         </div>
         {hint && <p className="set-hint">{hint}</p>}
+        {note && <p className="set-hint set-hint--open">{note}</p>}
         {open && meta}
       </button>
       <div className="set-field-control">{children}</div>

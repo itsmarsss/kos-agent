@@ -200,19 +200,15 @@ function DeviceRow({ device, onChanged }: { device: PairedDevice; onChanged: () 
       {update && <Pill tone={update.tone}>{update.pill}</Pill>}
     </>
   );
-  const hint = device.online ? (
+  // Its build and where that stands, never folded away: the reason is what the owner acts on.
+  const note = device.online && (
     <>
-      {describeDevice(device)}
-      <span className="device-build">
-        {[buildWords(device.build), update?.why].filter(Boolean).join(" · ")}
-        {device.update?.command && <code>{device.update.command}</code>}
-      </span>
+      {[buildWords(device.build), update?.why].filter(Boolean).join(" · ")}
+      {device.update?.command && <code className="device-command">{device.update.command}</code>}
     </>
-  ) : (
-    describeDevice(device)
   );
   return (
-    <FieldRow label={device.name} badge={badge} hint={hint}>
+    <FieldRow label={device.name} badge={badge} hint={describeDevice(device)} note={note || undefined}>
       {name !== null ? (
         <input
           className="kos-input"
