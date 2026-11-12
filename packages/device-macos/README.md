@@ -17,8 +17,11 @@ built (`pnpm build` at the root): each build is stamped with its build id
 ./scripts/test.sh              # the protocol, session and input rules, and every window drawn
 ```
 
-`--install` quits the running copy with a SIGTERM, which the app takes as
-Quit, so the script asks macOS for nothing when KOS runs it. KOS does, on
+`--install` (`scripts/install.sh`) copies the new app in beside the old,
+quits the running copy with a SIGTERM, which the app takes as Quit, and
+renames the new one into place, so a stop at any point leaves an app
+installed; one that does not quit within ten seconds is left as it is, and
+the script fails saying so. It asks macOS for nothing when KOS runs it. KOS does, on
 this Mac, when it has a newer build than the one running here and the app is
 idle, as long as your signing key (below) is set up; until it is, the window
 says an update is ready and how to set the key up, and Settings, Devices in

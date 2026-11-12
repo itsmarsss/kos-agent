@@ -45,22 +45,5 @@ else
 fi
 
 if [[ "${1:-}" == "--install" ]]; then
-  INSTALLED="$HOME/Applications/KOS for Mac.app"
-  # A running copy keeps its old code until it quits: quit it and wait until it has, then open the new one.
-  # Told with a signal, which it takes as Quit: an Apple Event would ask the owner's leave when KOS runs this.
-  # The app was KOS Device before; that copy goes too, or two would hold the same pairings.
-  for OLD in "$INSTALLED" "$HOME/Applications/KOS Device.app"; do
-    if pgrep -qf "$OLD/Contents/MacOS/"; then
-      pkill -TERM -f "$OLD/Contents/MacOS/" || true
-      for _ in {1..50}; do
-        pgrep -qf "$OLD/Contents/MacOS/" || break
-        sleep 0.2
-      done
-    fi
-    rm -rf "$OLD"
-  done
-  mkdir -p "$HOME/Applications"
-  cp -R "$APP" "$HOME/Applications/"
-  open "$INSTALLED"
-  echo "Installed to ~/Applications/KOS for Mac.app and opened it"
+  scripts/install.sh "$APP"
 fi
