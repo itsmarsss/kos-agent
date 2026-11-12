@@ -161,6 +161,12 @@ export class DeviceStore {
     return { device: row.device, build: row.build, ...(row.from_build ? { from: row.from_build } : {}), outcome: row.outcome, ...(row.detail ? { detail: row.detail } : {}), at: row.at };
   }
 
+  /** Every attempt that got as far as this, for every device. */
+  attemptsAt(outcome: UpdateOutcome): UpdateAttempt[] {
+    const rows = this.db.prepare(`SELECT device, build FROM device_updates WHERE outcome = ?`).all(outcome) as { device: string; build: string }[];
+    return rows.map((r) => this.attempt(r.device, r.build)!);
+  }
+
   /** Where updating a device to a build got; `from` is kept from the first word of it. */
   setAttempt(attempt: { device: string; build: string; from?: string; outcome: UpdateOutcome; detail?: string }): void {
     this.db

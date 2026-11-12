@@ -14,7 +14,7 @@ import { BUILD_SOURCES, stampOf, type BuildKind } from "./builds.js";
 const root = fileURLToPath(new URL("../../..", import.meta.url));
 const [kind, out] = process.argv.slice(2);
 
-if (!kind || !(kind in BUILD_SOURCES)) {
+if (!kind || !Object.hasOwn(BUILD_SOURCES, kind)) {
   console.error(`usage: stamp.js <${Object.keys(BUILD_SOURCES).join("|")}> [file]`);
   process.exit(2);
 }

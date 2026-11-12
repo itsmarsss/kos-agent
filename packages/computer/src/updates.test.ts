@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import type { Build, BuildKind } from "./builds.js";
 import { FakeDevice } from "./device.fixture.js";
 import { DeviceHub } from "./hub.js";
-import { rawPublicKey } from "./keys.js";
+import { hereProof, rawPublicKey } from "./keys.js";
 import { deviceRoutes, PREFIX } from "./routes.js";
 import { DeviceStore } from "./store.js";
 import { decide, DeviceUpdates, type DecideInput, type MacInstaller } from "./updates.js";
@@ -72,9 +72,12 @@ describe("deciding a device's update", () => {
 });
 
 /** A hub with updates on, a stub installer, and devices to connect as KOS for Chrome, KOS for Mac and KOS for iPhone would. */
-function setup(over: { signed?: boolean; install?: () => Promise<boolean>; idle?: () => boolean; want?: Partial<Record<BuildKind, Build>> } = {}) {
-  const store = new DeviceStore(openDatabase(":memory:"));
-  const hub = new DeviceHub({ store, hostKey, halted: () => false, log: () => undefined });
+type Installed = { ok: true } | { ok: false; why: string };
+
+function setup(over: { signed?: boolean; install?: () => Promise<Installed>; idle?: () => boolean; want?: Partial<Record<BuildKind, Build>>; store?: DeviceStore } = {}) {
+  const store = over.store ?? new DeviceStore(openDatabase(":memory:"));
+  const localKey = Buffer.alloc(32, 7);
+  const hub = new DeviceHub({ store, hostKey, halted: () => false, log: () => undefined, localKey });
   const audits: AuditEntry[] = [];
   const installs: string[] = [];
   const want: Partial<Record<BuildKind, Build>> = { chrome: NEW, mac: NEW, phone: NEW, ...over.want };
@@ -83,11 +86,12 @@ function setup(over: { signed?: boolean; install?: () => Promise<boolean>; idle?
     install: async (line) => {
       installs.push("install");
       line("Built build/KOS for Mac.app");
-      return over.install ? over.install() : true;
+      return over.install ? over.install() : { ok: true };
     },
     commands: { signing: "cd app && scripts/signing.sh setup", install: "cd app && scripts/bundle.sh --install" },
   };
-  const updates = new DeviceUpdates({ hub, store, expected: (k) => want[k], mac, idle: over.idle ?? (() => true), audit: (e) => audits.push(e), log: () => undefined });
+  const hashed: BuildKind[] = [];
+  const updates = new DeviceUpdates({ hub, store, expected: (k, fresh) => (fresh && hashed.push(k), want[k]), mac, idle: over.idle ?? (() => true), audit: (e) => audits.push(e), log: () => undefined });
   updates.start();
   const pair = (platform: string, name: string): FakeDevice => {
     const fake = new FakeDevice();
@@ -95,17 +99,17 @@ function setup(over: { signed?: boolean; install?: () => Promise<boolean>; idle?
     fake.id = hub.pair({ code, name, platform, publicKey: fake.publicKey }).device;
     return fake;
   };
-  /** The device's line, opened from this computer unless said otherwise, with the build it says it runs. */
-  const connect = async (fake: FakeDevice, build: Build | undefined, local = true): Promise<FakeDevice> => {
+  /** The device's line, opened from this computer unless said otherwise, with the build it says it runs; a Mac proves it is here. */
+  const connect = async (fake: FakeDevice, build: Build | undefined, local = true, more: Record<string, unknown> = {}): Promise<FakeDevice> => {
     const again = new FakeDevice(fake.id, fake.key);
     hub.accept(again.socket, { local });
-    again.hello(build ? { build } : {});
+    again.hello({ ...(build ? { build } : {}), here: hereProof(localKey, again.challenged!, fake.id), ...more });
     await settle();
     await settle();
     return again;
   };
   const outcomes = () => audits.map((a) => a.args["outcome"]);
-  return { store, hub, updates, audits, installs, pair, connect, outcomes, want };
+  return { store, hub, updates, audits, installs, pair, connect, outcomes, want, hashed };
 }
 
 describe("KOS for Chrome behind", () => {
@@ -141,6 +145,18 @@ describe("KOS for Chrome behind", () => {
     expect(again.updates.at(-1)).toMatchObject({ action: "reload", force: true });
     again.event("update.state", { build: NEW.id, state: "reloading" });
     expect(audits.at(-1)).toMatchObject({ args: { kind: "chrome", outcome: "reloading", by: "owner" } });
+  });
+
+  it("spends a forced reload on the line it was told on: a reload whose word was lost is not forced again", async () => {
+    const { pair, connect, updates } = setup();
+    const chrome = pair("chrome", "Chrome");
+    const line = await connect(chrome, OLD);
+    await updates.updateNow(chrome.id);
+    expect(line.updates.at(-1)).toMatchObject({ force: true });
+    line.drop();
+    const back = await connect(chrome, OLD);
+    expect(back.updates.at(-1)).toMatchObject({ action: "reload" });
+    expect(back.updates.at(-1)).not.toHaveProperty("force");
   });
 
   it("is told again on a new line until it reloads: a line that dropped before it was idle is not a reload", async () => {
@@ -211,11 +227,11 @@ describe("KOS for Mac behind", () => {
   });
 
   it("whose build fails says why and is not tried again on its own", async () => {
-    const { pair, connect, installs, updates } = setup({ install: async () => false });
+    const { pair, connect, installs, updates } = setup({ install: async () => ({ ok: false, why: "codesign failed" }) });
     const mac = pair("macos", "Studio");
     const line = await connect(mac, OLD);
     await settle();
-    expect(updates.statusOf(mac.id)).toEqual({ state: "behind", build: NEW, reason: "failed", detail: "Built build/KOS for Mac.app", command: "cd app && scripts/bundle.sh --install" });
+    expect(updates.statusOf(mac.id)).toEqual({ state: "behind", build: NEW, reason: "failed", detail: "codesign failed", command: "cd app && scripts/bundle.sh --install" });
     expect(line.updates.at(-1)).toMatchObject({ reason: "failed", command: "cd app && scripts/bundle.sh --install" });
     updates.poke();
     await connect(mac, OLD);
@@ -246,15 +262,79 @@ describe("KOS for Mac behind", () => {
   });
 
   it("installs one at a time", async () => {
-    let finish: (ok: boolean) => void = () => undefined;
+    let finish: (ok: Installed) => void = () => undefined;
     const { pair, connect, installs } = setup({ install: () => new Promise((r) => (finish = r)) });
     await connect(pair("macos", "One"), OLD);
     await connect(pair("macos", "Two"), OLD);
     expect(installs).toEqual(["install"]);
-    finish(true);
+    finish({ ok: true });
     await settle();
     await settle();
     expect(installs).toEqual(["install", "install"]);
+  });
+});
+
+describe("an update cut short, or overtaken", () => {
+  it("is failed at start when a restart cut its install off, and Update now tries it again", async () => {
+    const store = new DeviceStore(openDatabase(":memory:"));
+    const first = setup({ store });
+    const mac = first.pair("macos", "Studio");
+    store.setAttempt({ device: mac.id, build: NEW.id, from: OLD.id, outcome: "installing" });
+    first.updates.stop();
+    // The next process: nothing of its own is installing.
+    const next = setup({ store });
+    expect(store.attempt(mac.id, NEW.id)).toMatchObject({ outcome: "failed", detail: "KOS restarted during the install" });
+    expect(next.audits[0]).toMatchObject({ args: { kind: "mac", outcome: "failed" }, result: "failed: KOS restarted during the install" });
+    await next.connect(mac, OLD);
+    expect(next.updates.statusOf(mac.id)).toMatchObject({ reason: "failed", detail: "KOS restarted during the install" });
+    await next.updates.updateNow(mac.id);
+    await settle();
+    expect(next.installs).toEqual(["install"]);
+  });
+
+  it("lets Update now clear an install this process does not run, and not one it does", async () => {
+    let finish: (ok: Installed) => void = () => undefined;
+    const { pair, connect, updates, installs, store } = setup({ install: () => new Promise((r) => (finish = r)) });
+    const mac = pair("macos", "Studio");
+    await connect(mac, OLD);
+    expect(installs).toEqual(["install"]);
+    await updates.updateNow(mac.id);
+    expect(store.attempt(mac.id, NEW.id)?.outcome).toBe("installing");
+    expect(installs).toEqual(["install"]);
+    finish({ ok: true });
+  });
+
+  it("hashes the Mac's sources again before it installs, and builds nothing when they are what runs", async () => {
+    const t = setup();
+    const mac = t.pair("macos", "Studio");
+    // The owner built and installed by hand from newer sources; KOS's start-time hash is out of date.
+    const handBuilt: Build = { id: "000000000003", commit: "" };
+    const line = await t.connect(mac, OLD);
+    expect(t.hashed).toContain("mac");
+    expect(t.installs).toEqual(["install"]);
+    line.drop();
+    t.want.mac = handBuilt;
+    await t.connect(mac, handBuilt);
+    expect(t.updates.statusOf(mac.id)).toEqual({ state: "current", build: handBuilt });
+    expect(t.installs).toEqual(["install"]);
+  });
+});
+
+describe("where a device runs", () => {
+  it("is not this computer for a Mac on loopback that cannot prove it, nor for a line a proxy passed on", async () => {
+    const { pair, connect, updates, installs } = setup();
+    const mac = pair("macos", "Behind a proxy");
+    await connect(mac, OLD, true, { here: "bm90IHRoZSBwcm9vZg==" });
+    expect(updates.statusOf(mac.id)).toMatchObject({ reason: "remote" });
+    expect(installs).toEqual([]);
+  });
+
+  it("knows a Chrome installed from the store updates through Chrome, not KOS", async () => {
+    const { pair, connect, updates } = setup();
+    const chrome = pair("chrome", "Store Chrome");
+    const line = await connect(chrome, OLD, true, { install: "normal" });
+    expect(updates.statusOf(chrome.id)).toEqual({ state: "behind", build: NEW, reason: "store" });
+    expect(line.updates.every((u) => u.action === undefined)).toBe(true);
   });
 });
 

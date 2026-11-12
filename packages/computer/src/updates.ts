@@ -23,11 +23,11 @@ export type UpdateState = "current" | "behind" | "updating" | "unknown";
 /**
  * Why a device is where it is: KOS has no build of its own to hand it, the
  * app says no build (stamped before builds were), it runs on another
- * computer, it is waiting for an idle window, KOS for Mac's signing is not
+ * computer, it is a Chrome installed from the store (Chrome updates it), it is waiting for an idle window, KOS for Mac's signing is not
  * set up, an iPhone needs Xcode, the owner turned updates off, or the last
  * try failed or left it behind.
  */
-export type UpdateReason = "unbuilt" | "unstamped" | "remote" | "idle" | "signing" | "xcode" | "off" | "failed" | "stuck";
+export type UpdateReason = "unbuilt" | "unstamped" | "remote" | "store" | "idle" | "signing" | "xcode" | "off" | "failed" | "stuck";
 
 export interface UpdateStatus {
   state: UpdateState;
@@ -61,6 +61,8 @@ export interface DecideInput {
   signed?: boolean;
   /** KOS for Mac: no session, ask or turn on it. */
   idle?: boolean;
+  /** KOS for Chrome: how Chrome says it was installed; only `development` (Load unpacked) reloads into new code. */
+  install?: string;
 }
 
 export interface Decision {
@@ -81,6 +83,7 @@ export function decide(i: DecideInput): Decision {
   if (!i.running && !rebuildable) return none({ state: "unknown", build: want, reason: "unstamped" });
   if (i.running?.id === want.id) return none({ state: "current", build: want });
   if (i.kind === "phone") return behind("xcode");
+  if (i.kind === "chrome" && i.install !== undefined && i.install !== "development") return behind("store");
   if (!i.local) return behind("remote");
   const outcome = i.attempt?.outcome;
   if (outcome && IN_FLIGHT.has(outcome)) return none({ state: "updating", build: want });
@@ -100,8 +103,8 @@ export function decide(i: DecideInput): Decision {
 export interface MacInstaller {
   /** Whether the owner's signing key is set up (scripts/signing.sh identity). */
   signed(): Promise<boolean>;
-  /** Build and swap in the app; each line of its output is told as it comes. True when it finished. */
-  install(line: (text: string) => void): Promise<boolean>;
+  /** Build and swap in the app; each line of its output is told as it comes. Why it did not, in the owner's words. */
+  install(line: (text: string) => void): Promise<{ ok: true } | { ok: false; why: string }>;
   /** What the owner runs by hand: to set signing up, and to update it themselves. */
   commands: { signing: string; install: string };
 }
@@ -109,8 +112,8 @@ export interface MacInstaller {
 export interface UpdatesDeps {
   hub: DeviceHub;
   store: DeviceStore;
-  /** The build KOS would hand an app now, from what is on disk; undefined when it has none. */
-  expected(kind: BuildKind): Build | undefined;
+  /** The build KOS would hand an app now, from what is on disk; `fresh` hashes the sources again. Undefined when it has none. */
+  expected(kind: BuildKind, fresh?: boolean): Build | undefined;
   /** Absent where KOS for Mac cannot be rebuilt (not a Mac checkout). */
   mac?: MacInstaller;
   /** No session, ask or turn on the device. */
@@ -129,8 +132,6 @@ export function buildKindOf(device: { platform: string }): BuildKind | undefined
 
 /** How long a signing check is believed: it runs a command, and is asked on every idle change. */
 const SIGNED_FOR_MS = 60_000;
-/** As much of a failed build's output as is kept to say why. */
-const TAIL_LINES = 20;
 
 export class DeviceUpdates {
   /** Each device's status as last decided, and the frame it was last told, so a change is told once. */
@@ -138,8 +139,9 @@ export class DeviceUpdates {
   private readonly told = new Map<string, string>();
   /** Devices whose owner pressed Update now, for the build they asked for: it waits for an idle window as any other. */
   private readonly asked = new Map<string, string>();
-  /** KOS for Mac installs one at a time. */
+  /** KOS for Mac installs one at a time; those this process runs, by device and build. */
   private installs: Promise<void> = Promise.resolve();
+  private readonly installing = new Set<string>();
   private signedAt = 0;
   private signedWas = false;
   private readonly offs: (() => void)[] = [];
@@ -149,6 +151,13 @@ export class DeviceUpdates {
   /** Compare each device as it connects, hear Chromes say they reload, and look again whenever a device may have gone idle. */
   start(): void {
     const { hub } = this.deps;
+    // An install no process here runs was cut off by a restart: it is over, and says why.
+    for (const attempt of this.deps.store.attemptsAt("installing")) {
+      if (this.installing.has(`${attempt.device}\n${attempt.build}`)) continue;
+      const found = this.deps.store.get(attempt.device);
+      const kind = found && buildKindOf(found);
+      if (kind) this.settle(attempt.device, kind, attempt, "failed", "KOS restarted during the install");
+    }
     this.offs.push(
       hub.onConnected((device) => void this.connected(device)),
       hub.onDeviceEvent((device, event) => {
@@ -167,7 +176,7 @@ export class DeviceUpdates {
     return this.deps.hub.lineOf(device) ? this.statuses.get(device) : undefined;
   }
 
-  /** The owner's Update now: the build is tried again, past the once-per-build guard and the signing rule. */
+  /** The owner's Update now: the build is tried again, past the once-per-build guard and the signing rule; only an install running now stands. */
   async updateNow(device: string): Promise<UpdateStatus | undefined> {
     const found = this.deps.store.get(device);
     const kind = found && buildKindOf(found);
@@ -175,7 +184,7 @@ export class DeviceUpdates {
     if (!want) return this.check(device);
     this.asked.set(device, want.id);
     const attempt = this.deps.store.attempt(device, want.id);
-    if (attempt && !IN_FLIGHT.has(attempt.outcome)) this.deps.store.clearAttempt(device, want.id);
+    if (attempt && !this.installing.has(`${device}\n${want.id}`)) this.deps.store.clearAttempt(device, want.id);
     return this.check(device);
   }
 
@@ -189,9 +198,12 @@ export class DeviceUpdates {
     this.told.delete(device);
     const found = this.deps.store.get(device);
     const kind = found && buildKindOf(found);
-    const want = kind && this.deps.expected(kind);
     const running = this.deps.hub.lineOf(device)?.build;
+    // A Mac back on another build than KOS's: the owner may have built one by hand from newer sources.
+    const want = kind && this.deps.expected(kind, kind === "mac" && running !== undefined && running.id !== this.deps.expected(kind)?.id);
     const attempt = want && this.deps.store.attempt(device, want.id);
+    // A forced reload told, then a new line: whatever came of it, the owner's ask was spent on that one.
+    if (attempt?.outcome === "told") this.asked.delete(device);
     if (kind && want && attempt) {
       if (running?.id === want.id && attempt.outcome !== "updated") this.settle(device, kind, attempt, "updated");
       // Reloaded or reinstalled, and still not the build: tried once, and left for the owner.
@@ -216,6 +228,7 @@ export class DeviceUpdates {
       auto: store.settings().autoUpdate,
       owner,
       ...(line.build ? { running: line.build } : {}),
+      ...(line.install ? { install: line.install } : {}),
       ...(want ? { want } : {}),
     };
     if (mac && input.local && want && line.build?.id !== want.id) {
@@ -234,11 +247,15 @@ export class DeviceUpdates {
       // The owner's ask stands until the Chrome says it reloads: told again on a new line, it is still theirs.
       this.tell(device, status, { action: "reload", ...(owner ? { force: true } : {}) });
     } else if (action === "install" && want) {
+      // The sources hashed again first: what the owner built meanwhile may already be what is installed.
+      if (this.deps.expected(kind, true)?.id !== want.id) return this.check(device);
       this.asked.delete(device);
+      const key = `${device}\n${want.id}`;
+      this.installing.add(key);
       store.setAttempt({ device, build: want.id, ...(line.build ? { from: line.build.id } : {}), outcome: "installing" });
       this.tell(device, status);
       this.audit(device, kind, line.build?.id, want.id, "installing", owner);
-      this.installs = this.installs.then(() => this.install(device, kind, want));
+      this.installs = this.installs.then(() => this.install(device, kind, want)).finally(() => this.installing.delete(key));
     } else this.tell(device, status);
     return status;
   }
@@ -259,21 +276,16 @@ export class DeviceUpdates {
 
   /** Rebuild and reinstall KOS for Mac, its output in the host's log; what came of it is decided when it connects again. */
   private async install(device: string, kind: BuildKind, want: Build): Promise<void> {
-    const tail: string[] = [];
-    let ok = false;
+    let result: { ok: true } | { ok: false; why: string };
     try {
-      ok = await this.deps.mac!.install((text) => {
-        this.deps.log?.(`devices: KOS for Mac update: ${text}`);
-        tail.push(text);
-        if (tail.length > TAIL_LINES) tail.shift();
-      });
+      result = await this.deps.mac!.install((text) => this.deps.log?.(`devices: KOS for Mac update: ${text}`));
     } catch (err) {
-      tail.push(err instanceof Error ? err.message : String(err));
+      result = { ok: false, why: err instanceof Error ? err.message : String(err) };
     }
     // Settled already when the new app came back on its line before the script finished.
     const attempt = this.deps.store.attempt(device, want.id);
     if (attempt?.outcome !== "installing") return void (await this.check(device));
-    if (!ok) this.settle(device, kind, attempt, "failed", tail.filter((l) => l.trim()).at(-1) ?? "the build stopped");
+    if (!result.ok) this.settle(device, kind, attempt, "failed", result.why);
     else this.deps.store.setAttempt({ device, build: want.id, outcome: "installed" });
     await this.check(device);
   }
