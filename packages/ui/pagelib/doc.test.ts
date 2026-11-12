@@ -418,6 +418,31 @@ describe("kos-doc", () => {
     expect(cleanDocHtml(article)).toBe('<p>See <span class="mention" data-artifact="deck-one">Deck one</span> </p>');
   });
 
+  it("takes the zero-width step past a chip out on Backspace, so the browser's Backspace takes what shows", () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn() };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const article = mount(`<p>See <span class="mention" data-artifact="deck-one">Deck one</span> \u200b</p><p><span class="mention" data-artifact="deck-two">Deck two</span>\u200b</p>`);
+    startDoc();
+    press("edit");
+    const backspace = (node: Text, offset: number): boolean => {
+      getSelection()!.collapse(node, offset);
+      return article.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }));
+    };
+    // After a chip and its space: the step goes, the caret stands after the space, and the key is left to the browser.
+    const [first, second] = [...article.querySelectorAll("p")].map((p) => p.lastChild as Text);
+    expect(backspace(first!, 2)).toBe(true);
+    expect(first!.data).toBe(" ");
+    expect([getSelection()!.anchorNode, getSelection()!.anchorOffset]).toEqual([first, 1]);
+    // Right after a chip at a line's end: the caret stands against the chip, which the browser's Backspace then takes whole.
+    expect(backspace(second!, 1)).toBe(true);
+    expect(second!.data).toBe("");
+    expect(getSelection()!.anchorNode!.previousSibling).toBe(article.querySelectorAll(".mention")[1]);
+    // An ordinary character before the caret is left alone.
+    first!.data = " x";
+    backspace(first!, 2);
+    expect(first!.data).toBe(" x");
+  });
+
   it("says quietly in the head when an open was refused", async () => {
     const told = vi.spyOn(window, "postMessage");
     (window as { kos?: unknown }).kos = { save: vi.fn(), open: vi.fn().mockRejectedValue(new Error("there is no artifact by that id")) };

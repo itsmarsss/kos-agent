@@ -1039,6 +1039,7 @@ export function startEditor(article: HTMLElement, { save, say, onPending, queue 
     }
     if (picked.length) return pickedKey(e, mod, k);
     const sel = getSelection();
+    if (e.key === "Backspace" && !mod && !e.altKey && !e.isComposing) stepOverZeroWidth(sel);
     const caret = caretOf(sel);
     const block = caret ? blockOf(article, caret.node) : undefined;
     if (mod && e.shiftKey && (k === "ArrowUp" || k === "ArrowDown")) {
@@ -1096,6 +1097,21 @@ export function startEditor(article: HTMLElement, { save, say, onPending, queue 
     }
     if (e.key === "Tab" && !mod) return tab(e, block, caret);
   };
+  /**
+   * The zero-width step a caret stands on past a chip or a mark is no
+   * character the owner sees: Backspace takes it out first, so the browser's
+   * own Backspace then takes what shows before it (the space, or the chip).
+   */
+  function stepOverZeroWidth(sel: Selection | null): void {
+    const node = sel?.isCollapsed ? sel.anchorNode : null;
+    if (!(node instanceof Text) || !article.contains(node)) return;
+    const end = sel!.anchorOffset;
+    let start = end;
+    while (start > 0 && node.data[start - 1] === "\u200b") start--;
+    if (start === end) return;
+    node.deleteData(start, end - start);
+    sel!.collapse(node, start);
+  }
   /** The paragraph or summary inside a callout, toggle or quote the caret is in, or the block. */
   const innerOf = (block: HTMLElement, caret: Caret): HTMLElement => {
     if (!block.matches("aside, details, blockquote")) return block;
