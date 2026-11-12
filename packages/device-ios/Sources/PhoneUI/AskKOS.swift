@@ -6,7 +6,7 @@
   /// app, which it opens, and only asks it to listen: it carries no words, so nothing is said for the owner.
   public struct AskKOS: AppIntent {
     public static let title: LocalizedStringResource = "Ask KOS"
-    public static let description = IntentDescription("Opens KOS listening, so you can speak to it at once.")
+    public static let description: IntentDescription? = IntentDescription("Opens KOS listening, so you can speak to it at once.")
     public static let openAppWhenRun = true
 
     public init() {}
