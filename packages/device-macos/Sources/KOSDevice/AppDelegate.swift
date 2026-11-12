@@ -27,12 +27,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var lines: [String: Connection] = [:]
   /// What each KOS was last told about this Mac.
   private var lastState: [String: DeviceState] = [:]
+  /// Each KOS's word on this app's build, by its device id.
+  private var updates: [String: UpdateNotice] = [:]
+  /// This app's build, from the stamp bundle.sh put in it; none from `swift run`.
+  private let build = Build.stamped()
   private var stateTimer: Timer?
+  /// Quits as the menu's Quit does when told to stop: bundle.sh swaps a new build in that way, with no Apple Event to ask leave for.
+  private var terminator: DispatchSourceSignal?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSAppleEventManager.shared().setEventHandler(
       self, andSelector: #selector(openURL(_:reply:)),
       forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+
+    signal(SIGTERM, SIG_IGN)
+    terminator = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+    terminator?.setEventHandler { NSApp.terminate(nil) }
+    terminator?.resume()
 
     controller.send = { [unowned self] origin, message in lines[origin]?.send(message) }
     controller.onChange = { [unowned self] in changed() }
@@ -74,6 +85,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       home.refreshSystem()
     }
     model.actions.openLoginItems = { LaunchAtLogin.openLoginItems() }
+    model.actions.dismissUpdate = { [unowned self] in
+      settings.dismissedUpdate = home.model.update?.key
+      changed()
+    }
+    model.actions.copyCommand = { [unowned self] command in copy(command) }
     menu.onExtend = { [unowned self] in controller.extend() }
     menu.onConnect = { [unowned self] in
       for id in lines.keys where lines[id]?.status == .disconnected { connect(id) }
@@ -117,7 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       }
     }
 
-    Log.app.notice("launched, version \(AppInfo.mac.version, privacy: .public)")
+    Log.app.notice("launched, version \(AppInfo.mac.version, privacy: .public), build \(self.build?.id ?? "unstamped", privacy: .public)")
     loadPairings()
     changed()
     // Nothing to do until it is paired and granted: say so, once, at launch.
@@ -172,7 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// A new line to one KOS, answering for that KOS alone.
   private func line(for paired: Pairing) -> Connection {
     let id = paired.deviceId
-    let line = Connection(log: Log.line, app: .mac)
+    let line = Connection(log: Log.line, app: .mac, build: build)
     line.state = { [unowned self] in currentState(for: id) }
     // The chat's calls carry the chat, not the computer: they go to the window, every other call to the controller.
     line.onCall = { [unowned self] call in
@@ -186,6 +202,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     line.onTheme = { [unowned self] theme in
       if settings.keep(theme: theme, of: id) { changed() }
+    }
+    line.onUpdate = { [unowned self] notice in
+      updates[id] = notice
+      changed()
     }
     line.onStatus = { [unowned self] status in
       if case .connected = status { lastState[id] = currentState(for: id) }
@@ -266,6 +286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       if sayRemoved { line.stop() } else { line.unpair {} }
     }
     lastState[id] = nil
+    updates[id] = nil
     pairings = Pairings.removing(id, from: pairings)
     settings.forget(kos: id)
     FaceStore.forget(id)
@@ -321,6 +342,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         id: paired.deviceId, host: Self.name(paired), dashboard: try? paired.kosAddress().base, deviceName: deviceName,
         link: Self.link(status), askFirst: settings.askFirst(for: paired.deviceId))
     }
+    // The first KOS's word worth showing that the owner has not put away: only a KOS on this Mac rebuilds it.
+    model.update = pairings.lazy.compactMap { [updates] in updates[$0.deviceId] }
+      .first { UpdateWords($0) != nil && $0.key != settings.dismissedUpdate }
     let origin = controller.liveOrigin.flatMap(pairing)
     // The KOS at work, else the first that is connected, else the first there is: the one the window speaks of.
     let shown = origin ?? pairings.first { lines[$0.deviceId]?.isProven == true } ?? pairings.first
@@ -378,6 +402,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       guard now != lastState[id], let message = try? Outbound.state(now) else { continue }
       lastState[id] = now
       line.send(message)
+    }
+  }
+
+  /// A command from the window onto the clipboard; its button says Copied for a moment.
+  private func copy(_ command: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(command, forType: .string)
+    home.model.commandCopied = true
+    Task { [weak self] in
+      try? await Task.sleep(nanoseconds: 2_000_000_000)
+      self?.home.model.commandCopied = false
     }
   }
 

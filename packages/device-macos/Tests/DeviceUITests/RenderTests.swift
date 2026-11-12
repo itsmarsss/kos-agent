@@ -1,4 +1,5 @@
 import AppKit
+import DeviceCore
 import SwiftUI
 import Testing
 
@@ -78,6 +79,33 @@ struct RenderTests {
     }
     let size = try render("home-faced", HomeView(model: model), height: HomeView.height)
     #expect(size == CGSize(width: 460, height: HomeView.height))
+  }
+
+  /// KOS's word that an update waits on the owner's signing key, the command to set it up, and one under way.
+  @Test func homeWithAnUpdateNotice() throws {
+    let build = Build(id: "0123456789ab", commit: String(repeating: "b", count: 40))
+    let signing = home {
+      $0.kos = [kos()]
+      $0.screenGranted = true
+      $0.inputGranted = true
+      $0.update = UpdateNotice(state: .behind, build: build, reason: .signing, command: "cd ~/Documents/kos-agent/packages/device-macos && scripts/signing.sh setup")
+    }
+    #expect(try render("home-update-signing", HomeView(model: signing), height: HomeView.height) == CGSize(width: 460, height: HomeView.height))
+    let failed = home {
+      $0.kos = [kos()]
+      $0.screenGranted = true
+      $0.inputGranted = true
+      $0.update = UpdateNotice(state: .behind, build: build, reason: .failed, detail: "errSecInternalComponent", command: "cd ~/Documents/kos-agent/packages/device-macos && scripts/bundle.sh --install")
+      $0.commandCopied = true
+    }
+    #expect(try render("home-update-failed", HomeView(model: failed), height: HomeView.height) == CGSize(width: 460, height: HomeView.height))
+    let updating = home {
+      $0.kos = [kos()]
+      $0.screenGranted = true
+      $0.inputGranted = true
+      $0.update = UpdateNotice(state: .updating, build: build)
+    }
+    #expect(try render("home-update-updating", HomeView(model: updating), height: HomeView.height) == CGSize(width: 460, height: HomeView.height))
   }
 
   /// The chat window, mid-conversation: the owner's words, KOS's markdown, a turn's steps folded, and an approval waiting.

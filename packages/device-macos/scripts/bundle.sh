@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # Builds "KOS for Mac.app" into build/, signed ad hoc. --install puts it in ~/Applications in
-# place of the running one and opens it.
+# place of the running one and opens it. The app carries its build (docs/computer.md, Builds),
+# stamped by the checkout's own tool, so KOS's packages must be built first (pnpm build).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 APP="build/KOS for Mac.app"
+STAMP="../computer/dist/stamp.js"
+# KOS runs this with its own Node, which a launchd PATH may not have.
+NODE="${KOS_NODE:-node}"
+[[ -f "$STAMP" ]] || { echo "Build KOS first (pnpm build): $STAMP stamps the app's build" >&2; exit 1; }
 
 swift build -c release --product KOSDevice
 BIN="$(swift build -c release --show-bin-path)/KOSDevice"
@@ -19,6 +24,7 @@ rm -rf "$ICONSET"
 swift scripts/icon.swift "$ICONSET"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 rm -rf "$ICONSET"
+"$NODE" "$STAMP" mac "$APP/Contents/Resources/build.json"
 
 # With a key of the owner's own (scripts/signing.sh setup), every build is the same
 # app to macOS and keeps its permissions; without one, ad hoc.
@@ -41,10 +47,11 @@ fi
 if [[ "${1:-}" == "--install" ]]; then
   INSTALLED="$HOME/Applications/KOS for Mac.app"
   # A running copy keeps its old code until it quits: quit it and wait until it has, then open the new one.
+  # Told with a signal, which it takes as Quit: an Apple Event would ask the owner's leave when KOS runs this.
   # The app was KOS Device before; that copy goes too, or two would hold the same pairings.
   for OLD in "$INSTALLED" "$HOME/Applications/KOS Device.app"; do
     if pgrep -qf "$OLD/Contents/MacOS/"; then
-      osascript -e "tell application \"$(basename "$OLD" .app)\" to quit"
+      pkill -TERM -f "$OLD/Contents/MacOS/" || true
       for _ in {1..50}; do
         pgrep -qf "$OLD/Contents/MacOS/" || break
         sleep 0.2
