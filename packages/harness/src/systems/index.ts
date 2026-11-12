@@ -27,3 +27,4 @@ export {
   type DisplayQueryOptions,
   type DisplayQueryResult,
 } from "./display.js";
+export { artifactFrame, defaultPageLib, loadAssets, type FrameAssets } from "./artifactcheck.js";

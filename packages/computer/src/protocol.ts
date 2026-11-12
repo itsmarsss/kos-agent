@@ -154,7 +154,19 @@ export type Method =
  * chats it may switch to and the models it may answer with, and the page
  * beside the panel, read when the chat asks.
  */
-export type PanelMethod = "chat.show" | "chat.status" | "chat.ask" | "chat.settled" | "chat.chats" | "chat.models" | "chat.mentions" | "chat.glance" | "page.read";
+export type PanelMethod =
+  | "chat.show"
+  | "chat.status"
+  | "chat.ask"
+  | "chat.settled"
+  | "chat.chats"
+  | "chat.models"
+  | "chat.mentions"
+  | "chat.glance"
+  | "chat.artifacts"
+  | "chat.artifact"
+  | "chat.read"
+  | "page.read";
 
 /** One line of the panel's chat: the owner's words, KOS's, a note, or the steps a turn took. */
 export type PanelMessage =

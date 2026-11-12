@@ -15,7 +15,9 @@ import {
 } from "@kos/harness";
 import { stepMechanics } from "@kos/shared";
 
+import { ArtifactReader, type PanelArtifacts } from "./artifacts.js";
 import type { DeviceHub, DeviceKind } from "./hub.js";
+import { AttachmentInbox } from "./inbox.js";
 import type { DeviceEvent, PanelMessage, PanelMethod } from "./protocol.js";
 
 /**
@@ -102,6 +104,8 @@ export interface PanelDeps {
   mentions?(q: string, kind?: string): { kind: string; id: string; label: string; hint?: string }[];
   /** What is going on in KOS, for a device that asks (KOS for iPhone); none, and the ask goes unanswered. */
   glance?(): Glance;
+  /** The owner's artifacts, for a device that reads them (KOS for iPhone); none, and its asks go unanswered. */
+  artifacts?: PanelArtifacts;
 }
 
 /** As much of what the owner quoted (selected on a page) as rides with their words, and of where it came from. */
@@ -115,6 +119,8 @@ const MAX_ARGS = 600;
 const GLANCE_ASKS = 10;
 /** How many of the newest step pictures ride with the chat as it is drawn; older ones come from the device's own cache, or not at all. */
 const PICTURES_SHOWN = 4;
+/** How long a device has to take an artifact drawn for it, which can be a few megabytes over the Wi-Fi. */
+const ARTIFACT_TIMEOUT_MS = 30_000;
 /** How often a running turn's words may be redrawn on a device; a step is told at once. */
 const NARRATE_EVERY_MS = 1_200;
 /**
@@ -174,12 +180,17 @@ export class DevicePanel implements ChannelAdapter {
   private stopping: ((conversation: string) => void) | undefined;
   /** The state each chat's devices were last told, so a change is told once. */
   private readonly told = new Map<string, string>();
+  /** Files on their way from each device, ahead of the words they go with. */
+  private readonly inbox = new AttachmentInbox();
+  /** The artifacts a device opens, when this panel's devices may. */
+  private readonly reader: ArtifactReader | undefined;
 
   constructor(
     private readonly place: PanelPlace,
     private readonly deps: PanelDeps,
   ) {
     this.name = place.name;
+    this.reader = deps.artifacts ? new ArtifactReader(deps.artifacts) : undefined;
   }
 
   /** The hub while computer use is on; with none, the panel hears nothing and says nothing. */
@@ -507,15 +518,33 @@ export class DevicePanel implements ChannelAdapter {
       case "chat.open":
         void this.opened(device);
         return;
+      case "chat.attach":
+        this.inbox.part(device, data);
+        return;
       case "chat.send": {
         const text = typeof data["text"] === "string" ? data["text"].trim().slice(0, MAX_TEXT) : "";
-        if (!text) return;
+        const taken = this.inbox.take(device, data["files"]);
+        // Files that cannot go stop the words too: the owner's words are given back with why, rather than sent without them.
+        if ("refused" in taken) {
+          void this.tell(device, "chat.status", this.statusOf(this.deps.current()?.id, { said: text, error: taken.refused }));
+          return;
+        }
+        const files = taken.files;
+        if (!text && !files.length) return;
         this.last = device;
         this.lastBeside = data["beside"];
         const named = this.hub?.list().find((d) => d.id === device)?.name ?? device;
         const quote = quoteOf(data["quote"]);
         // Where they were says only that, so it rides with words a running turn takes in.
-        void this.messages?.({ channel: this.name, senderId: device, text, context: this.place.beside(data["beside"], named), contextRides: true, ...(quote ? { quote } : {}) });
+        void this.messages?.({
+          channel: this.name,
+          senderId: device,
+          text,
+          context: this.place.beside(data["beside"], named),
+          contextRides: true,
+          ...(quote ? { quote } : {}),
+          ...(files.length ? { attachments: files } : {}),
+        });
         return;
       }
       case "chat.stop": {
@@ -562,6 +591,15 @@ export class DevicePanel implements ChannelAdapter {
         if (glance) void this.tell(device, "chat.glance", { ...glance, asks: glanceAsks(glance.asks) });
         return;
       }
+      case "chat.artifacts":
+        if (this.reader) void this.tell(device, "chat.artifacts", this.reader.list());
+        return;
+      case "chat.artifact":
+        if (this.reader) void this.tell(device, "chat.artifact", this.reader.open(device, data), ARTIFACT_TIMEOUT_MS);
+        return;
+      case "chat.read":
+        if (this.reader) void this.reader.read(device, data).then((answer) => (answer ? this.tell(device, "chat.read", answer) : undefined));
+        return;
       case "chat.model":
         if (typeof data["model"] === "string" && data["model"].trim()) {
           const model = data["model"].trim();
@@ -594,10 +632,10 @@ export class DevicePanel implements ChannelAdapter {
   }
 
   /** Said to a device, which shows it if its panel is open; one that is off is not told. */
-  private async tell(device: string, method: PanelMethod, params: Record<string, unknown>): Promise<boolean> {
+  private async tell(device: string, method: PanelMethod, params: Record<string, unknown>, timeoutMs?: number): Promise<boolean> {
     if (!this.hub) return false;
     try {
-      await this.hub.request(device, method, params);
+      await this.hub.request(device, method, params, timeoutMs);
       return true;
     } catch {
       return false;

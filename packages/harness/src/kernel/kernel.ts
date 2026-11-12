@@ -108,11 +108,11 @@ import {
 } from "../systems/remove.js";
 import { Migrator } from "../systems/migrate.js";
 import { Headlines, type Headline } from "../systems/headlines.js";
-import { ArtifactChecker } from "../systems/artifactcheck.js";
+import { ArtifactChecker, artifactFrame, defaultPageLib, loadAssets } from "../systems/artifactcheck.js";
 import { ArtifactExporter } from "../systems/artifactexport.js";
 import { BridgeRefusal, pageFile, pageQuery, pageWrite, pageWrites, type BridgePage } from "../systems/pagebridge.js";
 import { PageQueries } from "../systems/pagequeries.js";
-import { ownerOfRecord, PageStore } from "../systems/pages.js";
+import { ownerOfRecord, PageStore, type PageRecord } from "../systems/pages.js";
 import { registeredTables } from "../systems/registered.js";
 import { PermissionStore, actsInYourChrome } from "../ops/permissions.js";
 import { offeredSkills, readSkills } from "../skills/manifest.js";
@@ -138,7 +138,7 @@ import { originOf } from "./origin.js";
 import { ownerWords } from "./transcript.js";
 import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
-import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, type ArtifactEdit, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type HtmlPage, type ThemeMode } from "@kos/shared";
+import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type HtmlPage, type ThemeMode } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -4320,6 +4320,22 @@ export class Kernel {
       }
       throw err;
     }
+  }
+
+  /**
+   * An HTML artifact drawn for a device with no dashboard (KOS for iPhone): the frame the dashboard builds from its
+   * own build, in an older version's read-only look, in one theme, with each theme's tokens as the rule the frame's
+   * bridge switches to. None for one in the trash, an older widget page, or no artifact at all.
+   */
+  artifactView(id: string, theme: "light" | "dark"): { record: PageRecord; document: string; themes: { light: string; dark: string } } | undefined {
+    const got = this.pages.get(id);
+    if (got?.kind !== "html" || got.record.trashedAt !== undefined) return undefined;
+    const assets = loadAssets(defaultPageLib());
+    return {
+      record: got.record,
+      document: artifactFrame(got.page, theme, assets, { locked: true }),
+      themes: { light: tokenRule(assets.tokens.light, "light"), dark: tokenRule(assets.tokens.dark, "dark") },
+    };
   }
 
   /** An HTML artifact as a renderer reads it: its document and its title. */

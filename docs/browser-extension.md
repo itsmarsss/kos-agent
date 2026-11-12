@@ -280,7 +280,8 @@ Events, besides `session.paused`, `session.resumed` and `session.ended`
 | `tab.closed` | `session`, `tab` |
 | `tab.handed` | `tab`, `url`, `title`, `focus?` (sent outside a session too; `focus` when the owner spoke from the side panel beside it) |
 | `chat.open` | `{}`: a panel opened on this KOS, and asks to be shown the chat |
-| `chat.send` | `text`: the owner's words in the panel; `beside?`: the tab they were said beside, `{ kind: "page", url, title }`, `{ kind: "hidden" }` or `{ kind: "other" }` (not a web page), told to that turn (and taken into a running one with the words) and not kept; `quote? { text, from }`: what they selected on that page and its address, kept with the message |
+| `chat.send` | `text`: the owner's words in the panel; `beside?`: the tab they were said beside, `{ kind: "page", url, title }`, `{ kind: "hidden" }` or `{ kind: "other" }` (not a web page), told to that turn (and taken into a running one with the words) and not kept; `quote? { text, from }`: what they selected on that page and its address, kept with the message; `files? [id]`: files sent ahead with `chat.attach`, to go with the words ([computer.md](computer.md), A phone) |
+| `chat.attach` | `id`, `name`, `mediaType`, `part`, `parts`, `data`: one part of a file's base64, ahead of the `chat.send` that names it |
 | `chat.stop` | `chat?`: the owner pressed Stop for that chat, or the one shown: its turn stops, its sessions end on every device, an ask for one is withdrawn, and the rest of the turn asks for none |
 | `chat.decide` | `approval`, `approved` |
 | `chat.list` | `{}`: asks for `chat.chats` |

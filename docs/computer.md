@@ -134,9 +134,10 @@ lists it as the owner's phone, chat only.
 Its chat is the `phone` surface's, as the Mac window's is `mac`'s: the same
 chat calls and events (`chat.show`, `chat.status`, `chat.ask`,
 `chat.settled`, `chat.chats`, `chat.models`, `chat.mentions`; `chat.open`,
-`chat.send`, `chat.stop`, `chat.decide`, `chat.list`, `chat.switch`,
-`chat.models`, `chat.model`, `chat.mentions`), with `beside` `{ "kind":
-"none" }` and no quote. A phone's `chat.auto` is ignored. The turn is told
+`chat.send`, `chat.attach`, `chat.stop`, `chat.decide`, `chat.list`,
+`chat.switch`, `chat.models`, `chat.model`, `chat.mentions`), with `beside`
+`{ "kind": "none" }` and no quote, and its own: the glance, and the
+artifacts (below). A phone's `chat.auto` is ignored. The turn is told
 the words were said on the phone, which KOS cannot see or work, and its
 reply is kept short and plain, since the phone may read it aloud. A turn
 begun there reaches the owner's computers and Chromes as one begun anywhere
@@ -172,6 +173,61 @@ asked; a device that does not know the call ignores it.
 "kind": "kos" }` at the root, `{ "kind": "project", "name": "Garden" }` in a
 project, `{ "kind": "blob", "name": "scout" }` a blob's own. A device that
 does not know it ignores it.
+
+**Artifacts.** A phone reads the owner's artifacts, and only reads them. It
+asks with the event `chat.artifacts` (`{}`), and KOS answers by calling
+`chat.artifacts` on it with the thirty changed last of those the dashboard
+opens (HTML artifacts out of the trash), each as the gallery says it:
+
+```json
+{ "artifacts": [{ "id": "plan", "title": "Garden plan", "kind": "doc", "description": "Beds, dates and costs.", "updatedAt": 1761800000000, "place": { "kind": "project", "name": "Garden" } }] }
+```
+
+It opens one with the event `chat.artifact` (`{ "id": "plan", "theme":
+"dark" }`), and KOS calls `chat.artifact` with that item and `document`,
+`themes` and `theme`, or with `{ "id", "error" }`:
+
+- `document` is the frame the dashboard draws, built by KOS from the
+  dashboard's own build: the wrapper document holding the page's in a
+  sandboxed frame, with the policy that allows no network, the guard, the
+  bridge, the tokens, the kit's CSS, the fonts and the kind's runtime, all
+  inline, in the look of an older version (`data-locked`), which offers no
+  editing. Pictures in an artifact are `data:` already (artifacts.md).
+- `themes` is each theme's tokens as the rule the bridge takes on a change
+  of theme: the device posts `{ "__kos": "theme", "mode", "rule" }` to the
+  page's frame, as the dashboard does.
+- The id must be an artifact's (`ARTIFACT_ID_RE`, at most 120 characters);
+  one that is not, one the owner has not, one in the trash, an older widget
+  page and a frame of more than 8 MB are each refused in words.
+
+The page's `window.kos` reaches the device as it reaches the dashboard,
+through the wrapper. A read it makes (`query`, `files.read`) goes as the
+event `chat.read` (`{ "artifact", "call", "method": "query" | "file",
+"args" }`), for the artifact the device last opened and no other, and KOS
+answers by calling `chat.read` with `{ "artifact", "call", "result" }` or
+`{ "artifact", "call", "error" }`, decided as the dashboard's reads are.
+Nothing else is relayed: a write, a save, an ask, a mention and a present
+are refused by the device itself. `open`, another artifact by its id, is
+the device's to do only just after the owner pressed in the frame. Every
+other device kind's asks go unanswered.
+
+**Files with the words.** A device's frames over the Wi-Fi are at most
+512 KB, so each file the owner sends with their words comes first, in
+parts, as `chat.attach` events, and `chat.send` names them by the ids the
+device gave them (`"files": ["f1"]`); `text` may then be empty:
+
+```json
+{ "id": "f1", "name": "receipt.jpg", "mediaType": "image/jpeg", "part": 0, "parts": 3, "data": "<base64, at most 262144 characters>" }
+```
+
+Every part but the last is a whole number of base64 quads, unpadded. A file
+is at most 5 MB, as the model's path takes one, and is a picture, a PDF, an
+Office file or a text file; four go with one message, and four are held for
+a device at once, each for five minutes. A file named by `chat.send` that
+did not arrive whole, or was refused on the way in, stops the words: KOS
+answers with `chat.status` carrying `error` and the words as `said`, and
+nothing is sent to the turn. A device downscales a photo before it sends
+it (KOS for iPhone: 2048 px on the long side, as JPEG).
 
 ## The Wi-Fi listener
 

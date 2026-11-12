@@ -42,7 +42,7 @@ import {
   type OutboundMessage,
   type PendingAction,
 } from "@kos/harness";
-import { createComputerUse, type Glance, type PanelDeps, type PanelPlaceOf } from "@kos/computer";
+import { createComputerUse, type Glance, type PanelArtifact, type PanelArtifacts, type PanelDeps, type PanelPlaceOf } from "@kos/computer";
 
 /** The surfaces a device panel is: a Chrome's side panel, a Mac's window, a phone's chat. */
 type PanelSurface = "chrome" | "mac" | "phone";
@@ -474,6 +474,29 @@ export async function runHost(options: HostOptions): Promise<void> {
       next,
     };
   };
+  /** An artifact as a device lists it: what the gallery says of it, and whose it is. */
+  const artifactItem = (r: { id: string; title: string; artifactKind: string; description?: string; updatedAt: number; projectSlug: string | null; blob?: string }): PanelArtifact => ({
+    id: r.id,
+    title: r.title,
+    kind: r.artifactKind,
+    ...(r.description ? { description: r.description } : {}),
+    updatedAt: r.updatedAt,
+    place: r.blob ? { kind: "blob", name: r.blob } : r.projectSlug ? { kind: "project", name: kernel.labelFor("project", r.projectSlug) ?? r.projectSlug } : { kind: "kos" },
+  });
+  /** The owner's artifacts, for a phone to read: the HTML ones out of the trash, as the dashboard opens them, and only read. */
+  const phoneArtifacts: PanelArtifacts = {
+    recent: () =>
+      kernel.pages
+        .list()
+        .filter((r) => r.kind === "html")
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .map(artifactItem),
+    open: (id, theme) => {
+      const view = kernel.artifactView(id, theme);
+      return view && { ...artifactItem(view.record), document: view.document, themes: view.themes };
+    },
+    read: (id, method, args) => kernel.artifactCall(id, method, args),
+  };
   /** What a device panel reads and does, for its own surface's chats and no one else's. */
   const panelDeps = (channel: PanelSurface, current: () => { id: string; title: string } | undefined): PanelDeps => ({
     current,
@@ -528,7 +551,7 @@ export async function runHost(options: HostOptions): Promise<void> {
     halted: () => kernel.killSwitch.halted,
     face: () => kernel.kosDrawing(),
     theme: () => kernel.dashboardTheme(),
-    panels: { chrome: panelDeps("chrome", chromeChat), mac: panelDeps("mac", macChat), phone: { ...panelDeps("phone", phoneChat), glance } },
+    panels: { chrome: panelDeps("chrome", chromeChat), mac: panelDeps("mac", macChat), phone: { ...panelDeps("phone", phoneChat), glance, artifacts: phoneArtifacts } },
     lan: {
       // The dashboard's port plus two: the sites take plus one.
       port: lanPort(options.port),
