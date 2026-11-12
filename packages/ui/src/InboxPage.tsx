@@ -5,8 +5,10 @@ import { AskSteps, Count, Empty, Tag } from "@kos/kit";
 
 import { api, type DecidedAction, type FailingJob, type InboxData } from "./api.js";
 import { Decision } from "./Decision.js";
+import { InboxDecided } from "./InboxDecided.js";
 import { MemoryDecision } from "./MemoryPage.js";
 import { PageHead } from "./PageHead.js";
+import { agoWords as ago } from "./schedulewords.js";
 import { ActivityDot, fixLabel } from "./StatusDot.js";
 
 /**
@@ -18,15 +20,6 @@ import { ActivityDot, fixLabel } from "./StatusDot.js";
  * running on its own, there has to be one place that says what it is stuck
  * on, and this is it.
  */
-
-function ago(ts: number): string {
-  const mins = Math.max(0, Math.round((Date.now() - ts) / 60000));
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
-}
 
 /** How long an ask has left before it lapses on its own. */
 function lapses(ts: number): string {
@@ -70,7 +63,7 @@ export function InboxPage({
   useEffect(() => {
     let cancelled = false;
     void api
-      .approvalHistory()
+      .approvalHistory(500)
       .then((rows) => {
         if (!cancelled) setDecided(rows);
       })
@@ -82,7 +75,7 @@ export function InboxPage({
   const highlit = useRef<HTMLLIElement | null>(null);
   useEffect(() => {
     highlit.current?.scrollIntoView({ block: "center" });
-  }, [highlight, decided.length, approvals.length]);
+  }, [highlight, approvals.length]);
   const decisions = data?.decisions ?? [];
   const failures = data?.failures ?? [];
   const suggestions = data?.suggestions ?? [];
@@ -106,11 +99,11 @@ export function InboxPage({
       )}
 
       {approvals.length > 0 && (
-        <section className="inbox-group">
+        <section className="inbox-group inbox-group--asks">
           <h2 className="inbox-group-title">
             Tool approvals <Count n={approvals.length} />
           </h2>
-          <ul className="panel-list">
+          <ul className="panel-list inbox-box">
             {approvals.map((a) => (
               <li key={a.id} ref={a.id === highlight ? highlit : undefined} className={`panel-approval inbox-approval${a.id === highlight ? " is-highlit" : ""}`}>
                 <span className="panel-row-main">
@@ -156,45 +149,17 @@ export function InboxPage({
         </section>
       )}
 
-      {decided.length > 0 && (
-        <section className="inbox-group">
-          <h2 className="inbox-group-title">
-            Decided <Count n={decided.length} />
-          </h2>
-          <p className="hint">What was approved, denied or lapsed, newest first, so a reference to an old ask still lands here.</p>
-          <ul className="inbox-decided">
-            {decided.map((a) => (
-              <li key={a.id} ref={a.id === highlight ? highlit : undefined} className={`inbox-decided-row${a.id === highlight ? " is-highlit" : ""}`}>
-                <span className={`inbox-outcome inbox-outcome--${a.status}`}>{a.status === "expired" ? "lapsed" : a.status}</span>
-                <code>#{a.id}</code>
-                <span>{a.summary ?? summarizeAction(a.tool, a.args)}</span>
-                <span className="inbox-meta">
-                  {a.asker ? `${a.asker} asked · ` : ""}
-                  {a.decidedBy ? `by ${a.decidedBy} · ` : ""}
-                  {ago(a.decidedAt ?? a.requestedAt)}
-                  {a.conversationId && (
-                    <>
-                      {" · "}
-                      <button type="button" className="link" onClick={() => onOpenChat(a.conversationId!)}>
-                        open the chat
-                      </button>
-                    </>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
       {decisions.length > 0 && (
         <section className="inbox-group">
           <h2 className="inbox-group-title">
             Memory decisions <Count n={decisions.length} />
           </h2>
           <p className="hint">Only what KOS was not sure enough to settle itself; each leads with what it leans to. Keeping one side archives the other; promoting writes the claim global. Either is on the record as yours.</p>
-          {decisions.map((item) => (
-            <MemoryDecision key={item.id} item={item} onResolved={onChanged} />
-          ))}
+          <div className="inbox-box">
+            {decisions.map((item) => (
+              <MemoryDecision key={item.id} item={item} onResolved={onChanged} />
+            ))}
+          </div>
         </section>
       )}
 
@@ -204,33 +169,35 @@ export function InboxPage({
             Suggestions <Count n={suggestions.length} />
           </h2>
           <p className="hint">Things KOS thinks it could make reusable. Nothing happens until you say so; accepting opens a chat that carries it out, with the usual approvals.</p>
-          {suggestions.map((s) => (
-            <div key={s.id} className="inbox-suggestion">
-              <div className="inbox-suggestion-main">
-                <span className="panel-row-main">
-                  <Tag>{s.kind}</Tag> {s.title}
+          <div className="inbox-box">
+            {suggestions.map((s) => (
+              <div key={s.id} className="inbox-suggestion">
+                <div className="inbox-suggestion-main">
+                  <span className="panel-row-main">
+                    <Tag>{s.kind}</Tag> {s.title}
+                  </span>
+                  <span className="inbox-why">{s.detail}</span>
+                </div>
+                <span className="panel-approval-actions">
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    onClick={() =>
+                      void api.resolveImprovement(s.id, "accept").then((r) => {
+                        onChanged();
+                        if (r.conversationId) onOpenChat(r.conversationId);
+                      })
+                    }
+                  >
+                    Do it
+                  </button>
+                  <button type="button" className="btn btn--sm btn--ghost" onClick={() => void api.resolveImprovement(s.id, "dismiss").then(onChanged)}>
+                    Dismiss
+                  </button>
                 </span>
-                <span className="inbox-why">{s.detail}</span>
               </div>
-              <span className="panel-approval-actions">
-                <button
-                  type="button"
-                  className="btn btn--sm"
-                  onClick={() =>
-                    void api.resolveImprovement(s.id, "accept").then((r) => {
-                      onChanged();
-                      if (r.conversationId) onOpenChat(r.conversationId);
-                    })
-                  }
-                >
-                  Do it
-                </button>
-                <button type="button" className="btn btn--sm btn--ghost" onClick={() => void api.resolveImprovement(s.id, "dismiss").then(onChanged)}>
-                  Dismiss
-                </button>
-              </span>
-            </div>
-          ))}
+            ))}
+          </div>
         </section>
       )}
 
@@ -239,7 +206,7 @@ export function InboxPage({
           <h2 className="inbox-group-title">
             Failing now <Count n={failures.length} />
           </h2>
-          <ul className="panel-list">
+          <ul className="panel-list inbox-box">
             {failures.map((f) => (
               <li key={f.key} className="inbox-failure">
                 <button type="button" className="panel-row is-error" onClick={() => onOpenFailure(f.key)}>
@@ -279,6 +246,8 @@ export function InboxPage({
           </ul>
         </section>
       )}
+
+      <InboxDecided rows={decided} {...(highlight !== undefined ? { highlight } : {})} onOpenChat={onOpenChat} />
     </div>
   );
 }

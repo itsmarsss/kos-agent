@@ -2516,13 +2516,6 @@ li:hover .chats-item-when { opacity: 0; }
 .hl-ref--channel { color: #5865f2; background: color-mix(in srgb, #5865f2 12%, transparent); }
 .hl-ref--approval { color: var(--warn); background: var(--warn-dim); }
 /* The approval a link pointed at, waiting or decided. */
-.inbox-approval.is-highlit, .inbox-decided-row.is-highlit { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-md); }
-.inbox-decided { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
-.inbox-decided-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 0.6rem; padding: 0.4rem 0.5rem; font-size: var(--text-md); }
-.inbox-decided-row code { font-family: var(--mono); font-size: var(--text-sm); color: var(--muted); }
-.inbox-outcome { font-size: var(--text-sm); padding: 0.05rem 0.45rem; border-radius: 999px; background: var(--panel-2); color: var(--muted); }
-.inbox-outcome--approved { color: var(--ok); background: var(--ok-dim); }
-.inbox-outcome--denied { color: var(--danger); background: var(--danger-dim); }
 
 /* —— autocomplete —— */
 .composer-input { position: relative; }
@@ -5529,7 +5522,7 @@ a.health {
 }
 .mem-claim.is-gone { opacity: 0.65; }
 .mem-claim-main { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
-.mem-claim-key { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+.mem-claim-key { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.4rem; min-width: 0; }
 .mem-claim-key code { font-family: var(--mono); font-size: var(--text-sm); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mem-scope { flex: none; font-size: var(--text-xs); color: var(--faint); border: 1px solid var(--line); border-radius: 999px; padding: 0 0.4rem; }
 .mem-claim-value { font-size: var(--text-md); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -5759,29 +5752,83 @@ a.health {
 }
 
 /* —— inbox —— */
-/* The page's width, like the rest: capped at 60rem the "All clear" box
-   stopped short of the heading above it. */
-.inbox { display: flex; flex-direction: column; gap: 1.25rem; }
-.inbox-group {
-  padding: 1rem 1.15rem;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-.inbox-group-title {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0 0 0.6rem;
-  font-size: var(--text-lg);
-}
-.inbox-approval { align-items: flex-start; }
+/* What waits leads, each group a label over one box of rows; what was
+   decided comes last and quiet, a few lines and more a press away. Every
+   piece keeps min-width 0, or one long command widened the page on a phone. */
+.inbox { display: flex; flex-direction: column; gap: 1.5rem; min-width: 0; }
+.inbox-group { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+.inbox-group > .hint { margin: 0; max-width: 72ch; }
+.inbox-group-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 0.75rem; min-width: 0; }
+.inbox-group-title { display: flex; align-items: center; gap: 0.45rem; margin: 0; font-size: var(--text-lg); font-weight: 600; }
+.inbox-box { min-width: 0; padding: 0.25rem 0.9rem; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); }
+.inbox-group--asks > .inbox-box { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.inbox-approval { align-items: flex-start; padding: 0.7rem 0; }
+.inbox-approval .panel-row-main { white-space: normal; overflow-wrap: anywhere; }
+.inbox-approval.is-highlit { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
 .inbox-why { display: block; color: var(--muted); font-size: var(--text-sm); }
 .inbox-meta { display: block; color: var(--faint); font-size: var(--text-sm); }
 .inbox-failure { display: flex; align-items: center; gap: 0.75rem; }
 /* Centred, not baseline: the row's label is two lines and its "since" sat
    on the first of them, a step above the buttons beside it. */
 .inbox-failure .panel-row { flex: 1; min-width: 0; align-items: center; }
+.inbox-box > .mem-decision:first-child { border-top: 0; }
+
+/* Decided: one line a row, the outcome a quiet pill, the time at the right. */
+.inbox-decided-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; }
+.inbox-decided-search { min-width: 0; width: 13rem; }
+.inbox-decided { list-style: none; margin: 0; padding: 0 0.4rem; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); }
+.inbox-decided-row + .inbox-decided-row { border-top: 1px solid var(--line); }
+.inbox-decided-row.is-highlit { box-shadow: inset 2px 0 0 var(--accent); }
+.inbox-decided-line {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.5rem;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-base);
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms ease-out;
+}
+.inbox-decided-line:hover { background: var(--panel-2); }
+.inbox-decided-line:hover .chev { color: var(--text); }
+.inbox-decided-line:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.inbox-decided-outcome { flex: none; width: 5.4rem; display: flex; }
+.inbox-decided-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inbox-decided-where { flex: none; max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--text-sm); }
+.inbox-decided-when { flex: none; min-width: 3.6rem; text-align: right; color: var(--faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.inbox-decided-row .collapse { margin-top: 0; }
+.inbox-decided-row .collapse-body { padding-top: 0; }
+/* Under the row's words, past the outcome column. */
+.inbox-decided-detail { display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; padding: 0.1rem 0.5rem 0.8rem 6.55rem; min-width: 0; }
+.inbox-decided-full { margin: 0; font-size: var(--text-base); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.inbox-decided-facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1rem; margin: 0; font-size: var(--text-sm); min-width: 0; }
+.inbox-decided-facts dt { color: var(--faint); }
+.inbox-decided-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.inbox-decided-facts code { font-family: var(--mono); color: var(--muted); }
+.inbox-decided-id { color: var(--faint); }
+.inbox-decided-detail .inbox-said { margin: 0; color: var(--muted); font-size: var(--text-base); line-height: 1.5; }
+.inbox-decided-more { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+@media (max-width: 640px) {
+  .inbox-decided-tools { width: 100%; }
+  .inbox-decided-search { width: 100%; }
+  .inbox-decided-line { flex-wrap: wrap; gap: 0.3rem 0.5rem; }
+  .inbox-decided-outcome { width: auto; }
+  .inbox-decided-detail { padding-left: 0.5rem; }
+  .inbox-decided-what { order: 5; flex-basis: 100%; white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
+  .inbox-decided-where { flex: 1; max-width: none; }
+  .inbox-decided-when { margin-left: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .inbox-decided-line { transition: none; }
+}
 
 /* —— runs: three pages, one strip —— */
 .runs { display: flex; flex-direction: column; gap: 0.75rem; }
