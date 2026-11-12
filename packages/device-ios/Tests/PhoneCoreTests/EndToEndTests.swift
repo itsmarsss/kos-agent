@@ -153,8 +153,8 @@ struct EndToEndTests {
     let board = phone.board
 
     // The Inbox lists the ask the chat has, and denies it as the device; it then reads as decided.
-    phone.chat.say("make the e2e file")
-    try await until("the second ask", 30) { !phone.chat.asks.isEmpty }
+    phone.chat.say("make the inbox file")
+    try await until("the Inbox's ask", 30) { !phone.chat.asks.isEmpty }
     let asked = try #require(phone.chat.asks.first)
     await board.inbox.refresh()
     let waiting = try #require(board.inbox.waiting.value?.approvals.first { String($0.id) == asked.id }, "the Inbox does not list the ask")
@@ -166,6 +166,9 @@ struct EndToEndTests {
     #expect(board.inbox.decided.first { $0.id == waiting.id }?.status == "denied")
     let decided = try await dashboard("/api/approvals/\(waiting.id)") as? [String: Any]
     #expect(decided?["status"] as? String == "denied")
+    if let ws = env["KOS_E2E_WORKSPACE"] {
+      #expect(!FileManager.default.fileExists(atPath: "\(ws)/phone-inbox.txt"), "the denied command ran")
+    }
 
     // A project made on the dashboard, opened on the phone.
     let made = try await dashboard("/api/projects/create", #"{"name":"Phone e2e garden","type":"tracker"}"#) as? [String: Any]
