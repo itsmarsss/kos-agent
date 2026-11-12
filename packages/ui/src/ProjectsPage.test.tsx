@@ -29,8 +29,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function show(over: Partial<Parameters<typeof ProjectsPage>[0]> = {}): { onOpen: ReturnType<typeof vi.fn>; onInspect: ReturnType<typeof vi.fn> } {
-  const onOpen = vi.fn();
+function show(over: Partial<Parameters<typeof ProjectsPage>[0]> = {}): { onInspect: ReturnType<typeof vi.fn> } {
   const onInspect = vi.fn();
   render(
     <ProjectsPage
@@ -38,15 +37,14 @@ function show(over: Partial<Parameters<typeof ProjectsPage>[0]> = {}): { onOpen:
       pagesByProject={new Map([["garden", [page("plan", "garden"), page("gone", "garden", { trashedAt: now })]]])}
       conversations={[chat("a1", "garden"), chat("a2", "garden"), chat("b1", "budget", { activity: "needs-you" })]}
       crons={[{ id: 7, name: "garden.water", schedule: "0 7 * * *", type: "self_prompt", enabled: true, projectSlug: "garden" } as CronJob]}
-      onOpen={onOpen}
       onInspect={onInspect}
       {...over}
     />,
   );
-  return { onOpen, onInspect };
+  return { onInspect };
 }
 
-const card = (name: string): HTMLElement => screen.getByRole("button", { name: `Open ${name}` });
+const card = (name: string): HTMLElement => screen.getByRole("link", { name }).closest<HTMLElement>(".project-card")!;
 const order = (): string[] => [...document.querySelectorAll(".project-card .card-name")].map((n) => n.textContent ?? "");
 
 describe("the Projects page", () => {
@@ -63,8 +61,9 @@ describe("the Projects page", () => {
 
   it("flags what wants the owner: a failing job, then a chat waiting on them", async () => {
     show();
-    const failing = await within(card("Garden")).findByText("Job failing");
-    expect(failing.getAttribute("title")).toBe("garden.water: the pump is offline");
+    expect(await within(card("Garden")).findByText("Job failing")).toBeTruthy();
+    // Why, said on the card, for a keyboard and a finger as much as a pointer.
+    expect(within(card("Garden")).getByText("garden.water: the pump is offline")).toBeTruthy();
     expect(within(card("Household budget")).getByText("Needs you")).toBeTruthy();
     // A state worth saying only when it is not the usual one.
     expect(within(card("Old notes")).getByText("archived")).toBeTruthy();
@@ -85,15 +84,13 @@ describe("the Projects page", () => {
     expect(screen.getByText("No project matches “zebra”.")).toBeTruthy();
   });
 
-  it("opens a project from its card, by pointer or key, and its drawer from Details", () => {
-    const { onOpen, onInspect } = show();
-    fireEvent.click(card("Garden"));
-    expect(onOpen).toHaveBeenCalledWith("garden");
-    fireEvent.keyDown(card("Household budget"), { key: "Enter" });
-    expect(onOpen).toHaveBeenLastCalledWith("budget");
+  it("opens a project by its name, a real link over the card, and its drawer from Details", () => {
+    const { onInspect } = show();
+    expect(screen.getByRole("link", { name: "Garden" }).getAttribute("href")).toBe("#/project/garden");
+    // The card is no button of its own, so what is on it is read as itself.
+    expect(screen.queryByRole("button", { name: /^Open / })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Details of Garden" }));
     expect(onInspect).toHaveBeenCalledWith(PROJECTS[0], expect.any(Array));
-    expect(onOpen).toHaveBeenCalledTimes(2);
   });
 
   it("says plainly when there are none, with the way to make one", () => {

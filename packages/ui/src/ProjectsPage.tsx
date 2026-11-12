@@ -16,7 +16,8 @@ import { Select, type SelectOption } from "./Select.js";
  * is for, the figure a page offers, then one quiet line of what it holds
  * (agents, tables, artifacts) and when it last moved. A card says when it
  * wants the owner (a job failing, a chat waiting on them) and is otherwise
- * quiet: the card itself opens the project, Details its drawer.
+ * quiet: its name, a link over the whole card, opens the project, Details
+ * its drawer.
  */
 
 export interface ProjectsPageProps {
@@ -26,8 +27,6 @@ export interface ProjectsPageProps {
   conversations: Conversation[];
   /** Every job, so a card can say one of its own is failing. */
   crons: CronJob[];
-  /** The card itself: the project's workspace. */
-  onOpen: (slug: string) => void;
   /** The drawer, for status and metadata. */
   onInspect: (project: Project, pages: PageSummary[]) => void;
   /** An empty project of the owner's own, with nothing in it until they or KOS put something there. */
@@ -96,7 +95,7 @@ function useFailingJobs(): Map<number, string> {
   return failing;
 }
 
-export function ProjectsPage({ projects, pagesByProject, conversations, crons, onOpen, onInspect, onCreate }: ProjectsPageProps): ReactElement {
+export function ProjectsPage({ projects, pagesByProject, conversations, crons, onInspect, onCreate }: ProjectsPageProps): ReactElement {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>("recent");
   const [making, setMaking] = useState(false);
@@ -136,40 +135,22 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
     const tableCount = tables.get(p.slug);
     const holds = [many(agentsOf(p.slug), "agent"), tableCount !== undefined ? many(tableCount, "table") : null, many(live.length, "artifact")].filter(Boolean);
     return (
-      <m.div
-        key={p.slug}
-        variants={card}
-        className="card card--opens project-card"
-        role="button"
-        tabIndex={0}
-        aria-label={`Open ${p.name}`}
-        // The card is the project: a press opens its workspace. Its figure and Details are their own.
-        onClick={(e) => {
-          if ((e.target as HTMLElement).closest("a, button")) return;
-          onOpen(p.slug);
-        }}
-        onKeyDown={(e) => {
-          if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
-          e.preventDefault();
-          onOpen(p.slug);
-        }}
-      >
+      <m.div key={p.slug} variants={card} className="card card--opens project-card">
         <div className="project-card-head">
           <span className="hero-mark hero-mark--sm" aria-hidden="true" style={markStyle(p.slug, p.colour)}>
             <FileIcon name={p.slug} kind="dir" size={16} />
           </span>
           <div className="project-card-titles">
-            <span className="card-name">{p.name}</span>
+            {/* The card is the project: its name is the link, stretched over the card, so a press anywhere opens it and a modified one opens a tab. */}
+            <a className="card-name project-card-link" href={hrefFor({ name: "project", slug: p.slug })}>
+              {p.name}
+            </a>
             <span className="project-card-sub">{p.module ? `${p.type} · from ${p.module}` : p.type}</span>
           </div>
-          {attention ? (
-            <Pill tone={attention.tone} {...(attention.why ? { title: attention.why } : {})}>
-              {attention.word}
-            </Pill>
-          ) : (
-            p.status !== "active" && <Pill tone="muted">{p.status}</Pill>
-          )}
+          {attention ? <Pill tone={attention.tone}>{attention.word}</Pill> : p.status !== "active" && <Pill tone="muted">{p.status}</Pill>}
         </div>
+        {/* Why, in words on the card: a title is out of reach of a keyboard and a finger. */}
+        {attention?.why && <p className="project-card-why">{attention.why}</p>}
         {/* Its room is kept when it has none, so a row of cards lines up. */}
         <p className="project-desc">{p.description}</p>
         {headline?.headline && (
