@@ -72,6 +72,34 @@ export async function folderHolds(build: string, fetchText: (file: string) => Pr
   }
 }
 
+/** How long a folder may go without the build KOS named before the extension says so and stops waiting. */
+export const FOLDER_GIVE_UP_MS = 3 * 60_000;
+
+/**
+ * The wait for the folder to hold a build: looked at again while a rebuild
+ * may still be finishing, then given up, once, so KOS hears the folder lacks
+ * it (a Chrome loaded from another folder than KOS's) rather than waiting
+ * forever.
+ */
+export class FolderWait {
+  private build: string | undefined;
+  private since = 0;
+  private done = false;
+
+  /** The folder lacked `build` again: look `again`, `give-up` now (said once), or nothing more to do (`done`). */
+  miss(build: string, now = Date.now()): "again" | "give-up" | "done" {
+    if (build !== this.build) {
+      this.build = build;
+      this.since = now;
+      this.done = false;
+    }
+    if (this.done) return "done";
+    if (now - this.since < FOLDER_GIVE_UP_MS) return "again";
+    this.done = true;
+    return "give-up";
+  }
+}
+
 /** The build the extension last reloaded itself into, and when. */
 export interface Reloaded {
   build: string;

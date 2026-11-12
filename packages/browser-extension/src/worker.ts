@@ -13,7 +13,7 @@ import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
 import { checkCommand, forwarded, isInput, isWebUrl, OVERLAY_WORLD as WORLD, Worlds } from "./relay.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, SENT_THEME_KEY, asksFirst, isHidden, readSettings, siteOf, themeOf, type ExtensionSettings } from "./settings.js";
-import { ReloadGate, folderHolds, readBuild, runningBuild, type Build, type Kept, type Reloaded, type UpdateNotice } from "./update.js";
+import { FolderWait, ReloadGate, folderHolds, readBuild, runningBuild, type Build, type Kept, type Reloaded, type UpdateNotice } from "./update.js";
 
 /**
  * The extension's worker: paired with one KOS or several, it answers each
@@ -143,8 +143,10 @@ let installType: string | undefined;
 let reloaded: Reloaded | undefined;
 let reloading = false;
 const RELOADED_KEY = "reloaded";
-/** A folder caught mid-rebuild is looked at again after this long. */
+/** A folder caught mid-rebuild is looked at again after this long, by one timer at a time. */
 const FOLDER_AGAIN_MS = 30_000;
+const folderWait = new FolderWait();
+let folderTimer: ReturnType<typeof setTimeout> | undefined;
 const gate = new ReloadGate();
 const linkStates = new Map<string, { state: LinkState; detail?: string }>();
 let session: Session | undefined;
@@ -276,15 +278,25 @@ async function maybeReload(): Promise<void> {
   if (reloading || installType !== "development") return;
   const first = gate.due(busy(), reloaded);
   if (!first) return;
-  // A folder being rebuilt (the build begins by removing it) is not reloaded into: it is looked at again later.
+  // A folder being rebuilt (the build begins by removing it) is not reloaded into: it is looked at again later,
+  // and after a while KOS is told it lacks the build (loaded from another folder), and settles it as still behind.
   if (!(await folderHolds(first.build, ownFile))) {
-    note(`the folder does not hold build ${first.build} yet; looking again shortly`);
-    setTimeout(() => void maybeReload(), FOLDER_AGAIN_MS);
+    const next = folderWait.miss(first.build);
+    if (next === "give-up") {
+      note(`the folder never came to hold build ${first.build}; telling KOS`);
+      links.get(first.kos)?.event("update.state", { build: first.build, state: "missing" });
+    } else if (next === "again" && !folderTimer) {
+      note(`the folder does not hold build ${first.build} yet; looking again shortly`);
+      folderTimer = setTimeout(() => {
+        folderTimer = undefined;
+        void maybeReload();
+      }, FOLDER_AGAIN_MS);
+    }
     return;
   }
-  // Asked again after the waits: a session may have begun meanwhile.
+  // Asked again after the waits: a session may have begun meanwhile, or KOS named another build.
   const due = gate.due(busy(), reloaded);
-  if (reloading || !due) return;
+  if (reloading || due?.build !== first.build) return;
   reloading = true;
   reloaded = { build: due.build, at: Date.now() };
   await chrome.storage.local.set({ [RELOADED_KEY]: reloaded });

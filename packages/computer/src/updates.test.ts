@@ -159,6 +159,18 @@ describe("KOS for Chrome behind", () => {
     expect(back.updates.at(-1)).not.toHaveProperty("force");
   });
 
+  it("whose folder never comes to hold the build is still behind, and not told to reload again", async () => {
+    const { pair, connect, updates, outcomes, store } = setup();
+    const chrome = pair("chrome", "Chrome");
+    const line = await connect(chrome, OLD);
+    line.event("update.state", { build: NEW.id, state: "missing" });
+    await settle();
+    expect(store.attempt(chrome.id, NEW.id)).toMatchObject({ outcome: "still_behind", detail: "its folder is not this KOS's" });
+    expect(outcomes()).toEqual(["still_behind"]);
+    expect(updates.statusOf(chrome.id)).toMatchObject({ state: "behind", reason: "stuck" });
+    expect(line.updates.at(-1)).not.toHaveProperty("action");
+  });
+
   it("is told again on a new line until it reloads: a line that dropped before it was idle is not a reload", async () => {
     const { pair, connect, outcomes } = setup();
     const chrome = pair("chrome", "Chrome");

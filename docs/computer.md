@@ -401,7 +401,8 @@ with no proxy between (a request carrying `X-Forwarded-For`, `Forwarded`,
 `X-Real-IP` or a `Tailscale-` header is not), and, for KOS for Mac, since KOS
 reinstalls it, when it also proves it can read this computer's secret: 32
 random bytes KOS keeps in `~/.kos/device-local.key` (mode 0600;
-`KOS_DEVICE_LOCAL_KEY_FILE` moves it), sent as `here`, base64 HMAC-SHA256 with
+`KOS_DEVICE_LOCAL_KEY_FILE` moves it, for tests and scratch hosts only:
+KOS for Mac always reads `~/.kos/device-local.key`), sent as `here`, base64 HMAC-SHA256 with
 that secret over `kos-device/1|here|<KOS nonce>|<device id>`. A Chrome is
 taken on the header rule alone: a Chrome elsewhere told to reload only
 reloads its own folder.
@@ -427,7 +428,8 @@ only once no side panel turn runs and no session is held or asked for
 (otherwise when that ends), and only once per build id unless `force` (and
 not again within ten minutes even then); it reloads only once its folder
 holds that build whole (the manifest reads, the stamp is that id), and
-looks again later while the folder is being rebuilt; it says
+looks again every 30 s while the folder is being rebuilt, for three minutes,
+then says `missing`; it says
 `update.state` `reloading` first. A forced reload is spent on the line it
 was told on. One installed from the store is `store`: Chrome updates it. Loaded from another folder than
 this KOS's `dist`, it comes back on the same build and KOS calls it stuck.
@@ -732,7 +734,7 @@ Device: `{ "t": "event", "name": "session.paused", "data": { "session": "...", "
 | `session.scrolled` | `session` (the owner scrolled without taking over; sent once until KOS takes a whole-screen picture, and until then KOS acts on nothing but a look) |
 | `session.extended` | `session`, `until` (the owner gave it more time on the device) |
 | `session.ended` | `session`, `reason` (`owner`, `expired`, `idle`, `quit`, `host`, `window`) |
-| `update.state` | `build` (the id KOS told of), `state` (`reloading`: a Chrome reloads into it now) |
+| `update.state` | `build` (the id KOS told of), `state` (`reloading`: a Chrome reloads into it now; `missing`: its folder never came to hold it, so it is loaded from another, and KOS settles it as still behind) |
 
 ### Errors
 

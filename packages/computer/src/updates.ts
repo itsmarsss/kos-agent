@@ -260,13 +260,20 @@ export class DeviceUpdates {
     return status;
   }
 
-  /** A Chrome saying it reloads now into the build KOS told it of. */
+  /** A Chrome saying it reloads now into the build KOS told it of, or that its folder never came to hold it (loaded from another). */
   private heard(device: string, data: Record<string, unknown>): void {
     const found = this.deps.store.get(device);
     const want = found && buildKindOf(found) === "chrome" ? this.deps.expected("chrome") : undefined;
-    if (!want || data.build !== want.id || data.state !== "reloading") return;
+    if (!want || data.build !== want.id) return;
     const attempt = this.deps.store.attempt(device, want.id);
     if (attempt?.outcome !== "told") return;
+    if (data.state === "missing") {
+      this.asked.delete(device);
+      this.settle(device, "chrome", attempt, "still_behind", "its folder is not this KOS's");
+      void this.check(device);
+      return;
+    }
+    if (data.state !== "reloading") return;
     const owner = this.asked.get(device) === want.id;
     this.asked.delete(device);
     this.deps.store.setAttempt({ device, build: want.id, outcome: "reloading" });

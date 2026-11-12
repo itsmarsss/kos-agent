@@ -146,7 +146,7 @@ export function updateWords(d: PairedDevice): { pill: string; tone: Tone; why?: 
     store: "Installed from the store; Chrome updates it",
     off: "Updating on their own is off",
     failed: `The update did not finish${u.detail ? `: ${u.detail}` : ""}`,
-    stuck: mac ? "Rebuilt, and still on the old build" : "Reloaded, and still on the old build: is it loaded from this KOS's packages/browser-extension/dist?",
+    stuck: mac ? "Rebuilt, and still on the old build" : "Still on the old build: is it loaded from this KOS's packages/browser-extension/dist?",
     unbuilt: undefined,
     unstamped: undefined,
   }[u.reason ?? "idle"];

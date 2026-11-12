@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { FORCED_AGAIN_MS, ReloadGate, folderHolds, readBuild, readUpdate, runningBuild, type Kept, type UpdateNotice } from "./update.js";
+import { FOLDER_GIVE_UP_MS, FolderWait, FORCED_AGAIN_MS, ReloadGate, folderHolds, readBuild, readUpdate, runningBuild, type Kept, type UpdateNotice } from "./update.js";
 
 const NEW = { id: "000000000002", commit: "b".repeat(40) };
 const behind: UpdateNotice = { state: "behind", build: NEW, reload: true, force: false };
@@ -121,5 +121,17 @@ describe("the folder before a reload", () => {
     expect(await folderHolds(NEW.id, files({}))).toBe(false);
     expect(await folderHolds(NEW.id, files({ "manifest.json": "{", "build.json": stamp }))).toBe(false);
     expect(await folderHolds(NEW.id, files({ "manifest.json": "{}", "build.json": JSON.stringify({ id: "000000000001", commit: "" }) }))).toBe(false);
+  });
+});
+
+describe("waiting for the folder", () => {
+  it("looks again a while, then gives up once, and starts over for another build", () => {
+    const wait = new FolderWait();
+    expect(wait.miss("b1", 0)).toBe("again");
+    expect(wait.miss("b1", FOLDER_GIVE_UP_MS - 1)).toBe("again");
+    expect(wait.miss("b1", FOLDER_GIVE_UP_MS)).toBe("give-up");
+    // Said once: KOS settles it, and nothing more is sent.
+    expect(wait.miss("b1", FOLDER_GIVE_UP_MS + 60_000)).toBe("done");
+    expect(wait.miss("b2", FOLDER_GIVE_UP_MS + 60_000)).toBe("again");
   });
 });
