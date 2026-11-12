@@ -153,9 +153,10 @@ function bareAddress(address: string): string {
 }
 
 /**
- * What a limit counts an address as: an IPv4 address itself, an IPv6 one
- * by its /64, since one home network hands each device a whole /64 to pick
- * addresses from.
+ * What a limit counts an address as: an IPv4 address itself; a unique-local,
+ * link-local or loopback IPv6 one by itself too, since every device on a home
+ * network shares its /64; any other IPv6 one by its /64, which one network
+ * hands a single device whole to pick addresses from.
  */
 export function addressKey(address: string): string {
   const bare = bareAddress(address);
@@ -163,11 +164,8 @@ export function addressKey(address: string): string {
   const [head = "", tail = ""] = bare.split("::");
   const front = head ? head.split(":") : [];
   const back = bare.includes("::") ? (tail ? tail.split(":") : []) : [];
-  const groups = [...front, ...Array<string>(Math.max(0, 8 - front.length - back.length)).fill("0"), ...back];
-  return `${groups
-    .slice(0, 4)
-    .map((g) => g.replace(/^0+(?=.)/, ""))
-    .join(":")}::/64`;
+  const groups = [...front, ...Array<string>(Math.max(0, 8 - front.length - back.length)).fill("0"), ...back].map((g) => g.replace(/^0+(?=.)/, ""));
+  return isPrivateAddress(bare) ? groups.join(":") : `${groups.slice(0, 4).join(":")}::/64`;
 }
 
 /**
@@ -217,6 +215,8 @@ export class DeviceLan {
   private error: string | undefined;
   /** What the owner last asked for; the queue works toward it. */
   private wanted = false;
+  /** Closed for good: off whatever the setting or the host says. */
+  private closed = false;
   /** Each sync waits for the one before, so turning it on and off at once ends where it was last asked. */
   private queue: Promise<unknown> = Promise.resolve();
   private readonly limits: LanLimits;
@@ -270,12 +270,14 @@ export class DeviceLan {
     return { url: urls[0]!, urls, pin: this.cert.pin, words: this.cert.words };
   }
 
+  /** Off for good, forced or not: the host is shutting down. */
   async close(): Promise<void> {
+    this.closed = true;
     await this.sync(false);
   }
 
   private want(): boolean {
-    return (this.wanted || this.options.forced) && this.hubOf() !== undefined;
+    return !this.closed && (this.wanted || this.options.forced) && this.hubOf() !== undefined;
   }
 
   private async apply(): Promise<LanStatus> {

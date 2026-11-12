@@ -160,9 +160,14 @@ describe("the Wi-Fi listener", () => {
     expect(await listening(port)).toBe(false);
   });
 
-  it("is on whatever the setting says when the host forces it", async () => {
-    const { lan } = setup({ forced: true });
+  it("is on whatever the setting says when the host forces it, until it is closed", async () => {
+    const port = await freePort();
+    const { lan } = setup({ port, forced: true });
     expect(await lan.sync(false)).toMatchObject({ on: true, forced: true });
+    await lan.close();
+    expect(await listening(port)).toBe(false);
+    // Closed stays closed, whatever is asked after.
+    expect((await lan.sync(true)).on).toBe(false);
   });
 
   it("answers its probe and pairing only, over TLS, with the certificate the status pins", async () => {
@@ -357,12 +362,16 @@ describe("a rate limit", () => {
     expect(limit.take("k0")).toBe(0);
   });
 
-  it("counts an IPv6 address by its /64, and an IPv4 one by itself", () => {
+  it("counts a public IPv6 address by its /64, a private one and an IPv4 one by itself", () => {
     expect(addressKey("2001:db8:1:2::5")).toBe(addressKey("2001:db8:1:2:aaaa:bbbb:cccc:1"));
     expect(addressKey("2001:db8:1:2::5")).toBe("2001:db8:1:2::/64");
     expect(addressKey("2001:db8:1:3::5")).not.toBe(addressKey("2001:db8:1:2::5"));
-    expect(addressKey("fe80::1%en0")).toBe("fe80:0:0:0::/64");
-    expect(addressKey("[::1]")).toBe("0:0:0:0::/64");
+    // A home network's own addresses share one /64: each is its own.
+    expect(addressKey("fe80::1%en0")).toBe("fe80:0:0:0:0:0:0:1");
+    expect(addressKey("fe80::2")).not.toBe(addressKey("fe80::1"));
+    expect(addressKey("fd7a:115c:a1e0::1")).toBe(addressKey("fd7a:115c:a1e0:0:0:0:0:0001"));
+    expect(addressKey("fd7a:115c:a1e0::2")).not.toBe(addressKey("fd7a:115c:a1e0::1"));
+    expect(addressKey("[::1]")).toBe("0:0:0:0:0:0:0:1");
     expect(addressKey("::ffff:192.168.1.20")).toBe("192.168.1.20");
     expect(addressKey("192.168.1.21")).toBe("192.168.1.21");
   });
