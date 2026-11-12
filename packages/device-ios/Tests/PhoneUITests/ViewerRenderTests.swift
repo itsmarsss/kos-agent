@@ -46,7 +46,7 @@ extension RenderTests {
   /// What the viewer's web view draws of an artifact, at the size it has in the viewer, `steps` slides on for a deck.
   func picture(_ artifact: ArtifactShelf.Artifact, size: CGSize, steps: Int = 0) async throws -> NSImage {
     let deck = DeckRemote()
-    let frame = ArtifactFrame(artifact: artifact, dark: artifact.dark, read: { _, _, answer in answer(.failure(.init("not in a render"))) }, open: { _ in }, cannot: { _ in }, deck: deck)
+    let frame = ArtifactFrame(artifact: artifact, dark: artifact.dark, read: { _, _, answer in answer(.failure(.init("not in a render"))) }, open: { _ in }, row: { _ in }, cannot: { _ in }, deck: deck)
     let coordinator = ArtifactFrame.Coordinator(frame)
     let view = frame.makeView(coordinator)
     view.frame = CGRect(origin: .zero, size: size)
@@ -109,18 +109,34 @@ extension RenderTests {
         let deck = kind == "deck" ? DeckRemote(place: .init(index: steps, count: 4, reading: !landscape)) : nil
         let size = frameSize(shelf, phone: phone.1, deck: deck, landscape: landscape)
         if !landscape {
-          #expect(size.width == phone.1.width - 2 * ArtifactScreen<Color>.gutter, "the \(kind) does not take the phone's width in the dashboard's gutter")
+          #expect(size.width == phone.1.width, "the \(kind) does not run the phone's width, edge to edge")
         }
         let image = try await picture(artifact, size: size, steps: steps)
-        try draw("artifact-\(kind)\(landscape ? "-landscape" : "")", phone: (phone.0, phone.1), theme: theme, landscape: landscape) {
-          ArtifactScreen(shelf: shelf, close: {}, deck: deck) { _, _, _ in
+        let viewer = {
+          ArtifactScreen(shelf: shelf, close: {}, deck: deck, export: { _, _ in nil }) { _, _, _ in
             Image(nsImage: image).resizable().frame(width: size.width, height: size.height)
           }
           .environment(\.colorScheme, dark ? .dark : .light)
         }
+        try draw("artifact-\(kind)\(landscape ? "-landscape" : "")", phone: (phone.0, phone.1), theme: theme, landscape: landscape, viewer)
+        // A row tapped opens over the sheet as the phone's own sheet, every field labelled.
+        if kind == "sheet" {
+          try draw("artifact-sheet-row", phone: (phone.0, phone.1), theme: theme) {
+            SheetOver(height: 0.62) { viewer() } sheet: { RowSheet(row: Self.row) }
+          }
+        }
       }
     }
   }
+
+  /// The fixture sheet's first row, as its runtime reports it.
+  static let row = ArtifactShelf.Row(
+    sheet: "Costs", title: "Cedar boards",
+    fields: [
+      ["label": "Item", "value": "Cedar boards", "numeric": false], ["label": "Where", "value": "Yard", "numeric": false],
+      ["label": "Qty", "value": "16", "numeric": true], ["label": "Each", "value": "$18.50", "numeric": true],
+      ["label": "Total", "value": "$296.00", "numeric": true], ["label": "Due", "value": "Mar 14, 2026", "numeric": false],
+    ])!
 
   @Test func aDocToRead() async throws {
     try await viewer("doc")

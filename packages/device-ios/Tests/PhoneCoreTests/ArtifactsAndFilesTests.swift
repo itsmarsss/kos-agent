@@ -69,6 +69,23 @@ struct ArtifactShelfTests {
     ])
   }
 
+  @Test func aRowTappedShowsOnlyOverAnOpenSheetAndGoesWithIt() async throws {
+    let rig = try await Rig.online()
+    let row = try #require(ArtifactShelf.Row(sheet: "Costs", title: "Seed", fields: [["label": "Qty", "value": "9", "numeric": true]]))
+    rig.phone.artifacts.tapped(row)
+    #expect(rig.phone.artifacts.row == nil)
+    rig.phone.artifacts.open("plan", dark: false)
+    _ = try await rig.line.call("chat.artifact", opened)
+    rig.phone.artifacts.tapped(row)
+    #expect(rig.phone.artifacts.row == nil)
+    rig.phone.artifacts.open("costs", dark: false)
+    _ = try await rig.line.call("chat.artifact", opened.replacingOccurrences(of: #""id":"plan""#, with: #""id":"costs""#).replacingOccurrences(of: #""kind":"doc""#, with: #""kind":"sheet""#))
+    rig.phone.artifacts.tapped(row)
+    #expect(rig.phone.artifacts.row?.fields == [.init(label: "Qty", value: "9", numeric: true)])
+    rig.phone.artifacts.close()
+    #expect(rig.phone.artifacts.row == nil)
+  }
+
   @Test func aReadKOSNeverAnswersIsRefusedInTimeAndClosingEndsTheRest() async throws {
     let rig = try await Rig.online()
     rig.phone.artifacts.open("plan", dark: false)

@@ -4,13 +4,16 @@ import PhoneCore
 import SwiftUI
 
 /// One of the owner's artifacts, full screen, to read: its kind, title and
-/// owner in a bar with Close, then the artifact as the dashboard draws it
-/// (ArtifactFrame), read-only. A doc reads at the phone's width and a sheet
-/// scrolls its grid sideways. A deck held upright reads as the dashboard's
-/// narrow column of numbered slides; turned on its side it fills the screen
-/// a slide at a time, moved by its own swipes and taps or the bar under it,
-/// which holds Close there. Each follows the phone's light and dark as its own
-/// theme handling allows. Nothing here edits, shares or sends.
+/// owner in a bar with Share and Close, then the artifact as the dashboard
+/// draws it (ArtifactFrame), read-only, edge to edge on the app's own ground:
+/// no box, no inset, no fade, so it reads as the app's page rather than a
+/// page set in it. A doc reads at the phone's width; a sheet scrolls its grid
+/// sideways under a frozen first column, and a row tapped opens over it,
+/// every field labelled. A deck held upright reads as a column of numbered
+/// slides; turned on its side it fills the screen a slide at a time, moved by
+/// its own swipes and taps or the bar under it, which holds Close there. Each
+/// follows the phone's light and dark. Nothing here edits or sends; Share
+/// hands an export, as the dashboard makes one, to the share sheet.
 struct ArtifactScreen<Frame: View>: View {
   @ObservedObject var shelf: ArtifactShelf
   let close: () -> Void
@@ -18,25 +21,24 @@ struct ArtifactScreen<Frame: View>: View {
   /// one in a render.
   @ViewBuilder let frame: (ArtifactShelf.Artifact, Bool, DeckRemote) -> Frame
   var now: Date = Date()
+  /// The open one exported in a format its kind has, as a file for the share sheet; none, and there is no Share.
+  var export: ((ArtifactShelf.Artifact, String) async -> URL?)?
   @StateObject private var deck = DeckRemote()
+  @State private var sharing: Shared?
   @Environment(\.colorScheme) private var scheme
   @Environment(\.verticalSizeClass) private var height
 
-  init(shelf: ArtifactShelf, close: @escaping () -> Void, now: Date = Date(), deck: DeckRemote? = nil, @ViewBuilder frame: @escaping (ArtifactShelf.Artifact, Bool, DeckRemote) -> Frame) {
+  init(
+    shelf: ArtifactShelf, close: @escaping () -> Void, now: Date = Date(), deck: DeckRemote? = nil,
+    export: ((ArtifactShelf.Artifact, String) async -> URL?)? = nil, @ViewBuilder frame: @escaping (ArtifactShelf.Artifact, Bool, DeckRemote) -> Frame
+  ) {
     self.shelf = shelf
     self.close = close
     self.now = now
+    self.export = export
     self.frame = frame
     _deck = StateObject(wrappedValue: deck ?? DeckRemote())
   }
-
-  /// The dashboard's gutter around a frame on a narrow screen, and its room under the head (artifactcheck.ts, GUTTER).
-  static var gutter: CGFloat { 16 }
-  static var above: CGFloat { 12 }
-  /// The room around a slide on its side, so its edge shows.
-  static var slideInset: CGFloat { 8 }
-  /// How tall the fade at the frame's foot is.
-  static var fade: CGFloat { 20 }
 
   /// A deck on its side, one slide at a time: the slide takes the screen, with nothing over it but its own bar.
   private var staged: DeckRemote.Place? {
@@ -48,22 +50,20 @@ struct ArtifactScreen<Frame: View>: View {
     VStack(spacing: 0) {
       if let shown = shelf.shown {
         if let place = staged, case .open(let artifact) = shown {
-          // The frame the slide's own size, so it carries the dashboard's slide edge, which a held deck leaves to it.
+          // The slide as large as the screen allows, on the ground, with no frame of its own.
           GeometryReader { box in
             let width = min(box.size.width, box.size.height * 16 / 9)
-            let shape = RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous)
             frame(artifact, scheme == .dark, deck)
               .frame(width: width, height: width * 9 / 16)
-              .clipShape(shape)
-              .overlay(shape.strokeBorder(Theme.line))
               .frame(maxWidth: .infinity, maxHeight: .infinity)
           }
-          .padding(Self.slideInset)
           .accessibilityLabel(artifact.title)
           Hairline()
           DeckBar(place: place, press: deck.press, close: close)
         } else {
-          ArtifactBar(shown: shown, now: now, close: close)
+          ArtifactBar(shown: shown, now: now, share: export.map { export in { artifact, format in
+            Task { if let url = await export(artifact, format) { sharing = Shared(url: url) } }
+          } }, close: close)
           Hairline()
           content(shown)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -71,22 +71,21 @@ struct ArtifactScreen<Frame: View>: View {
       }
     }
     .background(Theme.bg.ignoresSafeArea())
+    .sheet(item: $shelf.row) { row in
+      RowSheet(row: row)
+        .presentationBackground(Theme.panel)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+    .modifier(ShareSheet(shared: $sharing))
   }
 
   @ViewBuilder
   private func content(_ shown: ArtifactShelf.Shown) -> some View {
     switch shown {
     case .open(let artifact):
-      // In the gutter the dashboard's column gives every frame, above the home indicator, where what scrolls on
-      // fades into the ground rather than stopping at a hard edge.
+      // Edge to edge: the runtime sets the text in the app's gutter on its own ground, which is the app's.
       frame(artifact, scheme == .dark, deck)
-        .overlay(alignment: .bottom) {
-          LinearGradient(colors: [Theme.bg.opacity(0), Theme.bg], startPoint: .top, endPoint: .bottom)
-            .frame(height: Self.fade)
-            .allowsHitTesting(false)
-        }
-        .padding(.horizontal, Self.gutter)
-        .padding(.top, Self.above)
         .accessibilityLabel(artifact.title)
     case .loading:
       VStack(spacing: 10) {
@@ -112,8 +111,8 @@ struct ArtifactScreen<Frame: View>: View {
 
 extension ArtifactScreen where Frame == ArtifactWebFrame {
   /// The viewer as a phone draws it, the artifact in its web view.
-  init(shelf: ArtifactShelf, close: @escaping () -> Void) {
-    self.init(shelf: shelf, close: close) { artifact, dark, deck in
+  init(shelf: ArtifactShelf, close: @escaping () -> Void, export: ((ArtifactShelf.Artifact, String) async -> URL?)?) {
+    self.init(shelf: shelf, close: close, export: export) { artifact, dark, deck in
       ArtifactWebFrame(artifact: artifact, dark: dark, shelf: shelf, deck: deck)
     }
   }
@@ -130,7 +129,7 @@ struct ArtifactWebFrame: View {
     ArtifactFrame(
       artifact: artifact, dark: dark,
       read: { method, args, answer in shelf.read(method, args: args, answer: answer) },
-      open: { id in shelf.open(id, dark: dark) }, cannot: { why in shelf.cannotShow(artifact.id, why) }, deck: deck)
+      open: { id in shelf.open(id, dark: dark) }, row: { shelf.tapped($0) }, cannot: { why in shelf.cannotShow(artifact.id, why) }, deck: deck)
   }
 }
 
@@ -160,10 +159,12 @@ struct DeckBar: View {
   }
 }
 
-/// The viewer's bar: the kind's mark, the title over its kind, owner and age, and Close at the thumb.
+/// The viewer's bar: the kind's mark, the title over its kind, owner and age, then Share, a format a press, and Close
+/// at the thumb.
 struct ArtifactBar: View {
   let shown: ArtifactShelf.Shown
   let now: Date
+  var share: ((ArtifactShelf.Artifact, String) -> Void)? = nil
   let close: () -> Void
 
   private var detail: String {
@@ -186,6 +187,20 @@ struct ArtifactBar: View {
       }
       .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
       .accessibilityElement(children: .combine)
+      if let share, case .open(let artifact) = shown {
+        Menu {
+          ForEach(GalleryModel.formats(artifact.kind), id: \.self) { format in
+            Button { share(artifact, format) } label: { Label("Share as \(ArtifactKindMark.format(format))", systemImage: "square.and.arrow.up") }
+          }
+        } label: {
+          Image(systemName: "square.and.arrow.up").font(.kos(.title, .medium)).foregroundStyle(Theme.muted).frame(width: 44, height: 44).contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityLabel("Share \(artifact.title)")
+      }
       HeaderButton(symbol: "xmark", label: "Close", action: close)
     }
     .padding(.leading, 16)

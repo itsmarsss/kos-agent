@@ -23,7 +23,7 @@ public struct PhoneRoot: View {
       } else {
         PhoneHome(phone: phone)
           .modifier(Repairing(flow: phone.pairing, problem: phone.problem))
-          .modifier(Reading(shelf: phone.artifacts, mode: phone.mode))
+          .modifier(Reading(shelf: phone.artifacts, gallery: phone.board.gallery, mode: phone.mode))
       }
     }
     .id(textSize)
@@ -59,6 +59,7 @@ private struct Repairing: ViewModifier {
 /// An artifact open: the viewer over the tabs, full screen on a phone, in the app's theme; closed, it goes.
 private struct Reading: ViewModifier {
   @ObservedObject var shelf: ArtifactShelf
+  let gallery: GalleryModel
   let mode: ThemeMode
 
   func body(content: Content) -> some View {
@@ -71,7 +72,9 @@ private struct Reading: ViewModifier {
   }
 
   private var viewer: some View {
-    ArtifactScreen(shelf: shelf, close: shelf.close)
+    ArtifactScreen(shelf: shelf, close: shelf.close) { artifact, format in
+      await gallery.export(id: artifact.id, title: artifact.title, format: format)
+    }
       .foregroundStyle(Theme.text)
       .tint(Theme.accent)
       .preferredColorScheme(mode.colorScheme)

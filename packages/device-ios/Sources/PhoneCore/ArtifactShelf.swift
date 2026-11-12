@@ -60,6 +60,46 @@ public final class ArtifactShelf: ObservableObject {
     }
   }
 
+  /// A sheet's row the owner tapped, every field labelled, as the sheet's runtime tells it: drawn by the phone as a
+  /// sheet of its own rather than in the page.
+  public struct Row: Equatable, Identifiable, Sendable {
+    public struct Field: Equatable, Sendable {
+      public let label: String
+      public let value: String
+      public let numeric: Bool
+
+      public init(label: String, value: String, numeric: Bool) {
+        self.label = label
+        self.value = value
+        self.numeric = numeric
+      }
+    }
+
+    public let id = UUID()
+    /// The tab it is in.
+    public let sheet: String
+    public let title: String
+    public let fields: [Field]
+
+    /// The most fields and characters a row carries, as the runtime cuts them (sheet.ts, rowReport).
+    public static let most = 200
+    public static let longest = 2000
+
+    /// What the page posted, held to the runtime's own caps; nil when it is not a row.
+    public init?(sheet: Any?, title: Any?, fields: Any?) {
+      guard let title = title as? String, let list = fields as? [[String: Any]] else { return nil }
+      let cut = { (text: String) in String(text.prefix(Self.longest)) }
+      self.sheet = cut(sheet as? String ?? "")
+      self.title = cut(title)
+      self.fields = list.prefix(Self.most).compactMap { field in
+        guard let label = field["label"] as? String, let value = field["value"] as? String else { return nil }
+        return Field(label: cut(label), value: cut(value), numeric: field["numeric"] as? Bool ?? false)
+      }
+    }
+
+    public static func == (a: Row, b: Row) -> Bool { a.sheet == b.sheet && a.title == b.title && a.fields == b.fields }
+  }
+
   /// A read's answer as the page takes it: the result, or the words it is refused in.
   public typealias Answer = Result<JSONValue, ReadRefusal>
 
@@ -73,6 +113,8 @@ public final class ArtifactShelf: ObservableObject {
   /// KOS has answered the list since it was last asked for.
   @Published public private(set) var listed = false
   @Published public private(set) var shown: Shown?
+  /// The open sheet's row the owner tapped, shown over it until put away.
+  @Published public var row: Row?
 
   /// What the shelf says to KOS; the app sends it on the line.
   public var tell: (ChatEvent) -> Void = { _ in }
@@ -104,13 +146,21 @@ public final class ArtifactShelf: ObservableObject {
       return
     }
     failReads("The artifact was closed.")
+    row = nil
     shown = .loading(id: id, title: title ?? recent.first { $0.id == id }?.title)
     tell(.artifact(id: id, theme: dark ? "dark" : "light"))
   }
 
   public func close() {
     failReads("The artifact was closed.")
+    row = nil
     shown = nil
+  }
+
+  /// A row the open sheet told of, at the owner's tap; from any other kind, or with nothing open, nothing shows.
+  public func tapped(_ row: Row) {
+    guard case .open(let artifact) = shown, artifact.kind == "sheet" else { return }
+    self.row = row
   }
 
   /// A read the open artifact's page asked for, answered once; a page asking for another artifact's is refused.
@@ -170,6 +220,7 @@ public final class ArtifactShelf: ObservableObject {
     failReads("The line to KOS closed.")
     recent = []
     listed = false
+    row = nil
     shown = nil
   }
 

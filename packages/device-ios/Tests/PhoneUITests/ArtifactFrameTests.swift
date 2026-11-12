@@ -56,7 +56,7 @@ struct ArtifactFrameTests {
         reads.append((method, args))
         answer(.success(.object(["rows": .array([.object(["n": .number(1)])])])))
       },
-      open: { opened.append($0) }, cannot: { cannot.append($0) }, deck: DeckRemote())
+      open: { opened.append($0) }, row: { _ in }, cannot: { cannot.append($0) }, deck: DeckRemote())
     let coordinator = ArtifactFrame.Coordinator(frame)
     let view = frame.makeView(coordinator)
     let heard = Heard()
@@ -87,6 +87,31 @@ struct ArtifactFrameTests {
     #expect(cannot.isEmpty)
   }
 
+  @Test func aSheetsRowTappedGoesUpHeldToTheRuntimesCaps() async throws {
+    let page = """
+      <!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'"></head><body><script>
+      var fields=[];for(var i=0;i<250;i++)fields.push({label:"Column "+i,value:i===1?"x".repeat(5000):String(i),numeric:i%2===0});
+      top.postMessage({__kos:"row",sheet:"Costs",title:"Cedar boards",fields:fields},"*");
+      top.postMessage({__kos:"row",title:7,fields:"no"},"*");
+      </script></body></html>
+      """
+    var rows: [ArtifactShelf.Row] = []
+    let artifact = ArtifactShelf.Artifact(id: "costs", title: "Costs", kind: "sheet", document: Self.wrapper(page), themes: .init(light: "", dark: ""), dark: false)
+    let frame = ArtifactFrame(artifact: artifact, dark: false, read: { _, _, _ in }, open: { _ in }, row: { rows.append($0) }, cannot: { _ in }, deck: DeckRemote())
+    let coordinator = ArtifactFrame.Coordinator(frame)
+    let view = frame.makeView(coordinator)
+    view.frame = CGRect(x: 0, y: 0, width: 390, height: 600)
+    coordinator.load(into: view)
+    for _ in 0..<60 where rows.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+    try await Task.sleep(for: .milliseconds(300))
+    let row = try #require(rows.first)
+    #expect(rows.count == 1)
+    #expect(row.sheet == "Costs" && row.title == "Cedar boards")
+    #expect(row.fields.count == ArtifactShelf.Row.most)
+    #expect(row.fields[1].value.count == ArtifactShelf.Row.longest)
+    #expect(row.fields[0] == .init(label: "Column 0", value: "0", numeric: true))
+  }
+
   @Test func onlyADocOpensAnotherArtifact() {
     #expect(ArtifactFrame.openRefusal(kind: "doc", id: "budget") == nil)
     #expect(ArtifactFrame.openRefusal(kind: "deck", id: "budget") == "only a doc can open an artifact")
@@ -114,7 +139,7 @@ struct ArtifactFrameTests {
     let page = Self.fetching(server.port).replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "\"", with: "&quot;")
     let document = "<!doctype html><html><body><iframe sandbox=\"allow-scripts\" srcdoc=\"\(page)\"></iframe></body></html>"
     let artifact = ArtifactShelf.Artifact(id: "plan", title: "Plan", kind: "doc", document: document, themes: .init(light: "", dark: ""), dark: false)
-    let frame = ArtifactFrame(artifact: artifact, dark: false, read: { _, _, _ in }, open: { _ in }, cannot: { _ in }, deck: DeckRemote())
+    let frame = ArtifactFrame(artifact: artifact, dark: false, read: { _, _, _ in }, open: { _ in }, row: { _ in }, cannot: { _ in }, deck: DeckRemote())
     let coordinator = ArtifactFrame.Coordinator(frame)
     let view = frame.makeView(coordinator)
     let heard = Heard()
@@ -132,7 +157,7 @@ struct ArtifactFrameTests {
   @Test func showsNothingWhenTheRulesDoNotHold() async throws {
     var cannot: [String] = []
     let artifact = ArtifactShelf.Artifact(id: "plan", title: "Plan", kind: "doc", document: Self.wrapper(Self.page), themes: .init(light: "", dark: ""), dark: false)
-    let frame = ArtifactFrame(artifact: artifact, dark: false, read: { _, _, _ in }, open: { _ in }, cannot: { cannot.append($0) }, deck: DeckRemote())
+    let frame = ArtifactFrame(artifact: artifact, dark: false, read: { _, _, _ in }, open: { _ in }, row: { _ in }, cannot: { cannot.append($0) }, deck: DeckRemote())
     let coordinator = ArtifactFrame.Coordinator(frame, rules: { nil })
     let view = frame.makeView(coordinator)
     coordinator.load(into: view)
