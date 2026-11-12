@@ -59,6 +59,8 @@ public final class Phone: ObservableObject {
   /// The turn that was working, so its end asks for a fresh glance.
   private var wasWorking = false
   private var watch: Task<Void, Never>?
+  /// Asked to listen (Ask KOS) before KOS was on the line to hear: it listens once the chat is shown.
+  private var listenWhenShown = false
 
   public init(
     vault: PairingVault, pairer: Pairer, recognizer: SpeechRecognizer, speaker: Speaker, haptics: Haptics, preferences: Preferences,
@@ -108,6 +110,24 @@ public final class Phone: ObservableObject {
   public func background() {
     reader.stop()
     voice.cancel()
+  }
+
+  /// Ask KOS, from outside the app's screens: listening starts now, or once KOS has shown the chat. Not paired, the
+  /// pairing screen is what shows, and nothing listens.
+  public func listen() {
+    guard paired != nil else { return }
+    if chat.usable {
+      beginListening()
+    } else {
+      listenWhenShown = true
+    }
+  }
+
+  private func beginListening() {
+    listenWhenShown = false
+    guard !voice.listening, voice.state != .asking else { return }
+    reader.stop()
+    voice.press()
   }
 
   /// Forgets this KOS here and tells it to forget this phone, then shows the pairing again.
@@ -183,6 +203,7 @@ public final class Phone: ObservableObject {
           tray.kept()
         }
         reader.shown(conversation: chat.conversation, lines: chat.lines)
+        if listenWhenShown && chat.usable { beginListening() }
       case .status:
         heardBack()
         // Refused with the words (a file that did not arrive whole), they are back in the box, and so are the files.
@@ -254,6 +275,7 @@ public final class Phone: ObservableObject {
     glance.reset()
     artifacts.reset()
     tray.reset()
+    listenWhenShown = false
     wasOnline = false
   }
 
