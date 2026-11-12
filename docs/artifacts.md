@@ -648,8 +648,9 @@ count, grid, notes, reading, hosted, said}`) and the dashboard presses
 (`{__kos: "deck-do", action}`), its own bar handed over on the first
 report and kept when it stands alone. Held (`deck-hosted`), the slide is
 the whole frame, which the dashboard sizes to its 16:9 on the page's
-ground, and the notes are the dashboard's, as text under it, as tall as
-they are. On a phone the row is the title and
+ground, and the notes are the dashboard's, as text under it: the slide shrinks to
+leave them up to `min(30dvh, 220px)` of the view, and they scroll past
+that; they are not drawn while the frame has the screen. On a phone the row is the title and
 the menu, with Done in reach while editing. The actions: History (a drawer of every version,
 newest first, each older one with Preview, which shows that version in place
 with nothing in it saved, written or asked, and Restore, which like an edit

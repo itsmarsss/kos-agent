@@ -7167,7 +7167,10 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
   box-shadow: 0 0 0 1px var(--line);
 }
 .artifact-frame[data-layout="deck"], .artifact-skeleton--deck { height: 100%; border-radius: var(--r-md); }
-.artifact-notes { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; font-size: var(--text-md); line-height: 1.5; }
+/* With its notes on, the slide leaves them room in the view: they take up to --notes-room under it, and scroll past that. */
+.artifact { --notes-room: min(30dvh, 220px); }
+.artifact[data-notes] .artifact-stage[data-layout="deck"] { width: min(100%, calc((100dvh - var(--artifact-top) - 1.5rem - var(--notes-room) - 0.6rem) * 16 / 9)); }
+.artifact-notes { display: flex; flex-direction: column; gap: 6px; max-height: var(--notes-room); overflow-y: auto; padding-top: 4px; font-size: var(--text-md); line-height: 1.5; overscroll-behavior: contain; }
 .artifact:fullscreen .artifact-notes { display: none; }
 .artifact-notes p { margin: 0; max-width: 72ch; text-wrap: pretty; }
 .artifact-notes-none { color: var(--muted); }

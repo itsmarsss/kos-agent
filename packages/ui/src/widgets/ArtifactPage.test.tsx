@@ -584,10 +584,13 @@ describe("a frame as tall as its page", () => {
     say({ __kos: "deck", index: 1, count: 3, grid: false, notes: true, reading: false, hosted: true, said: ["Lead with <b>yield</b>"] });
     expect(notes()!.textContent).toBe("Notes, slide 2Lead with <b>yield</b>");
     expect(notes()!.querySelector("b")).toBeNull();
+    // The slide makes room for them in the view (styles.css, --notes-room).
+    expect(el.closest(".artifact")!.hasAttribute("data-notes")).toBe(true);
     say({ __kos: "deck", index: 2, count: 3, grid: false, notes: true, reading: false, hosted: true, said: [] });
     expect(notes()!.textContent).toContain("No notes for this slide.");
     say({ __kos: "deck", index: 2, count: 3, grid: true, notes: true, reading: false, hosted: true, said: [] });
     expect(notes()).toBeNull();
+    expect(el.closest(".artifact")!.hasAttribute("data-notes")).toBe(false);
   });
 
   it("draws no notes of its own while the deck has the screen, and draws them again after", async () => {

@@ -638,7 +638,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const frameTitle = useMemo(() => page.title || record.title, [page.title, record.title]);
 
   return (
-    <div className="artifact" data-layout={layout} ref={box}>
+    <div className="artifact" data-layout={layout} ref={box} {...(notesShown ? { "data-notes": "" } : {})}>
       {asked && (
         <div className="artifact-ask" role="dialog" aria-label="The page asks to message the chat">
           <p>
