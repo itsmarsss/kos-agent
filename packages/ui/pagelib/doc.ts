@@ -9,7 +9,7 @@
  */
 
 import { DOC_CSS } from "./doc.css.js";
-import { DOC_EDIT_MAX } from "@kos/shared/artifacts";
+import { ARTIFACT_ID_RE, DOC_EDIT_MAX } from "@kos/shared/artifacts";
 
 import { ensureTodoBoxes, toggleTodo } from "./docblocks.js";
 import { AUTOSAVE_GAP_MS, startEditor, type Editor } from "./docedit.js";
@@ -422,7 +422,8 @@ export function startDoc(): void {
     if (!chip || article.getAttribute("contenteditable") === "true") return;
     if (e instanceof KeyboardEvent && e.key !== "Enter") return;
     e.preventDefault();
-    top?.postMessage({ __kos: "open", artifact: chip.getAttribute("data-artifact") }, "*");
+    const id = chip.getAttribute("data-artifact") ?? "";
+    if (ARTIFACT_ID_RE.test(id)) void kos()?.open?.(id).catch(() => undefined);
   };
   article.addEventListener("click", open);
   article.addEventListener("keydown", open);

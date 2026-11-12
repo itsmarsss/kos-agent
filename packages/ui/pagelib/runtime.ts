@@ -20,6 +20,10 @@ export interface KosBridge {
   writes?: (list: { table: string; op: "insert" | "update" | "delete"; values?: Record<string, unknown>; key?: { column: string; value: unknown } }[]) => Promise<{ done: number; results: { changes: number }[] }>;
   save?: (edit: ArtifactEdit) => Promise<unknown>;
   present?: (on?: boolean) => void;
+  /** A doc's @ mention: the dashboard's picker opens at this place in the frame, and answers with the artifact picked, or null. */
+  mention?: (at: { x: number; y: number }) => Promise<{ id: string; title: string } | null>;
+  /** Open another artifact in the dashboard, as a doc's mention does when pressed. */
+  open?: (id: string) => Promise<unknown>;
 }
 
 export const kos = (): KosBridge | undefined => (window as unknown as { kos?: KosBridge }).kos;

@@ -13,7 +13,8 @@ export interface MentionPickerProps {
   /** The doc it is for, which it does not offer. */
   exclude: string;
   onPick: (artifact: PageSummary) => void;
-  onClose: () => void;
+  /** Closed without a pick; `refocus` false when the owner already went elsewhere (back into the doc, another window). */
+  onClose: (refocus: boolean) => void;
 }
 
 /**
@@ -46,7 +47,7 @@ export function MentionPicker({ at, exclude, onPick, onClose }: MentionPickerPro
 
   useEffect(() => {
     const away = (e: PointerEvent): void => {
-      if (!box.current?.contains(e.target as Node)) onClose();
+      if (!box.current?.contains(e.target as Node)) onClose(false);
     };
     document.addEventListener("pointerdown", away, true);
     return () => document.removeEventListener("pointerdown", away, true);
@@ -56,7 +57,13 @@ export function MentionPicker({ at, exclude, onPick, onClose }: MentionPickerPro
   const top = at.y + 300 > window.innerHeight ? Math.max(8, at.y - 330) : at.y + 6;
 
   return (
-    <div className="mention-picker" ref={box} style={{ left, top }} role="dialog" aria-label="Mention an artifact">
+    <div
+      className="mention-picker"
+      ref={box}
+      style={{ left, top }}
+      role="dialog"
+      aria-label="Mention an artifact"
+    >
       <input
         autoFocus
         className="mention-picker-search"
@@ -79,7 +86,7 @@ export function MentionPicker({ at, exclude, onPick, onClose }: MentionPickerPro
             if (shown[pick]) onPick(shown[pick]);
           } else if (e.key === "Escape") {
             e.preventDefault();
-            onClose();
+            onClose(true);
           }
         }}
       />

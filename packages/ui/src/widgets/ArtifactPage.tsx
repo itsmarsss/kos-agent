@@ -7,6 +7,7 @@ import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, 
 import { SaveConflict, api, type PageSummary } from "../api.js";
 import { fitsContent, pageDocument, tokenRule, wrapperDocument } from "@kos/shared";
 import { hrefFor } from "../routes.js";
+import { mentionRefusal, openRefusal, pickerPlace } from "./docbridge.js";
 import { MentionPicker } from "./MentionPicker.js";
 import { heightBucket, heightGate, ownerIn, rememberHeight, rememberedHeight, revealAllowed, revealInDashboard, saveAllowed, type EditTold, type HeightGate, type Reveal } from "./frameheight.js";
 
@@ -237,6 +238,10 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const [told, setTold] = useState<string>();
   /** A doc's @ mention, asked for at this place in the view: the dashboard's picker answers it. */
   const [mention, setMention] = useState<{ x: number; y: number }>();
+  /** The page's call the open picker answers, so there is one at a time. */
+  const mentionAsk = useRef<unknown>(undefined);
+  /** Whether the doc is editing, as its head was last told, for the picker's gate. */
+  const editing = useRef(false);
   const [conflict, setConflict] = useState<string>();
   // Opened at the height it last took at this width (read once the box is laid out), so the dashboard does not jump when the page reports.
   const [height, setHeight] = useState<number>();
@@ -481,25 +486,12 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         const d = m as Partial<EditState>;
         const next: EditState = { editing: d.editing === true, pending: d.pending === true, status: String(d.status ?? "").slice(0, 300), bad: d.bad === true };
         setEdit(next);
+        editing.current = next.editing;
         if (!next.editing && !next.pending) settled.current.splice(0).forEach((f) => f());
         return;
       }
       if (m.__kos === "error") {
         setError((current) => current ?? String(m.message ?? "The page hit an error"));
-        return;
-      }
-      // A doc asks for the artifact picker at its caret; only while it is being edited, at the owner's hand.
-      if (m.__kos === "mention-ask") {
-        const d = m as { x?: unknown; y?: unknown };
-        if (page.kind !== "doc" || locked || !ownerIn(frame.current) || typeof d.x !== "number" || typeof d.y !== "number") return;
-        const r = frame.current.getBoundingClientRect();
-        setMention({ x: Math.round(r.left + d.x), y: Math.round(r.top + d.y) });
-        return;
-      }
-      // A mention pressed in a doc opens what it names, when it names an artifact and the owner's hand pressed it.
-      if (m.__kos === "open") {
-        const id = (m as { artifact?: unknown }).artifact;
-        if (typeof id === "string" && /^[\w.-]{1,120}$/.test(id) && revealAllowed(frame.current, gestures.current.at)) window.location.hash = hrefFor({ name: "artifacts", id });
         return;
       }
       // The owner pressed present inside it, or the deck stopped presenting: full screen is only this side's to give or take.
@@ -509,6 +501,22 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       }
       if (m.__kos !== "call") return;
       const args = m.args ?? {};
+      // A doc's mention and its press on one: held to the doc's gates (docbridge.ts) before the picker or another artifact opens.
+      if (m.method === "mention" || m.method === "open") {
+        const state = { kind: page.kind, locked, presenting, pressed: revealAllowed(frame.current, gestures.current.at) };
+        if (m.method === "open") {
+          const no = openRefusal(state, args.id);
+          if (no) return reply(m.id, { error: no });
+          window.location.hash = hrefFor({ name: "artifacts", id: String(args.id) });
+          return reply(m.id, { result: { opened: true } });
+        }
+        const no = mentionRefusal({ ...state, editing: editing.current, asking: mentionAsk.current !== undefined }, args);
+        if (no) return reply(m.id, { error: no });
+        const at = args as { x: number; y: number };
+        mentionAsk.current = m.id;
+        setMention(pickerPlace(at, frame.current.getBoundingClientRect(), { width: window.innerWidth, height: window.innerHeight }));
+        return;
+      }
       if (locked && (m.method === "save" || m.method === "write" || m.method === "ask"))
         return reply(m.id, { error: presenting ? "this deck is being presented; it changes nothing now" : "this is an older version, shown to look at: restore it to change it" });
       if (m.method === "ask") {
@@ -582,6 +590,23 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       media.removeEventListener("change", tell);
     };
   }, [pageWindow]);
+
+  /** The picker's answer to the doc's kos.mention: the artifact picked, or null when it closed without one. */
+  const answerMention = useCallback(
+    (picked: { id: string; title: string } | null, refocus = true) => {
+      const id = mentionAsk.current;
+      mentionAsk.current = undefined;
+      setMention(undefined);
+      if (id === undefined) return;
+      if (refocus) frame.current?.focus();
+      reply(id, { result: picked });
+    },
+    [reply],
+  );
+  // Editing ended, or another version or document took the frame: the picker goes with it.
+  useEffect(() => {
+    if (!edit?.editing) answerMention(null, false);
+  }, [answerMention, edit?.editing]);
 
   const send = useCallback(
     (text: string) => {
@@ -708,16 +733,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         <MentionPicker
           at={mention}
           exclude={record.id}
-          onPick={(a) => {
-            setMention(undefined);
-            frame.current?.focus();
-            pageWindow()?.postMessage({ __kos: "mention", id: a.id, title: a.title }, "*");
-          }}
-          onClose={() => {
-            setMention(undefined);
-            frame.current?.focus();
-            pageWindow()?.postMessage({ __kos: "mention" }, "*");
-          }}
+          onPick={(a) => answerMention({ id: a.id, title: a.title })}
+          onClose={(refocus) => answerMention(null, refocus)}
         />
       )}
       {!left && (

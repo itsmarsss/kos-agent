@@ -304,6 +304,8 @@ writes:function(list){return call("write",{writes:list}).then(function(r){refres
 files:Object.freeze({read:function(path){return call("file",{path:path})}}),
 ask:function(text){return call("ask",{text:String(text)})},
 save:function(edit){return call("save",{edit:edit})},
+mention:function(at){at=at||{};return call("mention",{x:Number(at.x),y:Number(at.y)})},
+open:function(id){return call("open",{id:String(id)})},
 present:function(on){top.postMessage({__kos:"present",on:on!==false},"*")},
 onTheme:function(f){themeFns.push(f)},
 refresh:function(f){refreshFns.push(f)}

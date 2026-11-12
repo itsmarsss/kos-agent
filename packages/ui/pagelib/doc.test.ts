@@ -302,21 +302,20 @@ describe("kos-doc", () => {
     expect(article.querySelector(".todo-box")!.hasAttribute("disabled")).toBe(true);
   });
 
-  it("opens a mentioned artifact in the dashboard when pressed, but not while editing", () => {
-    (window as { kos?: unknown }).kos = { save: vi.fn() };
+  it("opens a mentioned artifact through kos.open when pressed, but not while editing nor for a bad id", () => {
+    const open = vi.fn().mockResolvedValue({ opened: true });
+    (window as { kos?: unknown }).kos = { save: vi.fn(), open };
     document.execCommand = vi.fn() as typeof document.execCommand;
-    const told = vi.spyOn(window, "postMessage");
-    const article = mount(`<p>See <span class="mention" data-artifact="q4-plan">Q4 Plan</span></p>`);
+    const article = mount(`<p>See <span class="mention" data-artifact="q4-plan">Q4 Plan</span> <span class="mention" data-artifact="../x">X</span></p>`);
     startDoc();
-    const chip = article.querySelector<HTMLElement>(".mention")!;
-    expect([chip.getAttribute("role"), chip.getAttribute("tabindex")]).toEqual(["link", "0"]);
-    chip.click();
-    expect(told.mock.calls.map((c) => c[0])).toContainEqual({ __kos: "open", artifact: "q4-plan" });
-    told.mockClear();
+    const [chip, bad] = [...article.querySelectorAll<HTMLElement>(".mention")];
+    expect([chip!.getAttribute("role"), chip!.getAttribute("tabindex")]).toEqual(["link", "0"]);
+    chip!.click();
+    bad!.click();
+    expect(open.mock.calls).toEqual([["q4-plan"]]);
     press("edit");
-    chip.click();
-    expect(told.mock.calls.map((c) => c[0])).not.toContainEqual({ __kos: "open", artifact: "q4-plan" });
-    told.mockRestore();
+    chip!.click();
+    expect(open).toHaveBeenCalledTimes(1);
   });
 
   it("undoes a block's move from the dashboard's Undo, and redoes it", () => {

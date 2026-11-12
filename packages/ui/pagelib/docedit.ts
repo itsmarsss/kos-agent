@@ -20,12 +20,12 @@
  * the doc's stored form. What the editor draws (the handle, its menus, the
  * bars, the marks over selected blocks) lives outside the article; what it
  * puts inside (a to-do's box, the line's placeholder) is the runtime's and
- * is taken out before a save. Nothing leaves the frame but kos.save, and a
- * request for the dashboard's own artifact picker (an @ mention), which
- * answers with the one artifact the owner picked.
+ * is taken out before a save. Nothing leaves the frame but window.kos:
+ * kos.save, and kos.mention for an @ mention, which the dashboard answers
+ * from its own picker with the one artifact the owner picked.
  */
 
-import { DOC_EDIT_MAX } from "@kos/shared/artifacts";
+import { ARTIFACT_ID_RE, DOC_EDIT_MAX } from "@kos/shared/artifacts";
 
 import {
   allBlocks, atEnd, atStart, blockOf, duplicate, ensureTodoBoxes, holderOf, indent, isEmpty, kindOf, mergeBack, moveBlocks, moveTo, newTable,
@@ -34,7 +34,7 @@ import {
 import { History } from "./dochistory.js";
 import { cleanPaste, isInline, parseClipboard } from "./docpaste.js";
 import { Menu, icon, type IconName, type MenuItem } from "./docui.js";
-import { el, reason } from "./runtime.js";
+import { el, kos, reason } from "./runtime.js";
 
 /** A block a line can become by markdown typed at its start. */
 export type BlockOp = BlockKind | "divider";
@@ -501,26 +501,35 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
     reader.readAsDataURL(file);
   }
 
-  /* —— @ mentions: the dashboard's picker, which sends back the one artifact chosen —— */
-  let mentionAt: Range | undefined;
+  /* —— @ mentions: the dashboard's picker (kos.mention), which answers with the one artifact chosen —— */
+  let asking = false;
   function askMention(): void {
+    const bridge = kos();
+    if (!bridge?.mention || asking) return;
     const sel = getSelection();
-    mentionAt = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : undefined;
+    const at = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : undefined;
     const r = caretRect();
-    top?.postMessage({ __kos: "mention-ask", x: Math.round(r.left), y: Math.round(r.bottom) }, "*");
+    asking = true;
+    bridge.mention({ x: Math.round(r.left), y: Math.round(r.bottom) }).then(
+      (picked) => {
+        asking = false;
+        if (!stopped) putMention(picked, at);
+      },
+      (e: unknown) => {
+        asking = false;
+        if (!stopped) say(`No mention: ${reason(e)}`, true);
+      },
+    );
   }
-  const heard = (e: MessageEvent): void => {
-    const m = (e.data ?? {}) as { __kos?: string; id?: unknown; title?: unknown };
-    if (e.source !== top || m.__kos !== "mention" || stopped) return;
+  function putMention(picked: { id?: unknown; title?: unknown } | null, at: Range | undefined): void {
     article.focus({ preventScroll: true });
-    if (mentionAt) {
+    if (at && at.startContainer.isConnected) {
       getSelection()?.removeAllRanges();
-      getSelection()?.addRange(mentionAt);
+      getSelection()?.addRange(at);
     }
-    mentionAt = undefined;
-    if (typeof m.id !== "string" || typeof m.title !== "string" || !/^[\w.-]{1,120}$/.test(m.id)) return;
-    const id = m.id;
-    const title = m.title.slice(0, 200);
+    if (!picked || typeof picked.id !== "string" || typeof picked.title !== "string" || !ARTIFACT_ID_RE.test(picked.id)) return;
+    const id = picked.id;
+    const title = picked.title.slice(0, 200);
     edit(() => {
       const sel = getSelection();
       if (!sel?.rangeCount) return;
@@ -528,22 +537,21 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
       // The "@" typed to ask goes; the chip and a space after it take its place.
       const node = range.startContainer;
       if (node instanceof Text && range.startOffset > 0 && node.data[range.startOffset - 1] === "@") {
-        const at = range.startOffset - 1;
-        node.deleteData(at, 1);
-        range.setStart(node, at);
+        const back = range.startOffset - 1;
+        node.deleteData(back, 1);
+        range.setStart(node, back);
         range.collapse(true);
       }
       const chip = document.createElement("span");
       chip.className = "mention";
       chip.setAttribute("data-artifact", id);
       chip.textContent = title;
-      const space = document.createTextNode(" ");
+      const space = document.createTextNode("\u00a0");
       range.insertNode(space);
       range.insertNode(chip);
       place({ node: space, offset: 1 });
     });
-  };
-  addEventListener("message", heard);
+  }
 
   /* —— the bar over a selection ——————————————————————————————————— */
   const bar = el("div", { class: "doc-format", role: "toolbar", "aria-label": "Format", hidden: true });
@@ -1483,7 +1491,6 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
     document.removeEventListener("pointermove", marginMove);
     document.removeEventListener("pointerup", marginUp);
     removeEventListener("resize", resized);
-    removeEventListener("message", heard);
     shown?.removeAttribute(PH);
     article.querySelectorAll(".mention").forEach((m) => m.removeAttribute("contenteditable"));
     for (const m of [slashMenu, barMenu, blockMenu, toolMenu]) m.remove();
