@@ -102,7 +102,12 @@ under Reduce Motion.
    Do not add `App/Info.plist` to the target as a file: as a resource it is
    copied into the bundle a second time, and the build fails.
 3. File, Add Package Dependencies, Add Local, pick `packages/device-ios`, and
-   link the `PhoneUI` library to the app target.
+   link the `PhoneUI` library to the app target. Under the target's Build
+   Phases, add a Run Script phase last, `"$SRCROOT/../scripts/stamp.sh"`, and
+   set Build Settings, User Script Sandboxing to No: it stamps the app with
+   its build (docs/computer.md, Builds and updates), so KOS can say when a
+   newer one is ready. It needs KOS's packages built (`pnpm build`); without
+   them the app builds unstamped, with a warning.
 4. Signing and Capabilities: Team, your Apple ID's free Personal Team; bundle
    id something of your own, `com.<you>.kos-phone`. A free team's builds last
    seven days on a phone, then need a rebuild.
@@ -177,6 +182,14 @@ The Action button (iPhone 15 Pro and later):
 The app target takes the intents in with `KOSIntents` (an
 `AppIntentsPackage` naming `PhoneIntents`), in `App/KOSPhoneApp.swift`, beside
 the App Shortcut.
+
+## Updates
+
+An iPhone app cannot update itself: its code comes from Xcode. When KOS has
+a newer build of this app than the one on the phone, More shows a quiet "An
+update is ready", which opens Settings with the steps: open the KOS project
+in Xcode on the Mac, pick this iPhone, and press Run. KOS lists the phone as
+behind in Settings, Devices. Everything on the KOS side is live already.
 
 Not yet: Bonjour discovery (the address is typed or comes in the link), and
 the app in the background (iOS closes the socket; the app dials again when it
