@@ -538,7 +538,7 @@ public struct KOSButtonStyle: ButtonStyle {
   }
 
   public func makeBody(configuration: Configuration) -> some View {
-    StyledButton(kind: kind, radius: capsule ? 999 : large ? Theme.radiusMd : Theme.radiusSm, small: small, large: large, round: round, configuration: configuration)
+    StyledButton(kind: kind, radius: capsule ? StyledButton.capsule : large ? Theme.radiusMd : Theme.radiusSm, small: small, large: large, round: round, configuration: configuration)
   }
 
   private struct StyledButton: View {
@@ -550,6 +550,14 @@ public struct KOSButtonStyle: ButtonStyle {
     let configuration: ButtonStyleConfiguration
     @Environment(\.isEnabled) private var enabled
     @State private var hovering = false
+
+    /// A capsule's ends are circular: continuous corners past half the height overshoot, and the fill and its inset
+    /// edge overshoot apart, leaving a ghost line at each end.
+    private var shape: RoundedRectangle {
+      RoundedRectangle(cornerRadius: radius, style: radius >= Self.capsule ? .circular : .continuous)
+    }
+
+    static let capsule: CGFloat = 999
 
     var body: some View {
       let lit = hovering && enabled
@@ -571,8 +579,8 @@ public struct KOSButtonStyle: ButtonStyle {
           .padding(.horizontal, small ? 8 : large ? 16 : 12)
           .padding(.vertical, small ? 3 : large ? 11 : 6.5)
           .frame(maxWidth: large ? .infinity : nil, minHeight: large ? 44 : nil)
-          .background(background(lit: lit, pressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-          .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(border(lit)))
+          .background(background(lit: lit, pressed: configuration.isPressed), in: shape)
+          .overlay(shape.strokeBorder(border(lit)))
           .scaleEffect(configuration.isPressed ? 0.97 : 1)
           .opacity(enabled ? 1 : 0.45)
           .contentShape(Rectangle())
