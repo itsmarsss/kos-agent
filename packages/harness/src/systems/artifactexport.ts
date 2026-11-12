@@ -514,6 +514,8 @@ export class ArtifactExporter {
       let loadedAt: number | undefined;
       for (;;) {
         if (job.aborted) throw new Error("the export was given up");
+        // The Chrome went: nothing more will be drawn, so the wait ends at once and is said in words (inChrome).
+        if (job.browserGone) throw new Error("the browser hung up");
         // A frame that left has nothing more to read; what to make of that is below.
         if (left) break;
         const state = await this.frameState(cdp, tab);
