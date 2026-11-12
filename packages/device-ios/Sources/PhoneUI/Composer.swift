@@ -1,6 +1,5 @@
 import DeviceKit
 import PhoneCore
-import PhotosUI
 import SwiftUI
 
 /// The box, voice first: the microphone is the big button, and the field

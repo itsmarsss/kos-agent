@@ -2,7 +2,6 @@ import DeviceKit
 import PhoneCore
 import PhotosUI
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// The files going with the next words, over the box: a picture as its
 /// thumbnail, a file as its mark and name, each with a cross to leave it out.
@@ -99,9 +98,8 @@ func pictureImage(_ data: Data) -> Image? {
 /// The system's pickers, opened from the attach menu: the photo library, and files. What the owner picks goes into
 /// the tray, which brings a photo down and holds each to what KOS takes; the pickers themselves read nothing else.
 struct Picking: ViewModifier {
-  enum Source: Identifiable {
+  enum Source {
     case photos, files
-    var id: Self { self }
   }
 
   @Binding var source: Source?
