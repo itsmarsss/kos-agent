@@ -341,6 +341,15 @@ describe("kos-doc", () => {
         await vi.advanceTimersByTimeAsync(AUTOSAVE_GAP_MS * 2);
         expect(article.hasAttribute("contenteditable")).toBe(false);
       }
+      // Edit pressed again in the wait, after the Done: the last word is Edit, so editing starts.
+      tick(a!);
+      await vi.advanceTimersByTimeAsync(100);
+      tick(a!);
+      press("edit");
+      press("done");
+      press("edit");
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_GAP_MS * 2);
+      expect(article.getAttribute("contenteditable")).toBe("true");
     } finally {
       vi.useRealTimers();
     }

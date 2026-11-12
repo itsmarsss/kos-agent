@@ -281,7 +281,12 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
   /** A Done or Discard pressed while Edit waited on a tick: editing does not start after all. */
   let cancelled = false;
   const begin = async (): Promise<void> => {
-    if (editor || starting) return;
+    if (editor) return;
+    // Edit again while waiting: it stands, even after a Done or Discard pressed in the wait.
+    if (starting) {
+      cancelled = false;
+      return;
+    }
     // A tick still waiting is kept first, so the snapshot editing starts from is the doc as saved with it.
     if (unkept || tickBusy) {
       starting = true;
