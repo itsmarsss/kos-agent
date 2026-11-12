@@ -219,10 +219,15 @@ device socket alone.
 While it is on, a code made on the dashboard also carries `lan { url, urls,
 pin, words }`, and the dashboard offers the phone link
 `kos-device://pair?url=<url>&code=<code>&pin=<pin>`. A phone given an
-address and a code instead asks `GET /api/devices/lan`, shows the words of
-the certificate it was served, and pairs, pinned to it, only once the owner
-says they match what the dashboard shows. Every connection then proves both
-keys, as any device's does.
+address and a code instead asks `GET /api/devices/lan` for the certificate
+it is served. Either way it shows the address and the certificate's words
+(the link's pin, or the one served) and sends the code, pinned to that
+certificate, only once the owner says they match what the dashboard shows;
+a link for a KOS with no pin is agreed to by its address. Anything on the
+phone can open a link, so none pairs by itself, and one opened while the
+phone is paired first asks to replace that pairing (the KOS it replaces is
+told to forget the phone). Every connection then proves both keys, as any
+device's does.
 
 ## Security model
 
