@@ -213,7 +213,7 @@ describe("KOS for Mac behind", () => {
     const mac = pair("macos", "Studio");
     const line = await connect(mac, OLD);
     await settle();
-    expect(updates.statusOf(mac.id)).toEqual({ state: "behind", build: NEW, reason: "failed", detail: "Built build/KOS for Mac.app" });
+    expect(updates.statusOf(mac.id)).toEqual({ state: "behind", build: NEW, reason: "failed", detail: "Built build/KOS for Mac.app", command: "cd app && scripts/bundle.sh --install" });
     expect(line.updates.at(-1)).toMatchObject({ reason: "failed", command: "cd app && scripts/bundle.sh --install" });
     updates.poke();
     await connect(mac, OLD);

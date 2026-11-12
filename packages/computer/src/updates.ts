@@ -36,6 +36,8 @@ export interface UpdateStatus {
   reason?: UpdateReason;
   /** The last line of a failed update. */
   detail?: string;
+  /** KOS for Mac: what the owner runs by hand, to set signing up or to update it themselves. */
+  command?: string;
 }
 
 /** What to do about one device now: nothing, tell a Chrome to reload, or reinstall KOS for Mac. */
@@ -223,19 +225,21 @@ export class DeviceUpdates {
     // Read after the wait, and acted on before the next: two checks at once never both install.
     const attempt = want && store.attempt(device, want.id);
     if (attempt) input.attempt = attempt;
-    const { status, action } = decide(input);
+    const decision = decide(input);
+    const { action } = decision;
+    const status = this.withCommand(kind, decision.status);
     this.statuses.set(device, status);
     if (action === "reload" && want) {
       if (attempt?.outcome !== "told") store.setAttempt({ device, build: want.id, ...(line.build ? { from: line.build.id } : {}), outcome: "told" });
-      this.tell(device, kind, status, { action: "reload", ...(owner ? { force: true } : {}) });
+      this.tell(device, status, { action: "reload", ...(owner ? { force: true } : {}) });
       this.asked.delete(device);
     } else if (action === "install" && want) {
       this.asked.delete(device);
       store.setAttempt({ device, build: want.id, ...(line.build ? { from: line.build.id } : {}), outcome: "installing" });
-      this.tell(device, kind, status);
+      this.tell(device, status);
       this.audit(device, kind, line.build?.id, want.id, "installing", owner);
       this.installs = this.installs.then(() => this.install(device, kind, want));
-    } else this.tell(device, kind, status);
+    } else this.tell(device, status);
     return status;
   }
 
@@ -278,10 +282,16 @@ export class DeviceUpdates {
   }
 
   /** The device told where it stands, once per change; a Mac told how to set signing up or update by hand. */
-  private tell(device: string, kind: BuildKind, status: UpdateStatus, extra: Record<string, unknown> = {}): void {
+  /** A KOS for Mac's status with the command the owner runs by hand: to set signing up, or to update it themselves after a try that did not take. */
+  private withCommand(kind: BuildKind, status: UpdateStatus): UpdateStatus {
     const commands = this.deps.mac?.commands;
-    const command = kind === "mac" && commands ? (status.reason === "signing" ? commands.signing : status.reason === "failed" || status.reason === "stuck" ? commands.install : undefined) : undefined;
-    const frame = { t: "update", ...status, ...(command ? { command } : {}), ...extra };
+    if (kind !== "mac" || !commands) return status;
+    const command = status.reason === "signing" ? commands.signing : status.reason === "failed" || status.reason === "stuck" ? commands.install : undefined;
+    return command ? { ...status, command } : status;
+  }
+
+  private tell(device: string, status: UpdateStatus, extra: Record<string, unknown> = {}): void {
+    const frame = { t: "update", ...status, ...extra };
     const text = JSON.stringify(frame);
     if (this.told.get(device) === text) return;
     this.told.set(device, text);
