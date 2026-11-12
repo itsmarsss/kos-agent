@@ -76,6 +76,8 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-deck.js")))("artifact ex
       "late reader": { id: "late reader", title: "Late reader", html: '<h1>Reader</h1><p id="out">-</p><script>addEventListener("load",function(){setTimeout(function(){kos.query("SELECT title FROM late").then(function(r){out.textContent=r.rows[0].title})},300)})</script>' },
       // Reads one thing, then the next once the first is answered, three deep: each read reaches KOS only after the frame has had the last answer.
       chained: { id: "chained", title: "Chained", html: '<h1>Chained</h1><p id="out">-</p><script>kos.query("SELECT 1").then(function(){return kos.query("SELECT 2")}).then(function(){return kos.query("SELECT 3")}).then(function(r){out.textContent=r.rows[0].title})</script>' },
+      // Reads now, then the same read every 300 ms for as long as it is open.
+      poller: { id: "poller", title: "Poller", html: '<h1>Poller</h1><p id="out">-</p><script>function poll(){kos.query("SELECT title FROM poll").then(function(r){out.textContent="Read: "+r.rows[0].title})}poll();setInterval(poll,300)</script>' },
     };
     const slow = (options: { call?: (id: string, verb: "query" | "file", args: Record<string, unknown>) => Promise<unknown>; drawMs?: number; throttle?: number } = {}): ArtifactExporter =>
       new ArtifactExporter({
@@ -116,6 +118,17 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-deck.js")))("artifact ex
       }
       console.log(`throttle ${throttle}: ${seen.join(", ")}`);
     }, 400_000);
+
+    it("exports a page that polls promptly, with what it read, as HTML and as PDF", async () => {
+      const exporter = slow({ throttle: 1 });
+      let started = Date.now();
+      expect((await exporter.export("poller", "html")).body.toString("utf8")).toContain(frozen);
+      // Promptly: a poller's repeats are not new reads, so it is not held up to the 30 s ceiling.
+      expect(Date.now() - started).toBeLessThan(15_000);
+      started = Date.now();
+      expect((await pdfText(new Uint8Array((await exporter.export("poller", "pdf")).body))).text).toContain("Read: Dune");
+      expect(Date.now() - started).toBeLessThan(15_000);
+    }, 60_000);
 
     it("refuses in words, rather than freeze half its data, when a read is still waiting at the ceiling", async () => {
       const never = slow({ call: () => new Promise(() => undefined), drawMs: 4000, throttle: 1 });

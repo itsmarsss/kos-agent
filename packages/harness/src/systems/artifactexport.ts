@@ -466,8 +466,10 @@ export class ArtifactExporter {
       const key = JSON.stringify([call.method, call.args]);
       const verb = call.method === "query" || call.method === "file" ? call.method : undefined;
       const read = reads.get(key) ?? { answered: false, out: 0 };
-      reads.set(key, read);
-      lastNew = Date.now();
+      if (!reads.has(key)) {
+        reads.set(key, read);
+        lastNew = Date.now();
+      }
       read.out += 1;
       // Reads only: an export, like a check, never writes, asks or saves.
       const asked = verb ? this.options.call(id, verb, call.args) : Promise.reject(new Error("an export only reads"));
@@ -487,11 +489,10 @@ export class ArtifactExporter {
         .finally(() => {
           read.out -= 1;
           read.answered = true;
-          lastNew = Date.now();
         });
     };
-    /** Reads out now. */
-    const unanswered = (): number => [...reads.values()].reduce((n, r) => n + r.out, 0);
+    /** Reads out whose key has never been answered: what an export may not freeze without. */
+    const unanswered = (): number => [...reads.values()].filter((r) => !r.answered && r.out > 0).length;
     const tab = await SealedTab.open(cdp, { scripts: true, offline: true, track: job.track, ...(this.options.cpuThrottle ? { cpuThrottle: this.options.cpuThrottle } : {}) }, relay);
     try {
       const view = kind === "deck" ? VIEW.deck : VIEW.other;
