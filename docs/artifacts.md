@@ -300,10 +300,18 @@ Chrome, as on a machine without one.
   reaches nothing: a page, a sheet with a source tab, or a doc or deck that
   names `kos` is drawn once in KOS's Chrome first, and what its reads
   answered is frozen into the file, answered from it by the same call. The
-  drawing waits, however slow the machine, until the frame has loaded and
-  no read has been waiting or new for a second, up to 30 s; one still
-  waiting on a read then is refused in words rather than exported half
-  read (a frame that never loads, the same); a
+  drawing waits, however slow the machine, until the frame has loaded, its
+  bridge has no call out or queued (`kos.pending`, read-only, so a read
+  the frame made but KOS has not heard yet is waited for), KOS has none
+  unanswered, and no read new to it has been asked for a second, up to
+  30 s. A page that polls is not held up: a repeat of a read already
+  answered is not a new one. A read still unanswered at 30 s, one the
+  bridge gave up before it reached KOS (`kos.dropped`), or a frame that
+  never loads, refuses the export in words rather than export it half
+  read. Plainly: a read a page first makes more than about a second after
+  it has loaded and gone quiet (a timer, a click) is not waited for, and
+  is frozen as missing; the export captures what the page reads as it
+  opens. A
   write, an ask or a save is refused in words, and with no save no runtime
   offers editing. Nothing of the dashboard goes in: no token, no address,
   only the artifact and what its own reads answered. Served with
