@@ -125,7 +125,7 @@ body.deck-grid :where([data-deck]) { height: auto; min-height: calc(100dvh - var
 body.deck-grid .deck-slide { width: 100%; cursor: pointer; }
 body.deck-grid .deck-slide * { pointer-events: none; }
 body.deck-grid .deck-slide.current { box-shadow: 0 0 0 2px var(--accent); }
-body.deck-grid .deck-slide::after { content: attr(data-number); position: absolute; left: 8px; bottom: 6px; font: 600 11px / 1 var(--font-ui); color: var(--muted); font-variant-numeric: tabular-nums; }
+body.deck-grid .deck-slide::after, body.deck-read .deck-slide::after { content: attr(data-number); position: absolute; left: 8px; bottom: 6px; font: 600 11px / 1 var(--font-ui); color: var(--muted); font-variant-numeric: tabular-nums; }
 body.deck-grid .deck-notes { display: none; }
 
 /* Presenting: the slide alone, on black, edge to edge. */
