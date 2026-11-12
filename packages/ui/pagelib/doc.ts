@@ -11,7 +11,8 @@
 import { DOC_CSS } from "./doc.css.js";
 import { DOC_EDIT_MAX } from "@kos/shared/artifacts";
 
-import { startEditor, type Editor } from "./docedit.js";
+import { ensureTodoBoxes, toggleTodo } from "./docblocks.js";
+import { AUTOSAVE_GAP_MS, startEditor, type Editor } from "./docedit.js";
 import { addStyle, editable, el, keepRanges, kos, ready, reducedMotion } from "./runtime.js";
 
 /** How many h2s make a document long enough for a table of contents. */
@@ -19,6 +20,15 @@ export const TOC_MIN = 4;
 
 const GEN = "data-kos-gen";
 const GEN_ID = "data-kos-gen-id";
+const GEN_ATTRS = "data-kos-gen-attrs";
+
+/** Give an element of the agent's an attribute of the runtime's, taken off again before a save. */
+function genAttr(node: Element, name: string, value: string): void {
+  if (node.hasAttribute(name) && !(node.getAttribute(GEN_ATTRS) ?? "").split(" ").includes(name)) return;
+  node.setAttribute(name, value);
+  const names = new Set((node.getAttribute(GEN_ATTRS) ?? "").split(" ").filter(Boolean)).add(name);
+  node.setAttribute(GEN_ATTRS, [...names].join(" "));
+}
 const WRAP = "wrap";
 
 /** A heading's text as an id: lower case, words joined by dashes, unique in the page. */
@@ -43,11 +53,17 @@ export function stripGenerated(root: Element): void {
     if (node.getAttribute(GEN) === WRAP) node.replaceWith(...node.childNodes);
     else node.remove();
   }
+  // Attributes the runtime put on the agent's own elements (a chip's role), named on the element.
+  for (const node of [...root.querySelectorAll(`[${GEN_ATTRS}]`)]) {
+    for (const name of (node.getAttribute(GEN_ATTRS) ?? "").split(" ")) if (name) node.removeAttribute(name);
+    node.removeAttribute(GEN_ATTRS);
+  }
   for (const node of [...root.querySelectorAll(`[${GEN_ID}]`)]) {
     node.removeAttribute("id");
     node.removeAttribute(GEN_ID);
   }
   root.querySelectorAll(".fn-shown").forEach((n) => n.classList.remove("fn-shown"));
+  root.querySelectorAll("[data-kos-ph]").forEach((n) => n.removeAttribute("data-kos-ph"));
 }
 
 /**
@@ -62,6 +78,9 @@ export function cleanDocHtml(article: Element): string {
     node.removeAttribute("contenteditable");
     node.removeAttribute("spellcheck");
   }
+  // The editor's zero-width step out of a mark just typed is no character of the doc's.
+  const walker = copy.ownerDocument.createTreeWalker(copy, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) if ((n as Text).data.includes("\u200b")) (n as Text).data = (n as Text).data.replace(/\u200b/g, "");
   return copy.innerHTML.trim();
 }
 
@@ -98,6 +117,13 @@ export function enhance(article: HTMLElement): Enhanced {
 
   // Ranges of figures stay on one line, unwrapped again before anything is saved or compared.
   keepRanges(article, "h1, h2, h3, h4, .kicker, .lede, th, td, figcaption, li", (span) => span.setAttribute(GEN, WRAP));
+
+  // To-dos get a box to tick, by pointer or by key; a mention of another artifact is a link to it.
+  ensureTodoBoxes(article);
+  for (const chip of article.querySelectorAll(".mention[data-artifact]")) {
+    genAttr(chip, "role", "link");
+    genAttr(chip, "tabindex", "0");
+  }
 
   // Tables scroll inside their own wrapper.
   for (const table of article.querySelectorAll("table")) {
@@ -227,7 +253,7 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
   let editor: Editor | undefined;
   /** The article as last saved (or as editing began), to put back on Discard; and its clean HTML, to skip a save that changes nothing. */
   let savedInner = "";
-  let last = "";
+  let last = cleanDocHtml(article);
   const state: EditState = { __kos: "edit", editing: false, pending: false, status: "", bad: false };
   const tell = (change: Partial<EditState>): void => {
     Object.assign(state, change);
@@ -300,10 +326,34 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
     else if (action === "discard") discard();
     else if (editor) {
       article.focus();
-      document.execCommand(action);
-      article.dispatchEvent(new InputEvent("input", { inputType: action === "undo" ? "historyUndo" : "historyRedo" }));
+      editor[action]();
     }
   };
+  // Reading, a to-do is ticked where it is and kept at once, one save after another as editing's are.
+  let ticking: Promise<unknown> = Promise.resolve();
+  let tickedAt = -Infinity;
+  article.addEventListener("click", (e) => {
+    const box = editor ? null : (e.target as Element).closest?.(".todo-box");
+    if (!box || !article.contains(box)) return;
+    e.preventDefault();
+    toggleTodo(box.parentElement!);
+    ensureTodoBoxes(article);
+    ticking = ticking.then(async () => {
+      const wait = tickedAt + AUTOSAVE_GAP_MS - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      const html = cleanDocHtml(article);
+      if (html === last) return;
+      say("Saving…");
+      await save({ doc: html }).then(
+        () => {
+          last = html;
+          say("Saved");
+        },
+        (err: unknown) => say(`Not saved: ${err instanceof Error ? err.message : String(err)}`, true),
+      );
+      tickedAt = Date.now();
+    });
+  });
   // A note's number, while editing, opens its text in the line to edit, and closes it again.
   article.addEventListener(
     "click",
@@ -364,8 +414,20 @@ export function startDoc(): void {
   if (!article) return;
   const start = (): Enhanced => enhance(article);
   followView();
-  if (article.hasAttribute("data-locked") || !editable()) start();
-  else editing(article, start);
+  // A mention opens what it names, in the dashboard, which knows where that is; never while its words are being edited.
+  const open = (e: Event): void => {
+    const chip = (e.target as Element).closest?.(".mention[data-artifact]");
+    if (!chip || article.isContentEditable) return;
+    if (e instanceof KeyboardEvent && e.key !== "Enter") return;
+    e.preventDefault();
+    top?.postMessage({ __kos: "open", artifact: chip.getAttribute("data-artifact") }, "*");
+  };
+  article.addEventListener("click", open);
+  article.addEventListener("keydown", open);
+  if (article.hasAttribute("data-locked") || !editable()) {
+    start();
+    article.querySelectorAll(".todo-box").forEach((b) => b.setAttribute("disabled", ""));
+  } else editing(article, start);
 }
 
 // Inlined in a frame it runs as a script; imported by a test it waits to be called.

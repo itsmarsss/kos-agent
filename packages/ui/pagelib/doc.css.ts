@@ -49,7 +49,7 @@ export const DOC_CSS = String.raw`
 :where([data-doc]) > :where(.doc-full) { grid-column: full; }
 
 :where([data-doc]) :where(p, ul, ol, dl, pre, table, .doc-table) + :where(p, ul, ol, dl, pre, figure, blockquote, aside, .doc-table) { margin-top: 1.1em; }
-:where([data-doc]) > :where(p, ul, ol, dl, pre, figure, blockquote, aside, .doc-table, hr) { margin-top: 1.1em; }
+:where([data-doc]) > :where(p, ul, ol, dl, pre, figure, blockquote, aside, details, .doc-table, hr) { margin-top: 1.1em; }
 :where([data-doc]) :where(p, li) { text-wrap: pretty; }
 :where([data-doc]) :where(ul, ol) { padding-left: 1.3em; }
 :where([data-doc]) li + li { margin-top: 0.35em; }
@@ -132,40 +132,125 @@ export const DOC_CSS = String.raw`
   .doc-toc summary::-webkit-details-marker { display: none; }
 }
 
-/* Editing in place. */
+/* To-dos: a box to tick before each item, the runtime's own button; a done one is struck through. */
+:where([data-doc]) ul.checklist { list-style: none; padding-left: 0; }
+:where([data-doc]) ul.checklist > li { position: relative; padding-left: 30px; }
+:where([data-doc]) ul.checklist ul.checklist { margin-top: 0.35em; }
+.todo-box { all: unset; position: absolute; left: 2px; top: calc((1lh - 16px) / 2); width: 16px; height: 16px; box-sizing: border-box; border: 1.5px solid var(--line-strong, var(--muted)); border-radius: 4px; cursor: pointer; background: var(--bg) no-repeat center / 12px 12px; transition: background-color 140ms, border-color 140ms; }
+.todo-box:hover { border-color: var(--accent); }
+.todo-box:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.todo-box[disabled] { cursor: default; }
+.todo-box[aria-checked="true"] { background-color: var(--accent); border-color: var(--accent); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E"); }
+:where([data-doc]) ul.checklist > li[data-checked="true"] { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+:where([data-doc]) ul.checklist > li[data-checked="true"] > :where(ul, ol) { text-decoration: none; color: var(--text); }
+
+/* Toggles: a line that opens to what is under it, its arrow turning as it does. */
+
+:where([data-doc]) details > summary { list-style: none; cursor: pointer; position: relative; padding-left: 26px; font-weight: 500; }
+:where([data-doc]) details > summary::-webkit-details-marker { display: none; }
+:where([data-doc]) details > summary::before { content: ""; position: absolute; left: 4px; top: calc((1lh - 16px) / 2); width: 16px; height: 16px; border-radius: 4px; background: var(--muted); -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 6l7 6-7 6z'/%3E%3C/svg%3E") center / 14px 14px no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 6l7 6-7 6z'/%3E%3C/svg%3E") center / 14px 14px no-repeat; transition: transform 160ms ease; }
+:where([data-doc]) details[open] > summary::before { transform: rotate(90deg); }
+:where([data-doc]) details > summary:hover::before { background: var(--text); }
+:where([data-doc]) details > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+:where([data-doc]) details > :not(summary) { margin-left: 26px; }
+:where([data-doc]) details > summary + * { margin-top: 0.5em; }
+
+/* A callout's mark, drawn from its colour: an i for a note, ! for a risk, a tick for what is settled. */
+:where([data-doc]) aside.callout { position: relative; padding-left: 44px; }
+:where([data-doc]) aside.callout::before { content: ""; position: absolute; left: 14px; top: 14px; width: 18px; height: 18px; background: var(--callout); -webkit-mask: var(--callout-mark) center / contain no-repeat; mask: var(--callout-mark) center / contain no-repeat; }
+:where([data-doc]) aside.callout { --callout-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 11v5M12 7.5h.01'/%3E%3C/svg%3E"); }
+:where([data-doc]) aside.callout:where(.warn, .danger) { --callout-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.5l9.5 16.5h-19z'/%3E%3Cpath d='M12 10v4.5M12 17.2h.01'/%3E%3C/svg%3E"); }
+:where([data-doc]) aside.callout.ok { --callout-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M8 12.5l2.7 2.7L16 9.5'/%3E%3C/svg%3E"); }
+:where([data-doc]) aside.callout.danger { --callout: var(--danger); }
+:where([data-doc]) aside.callout.note { --callout: var(--muted); }
+
+/* A mention of another artifact: a chip that opens it. */
+:where([data-doc]) .mention { display: inline-flex; align-items: baseline; gap: 0.3em; padding: 0 0.4em; border-radius: 5px; background: var(--panel-2); color: var(--text); font: 500 0.9em / 1.5 var(--font-ui); cursor: pointer; white-space: nowrap; text-decoration: none; transition: background-color 140ms; }
+:where([data-doc]) .mention::before { content: ""; align-self: center; width: 0.95em; height: 0.95em; background: var(--muted); -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 3v5h5M9 13h6M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 3v5h5M9 13h6M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat; }
+:where([data-doc]) .mention:hover { background: color-mix(in srgb, var(--accent) 14%, var(--panel-2)); }
+:where([data-doc]) .mention:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Words in a colour, and highlights: KOS's tokens, at a tint for a highlight. */
+:where([data-doc]) .tc-muted { color: var(--muted); }
+:where([data-doc]) .tc-accent { color: var(--accent); }
+:where([data-doc]) .tc-ok { color: var(--ok); }
+:where([data-doc]) .tc-warn { color: color-mix(in srgb, var(--warn) 80%, var(--text)); }
+:where([data-doc]) .tc-danger { color: var(--danger); }
+:where([data-doc]) mark { --hl: var(--warn); background: color-mix(in srgb, var(--hl) 26%, transparent); color: inherit; border-radius: 3px; padding: 0 0.1em; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+:where([data-doc]) mark.hl-muted { --hl: var(--muted); }
+:where([data-doc]) mark.hl-accent { --hl: var(--accent); }
+:where([data-doc]) mark.hl-ok { --hl: var(--ok); }
+:where([data-doc]) mark.hl-danger { --hl: var(--danger); }
+:where([data-doc]) :where(s, del) { text-decoration-color: color-mix(in srgb, currentColor 60%, transparent); }
+
+/* Editing in place: the text as it reads, with room at its left for each block's handle. */
 [data-doc][contenteditable="true"] { outline: none; caret-color: var(--accent); }
-[data-doc][contenteditable="true"] > * { box-shadow: -14px 0 0 -12px transparent; }
-[data-doc][contenteditable="true"] > :focus-within { box-shadow: -14px 0 0 -12px var(--line-strong, var(--line)); }
 [data-doc][contenteditable="true"] .fn { display: inline; font: 400 0.8em var(--font-ui); color: var(--muted); background: var(--panel-2); border-radius: 4px; padding: 0 0.3em; }
 [data-doc][contenteditable="true"] .fn::before { content: "note: "; }
-/* The editor's own: the bar of formats over a selection, the "/" menu, checklists. They float, so they cast the one shadow. */
-.doc-format, .doc-slash { position: absolute; z-index: 6; background: var(--panel); border: 1px solid var(--line-strong, var(--line)); border-radius: var(--r-md, 10px); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22); font: 500 0.8125rem / 1 var(--font-ui); color: var(--text); }
-.doc-format { display: flex; flex-wrap: wrap; gap: 2px; padding: 4px; max-width: min(420px, calc(100vw - 16px)); }
-.doc-format[hidden], .doc-slash[hidden], .doc-format-links[hidden] { display: none; }
-.doc-format > button { all: unset; cursor: pointer; min-width: 28px; height: 28px; padding: 0 6px; box-sizing: border-box; display: inline-grid; place-items: center; border-radius: 6px; color: var(--muted); }
-.doc-format > button:hover { background: var(--panel-2); color: var(--text); }
+[data-doc][contenteditable="true"] details > summary { cursor: text; }
+[data-doc][contenteditable="true"] details > summary::before { cursor: pointer; }
+[data-doc][contenteditable="true"] .mention { cursor: default; }
+[data-doc][contenteditable="true"] ::selection { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+/* The empty line's hint, which takes no room and no caret. */
+[data-kos-ph]::before { content: attr(data-kos-ph); float: left; height: 0; pointer-events: none; color: var(--faint, var(--muted)); font-style: normal; font-weight: inherit; }
+ul.checklist > li[data-kos-ph]::before { margin-left: 0; }
+html.doc-dragging, html.doc-dragging * { cursor: grabbing !important; user-select: none; }
+
+/* The editor's own, outside the article. What floats casts the one shadow. */
+.doc-format, .doc-menu, .doc-tabletools { position: absolute; z-index: 6; background: var(--panel); border: 1px solid var(--line-strong, var(--line)); border-radius: var(--r-md, 10px); box-shadow: var(--float, 0 12px 32px rgba(0, 0, 0, 0.45)); font: 500 0.8125rem / 1.25 var(--font-ui); color: var(--text); }
+.doc-format[hidden], .doc-menu[hidden], .doc-handle[hidden], .doc-drop[hidden], .doc-codetools[hidden], .doc-tabletools[hidden] { display: none; }
+.doc-format { display: flex; align-items: center; gap: 1px; padding: 3px; }
+.doc-format > button { all: unset; cursor: pointer; min-width: 30px; height: 30px; padding: 0 7px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 7px; color: var(--muted); font-size: 0.875rem; transition: background-color 140ms, color 140ms; }
+.doc-format > button:hover, .doc-format > button:focus-visible { background: var(--panel-2); color: var(--text); }
+.doc-format > button[data-format="turn"] { color: var(--text); font-size: 0.8125rem; padding-right: 10px; margin-right: 3px; border-right: 1px solid var(--line); border-radius: 7px 0 0 7px; }
 .doc-format > button[data-format="bold"] { font-weight: 700; }
-.doc-format > button[data-format="italic"] { font-style: italic; font-family: var(--font-body); }
-.doc-format > button[data-format="code"] { font-family: var(--font-mono); font-size: 0.75rem; }
-.doc-format-links { flex-basis: 100%; display: flex; flex-direction: column; gap: 1px; padding: 4px 0 0; margin-top: 2px; border-top: 1px solid var(--line); max-height: 200px; overflow-y: auto; }
-.doc-format-links button { all: unset; cursor: pointer; padding: 6px 8px; border-radius: 6px; color: var(--text); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.doc-format-links button:hover { background: var(--panel-2); }
-.doc-format-links span { padding: 6px 8px; color: var(--muted); font-weight: 400; }
-.doc-slash { width: 240px; max-height: 320px; overflow-y: auto; padding: 4px; display: flex; flex-direction: column; gap: 1px; }
-.doc-slash button { all: unset; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; font-weight: 400; }
-.doc-slash button[aria-selected="true"], .doc-slash button:hover { background: var(--panel-2); }
-.doc-slash kbd { font: 400 0.75rem / 1 var(--font-mono); color: var(--muted); }
-.doc-slash-none { margin: 0; padding: 8px 10px; color: var(--muted); font-weight: 400; }
-:where([data-doc]) ul.checklist { list-style: none; padding-left: 0; }
-:where([data-doc]) ul.checklist > li { position: relative; padding-left: 28px; }
-:where([data-doc]) ul.checklist > li::before { content: ""; position: absolute; left: 2px; top: 0.3em; width: 15px; height: 15px; box-sizing: border-box; border: 1.5px solid var(--line-strong, var(--muted)); border-radius: 4px; }
-:where([data-doc]) ul.checklist > li[data-checked="true"] { color: var(--muted); text-decoration: line-through; }
-:where([data-doc]) ul.checklist > li[data-checked="true"]::before { background: var(--accent); border-color: var(--accent); }
-[data-editing] [data-doc] ul.checklist > li::before { cursor: pointer; }
+.doc-format > button[data-format="italic"] { font-style: italic; font-family: var(--font-body); font-size: 1rem; }
+.doc-format > button[data-format="underline"] { text-decoration: underline; text-underline-offset: 3px; }
+.doc-format > button[data-format="strike"] { text-decoration: line-through; }
+
+.doc-menu { width: 264px; max-height: min(360px, 70vh); overflow-y: auto; padding: 3px; display: flex; flex-direction: column; gap: 1px; overscroll-behavior: contain; }
+.doc-menu.doc-colours { width: 200px; }
+.doc-menu > button { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 4px 8px; border-radius: 7px; font-weight: 400; color: var(--text); }
+.doc-menu > button.on { background: var(--panel-2); }
+.doc-menu > button:focus-visible { outline: none; background: var(--panel-2); }
+.doc-menu > button.danger { color: var(--danger); }
+.doc-menu-icon { flex: none; display: inline-grid; place-items: center; width: 22px; height: 22px; color: var(--muted); }
+.doc-slash .doc-menu-icon { width: 38px; height: 38px; border-radius: 7px; background: var(--bg); border: 1px solid var(--line); color: var(--text); }
+.doc-menu > button.danger .doc-menu-icon { color: var(--danger); }
+.doc-menu-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.doc-menu-words > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-menu-words > small { font-size: 0.75rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-menu kbd { font: 400 0.75rem / 1 var(--font-mono); color: var(--muted); }
+.doc-menu-more { display: inline-grid; color: var(--muted); }
+.doc-menu-swatch { flex: none; width: 18px; height: 18px; border-radius: 5px; background: var(--swatch); border: 1px solid var(--line); box-sizing: border-box; }
+.doc-menu-group { margin: 0; padding: 8px 8px 4px; font: 600 0.6875rem / 1 var(--font-ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.doc-menu-group:not(:first-child) { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 10px; }
+.doc-menu-none { margin: 0; padding: 8px 10px; color: var(--muted); font-weight: 400; }
+
+/* The handle beside a block: "+" to add below, the grip to drag or open its menu. */
+.doc-handle { position: absolute; z-index: 5; display: flex; align-items: center; gap: 0; height: 24px; }
+.doc-handle > button { all: unset; box-sizing: border-box; width: 22px; height: 24px; display: inline-grid; place-items: center; border-radius: 5px; color: var(--faint, var(--muted)); cursor: pointer; transition: background-color 140ms, color 140ms; }
+.doc-handle > button:hover, .doc-handle > button:focus-visible { background: var(--panel-2); color: var(--text); }
+.doc-handle > .doc-grip { cursor: grab; width: 18px; }
+.doc-handle > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.doc-drop { position: absolute; z-index: 5; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--accent) 70%, transparent); pointer-events: none; }
+.doc-picks { position: absolute; inset: 0 auto auto 0; pointer-events: none; z-index: 1; }
+.doc-pick { position: absolute; border-radius: 6px; background: color-mix(in srgb, var(--accent) 13%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent); }
+
+/* A code block's language, and a table's rows and columns, beside the caret. */
+.doc-codetools { position: absolute; z-index: 4; }
+.doc-codelang { all: unset; cursor: pointer; font: 500 0.75rem / 1 var(--font-ui); color: var(--muted); padding: 5px 8px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line); }
+.doc-codelang:hover, .doc-codelang:focus-visible { color: var(--text); }
+.doc-tabletools { display: flex; flex-wrap: wrap; gap: 1px; padding: 3px; max-width: calc(100vw - 16px); }
+.doc-tabletools > button { all: unset; cursor: pointer; padding: 6px 9px; border-radius: 7px; color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+.doc-tabletools > button:hover, .doc-tabletools > button:focus-visible { background: var(--panel-2); color: var(--text); }
+.doc-tabletools > button.danger:hover { color: var(--danger); }
+.doc-live, .doc-copier { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; opacity: 0; left: -9999px; }
 /* On paper: white under the text, no contents to press, a heading kept with what follows it, and a figure, table, quote or code block whole on its page where it fits. */
 @media print {
   @page { size: letter; margin: 0.75in 0.8in; }
-  .doc-toc, .fn-back { display: none; }
+  .doc-toc, .fn-back, .doc-handle, .doc-format, .doc-menu { display: none; }
+  .todo-box { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   :where(html[data-kind="doc"]) body { background: var(--panel); }
   :where([data-doc], .doc-notes) :where(h1, h2, h3, h4) { break-after: avoid; break-inside: avoid; }
   :where([data-doc]) :where(figure, table, pre, blockquote, aside, .doc-table, img, svg) { break-inside: avoid; }
@@ -173,5 +258,5 @@ export const DOC_CSS = String.raw`
   /* The same ink without opacity, which a PDF paints as a group of its own after the rest, so the lede read out of order. */
   :where([data-doc]) .lede { opacity: 1; color: color-mix(in srgb, var(--text) 86%, var(--panel)); }
 }
-@media (prefers-reduced-motion: reduce) { .flash { animation: none; } html { scroll-behavior: auto; } }
+@media (prefers-reduced-motion: reduce) { .flash { animation: none; } html { scroll-behavior: auto; } .todo-box, :where([data-doc]) details > summary::before { transition: none; } }
 `;

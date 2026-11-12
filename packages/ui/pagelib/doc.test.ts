@@ -311,7 +311,10 @@ describe("what the doc editor reads as markdown", () => {
     expect(shortcutOf("-")).toBe("ul");
     expect(shortcutOf("1.")).toBe("ol");
     expect(shortcutOf(">")).toBe("quote");
-    expect(shortcutOf("[]")).toBe("check");
+    expect(shortcutOf("[]")).toBe("todo");
+    expect(shortcutOf("```")).toBe("code");
+    expect(shortcutOf("---")).toBe("divider");
+    expect(shortcutOf(">>")).toBe("toggle");
     expect(shortcutOf("####")).toBeUndefined();
     expect(shortcutOf("a")).toBeUndefined();
   });
@@ -319,6 +322,8 @@ describe("what the doc editor reads as markdown", () => {
   it("closes bold and code around words just typed", () => {
     expect(inlineMark("it is **very**")).toEqual({ tag: "strong", words: "very", length: 8 });
     expect(inlineMark("run `kos`")).toEqual({ tag: "code", words: "kos", length: 5 });
+    expect(inlineMark("not ~~this~~")).toEqual({ tag: "s", words: "this", length: 8 });
+    expect(inlineMark("an *aside*")).toEqual({ tag: "em", words: "aside", length: 7 });
     expect(inlineMark("a * b")).toBeUndefined();
     expect(inlineMark("****")).toBeUndefined();
   });
@@ -326,7 +331,9 @@ describe("what the doc editor reads as markdown", () => {
   it("finds a block in the slash menu by the start of its words", () => {
     expect(slashMatches("").length).toBeGreaterThan(8);
     expect(slashMatches("head 2").map((i) => i.id)).toEqual(["h2"]);
-    expect(slashMatches("list").map((i) => i.id)).toEqual(["ul", "ol"]);
+    expect(slashMatches("list").map((i) => i.id)).toEqual(["ul", "ol", "todo"]);
+    expect(slashMatches("tog").map((i) => i.id)).toEqual(["toggle"]);
+    expect(slashMatches("to").map((i) => i.id)).toEqual(["todo", "toggle"]);
     expect(slashMatches("img")).toEqual([]);
     expect(slashMatches("image").map((i) => i.id)).toEqual(["image"]);
   });
