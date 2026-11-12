@@ -81,6 +81,57 @@ describe("the decided list", () => {
     expect(lines()).toHaveLength(DECIDED_FIRST);
   });
 
+  it("loads one older page however fast it is pressed, and drops a page the filter has moved past", async () => {
+    const all = decidedRows(DECIDED_FIRST + DECIDED_PAGE + 10);
+    const { history } = serve(all);
+    render(<InboxDecided mark={mark(all.length)} onOpenChat={() => {}} />);
+    await waitFor(() => expect(lines()).toHaveLength(DECIDED_FIRST));
+    const answer = history.getMockImplementation()!;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    history.mockImplementation(async (query: DecidedQuery) => {
+      if (query.before) await gate;
+      return answer(query);
+    });
+    const older = screen.getByRole("button", { name: "Load older" });
+    fireEvent.click(older);
+    fireEvent.click(older);
+    fireEvent.click(screen.getByRole("button", { name: "Loading…" }));
+    await act(async () => release());
+    await waitFor(() => expect(lines()).toHaveLength(DECIDED_FIRST + DECIDED_PAGE));
+    expect(history.mock.calls.filter(([q]) => (q as DecidedQuery).before)).toHaveLength(1);
+    const shown = lines().map((l) => l.textContent);
+    expect(new Set(shown).size).toBe(shown.length);
+
+    // An older page still on its way when the filter changes is not appended to the new list.
+    let release2!: () => void;
+    const gate2 = new Promise<void>((r) => (release2 = r));
+    history.mockImplementation(async (query: DecidedQuery) => {
+      if (query.before) await gate2;
+      return answer(query);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Load older" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Show decided" })).getByRole("button", { name: /Denied/ }));
+    await waitFor(() => expect(lines().every((l) => l.textContent?.includes("denied"))).toBe(true));
+    await act(async () => release2());
+    expect(lines().every((l) => l.textContent?.includes("denied"))).toBe(true);
+    expect(lines()).toHaveLength(DECIDED_FIRST);
+  });
+
+  it("does not take a row without a decision time as a cursor", async () => {
+    const all = decidedRows(DECIDED_FIRST + 3).map((r, i) => (i === DECIDED_FIRST - 1 ? { ...r, decidedAt: null } : r));
+    const { history } = serve(all);
+    render(<InboxDecided mark={mark(all.length)} onOpenChat={() => {}} />);
+    await waitFor(() => expect(lines()).toHaveLength(DECIDED_FIRST));
+    fireEvent.click(screen.getByRole("button", { name: "Load older" }));
+    await waitFor(() => expect(history.mock.calls.some(([q]) => (q as DecidedQuery).before)).toBe(true));
+    const cursor = history.mock.calls.map(([q]) => (q as DecidedQuery).before).find(Boolean)!;
+    expect(cursor.id).toBe(all[DECIDED_FIRST - 2]!.id);
+    // The row before it is the cursor, and the page that comes back does not repeat what is shown.
+    await waitFor(() => expect(lines()).toHaveLength(all.length));
+    expect(new Set(lines().map((l) => l.textContent)).size).toBe(all.length);
+  });
+
   it("counts each outcome from the server, and filters by one", async () => {
     const { history } = serve(decidedRows(8));
     render(<InboxDecided mark={mark(8)} onOpenChat={() => {}} />);

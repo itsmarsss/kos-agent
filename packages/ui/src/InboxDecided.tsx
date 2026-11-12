@@ -20,6 +20,8 @@ import { agoWords } from "./schedulewords.js";
 export const DECIDED_FIRST = 5;
 /** Rows each "Load older" adds. */
 export const DECIDED_PAGE = 25;
+/** The most rows the server sends in one read; a first page is asked for with one more than it shows. */
+const SERVER_MAX = 500;
 /** Past this many, a search box earns its place. */
 const SEARCH_FROM = 20;
 /** A summary longer than this is cut on its row, so the details say it whole. */
@@ -87,19 +89,25 @@ export function InboxDecided({
     [filter, q],
   );
 
+  /**
+   * Which read of the list is current. Reading it again (a filter, a search,
+   * something newly decided) makes an older page still on its way stale, so
+   * it is dropped rather than appended to a list it no longer belongs to.
+   */
+  const reading = useRef(0);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+
   // The first pages, again whenever something new is decided or the filter changes.
   useEffect(() => {
-    let cancelled = false;
+    const read = ++reading.current;
+    setLoadingOlder(false);
     void page(wanted.current)
       .then((got) => {
-        if (cancelled) return;
+        if (read !== reading.current) return;
         setRows(got.slice(0, wanted.current));
         setMore(got.length > wanted.current);
       })
       .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
   }, [page, markKey]);
 
   useEffect(() => {
@@ -133,15 +141,28 @@ export function InboxDecided({
   }, [highlight]);
 
   const loadOlder = (): void => {
-    const last = rows.at(-1);
-    if (!last) return;
+    if (loadingOlder) return;
+    // Pages go on from the last row with a decision time; one without (a row from before) cannot be a cursor.
+    const last = [...rows].reverse().find((r) => r.decidedAt != null);
+    if (!last) {
+      setMore(false);
+      return;
+    }
+    const read = reading.current;
+    setLoadingOlder(true);
     void page(DECIDED_PAGE, last)
       .then((got) => {
-        wanted.current = rows.length + DECIDED_PAGE;
-        setRows((r) => [...r, ...got.slice(0, DECIDED_PAGE)]);
+        if (read !== reading.current) return;
+        const seen = new Set(rows.map((r) => r.id));
+        const fresh = got.slice(0, DECIDED_PAGE).filter((r) => !seen.has(r.id));
+        wanted.current = Math.min(rows.length + fresh.length, SERVER_MAX - 1);
+        setRows((r) => [...r, ...fresh]);
         setMore(got.length > DECIDED_PAGE);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (read === reading.current) setLoadingOlder(false);
+      });
   };
   const showFewer = (): void => {
     wanted.current = DECIDED_FIRST;
@@ -288,8 +309,8 @@ export function InboxDecided({
       {(more || rows.length > DECIDED_FIRST) && (
         <div className="inbox-decided-more">
           {more && (
-            <button type="button" className="btn btn--sm btn--ghost" onClick={loadOlder}>
-              Load older
+            <button type="button" className="btn btn--sm btn--ghost" disabled={loadingOlder} aria-busy={loadingOlder} onClick={loadOlder}>
+              {loadingOlder ? "Loading…" : "Load older"}
             </button>
           )}
           {rows.length > DECIDED_FIRST && (
