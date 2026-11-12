@@ -217,7 +217,9 @@ html.doc-dragging, html.doc-dragging * { cursor: grabbing !important; user-selec
 .doc-menu > button:focus-visible { outline: none; background: var(--panel-2); }
 .doc-menu > button.danger { color: var(--danger); }
 .doc-menu-icon { flex: none; display: inline-grid; place-items: center; width: 22px; height: 22px; color: var(--muted); }
-.doc-slash .doc-menu-icon { width: 38px; height: 38px; border-radius: 7px; background: var(--bg); border: 1px solid var(--line); color: var(--text); }
+.doc-slash { gap: 2px; }
+.doc-slash > button { min-height: 46px; padding: 5px 8px; gap: 12px; }
+.doc-slash .doc-menu-icon { width: 34px; height: 34px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); color: var(--text); }
 .doc-menu > button.danger .doc-menu-icon { color: var(--danger); }
 .doc-menu-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .doc-menu-words > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

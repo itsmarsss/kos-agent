@@ -33,7 +33,7 @@ import {
 } from "./docblocks.js";
 import { History } from "./dochistory.js";
 import { IMAGE_MAX, cleanPaste, isInline, parseClipboard } from "./docpaste.js";
-import { Menu, icon, type IconName, type MenuItem } from "./docui.js";
+import { Menu, icon, seenPart, type IconName, type MenuItem } from "./docui.js";
 import { el, kos, reason } from "./runtime.js";
 
 /** A block a line can become by markdown typed at its start. */
@@ -970,9 +970,10 @@ export function startEditor(article: HTMLElement, { save, say, onPending, queue 
     if (table) {
       const r = (table.parentElement?.classList.contains("doc-table") ? table.parentElement : table).getBoundingClientRect();
       tableTools.style.left = `${Math.round(r.left + scrollX)}px`;
-      // Above the table, over the line before it, rather than over the rows the owner is typing into or the text after.
-      const above = r.top - tableTools.offsetHeight - 6;
-      tableTools.style.top = `${Math.round((above > 0 ? above : r.bottom + 6) + scrollY)}px`;
+      // Above the table, over the line before it, rather than over the rows being typed into; held to the part of the table in view, so a long one keeps it at hand.
+      const h = tableTools.offsetHeight;
+      const top = Math.min(Math.max(r.top - h - 6, seenPart().top + 6), r.bottom - h);
+      tableTools.style.top = `${Math.round(top + scrollY)}px`;
     }
   }
 

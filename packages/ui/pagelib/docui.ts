@@ -63,6 +63,8 @@ export function setView(top: number, height: number): void {
   view.top = top;
   view.height = height;
 }
+/** The part of the frame in view, top and bottom, in the frame's coordinates. */
+export const seenPart = (): { top: number; bottom: number } => ({ top: Math.max(0, view.top), bottom: Math.min(innerHeight, view.top + view.height) });
 
 export interface MenuItem {
   id: string;
