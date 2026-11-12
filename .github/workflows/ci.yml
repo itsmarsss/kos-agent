@@ -85,6 +85,20 @@ jobs:
       - name: Bundle the app
         run: ./scripts/bundle.sh
 
+      # The install and the build lock, on the macOS they are for: the check job's Linux skips the install.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install and lock scripts
+        working-directory: .
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec vitest run packages/device-macos/scripts/install.test.ts
+
   # What KOS for Mac and KOS for iPhone share: the wire, the kit and the line.
   device-shared:
     runs-on: macos-15
