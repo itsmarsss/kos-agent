@@ -158,6 +158,31 @@ struct ArtifactWireTests {
   }
 }
 
+@Suite("The dashboard's pages on the line")
+struct DashboardWireTests {
+  @Test func asksARouteByItsCall() throws {
+    let read = try #require(JSONSerialization.jsonObject(with: ChatEvent.dashboard(.init(call: 4, method: "GET", path: "/api/files", query: ["path": "notes"])).frame()) as? [String: Any])
+    #expect(read["name"] as? String == "dashboard.request")
+    let data = try #require(read["data"] as? [String: Any])
+    #expect(data["call"] as? Int == 4 && data["method"] as? String == "GET" && data["path"] as? String == "/api/files")
+    #expect(data["query"] as? [String: String] == ["path": "notes"] && data["body"] == nil)
+    let act = try #require(JSONSerialization.jsonObject(with: ChatEvent.dashboard(.init(call: 5, method: "POST", path: "/api/crons/run", query: [:], body: .object(["id": .number(3)]))).frame()) as? [String: Any])
+    let acted = try #require(act["data"] as? [String: Any])
+    #expect(acted["query"] == nil && (acted["body"] as? [String: Any])?["id"] as? Int == 3)
+  }
+
+  @Test func readsEachAnswer() throws {
+    func reply(_ params: String) throws -> DashboardReply {
+      guard case .call(let call) = try Inbound.decode(Data(#"{"t":"call","id":1,"method":"dashboard.reply","params":\#(params)}"#.utf8)) else { throw DeviceError.badRequest("not a call") }
+      #expect(call.method == DashboardReply.method)
+      return try call.params(DashboardReply.self)
+    }
+    #expect(try reply(#"{"call":1,"status":200,"body":[{"id":7}]}"#) == .init(call: 1, status: 200, body: .array([.object(["id": .number(7)])])))
+    #expect(try reply(#"{"call":2,"status":200,"type":"image/png","data":"iVBO"}"#).data == "iVBO")
+    #expect(try reply(#"{"call":3,"error":"Not on the list."}"#).error == "Not on the list.")
+  }
+}
+
 @Suite("Glance on the line")
 struct GlanceTests {
   @Test func readsWhatKOSAnswers() throws {

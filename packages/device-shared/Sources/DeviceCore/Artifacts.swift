@@ -165,10 +165,10 @@ public enum JSONValue: Codable, Equatable, Sendable {
 }
 
 /// One element of a list, or nothing when it does not read, so the list around it still does.
-struct Lenient<Value: Decodable>: Decodable {
-  let value: Value?
+public struct Lenient<Value: Decodable>: Decodable {
+  public let value: Value?
 
-  init(from decoder: Decoder) throws {
+  public init(from decoder: Decoder) throws {
     value = try? Value(from: decoder)
   }
 }

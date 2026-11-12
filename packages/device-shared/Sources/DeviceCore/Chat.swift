@@ -267,6 +267,8 @@ public enum ChatEvent: Sendable {
   case artifact(id: String, theme: String)
   /// A read the open artifact's window.kos made, by the call the page gave it.
   case read(artifact: String, call: Int, method: String, args: JSONValue)
+  /// A request of the dashboard's own routes, asked by a phone (docs/computer.md, The dashboard's pages).
+  case dashboard(DashboardRequest)
 
   /// The event as a frame for the line.
   public func frame() throws -> Data {
@@ -289,6 +291,7 @@ public enum ChatEvent: Sendable {
     case .artifact(let id, let theme): return try Outbound.chatEvent("chat.artifact", data: Open(id: id, theme: theme))
     case .read(let artifact, let call, let method, let args):
       return try Outbound.chatEvent("chat.read", data: Read(artifact: artifact, call: call, method: method, args: args))
+    case .dashboard(let request): return try Outbound.chatEvent(DashboardRequest.event, data: request)
     }
   }
 
