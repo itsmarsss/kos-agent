@@ -1,9 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ApiRequest, ApiResponse, ApprovalDecision, AuditEntry } from "@kos/harness";
 
 import { ARTIFACT_DOCUMENT_BYTES } from "./artifacts.js";
-import { DASHBOARD_IN_FLIGHT, DashboardRelay, admit } from "./dashboard.js";
+import { DASHBOARD_IN_FLIGHT, DASHBOARD_SLOT_MS, DashboardRelay, admit } from "./dashboard.js";
 
 /**
  * A phone asking the dashboard's own routes: the reads listed and the named
@@ -138,7 +138,8 @@ describe("what a phone may ask the dashboard", () => {
     expect(post("/api/approve", { id: 41 })).toEqual({ kind: "approve", request: { method: "POST", path: "/api/approve", url: "/api/approve", body: { id: 41 } }, body: { id: 41 } });
     expect(post("/api/approve", { id: 41, remember: true })).toMatchObject({ kind: "approve", body: { id: 41, remember: true } });
     expect(post("/api/deny", { id: 41 })).toMatchObject({ kind: "deny", body: { id: 41 } });
-    expect(post("/api/crons/run", { id: 3 })).toMatchObject({ kind: "action", request: { path: "/api/crons/run", body: { id: 3 } } });
+    // Run now is told not to wait on the run; what the phone said is what is written down.
+    expect(post("/api/crons/run", { id: 3 })).toMatchObject({ kind: "action", request: { path: "/api/crons/run", body: { id: 3, wait: false } }, body: { id: 3 } });
     expect(post("/api/crons/enable", { id: 3, enabled: false })).toMatchObject({ kind: "action", body: { id: 3, enabled: false } });
     expect(post("/api/artifacts/plan/restore", {})).toMatchObject({ kind: "action", request: { path: "/api/artifacts/plan/restore", body: {} } });
     expect(post("/api/artifacts/plan/restore")).toMatchObject({ kind: "action", body: {} });
@@ -158,6 +159,11 @@ describe("what a phone may ask the dashboard", () => {
       ["/api/artifacts/plan/restore", { id: "other" }],
       ["/api/crons/run", [3]],
       ["/api/crons/run", null],
+      ["/api/crons/run", { id: 3, wait: true }],
+      ["/api/deny", JSON.parse('{"id":42,"__proto__":{"x":1}}')],
+      ["/api/deny", { id: 42, constructor: 1 }],
+      ["/api/deny", { id: 42, toString: 1 }],
+      ["/api/deny", { id: 42, hasOwnProperty: 1 }],
     ] as const) {
       expect(post(path, body)).toEqual(BAD_BODY);
     }
@@ -262,7 +268,7 @@ describe("a phone's asks of the dashboard, answered", () => {
     await ask({ call: 11, method: "POST", path: "/api/crons/enable", body: { id: 3, enabled: false } });
     await ask({ call: 12, method: "POST", path: "/api/artifacts/plan/restore", body: {} });
     expect(asked.map((r) => [r.method, r.path, r.body])).toEqual([
-      ["POST", "/api/crons/run", { id: 3 }],
+      ["POST", "/api/crons/run", { id: 3, wait: false }],
       ["POST", "/api/crons/enable", { id: 3, enabled: false }],
       ["POST", "/api/artifacts/plan/restore", {}],
     ]);
@@ -272,6 +278,51 @@ describe("a phone's asks of the dashboard, answered", () => {
       { tool: "device.dashboard", args: { device: "dev_phone", method: "POST", path: "/api/crons/enable", body: { id: 3, enabled: false } }, result: '{"id":3,"enabled":false}', isError: false },
       { tool: "device.dashboard", args: { device: "dev_phone", method: "POST", path: "/api/artifacts/plan/restore", body: {} }, result: "{}", isError: false },
     ]);
+  });
+
+  it("writes down a run the route did not make as not made", async () => {
+    const { ask, audited, replies } = relay(() => ({ status: 200, body: { ok: false, error: "halted" } }));
+    await ask({ call: 30, method: "POST", path: "/api/crons/run", body: { id: 3 } });
+    expect(replies).toEqual([{ call: 30, status: 200, body: { ok: false, error: "halted" } }]);
+    expect(audited.map((e) => [e.result, e.isError])).toEqual([['{"ok":false,"error":"halted"}', true]]);
+  });
+
+  it("answers a decision with no outcome as not decided, and writes it down as such", async () => {
+    const audited: AuditEntry[] = [];
+    const replies: Record<string, unknown>[] = [];
+    const door = new DashboardRelay({ ask: async () => ({ status: 200, body: {} }), decide: () => Promise.resolve(undefined), audit: (e) => void audited.push(e) });
+    await door.answer("dev_phone", { call: 31, method: "POST", path: "/api/approve", body: { id: 404 } }, async (r) => void replies.push(r));
+    expect(replies).toEqual([{ call: 31, error: "That ask was not decided: it may be gone, or no longer yours to decide." }]);
+    expect(audited.map((e) => e.isError)).toEqual([true]);
+  });
+
+  it("refuses a file too big for a phone's line by its listed size, before its bytes are read", async () => {
+    const { ask, asked, replies } = relay((req) =>
+      req.path === "/api/files" ? { status: 200, body: { path: "photos", entries: [{ path: "photos/huge.png", size: ARTIFACT_DOCUMENT_BYTES, kind: "file" }, { path: "photos/bed.png", size: 4, kind: "file" }] } } : { status: 200, body: Buffer.from("png!"), headers: { "content-type": "image/png" } },
+    );
+    await ask({ call: 32, method: "GET", path: "/api/file/raw", query: { path: "photos/huge.png" } });
+    await ask({ call: 33, method: "GET", path: "/api/file/raw", query: { path: "photos/bed.png" } });
+    expect(replies.map((r) => r["error"] ?? r["type"])).toEqual(["That is too big to show on a phone. Open it on the dashboard.", "image/png"]);
+    expect(asked.map((r) => r.url)).toEqual(["/api/files?path=photos", "/api/files?path=photos", "/api/file/raw?path=photos%2Fbed.png"]);
+  });
+
+  it("gives a place back once the phone has stopped waiting, though the route has not answered", async () => {
+    vi.useFakeTimers();
+    try {
+      const { ask, replies } = relay(() => new Promise(() => undefined));
+      for (let i = 0; i < DASHBOARD_IN_FLIGHT; i++) void ask({ call: i, method: "GET", path: "/api/home" });
+      await vi.advanceTimersByTimeAsync(0);
+      void ask({ call: 50, method: "GET", path: "/api/home" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(replies).toEqual([{ call: 50, error: "The phone is asking for too much at once. Try again in a moment." }]);
+      await vi.advanceTimersByTimeAsync(DASHBOARD_SLOT_MS);
+      void ask({ call: 51, method: "GET", path: "/api/home" });
+      await vi.advanceTimersByTimeAsync(0);
+      // Not refused for want of room: it waits on the route like any other.
+      expect(replies.some((r) => r["call"] === 51)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("turns a throw into words, and writes a failed action down as failed", async () => {
