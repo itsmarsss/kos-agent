@@ -126,9 +126,7 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
           </span>
           <div className="project-head-titles">
             <h2>{project.name}</h2>
-            <span className="project-head-sub">
-              {project.type} · <span className="ops-mono">{project.slug}</span>
-            </span>
+            <span className="project-head-sub">{project.type}</span>
           </div>
           <Pill tone={project.status === "active" ? "ok" : "muted"}>{project.status}</Pill>
         </div>

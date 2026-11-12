@@ -264,9 +264,14 @@ export function ArtifactsPage({
     );
   }, [source, project, projects, query]);
   const shown = useMemo(() => matching.filter((a) => kind === "all" || a.artifactKind === kind), [kind, matching]);
+  // A kind with none to show is left out, unless it is the one chosen: All, and what there is.
   const kinds = useMemo(
-    () => KINDS.map(([value, word]): ChipOption<ArtifactKind | "all"> => [value, <>{word}<Count n={value === "all" ? matching.length : matching.filter((a) => a.artifactKind === value).length} /></>]),
-    [matching],
+    () =>
+      KINDS.flatMap(([value, word]): ChipOption<ArtifactKind | "all">[] => {
+        const n = value === "all" ? matching.length : matching.filter((a) => a.artifactKind === value).length;
+        return n > 0 || value === "all" || value === kind ? [[value, <>{word}<Count n={n} /></>]] : [];
+      }),
+    [matching, kind],
   );
 
   const owners = useMemo(() => {

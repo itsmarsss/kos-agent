@@ -130,8 +130,7 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
         </div>
         {/* Why, in words on the card: a title is out of reach of a keyboard and a finger. */}
         {attention?.why && <p className="project-card-why">{attention.why}</p>}
-        {/* Its room is kept when it has none, so a row of cards lines up. */}
-        <p className="project-desc">{p.description}</p>
+        {p.description && <p className="project-desc">{p.description}</p>}
         {headline?.headline && (
           // The figure a page offers, so the card answers a question before it is opened.
           <a className="project-headline" href={hrefFor({ name: "page", id: headline.id })}>

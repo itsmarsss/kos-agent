@@ -59,9 +59,15 @@ describe("the Artifacts page", () => {
     expect(titles()).toEqual(["Ledger"]);
     fireEvent.change(screen.getByLabelText("Search artifacts"), { target: { value: "nothing like this" } });
     expect(screen.getByText("No artifact matches these filters.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Decks0" })).toBeTruthy();
+    // A kind with none left is left out, All kept.
+    expect(screen.queryByRole("button", { name: /^Decks/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "All0" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(titles()).toHaveLength(4);
+    // The one chosen stays, at nought, so it can be let go.
+    fireEvent.click(screen.getByRole("button", { name: "Decks1" }));
+    fireEvent.change(screen.getByLabelText("Search artifacts"), { target: { value: "ledger" } });
+    expect(screen.getByRole("button", { name: "Decks0" }).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("draws cards in their shape while it loads, then groups them by project on asking", async () => {

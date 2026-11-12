@@ -3582,7 +3582,6 @@ li:hover .chats-item-when { opacity: 0; }
   color: var(--muted);
   font-size: var(--text-base);
   line-height: 1.45;
-  min-height: calc(2 * 1.45em);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -3600,8 +3599,6 @@ li:hover .chats-item-when { opacity: 0; }
   .projects-page .list-head-tools { width: 100%; }
   .projects-page .list-search { flex: 1 1 100%; min-width: 0; }
   .projects-page .list-head-tools .btn--primary { margin-left: auto; }
-  .project-desc { min-height: 0; }
-  .project-desc:empty { display: none; }
 }
 
 /* —— knowledge —— */
@@ -6872,12 +6869,11 @@ a.health {
 .project-panel { --tint: hsl(var(--blob-h, 214) 72% 62%); --tint-dim: hsl(var(--blob-h, 214) 72% 62% / 0.14); }
 /* A project's head (ProjectPanel.tsx): left-aligned and on the column's ground, the mark in its colour the one tinted thing. */
 .project-head { flex: none; display: flex; flex-direction: column; gap: 10px; padding: 4px 2px 2px; }
-.project-head-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.project-head-top { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
 .project-head-top .hero-mark--sm { width: 36px; height: 36px; border-radius: var(--r-md); }
 .project-head-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.project-head-titles h2 { margin: 0; font-size: var(--text-lg); font-weight: 600; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-head-titles h2 { margin: 0; font-size: var(--text-lg); font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
 .project-head-sub { color: var(--faint); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-head-sub .ops-mono { font-size: inherit; }
 .project-head-top .pill { flex: none; }
 .project-head-desc { margin: 0; color: var(--muted); font-size: var(--text-base); line-height: 1.45; }
 /* How much it holds: four figures in a row, each under its label. */
@@ -7606,10 +7602,10 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
   .artifact-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .artifact-card { flex-direction: row; align-items: stretch; }
   .artifact-card .artifact-thumb { flex: none; width: 104px; aspect-ratio: 16 / 10; border-bottom: 0; border-right: 1px solid var(--line); }
-  .artifact-card-body { padding: 8px 12px; justify-content: center; gap: 4px; }
+  .artifact-card-body { padding: 8px 44px 8px 12px; justify-content: center; gap: 4px; }
   .artifact-card-desc { display: none; }
   .artifact-card-meta { margin-top: 0; padding-top: 0; }
-  .artifact-card-menu { top: 6px; right: auto; left: 72px; opacity: 1; }
+  .artifact-card-menu { top: 50%; right: 8px; transform: translateY(-50%); opacity: 1; }
   .artifact-card-menu .artifact-view-more { width: 24px; height: 24px; }
   .artifacts.is-trash .list-search { flex: 1 1 100%; }
   .artifacts.is-trash .list-head-tools .confirm-wrap { margin-left: auto; }
