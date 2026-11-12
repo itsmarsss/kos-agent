@@ -4,6 +4,7 @@ import { Chips, Empty, Pill, Switch, Tag } from "@kos/kit";
 
 import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
+import { PageHead } from "./PageHead.js";
 
 /**
  * Memory, in one place.
@@ -17,22 +18,25 @@ import { KnowledgePage } from "./KnowledgePage.js";
 type Tab = "claims" | "decisions" | "pages" | "log" | "jobs" | "callers";
 
 const TABS: { id: Tab; label: string; blurb: string }[] = [
-  { id: "claims", label: "Claims", blurb: "what KOS believes, by scope and tag" },
-  { id: "decisions", label: "Decisions", blurb: "what the dream job could not settle" },
-  { id: "pages", label: "Pages", blurb: "memory in prose, yours to edit" },
-  { id: "log", label: "Log", blurb: "everything said, by words and meaning" },
-  { id: "jobs", label: "Jobs", blurb: "the three that read, tidy and condense" },
-  { id: "callers", label: "Callers", blurb: "other programs, and what each may see" },
+  { id: "claims", label: "Claims", blurb: "What KOS believes, shared by every chat: true everywhere or in one place, each with where it came from." },
+  { id: "decisions", label: "Decisions", blurb: "What the tidy job could not settle on its own, and what was settled." },
+  { id: "pages", label: "Pages", blurb: "Memory in prose, written from the claims and yours to edit." },
+  { id: "log", label: "Log", blurb: "Everything said, searched by words and by meaning." },
+  { id: "jobs", label: "Jobs", blurb: "The three jobs that read, tidy and condense what is said." },
+  { id: "callers", label: "Callers", blurb: "Other programs that share memory, and what each may see." },
 ];
 
 export function MemoryPage({
   facts,
   tags,
   conversations = [],
+  projectNames,
   onChanged,
 }: {
   facts: FactRow[];
   tags: string[];
+  /** Projects by slug, so a project's claims are headed by its name. */
+  projectNames?: ReadonlyMap<string, string>;
   /** So a log row can name the chat it came from rather than show its id. */
   conversations?: Conversation[];
   onChanged: () => void;
@@ -48,14 +52,15 @@ export function MemoryPage({
   }, [tab]);
   return (
     <div className="mem">
+      <PageHead title="Memory" subtitle={TABS.find((t) => t.id === tab)!.blurb} />
       <nav className="mem-tabs" aria-label="Memory">
         <Chips
-          options={TABS.map((t) => [t.id, <>{t.label}{t.id === "decisions" && pendingCount > 0 && <Pill tone="warn">{pendingCount}</Pill>}</>, t.blurb] as const)}
+          options={TABS.map((t) => [t.id, <>{t.label}{t.id === "decisions" && pendingCount > 0 && <Pill tone="warn">{pendingCount}</Pill>}</>] as const)}
           selected={tab}
           onChoose={setTab}
         />
       </nav>
-      {tab === "claims" && <KnowledgePage facts={facts} tags={tags} onChanged={onChanged} />}
+      {tab === "claims" && <KnowledgePage facts={facts} tags={tags} {...(projectNames ? { projectNames } : {})} onChanged={onChanged} />}
       {tab === "decisions" && <DecisionsTab onChanged={onChanged} />}
       {tab === "pages" && <PagesTab />}
       {tab === "log" && <LogTab titles={titles} />}
@@ -242,9 +247,13 @@ export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResol
   );
 }
 
+/** Settled questions shown before "Show all". */
+const SETTLED_FIRST = 5;
+
 function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
   const [pending, setPending] = useState<ReviewItem[]>([]);
   const [recent, setRecent] = useState<ReviewItem[]>([]);
+  const [allSettled, setAllSettled] = useState(false);
   const load = useCallback(() => {
     void api.memoryReview().then((r) => { setPending(r.pending); setRecent(r.recent.filter((i) => i.resolvedAt !== null)); }).catch(() => undefined);
   }, []);
@@ -259,12 +268,21 @@ function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
       </Group>
       {recent.length > 0 && (
         <Group title="Settled">
-          {recent.map((item) => (
-            <div key={item.id} className="mem-row">
-              <Tag>{item.kind}</Tag> <span className="ops-mono">{item.keys.join(" vs ")}</span>
-              <span className="ops-muted"> · {item.resolution} · {item.resolvedAt ? when(item.resolvedAt) : ""}</span>
-            </div>
-          ))}
+          <ul className="mem-settled">
+            {(allSettled ? recent : recent.slice(0, SETTLED_FIRST)).map((item) => (
+              <li key={item.id} className="mem-settled-row" title={item.keys.join(" vs ")}>
+                <Tag>{item.kind}</Tag>
+                <span className="mem-settled-keys">{item.keys.map((k) => k.slice(k.lastIndexOf("/") + 1)).join(" vs ")}</span>
+                <span className="mem-settled-how">{item.resolution}</span>
+                {item.resolvedAt ? <time className="mem-settled-when">{when(item.resolvedAt)}</time> : null}
+              </li>
+            ))}
+          </ul>
+          {recent.length > SETTLED_FIRST && (
+            <button type="button" className="btn btn--sm btn--ghost mem-settled-more" onClick={() => setAllSettled((v) => !v)}>
+              {allSettled ? "Show fewer" : `Show all ${recent.length}`}
+            </button>
+          )}
         </Group>
       )}
     </>

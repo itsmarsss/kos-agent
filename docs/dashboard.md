@@ -294,7 +294,12 @@ The workspace as a browser. Folders, files with a preview, filter and sort.
 
 ## Memory
 
-Six tabs. See [memory.md](memory.md) for what each holds.
+Six tabs under one head. See [memory.md](memory.md) for what each holds.
+Claims are listed by where they apply (everywhere, then each project and
+blob), a row each: the claim's words on one line, its key, tags and age
+under them, pinned ones marked and first. Search, a kind or Pinned, and a
+tag narrow the list; a scope shows eight, the rest a press away. Pin, Edit
+and Forget sit on a row under the pointer; a row opens the whole claim.
 
 ## Runs
 

@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { FactRow } from "./api.js";
-import { KnowledgePage } from "./KnowledgePage.js";
+import { api, type FactRow } from "./api.js";
+import { groupByScope, KnowledgePage, SCOPE_FIRST } from "./KnowledgePage.js";
 
 const fact = (over: Partial<FactRow> = {}): FactRow => ({
   key: "monthly_budget",
@@ -41,5 +41,75 @@ describe("KnowledgePage", () => {
       />,
     );
     expect(document.body.textContent).toContain("budget, finance");
+  });
+});
+
+describe("the claims list", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  const many = (n: number, over: Partial<FactRow> = {}): FactRow[] =>
+    Array.from({ length: n }, (_, i) => fact({ key: `k${i}`, value: `value ${i}`, updatedAt: 1000 - i, ...over }));
+
+  it("groups by where a claim applies: everywhere, projects by name, then blobs", () => {
+    const groups = groupByScope(
+      [
+        fact({ key: "a", scope: "project:trip" }),
+        fact({ key: "b", scope: "agent:verity" }),
+        fact({ key: "c", scope: "global" }),
+        fact({ key: "d", scope: "project:blob:verity" }),
+        fact({ key: "e", scope: "project:trip", pinned: true }),
+      ],
+      new Map([["trip", "Lisbon trip"]]),
+    );
+    expect(groups.map((g) => [g.title, g.kind])).toEqual([
+      ["Everywhere", null],
+      ["Lisbon trip", "project"],
+      ["verity", "blob"],
+    ]);
+    // Pinned leads its scope; a blob's two names are one place.
+    expect(groups[1]!.facts.map((f) => f.key)).toEqual(["e", "a"]);
+    expect(groups[2]!.facts).toHaveLength(2);
+  });
+
+  it("shows a scope's first few, the rest a press away", () => {
+    render(<KnowledgePage facts={many(SCOPE_FIRST + 4)} tags={[]} onChanged={() => undefined} />);
+    expect(document.querySelectorAll(".know-row")).toHaveLength(SCOPE_FIRST);
+    fireEvent.click(screen.getByRole("button", { name: `Show all ${SCOPE_FIRST + 4}` }));
+    expect(document.querySelectorAll(".know-row")).toHaveLength(SCOPE_FIRST + 4);
+  });
+
+  it("filters by kind and by pinned, and says when nothing matches", () => {
+    const facts = [fact({ key: "p1", kind: "preference" }), fact({ key: "f1", pinned: true }), fact({ key: "f2" })];
+    render(<KnowledgePage facts={facts} tags={["budget"]} onChanged={() => undefined} />);
+    const kind = screen.getByRole("group", { name: "Kind" });
+    fireEvent.click(within(kind).getByRole("button", { name: /Preferences/ }));
+    expect([...document.querySelectorAll(".know-key")].map((k) => k.textContent)).toEqual(["p1"]);
+    fireEvent.click(within(kind).getByRole("button", { name: /Pinned/ }));
+    expect([...document.querySelectorAll(".know-key")].map((k) => k.textContent)).toEqual(["f1"]);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search claims" }), { target: { value: "nothing like it" } });
+    expect(screen.getByText("No claims match.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear the filters" }));
+    expect(document.querySelectorAll(".know-row")).toHaveLength(3);
+  });
+
+  it("pins and edits from the row", async () => {
+    const pin = vi.spyOn(api, "pinMemory").mockResolvedValue(fact({ pinned: true }));
+    const changed = vi.fn();
+    render(<KnowledgePage facts={[fact()]} tags={[]} onChanged={changed} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pin monthly_budget" }));
+    expect(pin).toHaveBeenCalledWith("monthly_budget", true);
+    await waitFor(() => expect(changed).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Edit monthly_budget" }));
+    expect((screen.getByDisplayValue("1200 a month") as HTMLTextAreaElement).tagName).toBe("TEXTAREA");
+  });
+
+  it("says what memory is when it holds nothing", () => {
+    render(<KnowledgePage facts={[]} tags={[]} onChanged={() => undefined} />);
+    expect(screen.getByText("Nothing remembered yet.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add a claim" }));
+    expect(screen.getByRole("textbox", { name: "Key" })).toBeTruthy();
   });
 });

@@ -87,6 +87,8 @@ export function App(): React.ReactElement {
   useEffect(() => overlayScroll(document.documentElement), []);
   const [approvals, setApprovals] = useState<PendingAction[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  /** Projects by slug, for the Memory page's scope headings. */
+  const projectNames = useMemo(() => new Map(projects.map((p) => [p.slug, p.name])), [projects]);
   const [crons, setCrons] = useState<CronJob[]>([]);
   /** The job being run by hand, so its own button can say so. */
   const [firing, setFiring] = useState<number | null>(null);
@@ -1348,6 +1350,7 @@ export function App(): React.ReactElement {
       <MemoryPage
         facts={facts}
         tags={factTags}
+        projectNames={projectNames}
         conversations={conversations}
         onChanged={() => void refresh()}
       />,
