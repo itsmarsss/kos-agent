@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 
 import { isOffice, officeNote, officeText } from "../files/office.js";
@@ -202,11 +202,18 @@ export async function readForText(ws: Workspace, requestPath: unknown): Promise<
   throw new Error(`nothing to read out of ${file.path}`);
 }
 
-/** A PDF's bytes for the browser's own viewer; nothing else is served inline. */
+/** A PDF's bytes for the browser's own viewer; nothing else is served inline. Its first bytes say so before the rest is read. */
 export function readPdf(ws: Workspace, requestPath: unknown): RawFile & { name: string } {
-  const raw = readBytes(ws, requestPath);
-  if (!isPdf(raw.bytes)) throw new Error(`not a PDF: ${raw.name}`);
-  return { ...raw, contentType: "application/pdf" };
+  const rel = relative(requestPath);
+  const head = new Uint8Array(8);
+  const fd = openSync(ws.resolve(rel), "r");
+  try {
+    readSync(fd, head, 0, head.length, 0);
+  } finally {
+    closeSync(fd);
+  }
+  if (!isPdf(head)) throw new Error(`not a PDF: ${basename(rel)}`);
+  return { ...readBytes(ws, rel), contentType: "application/pdf" };
 }
 
 /**
