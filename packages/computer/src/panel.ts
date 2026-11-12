@@ -48,9 +48,23 @@ export interface PanelChat {
   title: string;
 }
 
+/** Where a chat lives: at the root with KOS, in a project, or a blob's own. */
+export type PanelPlaceOf = { kind: "kos" } | { kind: "project"; name: string } | { kind: "blob"; name: string };
+
 /** A chat the panel may switch to, newest first. */
 export interface PanelChatItem extends PanelChat {
   updatedAt: number;
+  place?: PanelPlaceOf;
+}
+
+/** What is going on in KOS at a glance, for a phone: what runs, what waits, what fails, what fires next. */
+export interface Glance {
+  halted: boolean;
+  running: { id: string; title: string }[];
+  /** Every approval waiting on the owner, in any chat. */
+  waiting: number;
+  failing: { label: string; streak: number; error: string | null; since: number }[];
+  next: { name: string; at: number }[];
 }
 
 /** What answers: the model, the ones it may be changed to, or the engine that chooses its own. */
@@ -84,6 +98,8 @@ export interface PanelDeps {
   picture?(frameId: number): { image: string; site?: string } | undefined;
   /** What an @ in the panel's box can name, best first, as the dashboard's @ menu asks. */
   mentions?(q: string, kind?: string): { kind: string; id: string; label: string; hint?: string }[];
+  /** What is going on in KOS, for a device that asks (KOS for iPhone); none, and the ask goes unanswered. */
+  glance?(): Glance;
 }
 
 /** As much of what the owner quoted (selected on a page) as rides with their words, and of where it came from. */
@@ -534,6 +550,11 @@ export class DevicePanel implements ChannelAdapter {
         void this.tell(device, "chat.mentions", { q, mentions: this.deps.mentions?.(q, kind) ?? [] });
         return;
       }
+      case "chat.glance": {
+        const glance = this.deps.glance?.();
+        if (glance) void this.tell(device, "chat.glance", { ...glance });
+        return;
+      }
       case "chat.model":
         if (typeof data["model"] === "string" && data["model"].trim()) {
           const model = data["model"].trim();
@@ -687,6 +708,21 @@ export const CHROME_PANEL: PanelPlace = { name: "chrome", kind: "browser", title
 
 /** The KOS for Mac window, floating over the owner's apps on their Mac. */
 export const MAC_PANEL: PanelPlace = { name: "mac", kind: "computer", title: "Mac", beside: appNote };
+
+/**
+ * Where the owner was when they spoke from KOS for iPhone: their phone, which
+ * has no screen KOS can see or work. Without it, "on my laptop" from the phone
+ * read as this device.
+ */
+export function phoneNote(_beside: unknown, device: string): string {
+  return (
+    `Said in KOS for iPhone, on the owner's phone ${JSON.stringify(device)}. KOS cannot see or work the phone's screen. ` +
+    "The computer and browser tools work only on the owner's paired computers and Chromes, and only when they ask for it there."
+  );
+}
+
+/** KOS for iPhone's chat, on the owner's phone. */
+export const PHONE_PANEL: PanelPlace = { name: "phone", kind: "phone", title: "iPhone", beside: phoneNote };
 
 /**
  * An approval as the panel shows it: the tool, what it would be given, and

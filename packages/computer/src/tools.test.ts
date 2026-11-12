@@ -100,6 +100,28 @@ describe("the computer tools", () => {
     expect(tools.size).toBe(0);
   });
 
+  it("never offer a phone, and refuse to start a session on one by name", async () => {
+    const { tools, pair, hub, call } = setup();
+    const phone = new FakeDevice();
+    phone.state = { consent: "device", permissions: { screen: false, input: false }, displays: [] };
+    phone.id = hub.pair({ code: hub.issueCode().code, name: "Pocket", platform: "ios", publicKey: phone.publicKey }).device;
+    hub.accept(phone.socket);
+    phone.hello({ app: { version: "0.1.0", platform: "ios", os: "18.1" } });
+    await Promise.resolve();
+    // A phone alone brings no computer or browser tools.
+    expect(tools.size).toBe(0);
+    pair();
+    const chrome = new FakeDevice();
+    chrome.id = hub.pair({ code: hub.issueCode().code, name: "Work Chrome", platform: "chrome", publicKey: chrome.publicKey }).device;
+    hub.accept(chrome.socket);
+    chrome.hello({ app: { version: "0.1.0", platform: "chrome", os: "mac" } });
+    await Promise.resolve();
+    expect(await call("computer.devices")).toMatch(/Pocket \(dev_[^)]+\): the owner's phone, through KOS for iPhone; chat only, no computer use\. online/);
+    await expect(call("computer.start", { task: "look", device: "Pocket" })).rejects.toThrow(/phone, which is chat only/);
+    await expect(call("chrome.start", { task: "look", chrome: "Pocket" })).rejects.toThrow(/phone, which is chat only/);
+    expect(phone.calls).toEqual([]);
+  });
+
   it("say what is paired and online without asking anyone, and list it when the one Mac is offline", async () => {
     const { call, pair } = setup();
     const fake = pair();

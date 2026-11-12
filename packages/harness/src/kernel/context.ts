@@ -217,6 +217,18 @@ const MAC_WINDOW_STYLE = [
   "Lead with the answer, keep it to a few short lines, and prefer a short list to a paragraph.",
 ].join("\n");
 
+/**
+ * KOS for iPhone, on the owner's phone: one screen, often spoken to and
+ * listened to rather than read. It draws markdown natively, and may read the
+ * reply aloud, so the words carry it, not the layout.
+ */
+const PHONE_STYLE = [
+  "## Replying in KOS for iPhone",
+  "The owner is talking to you from KOS for iPhone on their phone, often by voice, and the reply may be read aloud to them.",
+  "It renders as markdown: lists, bold, links and inline code. Lead with the answer in a sentence or two, keep it short,",
+  "and say it in plain words that read well spoken: no tables, no long code, nothing that only makes sense to the eye.",
+].join("\n");
+
 const DISCORD_STYLE = [
   "## Replying on Discord",
   "Your reply is sent as an ordinary Discord message, so you choose the presentation.",
@@ -272,6 +284,7 @@ const STYLES: Record<string, { heading: string; house: string }> = {
   discord: { heading: "## Replying on Discord", house: DISCORD_STYLE },
   chrome: { heading: "## Replying in the Chrome side panel", house: CHROME_PANEL_STYLE },
   mac: { heading: "## Replying in the KOS window on the Mac", house: MAC_WINDOW_STYLE },
+  phone: { heading: "## Replying in KOS for iPhone", house: PHONE_STYLE },
 };
 
 

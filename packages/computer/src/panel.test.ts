@@ -7,7 +7,7 @@ import { OwnerChrome } from "./chrome.js";
 import { FakeDevice } from "./device.fixture.js";
 import { DeviceHub } from "./hub.js";
 import { rawPublicKey } from "./keys.js";
-import { CHROME_PANEL, DevicePanel, MAC_PANEL, alwaysWords, appNote, besideNote, panelLines, type PanelPlace } from "./panel.js";
+import { CHROME_PANEL, DevicePanel, MAC_PANEL, PHONE_PANEL, alwaysWords, appNote, besideNote, panelLines, phoneNote, type Glance, type PanelPlace } from "./panel.js";
 import { DeviceStore } from "./store.js";
 import { computerModule } from "./tools.js";
 
@@ -21,7 +21,7 @@ import { computerModule } from "./tools.js";
 const hostPrivate = generateKeyPairSync("ed25519").privateKey;
 type Handler = (input: Record<string, unknown>) => unknown;
 
-function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<number, { image: string; site?: string }> } = {}) {
+function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<number, { image: string; site?: string }>; glance?: () => Glance } = {}) {
   const hub = new DeviceHub({
     store: new DeviceStore(openDatabase(":memory:")),
     hostKey: { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) },
@@ -54,6 +54,7 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
     },
     auto: (c) => acting.has(c),
     picture: (id) => opts.pictures?.[id],
+    ...(opts.glance ? { glance: opts.glance } : {}),
     setAuto: (c, on) => void (on ? acting.add(c) : acting.delete(c)),
     setModel: async (m) => {
       if (m === "broken") throw new Error("no such model");
@@ -72,7 +73,7 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
   const pair = (platform = "chrome"): FakeDevice => {
     const fake = new FakeDevice();
     fake.id = hub.pair({ code: hub.issueCode().code, name: platform === "chrome" ? "Chrome on macOS" : "Studio MacBook", platform, publicKey: fake.publicKey }).device;
-    for (const m of ["chat.show", "chat.status", "chat.ask", "chat.settled", "chat.chats", "chat.models"]) fake.answers.set(m, () => ({ ok: true, result: {} }));
+    for (const m of ["chat.show", "chat.status", "chat.ask", "chat.settled", "chat.chats", "chat.models", "chat.glance"]) fake.answers.set(m, () => ({ ok: true, result: {} }));
     hub.accept(fake.socket);
     if (platform === "chrome") fake.hello({ app: { version: "0.1.0", platform: "chrome", os: "macOS" }, permissions: { tabs: true }, displays: [] });
     else fake.hello();
@@ -98,6 +99,49 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 };
+
+describe("KOS for iPhone", () => {
+  const glance: Glance = {
+    halted: false,
+    running: [{ id: "c1", title: "Garden orchestrator" }],
+    waiting: 2,
+    failing: [{ label: "Nightly backup", streak: 3, error: "disk full", since: 1 }],
+    next: [{ name: "kos.backup", at: 2 }],
+  };
+
+  it("takes the owner's words from a paired phone only, said on the phone, with no screen to work", async () => {
+    const { panel, pair } = setup({ place: PHONE_PANEL, glance: () => glance });
+    const mac = pair("macos");
+    const phone = pair("ios");
+    const heard: InboundMessage[] = [];
+    panel.onMessage((m) => void heard.push(m));
+    mac.event("chat.send", { text: "not a phone" });
+    phone.event("chat.send", { text: "what is running?", beside: { kind: "none" } });
+    await flush();
+    expect(heard.map((m) => [m.senderId, m.text])).toEqual([[phone.id, "what is running?"]]);
+    expect(heard[0]!.context).toBe(phoneNote(undefined, "Studio MacBook 2"));
+    expect(heard[0]!.context).toMatch(/KOS for iPhone.*cannot see or work the phone's screen/);
+  });
+
+  it("answers a glance to the phone that asked, and to no other kind of device", async () => {
+    const { pair } = setup({ place: PHONE_PANEL, glance: () => glance });
+    const mac = pair("macos");
+    const phone = pair("ios");
+    phone.event("chat.glance", {});
+    mac.event("chat.glance", {});
+    await flush();
+    expect(phone.calls.filter((c) => c.method === "chat.glance").map((c) => c.params)).toEqual([glance]);
+    expect(mac.calls.filter((c) => c.method === "chat.glance")).toEqual([]);
+  });
+
+  it("leaves a glance unanswered on a panel that offers none", async () => {
+    const { pair } = setup({ place: MAC_PANEL });
+    const mac = pair("macos");
+    mac.event("chat.glance", {});
+    await flush();
+    expect(mac.calls.filter((c) => c.method === "chat.glance")).toEqual([]);
+  });
+});
 
 describe("the KOS for Mac window", () => {
   it("takes the owner's words from a paired Mac only, with the app in front as where they spoke", async () => {

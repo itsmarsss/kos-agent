@@ -37,9 +37,11 @@ export interface ComputerSettings {
   askMinutes: number;
   /** Whether a schedule, a blob's own timer or a guest's message may start a session. */
   unattended: boolean;
+  /** Whether phones on the home Wi-Fi may reach the device socket, over the listener KOS opens for them (lan.ts). */
+  lan: boolean;
 }
 
-export const DEFAULT_SETTINGS: ComputerSettings = { askMinutes: 15, unattended: false };
+export const DEFAULT_SETTINGS: ComputerSettings = { askMinutes: 15, unattended: false, lan: false };
 export const MAX_ASK_MINUTES = 480;
 
 export interface Device {
@@ -136,6 +138,7 @@ export class DeviceStore {
     return {
       askMinutes: Number.isInteger(minutes) && minutes >= 1 && minutes <= MAX_ASK_MINUTES ? minutes : DEFAULT_SETTINGS.askMinutes,
       unattended: saved.unattended === "true",
+      lan: saved.lan === "true",
     };
   }
 
@@ -147,6 +150,7 @@ export class DeviceStore {
     const put = this.db.prepare(`INSERT INTO device_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`);
     if (patch.askMinutes !== undefined) put.run("askMinutes", String(patch.askMinutes));
     if (patch.unattended !== undefined) put.run("unattended", String(patch.unattended));
+    if (patch.lan !== undefined) put.run("lan", String(patch.lan));
     return this.settings();
   }
 }

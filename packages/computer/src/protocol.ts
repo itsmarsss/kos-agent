@@ -34,6 +34,9 @@ export interface Permissions {
 /** The platform KOS for Chrome says it is: a Chrome, which offers tabs rather than a screen. */
 export const BROWSER_PLATFORM = "chrome";
 
+/** The platform KOS for iPhone says it is: a phone, which only chats, and offers KOS no screen. */
+export const PHONE_PLATFORM = "ios";
+
 export interface Display {
   id: number;
   width: number;
@@ -151,7 +154,7 @@ export type Method =
  * chats it may switch to and the models it may answer with, and the page
  * beside the panel, read when the chat asks.
  */
-export type PanelMethod = "chat.show" | "chat.status" | "chat.ask" | "chat.settled" | "chat.chats" | "chat.models" | "chat.mentions" | "page.read";
+export type PanelMethod = "chat.show" | "chat.status" | "chat.ask" | "chat.settled" | "chat.chats" | "chat.models" | "chat.mentions" | "chat.glance" | "page.read";
 
 /** One line of the panel's chat: the owner's words, KOS's, a note, or the steps a turn took. */
 export type PanelMessage =

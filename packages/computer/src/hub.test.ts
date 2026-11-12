@@ -340,8 +340,10 @@ describe("a session", () => {
 
   it("keeps the owner's settings, and refuses ones out of range", () => {
     const { hub } = setup();
-    expect(hub.settings()).toEqual({ askMinutes: 15, unattended: false });
-    expect(hub.updateSettings({ askMinutes: 30, unattended: true })).toEqual({ askMinutes: 30, unattended: true });
+    // Phones on the Wi-Fi are off until the owner turns them on.
+    expect(hub.settings()).toEqual({ askMinutes: 15, unattended: false, lan: false });
+    expect(hub.updateSettings({ askMinutes: 30, unattended: true })).toEqual({ askMinutes: 30, unattended: true, lan: false });
+    expect(hub.updateSettings({ lan: true }).lan).toBe(true);
     expect(() => hub.updateSettings({ askMinutes: 0 })).toThrow(/1 to 480/);
     expect(() => hub.updateSettings({ askMinutes: 2.5 })).toThrow(/whole number/);
     expect(hub.settings().askMinutes).toBe(30);
@@ -448,5 +450,58 @@ describe("a session", () => {
     expect(hub.remove(id)).toBe(true);
     expect(fake.closed?.code).toBe(CLOSE.unauthorized);
     expect(hub.list()).toEqual([]);
+  });
+});
+
+describe("a phone", () => {
+  /** KOS for iPhone, paired and in: chat only, no screen and no hands. */
+  async function phone(hub: DeviceHub, admit?: (d: { platform: string }) => boolean): Promise<FakeDevice> {
+    const fake = new FakeDevice();
+    fake.state = { consent: "device", permissions: { screen: false, input: false }, displays: [] };
+    const { code } = hub.issueCode();
+    fake.id = hub.pair({ code, name: "Pocket", platform: "ios", publicKey: fake.publicKey }).device;
+    hub.accept(fake.socket, admit);
+    fake.hello({ app: { version: "0.1.0", platform: "ios", os: "18.1" } });
+    await Promise.resolve();
+    return fake;
+  }
+
+  it("is its own kind, and never starts a session, whatever names it", async () => {
+    const { hub, store } = setup();
+    const fake = await phone(hub);
+    expect(hub.list()).toMatchObject([{ id: fake.id, kind: "phone", online: true }]);
+    expect(hub.find("Pocket", "computer")).toBeUndefined();
+    expect(hub.find("Pocket", "browser")).toBeUndefined();
+    expect(hub.find("Pocket", "phone")?.id).toBe(fake.id);
+    const device = store.get(fake.id)!;
+    await expect(hub.begin({ conversation: "c1", device, task: "look", requester: "KOS", minutes: 5 })).rejects.toMatchObject({ code: "phone" });
+    expect(fake.calls.filter((c) => c.method === "session.begin")).toEqual([]);
+  });
+
+  it("is let in where only phones are, and a computer is not", async () => {
+    const { hub } = setup();
+    const onlyPhones = (d: { platform: string }): boolean => d.platform === "ios";
+    const fake = await phone(hub, onlyPhones);
+    expect(fake.welcome).toBeDefined();
+    const mac = new FakeDevice();
+    const { code } = hub.issueCode();
+    mac.id = hub.pair({ code, name: "Studio MacBook", platform: "macos", publicKey: mac.publicKey }).device;
+    hub.accept(mac.socket, onlyPhones);
+    mac.hello();
+    await Promise.resolve();
+    expect(mac.welcome).toBeUndefined();
+    expect(mac.closed).toEqual({ code: CLOSE.unauthorized, reason: REFUSED_REASON["not a phone"] });
+  });
+
+  it("is asked nothing of a phone that has not proved itself, before the check of what the line takes", async () => {
+    const { hub } = setup();
+    const fake = new FakeDevice();
+    const { code } = hub.issueCode();
+    fake.id = hub.pair({ code, name: "Pocket", platform: "ios", publicKey: fake.publicKey }).device;
+    hub.accept(fake.socket, () => false);
+    fake.hello({ signature: "AAAA" });
+    await Promise.resolve();
+    // A bad signature is refused as one: an unproved device does not learn what this line takes.
+    expect(fake.closed?.reason).toBe(REFUSED_REASON["bad signature"]);
   });
 });

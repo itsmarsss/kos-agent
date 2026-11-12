@@ -47,6 +47,8 @@ export interface LinkDeps {
   hostKey: HostKey;
   /** The paired device with this id, or undefined for one KOS does not know. */
   lookup(id: string): Device | undefined;
+  /** Whether a proved device may use this line; one turned away is refused as `not a phone`. Every device when absent. */
+  admit?(device: Device): boolean;
   /** In: both keys proved. */
   onReady(link: DeviceLink): void;
   onState(link: DeviceLink): void;
@@ -60,7 +62,7 @@ export interface LinkDeps {
 }
 
 /** Which check a hello failed. */
-export type RefusedCheck = "protocol version" | "unknown device" | "bad signature";
+export type RefusedCheck = "protocol version" | "unknown device" | "bad signature" | "not a phone";
 
 /** A hello turned away: the id and app it claimed, unproved, and the check it failed. Never its key or signature. */
 export interface Refusal {
@@ -74,6 +76,7 @@ export const REFUSED_REASON: Record<RefusedCheck, string> = {
   "protocol version": `protocol version: KOS speaks protocol ${PROTOCOL_VERSION}; update this app`,
   "unknown device": "unknown device: KOS has no device by this id; pair again",
   "bad signature": "bad signature: not signed by the key this device paired with; pair again",
+  "not a phone": "not a phone: only phones connect over Wi-Fi",
 };
 
 const HELLO_TIMEOUT_MS = 10_000;
@@ -180,7 +183,9 @@ export class DeviceLink {
     if (hello.protocol !== PROTOCOL_VERSION) return "protocol version";
     const device = this.deps.lookup(hello.device);
     if (!device) return "unknown device";
-    return verifyText(device.publicKey, deviceProof(this.challenge, hello.device), hello.signature) ? device : "bad signature";
+    if (!verifyText(device.publicKey, deviceProof(this.challenge, hello.device), hello.signature)) return "bad signature";
+    // Asked only of a device that proved itself, so an unknown one learns nothing of what this line takes.
+    return this.deps.admit && !this.deps.admit(device) ? "not a phone" : device;
   }
 
   private settle(reply: Reply): void {
