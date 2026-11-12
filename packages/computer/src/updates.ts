@@ -283,7 +283,6 @@ export class DeviceUpdates {
     this.audit(device, kind, attempt.from, attempt.build, outcome, false, detail);
   }
 
-  /** The device told where it stands, once per change; a Mac told how to set signing up or update by hand. */
   /** A KOS for Mac's status with the command the owner runs by hand: to set signing up, or to update it themselves after a try that did not take. */
   private withCommand(kind: BuildKind, status: UpdateStatus): UpdateStatus {
     const commands = this.deps.mac?.commands;
@@ -292,6 +291,7 @@ export class DeviceUpdates {
     return command ? { ...status, command } : status;
   }
 
+  /** The device told where it stands, once per change. */
   private tell(device: string, status: UpdateStatus, extra: Record<string, unknown> = {}): void {
     const frame = { t: "update", ...status, ...extra };
     const text = JSON.stringify(frame);
