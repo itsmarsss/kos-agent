@@ -52,6 +52,9 @@ function SessionRules({ settings, onChange }: { settings: ComputerSettings; onCh
  * listener of its own for them, which pairs and carries the device socket and
  * nothing else; the dashboard stays on this computer alone.
  */
+/** Said in every state: the pairing page is anyone's on the network who looks. */
+const SHARED_WIFI = "Anyone on the same Wi-Fi can reach its pairing page while it is on, so leave it off on a shared network.";
+
 function PhoneRules({ settings, lan, onChange }: { settings: ComputerSettings; lan: LanStatus | undefined; onChange: (patch: Partial<ComputerSettings>) => void }): ReactElement {
   const on = settings.lan || lan?.forced === true;
   const where = lan?.on ? `${lan.urls.join(", ") || `port ${lan.port}, but this computer has no address on a home network`}. Your iPhone checks KOS shows ${lan.words}.` : undefined;
@@ -62,11 +65,13 @@ function PhoneRules({ settings, lan, onChange }: { settings: ComputerSettings; l
         label="Phones on this Wi-Fi"
         hint={
           lan?.error ??
-          (lan?.forced
-            ? `On, set by KOS_DEVICE_LAN on the host. ${where ?? ""}`
-            : on
-              ? `KOS for iPhone reaches KOS at ${where ?? "its own address."} Only pairing and the device line answer there; the dashboard stays on this computer.`
-              : "Off by default. On, KOS for iPhone on your home Wi-Fi can pair and chat with KOS over a line of its own, encrypted and pinned at pairing; the dashboard stays on this computer.")
+          `${
+            lan?.forced
+              ? `On, set by KOS_DEVICE_LAN on the host. ${where ?? ""}`
+              : on
+                ? `KOS for iPhone reaches KOS at ${where ?? "its own address."} Only pairing and the device line answer there; the dashboard stays on this computer.`
+                : "Off by default. On, KOS for iPhone on your home Wi-Fi can pair and chat with KOS over a line of its own, encrypted and pinned at pairing; the dashboard stays on this computer."
+          } ${SHARED_WIFI}`
         }
       >
         <Switch label="Phones on this Wi-Fi" on={on} disabled={lan?.forced === true} onChange={(next) => onChange({ lan: next })} />

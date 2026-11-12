@@ -109,10 +109,13 @@ describe("the Devices panel", () => {
     const toggle = await screen.findByRole("switch", { name: "Phones on this Wi-Fi" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     expect(screen.getByText(/Off by default. On, KOS for iPhone/)).toBeTruthy();
+    // Said before it is on, and while it is: the pairing page is the whole network's.
+    expect(screen.getByText(/leave it off on a shared network/)).toBeTruthy();
     devices.mockResolvedValue({ devices: [], settings: { askMinutes: 15, unattended: false, lan: true }, lan });
     fireEvent.click(toggle);
     expect(set).toHaveBeenCalledWith({ lan: true });
     expect(await screen.findByText(/https:\/\/192\.168\.1\.20:4319\. Your iPhone checks KOS shows 4F2A 91C3 77D0 1B5E/)).toBeTruthy();
+    expect(screen.getByText(/Anyone on the same Wi-Fi can reach its pairing page/)).toBeTruthy();
   });
 
   it("offers a phone link with the code while phones may pair over Wi-Fi", async () => {

@@ -183,7 +183,8 @@ device socket alone.
   off at once (`POST /api/devices/settings { "lan": true }`; the setting is
   `lan`). `KOS_DEVICE_LAN=1` turns it on whatever the setting says.
   `GET /api/devices` says where it stands: `lan { on, forced, port, urls,
-  pin, words, error? }`.
+  pin, words, error? }`. Anyone on the same network can reach its pairing
+  page while it is on, so the dashboard says to leave it off on a shared one.
 - **Where.** Port `KOS_DEVICE_LAN_PORT`, else the dashboard's plus two
   (4319 beside 4317), on every interface unless `KOS_DEVICE_LAN_HOST` names
   one. `urls` are `https://` and each home network address of the host.
