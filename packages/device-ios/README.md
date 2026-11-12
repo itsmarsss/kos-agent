@@ -71,6 +71,8 @@ under Reduce Motion.
    template's `ContentView.swift` and app file; add `App/KOSPhoneApp.swift`,
    and set the target's Info.plist to `App/Info.plist` (it declares the
    `kos-device` link, the microphone, speech recognition and the local network).
+   Do not add `App/Info.plist` to the target as a file: as a resource it is
+   copied into the bundle a second time, and the build fails.
 3. File, Add Package Dependencies, Add Local, pick `packages/device-ios`, and
    link the `PhoneUI` library to the app target.
 4. Signing and Capabilities: Team, your Apple ID's free Personal Team; bundle

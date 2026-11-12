@@ -89,7 +89,13 @@ public final class SystemSpeechRecognizer: SpeechRecognizer {
     self.request = request
 
     let input = engine.inputNode
-    input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer, _ in
+    let format = input.outputFormat(forBus: 0)
+    // No input to hear (another app holds the microphone, or a call does): a tap on it would trap.
+    guard format.sampleRate > 0, format.channelCount > 0 else {
+      release()
+      throw SpeechFailure(message: "The microphone is busy right now. Try again in a moment, or type.")
+    }
+    input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
       request.append(buffer)
     }
     tapped = true
