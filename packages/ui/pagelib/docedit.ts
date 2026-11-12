@@ -686,7 +686,8 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
     const top = holder.getBoundingClientRect().top + (parseFloat(style.paddingTop) || 0) + (Math.min(line, 44) - 24) / 2;
     const inset = block.tagName === "LI" ? (block.parentElement?.classList.contains("checklist") ? 2 : 20) : 0;
     handle.hidden = false;
-    handle.style.left = `${Math.round(r.left - inset - handle.offsetWidth - 4 + scrollX)}px`;
+    // In a column with no margin to spare (a narrow window), the handle keeps to the frame's edge.
+    handle.style.left = `${Math.round(Math.max(0, r.left - inset - handle.offsetWidth - 4) + scrollX)}px`;
     handle.style.top = `${Math.round(top + scrollY)}px`;
   }
   /** The innermost block at a height on the page, within the text's width and a little either side (or at any x, for a drag or a sweep down the margin). */

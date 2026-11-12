@@ -53,6 +53,17 @@ export function icon(name: IconName, size = 16): SVGSVGElement {
   return svg;
 }
 
+/**
+ * The part of the frame the owner can see: a doc's frame is as tall as the
+ * doc and the dashboard scrolls it, so the frame's own window is no guide to
+ * where a menu has room. The dashboard says where its view is (doc.ts).
+ */
+const view = { top: 0, height: Infinity };
+export function setView(top: number, height: number): void {
+  view.top = top;
+  view.height = height;
+}
+
 export interface MenuItem {
   id: string;
   label: string;
@@ -123,7 +134,9 @@ export class Menu {
     this.root.setAttribute("aria-label", opts.label);
     this.draw();
     this.root.hidden = false;
+    this.root.scrollTop = 0;
     this.place(opts.at);
+    this.mark();
     if (!opts.listbox) this.focusPick();
   }
 
@@ -153,8 +166,8 @@ export class Menu {
     const w = this.root.offsetWidth;
     const h = this.root.offsetHeight;
     const below = at.bottom + 6;
-    const room = innerHeight - below;
-    const top = room < h && at.top - h - 6 > 0 ? at.top - h - 6 : below;
+    const seen = Math.min(innerHeight, view.top + view.height);
+    const top = seen - below < h && at.top - h - 6 > view.top ? at.top - h - 6 : below;
     this.root.style.left = `${Math.round(Math.max(8, Math.min(at.left, innerWidth - w - 8)) + scrollX)}px`;
     this.root.style.top = `${Math.round(Math.max(8, top) + scrollY)}px`;
   }
@@ -202,7 +215,12 @@ export class Menu {
       b.classList.toggle("on", i === this.pick);
       if (this.opts?.listbox) b.setAttribute("aria-selected", String(i === this.pick));
     });
-    this.buttons()[this.pick]?.scrollIntoView?.({ block: "nearest" });
+    // The menu scrolls itself to the row, never the dashboard around the frame.
+    const row = this.buttons()[this.pick];
+    if (row) {
+      if (row.offsetTop < this.root.scrollTop) this.root.scrollTop = row.offsetTop - 3;
+      else if (row.offsetTop + row.offsetHeight > this.root.scrollTop + this.root.clientHeight) this.root.scrollTop = row.offsetTop + row.offsetHeight - this.root.clientHeight + 3;
+    }
   }
 
   private focusPick(): void {

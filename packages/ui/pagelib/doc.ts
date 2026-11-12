@@ -13,6 +13,7 @@ import { DOC_EDIT_MAX } from "@kos/shared/artifacts";
 
 import { ensureTodoBoxes, toggleTodo } from "./docblocks.js";
 import { AUTOSAVE_GAP_MS, startEditor, type Editor } from "./docedit.js";
+import { setView } from "./docui.js";
 import { addStyle, editable, el, keepRanges, kos, ready, reducedMotion } from "./runtime.js";
 
 /** How many h2s make a document long enough for a table of contents. */
@@ -393,6 +394,7 @@ function followView(): void {
   addEventListener("message", (e) => {
     const m = (e.data ?? {}) as { __kos?: string; top?: unknown; height?: unknown };
     if (e.source !== top || m.__kos !== "view" || typeof m.top !== "number" || typeof m.height !== "number") return;
+    setView(m.top, m.height);
     const toc = document.querySelector<HTMLElement>(".doc-toc");
     if (!toc) return;
     if (!matchMedia("(min-width: 1100px)").matches) {
