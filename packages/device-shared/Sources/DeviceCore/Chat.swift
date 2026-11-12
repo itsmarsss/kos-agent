@@ -172,6 +172,11 @@ public struct ChatItem: Decodable, Equatable, Sendable {
 public struct ChatPlace: Decodable, Equatable, Sendable {
   public let kind: String
   public let name: String?
+
+  public init(kind: String, name: String? = nil) {
+    self.kind = kind
+    self.name = name
+  }
 }
 
 /// The chats the window may continue, newest first.

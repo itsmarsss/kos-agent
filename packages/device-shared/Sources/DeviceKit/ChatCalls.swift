@@ -72,7 +72,8 @@ public enum ChatCalls {
     }
   }
 
-  private static func place(_ p: ChatPlace) -> ChatModel.Place {
+  /// Where a chat or an artifact lives, as KOS says it.
+  public static func place(_ p: ChatPlace) -> ChatModel.Place {
     switch p.kind {
     case "project": return .project(p.name ?? "A project")
     case "blob": return .blob(p.name ?? "A blob")

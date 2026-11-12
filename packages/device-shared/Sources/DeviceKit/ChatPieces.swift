@@ -20,6 +20,11 @@ public struct Bubble: View {
     self.quote = quote
   }
 
+  /// A file named as a picture is, by its extension.
+  static func isPicture(_ name: String) -> Bool {
+    ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains((name as NSString).pathExtension.lowercased())
+  }
+
   public var body: some View {
     HStack {
       // Up to 88% of the thread's width, as on the dashboard.
@@ -28,7 +33,7 @@ public struct Bubble: View {
         if let quote { QuoteCard(text: quote.text, from: quote.from) }
         if !text.isEmpty { ChatMarkdown(text) }
         ForEach(files, id: \.self) { file in
-          Label(file, systemImage: "doc").font(.kos(.detail)).foregroundStyle(Theme.muted)
+          Label(file, systemImage: Self.isPicture(file) ? "photo" : "doc").font(.kos(.detail)).foregroundStyle(Theme.muted)
         }
       }
       .padding(.horizontal, 12)
