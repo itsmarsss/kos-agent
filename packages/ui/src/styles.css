@@ -3595,6 +3595,7 @@ li:hover .chats-item-when { opacity: 0; }
   border-radius: var(--r-md);
 }
 
+.know-add-acts { display: flex; gap: 0.4rem; }
 .know-group { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
 .know-group-title { display: flex; align-items: center; gap: 0.45rem; margin: 0; font-size: var(--text-lg); font-weight: 600; }
 .know-group-kind { color: var(--faint); font-size: var(--text-sm); font-weight: 500; }
@@ -3626,6 +3627,7 @@ li:hover .chats-item-when { opacity: 0; }
 .know-meta { display: flex; align-items: center; gap: 0.5rem; min-width: 0; color: var(--faint); font-size: var(--text-sm); }
 .know-meta .tag { padding: 0 0.45rem; font-size: var(--text-xs); color: var(--muted); }
 .know-key { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--text-xs); color: var(--muted); }
+.know-from { flex: none; white-space: nowrap; }
 .know-tags { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .know-when { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
 /* Over the row's right edge, on the row's own hover fill. */
@@ -5572,6 +5574,10 @@ a.health {
 .mem-settled { list-style: none; margin: 0; padding: 0; }
 .mem-settled-row { display: flex; align-items: center; gap: 0.6rem; min-width: 0; padding: 0.45rem 0; border-top: 1px solid var(--line); font-size: var(--text-base); }
 .mem-settled-keys { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--text-sm); color: var(--muted); }
+.mem-settled-key { display: inline-flex; align-items: center; gap: 0.35rem; }
+.mem-settled-key + .mem-settled-key { margin-left: 0.35rem; }
+.mem-settled-key .mem-scope { font-family: var(--font); }
+.mem-settled-vs { color: var(--faint); font-family: var(--font); }
 .mem-settled-how { flex: none; color: var(--muted); font-size: var(--text-sm); }
 .mem-settled-when { flex: none; color: var(--faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .mem-settled-more { align-self: flex-start; }
@@ -5963,6 +5969,10 @@ a.health {
   .runs-tabs { flex-wrap: nowrap; }
   .mem-tabs,
   .runs-tabs { overflow-x: auto; scrollbar-width: none; }
+  /* Fade the edge that has more past it, so the tabs off screen say they are there. */
+  .mem-tabs[data-more="end"] { mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent); }
+  .mem-tabs[data-more="start"] { mask-image: linear-gradient(to left, #000 calc(100% - 2.5rem), transparent); }
+  .mem-tabs[data-more="start end"] { mask-image: linear-gradient(to right, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent); }
   .mem-tabs::-webkit-scrollbar,
   .runs-tabs::-webkit-scrollbar { display: none; }
   .mem-tabs .chips button,

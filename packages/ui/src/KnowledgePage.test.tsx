@@ -111,5 +111,14 @@ describe("the claims list", () => {
     expect(screen.getByText("Nothing remembered yet.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add a claim" }));
     expect(screen.getByRole("textbox", { name: "Key" })).toBeTruthy();
+    // With nothing in memory there is no filter row, so the form carries its own way out.
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("textbox", { name: "Key" })).toBeNull();
+    expect(screen.getByText("Nothing remembered yet.")).toBeTruthy();
+  });
+
+  it("says on the row who wrote a claim", () => {
+    render(<KnowledgePage facts={[fact({ key: "a", source: "cron:10" }), fact({ key: "b", source: "dashboard" })]} tags={[]} onChanged={() => undefined} />);
+    expect([...document.querySelectorAll(".know-from")].map((e) => e.textContent)).toEqual(["from job #10", "from you"]);
   });
 });

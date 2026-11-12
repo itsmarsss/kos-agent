@@ -32,6 +32,17 @@ export const SCOPE_FIRST = 8;
 
 const NO_NAMES: ReadonlyMap<string, string> = new Map();
 
+/** Who wrote a claim, in a word or two for its row: the drawer says it in full. */
+export function sourceWord(source: string | null | undefined): string | null {
+  if (!source) return null;
+  if (source === "dashboard" || source === "owner") return "you";
+  if (source === "agent") return "KOS";
+  if (source.startsWith("cron:")) return `job #${source.slice("cron:".length)}`;
+  if (source.startsWith("caller:")) return source.slice("caller:".length);
+  if (source.startsWith("project:")) return source.slice("project:".length);
+  return "a chat";
+}
+
 /** A claim's scope, in words. */
 export function describeScope(scope: string | undefined): string {
   if (!scope || scope === "global") return "everywhere";
@@ -239,9 +250,14 @@ export function KnowledgePage({ facts, tags, projectNames = NO_NAMES, onChanged 
           <input className="kos-input kos-mono" aria-label="Key" placeholder="key, e.g. deploy_target" value={draft.key} onChange={(e) => setDraft({ ...draft, key: e.target.value })} />
           <input className="kos-input" aria-label="What to remember" placeholder="what to remember" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} />
           <input className="kos-input" aria-label="Tags" placeholder="tags, comma separated" value={draft.tags} onChange={(e) => setDraft({ ...draft, tags: e.target.value })} />
-          <button type="submit" className="btn btn--primary" disabled={!draft.key.trim() || !draft.value.trim()}>
-            Save
-          </button>
+          <span className="know-add-acts">
+            <button type="button" className="btn btn--ghost" onClick={() => setAdding(false)}>
+              Cancel
+            </button>
+            <button type="submit" className="btn btn--primary" disabled={!draft.key.trim() || !draft.value.trim()}>
+              Save
+            </button>
+          </span>
         </form>
       )}
 
@@ -287,6 +303,7 @@ export function KnowledgePage({ facts, tags, projectNames = NO_NAMES, onChanged 
                     </span>
                     <span className="know-meta">
                       <code className="know-key">{f.key}</code>
+                      {sourceWord(f.source) && <span className="know-from">from {sourceWord(f.source)}</span>}
                       {f.kind !== "fact" && <Tag>{f.kind}</Tag>}
                       {(f.tags ?? []).length > 0 && <span className="know-tags">{f.tags!.join(", ")}</span>}
                       {f.updatedAt ? <span className="know-when">{agoWords(f.updatedAt)}</span> : null}

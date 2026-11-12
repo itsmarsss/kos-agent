@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type RefObject } from "react";
 
 import { Chips, Empty, Pill, Switch, Tag } from "@kos/kit";
 
@@ -46,6 +46,7 @@ export function MemoryPage({
     const m = /[?&]tab=([a-z]+)/.exec(window.location.hash);
     return (TABS.find((t) => t.id === m?.[1])?.id ?? "claims");
   });
+  const tabsRef = useEdgeFade<HTMLElement>();
   const [pendingCount, setPendingCount] = useState(0);
   useEffect(() => {
     void api.memoryReview().then((r) => setPendingCount(r.pending.length)).catch(() => undefined);
@@ -53,7 +54,7 @@ export function MemoryPage({
   return (
     <div className="mem">
       <PageHead title="Memory" subtitle={TABS.find((t) => t.id === tab)!.blurb} />
-      <nav className="mem-tabs" aria-label="Memory">
+      <nav className="mem-tabs" aria-label="Memory" ref={tabsRef}>
         <Chips
           options={TABS.map((t) => [t.id, <>{t.label}{t.id === "decisions" && pendingCount > 0 && <Pill tone="warn">{pendingCount}</Pill>}</>] as const)}
           selected={tab}
@@ -68,6 +69,33 @@ export function MemoryPage({
       {tab === "callers" && <CallersTab />}
     </div>
   );
+}
+
+/**
+ * Says which ends of a row that scrolls sideways have more past them, as
+ * `data-more` ("start", "end" or both), so its edge can fade there: on a
+ * phone the last tabs sat off screen with nothing to say they were there.
+ */
+function useEdgeFade<T extends HTMLElement>(): RefObject<T | null> {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const mark = (): void => {
+      const ends = [el.scrollLeft > 1 ? "start" : "", el.scrollLeft + el.clientWidth < el.scrollWidth - 1 ? "end" : ""].filter(Boolean).join(" ");
+      if (ends) el.dataset.more = ends;
+      else delete el.dataset.more;
+    };
+    mark();
+    el.addEventListener("scroll", mark, { passive: true });
+    const seen = new ResizeObserver(mark);
+    seen.observe(el);
+    return () => {
+      el.removeEventListener("scroll", mark);
+      seen.disconnect();
+    };
+  }, []);
+  return ref;
 }
 
 function Group({ title, blurb, children }: { title: string; blurb?: string; children: React.ReactNode }): ReactElement {
@@ -272,7 +300,19 @@ function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
             {(allSettled ? recent : recent.slice(0, SETTLED_FIRST)).map((item) => (
               <li key={item.id} className="mem-settled-row" title={item.keys.join(" vs ")}>
                 <Tag>{item.kind}</Tag>
-                <span className="mem-settled-keys">{item.keys.map((k) => k.slice(k.lastIndexOf("/") + 1)).join(" vs ")}</span>
+                <span className="mem-settled-keys">
+                  {item.keys.map((k, i) => {
+                    const slash = k.lastIndexOf("/");
+                    const scope = slash > 0 ? k.slice(0, slash).replace(/^project:/, "") : "";
+                    return (
+                      <span key={k} className="mem-settled-key">
+                        {i > 0 && <span className="mem-settled-vs">vs</span>}
+                        {scope && <span className="mem-scope">{scope}</span>}
+                        {k.slice(slash + 1)}
+                      </span>
+                    );
+                  })}
+                </span>
                 <span className="mem-settled-how">{item.resolution}</span>
                 {item.resolvedAt ? <time className="mem-settled-when">{when(item.resolvedAt)}</time> : null}
               </li>
