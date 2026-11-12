@@ -3,19 +3,17 @@ import DeviceKit
 import PhoneCore
 import SwiftUI
 
-/// More: the rest of the dashboard's pages, under KOS and the address this
-/// phone is paired with. The overview first, since it is the glance; then
+/// More: the rest of the dashboard's pages, under the address of the KOS
+/// this phone is paired with. The overview first, since it is the glance; then
 /// runs, blobs, files and memory, in the dashboard's order; then this
 /// phone's own settings.
 struct MoreScreen: View {
   @ObservedObject var phone: Phone
-  @ObservedObject private var chat: ChatModel
   @ObservedObject private var glance: GlanceModel
   @Environment(\.go) private var go
 
   init(phone: Phone) {
     self.phone = phone
-    chat = phone.chat
     glance = phone.glance
   }
 
@@ -32,13 +30,7 @@ struct MoreScreen: View {
 
   var body: some View {
     PageFrame {
-      HStack(spacing: 10) {
-        KOSFace(size: 36, mood: chat.online ? .idle : BlobMood(link: chat.link), look: chat.face)
-        RowText(phone.paired?.name ?? "KOS", phone.paired.map { (try? $0.kosAddress().display) ?? $0.address }, size: .title, titleLines: 1, detailLines: 1)
-          .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-      }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 6)
+      PageHead(title: "More", detail: phone.paired.map { "KOS at \((try? $0.kosAddress().display) ?? $0.address)" } ?? "The rest of KOS")
     } content: {
       PageList(refresh: { glance.ask() }) {
         Color.clear.frame(height: 6).pageRow(separator: false)
