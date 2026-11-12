@@ -6,11 +6,13 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 /**
- * install.sh, in a home of its own: the new app renamed into place, never a
- * moment with none, and an app that will not quit left alone and said.
+ * install.sh and lock.sh, in a home of their own: the new app renamed into
+ * place, a copy a stopped run set aside put back, an app that will not quit
+ * left alone and said, and one build at a time.
  */
 
-const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "install.sh");
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SCRIPT = join(HERE, "install.sh");
 let home = "";
 const running: ChildProcess[] = [];
 
@@ -30,13 +32,13 @@ function app(at: string, marker: string, body = "sleep 30"): string {
   return at;
 }
 
-function install(): { status: number | null; stderr: string; opened: string } {
+function install(env: Record<string, string> = {}): { status: number | null; stderr: string; opened: string } {
   const built = app(join(home, "build", "KOS for Mac.app"), "new");
   const opened = join(home, "opened");
   const open = join(home, "open.sh");
   writeFileSync(open, `#!/bin/sh\necho "$1" >> "${opened}"\n`);
   chmodSync(open, 0o755);
-  const run = spawnSync(SCRIPT, [built], { env: { HOME: home, PATH: process.env.PATH, KOS_DEVICE_OPEN: open }, encoding: "utf8" });
+  const run = spawnSync(SCRIPT, [built], { env: { HOME: home, PATH: process.env.PATH ?? "", KOS_DEVICE_OPEN: open, ...env }, encoding: "utf8" });
   return { status: run.status, stderr: run.stderr, opened: existsSync(opened) ? readFileSync(opened, "utf8") : "" };
 }
 
@@ -80,4 +82,43 @@ describe.skipIf(process.platform !== "darwin")("installing KOS for Mac", () => {
     expect(run.opened).toBe("");
     expect(readdirSync(join(home, "Applications"))).toEqual(["KOS for Mac.app"]);
   }, 20_000);
+
+  it("puts back the copy a run stopped between its renames had set aside, then installs", () => {
+    home = mkdtempSync(join(tmpdir(), "install-test-"));
+    app(`${installed()}.old`, "old");
+    const run = install();
+    expect(run.status).toBe(0);
+    expect(marker()).toBe("new");
+    expect(readdirSync(join(home, "Applications"))).toEqual(["KOS for Mac.app"]);
+  });
+
+  it("refuses a home that is not a folder", () => {
+    home = mkdtempSync(join(tmpdir(), "install-test-"));
+    const run = install({ HOME: "" });
+    expect(run.status).toBe(1);
+    expect(run.stderr).toMatch(/HOME is not set to a folder/);
+  });
+});
+
+describe("one build at a time", () => {
+  const lock = (dir: string): { status: number | null; stderr: string } => {
+    const run = spawnSync("bash", ["-c", `source "${join(HERE, "lock.sh")}" && take_lock "${dir}" && cat "${dir}/pid"`], { encoding: "utf8" });
+    return { status: run.status, stderr: run.stderr };
+  };
+
+  it("is held by a live build, and taken over from one that is gone", async () => {
+    home = mkdtempSync(join(tmpdir(), "install-test-"));
+    const dir = join(home, ".install.lock");
+    // Held by a process that runs: the next build stops, saying so.
+    const holder = spawn("sleep", ["30"]);
+    running.push(holder);
+    mkdirSync(dir);
+    writeFileSync(join(dir, "pid"), String(holder.pid));
+    expect(lock(dir)).toMatchObject({ status: 1, stderr: expect.stringMatching(/Another build of KOS for Mac is running/) });
+    // Its holder gone, the lock is stale and taken over.
+    holder.kill("SIGKILL");
+    await new Promise((r) => holder.once("exit", r));
+    expect(lock(dir).status).toBe(0);
+    expect(readFileSync(join(dir, "pid"), "utf8").trim()).not.toBe(String(holder.pid));
+  });
 });
