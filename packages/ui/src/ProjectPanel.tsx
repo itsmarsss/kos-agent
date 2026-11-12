@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { hexOfHsl, hueOfHex } from "@kos/shared";
-import { Card, Empty, lookOf, Pill, Tag } from "@kos/kit";
+import { Card, Empty, lookOf, Pill } from "@kos/kit";
 
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
@@ -9,10 +9,12 @@ import { ProjectExplorer } from "./ProjectExplorer.js";
 import { markInk } from "./ProjectMark.js";
 
 /**
- * The column beside a project's threads: what the project has made and what
- * the owner has put in it. Its folder, browsed in place; pages; tables;
- * sites. The work happens in the thread next to it, and this is where the
- * work lands, so the two sit side by side rather than a page apart.
+ * The column beside a project's threads: who the project is and how much it
+ * holds, then what it has made and what the owner has put in it, each a
+ * section under a hairline rather than a box: its folder, browsed in place;
+ * its artifacts; tables; sites. Its agents and schedule are the rail on the
+ * other side of the thread. The work happens in the thread between, and
+ * this is where the work lands, so the two sit side by side.
  */
 
 export interface ProjectPanelProps {
@@ -37,7 +39,7 @@ function message(err: unknown): string {
 export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = false, rail }: ProjectPanelProps): ReactElement {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** The colour row under the hero, shown on request. */
+  /** The colour row under the head, shown on request. */
   const [colouring, setColouring] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
@@ -85,6 +87,13 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
   }
 
   const { project, tables, sites } = detail;
+  /** What it holds, at a glance: each a section below, or the rail beside the chat. */
+  const stats: [string, number][] = [
+    ["Agents", detail.agents.length],
+    ["Artifacts", detail.pages.filter((p) => p.trashedAt === undefined).length],
+    ["Tables", tables.length],
+    ["Schedules", detail.crons.length],
+  ];
   const hue = (project.colour ? hueOfHex(project.colour) : null) ?? lookOf(project.slug).hue;
   const recolour = async (colour: string | null): Promise<void> => {
     try {
@@ -98,20 +107,31 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
 
   return (
     <aside className="project-panel" aria-label={`${project.name} workspace`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
-      {/* Who it is, as the agent page has it: a mark on a glow of the
-          project's own colour, its name, what it is for, and its facts. */}
-      <header className="hero">
-        <span className="hero-mark" aria-hidden="true" style={project.colour ? { background: project.colour, color: markInk(project.colour) } : undefined}>
-          <FileIcon name={project.slug} kind="dir" size={26} />
-        </span>
-        <h2>{project.name}</h2>
-        {project.description && <p className="hero-desc">{project.description}</p>}
-        <div className="hero-meta">
+      {/* Who it is: its mark in its own colour, its name, kind and state,
+          what it is for, how much it holds, and what can be done with it. */}
+      <header className="project-head">
+        <div className="project-head-top">
+          <span className="hero-mark hero-mark--sm" aria-hidden="true" style={project.colour ? { background: project.colour, color: markInk(project.colour) } : undefined}>
+            <FileIcon name={project.slug} kind="dir" size={16} />
+          </span>
+          <div className="project-head-titles">
+            <h2>{project.name}</h2>
+            <span className="project-head-sub">
+              {project.type} · <span className="ops-mono">{project.slug}</span>
+            </span>
+          </div>
           <Pill tone={project.status === "active" ? "ok" : "muted"}>{project.status}</Pill>
-          <Tag>{project.type}</Tag>
-          <Tag mono>{project.slug}</Tag>
         </div>
-        <div className="hero-acts">
+        {project.description && <p className="project-head-desc">{project.description}</p>}
+        <dl className="project-stats">
+          {stats.map(([label, n]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{n}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="project-head-acts">
           <button type="button" className="btn btn--sm" title="The project's folder on the Files page" onClick={() => onOpenFile(detail.folder)}>
             Open in Files
           </button>
@@ -121,7 +141,7 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
         </div>
         {colouring && (
           /* The same swatches and picker a face has; a project's swatch is the plain colour. */
-          <div className="hero-colour">
+          <div className="project-head-colour">
             <ColourChoice
               value={project.colour ?? hexOfHsl(hue, 70, 60)}
               swatchHue={project.colour ? undefined : hue}

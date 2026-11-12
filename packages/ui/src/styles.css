@@ -6835,6 +6835,30 @@ a.health {
 .chats-root .blob { margin-right: 0.1rem; }
 /* The agent's column, in its own colour: a hero, then cards. */
 .project-panel { --tint: hsl(var(--blob-h, 214) 72% 62%); --tint-dim: hsl(var(--blob-h, 214) 72% 62% / 0.14); }
+/* A project's head (ProjectPanel.tsx): left-aligned and on the column's ground, the mark in its colour the one tinted thing. */
+.project-head { flex: none; display: flex; flex-direction: column; gap: 10px; padding: 4px 2px 2px; }
+.project-head-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.project-head-top .hero-mark--sm { width: 36px; height: 36px; border-radius: var(--r-md); }
+.project-head-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.project-head-titles h2 { margin: 0; font-size: var(--text-lg); font-weight: 600; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-head-sub { color: var(--faint); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-head-sub .ops-mono { font-size: inherit; }
+.project-head-top .pill { flex: none; }
+.project-head-desc { margin: 0; color: var(--muted); font-size: var(--text-base); line-height: 1.45; }
+/* How much it holds: four figures in a row, each under its label. */
+.project-stats { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); }
+.project-stats > div { display: flex; flex-direction: column-reverse; gap: 1px; padding: 7px 9px; min-width: 0; }
+.project-stats > div + div { border-left: 1px solid var(--line); }
+.project-stats dt { color: var(--faint); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-stats dd { margin: 0; font-size: var(--text-lg); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.project-head-acts { display: flex; gap: 6px; }
+.project-head-colour { display: flex; flex-direction: column; align-items: flex-start; gap: 0.4rem; min-width: 0; }
+/* Its sections sit on the column, each under a hairline: the cards around everything are gone, the rows inside are what is touched. */
+.project-panel > .card { background: transparent; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 14px 2px 2px; }
+/* The folder's own controls, quiet beside its label: they are there when wanted, not the loud thing in the column. */
+.project-panel > .card > .card-head .btn:not(.btn--primary) { background: transparent; border-color: transparent; color: var(--muted); }
+.project-panel > .card > .card-head .btn:not(.btn--primary):hover:not(:disabled) { background: var(--panel-2); color: var(--text); }
+.project-panel > .card.project-panel-drop.is-over { border-radius: var(--r-md); outline: 1px dashed var(--accent); background: var(--accent-dim); }
 .agent-panel { gap: 0.7rem; }
 .hero { flex: none; position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.3rem; padding: 1.2rem 0.6rem 0.9rem; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: linear-gradient(180deg, var(--tint-dim), transparent 90%); }
 .hero::before { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse 80% 55% at 50% 0%, hsl(var(--blob-h, 214) 80% 60% / 0.32), transparent 100%); pointer-events: none; }
