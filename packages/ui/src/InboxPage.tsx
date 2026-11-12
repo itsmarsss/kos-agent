@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, type ReactElement } from "react";
 import { summarizeAction } from "@kos/shared";
 
 import { AskSteps, Count, Empty, Tag } from "@kos/kit";
 
-import { api, type DecidedAction, type FailingJob, type InboxData } from "./api.js";
+import { api, type FailingJob, type InboxData } from "./api.js";
 import { Decision } from "./Decision.js";
-import { HISTORY_CAP, InboxDecided } from "./InboxDecided.js";
+import { InboxDecided } from "./InboxDecided.js";
 import { MemoryDecision } from "./MemoryPage.js";
 import { PageHead } from "./PageHead.js";
 import { agoWords as ago } from "./schedulewords.js";
@@ -58,20 +58,6 @@ export function InboxPage({
   onChanged: () => void;
 }): ReactElement {
   const approvals = data?.approvals ?? [];
-  // What was decided, kept, so a reference to an old ask still lands here.
-  const [decided, setDecided] = useState<DecidedAction[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    void api
-      .approvalHistory(HISTORY_CAP)
-      .then((rows) => {
-        if (!cancelled) setDecided(rows);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [data]);
   const highlit = useRef<HTMLLIElement | null>(null);
   useEffect(() => {
     highlit.current?.scrollIntoView({ block: "center" });
@@ -247,7 +233,7 @@ export function InboxPage({
         </section>
       )}
 
-      <InboxDecided rows={decided} capped={decided.length >= HISTORY_CAP} {...(highlight !== undefined ? { highlight } : {})} onOpenChat={onOpenChat} />
+      <InboxDecided {...(data?.decided ? { mark: data.decided } : {})} {...(highlight !== undefined ? { highlight } : {})} onOpenChat={onOpenChat} />
     </div>
   );
 }

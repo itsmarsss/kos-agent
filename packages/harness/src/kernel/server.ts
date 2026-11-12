@@ -282,6 +282,16 @@ function pendingView(kernel: Kernel, a: PendingAction): PendingAction & { asker?
   };
 }
 
+/** A decided ask as the Inbox lists it: in words, who asked, and none of the arguments. */
+function decidedView(kernel: Kernel, a: PendingAction): Omit<PendingAction, "args"> & { asker?: string; summary: string } {
+  const { args, ...rest } = a;
+  return {
+    ...rest,
+    asker: kernel.askerOf(a.conversationId)?.name,
+    summary: summarizeAction(a.tool, args, (kind, id) => kernel.labelFor(kind, id)),
+  };
+}
+
 function withFixes(
   kernel: Kernel,
   failing: FailingJob[],
@@ -840,16 +850,36 @@ export async function handleApiRequest(
     }
   }
 
-  /** Approvals already decided, newest first, so a link to one still lands on the dashboard. */
+  /**
+   * Approvals already decided, newest first, a page at a time, so a link to
+   * one still lands on the dashboard: `before=<decidedAt>,<id>` continues
+   * after a row, `status` holds it to one outcome, `q` to some words. Said
+   * in words, without the arguments or the picture, which a list never shows.
+   */
   if (method === "GET" && path === "/api/approvals/history") {
-    const limit = clampLimit(queryParams(req.url).get("limit"), 50);
-    return ok(
-      kernel.approvals.recent(limit).map((a) => ({
-        ...a,
-        asker: kernel.askerOf(a.conversationId)?.name,
-        summary: summarizeAction(a.tool, a.args, (kind, id) => kernel.labelFor(kind, id)),
-      })),
-    );
+    const params = queryParams(req.url);
+    const before = /^(\d+),(\d+)$/.exec(params.get("before") ?? "");
+    const status = params.get("status");
+    const page = kernel.approvals.decided({
+      limit: clampLimit(params.get("limit"), 25),
+      ...(before ? { before: { decidedAt: Number(before[1]), id: Number(before[2]) } } : {}),
+      ...(status === "approved" || status === "denied" || status === "expired" ? { status } : {}),
+      ...(params.get("q") ? { q: params.get("q")! } : {}),
+    });
+    return ok(page.map((a) => decidedView(kernel, a)));
+  }
+
+  /** How many were decided, by outcome: the Inbox's filters count with these. */
+  if (method === "GET" && path === "/api/approvals/history/counts") {
+    return ok(kernel.approvals.decidedCounts());
+  }
+
+  // One approval by number, waiting or decided: where a link to an old one lands when it is not on the first page.
+  const oneApproval = /^\/api\/approvals\/(\d+)$/.exec(path);
+  if (method === "GET" && oneApproval) {
+    const a = kernel.approvals.get(Number(oneApproval[1]));
+    if (!a) return { status: 404, body: { error: "no such approval" } };
+    return ok(a.status === "pending" ? pendingView(kernel, a) : decidedView(kernel, a));
   }
 
   if (method === "GET" && path === "/api/approvals") {
@@ -2384,6 +2414,8 @@ export async function handleApiRequest(
       decisions: kernel.review.pending().map((i) => describeReview(kernel.facts, kernel.profile.ownerId, i)),
       failures: withFixes(kernel, kernel.health.report().failing),
       suggestions: kernel.suggestions.pending(),
+      // So the Inbox reads its decided history again only when this changes, not on every poll.
+      decided: kernel.approvals.decidedMark(),
     });
   }
 

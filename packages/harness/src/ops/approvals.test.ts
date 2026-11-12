@@ -91,11 +91,70 @@ describe("ApprovalQueue", () => {
     queue.enqueue({ tool: "shell", args: {}, riskTier: "risky", reason: "waits" });
     queue.deny(a.id, "owner");
     queue.approve(b.id, "owner");
-    expect(queue.recent().map((r) => [r.id, r.status])).toEqual([
+    expect(queue.decided().map((r) => [r.id, r.status])).toEqual([
       [b.id, "approved"],
       [a.id, "denied"],
     ]);
-    expect(queue.recent(1).map((r) => r.id)).toEqual([b.id]);
+    expect(queue.decided({ limit: 1 }).map((r) => r.id)).toEqual([b.id]);
+  });
+
+  describe("the decided history, a page at a time", () => {
+    let clock = 1_000;
+    beforeEach(() => {
+      clock = 1_000;
+      queue = new ApprovalQueue(ws.db, undefined, () => (clock += 1_000));
+    });
+
+    function decideMany(): number[] {
+      const ids: number[] = [];
+      for (let i = 0; i < 7; i++) {
+        const a = queue.enqueue({ tool: i % 2 ? "files.rm" : "cron.run", args: { path: `file-${i}.txt` }, riskTier: "risky", ...(i === 3 ? { reason: "outside the scratch folder" } : {}), picture: "A".repeat(100) });
+        if (i % 3 === 2) queue.deny(a.id, "owner");
+        else if (i === 6) queue.lapse(a.id, "timeout");
+        else queue.approve(a.id, "owner");
+        ids.push(a.id);
+      }
+      queue.enqueue({ tool: "still.waiting", args: {}, riskTier: "risky" });
+      return ids.reverse();
+    }
+
+    it("continues after the last row of the page before, newest first", () => {
+      const ids = decideMany();
+      const first = queue.decided({ limit: 3 });
+      expect(first.map((r) => r.id)).toEqual(ids.slice(0, 3));
+      const last = first.at(-1)!;
+      const next = queue.decided({ limit: 3, before: { decidedAt: last.decidedAt!, id: last.id } });
+      expect(next.map((r) => r.id)).toEqual(ids.slice(3, 6));
+      expect(queue.decided({ limit: 10 }).map((r) => r.id)).toEqual(ids);
+    });
+
+    it("holds a page to one outcome or a few words, and never reads the picture", () => {
+      decideMany();
+      expect(queue.decided({ status: "denied" }).every((r) => r.status === "denied")).toBe(true);
+      expect(queue.decided({ status: "denied" })).toHaveLength(2);
+      expect(queue.decided({ q: "file-4" }).map((r) => r.args)).toEqual([JSON.stringify({ path: "file-4.txt" })]);
+      expect(queue.decided({ q: "scratch folder" })).toHaveLength(1);
+      // A LIKE wildcard is a character to look for, not a wildcard.
+      expect(queue.decided({ q: "%" })).toHaveLength(0);
+      const row = queue.decided({ limit: 1 })[0]!;
+      expect(row.picture).toBe(true);
+      expect(Object.values(row)).not.toContain("A".repeat(100));
+    });
+
+    it("counts by outcome and marks the latest, so a reader knows when to look again", () => {
+      const ids = decideMany();
+      expect(queue.decidedCounts()).toEqual({ approved: 4, denied: 2, expired: 1 });
+      expect(queue.decidedMark()).toEqual({ total: 7, latest: ids[0] });
+    });
+  });
+
+  it("indexes the decided history, on a workspace from before too", () => {
+    ws.db.exec(`DROP INDEX IF EXISTS pending_actions_status_decided`);
+    new ApprovalQueue(ws.db);
+    const index = ws.db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'pending_actions_status_decided'`).get() as { sql: string } | undefined;
+    expect(index?.sql).toContain("(status, decided_at, id)");
+    const plan = ws.db.prepare(`EXPLAIN QUERY PLAN SELECT id FROM pending_actions WHERE status = 'denied' ORDER BY decided_at DESC, id DESC LIMIT 5`).all() as { detail: string }[];
+    expect(plan.map((p) => p.detail).join(" ")).toContain("pending_actions_status_decided");
   });
 
   it("approves and denies, leaving the queue clear", () => {

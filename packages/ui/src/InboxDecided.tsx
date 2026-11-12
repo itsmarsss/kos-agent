@@ -1,35 +1,33 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { m } from "motion/react";
-import { summarizeAction } from "@kos/shared";
 
 import { ChevronDown, Chips, Collapse, Count, Empty, Pill, spring, type Tone } from "@kos/kit";
 
-import type { DecidedAction } from "./api.js";
+import { api, type DecidedAction, type DecidedStatus, type InboxData } from "./api.js";
 import { agoWords } from "./schedulewords.js";
 
 /**
  * What the Inbox has already settled, kept so a link to an old ask lands.
  *
  * It listed fifty at full height under the asks still waiting, which pushed
- * those (and the memory questions) off the screen. It is history, so it is
- * quiet: the latest few, one line each, more a press away.
+ * those (and the memory questions) off the screen, and it read the latest
+ * 500 whole on every poll. It is history, so it is quiet: the latest few,
+ * one line each, older ones a page at a time, read again only when
+ * something new was decided.
  */
 
-/** The most decided asks the server hands back at once; a full window means there are older ones. */
-export const HISTORY_CAP = 500;
-/** Rows shown before any "Show more". */
+/** Rows shown before any "Load older". */
 export const DECIDED_FIRST = 5;
-/** Rows each "Show more" adds. */
-export const DECIDED_PAGE = 20;
+/** Rows each "Load older" adds. */
+export const DECIDED_PAGE = 25;
 /** Past this many, a search box earns its place. */
 const SEARCH_FROM = 20;
 /** A summary longer than this is cut on its row, so the details say it whole. */
 const CUT_AT = 72;
 
-type Outcome = DecidedAction["status"];
-type Filter = "all" | Outcome;
+type Filter = "all" | DecidedStatus;
 
-const OUTCOME: Record<Outcome, { word: string; tone: Tone }> = {
+const OUTCOME: Record<DecidedStatus, { word: string; tone: Tone }> = {
   approved: { word: "approved", tone: "ok" },
   denied: { word: "denied", tone: "danger" },
   expired: { word: "lapsed", tone: "muted" },
@@ -42,76 +40,140 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: "expired", label: "Lapsed" },
 ];
 
-function summaryOf(a: DecidedAction): string {
-  return a.summary ?? summarizeAction(a.tool, a.args);
+/** The words a search is held to, a moment after the last key. */
+function useSettled(value: string, ms = 250): string {
+  const [settled, setSettled] = useState(value.trim());
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(value.trim()), value.trim() ? ms : 0);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return settled;
 }
 
 export function InboxDecided({
-  rows,
-  capped = false,
+  mark,
   highlight,
   onOpenChat,
 }: {
-  rows: DecidedAction[];
-  /** The server had more than it sent: the count says so, and the list says only the latest are here. */
-  capped?: boolean;
+  /** How many were decided and the latest: the list is read again only when this changes. */
+  mark?: InboxData["decided"];
   /** An approval a link pointed at: shown, opened and scrolled to. */
   highlight?: number;
   onOpenChat: (id: string) => void;
 }): ReactElement | null {
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
-  const [shown, setShown] = useState(DECIDED_FIRST);
+  const q = useSettled(query);
+  const [rows, setRows] = useState<DecidedAction[]>([]);
+  const [more, setMore] = useState(false);
+  const [counts, setCounts] = useState<Record<DecidedStatus, number> | null>(null);
   const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set());
+  /** The ask a link points at, read on its own when it is not among the rows loaded. */
+  const [linked, setLinked] = useState<DecidedAction | null>(null);
+  /** How many rows the owner has paged to, kept when the list is read again. */
+  const wanted = useRef(DECIDED_FIRST);
   const highlit = useRef<HTMLLIElement | null>(null);
+  const markKey = mark ? `${mark.total}:${mark.latest ?? ""}` : "";
 
-  const counts = useMemo(() => {
-    const c: Record<Filter, number> = { all: rows.length, approved: 0, denied: 0, expired: 0 };
-    for (const r of rows) c[r.status] += 1;
-    return c;
-  }, [rows]);
+  // One more than asked for, so a page knows whether there is another after it.
+  const page = useCallback(
+    (limit: number, after?: DecidedAction) =>
+      api.approvalHistory({
+        limit: limit + 1,
+        ...(after?.decidedAt != null ? { before: { decidedAt: after.decidedAt, id: after.id } } : {}),
+        ...(filter !== "all" ? { status: filter } : {}),
+        ...(q ? { q } : {}),
+      }),
+    [filter, q],
+  );
 
-  const matched = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (filter !== "all" && r.status !== filter) return false;
-      if (!q) return true;
-      return [summaryOf(r), r.tool, r.asker ?? "", `#${r.id}`].some((s) => s.toLowerCase().includes(q));
-    });
-  }, [rows, filter, query]);
+  // The first pages, again whenever something new is decided or the filter changes.
+  useEffect(() => {
+    let cancelled = false;
+    void page(wanted.current)
+      .then((got) => {
+        if (cancelled) return;
+        setRows(got.slice(0, wanted.current));
+        setMore(got.length > wanted.current);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [page, markKey]);
 
-  // A link to a decided ask: clear what would hide it, page down to it, open it.
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .approvalCounts()
+      .then((c) => {
+        if (!cancelled) setCounts(c);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [markKey]);
+
+  // A link to a decided ask: clear what would hide it, read it if it is not here, open it.
   useEffect(() => {
     if (highlight === undefined) return;
-    const at = rows.findIndex((r) => r.id === highlight);
-    if (at < 0) return;
     setFilter("all");
     setQuery("");
-    setShown((n) => Math.max(n, at + 1));
     setOpen((s) => new Set(s).add(highlight));
-  }, [highlight, rows]);
+    let cancelled = false;
+    void api
+      .approval(highlight)
+      .then((a) => {
+        if (!cancelled && a.status !== "pending") setLinked(a);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [highlight]);
   useEffect(() => {
     highlit.current?.scrollIntoView({ block: "center" });
-  }, [highlight, shown]);
+  }, [highlight, linked]);
 
-  if (rows.length === 0) return null;
-  const visible = matched.slice(0, shown);
-  const left = matched.length - visible.length;
+  const loadOlder = (): void => {
+    const last = rows.at(-1);
+    if (!last) return;
+    void page(DECIDED_PAGE, last)
+      .then((got) => {
+        wanted.current = rows.length + DECIDED_PAGE;
+        setRows((r) => [...r, ...got.slice(0, DECIDED_PAGE)]);
+        setMore(got.length > DECIDED_PAGE);
+      })
+      .catch(() => undefined);
+  };
+  const showFewer = (): void => {
+    wanted.current = DECIDED_FIRST;
+    setRows((r) => r.slice(0, DECIDED_FIRST));
+    setMore(true);
+  };
+
+  const total = counts ? counts.approved + counts.denied + counts.expired : (mark?.total ?? rows.length);
+  const shown = useMemo(() => (!linked || rows.some((r) => r.id === linked.id) ? rows : [linked, ...rows]), [rows, linked]);
+
+  if (total === 0 && shown.length === 0) return null;
   const toggle = (id: number): void =>
     setOpen((s) => {
       const next = new Set(s);
       if (!next.delete(id)) next.add(id);
       return next;
     });
+  const countOf = (f: Filter): number => (f === "all" ? total : (counts?.[f] ?? 0));
 
   return (
     <section className="inbox-group inbox-group--decided" aria-labelledby="inbox-decided-title">
       <div className="inbox-group-head">
         <h2 className="inbox-group-title" id="inbox-decided-title">
-          Decided <Count n={rows.length} more={capped} />
+          {/* With words to match, the total is not known: how many are here, and whether there are more. */}
+          Decided {q ? <Count n={rows.length} more={more} /> : <Count n={countOf(filter)} />}
         </h2>
         <div className="inbox-decided-tools">
-          {rows.length > SEARCH_FROM && (
+          {total > SEARCH_FROM && (
             <input
               className="list-search inbox-decided-search"
               type="search"
@@ -120,28 +182,28 @@ export function InboxDecided({
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
-                setShown(DECIDED_FIRST);
+                wanted.current = DECIDED_FIRST;
               }}
             />
           )}
           <Chips
             small
             label="Show decided"
-            options={FILTERS.filter((f) => f.id === "all" || counts[f.id] > 0).map((f) => [f.id, <>{f.label} <Count n={counts[f.id]} more={capped} /></>] as const)}
+            options={FILTERS.filter((f) => f.id === "all" || countOf(f.id) > 0).map((f) => [f.id, <>{f.label} <Count n={countOf(f.id)} /></>] as const)}
             selected={filter}
             onChoose={(f) => {
               setFilter(f);
-              setShown(DECIDED_FIRST);
+              wanted.current = DECIDED_FIRST;
             }}
           />
         </div>
       </div>
 
-      {visible.length === 0 ? (
+      {shown.length === 0 ? (
         <Empty inline>Nothing decided matches.</Empty>
       ) : (
         <ul className="inbox-decided">
-          {visible.map((a) => {
+          {shown.map((a) => {
             const outcome = OUTCOME[a.status];
             const isOpen = open.has(a.id);
             const when = a.decidedAt ?? a.requestedAt;
@@ -151,7 +213,7 @@ export function InboxDecided({
                   <span className="inbox-decided-outcome">
                     <Pill tone={outcome.tone}>{outcome.word}</Pill>
                   </span>
-                  <span className="inbox-decided-what">{summaryOf(a)}</span>
+                  <span className="inbox-decided-what">{a.summary}</span>
                   {a.asker && <span className="inbox-decided-where">{a.asker}</span>}
                   <time className="inbox-decided-when" dateTime={new Date(when).toISOString()} title={new Date(when).toLocaleString()}>
                     {agoWords(when)}
@@ -162,7 +224,7 @@ export function InboxDecided({
                 </button>
                 <Collapse open={isOpen}>
                   <div className="inbox-decided-detail">
-                    {summaryOf(a).length > CUT_AT && <p className="inbox-decided-full">{summaryOf(a)}</p>}
+                    {a.summary.length > CUT_AT && <p className="inbox-decided-full">{a.summary}</p>}
                     <dl className="inbox-decided-facts">
                       <dt>Tool</dt>
                       <dd>
@@ -202,24 +264,18 @@ export function InboxDecided({
         </ul>
       )}
 
-      {(left > 0 || shown > DECIDED_FIRST || capped) && (
+      {(more || rows.length > DECIDED_FIRST) && (
         <div className="inbox-decided-more">
-          {left > 0 && (
-            <button type="button" className="btn btn--sm btn--ghost" onClick={() => setShown((n) => n + DECIDED_PAGE)}>
-              Show {Math.min(left, DECIDED_PAGE)} more
+          {more && (
+            <button type="button" className="btn btn--sm btn--ghost" onClick={loadOlder}>
+              Load older
             </button>
           )}
-          {left > DECIDED_PAGE && (
-            <button type="button" className="btn btn--sm btn--ghost" onClick={() => setShown(matched.length)}>
-              Show all {matched.length}
-            </button>
-          )}
-          {shown > DECIDED_FIRST && (
-            <button type="button" className="btn btn--sm btn--ghost" onClick={() => setShown(DECIDED_FIRST)}>
+          {rows.length > DECIDED_FIRST && (
+            <button type="button" className="btn btn--sm btn--ghost" onClick={showFewer}>
               Show fewer
             </button>
           )}
-          {capped && left === 0 && <span className="inbox-decided-cap">Only the latest {rows.length} are kept here.</span>}
         </div>
       )}
     </section>
