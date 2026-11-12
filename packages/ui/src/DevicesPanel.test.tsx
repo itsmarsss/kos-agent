@@ -82,6 +82,9 @@ describe("a device's build, in words", () => {
     const phone: PairedDevice = { ...laptop, kind: "phone", platform: "ios", update: { state: "behind", build, reason: "xcode" } };
     expect(updateWords(phone)?.why).toBe("Run KOS for iPhone again from Xcode on your Mac");
     expect(canUpdate(phone)).toBe(false);
+    const store = { ...chrome, update: { state: "behind" as const, build, reason: "store" as const } };
+    expect(updateWords(store)?.why).toBe("Installed from the store; Chrome updates it");
+    expect(canUpdate(store)).toBe(false);
     expect(canUpdate({ ...behind, update: { ...behind.update, reason: "remote" } })).toBe(false);
     expect(canUpdate({ ...behind, online: false })).toBe(false);
     // A KOS for Mac from before stamps can be rebuilt here; a Chrome from before them cannot hear KOS's word.
@@ -164,7 +167,14 @@ describe("the Devices panel", () => {
     const set = vi.spyOn(api, "setComputerSettings").mockResolvedValue({ askMinutes: 15, unattended: false, lan: false, autoUpdate: false });
     render(<DevicesPanel />);
     expect(await screen.findByText(/Build aaaaaaa, built 3h ago · Signing is not set up/)).toBeTruthy();
-    expect(screen.getByText("cd app && scripts/signing.sh setup")).toBeTruthy();
+    // The command is outside the row's press: selecting it, or Copy, does not open or close the row.
+    const command = screen.getByText("cd app && scripts/signing.sh setup");
+    expect(command.closest("button")).toBeNull();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    fireEvent.click(screen.getByRole("button", { name: "Copy the command" }));
+    expect(writeText).toHaveBeenCalledWith("cd app && scripts/signing.sh setup");
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeTruthy();
     expect(screen.getAllByText("Behind")).toHaveLength(2);
     expect(screen.getByText(/Run KOS for iPhone again from Xcode/)).toBeTruthy();
     // Only the Mac can be updated from here; the phone is the owner's to run from Xcode.

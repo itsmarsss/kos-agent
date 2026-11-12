@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from "rea
 import { Empty, Field, Pill, Switch, type Tone } from "@kos/kit";
 
 import { api, type ComputerSettings, type DeviceBuild, type DeviceCode, type LanStatus, type PairedDevice } from "./api.js";
-import { ConfirmButton, FieldRow } from "./kit.js";
+import { CommandLine, ConfirmButton, FieldRow } from "./kit.js";
 import { agoWords } from "./schedulewords.js";
 import { Select } from "./Select.js";
 
@@ -143,6 +143,7 @@ export function updateWords(d: PairedDevice): { pill: string; tone: Tone; why?: 
     signing: "Signing is not set up, so an update here would ask for Screen Recording and Accessibility again. Set it up once, or Update anyway",
     xcode: "Run KOS for iPhone again from Xcode on your Mac",
     remote: "On another computer: update it there",
+    store: "Installed from the store; Chrome updates it",
     off: "Updating on their own is off",
     failed: `The update did not finish${u.detail ? `: ${u.detail}` : ""}`,
     stuck: mac ? "Rebuilt, and still on the old build" : "Reloaded, and still on the old build: is it loaded from this KOS's packages/browser-extension/dist?",
@@ -155,7 +156,7 @@ export function updateWords(d: PairedDevice): { pill: string; tone: Tone; why?: 
 /** Whether Update now can do anything for it: a Chrome or a Mac on this computer that KOS has a newer build for. */
 export function canUpdate(d: PairedDevice): boolean {
   const u = d.update;
-  if (!u || !d.online || d.kind === "phone" || u.reason === "remote" || u.reason === "unbuilt") return false;
+  if (!u || !d.online || d.kind === "phone" || u.reason === "remote" || u.reason === "store" || u.reason === "unbuilt") return false;
   return u.state === "behind" || (d.kind === "computer" && u.state === "unknown" && u.reason === "unstamped" && d.local === true);
 }
 
@@ -201,14 +202,10 @@ function DeviceRow({ device, onChanged }: { device: PairedDevice; onChanged: () 
     </>
   );
   // Its build and where that stands, never folded away: the reason is what the owner acts on.
-  const note = device.online && (
-    <>
-      {[buildWords(device.build), update?.why].filter(Boolean).join(" · ")}
-      {device.update?.command && <code className="device-command">{device.update.command}</code>}
-    </>
-  );
+  const note = device.online ? [buildWords(device.build), update?.why].filter(Boolean).join(" · ") : undefined;
+  const command = device.online ? device.update?.command : undefined;
   return (
-    <FieldRow label={device.name} badge={badge} hint={describeDevice(device)} note={note || undefined}>
+    <FieldRow label={device.name} badge={badge} hint={describeDevice(device)} {...(note ? { note } : {})} {...(command ? { after: <CommandLine command={command} /> } : {})}>
       {name !== null ? (
         <input
           className="kos-input"

@@ -4078,8 +4078,12 @@ li:hover .chats-item-when { opacity: 0; }
 
 /* KOS's side of a session's rules, apart from the list of computers above it. */
 .device-rules { margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
-/* A device's command to run, on a line of its own under its build. */
-.device-command { display: block; margin-top: 0.3rem; width: fit-content; max-width: 100%; overflow-wrap: anywhere; }
+/* What goes under a row's words but outside their press, in the words' column. */
+.set-field-after { grid-column: 1; min-width: 0; margin-top: 0.35rem; }
+/* A command to run, selectable, with Copy at one width whatever it says. */
+.command-line { display: flex; align-items: center; gap: 0.5rem; max-width: 46rem; }
+.command-line code { flex: 1; min-width: 0; overflow-wrap: anywhere; user-select: text; }
+.command-copy { min-width: 4.75rem; justify-content: center; }
 
 /* A pairing code, made to be read off one screen and typed on another. */
 .device-pair {

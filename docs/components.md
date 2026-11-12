@@ -93,7 +93,7 @@ those to this table by hand.
 | Tile | A symbol on its tone's tint | `.tile` (kit) | `.tile` | `Tile` (Controls) |
 | Capsule chip | The steps of a turn, the model, the mode | `.composer-engine` | `.steps-head`, `.model`, `.mode`: one rule | `Chip` and `.chip()` (Controls); `opens:` adds the chevron (the steps chip, the model menu) |
 | Hairline, MenuRow | Small pieces | | | `Hairline`, `MenuRow` (Controls) |
-| Command | A command for the owner to run in Terminal, selectable, with Copy | a `code` line (a device's in `DevicesPanel.tsx`) | | `CommandBox` (Controls; the update notice) |
+| Command | A command for the owner to run in Terminal, selectable, with Copy at one width | `CommandLine` (`ui/src/kit.tsx`), in a `FieldRow`'s `after` (a device's) | | `CommandBox` (Controls; the update notice) |
 
 ## The chat
 

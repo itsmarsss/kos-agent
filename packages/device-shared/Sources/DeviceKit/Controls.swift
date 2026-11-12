@@ -917,8 +917,15 @@ public struct CommandBox: View {
       Text(command).font(.kos(.small, design: .monospaced)).foregroundStyle(Theme.text)
         .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
-      Button(copied ? "Copied" : "Copy", action: copy).buttonStyle(KOSButtonStyle(.secondary, small: true))
-        .accessibilityLabel(copied ? "Copied" : "Copy the command")
+      // One width whatever it says: the wider word sits under the shown one, unseen.
+      Button(action: copy) {
+        ZStack {
+          Text("Copied").hidden()
+          Text(copied ? "Copied" : "Copy")
+        }
+      }
+      .buttonStyle(KOSButtonStyle(.secondary, small: true))
+      .accessibilityLabel(copied ? "Copied" : "Copy the command")
     }
     .padding(.leading, 10).padding(.trailing, 6).padding(.vertical, 6)
     .background(Theme.panel2, in: shape)
