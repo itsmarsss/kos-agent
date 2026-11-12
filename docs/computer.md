@@ -136,10 +136,13 @@ chat calls and events (`chat.show`, `chat.status`, `chat.ask`,
 `chat.settled`, `chat.chats`, `chat.models`, `chat.mentions`; `chat.open`,
 `chat.send`, `chat.stop`, `chat.decide`, `chat.list`, `chat.switch`,
 `chat.models`, `chat.model`, `chat.mentions`), with `beside` `{ "kind":
-"none" }` and no quote. The turn is told the words were said on the phone,
-which KOS cannot see or work, and its reply is kept short and plain, since
-the phone may read it aloud. A phone answers a call it does not know with
-`bad_request`.
+"none" }` and no quote. A phone's `chat.auto` is ignored. The turn is told
+the words were said on the phone, which KOS cannot see or work, and its
+reply is kept short and plain, since the phone may read it aloud. A turn
+begun there reaches the owner's computers and Chromes as one begun anywhere
+does, each asking as it would; and the phone decides approvals, any chat's,
+as the dashboard and Discord do. A phone answers a call it does not know
+with `bad_request`.
 
 **Glance.** A phone asks what is going on with the event `chat.glance`
 (`{}`), and KOS answers by calling `chat.glance` on it:
@@ -149,13 +152,18 @@ the phone may read it aloud. A phone answers a call it does not know with
   "halted": false,
   "running": [{ "id": "c_1", "title": "Garden orchestrator" }],
   "waiting": 2,
+  "asks": [{ "chat": { "id": "c_2", "title": "Inbox sweep" }, "approval": { "id": "41", "tool": "files.write", "args": "{\"path\":\"notes/list.md\"}", "why": "Saving the list.", "expiresAt": 1761800000000 } }],
   "failing": [{ "label": "Nightly backup", "streak": 3, "error": "disk full", "since": 1761800000000 }],
   "next": [{ "name": "kos.backup", "at": 1761800000000 }]
 }
 ```
 
-`running` is the chats with a turn on the go (ten at most), `waiting` every
-approval waiting on the owner, in any chat, `failing` the jobs failing now,
+`running` is the chats with a turn on the go (ten at most), `waiting` the
+count of every approval waiting on the owner, in any chat, `asks` the first
+ten of them to lapse, soonest first, each as `chat.ask` carries its
+`approval`, with the chat it is for (`chat`, absent for an approval no chat
+asked for). The phone decides one with `chat.decide` by its id, as any
+other. `failing` is the jobs failing now,
 the longest broken first (ten at most), and `next` the five soonest runs of
 enabled schedules. Times are epoch milliseconds. KOS sends it only when
 asked; a device that does not know the call ignores it.

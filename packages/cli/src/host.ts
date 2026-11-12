@@ -459,10 +459,16 @@ export async function runHost(options: HostOptions): Promise<void> {
       .flatMap((job) => kernel.cronNextRuns(job.id, 1).map((at) => ({ name: job.name, at })))
       .sort((a, b) => a.at - b.at)
       .slice(0, 5);
+    const pending = kernel.approvals.pending();
     return {
       halted: kernel.killSwitch.halted,
       running: kernel.busyConversations().slice(0, 10).map((id) => ({ id, title: kernel.nameOf(id) })),
-      waiting: kernel.approvals.pending().length,
+      waiting: pending.length,
+      // Every one, each with its chat; the panel sends the first to lapse.
+      asks: pending.map((action) => ({
+        ...(action.conversationId ? { chat: { id: action.conversationId, title: kernel.nameOf(action.conversationId) } } : {}),
+        request: approvalRequest(action),
+      })),
       failing: kernel.health.failing().slice(0, 10).map(({ label, streak, error, since }) => ({ label, streak, error, since })),
       next,
     };

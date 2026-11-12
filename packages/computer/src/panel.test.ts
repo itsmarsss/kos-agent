@@ -105,6 +105,7 @@ describe("KOS for iPhone", () => {
     halted: false,
     running: [{ id: "c1", title: "Garden orchestrator" }],
     waiting: 2,
+    asks: [{ chat: { id: "c2", title: "Inbox sweep" }, request: { id: "7", text: "Approve files.write?", tool: "files.write", args: { path: "notes/list.md" }, why: "Saving the list.", expiresAt: 9 } }],
     failing: [{ label: "Nightly backup", streak: 3, error: "disk full", since: 1 }],
     next: [{ name: "kos.backup", at: 2 }],
   };
@@ -130,8 +131,36 @@ describe("KOS for iPhone", () => {
     phone.event("chat.glance", {});
     mac.event("chat.glance", {});
     await flush();
-    expect(phone.calls.filter((c) => c.method === "chat.glance").map((c) => c.params)).toEqual([glance]);
+    // Each waiting ask goes as chat.ask carries one, with the chat it is for.
+    const asks = [{ chat: { id: "c2", title: "Inbox sweep" }, approval: { id: "7", tool: "files.write", args: '{"path":"notes/list.md"}', why: "Saving the list.", expiresAt: 9 } }];
+    expect(phone.calls.filter((c) => c.method === "chat.glance").map((c) => c.params)).toEqual([{ ...glance, asks }]);
     expect(mac.calls.filter((c) => c.method === "chat.glance")).toEqual([]);
+  });
+
+  it("sends the ten asks of a glance that lapse first, soonest first", async () => {
+    const request = (id: number, expiresAt?: number) => ({ id: String(id), text: "Approve x?", tool: "files.write", ...(expiresAt === undefined ? {} : { expiresAt }) });
+    const many: Glance = { ...glance, waiting: 12, asks: [{ request: request(0) }, ...Array.from({ length: 11 }, (_, i) => ({ chat: { id: `c${i}`, title: `Chat ${i}` }, request: request(i + 1, 100 - i) }))] };
+    const { pair } = setup({ place: PHONE_PANEL, glance: () => many });
+    const phone = pair("ios");
+    phone.event("chat.glance", {});
+    await flush();
+    const sent = phone.calls.find((c) => c.method === "chat.glance")!.params as { waiting: number; asks: { chat?: { id: string }; approval: { id: string } }[] };
+    expect(sent.waiting).toBe(12);
+    expect(sent.asks.map((a) => a.approval.id)).toEqual(["11", "10", "9", "8", "7", "6", "5", "4", "3", "2"]);
+    expect(sent.asks[0]!.chat).toEqual({ id: "c10", title: "Chat 10" });
+  });
+
+  it("decides a glance's ask from the phone, and never sets a chat acting unasked", async () => {
+    const { panel, pair, setChat } = setup({ place: PHONE_PANEL, glance: () => glance });
+    const phone = pair("ios");
+    const decided: unknown[] = [];
+    panel.onApproval(async (d) => void decided.push(d));
+    setChat({ id: "phone:owner", title: "iPhone" });
+    phone.event("chat.decide", { approval: "7", approved: true });
+    phone.event("chat.auto", { on: true });
+    await flush();
+    expect(decided).toEqual([{ id: "7", approved: true, deciderId: phone.id }]);
+    expect(phone.calls.filter((c) => c.method === "chat.show")).toEqual([]);
   });
 
   it("leaves a glance unanswered on a panel that offers none", async () => {

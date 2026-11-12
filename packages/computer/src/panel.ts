@@ -63,6 +63,8 @@ export interface Glance {
   running: { id: string; title: string }[];
   /** Every approval waiting on the owner, in any chat. */
   waiting: number;
+  /** Those approvals, each with the chat it is for, for the owner to decide from the phone; the first ten to lapse are sent. */
+  asks: { chat?: PanelChat; request: ApprovalRequest }[];
   failing: { label: string; streak: number; error: string | null; since: number }[];
   next: { name: string; at: number }[];
 }
@@ -109,6 +111,8 @@ const QUOTE_FROM_MAX = 300;
 const MAX_TEXT = 20_000;
 const SHOWN = 200;
 const MAX_ARGS = 600;
+/** How many waiting asks a glance carries. */
+const GLANCE_ASKS = 10;
 /** How many of the newest step pictures ride with the chat as it is drawn; older ones come from the device's own cache, or not at all. */
 const PICTURES_SHOWN = 4;
 /** How often a running turn's words may be redrawn on a device; a step is told at once. */
@@ -528,6 +532,8 @@ export class DevicePanel implements ChannelAdapter {
         }
         return;
       case "chat.auto": {
+        // A phone holds no session, and its chat is not where computer use is switched to acting unasked.
+        if (this.place.kind === "phone") return;
         const chat = this.deps.current() ?? this.deps.ensure?.();
         if (chat && typeof data["on"] === "boolean") {
           this.deps.setAuto?.(chat.id, data["on"]);
@@ -552,7 +558,8 @@ export class DevicePanel implements ChannelAdapter {
       }
       case "chat.glance": {
         const glance = this.deps.glance?.();
-        if (glance) void this.tell(device, "chat.glance", { ...glance });
+        // Each ask as chat.ask carries it, so the phone decides it as it would one of its own chat's.
+        if (glance) void this.tell(device, "chat.glance", { ...glance, asks: glanceAsks(glance.asks) });
         return;
       }
       case "chat.model":
@@ -712,12 +719,14 @@ export const MAC_PANEL: PanelPlace = { name: "mac", kind: "computer", title: "Ma
 /**
  * Where the owner was when they spoke from KOS for iPhone: their phone, which
  * has no screen KOS can see or work. Without it, "on my laptop" from the phone
- * read as this device.
+ * read as this device. It says only what the hub holds to: a phone is never a
+ * session's device, and the paired computers and Chromes are reached as from
+ * any chat.
  */
 export function phoneNote(_beside: unknown, device: string): string {
   return (
-    `Said in KOS for iPhone, on the owner's phone ${JSON.stringify(device)}. KOS cannot see or work the phone's screen. ` +
-    "The computer and browser tools work only on the owner's paired computers and Chromes, and only when they ask for it there."
+    `Said in KOS for iPhone, on the owner's phone ${JSON.stringify(device)}. KOS cannot see or work the phone's screen: ` +
+    "the computer and browser tools never reach it. They reach the owner's paired computers and Chromes, as from any chat."
   );
 }
 
@@ -743,6 +752,14 @@ function approvalOf(req: ApprovalRequest): Record<string, unknown> {
     ...(always ? { always } : {}),
     ...(req.expiresAt !== undefined ? { expiresAt: req.expiresAt } : {}),
   };
+}
+
+/** The asks a glance sends: the first to lapse, as chat.ask carries each, with its chat when it has one. */
+function glanceAsks(asks: Glance["asks"]): Record<string, unknown>[] {
+  return [...asks]
+    .sort((a, b) => (a.request.expiresAt ?? Infinity) - (b.request.expiresAt ?? Infinity))
+    .slice(0, GLANCE_ASKS)
+    .map((a) => ({ ...(a.chat ? { chat: a.chat } : {}), approval: approvalOf(a.request) }));
 }
 
 /** What a remembered yes covers, as a button says it: the site, the folder, the table, the program. */
