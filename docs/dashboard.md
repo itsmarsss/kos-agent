@@ -260,7 +260,7 @@ blueprint says so.
 A project's own page is its chat between two columns: its orchestrator,
 agents and schedule on the left, and on the right who it is (the mark, name,
 kind and status, what it is for, and how many agents, artifacts, tables and
-schedules it has) over its folder, artifacts, tables and sites, each a
+scheduled jobs it has) over its folder, artifacts, tables and sites, each a
 section under a hairline. **Colour**, there beside Open in Files, gives it a colour of its own, a swatch or anything from the picker; it tints the project's column and its mark, and From the name lets it go. **New project** makes an empty one: a name and a kind,
 then a chat of its own and nothing else until you or KOS put something
 there. **Edit**, in the drawer's head, changes the name, what it is for, the

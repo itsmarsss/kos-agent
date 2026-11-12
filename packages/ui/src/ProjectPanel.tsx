@@ -92,7 +92,7 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
     ["Agents", detail.agents.length],
     ["Artifacts", detail.pages.filter((p) => p.trashedAt === undefined).length],
     ["Tables", tables.length],
-    ["Schedules", detail.crons.length],
+    ["Jobs", detail.crons.length],
   ];
   const hue = (project.colour ? hueOfHex(project.colour) : null) ?? lookOf(project.slug).hue;
   const recolour = async (colour: string | null): Promise<void> => {
