@@ -39,7 +39,7 @@ function nodeAt(root: Node, spot: Spot): { node: Node; offset: number } | undefi
   return { node: n, offset: Math.min(spot.offset, max) };
 }
 
-const sizeOf = (s: State): number => s.nodes.reduce((sum, n) => sum + (n.textContent?.length ?? 0) + (n instanceof Element ? n.outerHTML.length - (n.textContent?.length ?? 0) : 0), 0);
+const sizeOf = (s: State): number => s.nodes.reduce((sum, n) => sum + (n instanceof Element ? n.outerHTML.length : (n.textContent?.length ?? 0)), 0);
 
 export class History {
   private past: State[] = [];

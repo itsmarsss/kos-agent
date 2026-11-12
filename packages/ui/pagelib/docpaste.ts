@@ -85,7 +85,9 @@ export function cleanPaste(source: ParentNode, owner: Document): DocumentFragmen
         const checked = el.getAttribute("data-checked") ?? (box ? String(box.hasAttribute("checked")) : undefined);
         if (checked !== undefined) made.setAttribute("data-checked", checked === "true" ? "true" : "false");
       }
-      if (to === "ul" && (el.classList.contains("checklist") || el.querySelector(':scope > li > input[type="checkbox"]'))) made.className = "checklist";
+      // A list of checkboxes is a to-do list; one with a box in only some of its items stays a list.
+      const items = [...el.children].filter((c) => c.tagName === "LI");
+      if (to === "ul" && (el.classList.contains("checklist") || (items.length && items.every((li) => li.querySelector(':scope > input[type="checkbox"], :scope > p > input[type="checkbox"]'))))) made.className = "checklist";
       if (to === "pre") {
         const code = el.querySelector("code");
         const lang = [...(code?.classList ?? [])].find((c) => /^language-[\w+-]{1,24}$/.test(c));

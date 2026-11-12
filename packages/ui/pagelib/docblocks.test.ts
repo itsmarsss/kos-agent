@@ -262,6 +262,10 @@ describe("a paste", () => {
     expect(got).toBe(`<ul class="checklist"><li data-checked="true"> done</li><li data-checked="false"> not</li></ul><pre><code class="language-ts">const x = 1;</code></pre><table><tbody><tr><td colspan="2">a</td></tr></tbody></table><h3>small</h3>`);
   });
 
+  it("keeps a list with a box in only some items a list", () => {
+    expect(paste(`<ul><li>a</li><li><input type="checkbox" checked>b</li></ul>`)).toBe(`<ul><li>a</li><li>b</li></ul>`);
+  });
+
   it("tells words from blocks", () => {
     expect(isInline(cleanPaste(parseClipboard("<span>just <b>words</b></span>")!.body, document))).toBe(true);
     expect(isInline(cleanPaste(parseClipboard("<p>a</p><p>b</p>")!.body, document))).toBe(false);
