@@ -21,7 +21,7 @@ public final class FilesModel: ObservableObject {
   private var files: [String: Page<Opened>] = [:]
 
   /// What the jail draws as a picture (files.ts, IMAGE_TYPES).
-  static let pictures: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico"]
+  nonisolated static let pictures: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico"]
 
   public init(dashboard: Dashboard) {
     self.dashboard = dashboard
@@ -44,7 +44,7 @@ public final class FilesModel: ObservableObject {
   }
 
   /// How a file opens, by its name.
-  public static func way(_ path: String) -> Way {
+  nonisolated public static func way(_ path: String) -> Way {
     let ext = (path as NSString).pathExtension.lowercased()
     if pictures.contains(ext) { return .picture }
     return ext == "pdf" ? .pdf : .text
@@ -71,6 +71,22 @@ public final class FilesModel: ObservableObject {
     }
     files[path] = page
     return page
+  }
+
+  /// A file's size as people read one (schedulewords.ts, sizeWords).
+  nonisolated public static func size(_ bytes: Double) -> String {
+    if bytes < 1024 { return "\(Int(bytes)) B" }
+    if bytes < 1024 * 1024 { return String(format: bytes < 10 * 1024 ? "%.1f KB" : "%.0f KB", bytes / 1024) }
+    return String(format: "%.1f MB", bytes / (1024 * 1024))
+  }
+
+  /// What goes to the share sheet for a file opened: its bytes, or its words, named for what they are.
+  nonisolated public static func shared(_ opened: Opened, name: String) -> (name: String, data: Data)? {
+    switch opened {
+    case .picture(let data, _), .pdf(let data): return (name, data)
+    case .text(let file): return (file.extracted == nil ? name : "\(name).txt", Data((file.text ?? "").utf8))
+    case .none: return nil
+    }
   }
 
   public func reset() {

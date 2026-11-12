@@ -80,3 +80,10 @@ extension Routes.Cron {
       nextRunAt: enabled ? nextRunAt : nil)
   }
 }
+
+extension Routes.Blob.Job {
+  /// A blob's schedule as the schedules list holds a job, to run and pause from the same row.
+  public func cron(named name: String) -> Routes.Cron {
+    Routes.Cron(id: id, name: name, schedule: schedule, type: "self_prompt", enabled: enabled, projectSlug: nil, running: nil, lastRunAt: lastRunAt, nextRunAt: nextRunAt)
+  }
+}

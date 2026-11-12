@@ -6,7 +6,7 @@ import Foundation
 /// again before the last answer is in keeps only the newest.
 @MainActor
 public final class Page<Value: Sendable>: ObservableObject {
-  @Published public private(set) var value: Value?
+  @Published public internal(set) var value: Value?
   @Published public private(set) var loading = false
   /// Why the last read failed, in the owner's words; nil once one succeeds.
   @Published public private(set) var error: String?

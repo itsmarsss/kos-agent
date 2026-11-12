@@ -3,37 +3,35 @@ import DeviceKit
 import PhoneCore
 import SwiftUI
 
-/// The one screen: KOS's face and the chat's name at the top, with the
-/// glance, what waits on the owner and a new chat beside them; the thread,
-/// its steps folded; and the voice-first box at the foot.
+/// The Chat tab: KOS's face and the chat's name at the top, opening the
+/// chats, with what waits on the owner and a new chat beside them; the
+/// thread, its steps folded; and the voice-first box at the foot, over the
+/// tabs. The glance grew into the overview, and the settings went to More.
 public struct ChatScreen: View {
   @ObservedObject private var phone: Phone
   @ObservedObject private var chat: ChatModel
-  @ObservedObject private var glance: GlanceModel
   @State private var sheet: Sheet?
   /// The asks already seen, so a new one brings its sheet up by itself once.
   @State private var seenAsks: Set<String> = []
-  /// The settings sheet's own height, once it has been laid out.
-  @State private var moreHeight: CGFloat = 0
   /// An artifact picked in the chats sheet, opened once the sheet has gone.
   @State private var reading: ArtifactItem?
   @Environment(\.accessibilityReduceMotion) private var still
   @Environment(\.colorScheme) private var scheme
+  @Environment(\.showTab) private var showTab
 
   enum Sheet: String, Identifiable {
-    case ask, glance, chats, more
+    case ask, chats
     var id: String { rawValue }
   }
 
   public init(phone: Phone) {
     self.phone = phone
     chat = phone.chat
-    glance = phone.glance
   }
 
   public var body: some View {
     VStack(spacing: 0) {
-      ChatHeader(chat: chat, glance: glance, open: open)
+      ChatHeader(chat: chat, open: open)
       Hairline()
       if let line = LineBanner.words(chat) { LineBanner(words: line, tone: chat.link == .connecting ? .muted : .warn) }
       Thread(chat: chat, review: { open(.ask) })
@@ -65,7 +63,6 @@ public struct ChatScreen: View {
   }
 
   private func open(_ which: Sheet) {
-    if which == .glance { glance.ask() }
     if which == .chats {
       chat.list()
       phone.artifacts.list()
@@ -85,9 +82,6 @@ public struct ChatScreen: View {
     case .ask:
       ApprovalSheet(chat: chat) { sheet = nil }
         .presentationDetents([.medium, .large])
-    case .glance:
-      GlanceSheet(glance: glance)
-        .presentationDetents([.medium, .large])
     case .chats:
       ChatPicker(chat: chat, shelf: phone.artifacts) { id in
         sheet = nil
@@ -95,20 +89,18 @@ public struct ChatScreen: View {
       } read: { item in
         reading = item
         sheet = nil
+      } all: {
+        sheet = nil
+        showTab(.artifacts)
       }
       .presentationDetents([.medium, .large])
-    case .more:
-      MoreSheet(phone: phone, reader: phone.reader) { sheet = nil }
-        .onPreferenceChange(FitHeight.self) { moreHeight = $0 }
-        .presentationDetents(moreHeight > 0 ? [.height(moreHeight)] : [.medium])
     }
   }
 }
 
-/// KOS's face and the chat's name, opening the chats; the glance, what waits on the owner, and a new chat.
+/// KOS's face and the chat's name, opening the chats; what waits on the owner in this chat, and a new chat.
 struct ChatHeader: View {
   @ObservedObject var chat: ChatModel
-  @ObservedObject var glance: GlanceModel
   let open: (ChatScreen.Sheet) -> Void
 
   private var mood: BlobMood {
@@ -128,20 +120,18 @@ struct ChatHeader: View {
 
   var body: some View {
     HStack(spacing: 10) {
-      Button { open(.more) } label: {
-        KOSFace(size: 36, mood: mood, look: chat.face)
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("KOS, and this iPhone's settings")
       Button { open(.chats) } label: {
-        VStack(alignment: .leading, spacing: 1) {
-          Text("KOS").font(.kos(.title, .semibold)).foregroundStyle(Theme.text)
-          HStack(spacing: 4) {
-            Text(subtitle).lineLimit(1).truncationMode(.tail)
-            Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+        HStack(spacing: 10) {
+          KOSFace(size: 36, mood: mood, look: chat.face)
+          VStack(alignment: .leading, spacing: 1) {
+            Text("KOS").font(.kos(.title, .semibold)).foregroundStyle(Theme.text)
+            HStack(spacing: 4) {
+              Text(subtitle).lineLimit(1).truncationMode(.tail)
+              Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+            }
+            .font(.kos(.detail))
+            .foregroundStyle(Theme.muted)
           }
-          .font(.kos(.detail))
-          .foregroundStyle(Theme.muted)
         }
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .contentShape(Rectangle())
@@ -150,8 +140,6 @@ struct ChatHeader: View {
       .disabled(!chat.usable)
       .accessibilityLabel("Chat: \(subtitle)")
       .accessibilityHint("Shows your chats")
-      HeaderButton(symbol: "waveform.path.ecg", label: "Glance: \(glance.summary)", mark: glance.alarming ? Theme.danger : nil) { open(.glance) }
-        .disabled(!chat.usable)
       if !chat.asks.isEmpty {
         HeaderButton(symbol: "hand.raised.fill", label: "\(chat.asks.count) waiting on you", tint: Theme.warn, count: chat.asks.count) { open(.ask) }
       }

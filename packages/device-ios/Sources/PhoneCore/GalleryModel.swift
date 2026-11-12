@@ -17,6 +17,15 @@ public final class GalleryModel: ObservableObject {
   /// The kinds, in the dashboard's order.
   public static let kinds = ["doc", "sheet", "deck", "page"]
 
+  /// What each kind is taken away as, as the dashboard's menus offer it (artifactexport.ts, KIND_EXPORTS).
+  public static func formats(_ kind: String) -> [String] {
+    switch kind {
+    case "doc": ["pdf", "md", "html"]
+    case "sheet": ["csv", "html"]
+    default: ["pdf", "html"]
+    }
+  }
+
   private let dashboard: Dashboard
   private let haptics: Haptics
   private let say: (Toast) -> Void
@@ -68,6 +77,18 @@ public final class GalleryModel: ObservableObject {
     } catch {
       haptics.attention()
       say(.init("Couldn't restore \(item.title). \((error as? Dashboard.Refusal)?.message ?? "")", tone: .warn))
+    }
+  }
+
+  /// One exported as KOS exports it for the dashboard, as a file to share; said when it could not be.
+  public func export(id: String, title: String, format: String) async -> URL? {
+    do {
+      let file = try await dashboard.bytes("/api/artifacts/\(id)/export", query: ["format": format])
+      return try Sharing.file(named: "\(title).\(format == "csv" && file.type.contains("zip") ? "zip" : format)", file.data)
+    } catch {
+      haptics.attention()
+      say(.init("Couldn't export \(title). \((error as? Dashboard.Refusal)?.message ?? "")", tone: .warn))
+      return nil
     }
   }
 

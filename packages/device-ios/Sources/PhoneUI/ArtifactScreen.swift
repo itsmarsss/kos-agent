@@ -214,6 +214,19 @@ enum ArtifactKindMark {
     }
   }
 
+  /// The kind as a filter names its artifacts.
+  static func plural(_ kind: String) -> String {
+    "\(word(kind))s"
+  }
+
+  /// A format as the share menu names it (artifactexport.ts, EXPORT_WORDS).
+  static func format(_ format: String) -> String {
+    switch format {
+    case "md": "Markdown"
+    default: format.uppercased()
+    }
+  }
+
   static func owner(_ place: ChatModel.Place) -> String {
     switch place {
     case .kos: "KOS"

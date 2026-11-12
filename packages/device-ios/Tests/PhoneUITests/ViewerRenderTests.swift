@@ -155,10 +155,10 @@ extension RenderTests {
     tray.addPicture(Self.receipt())
     tray.addFile(Data("%PDF-1.7".utf8), name: "Lease renewal 2026.pdf")
     phone.chat.draft = "What do these say about the deposit?"
-    try render("chat-attachments") { ChatScreen(phone: phone) }
+    try render("chat-attachments") { Tabbed { ChatScreen(phone: phone) } }
     KOSType.scale = 1.35
     defer { KOSType.scale = nil }
-    try render("chat-attachments-large-text", only: ["390"]) { ChatScreen(phone: phone) }
+    try render("chat-attachments-large-text", only: ["390"]) { Tabbed { ChatScreen(phone: phone) } }
   }
 
   @Test func theChatsWithTheArtifactsToRead() throws {
@@ -173,10 +173,7 @@ extension RenderTests {
     let ms = now.timeIntervalSince1970 * 1000
     phone.artifacts.received(try JSONDecoder().decode(ArtifactList.self, from: Data(#"{"artifacts":[{"id":"garden-doc","title":"Beds for the new season","kind":"doc","updatedAt":\#(ms - 2 * 3_600_000)},{"id":"garden-deck","title":"Garden plan","kind":"deck","updatedAt":\#(ms - 26 * 3_600_000)},{"id":"garden-sheet","title":"Garden costs","kind":"sheet","updatedAt":\#(ms - 3 * 86_400_000)},{"id":"watering","title":"Watering schedule","kind":"sheet","updatedAt":\#(ms - 20 * 60_000)},{"id":"seed-order","title":"Seed order","kind":"doc","updatedAt":\#(ms - 9 * 86_400_000)},{"id":"compost","title":"Compost log","kind":"page","updatedAt":\#(ms - 30 * 86_400_000)}]}"#.utf8)))
     try render("chats-artifacts") {
-      SheetOver(height: 0.8) { ChatScreen(phone: phone) } sheet: { ChatPicker(chat: phone.chat, shelf: phone.artifacts) { _ in } read: { _ in } }
-    }
-    try render("artifacts-all") {
-      SheetOver(height: 0.8) { ChatScreen(phone: phone) } sheet: { AllArtifacts(shelf: phone.artifacts, now: now, back: {}) { _ in } }
+      SheetOver(height: 0.8) { Tabbed { ChatScreen(phone: phone) } } sheet: { ChatPicker(chat: phone.chat, shelf: phone.artifacts) { _ in } read: { _ in } all: {} }
     }
   }
 
@@ -184,12 +181,12 @@ extension RenderTests {
     let day = 86_400_000.0
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let ms = now.timeIntervalSince1970 * 1000
-    let items = [("b", ms - 3 * day), ("a", ms - 60_000), ("c", ms - 20 * day), ("d", ms - 2 * 3_600_000)].map {
-      ArtifactItem(id: $0.0, title: $0.0, kind: "doc", updatedAt: $0.1)
+    let items = [("a", ms - 60_000), ("d", ms - 2 * 3_600_000), ("b", ms - 3 * day), ("c", ms - 20 * day)].map {
+      Routes.Artifact(id: $0.0, title: $0.0, kind: "html", artifactKind: "doc", description: nil, projectSlug: nil, blob: nil, updatedAt: $0.1, trashedAt: nil)
     }
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(identifier: "UTC")!
-    let groups = AllArtifacts.groups(items, now: now, calendar: calendar)
+    let groups = GalleryScreen.groups(items, now: now, calendar: calendar)
     #expect(groups.map(\.title) == ["Today", "This week", "Earlier"])
     #expect(groups.map { $0.items.map(\.id) } == [["a", "d"], ["b"], ["c"]])
   }

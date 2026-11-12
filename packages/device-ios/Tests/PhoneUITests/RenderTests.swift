@@ -72,7 +72,7 @@ struct RenderTests {
     mechanics: "run: git -C garden push origin main\nthen: report what was pushed", why: "Push the garden plan you approved this morning.",
     always: "Always for git push", expires: Date().addingTimeInterval(4 * 60 + 12), chat: "phone:owner")
 
-  private func glance() -> Glance {
+  static func glance() -> Glance {
     let now = Date().timeIntervalSince1970 * 1000
     return Glance(
       halted: false, running: [.init(id: "c1", title: "Garden orchestrator"), .init(id: "c2", title: "Fix login")], waiting: 3,
@@ -127,14 +127,14 @@ struct RenderTests {
     let phone = Phone.preview()
     online(phone)
     phone.chat.show(conversation: "phone:owner", title: "iPhone", lines: [])
-    try render("chat-empty") { ChatScreen(phone: phone) }
+    try render("chat-empty") { Tabbed { ChatScreen(phone: phone) } }
   }
 
   @Test func aConversation() throws {
     let phone = Phone.preview()
     conversation(phone)
     phone.reader.on = true
-    try render("chat") { ChatScreen(phone: phone) }
+    try render("chat") { Tabbed { ChatScreen(phone: phone) } }
   }
 
   @Test func aTurnStreamingWithStop() throws {
@@ -145,7 +145,7 @@ struct RenderTests {
     phone.chat.status(
       taken: false, story: .some("› Read the calendar\n› Check the weather\nSunday looks quieter: rain until noon, then"), error: nil,
       said: "And what about Sunday?", conversation: "phone:owner")
-    try render("chat-working") { ChatScreen(phone: phone) }
+    try render("chat-working") { Tabbed { ChatScreen(phone: phone) } }
   }
 
   @Test func listening() async throws {
@@ -155,35 +155,16 @@ struct RenderTests {
     phone.voice.press()
     for _ in 0..<20 { await Task.yield() }
     speech.heard?("Remind me to call the bike shop at nine", false)
-    try render("chat-listening") { ChatScreen(phone: phone) }
+    try render("chat-listening") { Tabbed { ChatScreen(phone: phone) } }
   }
 
   @Test func anAskWaiting() throws {
     let phone = Phone.preview()
     conversation(phone)
     phone.chat.ask(Self.ask)
-    try render("chat-ask", only: ["390"]) { ChatScreen(phone: phone) }
+    try render("chat-ask", only: ["390"]) { Tabbed { ChatScreen(phone: phone) } }
     try render("approval") {
-      SheetOver(height: 0.62) { ChatScreen(phone: phone) } sheet: { ApprovalSheet(chat: phone.chat) {} }
-    }
-  }
-
-  @Test func theGlance() throws {
-    let phone = Phone.preview()
-    conversation(phone)
-    phone.glance.received(glance())
-    try render("glance") {
-      SheetOver(height: 0.72) { ChatScreen(phone: phone) } sheet: { GlanceSheet(glance: phone.glance) }
-    }
-    // Scrolled to its end, open full height: the last row clears the home indicator.
-    try render("glance-end", only: ["390"]) {
-      SheetOver(height: 0.92) { ChatScreen(phone: phone) } sheet: { GlanceSheet(glance: phone.glance).defaultScrollAnchor(.bottom) }
-    }
-    let ask = try #require(phone.glance.asks.first)
-    try render("glance-ask", only: ["390"]) {
-      SheetOver(height: 0.62) { GlanceSheet(glance: phone.glance) } sheet: {
-        AskBody(ask: ask.ask, more: 0, from: ask.chat) { _, _ in }.frame(maxHeight: .infinity, alignment: .top)
-      }
+      SheetOver(height: 0.62) { Tabbed { ChatScreen(phone: phone) } } sheet: { ApprovalSheet(chat: phone.chat) {} }
     }
   }
 
@@ -199,7 +180,7 @@ struct RenderTests {
       .init(id: "c5", title: "Scout", updated: now.addingTimeInterval(-4 * 86_400), place: .blob("scout")),
     ])
     try render("chats") {
-      SheetOver(height: 0.7) { ChatScreen(phone: phone) } sheet: { ChatPicker(chat: phone.chat, shelf: phone.artifacts) { _ in } read: { _ in } }
+      SheetOver(height: 0.7) { Tabbed { ChatScreen(phone: phone) } } sheet: { ChatPicker(chat: phone.chat, shelf: phone.artifacts) { _ in } read: { _ in } all: {} }
     }
   }
 
@@ -207,7 +188,7 @@ struct RenderTests {
     let phone = Phone.preview()
     conversation(phone)
     phone.chat.link = .offline("KOS is not answering.")
-    try render("chat-offline", only: ["390"]) { ChatScreen(phone: phone) }
+    try render("chat-offline", only: ["390"]) { Tabbed { ChatScreen(phone: phone) } }
   }
 
   @Test func largeText() throws {
@@ -215,23 +196,15 @@ struct RenderTests {
     defer { KOSType.scale = nil }
     let phone = Phone.preview()
     conversation(phone)
-    try render("chat-large-text", only: ["390"]) { ChatScreen(phone: phone) }
+    try render("chat-large-text", only: ["390"]) { Tabbed { ChatScreen(phone: phone) } }
     try render("approval-large-text", only: ["390"]) {
-      SheetOver(height: 0.8) { ChatScreen(phone: phone) } sheet: {
+      SheetOver(height: 0.8) { Tabbed { ChatScreen(phone: phone) } } sheet: {
         ApprovalSheet(chat: {
           let chat = ChatModel()
           chat.ask(Self.ask)
           return chat
         }()) {}
       }
-    }
-  }
-
-  @Test func theMore() throws {
-    let phone = Phone.preview()
-    conversation(phone)
-    try render("more", only: ["390"]) {
-      SheetOver { ChatScreen(phone: phone) } sheet: { MoreSheet(phone: phone, reader: phone.reader) {} }
     }
   }
 }
@@ -300,6 +273,20 @@ struct PhoneFrame<Content: View>: View {
       }
       .padding(.top, 6)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+  }
+}
+
+/// A tab's page over the tab bar, as the app draws every page.
+struct Tabbed<Content: View>: View {
+  var tab: PhoneTab = .chat
+  var badges: [PhoneTab: Int] = [:]
+  @ViewBuilder let content: () -> Content
+
+  var body: some View {
+    VStack(spacing: 0) {
+      content().frame(maxHeight: .infinity)
+      TabBar(selected: tab, badges: badges) { _ in }
     }
   }
 }

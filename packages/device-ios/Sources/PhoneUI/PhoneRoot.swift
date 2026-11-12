@@ -3,8 +3,8 @@ import DeviceKit
 import PhoneCore
 import SwiftUI
 
-/// The app's root: the pairing until there is a KOS, then the chat, with a
-/// link opened meanwhile asked about over it; drawn in the dashboard's theme,
+/// The app's root: the pairing until there is a KOS, then the tabs, the chat
+/// first, with a link opened meanwhile asked about over them; drawn in the dashboard's theme,
 /// the phone's own until KOS has said, and built again at a new text size so
 /// every size in KOS's ladder follows it.
 public struct PhoneRoot: View {
@@ -21,7 +21,7 @@ public struct PhoneRoot: View {
       if phone.paired == nil {
         PairingScreen(flow: phone.pairing, problem: phone.problem)
       } else {
-        ChatScreen(phone: phone)
+        PhoneHome(phone: phone)
           .modifier(Repairing(flow: phone.pairing, problem: phone.problem))
           .modifier(Reading(shelf: phone.artifacts, mode: phone.mode))
       }
@@ -56,7 +56,7 @@ private struct Repairing: ViewModifier {
   }
 }
 
-/// An artifact open: the viewer over the chat, full screen on a phone, in the app's theme; closed, it goes.
+/// An artifact open: the viewer over the tabs, full screen on a phone, in the app's theme; closed, it goes.
 private struct Reading: ViewModifier {
   @ObservedObject var shelf: ArtifactShelf
   let mode: ThemeMode

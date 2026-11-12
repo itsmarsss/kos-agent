@@ -7,7 +7,7 @@ import SwiftUI
 /// under where it lives: with KOS at the root, in a project, or a blob's.
 /// A new chat on top; the one shown marked. Under it, the few artifacts
 /// changed last, to open and read: what KOS made is one tap from the chat
-/// it was asked in, with no more buttons in the chat's own bar.
+/// it was asked in, and All artifacts goes to the Artifacts tab.
 struct ChatPicker: View {
   @ObservedObject var chat: ChatModel
   @ObservedObject var shelf: ArtifactShelf
@@ -16,11 +16,11 @@ struct ChatPicker: View {
   let pick: (String?) -> Void
   /// An artifact picked, to open.
   let read: (ArtifactItem) -> Void
+  /// Every artifact, on the Artifacts tab.
+  let all: () -> Void
 
   /// How many artifacts the picker offers: the last few, under the new chat, so the chats stay in reach.
   static let artifactsShown = 3
-  /// Every artifact KOS listed, in place of the chats, with a way back.
-  @State var showingAll = false
 
   /// The chats by where they live: KOS first, then each project, then each blob, in the order KOS gave them.
   static func groups(_ chats: [ChatModel.Pick]) -> [(title: String, kind: String?, chats: [ChatModel.Pick])] {
@@ -60,14 +60,6 @@ struct ChatPicker: View {
   }
 
   var body: some View {
-    if showingAll {
-      AllArtifacts(shelf: shelf, now: now, back: { showingAll = false }, read: read)
-    } else {
-      chats
-    }
-  }
-
-  private var chats: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 16) {
         Text("Chats").font(.kos(.title, .semibold))
@@ -88,16 +80,16 @@ struct ChatPicker: View {
                 ArtifactRow(item: item, now: now) { read(item) }
               }
               if shelf.recent.count > Self.artifactsShown {
-                MenuRow(height: 48, action: { showingAll = true }) { _ in
+                MenuRow(height: 48, action: all) { _ in
                   HStack(spacing: 10) {
                     Tile("square.grid.2x2", tint: Theme.muted, small: true)
                     Text("All artifacts").font(.kos(.body))
                     Spacer(minLength: 8)
-                    Text("\(shelf.recent.count)").font(.kos(.tiny)).monospacedDigit().foregroundStyle(Theme.faint)
                     Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.faint)
                   }
                 }
-                .accessibilityLabel("All artifacts, \(shelf.recent.count)")
+                .accessibilityLabel("All artifacts")
+                .accessibilityHint("Opens the Artifacts tab")
               }
             }
           }
@@ -150,103 +142,4 @@ struct ArtifactRow: View {
     .accessibilityLabel("\(ArtifactKindMark.word(item.kind)): \(item.title)")
     .accessibilityHint("Opens it to read")
   }
-}
-
-/// Every artifact KOS listed, the latest changed first, under when each was changed: today, this week, earlier.
-struct AllArtifacts: View {
-  @ObservedObject var shelf: ArtifactShelf
-  let now: Date
-  let back: () -> Void
-  let read: (ArtifactItem) -> Void
-
-  /// The artifacts by how long ago they changed, in KOS's order within each.
-  static func groups(_ items: [ArtifactItem], now: Date, calendar: Calendar = .current) -> [(title: String, items: [ArtifactItem])] {
-    let today = calendar.startOfDay(for: now)
-    let week = calendar.date(byAdding: .day, value: -6, to: today) ?? today
-    let sorted = items.sorted { $0.updatedAt > $1.updatedAt }
-    let at = { (i: ArtifactItem) in Date(timeIntervalSince1970: i.updatedAt / 1000) }
-    return [
-      ("Today", sorted.filter { at($0) >= today }),
-      ("This week", sorted.filter { at($0) < today && at($0) >= week }),
-      ("Earlier", sorted.filter { at($0) < week }),
-    ].filter { !$0.1.isEmpty }
-  }
-
-  var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 16) {
-        HStack(spacing: 6) {
-          // A thumb's 44 points, though it is drawn beside the title, as the sheet's other titles sit.
-          Button(action: back) {
-            Image(systemName: "chevron.left").font(.kos(.title, .semibold)).foregroundStyle(Theme.accent)
-              .frame(width: 22, height: 44, alignment: .leading)
-              .contentShape(Rectangle().inset(by: -11))
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel("Back to the chats")
-          Text("Artifacts").font(.kos(.title, .semibold))
-        }
-        .padding(.top, -10)
-        ForEach(Self.groups(shelf.recent, now: now), id: \.title) { group in
-          KOSSection(group.title) {
-            Card(padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), spacing: 0) {
-              ForEach(group.items) { item in ArtifactRow(item: item, now: now) { read(item) } }
-            }
-          }
-        }
-      }
-      .padding(.horizontal, 20)
-      .padding(.top, 24)
-      .padding(.bottom, 20)
-    }
-    .background(Theme.panel)
-  }
-}
-
-/// The little there is to set on the phone: speak replies, and which KOS it is paired with, to unpair.
-struct MoreSheet: View {
-  @ObservedObject var phone: Phone
-  @ObservedObject var reader: ReplyReader
-  let close: () -> Void
-  @State private var confirming = false
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      HStack(spacing: 12) {
-        KOSFace(size: 44, mood: phone.chat.online ? .idle : BlobMood(link: phone.chat.link), look: phone.chat.face)
-        RowText(phone.paired?.name ?? "iPhone", phone.paired.map { "Paired with KOS at \((try? $0.kosAddress().display) ?? $0.address)" }, size: .body, detailLines: 2)
-      }
-      Card {
-        SwitchRow("Speak replies", "Read KOS's answers aloud as they land.", isOn: reader.on) { reader.on = $0 }
-      }
-      if confirming {
-        Card(tone: Theme.danger) {
-          RowText("Unpair this iPhone?", "KOS forgets it, and it forgets KOS. Pairing again needs a new code.", size: .control)
-          HStack(spacing: 10) {
-            Button("Keep it") { confirming = false }.buttonStyle(KOSButtonStyle(.secondary, large: true))
-            Button("Unpair") {
-              close()
-              phone.unpair()
-            }
-            .buttonStyle(KOSButtonStyle(.danger, large: true))
-          }
-        }
-      } else {
-        Button("Unpair this iPhone") { confirming = true }.buttonStyle(KOSButtonStyle(.danger, large: true))
-      }
-    }
-    .padding(.horizontal, 20)
-    .padding(.top, 24)
-    .padding(.bottom, 16)
-    .fixedSize(horizontal: false, vertical: true)
-    .background(GeometryReader { box in Color.clear.preference(key: FitHeight.self, value: box.size.height) })
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .background(Theme.panel)
-  }
-}
-
-/// How tall a sheet's content is, so the sheet can stop there rather than at half the screen.
-struct FitHeight: PreferenceKey {
-  static let defaultValue: CGFloat = 0
-  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }

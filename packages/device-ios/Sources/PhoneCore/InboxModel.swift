@@ -14,8 +14,8 @@ public final class InboxModel: ObservableObject {
   }
 
   public let waiting: Page<Routes.Inbox>
-  @Published public private(set) var decided: [Routes.Decided] = []
-  @Published public private(set) var counts: Routes.Counts?
+  @Published public internal(set) var decided: [Routes.Decided] = []
+  @Published public internal(set) var counts: Routes.Counts?
   /// More were decided than the list holds: another page can be read.
   @Published public private(set) var more = false
   @Published public private(set) var readingMore = false
@@ -50,6 +50,11 @@ public final class InboxModel: ObservableObject {
     async let pending: Void = waiting.refresh()
     async let history: Void = readDecided(after: nil)
     _ = await (pending, history)
+  }
+
+  /// What was decided, read again from its first page: the outcome or the words it is held to changed.
+  public func refreshDecided() async {
+    await readDecided(after: nil)
   }
 
   /// The next page of what was decided, after the last row shown.
