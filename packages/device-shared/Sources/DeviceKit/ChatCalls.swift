@@ -57,7 +57,7 @@ public enum ChatCalls {
   /// An approval as KOS sends it, as the model holds it: in `chat.ask`, and in a phone's glance.
   public static func ask(_ a: ChatApproval, chat: String?) -> ChatModel.Ask {
     .init(
-      id: a.id, tool: a.tool, args: a.args, mechanics: a.mechanics, why: a.why, reason: a.reason, always: a.always,
+      id: a.id, tool: a.tool, summary: a.summary, args: a.args, mechanics: a.mechanics, why: a.why, reason: a.reason, always: a.always,
       expires: a.expiresAt.map { Date(timeIntervalSince1970: $0 / 1000) }, chat: chat)
   }
 

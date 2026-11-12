@@ -92,7 +92,9 @@ struct OverviewScreen: View {
       GroupHead(title: "Waiting on you", count: glance.waiting).pageRow(separator: false)
       ForEach(glance.asks.prefix(3)) { waiting in
         Button { deciding = waiting } label: {
-          PageRowLabel(symbol: "hand.raised.fill", tint: Theme.warn, title: waiting.ask.tool, detail: [waiting.ask.why ?? waiting.ask.reason, waiting.chat].compactMap { $0 }.joined(separator: " · "), opens: true)
+          PageRowLabel(
+            symbol: "hand.raised.fill", tint: Theme.warn, title: waiting.ask.summary ?? waiting.ask.tool,
+            detail: [waiting.ask.why ?? waiting.ask.reason, waiting.chat].compactMap { $0 }.joined(separator: " · "), detailLines: 2, opens: true)
         }
         .buttonStyle(.plain)
         .accessibilityHint("Opens it to approve or deny")

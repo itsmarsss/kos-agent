@@ -36,6 +36,8 @@ public final class ChatModel: ObservableObject {
   public struct Ask: Equatable, Identifiable, Sendable {
     public let id: String
     public let tool: String
+    /// The action in words with its ids named, as the Inbox titles it.
+    public let summary: String?
     public let args: String?
     /// What the step does, action by action, when its words are the model's account of it.
     public let mechanics: String?
@@ -49,10 +51,11 @@ public final class ChatModel: ObservableObject {
     public let chat: String?
 
     public init(
-      id: String, tool: String, args: String? = nil, mechanics: String? = nil, why: String? = nil, reason: String? = nil, always: String? = nil,
-      expires: Date? = nil, chat: String? = nil
+      id: String, tool: String, summary: String? = nil, args: String? = nil, mechanics: String? = nil, why: String? = nil, reason: String? = nil,
+      always: String? = nil, expires: Date? = nil, chat: String? = nil
     ) {
       self.id = id
+      self.summary = summary
       self.chat = chat
       self.tool = tool
       self.args = args

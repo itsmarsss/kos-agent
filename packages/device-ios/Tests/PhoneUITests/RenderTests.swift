@@ -79,10 +79,10 @@ struct RenderTests {
       asks: [
         .init(
           chat: .init(id: "c3", title: "Inbox sweep"),
-          approval: ChatApproval(id: "41", tool: "email.send", args: #"{"to":"sam@example.com"}"#, why: "Reply to Sam that Saturday at 4 works.", expiresAt: now + 4 * 60_000)),
+          approval: ChatApproval(id: "41", tool: "email.send", summary: "Email Sam: Saturday at 4 works", args: #"{"to":"sam@example.com"}"#, why: "Reply to Sam that Saturday at 4 works.", expiresAt: now + 4 * 60_000)),
         .init(
           chat: .init(id: "c1", title: "Garden orchestrator"),
-          approval: ChatApproval(id: "42", tool: "shell.run", args: #"{"command":"git push"}"#, why: "Push the garden plan you approved this morning.", expiresAt: now + 22 * 60_000)),
+          approval: ChatApproval(id: "42", tool: "shell.run", summary: "Run git push in garden", args: #"{"command":"git push"}"#, why: "Push the garden plan you approved this morning.", expiresAt: now + 22 * 60_000)),
       ],
       failing: [.init(label: "Nightly backup", streak: 3, error: "rsync: write failed: No space left on device", since: now - 2 * 86_400_000)],
       next: [.init(name: "kos.backup", at: now + 3 * 3_600_000), .init(name: "blob.scout", at: now + 26 * 3_600_000)])

@@ -123,6 +123,8 @@ public struct ChatStatus: Decodable, Equatable, Sendable {
 public struct ChatApproval: Decodable, Equatable, Sendable {
   public let id: String
   public let tool: String
+  /// The action in words with its ids named, as the Inbox titles it.
+  public let summary: String?
   public let args: String?
   /// Every action a step said by its purpose takes, which the arguments, cut to fit, may not reach.
   public let mechanics: String?
@@ -134,11 +136,12 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
   public let expiresAt: Double?
 
   public init(
-    id: String, tool: String, args: String? = nil, mechanics: String? = nil, why: String? = nil, reason: String? = nil, always: String? = nil,
-    expiresAt: Double? = nil
+    id: String, tool: String, summary: String? = nil, args: String? = nil, mechanics: String? = nil, why: String? = nil, reason: String? = nil,
+    always: String? = nil, expiresAt: Double? = nil
   ) {
     self.id = id
     self.tool = tool
+    self.summary = summary
     self.args = args
     self.mechanics = mechanics
     self.why = why
