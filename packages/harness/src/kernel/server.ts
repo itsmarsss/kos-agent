@@ -11,6 +11,7 @@ import type { PendingAction } from "../ops/approvals.js";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
 import { DREAM_JOB, MEMORY_JOB, OBSERVE_JOB } from "../memory/job.js";
+import { registeredTables } from "../systems/registered.js";
 import { runDisplayQuery } from "../systems/display.js";
 import type { Headline } from "../systems/headlines.js";
 import { ExportRefusal, ExportUnavailable } from "../systems/artifactexport.js";
@@ -880,7 +881,8 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/projects") {
-    return ok(kernel.manifest.list());
+    // With how many tables each made, so the list can say what each holds without a detail per card.
+    return ok(kernel.manifest.list().map((p) => ({ ...p, tableCount: registeredTables(kernel.workspace.db, p.slug).size })));
   }
 
   if (method === "GET" && path === "/api/activity") {

@@ -176,6 +176,16 @@ describe("handleApiRequest", () => {
     expect(kernel.manifest.list().some((p) => p.slug === made.slug)).toBe(true);
   });
 
+  it("lists projects with how many tables each made, a name that only looks like one not counted", async () => {
+    kernel.manifest.createProject({ name: "Shelf", type: "tracker" });
+    kernel.migrator.migrate("shelf", { op: "create_table", table: "books", columns: [{ name: "id", type: "INTEGER", primaryKey: true }] });
+    kernel.migrator.migrate("shelf", { op: "create_table", table: "loans", columns: [{ name: "id", type: "INTEGER", primaryKey: true }] });
+    kernel.workspace.db.exec(`CREATE TABLE shelf_stray (id INTEGER)`);
+    const res = await handleApiRequest(kernel, { method: "GET", path: "/api/projects" });
+    const shelf = (res.body as { slug: string; tableCount: number }[]).find((p) => p.slug === "shelf");
+    expect(shelf?.tableCount).toBe(2);
+  });
+
   it("makes an instance of a blueprint module from the dashboard", async () => {
     mkdirSync(join(root, "modules", "budget"), { recursive: true });
     writeFileSync(

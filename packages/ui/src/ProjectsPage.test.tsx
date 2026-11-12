@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { api, type Conversation, type CronJob, type PageSummary, type Project, type ProjectDetail } from "./api.js";
+import { api, type Conversation, type CronJob, type PageSummary, type Project } from "./api.js";
 import { ProjectsPage } from "./ProjectsPage.js";
 
 beforeAll(() => {
@@ -11,7 +11,7 @@ beforeAll(() => {
 
 const now = Date.now();
 const PROJECTS: Project[] = [
-  { slug: "garden", name: "Garden", type: "tracker", status: "active", description: "What grows where, and when to water it.", lastTouchedAt: now - 3 * 86_400_000 },
+  { slug: "garden", name: "Garden", type: "tracker", status: "active", description: "What grows where, and when to water it.", lastTouchedAt: now - 3 * 86_400_000, tableCount: 2 },
   { slug: "budget", name: "Household budget", type: "budget", status: "active", lastTouchedAt: now - 60_000 },
   { slug: "old", name: "Old notes", type: "notes", status: "archived", lastTouchedAt: now - 30 * 86_400_000 },
 ];
@@ -20,7 +20,6 @@ const chat = (id: string, projectSlug: string, over: Partial<Conversation> = {})
 const page = (id: string, projectSlug: string, over: Partial<PageSummary> = {}): PageSummary => ({ id, projectSlug, title: id, path: "", updatedAt: 0, kind: "html", artifactKind: "doc", ...over });
 
 beforeEach(() => {
-  vi.spyOn(api, "projectDetail").mockImplementation((slug) => Promise.resolve({ tables: slug === "garden" ? [{ name: "beds", rows: 3, columns: 2 }, { name: "plants", rows: 9, columns: 4 }] : [] } as unknown as ProjectDetail));
   vi.spyOn(api, "health").mockResolvedValue({ ok: false, failing: [{ key: "cron:7", label: "garden.water", streak: 2, error: "the pump is offline", since: 0, lastAt: 0 }], recent: { total: 0, errors: 0, rate: 0 } });
 });
 
@@ -48,7 +47,8 @@ const card = (name: string): HTMLElement => screen.getByRole("link", { name }).c
 const order = (): string[] => [...document.querySelectorAll(".project-card .card-name")].map((n) => n.textContent ?? "");
 
 describe("the Projects page", () => {
-  it("says what each holds, what is for, and when it last moved, the trash left out", async () => {
+  it("says what each holds, what is for, and when it last moved, the trash left out, reading no project's detail", async () => {
+    const detail = vi.spyOn(api, "projectDetail");
     show();
     const garden = card("Garden");
     expect(within(garden).getByText("What grows where, and when to water it.")).toBeTruthy();
@@ -57,6 +57,7 @@ describe("the Projects page", () => {
     expect(within(card("Household budget")).getByText("1 agent")).toBeTruthy();
     expect(within(card("Old notes")).getByText("Nothing in it yet")).toBeTruthy();
     expect(within(garden).getByTitle("Last activity").textContent).toBe("3 days ago");
+    expect(detail).not.toHaveBeenCalled();
   });
 
   it("flags what wants the owner: a failing job, then a chat waiting on them", async () => {

@@ -55,25 +55,6 @@ export const isProjectAgent = (c: Pick<Conversation, "kind" | "archived">): bool
 /** How many of a thing, in words, or nothing when there are none. */
 const many = (n: number, one: string): string | null => (n > 0 ? `${n} ${n === 1 ? one : `${one}s`}` : null);
 
-/** Each project's table count, read from its detail once the page opens; absent until it answers. */
-function useTableCounts(slugs: string[]): Map<string, number> {
-  const [counts, setCounts] = useState(new Map<string, number>());
-  const key = slugs.join("\n");
-  useEffect(() => {
-    let stale = false;
-    for (const slug of slugs) {
-      void api
-        .projectDetail(slug)
-        .then((d) => !stale && setCounts((was) => new Map(was).set(slug, d.tables.length)))
-        .catch(() => undefined);
-    }
-    return () => {
-      stale = true;
-    };
-  }, [key]);
-  return counts;
-}
-
 /** The jobs failing now, by their id, with what went wrong, read once the page opens. */
 function useFailingJobs(): Map<number, string> {
   const [failing, setFailing] = useState(new Map<number, string>());
@@ -99,7 +80,6 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>("recent");
   const [making, setMaking] = useState(false);
-  const tables = useTableCounts(useMemo(() => projects.map((p) => p.slug), [projects]));
   const failing = useFailingJobs();
 
   const threadsOf = (slug: string): Conversation[] => conversations.filter((c) => c.projectSlug === slug && !c.archived);
@@ -132,8 +112,7 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
     const live = pages.filter((pg) => pg.trashedAt === undefined);
     const headline = live.find((pg) => pg.headline);
     const attention = attentionOf(p);
-    const tableCount = tables.get(p.slug);
-    const holds = [many(agentsOf(p.slug), "agent"), tableCount !== undefined ? many(tableCount, "table") : null, many(live.length, "artifact")].filter(Boolean);
+    const holds = [many(agentsOf(p.slug), "agent"), many(p.tableCount ?? 0, "table"), many(live.length, "artifact")].filter(Boolean);
     return (
       <m.div key={p.slug} variants={card} className="card card--opens project-card">
         <div className="project-card-head">
