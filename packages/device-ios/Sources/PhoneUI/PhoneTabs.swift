@@ -249,8 +249,8 @@ struct ToastLine: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Theme.panel2, in: Capsule())
-        .overlay(Capsule().strokeBorder(Theme.line))
+        .background(Theme.panel2, in: RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous).strokeBorder(Theme.line))
         .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
         .padding(.horizontal, 16)
         .padding(.bottom, 10)
