@@ -225,7 +225,7 @@ struct RenderTests {
     let phone = Phone.preview()
     conversation(phone)
     try render("more", only: ["390"]) {
-      SheetOver(height: 0.45) { ChatScreen(phone: phone) } sheet: { MoreSheet(phone: phone, reader: phone.reader) {} }
+      SheetOver { ChatScreen(phone: phone) } sheet: { MoreSheet(phone: phone, reader: phone.reader) {} }
     }
   }
 }
@@ -288,27 +288,28 @@ struct PhoneFrame<Content: View>: View {
       }
       .padding(.top, 6)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(Theme.bg)
     }
   }
 }
 
-/// A sheet as iOS presents one, drawn into the picture: the screen under it dimmed, the sheet up from the foot
-/// to `height` of the screen, its top corners round and its grabber showing.
+/// A sheet as iOS presents one, drawn into the picture: the screen under it dimmed, the status bar's ground too,
+/// the sheet up from the foot to `height` of the screen (or as tall as it is, with none), its top corners round
+/// and its grabber showing.
 struct SheetOver<Base: View, Sheet: View>: View {
-  let height: CGFloat
+  var height: CGFloat?
   @ViewBuilder let base: () -> Base
   @ViewBuilder let sheet: () -> Sheet
 
   var body: some View {
     GeometryReader { box in
       ZStack(alignment: .bottom) {
-        base().overlay(Color.black.opacity(0.4))
+        base().overlay(Color.black.opacity(0.4).padding(.top, -PhoneFrame<Base>.top))
         // The home indicator is the sheet's safe area, as on a phone: a scroll view scrolled to its end clears it.
         sheet()
           .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: PhoneFrame<Base>.bottom) }
           .frame(maxWidth: .infinity)
-          .frame(height: box.size.height * height + PhoneFrame<Base>.bottom, alignment: .top)
+          .fixedSize(horizontal: false, vertical: height == nil)
+          .frame(height: height.map { box.size.height * $0 + PhoneFrame<Base>.bottom }, alignment: .top)
           .background(Theme.panel)
           .clipShape(UnevenRoundedRectangle(topLeadingRadius: 38, topTrailingRadius: 38, style: .continuous))
           .overlay(alignment: .top) { Capsule().fill(Theme.lineStrong).frame(width: 36, height: 5).padding(.top, 6) }
