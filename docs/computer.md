@@ -268,7 +268,7 @@ Nothing else is asked, read or write.
   asked; the route's own jail is the fence.
 - An answer of more than 8 MB as JSON, the base64 in it, is refused in
   words. Four asks are on the way from a phone at once; a fifth is refused
-  in words.
+  in words, so KOS for iPhone holds the rest until one is answered.
 - Phones only: every other device kind's asks go unanswered.
 
 **Files with the words.** A device's frames over the Wi-Fi are at most
