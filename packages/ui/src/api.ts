@@ -334,6 +334,24 @@ export interface PermissionRule {
 }
 
 /** A computer paired with KOS for Mac, as the device routes tell of it. */
+/** Which build of a device app it is (docs/computer.md, Builds and updates). */
+export interface DeviceBuild {
+  id: string;
+  commit: string;
+  builtAt?: number;
+}
+
+/** Where a device's build stands with the one KOS would hand it, and why. */
+export interface DeviceUpdate {
+  state: "current" | "behind" | "updating" | "unknown";
+  /** What KOS would hand it. */
+  build?: DeviceBuild;
+  reason?: "unbuilt" | "unstamped" | "remote" | "idle" | "signing" | "xcode" | "off" | "failed" | "stuck";
+  detail?: string;
+  /** KOS for Mac: what the owner runs by hand. */
+  command?: string;
+}
+
 export interface PairedDevice {
   id: string;
   name: string;
@@ -348,6 +366,11 @@ export interface PairedDevice {
   permissions?: { screen: boolean; input: boolean; tabs?: boolean };
   version?: string;
   os?: string;
+  /** The build it runs, as it said when it connected. */
+  build?: DeviceBuild;
+  /** Connected from the computer KOS runs on. */
+  local?: boolean;
+  update?: DeviceUpdate;
   session?: { conversation: string; title: string; task: string; until: number; paused: boolean; target?: { kind: "screen" | "window" | "tabs"; app?: string; title?: string } };
 }
 
@@ -357,6 +380,8 @@ export interface ComputerSettings {
   unattended: boolean;
   /** Whether phones on the home Wi-Fi may reach KOS, over its own listener. */
   lan: boolean;
+  /** Whether a device app behind KOS's build updates on its own; KOS for Mac only once signing is set up. */
+  autoUpdate: boolean;
 }
 
 /** Where the Wi-Fi listener for phones stands. */
@@ -1520,6 +1545,7 @@ export const api = {
   renameDevice: (id: string, name: string) => post<PairedDevice>("/api/devices/rename", { id, name }),
   removeDevice: (id: string) => post<{ removed: string }>("/api/devices/remove", { id }),
   stopDevice: (id: string) => post<{ stopped: boolean }>("/api/devices/stop", { id }),
+  updateDevice: (id: string) => post<{ update: DeviceUpdate }>("/api/devices/update", { id }),
   permissions: () => get<{ rules: PermissionRule[] }>("/api/permissions"),
   revokePermission: (id: number) => post<{ id: number; revoked: boolean }>("/api/permissions/revoke", { id }),
   deny: (id: number) =>
