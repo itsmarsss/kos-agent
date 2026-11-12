@@ -132,6 +132,21 @@ describe("managing an artifact from its viewer", () => {
     expect(stops()).toEqual([expect.stringContaining("Garden")]);
   });
 
+  it("lets go of a place its search hides, so Move goes nowhere unseen", async () => {
+    openViewer(BRIEF);
+    const many = Array.from({ length: 9 }, (_, i) => ({ name: `blob${i}` }) as AgentInfo);
+    vi.spyOn(api, "agents").mockResolvedValue({ agents: many, invalid: [] });
+    fireEvent.click(await menuItem("Move to…"));
+    const dialog = await screen.findByRole("dialog", { name: "Move “Q4 brief”" });
+    fireEvent.click(await within(dialog).findByRole("radio", { name: /blob3/ }));
+    const move = within(dialog).getByRole("button", { name: "Move" }) as HTMLButtonElement;
+    expect(move.disabled).toBe(false);
+    fireEvent.change(within(dialog).getByLabelText("Find a place"), { target: { value: "garden" } });
+    await waitFor(() => expect(move.disabled).toBe(true));
+    fireEvent.change(within(dialog).getByLabelText("Find a place"), { target: { value: "" } });
+    expect(within(dialog).getByRole("radio", { name: /blob3/ }).getAttribute("aria-checked")).toBe("false");
+  });
+
   it("makes a copy and offers to open it", async () => {
     openViewer(BRIEF);
     vi.spyOn(api, "duplicateArtifact").mockResolvedValue({ ...BRIEF, id: "brief-copy", title: "Q4 brief copy" });
@@ -321,6 +336,17 @@ describe("emptying the trash", () => {
     expect(screen.queryByRole("button", { name: "Empty trash" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Back to artifacts" }));
     expect(cards()).toEqual(["Q4 brief"]);
+  });
+
+  it("says it empties what the filters hide too", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([BRIEF]);
+    vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD, MEMO]);
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Trash2" }));
+    fireEvent.change(screen.getByLabelText("Search the trash"), { target: { value: "spare" } });
+    expect(cards("Trash")).toEqual(["Spare memo"]);
+    fireEvent.click(screen.getByRole("button", { name: "Empty trash" }));
+    expect((await screen.findByRole("alertdialog")).textContent).toContain("Delete all 2 artifacts in the trash for good, the 1 your filters hide included");
   });
 
   it("stops at the first that cannot be deleted, keeping it and the rest, and says why", async () => {

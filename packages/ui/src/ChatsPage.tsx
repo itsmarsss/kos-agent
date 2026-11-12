@@ -25,7 +25,8 @@ import { NewProjectDialog } from "./NewProjectDialog.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { ProjectPanel } from "./ProjectPanel.js";
 import { ArtifactRail, ArtifactStrip, type RailOwner, useOwnedArtifacts } from "./ArtifactRail.js";
-import { ArtifactViewer, chatIdOf, rootChatId, type ViewerHandle } from "./ArtifactsPage.js";
+import { ArtifactViewer, rootChatId, type ViewerHandle } from "./ArtifactsPage.js";
+import { chatIdOf } from "./artifactowner.js";
 import { ArtifactOpen, type ArtifactOpeners } from "./ArtifactStep.js";
 import { RailGroup, useRailFolds } from "./RailGroup.js";
 import {

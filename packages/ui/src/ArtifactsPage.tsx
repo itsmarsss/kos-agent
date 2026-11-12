@@ -3,6 +3,7 @@ import { SPAN_COLUMNS, WORKSPACE_SCOPE, relativeWords, type ArtifactKind, type H
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
 
 import { api, type AnyPagePayload, type ArtifactSummary, type PageSummary, type PageVersion, type Project } from "./api.js";
+import { chatIdOf, KIND_WORD, ownerOf, type ArtifactOwner } from "./artifactowner.js";
 import { PageHead } from "./PageHead.js";
 import { Drawer } from "./Drawer.js";
 import { ProjectMark } from "./ProjectMark.js";
@@ -39,8 +40,6 @@ const KINDS: readonly ChipOption<ArtifactKind | "all">[] = [
   ["sheet", "Sheets"],
 ];
 
-/** An artifact's kind as a word, wherever one is named. */
-export const KIND_WORD: Record<ArtifactKind, string> = { page: "Page", doc: "Doc", deck: "Deck", sheet: "Sheet" };
 
 /** The project filter's "every project": like WORKSPACE_SCOPE, never a slug. */
 const ALL_PROJECTS = "@all";
@@ -316,7 +315,8 @@ export function ArtifactsPage({
         Back to artifacts
       </button>
       {trash && trash.length > 0 && (
-        <ConfirmButton className="btn btn--danger" label="Empty trash" text={emptyWords(trash.length)} disabled={ops.busy} onConfirm={() => ops.empty(trash)} />
+        // Everything in the trash, said so when the filters hide some of it.
+        <ConfirmButton className="btn btn--ghost btn--danger artifacts-empty-trash" label="Empty trash" text={emptyWords(trash.length, trash.length - shown.length)} disabled={ops.busy} onConfirm={() => ops.empty(trash)} />
       )}
     </>
   ) : (
@@ -351,7 +351,7 @@ export function ArtifactsPage({
           {source && source.length > 0 && <Chips options={kinds} selected={kind} onChoose={setKind} label="Kind" small scroll />}
           <div className="artifacts-bar-end">
             {owners.length > 2 && <Select className="artifacts-select" value={project} options={owners} onChange={setProject} label="Owner" />}
-            {!inTrash && source && source.length > 0 && <Select className="artifacts-select" value={grouping} options={GROUPINGS} onChange={(g) => setGrouping(g as Grouping)} label="Sort" />}
+            {!inTrash && source && source.length > 0 && <Select className="artifacts-select" value={grouping} options={GROUPINGS} onChange={(g) => setGrouping(g as Grouping)} label="Group" />}
             {!inTrash && (
               <button type="button" className="btn btn--ghost btn--sm artifacts-trash" onClick={() => show("trash")}>
                 <NavIcon name="trash" />
@@ -440,13 +440,6 @@ export function rootChatId(): Promise<string> {
   return rootChat;
 }
 
-/** Who an artifact belongs to: a project, a blob, or the workspace (null). */
-export type ArtifactOwner = { project: string } | { blob: string } | null;
-
-export const ownerOf = (r: Pick<PageSummary, "projectSlug" | "blob">): ArtifactOwner => (r.blob ? { blob: r.blob } : r.projectSlug ? { project: r.projectSlug } : null);
-
-/** The chat that answers for an artifact: its project's, its blob's thread, or KOS at the root (undefined). */
-export const chatIdOf = (owner: ArtifactOwner): string | undefined => (!owner ? undefined : "project" in owner ? `project:${owner.project}` : `agent:${owner.blob}`);
 
 /**
  * Where "Edit with KOS" takes the owner after asking: the project's page, the

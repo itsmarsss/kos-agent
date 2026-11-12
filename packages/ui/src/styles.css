@@ -7589,6 +7589,9 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .trash-row-text .artifact-card-meta { margin-top: 0; padding-top: 0; }
 .trash-row-acts { flex: none; display: flex; align-items: center; gap: 6px; }
 .trash-row-acts .trash-delete { color: var(--danger); }
+/* Empty trash: the danger's words with no fill until the pointer is on it, beside the head's quiet Back. */
+.btn--danger.artifacts-empty-trash { background: transparent; border-color: transparent; }
+.btn--danger.artifacts-empty-trash:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 10%, transparent); border-color: color-mix(in srgb, var(--danger) 25%, transparent); }
 
 @media (max-width: 560px) {
   .artifacts .list-head-tools { width: 100%; }
@@ -7608,7 +7611,7 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
   .artifact-card-menu { top: 6px; right: auto; left: 72px; opacity: 1; }
   .artifact-card-menu .artifact-view-more { width: 24px; height: 24px; }
   .artifacts.is-trash .list-search { flex: 1 1 100%; }
-  .artifacts.is-trash .list-head-tools .btn--danger { margin-left: auto; }
+  .artifacts.is-trash .list-head-tools .confirm-wrap { margin-left: auto; }
   .trash-row { flex-wrap: wrap; gap: 6px; padding: 8px; }
   .trash-row-open { flex-basis: 100%; }
   .trash-row-acts { width: 100%; justify-content: flex-end; }

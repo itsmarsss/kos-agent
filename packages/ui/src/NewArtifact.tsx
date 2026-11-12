@@ -3,7 +3,7 @@ import type { ArtifactKind } from "@kos/shared";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
 
 import { api, type Project } from "./api.js";
-import { chatIdOf, KIND_WORD, type ArtifactOwner } from "./ArtifactsPage.js";
+import { chatIdOf, KIND_WORD, type ArtifactOwner } from "./artifactowner.js";
 import { Modal } from "./Modal.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { Select, type SelectOption } from "./Select.js";

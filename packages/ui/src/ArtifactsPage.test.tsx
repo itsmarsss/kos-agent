@@ -74,7 +74,7 @@ describe("the Artifacts page", () => {
     answer(ART);
     await waitFor(() => expect(titles()).toHaveLength(4));
     expect(screen.queryByRole("list", { name: "Loading artifacts" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Sort" }));
+    fireEvent.click(screen.getByRole("button", { name: "Group" }));
     fireEvent.click(screen.getByRole("option", { name: "By owner" }));
     const inGroup = (name: string): string[] => [...screen.getByRole("list", { name }).querySelectorAll(".artifact-card-title")].map((t) => t.textContent ?? "");
     expect(inGroup("Household budget")).toEqual(["Spending board", "Ledger"]);

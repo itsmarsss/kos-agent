@@ -79,9 +79,9 @@ const placeKey = (r: Pick<PageSummary, "projectSlug" | "blob" | "blobRemoved">):
 /** What "Delete forever" says before it goes. */
 export const deleteWords = (title: string): string => `Delete “${title}” for good, with every version? This cannot be undone.`;
 
-/** What "Empty trash" says before everything in it goes. */
-export const emptyWords = (n: number): string =>
-  `Delete ${n === 1 ? "the one artifact" : `all ${n} artifacts`} in the trash for good, with every version? This cannot be undone.`;
+/** What "Empty trash" says before everything in it goes, naming what the view's filters hide, which goes too. */
+export const emptyWords = (n: number, hidden = 0): string =>
+  `Delete ${n === 1 ? "the one artifact" : `all ${n} artifacts`} in the trash for good${hidden > 0 ? `, the ${hidden} your filters hide included` : ""}, with every version? This cannot be undone.`;
 
 type Dialog = { kind: "rename"; record: PageSummary; title: string; description: string } | { kind: "move"; record: PageSummary; choice?: string };
 
@@ -294,7 +294,7 @@ export function useArtifactOps({ projects, onChanged, onError }: { projects: Pro
             }}
           >
             <p className="hint">It keeps its id and its versions, so mentions and links still find it. Its new owner is where it lives and who KOS asks about it.</p>
-            <MovePicker places={places} here={placeKey(dialog.record)} choice={dialog.choice} onChoose={(choice) => setDialog({ ...dialog, choice })} />
+            <MovePicker places={places} here={placeKey(dialog.record)} {...(dialog.choice ? { choice: dialog.choice } : {})} onChoose={(choice) => setDialog({ kind: "move", record: dialog.record, ...(choice ? { choice } : {}) })} />
             <div className="artifact-dialog-actions">
               <button type="button" className="btn btn--ghost" onClick={() => setDialog(null)}>
                 Cancel
@@ -326,11 +326,16 @@ export function restoreFromTrash(id: string): Promise<PageSummary> {
  * the places and choose as they go, Home and End go to the ends. Where it is
  * now is shown, not offered. A long list gets a search over it.
  */
-function MovePicker({ places, here, choice, onChoose }: { places: Place[]; here: string; choice?: string; onChoose: (key: string) => void }): ReactElement {
+function MovePicker({ places, here, choice, onChoose }: { places: Place[]; here: string; choice?: string; onChoose: (key: string | undefined) => void }): ReactElement {
   const list = useRef<HTMLDivElement>(null);
   const [find, setFind] = useState("");
   const q = find.trim().toLowerCase();
   const shown = q ? places.filter((p) => p.label.toLowerCase().includes(q)) : places;
+  // A place the search hides is not where Move goes: the choice is let go, and Move waits for another.
+  const hidden = choice !== undefined && !shown.some((p) => p.key === choice);
+  useEffect(() => {
+    if (hidden) onChoose(undefined);
+  }, [hidden]);
   const open = shown.filter((p) => p.key !== here);
   const stop = open.some((p) => p.key === choice) ? choice : open[0]?.key;
   const keys = (e: KeyboardEvent<HTMLDivElement>): void => {

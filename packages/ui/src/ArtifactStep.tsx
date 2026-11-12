@@ -4,7 +4,8 @@ import { createContext, useContext, useEffect, useState, type ReactElement } fro
 
 import type { ChatEvent, PageSummary, Project } from "./api.js";
 import { useInTrash, restoreFromTrash } from "./ArtifactManage.js";
-import { KIND_WORD, OwnerMark, useDashboardTheme } from "./ArtifactsPage.js";
+import { OwnerMark, useDashboardTheme } from "./ArtifactsPage.js";
+import { KIND_WORD } from "./artifactowner.js";
 import { hrefFor } from "./routes.js";
 
 /**
