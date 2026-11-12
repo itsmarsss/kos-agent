@@ -240,8 +240,13 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const [mention, setMention] = useState<{ x: number; y: number }>();
   /** The page's call the open picker answers, so there is one at a time. */
   const mentionAsk = useRef<unknown>(undefined);
-  /** Whether the doc is editing, as its head was last told, for the picker's gate. */
+  /**
+   * Whether the doc is being edited, for the picker's gate: the dashboard's
+   * own last word (Edit sent, and no Done or Discard since), and the doc
+   * saying so too. The doc's claim alone is the page's, so it is not enough.
+   */
   const editing = useRef(false);
+  const framed = useRef(false);
   const [conflict, setConflict] = useState<string>();
   // Opened at the height it last took at this width (read once the box is laid out), so the dashboard does not jump when the page reports.
   const [height, setHeight] = useState<number>();
@@ -337,6 +342,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     gestures.current.port?.close();
     gestures.current = { at: Number.NEGATIVE_INFINITY, since: performance.now(), stale: frame.current };
     sent.current = undefined;
+    editing.current = framed.current = false;
     const { scripts, fonts } = artifactAssets(page);
     void Promise.all([Promise.all(scripts.map(library)), fontCss(fonts)])
       .then(([libraries, faces]) => {
@@ -486,7 +492,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         const d = m as Partial<EditState>;
         const next: EditState = { editing: d.editing === true, pending: d.pending === true, status: String(d.status ?? "").slice(0, 300), bad: d.bad === true };
         setEdit(next);
-        editing.current = next.editing;
+        framed.current = next.editing;
         if (!next.editing && !next.pending) settled.current.splice(0).forEach((f) => f());
         return;
       }
@@ -510,7 +516,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
           window.location.hash = hrefFor({ name: "artifacts", id: String(args.id) });
           return reply(m.id, { result: { opened: true } });
         }
-        const no = mentionRefusal({ ...state, editing: editing.current, asking: mentionAsk.current !== undefined }, args);
+        const no = mentionRefusal({ ...state, editing: editing.current && framed.current, asking: mentionAsk.current !== undefined }, args);
         if (no) return reply(m.id, { error: no });
         const at = args as { x: number; y: number };
         mentionAsk.current = m.id;
@@ -621,6 +627,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       // A Done opens a save only for what the owner's hand did in this document since it loaded or last saved.
       const touched = gestures.current.at > gestures.current.since;
       sent.current = { action, at: performance.now(), ...(action === "done" && touched ? { touched } : {}) };
+      if (action === "edit") editing.current = true;
+      else if (action === "done" || action === "discard") editing.current = false;
       pageWindow()?.postMessage({ __kos: "edit-do", action }, "*");
     },
     [pageWindow],

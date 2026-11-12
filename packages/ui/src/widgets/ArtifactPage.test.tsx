@@ -694,7 +694,7 @@ describe("a doc's saves, which are the owner's", () => {
 
   it("opens the picker for a mention only while editing and at the owner's press, one at a time, and answers with the pick", async () => {
     vi.spyOn(api, "pages").mockResolvedValue([{ ...record, id: "deck-one", title: "Deck one", artifactKind: "deck" }]);
-    const { pageWin, say, press } = await frame();
+    const { handle, pageWin, say, press } = await frame();
     const el = screen.getByTitle("Budget");
     vi.spyOn(document, "activeElement", "get").mockReturnValue(el);
     hand(true);
@@ -704,7 +704,12 @@ describe("a doc's saves, which are the owner's", () => {
     await press();
     ask(31);
     expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 31, error: expect.stringMatching(/being edited/) as unknown }), "*");
+    // The page saying it is editing is not enough: the dashboard sent no Edit.
     say({ __kos: "edit", editing: true, pending: false, status: "", bad: false });
+    await press();
+    ask(35);
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 35, error: expect.stringMatching(/being edited/) as unknown }), "*");
+    act(() => handle.current!.edit("edit"));
     // No press a moment ago: refused.
     await new Promise((r) => setTimeout(r, 600));
     ask(32);
@@ -720,14 +725,20 @@ describe("a doc's saves, which are the owner's", () => {
     act(() => option.click());
     expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 33, result: { id: "deck-one", title: "Deck one" } }, "*");
     expect(document.querySelector(".mention-picker")).toBeNull();
+    // After the dashboard's Done, the page still saying it edits asks for nothing.
+    act(() => handle.current!.edit("done"));
+    await press();
+    ask(36);
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 36, error: expect.stringMatching(/being edited/) as unknown }), "*");
   });
 
   it("closes the picker with no pick when the window loses focus, as a press back in the doc does", async () => {
     vi.spyOn(api, "pages").mockResolvedValue([]);
-    const { pageWin, say, press } = await frame();
+    const { handle, pageWin, say, press } = await frame();
     vi.spyOn(document, "activeElement", "get").mockReturnValue(screen.getByTitle("Budget"));
     hand(true);
     const replies = vi.spyOn(pageWin, "postMessage");
+    act(() => handle.current!.edit("edit"));
     say({ __kos: "edit", editing: true, pending: false, status: "", bad: false });
     await press();
     say({ __kos: "call", id: 41, method: "mention", args: { x: 1, y: 1 } });
