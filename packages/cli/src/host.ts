@@ -410,9 +410,9 @@ export async function runHost(options: HostOptions): Promise<void> {
    * outside the workspace, so the agent never reads it, and outside the
    * KOS_SECRET_ names too, which the agent can put in a request.
    */
-  /** A held action as a surface asks about it. */
-  const approvalRequest = (action: PendingAction): ApprovalRequest => {
-    const picture = action.picture ? kernel.approvals.pictureOf(action.id) : undefined;
+  /** A held action as a surface asks about it; `pictured` false leaves its picture unread, for a list that shows none. */
+  const approvalRequest = (action: PendingAction, pictured = true): ApprovalRequest => {
+    const picture = pictured && action.picture ? kernel.approvals.pictureOf(action.id) : undefined;
     const asker = kernel.askerOf(action.conversationId);
     return {
       id: String(action.id),
@@ -467,7 +467,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       // Every one, each with its chat; the panel sends the first to lapse.
       asks: pending.map((action) => ({
         ...(action.conversationId ? { chat: { id: action.conversationId, title: kernel.nameOf(action.conversationId) } } : {}),
-        request: approvalRequest(action),
+        // A glance sends no picture, so none is read for it.
+        request: approvalRequest(action, false),
       })),
       failing: kernel.health.failing().slice(0, 10).map(({ label, streak, error, since }) => ({ label, streak, error, since })),
       next,
@@ -483,7 +484,7 @@ export async function runHost(options: HostOptions): Promise<void> {
     // With each step's picture marked, as the dashboard's thread has them.
     events: (id) => withFrames(conversationEvents(kernel.sessions.get(id)), kernel.frames.listFor(id)),
     picture: (frameId) => kernel.frames.shown(frameId),
-    waiting: (id) => kernel.approvals.pending().filter((a) => a.conversationId === id).map(approvalRequest),
+    waiting: (id) => kernel.approvals.pending().filter((a) => a.conversationId === id).map((a) => approvalRequest(a)),
     // The panel's own chats, as /chats there lists them: the surface's stream and the chats made from it, nothing else of the owner's.
     chats: () =>
       kernel.conversations
