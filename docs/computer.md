@@ -136,10 +136,12 @@ chat calls and events (`chat.show`, `chat.status`, `chat.ask`,
 `chat.settled`, `chat.chats`, `chat.models`, `chat.mentions`; `chat.open`,
 `chat.send`, `chat.attach`, `chat.stop`, `chat.decide`, `chat.list`,
 `chat.switch`, `chat.models`, `chat.model`, `chat.mentions`), with `beside`
-`{ "kind": "none" }` and no quote, and its own: the glance, and the
-artifacts (below). A phone's `chat.auto` is ignored. The turn is told
-the words were said on the phone, which KOS cannot see or work, and its
-reply is kept short and plain, since the phone may read it aloud. A turn
+`{ "kind": "none" }` and no quote, and its own: the glance, the artifacts
+and the dashboard's pages (below), the last the one call and event not
+named `chat.`: `dashboard.reply` and `dashboard.request`. A phone's
+`chat.auto` is ignored. The turn is told the words were said on the phone,
+which KOS cannot see or work, and its reply is kept short and plain, since
+the phone may read it aloud. A turn
 begun there reaches the owner's computers and Chromes as one begun anywhere
 does, each asking as it would; and the phone decides approvals, any chat's,
 as the dashboard and Discord do. A phone answers a call it does not know
@@ -215,6 +217,59 @@ the frame, as the dashboard holds it. The device opens nothing outside
 itself: there are no links off an artifact to open. What a device had open
 is forgotten when it leaves its line. Every other device kind's asks go
 unanswered.
+
+**The dashboard's pages.** A phone's pages (Inbox, Projects, Artifacts,
+Blobs, Files, Memory, Runs, Overview) ask the dashboard's own routes, and
+the dashboard's own handler answers, as the owner, with no token (the
+phone is proved on its line) and no Origin. The phone asks with the event
+`dashboard.request` (`{ "call": 1, "method": "GET" | "POST", "path":
+"/api/...", "query"?: { "<key>": "<string>" }, "body"?: { ... } }`), and
+KOS answers by calling `dashboard.reply` with one of:
+
+- `{ "call", "status", "body" }`: the route's JSON, its own 4xx errors too;
+- `{ "call", "status", "type", "data" }`: the route answered bytes, `type`
+  their content type and `data` their base64 (a picture, a PDF, an export);
+- `{ "call", "error" }`: refused in words before the route was asked, or
+  the route failed.
+
+The reads, each with the query keys it takes and no other:
+
+- `/api/home`, `/api/inbox`, `/api/approvals`, `/api/approvals/history`
+  (`before`, `status`, `q`, `limit`), `/api/approvals/history/counts`,
+  `/api/approvals/<digits>`;
+- `/api/projects`, `/api/projects/<slug>/detail`;
+- `/api/artifacts` (`trashed`), `/api/artifacts/<id>/export` (`format`,
+  `tab`, `theme`; bytes, which the phone shares);
+- `/api/agents`, `/api/conversations/<id>/messages` (which marks the chat
+  read, as opening it on the dashboard does);
+- `/api/files`, `/api/file`, `/api/file/text`, `/api/file/raw` (a picture's
+  bytes), `/api/file/view` (a PDF's bytes), each `path`;
+- `/api/memory` (`limit`), `/api/memory/trace` (`key`);
+- `/api/runs` (`limit`, `failed`), `/api/crons`.
+
+And the actions, `POST`, each with exactly its body: `/api/approve` (`{
+"id": 41, "remember"?: true }`), `/api/deny` (`{ "id": 41 }`),
+`/api/crons/run` (`{ "id": 3 }`), `/api/crons/enable` (`{ "id": 3,
+"enabled": false }`, pause and resume) and `/api/artifacts/<id>/restore`
+(`{}`, out of the trash). An approval is not decided through the handler:
+it is decided as `chat.decide` decides one, the phone as its decider, so it
+settles everywhere as a phone's decision does, and answers `{ "id",
+"approved", "outcome"? }`. Every action is written to the audit log as
+`device.dashboard`, with the device, the method, the path and the body.
+Nothing else is asked, read or write.
+
+- The path is matched whole. A segment is never `.` or `..`, empty, or
+  longer than 160 characters; the path holds no `%`, `\`, `?`, `#` or NUL
+  and is at most 512 characters. `<digits>` is digits, `<slug>` a
+  project's slug, `<id>` an artifact's (`ARTIFACT_ID_RE`) or a chat's as
+  KOS makes them (`c…:owner`, `project:garden`, `agent:scout`, `cron:1`).
+- A query value is a string of at most 1024 characters. A file's `path`
+  that is absolute or steps up (`..`) is refused before the route is
+  asked; the route's own jail is the fence.
+- An answer of more than 8 MB as JSON, the base64 in it, is refused in
+  words. Four asks are on the way from a phone at once; a fifth is refused
+  in words.
+- Phones only: every other device kind's asks go unanswered.
 
 **Files with the words.** A device's frames over the Wi-Fi are at most
 512 KB, so each file the owner sends with their words comes first, in
