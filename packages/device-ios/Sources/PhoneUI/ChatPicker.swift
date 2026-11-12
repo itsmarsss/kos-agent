@@ -19,6 +19,8 @@ struct ChatPicker: View {
 
   /// How many artifacts the picker offers: the last few, under the new chat, so the chats stay in reach.
   static let artifactsShown = 3
+  /// Every artifact KOS listed, in place of the chats, with a way back.
+  @State var showingAll = false
 
   /// The chats by where they live: KOS first, then each project, then each blob, in the order KOS gave them.
   static func groups(_ chats: [ChatModel.Pick]) -> [(title: String, kind: String?, chats: [ChatModel.Pick])] {
@@ -58,6 +60,14 @@ struct ChatPicker: View {
   }
 
   var body: some View {
+    if showingAll {
+      AllArtifacts(shelf: shelf, now: now, back: { showingAll = false }, read: read)
+    } else {
+      chats
+    }
+  }
+
+  private var chats: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 16) {
         Text("Chats").font(.kos(.title, .semibold))
@@ -75,16 +85,19 @@ struct ChatPicker: View {
           KOSSection("Recent artifacts") {
             Card(padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), spacing: 0) {
               ForEach(shelf.recent.prefix(Self.artifactsShown)) { item in
-                MenuRow(height: 48, action: { read(item) }) { _ in
+                ArtifactRow(item: item, now: now) { read(item) }
+              }
+              if shelf.recent.count > Self.artifactsShown {
+                MenuRow(height: 48, action: { showingAll = true }) { _ in
                   HStack(spacing: 10) {
-                    Tile(ArtifactKindMark.symbol(item.kind), tint: Theme.violet, small: true)
-                    Text(item.title).font(.kos(.body)).lineLimit(1).truncationMode(.tail)
+                    Tile("square.grid.2x2", tint: Theme.muted, small: true)
+                    Text("All artifacts").font(.kos(.body))
                     Spacer(minLength: 8)
-                    Text(ChatTime.relative(Date(timeIntervalSince1970: item.updatedAt / 1000), now: now)).font(.kos(.tiny)).monospacedDigit().foregroundStyle(Theme.faint)
+                    Text("\(shelf.recent.count)").font(.kos(.tiny)).monospacedDigit().foregroundStyle(Theme.faint)
+                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.faint)
                   }
                 }
-                .accessibilityLabel("\(ArtifactKindMark.word(item.kind)): \(item.title)")
-                .accessibilityHint("Opens it to read")
+                .accessibilityLabel("All artifacts, \(shelf.recent.count)")
               }
             }
           }
@@ -107,6 +120,77 @@ struct ChatPicker: View {
                 }
                 .accessibilityLabel("\(pick.title)\(pick.id == chat.conversation ? ", shown" : "")")
               }
+            }
+          }
+        }
+      }
+      .padding(.horizontal, 20)
+      .padding(.top, 24)
+      .padding(.bottom, 20)
+    }
+    .background(Theme.panel)
+  }
+}
+
+/// One artifact to open, as the chats sheet and the full list draw it: its kind's mark, its title and its age.
+struct ArtifactRow: View {
+  let item: ArtifactItem
+  let now: Date
+  let open: () -> Void
+
+  var body: some View {
+    MenuRow(height: 48, action: open) { _ in
+      HStack(spacing: 10) {
+        Tile(ArtifactKindMark.symbol(item.kind), tint: Theme.violet, small: true)
+        Text(item.title).font(.kos(.body)).lineLimit(1).truncationMode(.tail)
+        Spacer(minLength: 8)
+        Text(ChatTime.relative(Date(timeIntervalSince1970: item.updatedAt / 1000), now: now)).font(.kos(.tiny)).monospacedDigit().foregroundStyle(Theme.faint)
+      }
+    }
+    .accessibilityLabel("\(ArtifactKindMark.word(item.kind)): \(item.title)")
+    .accessibilityHint("Opens it to read")
+  }
+}
+
+/// Every artifact KOS listed, the latest changed first, under when each was changed: today, this week, earlier.
+struct AllArtifacts: View {
+  @ObservedObject var shelf: ArtifactShelf
+  let now: Date
+  let back: () -> Void
+  let read: (ArtifactItem) -> Void
+
+  /// The artifacts by how long ago they changed, in KOS's order within each.
+  static func groups(_ items: [ArtifactItem], now: Date, calendar: Calendar = .current) -> [(title: String, items: [ArtifactItem])] {
+    let today = calendar.startOfDay(for: now)
+    let week = calendar.date(byAdding: .day, value: -6, to: today) ?? today
+    let sorted = items.sorted { $0.updatedAt > $1.updatedAt }
+    let at = { (i: ArtifactItem) in Date(timeIntervalSince1970: i.updatedAt / 1000) }
+    return [
+      ("Today", sorted.filter { at($0) >= today }),
+      ("This week", sorted.filter { at($0) < today && at($0) >= week }),
+      ("Earlier", sorted.filter { at($0) < week }),
+    ].filter { !$0.1.isEmpty }
+  }
+
+  var body: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 16) {
+        HStack(spacing: 6) {
+          // A thumb's 44 points, though it is drawn beside the title, as the sheet's other titles sit.
+          Button(action: back) {
+            Image(systemName: "chevron.left").font(.kos(.title, .semibold)).foregroundStyle(Theme.accent)
+              .frame(width: 22, height: 44, alignment: .leading)
+              .contentShape(Rectangle().inset(by: -11))
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Back to the chats")
+          Text("Artifacts").font(.kos(.title, .semibold))
+        }
+        .padding(.top, -10)
+        ForEach(Self.groups(shelf.recent, now: now), id: \.title) { group in
+          KOSSection(group.title) {
+            Card(padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), spacing: 0) {
+              ForEach(group.items) { item in ArtifactRow(item: item, now: now) { read(item) } }
             }
           }
         }

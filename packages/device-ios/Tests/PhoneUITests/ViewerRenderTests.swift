@@ -77,9 +77,9 @@ extension RenderTests {
   }
 
   /// The frame's place in the viewer, at this phone's size: laid out once with nothing in it, and measured.
-  func frameSize(_ shelf: ArtifactShelf, phone: CGSize, deck: DeckRemote?) -> CGSize {
+  func frameSize(_ shelf: ArtifactShelf, phone: CGSize, deck: DeckRemote?, landscape: Bool = false) -> CGSize {
     let probe = SizeProbe()
-    let host = NSHostingView(rootView: PhoneFrame(size: phone) {
+    let host = NSHostingView(rootView: PhoneFrame(size: phone, landscape: landscape) {
       ArtifactScreen(shelf: shelf, close: {}, deck: deck) { _, _, _ in
         GeometryReader { box in Color.clear.onAppear { probe.size = box.size } }
       }
@@ -92,9 +92,10 @@ extension RenderTests {
     return probe.size
   }
 
-  private func viewer(_ kind: String, steps: Int = 0) async throws {
+  private func viewer(_ kind: String, steps: Int = 0, landscape: Bool = false) async throws {
     let fixture = try Self.fixture(kind)
-    for phone in Self.phones {
+    let phones = landscape ? Self.phones.map { ($0.name, CGSize(width: $0.size.height, height: $0.size.width)) } : Self.phones
+    for phone in phones {
       for theme in ["dark", "light"] {
         let dark = theme == "dark"
         let shelf = ArtifactShelf()
@@ -104,11 +105,14 @@ extension RenderTests {
           ArtifactOpened(
             id: fixture.id, title: fixture.title, kind: kind, place: ChatPlace(kind: "project", name: "Garden"),
             updatedAt: (Date().timeIntervalSince1970 - 2 * 3600) * 1000, document: artifact.document, themes: fixture.themes, theme: theme))
-        let deck = kind == "deck" ? DeckRemote(place: .init(index: steps, count: 4)) : nil
-        let size = frameSize(shelf, phone: phone.size, deck: deck)
-        #expect(size.width == phone.size.width - 2 * ArtifactScreen<Color>.gutter, "the \(kind) does not take the phone's width in the dashboard's gutter")
+        // Upright a deck reads as a column, as its runtime lays it out on a phone; on its side, a slide at a time.
+        let deck = kind == "deck" ? DeckRemote(place: .init(index: steps, count: 4, reading: !landscape)) : nil
+        let size = frameSize(shelf, phone: phone.1, deck: deck, landscape: landscape)
+        if !landscape {
+          #expect(size.width == phone.1.width - 2 * ArtifactScreen<Color>.gutter, "the \(kind) does not take the phone's width in the dashboard's gutter")
+        }
         let image = try await picture(artifact, size: size, steps: steps)
-        try draw("artifact-\(kind)", phone: phone, theme: theme) {
+        try draw("artifact-\(kind)\(landscape ? "-landscape" : "")", phone: (phone.0, phone.1), theme: theme, landscape: landscape) {
           ArtifactScreen(shelf: shelf, close: {}, deck: deck) { _, _, _ in
             Image(nsImage: image).resizable().frame(width: size.width, height: size.height)
           }
@@ -122,8 +126,12 @@ extension RenderTests {
     try await viewer("doc")
   }
 
-  @Test func aDeckSlideBySlide() async throws {
-    try await viewer("deck", steps: 1)
+  @Test func aDeckReadAsAColumnUpright() async throws {
+    try await viewer("deck")
+  }
+
+  @Test func aDeckSlideBySlideOnItsSide() async throws {
+    try await viewer("deck", steps: 1, landscape: true)
   }
 
   @Test func aSheetThatScrollsSideways() async throws {
@@ -163,10 +171,27 @@ extension RenderTests {
       .init(id: "c3", title: "Bed layout", updated: now.addingTimeInterval(-26 * 3600), place: .project("Garden")),
     ])
     let ms = now.timeIntervalSince1970 * 1000
-    phone.artifacts.received(try JSONDecoder().decode(ArtifactList.self, from: Data(#"{"artifacts":[{"id":"garden-doc","title":"Beds for the new season","kind":"doc","updatedAt":\#(ms - 2 * 3_600_000)},{"id":"garden-deck","title":"Garden plan","kind":"deck","updatedAt":\#(ms - 26 * 3_600_000)},{"id":"garden-sheet","title":"Garden costs","kind":"sheet","updatedAt":\#(ms - 3 * 86_400_000)},{"id":"older","title":"Older one","kind":"page","updatedAt":1}]}"#.utf8)))
+    phone.artifacts.received(try JSONDecoder().decode(ArtifactList.self, from: Data(#"{"artifacts":[{"id":"garden-doc","title":"Beds for the new season","kind":"doc","updatedAt":\#(ms - 2 * 3_600_000)},{"id":"garden-deck","title":"Garden plan","kind":"deck","updatedAt":\#(ms - 26 * 3_600_000)},{"id":"garden-sheet","title":"Garden costs","kind":"sheet","updatedAt":\#(ms - 3 * 86_400_000)},{"id":"watering","title":"Watering schedule","kind":"sheet","updatedAt":\#(ms - 20 * 60_000)},{"id":"seed-order","title":"Seed order","kind":"doc","updatedAt":\#(ms - 9 * 86_400_000)},{"id":"compost","title":"Compost log","kind":"page","updatedAt":\#(ms - 30 * 86_400_000)}]}"#.utf8)))
     try render("chats-artifacts") {
       SheetOver(height: 0.8) { ChatScreen(phone: phone) } sheet: { ChatPicker(chat: phone.chat, shelf: phone.artifacts) { _ in } read: { _ in } }
     }
+    try render("artifacts-all") {
+      SheetOver(height: 0.8) { ChatScreen(phone: phone) } sheet: { AllArtifacts(shelf: phone.artifacts, now: now, back: {}) { _ in } }
+    }
+  }
+
+  @Test func allTheArtifactsByWhenTheyChanged() throws {
+    let day = 86_400_000.0
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let ms = now.timeIntervalSince1970 * 1000
+    let items = [("b", ms - 3 * day), ("a", ms - 60_000), ("c", ms - 20 * day), ("d", ms - 2 * 3_600_000)].map {
+      ArtifactItem(id: $0.0, title: $0.0, kind: "doc", updatedAt: $0.1)
+    }
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "UTC")!
+    let groups = AllArtifacts.groups(items, now: now, calendar: calendar)
+    #expect(groups.map(\.title) == ["Today", "This week", "Earlier"])
+    #expect(groups.map { $0.items.map(\.id) } == [["a", "d"], ["b"], ["c"]])
   }
 
   /// A photo of a receipt: a pale slip with lines on a dark table.
