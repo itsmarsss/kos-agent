@@ -67,6 +67,29 @@ export function keyColumn(columns: readonly SheetColumn[], totals: SheetTab["tot
   return figure >= 0 ? figure : columns.findIndex((c, i) => i >= freeze && c.type === "currency");
 }
 
+/** How long a sideways scroll is still before the grid is at rest. */
+const REST_MS = 140;
+
+/**
+ * At rest, no column shows in part: one the held key figure covers only some
+ * of is drawn blank (its lines kept), so the grid reads as whole columns, the
+ * one under the key waiting to be scrolled to. A clipped "$18" at the edge
+ * read as a broken sheet. With no edge given, every column shows again.
+ */
+export function markUnder(table: HTMLTableElement, edge: number | undefined): void {
+  const head = table.tHead?.rows[0];
+  if (!head) return;
+  const under = new Set<number>();
+  if (edge !== undefined) {
+    [...head.cells].forEach((th, i) => {
+      if (th.classList.contains("key") || th.classList.contains("rownum") || th.classList.contains("lead")) return;
+      const box = th.getBoundingClientRect();
+      if (box.left < edge - 0.5 && box.right > edge + 0.5) under.add(i);
+    });
+  }
+  for (const row of table.rows) [...row.cells].forEach((cell, i) => cell.classList.toggle("under", under.has(i)));
+}
+
 /** A row opened on a phone, as the sheet tells the app around it, which draws it as a sheet of its own. */
 export interface RowReport {
   __kos: "row";
@@ -352,7 +375,7 @@ class Sheet {
     const err = this.loaded.get(t)?.error;
     if (err) parts.push(el("p", { class: "sheet-error", role: "alert" }, `The rows could not be read: ${err}`));
     const scroll = el("div", { class: "sheet-scroll" });
-    scroll.addEventListener("scroll", () => this.markHeld(), { passive: true });
+    scroll.addEventListener("scroll", () => this.slid(), { passive: true });
     parts.push(scroll);
     if (this.book.charts?.length) parts.push(el("div", { class: "sheet-charts" }));
     this.root.replaceChildren(...parts);
@@ -446,21 +469,35 @@ class Sheet {
     if (!scroll) return;
     const more = Math.ceil(scroll.scrollLeft + scroll.clientWidth) < scroll.scrollWidth - 1;
     const right = scroll.getBoundingClientRect().left + scroll.clientLeft + scroll.clientWidth;
-    scroll.classList.toggle("held", more && !!key && key.right >= right - 1);
+    const held = more && !!key && key.right >= right - 1;
+    scroll.classList.toggle("held", held);
     scroll.classList.toggle("at-start", scroll.scrollLeft <= 0);
+    // A column comes to rest just after the ones that stay put, not under them: where the first that slides starts.
+    // The row numbers' head is a resting place too, so the grid's start is always one.
+    const first = scroll.querySelector<HTMLElement>(".sheet-grid thead th:not(.rownum):not(.lead):not(.key)");
+    if (first) scroll.style.setProperty("--sheet-lead-end", `${first.offsetLeft}px`);
+    const table = scroll.querySelector<HTMLTableElement>(".sheet-grid");
+    if (table) markUnder(table, held && key ? key.left : undefined);
+  }
+
+  /** The grid moved sideways: nothing is hidden while it moves, and once it rests, what the key covers in part goes. */
+  private slid(): void {
+    const table = this.root.querySelector<HTMLTableElement>(".sheet-grid");
+    if (table) markUnder(table, undefined);
+    clearTimeout(this.resting);
+    this.resting = setTimeout(() => this.markHeld(), REST_MS);
   }
 
   /**
    * Whether a press on a row opens it with every field labelled: anywhere on
-   * a phone, where the grid only reads; at a narrow width, anywhere on a row
-   * the owner cannot edit here, else only on its first column, so a press on
-   * any other cell still picks it to type in.
+   * a phone, where the grid only reads; at a narrow width, only a sheet the
+   * owner cannot edit here, so a press on an editable one, its first column
+   * too, still picks the cell to type in.
    */
   private opensRow(target: EventTarget | null): boolean {
     if (!(target instanceof Element) || target.closest("button, input")) return false;
     if (onPhone()) return true;
-    if (!globalThis.matchMedia?.(PHONE_QUERY)?.matches) return false;
-    return !this.editable(this.tab) || target.closest("td.lead") !== null;
+    return !!globalThis.matchMedia?.(PHONE_QUERY)?.matches && !this.editable(this.tab);
   }
 
   /** Open a row: told to the phone's app, which draws it, else drawn here, over the grid's foot. */
@@ -478,6 +515,9 @@ class Sheet {
   }
 
   /** Pin the frozen columns of the grid drawn now, at the widths it has now. */
+  /** The wait after the grid last moved before it counts as at rest. */
+  private resting: ReturnType<typeof setTimeout> | undefined;
+
   private pin(): void {
     const table = this.root.querySelector<HTMLTableElement>(".sheet-grid");
     if (table) pinColumns(table);

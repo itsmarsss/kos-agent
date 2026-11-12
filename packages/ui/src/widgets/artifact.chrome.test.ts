@@ -820,7 +820,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await sheetPage("/sheet", `<h1>The year</h1>${data}<div style="display:flex;gap:12px"><section>${data}</section></div>`, { grids });
     type Probe = { page: number; view: number; grids: { wide: number; box: number; scrolled: number; held: boolean }[] };
     // Until both grids are laid out and their frozen columns pinned, a load the probe can beat on a slow runner; bounded by ask.
-    const probe = await ask<Probe>("grids", (p) => p.grids.length === 2 && p.grids.every((g) => g.wide > g.box && g.scrolled === 400 && g.held));
+    const probe = await ask<Probe>("grids", (p) => p.grids.length === 2 && p.grids.every((g) => g.wide > g.box && g.scrolled > 0 && g.held));
     expect(probe.view).toBe(390);
     expect(probe.page).toBeLessThanOrEqual(probe.view);
     expect(probe.grids).toHaveLength(2);
@@ -828,7 +828,8 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       // The sheet has no gutter of its own (the dashboard's column gives it one), so its box may fill the view, never pass it.
       expect(grid.box).toBeLessThanOrEqual(probe.view);
       expect(grid.wide).toBeGreaterThan(grid.box);
-      expect(grid.scrolled).toBe(400);
+      // Scrolled, it rests on a whole column near where it was sent.
+      expect(Math.abs(grid.scrolled - 400)).toBeLessThan(120);
       expect(grid.held).toBe(true);
     }
     await send("Emulation.clearDeviceMetricsOverride");
@@ -1049,14 +1050,14 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   }, 30_000);
 
   /*
-   * A press on a row's first column at a phone's width reads it whole (the
-   * others take typing, the sheet being editable here): a sheet up from the
-   * frame's foot, as wide as the frame, each field labelled; Escape closes
-   * it. (Where the focus goes is held in sheet.test.ts: a frame without the
-   * window's focus here takes none.)
+   * A press on a row of a sheet that only reads (an older version shown,
+   * here) at a phone's width reads it whole: a sheet up from the frame's
+   * foot, as wide as the frame, each field labelled; Escape closes it. An
+   * editable sheet takes the press as a cell to type in (sheet.test.ts, as is
+   * where the focus goes: a frame without the window's focus here takes none.)
    */
   it("opens a pressed row whole at a phone's width, and Escape closes it", async () => {
-    const press = `() => { const cell = document.querySelector('.sheet-grid tbody tr[data-row="2"] td[data-col="0"]'); cell.click(); const box = document.querySelector(".sheet-detail-box"); if (!box) return null; const r = box.getBoundingClientRect(); return { left: r.left, right: r.right, bottom: r.bottom, view: innerWidth, high: innerHeight, title: box.getAttribute("aria-label"), labels: [...box.querySelectorAll("dt")].map((d) => d.textContent) }; }`;
+    const press = `() => { document.documentElement.setAttribute("data-locked", ""); const cell = document.querySelector('.sheet-grid tbody tr[data-row="2"] td[data-col="0"]'); cell.click(); const box = document.querySelector(".sheet-detail-box"); if (!box) return null; const r = box.getBoundingClientRect(); return { left: r.left, right: r.right, bottom: r.bottom, view: innerWidth, high: innerHeight, title: box.getAttribute("aria-label"), labels: [...box.querySelectorAll("dt")].map((d) => d.textContent) }; }`;
     const escape = `() => { document.querySelector(".sheet-detail-box button")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return !!document.querySelector(".sheet-detail"); }`;
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await sheetPage("/row", `<h1>October</h1>${sheetData(paid())}`, { press, escape });

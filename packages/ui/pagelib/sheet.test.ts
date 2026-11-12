@@ -2,7 +2,7 @@
 import type { SheetBook } from "@kos/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ROW_FIELDS_MAX, ROW_VALUE_MAX, SAVE_DELAY_MS, SAVE_GAP_MS, cellFromInput, keyColumn, readBook, rowReport, startSheets, viewRows } from "./sheet.js";
+import { ROW_FIELDS_MAX, ROW_VALUE_MAX, SAVE_DELAY_MS, SAVE_GAP_MS, cellFromInput, keyColumn, markUnder, readBook, rowReport, startSheets, viewRows } from "./sheet.js";
 
 const BOOK: SheetBook = {
   sheets: [
@@ -164,6 +164,21 @@ describe("kos-sheet in a page", () => {
       expect(document.activeElement).toBe(cell);
     } finally {
       vi.unstubAllGlobals();
+    }
+  });
+
+  it("at a narrow width, an editable sheet's first column still picks the cell to type in", () => {
+    vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("max-width"), addEventListener: () => undefined }));
+    (window as { kos?: unknown }).kos = { save: vi.fn().mockResolvedValue({ version: 2 }) };
+    try {
+      const root = mount();
+      const cell = root.querySelector<HTMLElement>('tbody tr[data-row="1"] td[data-col="0"]')!;
+      cell.click();
+      expect(root.querySelector(".sheet-detail")).toBeNull();
+      expect(cell.classList.contains("focus")).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+      delete (window as { kos?: unknown }).kos;
     }
   });
 
@@ -618,5 +633,38 @@ describe("pasting, importing, and changing the shape", () => {
     undo.click();
     expect(root.querySelector('.sheet-tabs [aria-selected="true"]')!.textContent).toBe("Expenses");
     expect(cells(root)[0]![1]).toBe("Groceries");
+  });
+});
+
+describe("a held grid at rest", () => {
+  /** A head of the row numbers, the first column, three that slide and the key, each this wide, laid end to end. */
+  function grid(widths: number[]): HTMLTableElement {
+    const table = document.createElement("table");
+    const classes = ["rownum", "lead", "", "", "", "key"];
+    for (const part of ["thead", "tbody"]) {
+      const row = table.createTHead && part === "thead" ? table.createTHead().insertRow() : table.createTBody().insertRow();
+      let left = 0;
+      widths.forEach((w, i) => {
+        const cell = row.insertCell();
+        if (classes[i]) cell.classList.add(classes[i]!);
+        const at = left;
+        cell.getBoundingClientRect = () => ({ left: at, right: at + w, width: w }) as DOMRect;
+        left += w;
+      });
+    }
+    return table;
+  }
+
+  it("blanks the one column the key covers in part, and shows it again once the grid moves", () => {
+    const table = grid([30, 100, 80, 60, 70, 80]);
+    markUnder(table, 300);
+    const under = (row: number) => [...table.rows[row]!.cells].map((c) => c.classList.contains("under"));
+    expect(under(0)).toEqual([false, false, false, false, true, false]);
+    expect(under(1)).toEqual([false, false, false, false, true, false]);
+    markUnder(table, 340);
+    expect(under(0).every((u) => !u)).toBe(true);
+    markUnder(table, 300);
+    markUnder(table, undefined);
+    expect(under(1).every((u) => !u)).toBe(true);
   });
 });

@@ -155,6 +155,12 @@ export const SHEET_CSS = String.raw`
   .sheet-grid thead th.rownum, .sheet-grid thead th.lead, .sheet-grid tfoot th.rownum, .sheet-grid tfoot td.lead { z-index: 4; }
   .sheet-grid .frozen:not(.lead) { left: auto !important; }
   .sheet-grid .frozen-edge:not(.lead) { box-shadow: none; }
+  /* Sideways it comes to rest on a whole column after the ones that stay put, and a column the key covers only in part is drawn blank (markUnder). */
+  .sheet-scroll { scroll-snap-type: x mandatory; scroll-padding-left: var(--sheet-lead-end, 0px); }
+  .sheet-grid thead th:not(.lead):not(.key) { scroll-snap-align: start; }
+  .sheet-grid .under, .sheet-grid .under * { color: transparent !important; }
+  /* Its head keeps a quiet mark that more columns lie that way. */
+  .sheet-grid thead th.under::after { content: "\203A"; color: var(--faint, var(--muted)) !important; font: 600 15px / 1 var(--font-ui); position: absolute; left: 8px; top: 50%; transform: translateY(-55%); }
   /* The key figure holds at the right edge over what it has not reached yet, its shadow saying the columns slide under it. */
   .sheet-grid .key { position: sticky; right: 0; z-index: 1; }
   .sheet-grid thead th.key, .sheet-grid tfoot td.key { z-index: 3; }
@@ -215,8 +221,8 @@ export const SHEET_CSS = String.raw`
 :where(:root[data-surface="phone"]) .sheet-grid .key { box-shadow: none; }
 :where(:root[data-surface="phone"]) .sheet-grid .lead { box-shadow: none; }
 :where(:root[data-surface="phone"]) .sheet-scroll:not(.at-start) .sheet-grid .lead { box-shadow: -1px 0 0 var(--bg), 1px 0 0 var(--line); }
-/* What slides under the held key figure fades into the ground at its edge rather than stopping cut, so it reads as going on beneath. */
+/* The held key figure has a clear edge, and what slides under it fades into the ground there rather than stopping cut. */
 :where(:root[data-surface="phone"]) .sheet-scroll.held .sheet-grid .key { box-shadow: -1px 0 0 var(--line); }
-:where(:root[data-surface="phone"]) .sheet-scroll.held .sheet-grid .key::before { width: 20px; background: linear-gradient(to left, var(--bg), color-mix(in srgb, var(--bg) 0%, transparent)); }
+:where(:root[data-surface="phone"]) .sheet-scroll.held .sheet-grid .key::before { width: 20px; background: linear-gradient(to left, var(--bg), color-mix(in srgb, var(--bg) 0%, transparent)); border-right: 1px solid var(--line-strong, var(--line)); }
 :where(:root[data-surface="phone"]) .sheet-tabs { margin-inline: -16px; padding-inline: 12px; }
 `;
