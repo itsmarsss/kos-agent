@@ -47,18 +47,32 @@ describe("the Wi-Fi certificate", () => {
     expect(readFileSync(path, "utf8")).toContain("BEGIN PRIVATE KEY");
   });
 
-  it("narrows a kept file and its folder others can read to the owner alone", () => {
+  it("narrows a kept file, and KOS's own folder, that others can read to the owner alone", () => {
     dir = mkdtempSync(join(tmpdir(), "kos-lan-"));
-    const folder = join(dir, "kos");
-    const path = join(folder, "device-lan.pem");
+    const home = join(dir, "kos");
+    const path = join(home, "device-lan.pem");
     const made = makeLanCert(Date.now());
-    mkdirSync(folder, { mode: 0o755 });
-    chmodSync(folder, 0o755);
-    writeFileSync(path, `${made.key}${made.cert}`, { mode: 0o644 });
+    mkdirSync(home);
+    chmodSync(home, 0o755);
+    writeFileSync(path, `${made.key}${made.cert}`);
     chmodSync(path, 0o644);
-    expect(loadLanCert(path).pin).toBe(made.pin);
+    expect(loadLanCert(path, Date.now, home).pin).toBe(made.pin);
     expect(statSync(path).mode & 0o777).toBe(0o600);
-    expect(statSync(folder).mode & 0o777).toBe(0o700);
+    expect(statSync(home).mode & 0o777).toBe(0o700);
+  });
+
+  it("leaves another folder the host names as it is, and refuses one others can write to", () => {
+    const root = (dir = mkdtempSync(join(tmpdir(), "kos-lan-")));
+    const theirs = join(root, "theirs");
+    mkdirSync(theirs);
+    chmodSync(theirs, 0o755);
+    loadLanCert(join(theirs, "lan.pem"), Date.now, join(root, "kos"));
+    expect(statSync(theirs).mode & 0o777).toBe(0o755);
+    const shared = join(root, "shared");
+    mkdirSync(shared);
+    chmodSync(shared, 0o777);
+    expect(() => loadLanCert(join(shared, "lan.pem"), Date.now, join(root, "kos"))).toThrow(/others can write to/);
+    expect(statSync(shared).mode & 0o777).toBe(0o777);
   });
 
   it("refuses a kept file that holds no certificate, rather than making a new one", () => {

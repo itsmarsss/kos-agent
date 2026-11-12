@@ -193,7 +193,8 @@ device socket alone.
   IPv4-mapped forms) is dropped before TLS.
 - **TLS only, pinned.** KOS makes its own ECDSA P-256 key and a self-signed
   certificate once, kept outside the workspace with the device host key
-  (`~/.kos/device-lan.pem`, mode 0600; `KOS_DEVICE_LAN_CERT_FILE` moves it).
+  (`~/.kos/device-lan.pem`, mode 0600; `KOS_DEVICE_LAN_CERT_FILE` moves it,
+  to a folder others cannot write to).
   A phone never trusts it; it pins it. The pin is the SHA-256 of the
   certificate's DER, base64url without padding. Its words are the hash's
   first 16 hex digits in four groups (`4F2A 91C3 77D0 1B5E`), for the owner

@@ -1,6 +1,7 @@
 import { createHash, createPublicKey, generateKeyPairSync, randomBytes, sign, type KeyObject } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 
 /**
  * The certificate the Wi-Fi listener serves TLS with.
@@ -36,25 +37,43 @@ export function pinOf(der: Buffer): { pin: string; words: string } {
   return { pin: hash.toString("base64url"), words: hex.match(/.{4}/g)!.join(" ") };
 }
 
+/** KOS's own folder outside the workspace, where the certificate is kept unless the host says otherwise. */
+export const KOS_HOME = join(homedir(), ".kos");
+
 /**
  * The certificate kept at `path`, made there on first use with only the
  * owner able to read it. A file that does not hold both a key and a
  * certificate is an error, never silently replaced: a new certificate means
  * every phone pairs again.
+ *
+ * Only a folder this made, or KOS's own (`home`), is narrowed to the owner;
+ * any other the host names is the owner's to keep, and one others can write
+ * to is refused, since they could put another certificate in its place.
  */
-export function loadLanCert(path: string, now: () => number = Date.now): LanCert {
+export function loadLanCert(path: string, now: () => number = Date.now, home: string = KOS_HOME): LanCert {
   const dir = dirname(path);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  ownerOnly(dir, 0o700);
-  if (existsSync(path)) {
-    ownerOnly(path, 0o600);
-    return readLanCert(readFileSync(path, "utf8"));
+  const made = mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (made === undefined) {
+    if (resolve(dir) === resolve(home)) ownerOnly(dir, 0o700);
+    else if (statSync(dir).mode & 0o022) throw new Error(`others can write to ${dir}: keep the Wi-Fi certificate in a folder only you can`);
   }
-  const made = makeLanCert(now());
-  // Never over a file that appeared meanwhile: that one is kept, as any is.
-  writeFileSync(path, `${made.key}${made.cert}`, { mode: 0o600, flag: "wx" });
+  if (existsSync(path)) return readKept(path);
+  const fresh = makeLanCert(now());
+  try {
+    writeFileSync(path, `${fresh.key}${fresh.cert}`, { mode: 0o600, flag: "wx" });
+  } catch (err) {
+    // Made meanwhile, by another KOS starting at once: that one is kept, as any is.
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") return readKept(path);
+    throw err;
+  }
   ownerOnly(path, 0o600);
-  return made;
+  return fresh;
+}
+
+/** The kept file, narrowed to the owner first if others could read it. */
+function readKept(path: string): LanCert {
+  ownerOnly(path, 0o600);
+  return readLanCert(readFileSync(path, "utf8"));
 }
 
 /** Narrows a path to `mode` when others can reach it; never widens it. */
