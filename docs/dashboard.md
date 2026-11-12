@@ -216,7 +216,12 @@ nothing was done. Each card says when it lapses.
 An approval is a reference like anything else: `@approval:290` in a chat
 is a chip that opens it here, and the Inbox keeps every approval after it
 is decided, approved, denied or lapsed, with who decided and when, so the
-link still lands.
+link still lands. Decided comes last, under everything still waiting: the
+latest five, one line each, older ones a page at a time (Load older),
+filtered by outcome with each one counted, and searched once there are
+many; a row opens to its tool, times and the chat, and a link to one reads
+it on its own if it is older and opens it. The page reads the history
+again only when something new is decided, not on every refresh.
 
 An ask says what it would do in words, with names beside the ids (the
 channel as #leetcode, the project by its name, the job by its name), and
@@ -309,7 +314,12 @@ The workspace as a browser. Folders, files with a preview, filter and sort.
 
 ## Memory
 
-Six tabs. See [memory.md](memory.md) for what each holds.
+Six tabs under one head. See [memory.md](memory.md) for what each holds.
+Claims are listed by where they apply (everywhere, then each project and
+blob), a row each: the claim's words on one line, its key, tags and age
+under them, pinned ones marked and first. Search, a kind or Pinned, and a
+tag narrow the list; a scope shows eight, the rest a press away. Pin, Edit
+and Forget sit on a row under the pointer; a row opens the whole claim.
 
 ## Runs
 

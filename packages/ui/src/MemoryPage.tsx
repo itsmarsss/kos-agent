@@ -4,6 +4,8 @@ import { Chips, Empty, Pill, Switch, Tag } from "@kos/kit";
 
 import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
+import { useEdgeFade } from "./edgefade.js";
+import { PageHead } from "./PageHead.js";
 
 /**
  * Memory, in one place.
@@ -17,22 +19,25 @@ import { KnowledgePage } from "./KnowledgePage.js";
 type Tab = "claims" | "decisions" | "pages" | "log" | "jobs" | "callers";
 
 const TABS: { id: Tab; label: string; blurb: string }[] = [
-  { id: "claims", label: "Claims", blurb: "what KOS believes, by scope and tag" },
-  { id: "decisions", label: "Decisions", blurb: "what the dream job could not settle" },
-  { id: "pages", label: "Pages", blurb: "memory in prose, yours to edit" },
-  { id: "log", label: "Log", blurb: "everything said, by words and meaning" },
-  { id: "jobs", label: "Jobs", blurb: "the three that read, tidy and condense" },
-  { id: "callers", label: "Callers", blurb: "other programs, and what each may see" },
+  { id: "claims", label: "Claims", blurb: "What KOS believes, shared by every chat: true everywhere or in one place, each with where it came from." },
+  { id: "decisions", label: "Decisions", blurb: "What the tidy job could not settle on its own, and what was settled." },
+  { id: "pages", label: "Pages", blurb: "Memory in prose, written from the claims and yours to edit." },
+  { id: "log", label: "Log", blurb: "Everything said, searched by words and by meaning." },
+  { id: "jobs", label: "Jobs", blurb: "The three jobs that read, tidy and condense what is said." },
+  { id: "callers", label: "Callers", blurb: "Other programs that share memory, and what each may see." },
 ];
 
 export function MemoryPage({
   facts,
   tags,
   conversations = [],
+  projectNames,
   onChanged,
 }: {
   facts: FactRow[];
   tags: string[];
+  /** Projects by slug, so a project's claims are headed by its name. */
+  projectNames?: ReadonlyMap<string, string>;
   /** So a log row can name the chat it came from rather than show its id. */
   conversations?: Conversation[];
   onChanged: () => void;
@@ -42,25 +47,63 @@ export function MemoryPage({
     const m = /[?&]tab=([a-z]+)/.exec(window.location.hash);
     return (TABS.find((t) => t.id === m?.[1])?.id ?? "claims");
   });
+  const tabsRef = useEdgeFade<HTMLDivElement>();
+  /** The new-claim form, opened from the page head. */
+  const [adding, setAdding] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   useEffect(() => {
     void api.memoryReview().then((r) => setPendingCount(r.pending.length)).catch(() => undefined);
   }, [tab]);
   return (
     <div className="mem">
-      <nav className="mem-tabs" aria-label="Memory">
-        <Chips
-          options={TABS.map((t) => [t.id, <>{t.label}{t.id === "decisions" && pendingCount > 0 && <Pill tone="warn">{pendingCount}</Pill>}</>, t.blurb] as const)}
-          selected={tab}
-          onChoose={setTab}
-        />
-      </nav>
-      {tab === "claims" && <KnowledgePage facts={facts} tags={tags} onChanged={onChanged} />}
+      <PageHead
+        title="Memory"
+        subtitle={TABS.find((t) => t.id === tab)!.blurb}
+        {...(tab === "claims"
+          ? {
+              actions: (
+                <button type="button" className="btn btn--primary" aria-expanded={adding} onClick={() => setAdding((v) => !v)}>
+                  {adding ? "Cancel" : "New claim"}
+                </button>
+              ),
+            }
+          : {})}
+      />
+      <div className="mem-tabs" role="tablist" aria-label="Memory" ref={tabsRef} onKeyDown={(e) => {
+        // The arrows move between tabs, Home and End to the ends; Tab goes on to what the tab shows.
+        const at = TABS.findIndex((t) => t.id === tab);
+        const to = e.key === "ArrowRight" ? at + 1 : e.key === "ArrowLeft" ? at - 1 : e.key === "Home" ? 0 : e.key === "End" ? TABS.length - 1 : null;
+        if (to === null) return;
+        e.preventDefault();
+        const next = TABS[(to + TABS.length) % TABS.length]!;
+        setTab(next.id);
+        e.currentTarget.querySelector<HTMLElement>(`#mem-tab-${next.id}`)?.focus();
+      }}>
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            id={`mem-tab-${t.id}`}
+            type="button"
+            role="tab"
+            className="mem-tab"
+            aria-selected={t.id === tab}
+            aria-controls="mem-panel"
+            tabIndex={t.id === tab ? 0 : -1}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+            {t.id === "decisions" && pendingCount > 0 && <Pill tone="warn">{pendingCount}</Pill>}
+          </button>
+        ))}
+      </div>
+      <div id="mem-panel" role="tabpanel" aria-labelledby={`mem-tab-${tab}`} className="mem-panel">
+      {tab === "claims" && <KnowledgePage facts={facts} tags={tags} adding={adding} onAdding={setAdding} {...(projectNames ? { projectNames } : {})} onChanged={onChanged} />}
       {tab === "decisions" && <DecisionsTab onChanged={onChanged} />}
       {tab === "pages" && <PagesTab />}
       {tab === "log" && <LogTab titles={titles} />}
       {tab === "jobs" && <JobsTab />}
       {tab === "callers" && <CallersTab />}
+      </div>
     </div>
   );
 }
@@ -185,9 +228,6 @@ export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResol
               "."
             )}
           </span>
-          <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={() => decide(lean.action, lean.key)}>
-            Do that
-          </button>
         </div>
       ) : (
         <p className="mem-decision-note">{item.note}</p>
@@ -216,35 +256,45 @@ export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResol
           </li>
         ))}
       </ul>
-      <div className="mem-actions">
+      {/* One row of choices: what KOS leans to first, then the others it did not. */}
+      <div className="mem-actions mem-decision-acts">
+        {lean && (
+          <button type="button" className="btn btn--sm btn--primary" disabled={busy} title="What KOS leans to" onClick={() => decide(lean.action, lean.key)}>
+            {lean.words[0]!.toUpperCase() + lean.words.slice(1)}
+          </button>
+        )}
         {item.kind === "promotion" ? (
           <>
-            <button type="button" className={`btn btn--sm ${lean ? "" : "btn--primary"}`} disabled={busy} onClick={() => decide("promote")}>
-              Yes, make it global
-            </button>
-            <button type="button" className="btn btn--sm" disabled={busy} onClick={() => decide("dismiss")}>
-              No, keep it to the project
-            </button>
+            {lean?.action !== "promote" && (
+              <button type="button" className={`btn btn--sm ${lean ? "" : "btn--primary"}`} disabled={busy} onClick={() => decide("promote")}>
+                Yes, make it global
+              </button>
+            )}
+            {lean?.action !== "dismiss" && (
+              <button type="button" className="btn btn--sm" disabled={busy} onClick={() => decide("dismiss")}>
+                No, keep it to the project
+              </button>
+            )}
           </>
         ) : (
-          <button
-            type="button"
-            className="btn btn--sm"
-            disabled={busy}
-            title="Leave every claim as it is"
-            onClick={() => decide("both")}
-          >
-            {claims.length > 2 ? "All are right, leave them" : "Both are right, leave them"}
-          </button>
+          lean?.action !== "both" && (
+            <button type="button" className="btn btn--sm" disabled={busy} title="Leave every claim as it is" onClick={() => decide("both")}>
+              {claims.length > 2 ? "All are right, leave them" : "Both are right, leave them"}
+            </button>
+          )
         )}
       </div>
     </div>
   );
 }
 
+/** Settled questions shown before "Show all". */
+const SETTLED_FIRST = 5;
+
 function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
   const [pending, setPending] = useState<ReviewItem[]>([]);
   const [recent, setRecent] = useState<ReviewItem[]>([]);
+  const [allSettled, setAllSettled] = useState(false);
   const load = useCallback(() => {
     void api.memoryReview().then((r) => { setPending(r.pending); setRecent(r.recent.filter((i) => i.resolvedAt !== null)); }).catch(() => undefined);
   }, []);
@@ -259,12 +309,33 @@ function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
       </Group>
       {recent.length > 0 && (
         <Group title="Settled">
-          {recent.map((item) => (
-            <div key={item.id} className="mem-row">
-              <Tag>{item.kind}</Tag> <span className="ops-mono">{item.keys.join(" vs ")}</span>
-              <span className="ops-muted"> · {item.resolution} · {item.resolvedAt ? when(item.resolvedAt) : ""}</span>
-            </div>
-          ))}
+          <ul className="mem-settled">
+            {(allSettled ? recent : recent.slice(0, SETTLED_FIRST)).map((item) => (
+              <li key={item.id} className="mem-settled-row" title={item.keys.join(" vs ")}>
+                <Tag>{item.kind}</Tag>
+                <span className="mem-settled-keys">
+                  {item.keys.map((k, i) => {
+                    const slash = k.lastIndexOf("/");
+                    const scope = slash > 0 ? k.slice(0, slash).replace(/^project:/, "") : "";
+                    return (
+                      <span key={k} className="mem-settled-key">
+                        {i > 0 && <span className="mem-settled-vs">vs</span>}
+                        {scope && <span className="mem-scope">{scope}</span>}
+                        {k.slice(slash + 1)}
+                      </span>
+                    );
+                  })}
+                </span>
+                <span className="mem-settled-how">{item.resolution}</span>
+                {item.resolvedAt ? <time className="mem-settled-when">{when(item.resolvedAt)}</time> : null}
+              </li>
+            ))}
+          </ul>
+          {recent.length > SETTLED_FIRST && (
+            <button type="button" className="btn btn--sm btn--ghost mem-settled-more" onClick={() => setAllSettled((v) => !v)}>
+              {allSettled ? "Show fewer" : `Show all ${recent.length}`}
+            </button>
+          )}
         </Group>
       )}
     </>

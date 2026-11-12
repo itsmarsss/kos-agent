@@ -1,37 +1,50 @@
-import { useMemo, useState, type ReactElement } from "react";
+import { useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
 
-import { Chips, Count } from "@kos/kit";
+import { Chips, CloseIcon, Count, EditIcon, Empty, IconButton, PinIcon, SearchIcon, Tag, UnpinIcon } from "@kos/kit";
 
 import { api, type FactRow } from "./api.js";
 import { Drawer } from "./Drawer.js";
+import { useEdgeFade } from "./edgefade.js";
+import { hrefFor } from "./routes.js";
+import { ConfirmButton } from "./kit.js";
+import { agoWords } from "./schedulewords.js";
 import { Select } from "./Select.js";
-import { PageHead } from "./PageHead.js";
-
-/** How long ago, in the words the rest of the dashboard uses. */
-function relative(ts: number): string {
-  const mins = Math.max(1, Math.round((Date.now() - ts) / 60000));
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
-}
 
 /**
- * Knowledge: what KOS and every conversation know.
+ * Claims: what KOS and every conversation know.
  *
- * This used to be a table of preferences, which undersold it. It is the one
- * place state outlives a conversation, so it is shown as what it is: pinned
- * things first, then grouped by tag, each entry saying which conversation
- * wrote it so a wrong belief can be traced to where it came from.
+ * It is the one place state outlives a conversation. It was a card per
+ * claim, three lines of each, under a wall of fifty tag chips, so the page
+ * ran to screens and read as noise. Now it is a list per scope (everywhere,
+ * then each project and blob), a row per claim with its words first and
+ * one quiet line under them, the pinned ones marked and at the head of
+ * their scope, and a filter row that fits on one line: words, kind, tag.
  */
 
 export interface KnowledgePageProps {
   facts: FactRow[];
   tags: string[];
+  /** The new-claim form is open: its button is the page head's, so the page owns this. */
+  adding: boolean;
+  onAdding: (open: boolean) => void;
+  /** Projects by slug from the manifest, so a project's claims are headed by its name; absent until it is read. */
+  projectNames?: ReadonlyMap<string, string>;
   onChanged: () => void;
 }
 
-const UNTAGGED = "untagged";
+/** Rows a scope shows before "Show all". */
+export const SCOPE_FIRST = 8;
+
+/** Who wrote a claim, in a word or two for its row: the drawer says it in full. */
+export function sourceWord(source: string | null | undefined): string | null {
+  if (!source) return null;
+  if (source === "dashboard" || source === "owner") return "you";
+  if (source === "agent") return "KOS";
+  if (source.startsWith("cron:")) return `job #${source.slice("cron:".length)}`;
+  if (source.startsWith("caller:")) return source.slice("caller:".length);
+  if (source.startsWith("project:")) return source.slice("project:".length);
+  return "a chat";
+}
 
 /** A claim's scope, in words. */
 export function describeScope(scope: string | undefined): string {
@@ -52,13 +65,97 @@ export function describeSource(source: string | null | undefined): string {
   return source.replace(/:owner$/, "");
 }
 
-export function KnowledgePage({
-  facts,
-  tags,
-  onChanged,
-}: KnowledgePageProps): ReactElement {
+export interface ScopeGroup {
+  scope: string;
+  title: string;
+  /** What kind of place it is, beside the title: project, blob, caller. */
+  kind: string | null;
+  /** A project's slug, when it is one of the owner's projects now: its heading opens it. */
+  project?: string;
+  /** A project scope whose project is gone or was never made: its slug, shown as one. */
+  unknown?: boolean;
+  facts: FactRow[];
+}
+
+/** Where a scope is, as a heading: everywhere first, then projects, blobs and callers by name. */
+function placeOf(scope: string, names: ReadonlyMap<string, string> | undefined): { title: string; kind: string | null; rank: number; project?: string; unknown?: boolean } {
+  if (scope === "global") return { title: "Everywhere", kind: null, rank: 0 };
+  const blob = /^project:blob:(.+)$/.exec(scope);
+  if (blob) return { title: blob[1]!, kind: "blob", rank: 2 };
+  if (scope.startsWith("project:")) {
+    const slug = scope.slice("project:".length);
+    if (!names) return { title: slug, kind: "project", rank: 1 };
+    const name = names.get(slug);
+    return name ? { title: name, kind: "project", rank: 1, project: slug } : { title: slug, kind: "no such project", rank: 1, unknown: true };
+  }
+  if (scope.startsWith("caller:")) return { title: scope.slice("caller:".length), kind: "caller", rank: 3 };
+  return { title: scope, kind: null, rank: 4 };
+}
+
+/**
+ * One name for each place a claim can be: a blob's claims are written under
+ * either name for it, and a slug passed with its prefix already on it
+ * (`project:project:x`, which memory.remember once minted) is the project x.
+ */
+export function canonicalScope(scope: string | undefined): string {
+  return (scope ?? "global").replace(/^agent:/, "project:blob:").replace(/^(?:project:)+/, "project:");
+}
+
+/** Claims by where they apply, pinned first in each, then the latest. Without the manifest, no project is called missing. */
+export function groupByScope(facts: readonly FactRow[], names?: ReadonlyMap<string, string>): ScopeGroup[] {
+  const byScope = new Map<string, FactRow[]>();
+  for (const f of facts) {
+    const scope = canonicalScope(f.scope);
+    byScope.set(scope, [...(byScope.get(scope) ?? []), f]);
+  }
+  return [...byScope.entries()]
+    .map(([scope, list]) => {
+      const place = placeOf(scope, names);
+      const sorted = [...list].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+      const { rank, ...where } = place;
+      return { group: { scope, ...where, facts: sorted }, rank };
+    })
+    .sort((a, b) => a.rank - b.rank || a.group.title.localeCompare(b.group.title))
+    .map((g) => g.group);
+}
+
+/** "all", "pinned", or one kind of claim. */
+type KindFilter = string;
+
+const KIND_WORDS: Record<string, string> = { fact: "Facts", preference: "Preferences", decision: "Decisions" };
+const FORGET_TEXT = "KOS stops knowing this in every chat. It cannot be undone.";
+
+/**
+ * A claim's row is one stop for Tab: its words open it, and the arrow keys
+ * walk on to Pin, Edit and Forget and back, so a list of forty claims is
+ * forty stops rather than a hundred and sixty.
+ */
+function roveRow(e: KeyboardEvent<HTMLLIElement>): void {
+  if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+  const stops = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("button")];
+  const at = stops.indexOf(document.activeElement as HTMLButtonElement);
+  if (at < 0) return;
+  const next = stops[Math.max(0, Math.min(stops.length - 1, at + (e.key === "ArrowRight" ? 1 : -1)))];
+  if (next && next !== stops[at]) {
+    e.preventDefault();
+    next.focus();
+  }
+}
+
+function splitTags(text: string): string[] {
+  return text
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onChanged }: KnowledgePageProps): ReactElement {
+  const kindsRef = useEdgeFade<HTMLDivElement>(".chips");
   const [query, setQuery] = useState("");
+  const [kind, setKind] = useState<KindFilter>("all");
   const [tag, setTag] = useState<string | null>(null);
+  /** Scopes opened past their first few. */
+  const [whole, setWhole] = useState<ReadonlySet<string>>(() => new Set());
   /** The entry being read in full, which is where its actions live too. */
   const [open, setOpen] = useState<FactRow | null>(null);
   /**
@@ -68,13 +165,26 @@ export function KnowledgePage({
    * wrong one keeps being acted on. Correcting it meant forgetting it and
    * writing a new one from memory, which loses the tags and the key.
    */
-  const [edit, setEdit] = useState<{
-    key: string;
-    value: string;
-    kind: string;
-    tags: string;
-  } | null>(null);
+  const [edit, setEdit] = useState<{ key: string; value: string; kind: string; tags: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [draft, setDraft] = useState<{ key: string; value: string; tags: string }>({ key: "", value: "", tags: "" });
+
+  const startEdit = (f: FactRow): void => {
+    setOpen(f);
+    setEdit({ key: f.key, value: f.value, kind: f.kind, tags: (f.tags ?? []).join(", ") });
+  };
+  const togglePin = (f: FactRow): void => {
+    void api.pinMemory(f.key, !f.pinned).then(() => {
+      setOpen(null);
+      onChanged();
+    });
+  };
+  const forget = (f: FactRow): void => {
+    void api.deleteMemory(f.key).then(() => {
+      setOpen(null);
+      onChanged();
+    });
+  };
 
   async function saveEdit(original: FactRow): Promise<void> {
     if (!edit) return;
@@ -83,16 +193,7 @@ export function KnowledgePage({
     if (!key || !value) return;
     setSaving(true);
     try {
-      const tags = edit.tags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
-      await api.saveMemory(
-        key,
-        value,
-        edit.kind === "preference" ? "preference" : "fact",
-        tags,
-      );
+      await api.saveMemory(key, value, edit.kind === "preference" ? "preference" : "fact", splitTags(edit.tags));
       /*
        * A changed key is a new entry, so the old one has to go.
        *
@@ -107,171 +208,191 @@ export function KnowledgePage({
       setSaving(false);
     }
   }
-  const [draft, setDraft] = useState<{ key: string; value: string; tags: string }>({
-    key: "",
-    value: "",
-    tags: "",
-  });
-  const [adding, setAdding] = useState(false);
-
-  const { pinned, groups } = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const matched = facts.filter((f) => {
-      if (tag && !(f.tags ?? []).includes(tag)) return false;
-      if (!q) return true;
-      return (
-        f.key.toLowerCase().includes(q) || f.value.toLowerCase().includes(q)
-      );
-    });
-
-    const pin = matched.filter((f) => f.pinned);
-    const rest = matched.filter((f) => !f.pinned);
-
-    // Grouped by tag, an entry carrying two tags was listed under each one and
-    // read as two separate entries. Grouping only holds when a tag is chosen,
-    // and there the heading is the tag you already picked, so it earns nothing.
-    if (tag) return { pinned: pin, groups: [[tag, rest] as const] };
-
-    const byTag = new Map<string, FactRow[]>();
-    for (const f of rest) {
-      const key = (f.tags ?? [])[0] ?? UNTAGGED;
-      byTag.set(key, [...(byTag.get(key) ?? []), f]);
-    }
-    return {
-      pinned: pin,
-      groups: [...byTag.entries()].sort((a, b) =>
-        a[0] === UNTAGGED ? 1 : b[0] === UNTAGGED ? -1 : a[0].localeCompare(b[0]),
-      ),
-    };
-  }, [facts, query, tag]);
 
   async function save(): Promise<void> {
     const key = draft.key.trim();
     const value = draft.value.trim();
     if (!key || !value) return;
-    const list = draft.tags
-      .split(",")
-      .map((t) => t.trim())
-      .filter(Boolean);
-    await api.saveMemory(key, value, "fact", list);
+    await api.saveMemory(key, value, "fact", splitTags(draft.tags));
     setDraft({ key: "", value: "", tags: "" });
-    setAdding(false);
+    onAdding(false);
     onChanged();
   }
 
-  /*
-   * A card opens what it is about.
-   *
-   * An entry is a paragraph the agent wrote and reads back on every turn, so
-   * the row was showing the whole of it and running to a dozen lines. It
-   * shows the first few now and the rest is a click away, along with the
-   * things worth doing to it -- which were two buttons squeezed against the
-   * right edge of a wall of text.
-   */
-  function entry(f: FactRow): ReactElement {
-    return (
-      <button
-        key={f.key}
-        type="button"
-        className="know-item"
-        onClick={() => setOpen(f)}
-      >
-        <span className="know-main">
-          <span className="know-key">{f.key}</span>
-          <span className="know-value">{f.value}</span>
-          <span className="know-meta">
-            {f.kind}
-            {f.source ? ` · from ${f.source.replace(/:owner$/, "")}` : ""}
-            {(f.tags ?? []).length ? ` · ${f.tags!.join(", ")}` : ""}
-          </span>
-        </span>
-        {f.pinned && (
-          <span className="know-pinned" title="In every conversation">
-            pinned
-          </span>
-        )}
-      </button>
-    );
-  }
+  const kinds = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const f of facts) counts.set(f.kind, (counts.get(f.kind) ?? 0) + 1);
+    return counts;
+  }, [facts]);
+  const pinnedCount = useMemo(() => facts.filter((f) => f.pinned).length, [facts]);
+
+  const groups = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const matched = facts.filter((f) => {
+      if (kind === "pinned" ? !f.pinned : kind !== "all" && f.kind !== kind) return false;
+      if (tag && !(f.tags ?? []).includes(tag)) return false;
+      if (!q) return true;
+      return f.key.toLowerCase().includes(q) || f.value.toLowerCase().includes(q) || (f.tags ?? []).some((t) => t.toLowerCase().includes(q));
+    });
+    return groupByScope(matched, projectNames);
+  }, [facts, query, kind, tag, projectNames]);
+
+  const filtered = query.trim() !== "" || kind !== "all" || tag !== null;
+  const clear = (): void => {
+    setQuery("");
+    setKind("all");
+    setTag(null);
+  };
+
+  const kindOptions = [
+    ["all", <>All <Count n={facts.length} /></>, "Every claim"] as const,
+    ...[...kinds.entries()].map(([k, n]) => [k, <>{KIND_WORDS[k] ?? k} <Count n={n} /></>] as const),
+    ...(pinnedCount > 0 ? [["pinned", <>Pinned <Count n={pinnedCount} /></>, "In every conversation"] as const] : []),
+  ];
 
   return (
     <div className="know">
-      <PageHead
-        title="Claims"
-        subtitle="What KOS believes: shared by every conversation, scoped to a project or to you everywhere, each with where it came from."
-        search={
-          <input
-            className="list-search"
-            value={query}
-            placeholder="Search claims…"
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        }
-        actions={
-          <button
-            type="button"
-            className="btn btn--primary"
-            onClick={() => setAdding((v) => !v)}
-          >
-            {adding ? "Cancel" : "New fact"}
-          </button>
-        }
-      />
+      {facts.length > 0 && (
+        <div className="know-bar">
+          <label className="know-search">
+            <SearchIcon size={14} title="" />
+            <input type="search" value={query} placeholder="Search claims…" aria-label="Search claims" onChange={(e) => setQuery(e.target.value)} />
+          </label>
+          <div className="know-kinds" ref={kindsRef}>
+            <Chips small scroll label="Kind" options={kindOptions} selected={kind} onChoose={(k) => setKind(k === kind ? "all" : k)} />
+          </div>
+          {tags.length > 0 && (
+            <Select
+              className="know-tag"
+              label="Tag"
+              value={tag ?? ""}
+              options={[{ value: "", label: "Any tag" }, ...[...tags].sort((a, b) => a.localeCompare(b)).map((t) => ({ value: t, label: t }))]}
+              onChange={(v) => setTag(v === "" ? null : v)}
+            />
+          )}
+        </div>
+      )}
 
       {adding && (
-        <div className="know-add">
-          <input
-            className="chats-search"
-            placeholder="key, e.g. deploy_target"
-            value={draft.key}
-            onChange={(e) => setDraft({ ...draft, key: e.target.value })}
-          />
-          <input
-            className="chats-search"
-            placeholder="what to remember"
-            value={draft.value}
-            onChange={(e) => setDraft({ ...draft, value: e.target.value })}
-          />
-          <input
-            className="chats-search"
-            placeholder="tags, comma separated"
-            value={draft.tags}
-            onChange={(e) => setDraft({ ...draft, tags: e.target.value })}
-          />
-          <button type="button" className="btn btn--primary" onClick={() => void save()}>
-            Save
+        <form
+          className="know-add"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save();
+          }}
+        >
+          <input className="kos-input kos-mono" aria-label="Key" placeholder="key, e.g. deploy_target" value={draft.key} onChange={(e) => setDraft({ ...draft, key: e.target.value })} />
+          <input className="kos-input" aria-label="What to remember" placeholder="what to remember" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} />
+          <input className="kos-input" aria-label="Tags" placeholder="tags, comma separated" value={draft.tags} onChange={(e) => setDraft({ ...draft, tags: e.target.value })} />
+          <span className="know-add-acts">
+            <button type="button" className="btn btn--ghost" onClick={() => onAdding(false)}>
+              Cancel
+            </button>
+            <button type="submit" className="btn btn--primary" disabled={!draft.key.trim() || !draft.value.trim()}>
+              Save
+            </button>
+          </span>
+        </form>
+      )}
+
+      {facts.length === 0 && !adding && (
+        <Empty title="Nothing remembered yet." className="know-empty">
+          KOS keeps what you tell it and what its agents work out, for every chat to read. Pin what should be in every conversation.{" "}
+          <button type="button" className="link" onClick={() => onAdding(true)}>
+            Add a claim
           </button>
-        </div>
+        </Empty>
       )}
 
-      {tags.length > 0 && (
-        <div className="know-tags">
-          {/* "" is all of them: no tag is empty. A chosen tag pressed again is all of them too. */}
-          <Chips options={[["", "all"], ...tags.map((t) => [t, t] as const)]} selected={tag ?? ""} onChoose={(t) => setTag(t === "" || t === tag ? null : t)} />
-        </div>
+      {facts.length > 0 && groups.length === 0 && (
+        <Empty title="No claims match." className="know-none">
+          Nothing in memory fits these words and filters.{" "}
+          <button type="button" className="link" onClick={clear}>
+            Clear the filters
+          </button>
+        </Empty>
       )}
 
-      {facts.length === 0 && (
-        <p className="hint">
-          Nothing yet. KOS records what you tell it, and agents add what they
-          work out.
-        </p>
-      )}
+      {groups.map((g) => {
+        const all = filtered || whole.has(g.scope) || g.facts.length <= SCOPE_FIRST;
+        const shown = all ? g.facts : g.facts.slice(0, SCOPE_FIRST);
+        return (
+          <section key={g.scope} className="know-group" aria-label={g.title}>
+            <h2 className="know-group-title">
+              {g.project ? (
+                <a className="know-group-link" href={hrefFor({ name: "project", slug: g.project })}>
+                  {g.title}
+                </a>
+              ) : (
+                <span className={g.unknown ? "know-group-slug" : undefined}>{g.title}</span>
+              )}
+              {g.kind && <span className={`know-group-kind${g.unknown ? " is-unknown" : ""}`}>{g.kind}</span>}
+              <Count n={g.facts.length} />
+            </h2>
+            <ul className="know-list">
+              {shown.map((f) => (
+                <li key={f.key} className={`know-row${f.pinned ? " is-pinned" : ""}`} onKeyDown={roveRow}>
+                  <button type="button" className="know-open" aria-keyshortcuts="ArrowRight" onClick={() => setOpen(f)}>
+                    <span className="know-text">
+                      {f.pinned && (
+                        <span className="know-pin">
+                          <PinIcon size={12} title="Pinned: in every conversation" />
+                        </span>
+                      )}
+                      <span className="know-value">{f.value}</span>
+                    </span>
+                    <span className="know-meta">
+                      <code className="know-key">{f.key}</code>
+                      {sourceWord(f.source) && <span className="know-from">from {sourceWord(f.source)}</span>}
+                      {f.kind !== "fact" && <Tag>{f.kind}</Tag>}
+                      {(f.tags ?? []).length > 0 && <span className="know-tags">{f.tags!.join(", ")}</span>}
+                      {f.updatedAt ? <span className="know-when">{agoWords(f.updatedAt)}</span> : null}
+                    </span>
+                  </button>
+                  <span className="know-acts">
+                    <IconButton tabIndex={-1} label={f.pinned ? `Unpin ${f.key}` : `Pin ${f.key}`} title={f.pinned ? "Unpin" : "Pin to every conversation"} onClick={() => togglePin(f)}>
+                      {f.pinned ? <UnpinIcon size={14} title="" /> : <PinIcon size={14} title="" />}
+                    </IconButton>
+                    <IconButton tabIndex={-1} label={`Edit ${f.key}`} title="Edit" onClick={() => startEdit(f)}>
+                      <EditIcon size={14} title="" />
+                    </IconButton>
+                    <ConfirmButton
+                      label={`Forget ${f.key}`}
+                      title="Forget"
+                      tabIndex={-1}
+                      icon={<CloseIcon size={14} title="" />}
+                      className="icon-btn icon-btn--danger"
+                      text={FORGET_TEXT}
+                      confirmLabel="Forget"
+                      onConfirm={() => forget(f)}
+                    />
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {!filtered && g.facts.length > SCOPE_FIRST && (
+              <button
+                type="button"
+                className="btn btn--sm btn--ghost know-more"
+                onClick={() =>
+                  setWhole((s) => {
+                    const next = new Set(s);
+                    if (!next.delete(g.scope)) next.add(g.scope);
+                    return next;
+                  })
+                }
+              >
+                {whole.has(g.scope) ? "Show fewer" : `Show all ${g.facts.length}`}
+              </button>
+            )}
+          </section>
+        );
+      })}
 
       <Drawer
         open={open !== null}
         title={open?.key ?? ""}
-        {...(open
-          ? {
-              subtitle: [
-                open.kind,
-                open.source ? `from ${open.source.replace(/:owner$/, "")}` : null,
-                open.updatedAt ? `updated ${relative(open.updatedAt)}` : null,
-              ]
-                .filter(Boolean)
-                .join(" · "),
-            }
-          : {})}
+        {...(open ? { subtitle: [open.kind, describeScope(open.scope), open.updatedAt ? `updated ${agoWords(open.updatedAt)}` : null].filter(Boolean).join(" · ") } : {})}
         onClose={() => {
           setOpen(null);
           setEdit(null);
@@ -280,12 +401,7 @@ export function KnowledgePage({
           open &&
           (edit ? (
             <>
-              <button
-                type="button"
-                className="btn btn--primary"
-                disabled={saving || !edit.key.trim() || !edit.value.trim()}
-                onClick={() => void saveEdit(open)}
-              >
+              <button type="button" className="btn btn--primary" disabled={saving || !edit.key.trim() || !edit.value.trim()} onClick={() => void saveEdit(open)}>
                 {saving ? "Saving…" : "Save"}
               </button>
               <button type="button" className="btn" onClick={() => setEdit(null)}>
@@ -294,44 +410,13 @@ export function KnowledgePage({
             </>
           ) : (
             <>
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={() =>
-                  setEdit({
-                    key: open.key,
-                    value: open.value,
-                    kind: open.kind,
-                    tags: (open.tags ?? []).join(", "),
-                  })
-                }
-              >
+              <button type="button" className="btn btn--primary" onClick={() => startEdit(open)}>
                 Edit
               </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  void api.pinMemory(open.key, !open.pinned).then(() => {
-                    setOpen(null);
-                    onChanged();
-                  });
-                }}
-              >
+              <button type="button" className="btn" onClick={() => togglePin(open)}>
                 {open.pinned ? "Unpin" : "Pin"}
               </button>
-              <button
-                type="button"
-                className="btn btn--danger"
-                onClick={() => {
-                  void api.deleteMemory(open.key).then(() => {
-                    setOpen(null);
-                    onChanged();
-                  });
-                }}
-              >
-                Forget
-              </button>
+              <ConfirmButton label="Forget" className="btn btn--danger" text={FORGET_TEXT} onConfirm={() => forget(open)} />
             </>
           ))
         }
@@ -340,24 +425,12 @@ export function KnowledgePage({
           <div className="know-detail">
             <label className="kos-field">
               <span className="kos-field-label">Key</span>
-              <input
-                className="kos-input kos-mono"
-                value={edit.key}
-                onChange={(e) => setEdit({ ...edit, key: e.target.value })}
-              />
-              <span className="hint">
-                What the agent looks it up by. Changing it writes the entry
-                under the new name and forgets the old one.
-              </span>
+              <input className="kos-input kos-mono" value={edit.key} onChange={(e) => setEdit({ ...edit, key: e.target.value })} />
+              <span className="hint">What the agent looks it up by. Changing it writes the entry under the new name and forgets the old one.</span>
             </label>
             <label className="kos-field">
               <span className="kos-field-label">Value</span>
-              <textarea
-                className="kos-input"
-                rows={10}
-                value={edit.value}
-                onChange={(e) => setEdit({ ...edit, value: e.target.value })}
-              />
+              <textarea className="kos-input" rows={10} value={edit.value} onChange={(e) => setEdit({ ...edit, value: e.target.value })} />
             </label>
             <label className="kos-field">
               <span className="kos-field-label">Kind</span>
@@ -367,30 +440,20 @@ export function KnowledgePage({
                 value={edit.kind}
                 options={[
                   { value: "fact", label: "Fact", hint: "something that is so" },
-                  {
-                    value: "preference",
-                    label: "Preference",
-                    hint: "how the owner wants things done",
-                  },
+                  { value: "preference", label: "Preference", hint: "how the owner wants things done" },
                 ]}
                 onChange={(v) => setEdit({ ...edit, kind: v })}
               />
             </label>
             <label className="kos-field">
               <span className="kos-field-label">Tags</span>
-              <input
-                className="kos-input"
-                placeholder="comma separated"
-                value={edit.tags}
-                onChange={(e) => setEdit({ ...edit, tags: e.target.value })}
-              />
+              <input className="kos-input" placeholder="comma separated" value={edit.tags} onChange={(e) => setEdit({ ...edit, tags: e.target.value })} />
             </label>
           </div>
         )}
         {open && !edit && (
           <div className="know-detail">
-            {/* The whole of it. The card shows the first few lines, which is
-                where the value of a long entry stops being readable. */}
+            {/* The whole of it: the row shows one line. */}
             <p className="know-detail-value">{open.value}</p>
             <dl className="know-detail-rows">
               <dt>Key</dt>
@@ -401,6 +464,7 @@ export function KnowledgePage({
               <dd>
                 {(open.tags ?? []).length ? (
                   <Chips
+                    small
                     options={open.tags!.map((t) => [t, t] as const)}
                     onChoose={(t) => {
                       setTag(t);
@@ -421,25 +485,6 @@ export function KnowledgePage({
           </div>
         )}
       </Drawer>
-
-      {pinned.length > 0 && (
-        <section className="know-group">
-          <h2>
-            Always in context<Count n={pinned.length} />
-          </h2>
-          {pinned.map(entry)}
-        </section>
-      )}
-
-      {groups.map(([name, items]) => (
-        <section key={name} className="know-group">
-          <h2>
-            {name}
-            <Count n={items.length} />
-          </h2>
-          {items.map(entry)}
-        </section>
-      ))}
     </div>
   );
 }

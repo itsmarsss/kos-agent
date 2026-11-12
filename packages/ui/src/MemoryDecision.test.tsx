@@ -55,7 +55,7 @@ describe("a memory decision", () => {
     expect(screen.getByTitle(/from KOS · never used/)).toBeTruthy();
     // No lean on an older item: the note stands alone.
     expect(screen.getByText("Two cities.")).toBeTruthy();
-    expect(screen.queryByText("Do that")).toBeNull();
+    expect(screen.queryByTitle("What KOS leans to")).toBeNull();
 
     const keeps = screen.getAllByText("Keep this");
     expect(keeps).toHaveLength(2);
@@ -76,6 +76,12 @@ describe("a memory decision", () => {
     expect(screen.getByText("All are right, leave them")).toBeTruthy();
   });
 
+  it("names a leaned promotion by what it does, and offers the other answer beside it", () => {
+    render(<MemoryDecision item={item({ kind: "promotion", lean: "promote", sure: 0.7, keys: ["project:site/editor"], claims: [{ qualified: "project:site/editor", scope: "project:site", key: "editor", value: "neovim" }] })} onResolved={() => {}} />);
+    const row = document.querySelector(".mem-decision-acts")!;
+    expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Make it global", "No, keep it to the project"]);
+  });
+
   it("asks the promotion question with yes and no", () => {
     const resolve = vi.spyOn(api, "resolveMemoryReview").mockResolvedValue({ item: item(), archived: [], promoted: [] });
     render(<MemoryDecision item={item({ kind: "promotion", keys: ["project:site/editor"], claims: [{ qualified: "project:site/editor", scope: "project:site", key: "editor", value: "neovim" }] })} onResolved={() => {}} />);
@@ -89,13 +95,14 @@ describe("a memory decision", () => {
     const onResolved = vi.fn();
     render(<MemoryDecision item={item({ lean: "keep project:trip/city", sure: 0.6 })} onResolved={onResolved} />);
     expect(screen.getByText(/KOS leans/).textContent).toBe("KOS leans keep the trip one, 60% sure: Two cities.");
-    fireEvent.click(screen.getByText("Do that"));
+    // The press says what it does, not "Do that".
+    fireEvent.click(screen.getByRole("button", { name: "Keep the trip one" }));
     await waitFor(() => expect(onResolved).toHaveBeenCalled());
     expect(resolve).toHaveBeenCalledWith(7, "keep", "project:trip/city");
     cleanup();
     // A lean the buttons could not give is not offered as one.
     render(<MemoryDecision item={item({ lean: "merge them", sure: 0.9 })} onResolved={() => {}} />);
-    expect(screen.queryByText("Do that")).toBeNull();
+    expect(screen.queryByTitle("What KOS leans to")).toBeNull();
     expect(screen.getByText("Two cities.")).toBeTruthy();
   });
 

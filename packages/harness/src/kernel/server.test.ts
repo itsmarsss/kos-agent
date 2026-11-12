@@ -2436,4 +2436,32 @@ describe("approvals already decided", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("come a page at a time, without their arguments, with counts and the inbox's mark", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-api-"));
+    const k = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: stub });
+    try {
+      const ids = [0, 1, 2, 3].map((i) => k.approvals.enqueue({ tool: "files.rm", args: { path: `x${i}.txt` }, riskTier: "risky" }).id);
+      k.approvals.approve(ids[0]!, "owner");
+      k.approvals.deny(ids[1]!, "owner");
+      k.approvals.approve(ids[2]!, "owner");
+      const get = async (url: string): Promise<unknown> => (await handleApiRequest(k, { method: "GET", path: url.split("?")[0]!, url })).body;
+      const first = (await get("/api/approvals/history?limit=2")) as { id: number; decidedAt: number; args?: string }[];
+      expect(first.map((r) => r.id)).toEqual([ids[2], ids[1]]);
+      expect(first.every((r) => r.args === undefined)).toBe(true);
+      const last = first.at(-1)!;
+      const next = (await get(`/api/approvals/history?limit=2&before=${last.decidedAt},${last.id}`)) as { id: number }[];
+      expect(next.map((r) => r.id)).toEqual([ids[0]]);
+      expect(((await get("/api/approvals/history?status=denied")) as { id: number }[]).map((r) => r.id)).toEqual([ids[1]]);
+      expect(((await get("/api/approvals/history?q=x2")) as { id: number }[]).map((r) => r.id)).toEqual([ids[2]]);
+      expect(await get("/api/approvals/history/counts")).toEqual({ approved: 2, denied: 1, expired: 0 });
+      expect(((await get(`/api/approvals/${ids[1]}`)) as { status: string; summary: string }).summary).toBe("Delete x1.txt");
+      expect(((await get(`/api/approvals/${ids[3]}`)) as { status: string }).status).toBe("pending");
+      expect((await handleApiRequest(k, { method: "GET", path: "/api/approvals/99999" })).status).toBe(404);
+      expect(((await get("/api/inbox")) as { decided: unknown }).decided).toEqual({ total: 3, latest: ids[2] });
+    } finally {
+      k.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

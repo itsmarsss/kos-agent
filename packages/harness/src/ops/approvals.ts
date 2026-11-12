@@ -110,6 +110,20 @@ interface Row {
   waits: number;
 }
 
+/** Every column a listed action needs: the picture is only whether there is one, read on its own when shown. */
+const LIST_COLUMNS = `id, tool, args, risk_tier, reason, status, user_id, conversation_id, requested_at, decided_at, decided_by, rule, (picture IS NOT NULL) AS has_picture, why, owner, attended, guest, waits`;
+
+/** The most decided asks one page may hold. */
+export const DECIDED_MAX = 500;
+
+/** One page of the decided history: after a row, of one outcome, matching some words. */
+export interface DecidedPage {
+  limit?: number;
+  before?: { decidedAt: number; id: number };
+  status?: Exclude<ApprovalStatus, "pending">;
+  q?: string;
+}
+
 /** A stored guest's room; a row without its chat reaches no chat of its own. */
 function guestOf(stored: { project: string | null; chat?: string; home?: string }): GuestOrigin {
   return { project: stored.project ?? undefined, chat: stored.chat ?? "", ...(stored.home ? { home: stored.home } : {}) };
@@ -197,6 +211,10 @@ export class ApprovalQueue {
     if (!columns.some((c) => c.name === "waits")) {
       this.db.exec(`ALTER TABLE pending_actions ADD COLUMN waits INTEGER NOT NULL DEFAULT 0`);
     }
+    // The decided history is read by outcome and time, a page at a time: one outcome by the first,
+    // every outcome (the Inbox's default page, and its mark) by the second, which holds only what was decided.
+    this.db.exec(`CREATE INDEX IF NOT EXISTS pending_actions_status_decided ON pending_actions (status, decided_at, id)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS pending_actions_decided ON pending_actions (decided_at, id) WHERE status != 'pending'`);
   }
 
   /** The picture queued with an action, if one was: base64 JPEG. */
@@ -234,25 +252,59 @@ export class ApprovalQueue {
 
   get(id: number): PendingAction | undefined {
     const row = this.db
-      .prepare(`SELECT *, (picture IS NOT NULL) AS has_picture FROM pending_actions WHERE id = ?`)
+      .prepare(`SELECT ${LIST_COLUMNS} FROM pending_actions WHERE id = ?`)
       .get(id) as Row | undefined;
     return row ? toAction(row) : undefined;
   }
 
-  /** What was decided, newest first: approved, denied or lapsed, so a reference to an old ask still lands. */
-  recent(limit = 50): PendingAction[] {
+  /**
+   * What was decided, newest first, a page at a time: approved, denied or
+   * lapsed, so a reference to an old ask still lands.
+   *
+   * The Inbox read the latest 500 whole on every poll, pictures and all,
+   * which on a busy workspace was megabytes a few seconds apart. A page
+   * names its columns (never the picture), starts after the last row of the
+   * one before it, and can be held to one outcome or a few words.
+   */
+  decided(page: DecidedPage = {}): PendingAction[] {
+    const where = [`status ${page.status ? "= ?" : "!= 'pending'"}`];
+    const params: (string | number)[] = page.status ? [page.status] : [];
+    if (page.before) {
+      where.push(`(decided_at < ? OR (decided_at = ? AND id < ?))`);
+      params.push(page.before.decidedAt, page.before.decidedAt, page.before.id);
+    }
+    const q = page.q?.trim();
+    if (q) {
+      const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      where.push(`(tool LIKE ? ESCAPE '\\' OR args LIKE ? ESCAPE '\\' OR reason LIKE ? ESCAPE '\\' OR why LIKE ? ESCAPE '\\' OR id = ?)`);
+      params.push(like, like, like, like, Number(q.replace(/^#/, "")) || -1);
+    }
+    const limit = Math.max(1, Math.min(DECIDED_MAX, Math.floor(page.limit ?? 25)));
     const rows = this.db
-      .prepare(
-        `SELECT *, (picture IS NOT NULL) AS has_picture FROM pending_actions WHERE status != 'pending' ORDER BY decided_at DESC, id DESC LIMIT ?`,
-      )
-      .all(Math.max(1, Math.min(500, limit))) as Row[];
+      .prepare(`SELECT ${LIST_COLUMNS} FROM pending_actions WHERE ${where.join(" AND ")} ORDER BY decided_at DESC, id DESC LIMIT ?`)
+      .all(...params, limit) as Row[];
     return rows.map(toAction);
+  }
+
+  /** How many were decided, by outcome, for the Inbox's filters. */
+  decidedCounts(): Record<Exclude<ApprovalStatus, "pending">, number> {
+    const counts = { approved: 0, denied: 0, expired: 0 };
+    const rows = this.db.prepare(`SELECT status, COUNT(*) AS n FROM pending_actions WHERE status != 'pending' GROUP BY status`).all() as { status: string; n: number }[];
+    for (const r of rows) if (r.status in counts) counts[r.status as keyof typeof counts] = r.n;
+    return counts;
+  }
+
+  /** What the decided history looks like right now, so a reader can tell whether it changed without reading it. */
+  decidedMark(): { total: number; latest: number | null } {
+    const total = (this.db.prepare(`SELECT COUNT(*) AS n FROM pending_actions WHERE status != 'pending'`).get() as { n: number }).n;
+    const last = this.db.prepare(`SELECT id FROM pending_actions WHERE status != 'pending' ORDER BY decided_at DESC, id DESC LIMIT 1`).get() as { id: number } | undefined;
+    return { total, latest: last?.id ?? null };
   }
 
   pending(): PendingAction[] {
     const rows = this.db
       .prepare(
-        `SELECT *, (picture IS NOT NULL) AS has_picture FROM pending_actions WHERE status = 'pending' ORDER BY id`,
+        `SELECT ${LIST_COLUMNS} FROM pending_actions WHERE status = 'pending' ORDER BY id`,
       )
       .all() as Row[];
     return rows.map(toAction);

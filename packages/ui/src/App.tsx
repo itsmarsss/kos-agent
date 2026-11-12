@@ -87,6 +87,10 @@ export function App(): React.ReactElement {
   useEffect(() => overlayScroll(document.documentElement), []);
   const [approvals, setApprovals] = useState<PendingAction[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  /** Whether the manifest has been read yet: before it, no slug can be said to be no project. */
+  const [projectsRead, setProjectsRead] = useState(false);
+  /** Projects by slug, from the manifest, for the Memory page's scope headings. */
+  const projectNames = useMemo(() => (projectsRead ? new Map(projects.map((p) => [p.slug, p.name])) : undefined), [projects, projectsRead]);
   const [crons, setCrons] = useState<CronJob[]>([]);
   /** The job being run by hand, so its own button can say so. */
   const [firing, setFiring] = useState<number | null>(null);
@@ -268,7 +272,10 @@ export function App(): React.ReactElement {
     apply(br, (v) => setBrowserTabs(v.tabs));
     apply(a, setApprovals);
     apply(ag, (v) => setAgents(v.builds));
-    apply(p, setProjects);
+    apply(p, (v) => {
+      setProjects(v);
+      setProjectsRead(true);
+    });
     apply(c, setCrons);
     apply(pg, setPages);
     apply(act, (v) => setActivity(v.tools));
@@ -1339,6 +1346,7 @@ export function App(): React.ReactElement {
       <MemoryPage
         facts={facts}
         tags={factTags}
+        {...(projectNames ? { projectNames } : {})}
         conversations={conversations}
         onChanged={() => void refresh()}
       />,

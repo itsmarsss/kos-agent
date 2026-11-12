@@ -778,6 +778,8 @@ export interface InboxData {
   decisions: ReviewItem[];
   failures: FailingJob[];
   suggestions: Suggestion[];
+  /** How many were decided and the latest, so the decided history is read again only when it changes. */
+  decided?: { total: number; latest: number | null };
 }
 
 /** Something KOS suggested making reusable, waiting on the owner. */
@@ -1016,11 +1018,23 @@ export interface MessageOrigin {
 }
 
 /** An approval that was decided, or lapsed, kept so a reference to it still shows what it was. */
-export interface DecidedAction extends PendingAction {
-  status: "approved" | "denied" | "expired";
+export type DecidedStatus = "approved" | "denied" | "expired";
+
+/** A decided ask as the Inbox lists it: said in words, without its arguments. */
+export interface DecidedAction extends Omit<PendingAction, "args" | "summary"> {
+  status: DecidedStatus;
+  summary: string;
   decidedAt: number | null;
   decidedBy: string | null;
   asker?: string;
+}
+
+/** One page of the decided history: after a row, of one outcome, matching some words. */
+export interface DecidedQuery {
+  limit: number;
+  before?: { decidedAt: number; id: number };
+  status?: DecidedStatus;
+  q?: string;
 }
 
 /** A text channel on the owner's Discord server, as a thing "#name" in a chat can be. */
@@ -1043,7 +1057,16 @@ export const api = {
   cancelRestart: () => post<RestartState>("/api/host/restart/cancel", {}),
   approvals: () => get<PendingAction[]>("/api/approvals"),
   /** Approvals already decided, newest first, so a link to an old one still lands. */
-  approvalHistory: (limit = 50) => get<DecidedAction[]>(`/api/approvals/history?limit=${limit}`),
+  approvalHistory: ({ limit, before, status, q }: DecidedQuery) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (before) params.set("before", `${before.decidedAt},${before.id}`);
+    if (status) params.set("status", status);
+    if (q) params.set("q", q);
+    return get<DecidedAction[]>(`/api/approvals/history?${params.toString()}`);
+  },
+  approvalCounts: () => get<Record<DecidedStatus, number>>("/api/approvals/history/counts"),
+  /** One approval by number, waiting or decided: where a link to an old one lands. */
+  approval: (id: number) => get<DecidedAction | (PendingAction & { status: "pending" })>(`/api/approvals/${id}`),
   modelSettings: () =>
     get<{
       routes: Record<

@@ -2182,7 +2182,7 @@ export function ChatsPage({
                     onClick={() => setEditing((v) => !v)}
                   >
                     <GearIcon />
-                    {editing ? "Close" : "Configure"}
+                    <span className="head-act-label">{editing ? "Close" : "Configure"}</span>
                   </button>
                   {active.kind !== "orchestrator" && (
                     <button
@@ -2198,7 +2198,7 @@ export function ChatsPage({
                       }}
                     >
                       <ArchiveIcon />
-                      Archive
+                      <span className="head-act-label">Archive</span>
                     </button>
                   )}
                 </div>
@@ -2558,7 +2558,8 @@ export function ChatsPage({
                     ref={inputRef}
                     rows={1}
                     value={draft}
-                    placeholder={`Message ${active.title.length > 32 ? "KOS" : active.title}, / for commands, @ to name things`}
+                    // On a narrow window the hints ran out of the box: who it goes to is the part to keep.
+                    placeholder={narrow ? `Message ${active.title.length > 20 ? "KOS" : active.title}` : `Message ${active.title.length > 32 ? "KOS" : active.title}, / for commands, @ to name things`}
                     onChange={(e) => {
                       setDraft(e.target.value);
                       syncTrigger();

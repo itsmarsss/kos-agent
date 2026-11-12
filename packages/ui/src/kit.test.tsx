@@ -78,4 +78,11 @@ describe("a confirmation beside the button", () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("alertdialog")).toBeNull();
   });
+
+  it("can be a symbol, named by its label", () => {
+    render(<ConfirmButton label="Forget city" icon={<svg data-testid="x" />} text="It goes." onConfirm={() => {}} />);
+    const button = screen.getByRole("button", { name: "Forget city" });
+    expect(button.textContent).toBe("");
+    expect(button.querySelector("[data-testid=x]")).toBeTruthy();
+  });
 });
