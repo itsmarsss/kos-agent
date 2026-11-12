@@ -166,6 +166,7 @@ export type PanelMethod =
   | "chat.artifacts"
   | "chat.artifact"
   | "chat.read"
+  | "dashboard.reply"
   | "page.read";
 
 /** One line of the panel's chat: the owner's words, KOS's, a note, or the steps a turn took. */

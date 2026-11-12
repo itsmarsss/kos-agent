@@ -1,13 +1,14 @@
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
-import { attendance, openDatabase, type ChatEvent, type InboundMessage, type ModuleContext } from "@kos/harness";
+import { attendance, openDatabase, type ApiRequest, type AuditEntry, type ChatEvent, type InboundMessage, type ModuleContext } from "@kos/harness";
 
 import { OwnerChrome } from "./chrome.js";
 import { FakeDevice } from "./device.fixture.js";
 import { DeviceHub } from "./hub.js";
 import { rawPublicKey } from "./keys.js";
 import { ARTIFACT_DOCUMENT_BYTES, type PanelArtifacts } from "./artifacts.js";
+import type { PanelDashboard } from "./dashboard.js";
 import { CHROME_PANEL, DevicePanel, MAC_PANEL, PHONE_PANEL, alwaysWords, appNote, besideNote, panelLines, phoneNote, type Glance, type PanelPlace } from "./panel.js";
 import { DeviceStore } from "./store.js";
 import { computerModule } from "./tools.js";
@@ -22,7 +23,7 @@ import { computerModule } from "./tools.js";
 const hostPrivate = generateKeyPairSync("ed25519").privateKey;
 type Handler = (input: Record<string, unknown>) => unknown;
 
-function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<number, { image: string; site?: string }>; glance?: () => Glance; artifacts?: PanelArtifacts } = {}) {
+function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<number, { image: string; site?: string }>; glance?: () => Glance; artifacts?: PanelArtifacts; dashboard?: PanelDashboard; audit?: (entry: AuditEntry) => void } = {}) {
   const hub = new DeviceHub({
     store: new DeviceStore(openDatabase(":memory:")),
     hostKey: { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) },
@@ -57,6 +58,8 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
     picture: (id) => opts.pictures?.[id],
     ...(opts.glance ? { glance: opts.glance } : {}),
     ...(opts.artifacts ? { artifacts: opts.artifacts } : {}),
+    ...(opts.dashboard ? { dashboard: opts.dashboard } : {}),
+    ...(opts.audit ? { audit: opts.audit } : {}),
     setAuto: (c, on) => void (on ? acting.add(c) : acting.delete(c)),
     setModel: async (m) => {
       if (m === "broken") throw new Error("no such model");
@@ -75,7 +78,7 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
   const pair = (platform = "chrome"): FakeDevice => {
     const fake = new FakeDevice();
     fake.id = hub.pair({ code: hub.issueCode().code, name: platform === "chrome" ? "Chrome on macOS" : "Studio MacBook", platform, publicKey: fake.publicKey }).device;
-    for (const m of ["chat.show", "chat.status", "chat.ask", "chat.settled", "chat.chats", "chat.models", "chat.glance", "chat.artifacts", "chat.artifact", "chat.read"]) fake.answers.set(m, () => ({ ok: true, result: {} }));
+    for (const m of ["chat.show", "chat.status", "chat.ask", "chat.settled", "chat.chats", "chat.models", "chat.glance", "chat.artifacts", "chat.artifact", "chat.read", "dashboard.reply"]) fake.answers.set(m, () => ({ ok: true, result: {} }));
     hub.accept(fake.socket);
     if (platform === "chrome") fake.hello({ app: { version: "0.1.0", platform: "chrome", os: "macOS" }, permissions: { tabs: true }, displays: [] });
     else fake.hello();
@@ -296,6 +299,82 @@ describe("KOS for iPhone's artifacts", () => {
     const phone = pair("ios");
     phone.event("chat.artifacts", {});
     phone.event("chat.artifact", { id: "plan", theme: "light" });
+    await flush();
+    expect(phone.calls.map((c) => c.method)).toEqual([]);
+  });
+});
+
+describe("KOS for iPhone's dashboard pages", () => {
+  /** The dashboard's handler, as the host gives it: what it was asked, and the inbox as it answers it. */
+  function handler() {
+    const asked: ApiRequest[] = [];
+    const dashboard: PanelDashboard = async (req) => {
+      asked.push(req);
+      return req.path === "/api/crons/run" ? { status: 200, body: { ok: true } } : { status: 200, body: [{ id: 41, tool: "files.write" }] };
+    };
+    return { asked, dashboard };
+  }
+
+  it("answers a phone's read with the dashboard's own answer, by its call", async () => {
+    const { asked, dashboard } = handler();
+    const { pair } = setup({ place: PHONE_PANEL, dashboard });
+    const phone = pair("ios");
+    phone.event("dashboard.request", { call: 1, method: "GET", path: "/api/approvals" });
+    phone.event("dashboard.request", { call: 2, method: "GET", path: "/api/settings" });
+    await flush();
+    expect(sent(phone, "dashboard.reply").sort((a, b) => Number(a["call"]) - Number(b["call"]))).toEqual([
+      { call: 1, status: 200, body: [{ id: 41, tool: "files.write" }] },
+      { call: 2, error: "A phone cannot ask the dashboard for that." },
+    ]);
+    expect(asked).toEqual([{ method: "GET", path: "/api/approvals", url: "/api/approvals" }]);
+  });
+
+  it("decides from a page as chat.decide does, the phone as decider, and writes each action down as the phone's", async () => {
+    const { asked, dashboard } = handler();
+    const audited: AuditEntry[] = [];
+    const { panel, pair } = setup({ place: PHONE_PANEL, dashboard, audit: (e) => void audited.push(e) });
+    const phone = pair("ios");
+    const decided: unknown[] = [];
+    panel.onApproval(async (d) => {
+      decided.push(d);
+      return { outcome: "approved" };
+    });
+    phone.event("dashboard.request", { call: 3, method: "POST", path: "/api/approve", body: { id: 41, remember: true } });
+    phone.event("dashboard.request", { call: 4, method: "POST", path: "/api/crons/run", body: { id: 2 } });
+    await flush();
+    expect(decided).toEqual([{ id: "41", approved: true, deciderId: phone.id, remember: true }]);
+    // Each answer names its call, so they may come in any order.
+    expect(sent(phone, "dashboard.reply").sort((a, b) => Number(a["call"]) - Number(b["call"]))).toEqual([
+      { call: 3, status: 200, body: { id: 41, approved: true, outcome: "approved" } },
+      { call: 4, status: 200, body: { ok: true } },
+    ]);
+    expect(asked.map((r) => r.path)).toEqual(["/api/crons/run"]);
+    expect(audited.map((e) => [e.tool, e.args["device"], e.args["path"]])).toEqual([
+      ["device.dashboard", phone.id, "/api/approve"],
+      ["device.dashboard", phone.id, "/api/crons/run"],
+    ]);
+  });
+
+  it("leaves a Mac's and a Chrome's asks unanswered, given the handler or not", async () => {
+    const { asked, dashboard } = handler();
+    for (const [place, platform] of [[MAC_PANEL, "macos"], [CHROME_PANEL, "chrome"]] as const) {
+      const { pair } = setup({ place, dashboard });
+      const device = pair(platform);
+      device.event("dashboard.request", { call: 5, method: "GET", path: "/api/approvals" });
+      await flush();
+      expect(sent(device, "dashboard.reply")).toEqual([]);
+    }
+    // A phone's ask is not heard by another kind's panel either.
+    const { pair } = setup({ place: MAC_PANEL, dashboard });
+    pair("ios").event("dashboard.request", { call: 6, method: "GET", path: "/api/approvals" });
+    await flush();
+    expect(asked).toEqual([]);
+  });
+
+  it("leaves the asks unanswered on a phone's panel given no handler", async () => {
+    const { pair } = setup({ place: PHONE_PANEL });
+    const phone = pair("ios");
+    phone.event("dashboard.request", { call: 7, method: "GET", path: "/api/approvals" });
     await flush();
     expect(phone.calls.map((c) => c.method)).toEqual([]);
   });

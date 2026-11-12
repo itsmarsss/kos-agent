@@ -4,6 +4,7 @@ import {
   type ApprovalHandler,
   type ApprovalOutcome,
   type ApprovalRequest,
+  type AuditEntry,
   type ChannelAdapter,
   type ChatEvent,
   type InboundMessage,
@@ -16,6 +17,7 @@ import {
 import { stepMechanics } from "@kos/shared";
 
 import { ArtifactReader, type PanelArtifacts } from "./artifacts.js";
+import { DashboardRelay, type PanelDashboard } from "./dashboard.js";
 import type { DeviceHub, DeviceKind } from "./hub.js";
 import { AttachmentInbox } from "./inbox.js";
 import type { DeviceEvent, PanelMessage, PanelMethod } from "./protocol.js";
@@ -106,6 +108,10 @@ export interface PanelDeps {
   glance?(): Glance;
   /** The owner's artifacts, for a device that reads them (KOS for iPhone); none, and its asks go unanswered. */
   artifacts?: PanelArtifacts;
+  /** The dashboard's own handler, for a phone's pages to ask the routes it may (KOS for iPhone); none, and its asks go unanswered. */
+  dashboard?: PanelDashboard;
+  /** The audit log, where what a phone does through the dashboard's routes is written as the phone's. */
+  audit?(entry: AuditEntry): void;
 }
 
 /** As much of what the owner quoted (selected on a page) as rides with their words, and of where it came from. */
@@ -119,7 +125,7 @@ const MAX_ARGS = 600;
 const GLANCE_ASKS = 10;
 /** How many of the newest step pictures ride with the chat as it is drawn; older ones come from the device's own cache, or not at all. */
 const PICTURES_SHOWN = 4;
-/** How long a device has to take an artifact drawn for it, which can be a few megabytes over the Wi-Fi. */
+/** How long a device has to take an artifact drawn for it or a dashboard page's answer, which can be a few megabytes over the Wi-Fi. */
 const ARTIFACT_TIMEOUT_MS = 30_000;
 /** How often a running turn's words may be redrawn on a device; a step is told at once. */
 const NARRATE_EVERY_MS = 1_200;
@@ -186,6 +192,8 @@ export class DevicePanel implements ChannelAdapter {
   private readonly reader: ArtifactReader | undefined;
   /** Each device's artifact on its way, and the one it asked for since, which replaces any asked before it. */
   private readonly opening = new Map<string, Record<string, unknown> | undefined>();
+  /** The dashboard's routes a phone asks, for a phone's panel alone. */
+  private readonly relay: DashboardRelay | undefined;
 
   constructor(
     private readonly place: PanelPlace,
@@ -193,6 +201,15 @@ export class DevicePanel implements ChannelAdapter {
   ) {
     this.name = place.name;
     this.reader = deps.artifacts ? new ArtifactReader(deps.artifacts) : undefined;
+    this.relay =
+      deps.dashboard && place.kind === "phone"
+        ? new DashboardRelay({
+            ask: deps.dashboard,
+            // As chat.decide decides, the phone as its decider.
+            decide: (decision) => (this.decisions ? Promise.resolve(this.decisions(decision)) : undefined),
+            ...(deps.audit ? { audit: deps.audit } : {}),
+          })
+        : undefined;
   }
 
   /** The hub while computer use is on; with none, the panel hears nothing and says nothing. */
@@ -517,9 +534,12 @@ export class DevicePanel implements ChannelAdapter {
   }
 
   private heard(device: string, event: DeviceEvent): void {
-    if (!event.name.startsWith("chat.") || !this.isMine(device)) return;
+    if (!this.isMine(device)) return;
     const data = event.data;
     switch (event.name) {
+      case "dashboard.request":
+        void this.relay?.answer(device, data, (answer) => this.tell(device, "dashboard.reply", answer, ARTIFACT_TIMEOUT_MS));
+        return;
       case "chat.open":
         void this.opened(device);
         return;
