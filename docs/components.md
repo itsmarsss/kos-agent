@@ -115,6 +115,19 @@ tool rows to one chip.
 | Message actions | `MessageActions.tsx` (kit `IconButton`s) | | |
 | A quoted selection | kit `QuoteLine` in the owner's bubble | kit `QuoteLine` labelled "Selected text" with the site the worker sends, two lines, over the box; once sent, kit `QuoteLine` in `.msg--you` | `QuoteCard` labelled "Selected text" with the app, two lines, over the box; once sent, `QuoteCard` in `Bubble` |
 
+## KOS for iPhone's own
+
+The phone draws the chat from the Mac's pieces (`DeviceKit`); these few are
+its own, in `packages/device-ios/Sources/PhoneUI`.
+
+| Piece | What it is | Where |
+| --- | --- | --- |
+| Round button | The composer's controls, one height (`Composer.button`, 56): `RoundButton` for a press, `RoundFace` for the same look as a menu's label (attach) | `Composer.swift` |
+| Header button | A 44 point symbol in a bar, with a dot or a count (the chat's head, the viewer's Close) | `HeaderButton` in `ChatScreen.swift` |
+| Attachment chip | A file going with the next words, over the box: a picture's thumbnail or a file's mark and kind, 56 square on the box's radius, its cross inside the corner | `AttachmentChip`, `AttachmentStrip` in `Attachments.swift` |
+| Artifact viewer | One artifact full screen to read: the kind's `Tile` in violet, title over kind, owner and age, Close; the frame in the dashboard's gutter; a deck's `DeckBar` (back, the place, on) under it | `ArtifactScreen`, `ArtifactBar`, `DeckBar` in `ArtifactScreen.swift`; the frame is `ArtifactFrame.swift` |
+| Recent artifacts | The last few changed, in the chats sheet under New chat, as `MenuRow`s with the kind's `Tile` | `ChatPicker.swift` |
+
 ## The device home
 
 The KOS for Chrome popup and the KOS for Mac window are one layout. KOS for

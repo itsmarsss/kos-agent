@@ -286,6 +286,10 @@ phone is paired first asks to replace that pairing (the KOS it replaces is
 told to forget the phone). Every connection then proves both keys, as any
 device's does.
 
+The phone takes one other link, `kos-device://listen`: it opens the app
+listening (Ask KOS, from Siri, Shortcuts or the Action button), with no query
+and nothing else, so it carries no words and pairs nothing.
+
 ## Security model
 
 - **Pairing** is a one-time code made on the dashboard, good for ten minutes
