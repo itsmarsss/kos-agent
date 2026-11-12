@@ -4,6 +4,7 @@ import { Chips, CloseIcon, Count, EditIcon, Empty, IconButton, PinIcon, SearchIc
 
 import { api, type FactRow } from "./api.js";
 import { Drawer } from "./Drawer.js";
+import { hrefFor } from "./routes.js";
 import { ConfirmButton } from "./kit.js";
 import { agoWords } from "./schedulewords.js";
 import { Select } from "./Select.js";
@@ -22,6 +23,9 @@ import { Select } from "./Select.js";
 export interface KnowledgePageProps {
   facts: FactRow[];
   tags: string[];
+  /** The new-claim form is open: its button is the page head's, so the page owns this. */
+  adding: boolean;
+  onAdding: (open: boolean) => void;
   /** Projects by slug, so a project's claims are headed by its name. */
   projectNames?: ReadonlyMap<string, string>;
   onChanged: () => void;
@@ -67,17 +71,22 @@ export interface ScopeGroup {
   title: string;
   /** What kind of place it is, beside the title: project, blob, caller. */
   kind: string | null;
+  /** A project's slug, when it is one of the owner's projects now: its heading opens it. */
+  project?: string;
+  /** A project scope whose project is gone or was never made: its slug, shown as one. */
+  unknown?: boolean;
   facts: FactRow[];
 }
 
 /** Where a scope is, as a heading: everywhere first, then projects, blobs and callers by name. */
-function placeOf(scope: string, names: ReadonlyMap<string, string>): { title: string; kind: string | null; rank: number } {
+function placeOf(scope: string, names: ReadonlyMap<string, string>): { title: string; kind: string | null; rank: number; project?: string; unknown?: boolean } {
   if (scope === "global") return { title: "Everywhere", kind: null, rank: 0 };
   const blob = /^project:blob:(.+)$/.exec(scope);
   if (blob) return { title: blob[1]!, kind: "blob", rank: 2 };
   if (scope.startsWith("project:")) {
     const slug = scope.slice("project:".length);
-    return { title: names.get(slug) ?? slug, kind: "project", rank: 1 };
+    const name = names.get(slug);
+    return name ? { title: name, kind: "project", rank: 1, project: slug } : { title: slug, kind: "no such project", rank: 1, unknown: true };
   }
   if (scope.startsWith("caller:")) return { title: scope.slice("caller:".length), kind: "caller", rank: 3 };
   return { title: scope, kind: null, rank: 4 };
@@ -95,7 +104,8 @@ export function groupByScope(facts: readonly FactRow[], names: ReadonlyMap<strin
     .map(([scope, list]) => {
       const place = placeOf(scope, names);
       const sorted = [...list].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-      return { group: { scope, title: place.title, kind: place.kind, facts: sorted }, rank: place.rank };
+      const { rank, ...where } = place;
+      return { group: { scope, ...where, facts: sorted }, rank };
     })
     .sort((a, b) => a.rank - b.rank || a.group.title.localeCompare(b.group.title))
     .map((g) => g.group);
@@ -131,7 +141,7 @@ function splitTags(text: string): string[] {
     .filter(Boolean);
 }
 
-export function KnowledgePage({ facts, tags, projectNames = NO_NAMES, onChanged }: KnowledgePageProps): ReactElement {
+export function KnowledgePage({ facts, tags, adding, onAdding, projectNames = NO_NAMES, onChanged }: KnowledgePageProps): ReactElement {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<KindFilter>("all");
   const [tag, setTag] = useState<string | null>(null);
@@ -149,7 +159,6 @@ export function KnowledgePage({ facts, tags, projectNames = NO_NAMES, onChanged 
   const [edit, setEdit] = useState<{ key: string; value: string; kind: string; tags: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<{ key: string; value: string; tags: string }>({ key: "", value: "", tags: "" });
-  const [adding, setAdding] = useState(false);
 
   const startEdit = (f: FactRow): void => {
     setOpen(f);
@@ -197,7 +206,7 @@ export function KnowledgePage({ facts, tags, projectNames = NO_NAMES, onChanged 
     if (!key || !value) return;
     await api.saveMemory(key, value, "fact", splitTags(draft.tags));
     setDraft({ key: "", value: "", tags: "" });
-    setAdding(false);
+    onAdding(false);
     onChanged();
   }
 
@@ -240,7 +249,7 @@ export function KnowledgePage({ facts, tags, projectNames = NO_NAMES, onChanged 
             <SearchIcon size={14} title="" />
             <input type="search" value={query} placeholder="Search claims…" aria-label="Search claims" onChange={(e) => setQuery(e.target.value)} />
           </label>
-          <Chips small label="Kind" options={kindOptions} selected={kind} onChoose={(k) => setKind(k === kind ? "all" : k)} />
+          <Chips small scroll label="Kind" options={kindOptions} selected={kind} onChoose={(k) => setKind(k === kind ? "all" : k)} />
           {tags.length > 0 && (
             <Select
               className="know-tag"
@@ -250,9 +259,6 @@ export function KnowledgePage({ facts, tags, projectNames = NO_NAMES, onChanged 
               onChange={(v) => setTag(v === "" ? null : v)}
             />
           )}
-          <button type="button" className="btn btn--primary know-new" onClick={() => setAdding((v) => !v)}>
-            {adding ? "Cancel" : "New claim"}
-          </button>
         </div>
       )}
 
@@ -268,7 +274,7 @@ export function KnowledgePage({ facts, tags, projectNames = NO_NAMES, onChanged 
           <input className="kos-input" aria-label="What to remember" placeholder="what to remember" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} />
           <input className="kos-input" aria-label="Tags" placeholder="tags, comma separated" value={draft.tags} onChange={(e) => setDraft({ ...draft, tags: e.target.value })} />
           <span className="know-add-acts">
-            <button type="button" className="btn btn--ghost" onClick={() => setAdding(false)}>
+            <button type="button" className="btn btn--ghost" onClick={() => onAdding(false)}>
               Cancel
             </button>
             <button type="submit" className="btn btn--primary" disabled={!draft.key.trim() || !draft.value.trim()}>
@@ -281,7 +287,7 @@ export function KnowledgePage({ facts, tags, projectNames = NO_NAMES, onChanged 
       {facts.length === 0 && !adding && (
         <Empty title="Nothing remembered yet." className="know-empty">
           KOS keeps what you tell it and what its agents work out, for every chat to read. Pin what should be in every conversation.{" "}
-          <button type="button" className="link" onClick={() => setAdding(true)}>
+          <button type="button" className="link" onClick={() => onAdding(true)}>
             Add a claim
           </button>
         </Empty>
@@ -302,8 +308,14 @@ export function KnowledgePage({ facts, tags, projectNames = NO_NAMES, onChanged 
         return (
           <section key={g.scope} className="know-group" aria-label={g.title}>
             <h2 className="know-group-title">
-              {g.title}
-              {g.kind && <span className="know-group-kind">{g.kind}</span>}
+              {g.project ? (
+                <a className="know-group-link" href={hrefFor({ name: "project", slug: g.project })}>
+                  {g.title}
+                </a>
+              ) : (
+                <span className={g.unknown ? "know-group-slug" : undefined}>{g.title}</span>
+              )}
+              {g.kind && <span className={`know-group-kind${g.unknown ? " is-unknown" : ""}`}>{g.kind}</span>}
               <Count n={g.facts.length} />
             </h2>
             <ul className="know-list">

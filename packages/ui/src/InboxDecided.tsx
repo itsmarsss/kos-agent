@@ -207,7 +207,20 @@ export function InboxDecided({
       </div>
 
       {shown.length === 0 ? (
-        <Empty inline>Nothing decided matches.</Empty>
+        <Empty inline>
+          Nothing decided matches.{" "}
+          <button
+            type="button"
+            className="link"
+            onClick={() => {
+              setFilter("all");
+              setQuery("");
+              wanted.current = DECIDED_FIRST;
+            }}
+          >
+            Clear
+          </button>
+        </Empty>
       ) : (
         <ul className="inbox-decided">
           {shown.map((a) => {

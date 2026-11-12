@@ -47,13 +47,27 @@ export function MemoryPage({
     return (TABS.find((t) => t.id === m?.[1])?.id ?? "claims");
   });
   const tabsRef = useEdgeFade<HTMLDivElement>();
+  /** The new-claim form, opened from the page head. */
+  const [adding, setAdding] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   useEffect(() => {
     void api.memoryReview().then((r) => setPendingCount(r.pending.length)).catch(() => undefined);
   }, [tab]);
   return (
     <div className="mem">
-      <PageHead title="Memory" subtitle={TABS.find((t) => t.id === tab)!.blurb} />
+      <PageHead
+        title="Memory"
+        subtitle={TABS.find((t) => t.id === tab)!.blurb}
+        {...(tab === "claims"
+          ? {
+              actions: (
+                <button type="button" className="btn btn--primary" aria-expanded={adding} onClick={() => setAdding((v) => !v)}>
+                  {adding ? "Cancel" : "New claim"}
+                </button>
+              ),
+            }
+          : {})}
+      />
       <div className="mem-tabs" role="tablist" aria-label="Memory" ref={tabsRef} onKeyDown={(e) => {
         // The arrows move between tabs, Home and End to the ends; Tab goes on to what the tab shows.
         const at = TABS.findIndex((t) => t.id === tab);
@@ -82,7 +96,7 @@ export function MemoryPage({
         ))}
       </div>
       <div id="mem-panel" role="tabpanel" aria-labelledby={`mem-tab-${tab}`} className="mem-panel">
-      {tab === "claims" && <KnowledgePage facts={facts} tags={tags} {...(projectNames ? { projectNames } : {})} onChanged={onChanged} />}
+      {tab === "claims" && <KnowledgePage facts={facts} tags={tags} adding={adding} onAdding={setAdding} {...(projectNames ? { projectNames } : {})} onChanged={onChanged} />}
       {tab === "decisions" && <DecisionsTab onChanged={onChanged} />}
       {tab === "pages" && <PagesTab />}
       {tab === "log" && <LogTab titles={titles} />}
@@ -240,9 +254,6 @@ export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResol
               "."
             )}
           </span>
-          <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={() => decide(lean.action, lean.key)}>
-            Do that
-          </button>
         </div>
       ) : (
         <p className="mem-decision-note">{item.note}</p>
@@ -271,26 +282,32 @@ export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResol
           </li>
         ))}
       </ul>
-      <div className="mem-actions">
+      {/* One row of choices: what KOS leans to first, then the others it did not. */}
+      <div className="mem-actions mem-decision-acts">
+        {lean && (
+          <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={() => decide(lean.action, lean.key)}>
+            Do that
+          </button>
+        )}
         {item.kind === "promotion" ? (
           <>
-            <button type="button" className={`btn btn--sm ${lean ? "" : "btn--primary"}`} disabled={busy} onClick={() => decide("promote")}>
-              Yes, make it global
-            </button>
-            <button type="button" className="btn btn--sm" disabled={busy} onClick={() => decide("dismiss")}>
-              No, keep it to the project
-            </button>
+            {lean?.action !== "promote" && (
+              <button type="button" className={`btn btn--sm ${lean ? "" : "btn--primary"}`} disabled={busy} onClick={() => decide("promote")}>
+                Yes, make it global
+              </button>
+            )}
+            {lean?.action !== "dismiss" && (
+              <button type="button" className="btn btn--sm" disabled={busy} onClick={() => decide("dismiss")}>
+                No, keep it to the project
+              </button>
+            )}
           </>
         ) : (
-          <button
-            type="button"
-            className="btn btn--sm"
-            disabled={busy}
-            title="Leave every claim as it is"
-            onClick={() => decide("both")}
-          >
-            {claims.length > 2 ? "All are right, leave them" : "Both are right, leave them"}
-          </button>
+          lean?.action !== "both" && (
+            <button type="button" className="btn btn--sm" disabled={busy} title="Leave every claim as it is" onClick={() => decide("both")}>
+              {claims.length > 2 ? "All are right, leave them" : "Both are right, leave them"}
+            </button>
+          )
         )}
       </div>
     </div>

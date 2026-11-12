@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "./api.js";
@@ -34,5 +34,18 @@ describe("the Memory page", () => {
     fireEvent.keyDown(document.activeElement!, { key: "End" });
     await act(async () => {});
     expect(screen.getByRole("tab", { name: "Callers" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("puts New claim in the page head, on the Claims tab only", async () => {
+    render(<MemoryPage facts={[]} tags={[]} onChanged={() => undefined} />);
+    await act(async () => {});
+    const head = document.querySelector(".list-head")!;
+    fireEvent.click(within(head as HTMLElement).getByRole("button", { name: "New claim" }));
+    expect(screen.getByRole("textbox", { name: "Key" })).toBeTruthy();
+    fireEvent.click(within(head as HTMLElement).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("textbox", { name: "Key" })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Log" }));
+    await act(async () => {});
+    expect(within(head as HTMLElement).queryByRole("button", { name: "New claim" })).toBeNull();
   });
 });

@@ -110,6 +110,16 @@ describe("the decided list", () => {
     expect(lines()[0]!.textContent).toContain("Action number 2");
   });
 
+  it("offers a way back when nothing matches", async () => {
+    serve(decidedRows(30));
+    render(<InboxDecided mark={mark(30)} onOpenChat={() => {}} />);
+    fireEvent.change(await screen.findByRole("searchbox", { name: "Search what was decided" }), { target: { value: "nothing like it" } });
+    await screen.findByText(/Nothing decided matches/);
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(lines()).toHaveLength(DECIDED_FIRST));
+    expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("");
+  });
+
   it("reads the history again only when something new was decided", async () => {
     const { history, counts } = serve(decidedRows(8));
     const { rerender } = render(<InboxDecided mark={mark(8)} onOpenChat={() => {}} />);

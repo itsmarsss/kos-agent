@@ -3,7 +3,15 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api, type FactRow } from "./api.js";
-import { groupByScope, KnowledgePage, SCOPE_FIRST } from "./KnowledgePage.js";
+import { useState, type ReactElement } from "react";
+
+import { groupByScope, KnowledgePage, SCOPE_FIRST, type KnowledgePageProps } from "./KnowledgePage.js";
+
+/** The page as the Memory page holds it: the new-claim form open or shut. */
+function Claims(props: Omit<KnowledgePageProps, "adding" | "onAdding">): ReactElement {
+  const [adding, setAdding] = useState(false);
+  return <KnowledgePage {...props} adding={adding} onAdding={setAdding} />;
+}
 
 const fact = (over: Partial<FactRow> = {}): FactRow => ({
   key: "monthly_budget",
@@ -23,7 +31,7 @@ describe("KnowledgePage", () => {
     // Grouping put the entry under every one of its tags, so one saved fact
     // read as two, each apparently a separate thing the agent believed.
     render(
-      <KnowledgePage
+      <Claims
         facts={[fact()]}
         tags={["budget", "finance"]}
         onChanged={() => undefined}
@@ -34,7 +42,7 @@ describe("KnowledgePage", () => {
 
   it("still shows every tag on the entry itself", () => {
     render(
-      <KnowledgePage
+      <Claims
         facts={[fact()]}
         tags={["budget", "finance"]}
         onChanged={() => undefined}
@@ -69,13 +77,16 @@ describe("the claims list", () => {
       ["Lisbon trip", "project"],
       ["verity", "blob"],
     ]);
+    expect(groups[1]).toMatchObject({ project: "trip" });
+    // A project scope with no project behind it says so, under its slug.
+    expect(groupByScope([fact({ scope: "project:gone" })])[0]).toMatchObject({ title: "gone", kind: "no such project", unknown: true });
     // Pinned leads its scope; a blob's two names are one place.
     expect(groups[1]!.facts.map((f) => f.key)).toEqual(["e", "a"]);
     expect(groups[2]!.facts).toHaveLength(2);
   });
 
   it("shows a scope's first few, the rest a press away", () => {
-    render(<KnowledgePage facts={many(SCOPE_FIRST + 4)} tags={[]} onChanged={() => undefined} />);
+    render(<Claims facts={many(SCOPE_FIRST + 4)} tags={[]} onChanged={() => undefined} />);
     expect(document.querySelectorAll(".know-row")).toHaveLength(SCOPE_FIRST);
     fireEvent.click(screen.getByRole("button", { name: `Show all ${SCOPE_FIRST + 4}` }));
     expect(document.querySelectorAll(".know-row")).toHaveLength(SCOPE_FIRST + 4);
@@ -83,7 +94,7 @@ describe("the claims list", () => {
 
   it("filters by kind and by pinned, and says when nothing matches", () => {
     const facts = [fact({ key: "p1", kind: "preference" }), fact({ key: "f1", pinned: true }), fact({ key: "f2" })];
-    render(<KnowledgePage facts={facts} tags={["budget"]} onChanged={() => undefined} />);
+    render(<Claims facts={facts} tags={["budget"]} onChanged={() => undefined} />);
     const kind = screen.getByRole("group", { name: "Kind" });
     fireEvent.click(within(kind).getByRole("button", { name: /Preferences/ }));
     expect([...document.querySelectorAll(".know-key")].map((k) => k.textContent)).toEqual(["p1"]);
@@ -98,7 +109,7 @@ describe("the claims list", () => {
   it("pins and edits from the row", async () => {
     const pin = vi.spyOn(api, "pinMemory").mockResolvedValue(fact({ pinned: true }));
     const changed = vi.fn();
-    render(<KnowledgePage facts={[fact()]} tags={[]} onChanged={changed} />);
+    render(<Claims facts={[fact()]} tags={[]} onChanged={changed} />);
     fireEvent.click(screen.getByRole("button", { name: "Pin monthly_budget" }));
     expect(pin).toHaveBeenCalledWith("monthly_budget", true);
     await waitFor(() => expect(changed).toHaveBeenCalled());
@@ -107,7 +118,7 @@ describe("the claims list", () => {
   });
 
   it("is one Tab stop a row, its actions on the arrow keys", () => {
-    render(<KnowledgePage facts={[fact()]} tags={[]} onChanged={() => undefined} />);
+    render(<Claims facts={[fact()]} tags={[]} onChanged={() => undefined} />);
     const open = document.querySelector<HTMLButtonElement>(".know-open")!;
     const pin = screen.getByRole("button", { name: "Pin monthly_budget" });
     const edit = screen.getByRole("button", { name: "Edit monthly_budget" });
@@ -124,7 +135,7 @@ describe("the claims list", () => {
   });
 
   it("counts each kind on its chip", () => {
-    render(<KnowledgePage facts={[fact({ key: "p1", kind: "preference" }), fact({ key: "f1", pinned: true }), fact({ key: "f2" })]} tags={[]} onChanged={() => undefined} />);
+    render(<Claims facts={[fact({ key: "p1", kind: "preference" }), fact({ key: "f1", pinned: true }), fact({ key: "f2" })]} tags={[]} onChanged={() => undefined} />);
     const kind = screen.getByRole("group", { name: "Kind" });
     expect(within(kind).getAllByRole("button").map((b) => b.textContent)).toEqual(["All 3", "Preferences 1", "Facts 2", "Pinned 1"]);
   });
@@ -132,7 +143,7 @@ describe("the claims list", () => {
   it("forgets a claim from its row, after asking once", async () => {
     const forget = vi.spyOn(api, "deleteMemory").mockResolvedValue({ key: "monthly_budget", removed: true });
     const changed = vi.fn();
-    render(<KnowledgePage facts={[fact()]} tags={[]} onChanged={changed} />);
+    render(<Claims facts={[fact()]} tags={[]} onChanged={changed} />);
     const button = screen.getByRole("button", { name: "Forget monthly_budget" });
     fireEvent.click(button);
     expect(forget).not.toHaveBeenCalled();
@@ -145,7 +156,7 @@ describe("the claims list", () => {
 
   it("narrows to one tag from the tag picker", () => {
     const facts = [fact({ key: "a", tags: ["budget"] }), fact({ key: "b", tags: ["travel"] }), fact({ key: "c", tags: [] })];
-    render(<KnowledgePage facts={facts} tags={["travel", "budget"]} onChanged={() => undefined} />);
+    render(<Claims facts={facts} tags={["travel", "budget"]} onChanged={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: "Tag" }));
     const list = screen.getByRole("listbox");
     expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["Any tag", "budget", "travel"]);
@@ -155,7 +166,7 @@ describe("the claims list", () => {
   });
 
   it("says what memory is when it holds nothing", () => {
-    render(<KnowledgePage facts={[]} tags={[]} onChanged={() => undefined} />);
+    render(<Claims facts={[]} tags={[]} onChanged={() => undefined} />);
     expect(screen.getByText("Nothing remembered yet.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add a claim" }));
     expect(screen.getByRole("textbox", { name: "Key" })).toBeTruthy();
@@ -166,7 +177,7 @@ describe("the claims list", () => {
   });
 
   it("says on the row who wrote a claim", () => {
-    render(<KnowledgePage facts={[fact({ key: "a", source: "cron:10" }), fact({ key: "b", source: "dashboard" })]} tags={[]} onChanged={() => undefined} />);
+    render(<Claims facts={[fact({ key: "a", source: "cron:10" }), fact({ key: "b", source: "dashboard" })]} tags={[]} onChanged={() => undefined} />);
     expect([...document.querySelectorAll(".know-from")].map((e) => e.textContent)).toEqual(["from job #10", "from you"]);
   });
 });
