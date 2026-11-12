@@ -1218,6 +1218,20 @@ describe("handleApiRequest", () => {
       expect(res.status).toBe(404);
     });
 
+    it("asked not to wait, says at once why a job did not fire, and answers one under way as accepted", async () => {
+      const job = kernel.crons.create({ name: "slow", schedule: "0 3 * * *", type: "actions", actions: [{ tool: "files.read", args: { path: "nope.md" } }], enabled: true });
+      kernel.killSwitch.halt();
+      const halted = await handleApiRequest(kernel, { method: "POST", path: "/api/crons/run", body: { id: job.id, wait: false } });
+      expect(halted).toMatchObject({ status: 200, body: { ok: false, error: "halted" } });
+      kernel.killSwitch.resume();
+      let finish: () => void = () => undefined;
+      const fire = vi.spyOn(kernel, "fireCron").mockReturnValue(new Promise((done) => (finish = () => done({ outcome: { fired: true, result: {} }, ok: true }))));
+      const accepted = await handleApiRequest(kernel, { method: "POST", path: "/api/crons/run", body: { id: job.id, wait: false } });
+      expect(accepted).toEqual({ status: 202, body: { accepted: true, id: job.id } });
+      finish();
+      fire.mockRestore();
+    });
+
     describe("fired from outside by a hook", () => {
       const hook = (name: string, secret?: string, method = "POST") =>
         handleApiRequest(
