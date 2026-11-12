@@ -1,12 +1,24 @@
 import DeviceCore
+import DeviceKit
 import Foundation
 
-/// The glance: what KOS has on the go, what is failing and what runs next,
-/// as KOS last answered it (docs/computer.md, Glance). Asked for when the
-/// app comes to the front, when the glance is opened, and when a turn ends.
+/// The glance: what KOS has on the go, what waits on the owner, what is
+/// failing and what runs next, as KOS last answered it (docs/computer.md,
+/// Glance). Asked for when the app comes to the front, when the glance is
+/// opened, and when a turn ends. Each ask it carries is decided here, in any
+/// chat, as the dashboard decides it.
 @MainActor
 public final class GlanceModel: ObservableObject {
+  /// An approval waiting on the owner, and the chat it is for by its title.
+  public struct Waiting: Equatable, Identifiable, Sendable {
+    public let ask: ChatModel.Ask
+    public let chat: String?
+    public var id: String { ask.id }
+  }
+
   @Published public private(set) var report: Glance?
+  /// The asks KOS sent, less those decided since.
+  @Published public private(set) var asks: [Waiting] = []
   /// When KOS last answered.
   @Published public private(set) var at: Date?
   /// Asked and not yet answered.
@@ -14,8 +26,16 @@ public final class GlanceModel: ObservableObject {
 
   /// Asks KOS; the app sends the event.
   public var askKOS: () -> Void = {}
+  /// An ask decided here; the app sends the decision.
+  public var decide: (_ id: String, _ approved: Bool, _ remember: Bool) -> Void = { _, _, _ in }
+
+  /// Decided since KOS last said, so the count goes down with the rows.
+  private var gone: Set<String> = []
 
   public init() {}
+
+  /// Every approval waiting on the owner, as KOS counted them, less those decided here since.
+  public var waiting: Int { max(0, (report?.waiting ?? 0) - gone.count) }
 
   public func ask() {
     asking = true
@@ -24,13 +44,31 @@ public final class GlanceModel: ObservableObject {
 
   public func received(_ glance: Glance, at now: Date = Date()) {
     report = glance
+    gone = []
+    asks = glance.asks.map { Waiting(ask: ChatCalls.ask($0.approval, chat: $0.chat?.id), chat: $0.chat?.title) }
     at = now
     asking = false
+  }
+
+  /// The owner's decision: the row goes at once, and KOS is told.
+  public func answer(_ id: String, approved: Bool, remember: Bool = false) {
+    guard asks.contains(where: { $0.id == id }) else { return }
+    settled(id)
+    decide(id, approved, remember)
+  }
+
+  /// Decided, here or elsewhere: no longer waiting.
+  public func settled(_ id: String) {
+    guard asks.contains(where: { $0.id == id }) else { return }
+    asks.removeAll { $0.id == id }
+    gone.insert(id)
   }
 
   /// Another KOS, or none: nothing of the last one's stays.
   public func reset() {
     report = nil
+    asks = []
+    gone = []
     at = nil
     asking = false
   }
@@ -48,7 +86,7 @@ public final class GlanceModel: ObservableObject {
     if report.halted { parts.append("KOS is halted") }
     parts.append(report.running.isEmpty ? "Nothing running" : "\(report.running.count) running")
     if !report.failing.isEmpty { parts.append("\(report.failing.count) failing") }
-    if report.waiting > 0 { parts.append("\(report.waiting) waiting on you") }
+    if waiting > 0 { parts.append("\(waiting) waiting on you") }
     return parts.joined(separator: ", ")
   }
 }
@@ -86,6 +124,15 @@ public enum GlanceWords {
     if minutes < 60 { return "for \(minutes)m" }
     let hours = Int((Double(minutes) / 60).rounded())
     return hours < 48 ? "for \(hours)h" : "for \(Int((Double(hours) / 24).rounded()))d"
+  }
+
+  /// How long an ask has before it answers itself, to the minute as a glance needs it: "lapses in 4m".
+  public static func lapses(_ at: Date, now: Date = Date()) -> String {
+    let seconds = Int(at.timeIntervalSince(now).rounded(.up))
+    if seconds <= 0 { return "lapses now" }
+    if seconds < 60 { return "lapses in \(seconds)s" }
+    let minutes = Int((Double(seconds) / 60).rounded(.up))
+    return minutes < 60 ? "lapses in \(minutes)m" : "lapses in \(Int((Double(minutes) / 60).rounded()))h"
   }
 
   /// How many runs failed in a row, said plainly.

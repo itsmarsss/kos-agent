@@ -35,6 +35,8 @@ struct AskBody: View {
   let ask: ChatModel.Ask
   /// How many more wait after this one.
   let more: Int
+  /// The chat it is for, when it is not the one shown: an ask opened from the glance.
+  var from: String? = nil
   let answer: (_ approved: Bool, _ remember: Bool) -> Void
   @State private var details = false
   @Environment(\.accessibilityReduceMotion) private var still
@@ -51,6 +53,7 @@ struct AskBody: View {
         VStack(alignment: .leading, spacing: 2) {
           Text("KOS asks to run").font(.kos(.detail, .semibold)).foregroundStyle(Theme.warn)
           Text(ask.tool).font(.kos(.title, .semibold, design: .monospaced)).lineLimit(2)
+          if let from { Text("For \(from)").font(.kos(.detail)).foregroundStyle(Theme.muted).lineLimit(1) }
         }
         Spacer(minLength: 0)
         if more > 0 { Pill("\(more) more", tone: .warn) }

@@ -38,10 +38,7 @@ public enum ChatCalls {
       return .status
     case .ask:
       let p = try call.params(ChatAsk.self)
-      let a = p.approval
-      model.ask(.init(
-        id: a.id, tool: a.tool, args: a.args, mechanics: a.mechanics, why: a.why, reason: a.reason, always: a.always,
-        expires: a.expiresAt.map { Date(timeIntervalSince1970: $0 / 1000) }, chat: p.chat))
+      model.ask(ask(p.approval, chat: p.chat))
     case .settled:
       model.settled(try call.params(ChatSettled.self).approval)
     case .chats:
@@ -55,6 +52,13 @@ public enum ChatCalls {
       model.mentions(p.mentions.map { .init(kind: $0.kind, id: $0.id, label: $0.label, hint: $0.hint) }, for: p.q)
     }
     return .other
+  }
+
+  /// An approval as KOS sends it, as the model holds it: in `chat.ask`, and in a phone's glance.
+  public static func ask(_ a: ChatApproval, chat: String?) -> ChatModel.Ask {
+    .init(
+      id: a.id, tool: a.tool, args: a.args, mechanics: a.mechanics, why: a.why, reason: a.reason, always: a.always,
+      expires: a.expiresAt.map { Date(timeIntervalSince1970: $0 / 1000) }, chat: chat)
   }
 
   /// One entry of the chat as KOS sends it, as a window draws it; one of a role this app does not know is left out.

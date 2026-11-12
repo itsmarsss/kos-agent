@@ -176,6 +176,8 @@ public final class Phone: ObservableObject {
         heardBack()
       case .other:
         if chat.asks.count > asks { haptics.attention() }
+        // Decided elsewhere: the glance's row goes as the chat's card does.
+        if method == .settled, let settled = try? call.params(ChatSettled.self) { glance.settled(settled.approval) }
       }
       return try? Outbound.reply(id: call.id, result: EmptyResult())
     } catch let error as DeviceError {
@@ -229,9 +231,14 @@ public final class Phone: ObservableObject {
   private func wire() {
     pairing.paired = { [weak self] pairing in self?.keep(pairing) }
     chat.send = { [weak self] text, _ in self?.say(text) }
+    // Decided in the chat or in the glance, by its id either way; the other drops it too.
     chat.decide = { [weak self] id, approved, remember in
-      self?.haptics.tap()
-      self?.tell(.decide(approval: id, approved: approved, remember: remember))
+      self?.glance.settled(id)
+      self?.decided(id, approved: approved, remember: remember)
+    }
+    glance.decide = { [weak self] id, approved, remember in
+      self?.chat.settled(id)
+      self?.decided(id, approved: approved, remember: remember)
     }
     chat.list = { [weak self] in self?.tell(.list) }
     chat.switchTo = { [weak self] id in self?.tell(.switchTo(conversation: id)) }
@@ -267,6 +274,11 @@ public final class Phone: ObservableObject {
     chat.paired = true
     haptics.done()
     dial(pairing)
+  }
+
+  private func decided(_ id: String, approved: Bool, remember: Bool) {
+    haptics.tap()
+    tell(.decide(approval: id, approved: approved, remember: remember))
   }
 
   private func say(_ text: String) {

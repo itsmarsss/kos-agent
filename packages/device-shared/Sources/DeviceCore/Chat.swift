@@ -132,6 +132,20 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
   public let always: String?
   /// When it is decided for the owner if they do not, epoch milliseconds.
   public let expiresAt: Double?
+
+  public init(
+    id: String, tool: String, args: String? = nil, mechanics: String? = nil, why: String? = nil, reason: String? = nil, always: String? = nil,
+    expiresAt: Double? = nil
+  ) {
+    self.id = id
+    self.tool = tool
+    self.args = args
+    self.mechanics = mechanics
+    self.why = why
+    self.reason = reason
+    self.always = always
+    self.expiresAt = expiresAt
+  }
 }
 
 public struct ChatAsk: Decodable, Equatable, Sendable {

@@ -185,6 +185,23 @@ struct PhoneTests {
     #expect(rig.phone.chat.lines.isEmpty)
   }
 
+  @Test func aGlancesAskIsDecidedFromThePhoneAndGoesFromBothPlaces() async throws {
+    let rig = try await Rig.online()
+    let glance = #"{"waiting":2,"asks":[{"chat":{"id":"c2","title":"Inbox sweep"},"approval":{"id":"41","tool":"files.write","why":"Saving the list."}},{"approval":{"id":"42","tool":"shell.run"}}]}"#
+    _ = try await rig.line.call("chat.glance", glance)
+    #expect(rig.phone.glance.asks.map(\.id) == ["41", "42"])
+    #expect(rig.phone.glance.asks.first?.chat == "Inbox sweep")
+    rig.phone.glance.answer("41", approved: true)
+    #expect(rig.line.last("chat.decide")?["approval"] as? String == "41")
+    #expect(rig.line.last("chat.decide")?["approved"] as? Bool == true)
+    #expect(rig.phone.glance.asks.map(\.id) == ["42"])
+    #expect(rig.phone.glance.waiting == 1)
+    // Decided elsewhere, it goes from the glance as from the chat.
+    _ = try await rig.line.call("chat.settled", #"{"approval":"42","outcome":"approved"}"#)
+    #expect(rig.phone.glance.asks.isEmpty)
+    #expect(rig.phone.glance.waiting == 0)
+  }
+
   @Test func aKOSThatForgotThePhoneSendsItBackToPairing() async throws {
     let rig = try await Rig.online()
     rig.line.onRemoved?()

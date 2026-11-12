@@ -122,6 +122,17 @@ struct GlanceTests {
     #expect(glance.next == [.init(name: "kos.backup", at: 1_761_800_000_000)])
   }
 
+  @Test func itCarriesTheAsksToDecide() throws {
+    let raw = #"{"waiting":3,"asks":[{"chat":{"id":"c_2","title":"Inbox sweep"},"approval":{"id":"41","tool":"files.write","why":"Saving the list.","expiresAt":1761800000000}},{"approval":{"id":"42","tool":"shell.run"}}]}"#
+    let glance = try JSONDecoder().decode(Glance.self, from: Data(raw.utf8))
+    #expect(glance.waiting == 3)
+    #expect(glance.asks.count == 2)
+    #expect(glance.asks[0].chat == .init(id: "c_2", title: "Inbox sweep"))
+    #expect(glance.asks[0].approval == ChatApproval(id: "41", tool: "files.write", why: "Saving the list.", expiresAt: 1_761_800_000_000))
+    // One no chat asked has none.
+    #expect(glance.asks[1].chat == nil)
+  }
+
   @Test func listsLeftOutAreEmpty() throws {
     let glance = try JSONDecoder().decode(Glance.self, from: Data(#"{"waiting":1}"#.utf8))
     #expect(glance == Glance(waiting: 1))

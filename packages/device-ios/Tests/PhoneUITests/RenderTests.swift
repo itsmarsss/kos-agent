@@ -69,7 +69,15 @@ struct RenderTests {
   private func glance() -> Glance {
     let now = Date().timeIntervalSince1970 * 1000
     return Glance(
-      halted: false, running: [.init(id: "c1", title: "Garden orchestrator"), .init(id: "c2", title: "Fix login")], waiting: 2,
+      halted: false, running: [.init(id: "c1", title: "Garden orchestrator"), .init(id: "c2", title: "Fix login")], waiting: 3,
+      asks: [
+        .init(
+          chat: .init(id: "c3", title: "Inbox sweep"),
+          approval: ChatApproval(id: "41", tool: "email.send", args: #"{"to":"sam@example.com"}"#, why: "Reply to Sam that Saturday at 4 works.", expiresAt: now + 4 * 60_000)),
+        .init(
+          chat: .init(id: "c1", title: "Garden orchestrator"),
+          approval: ChatApproval(id: "42", tool: "shell.run", args: #"{"command":"git push"}"#, why: "Push the garden plan you approved this morning.", expiresAt: now + 22 * 60_000)),
+      ],
       failing: [.init(label: "Nightly backup", streak: 3, error: "rsync: write failed: No space left on device", since: now - 2 * 86_400_000)],
       next: [.init(name: "kos.backup", at: now + 3 * 3_600_000), .init(name: "blob.scout", at: now + 26 * 3_600_000)])
   }
@@ -147,6 +155,16 @@ struct RenderTests {
     phone.glance.received(glance())
     try render("glance") {
       SheetOver(height: 0.72) { ChatScreen(phone: phone) } sheet: { GlanceSheet(glance: phone.glance) }
+    }
+    // Scrolled to its end, open full height: the last row clears the home indicator.
+    try render("glance-end", only: ["390"]) {
+      SheetOver(height: 0.92) { ChatScreen(phone: phone) } sheet: { GlanceSheet(glance: phone.glance).defaultScrollAnchor(.bottom) }
+    }
+    let ask = try #require(phone.glance.asks.first)
+    try render("glance-ask", only: ["390"]) {
+      SheetOver(height: 0.62) { GlanceSheet(glance: phone.glance) } sheet: {
+        AskBody(ask: ask.ask, more: 0, from: ask.chat) { _, _ in }.frame(maxHeight: .infinity, alignment: .top)
+      }
     }
   }
 
@@ -273,7 +291,9 @@ struct SheetOver<Base: View, Sheet: View>: View {
     GeometryReader { box in
       ZStack(alignment: .bottom) {
         base().overlay(Color.black.opacity(0.4))
+        // The home indicator is the sheet's safe area, as on a phone: a scroll view scrolled to its end clears it.
         sheet()
+          .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: PhoneFrame<Base>.bottom) }
           .frame(maxWidth: .infinity)
           .frame(height: box.size.height * height + PhoneFrame<Base>.bottom, alignment: .top)
           .background(Theme.panel)

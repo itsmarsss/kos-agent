@@ -243,4 +243,13 @@ struct GlanceWordsTests {
     #expect(GlanceWords.streak(1) == "Failed its last run")
     #expect(GlanceWords.streak(3) == "Failed 3 runs in a row")
   }
+
+  @Test func howLongAnAskHasLeft() {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    #expect(GlanceWords.lapses(now.addingTimeInterval(40), now: now) == "lapses in 40s")
+    #expect(GlanceWords.lapses(now.addingTimeInterval(4 * 60), now: now) == "lapses in 4m")
+    #expect(GlanceWords.lapses(now.addingTimeInterval(4 * 60 + 1), now: now) == "lapses in 5m")
+    #expect(GlanceWords.lapses(now.addingTimeInterval(23 * 3600), now: now) == "lapses in 23h")
+    #expect(GlanceWords.lapses(now.addingTimeInterval(-5), now: now) == "lapses now")
+  }
 }
