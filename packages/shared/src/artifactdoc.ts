@@ -1,11 +1,4 @@
 import { colourOf, sameGround } from "./colourof.js";
-import { COLOURS, LIGHT_COLOURS } from "./design.js";
-
-/** KOS's grounds and kit surfaces in each theme, for reading a page's ground in the theme it is not in now. */
-const GROUND_PALETTES = {
-  dark: { bg: COLOURS.bg, panel: COLOURS.panel, "panel-2": COLOURS["panel-2"] },
-  light: { bg: LIGHT_COLOURS.bg, panel: LIGHT_COLOURS.panel, "panel-2": LIGHT_COLOURS["panel-2"] },
-};
 
 /**
  * The documents an HTML page runs as: the page itself, held in a wrapper.
@@ -245,11 +238,14 @@ export function tokenRule(tokens: Record<string, string>, mode: "light" | "dark"
  * column otherwise gives: its text never runs to the edge of its colour.
  * One within sameGround of --bg (and not the kit's --panel or --panel-2)
  * is KOS's: marked "near", it is painted --bg (page.css), with no slab and
- * no gutter. One whose ground follows the theme must be near KOS's in the
- * other theme too, read by flipping data-theme for a moment with
- * transitions held, against KOS's other palette. It is read again without
- * the mark each time; one whose background fades cannot be repainted
- * without setting the fade going, so it is "own" and keeps its gutter.
+ * no gutter. Each theme is decided on its own, against that theme's
+ * tokens, so a ground near KOS's in one theme only is "near" there and
+ * "own" in the other. The repaint is the document's own #kos-near sheet,
+ * lifted (its disabled flag, no attribute) for the moment the page's own
+ * colour is read, so reading it changes nothing a page can observe; the
+ * mark is written only when it changes. One whose background fades cannot
+ * be repainted without setting the fade going, so it is "own" and keeps
+ * its gutter.
  *
  * Queries go out FRAME_QUERIES at a time, in the order asked; the rest wait
  * in the frame, so how many a page asks at once is never a refusal. One with
@@ -283,29 +279,23 @@ Element.prototype.scrollIntoView=function(o){if(inner())into.call(this,o);reveal
 }
 var colourOf=${colourOf.toString()};
 var sameGround=${sameGround.toString()};
-var palettes=${JSON.stringify(GROUND_PALETTES)};
-var grounded=0,watchers=[];
+var grounded=0;
 function token(text,name){var m=new RegExp("--"+name+":([^;}]+)").exec(text);return m?colourOf(m[1].trim()):null}
 function groundNow(){var bs=getComputedStyle(document.body),hs=getComputedStyle(root);if(bs.backgroundImage!=="none"||hs.backgroundImage!=="none")return "image";var c=colourOf(bs.backgroundColor);if(!c||c[3]===0)c=colourOf(hs.backgroundColor);return c}
 function fades(s){var p=s.transitionProperty.split(","),d=s.transitionDuration.split(",");return p.some(function(x,i){x=x.trim();return(x==="all"||x==="background"||x==="background-color")&&parseFloat(d[i%d.length])>0})}
 function differ(a,b){return a[0]!==b[0]||a[1]!==b[1]||a[2]!==b[2]}
-function otherTheme(){var b=document.body,mode=root.dataset.theme==="light"?"light":"dark",was=[root.style.transition,b.style.transition];
-root.style.transition=b.style.transition="none";root.dataset.theme=mode==="light"?"dark":"light";var c=groundNow();root.dataset.theme=mode;getComputedStyle(b).backgroundColor;
-root.style.transition=was[0];b.style.transition=was[1];watchers.forEach(function(w){w.takeRecords()});return c}
 function ground(){var b=document.body,text=(document.getElementById("kos-tokens")||{}).textContent||"",k=token(text,"bg");if(!b||!k)return;
 var moving=[b,root].reduce(function(all,n){return all.concat(n.getAnimations?n.getAnimations().filter(function(x){return x.playState==="running"&&!!x.effect&&x.effect.getComputedTiming().endTime!==Infinity}):[])},[]);
 if(moving.length){Promise.all(moving.map(function(x){return x.finished.catch(function(){})})).then(reground);return}
-if(root.dataset.ground==="near")delete root.dataset.ground;
+var lift=document.getElementById("kos-near");if(lift)lift.disabled=true;
 var c=groundNow(),own=c==="image",near=false;
 if(!own&&c&&c[3]>0){own=!sameGround(c,k,[token(text,"panel"),token(text,"panel-2")].filter(Boolean));
 if(!own&&differ(c,k)){var bs=getComputedStyle(b),hs=getComputedStyle(root);
-if(fades(bs)||fades(hs))own=true;
-else{var o=otherTheme(),p=palettes[root.dataset.theme==="light"?"dark":"light"];
-if(o==="image")own=true;else if(o&&o[3]>0&&differ(o,c))own=!sameGround(o,colourOf(p.bg),[colourOf(p.panel),colourOf(p["panel-2"])]);
-near=!own}}}
-if(own)root.dataset.ground="own";else if(near)root.dataset.ground="near";else delete root.dataset.ground}
+own=fades(bs)||fades(hs);near=!own}}
+if(lift)lift.disabled=false;
+var now=own?"own":near?"near":undefined;if(root.dataset.ground!==now){if(now)root.dataset.ground=now;else delete root.dataset.ground}}
 function reground(){cancelAnimationFrame(grounded);grounded=requestAnimationFrame(ground)}
-function watchGround(){ground();var o={attributes:true,attributeFilter:["style","class"]};var mo=new MutationObserver(reground);mo.observe(root,o);if(document.body)mo.observe(document.body,o);var st=new MutationObserver(reground);st.observe(document.head,{childList:true,subtree:true,characterData:true});watchers=[mo,st];
+function watchGround(){ground();var o={attributes:true,attributeFilter:["style","class"]};var mo=new MutationObserver(reground);mo.observe(root,o);if(document.body)mo.observe(document.body,o);var st=new MutationObserver(reground);st.observe(document.head,{childList:true,subtree:true,characterData:true});
 ["transitionend","transitioncancel"].forEach(function(t){document.addEventListener(t,function(e){if(e.target===root||e.target===document.body)reground()},true)})}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",watchGround);else watchGround();
 addEventListener("load",ground);
@@ -370,6 +360,8 @@ export function pageDocument({ html, tokens, mode, css, libraries, kind = "page"
     `<script>${RTC_GUARD}</script>`,
     `<script>${GUARD_SCRIPT}</script>`,
     `<style id="kos-tokens">${tokenRule(tokens, mode)}</style>`,
+    // A ground a few steps off KOS's (the bridge's "near") is painted KOS's, so no slab shows; the bridge lifts this to read the page's own.
+    `<style id="kos-near">html[data-ground="near"],html[data-ground="near"] body{background-color:var(--bg)!important}</style>`,
     `<style>${css.replace(/<\/style/gi, "")}</style>`,
     `<script>${BRIDGE_SCRIPT}</script>`,
     ...libraries.map((code) => `<script>${scriptSafe(code)}</script>`),

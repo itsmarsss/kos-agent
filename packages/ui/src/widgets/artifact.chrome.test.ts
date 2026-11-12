@@ -455,9 +455,9 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       ["/kos-mixed", `<style>body{background:color-mix(in srgb, var(--bg) 100%, transparent)}</style><h1>Mixed</h1>${report()}`, KOS],
       // A few steps off KOS's ground (the live cram sheet's paper) is KOS's: painted it, with no gutter.
       ["/near-paper", `<style>body{background:#15161a}</style><h1>Near</h1>${report()}`, NEAR],
-      // One that follows the theme is KOS's only when it is near in both; the other theme is read with its transitions held.
-      ["/near-both", `<style>:root{--paper:#f4f3f0}:root[data-theme=dark]{--paper:#15161a}body{background:var(--paper);transition:color .25s}</style><h1>Both</h1>${report()}`, NEAR],
-      ["/near-one", `<style>:root{--paper:#f5efe0}:root[data-theme=dark]{--paper:#15161a}body{background:var(--paper)}</style><h1>One</h1>${report()}`, OWN],
+      // Each theme is decided on its own: a paper near KOS's in this one is near here, whatever it is in the other; a transition on anything but the background still repaints.
+      ["/near-this-theme", `<style>:root{--paper:#f5efe0}:root[data-theme=dark]{--paper:#15161a}body{background:var(--paper);transition:color .25s}</style><h1>This theme</h1>${report()}`, NEAR],
+      ["/own-this-theme", `<style>:root{--paper:#15161a}:root[data-theme=dark]{--paper:#f5efe0}body{background:var(--paper)}</style><h1>Its own here</h1>${report()}`, OWN],
       // The kit's own surface is a ground of the page's own, however near.
       ["/kit-panel", `<style>body{background:var(--panel)}</style><h1>Panel</h1>${report()}`, OWN],
       // One whose background fades cannot be repainted without setting the fade going: its own, with its gutter.
@@ -485,6 +485,33 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       expect(JSON.parse(String(await value("document.body.dataset.seen"))), path).toEqual(want);
     }
   }, 60_000);
+
+  /*
+   * Reading a page's ground changes nothing the page can see but the mark,
+   * and the mark only when it changes: a page that answers every change on
+   * its root with a write on its body settles, and keeps its own theme.
+   */
+  it("settles the ground of a page that watches its root, and leaves its data-theme alone", async () => {
+    const css = readFileSync(join(import.meta.dirname, "../../../kit/src/page.css"), "utf8");
+    const html = `<style>body{background:#15161a}</style><h1>Watching</h1><script>
+      document.documentElement.dataset.theme = "dim";
+      let seen = 0;
+      new MutationObserver((records) => { seen += records.length; document.body.classList.add("touched"); }).observe(document.documentElement, { attributes: true });
+      addEventListener("load", () => setTimeout(() => top.postMessage({ watched: { seen, theme: document.documentElement.dataset.theme, ground: document.documentElement.dataset.ground || "", bg: getComputedStyle(document.body).backgroundColor } }, "*"), 1500));
+    </script>`;
+    const frame = wrapperDocument(pageDocument({ html, tokens: { "--bg": "#0c0e12", "--panel": "#12151c", "--panel-2": "#181c26", "--text": "#e7ebf3" }, mode: "dark", css, libraries: [] }));
+    pages.set("/watching", `<!doctype html><body><iframe id="f" sandbox="allow-scripts" style="width:800px;height:400px" srcdoc="${srcdoc(frame)}"></iframe><script>
+      addEventListener("message", (e) => { if (e.data && e.data.watched) document.body.dataset.watched = JSON.stringify(e.data.watched); });
+    </script></body>`);
+    await send("Page.navigate", { url: `${base}/watching` });
+    await until("!!document.body.dataset.watched");
+    const got = JSON.parse(String(await value("document.body.dataset.watched"))) as { seen: number; theme: string; ground: string; bg: string };
+    expect(got.theme).toBe("dim");
+    expect(got.ground).toBe("near");
+    expect(got.bg).toBe("rgb(12, 14, 18)");
+    // The mark, written once: no run after it writes again.
+    expect(got.seen).toBeLessThanOrEqual(2);
+  }, 30_000);
 
   /*
    * Queries go out two at a time, and one whose answer never comes gives its
