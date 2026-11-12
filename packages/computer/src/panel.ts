@@ -14,7 +14,7 @@ import {
   type TurnPresence,
   type UserMapping,
 } from "@kos/harness";
-import { stepMechanics } from "@kos/shared";
+import { stepMechanics, summarizeAction } from "@kos/shared";
 
 import { ArtifactReader, type PanelArtifacts } from "./artifacts.js";
 import { DashboardRelay, type PanelDashboard } from "./dashboard.js";
@@ -827,9 +827,12 @@ function approvalOf(req: ApprovalRequest): Record<string, unknown> {
   const args = argsText(req.args);
   const always = req.rule ? alwaysWords(req.rule.scope) : undefined;
   const mechanics = req.tool && req.args !== undefined ? stepMechanics(req.tool, req.args) : undefined;
+  // In words, with its ids named, as the Inbox titles it: a phone lists the ask by this, not by its tool.
+  const summary = req.tool && req.args !== undefined ? summarizeAction(req.tool, req.args, req.names) : undefined;
   return {
     id: req.id,
     tool: req.tool ?? "",
+    ...(summary ? { summary } : {}),
     ...(args ? { args } : {}),
     ...(mechanics ? { mechanics } : {}),
     ...(req.why ? { why: req.why } : {}),

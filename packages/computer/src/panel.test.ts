@@ -136,8 +136,8 @@ describe("KOS for iPhone", () => {
     phone.event("chat.glance", {});
     mac.event("chat.glance", {});
     await flush();
-    // Each waiting ask goes as chat.ask carries one, with the chat it is for.
-    const asks = [{ chat: { id: "c2", title: "Inbox sweep" }, approval: { id: "7", tool: "files.write", args: '{"path":"notes/list.md"}', why: "Saving the list.", expiresAt: 9 } }];
+    // Each waiting ask goes as chat.ask carries one, in words, with the chat it is for.
+    const asks = [{ chat: { id: "c2", title: "Inbox sweep" }, approval: { id: "7", tool: "files.write", summary: "Write file notes/list.md", args: '{"path":"notes/list.md"}', why: "Saving the list.", expiresAt: 9 } }];
     expect(phone.calls.filter((c) => c.method === "chat.glance").map((c) => c.params)).toEqual([{ ...glance, asks }]);
     expect(mac.calls.filter((c) => c.method === "chat.glance")).toEqual([]);
   });
@@ -865,7 +865,7 @@ describe("a Chrome's side panel", () => {
       rule: { tool: "browser.*", scope: "your-chrome:shop.example", project: null },
       expiresAt: 1_800_000,
     });
-    expect(chrome.calls.filter((c) => c.method === "chat.ask").at(-1)).toEqual({ method: "chat.ask", params: { chat: "chrome:owner", approval: { id: "10", tool: "browser.act", args: '{"steps":[]}', why: "Clicking Buy.", always: "Always on shop.example", expiresAt: 1_800_000 } } });
+    expect(chrome.calls.filter((c) => c.method === "chat.ask").at(-1)).toEqual({ method: "chat.ask", params: { chat: "chrome:owner", approval: { id: "10", tool: "browser.act", summary: "Act on the page", args: '{"steps":[]}', why: "Clicking Buy.", always: "Always on shop.example", expiresAt: 1_800_000 } } });
     // A step said by its purpose carries its actions, in full, beside the arguments cut to fit.
     const actions = Array.from({ length: 10 }, (_, i) => ({ action: "type", text: `${i} ${"x".repeat(80)}` }));
     await panel.requestApproval("owner", { id: "11", text: "x", tool: "computer.act", args: { intent: "Note: just closing the popup", actions }, asker: { name: "Chrome", conversationId: "chrome:owner" } });

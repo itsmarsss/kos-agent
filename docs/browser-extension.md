@@ -242,7 +242,7 @@ beside it when the chat asks.
 | --- | --- | --- |
 | `chat.show` | `chat` and `conversation` (the chat shown, or null), `title`, `messages [{ role, text?, files?, quote? { text, from }, steps? [{ summary, failed?, frame? }] }]`, `notice? { text, from? }`, `pictures? { <frame id>: <base64 JPEG> }` (the newest four steps' pictures), `sites? { <frame id>: <host> }` (the page each shows) | `{}` |
 | `chat.status` | `chat` and `conversation` (the chat the turn runs in, learned when it starts, never the one the panel moved to), `waiting?` (`consent`: a device asks the owner for this chat's session; `approval`: an approval waits), `held` (the owner has control of its session), `said?` (the owner's words the turn is for), `taken?` (KOS has those words, said at once; ones said elsewhere are drawn on their way), `story?` (the turn's steps so far, `› ` before each; null when done), `error?`, `frame? { id, image, mediaType, site? }` (what a step just saw, with `said`, sent on its own to every device of the kind; a device never draws one whose `site` is on its hidden list) | `{}` |
-| `chat.ask` | `chat`, `approval { id, tool, args?, mechanics?, why?, reason?, always?, expiresAt? }` (`expiresAt`: when it lapses unanswered, epoch ms) | `{}` |
+| `chat.ask` | `chat`, `approval { id, tool, summary?, args?, mechanics?, why?, reason?, always?, expiresAt? }` (`summary`: the action in words with its ids named, as the Inbox titles it; `expiresAt`: when it lapses unanswered, epoch ms) | `{}` |
 | `chat.settled` | `approval`, `outcome` (`approved`, `denied`, `expired`) | `{}` |
 | `chat.chats` | `chats [{ id, title, updatedAt }]`, `current` | `{}` |
 | `chat.models` | `current`, `choices`, `fixed?` (an engine that chooses its own), `error?` | `{}` |
