@@ -150,6 +150,23 @@ describe("the decided list", () => {
     expect(row.querySelector(".inbox-decided-line")!.getAttribute("aria-expanded")).toBe("true");
   });
 
+  it("clears the filters for a link once, and leaves the owner's own after that", async () => {
+    const all = decidedRows(30);
+    serve(all);
+    const { rerender } = render(<InboxDecided mark={mark(30)} highlight={all[1]!.id} onOpenChat={() => {}} />);
+    const group = await screen.findByRole("group", { name: "Show decided" });
+    await waitFor(() => expect(lines().length).toBeGreaterThan(0));
+    fireEvent.click(within(group).getByRole("button", { name: /Denied/ }));
+    await waitFor(() => expect(lines().every((l) => l.textContent?.includes("denied"))).toBe(true));
+    // The Inbox polls and something new is decided: the link is the same link.
+    rerender(<InboxDecided mark={mark(31, 1001)} highlight={all[1]!.id} onOpenChat={() => {}} />);
+    await act(async () => {});
+    expect(within(group).getByRole("button", { name: /Denied/ }).getAttribute("aria-pressed")).toBe("true");
+    // A link to another ask clears them again.
+    rerender(<InboxDecided mark={mark(31, 1001)} highlight={all[2]!.id} onOpenChat={() => {}} />);
+    await waitFor(() => expect(within(group).getByRole("button", { name: /All/ }).getAttribute("aria-pressed")).toBe("true"));
+  });
+
   it("draws nothing when nothing was decided", async () => {
     serve([]);
     const { container } = render(<InboxDecided mark={{ total: 0, latest: null }} onOpenChat={() => {}} />);

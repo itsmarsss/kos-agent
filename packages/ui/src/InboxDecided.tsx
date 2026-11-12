@@ -116,21 +116,20 @@ export function InboxDecided({
   }, [markKey]);
 
   // A link to a decided ask: clear what would hide it, read it if it is not here, open it.
+  // Once per ask linked to: what the owner does after that (a filter, a search) stands.
+  const applied = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (highlight === undefined) return;
+    if (highlight === undefined || applied.current === highlight) return;
+    applied.current = highlight;
     setFilter("all");
     setQuery("");
     setOpen((s) => new Set(s).add(highlight));
-    let cancelled = false;
     void api
       .approval(highlight)
       .then((a) => {
-        if (!cancelled && a.status !== "pending") setLinked(a);
+        if (applied.current === highlight && a.status !== "pending") setLinked(a);
       })
       .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
   }, [highlight]);
   useEffect(() => {
     highlit.current?.scrollIntoView({ block: "center" });
@@ -154,7 +153,11 @@ export function InboxDecided({
   };
 
   const total = counts ? counts.approved + counts.denied + counts.expired : (mark?.total ?? rows.length);
-  const shown = useMemo(() => (!linked || rows.some((r) => r.id === linked.id) ? rows : [linked, ...rows]), [rows, linked]);
+  // The linked ask heads the list while nothing is filtered; once the owner filters, the list is theirs.
+  const shown = useMemo(
+    () => (!linked || filter !== "all" || q || rows.some((r) => r.id === linked.id) ? rows : [linked, ...rows]),
+    [rows, linked, filter, q],
+  );
 
   if (total === 0 && shown.length === 0) return null;
   const toggle = (id: number): void =>
