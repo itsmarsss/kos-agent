@@ -28,16 +28,21 @@ struct EndToEndTests {
     }
   }
 
-  private func post(_ path: String, _ body: String) async throws {
+  /// The dashboard's own route, as the owner's browser asks it: to set the scratch KOS up, and to check the phone's work.
+  @discardableResult
+  private func dashboard(_ path: String, _ body: String? = nil) async throws -> Any {
     var request = URLRequest(url: URL(string: env["KOS_E2E_DASHBOARD"]! + path)!)
-    request.httpMethod = "POST"
-    request.setValue("application/json", forHTTPHeaderField: "content-type")
-    request.httpBody = Data(body.utf8)
-    let (_, response) = try await URLSession.shared.data(for: request)
+    if let body {
+      request.httpMethod = "POST"
+      request.setValue("application/json", forHTTPHeaderField: "content-type")
+      request.httpBody = Data(body.utf8)
+    }
+    let (data, response) = try await URLSession.shared.data(for: request)
     #expect((response as? HTTPURLResponse)?.statusCode == 200, "\(path)")
+    return try JSONSerialization.jsonObject(with: data)
   }
 
-  @Test func pairsTalksApprovesSendsAPictureReadsAnArtifactAndFollowsTheTheme() async throws {
+  @Test func pairsTalksApprovesSendsAPictureReadsAnArtifactBrowsesTheDashboardAndFollowsTheTheme() async throws {
     let link = try #require(try PairingLink.parse(env["KOS_E2E_LINK"]!))
     // What the listener shows is the certificate the link pins: the probe a typed address would make agrees.
     #expect(try await PairingClient.probe(link.address) == link.pin)
@@ -126,10 +131,12 @@ struct EndToEndTests {
     }
     phone.artifacts.close()
 
+    try await browsesTheDashboard(phone)
+
     // The dashboard's theme, sent as the owner changes it.
-    try await post("/api/settings/theme", #"{"theme":"dark"}"#)
+    try await dashboard("/api/settings/theme", #"{"theme":"dark"}"#)
     try await until("the dark theme") { phone.mode == .dark }
-    try await post("/api/settings/theme", #"{"theme":"light"}"#)
+    try await dashboard("/api/settings/theme", #"{"theme":"light"}"#)
     try await until("the light theme") { phone.mode == .light }
 
     // Stop goes through: no turn is left running.
@@ -138,6 +145,66 @@ struct EndToEndTests {
 
     phone.unpair()
     #expect(try vault.load().isEmpty)
+  }
+
+  /// The dashboard's pages over the line: an ask denied from the Inbox, a project opened, a schedule run now and paused,
+  /// and a file read, each through the one request the phone makes of the dashboard's own routes.
+  private func browsesTheDashboard(_ phone: Phone) async throws {
+    let board = phone.board
+
+    // The Inbox lists the ask the chat has, and denies it as the device; it then reads as decided.
+    phone.chat.say("make the e2e file")
+    try await until("the second ask", 30) { !phone.chat.asks.isEmpty }
+    let asked = try #require(phone.chat.asks.first)
+    await board.inbox.refresh()
+    let waiting = try #require(board.inbox.waiting.value?.approvals.first { String($0.id) == asked.id }, "the Inbox does not list the ask")
+    #expect(waiting.tool == asked.tool)
+    await board.inbox.decide(waiting, approved: false)
+    #expect(board.toasts.shown == nil, "\(board.toasts.shown?.words ?? "")")
+    #expect(board.inbox.waiting.value?.approvals.contains { $0.id == waiting.id } == false)
+    #expect(phone.chat.asks.isEmpty)
+    #expect(board.inbox.decided.first { $0.id == waiting.id }?.status == "denied")
+    let decided = try await dashboard("/api/approvals/\(waiting.id)") as? [String: Any]
+    #expect(decided?["status"] as? String == "denied")
+
+    // A project made on the dashboard, opened on the phone.
+    let made = try await dashboard("/api/projects/create", #"{"name":"Phone e2e garden","type":"tracker"}"#) as? [String: Any]
+    let slug = try #require(made?["slug"] as? String)
+    await board.projects.list.refresh()
+    #expect(board.projects.list.value?.contains { $0.slug == slug } == true, "\(board.projects.list.error ?? "")")
+    let project = board.projects.page(slug)
+    await project.refresh()
+    #expect(project.value?.project.name == "Phone e2e garden", "\(project.error ?? "")")
+
+    // A schedule run now from the phone, its action done in the workspace, then paused.
+    let job = try await dashboard(
+      "/api/crons/create", #"{"name":"phone e2e","schedule":"0 3 * * *","type":"actions","actions":[{"tool":"files.write","args":{"path":"phone-cron.txt","content":"ran"}}]}"#
+    ) as? [String: Any]
+    let id = try #require(job?["id"] as? Int)
+    await board.runs.refresh()
+    #expect(board.runs.crons.value?.contains { $0.id == id } == true, "\(board.runs.crons.error ?? "")")
+    await board.runs.runNow(id: id, name: "phone e2e")
+    #expect(board.toasts.shown?.words == "Running phone e2e")
+    if let ws = env["KOS_E2E_WORKSPACE"] {
+      try await until("the schedule's action") { FileManager.default.fileExists(atPath: "\(ws)/phone-cron.txt") }
+    }
+    await board.runs.setEnabled(id: id, name: "phone e2e", false)
+    #expect(board.runs.crons.value?.first { $0.id == id }?.enabled == false)
+    let jobs = try await dashboard("/api/crons") as? [[String: Any]]
+    #expect(jobs?.first { $0["id"] as? Int == id }?["enabled"] as? Bool == false)
+
+    // The workspace browsed, and a file read.
+    let top = board.files.folder(".")
+    await top.refresh()
+    #expect(top.value?.entries.contains { $0.path == "phone-cron.txt" } == true, "\(top.error ?? "")")
+    let file = board.files.file("phone-cron.txt")
+    await file.refresh()
+    guard case .text(let read) = file.value else { return Issue.record("the file did not read: \(file.error ?? "")") }
+    #expect(read.text == "ran")
+    // Nothing off the list goes through: a traversal is refused before the jail sees it.
+    let outside = board.files.folder("../etc")
+    await outside.refresh()
+    #expect(outside.value == nil && outside.error != nil)
   }
 
   /// A camera's picture, big enough that the phone brings it down before it sends it.
