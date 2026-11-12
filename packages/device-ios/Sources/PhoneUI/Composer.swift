@@ -14,7 +14,7 @@ struct Composer: View {
   @FocusState private var typing: Bool
   @Environment(\.accessibilityReduceMotion) private var still
 
-  /// The big button's size: a thumb's, and then some.
+  /// The row's one height, every control in it: a thumb's, and then some.
   static let button: CGFloat = 56
 
   var body: some View {
@@ -46,11 +46,11 @@ struct Composer: View {
   @ViewBuilder
   private var side: some View {
     if voice.listening || voice.state == .asking {
-      RoundButton(symbol: "xmark", label: "Cancel", kind: .secondary) { voice.cancel() }
+      RoundButton(symbol: "xmark", label: "Cancel", kind: .secondary, size: Self.button) { voice.cancel() }
     } else {
       RoundButton(
         symbol: reader.on ? "speaker.wave.2.fill" : "speaker.slash", label: reader.on ? "Speak replies: on" : "Speak replies: off",
-        kind: reader.on ? .lit : .secondary
+        kind: reader.on ? .lit : .secondary, size: Self.button
       ) { reader.on.toggle() }
       .accessibilityHint("Reads KOS's replies aloud")
     }

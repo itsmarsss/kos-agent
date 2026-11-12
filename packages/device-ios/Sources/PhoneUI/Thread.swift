@@ -138,11 +138,13 @@ private struct EmptyThread: View {
         .foregroundStyle(Theme.muted)
         .multilineTextAlignment(.center)
       if online {
-        VStack(spacing: 8) {
+        // Each a thumb's height to press, so the rows need no gap of their own.
+        VStack(spacing: 0) {
           ForEach(Self.suggestions, id: \.self) { words in
             Button(words) { ask(words) }
               .buttonStyle(KOSButtonStyle(.secondary, capsule: true))
               .frame(minHeight: 44)
+              .contentShape(Rectangle())
           }
         }
         .padding(.top, 6)
