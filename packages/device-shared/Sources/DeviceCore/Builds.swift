@@ -1,3 +1,4 @@
+@preconcurrency import CryptoKit
 import Foundation
 
 /// Which build of the app this is, as its build stamped it (docs/computer.md,
@@ -84,4 +85,23 @@ public struct UpdateNotice: Equatable, Sendable {
 
   /// Which notice this is, to be put away once: the build it is for and why.
   public var key: String { "\(build?.id ?? "-"):\(state.rawValue):\(reason?.rawValue ?? "-")" }
+}
+
+/// How a device on the computer KOS runs on proves it is there (docs/computer.md,
+/// Builds and updates): the secret KOS keeps in a file only the owner can read,
+/// as HMAC-SHA256 over KOS's nonce bound to this device's id. KOS rebuilds a Mac
+/// only when it proves this; a device elsewhere cannot read the file.
+public enum HereProof {
+  /// Where KOS keeps the secret, beside its own key.
+  public static var keyFile: URL {
+    FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".kos/device-local.key")
+  }
+
+  /// The proof for one hello; none when there is no secret to read, as on another computer.
+  public static func sign(hostNonce: String, deviceId: String, keyFile: URL = keyFile) -> String? {
+    guard let text = try? String(contentsOf: keyFile, encoding: .utf8),
+          let key = Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines)), key.count == 32 else { return nil }
+    let mac = HMAC<SHA256>.authenticationCode(for: Data("kos-device/1|here|\(hostNonce)|\(deviceId)".utf8), using: SymmetricKey(data: key))
+    return Data(mac).base64EncodedString()
+  }
 }

@@ -189,6 +189,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func line(for paired: Pairing) -> Connection {
     let id = paired.deviceId
     let line = Connection(log: Log.line, app: .mac, build: build)
+    // On KOS's own computer this proves it, so KOS may rebuild this app there; elsewhere there is no secret to read.
+    line.here = { nonce, device in HereProof.sign(hostNonce: nonce, deviceId: device) }
     line.state = { [unowned self] in currentState(for: id) }
     // The chat's calls carry the chat, not the computer: they go to the window, every other call to the controller.
     line.onCall = { [unowned self] call in

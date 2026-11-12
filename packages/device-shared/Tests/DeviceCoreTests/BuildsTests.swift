@@ -52,4 +52,13 @@ struct BuildsTests {
     let badBuild = #"{"t":"update","state":"current","build":{"id":"zz","commit":""}}"#
     #expect(try Inbound.decode(Data(badBuild.utf8)) == .update(UpdateNotice(state: .current)))
   }
+
+  @Test func provesItIsOnKOSsComputerAsKOSChecks() throws {
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("here-\(UUID().uuidString).key")
+    defer { try? FileManager.default.removeItem(at: file) }
+    #expect(HereProof.sign(hostNonce: "n", deviceId: "dev_1", keyFile: file) == nil)
+    // 32 bytes of 7, as KOS's own test of the proof keys it: both sides give the same.
+    try "\(Data(repeating: 7, count: 32).base64EncodedString())\n".write(to: file, atomically: true, encoding: .utf8)
+    #expect(HereProof.sign(hostNonce: "bm9uY2U=", deviceId: "dev_1", keyFile: file) == "DSnyF6p7ejzOZvXRYLSqCV1MlQQXTSs1ZKKIBztwwZ0=")
+  }
 }

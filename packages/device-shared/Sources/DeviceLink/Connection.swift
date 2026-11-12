@@ -51,6 +51,8 @@ public final class Connection: NSObject {
   public var onTheme: ((DashboardTheme) -> Void)?
   /// That KOS's word on this app's build, as it is now and whenever it changes.
   public var onUpdate: ((UpdateNotice) -> Void)?
+  /// The proof this device runs on KOS's computer, for a hello to KOS's nonce (HereProof); none sends none.
+  public var here: ((_ hostNonce: String, _ deviceId: String) -> String?)?
   /// What to tell KOS about this device in the hello.
   public var state: () -> DeviceState = { DeviceState(consent: .device, permissions: Permissions(screen: false, input: false), displays: []) }
 
@@ -300,7 +302,8 @@ public final class Connection: NSObject {
       }
       deviceNonce = Handshake.makeNonce()
       let hello = try? Outbound.hello(
-        device: pairing.deviceId, nonce: deviceNonce, signature: signature, app: app, build: build, state: state())
+        device: pairing.deviceId, nonce: deviceNonce, signature: signature, app: app, build: build,
+        here: here?(nonce, pairing.deviceId), state: state())
       if let hello { task.send(.string(String(decoding: hello, as: UTF8.self))) { _ in } }
 
     case .welcome(let name, let signature):

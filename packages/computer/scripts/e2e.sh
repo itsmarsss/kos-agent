@@ -65,7 +65,7 @@ PIDS+=($!)
 
 env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
   DISCORD_TOKEN= KOS_OWNER_DISCORD= KOS_DISCORD_GUILD= KOS_OWNER_IMESSAGE= \
-  KOS_DEVICE_KEY_FILE="$DIR/device-host.key" KOS_DEVICE_LAN_CERT_FILE="$DIR/device-lan.pem" \
+  KOS_DEVICE_KEY_FILE="$DIR/device-host.key" KOS_DEVICE_LAN_CERT_FILE="$DIR/device-lan.pem" KOS_DEVICE_LOCAL_KEY_FILE="$DIR/device-local.key" \
   KOS_DEVICE_LAN_HOST=127.0.0.1 KOS_DEVICE_LAN_PORT="$LAN" KOS_BROWSER_PORT="$BROWSER" \
   KOS_DEVICE_MAC_INSTALL="$DIR/installer.sh" KOS_DEVICE_MAC_SIGNING="$DIR/signing.sh" \
   node "$ROOT/packages/cli/dist/main.js" serve --workspace "$WS" --host 127.0.0.1 --port "$PORT" --no-discord > "$DIR/host.log" 2>&1 &

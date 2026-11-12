@@ -176,9 +176,9 @@ public struct Call: Equatable {
 
 /// A message to KOS.
 public enum Outbound {
-  public static func hello(device: String, nonce: String, signature: String, app: AppInfo, build: Build? = nil, state: DeviceState) throws -> Data {
+  public static func hello(device: String, nonce: String, signature: String, app: AppInfo, build: Build? = nil, here: String? = nil, state: DeviceState) throws -> Data {
     try encode(HelloBody(
-      protocolVersion: protocolVersion, device: device, nonce: nonce, signature: signature, app: app, build: build,
+      protocolVersion: protocolVersion, device: device, nonce: nonce, signature: signature, app: app, build: build, here: here,
       consent: state.consent, permissions: state.permissions, displays: state.displays))
   }
 
@@ -227,11 +227,13 @@ public enum Outbound {
     let app: AppInfo
     /// Left out when there is none: KOS reads no build as a build it does not know.
     let build: Build?
+    /// Sent only by an app on the computer KOS runs on (HereProof).
+    let here: String?
     let consent: Consent
     let permissions: Permissions
     let displays: [DisplayInfo]
     enum CodingKeys: String, CodingKey {
-      case t, device, nonce, signature, app, build, consent, permissions, displays
+      case t, device, nonce, signature, app, build, here, consent, permissions, displays
       case protocolVersion = "protocol"
     }
   }

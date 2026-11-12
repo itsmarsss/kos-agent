@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { WebSocket } from "ws";
 
 import { sourceBuild } from "../../dist/builds.js";
+import { hereProof } from "../../dist/keys.js";
 
 const env = (name) => process.env[name] ?? fail(`${name} is not set`);
 const DASH = env("KOS_E2E_DASHBOARD");
@@ -88,9 +89,11 @@ class StubMac {
         const m = JSON.parse(String(data));
         if (m.t === "challenge") {
           const signature = sign(null, Buffer.from(`kos-device/1|device|${m.nonce}|${this.id}`), this.key).toString("base64");
+          // On KOS's computer: it reads the secret KOS keeps there, as KOS for Mac does, and proves it.
+          const here = hereProof(Buffer.from(readFileSync(join(DIR, "device-local.key"), "utf8").trim(), "base64"), m.nonce, this.id);
           ws.send(JSON.stringify({
             t: "hello", protocol: 1, device: this.id, nonce: randomBytes(32).toString("base64"), signature,
-            app: { version: "0.1.0", platform: "macos", os: "26.1.0" }, ...(build ? { build } : {}),
+            app: { version: "0.1.0", platform: "macos", os: "26.1.0" }, ...(build ? { build } : {}), here,
             consent: "device", permissions: { screen: true, input: true }, displays: [{ id: 1, width: 1512, height: 982, scale: 2, main: true }],
           }));
         } else if (m.t === "welcome") resolve();
