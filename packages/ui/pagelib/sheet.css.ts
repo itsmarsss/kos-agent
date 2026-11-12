@@ -214,7 +214,8 @@ export const SHEET_CSS = String.raw`
 :where(:root[data-surface="phone"]) .sheet-grid .key { box-shadow: none; }
 :where(:root[data-surface="phone"]) .sheet-grid .lead { box-shadow: none; }
 :where(:root[data-surface="phone"]) .sheet-scroll:not(.at-start) .sheet-grid .lead { box-shadow: -1px 0 0 var(--bg), 1px 0 0 var(--line); }
+/* What slides under the held key figure fades into the ground at its edge rather than stopping cut, so it reads as going on beneath. */
 :where(:root[data-surface="phone"]) .sheet-scroll.held .sheet-grid .key { box-shadow: -1px 0 0 var(--line); }
-:where(:root[data-surface="phone"]) .sheet-scroll.held .sheet-grid .key::before { content: none; }
+:where(:root[data-surface="phone"]) .sheet-scroll.held .sheet-grid .key::before { width: 20px; background: linear-gradient(to left, var(--bg), color-mix(in srgb, var(--bg) 0%, transparent)); }
 :where(:root[data-surface="phone"]) .sheet-tabs { margin-inline: -16px; padding-inline: 12px; }
 `;
