@@ -2528,37 +2528,28 @@ export async function handleApiRequest(
     const project = kernel.manifest.get(slug);
     if (!project) return { status: 404, body: { error: "project not found" } };
 
-    // A project's tables are namespaced with its slug, so they can be found
-    // without a registry of them. Counted here rather than guessed at: "how
-    // much is actually in this thing" is the first question about a tracker.
+    // A project's tables are the ones its migrations made (registeredTables),
+    // as the projects list counts them, never a name that only starts with
+    // its slug. Counted here rather than guessed at: "how much is actually in
+    // this thing" is the first question about a tracker.
     const tables: { name: string; rows: number; columns: number }[] = [];
     try {
-      // Filtered here rather than with LIKE: the separator is an underscore,
-      // which LIKE treats as a wildcard, so the pattern needed an ESCAPE
-      // clause to mean what it looked like it meant and silently matched
-      // nothing without one.
-      const prefix = `${slug}_`;
-      const rows = (
-        kernel.workspace.db
-          .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`)
-          .all() as { name: string }[]
-      ).filter((r) => r.name.startsWith(prefix));
-      for (const row of rows) {
+      for (const table of [...registeredTables(kernel.workspace.db, slug)].sort()) {
         try {
           const count = kernel.workspace.db
-            .prepare(`SELECT COUNT(*) AS n FROM "${row.name}"`)
+            .prepare(`SELECT COUNT(*) AS n FROM "${table}"`)
             .get() as { n: number };
           const cols = kernel.workspace.db
-            .prepare(`PRAGMA table_info("${row.name}")`)
+            .prepare(`PRAGMA table_info("${table}")`)
             .all() as unknown[];
           tables.push({
-            name: row.name.slice(slug.length + 1),
+            name: table.slice(slug.length + 1),
             rows: count.n,
             columns: cols.length,
           });
         } catch {
           // A table that cannot be counted is still worth naming.
-          tables.push({ name: row.name.slice(slug.length + 1), rows: -1, columns: 0 });
+          tables.push({ name: table.slice(slug.length + 1), rows: -1, columns: 0 });
         }
       }
     } catch {
