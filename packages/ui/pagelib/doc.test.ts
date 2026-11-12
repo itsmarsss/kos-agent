@@ -323,6 +323,28 @@ describe("kos-doc", () => {
     expect(save.mock.calls.at(-1)![0]).toEqual({ doc: list.replace(/"false"/g, '"true"') });
   });
 
+  it("starts no editing when Done or Discard follows Edit while a tick is still being kept", async () => {
+    vi.useFakeTimers();
+    try {
+      (window as { kos?: unknown }).kos = { save: vi.fn().mockResolvedValue({ version: 2 }) };
+      document.execCommand = vi.fn() as typeof document.execCommand;
+      const article = mount(list);
+      startDoc();
+      const [a, b] = [...article.querySelectorAll(".todo-box")];
+      for (const [box, after] of [[a!, "done"], [b!, "discard"]] as const) {
+        tick(box);
+        await vi.advanceTimersByTimeAsync(100);
+        tick(box);
+        press("edit");
+        press(after);
+        await vi.advanceTimersByTimeAsync(AUTOSAVE_GAP_MS * 2);
+        expect(article.hasAttribute("contenteditable")).toBe(false);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("carries a tick whose save was refused into the next", async () => {
     vi.useFakeTimers();
     const save = vi.fn().mockRejectedValueOnce(new Error("busy")).mockResolvedValue({ version: 2 });
