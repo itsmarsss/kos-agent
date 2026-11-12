@@ -49,6 +49,7 @@ import { createComputerUse, type Glance, type PanelArtifact, type PanelArtifacts
 /** The surfaces a device panel is: a Chrome's side panel, a Mac's window, a phone's chat. */
 type PanelSurface = "chrome" | "mac" | "phone";
 
+import { deviceUpdates } from "./deviceupdates.js";
 import { envFilePath } from "./env.js";
 import { ThreadMirror } from "./threadmirror.js";
 import { pingsOwner, postInPlace, postSaid, type JobFacts, type PlaceDeps, type SaidDeps } from "./saidpost.js";
@@ -576,6 +577,8 @@ export async function runHost(options: HostOptions): Promise<void> {
     audit: (entry) => void kernel.audit.record(entry),
     // The owner's Stop on a device stops the chat's turn, as the dashboard's does.
     stopTurn: (id) => kernel.stop(id),
+    // Each device app kept on the build this checkout holds: packages/cli/dist is two folders down from it.
+    updates: deviceUpdates(fileURLToPath(new URL("../../..", import.meta.url)), (line) => console.error(line)),
   });
 
   // KOS's Chrome answers on 9225; a second KOS on the machine names another port.

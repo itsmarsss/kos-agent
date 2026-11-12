@@ -184,6 +184,8 @@ export class DevicePanel implements ChannelAdapter {
   private leaving: ((conversation: string) => void) | undefined;
   /** Told the chat the owner pressed Stop for on a device. */
   private stopping: ((conversation: string) => void) | undefined;
+  /** Told each time the last turn in the panel's chats ends. */
+  private readonly settled = new Set<() => void>();
   /** The state each chat's devices were last told, so a change is told once. */
   private readonly told = new Map<string, string>();
   /** Files on their way from each device, ahead of the words they go with. */
@@ -283,6 +285,18 @@ export class DevicePanel implements ChannelAdapter {
   /** Hear the owner leave a chat on a device: a session it holds there ends. */
   onLeave(handler: (conversation: string) => void): void {
     this.leaving = handler;
+  }
+
+  /** Whether a turn runs in any of the panel's chats: one the owner's words there started, or one in the chat it shows. */
+  busy(): boolean {
+    const now = Date.now();
+    return this.running !== undefined || [...this.turns.values()].some((t) => now - t.since <= TURN_KEPT_MS);
+  }
+
+  /** Hear the panel's chats fall quiet: the last turn running in them ended. */
+  onSettled(listener: () => void): () => void {
+    this.settled.add(listener);
+    return () => this.settled.delete(listener);
   }
 
   /** Hear the owner press Stop on a device, for the chat it shows. */
@@ -397,8 +411,9 @@ export class DevicePanel implements ChannelAdapter {
     this.turns.delete(id);
     if (this.leftMidTurn.delete(id) && id !== this.deps.current()?.id) this.leaving?.(id);
     const running = this.running;
+    if (running?.conversation === id) this.quiet();
+    if (!this.busy()) for (const l of [...this.settled]) l();
     if (running?.conversation !== id) return;
-    this.quiet();
     // The chat as the turn left it goes to the speaker too: a turn that waited on a decision made elsewhere was never answered there.
     void this.everyDevice("chat.status", this.statusOf(id, { ...this.about(running), story: null }), running.speaker).then(() =>
       id === this.deps.current()?.id ? this.everyDevice("chat.show", this.drawn()) : undefined,

@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 
 import type { DashboardTheme, FaceDrawing } from "@kos/shared";
 
+import type { Build } from "./builds.js";
 import { publicKeyFromRaw, type HostKey } from "./keys.js";
 import { DeviceError, DeviceLink, type Refusal, type Socket } from "./link.js";
 import { PairingCodes, type PairingCode } from "./pairing.js";
@@ -48,6 +49,10 @@ export interface DeviceStatus {
   permissions?: Permissions;
   version?: string;
   os?: string;
+  /** The build it runs, as it said when it connected. */
+  build?: Build;
+  /** Connected from the computer KOS runs on. */
+  local?: boolean;
   /** The live session on it, when there is one. */
   session?: { conversation: string; task: string; until: number; paused: boolean; target: Target };
 }
@@ -111,6 +116,7 @@ export class DeviceHub {
   /** Why a conversation's last session ended, so its next call can say so. */
   private readonly endings = new Map<string, EndReason | "offline" | "removed">();
   private readonly listeners = new Set<() => void>();
+  private readonly connectedListeners = new Set<(device: string) => void>();
   private readonly deviceListeners = new Set<DeviceListener>();
   private readonly endListeners = new Set<(session: Session, why: EndReason | "offline" | "removed") => void>();
   /** Sessions being asked for on a device, by conversation: withdrawn by Stop. */
@@ -132,6 +138,12 @@ export class DeviceHub {
 
   private changed(): void {
     for (const l of this.listeners) l();
+  }
+
+  /** Told of each device that has just proved itself, by id. */
+  onConnected(listener: (device: string) => void): () => void {
+    this.connectedListeners.add(listener);
+    return () => this.connectedListeners.delete(listener);
   }
 
   /** Told of each session that ends, and why. */
@@ -171,12 +183,15 @@ export class DeviceHub {
    * A socket a device opened; it is in once both keys are proved. `admit`
    * narrows which proved devices this socket may carry (the Wi-Fi listener's
    * phones alone); a device it turns away is refused as `not a phone`.
+   * `local` is a socket from loopback: the device runs where KOS does.
    */
-  accept(socket: Socket, admit?: (device: Device) => boolean): DeviceLink {
+  accept(socket: Socket, options: { admit?: (device: Device) => boolean; local?: boolean } = {}): DeviceLink {
+    const { admit, local } = options;
     return new DeviceLink(socket, {
       hostKey: this.deps.hostKey,
       lookup: (id) => this.deps.store.get(id),
       ...(admit ? { admit } : {}),
+      ...(local ? { local } : {}),
       onReady: (link) => this.ready(link),
       onState: () => this.changed(),
       onEvent: (link, event) => this.event(link, event),
@@ -208,6 +223,24 @@ export class DeviceHub {
     this.showFace(link);
     this.showTheme(link);
     this.changed();
+    for (const l of [...this.connectedListeners]) l(id);
+  }
+
+  /** A device's line as it stands: the build it said it runs and whether it is on this computer; undefined while it is offline. */
+  lineOf(deviceId: string): { build?: Build; local: boolean } | undefined {
+    const link = this.links.get(deviceId);
+    if (!link?.ready) return undefined;
+    return { ...(link.build ? { build: link.build } : {}), local: link.local };
+  }
+
+  /** Tell one device something that needs no answer; nothing when it is offline. */
+  tellDevice(deviceId: string, frame: { t: string } & Record<string, unknown>): void {
+    this.links.get(deviceId)?.tell(frame);
+  }
+
+  /** Whether a device has a session live, or is asking the owner for one. */
+  inUse(deviceId: string): boolean {
+    return [...this.sessions.values()].some((s) => s.device === deviceId) || [...this.asks.values()].some((a) => a.device === deviceId);
   }
 
   /** KOS's face changed: every device online draws the new one. */
@@ -282,6 +315,8 @@ export class DeviceHub {
       online: link?.ready === true,
       ...(link?.state ? { consent: link.state.consent, permissions: link.state.permissions } : {}),
       ...(link?.app ? { version: link.app.version, os: link.app.os } : {}),
+      ...(link?.build ? { build: link.build } : {}),
+      ...(link?.ready ? { local: link.local } : {}),
       ...(session ? { session: { conversation: session.conversation, task: session.task, until: session.until, paused: session.paused, target: session.target } } : {}),
     };
   }

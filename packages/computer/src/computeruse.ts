@@ -4,6 +4,7 @@ import type { Duplex } from "node:stream";
 import { requireServices, type ApiExtension, type AuditEntry, type BrowserElsewhere, type KosModule } from "@kos/harness";
 import type { DashboardTheme, FaceDrawing } from "@kos/shared";
 
+import type { Build, BuildKind } from "./builds.js";
 import { OwnerChrome } from "./chrome.js";
 import { DeviceHub } from "./hub.js";
 import { loadHostKey } from "./keys.js";
@@ -12,6 +13,7 @@ import { CHROME_PANEL, DevicePanel, MAC_PANEL, PHONE_PANEL, type PanelDeps } fro
 import { deviceRoutes, deviceSocketServer } from "./routes.js";
 import { DeviceStore } from "./store.js";
 import { COMPUTER_MANIFEST, computerModule, type ComputerModule } from "./tools.js";
+import { DeviceUpdates, type MacInstaller } from "./updates.js";
 
 /**
  * Computer use, as one thing a host plugs in: a module for the kernel to
@@ -43,6 +45,12 @@ export interface ComputerUseOptions {
   audit?(entry: AuditEntry): void;
   /** Stop every live turn in a chat, as the owner's Stop does; false when none was running. */
   stopTurn?(conversation: string): boolean;
+  /** Keeping the device apps on KOS's build: what it would hand each, and how KOS for Mac is rebuilt here. None, and nothing is compared. */
+  updates?: {
+    expected(kind: BuildKind): Build | undefined;
+    mac?: MacInstaller;
+    log?(line: string): void;
+  };
 }
 
 export interface ComputerUse {
@@ -61,7 +69,9 @@ export interface ComputerUse {
 }
 
 export function createComputerUse(options: ComputerUseOptions): ComputerUse {
+  let store: DeviceStore | undefined;
   let hub: DeviceHub | undefined;
+  let updates: DeviceUpdates | undefined;
   let chrome: OwnerChrome | undefined;
   let active: ComputerModule | undefined;
   let unfaced: (() => void) | undefined;
@@ -85,13 +95,30 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
     async activate(ctx) {
       // Made on first activation, when the store exists; kept across a switch
       // off and on so the devices' connections are the only thing that resets.
+      store ??= new DeviceStore(requireServices(ctx).db);
       hub ??= new DeviceHub({
-        store: new DeviceStore(requireServices(ctx).db),
+        store,
         hostKey: loadHostKey({ path: options.hostKeyPath, ...(options.hostKeyEnv ? { env: options.hostKeyEnv } : {}) }),
         halted: options.halted,
         face: options.face,
         theme: options.theme,
       });
+      const devices = hub;
+      if (options.updates && !updates) {
+        const { expected, mac: installer, log } = options.updates;
+        updates = new DeviceUpdates({
+          hub: devices,
+          store,
+          expected,
+          ...(installer ? { mac: installer } : {}),
+          // Its window holds no session or ask, and no turn runs in the Mac's chats.
+          idle: (device) => !devices.inUse(device) && !mac.busy(),
+          ...(options.audit ? { audit: options.audit } : {}),
+          ...(log ? { log } : {}),
+        });
+        mac.onSettled(() => updates?.poke());
+      }
+      updates?.start();
       chrome ??= new OwnerChrome(hub);
       panel.attach(hub);
       mac.attach(hub);
@@ -133,6 +160,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
     async deactivate() {
       await active?.deactivate?.();
       active = undefined;
+      updates?.stop();
       unfaced?.();
       unfaced = undefined;
       unthemed?.();
@@ -172,7 +200,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
     panel,
     mac,
     phone,
-    routes: deviceRoutes(() => (active ? hub : undefined), options.titleOf, lan),
+    routes: deviceRoutes(() => (active ? hub : undefined), options.titleOf, lan, () => (active ? updates : undefined)),
     upgrade: (req, socket, head) => sockets.upgrade(req, socket, head),
     async close() {
       hub?.closeAll();

@@ -24,6 +24,15 @@ CREATE TABLE IF NOT EXISTS device_settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS device_updates (
+  device TEXT NOT NULL,
+  build TEXT NOT NULL,
+  from_build TEXT,
+  outcome TEXT NOT NULL,
+  detail TEXT,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (device, build)
+);
 `;
 
 /**
@@ -39,9 +48,11 @@ export interface ComputerSettings {
   unattended: boolean;
   /** Whether phones on the home Wi-Fi may reach the device socket, over the listener KOS opens for them (lan.ts). */
   lan: boolean;
+  /** Whether a device app behind KOS's build updates on its own (updates.ts); KOS for Mac only once signing is set up. */
+  autoUpdate: boolean;
 }
 
-export const DEFAULT_SETTINGS: ComputerSettings = { askMinutes: 15, unattended: false, lan: false };
+export const DEFAULT_SETTINGS: ComputerSettings = { askMinutes: 15, unattended: false, lan: false, autoUpdate: true };
 export const MAX_ASK_MINUTES = 480;
 
 export interface Device {
@@ -60,6 +71,19 @@ interface Row {
   public_key: string;
   paired_at: number;
   last_seen: number | null;
+}
+
+/** How far one update of a device to one build got: KOS told it or began it, it took, or it did not. */
+export type UpdateOutcome = "told" | "reloading" | "installing" | "installed" | "updated" | "failed" | "still_behind";
+
+export interface UpdateAttempt {
+  device: string;
+  /** The build it was being updated to, and the one it ran then (none for an app stamped before builds were). */
+  build: string;
+  from?: string;
+  outcome: UpdateOutcome;
+  detail?: string;
+  at: number;
 }
 
 const toDevice = (r: Row): Device => ({
@@ -124,7 +148,33 @@ export class DeviceStore {
   }
 
   remove(id: string): boolean {
+    this.db.prepare(`DELETE FROM device_updates WHERE device = ?`).run(id);
     return this.db.prepare(`DELETE FROM devices WHERE id = ?`).run(id).changes > 0;
+  }
+
+  /** How far updating a device to a build got, kept across restarts so a build is tried once. */
+  attempt(device: string, build: string): UpdateAttempt | undefined {
+    const row = this.db.prepare(`SELECT device, build, from_build, outcome, detail, at FROM device_updates WHERE device = ? AND build = ?`).get(device, build) as
+      | { device: string; build: string; from_build: string | null; outcome: UpdateOutcome; detail: string | null; at: number }
+      | undefined;
+    if (!row) return undefined;
+    return { device: row.device, build: row.build, ...(row.from_build ? { from: row.from_build } : {}), outcome: row.outcome, ...(row.detail ? { detail: row.detail } : {}), at: row.at };
+  }
+
+  /** Where updating a device to a build got; `from` is kept from the first word of it. */
+  setAttempt(attempt: { device: string; build: string; from?: string; outcome: UpdateOutcome; detail?: string }): void {
+    this.db
+      .prepare(
+        `INSERT INTO device_updates (device, build, from_build, outcome, detail, at) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(device, build) DO UPDATE SET outcome = excluded.outcome, detail = excluded.detail, at = excluded.at,
+           from_build = COALESCE(device_updates.from_build, excluded.from_build)`,
+      )
+      .run(attempt.device, attempt.build, attempt.from ?? null, attempt.outcome, attempt.detail ?? null, this.now());
+  }
+
+  /** The owner asked again: the build may be tried once more. */
+  clearAttempt(device: string, build: string): void {
+    this.db.prepare(`DELETE FROM device_updates WHERE device = ? AND build = ?`).run(device, build);
   }
 
   seen(id: string): void {
@@ -139,6 +189,7 @@ export class DeviceStore {
       askMinutes: Number.isInteger(minutes) && minutes >= 1 && minutes <= MAX_ASK_MINUTES ? minutes : DEFAULT_SETTINGS.askMinutes,
       unattended: saved.unattended === "true",
       lan: saved.lan === "true",
+      autoUpdate: saved.autoUpdate !== "false",
     };
   }
 
@@ -151,6 +202,7 @@ export class DeviceStore {
     if (patch.askMinutes !== undefined) put.run("askMinutes", String(patch.askMinutes));
     if (patch.unattended !== undefined) put.run("unattended", String(patch.unattended));
     if (patch.lan !== undefined) put.run("lan", String(patch.lan));
+    if (patch.autoUpdate !== undefined) put.run("autoUpdate", String(patch.autoUpdate));
     return this.settings();
   }
 }

@@ -22,6 +22,8 @@ export class FakeDevice {
   readonly themes: string[] = [];
   /** Each theme frame KOS sent, whole, oldest first. */
   readonly themeFrames: Record<string, unknown>[] = [];
+  /** Each update frame KOS sent, whole, oldest first. */
+  readonly updates: Record<string, unknown>[] = [];
   readonly answers = new Map<string, Answer>();
   /** Calls with no scripted answer, by method, newest last: answered later with `answer`. */
   private readonly unanswered = new Map<string, unknown[]>();
@@ -104,6 +106,7 @@ export class FakeDevice {
     if (msg.t === "challenge") this.challenge = msg.nonce as string;
     else if (msg.t === "welcome") this.welcome = { name: msg.name as string, signature: msg.signature as string };
     else if (msg.t === "face") this.faces.push(msg.face as Record<string, unknown>);
+    else if (msg.t === "update") this.updates.push(msg);
     else if (msg.t === "theme") {
       this.themes.push(msg.mode as string);
       this.themeFrames.push(msg);

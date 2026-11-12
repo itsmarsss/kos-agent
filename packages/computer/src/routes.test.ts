@@ -10,7 +10,7 @@ import { DeviceHub } from "./hub.js";
 import type { LanStatus } from "./lan.js";
 import { rawPublicKey, signText, verifyText } from "./keys.js";
 import { deviceProof, hostProof, PROTOCOL_VERSION, SOCKET_PATH } from "./protocol.js";
-import { deviceRoutes, deviceSocketServer, PREFIX } from "./routes.js";
+import { deviceRoutes, deviceSocketServer, isLoopback, PREFIX } from "./routes.js";
 import { DeviceStore } from "./store.js";
 
 const hostPrivate = generateKeyPairSync("ed25519").privateKey;
@@ -24,6 +24,13 @@ afterEach(async () => {
   closeSockets?.();
   await new Promise<void>((r) => (server ? server.close(() => r()) : r()));
   server = undefined;
+});
+
+describe("a device on this computer", () => {
+  it("is one that dialled loopback, as itself or IPv4-mapped", () => {
+    for (const a of ["127.0.0.1", "127.8.9.10", "::1", "::ffff:127.0.0.1"]) expect(isLoopback(a)).toBe(true);
+    for (const a of ["192.168.1.20", "::ffff:10.0.0.2", "fe80::1", "", undefined, "127.0.0.1.evil"]) expect(isLoopback(a)).toBe(false);
+  });
 });
 
 describe("the device routes", () => {
