@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { m } from "motion/react";
 
-import { ChevronDown, Chips, Collapse, Count, Empty, Pill, spring, type Tone } from "@kos/kit";
+import { ChevronDown, Chips, Collapse, Count, Empty, Pill, spring, Tag, type Tone } from "@kos/kit";
 
 import { api, type DecidedAction, type DecidedStatus, type InboxData } from "./api.js";
+import { useEdgeFade } from "./edgefade.js";
 import { agoWords } from "./schedulewords.js";
 
 /**
@@ -24,8 +25,6 @@ export const DECIDED_PAGE = 25;
 const SERVER_MAX = 500;
 /** Past this many, a search box earns its place. */
 const SEARCH_FROM = 20;
-/** A summary longer than this is cut on its row, so the details say it whole. */
-const CUT_AT = 72;
 
 type Filter = "all" | DecidedStatus;
 
@@ -72,6 +71,12 @@ export function InboxDecided({
   const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set());
   /** The ask a link points at, read on its own when it is not among the rows loaded. */
   const [linked, setLinked] = useState<DecidedAction | null>(null);
+  /** A link to an ask there is no record of. */
+  const [missing, setMissing] = useState<number | null>(null);
+  /** Rows whose words were cut on their line, measured when drawn, so only those say them again opened. */
+  const [cut, setCut] = useState<ReadonlySet<number>>(() => new Set());
+  const listRef = useRef<HTMLUListElement>(null);
+  const chipsRef = useEdgeFade<HTMLDivElement>(".chips");
   /** How many rows the owner has paged to, kept when the list is read again. */
   const wanted = useRef(DECIDED_FIRST);
   const highlit = useRef<HTMLLIElement | null>(null);
@@ -132,12 +137,15 @@ export function InboxDecided({
     setFilter("all");
     setQuery("");
     setOpen((s) => new Set(s).add(highlight));
+    setMissing(null);
     void api
       .approval(highlight)
       .then((a) => {
         if (applied.current === highlight && a.status !== "pending") setLinked(a);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (applied.current === highlight) setMissing(highlight);
+      });
   }, [highlight]);
 
   const loadOlder = (): void => {
@@ -176,6 +184,14 @@ export function InboxDecided({
     () => (!linked || filter !== "all" || q || rows.some((r) => r.id === linked.id) ? rows : [linked, ...rows]),
     [rows, linked, filter, q],
   );
+  useLayoutEffect(() => {
+    const found = new Set<number>();
+    for (const el of listRef.current?.querySelectorAll<HTMLElement>(".inbox-decided-what") ?? []) {
+      if (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1) found.add(Number(el.dataset.id));
+    }
+    setCut((was) => (was.size === found.size && [...found].every((id) => was.has(id)) ? was : found));
+  }, [shown]);
+
   // Scrolled to once its row is drawn, which may be a page or a read after the link arrived.
   const scrolledTo = useRef<number | undefined>(undefined);
   useEffect(() => {
@@ -214,20 +230,23 @@ export function InboxDecided({
               }}
             />
           )}
-          <Chips
-            small
-            scroll
-            label="Show decided"
-            options={FILTERS.filter((f) => f.id === "all" || countOf(f.id) > 0).map((f) => [f.id, <>{f.label} <Count n={countOf(f.id)} /></>] as const)}
-            selected={filter}
-            onChoose={(f) => {
-              setFilter(f);
-              wanted.current = DECIDED_FIRST;
-            }}
-          />
+          <div className="inbox-decided-chips" ref={chipsRef}>
+            <Chips
+              small
+              scroll
+              label="Show decided"
+              options={FILTERS.filter((f) => f.id === "all" || countOf(f.id) > 0).map((f) => [f.id, <>{f.label} <Count n={countOf(f.id)} /></>] as const)}
+              selected={filter}
+              onChoose={(f) => {
+                setFilter(f);
+                wanted.current = DECIDED_FIRST;
+              }}
+            />
+          </div>
         </div>
       </div>
 
+      {missing !== null && <p className="hint inbox-decided-missing">No ask #{missing}.</p>}
       {shown.length === 0 ? (
         <Empty inline>
           Nothing decided matches.{" "}
@@ -244,7 +263,7 @@ export function InboxDecided({
           </button>
         </Empty>
       ) : (
-        <ul className="inbox-decided">
+        <ul className="inbox-decided" ref={listRef}>
           {shown.map((a) => {
             const outcome = OUTCOME[a.status];
             const isOpen = open.has(a.id);
@@ -255,7 +274,10 @@ export function InboxDecided({
                   <span className="inbox-decided-outcome">
                     <Pill tone={outcome.tone}>{outcome.word}</Pill>
                   </span>
-                  <span className="inbox-decided-what">{a.summary}</span>
+                  <span className="inbox-decided-what" data-id={a.id}>
+                    {a.summary}
+                  </span>
+                  {a.id === linked?.id && !rows.some((r) => r.id === a.id) && <Tag>Linked</Tag>}
                   {a.asker && <span className="inbox-decided-where">{a.asker}</span>}
                   <time className="inbox-decided-when" dateTime={new Date(when).toISOString()} title={new Date(when).toLocaleString()}>
                     {agoWords(when)}
@@ -266,7 +288,7 @@ export function InboxDecided({
                 </button>
                 <Collapse open={isOpen}>
                   <div className="inbox-decided-detail">
-                    {a.summary.length > CUT_AT && <p className="inbox-decided-full">{a.summary}</p>}
+                    {cut.has(a.id) && <p className="inbox-decided-full">{a.summary}</p>}
                     <dl className="inbox-decided-facts">
                       <dt>Tool</dt>
                       <dd>

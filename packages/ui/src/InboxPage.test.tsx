@@ -5,6 +5,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { api, type DecidedAction, type InboxData, type PendingAction } from "./api.js";
 import { InboxPage } from "./InboxPage.js";
 
+// jsdom has no ResizeObserver; rows that scroll sideways watch their width with one.
+beforeAll(() => {
+  vi.stubGlobal("ResizeObserver", class { observe(): void {} disconnect(): void {} });
+});
 /**
  * The Inbox as a whole: what waits leads and is decided in place, what was
  * decided comes last, and the poll that redraws the page does not read the

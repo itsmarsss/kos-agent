@@ -13,6 +13,8 @@ import { DECIDED_FIRST, DECIDED_PAGE, InboxDecided } from "./InboxDecided.js";
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
+  // jsdom has no ResizeObserver; the filter strip watches its width with one.
+  vi.stubGlobal("ResizeObserver", class { observe(): void {} disconnect(): void {} });
 });
 afterEach(() => {
   cleanup();
@@ -255,6 +257,38 @@ describe("the decided list", () => {
     rerender(<InboxDecided mark={mark(9, 1001)} highlight={all[2]!.id} onOpenChat={() => {}} />);
     await act(async () => {});
     expect(scroll).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks an older linked ask as the linked one, and says when there is no such ask", async () => {
+    const all = decidedRows(40);
+    serve(all);
+    const { unmount } = render(<InboxDecided mark={mark(40)} highlight={all[30]!.id} onOpenChat={() => {}} />);
+    await waitFor(() => expect(document.querySelector(".inbox-decided-row.is-highlit")).toBeTruthy());
+    expect(document.querySelector(".inbox-decided-row.is-highlit .tag")?.textContent).toBe("Linked");
+    // One of the newest five is already in the list: no tag.
+    unmount();
+    render(<InboxDecided mark={mark(40)} highlight={all[1]!.id} onOpenChat={() => {}} />);
+    await waitFor(() => expect(document.querySelector(".inbox-decided-row.is-highlit")).toBeTruthy());
+    expect(document.querySelector(".inbox-decided-row.is-highlit .tag")).toBeNull();
+    cleanup();
+    render(<InboxDecided mark={mark(40)} highlight={77} onOpenChat={() => {}} />);
+    expect(await screen.findByText("No ask #77.")).toBeTruthy();
+  });
+
+  it("says a row's words again opened only when its line cut them", async () => {
+    const all = decidedRows(2);
+    serve(all);
+    // The first row's words run past its line; the second's fit.
+    const width = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.dataset.id === String(all[0]!.id) ? 900 : 0;
+    });
+    render(<InboxDecided mark={mark(2)} onOpenChat={() => {}} />);
+    await waitFor(() => expect(lines()).toHaveLength(2));
+    fireEvent.click(lines()[0]!);
+    fireEvent.click(lines()[1]!);
+    const full = [...document.querySelectorAll(".inbox-decided-full")].map((e) => e.textContent);
+    expect(full).toEqual([all[0]!.summary]);
+    width.mockRestore();
   });
 
   it("draws nothing when nothing was decided", async () => {

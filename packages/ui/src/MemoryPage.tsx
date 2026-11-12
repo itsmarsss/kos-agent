@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 
 import { Chips, Empty, Pill, Switch, Tag } from "@kos/kit";
 
 import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
+import { useEdgeFade } from "./edgefade.js";
 import { PageHead } from "./PageHead.js";
 
 /**
@@ -105,33 +106,6 @@ export function MemoryPage({
       </div>
     </div>
   );
-}
-
-/**
- * Says which ends of a row that scrolls sideways have more past them, as
- * `data-more` ("start", "end" or both), so its edge can fade there: on a
- * phone the last tabs sat off screen with nothing to say they were there.
- */
-function useEdgeFade<T extends HTMLElement>(): RefObject<T | null> {
-  const ref = useRef<T>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const mark = (): void => {
-      const ends = [el.scrollLeft > 1 ? "start" : "", el.scrollLeft + el.clientWidth < el.scrollWidth - 1 ? "end" : ""].filter(Boolean).join(" ");
-      if (ends) el.dataset.more = ends;
-      else delete el.dataset.more;
-    };
-    mark();
-    el.addEventListener("scroll", mark, { passive: true });
-    const seen = new ResizeObserver(mark);
-    seen.observe(el);
-    return () => {
-      el.removeEventListener("scroll", mark);
-      seen.disconnect();
-    };
-  }, []);
-  return ref;
 }
 
 function Group({ title, blurb, children }: { title: string; blurb?: string; children: React.ReactNode }): ReactElement {

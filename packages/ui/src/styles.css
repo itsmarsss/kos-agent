@@ -3583,6 +3583,7 @@ li:hover .chats-item-when { opacity: 0; }
 }
 .know-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
 .know-search input { flex: 1; min-width: 0; padding: 0; border: 0; outline: 0; background: none; color: var(--text); font: inherit; font-size: var(--text-base); }
+.know-kinds { display: flex; flex: 0 1 auto; min-width: 0; }
 .know-bar .chips--scroll { flex: 0 1 auto; contain: none; }
 .know-tag .sel-button { box-sizing: border-box; height: 2rem; max-width: 12rem; padding: 0 0.6rem; border-color: var(--line); background: var(--bg); font-size: var(--text-base); }
 .know-add {
@@ -3687,6 +3688,7 @@ li:hover .chats-item-when { opacity: 0; }
 @media (max-width: 720px) {
   .know-add { grid-template-columns: 1fr; }
   .know-search { flex-basis: 100%; max-width: none; }
+  .know-kinds { flex: 1 1 0; }
   .know-bar .chips--scroll { flex: 1 1 0; contain: inline-size; }
   .know-tags { display: none; }
   .know-value { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
@@ -5570,10 +5572,11 @@ a.health {
 .mem-tab:hover { color: var(--text); }
 .mem-tab[aria-selected="true"] { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
 .mem-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-sm); }
-/* Fade the edge that has more past it, so the tabs off screen say they are there. */
-.mem-tabs[data-more="end"] { mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent); }
-.mem-tabs[data-more="start"] { mask-image: linear-gradient(to left, #000 calc(100% - 2.5rem), transparent); }
-.mem-tabs[data-more="start end"] { mask-image: linear-gradient(to right, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent); }
+/* A row that scrolls sideways fades at the edge with more past it (useEdgeFade sets data-more),
+   so the tabs or chips off screen say they are there. */
+[data-more="end"] { mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent); }
+[data-more="start"] { mask-image: linear-gradient(to left, #000 calc(100% - 2.5rem), transparent); }
+[data-more="start end"] { mask-image: linear-gradient(to right, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent); }
 .mem-panel { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
 @media (prefers-reduced-motion: reduce) { .mem-tab { transition: none; } }
 .mem-group { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.75rem; }
@@ -5865,7 +5868,10 @@ a.health {
 
 /* Decided: one line a row, the outcome a quiet pill, the time at the right. */
 .inbox-decided-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; }
+.inbox-decided-chips { display: flex; flex: 0 1 auto; min-width: 0; }
 .inbox-decided-tools .chips--scroll { flex: 0 1 auto; contain: none; }
+.inbox-decided-line .tag { flex: none; padding: 0 0.45rem; font-size: var(--text-xs); }
+.inbox-decided-missing { margin: 0; }
 .inbox-decided-search { box-sizing: border-box; min-width: 0; width: 13rem; height: 1.85rem; font-size: var(--text-base); }
 .inbox-decided { list-style: none; margin: 0; padding: 0 0.4rem; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); }
 .inbox-decided-row + .inbox-decided-row { border-top: 1px solid var(--line); }
@@ -5910,6 +5916,7 @@ a.health {
 @media (max-width: 640px) {
   .inbox-decided-tools { width: 100%; }
   .inbox-decided-search { width: 100%; }
+  .inbox-decided-chips { flex: 1 1 100%; }
   .inbox-decided-tools .chips--scroll { flex: 1 1 100%; contain: inline-size; }
   .inbox-decided-line { flex-wrap: wrap; gap: 0.3rem 0.5rem; }
   .inbox-decided-outcome { width: auto; }

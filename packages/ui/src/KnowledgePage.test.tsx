@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { api, type FactRow } from "./api.js";
 import { useState, type ReactElement } from "react";
@@ -13,6 +13,10 @@ function Claims(props: Omit<KnowledgePageProps, "adding" | "onAdding">): ReactEl
   return <KnowledgePage {...props} adding={adding} onAdding={setAdding} />;
 }
 
+// jsdom has no ResizeObserver; rows that scroll sideways watch their width with one.
+beforeAll(() => {
+  vi.stubGlobal("ResizeObserver", class { observe(): void {} disconnect(): void {} });
+});
 const fact = (over: Partial<FactRow> = {}): FactRow => ({
   key: "monthly_budget",
   value: "1200 a month",

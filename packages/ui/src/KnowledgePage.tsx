@@ -4,6 +4,7 @@ import { Chips, CloseIcon, Count, EditIcon, Empty, IconButton, PinIcon, SearchIc
 
 import { api, type FactRow } from "./api.js";
 import { Drawer } from "./Drawer.js";
+import { useEdgeFade } from "./edgefade.js";
 import { hrefFor } from "./routes.js";
 import { ConfirmButton } from "./kit.js";
 import { agoWords } from "./schedulewords.js";
@@ -149,6 +150,7 @@ function splitTags(text: string): string[] {
 }
 
 export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onChanged }: KnowledgePageProps): ReactElement {
+  const kindsRef = useEdgeFade<HTMLDivElement>(".chips");
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<KindFilter>("all");
   const [tag, setTag] = useState<string | null>(null);
@@ -256,7 +258,9 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
             <SearchIcon size={14} title="" />
             <input type="search" value={query} placeholder="Search claims…" aria-label="Search claims" onChange={(e) => setQuery(e.target.value)} />
           </label>
-          <Chips small scroll label="Kind" options={kindOptions} selected={kind} onChoose={(k) => setKind(k === kind ? "all" : k)} />
+          <div className="know-kinds" ref={kindsRef}>
+            <Chips small scroll label="Kind" options={kindOptions} selected={kind} onChoose={(k) => setKind(k === kind ? "all" : k)} />
+          </div>
           {tags.length > 0 && (
             <Select
               className="know-tag"
