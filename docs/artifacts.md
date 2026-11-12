@@ -157,7 +157,8 @@ the viewer head's menu, each gallery card's menu and the trash's rows
 - **Trash** is a view of the gallery (Trash at the end of its filter bar): a
   list, each row its capture, title, kind, owner and when it went there,
   opening it, with Restore and Delete forever beside it, and Empty trash in
-  the head. Delete forever and Empty trash ask once (`ConfirmButton`) and
+  the head, which empties all of it and says so when the filters hide some.
+  Delete forever and Empty trash ask once (`ConfirmButton`) and
   remove the row, file, versions and captures; Empty trash deletes each in
   turn and stops at the first that fails, keeping it and the rest. Nothing in the trash is
   deleted on its own, however long it waits; no purge is decided. Deleting a
@@ -688,9 +689,9 @@ projects, blobs and the workspace, newest first. Its head holds the count, a
 search over titles, descriptions and owners, and New artifact, the page's one
 primary action. Under it, one bar of filters: the kinds as chips with how
 many each holds (one row that scrolls sideways on a phone), then the owner
-(All owners, the workspace, each project, each blob), the sort (Recent, or
-By owner: a section per owner with the workspace's own last) and Trash with
-its count. A card is a 16:10 capture cropped from the top, the title, one
+(All owners, the workspace, each project, each blob), the grouping (Recent,
+or By owner: a section per owner with the workspace's own last) and Trash
+with its count. A kind with nothing to show is left out unless chosen. A card is a 16:10 capture cropped from the top, the title, one
 line of description when it has one, then one quiet line of its kind, the
 owner's mark and name (a project's mark, or a blob's face) and when it
 changed. On a phone the cards are rows, the capture small at the start.
@@ -700,7 +701,8 @@ it says so, beside New artifact.
 New artifact is a dialog (`NewArtifact.tsx`): the kind as four tiles (doc,
 deck, sheet, page, a radio group the arrows walk), the owner (the
 workspace, any project but Maintenance, any living blob) and a sentence for
-KOS. Ask KOS sends it to the owner's own chat, as Edit with KOS does (the
+KOS. Ask KOS sends it to the owner's own chat, as Edit with KOS does; a request
+refused at once keeps the dialog open with the reason and the words, (the
 project's, the blob's thread, KOS at the root for the workspace), with the
 kind and where to write it, and goes there.
 
