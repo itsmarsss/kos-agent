@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { cleanDocHtml, enhance } from "./doc.js";
 import {
@@ -304,6 +304,21 @@ describe("undo across block operations", () => {
     h.redo();
     h.redo();
     expect(html(a)).toBe(`<p>2ab</p><h2>1</h2>`);
+  });
+});
+
+describe("the history's size", () => {
+  it("lets go of the oldest steps past what it may hold, counting each step once", () => {
+    const a = mount(`<p>${"x".repeat(100)}</p>`);
+    const h = new History(a);
+    const clone = vi.spyOn(Element.prototype, "outerHTML", "get");
+    for (let i = 0; i < 5; i++) h.record();
+    // One count a step as it is kept, never the whole history again.
+    expect(clone.mock.calls.length).toBe(5);
+    clone.mockRestore();
+    let undone = 0;
+    while (h.undo()) undone++;
+    expect(undone).toBe(5);
   });
 });
 

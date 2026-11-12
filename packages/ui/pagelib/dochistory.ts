@@ -13,6 +13,8 @@ interface Spot {
 }
 interface State {
   nodes: Node[];
+  /** Characters it holds, counted once as it is kept. */
+  size: number;
   anchor?: Spot;
   focus?: Spot;
 }
@@ -39,7 +41,7 @@ function nodeAt(root: Node, spot: Spot): { node: Node; offset: number } | undefi
   return { node: n, offset: Math.min(spot.offset, max) };
 }
 
-const sizeOf = (s: State): number => s.nodes.reduce((sum, n) => sum + (n instanceof Element ? n.outerHTML.length : (n.textContent?.length ?? 0)), 0);
+const sizeOf = (nodes: Node[]): number => nodes.reduce((sum, n) => sum + (n instanceof Element ? n.outerHTML.length : (n.textContent?.length ?? 0)), 0);
 
 export class History {
   private past: State[] = [];
@@ -50,7 +52,8 @@ export class History {
 
   private now(): State {
     const sel = this.root.ownerDocument.getSelection();
-    const state: State = { nodes: [...this.root.childNodes].map((n) => n.cloneNode(true)) };
+    const nodes = [...this.root.childNodes].map((n) => n.cloneNode(true));
+    const state: State = { nodes, size: sizeOf(nodes) };
     if (sel && sel.rangeCount) {
       const anchor = spotOf(this.root, sel.anchorNode, sel.anchorOffset);
       const focus = spotOf(this.root, sel.focusNode, sel.focusOffset);
@@ -74,16 +77,28 @@ export class History {
     }
   }
 
+  /** Characters the steps back hold between them, kept as they come and go. */
+  private held = 0;
+
+  private push(state: State): void {
+    this.past.push(state);
+    this.held += state.size;
+  }
+
+  private pop(): State | undefined {
+    const state = this.past.pop();
+    if (state) this.held -= state.size;
+    return state;
+  }
+
   private trim(): void {
-    if (this.past.length > HISTORY_STEPS) this.past.splice(0, this.past.length - HISTORY_STEPS);
-    let total = this.past.reduce((s, st) => s + sizeOf(st), 0);
-    while (this.past.length > 1 && total > HISTORY_CHARS) total -= sizeOf(this.past.shift()!);
+    while (this.past.length > 1 && (this.past.length > HISTORY_STEPS || this.held > HISTORY_CHARS)) this.held -= this.past.shift()!.size;
   }
 
   /** Keep the state as it is now, before a change: a block operation, a format, a paste. */
   record(): void {
     this.typing = undefined;
-    this.past.push(this.now());
+    this.push(this.now());
     this.future = [];
     this.trim();
   }
@@ -104,7 +119,7 @@ export class History {
   }
 
   undo(): boolean {
-    const back = this.past.pop();
+    const back = this.pop();
     if (!back) return false;
     this.future.push(this.now());
     this.put(back);
@@ -115,7 +130,7 @@ export class History {
   redo(): boolean {
     const next = this.future.pop();
     if (!next) return false;
-    this.past.push(this.now());
+    this.push(this.now());
     this.put(next);
     this.typing = undefined;
     return true;
