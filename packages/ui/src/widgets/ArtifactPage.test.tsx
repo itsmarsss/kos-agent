@@ -764,11 +764,31 @@ describe("a doc's saves, which are the owner's", () => {
     act(() => option.click());
     expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 33, result: { id: "deck-one", title: "Deck one" } }, "*");
     expect(document.querySelector(".mention-picker")).toBeNull();
-    // After the dashboard's Done, the page still saying it edits asks for nothing.
+    // A Done whose save is refused leaves the doc editing: its @ still opens the picker.
     act(() => handle.current!.edit("done"));
     await press();
     ask(36);
-    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 36, error: expect.stringMatching(/being edited/) as unknown }), "*");
+    await waitFor(() => expect(document.querySelector(".mention-picker")).not.toBeNull());
+    // Once the doc says editing ended, the picker goes and an @ asks for nothing.
+    say({ __kos: "edit", editing: false, pending: false, status: "", bad: false });
+    expect(document.querySelector(".mention-picker")).toBeNull();
+    await press();
+    ask(37);
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 37, error: expect.stringMatching(/being edited/) as unknown }), "*");
+    // Nor once the page claims editing again with no Edit sent.
+    say({ __kos: "edit", editing: true, pending: false, status: "", bad: false });
+    await press();
+    ask(38);
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 38, error: expect.stringMatching(/being edited/) as unknown }), "*");
+    // Discard ends it at once, though the page goes on saying it edits.
+    act(() => handle.current!.edit("edit"));
+    await press();
+    ask(39);
+    await waitFor(() => expect(document.querySelector(".mention-picker")).not.toBeNull());
+    act(() => handle.current!.edit("discard"));
+    await press();
+    ask(40);
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 40, error: expect.stringMatching(/being edited/) as unknown }), "*");
   });
 
   it("closes the picker with no pick when the window loses focus, as a press back in the doc does", async () => {
@@ -788,7 +808,7 @@ describe("a doc's saves, which are the owner's", () => {
   });
 
   it("opens a mentioned artifact at the owner's press, never by a bad id or one the owner has none of", async () => {
-    vi.spyOn(api, "pages").mockResolvedValue([{ ...record, id: "deck-one", title: "Deck one", artifactKind: "deck" }]);
+    const pages = vi.spyOn(api, "pages").mockResolvedValue([{ ...record, id: "deck-one", title: "Deck one", artifactKind: "deck" }]);
     const { pageWin, say, press } = await frame();
     vi.spyOn(document, "activeElement", "get").mockReturnValue(screen.getByTitle("Budget"));
     hand(true);
@@ -805,6 +825,49 @@ describe("a doc's saves, which are the owner's", () => {
     say({ __kos: "call", id: 52, method: "open", args: { id: "deck-one" } });
     await waitFor(() => expect(window.location.hash).toBe("#/artifacts/deck-one"));
     expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 52, result: { opened: true } }, "*");
+    // One made since the list was fetched: the miss fetches it again, and it opens.
+    pages.mockResolvedValue([{ ...record, id: "deck-one", title: "Deck one", artifactKind: "deck" }, { ...record, id: "made-now", title: "Made now", artifactKind: "doc" }]);
+    await press();
+    say({ __kos: "call", id: 54, method: "open", args: { id: "made-now" } });
+    await waitFor(() => expect(window.location.hash).toBe("#/artifacts/made-now"));
+    expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 54, result: { opened: true } }, "*");
+  });
+
+  it("fetches the list again for a miss at most once a press, sharing one in flight, and keeps the list a failed fetch would empty", async () => {
+    const deck = { ...record, id: "deck-one", title: "Deck one", artifactKind: "deck" as const };
+    // The first fetch fails: nothing is kept, so the next open asks again.
+    const pages = vi.spyOn(api, "pages").mockRejectedValueOnce(new Error("offline")).mockResolvedValue([deck]);
+    const { pageWin, say, press } = await frame();
+    vi.spyOn(document, "activeElement", "get").mockReturnValue(screen.getByTitle("Budget"));
+    hand(true);
+    const replies = vi.spyOn(pageWin, "postMessage");
+    const open = (id: number, artifact: string): void => say({ __kos: "call", id, method: "open", args: { id: artifact } });
+    const answered = (id: number): Promise<void> => waitFor(() => expect(replies.mock.calls.some(([m]) => (m as { id?: number }).id === id)).toBe(true));
+    await press();
+    open(60, "deck-one");
+    // The failed first fetch is no list: the miss it makes fetches again for this press, and finds it.
+    await waitFor(() => expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 60, result: { opened: true } }, "*"));
+    expect(pages).toHaveBeenCalledTimes(2);
+    // Kept now: a hit asks nothing.
+    open(61, "deck-one");
+    await waitFor(() => expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 61, result: { opened: true } }, "*"));
+    expect(pages).toHaveBeenCalledTimes(2);
+    // Two misses at one press share one refetch; a third at that press asks nothing more.
+    await press();
+    open(62, "gone-a");
+    open(63, "gone-b");
+    await Promise.all([answered(62), answered(63)]);
+    open(64, "gone-c");
+    await answered(64);
+    expect(pages).toHaveBeenCalledTimes(3);
+    // A refetch that fails keeps the list it had.
+    pages.mockRejectedValue(new Error("offline"));
+    await press();
+    open(65, "gone-d");
+    await answered(65);
+    expect(pages).toHaveBeenCalledTimes(4);
+    open(66, "deck-one");
+    await waitFor(() => expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 66, result: { opened: true } }, "*"));
   });
 
   it("relays a save just after the dashboard's own Done, with no hand in the frame, and never after Discard, Undo or Edit", async () => {

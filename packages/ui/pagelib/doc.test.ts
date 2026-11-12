@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { DOC_CSS } from "./doc.css.js";
 import { TOC_MIN, cleanDocHtml, clicks, enhance, slugOf, startDoc } from "./doc.js";
 import { DOC_EDIT_MAX } from "@kos/shared/artifacts";
 
@@ -323,6 +324,37 @@ describe("kos-doc", () => {
     expect(save.mock.calls.at(-1)![0]).toEqual({ doc: list.replace(/"false"/g, '"true"') });
   });
 
+  it("starts no editing when Done or Discard follows Edit while a tick is still being kept", async () => {
+    vi.useFakeTimers();
+    try {
+      (window as { kos?: unknown }).kos = { save: vi.fn().mockResolvedValue({ version: 2 }) };
+      document.execCommand = vi.fn() as typeof document.execCommand;
+      const article = mount(list);
+      startDoc();
+      const [a, b] = [...article.querySelectorAll(".todo-box")];
+      for (const [box, after] of [[a!, "done"], [b!, "discard"]] as const) {
+        tick(box);
+        await vi.advanceTimersByTimeAsync(100);
+        tick(box);
+        press("edit");
+        press(after);
+        await vi.advanceTimersByTimeAsync(AUTOSAVE_GAP_MS * 2);
+        expect(article.hasAttribute("contenteditable")).toBe(false);
+      }
+      // Edit pressed again in the wait, after the Done: the last word is Edit, so editing starts.
+      tick(a!);
+      await vi.advanceTimersByTimeAsync(100);
+      tick(a!);
+      press("edit");
+      press("done");
+      press("edit");
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_GAP_MS * 2);
+      expect(article.getAttribute("contenteditable")).toBe("true");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("carries a tick whose save was refused into the next", async () => {
     vi.useFakeTimers();
     const save = vi.fn().mockRejectedValueOnce(new Error("busy")).mockResolvedValue({ version: 2 });
@@ -396,6 +428,73 @@ describe("kos-doc", () => {
     expect(cleanDocHtml(article)).toBe('<p>See <span class="mention" data-artifact="deck-one">Deck one</span> </p>');
   });
 
+  it("takes the zero-width step past a chip out on Backspace, so the browser's Backspace takes what shows", () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn() };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const article = mount(`<p>See <span class="mention" data-artifact="deck-one">Deck one</span> \u200b</p><p><span class="mention" data-artifact="deck-two">Deck two</span>\u200b</p>`);
+    startDoc();
+    press("edit");
+    const backspace = (node: Text, offset: number): boolean => {
+      getSelection()!.collapse(node, offset);
+      return article.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }));
+    };
+    // After a chip and its space: the step goes, the caret stands after the space, and the key is left to the browser.
+    const [first, second] = [...article.querySelectorAll("p")].map((p) => p.lastChild as Text);
+    expect(backspace(first!, 2)).toBe(true);
+    expect(first!.data).toBe(" ");
+    expect([getSelection()!.anchorNode, getSelection()!.anchorOffset]).toEqual([first, 1]);
+    // Right after a chip at a line's end: the caret stands against the chip, which the browser's Backspace then takes whole.
+    expect(backspace(second!, 1)).toBe(true);
+    expect(second!.data).toBe("");
+    expect(getSelection()!.anchorNode!.previousSibling).toBe(article.querySelectorAll(".mention")[1]);
+    // An ordinary character before the caret is left alone.
+    first!.data = " x";
+    backspace(first!, 2);
+    expect(first!.data).toBe(" x");
+  });
+
+  it("gives the caret its zero-width step after a chip whose text after it is empty or has none", async () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn() };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const article = mount(`<p><span class="mention" data-artifact="deck-one">Deck one</span></p><p><span class="mention" data-artifact="deck-two">Deck two</span> more</p>`);
+    startDoc();
+    press("edit");
+    const [one, two] = [...article.querySelectorAll<HTMLElement>(".mention")];
+    // As an Undo after a Backspace leaves it: the chip back, the text after it empty.
+    one!.after(document.createTextNode(""));
+    for (const chip of [one!, two!]) {
+      getSelection()!.collapse(chip.firstChild!, 2);
+      document.dispatchEvent(new Event("selectionchange"));
+      await vi.waitFor(() => expect(getSelection()!.anchorNode).toBe(chip.nextSibling));
+      expect(getSelection()!.anchorOffset).toBe(1);
+    }
+    expect((one!.nextSibling as Text).data).toBe("\u200b");
+    expect((two!.nextSibling as Text).data).toBe("\u200b more");
+    expect(cleanDocHtml(article)).not.toContain("\u200b");
+  });
+
+  it("gives back the zero-width step when Undo puts the caret at the start of the text after a chip", async () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn() };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const article = mount(`<p><span class="mention" data-artifact="deck-one">Deck one</span>x</p><ul class="checklist"><li data-checked="false">y</li></ul>`);
+    startDoc();
+    press("edit");
+    const chip = article.querySelector<HTMLElement>(".mention")!;
+    const text = chip.nextSibling as Text;
+    getSelection()!.collapse(text, 0);
+    document.dispatchEvent(new Event("selectionchange"));
+    await vi.waitFor(() => expect(text.data).toBe("\u200bx"));
+    expect(getSelection()!.anchorNode).toBe(text);
+    expect(getSelection()!.anchorOffset).toBe(1);
+    // A to-do's box takes no zero-width step: the caret stays where it was put.
+    const box = article.querySelector(".todo-box")!;
+    getSelection()!.collapse(box.nextSibling!, 0);
+    document.dispatchEvent(new Event("selectionchange"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect((box.nextSibling as Text).data).toBe("y");
+    expect(getSelection()!.anchorOffset).toBe(0);
+  });
+
   it("says quietly in the head when an open was refused", async () => {
     const told = vi.spyOn(window, "postMessage");
     (window as { kos?: unknown }).kos = { save: vi.fn(), open: vi.fn().mockRejectedValue(new Error("there is no artifact by that id")) };
@@ -420,6 +519,58 @@ describe("kos-doc", () => {
     expect(article.textContent).toBe("OneTwo");
     press("redo");
     expect(article.textContent).toBe("TwoOne");
+  });
+
+  it("keeps a wide table's tools at the right of what shows of it, inside the window", () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn() };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const article = mount(`<p>Above</p><table><tr><td>Wide</td></tr></table>`);
+    startDoc();
+    press("edit");
+    const box = (left: number, right: number, top = 100, bottom = 200): DOMRect => new DOMRect(left, top, right - left, bottom - top);
+    // A table far wider than the column, scrolling inside its wrapper, which stops at 700 in a window 1024 wide.
+    const rects = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      if (this.tagName === "TABLE") return box(40, 2400);
+      if (this.classList.contains("doc-table")) return box(40, 700);
+      return box(0, 0, 0, 0);
+    });
+    const lines = Range.prototype.getClientRects;
+    Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+    const tools = document.querySelector<HTMLElement>(".doc-tabletools")!;
+    Object.defineProperty(tools, "offsetWidth", { value: 180, configurable: true });
+    Object.defineProperty(tools, "offsetHeight", { value: 34, configurable: true });
+    const place = (cell: Node): number => {
+      getSelection()!.collapse(cell, 0);
+      document.dispatchEvent(new Event("selectionchange"));
+      return parseFloat(tools.style.left);
+    };
+    const cell = article.querySelector("td")!.firstChild!;
+    expect(place(cell)).toBe(700 - 180);
+    expect(tools.hidden).toBe(false);
+    // A wrapper reaching past the window's edge: the tools stay inside it.
+    rects.mockImplementation(function (this: Element) {
+      return this.tagName === "TABLE" || this.classList.contains("doc-table") ? box(40, 1600) : box(0, 0, 0, 0);
+    });
+    expect(place(cell)).toBe(innerWidth - 180 - 8);
+    rects.mockRestore();
+    Range.prototype.getClientRects = lines;
+  });
+
+  it("draws a table's two deletes apart from its adds: their own glyphs, in the danger tone always, titled", () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn() };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    mount(`<table><tr><td>A</td></tr></table>`);
+    startDoc();
+    press("edit");
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>(".doc-tabletools > button")];
+    const glyph = (b: HTMLButtonElement): string => b.querySelector("path")!.getAttribute("d")!;
+    const deletes = buttons.filter((b) => b.classList.contains("danger"));
+    expect(deletes.map((b) => b.title)).toEqual(["Delete this row", "Delete this column"]);
+    expect(deletes.map((b) => b.getAttribute("aria-label"))).toEqual(["Delete this row", "Delete this column"]);
+    expect(new Set(buttons.map(glyph)).size).toBe(buttons.length);
+    // A cross in each, which no add has.
+    for (const b of buttons) expect(/l4 4/.test(glyph(b)), b.title).toBe(deletes.includes(b));
+    expect(DOC_CSS).toMatch(/\.doc-tabletools > button\.danger \{ color: var\(--danger\); \}/);
   });
 
   it("takes a drop as plain text, as a paste is", () => {

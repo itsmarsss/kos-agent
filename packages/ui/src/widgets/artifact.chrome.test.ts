@@ -496,7 +496,8 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     const html = `<style>body{background:#15161a}</style><h1>Watching</h1><script>
       document.documentElement.dataset.theme = "dim";
       let seen = 0;
-      new MutationObserver((records) => { seen += records.length; document.body.classList.add("touched"); }).observe(document.documentElement, { attributes: true });
+      // The true loop: a write on the body each time, the same class, which is a mutation every time (classList.add is one only once).
+      new MutationObserver((records) => { seen += records.length; document.body.className = document.body.className; }).observe(document.documentElement, { attributes: true });
       addEventListener("load", () => setTimeout(() => top.postMessage({ watched: { seen, theme: document.documentElement.dataset.theme, ground: document.documentElement.dataset.ground || "", bg: getComputedStyle(document.body).backgroundColor } }, "*"), 1500));
     </script>`;
     const frame = wrapperDocument(pageDocument({ html, tokens: { "--bg": "#0c0e12", "--panel": "#12151c", "--panel-2": "#181c26", "--text": "#e7ebf3" }, mode: "dark", css, libraries: [] }));
@@ -745,6 +746,55 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     for (const t of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type: t, x: box!.x, y: box!.y, button: "left", clickCount: 1 });
     await until("document.body.dataset.saved");
     expect(String(await value("document.body.dataset.saved"))).toBe('<details><summary>More</summary><p>Hidden</p></details><ul class="checklist"><li data-checked="true">Milk</li></ul>');
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
+  it("takes a mention chip out with one Backspace from the line's end after it", async () => {
+    const { build } = await import("esbuild");
+    const bundled = await build({ entryPoints: [join(import.meta.dirname, "../../pagelib/doc.ts")], bundle: true, write: false, format: "iife", target: "chrome120", charset: "ascii", logLevel: "silent" });
+    // Where the line is and what it holds, told to the dashboard on asking.
+    const html = `<article data-doc><p>See <span class="mention" data-artifact="deck-one">Deck one</span></p><p>Next</p></article><script>
+      addEventListener("message", (e) => {
+        if (!e.data || e.data.ask !== "line") return;
+        const p = document.querySelector("article > p"), r = p.getBoundingClientRect();
+        top.postMessage({ line: { x: r.right - 4, y: r.top + r.height / 2, chips: p.querySelectorAll(".mention").length, text: p.textContent } }, "*");
+      });
+    </script>`;
+    const frame = wrapperDocument(pageDocument({ html, tokens: {}, mode: "dark", css: "", libraries: [bundled.outputFiles[0]!.text], kind: "doc" }));
+    pages.set("/chip", `<!doctype html><body style="margin:0"><iframe id="f" sandbox="allow-scripts" style="display:block;border:0;width:800px;height:400px" srcdoc="${srcdoc(frame)}"></iframe><script>
+      const f = document.getElementById("f");
+      addEventListener("message", (e) => {
+        const page = f.contentWindow.frames[0], m = e.data || {};
+        if (e.source !== page) return;
+        if (m.line) { window.line = m.line; return; }
+        if (m.__kos === "edit" && !m.editing && !document.body.dataset.asked) { document.body.dataset.asked = "1"; page.postMessage({ __kos: "edit-do", action: "edit" }, "*"); }
+        if (m.__kos === "edit" && m.editing) document.body.dataset.editing = "1";
+      });
+      window.ask = () => { window.line = undefined; f.contentWindow.frames[0].postMessage({ ask: "line" }, "*"); };
+    </script></body>`);
+    await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 400, deviceScaleFactor: 1, mobile: false });
+    await send("Page.navigate", { url: `${base}/chip` });
+    await until("document.body.dataset.editing === '1'");
+    type Line = { x: number; y: number; chips: number; text: string };
+    const line = async (ready: (l: Line) => boolean = () => true): Promise<Line> => {
+      let last: Line | undefined;
+      for (const end = Date.now() + BOUND_MS; Date.now() < end; await pause(50)) {
+        await value("ask()");
+        await pause(30);
+        last = (await value("window.line")) as Line | undefined;
+        if (last && ready(last)) return last;
+      }
+      throw new Error(`the doc never said its line as wanted: ${JSON.stringify(last)}`);
+    };
+    // A press at the line's end, past the chip: the caret stands on the step after it.
+    const at = await line();
+    for (const t of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type: t, x: at.x, y: at.y, button: "left", clickCount: 1 });
+    await line((l) => l.text.endsWith("\u200b"));
+    await send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 });
+    const after = await line((l) => l.chips === 0);
+    // The space before it stays, the browser's no-break space at a line's end.
+    expect(after.text.replace(/\u200b/g, "").replace(/\u00a0/g, " ")).toBe("See ");
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 

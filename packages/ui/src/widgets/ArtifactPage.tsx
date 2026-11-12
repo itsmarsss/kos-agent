@@ -174,6 +174,7 @@ export interface DeckView {
 export type DeckPress = "prev" | "next" | "grid" | "notes";
 
 const flag = (v: unknown): boolean => v === true;
+const idsOf = (list: { id: string }[]): Set<string> => new Set(list.map((p) => p.id));
 const LEFT_WORDS = "This page tried to leave KOS, so it was stopped.";
 /** A deck's notes as it reports them: strings only, as many and as long as the deck sends at most (pagelib/deck.ts noteLines). */
 const lines = (v: unknown): string[] => (Array.isArray(v) ? v.filter((l): l is string => typeof l === "string").slice(0, 60).map((l) => l.slice(0, 2000)) : []);
@@ -244,10 +245,34 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const mentionAsk = useRef<unknown>(undefined);
   /** The owner's artifacts' ids, for a mention's open to name only one of them. */
   const known = useRef<Promise<Set<string>> | undefined>(undefined);
+  /** The refetch a miss makes: the press it was spent on, and the one in flight, which every miss shares. */
+  const refetch = useRef<{ press: number; run?: Promise<Set<string>> }>({ press: Number.NEGATIVE_INFINITY });
+  /** The owner's artifacts' ids as kept; a failed first fetch is no list, so it is not kept and the next open asks again. */
+  const knownIds = useCallback((): Promise<Set<string>> => {
+    known.current ??= api.pages().then(idsOf, (err: unknown) => {
+      known.current = undefined;
+      throw err;
+    });
+    return known.current.catch(() => new Set<string>());
+  }, []);
+  /** The list fetched again for a miss, once for the press it came with; a failed fetch keeps the list it had. */
+  const refetchIds = useCallback((press: number, had: Set<string>): Promise<Set<string>> => {
+    const now = refetch.current;
+    if (now.run) return now.run;
+    if (now.press === press) return Promise.resolve(had);
+    const run = api.pages().then(idsOf, () => had);
+    refetch.current = { press, run };
+    known.current = run;
+    void run.then(() => {
+      if (refetch.current.run === run) refetch.current = { press };
+    });
+    return run;
+  }, []);
   /**
    * Whether the doc is being edited, for the picker's gate: the dashboard's
-   * own last word (Edit sent, and no Done or Discard since), and the doc
-   * saying so too. The doc's claim alone is the page's, so it is not enough.
+   * own Edit sent, not yet ended by the doc's report that editing stopped,
+   * and the doc saying so too. The doc's claim alone is the page's, so it is
+   * not enough.
    */
   const editing = useRef(false);
   const framed = useRef(false);
@@ -349,6 +374,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     sent.current = undefined;
     editing.current = framed.current = false;
     known.current = undefined;
+    refetch.current = { press: Number.NEGATIVE_INFINITY };
     const { scripts, fonts } = artifactAssets(page);
     void Promise.all([Promise.all(scripts.map(library)), fontCss(fonts)])
       .then(([libraries, faces]) => {
@@ -499,6 +525,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         const d = m as Partial<EditState>;
         const next: EditState = { editing: d.editing === true, pending: d.pending === true, status: String(d.status ?? "").slice(0, 300), bad: d.bad === true };
         setEdit(next);
+        // Editing ends when the doc says it has: a Done whose save is refused leaves it editing, and its @ still works.
+        if (framed.current && !next.editing) editing.current = false;
         framed.current = next.editing;
         if (!next.editing && !next.pending) settled.current.splice(0).forEach((f) => f());
         return;
@@ -520,9 +548,11 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         if (m.method === "open") {
           const first = openRefusal(state, args.id);
           if (first) return reply(m.id, { error: first });
-          // Only an artifact the owner has: the list, fetched once for this frame, is asked after the press is judged.
-          known.current ??= api.pages().then((list) => new Set(list.map((p) => p.id)), () => new Set<string>());
-          void known.current.then((ids) => {
+          // Only an artifact the owner has: the list, kept for this frame, is asked after the press is judged; a miss fetches it
+          // again for an artifact made since, at most once a press.
+          const press = gestures.current.at;
+          void knownIds().then(async (had) => {
+            const ids = had.has(String(args.id)) ? had : await refetchIds(press, had);
             const no = openRefusal(state, args.id, (id) => ids.has(id));
             if (no) return reply(m.id, { error: no });
             window.location.hash = hrefFor({ name: "artifacts", id: String(args.id) });
@@ -573,7 +603,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
     };
     window.addEventListener("message", heard);
     return () => window.removeEventListener("message", heard);
-  }, [coverHeight, layout, left, locked, onSaved, page.capabilities?.ask, page.kind, pageWindow, presentInPlace, presenting, record.id, reply, setPresenting, show, widthKey]);
+  }, [coverHeight, knownIds, layout, left, locked, onSaved, page.capabilities?.ask, page.kind, pageWindow, presentInPlace, presenting, record.id, refetchIds, reply, setPresenting, show, widthKey]);
 
   // A deck or a sheet fills the view below where it starts on the page, so that is measured, not guessed.
   useLayoutEffect(() => {
@@ -643,7 +673,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       const touched = gestures.current.at > gestures.current.since;
       sent.current = { action, at: performance.now(), ...(action === "done" && touched ? { touched } : {}) };
       if (action === "edit") editing.current = true;
-      else if (action === "done" || action === "discard") editing.current = false;
+      // Discard always ends it, as Done does before the doc began; a Done after, whose save may be refused, waits on the doc's word.
+      else if (action === "discard" || (action === "done" && !framed.current)) editing.current = false;
       pageWindow()?.postMessage({ __kos: "edit-do", action }, "*");
     },
     [pageWindow],

@@ -22,7 +22,7 @@ import { Inspector, type InspectTarget } from "./Inspector.js";
 import { ListPage } from "./ListPage.js";
 import { AnimatePresence, m } from "motion/react";
 
-import { hrefFor, pageKeyOf, parseRoute, type Route } from "./routes.js";
+import { chatShown, hrefFor, pageKeyOf, parseRoute, type Route } from "./routes.js";
 import { Drawer } from "./Drawer.js";
 import { CronEditor } from "./CronEditor.js";
 import { describeCron } from "./schedule.js";
@@ -40,7 +40,7 @@ import { BuildsPage } from "./BuildsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
 import { heardDrawnTheme, reconcileTheme, reportDrawnTheme, themeStamp } from "./theme.js";
 import { ProjectsPage } from "./ProjectsPage.js";
-import { ArtifactViewer, ArtifactsPage, chatOf, settleOpenViewers } from "./ArtifactsPage.js";
+import { ArtifactViewer, ArtifactsPage, chatOf, chatOpen, settleOpenViewers } from "./ArtifactsPage.js";
 import { placeOf } from "./chattree.js";
 import { MemoryPage } from "./MemoryPage.js";
 import { InboxPage } from "./InboxPage.js";
@@ -671,14 +671,7 @@ export function App(): React.ReactElement {
   /** The thread the quick question is asked beside, if one is open. */
   /** An agent's own page is a chat page too: it owns the window like the others. */
   const agentPage = route.name === "blobs" && route.blob !== undefined && route.blob !== "new";
-  const askContext =
-    route.name === "chats"
-      ? route.id
-      : route.name === "project"
-        ? (route.id ?? `project:${route.slug}`)
-        : agentPage
-          ? `agent:${route.blob}`
-          : undefined;
+  const askContext = chatShown(route);
 
   const shell = (body: React.ReactNode): React.ReactElement => (
     <ErrorBoundary label="dashboard">
@@ -1034,6 +1027,10 @@ export function App(): React.ReactElement {
           projects={projects}
           onOpen={(id) => go({ name: "artifacts", id })}
           onAsked={(owner) => void chatOf(owner).then(go)}
+          onAskFailed={(owner, message) =>
+            // A send the dialog could not say failed (it had handed over, or gone): a quiet toast, unless that chat is open to show it.
+            void chatOpen(owner, parseRoute(window.location.hash)).then((open) => !open && flash("err", `Could not ask KOS: ${message}`))
+          }
         />
       ),
     );

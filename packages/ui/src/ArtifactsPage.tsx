@@ -14,10 +14,10 @@ import { ArtifactHead, ArtifactMenu, type MenuItem } from "./ArtifactHead.js";
 import { emptyWords, TrashNotice, useArtifactOps, type ArtifactChange } from "./ArtifactManage.js";
 import { TrashList } from "./ArtifactTrash.js";
 import { ConfirmButton } from "./kit.js";
-import { NewArtifactDialog } from "./NewArtifact.js";
+import { NewArtifactDialog, type NewArtifactProps } from "./NewArtifact.js";
 import { DeckPresenter } from "./DeckPresenter.js";
 import { openAudience, presentSession } from "./presentlink.js";
-import { hrefFor } from "./routes.js";
+import { chatShown, hrefFor } from "./routes.js";
 import { ArtifactPage, type ArtifactHandle, type DeckView, type EditState } from "./widgets/ArtifactPage.js";
 
 /**
@@ -170,11 +170,13 @@ export function ArtifactsPage({
   projects,
   onOpen,
   onAsked,
+  onAskFailed,
 }: {
   projects: Project[];
   onOpen: (id: string) => void;
   /** New artifact's request went to the owner's chat: go there. Without it there is no New artifact. */
-  onAsked?: (owner: ArtifactOwner) => void;
+  onAsked?: NewArtifactProps["onAsked"];
+  onAskFailed?: NewArtifactProps["onAskFailed"];
 }): ReactElement {
   const theme = useDashboardTheme();
   const [list, setList] = useState<ArtifactSummary[]>();
@@ -431,7 +433,7 @@ export function ArtifactsPage({
           ))}
         </div>
       )}
-      {onAsked && <NewArtifactDialog open={making} projects={projects} onClose={() => setMaking(false)} onAsked={onAsked} />}
+      {onAsked && <NewArtifactDialog open={making} projects={projects} onClose={() => setMaking(false)} onAsked={onAsked} onAskFailed={onAskFailed} />}
       {ops.dialogs}
     </div>
   );
@@ -454,6 +456,12 @@ export function rootChatId(): Promise<string> {
 export async function chatOf(owner: ArtifactOwner): Promise<Route> {
   if (!owner) return rootChatId().then((id): Route => ({ name: "chats", id }), (): Route => ({ name: "chats" }));
   return "project" in owner ? { name: "project", slug: owner.project } : { name: "blobs", blob: owner.blob };
+}
+
+/** Whether the route shows the owner's chat, where a request sent to it says its own failure; the root chat unnamed is not shown. */
+export async function chatOpen(owner: ArtifactOwner, route: Route): Promise<boolean> {
+  const chat = chatIdOf(owner) ?? (await rootChatId().catch(() => undefined));
+  return chat !== undefined && chatShown(route) === chat;
 }
 
 /** An owner's mark and name, for a card, a row or the viewer's head. */

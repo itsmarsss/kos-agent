@@ -972,17 +972,20 @@ export function startEditor(article: HTMLElement, { save, say, onPending, queue 
   }
 
   /**
-   * The table's tools at its right edge, at the first place that covers no
-   * words of the blocks beside it: above the table, else below it, else
-   * above anyway; then held to the part of the table in view, so a long one
-   * keeps them at hand.
+   * The table's tools at the right edge of what shows of it (a wide table
+   * scrolls inside its wrapper), at the first place that covers no words of
+   * the blocks beside it: above the table, else below it, else above anyway;
+   * then held to the part of the table in view, so a long one keeps them at
+   * hand, and to the window side to side.
    */
   function placeTableTools(table: HTMLTableElement): void {
     const block = blockOf(article, table) ?? table;
     const r = block.getBoundingClientRect();
     const w = tableTools.offsetWidth;
     const h = tableTools.offsetHeight;
-    const left = r.right - w;
+    const wrap = table.closest(".doc-table");
+    const right = wrap ? Math.min(r.right, wrap.getBoundingClientRect().right) : r.right;
+    const left = Math.min(Math.max(8, right - w), innerWidth - w - 8);
     const all = allBlocks(article);
     const at = all.indexOf(block);
     const lines = (b: HTMLElement | undefined): DOMRect[] => {
@@ -999,7 +1002,7 @@ export function startEditor(article: HTMLElement, { save, say, onPending, queue 
     const chosen = free(above) ? above : free(below) ? below : above;
     const seen = seenPart();
     const top = chosen === below ? Math.min(below, seen.bottom - h - 6) : Math.min(Math.max(above, seen.top + 6), r.bottom - h);
-    tableTools.style.left = `${Math.round(Math.max(0, left) + scrollX)}px`;
+    tableTools.style.left = `${Math.round(left + scrollX)}px`;
     tableTools.style.top = `${Math.round(Math.max(top, r.top - h - 6) + scrollY)}px`;
   }
 
@@ -1036,6 +1039,7 @@ export function startEditor(article: HTMLElement, { save, say, onPending, queue 
     }
     if (picked.length) return pickedKey(e, mod, k);
     const sel = getSelection();
+    if (e.key === "Backspace" && !mod && !e.altKey && !e.isComposing) stepOverZeroWidth(sel);
     const caret = caretOf(sel);
     const block = caret ? blockOf(article, caret.node) : undefined;
     if (mod && e.shiftKey && (k === "ArrowUp" || k === "ArrowDown")) {
@@ -1093,6 +1097,21 @@ export function startEditor(article: HTMLElement, { save, say, onPending, queue 
     }
     if (e.key === "Tab" && !mod) return tab(e, block, caret);
   };
+  /**
+   * The zero-width step a caret stands on past a chip or a mark is no
+   * character the owner sees: Backspace takes it out first, so the browser's
+   * own Backspace then takes what shows before it (the space, or the chip).
+   */
+  function stepOverZeroWidth(sel: Selection | null): void {
+    const node = sel?.isCollapsed ? sel.anchorNode : null;
+    if (!(node instanceof Text) || !article.contains(node)) return;
+    const end = sel!.anchorOffset;
+    let start = end;
+    while (start > 0 && node.data[start - 1] === "\u200b") start--;
+    if (start === end) return;
+    node.deleteData(start, end - start);
+    sel!.collapse(node, start);
+  }
   /** The paragraph or summary inside a callout, toggle or quote the caret is in, or the block. */
   const innerOf = (block: HTMLElement, caret: Caret): HTMLElement => {
     if (!block.matches("aside, details, blockquote")) return block;
@@ -1471,14 +1490,22 @@ export function startEditor(article: HTMLElement, { save, say, onPending, queue 
     const sel = getSelection();
     const anchor = sel?.isCollapsed && sel.anchorNode && article.contains(sel.anchorNode) ? sel.anchorNode : null;
     const before = anchor instanceof Element && anchor !== article ? anchor.childNodes[sel!.anchorOffset - 1] : undefined;
+    // Undo puts the caret back at the start of the text after it, which has lost its zero-width character.
+    const behind = anchor instanceof Text && sel!.anchorOffset === 0 && !anchor.data.startsWith("\u200b") ? anchor.previousSibling : null;
     const fixed =
       before instanceof Element && before.getAttribute("contenteditable") === "false" && !(before.nextSibling instanceof Text)
         ? before
-        : (anchor instanceof Element ? anchor : anchor?.parentElement)?.closest('[contenteditable="false"]');
+        : behind instanceof Element && behind.getAttribute("contenteditable") === "false" && !behind.classList.contains("todo-box")
+          ? behind
+          : (anchor instanceof Element ? anchor : anchor?.parentElement)?.closest('[contenteditable="false"]');
     if (fixed && fixed !== article && article.contains(fixed)) {
-      // A caret after it at the line's end needs a character to stand on: a zero-width one, which no save keeps (cleanDocHtml).
+      // A caret after it needs a character to stand on: a zero-width one, which no save keeps (cleanDocHtml). Text after it with
+      // none (emptied by a Backspace, then put back by Undo) is given one too.
       let after = fixed.nextSibling;
-      if (!(after instanceof Text) && !fixed.classList.contains("todo-box")) fixed.after((after = document.createTextNode("\u200b")));
+      if (!fixed.classList.contains("todo-box")) {
+        if (!(after instanceof Text)) fixed.after((after = document.createTextNode("\u200b")));
+        else if (!after.data.startsWith("\u200b")) after.insertData(0, "\u200b");
+      }
       const r = document.createRange();
       if (after instanceof Text) r.setStart(after, after.data.startsWith("\u200b") ? 1 : 0);
       else r.setStartAfter(fixed);

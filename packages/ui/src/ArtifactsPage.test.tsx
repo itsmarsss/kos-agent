@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { api, type AgentInfo, type ArtifactSummary, type Project } from "./api.js";
-import { ArtifactViewer, ArtifactsPage, chatOf, convertRequest, editRequest, settleOpenViewers } from "./ArtifactsPage.js";
+import { ArtifactViewer, ArtifactsPage, chatOf, chatOpen, convertRequest, editRequest, settleOpenViewers } from "./ArtifactsPage.js";
 import { HANDOFF_MS, newRequest } from "./NewArtifact.js";
 import { hrefFor, NAV, parseRoute } from "./routes.js";
 
@@ -132,7 +132,8 @@ describe("the Artifacts page", () => {
     let refuse: (err: Error) => void = () => undefined;
     vi.spyOn(api, "message").mockReturnValue(new Promise((_, reject) => (refuse = reject)));
     const asked = vi.fn();
-    render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} />);
+    const failed = vi.fn();
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} onAskFailed={failed} />);
     fireEvent.click((await screen.findAllByRole("button", { name: "New artifact" }))[0]!);
     const dialog = await screen.findByRole("dialog", { name: "New artifact" });
     fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "A memo on the move" } });
@@ -145,14 +146,18 @@ describe("the Artifacts page", () => {
     expect((within(dialog).getByLabelText("What should it be?") as HTMLTextAreaElement).value).toBe("A memo on the move");
     expect(within(dialog).getByRole("button", { name: "Ask KOS" })).toBeTruthy();
     expect(asked).not.toHaveBeenCalled();
+    // Said in the dialog, so not again by the dashboard.
+    expect(failed).not.toHaveBeenCalled();
   });
 
-  it("hands over to the chat once the send has been on its way a moment, the answer still to come", async () => {
+  it("hands over to the chat once the send has been on its way a moment, the answer still to come, and hands on a late failure", async () => {
     vi.spyOn(api, "artifacts").mockResolvedValue([]);
     vi.spyOn(api, "agents").mockResolvedValue({ agents: [], invalid: [] });
-    vi.spyOn(api, "message").mockReturnValue(new Promise(() => undefined));
+    let refuse: (err: Error) => void = () => undefined;
+    vi.spyOn(api, "message").mockReturnValue(new Promise((_, reject) => (refuse = reject)));
     const asked = vi.fn();
-    render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} />);
+    const failed = vi.fn();
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} onAskFailed={failed} />);
     fireEvent.click((await screen.findAllByRole("button", { name: "New artifact" }))[0]!);
     const dialog = await screen.findByRole("dialog", { name: "New artifact" });
     fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "A memo" } });
@@ -163,17 +168,24 @@ describe("the Artifacts page", () => {
       expect(asked).not.toHaveBeenCalled();
       await act(() => vi.advanceTimersByTimeAsync(200));
       expect(asked).toHaveBeenCalledWith(null);
+      expect(failed).not.toHaveBeenCalled();
+      // The dialog has handed over: the send failing now is the dashboard's to say.
+      refuse(new Error("KOS is halted"));
+      await act(() => vi.advanceTimersByTimeAsync(10));
+      expect(failed).toHaveBeenCalledWith(null, "KOS is halted");
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("moves nobody when the page went before the send handed over", async () => {
+  it("moves nobody when the page went before the send handed over, and hands on its failure then", async () => {
     vi.spyOn(api, "artifacts").mockResolvedValue([]);
     vi.spyOn(api, "agents").mockResolvedValue({ agents: [], invalid: [] });
-    vi.spyOn(api, "message").mockReturnValue(new Promise(() => undefined));
+    let refuse: (err: Error) => void = () => undefined;
+    vi.spyOn(api, "message").mockReturnValue(new Promise((_, reject) => (refuse = reject)));
     const asked = vi.fn();
-    const { unmount } = render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} />);
+    const failed = vi.fn();
+    const { unmount } = render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} onAskFailed={failed} />);
     fireEvent.click((await screen.findAllByRole("button", { name: "New artifact" }))[0]!);
     const dialog = await screen.findByRole("dialog", { name: "New artifact" });
     fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "A memo" } });
@@ -181,8 +193,11 @@ describe("the Artifacts page", () => {
     try {
       fireEvent.click(within(dialog).getByRole("button", { name: "Ask KOS" }));
       unmount();
-      await vi.advanceTimersByTimeAsync(HANDOFF_MS + 100);
+      await vi.advanceTimersByTimeAsync(HANDOFF_MS - 500);
+      refuse(new Error("KOS is halted"));
+      await vi.advanceTimersByTimeAsync(600);
       expect(asked).not.toHaveBeenCalled();
+      expect(failed).toHaveBeenCalledWith(null, "KOS is halted");
     } finally {
       vi.useRealTimers();
     }
@@ -317,6 +332,16 @@ describe("one artifact, full size", () => {
     expect(hrefFor(await chatOf(null))).toBe(hrefFor({ name: "chats", id: "primary:kenny" }));
     expect(await chatOf({ project: "budget" })).toEqual({ name: "project", slug: "budget" });
     expect(await chatOf({ blob: "noter" })).toEqual({ name: "blobs", blob: "noter" });
+  });
+
+  it("knows when the chat a request went to is open, which then says its failure itself", async () => {
+    vi.spyOn(api, "settings").mockResolvedValue({ profile: { name: "K", timezone: "UTC", ownerId: "kenny" } } as never);
+    expect(await chatOpen({ project: "budget" }, { name: "project", slug: "budget" })).toBe(true);
+    expect(await chatOpen({ project: "budget" }, { name: "project", slug: "budget", id: "agent:other" })).toBe(false);
+    expect(await chatOpen({ project: "budget" }, { name: "artifacts" })).toBe(false);
+    expect(await chatOpen({ blob: "noter" }, { name: "blobs", blob: "noter" })).toBe(true);
+    expect(await chatOpen(null, { name: "chats", id: "primary:kenny" })).toBe(true);
+    expect(await chatOpen(null, { name: "chats", id: "project:budget" })).toBe(false);
   });
 
   it("opens the chat list when KOS's root chat cannot be named, and names it once the settings load", async () => {
