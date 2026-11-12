@@ -26,15 +26,13 @@ export interface KnowledgePageProps {
   /** The new-claim form is open: its button is the page head's, so the page owns this. */
   adding: boolean;
   onAdding: (open: boolean) => void;
-  /** Projects by slug, so a project's claims are headed by its name. */
+  /** Projects by slug from the manifest, so a project's claims are headed by its name; absent until it is read. */
   projectNames?: ReadonlyMap<string, string>;
   onChanged: () => void;
 }
 
 /** Rows a scope shows before "Show all". */
 export const SCOPE_FIRST = 8;
-
-const NO_NAMES: ReadonlyMap<string, string> = new Map();
 
 /** Who wrote a claim, in a word or two for its row: the drawer says it in full. */
 export function sourceWord(source: string | null | undefined): string | null {
@@ -79,12 +77,13 @@ export interface ScopeGroup {
 }
 
 /** Where a scope is, as a heading: everywhere first, then projects, blobs and callers by name. */
-function placeOf(scope: string, names: ReadonlyMap<string, string>): { title: string; kind: string | null; rank: number; project?: string; unknown?: boolean } {
+function placeOf(scope: string, names: ReadonlyMap<string, string> | undefined): { title: string; kind: string | null; rank: number; project?: string; unknown?: boolean } {
   if (scope === "global") return { title: "Everywhere", kind: null, rank: 0 };
   const blob = /^project:blob:(.+)$/.exec(scope);
   if (blob) return { title: blob[1]!, kind: "blob", rank: 2 };
   if (scope.startsWith("project:")) {
     const slug = scope.slice("project:".length);
+    if (!names) return { title: slug, kind: "project", rank: 1 };
     const name = names.get(slug);
     return name ? { title: name, kind: "project", rank: 1, project: slug } : { title: slug, kind: "no such project", rank: 1, unknown: true };
   }
@@ -92,12 +91,20 @@ function placeOf(scope: string, names: ReadonlyMap<string, string>): { title: st
   return { title: scope, kind: null, rank: 4 };
 }
 
-/** Claims by where they apply, pinned first in each, then the latest. */
-export function groupByScope(facts: readonly FactRow[], names: ReadonlyMap<string, string> = NO_NAMES): ScopeGroup[] {
+/**
+ * One name for each place a claim can be: a blob's claims are written under
+ * either name for it, and a slug passed with its prefix already on it
+ * (`project:project:x`, which memory.remember once minted) is the project x.
+ */
+export function canonicalScope(scope: string | undefined): string {
+  return (scope ?? "global").replace(/^agent:/, "project:blob:").replace(/^(?:project:)+/, "project:");
+}
+
+/** Claims by where they apply, pinned first in each, then the latest. Without the manifest, no project is called missing. */
+export function groupByScope(facts: readonly FactRow[], names?: ReadonlyMap<string, string>): ScopeGroup[] {
   const byScope = new Map<string, FactRow[]>();
   for (const f of facts) {
-    // A blob's claims are written under either name for it; they are one place.
-    const scope = (f.scope ?? "global").replace(/^agent:/, "project:blob:");
+    const scope = canonicalScope(f.scope);
     byScope.set(scope, [...(byScope.get(scope) ?? []), f]);
   }
   return [...byScope.entries()]
@@ -141,7 +148,7 @@ function splitTags(text: string): string[] {
     .filter(Boolean);
 }
 
-export function KnowledgePage({ facts, tags, adding, onAdding, projectNames = NO_NAMES, onChanged }: KnowledgePageProps): ReactElement {
+export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onChanged }: KnowledgePageProps): ReactElement {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<KindFilter>("all");
   const [tag, setTag] = useState<string | null>(null);

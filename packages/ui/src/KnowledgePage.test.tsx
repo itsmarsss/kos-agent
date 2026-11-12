@@ -79,7 +79,15 @@ describe("the claims list", () => {
     ]);
     expect(groups[1]).toMatchObject({ project: "trip" });
     // A project scope with no project behind it says so, under its slug.
-    expect(groupByScope([fact({ scope: "project:gone" })])[0]).toMatchObject({ title: "gone", kind: "no such project", unknown: true });
+    expect(groupByScope([fact({ scope: "project:gone" })], new Map())[0]).toMatchObject({ title: "gone", kind: "no such project", unknown: true });
+    // Before the manifest is read, nothing is called missing.
+    expect(groupByScope([fact({ scope: "project:trip" })])[0]).toMatchObject({ title: "trip", kind: "project" });
+    expect(groupByScope([fact({ scope: "project:trip" })])[0]!.unknown).toBeUndefined();
+    // A slug written with its prefix twice is the same project.
+    const twice = groupByScope([fact({ key: "x", scope: "project:project:trip" }), fact({ key: "y", scope: "project:trip" })], new Map([["trip", "Lisbon trip"]]));
+    expect(twice).toHaveLength(1);
+    expect(twice[0]).toMatchObject({ title: "Lisbon trip", project: "trip" });
+    expect(twice[0]!.facts).toHaveLength(2);
     // Pinned leads its scope; a blob's two names are one place.
     expect(groups[1]!.facts.map((f) => f.key)).toEqual(["e", "a"]);
     expect(groups[2]!.facts).toHaveLength(2);
