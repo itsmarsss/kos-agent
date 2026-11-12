@@ -159,7 +159,12 @@ export const SHEET_CSS = String.raw`
   .sheet-grid thead th.key, .sheet-grid tfoot td.key { z-index: 3; }
   .sheet-scroll.held .sheet-grid .key { overflow: visible; box-shadow: -1px 0 0 var(--line-strong, var(--line)); }
   .sheet-scroll.held .sheet-grid .key::before { content: ""; position: absolute; top: 0; bottom: 0; right: 100%; width: 14px; background: linear-gradient(to left, color-mix(in srgb, #000 22%, transparent), transparent); pointer-events: none; }
-  .sheet-tools .sheet-more:not(:empty) { display: inline; color: var(--accent); font: 600 13px / 1 var(--font-ui); }
+  /* The toolbar's pieces one height, as a phone's row of controls should be: the field, the select (drawn by the sheet, not the browser, whose own is shorter), and the count. */
+  .sheet-tools input, .sheet-tools select, .sheet-tools button { box-sizing: border-box; height: 36px; padding-block: 0; }
+  .sheet-tools select { appearance: none; -webkit-appearance: none; padding-right: 28px; background: var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238a94a6' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 11px center / 10px 6px; }
+  .sheet-tools .sheet-rows { display: inline-flex; align-items: center; min-height: 36px; }
+  /* How many columns are out of view, which the fade alone does not say: a quiet count, a short line of its own when the row is full, never a link. */
+  .sheet-tools .sheet-more:not(:empty) { display: inline; color: var(--muted); font: 400 13px / 1.2 var(--font-ui); font-variant-numeric: tabular-nums; }
   .sheet-grid thead button { padding: 0 5px 6px; }
   /* A column's menu takes no width on a phone: it lies over the header's corner, shown once the header is pressed or focused, so the grid is as narrow as it was without it. */
   .sheet-grid thead th:has(.sheet-colmenu) button:first-child { padding-right: 5px; }
