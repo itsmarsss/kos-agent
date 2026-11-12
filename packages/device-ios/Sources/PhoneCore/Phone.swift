@@ -7,8 +7,9 @@ import Foundation
 /// and the chat, glance and voice the screens draw.
 ///
 /// It talks to one KOS. Its calls are the chat calls KOS for Mac's window
-/// takes, drawn the same way (ChatCalls), the glance and the artifacts; any
-/// other call is refused, since a phone has no screen for KOS to see or work.
+/// takes, drawn the same way (ChatCalls), the glance, the artifacts and the
+/// dashboard's pages (Board); any other call is refused, since a phone has no
+/// screen for KOS to see or work.
 /// Its words go as the `phone` surface's, beside nothing, with the files
 /// picked for them.
 @MainActor
@@ -20,6 +21,7 @@ public final class Phone: ObservableObject {
   public let glance = GlanceModel()
   public let artifacts: ArtifactShelf
   public let tray = AttachmentTray()
+  public let board: Board
   public let voice: VoiceModel
   public let reader: ReplyReader
   public let pairing: PairingFlow
@@ -73,6 +75,7 @@ public final class Phone: ObservableObject {
     self.timing = timing
     voice = VoiceModel(recognizer: recognizer)
     artifacts = ArtifactShelf(sleep: timing.sleep)
+    board = Board(haptics: haptics)
     reader = ReplyReader(speaker: speaker, preferences: preferences)
     pairing = PairingFlow(pairer: pairer, name: name)
     theme = preferences.value(KeptTheme.self, Keys.theme)?.theme
@@ -162,6 +165,7 @@ public final class Phone: ObservableObject {
     defer { wasOnline = online }
     if online && !wasOnline { opened() }
     // Words on their way when the line dropped were never taken: they go back to the owner.
+    if !online && wasOnline { board.dashboard.reset() }
     if !online && wasOnline && !chat.sending.isEmpty {
       chat.giveBack("The line to KOS dropped. Your words are back in the box.")
       tray.giveBack()
@@ -191,6 +195,10 @@ public final class Phone: ObservableObject {
         return try? Outbound.reply(id: call.id, result: EmptyResult())
       }
       if let artifact = try artifactCall(call) { return artifact }
+      if call.method == DashboardReply.method {
+        board.dashboard.received(try call.params(DashboardReply.self))
+        return try? Outbound.reply(id: call.id, result: EmptyResult())
+      }
       guard let method = ChatMethod(rawValue: call.method) else {
         return try? Outbound.reply(id: call.id, error: .badRequest("KOS for iPhone only chats: it has no \(call.method)."))
       }
@@ -212,8 +220,11 @@ public final class Phone: ObservableObject {
         if chat.error != nil { tray.giveBack() } else if (try? call.params(ChatStatus.self))?.taken == true { tray.kept() }
       case .other:
         if chat.asks.count > asks { haptics.attention() }
-        // Decided elsewhere: the glance's row goes as the chat's card does.
-        if method == .settled, let settled = try? call.params(ChatSettled.self) { glance.settled(settled.approval) }
+        // Decided elsewhere: the glance's row and the Inbox's go as the chat's card does.
+        if method == .settled, let settled = try? call.params(ChatSettled.self) {
+          glance.settled(settled.approval)
+          board.inbox.settledElsewhere(settled.approval)
+        }
       }
       return try? Outbound.reply(id: call.id, result: EmptyResult())
     } catch let error as DeviceError {
@@ -276,6 +287,7 @@ public final class Phone: ObservableObject {
     chat.face = .kos
     glance.reset()
     artifacts.reset()
+    board.reset()
     tray.reset()
     listenWhenShown = false
     wasOnline = false
@@ -287,14 +299,26 @@ public final class Phone: ObservableObject {
     pairing.paired = { [weak self] pairing in self?.keep(pairing) }
     pairing.current = { [weak self] in self?.paired?.address }
     chat.send = { [weak self] text, _ in self?.say(text) }
-    // Decided in the chat or in the glance, by its id either way; the other drops it too.
+    // Decided in the chat, the glance or the Inbox, by its id each way; the others drop it too.
     chat.decide = { [weak self] id, approved, remember in
       self?.glance.settled(id)
+      self?.board.inbox.settledElsewhere(id)
       self?.decided(id, approved: approved, remember: remember)
     }
     glance.decide = { [weak self] id, approved, remember in
       self?.chat.settled(id)
+      self?.board.inbox.settledElsewhere(id)
       self?.decided(id, approved: approved, remember: remember)
+    }
+    board.inbox.settled = { [weak self] id in
+      self?.chat.settled(id)
+      self?.glance.settled(id)
+    }
+    // Asked only while KOS is on the line: off it, a page says so at once rather than waiting.
+    board.dashboard.tell = { [weak self] event in
+      guard let self, self.chat.online, let line = self.line, let frame = try? event.frame() else { return false }
+      line.send(frame, done: nil)
+      return true
     }
     chat.list = { [weak self] in self?.tell(.list) }
     chat.switchTo = { [weak self] id in self?.tell(.switchTo(conversation: id)) }
