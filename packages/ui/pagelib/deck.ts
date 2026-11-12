@@ -51,7 +51,8 @@ export interface DeckReport {
  * pressed in it, or `go` with an `index` and a `seq`, which the presenter view sends to
  * keep its slides and the audience's on one place.
  */
-export type DeckDo = "host" | "prev" | "next" | "grid" | "notes" | "go";
+/** What a holder tells the deck to do; `stage` keeps one slide at a time where a narrow portrait frame would read them as a column (KOS for iPhone's viewer, which moves slide to slide). */
+export type DeckDo = "host" | "stage" | "prev" | "next" | "grid" | "notes" | "go";
 
 /** At most this many blocks of a slide's notes, each cut to this many characters: a report stays small. */
 const SAID_BLOCKS = 60;
@@ -180,6 +181,7 @@ export function startDeck(): void {
   if (!slides.length) return;
   let state = initialDeck(slides.length);
   let reading = typeof matchMedia === "function" && matchMedia(READ_QUERY).matches;
+  let staged = false;
 
   // Ranges of figures ("Ch. 1–6") stay on one line; a deck is not edited, so the spans are never saved.
   keepRanges(deck, "h1, h2, h3, h4, p, li, td, th, figcaption, .kicker, .big");
@@ -314,6 +316,10 @@ export function startDeck(): void {
     if (m.action === "host") {
       host();
       render();
+    } else if (m.action === "stage") {
+      staged = true;
+      reading = false;
+      render();
     } else if (m.action === "go") {
       if (typeof m.index === "number" && Number.isInteger(m.index)) apply({ type: "go", index: m.index }, typeof m.seq === "number" && Number.isInteger(m.seq) && m.seq > 0 ? m.seq : undefined);
     } else if (m.action === "prev" || m.action === "next" || m.action === "grid" || m.action === "notes") apply({ type: m.action });
@@ -321,7 +327,7 @@ export function startDeck(): void {
   addEventListener("kos:present", (e) => apply({ type: "present", on: (e as CustomEvent<{ on?: boolean }>).detail?.on === true }));
   if (typeof matchMedia === "function") {
     matchMedia(READ_QUERY).addEventListener?.("change", (m) => {
-      reading = m.matches;
+      reading = m.matches && !staged;
       render();
     });
   }
