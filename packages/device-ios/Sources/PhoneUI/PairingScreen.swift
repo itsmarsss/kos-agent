@@ -54,15 +54,15 @@ struct PairingScreen: View {
           .controlSize(.small)
           .tint(Theme.accent)
         }
-        Entry(placeholder: "192.168.1.20:4319", text: $flow.address, kind: .address)
+        Entry(label: "Link or address", placeholder: "192.168.1.20:4319", text: $flow.address, kind: .address)
       }
       VStack(alignment: .leading, spacing: 5) {
         Text("Code").font(.kos(.small, .medium)).foregroundStyle(Theme.muted)
-        Entry(placeholder: "K7QX-M2PA", text: $flow.code, kind: .code)
+        Entry(label: "Code", placeholder: "K7QX-M2PA", text: $flow.code, kind: .code)
       }
       VStack(alignment: .leading, spacing: 5) {
         Text("This iPhone is called").font(.kos(.small, .medium)).foregroundStyle(Theme.muted)
-        Entry(placeholder: "iPhone", text: $flow.name, kind: .name)
+        Entry(label: "This iPhone is called", placeholder: "iPhone", text: $flow.name, kind: .name)
       }
       if let error = flow.error ?? problem {
         Text(error).font(.kos(.detail)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
@@ -112,15 +112,23 @@ struct PairingScreen: View {
 private struct Entry: View {
   enum Kind { case address, code, name }
 
+  let label: String
   let placeholder: String
   @Binding var text: String
   let kind: Kind
 
   var body: some View {
-    TextField("", text: $text, prompt: Text(placeholder).foregroundColor(Theme.faint))
+    // The placeholder drawn under the field, as the composer's is: a prompt takes the field's own colour.
+    TextField("", text: $text)
       .textFieldStyle(.plain)
       .font(.kos(.body, design: kind == .code ? .monospaced : .default))
       .foregroundStyle(Theme.text)
+      .overlay(alignment: .leading) {
+        if text.isEmpty {
+          Text(placeholder).font(.kos(.body, design: kind == .code ? .monospaced : .default)).foregroundStyle(Theme.faint).allowsHitTesting(false)
+        }
+      }
+      .accessibilityLabel(label)
       .autocorrectionDisabled(kind != .name)
       #if os(iOS)
       .textInputAutocapitalization(kind == .code ? .characters : kind == .name ? .words : .never)

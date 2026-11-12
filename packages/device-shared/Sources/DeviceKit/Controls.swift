@@ -835,10 +835,17 @@ public struct KOSField: View {
   public var body: some View {
     VStack(alignment: .leading, spacing: 5) {
       if let label { Text(label).font(.kos(.small, .medium)).foregroundStyle(Theme.muted) }
-      TextField("", text: $text, prompt: Text(placeholder).foregroundColor(Theme.faint))
+      // The placeholder drawn under the field: a prompt takes the field's own colour, and an empty field read as filled.
+      TextField("", text: $text)
         .textFieldStyle(.plain)
         .font(.kos(.dense, design: mono ? .monospaced : .default))
         .foregroundStyle(Theme.text)
+        .overlay(alignment: .leading) {
+          if text.isEmpty {
+            Text(placeholder).font(.kos(.dense, design: mono ? .monospaced : .default)).foregroundStyle(Theme.faint).allowsHitTesting(false)
+          }
+        }
+        .accessibilityLabel(label ?? placeholder)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(Theme.bg, in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
