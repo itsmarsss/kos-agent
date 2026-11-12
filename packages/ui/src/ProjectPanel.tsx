@@ -1,18 +1,21 @@
-import { useCallback, useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { hexOfHsl, hueOfHex } from "@kos/shared";
-import { Card, Empty, lookOf, Pill, Tag } from "@kos/kit";
+import { Card, Empty, lookOf, Pill } from "@kos/kit";
 
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
 import { FileIcon } from "./FileIcon.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
 import { markInk } from "./ProjectMark.js";
+import { isProjectAgent } from "./ProjectsPage.js";
 
 /**
- * The column beside a project's threads: what the project has made and what
- * the owner has put in it. Its folder, browsed in place; pages; tables;
- * sites. The work happens in the thread next to it, and this is where the
- * work lands, so the two sit side by side rather than a page apart.
+ * The column beside a project's threads: who the project is and how much it
+ * holds, then what it has made and what the owner has put in it, each a
+ * section under a hairline rather than a box: its folder, browsed in place;
+ * its artifacts; tables; sites. Its agents and schedule are the rail on the
+ * other side of the thread. The work happens in the thread between, and
+ * this is where the work lands, so the two sit side by side.
  */
 
 export interface ProjectPanelProps {
@@ -23,6 +26,8 @@ export interface ProjectPanelProps {
   onError: (message: string) => void;
   /** Slid shut: still mounted so it can slide open, but polling nothing. */
   hidden?: boolean;
+  /** Drawn as a drawer over the chat, where the page has no room for its column: a modal while it is. */
+  modal?: boolean;
   /** The project's artifacts (ArtifactRail), which open in place beside it. */
   rail: ReactNode;
 }
@@ -34,11 +39,12 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = false, rail }: ProjectPanelProps): ReactElement {
+export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = false, modal = false, rail }: ProjectPanelProps): ReactElement {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** The colour row under the hero, shown on request. */
+  /** The colour row under the head, shown on request. */
   const [colouring, setColouring] = useState(false);
+  const panel = useRef<HTMLElement>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -69,7 +75,7 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
 
   if (error) {
     return (
-      <aside className="project-panel" aria-hidden={hidden}>
+      <aside className="project-panel" aria-hidden={hidden} {...(modal ? { role: "dialog", "aria-modal": true } : {})}>
         <p className="ops-alert ops-alert--err" role="alert">
           {error}
         </p>
@@ -78,13 +84,28 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
   }
   if (!detail) {
     return (
-      <aside className="project-panel" aria-hidden={hidden}>
+      <aside className="project-panel" aria-hidden={hidden} {...(modal ? { role: "dialog", "aria-modal": true } : {})}>
         <p className="ops-muted">Loading…</p>
       </aside>
     );
   }
 
   const { project, tables, sites } = detail;
+  /** What it holds, at a glance; a figure whose list is in this column goes to it. */
+  const stats: { n: number; one: string; section?: string }[] = [
+    { n: detail.agents.filter(isProjectAgent).length, one: "Agent" },
+    { n: detail.pages.filter((p) => p.trashedAt === undefined).length, one: "Artifact", section: "Artifacts" },
+    { n: tables.length, one: "Table", section: "Tables" },
+    { n: detail.crons.length, one: "Job" },
+  ];
+  const jump = (section: string): void => {
+    const to = panel.current?.querySelector<HTMLElement>(`section[aria-label="${section}"]`);
+    if (!to) return;
+    const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    to.scrollIntoView?.({ block: "start", behavior: still ? "auto" : "smooth" });
+    to.tabIndex = -1;
+    to.focus({ preventScroll: true });
+  };
   const hue = (project.colour ? hueOfHex(project.colour) : null) ?? lookOf(project.slug).hue;
   const recolour = async (colour: string | null): Promise<void> => {
     try {
@@ -97,21 +118,43 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
   };
 
   return (
-    <aside className="project-panel" aria-label={`${project.name} workspace`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
-      {/* Who it is, as the agent page has it: a mark on a glow of the
-          project's own colour, its name, what it is for, and its facts. */}
-      <header className="hero">
-        <span className="hero-mark" aria-hidden="true" style={project.colour ? { background: project.colour, color: markInk(project.colour) } : undefined}>
-          <FileIcon name={project.slug} kind="dir" size={26} />
-        </span>
-        <h2>{project.name}</h2>
-        {project.description && <p className="hero-desc">{project.description}</p>}
-        <div className="hero-meta">
+    <aside ref={panel} className="project-panel" {...(modal ? { role: "dialog", "aria-modal": true } : {})} aria-label={`${project.name} workspace`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
+      {/* Who it is: its mark in its own colour, its name, kind and state,
+          what it is for, how much it holds, and what can be done with it. */}
+      <header className="project-head">
+        <div className="project-head-top">
+          <span className="hero-mark hero-mark--sm" aria-hidden="true" style={project.colour ? { background: project.colour, color: markInk(project.colour) } : undefined}>
+            <FileIcon name={project.slug} kind="dir" size={16} />
+          </span>
+          <div className="project-head-titles">
+            <h2>{project.name}</h2>
+            <span className="project-head-sub">{project.type}</span>
+          </div>
           <Pill tone={project.status === "active" ? "ok" : "muted"}>{project.status}</Pill>
-          <Tag>{project.type}</Tag>
-          <Tag mono>{project.slug}</Tag>
         </div>
-        <div className="hero-acts">
+        {project.description && <p className="project-head-desc">{project.description}</p>}
+        <ul className="project-stats" aria-label="What it holds">
+          {stats.map(({ n, one, section }) => {
+            const words = (
+              <>
+                <strong>{n}</strong>
+                <span>{n === 1 ? one : `${one}s`}</span>
+              </>
+            );
+            return (
+              <li key={one}>
+                {section ? (
+                  <button type="button" className="project-stat" title={`Go to its ${section.toLowerCase()}`} onClick={() => jump(section)}>
+                    {words}
+                  </button>
+                ) : (
+                  <span className="project-stat">{words}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        <div className="project-head-acts">
           <button type="button" className="btn btn--sm" title="The project's folder on the Files page" onClick={() => onOpenFile(detail.folder)}>
             Open in Files
           </button>
@@ -121,7 +164,7 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
         </div>
         {colouring && (
           /* The same swatches and picker a face has; a project's swatch is the plain colour. */
-          <div className="hero-colour">
+          <div className="project-head-colour">
             <ColourChoice
               value={project.colour ?? hexOfHsl(hue, 70, 60)}
               swatchHue={project.colour ? undefined : hue}

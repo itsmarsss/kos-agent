@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { api, dispositionName, type AgentInfo, type ArtifactSummary, type Project } from "./api.js";
+import { emptyWords } from "./ArtifactManage.js";
 import { ArtifactViewer, ArtifactsPage } from "./ArtifactsPage.js";
 import { ArtifactOpen, ArtifactStep } from "./ArtifactStep.js";
 
@@ -33,6 +34,9 @@ function openViewer(record: ArtifactSummary, onBack = vi.fn()): void {
   frames();
   render(<ArtifactViewer id={record.id} projects={projects} onBack={onBack} onOpenChat={() => undefined} />);
 }
+
+/** The titles in a list of cards or rows, in order. */
+const cards = (list = "Artifacts"): string[] => [...screen.getByRole("list", { name: list }).querySelectorAll(".artifact-card-title")].map((t) => t.textContent ?? "");
 
 async function menuItem(name: string, more = "More"): Promise<HTMLElement> {
   fireEvent.click(await screen.findByRole("button", { name: more }));
@@ -91,6 +95,9 @@ describe("managing an artifact from its viewer", () => {
     const picker = within(dialog).getByRole("radiogroup", { name: "Move to" });
     await within(picker).findByRole("radio", { name: /noter/ });
     expect(within(picker).getAllByRole("radio").map((r) => r.querySelector(".artifact-move-name")?.textContent)).toEqual(["Workspace", "Garden", "Household budget", "noter"]);
+    // The projects and the blobs each a group under its name.
+    expect(within(within(picker).getByRole("group", { name: "Blobs" })).getAllByRole("radio").map((r) => r.textContent)).toEqual(["noter"]);
+    expect(within(picker).getByRole("group", { name: "Projects" })).toBeTruthy();
     const here = within(picker).getByRole("radio", { name: /Household budget/ }) as HTMLButtonElement;
     expect(here.disabled).toBe(true);
     expect(here.textContent).toContain("Here now");
@@ -127,6 +134,21 @@ describe("managing an artifact from its viewer", () => {
     fireEvent.keyDown(picker, { key: "ArrowUp" });
     expect(document.activeElement).toBe(radio(/Garden/));
     expect(stops()).toEqual([expect.stringContaining("Garden")]);
+  });
+
+  it("lets go of a place its search hides, so Move goes nowhere unseen", async () => {
+    openViewer(BRIEF);
+    const many = Array.from({ length: 9 }, (_, i) => ({ name: `blob${i}` }) as AgentInfo);
+    vi.spyOn(api, "agents").mockResolvedValue({ agents: many, invalid: [] });
+    fireEvent.click(await menuItem("Move to…"));
+    const dialog = await screen.findByRole("dialog", { name: "Move “Q4 brief”" });
+    fireEvent.click(await within(dialog).findByRole("radio", { name: /blob3/ }));
+    const move = within(dialog).getByRole("button", { name: "Move" }) as HTMLButtonElement;
+    expect(move.disabled).toBe(false);
+    fireEvent.change(within(dialog).getByLabelText("Find a place"), { target: { value: "garden" } });
+    await waitFor(() => expect(move.disabled).toBe(true));
+    fireEvent.change(within(dialog).getByLabelText("Find a place"), { target: { value: "" } });
+    expect(within(dialog).getByRole("radio", { name: /blob3/ }).getAttribute("aria-checked")).toBe("false");
   });
 
   it("makes a copy and offers to open it", async () => {
@@ -229,8 +251,9 @@ describe("exporting an artifact", () => {
     vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD]);
     render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
     fireEvent.click(await screen.findByRole("button", { name: "Trash1" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Actions for Old memo" }));
-    expect(labels()).toEqual(["Restore", "Delete forever"]);
+    // A row in the trash holds only its way back and its way out.
+    const row = within(screen.getByRole("list", { name: "Trash" })).getByRole("listitem");
+    expect(within(row).getAllByRole("button").map((b) => b.textContent)).toEqual(["Old memoDocWorkspace3 minutes ago", "Restore", "Delete forever"]);
   });
 
   it("names the file as the server does, in full when it says so in UTF-8", () => {
@@ -242,7 +265,6 @@ describe("exporting an artifact", () => {
 });
 
 describe("the gallery's trash", () => {
-  const cards = (list = "Artifacts"): string[] => [...screen.getByRole("list", { name: list }).querySelectorAll(".artifact-card-title")].map((t) => t.textContent ?? "");
 
   it("trashes from a card's menu, with an undo, and keeps it in a view of its own", async () => {
     vi.spyOn(api, "artifacts").mockResolvedValue([BRIEF, PITCH]);
@@ -277,7 +299,8 @@ describe("the gallery's trash", () => {
     render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
     fireEvent.click(await screen.findByRole("button", { name: "Trash1" }));
     const gone = vi.spyOn(api, "deleteArtifact").mockResolvedValue({ id: "old", deleted: true });
-    fireEvent.click(await menuItem("Delete forever", "Actions for Old memo"));
+    // Each row holds its own Restore and Delete forever.
+    fireEvent.click(within(screen.getByRole("list", { name: "Trash" })).getByRole("button", { name: "Delete forever" }));
     expect(gone).not.toHaveBeenCalled();
     fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete forever" }));
     await waitFor(() => expect(gone).toHaveBeenCalledWith("old"));
@@ -285,16 +308,74 @@ describe("the gallery's trash", () => {
     expect(screen.getByText(/Nothing is deleted on its own/)).toBeTruthy();
   });
 
-  it("brings one back from the trash's card menu, into the gallery", async () => {
+  it("brings one back from its row in the trash, into the gallery", async () => {
     vi.spyOn(api, "artifacts").mockResolvedValue([BRIEF]);
     vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD]);
     render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
     fireEvent.click(await screen.findByRole("button", { name: "Trash1" }));
     vi.spyOn(api, "restoreArtifact").mockResolvedValue({ ...OLD, trashedAt: undefined } as never);
-    fireEvent.click(await menuItem("Restore", "Actions for Old memo"));
+    fireEvent.click(screen.getByRole("button", { name: "Restore Old memo" }));
     expect(await screen.findByText("The trash is empty")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Back to artifacts" }));
     expect(cards()).toEqual(["Q4 brief", "Old memo"]);
+  });
+});
+
+describe("emptying the trash", () => {
+  const MEMO: ArtifactSummary = { ...OLD, id: "memo", title: "Spare memo", trashedAt: at(5) };
+
+  it("deletes everything in it for good, asking once first, and says so", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([BRIEF]);
+    vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD, MEMO]);
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Trash2" }));
+    const gone = vi.spyOn(api, "deleteArtifact").mockImplementation((id) => Promise.resolve({ id, deleted: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Empty trash" }));
+    expect(gone).not.toHaveBeenCalled();
+    const ask = await screen.findByRole("alertdialog");
+    expect(ask.textContent).toContain("Delete all 2 artifacts in the trash for good");
+    fireEvent.click(within(ask).getByRole("button", { name: "Empty trash" }));
+    await waitFor(() => expect(gone.mock.calls.map((c) => c[0])).toEqual(["old", "memo"]));
+    expect(await screen.findByText("The trash is empty")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Empty trash" })).toBeNull();
+    expect(screen.getByRole("heading", { name: /^Trash/ }).textContent).toBe("Trash0");
+    fireEvent.click(screen.getByRole("button", { name: "Back to artifacts" }));
+    expect(cards()).toEqual(["Q4 brief"]);
+    // The way back to the trash no longer counts what went.
+    expect(screen.getByRole("button", { name: /^Trash/ }).textContent).toBe("Trash");
+  });
+
+  it("says it empties what the filters hide too", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([BRIEF]);
+    vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD, MEMO]);
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Trash2" }));
+    fireEvent.change(screen.getByLabelText("Search the trash"), { target: { value: "spare" } });
+    expect(cards("Trash")).toEqual(["Spare memo"]);
+    fireEvent.click(screen.getByRole("button", { name: "Empty trash" }));
+    expect((await screen.findByRole("alertdialog")).textContent).toContain("Delete all 2 artifacts in the trash for good, including 1 your filters hide? Every version goes with them. This cannot be undone.");
+  });
+
+  it("says one in the trash as one", () => {
+    expect(emptyWords(1)).toBe("Delete the one artifact in the trash for good? Every version goes with it. This cannot be undone.");
+    expect(emptyWords(1, 1)).toBe("Delete the one artifact in the trash for good, though your filters hide it? Every version goes with it. This cannot be undone.");
+    expect(emptyWords(3)).toBe("Delete all 3 artifacts in the trash for good? Every version goes with them. This cannot be undone.");
+  });
+
+  it("stops at the first that cannot be deleted, keeping it and the rest, and says why", async () => {
+    const LAST: ArtifactSummary = { ...OLD, id: "last", title: "Last memo", trashedAt: at(7) };
+    vi.spyOn(api, "artifacts").mockResolvedValue([BRIEF]);
+    vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD, MEMO, LAST]);
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Trash3" }));
+    const gone = vi.spyOn(api, "deleteArtifact").mockImplementation((id) => (id === "memo" ? Promise.reject(new Error("the disk is read-only")) : Promise.resolve({ id, deleted: true })));
+    fireEvent.click(screen.getByRole("button", { name: "Empty trash" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Empty trash" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("the disk is read-only");
+    // The first went, the second failed, and the third was never tried.
+    expect(gone.mock.calls.map((c) => c[0])).toEqual(["old", "memo"]);
+    expect(cards("Trash")).toEqual(["Spare memo", "Last memo"]);
+    expect(screen.getByRole("heading", { name: /^Trash/ }).textContent).toBe("Trash2");
   });
 });
 

@@ -98,6 +98,8 @@ export interface Project {
   module?: string | null;
   lastTouchedAt: number;
   createdAt?: number;
+  /** How many tables its migrations made, as the projects list counts them; absent from a host older than the count. */
+  tableCount?: number;
 }
 
 /** A skill as the owner sees it in Settings. */

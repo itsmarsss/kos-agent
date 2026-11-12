@@ -52,7 +52,12 @@ describe.skipIf(!chrome)("a sealed tab's locks, each alone", () => {
     cdp?.close();
     host?.stop();
     await host?.waitExit().catch(() => undefined);
-    rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
+    // Chrome's helpers can still be writing the profile a moment after it exits: a stray folder in tmp is no failure of the test.
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch {
+      /* left for the OS to sweep */
+    }
     listener?.close();
   });
 

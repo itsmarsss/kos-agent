@@ -25,6 +25,8 @@ export interface AgentPanelProps {
   /** The agent was removed; the page it sat on has nothing left to show. */
   onRemoved: () => void;
   hidden?: boolean;
+  /** Drawn as a drawer over the chat, where the page has no room for its column: a modal while it is. */
+  modal?: boolean;
   /** The artifacts of the projects it works in, listed under its folder. */
   rail?: ReactNode;
 }
@@ -52,7 +54,7 @@ export function stateOf(a: AgentInfo, paused: boolean): { tone: "working" | "nee
 /** What each blob's panel last showed, so opening it again does not pass through "Loading…". */
 const remembered = new Map<string, AgentInfo | null>();
 
-export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onRemoved, hidden = false, rail }: AgentPanelProps): ReactElement {
+export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onRemoved, hidden = false, modal = false, rail }: AgentPanelProps): ReactElement {
   const [agent, setAgent] = useState<AgentInfo | null | undefined>(remembered.get(name));
   const [invalidReason, setInvalidReason] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -100,14 +102,14 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
 
   if (agent === undefined) {
     return (
-      <aside className="project-panel agent-panel" aria-hidden={hidden}>
+      <aside className="project-panel agent-panel" aria-hidden={hidden} {...(modal ? { role: "dialog", "aria-modal": true } : {})}>
         <p className="ops-muted">Loading…</p>
       </aside>
     );
   }
   if (agent === null) {
     return (
-      <aside className="project-panel agent-panel" aria-hidden={hidden}>
+      <aside className="project-panel agent-panel" aria-hidden={hidden} {...(modal ? { role: "dialog", "aria-modal": true } : {})}>
         <p className="ops-alert ops-alert--err" role="alert">
           {invalidReason ? `blobs/${name}/blob.md does not read as a blob: ${invalidReason}.` : `There is no blob called ${name}.`}
         </p>
@@ -127,7 +129,7 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
   const title = titleOf(agent.name);
 
   return (
-    <aside className="project-panel agent-panel" aria-label={`${title}, the blob`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
+    <aside className="project-panel agent-panel" {...(modal ? { role: "dialog", "aria-modal": true } : {})} aria-label={`${title}, the blob`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
       {/* Who it is: its face on a glow of its own colour, and how it is doing. */}
       <header className="hero">
         <Face seed={agent.name} look={agent.face ?? {}} size={72} mood={moodOf(agent.thread?.activity, { paused })} />

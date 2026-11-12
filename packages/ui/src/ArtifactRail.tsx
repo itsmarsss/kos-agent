@@ -3,7 +3,7 @@ import { relativeWords } from "@kos/shared";
 import { useEffect, useState, type ReactElement } from "react";
 
 import { api, type PageSummary } from "./api.js";
-import { KIND_WORD } from "./ArtifactsPage.js";
+import { KIND_WORD } from "./artifactowner.js";
 import { onTurnEnd } from "./progress.js";
 
 /**

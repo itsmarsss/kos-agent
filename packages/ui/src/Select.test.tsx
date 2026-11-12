@@ -33,6 +33,15 @@ describe("the select", () => {
     }
   });
 
+  it("shuts when Tab leaves its list, the focus back on its button", () => {
+    render(<Select value="gpt-5.5" options={OPTIONS} onChange={() => undefined} label="Model" />);
+    const button = screen.getByRole("button", { name: "Model" });
+    fireEvent.click(button);
+    act(() => void fireEvent.keyDown(screen.getByRole("listbox"), { key: "Tab" }));
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(document.activeElement).toBe(button);
+  });
+
   it("picks from the keys and gives the focus back", () => {
     const onChange = vi.fn();
     render(<Select value="gpt-5.5" options={OPTIONS} onChange={onChange} label="Model" />);
