@@ -6003,6 +6003,14 @@ a.health {
 
 /* —— phone width, found by walking every page at 400px —— */
 @media (max-width: 640px) {
+  /* A chat's title takes its row: Configure and Archive go up beside the
+     path as their symbols (their words stay for a screen reader), where
+     they squeezed the title into a column three words wide. */
+  .chats-view-head { position: relative; }
+  .chats-view-actions { position: absolute; top: 0; right: 0; }
+  .chats-view-path { padding-right: 5.5rem; }
+  .chats-view-actions .head-act { padding: 0 0.45rem; }
+  .chats-view-actions .head-act-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   /* An approval's buttons ran off the right edge; stacked, they fit. */
   .panel-approval,
   .inbox-approval { flex-direction: column; align-items: stretch; }
