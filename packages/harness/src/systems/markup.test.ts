@@ -43,6 +43,9 @@ describe("the editor's blocks, kept as a doc's text", () => {
       '<aside class="callout"><style>*{}</style></aside>',
       '<summary><iframe src="data:text/html,x"></iframe></summary>',
       "<details><summary>x</summary><article>y</article></details>",
+      '<span class="mention" data-artifact="../settings">x</span>',
+      '<span class="chip mention" data-artifact="a b">x</span>',
+      '<span class="mention" data-artifact="">x</span>',
     ];
     for (const html of refused) expect(() => docEditOf(html), html).toThrow();
   });
