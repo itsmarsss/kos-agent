@@ -206,7 +206,7 @@ public enum ChatBlock: Equatable {
 /// One line of inline marks, as styled text: bold, italics, code, links (the web and mail only), references by name,
 /// times on this Mac's clock.
 /// `size` is the text's own, which a code span sits at nine tenths of, as the dashboard draws one.
-public func chatInline(_ text: String, size: CGFloat = KOSType.body.rawValue) -> AttributedString {
+public func chatInline(_ text: String, size: CGFloat = KOSType.body.scaled) -> AttributedString {
   var source = text
   // KOS's references, @page:[Budget] or @approval:6, as the names they stand for, marked for the violet chip the panel draws.
   source = source.replacingOccurrences(of: #"@([a-z]+):\[([^\]\n]+)\]"#, with: "[$2](\(referenceScheme):$1)", options: .regularExpression)
@@ -418,7 +418,7 @@ private struct BlockView: View {
       // One size for every level, the chat's own, set apart by weight, as the dashboard's are.
       Text(chatInline(text)).font(.kos(.body, .semibold)).padding(.top, 2).timesHelp(text)
     case .small(let text):
-      Text(chatInline(text, size: KOSType.detail.rawValue)).font(.kos(.detail)).foregroundStyle(Theme.muted).timesHelp(text)
+      Text(chatInline(text, size: KOSType.detail.scaled)).font(.kos(.detail)).foregroundStyle(Theme.muted).timesHelp(text)
     case .quote(let text):
       Text(chatInline(text))
         .foregroundStyle(Theme.muted)
@@ -450,7 +450,7 @@ private struct BlockView: View {
         Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 6) {
           GridRow {
             ForEach(Array(head.enumerated()), id: \.offset) { j, cell in
-              Text(chatInline(cell, size: KOSType.dense.rawValue)).font(.kos(.dense, .semibold)).foregroundStyle(Theme.muted)
+              Text(chatInline(cell, size: KOSType.dense.scaled)).font(.kos(.dense, .semibold)).foregroundStyle(Theme.muted)
                 .gridColumnAlignment(j < align.count ? align[j] : .leading)
             }
           }
@@ -458,7 +458,7 @@ private struct BlockView: View {
             Hairline()
             GridRow {
               ForEach(0..<head.count, id: \.self) { j in
-                Text(chatInline(j < row.count ? row[j] : "", size: KOSType.table.rawValue)).font(.kos(.table))
+                Text(chatInline(j < row.count ? row[j] : "", size: KOSType.table.scaled)).font(.kos(.table))
                   .timesHelp(j < row.count ? row[j] : "")
               }
             }

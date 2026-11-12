@@ -1,3 +1,4 @@
+import DeviceCore
 import Foundation
 
 /// How a KOS looks, as it sent its face: the colours, the eyes, the gait and
@@ -71,4 +72,18 @@ public struct Gait: Equatable, Sendable {
     Gait(breath: 7, spring: 240, settle: 6, fidget: 10),  // slow
     Gait(breath: 3.4, spring: 520, settle: 3.5, fidget: 2.5),  // restless
   ]
+}
+
+extension FaceLook {
+  /// A face as a KOS sent it, drawn; KOS's own where a part does not read.
+  public init(_ drawing: FaceDrawing) {
+    self.init(
+      fill: FaceDrawing.rgb(drawing.fill) ?? FaceLook.kos.fill,
+      ink: FaceDrawing.rgb(drawing.ink) ?? FaceLook.kos.ink,
+      eyes: Eyes(rawValue: drawing.eyes) ?? FaceLook.kos.eyes,
+      gait: drawing.gait,
+      shape: Shape(
+        aspect: drawing.shape.aspect, squat: drawing.shape.squat, spread: drawing.shape.spread,
+        lobes: drawing.shape.lobes.map { Lobe(k: $0.k, amp: $0.amp, phase: $0.phase) }))
+  }
 }

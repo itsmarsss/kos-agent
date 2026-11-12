@@ -108,3 +108,28 @@ struct ChatTests {
     #expect(mentions["data"] as? [String: String] == ["q": "ali"])
   }
 }
+
+@Suite("Glance on the line")
+struct GlanceTests {
+  @Test func readsWhatKOSAnswers() throws {
+    let raw = #"{"t":"call","id":9,"method":"chat.glance","params":{"halted":false,"running":[{"id":"c_1","title":"Garden orchestrator"}],"waiting":2,"failing":[{"label":"Nightly backup","streak":3,"error":"disk full","since":1761800000000}],"next":[{"name":"kos.backup","at":1761800000000}]}}"#
+    guard case .call(let call) = try Inbound.decode(Data(raw.utf8)) else { throw DeviceError.badRequest("not a call") }
+    #expect(call.method == Glance.method)
+    let glance = try call.params(Glance.self)
+    #expect(glance.running == [.init(id: "c_1", title: "Garden orchestrator")])
+    #expect(glance.waiting == 2)
+    #expect(glance.failing == [.init(label: "Nightly backup", streak: 3, error: "disk full", since: 1_761_800_000_000)])
+    #expect(glance.next == [.init(name: "kos.backup", at: 1_761_800_000_000)])
+  }
+
+  @Test func listsLeftOutAreEmpty() throws {
+    let glance = try JSONDecoder().decode(Glance.self, from: Data(#"{"waiting":1}"#.utf8))
+    #expect(glance == Glance(waiting: 1))
+  }
+
+  @Test func askingForItIsAnEvent() throws {
+    let frame = try JSONSerialization.jsonObject(with: ChatEvent.glance.frame()) as? [String: Any]
+    #expect(frame?["t"] as? String == "event")
+    #expect(frame?["name"] as? String == "chat.glance")
+  }
+}

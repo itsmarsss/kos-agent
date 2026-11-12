@@ -112,10 +112,27 @@ public enum KOSType: CGFloat {
   case tiny = 11
 }
 
+extension KOSType {
+  /// The size as drawn: on a phone, scaled by the text size the owner chose (Dynamic Type) as body text scales,
+  /// and on a Mac as set. A view that must follow a change of text size while it is up reads the environment's
+  /// dynamicTypeSize, as KOS for iPhone's root does.
+  public var scaled: CGFloat {
+    #if os(iOS)
+    UIFontMetrics(forTextStyle: .body).scaledValue(for: rawValue) * (Self.scale ?? 1)
+    #else
+    rawValue * (Self.scale ?? 1)
+    #endif
+  }
+
+  /// Every size drawn as if the owner had chosen a larger or smaller text size: for a render of how the
+  /// screens take one. Nil draws at the device's own.
+  nonisolated(unsafe) public static var scale: CGFloat?
+}
+
 extension Font {
   /// The system face at one of KOS's sizes.
   public static func kos(_ size: KOSType, _ weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
-    .system(size: size.rawValue, weight: weight, design: design)
+    .system(size: size.scaled, weight: weight, design: design)
   }
 }
 

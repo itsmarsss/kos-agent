@@ -522,26 +522,30 @@ public struct KOSButtonStyle: ButtonStyle {
   private let kind: Kind
   private let capsule: Bool
   private let small: Bool
+  private let large: Bool
   private let round: CGFloat?
 
   /// `capsule` for a button inside something round, such as the session bar, whose corners a small radius would fight;
-  /// `small` for one among words, as the extension's .btn--sm is; `round` for a circle of that size holding a symbol,
-  /// the send button, which with nothing to do greys on the line rather than fading, as the dashboard's .send does.
-  public init(_ kind: Kind = .secondary, capsule: Bool = false, small: Bool = false, round: CGFloat? = nil) {
+  /// `small` for one among words, as the extension's .btn--sm is; `large` for one a thumb presses, on a phone, at
+  /// least 44 points high and as wide as it is given; `round` for a circle of that size holding a symbol, the send
+  /// button, which with nothing to do greys on the line rather than fading, as the dashboard's .send does.
+  public init(_ kind: Kind = .secondary, capsule: Bool = false, small: Bool = false, large: Bool = false, round: CGFloat? = nil) {
     self.kind = kind
     self.capsule = capsule
     self.small = small
+    self.large = large
     self.round = round
   }
 
   public func makeBody(configuration: Configuration) -> some View {
-    StyledButton(kind: kind, radius: capsule ? 999 : Theme.radiusSm, small: small, round: round, configuration: configuration)
+    StyledButton(kind: kind, radius: capsule ? 999 : large ? Theme.radiusMd : Theme.radiusSm, small: small, large: large, round: round, configuration: configuration)
   }
 
   private struct StyledButton: View {
     let kind: Kind
     let radius: CGFloat
     let small: Bool
+    let large: Bool
     let round: CGFloat?
     let configuration: ButtonStyleConfiguration
     @Environment(\.isEnabled) private var enabled
@@ -562,10 +566,11 @@ public struct KOSButtonStyle: ButtonStyle {
           .animation(Theme.press, value: configuration.isPressed)
       } else {
         configuration.label
-          .font(.kos(small ? .detail : .control, .semibold))
+          .font(.kos(small ? .detail : large ? .body : .control, .semibold))
           .foregroundStyle(foreground(lit))
-          .padding(.horizontal, small ? 8 : 12)
-          .padding(.vertical, small ? 3 : 6.5)
+          .padding(.horizontal, small ? 8 : large ? 16 : 12)
+          .padding(.vertical, small ? 3 : large ? 11 : 6.5)
+          .frame(maxWidth: large ? .infinity : nil, minHeight: large ? 44 : nil)
           .background(background(lit: lit, pressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: radius, style: .continuous))
           .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(border(lit)))
           .scaleEffect(configuration.isPressed ? 0.97 : 1)
