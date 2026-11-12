@@ -32,6 +32,55 @@ export function readBuild(v: unknown): Build | undefined {
   return { id: v["id"], commit: v["commit"], ...(typeof builtAt === "number" ? { builtAt } : {}) };
 }
 
+/** What the extension keeps a value in: chrome.storage's session or local area, or a test's stand-in. */
+export interface Kept {
+  get(key: string): Promise<unknown>;
+  set(key: string, value: unknown): Promise<void>;
+}
+
+const LOADED = "buildRead";
+const BUILD = "build";
+
+/**
+ * The build of the code running now. Read from its folder once each time
+ * Chrome loads the code (an install, a reload, an update, Chrome starting:
+ * each empties session storage), and kept: a worker that wakes later reads
+ * the kept one, since by then a deploy may have rebuilt the folder under it.
+ */
+export async function runningBuild(session: Kept, local: Kept, read: () => Promise<Build | undefined>): Promise<Build | undefined> {
+  if ((await session.get(LOADED)) === true) return readBuild(await local.get(BUILD));
+  const build = await read();
+  await local.set(BUILD, build ?? null);
+  await session.set(LOADED, true);
+  return build;
+}
+
+/**
+ * Whether the folder holds the whole of the build KOS named, so a reload
+ * now loads it: the manifest reads and the stamp is that build. A folder
+ * being rebuilt (the build starts by removing it) is neither.
+ */
+export async function folderHolds(build: string, fetchText: (file: string) => Promise<string | undefined>): Promise<boolean> {
+  try {
+    const manifest = await fetchText("manifest.json");
+    const stamp = await fetchText("build.json");
+    if (!manifest || !stamp) return false;
+    JSON.parse(manifest);
+    return readBuild(JSON.parse(stamp))?.id === build;
+  } catch {
+    return false;
+  }
+}
+
+/** The build the extension last reloaded itself into, and when. */
+export interface Reloaded {
+  build: string;
+  at: number;
+}
+
+/** How long a forced reload into the same build is refused again: a lost word from KOS does not reload it on every line. */
+export const FORCED_AGAIN_MS = 10 * 60_000;
+
 /** An update frame from KOS, read; one that does not read is none. */
 export function readUpdate(raw: Record<string, unknown>): UpdateNotice | undefined {
   const state = raw["state"];
@@ -81,12 +130,15 @@ export class ReloadGate {
 
   /**
    * The build to reload into now: told of, not reloaded for already (unless
-   * the owner asked), with no turn running and nothing else `busy` (a
-   * session, or an ask for one).
+   * the owner asked, and not in the last ten minutes even then), with no
+   * turn running and nothing else `busy` (a session, or an ask for one).
    */
-  due(busy: boolean, reloadedFor: string | undefined): { kos: string; build: string } | undefined {
+  due(busy: boolean, reloaded: Reloaded | undefined, now = Date.now()): { kos: string; build: string } | undefined {
     if (busy || [...this.turns.values()].some((chats) => chats.size > 0)) return undefined;
-    for (const [kos, want] of this.wanted) if (want.force || want.build !== reloadedFor) return { kos, build: want.build };
+    for (const [kos, want] of this.wanted) {
+      const again = want.build === reloaded?.build;
+      if (!again || (want.force && now - reloaded.at >= FORCED_AGAIN_MS)) return { kos, build: want.build };
+    }
     return undefined;
   }
 }

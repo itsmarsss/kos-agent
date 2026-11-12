@@ -26,6 +26,8 @@ export interface Hello {
   displays: never[];
   /** The build this extension is, from the stamp in its folder; none when it has no stamp. */
   build?: Build;
+  /** How Chrome says it was installed: `development` (Load unpacked) is the one kind a reload brings new code to. */
+  install?: string;
 }
 
 export interface LinkOptions {

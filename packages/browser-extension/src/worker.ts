@@ -13,7 +13,7 @@ import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
 import { checkCommand, forwarded, isInput, isWebUrl, OVERLAY_WORLD as WORLD, Worlds } from "./relay.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, SENT_THEME_KEY, asksFirst, isHidden, readSettings, siteOf, themeOf, type ExtensionSettings } from "./settings.js";
-import { ReloadGate, readBuild, type Build, type UpdateNotice } from "./update.js";
+import { ReloadGate, folderHolds, readBuild, runningBuild, type Build, type Kept, type Reloaded, type UpdateNotice } from "./update.js";
 
 /**
  * The extension's worker: paired with one KOS or several, it answers each
@@ -135,12 +135,16 @@ let settings: ExtensionSettings = DEFAULTS;
 let sentTheme: DashboardTheme | undefined;
 /** KOS the owner disconnected, kept across the worker's sleeps. */
 let held = new Set<string>();
-/** This extension's build, from the stamp beside its code; none for a build from before stamps. */
+/** This extension's build, from the stamp beside its code as Chrome loaded it; none for a build from before stamps. */
 let build: Build | undefined;
-/** The build this extension last reloaded itself into, so one that comes back the same does not reload again. */
-let reloadedFor: string | undefined;
+/** How Chrome says it was installed. */
+let installType: string | undefined;
+/** The build this extension last reloaded itself into, and when, so one that comes back the same does not reload again. */
+let reloaded: Reloaded | undefined;
 let reloading = false;
-const RELOADED_KEY = "reloadedFor";
+const RELOADED_KEY = "reloaded";
+/** A folder caught mid-rebuild is looked at again after this long. */
+const FOLDER_AGAIN_MS = 30_000;
 const gate = new ReloadGate();
 const linkStates = new Map<string, { state: LinkState; detail?: string }>();
 let session: Session | undefined;
@@ -193,8 +197,10 @@ const kosName = (id: string | undefined): string | undefined => (pairings.length
 // Kept across the worker's sleeps: pairings, settings and who is held in local storage, the handed tabs and KOS's window in session storage.
 async function load(): Promise<void> {
   const local = await chrome.storage.local.get(["pairings", "paired", "settings", "held", SENT_THEME_KEY, RELOADED_KEY]);
-  build = await ownBuild();
-  reloadedFor = typeof local[RELOADED_KEY] === "string" ? local[RELOADED_KEY] : undefined;
+  build = await runningBuild(area(chrome.storage.session), area(chrome.storage.local), ownBuild);
+  installType = (await chrome.management.getSelf().catch(() => undefined))?.installType;
+  const last = local[RELOADED_KEY] as Partial<Reloaded> | undefined;
+  reloaded = typeof last?.build === "string" && typeof last.at === "number" ? { build: last.build, at: last.at } : undefined;
   pairings = readPairings(local["pairings"], local["paired"]);
   if (!Array.isArray(local["pairings"]) && pairings.length) {
     await chrome.storage.local.set({ pairings });
@@ -210,14 +216,29 @@ async function load(): Promise<void> {
 }
 const ready = load();
 
-/** The stamp the build wrote beside this extension's code (docs/computer.md, Builds). */
-async function ownBuild(): Promise<Build | undefined> {
+/** A file of this extension's folder as it is on disk now, or none. */
+async function ownFile(file: string): Promise<string | undefined> {
   try {
-    const answer = await fetch(chrome.runtime.getURL("build.json"));
-    return answer.ok ? readBuild(await answer.json()) : undefined;
+    const answer = await fetch(chrome.runtime.getURL(file), { cache: "no-store" });
+    return answer.ok ? await answer.text() : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** The stamp the build wrote beside this extension's code (docs/computer.md, Builds). */
+async function ownBuild(): Promise<Build | undefined> {
+  const text = await ownFile("build.json");
+  try {
+    return text ? readBuild(JSON.parse(text)) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A chrome.storage area as the build keeper reads it. */
+function area(of: chrome.storage.StorageArea): Kept {
+  return { get: async (key) => (await of.get(key))[key], set: (key, value) => of.set({ [key]: value }) };
 }
 
 const savePairings = (): Promise<void> => chrome.storage.local.set({ pairings });
@@ -233,6 +254,7 @@ function hello(id: string): Hello {
     permissions: { tabs: true },
     displays: [],
     ...(build ? { build } : {}),
+    ...(installType ? { install: installType } : {}),
   };
 }
 
@@ -251,15 +273,21 @@ function updated(id: string, update: UpdateNotice): void {
  */
 async function maybeReload(): Promise<void> {
   const busy = (): boolean => session !== undefined || owner !== undefined || consents.size > 0;
-  if (reloading || !gate.due(busy(), reloadedFor)) return;
-  const self = await chrome.management.getSelf().catch(() => undefined);
-  if (self?.installType !== "development") return;
-  // Asked again after the wait: a session may have begun meanwhile.
-  const due = gate.due(busy(), reloadedFor);
+  if (reloading || installType !== "development") return;
+  const first = gate.due(busy(), reloaded);
+  if (!first) return;
+  // A folder being rebuilt (the build begins by removing it) is not reloaded into: it is looked at again later.
+  if (!(await folderHolds(first.build, ownFile))) {
+    note(`the folder does not hold build ${first.build} yet; looking again shortly`);
+    setTimeout(() => void maybeReload(), FOLDER_AGAIN_MS);
+    return;
+  }
+  // Asked again after the waits: a session may have begun meanwhile.
+  const due = gate.due(busy(), reloaded);
   if (reloading || !due) return;
   reloading = true;
-  reloadedFor = due.build;
-  await chrome.storage.local.set({ [RELOADED_KEY]: due.build });
+  reloaded = { build: due.build, at: Date.now() };
+  await chrome.storage.local.set({ [RELOADED_KEY]: reloaded });
   note(`reloading into build ${due.build}`);
   const link = links.get(due.kos);
   link?.event("update.state", { build: due.build, state: "reloading" });
