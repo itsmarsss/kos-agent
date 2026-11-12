@@ -7150,12 +7150,24 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
   .artifact-frame, .artifact-skeleton { transition: none; }
 }
 .artifact-frame[data-layout="fit"], .artifact-skeleton--fit { height: min(70vh, 40rem); }
-/* The slide's 16:9 at the frame's width (less the stage's 12px padding); never taller than the view. Its controls are the viewer's head, so the deck's own bar is away. */
-.artifact-frame[data-layout="deck"], .artifact-skeleton--deck {
-  height: min(calc((100cqw - 24px) * 9 / 16 + 24px), calc(100dvh - var(--artifact-top) - 1.5rem));
+/*
+ * A deck is its slide: the stage is the slide's 16:9, as wide as the room and
+ * never taller than the view, and the frame fills it, the deck held with no
+ * ground or bar of its own (deck.css.ts, deck-hosted). Its controls are the
+ * viewer's head, its notes the dashboard's own, under it.
+ */
+.artifact-stage[data-layout="deck"] {
+  width: min(100%, calc((100dvh - var(--artifact-top) - 1.5rem) * 16 / 9));
+  aspect-ratio: 16 / 9;
   min-height: 12rem;
+  margin-inline: auto;
   border-radius: var(--r-md);
+  box-shadow: 0 0 0 1px var(--line);
 }
+.artifact-frame[data-layout="deck"], .artifact-skeleton--deck { height: 100%; border-radius: var(--r-md); }
+.artifact-notes { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; font-size: var(--text-md); line-height: 1.5; }
+.artifact-notes p { margin: 0; max-width: 72ch; text-wrap: pretty; }
+.artifact-notes-none { color: var(--muted); }
 .artifact-frame[data-layout="sheet"], .artifact-skeleton--sheet { height: calc(100dvh - var(--artifact-top) - 4rem); min-height: 22rem; }
 .artifact-ask { padding: 0.8rem 1rem; border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: var(--r-md); background: var(--panel); }
 .artifact-ask p { margin: 0 0 0.4rem; }
@@ -7169,6 +7181,7 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 /* A page or a doc full screen scrolls in the full-screen box, still as one. */
 .artifact:fullscreen { background: var(--bg); padding: 0; gap: 0; overflow-y: auto; }
 .artifact:fullscreen .artifact-frame:not([data-layout="fit"]) { height: 100vh; min-height: 0; border-radius: 0; }
+.artifact:fullscreen .artifact-stage[data-layout="deck"] { width: 100%; height: 100vh; aspect-ratio: auto; border-radius: 0; box-shadow: none; }
 
 /* —— presenting a deck with its notes (DeckPresenter.tsx, AudienceWindow.tsx) ——
    The presenter view covers the dashboard: a head with the title, the
@@ -7201,6 +7214,7 @@ html.has-presenter { overflow: hidden; }
 /* A deck frame filling its card: the slide is the frame, edge to edge. */
 .presenter-frame, .presenter-frame .artifact, .presenter-frame .artifact-stage, .audience-stage .artifact, .audience-stage .artifact-stage { height: 100%; }
 .presenter-frame .artifact, .audience-stage .artifact { gap: 0; }
+.presenter-frame .artifact-stage[data-layout="deck"], .audience-stage .artifact-stage[data-layout="deck"] { width: 100%; aspect-ratio: auto; min-height: 0; border-radius: 0; box-shadow: none; }
 .presenter-frame :is(.artifact-frame, .artifact-skeleton), .audience-stage :is(.artifact-frame, .artifact-skeleton) { height: 100%; min-height: 0; border-radius: 0; }
 .presenter-steer { display: flex; align-items: center; justify-content: center; gap: 12px; }
 .presenter-count { min-width: 10ch; text-align: center; color: var(--muted); font-size: var(--text-md); font-variant-numeric: tabular-nums; }

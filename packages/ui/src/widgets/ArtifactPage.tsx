@@ -710,6 +710,12 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
           )}
         </div>
       )}
+      {deck?.notes && !deck.grid && !deck.reading && !presenting && (
+        <section className="artifact-notes" aria-label="Presenter notes">
+          <span className="label">Notes, slide {deck.index + 1}</span>
+          {deck.said.length ? deck.said.map((line, i) => <p key={i}>{line}</p>) : <p className="artifact-notes-none">No notes for this slide.</p>}
+        </section>
+      )}
     </div>
   );
 }

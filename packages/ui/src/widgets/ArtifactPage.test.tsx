@@ -572,6 +572,24 @@ describe("a frame as tall as its page", () => {
     expect(told).toHaveBeenLastCalledWith({ __kos: "deck-do", action: "go", index: 1 }, "*");
   });
 
+  it("shows a deck's notes under it, as text, while they are on and the slides are not a grid", async () => {
+    render(<ArtifactPage record={record} page={{ ...page, kind: "deck" }} />);
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const pageWin = document.body.appendChild(document.createElement("iframe")).contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    const say = (data: unknown): void => act(() => void window.dispatchEvent(new MessageEvent("message", { source: pageWin, data })));
+    const notes = (): HTMLElement | null => screen.queryByRole("region", { name: "Presenter notes" });
+    say({ __kos: "deck", index: 1, count: 3, grid: false, notes: false, reading: false, hosted: true, said: ["Lead with <b>yield</b>"] });
+    expect(notes()).toBeNull();
+    say({ __kos: "deck", index: 1, count: 3, grid: false, notes: true, reading: false, hosted: true, said: ["Lead with <b>yield</b>"] });
+    expect(notes()!.textContent).toBe("Notes, slide 2Lead with <b>yield</b>");
+    expect(notes()!.querySelector("b")).toBeNull();
+    say({ __kos: "deck", index: 2, count: 3, grid: false, notes: true, reading: false, hosted: true, said: [] });
+    expect(notes()!.textContent).toContain("No notes for this slide.");
+    say({ __kos: "deck", index: 2, count: 3, grid: true, notes: true, reading: false, hosted: true, said: [] });
+    expect(notes()).toBeNull();
+  });
+
   it("passes on a slide's notes as strings only, capped", async () => {
     const heard = vi.fn();
     render(<ArtifactPage record={record} page={{ ...page, kind: "deck" }} onDeck={heard} />);

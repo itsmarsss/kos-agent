@@ -243,8 +243,8 @@ export function startDeck(): void {
   const host = (): void => {
     if (hosted) return;
     hosted = true;
-    bar.style.display = "none";
-    document.body.style.setProperty("--deck-bar", "0px");
+    // Its bar and its notes are the dashboard's now, and the slide fills the frame: the dashboard sizes the frame to it.
+    document.body.classList.add("deck-hosted");
   };
   let went: number | null = 0;
   const apply = (a: DeckAction, seq?: number): void => {

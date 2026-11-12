@@ -22,18 +22,19 @@ export const DECK_CSS = String.raw`
   --deck-gap: 2.4cqw;
   --deck-bar: 52px;
   --deck-notes-h: 0px;
+  --deck-stage-pad: 12px;
 }
 :where(html[data-kind="deck"]) body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--font-body); overflow: hidden; height: 100dvh; }
 
 /* The stage: the current slide, centred, as large as the frame allows. Each slide sits in a
    frame of KOS's (.deck-slide) that is its size container, so the slide's own padding and
    type are in units of its own width too. */
-:where([data-deck]) { height: calc(100dvh - var(--deck-bar) - var(--deck-notes-h)); display: grid; place-items: center; padding: 12px; box-sizing: border-box; min-width: 0; }
+:where([data-deck]) { height: calc(100dvh - var(--deck-bar) - var(--deck-notes-h)); display: grid; place-items: center; padding: var(--deck-stage-pad); box-sizing: border-box; min-width: 0; }
 .deck-slide {
   container-type: inline-size;
   position: relative;
   box-sizing: border-box;
-  width: min(100%, calc((100dvh - var(--deck-bar) - var(--deck-notes-h) - 24px) * 16 / 9));
+  width: min(100%, calc((100dvh - var(--deck-bar) - var(--deck-notes-h) - 2 * var(--deck-stage-pad)) * 16 / 9));
   aspect-ratio: 16 / 9;
   border-radius: var(--r-md, 10px);
   overflow: hidden;
@@ -111,6 +112,12 @@ export const DECK_CSS = String.raw`
 .deck-notes .deck-notes-none { color: var(--muted); }
 body.deck-notes-on { --deck-notes-h: min(30dvh, 200px); }
 body:not(.deck-notes-on) .deck-notes { display: none; }
+
+/* Held by the dashboard: its bar and its notes are the viewer's, and the slide is the whole frame,
+   which the dashboard sizes to it, so no ground of the deck's shows around it. */
+body.deck-hosted, body.deck-hosted.deck-notes-on { --deck-bar: 0px; --deck-notes-h: 0px; --deck-stage-pad: 0px; }
+body.deck-hosted .deck-bar, body.deck-hosted .deck-notes { display: none; }
+body.deck-hosted:not(.deck-grid) .deck-slide { border-radius: 0; box-shadow: none; }
 
 /* The grid of every slide: the same slides, smaller, since their sizes are relative. */
 body.deck-grid { overflow-y: auto; }
