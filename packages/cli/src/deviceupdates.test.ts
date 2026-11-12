@@ -40,7 +40,8 @@ describe("a KOS for Mac rebuild", () => {
 
   it("is stopped, all of it, when it runs past its time, and says so", async () => {
     const pidFile = join((dir ||= mkdtempSync(join(tmpdir(), "deviceupdates-test-"))), "child.pid");
-    const installer = macInstaller(tmpdir(), () => undefined, { install: script(`sleep 30 & echo $! > "${pidFile}"; wait`), timeoutMs: 300 });
+    // Time enough for the script to start its child on a loaded machine, and no more.
+    const installer = macInstaller(tmpdir(), () => undefined, { install: script(`sleep 30 & echo $! > "${pidFile}"; wait`), timeoutMs: 2_000 });
     expect(await installer.install(() => undefined)).toEqual({ ok: false, why: "the build took longer than 0 minutes and was stopped" });
     // Its own child went with it: the group was ended, not just the script.
     const pid = Number(readFileSync(pidFile, "utf8"));
