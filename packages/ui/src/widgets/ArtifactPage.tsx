@@ -501,7 +501,7 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       }
       if (m.__kos !== "call") return;
       const args = m.args ?? {};
-      // A doc's mention and its press on one: held to the doc's gates (docbridge.ts) before the picker or another artifact opens.
+      // A doc's kos.mention (the owner typed "@") and kos.open (the owner pressed a mention): each held to its gates in docbridge.ts, and answered.
       if (m.method === "mention" || m.method === "open") {
         const state = { kind: page.kind, locked, presenting, pressed: revealAllowed(frame.current, gestures.current.at) };
         if (m.method === "open") {

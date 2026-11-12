@@ -488,15 +488,25 @@ code with its language, tables, dividers, bold, italic, underline, strike,
 code and highlight, and a picture only when it is held as data; styles,
 classes, ids, links off the page and everything that loads or runs are
 dropped. A pasted or dropped picture file, like one picked, is kept in the
-doc as data, up to 112 KB (`IMAGE_MAX`, half an edit once base64 has grown it; a picture pasted as data is held to the same length); KOS gives a frame nowhere to store files, so
-there is no upload and no URL. A drop of anything else is plain text.
+doc as data, up to 112 KB (`IMAGE_MAX`: half an edit once base64 has
+grown it), and a picture pasted as data is held to the same length; KOS
+gives a frame nowhere to store files, so there is no upload and no URL. A
+drop of anything else is plain text.
 
-An `@` at a word's start asks the dashboard for its artifact picker
-(`MentionPicker.tsx`). The picker is the dashboard's, not the frame's, so
-the doc never sees the list of artifacts, only the one the owner picks,
-which goes in as a chip: `<span class="mention" data-artifact="id">Title</span>`.
-Pressed while reading, the chip asks the dashboard to open that artifact
-(`{__kos: "open", artifact}`), which it does only at the owner's press.
+An `@` at a word's start calls `kos.mention()`, and the dashboard opens
+its own artifact picker (`MentionPicker.tsx`) at the caret, kept inside the
+part of the frame in view. The picker is the dashboard's, not the frame's,
+so the doc never sees the list of artifacts, only the one the owner picks
+(`{id, title}`, or null when the picker closes), which goes in as a chip:
+`<span class="mention" data-artifact="id">Title</span>`. Pressed while
+reading, the chip calls `kos.open(id)`. The dashboard takes both only from a
+doc, not presenting and not an older version, within half a second of the
+owner's press or key in its frame (the gesture channel), a mention only
+while the doc is being edited and one at a time, and an open only for an
+artifact's id (`ARTIFACT_ID_RE`), which a save also requires of a mention
+(`docbridge.ts`, `markup.ts`). The picker closes on Escape, a press
+elsewhere, the window losing focus (a press back in the doc) and the end of
+editing, and Tab stays inside it while it is open.
 
 What is stored stays the doc's own markup: a to-do is
 `<ul class="checklist"><li data-checked="true">`, a toggle
@@ -519,8 +529,12 @@ menus stay in the frame, outside the article.
 
 It saves on its own 1.2 s after the owner stops typing, through the same
 `kos.save`, so the gesture, conflict and rate rules above all hold. Saves run
-one after another, and each waits out the 2.1 s since the last, so Done (or
-Cmd+S, or a second Escape) just after one is never refused as too soon; Done saves
+one after another, editing's and a reader's ticks in one line
+(`saveQueue`), and each waits out the 2.1 s since the last, so Done (or
+Cmd+S, or a second Escape) just after one is never refused as too soon. A
+tick is put on the doc as last saved, never on the article as it stands
+(a toggle opened, a script's drawing), and says it is waiting, so the frame
+going finishes it as it does an edit; Done saves
 what is waiting and draws the doc again, and stays in editing if the save
 was refused. Discard puts back what was not yet saved and leaves editing.
 An edit longer than the server takes (`DOC_EDIT_MAX`, 300,000 characters) is
@@ -536,8 +550,9 @@ while that wait runs stays open.
 It runs inside the doc's frame, on the article's own markup and the
 browser's editing (contenteditable), not on an editor library's model: a
 schema would drop what the agent wrote and it did not know (a pull quote, a
-footnote, a class). Nothing new leaves the frame but the mention's request,
-so the frame's policy, Trusted Types and the guard are as they were; the
+footnote, a class). Nothing leaves the frame but window.kos (`kos.save`,
+`kos.mention`, `kos.open`), so the frame's policy, Trusted Types and the
+guard are as they were; the
 markup it makes is the doc's own (no forms, frames or links off the page; a
 link goes to a part of the doc, since a frame has nowhere else to go), and
 the server's allowlist (`markup.ts`) takes every block it makes and still
@@ -896,6 +911,8 @@ Before the page's own markup the frame gets:
 | `kos.theme`, `kos.onTheme(fn)` | The dashboard's theme, and its changes. |
 | `kos.refresh(fn)` | Run again after the page's own writes. |
 | `kos.save(edit)` | A doc's or a sheet's edit, made by the owner in the runtime, kept as the next version (above). Refused for a page or a deck. |
+| `kos.mention({x, y})` | A doc being edited asks the dashboard's artifact picker to open at that place in the frame; resolves to the artifact the owner picks, `{id, title}`, or null. Only at the owner's press or key, one at a time (above). |
+| `kos.open(id)` | A doc asks the dashboard to open the artifact with that id, as a pressed mention does. Only at the owner's press. |
 | `kos.present(on?)` | Ask the dashboard to show the artifact full screen (`kos.present(false)` gives it back); it then posts `present` on and off, which sets `data-present` on `<html>` and fires `kos:present`. Where the browser has no full screen for an element (Safari on an iPhone) or refuses, the artifact presents in place in its frame, and Escape or Present again ends it. |
 
 The dashboard only relays these, for its own frame. The server decides each
