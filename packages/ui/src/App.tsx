@@ -1121,6 +1121,7 @@ export function App(): React.ReactElement {
         projects={projects}
         pagesByProject={pagesByProject}
         conversations={conversations}
+        crons={crons}
         onOpen={(slug) => go({ name: "project", slug })}
         onInspect={(project, pages) =>
           setInspect({ kind: "project", data: project, pages })

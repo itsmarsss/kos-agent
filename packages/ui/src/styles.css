@@ -3517,7 +3517,12 @@ li:hover .chats-item-when { opacity: 0; }
   border-bottom: 1px solid var(--line);
 }
 
-/* —— projects —— */
+/* —— projects (ProjectsPage.tsx) ——
+   The list pages' head, then cards of one shape: the mark and name, what it
+   is for in two lines, then a foot of what it holds and when it last moved,
+   pinned to the bottom so a row of cards lines up whatever each says. */
+.projects-page { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+/* The Blobs page's head, until it takes the list pages' one (PageHead). */
 .projects-head {
   display: flex;
   align-items: center;
@@ -3526,47 +3531,42 @@ li:hover .chats-item-when { opacity: 0; }
   margin-bottom: 1.25rem;
 }
 .projects-head h1 { margin: 0; font-size: var(--text-2xl); letter-spacing: -0.02em; }
-.projects-search { max-width: 18rem; }
-
-.projects-group { margin-bottom: 1.75rem; }
-.projects-group h2 {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  margin: 0 0 0.6rem;
-  font-size: var(--text-md);
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: capitalize;
-}
-
-.project-card { min-height: 11rem; }
+.projects-group { display: flex; flex-direction: column; gap: 10px; }
+.projects-group + .projects-group { margin-top: 10px; }
+.projects-group-head { display: flex; align-items: center; gap: 0.4rem; }
+.project-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); }
+.project-card { gap: 10px; padding: 12px 14px; min-width: 0; }
+.project-card-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.project-card-head .hero-mark--sm { width: 32px; height: 32px; border-radius: var(--r-sm); }
+.project-card-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.project-card-titles .card-name { font-size: var(--text-lg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-card-sub { color: var(--faint); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-card-head .pill { flex: none; }
 .project-desc {
   margin: 0;
   color: var(--muted);
-  font-size: var(--text-md);
+  font-size: var(--text-base);
+  line-height: 1.45;
+  min-height: calc(2 * 1.45em);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 .project-headline { display: flex; align-items: baseline; gap: 0.5rem; color: inherit; text-decoration: none; }
-.project-headline-value { font-size: var(--text-xl); font-weight: 650; font-variant-numeric: tabular-nums; }
+.project-headline:hover .project-headline-label { color: var(--accent); }
+.project-headline-value { font-size: var(--text-xl); font-weight: 600; font-variant-numeric: tabular-nums; }
 .project-headline-label { color: var(--muted); font-size: var(--text-sm); }
-.project-pages {
-  margin-top: auto;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-}
-.project-nopages { margin-top: auto; }
-.project-more {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  font-size: var(--text-base);
-  cursor: pointer;
+.project-card-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); color: var(--faint); font-size: var(--text-sm); min-width: 0; }
+.project-card-holds { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-card-time { flex: none; white-space: nowrap; }
+.project-card-details { flex: none; margin-right: -6px; }
+@media (max-width: 560px) {
+  .projects-page .list-head-tools { width: 100%; }
+  .projects-page .list-search { flex: 1 1 100%; min-width: 0; }
+  .projects-page .list-head-tools .btn--primary { margin-left: auto; }
+  .project-desc { min-height: 0; }
+  .project-desc:empty { display: none; }
 }
 
 /* —— knowledge —— */
@@ -6979,14 +6979,8 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .confirm-text { margin: 0 0 0.55rem; font-size: var(--text-md); color: var(--text); line-height: 1.4; }
 .confirm-acts { display: flex; gap: 0.4rem; }
 
-/* A project's card: its mark, name and kind, a status pill; its pages; then its ways in. */
-.project-card { min-height: 11rem; gap: 0.6rem; }
-.project-card-head { display: flex; align-items: center; gap: 0.6rem; }
-.project-card-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
-.project-card-sub { font-size: var(--text-xs); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A project's mark at a row's size: on a card, a project's head, the drawer's head. */
 .hero-mark--sm { width: 36px; height: 36px; border-radius: 10px; flex: none; }
-.project-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: auto; padding-top: 0.4rem; border-top: 1px solid var(--line); }
-.project-card-foot .card-acts { display: inline-flex; gap: 0.35rem; }
 
 /* The project drawer's head: the mark on its colour, the words, Edit beside Close. */
 .insp-head--hero { align-items: flex-start; background: linear-gradient(180deg, hsl(var(--blob-h, 214) 72% 62% / 0.12), transparent); }
