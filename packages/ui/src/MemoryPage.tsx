@@ -285,8 +285,8 @@ export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResol
       {/* One row of choices: what KOS leans to first, then the others it did not. */}
       <div className="mem-actions mem-decision-acts">
         {lean && (
-          <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={() => decide(lean.action, lean.key)}>
-            Do that
+          <button type="button" className="btn btn--sm btn--primary" disabled={busy} title="What KOS leans to" onClick={() => decide(lean.action, lean.key)}>
+            {lean.words[0]!.toUpperCase() + lean.words.slice(1)}
           </button>
         )}
         {item.kind === "promotion" ? (
