@@ -12,66 +12,30 @@ struct GlanceSheet: View {
   @State private var deciding: GlanceModel.Waiting?
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 18) {
-        HStack(alignment: .firstTextBaseline) {
-          Text("Glance").font(.kos(.title, .semibold))
-          Spacer()
-          if glance.asking {
-            ProgressView().controlSize(.small)
-          } else if let at = glance.at {
-            Text(GlanceWords.updated(at, now: now)).font(.kos(.detail)).foregroundStyle(Theme.faint)
-          }
-        }
-        if let report = glance.report {
-          if report.halted {
-            Card(tone: Theme.danger, wash: true) {
-              RowText("KOS is halted", "The kill switch is on: nothing runs until it is let go on the dashboard.", size: .control)
-            }
-          }
-          section("Running", count: report.running.count, empty: "Nothing is running.") {
-            ForEach(report.running, id: \.id) { run in
-              row(symbol: "bolt.fill", tint: Theme.accent, title: run.title, detail: "Working")
-            }
-          }
-          if glance.waiting > 0 {
-            section("Waiting on you", count: glance.waiting, empty: "") {
-              ForEach(glance.asks) { waiting in
-                Button { deciding = waiting } label: { askRow(waiting) }
-                  .buttonStyle(.plain)
-                  .accessibilityHint("Opens it to approve or deny")
-              }
-              if glance.waiting > glance.asks.count {
-                Text(glance.asks.isEmpty ? "\(glance.waiting) waiting. Pull down to see them." : "\(glance.waiting - glance.asks.count) more after these.")
-                  .font(.kos(.detail))
-                  .foregroundStyle(Theme.muted)
-              }
-            }
-          }
-          section("Failing", count: report.failing.count, empty: "Nothing is failing.") {
-            ForEach(Array(report.failing.enumerated()), id: \.offset) { _, job in
-              row(
-                symbol: "exclamationmark.triangle.fill", tint: Theme.danger, title: job.label,
-                detail: "\(GlanceWords.streak(job.streak)), \(GlanceWords.failingFor(since: Date(timeIntervalSince1970: job.since / 1000), now: now))",
-                note: job.error)
-            }
-          }
-          section("Next", count: report.next.count, empty: "Nothing is scheduled.") {
-            ForEach(Array(report.next.enumerated()), id: \.offset) { _, next in
-              row(symbol: "clock", tint: Theme.violet, title: next.name, detail: GlanceWords.next(Date(timeIntervalSince1970: next.at / 1000), now: now))
-            }
-          }
-        } else {
-          Text(glance.asking ? "Asking KOS…" : "KOS has not said yet.").font(.kos(.dense)).foregroundStyle(Theme.muted)
+    VStack(spacing: 0) {
+      // The head stays put, clear of the sheet's grabber, while what is under it scrolls.
+      HStack(alignment: .firstTextBaseline) {
+        Text("Glance").font(.kos(.title, .semibold))
+        Spacer()
+        if glance.asking {
+          ProgressView().controlSize(.small)
+        } else if let at = glance.at {
+          Text(GlanceWords.updated(at, now: now)).font(.kos(.detail)).foregroundStyle(Theme.faint)
         }
       }
       .padding(.horizontal, 20)
       .padding(.top, 24)
-      .padding(.bottom, 20)
+      .padding(.bottom, 12)
+      ScrollView {
+        content
+          .padding(.horizontal, 20)
+          .padding(.top, 6)
+          .padding(.bottom, 20)
+      }
+      // Scrolled to its end, the last row clears the home indicator.
+      .contentMargins(.bottom, 16, for: .scrollContent)
+      .refreshable { glance.ask() }
     }
-    // Scrolled to its end, the last row clears the home indicator.
-    .contentMargins(.bottom, 16, for: .scrollContent)
-    .refreshable { glance.ask() }
     .background(Theme.panel)
     .sheet(item: $deciding) { waiting in
       AskBody(ask: waiting.ask, more: 0, from: waiting.chat) { approved, remember in
@@ -82,6 +46,53 @@ struct GlanceSheet: View {
       .background(Theme.panel)
       .presentationDetents([.medium, .large])
     }
+  }
+
+  private var content: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      if let report = glance.report {
+        if report.halted {
+          Card(tone: Theme.danger, wash: true) {
+            RowText("KOS is halted", "The kill switch is on: nothing runs until it is let go on the dashboard.", size: .control)
+          }
+        }
+        section("Running", count: report.running.count, empty: "Nothing is running.") {
+          ForEach(report.running, id: \.id) { run in
+            row(symbol: "bolt.fill", tint: Theme.accent, title: run.title, detail: "Working")
+          }
+        }
+        if glance.waiting > 0 {
+          section("Waiting on you", count: glance.waiting, empty: "") {
+            ForEach(glance.asks) { waiting in
+              Button { deciding = waiting } label: { askRow(waiting) }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens it to approve or deny")
+            }
+            if glance.waiting > glance.asks.count {
+              Text(glance.asks.isEmpty ? "\(glance.waiting) waiting. Pull down to see them." : "\(glance.waiting - glance.asks.count) more after these.")
+                .font(.kos(.detail))
+                .foregroundStyle(Theme.muted)
+            }
+          }
+        }
+        section("Failing", count: report.failing.count, empty: "Nothing is failing.") {
+          ForEach(Array(report.failing.enumerated()), id: \.offset) { _, job in
+            row(
+              symbol: "exclamationmark.triangle.fill", tint: Theme.danger, title: job.label,
+              detail: "\(GlanceWords.streak(job.streak)), \(GlanceWords.failingFor(since: Date(timeIntervalSince1970: job.since / 1000), now: now))",
+              note: job.error)
+          }
+        }
+        section("Next", count: report.next.count, empty: "Nothing is scheduled.") {
+          ForEach(Array(report.next.enumerated()), id: \.offset) { _, next in
+            row(symbol: "clock", tint: Theme.violet, title: next.name, detail: GlanceWords.next(Date(timeIntervalSince1970: next.at / 1000), now: now))
+          }
+        }
+      } else {
+        Text(glance.asking ? "Asking KOS…" : "KOS has not said yet.").font(.kos(.dense)).foregroundStyle(Theme.muted)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   /// One ask: what KOS would run, why, and the chat it is for with the time it has left.

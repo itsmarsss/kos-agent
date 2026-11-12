@@ -123,11 +123,19 @@ struct MoreSheet: View {
       } else {
         Button("Unpair this iPhone") { confirming = true }.buttonStyle(KOSButtonStyle(.danger, large: true))
       }
-      Spacer(minLength: 0)
     }
     .padding(.horizontal, 20)
     .padding(.top, 24)
+    .padding(.bottom, 16)
+    .fixedSize(horizontal: false, vertical: true)
+    .background(GeometryReader { box in Color.clear.preference(key: FitHeight.self, value: box.size.height) })
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .background(Theme.panel)
   }
+}
+
+/// How tall a sheet's content is, so the sheet can stop there rather than at half the screen.
+struct FitHeight: PreferenceKey {
+  static let defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }

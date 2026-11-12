@@ -13,6 +13,8 @@ public struct ChatScreen: View {
   @State private var sheet: Sheet?
   /// The asks already seen, so a new one brings its sheet up by itself once.
   @State private var seenAsks: Set<String> = []
+  /// The settings sheet's own height, once it has been laid out.
+  @State private var moreHeight: CGFloat = 0
   @Environment(\.accessibilityReduceMotion) private var still
 
   enum Sheet: String, Identifiable {
@@ -75,7 +77,8 @@ public struct ChatScreen: View {
       .presentationDetents([.medium, .large])
     case .more:
       MoreSheet(phone: phone, reader: phone.reader) { sheet = nil }
-        .presentationDetents([.medium])
+        .onPreferenceChange(FitHeight.self) { moreHeight = $0 }
+        .presentationDetents(moreHeight > 0 ? [.height(moreHeight)] : [.medium])
     }
   }
 }
