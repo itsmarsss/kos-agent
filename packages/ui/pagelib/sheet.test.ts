@@ -642,7 +642,7 @@ describe("a held grid at rest", () => {
     const table = document.createElement("table");
     const classes = ["rownum", "lead", "", "", "", "key"];
     for (const part of ["thead", "tbody"]) {
-      const row = table.createTHead && part === "thead" ? table.createTHead().insertRow() : table.createTBody().insertRow();
+      const row = part === "thead" ? table.createTHead().insertRow() : table.createTBody().insertRow();
       let left = 0;
       widths.forEach((w, i) => {
         const cell = row.insertCell();
