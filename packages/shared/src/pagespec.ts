@@ -42,6 +42,48 @@ export interface BaseWidget {
   span?: WidgetSpan;
 }
 
+/**
+ * Default width per widget type. A stat is a few words and reads as a tile;
+ * a chart or table needs the full row to be legible. Stacking everything full
+ * width turns a five-widget page into three screens of scrolling.
+ */
+const DEFAULT_SPAN: Record<WidgetType, WidgetSpan> = {
+  stat: "quarter",
+  form: "half",
+  markdown: "half",
+  list: "half",
+  card: "full",
+  table: "full",
+  chart: "full",
+  custom_html: "full",
+};
+
+/** The width a widget takes: its own, or its type's default. */
+export function widgetSpan(widget: { type: string; span?: string }): WidgetSpan {
+  const own = widget.span as WidgetSpan | undefined;
+  return own && own in SPAN_COLUMNS ? own : (DEFAULT_SPAN[widget.type as WidgetType] ?? "full");
+}
+
+/** How many of a page's twelve columns each span takes. */
+export const SPAN_COLUMNS: Record<WidgetSpan, number> = { quarter: 3, third: 4, half: 6, full: 12 };
+
+/** A widget page's shape, for a thumbnail: each widget's type and width, the first few only. */
+export interface WidgetOutline {
+  type: string;
+  span: WidgetSpan;
+}
+
+/** Most widgets a thumbnail outlines: past a dozen it is below the card's fold. */
+const OUTLINE_MAX = 12;
+
+export function outlineOf(spec: { widgets?: unknown }): WidgetOutline[] {
+  const widgets = Array.isArray(spec.widgets) ? spec.widgets : [];
+  return widgets
+    .filter((w): w is { type: string; span?: string } => typeof w === "object" && w !== null && typeof (w as { type?: unknown }).type === "string")
+    .slice(0, OUTLINE_MAX)
+    .map((w) => ({ type: w.type, span: widgetSpan(w) }));
+}
+
 export interface StatWidget extends BaseWidget {
   type: "stat";
   label: string;

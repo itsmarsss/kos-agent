@@ -7292,14 +7292,34 @@ html.has-presenter { overflow: hidden; }
 .artifact-card:hover .artifact-thumb img { transform: scale(1.015); }
 .artifact-thumb-mark { position: absolute; inset: 0; display: grid; place-items: center; color: var(--faint); }
 .artifact-thumb-mark svg { width: 34px; height: 34px; }
+/* An older widget page's card: its spec's shape, sketched in the theme's lines (WidgetOutlineThumb). */
+.artifact-outline { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; overflow: hidden; --sketch: color-mix(in srgb, var(--faint) 45%, transparent); }
+.artifact-outline-title { flex: none; width: 38%; height: 7px; border-radius: 4px; background: color-mix(in srgb, var(--muted) 55%, transparent); }
+.artifact-outline-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 5px; align-content: start; }
+.artifact-outline-cell { position: relative; height: 44px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); overflow: hidden; }
+.artifact-outline-cell::before, .artifact-outline-cell::after { content: ""; position: absolute; border-radius: 2px; }
+/* A stat: its word, and its figure under it. */
+.artifact-outline-cell[data-type="stat"] { height: 30px; }
+.artifact-outline-cell[data-type="stat"]::before { left: 7px; top: 6px; width: 40%; height: 3px; background: var(--sketch); }
+.artifact-outline-cell[data-type="stat"]::after { left: 7px; top: 14px; width: 30%; height: 8px; background: color-mix(in srgb, var(--muted) 55%, transparent); }
+/* A chart: bars rising from its foot. */
+.artifact-outline-cell[data-type="chart"]::after { left: 8px; right: 8px; bottom: 6px; height: 62%; background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--accent) 45%, transparent) 0 5px, transparent 5px 9px); clip-path: polygon(0 60%, 15% 35%, 30% 55%, 45% 20%, 60% 40%, 75% 10%, 100% 30%, 100% 100%, 0 100%); }
+/* A table, a list or words: lines. */
+.artifact-outline-cell:is([data-type="table"], [data-type="list"], [data-type="card"])::after { inset: 7px 7px auto; height: 30px; background: repeating-linear-gradient(180deg, var(--sketch) 0 1px, transparent 1px 7px); }
+.artifact-outline-cell[data-type="markdown"]::after { left: 7px; right: 25%; top: 8px; height: 26px; background: repeating-linear-gradient(180deg, var(--sketch) 0 3px, transparent 3px 8px); }
+/* A form: two fields and its button. */
+.artifact-outline-cell[data-type="form"]::before { left: 7px; right: 7px; top: 7px; height: 9px; border: 1px solid var(--sketch); background: transparent; }
+.artifact-outline-cell[data-type="form"]::after { left: 7px; top: 22px; width: 22%; height: 9px; background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.artifact-outline-cell[data-type="custom_html"] { height: 82px; }
+.artifact-outline-cell[data-type="custom_html"]::after { inset: 8px; border: 1px dashed var(--sketch); }
 .artifact-card-body { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px 12px; min-width: 0; }
 .artifact-card-title { font-size: var(--text-lg); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color 140ms ease; }
 .artifact-card-desc { color: var(--muted); font-size: var(--text-base); line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artifact-card-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; color: var(--faint); font-size: var(--text-sm); min-width: 0; }
-.artifact-card-owner { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.artifact-card-owner { display: inline-flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; overflow: hidden; }
 .artifact-card-owner > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artifact-card-owner .project-mark, .artifact-view-owner .project-mark { width: 16px; height: 16px; font-size: 9.5px; border-radius: 4px; flex: none; }
-.artifact-card-time { margin-left: auto; white-space: nowrap; }
+.artifact-card-time { flex: none; margin-left: auto; white-space: nowrap; }
 /* A card's menu sits over its capture's corner, beside the card's button rather than in it (ArtifactMenu). */
 .artifact-card-wrap { position: relative; display: flex; width: 100%; min-width: 0; }
 .artifact-card-menu { position: absolute; top: 8px; right: 8px; opacity: 0; transition: opacity 140ms ease-out; }

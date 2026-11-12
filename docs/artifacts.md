@@ -620,8 +620,9 @@ costs nothing to show. A missing capture, or one older than the artifact,
 is redrawn when the gallery opens, one at a time in the background
 (`POST /api/artifacts/<id>/check`), at most eight in a visit; until then the
 card shows its kind. An agent's `artifacts.check` goes ahead of any redraws
-still waiting. An older widget-spec page is listed too, marked as one; it
-has no capture, and its viewer offers Convert with KOS, which asks its
+still waiting. An older widget-spec page is listed too, tagged Widgets; it
+has no capture, so its card draws the outline its spec gives (each widget's
+type in its width, sent with the list), and its viewer offers Convert with KOS, which asks its
 project's chat to rewrite it as an HTML artifact under the same id.
 
 Opening one shows it full size under one compact row that sticks as it

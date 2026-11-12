@@ -123,7 +123,7 @@ describe("the Artifacts page", () => {
     const check = vi.spyOn(api, "checkArtifact").mockResolvedValue({ findings: [], capturedAt: Date.now() });
     render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
     await waitFor(() => expect(titles()).toContain("Old board"));
-    expect(within(screen.getByText("Old board").closest("button")!).getByText("Older widget page")).toBeTruthy();
+    expect(within(screen.getByText("Old board").closest("button")!).getByTitle(/older widget page/i).textContent).toBe("Widgets");
     await waitFor(() => expect(check).toHaveBeenCalledTimes(2));
     expect(check.mock.calls.map((c) => c[0])).not.toContain("old");
   });

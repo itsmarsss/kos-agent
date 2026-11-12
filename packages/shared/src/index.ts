@@ -34,10 +34,11 @@ export type {
   HomePanel,
   PanelKind,
   Widget,
+  WidgetOutline,
   WidgetSpan,
   WidgetType,
 } from "./pagespec.js";
-export { DEFAULT_HOME, parseHomeLayout } from "./pagespec.js";
+export { DEFAULT_HOME, SPAN_COLUMNS, outlineOf, parseHomeLayout, widgetSpan } from "./pagespec.js";
 export {
   isReadOnlyQuery,
   isValidPageSpec,
