@@ -1,0 +1,326 @@
+import DeviceCore
+import DeviceKit
+import DeviceLink
+import Foundation
+
+/// KOS for iPhone as one thing: the pairing it keeps, the line to that KOS,
+/// and the chat, glance and voice the screens draw.
+///
+/// It talks to one KOS. Its calls are the chat calls KOS for Mac's window
+/// takes, drawn the same way (ChatCalls), and the glance; any other call is
+/// refused, since a phone has no screen for KOS to see or work. Its words go
+/// as the `phone` surface's, beside nothing.
+@MainActor
+public final class Phone: ObservableObject {
+  /// What this app is to KOS (docs/computer.md, A phone).
+  public static let platform = "ios"
+
+  public let chat = ChatModel()
+  public let glance = GlanceModel()
+  public let voice: VoiceModel
+  public let reader: ReplyReader
+  public let pairing: PairingFlow
+
+  /// The KOS this phone is paired with, none before it is.
+  @Published public private(set) var paired: Pairing?
+  /// The dashboard's theme as that KOS last sent it, kept from the last launch until it sends again.
+  @Published public private(set) var theme: DashboardTheme?
+  /// Said over the pairing screen when the saved pairing could not be read or kept.
+  @Published public private(set) var problem: String?
+
+  /// How long the phone waits on KOS: to say it has the owner's words, and to show the chat once asked.
+  public struct Timing: Sendable {
+    public var takeWithin: Duration
+    public var showWithin: Duration
+    public var sleep: @Sendable (Duration) async -> Void
+
+    public init(takeWithin: Duration, showWithin: Duration, sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
+      self.takeWithin = takeWithin
+      self.showWithin = showWithin
+      self.sleep = sleep
+    }
+
+    /// The side panel's waits: twelve seconds for the words, six for the chat.
+    public static let standard = Timing(takeWithin: .seconds(12), showWithin: .seconds(6))
+  }
+
+  private let vault: PairingVault
+  private let makeLine: () -> Line
+  private let haptics: Haptics
+  private let preferences: Preferences
+  private let timing: Timing
+  private var line: Line?
+  private var wasOnline = false
+  private var taking: Task<Void, Never>?
+  private var showing: Task<Void, Never>?
+  /// The turn that was working, so its end asks for a fresh glance.
+  private var wasWorking = false
+  private var watch: Task<Void, Never>?
+
+  public init(
+    vault: PairingVault, pairer: Pairer, recognizer: SpeechRecognizer, speaker: Speaker, haptics: Haptics, preferences: Preferences,
+    line: @escaping () -> Line, name: String = "iPhone", timing: Timing = .standard
+  ) {
+    self.vault = vault
+    makeLine = line
+    self.haptics = haptics
+    self.preferences = preferences
+    self.timing = timing
+    voice = VoiceModel(recognizer: recognizer)
+    reader = ReplyReader(speaker: speaker, preferences: preferences)
+    pairing = PairingFlow(pairer: pairer, name: name)
+    theme = preferences.value(KeptTheme.self, Keys.theme)?.theme
+    if let face = preferences.value(FaceDrawing.self, Keys.face) { chat.face = FaceLook(face) }
+    wire()
+  }
+
+  /// How the app is drawn: as the dashboard looks, the phone's own appearance before KOS has said.
+  public var mode: ThemeMode { ThemeChoice.dashboard.mode(sent: theme) }
+
+  // MARK: Life
+
+  /// The saved pairing, read, and its line dialled.
+  public func start() {
+    do {
+      paired = try vault.load().first
+    } catch {
+      problem = (error as? DeviceError)?.message ?? error.localizedDescription
+    }
+    chat.paired = paired != nil
+    if let paired { dial(paired) }
+  }
+
+  /// Back on screen: a line the system let drop is dialled again, and the chat and glance are asked for afresh.
+  public func foreground() {
+    guard paired != nil else { return }
+    if chat.online {
+      opened()
+    } else {
+      line?.redialNow()
+    }
+  }
+
+  /// Off screen: nothing is read aloud to a phone in a pocket. The line is left to the system.
+  public func background() {
+    reader.stop()
+    voice.cancel()
+  }
+
+  /// Forgets this KOS here and tells it to forget this phone, then shows the pairing again.
+  public func unpair() {
+    let keptLine = line
+    line = nil
+    forget()
+    keptLine?.unpair {}
+  }
+
+  // MARK: The line
+
+  private func dial(_ pairing: Pairing) {
+    line?.stop()
+    let line = makeLine()
+    line.state = { .phone }
+    line.onStatus = { [weak self] status in self?.status(status) }
+    line.onCall = { [weak self] call in self?.handle(call) }
+    line.onRemoved = { [weak self] in self?.removed() }
+    line.onFace = { [weak self] face in self?.faced(face) }
+    line.onTheme = { [weak self] theme in self?.themed(theme) }
+    self.line = line
+    chat.link = .connecting
+    line.start(pairing)
+  }
+
+  private func status(_ status: Connection.Status) {
+    chat.link = LinkState(status)
+    let online = chat.online
+    defer { wasOnline = online }
+    if online && !wasOnline { opened() }
+    // Words on their way when the line dropped were never taken: they go back to the owner.
+    if !online && wasOnline && !chat.sending.isEmpty { chat.giveBack("The line to KOS dropped. Your words are back in the box.") }
+  }
+
+  /// Shown the chat, the chats and the glance, and told when KOS does not show it.
+  private func opened() {
+    tell(.open)
+    tell(.list)
+    glance.ask()
+    showing?.cancel()
+    let sleep = timing.sleep, within = timing.showWithin
+    showing = Task { [weak self] in
+      await sleep(within)
+      guard !Task.isCancelled, let self, self.chat.online else { return }
+      // On and silent: a KOS from before phones, that cannot talk here.
+      self.chat.silent = true
+    }
+  }
+
+  /// A call from KOS: the chat's, drawn; the glance, kept; anything else refused, as a phone has nothing else.
+  func handle(_ call: Call) -> Data? {
+    do {
+      if call.method == Glance.method {
+        glance.received(try call.params(Glance.self))
+        return try? Outbound.reply(id: call.id, result: EmptyResult())
+      }
+      guard let method = ChatMethod(rawValue: call.method) else {
+        return try? Outbound.reply(id: call.id, error: .badRequest("KOS for iPhone only chats: it has no \(call.method)."))
+      }
+      let asks = chat.asks.count
+      switch try ChatCalls.draw(call, as: method, into: chat) {
+      case .shown:
+        showing?.cancel()
+        showing = nil
+        // Words the chat does not have yet are still KOS's to take: the wait on them goes on.
+        if chat.sending.isEmpty { heardBack() }
+        reader.shown(conversation: chat.conversation, lines: chat.lines)
+      case .status:
+        heardBack()
+      case .other:
+        if chat.asks.count > asks { haptics.attention() }
+      }
+      return try? Outbound.reply(id: call.id, result: EmptyResult())
+    } catch let error as DeviceError {
+      return try? Outbound.reply(id: call.id, error: error)
+    } catch {
+      return try? Outbound.reply(id: call.id, error: DeviceError(.internal, error.localizedDescription))
+    }
+  }
+
+  private func faced(_ face: FaceDrawing) {
+    chat.face = FaceLook(face)
+    preferences.setValue(face, Keys.face)
+  }
+
+  private func themed(_ theme: DashboardTheme) {
+    guard theme != self.theme else { return }
+    self.theme = theme
+    preferences.setValue(KeptTheme(theme), Keys.theme)
+  }
+
+  /// KOS no longer knows this phone: it is unpaired here too, and says so.
+  private func removed() {
+    line = nil
+    forget()
+    pairing.note("KOS no longer knows this iPhone. Pair it again.")
+  }
+
+  private func forget() {
+    line?.stop()
+    do {
+      try vault.save([])
+    } catch {
+      problem = (error as? DeviceError)?.message ?? error.localizedDescription
+    }
+    paired = nil
+    theme = nil
+    preferences.set(nil, forKey: Keys.theme)
+    preferences.set(nil, forKey: Keys.face)
+    reader.stop()
+    voice.cancel()
+    chat.reset()
+    chat.paired = false
+    chat.link = nil
+    chat.face = .kos
+    glance.reset()
+    wasOnline = false
+  }
+
+  // MARK: The owner
+
+  private func wire() {
+    pairing.paired = { [weak self] pairing in self?.keep(pairing) }
+    chat.send = { [weak self] text, _ in self?.say(text) }
+    chat.decide = { [weak self] id, approved, remember in
+      self?.haptics.tap()
+      self?.tell(.decide(approval: id, approved: approved, remember: remember))
+    }
+    chat.list = { [weak self] in self?.tell(.list) }
+    chat.switchTo = { [weak self] id in self?.tell(.switchTo(conversation: id)) }
+    chat.askMentions = { [weak self] q in self?.tell(.mentions(q)) }
+    chat.stop = { [weak self] in
+      self?.reader.stop()
+      self?.tell(.stop)
+    }
+    glance.askKOS = { [weak self] in self?.tell(.glance) }
+    voice.send = { [weak self] words in self?.chat.say(words) }
+    // The owner's voice wins: a reply being read stops for it.
+    voice.willListen = { [weak self] in self?.reader.stop() }
+    // A turn ending changes what is running: the glance is asked again.
+    watch = Task { [weak self] in
+      guard let chat = self?.chat else { return }
+      for await working in chat.$working.values {
+        guard let self else { return }
+        if self.wasWorking && !working && self.chat.online { self.glance.ask() }
+        self.wasWorking = working
+      }
+    }
+  }
+
+  private func keep(_ pairing: Pairing) {
+    do {
+      try vault.save([pairing])
+    } catch {
+      problem = (error as? DeviceError)?.message ?? error.localizedDescription
+      return
+    }
+    problem = nil
+    paired = pairing
+    chat.paired = true
+    haptics.done()
+    dial(pairing)
+  }
+
+  private func say(_ text: String) {
+    tell(.send(text: text, beside: .none))
+    // KOS says it has the words at once; nothing back in a while is a KOS that cannot talk here.
+    taking?.cancel()
+    let sleep = timing.sleep, within = timing.takeWithin
+    taking = Task { [weak self] in
+      await sleep(within)
+      guard !Task.isCancelled else { return }
+      self?.chat.giveBack("KOS did not take that. It may not be reachable now; your words are back in the box.")
+    }
+  }
+
+  private func heardBack() {
+    taking?.cancel()
+    taking = nil
+  }
+
+  private func tell(_ event: ChatEvent) {
+    guard let line, let frame = try? event.frame() else { return }
+    line.send(frame)
+  }
+
+  private enum Keys {
+    static let theme = "dashboardTheme"
+    static let face = "kosFace"
+  }
+}
+
+/// The dashboard's theme as kept between launches.
+private struct KeptTheme: Codable {
+  let mode: ThemeMode
+  let drawn: DrawnTheme?
+
+  init(_ theme: DashboardTheme) {
+    mode = theme.mode
+    drawn = theme.drawn
+  }
+
+  var theme: DashboardTheme { DashboardTheme(mode: mode, drawn: drawn) }
+}
+
+extension LinkState {
+  /// Where a line stands, as the screens say it.
+  public init(_ status: Connection.Status) {
+    switch status {
+    case .connecting: self = .connecting
+    case .connected: self = .connected
+    case .offline(let why): self = .offline(why)
+    case .untrusted: self = .untrusted
+    case .replaced: self = .replaced
+    case .outdated: self = .outdated
+    case .disconnected: self = .disconnected
+    }
+  }
+}
