@@ -1578,6 +1578,9 @@ chrome.runtime.onStartup.addListener(() => {
   });
 });
 
+// Installed, updated or reloaded into a new build: Chrome starts the worker for this, and it dials at once.
+chrome.runtime.onInstalled.addListener(() => void ready.then(() => connectAll()));
+
 // Awake: connected if paired, and checked every minute in case the worker slept.
 chrome.alarms.create("kos", { periodInMinutes: 1 });
 chrome.alarms.onAlarm.addListener(() => void ready.then(() => connectAll()));
