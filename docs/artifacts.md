@@ -488,7 +488,7 @@ code with its language, tables, dividers, bold, italic, underline, strike,
 code and highlight, and a picture only when it is held as data; styles,
 classes, ids, links off the page and everything that loads or runs are
 dropped. A pasted or dropped picture file, like one picked, is kept in the
-doc as data, up to 300 KB; KOS gives a frame nowhere to store files, so
+doc as data, up to 112 KB (`IMAGE_MAX`, half an edit once base64 has grown it; a picture pasted as data is held to the same length); KOS gives a frame nowhere to store files, so
 there is no upload and no URL. A drop of anything else is plain text.
 
 An `@` at a word's start asks the dashboard for its artifact picker

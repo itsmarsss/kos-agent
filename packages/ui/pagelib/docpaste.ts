@@ -9,6 +9,8 @@
  * allowlist as typed text would.
  */
 
+import { DOC_EDIT_MAX } from "@kos/shared/artifacts";
+
 /** What a pasted element becomes: a tag of the doc's, "unwrap" to keep only what it holds, "drop" to lose it whole. */
 const MAP: Record<string, string> = {
   P: "p", DIV: "p", H1: "h1", H2: "h2", H3: "h3", H4: "h3", H5: "h3", H6: "h3",
@@ -20,8 +22,14 @@ const MAP: Record<string, string> = {
 };
 const DROP = new Set(["SCRIPT", "STYLE", "META", "LINK", "TITLE", "HEAD", "TEMPLATE", "IFRAME", "OBJECT", "EMBED", "NOSCRIPT", "SVG", "CANVAS", "VIDEO", "AUDIO", "SOURCE", "INPUT", "BUTTON", "SELECT", "TEXTAREA", "FORM", "BASE", "COLGROUP", "COL"]);
 const BLOCKS = new Set(["p", "h1", "h2", "h3", "ul", "ol", "blockquote", "pre", "hr", "table", "figure", "details"]);
-/** The most a picture held in the doc as data may be, in characters. */
-export const PASTE_IMAGE_MAX = 400_000;
+/**
+ * The biggest image file a doc takes inline. Base64 makes it about 4/3 its
+ * size, and the edit as a whole saves at most DOC_EDIT_MAX characters, so a
+ * picture is kept to well under that, leaving room for the words.
+ */
+export const IMAGE_MAX = Math.floor((DOC_EDIT_MAX * 3) / 4 / 2);
+/** The same cap as a data URL, for a picture that comes pasted as one: base64 of IMAGE_MAX bytes and its "data:image/…;base64," start. */
+export const PASTE_IMAGE_MAX = Math.ceil(IMAGE_MAX / 3) * 4 + 32;
 
 /** A span's inline style read as the mark it stands for (Google Docs writes bold and italic so). */
 function styleMarks(el: Element): string[] {

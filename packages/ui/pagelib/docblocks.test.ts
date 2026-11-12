@@ -6,7 +6,7 @@ import {
   allBlocks, blockOf, duplicate, ensureTodoBoxes, indent, kindOf, mergeBack, moveBlock, moveBlocks, moveTo, normalise, outdent, removeBlocks, splitBlock, tableEdit, toggleTodo, turnInto,
 } from "./docblocks.js";
 import { History } from "./dochistory.js";
-import { cleanPaste, isInline, parseClipboard } from "./docpaste.js";
+import { IMAGE_MAX, PASTE_IMAGE_MAX, cleanPaste, isInline, parseClipboard } from "./docpaste.js";
 import { toggleMark } from "./docedit.js";
 
 function mount(inner: string): HTMLElement {
@@ -260,6 +260,13 @@ describe("a paste", () => {
   it("reads checkboxes as to-dos, code with its language, and tables", () => {
     const got = paste(`<ul><li><input type="checkbox" checked> done</li><li><input type="checkbox"> not</li></ul><pre><code class="language-ts hl">const x = 1;</code></pre><table style="x"><tr><td colspan="2" class="c">a</td></tr></table><h5>small</h5>`);
     expect(got).toBe(`<ul class="checklist"><li data-checked="true"> done</li><li data-checked="false"> not</li></ul><pre><code class="language-ts">const x = 1;</code></pre><table><tbody><tr><td colspan="2">a</td></tr></tbody></table><h3>small</h3>`);
+  });
+
+  it("holds a picture pasted as data to the size a picked file may be", () => {
+    const big = `data:image/png;base64,${"A".repeat(PASTE_IMAGE_MAX)}`;
+    expect(paste(`<p>a<img src="${big}"></p>`)).toBe("<p>a</p>");
+    expect(PASTE_IMAGE_MAX).toBeGreaterThan((IMAGE_MAX * 4) / 3);
+    expect(PASTE_IMAGE_MAX).toBeLessThan((IMAGE_MAX * 4) / 3 + 100);
   });
 
   it("keeps a list with a box in only some items a list", () => {

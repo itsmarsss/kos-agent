@@ -32,7 +32,7 @@ import {
   normalise, outdent, removeBlocks, splitBlock, tableEdit, toggleTodo, turnInto, TURN_INTO, type BlockKind, type Caret,
 } from "./docblocks.js";
 import { History } from "./dochistory.js";
-import { cleanPaste, isInline, parseClipboard } from "./docpaste.js";
+import { IMAGE_MAX, cleanPaste, isInline, parseClipboard } from "./docpaste.js";
 import { Menu, icon, type IconName, type MenuItem } from "./docui.js";
 import { el, kos, reason } from "./runtime.js";
 
@@ -100,12 +100,7 @@ export const slashMatches = (query: string): SlashItem[] => {
   });
 };
 
-/**
- * The biggest image file a doc takes inline. Base64 makes it about 4/3 its
- * size, and the edit as a whole saves at most DOC_EDIT_MAX characters, so a
- * picture is kept to well under that, leaving room for the words.
- */
-export const IMAGE_MAX = Math.floor((DOC_EDIT_MAX * 3) / 4 / 2);
+export { IMAGE_MAX } from "./docpaste.js";
 
 /** How long after the last keystroke the doc saves, and the least time between two saves (PageStore takes one edit every 2 s). */
 export const AUTOSAVE_MS = 1200;
@@ -1361,6 +1356,12 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
       return changed();
     }
     const frag = cleanPaste(parsed.body, document);
+    // Pictures pasted as data count against what an edit can save, as a picked one does.
+    const pictures = [...frag.querySelectorAll("img")].reduce((sum, img) => sum + (img.getAttribute("src")?.length ?? 0), 0);
+    if (pictures && article.innerHTML.length + pictures > DOC_EDIT_MAX) {
+      frag.querySelectorAll("img").forEach((img) => (img.closest("figure") ?? img).remove());
+      say("The pictures in that paste would make the doc longer than an edit can save, so they were left out.", true);
+    }
     edit(() => insertFragment(frag, block));
   };
   function insertFragment(frag: DocumentFragment, block: HTMLElement | undefined): void {
