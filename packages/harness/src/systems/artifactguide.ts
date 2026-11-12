@@ -225,7 +225,8 @@ What the runtime does:
 - h2 starts a section and h3 a subsection; at 4 or more h2 it builds a table of contents beside the text on wide screens and above it on narrow ones.
 - <span class="fn">text</span> inline becomes a numbered note marker, and the notes are collected under Notes after the article, each with a way back.
 - Each <figure> with a <figcaption> is numbered automatically ("Figure 2."); figure.unnumbered skips the number. Add class doc-wide to a figure that should run wider than the text, doc-full for the full width.
-- blockquote.pull is a pull quote (a <cite> inside names the speaker); aside.callout is a set-apart note, with .warn and .ok for a risk and a settled decision.
+- blockquote.pull is a pull quote (a <cite> inside names the speaker); aside.callout is a set-apart note with its mark, .warn, .ok, .danger and .note for a risk, a settled decision, a stop and a quiet aside.
+- A to-do list is <ul class="checklist"> with <li data-checked="true"> or "false"; the runtime draws the boxes, and the owner ticks them while reading. A toggle is <details><summary>The line</summary><p>What opens</p></details>. Code is <pre><code class="language-python">. Words can be <mark> (highlighted) or <s>; write no inputs or buttons.
 - Tables are wrapped so they scroll sideways on their own when wide; give numeric cells class num (td.num, th.num) to align them on the right in tabular figures.
 - --doc-measure sets the column width (default 66ch) and --doc-size the body size (default 1.125rem). Override them on :root rather than setting widths on paragraphs.
 
