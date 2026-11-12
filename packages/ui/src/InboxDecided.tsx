@@ -195,6 +195,7 @@ export function InboxDecided({
           )}
           <Chips
             small
+            scroll
             label="Show decided"
             options={FILTERS.filter((f) => f.id === "all" || countOf(f.id) > 0).map((f) => [f.id, <>{f.label} <Count n={countOf(f.id)} /></>] as const)}
             selected={filter}

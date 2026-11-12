@@ -5865,6 +5865,7 @@ a.health {
 
 /* Decided: one line a row, the outcome a quiet pill, the time at the right. */
 .inbox-decided-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; }
+.inbox-decided-tools .chips--scroll { flex: 0 1 auto; contain: none; }
 .inbox-decided-search { box-sizing: border-box; min-width: 0; width: 13rem; height: 1.85rem; font-size: var(--text-base); }
 .inbox-decided { list-style: none; margin: 0; padding: 0 0.4rem; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); }
 .inbox-decided-row + .inbox-decided-row { border-top: 1px solid var(--line); }
@@ -5909,6 +5910,7 @@ a.health {
 @media (max-width: 640px) {
   .inbox-decided-tools { width: 100%; }
   .inbox-decided-search { width: 100%; }
+  .inbox-decided-tools .chips--scroll { flex: 1 1 100%; contain: inline-size; }
   .inbox-decided-line { flex-wrap: wrap; gap: 0.3rem 0.5rem; }
   .inbox-decided-outcome { width: auto; }
   .inbox-decided-detail { padding-left: 0.5rem; }
