@@ -447,14 +447,22 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       `<script>addEventListener("load", () => { ${then}; setTimeout(() => top.postMessage({ seen: { ground: document.documentElement.dataset.ground || "", pad: getComputedStyle(document.body).paddingLeft } }, "*"), 700) })</script>`;
     const KOS = { ground: "", pad: "0px" };
     const OWN = { ground: "own", pad: "20px" };
+    const NEAR = { ground: "near", pad: "0px" };
     const cases: [string, string, typeof KOS][] = [
       ["/kos-ground", `<h1>On KOS</h1>${report()}`, KOS],
       ["/own-hex", `<style>body{background:#f2efe6}</style><h1>Its own</h1>${report()}`, OWN],
       // KOS's own ground written another way is still KOS's.
       ["/kos-mixed", `<style>body{background:color-mix(in srgb, var(--bg) 100%, transparent)}</style><h1>Mixed</h1>${report()}`, KOS],
-      // A few steps off KOS's ground (the live cram sheet's paper) reads as KOS's: painted it, with no gutter; one that fades keeps its colour, still with none.
-      ["/near-paper", `<style>body{background:#15161a}</style><h1>Near</h1>${report()}`, { ground: "near", pad: "0px" }],
-      ["/near-fading", `<style>body{background:#15161a;transition:background-color .25s}</style><h1>Near, fading</h1>${report()}`, KOS],
+      // A few steps off KOS's ground (the live cram sheet's paper) is KOS's: painted it, with no gutter.
+      ["/near-paper", `<style>body{background:#15161a}</style><h1>Near</h1>${report()}`, NEAR],
+      // One that follows the theme is KOS's only when it is near in both; the other theme is read with its transitions held.
+      ["/near-both", `<style>:root{--paper:#f4f3f0}:root[data-theme=dark]{--paper:#15161a}body{background:var(--paper);transition:color .25s}</style><h1>Both</h1>${report()}`, NEAR],
+      ["/near-one", `<style>:root{--paper:#f5efe0}:root[data-theme=dark]{--paper:#15161a}body{background:var(--paper)}</style><h1>One</h1>${report()}`, OWN],
+      // The kit's own surface is a ground of the page's own, however near.
+      ["/kit-panel", `<style>body{background:var(--panel)}</style><h1>Panel</h1>${report()}`, OWN],
+      // One whose background fades cannot be repainted without setting the fade going: its own, with its gutter.
+      ["/near-fading", `<style>body{background:#15161a;transition:background-color .25s}</style><h1>Near, fading</h1>${report()}`, OWN],
+      ["/near-fading-all", `<style>body{background:#15161a;transition:all .25s}</style><h1>Near, all</h1>${report()}`, OWN],
       ["/own-oklch", `<style>body{background:oklch(0.95 0.02 80)}</style><h1>Oklch</h1>${report()}`, OWN],
       ["/own-hsl", `<style>body{background:hsl(40 30% 92%)}</style><h1>Hsl</h1>${report()}`, OWN],
       ["/own-gradient", `<style>body{background:linear-gradient(#0c0e12, #1a2030)}</style><h1>Gradient</h1>${report()}`, OWN],
@@ -467,7 +475,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       ["/own-on-theme", `<style>.paper{background:#f2efe6}</style><h1>On theme</h1>${report("kos.onTheme(() => document.body.classList.add('paper')); dispatchEvent(new MessageEvent('message', { data: { __kos: 'theme', mode: 'dark', rule: document.getElementById('kos-tokens').textContent }, source: top }))")}`, OWN],
     ];
     for (const [path, html, want] of cases) {
-      const frame = wrapperDocument(pageDocument({ html, tokens: { "--bg": "#0c0e12", "--text": "#e7ebf3" }, mode: "dark", css, libraries: [] }));
+      const frame = wrapperDocument(pageDocument({ html, tokens: { "--bg": "#0c0e12", "--panel": "#12151c", "--panel-2": "#181c26", "--text": "#e7ebf3" }, mode: "dark", css, libraries: [] }));
       pages.set(path, `<!doctype html><body><iframe id="f" sandbox="allow-scripts" style="width:800px;height:400px" srcdoc="${srcdoc(frame)}"></iframe><script>
         addEventListener("message", (e) => { if (e.data && e.data.seen) document.body.dataset.seen = JSON.stringify(e.data.seen); });
       </script></body>`);

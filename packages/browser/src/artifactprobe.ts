@@ -63,7 +63,7 @@ import type { Rgba } from "@kos/shared";
  * so every colour a browser computes (oklch, color-mix, hsl) is read, and a
  * ground matched, the same way the bridge reads a page's ground.
  */
-export function probe(colourOf: (css: string) => Rgba | undefined, sameGround: (a: Rgba, b: Rgba) => boolean): ProbeResult {
+export function probe(colourOf: (css: string) => Rgba | undefined, sameGround: (c: Rgba, bg: Rgba, kit?: Rgba[]) => boolean): ProbeResult {
   const view = { width: document.documentElement.clientWidth, height: window.innerHeight };
   const named = (el: Element): string => {
     const id = el.id ? `#${el.id}` : "";
@@ -318,7 +318,10 @@ export function probe(colourOf: (css: string) => Rgba | undefined, sameGround: (
   const middle = [...slideLums].sort((a, b) => a - b)[Math.floor(slideLums.length / 2)] ?? 0;
   const odd = slideLums.flatMap((l, i) => (Math.abs(l - middle) > 0.35 ? [{ slide: i + 1, name: named(slides[i]!).slice(0, 60) }] : []));
   const oddSlides = slides.length >= 2 && odd.length * 2 < slides.length ? odd.slice(0, 4) : [];
-  const kosBg = colourOf(/--bg:([^;}]+)/.exec(document.getElementById("kos-tokens")?.textContent ?? "")?.[1]?.trim() ?? "");
+  const tokens = document.getElementById("kos-tokens")?.textContent ?? "";
+  const kosBg = colourOf(/--bg:([^;}]+)/.exec(tokens)?.[1]?.trim() ?? "");
+  // The kit's own surfaces are a ground of the page's own, however near --bg.
+  const kit = [/--panel:([^;}]+)/, /--panel-2:([^;}]+)/].map((re) => colourOf(re.exec(tokens)?.[1]?.trim() ?? "")).filter((c): c is Rgba => !!c);
   const bodyGround = behindOf(document.body);
   const rgb = (c: number[]): string => `rgb(${c.slice(0, 3).map(Math.round).join(", ")})`;
 
@@ -340,7 +343,7 @@ export function probe(colourOf: (css: string) => Rgba | undefined, sameGround: (
     clipped,
     overlaps,
     // Near enough to read as KOS's is KOS's: the same rule the bridge marks an own ground by.
-    ground: { kos: kosBg ? rgb(kosBg) : "", body: bodyGround ? rgb(bodyGround) : "", same: !kosBg || !bodyGround || sameGround(kosBg, [bodyGround[0], bodyGround[1], bodyGround[2], 1]) },
+    ground: { kos: kosBg ? rgb(kosBg) : "", body: bodyGround ? rgb(bodyGround) : "", same: !kosBg || !bodyGround || sameGround([bodyGround[0], bodyGround[1], bodyGround[2], 1], kosBg, kit) },
     // The outermost of each: a slide inside a dark stage is one finding.
     inverted: inverted.filter((e, i) => !inverted.some((o, j) => j < i && e.name !== o.name && o.width >= e.width && o.height >= e.height)).slice(0, 4),
     wrappers: wrappers.slice(0, 12),
