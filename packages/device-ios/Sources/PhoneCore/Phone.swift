@@ -213,13 +213,18 @@ public final class Phone: ObservableObject {
       problem = (error as? DeviceError)?.message ?? error.localizedDescription
     }
     paired = nil
+    chat.paired = false
+    leave()
+  }
+
+  /// Nothing of the KOS this phone was with stays: its theme, its face, its chat and its glance.
+  private func leave() {
     theme = nil
     preferences.set(nil, forKey: Keys.theme)
     preferences.set(nil, forKey: Keys.face)
     reader.stop()
     voice.cancel()
     chat.reset()
-    chat.paired = false
     chat.link = nil
     chat.face = .kos
     glance.reset()
@@ -230,6 +235,7 @@ public final class Phone: ObservableObject {
 
   private func wire() {
     pairing.paired = { [weak self] pairing in self?.keep(pairing) }
+    pairing.current = { [weak self] in self?.paired?.address }
     chat.send = { [weak self] text, _ in self?.say(text) }
     // Decided in the chat or in the glance, by its id either way; the other drops it too.
     chat.decide = { [weak self] id, approved, remember in
@@ -262,12 +268,24 @@ public final class Phone: ObservableObject {
     }
   }
 
+  /// A pairing made, kept in place of any other: the KOS it replaces is told to forget this phone, and none
+  /// of what it said is heard after.
   private func keep(_ pairing: Pairing) {
     do {
       try vault.save([pairing])
     } catch {
       problem = (error as? DeviceError)?.message ?? error.localizedDescription
       return
+    }
+    if let replaced = line {
+      line = nil
+      replaced.onStatus = nil
+      replaced.onCall = nil
+      replaced.onRemoved = nil
+      replaced.onFace = nil
+      replaced.onTheme = nil
+      replaced.unpair {}
+      leave()
     }
     problem = nil
     paired = pairing

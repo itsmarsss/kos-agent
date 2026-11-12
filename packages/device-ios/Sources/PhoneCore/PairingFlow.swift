@@ -5,24 +5,36 @@ import Foundation
 /// Pairing with a KOS, the way KOS for Mac does (a code and a key), over the
 /// home Wi-Fi: KOS's listener there shows a certificate KOS made itself, so
 /// the phone holds KOS to it by its pin. A pairing link carries the pin; an
-/// address and a code typed by hand are checked first, the owner comparing
-/// the certificate's words with the ones KOS shows before the code is sent.
+/// address and a code typed by hand are checked first. Either way the owner
+/// compares the certificate's words with the ones KOS shows before the code
+/// is sent, and a link, which anything on the phone can open, never pairs
+/// without the owner saying so: while paired, it asks to replace the pairing
+/// first.
 @MainActor
 public final class PairingFlow: ObservableObject {
   public enum Step: Equatable, Sendable {
     case enter
+    /// A link while paired: the owner says whether this KOS takes the pairing's place.
+    case replace(Entered)
     /// Asking KOS for its certificate, before any code is sent.
     case checking
-    /// The owner compares these words with the ones KOS shows.
+    /// The owner compares these words with the ones KOS shows, or, for a KOS with no pin, says to pair with it.
     case confirm(Check)
     case pairing
   }
 
-  /// A KOS on the local network, its certificate seen and not yet trusted.
+  /// What was entered, read: the KOS to pair with, and whether a link said so rather than the owner's typing.
+  public struct Entered: Equatable, Sendable {
+    public let link: PairingLink
+    public let fromLink: Bool
+  }
+
+  /// A KOS to pair with, before the code goes: its certificate's pin and words when it is reached on the local
+  /// network, none for one a certificate authority vouches for.
   public struct Check: Equatable, Sendable {
     public let link: PairingLink
-    public let pin: String
-    public let words: String
+    public let pin: String?
+    public let words: String?
   }
 
   /// A pairing link, or KOS's address as Settings, Devices shows it.
@@ -35,6 +47,8 @@ public final class PairingFlow: ObservableObject {
 
   /// A pairing made: the app keeps it and dials.
   public var paired: (Pairing) -> Void = { _ in }
+  /// The address of the KOS this phone is paired with now, none before it is.
+  public var current: () -> String? = { nil }
 
   private let pairer: Pairer
 
@@ -50,27 +64,65 @@ public final class PairingFlow: ObservableObject {
     return (try? PairingLink.parse(typed)) != nil || (!typed.isEmpty && !code.trimmingCharacters(in: .whitespaces).isEmpty)
   }
 
-  /// A pairing link opened from elsewhere (the dashboard on this phone, a message): read as if pasted.
+  /// Between entering and pairing: a step the owner answers, or one waiting on KOS.
+  public var underway: Bool { step != .enter }
+
+  /// A pairing link opened from elsewhere (the dashboard on this phone, a message): read as if pasted, and
+  /// confirmed by the owner before anything is sent.
   public func open(_ url: URL) async {
-    guard url.scheme?.lowercased() == PairingLink.scheme else { return }
+    guard url.scheme?.lowercased() == PairingLink.scheme, step != .pairing else { return }
     step = .enter
     address = url.absoluteString
     code = ""
     await next()
   }
 
-  /// On from what was entered: a link with a pin pairs at once; a KOS on the local network shows its
-  /// certificate's words first; one a certificate authority vouches for pairs at once.
+  /// On from what was entered: while paired, the owner first says to replace the pairing; then the KOS is
+  /// confirmed, by its certificate's words when it has one.
   public func next() async {
     guard step == .enter else { return }
     error = nil
-    let link: PairingLink
+    let entered: Entered
     do {
-      link = try read()
+      entered = try read()
     } catch {
       return fail(error)
     }
-    if link.pin != nil || !link.address.isLocalNetwork { return await pair(link, pin: link.pin) }
+    if current() != nil {
+      step = .replace(entered)
+    } else {
+      await check(entered)
+    }
+  }
+
+  /// The owner said this KOS takes the pairing's place: on to its confirmation.
+  public func replace() async {
+    guard case .replace(let entered) = step else { return }
+    await check(entered)
+  }
+
+  /// The words matched, or the owner said to pair: the code goes to that certificate alone, and the pairing keeps its pin.
+  public func confirm() async {
+    guard case .confirm(let check) = step else { return }
+    await pair(check.link, pin: check.pin)
+  }
+
+  /// A link's pin is its words; a KOS on the local network shows its certificate first; one a certificate
+  /// authority vouches for is confirmed when a link named it, and paired at once when the owner typed it.
+  private func check(_ entered: Entered) async {
+    let link = entered.link
+    if let pin = link.pin {
+      step = .confirm(Check(link: link, pin: pin, words: CertificatePin.words(pin) ?? pin))
+      return
+    }
+    guard link.address.isLocalNetwork else {
+      if entered.fromLink {
+        step = .confirm(Check(link: link, pin: nil, words: nil))
+      } else {
+        await pair(link, pin: nil)
+      }
+      return
+    }
     step = .checking
     do {
       let pin = try await pairer.probe(link.address)
@@ -79,12 +131,6 @@ public final class PairingFlow: ObservableObject {
     } catch {
       fail(error)
     }
-  }
-
-  /// The words matched: the code goes to that certificate alone, and the pairing keeps its pin.
-  public func confirm() async {
-    guard case .confirm(let check) = step else { return }
-    await pair(check.link, pin: check.pin)
   }
 
   /// Something to say over the pairing screen: why the phone is back on it.
@@ -96,6 +142,14 @@ public final class PairingFlow: ObservableObject {
   /// Back to what was entered: the words did not match, or the owner thought again.
   public func back() {
     step = .enter
+  }
+
+  /// Put away: nothing entered or said stays for the next time.
+  public func dismiss() {
+    step = .enter
+    address = ""
+    code = ""
+    error = nil
   }
 
   private func pair(_ link: PairingLink, pin: String?) async {
@@ -119,9 +173,9 @@ public final class PairingFlow: ObservableObject {
 
   /// The pairing link pasted, or the address and code. KOS on the Wi-Fi speaks only https, so an http
   /// address there is read as the https one rather than refused.
-  private func read() throws -> PairingLink {
+  private func read() throws -> Entered {
     let typed = address.trimmingCharacters(in: .whitespacesAndNewlines)
-    if let link = try PairingLink.parse(typed) { return link }
+    if let link = try PairingLink.parse(typed) { return Entered(link: link, fromLink: true) }
     guard !typed.isEmpty else { throw DeviceError.badRequest("Paste the pairing link, or type KOS's address.") }
     guard !code.trimmingCharacters(in: .whitespaces).isEmpty else {
       throw DeviceError.badRequest("Type the code KOS shows under Settings, Devices, Add a device.")
@@ -130,7 +184,7 @@ public final class PairingFlow: ObservableObject {
     if text.lowercased().hasPrefix("http://"), let local = try? KOSAddress("https://" + text.dropFirst(7)), local.isLocalNetwork {
       text = local.base.absoluteString
     }
-    return try PairingLink(address: KOSAddress(text), code: code)
+    return Entered(link: try PairingLink(address: KOSAddress(text), code: code), fromLink: false)
   }
 }
 

@@ -104,6 +104,19 @@ struct RenderTests {
     try render("pairing-words") { PairingScreen(flow: flow, problem: nil) }
   }
 
+  @Test func pairingFromALinkComparesTheWordsToo() async throws {
+    let flow = PairingFlow(pairer: StandInPairer())
+    await flow.open(URL(string: "kos-device://pair?url=https://192.168.1.20:4319&code=K7QX-M2PA&pin=5M0IYxHO9_X0el-UCBYbsqpoA5nBtVocc3d18qMjq2I")!)
+    try render("pairing-link", only: ["390"]) { PairingScreen(flow: flow, problem: nil) }
+  }
+
+  @Test func aLinkWhilePairedAsksToReplace() async throws {
+    let flow = PairingFlow(pairer: StandInPairer())
+    flow.current = { "192.168.1.20:4319" }
+    await flow.open(URL(string: "kos-device://pair?url=https://192.168.1.31:4319&code=K7QX-M2PA&pin=5M0IYxHO9_X0el-UCBYbsqpoA5nBtVocc3d18qMjq2I")!)
+    try render("pairing-replace") { PairingScreen(flow: flow, problem: nil) }
+  }
+
   @Test func emptyChat() throws {
     let phone = Phone.preview()
     online(phone)

@@ -23,6 +23,7 @@ struct PhoneTests {
     rig.phone.start()
     rig.phone.pairing.address = "kos-device://pair?url=https://192.168.1.20:4319&code=K7QX-M2PA&pin=\(Pins.kos)"
     await rig.phone.pairing.next()
+    await rig.phone.pairing.confirm()
     #expect(try rig.vault.load().count == 1)
     #expect(rig.line.started?.pin == Pins.kos)
     #expect(rig.line.state() == .phone)
@@ -183,6 +184,25 @@ struct PhoneTests {
     #expect(rig.phone.paired == nil)
     #expect(!rig.phone.chat.paired)
     #expect(rig.phone.chat.lines.isEmpty)
+  }
+
+  @Test func aLinkOpenedWhilePairedReplacesThePairingOnlyOnceTheOwnerSaysSo() async throws {
+    let rig = try await Rig.online()
+    let old = rig.line
+    await rig.phone.pairing.open(URL(string: "kos-device://pair?url=https://192.168.1.31:4319&code=K7QX-M2PA&pin=\(Pins.kos)")!)
+    // Asked, nothing sent, the pairing as it was.
+    guard case .replace = rig.phone.pairing.step else { Issue.record("not asking to replace"); return }
+    #expect(rig.pairer.pairs.isEmpty)
+    #expect(rig.phone.paired == Rig.pairing)
+    await rig.phone.pairing.replace()
+    await rig.phone.pairing.confirm()
+    // The KOS it replaced is told to forget this phone, and is heard no more.
+    #expect(old.unpaired)
+    #expect(old.onRemoved == nil)
+    #expect(rig.phone.paired?.address == "https://192.168.1.31:4319")
+    #expect(try rig.vault.load().map(\.address) == ["https://192.168.1.31:4319"])
+    #expect(rig.lines.made.count == 2)
+    #expect(rig.line.started?.address == "https://192.168.1.31:4319")
   }
 
   @Test func aGlancesAskIsDecidedFromThePhoneAndGoesFromBothPlaces() async throws {

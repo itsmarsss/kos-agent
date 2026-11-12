@@ -3,8 +3,9 @@ import PhoneCore
 import SwiftUI
 
 /// Pairing with a KOS on the home Wi-Fi: the link KOS shows, or its address
-/// and code; then, for an address typed by hand, the certificate's words to
-/// compare with the dashboard's before the code goes.
+/// and code; while paired, whether to replace the pairing; then the
+/// certificate's words to compare with the dashboard's, or for a KOS with no
+/// pin its address to agree to, before the code goes.
 struct PairingScreen: View {
   @ObservedObject var flow: PairingFlow
   let problem: String?
@@ -24,6 +25,7 @@ struct PairingScreen: View {
         .padding(.top, 32)
 
         switch flow.step {
+        case .replace(let entered): replace(entered)
         case .confirm(let check): confirm(check)
         default: enter
         }
@@ -80,20 +82,65 @@ struct PairingScreen: View {
     }
   }
 
+  private func replace(_ entered: PairingFlow.Entered) -> some View {
+    VStack(alignment: .leading, spacing: 16) {
+      KOSSection("Replace the pairing") {
+        Card(tone: Theme.warn, wash: true, padding: 16, spacing: 12) {
+          Text("Replace the pairing with \(entered.link.address.display)?")
+            .font(.kos(.body, .semibold))
+            .fixedSize(horizontal: false, vertical: true)
+          Text("This iPhone talks to one KOS. Pairing with this one forgets the one it is paired with\(flow.current().map { " at \($0)" } ?? ""), and tells it to forget this iPhone.")
+            .font(.kos(.detail))
+            .foregroundStyle(Theme.muted)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      HStack(spacing: 10) {
+        Button("Cancel") { flow.dismiss() }.buttonStyle(KOSButtonStyle(.secondary, large: true))
+        Button("Replace") { Task { await flow.replace() } }.buttonStyle(KOSButtonStyle(.danger, large: true))
+      }
+    }
+  }
+
+  @ViewBuilder
   private func confirm(_ check: PairingFlow.Check) -> some View {
+    if let words = check.words {
+      compare(check, words: words)
+    } else {
+      VStack(alignment: .leading, spacing: 16) {
+        KOSSection("Pair with this KOS") {
+          Card(padding: 16, spacing: 12) {
+            Text("Pair with KOS at \(check.link.address.display)?")
+              .font(.kos(.body, .semibold))
+              .fixedSize(horizontal: false, vertical: true)
+            Text("Pair only with a KOS you opened this link from.")
+              .font(.kos(.detail))
+              .foregroundStyle(Theme.muted)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+        }
+        HStack(spacing: 10) {
+          Button("Cancel") { flow.back() }.buttonStyle(KOSButtonStyle(.secondary, large: true))
+          Button("Pair") { Task { await flow.confirm() } }.buttonStyle(KOSButtonStyle(.primary, large: true))
+        }
+      }
+    }
+  }
+
+  private func compare(_ check: PairingFlow.Check, words: String) -> some View {
     VStack(alignment: .leading, spacing: 16) {
       KOSSection("Check the words") {
         Card(padding: 16, spacing: 12) {
           Text("KOS at \(check.link.address.display) shows this certificate:")
             .font(.kos(.dense))
             .fixedSize(horizontal: false, vertical: true)
-          Text(check.words)
+          Text(words)
             .font(.kos(.title, .semibold, design: .monospaced))
             .tracking(1.5)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
             .background(Theme.bg, in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
-            .accessibilityLabel("Certificate words: \(check.words.map { String($0) }.joined(separator: " "))")
+            .accessibilityLabel("Certificate words: \(words.map { String($0) }.joined(separator: " "))")
           Text("Settings, Devices shows its words under Phones on this Wi-Fi. If they differ, something else is answering: do not pair.")
             .font(.kos(.detail))
             .foregroundStyle(Theme.muted)

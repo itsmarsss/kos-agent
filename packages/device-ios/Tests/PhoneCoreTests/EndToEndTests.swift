@@ -49,6 +49,10 @@ struct EndToEndTests {
     phone.start()
     phone.pairing.address = env["KOS_E2E_LINK"]!
     await phone.pairing.next()
+    // A link is confirmed before its code goes: the words are the link's pin, as the dashboard shows them.
+    guard case .confirm(let check) = phone.pairing.step else { Issue.record("not asking to compare"); return }
+    #expect(check.words == CertificatePin.words(link.pin!))
+    await phone.pairing.confirm()
     #expect(phone.pairing.error == nil, "\(phone.pairing.error ?? "")")
     let paired = try #require(phone.paired)
     #expect(paired.pin == link.pin)
