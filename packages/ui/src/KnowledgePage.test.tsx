@@ -106,6 +106,23 @@ describe("the claims list", () => {
     expect((screen.getByDisplayValue("1200 a month") as HTMLTextAreaElement).tagName).toBe("TEXTAREA");
   });
 
+  it("is one Tab stop a row, its actions on the arrow keys", () => {
+    render(<KnowledgePage facts={[fact()]} tags={[]} onChanged={() => undefined} />);
+    const open = document.querySelector<HTMLButtonElement>(".know-open")!;
+    const pin = screen.getByRole("button", { name: "Pin monthly_budget" });
+    const edit = screen.getByRole("button", { name: "Edit monthly_budget" });
+    const forget = screen.getByRole("button", { name: "Forget monthly_budget" });
+    expect([pin, edit, forget].map((b) => b.tabIndex)).toEqual([-1, -1, -1]);
+    open.focus();
+    fireEvent.keyDown(open, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(pin);
+    fireEvent.keyDown(pin, { key: "ArrowRight" });
+    fireEvent.keyDown(edit, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(forget);
+    fireEvent.keyDown(forget, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(edit);
+  });
+
   it("says what memory is when it holds nothing", () => {
     render(<KnowledgePage facts={[]} tags={[]} onChanged={() => undefined} />);
     expect(screen.getByText("Nothing remembered yet.")).toBeTruthy();

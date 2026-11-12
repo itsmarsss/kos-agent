@@ -94,6 +94,8 @@ export interface ConfirmButtonProps {
   role?: string;
   /** A symbol in place of the label, which then names the button: a row's quiet delete. */
   icon?: ReactNode;
+  /** -1 for a button reached by the arrow keys from its row rather than by Tab. */
+  tabIndex?: number;
 }
 
 /**
@@ -102,14 +104,14 @@ export interface ConfirmButtonProps {
  * dialog in the middle of the page, and not a button that changes its
  * words on the first press. Every delete on the site uses this.
  */
-export function ConfirmButton({ label, text, confirmLabel, onConfirm, className = "btn btn--sm btn--danger", disabled = false, title, role, icon }: ConfirmButtonProps): ReactElement {
+export function ConfirmButton({ label, text, confirmLabel, onConfirm, className = "btn btn--sm btn--danger", disabled = false, title, role, icon, tabIndex }: ConfirmButtonProps): ReactElement {
   // Measured from the button: inside a menu the wrap is `display: contents`
   // and has no box, which put the window at the top left of the page.
   const button = useRef<HTMLButtonElement>(null);
   const { at, open, toggle, close, wrap, pop } = useAnchoredPop({ width: 280, height: 96 }, button);
   return (
     <div className="confirm-wrap" ref={wrap}>
-      <button ref={button} type="button" role={role} className={className} disabled={disabled} title={title ?? (icon ? label : undefined)} aria-label={icon ? label : undefined} aria-expanded={open} onClick={toggle}>
+      <button ref={button} type="button" role={role} className={className} disabled={disabled} title={title ?? (icon ? label : undefined)} aria-label={icon ? label : undefined} aria-expanded={open} tabIndex={tabIndex} onClick={toggle}>
         {icon ?? label}
       </button>
       {createPortal(

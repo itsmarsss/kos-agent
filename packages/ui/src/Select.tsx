@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -52,6 +53,7 @@ export function Select({
   className?: string;
 }): ReactElement {
   const [open, setOpen] = useState(false);
+  const valueId = useId();
   const [cursor, setCursor] = useState(0);
   const [at, setAt] = useState<Placement | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -105,6 +107,9 @@ export function Select({
         ref={button}
         className="sel-button"
         aria-label={label}
+        // What it holds, said after its name: the label alone hid the choice from a screen reader.
+        aria-describedby={valueId}
+        aria-haspopup="listbox"
         aria-expanded={open}
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
@@ -115,7 +120,7 @@ export function Select({
           }
         }}
       >
-        <span className="sel-value">
+        <span className="sel-value" id={valueId}>
           {current?.icon && <span className="sel-icon" aria-hidden="true">{current.icon}</span>}
           {current?.label ?? value}
         </span>

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactElement } from "react";
+import { useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
 
 import { Chips, CloseIcon, Count, EditIcon, Empty, IconButton, PinIcon, SearchIcon, Tag, UnpinIcon } from "@kos/kit";
 
@@ -106,6 +106,23 @@ type KindFilter = string;
 
 const KIND_WORDS: Record<string, string> = { fact: "Facts", preference: "Preferences", decision: "Decisions" };
 const FORGET_TEXT = "KOS stops knowing this in every chat. It cannot be undone.";
+
+/**
+ * A claim's row is one stop for Tab: its words open it, and the arrow keys
+ * walk on to Pin, Edit and Forget and back, so a list of forty claims is
+ * forty stops rather than a hundred and sixty.
+ */
+function roveRow(e: KeyboardEvent<HTMLLIElement>): void {
+  if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+  const stops = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("button")];
+  const at = stops.indexOf(document.activeElement as HTMLButtonElement);
+  if (at < 0) return;
+  const next = stops[Math.max(0, Math.min(stops.length - 1, at + (e.key === "ArrowRight" ? 1 : -1)))];
+  if (next && next !== stops[at]) {
+    e.preventDefault();
+    next.focus();
+  }
+}
 
 function splitTags(text: string): string[] {
   return text
@@ -291,8 +308,8 @@ export function KnowledgePage({ facts, tags, projectNames = NO_NAMES, onChanged 
             </h2>
             <ul className="know-list">
               {shown.map((f) => (
-                <li key={f.key} className={`know-row${f.pinned ? " is-pinned" : ""}`}>
-                  <button type="button" className="know-open" onClick={() => setOpen(f)}>
+                <li key={f.key} className={`know-row${f.pinned ? " is-pinned" : ""}`} onKeyDown={roveRow}>
+                  <button type="button" className="know-open" aria-keyshortcuts="ArrowRight" onClick={() => setOpen(f)}>
                     <span className="know-text">
                       {f.pinned && (
                         <span className="know-pin">
@@ -310,15 +327,16 @@ export function KnowledgePage({ facts, tags, projectNames = NO_NAMES, onChanged 
                     </span>
                   </button>
                   <span className="know-acts">
-                    <IconButton label={f.pinned ? `Unpin ${f.key}` : `Pin ${f.key}`} title={f.pinned ? "Unpin" : "Pin to every conversation"} onClick={() => togglePin(f)}>
+                    <IconButton tabIndex={-1} label={f.pinned ? `Unpin ${f.key}` : `Pin ${f.key}`} title={f.pinned ? "Unpin" : "Pin to every conversation"} onClick={() => togglePin(f)}>
                       {f.pinned ? <UnpinIcon size={14} title="" /> : <PinIcon size={14} title="" />}
                     </IconButton>
-                    <IconButton label={`Edit ${f.key}`} title="Edit" onClick={() => startEdit(f)}>
+                    <IconButton tabIndex={-1} label={`Edit ${f.key}`} title="Edit" onClick={() => startEdit(f)}>
                       <EditIcon size={14} title="" />
                     </IconButton>
                     <ConfirmButton
                       label={`Forget ${f.key}`}
                       title="Forget"
+                      tabIndex={-1}
                       icon={<CloseIcon size={14} title="" />}
                       className="icon-btn icon-btn--danger"
                       text={FORGET_TEXT}

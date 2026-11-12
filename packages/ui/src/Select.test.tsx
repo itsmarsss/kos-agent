@@ -16,6 +16,13 @@ const OPTIONS = [
  * itself and leaves the drawer, and gives the focus back to its button.
  */
 describe("the select", () => {
+  it("says what it holds as well as what it asks, and that it opens a list", () => {
+    render(<Select value="gpt-5.4-mini" options={OPTIONS} onChange={() => undefined} label="Model" />);
+    const button = screen.getByRole("button", { name: "Model" });
+    expect(button.getAttribute("aria-haspopup")).toBe("listbox");
+    expect(document.getElementById(button.getAttribute("aria-describedby")!)?.textContent).toBe("GPT-5.4 mini");
+  });
+
   it("takes its own Escape, so the drawer it sits in stays open", () => {
     const drawerEscape = vi.fn();
     const heard = (e: KeyboardEvent): void => (e.key === "Escape" ? drawerEscape() : undefined);

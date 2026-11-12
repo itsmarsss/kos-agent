@@ -46,7 +46,7 @@ export function MemoryPage({
     const m = /[?&]tab=([a-z]+)/.exec(window.location.hash);
     return (TABS.find((t) => t.id === m?.[1])?.id ?? "claims");
   });
-  const tabsRef = useEdgeFade<HTMLElement>();
+  const tabsRef = useEdgeFade<HTMLDivElement>();
   const [pendingCount, setPendingCount] = useState(0);
   useEffect(() => {
     void api.memoryReview().then((r) => setPendingCount(r.pending.length)).catch(() => undefined);
@@ -54,19 +54,41 @@ export function MemoryPage({
   return (
     <div className="mem">
       <PageHead title="Memory" subtitle={TABS.find((t) => t.id === tab)!.blurb} />
-      <nav className="mem-tabs" aria-label="Memory" ref={tabsRef}>
-        <Chips
-          options={TABS.map((t) => [t.id, <>{t.label}{t.id === "decisions" && pendingCount > 0 && <Pill tone="warn">{pendingCount}</Pill>}</>] as const)}
-          selected={tab}
-          onChoose={setTab}
-        />
-      </nav>
+      <div className="mem-tabs" role="tablist" aria-label="Memory" ref={tabsRef} onKeyDown={(e) => {
+        // The arrows move between tabs, Home and End to the ends; Tab goes on to what the tab shows.
+        const at = TABS.findIndex((t) => t.id === tab);
+        const to = e.key === "ArrowRight" ? at + 1 : e.key === "ArrowLeft" ? at - 1 : e.key === "Home" ? 0 : e.key === "End" ? TABS.length - 1 : null;
+        if (to === null) return;
+        e.preventDefault();
+        const next = TABS[(to + TABS.length) % TABS.length]!;
+        setTab(next.id);
+        e.currentTarget.querySelector<HTMLElement>(`#mem-tab-${next.id}`)?.focus();
+      }}>
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            id={`mem-tab-${t.id}`}
+            type="button"
+            role="tab"
+            className="mem-tab"
+            aria-selected={t.id === tab}
+            aria-controls="mem-panel"
+            tabIndex={t.id === tab ? 0 : -1}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+            {t.id === "decisions" && pendingCount > 0 && <Pill tone="warn">{pendingCount}</Pill>}
+          </button>
+        ))}
+      </div>
+      <div id="mem-panel" role="tabpanel" aria-labelledby={`mem-tab-${tab}`} className="mem-panel">
       {tab === "claims" && <KnowledgePage facts={facts} tags={tags} {...(projectNames ? { projectNames } : {})} onChanged={onChanged} />}
       {tab === "decisions" && <DecisionsTab onChanged={onChanged} />}
       {tab === "pages" && <PagesTab />}
       {tab === "log" && <LogTab titles={titles} />}
       {tab === "jobs" && <JobsTab />}
       {tab === "callers" && <CallersTab />}
+      </div>
     </div>
   );
 }
