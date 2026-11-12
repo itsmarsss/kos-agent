@@ -780,6 +780,15 @@ describe("a doc's saves, which are the owner's", () => {
     await press();
     ask(38);
     expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 38, error: expect.stringMatching(/being edited/) as unknown }), "*");
+    // Discard ends it at once, though the page goes on saying it edits.
+    act(() => handle.current!.edit("edit"));
+    await press();
+    ask(39);
+    await waitFor(() => expect(document.querySelector(".mention-picker")).not.toBeNull());
+    act(() => handle.current!.edit("discard"));
+    await press();
+    ask(40);
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 40, error: expect.stringMatching(/being edited/) as unknown }), "*");
   });
 
   it("closes the picker with no pick when the window loses focus, as a press back in the doc does", async () => {

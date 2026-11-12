@@ -673,8 +673,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       const touched = gestures.current.at > gestures.current.since;
       sent.current = { action, at: performance.now(), ...(action === "done" && touched ? { touched } : {}) };
       if (action === "edit") editing.current = true;
-      // Before the doc began editing, Done or Discard calls the Edit off; once it has, the doc's own word ends it.
-      else if ((action === "done" || action === "discard") && !framed.current) editing.current = false;
+      // Discard always ends it, as Done does before the doc began; a Done after, whose save may be refused, waits on the doc's word.
+      else if (action === "discard" || (action === "done" && !framed.current)) editing.current = false;
       pageWindow()?.postMessage({ __kos: "edit-do", action }, "*");
     },
     [pageWindow],
