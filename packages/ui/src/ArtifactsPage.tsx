@@ -303,7 +303,7 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
   );
 
   return (
-    <div className="list-page artifacts">
+    <div className="artifacts">
       <PageHead
         title={inTrash ? "Trash" : "Artifacts"}
         {...(source ? { count: source.length } : {})}
