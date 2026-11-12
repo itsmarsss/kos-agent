@@ -452,6 +452,9 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
       ["/own-hex", `<style>body{background:#f2efe6}</style><h1>Its own</h1>${report()}`, OWN],
       // KOS's own ground written another way is still KOS's.
       ["/kos-mixed", `<style>body{background:color-mix(in srgb, var(--bg) 100%, transparent)}</style><h1>Mixed</h1>${report()}`, KOS],
+      // A few steps off KOS's ground (the live cram sheet's paper) reads as KOS's: painted it, with no gutter; one that fades keeps its colour, still with none.
+      ["/near-paper", `<style>body{background:#15161a}</style><h1>Near</h1>${report()}`, { ground: "near", pad: "0px" }],
+      ["/near-fading", `<style>body{background:#15161a;transition:background-color .25s}</style><h1>Near, fading</h1>${report()}`, KOS],
       ["/own-oklch", `<style>body{background:oklch(0.95 0.02 80)}</style><h1>Oklch</h1>${report()}`, OWN],
       ["/own-hsl", `<style>body{background:hsl(40 30% 92%)}</style><h1>Hsl</h1>${report()}`, OWN],
       ["/own-gradient", `<style>body{background:linear-gradient(#0c0e12, #1a2030)}</style><h1>Gradient</h1>${report()}`, OWN],

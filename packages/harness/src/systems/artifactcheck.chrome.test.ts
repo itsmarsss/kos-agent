@@ -116,6 +116,8 @@ const PLANTED: Record<string, { html: string; expect: Finding["kind"] }> = {
   // Colours a browser computes outside rgb(): read as they draw, not as white or black.
   "oklch ground": { html: `<style>body{background:oklch(0.62 0.12 40)}</style><h1>Oklch</h1><p>A slab of its own.</p>`, expect: "ground" },
   "mixed kos ground": { html: `<style>body{background:color-mix(in srgb, var(--bg) 100%, transparent)}</style><h1>Mixed</h1><p>KOS's ground, mixed.</p>`, expect: "none" as never },
+  // A few steps off KOS's ground reads as it, as a cram sheet's near-copy of --bg does.
+  "near kos ground": { html: `<style>body{background:color-mix(in srgb, var(--bg) 97%, var(--text))}</style><h1>Near</h1><p>KOS's ground, nearly.</p>`, expect: "none" as never },
 };
 
 const chrome = findChrome(undefined);

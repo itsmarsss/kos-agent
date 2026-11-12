@@ -10,7 +10,7 @@
  * padding and the page's edges line up with the dashboard's head. Full
  * screen (data-present), or on a ground of its own (data-ground="own", both
  * marked by the bridge), the page takes its own, so text never meets the
- * edge of its colour.
+ * edge of its colour; one nearly KOS's ("near") is painted KOS's instead.
  */
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -22,6 +22,8 @@ body {
   color: var(--text);
   font: var(--text-md, 14px) / 1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 }
+/* A ground a few steps off KOS's (the bridge's "near") is KOS's: the same colour, so no slab shows. */
+html[data-ground="near"], html[data-ground="near"] body { background-color: var(--bg) !important; }
 :where(html[data-present], html[data-ground="own"]) body { padding: 20px; }
 @media (max-width: 560px) { :where(html[data-present], html[data-ground="own"]) body { padding: 16px; } }
 h1 { font-size: var(--text-xl); font-weight: 600; letter-spacing: -0.02em; margin: 0 0 4px; }

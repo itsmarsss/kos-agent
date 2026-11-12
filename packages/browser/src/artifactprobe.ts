@@ -42,7 +42,7 @@ export interface ProbeResult {
   /** Two runs of text drawn over each other. */
   overlaps: { a: string; b: string }[];
   /** KOS's own ground for the theme, from the tokens the shell set, and what shows behind the body's text. */
-  ground: { kos: string; body: string };
+  ground: { kos: string; body: string; same: boolean };
   /** Large areas painted in the other theme's brightness: a dark slab on a light page, a light one on a dark page. */
   inverted: { name: string; width: number; height: number }[];
   /** Wide boxes with a border all round, each wrapping a section's content (a table, a list, a chart, a form, another box). */
@@ -59,11 +59,11 @@ import type { Rgba } from "@kos/shared";
 
 /**
  * The function serialised into the frame; it must not close over anything.
- * It is handed @kos/shared's colourOf, serialised beside it, so every colour
- * a browser computes (oklch, color-mix, hsl) is read the same way the bridge
- * reads a page's ground.
+ * It is handed @kos/shared's colourOf and sameGround, serialised beside it,
+ * so every colour a browser computes (oklch, color-mix, hsl) is read, and a
+ * ground matched, the same way the bridge reads a page's ground.
  */
-export function probe(colourOf: (css: string) => Rgba | undefined): ProbeResult {
+export function probe(colourOf: (css: string) => Rgba | undefined, sameGround: (a: Rgba, b: Rgba) => boolean): ProbeResult {
   const view = { width: document.documentElement.clientWidth, height: window.innerHeight };
   const named = (el: Element): string => {
     const id = el.id ? `#${el.id}` : "";
@@ -339,7 +339,8 @@ export function probe(colourOf: (css: string) => Rgba | undefined): ProbeResult 
     formulaErrors,
     clipped,
     overlaps,
-    ground: { kos: kosBg ? rgb(kosBg) : "", body: bodyGround ? rgb(bodyGround) : "" },
+    // Near enough to read as KOS's is KOS's: the same rule the bridge marks an own ground by.
+    ground: { kos: kosBg ? rgb(kosBg) : "", body: bodyGround ? rgb(bodyGround) : "", same: !kosBg || !bodyGround || sameGround(kosBg, [bodyGround[0], bodyGround[1], bodyGround[2], 1]) },
     // The outermost of each: a slide inside a dark stage is one finding.
     inverted: inverted.filter((e, i) => !inverted.some((o, j) => j < i && e.name !== o.name && o.width >= e.width && o.height >= e.height)).slice(0, 4),
     wrappers: wrappers.slice(0, 12),

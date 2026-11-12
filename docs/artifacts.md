@@ -809,7 +809,11 @@ Before the page's own markup the frame gets:
   with the dashboard's head; full screen (`data-present`), or when the page
   paints a ground of its own (the bridge marks `data-ground="own"` when the
   body's background is not KOS's `--bg`), it takes its own, so its text
-  never meets the edge of its colour. Each runtime starts from the same ground: a doc's text on it in a
+  never meets the edge of its colour. A ground within a Lab distance of 3.5
+  of `--bg` (`sameGround` in `colourof.ts`, the bridge's and the check's one
+  rule) reads as KOS's to a person, so it is KOS's: marked `near` and
+  painted `--bg`, with no slab or gutter, unless it fades, when it keeps its
+  colour. Each runtime starts from the same ground: a doc's text on it in a
   reading serif under headings in KOS's face, a deck's slides as KOS's panel
   with a 1 px line (the title slide too, never inverted), a sheet's grid on
   KOS's panel;
