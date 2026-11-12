@@ -87,23 +87,40 @@ struct ArtifactFrameTests {
     #expect(cannot.isEmpty)
   }
 
-  @Test func aSheetsRowTappedGoesUpHeldToTheRuntimesCaps() async throws {
-    let page = """
-      <!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'"></head><body><script>
-      var fields=[];for(var i=0;i<250;i++)fields.push({label:"Column "+i,value:i===1?"x".repeat(5000):String(i),numeric:i%2===0});
-      top.postMessage({__kos:"row",sheet:"Costs",title:"Cedar boards",fields:fields},"*");
-      top.postMessage({__kos:"row",title:7,fields:"no"},"*");
-      </script></body></html>
-      """
+  /// A page that tells a row up, unasked, then once a press is stamped on its gesture port, as the bridge stamps one.
+  private static func rowPage(pressed: Bool) -> String {
+    """
+    <!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'"></head><body><script>
+    var fields=[];for(var i=0;i<250;i++)fields.push({label:"Column "+i,value:i===1?"x".repeat(5000):String(i),numeric:i%2===0});
+    var g=new MessageChannel();top.postMessage({__kos:"gestures"},"*",[g.port2]);
+    top.postMessage({__kos:"row",sheet:"Unasked",title:"Unasked",fields:[]},"*");
+    setTimeout(function(){\(pressed ? "g.port1.postMessage(0);" : "")setTimeout(function(){
+    top.postMessage({__kos:"row",sheet:"Costs",title:"Cedar boards",fields:fields},"*");
+    top.postMessage({__kos:"row",title:7,fields:"no"},"*")},50)},200);
+    </script></body></html>
+    """
+  }
+
+  private func rows(kind: String, pressed: Bool) async throws -> [ArtifactShelf.Row] {
     var rows: [ArtifactShelf.Row] = []
-    let artifact = ArtifactShelf.Artifact(id: "costs", title: "Costs", kind: "sheet", document: Self.wrapper(page), themes: .init(light: "", dark: ""), dark: false)
+    let artifact = ArtifactShelf.Artifact(id: "costs", title: "Costs", kind: kind, document: Self.wrapper(Self.rowPage(pressed: pressed)), themes: .init(light: "", dark: ""), dark: false)
     let frame = ArtifactFrame(artifact: artifact, dark: false, read: { _, _, _ in }, open: { _ in }, row: { rows.append($0) }, cannot: { _ in }, deck: DeckRemote())
     let coordinator = ArtifactFrame.Coordinator(frame)
     let view = frame.makeView(coordinator)
     view.frame = CGRect(x: 0, y: 0, width: 390, height: 600)
     coordinator.load(into: view)
-    for _ in 0..<60 where rows.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
-    try await Task.sleep(for: .milliseconds(300))
+    for _ in 0..<40 where rows.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+    try await Task.sleep(for: .milliseconds(400))
+    return rows
+  }
+
+  @Test func aRowIsHeardOnlyFromASheetJustAfterThePress() async throws {
+    #expect(try await rows(kind: "sheet", pressed: false).isEmpty)
+    #expect(try await rows(kind: "doc", pressed: true).isEmpty)
+  }
+
+  @Test func aSheetsRowTappedGoesUpHeldToTheRuntimesCaps() async throws {
+    let rows = try await rows(kind: "sheet", pressed: true)
     let row = try #require(rows.first)
     #expect(rows.count == 1)
     #expect(row.sheet == "Costs" && row.title == "Cedar boards")

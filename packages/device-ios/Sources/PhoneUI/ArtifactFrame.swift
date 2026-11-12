@@ -15,7 +15,9 @@ import WebKit
 /// phone only shows. A deck is the deck runtime's own: upright, its slides
 /// read as a column; on its side, one slide at a time, held as the dashboard
 /// holds one, its controls the viewer's (DeckRemote). A sheet's row the owner
-/// taps is told up and drawn by the phone as a sheet of its own. Every navigation is
+/// taps is told up and drawn by the phone as a sheet of its own: from a
+/// sheet alone, and only just after the owner's press, as `open` is held, so
+/// no page raises a sheet of KOS's look by itself. Every navigation is
 /// refused and nothing opens outside the view: links leave no artifact here,
 /// as on the dashboard. A content rule list blocks every load but the
 /// document's own, under the policy; without it, the document is not shown.
@@ -51,7 +53,7 @@ struct ArtifactFrame {
     var p=page();if(!p||e.source!==p)return;
     if(m.__kos==="gestures"){if(port||!e.ports[0])return;port=e.ports[0];port.onmessage=function(){pressed=performance.now()};return}
     if(m.__kos==="error"){tell({error:String(m.message||"").slice(0,300)});return}
-    if(m.__kos==="row"){tell({row:{sheet:m.sheet,title:m.title,fields:m.fields}});return}
+    if(m.__kos==="row"){if(performance.now()-pressed<=\(pressMs))tell({row:{sheet:m.sheet,title:m.title,fields:m.fields}});return}
     if(m.__kos==="deck"){
     if(m.hosted!==true&&m.reading!==true)down({__kos:"deck-do",action:"host"});
     tell({deck:{index:Number(m.index)||0,count:Number(m.count)||0,reading:m.reading===true}});return}
@@ -144,7 +146,7 @@ struct ArtifactFrame {
         if let no = ArtifactFrame.openRefusal(kind: frame.artifact.kind, id: id) { return reply(call, .failure(.init(no))) }
         reply(call, .success(.object(["opened": .bool(true)])))
         frame.open(id)
-      } else if let tapped = body["row"] as? [String: Any] {
+      } else if let tapped = body["row"] as? [String: Any], frame.artifact.kind == "sheet" {
         if let row = ArtifactShelf.Row(sheet: tapped["sheet"], title: tapped["title"], fields: tapped["fields"]) { frame.row(row) }
       } else if let place = body["deck"] as? [String: Any], let index = place["index"] as? Int, let count = place["count"] as? Int {
         frame.deck.place = count > 0 ? DeckRemote.Place(index: min(max(index, 0), count - 1), count: count, reading: place["reading"] as? Bool ?? false) : nil
