@@ -50,9 +50,9 @@ export function StatusDot({ state, label }: { state: DotState; label: string }):
   return <span className={`status-dot status-dot--${state}`} role="img" aria-label={label} title={label} />;
 }
 
-/** How many there are, beside a title or a group's name: a small capsule in the accent (or the card's tint). */
-export function Count({ n }: { n: number }): ReactElement {
-  return <span className="count">{n}</span>;
+/** How many there are, beside a title or a group's name: a small capsule in the accent (or the card's tint). `more` says there are more than were counted ("500+"). */
+export function Count({ n, more = false }: { n: number; more?: boolean }): ReactElement {
+  return <span className="count">{more ? `${n}+` : n}</span>;
 }
 
 export interface CardProps {

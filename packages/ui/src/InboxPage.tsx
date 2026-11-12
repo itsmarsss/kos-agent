@@ -5,7 +5,7 @@ import { AskSteps, Count, Empty, Tag } from "@kos/kit";
 
 import { api, type DecidedAction, type FailingJob, type InboxData } from "./api.js";
 import { Decision } from "./Decision.js";
-import { InboxDecided } from "./InboxDecided.js";
+import { HISTORY_CAP, InboxDecided } from "./InboxDecided.js";
 import { MemoryDecision } from "./MemoryPage.js";
 import { PageHead } from "./PageHead.js";
 import { agoWords as ago } from "./schedulewords.js";
@@ -63,7 +63,7 @@ export function InboxPage({
   useEffect(() => {
     let cancelled = false;
     void api
-      .approvalHistory(500)
+      .approvalHistory(HISTORY_CAP)
       .then((rows) => {
         if (!cancelled) setDecided(rows);
       })
@@ -247,7 +247,7 @@ export function InboxPage({
         </section>
       )}
 
-      <InboxDecided rows={decided} {...(highlight !== undefined ? { highlight } : {})} onOpenChat={onOpenChat} />
+      <InboxDecided rows={decided} capped={decided.length >= HISTORY_CAP} {...(highlight !== undefined ? { highlight } : {})} onOpenChat={onOpenChat} />
     </div>
   );
 }

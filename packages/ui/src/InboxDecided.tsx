@@ -15,6 +15,8 @@ import { agoWords } from "./schedulewords.js";
  * quiet: the latest few, one line each, more a press away.
  */
 
+/** The most decided asks the server hands back at once; a full window means there are older ones. */
+export const HISTORY_CAP = 500;
 /** Rows shown before any "Show more". */
 export const DECIDED_FIRST = 5;
 /** Rows each "Show more" adds. */
@@ -46,10 +48,13 @@ function summaryOf(a: DecidedAction): string {
 
 export function InboxDecided({
   rows,
+  capped = false,
   highlight,
   onOpenChat,
 }: {
   rows: DecidedAction[];
+  /** The server had more than it sent: the count says so, and the list says only the latest are here. */
+  capped?: boolean;
   /** An approval a link pointed at: shown, opened and scrolled to. */
   highlight?: number;
   onOpenChat: (id: string) => void;
@@ -103,7 +108,7 @@ export function InboxDecided({
     <section className="inbox-group inbox-group--decided" aria-labelledby="inbox-decided-title">
       <div className="inbox-group-head">
         <h2 className="inbox-group-title" id="inbox-decided-title">
-          Decided <Count n={rows.length} />
+          Decided <Count n={rows.length} more={capped} />
         </h2>
         <div className="inbox-decided-tools">
           {rows.length > SEARCH_FROM && (
@@ -122,7 +127,7 @@ export function InboxDecided({
           <Chips
             small
             label="Show decided"
-            options={FILTERS.filter((f) => f.id === "all" || counts[f.id] > 0).map((f) => [f.id, <>{f.label} <Count n={counts[f.id]} /></>] as const)}
+            options={FILTERS.filter((f) => f.id === "all" || counts[f.id] > 0).map((f) => [f.id, <>{f.label} <Count n={counts[f.id]} more={capped} /></>] as const)}
             selected={filter}
             onChoose={(f) => {
               setFilter(f);
@@ -197,7 +202,7 @@ export function InboxDecided({
         </ul>
       )}
 
-      {(left > 0 || shown > DECIDED_FIRST) && (
+      {(left > 0 || shown > DECIDED_FIRST || capped) && (
         <div className="inbox-decided-more">
           {left > 0 && (
             <button type="button" className="btn btn--sm btn--ghost" onClick={() => setShown((n) => n + DECIDED_PAGE)}>
@@ -214,6 +219,7 @@ export function InboxDecided({
               Show fewer
             </button>
           )}
+          {capped && left === 0 && <span className="inbox-decided-cap">Only the latest {rows.length} are kept here.</span>}
         </div>
       )}
     </section>

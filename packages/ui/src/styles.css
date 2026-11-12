@@ -5859,7 +5859,8 @@ a.health {
 .inbox-decided-facts code { font-family: var(--mono); color: var(--muted); }
 .inbox-decided-id { color: var(--faint); }
 .inbox-decided-detail .inbox-said { margin: 0; color: var(--muted); font-size: var(--text-base); line-height: 1.5; }
-.inbox-decided-more { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.inbox-decided-more { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
+.inbox-decided-cap { padding: 0 0.5rem; color: var(--faint); font-size: var(--text-sm); }
 @media (max-width: 640px) {
   .inbox-decided-tools { width: 100%; }
   .inbox-decided-search { width: 100%; }

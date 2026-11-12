@@ -88,6 +88,16 @@ describe("the decided list", () => {
     expect(row.querySelector(".inbox-decided-line")!.getAttribute("aria-expanded")).toBe("true");
   });
 
+  it("says when the history is only the latest", () => {
+    const { unmount } = render(<InboxDecided rows={rows(30)} onOpenChat={() => {}} />);
+    expect(document.querySelector("#inbox-decided-title .count")!.textContent).toBe("30");
+    unmount();
+    render(<InboxDecided rows={rows(30)} capped onOpenChat={() => {}} />);
+    expect(document.querySelector("#inbox-decided-title .count")!.textContent).toBe("30+");
+    fireEvent.click(screen.getByRole("button", { name: "Show all 30" }));
+    expect(screen.getByText("Only the latest 30 are kept here.")).toBeTruthy();
+  });
+
   it("draws nothing when nothing was decided", () => {
     const { container } = render(<InboxDecided rows={[]} onOpenChat={() => {}} />);
     expect(container.textContent).toBe("");
