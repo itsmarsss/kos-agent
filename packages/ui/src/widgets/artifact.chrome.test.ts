@@ -858,14 +858,15 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     await sheetPage("/touch", `<h1>October</h1>${sheetData(paid())}`, { menus });
     await ask<{ buttons: number }>("menus", (m) => m.buttons > 0);
     await touchOn(true);
-    const touch = await ask<{ buttons: number; shown: number; wide: number; bare: number; touch: boolean }>("menus", (m) => m.touch);
+    // Waited out: the menus fade in and out, and a slow machine reads them mid-fade.
+    const touch = await ask<{ buttons: number; shown: number; wide: number; bare: number; touch: boolean }>("menus", (m) => m.touch && m.shown === m.buttons);
     expect(touch.touch).toBe(true);
     expect(touch.buttons).toBe(5);
     expect(touch.shown).toBe(5);
     expect(touch.wide).toBe(touch.bare);
     // With a pointer that hovers, the same phone keeps them hidden until a header is hovered or focused.
     await touchOn(false);
-    const mouse = await ask<{ buttons: number; shown: number; wide: number; bare: number; touch: boolean }>("menus", (m) => !m.touch);
+    const mouse = await ask<{ buttons: number; shown: number; wide: number; bare: number; touch: boolean }>("menus", (m) => !m.touch && m.shown === 0);
     expect(mouse.shown).toBe(0);
     expect(mouse.wide).toBe(mouse.bare);
     await send("Target.setAutoAttach", { autoAttach: false, waitForDebuggerOnStart: false, flatten: true });
