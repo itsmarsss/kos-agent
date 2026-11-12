@@ -95,7 +95,7 @@ struct RenderTests {
       $0.kos = [kos()]
       $0.screenGranted = true
       $0.inputGranted = true
-      $0.update = UpdateNotice(state: .behind, build: build, reason: .failed, detail: "errSecInternalComponent", command: "cd ~/Documents/kos-agent/packages/device-macos && scripts/bundle.sh --install")
+      $0.update = UpdateNotice(state: .behind, build: build, reason: .failed, detail: "the signing key is locked, and macOS asks for its PIN only in your own Terminal", command: "cd ~/Documents/kos-agent/packages/device-macos && scripts/bundle.sh --install")
       $0.commandCopied = true
     }
     #expect(try render("home-update-failed", HomeView(model: failed), height: HomeView.height) == CGSize(width: 460, height: HomeView.height))

@@ -12,8 +12,8 @@ struct UpdateWordsTests {
     #expect(signing.title == "An update is ready")
     #expect(signing.detail.contains("Screen Recording and Accessibility"))
     #expect(!signing.working)
-    let failed = try #require(UpdateWords(UpdateNotice(state: .behind, build: build, reason: .failed, detail: "errSecInternalComponent")))
-    #expect(failed.detail.hasPrefix("errSecInternalComponent. "))
+    let failed = try #require(UpdateWords(UpdateNotice(state: .behind, build: build, reason: .failed, detail: "the signing key is locked")))
+    #expect(failed.detail == "The signing key is locked. Run it yourself:")
     #expect(UpdateWords(UpdateNotice(state: .behind, build: build, reason: .stuck))?.title == "Still on the old build")
     #expect(UpdateWords(UpdateNotice(state: .updating, build: build))?.working == true)
   }

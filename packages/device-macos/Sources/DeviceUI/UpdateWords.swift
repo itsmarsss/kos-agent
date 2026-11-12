@@ -21,7 +21,9 @@ public struct UpdateWords: Equatable {
         "KOS rebuilds this app by itself once your signing key is set up; until then each build asks for Screen Recording and Accessibility again. Set it up once in Terminal, or press Update now in KOS's Settings, Devices.",
         "arrow.down.circle", working: false)
     case (.behind, .failed):
-      self.init("The update did not finish", "\(notice.detail.map { "\($0). " } ?? "")Run it in Terminal to see why.", "exclamationmark.triangle", working: false)
+      // KOS's reason is a clause; said here as a sentence of its own.
+      let why = notice.detail.map { "\($0.prefix(1).uppercased())\($0.dropFirst()). " } ?? ""
+      self.init("The update did not finish", "\(why)Run it yourself:", "exclamationmark.triangle", working: false)
     case (.behind, .stuck):
       self.init("Still on the old build", "KOS rebuilt this app and it came back unchanged. Run the update in Terminal to see why.", "exclamationmark.triangle", working: false)
     default:
