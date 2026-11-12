@@ -33,11 +33,26 @@ public final class RunsModel: ObservableObject {
     _ = await (jobs, lately)
   }
 
-  /// Runs the job now, whatever its schedule; it is said when it went, and the page is read again.
+  /// Runs the job now, whatever its schedule: KOS answers once it fires, or says why it did not, and either is said.
   public func runNow(id: Int, name: String) async {
     await act(id) {
-      try await dashboard.post("/api/crons/run", body: .object(["id": .number(Double(id))]))
-      say(.init("Running \(name)"))
+      let answer = fields(try await dashboard.post("/api/crons/run", body: .object(["id": .number(Double(id))])))
+      if answer["ok"] == .bool(false) {
+        let why: String = if case .string(let error) = answer["error"] { error } else { "" }
+        throw Dashboard.Refusal(Self.notRun(name, why))
+      }
+      // Under way when KOS answered, or already done when it was quick.
+      say(.init(answer["accepted"] == .bool(true) ? "Running \(name)" : "Ran \(name)"))
+    }
+  }
+
+  /// Why a job did not run, in the owner's words: KOS's own reason when it is not one of the few it names.
+  static func notRun(_ name: String, _ why: String) -> String {
+    switch why {
+    case "halted": "KOS is halted, so \(name) didn't run."
+    case "rate_limited": "\(name) didn't run: KOS has run as many prompts as it may this hour."
+    case "": "\(name) didn't run."
+    default: why.hasSuffix("is already running") ? "\(name) is already running." : "\(name) didn't run: \(why)"
     }
   }
 
@@ -70,6 +85,12 @@ public final class RunsModel: ObservableObject {
     runs.reset()
     busy = []
   }
+}
+
+/// A JSON object's fields; none for anything else.
+private func fields(_ value: JSONValue) -> [String: JSONValue] {
+  if case .object(let fields) = value { return fields }
+  return [:]
 }
 
 extension Routes.Cron {

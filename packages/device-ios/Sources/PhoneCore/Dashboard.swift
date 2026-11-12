@@ -25,6 +25,9 @@ public final class Dashboard {
   private var waiting: [Int: CheckedContinuation<DashboardReply, Never>] = [:]
   /// Requests waiting for one of KOS's few turns, in the order asked.
   private var queued: [CheckedContinuation<Void, Never>] = []
+  /// The turns taken: a request holds one from its ask until its answer, and hands it straight to the next waiting,
+  /// so none is asked in the gap. KOS gives a turn back after the same wait, so the two keep count together.
+  private var taken = 0
   private let within: Duration
   private let sleep: @Sendable (Duration) async -> Void
 
@@ -61,7 +64,7 @@ public final class Dashboard {
   public func received(_ reply: DashboardReply) {
     guard let wait = waiting.removeValue(forKey: reply.call) else { return }
     wait.resume(returning: reply)
-    if !queued.isEmpty { queued.removeFirst().resume() }
+    if queued.isEmpty { taken -= 1 } else { queued.removeFirst().resume() }
   }
 
   /// Off the line, or another KOS: nothing asked of the last one is waited on.
@@ -69,6 +72,7 @@ public final class Dashboard {
     let left = waiting, behind = queued
     waiting = [:]
     queued = []
+    taken = behind.count
     for (call, wait) in left { wait.resume(returning: DashboardReply(call: call, error: "The line to KOS closed.")) }
     // Those waiting a turn go on, and are told the line is down as they are asked.
     for turn in behind { turn.resume() }
@@ -86,7 +90,11 @@ public final class Dashboard {
 
   /// Asked, and waited on until KOS answers, the wait runs out, or the line closes; any answer but a good one throws.
   private func ask(_ request: DashboardRequest) async throws -> DashboardReply {
-    if waiting.count >= Self.atOnce { await withCheckedContinuation { queued.append($0) } }
+    if taken < Self.atOnce {
+      taken += 1
+    } else {
+      await withCheckedContinuation { queued.append($0) }
+    }
     let reply = await withCheckedContinuation { wait in
       waiting[request.call] = wait
       guard tell(.dashboard(request)) else { return received(DashboardReply(call: request.call, error: "Not connected to KOS.")) }

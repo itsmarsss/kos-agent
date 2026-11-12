@@ -186,6 +186,22 @@ struct BoardTests {
     #expect(pages.allSatisfy { $0.value?.entries == [] })
   }
 
+  @Test func aTurnFreedGoesToTheNextWaitingNotToAFreshAsk() async throws {
+    let rig = try await Rig.online()
+    let kos = Routed(rig: rig)
+    let pages = (0..<5).map { rig.phone.board.files.folder("g\($0)") }
+    for page in pages { Task { await page.refresh() } }
+    await kos.await(5)
+    #expect(kos.asked.count == Dashboard.atOnce)
+    try await kos.answer("/api/files", query: ["path": "g0"], #"{"path":"g0","entries":[]}"#)
+    // Asked in the moment the freed turn is on its way to the one waiting.
+    let fresh = rig.phone.board.files.folder("fresh")
+    Task { await fresh.refresh() }
+    await kos.await(6)
+    #expect(kos.asked.count == 5)
+    #expect(kos.request("/api/files", query: ["path": "fresh"]) == nil)
+  }
+
   @Test func whatWasReadStaysWhileItIsReadAgainAndAFailureSaysWhy() async throws {
     let rig = try await Rig.online()
     let kos = Routed(rig: rig)
@@ -260,7 +276,7 @@ struct BoardTests {
     let now = Task { await runs.runNow(id: 3, name: "Nightly backup") }
     await kos.await(3)
     #expect((kos.request("/api/crons/run")?["body"] as? [String: Any])?["id"] as? Int == 3)
-    try await kos.answer("/api/crons/run", #"{"ok":true}"#)
+    try await kos.answer("/api/crons/run", status: 202, #"{"accepted":true,"id":3}"#)
     await kos.await(5)
     try await kos.answer("/api/crons", #"[{"id":3,"name":"Nightly backup","schedule":"0 3 * * *","type":"actions","enabled":true,"running":true}]"#)
     try await kos.answer("/api/runs", "[]")
@@ -277,6 +293,20 @@ struct BoardTests {
     await pause.value
     #expect(runs.crons.value?.first?.enabled == false && rig.phone.board.toasts.shown?.words == "Nightly backup is paused")
     #expect(rig.haptics.felt == ["tap", "done", "tap", "done"])
+  }
+
+  @Test func aRunThatDidNotFireSaysWhyInTheOwnersWords() async throws {
+    let rig = try await Rig.online()
+    let kos = Routed(rig: rig)
+    let runs = rig.phone.board.runs
+    let now = Task { await runs.runNow(id: 3, name: "Nightly backup") }
+    await kos.await(1)
+    try await kos.answer("/api/crons/run", #"{"ok":false,"error":"halted"}"#)
+    await now.value
+    #expect(rig.phone.board.toasts.shown?.words == "KOS is halted, so Nightly backup didn't run." && rig.phone.board.toasts.shown?.tone == .warn)
+    #expect(rig.haptics.felt == ["tap", "attention"])
+    #expect(RunsModel.notRun("Water", "Water is already running") == "Water is already running.")
+    #expect(RunsModel.notRun("Water", "rate_limited") == "Water didn't run: KOS has run as many prompts as it may this hour.")
   }
 
   @Test func filesOpenAsWhatTheyAre() async throws {

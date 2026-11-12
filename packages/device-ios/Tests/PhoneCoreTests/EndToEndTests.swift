@@ -187,7 +187,8 @@ struct EndToEndTests {
     await board.runs.refresh()
     #expect(board.runs.crons.value?.contains { $0.id == id } == true, "\(board.runs.crons.error ?? "")")
     await board.runs.runNow(id: id, name: "phone e2e")
-    #expect(board.toasts.shown?.words == "Running phone e2e")
+    // Answered once it fired: under way, or done already, being quick.
+    #expect(["Running phone e2e", "Ran phone e2e"].contains(board.toasts.shown?.words ?? ""), "\(board.toasts.shown?.words ?? "")")
     if let ws = env["KOS_E2E_WORKSPACE"] {
       try await until("the schedule's action") { FileManager.default.fileExists(atPath: "\(ws)/phone-cron.txt") }
     }
