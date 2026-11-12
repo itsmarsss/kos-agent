@@ -258,9 +258,13 @@ public final class ChatModel: ObservableObject {
 
   // MARK: The owner
 
-  /// The owner's words, and the names of the files that go with them, which may be all there is. A command (/new) is
-  /// never in the chat's words, so it waits for nothing but its answer.
-  public func say(_ text: String, files: [String] = []) {
+  /// The owner's words. A command (/new) is never in the chat's words, so it waits for nothing but its answer.
+  public func say(_ text: String) {
+    say(text, files: [])
+  }
+
+  /// The owner's words and the names of the files that go with them, which may be all there is.
+  public func say(_ text: String, files: [String]) {
     let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !said.isEmpty || !files.isEmpty else { return }
     error = nil
