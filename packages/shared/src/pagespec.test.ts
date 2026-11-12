@@ -8,6 +8,8 @@ describe("a widget page's outline", () => {
     expect(widgetSpan({ type: "table", span: "half" })).toBe("half");
     expect(widgetSpan({ type: "chart", span: "wide" })).toBe("full");
     expect(widgetSpan({ type: "unknown" })).toBe("full");
+    expect(widgetSpan({ type: "constructor" })).toBe("full");
+    expect(widgetSpan({ type: "stat", span: "toString" })).toBe("quarter");
   });
 
   it("outlines the first dozen widgets, skipping what is not one", () => {
@@ -17,5 +19,6 @@ describe("a widget page's outline", () => {
     expect(outline[0]).toEqual({ type: "stat", span: "quarter" });
     expect(outline[1]).toEqual({ type: "table", span: "third" });
     expect(outlineOf({})).toEqual([]);
+    expect(outlineOf({ widgets: [{ type: "x".repeat(500) }] })[0]!.type).toHaveLength(24);
   });
 });

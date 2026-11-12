@@ -60,8 +60,8 @@ const DEFAULT_SPAN: Record<WidgetType, WidgetSpan> = {
 
 /** The width a widget takes: its own, or its type's default. */
 export function widgetSpan(widget: { type: string; span?: string }): WidgetSpan {
-  const own = widget.span as WidgetSpan | undefined;
-  return own && own in SPAN_COLUMNS ? own : (DEFAULT_SPAN[widget.type as WidgetType] ?? "full");
+  if (widget.span !== undefined && Object.hasOwn(SPAN_COLUMNS, widget.span)) return widget.span as WidgetSpan;
+  return Object.hasOwn(DEFAULT_SPAN, widget.type) ? DEFAULT_SPAN[widget.type as WidgetType] : "full";
 }
 
 /** How many of a page's twelve columns each span takes. */
@@ -75,13 +75,15 @@ export interface WidgetOutline {
 
 /** Most widgets a thumbnail outlines: past a dozen it is below the card's fold. */
 const OUTLINE_MAX = 12;
+/** Longest type an outline carries: a spec's type is the agent's text, and the card only marks the known ones. */
+const OUTLINE_TYPE_MAX = 24;
 
 export function outlineOf(spec: { widgets?: unknown }): WidgetOutline[] {
   const widgets = Array.isArray(spec.widgets) ? spec.widgets : [];
   return widgets
     .filter((w): w is { type: string; span?: string } => typeof w === "object" && w !== null && typeof (w as { type?: unknown }).type === "string")
     .slice(0, OUTLINE_MAX)
-    .map((w) => ({ type: w.type, span: widgetSpan(w) }));
+    .map((w) => ({ type: w.type.slice(0, OUTLINE_TYPE_MAX), span: widgetSpan(w) }));
 }
 
 export interface StatWidget extends BaseWidget {

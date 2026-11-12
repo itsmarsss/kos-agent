@@ -717,7 +717,8 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     }`;
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await sheetPage("/frozen", sheetData(months(30, 2)), { sticky });
-    const probe = await ask<{ down: number; header: number; total: number; across: number }>("sticky", (p) => p.down > 0);
+    // Ready once the frozen columns are laid out, not at the first scroll: a loaded machine draws the grid before its widths settle.
+    const probe = await ask<{ down: number; header: number; total: number; across: number }>("sticky", (p) => p.down > 0 && p.header < 1 && p.total < 1 && p.across > 100);
     expect(probe.down).toBe(200);
     // Within a pixel of the row numbers, which are held at the top and the bottom.
     expect(probe.header).toBeLessThan(1);

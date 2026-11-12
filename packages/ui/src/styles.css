@@ -1465,7 +1465,8 @@ select {
    card: what a page lists is, each a panel (a table, a fact, a build). */
 .list-page,
 .know,
-.builds {
+.builds,
+.artifacts {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
@@ -7262,8 +7263,8 @@ html.has-presenter { overflow: hidden; }
    top (16:10, from the top, as a page is read) and three short lines under
    it. The card answers the pointer as a row does: lighter, its line
    stronger, never a shadow. It sits on the page's ground, as Projects and
-   Files do: the cards are the only shapes, each a panel. */
-.artifacts { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+   Files do, with the list pages' one container (.list-page): the cards are
+   the only shapes, each a panel. */
 .list-title .count { margin-left: 0.5rem; vertical-align: 0.3em; font-size: var(--text-sm); }
 .artifacts-new { display: inline-flex; align-items: center; gap: 0.35rem; }
 .artifacts-bar { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem 0.75rem; flex-wrap: wrap; min-width: 0; padding-bottom: 0.15rem; }
