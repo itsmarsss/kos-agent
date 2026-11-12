@@ -145,6 +145,8 @@ export class SealedTab {
 
   async close(): Promise<void> {
     this.off();
+    // A throttled renderer can outlive its tab and draw the next one: it is given back its full speed first.
+    if (this.options.cpuThrottle) await Promise.all([...this.sessions].map((s) => this.cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 }, s).catch(() => undefined)));
     await this.cdp.send("Target.closeTarget", { targetId: this.targetId }).catch(() => undefined);
   }
 

@@ -493,6 +493,8 @@ export class ArtifactExporter {
     };
     /** Reads out whose key has never been answered: what an export may not freeze without. */
     const unanswered = (): number => [...reads.values()].filter((r) => !r.answered && r.out > 0).length;
+    /** Calls out that KOS has heard: a bridge holding no more than these holds nothing KOS has not seen. */
+    const heard = (): number => [...reads.values()].reduce((n, r) => n + r.out, 0);
     const tab = await SealedTab.open(cdp, { scripts: true, offline: true, track: job.track, ...(this.options.cpuThrottle ? { cpuThrottle: this.options.cpuThrottle } : {}) }, relay);
     try {
       const view = kind === "deck" ? VIEW.deck : VIEW.other;
@@ -500,8 +502,8 @@ export class ArtifactExporter {
       await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }] }, tab.sessionId);
       await tab.navigate(hostDocument(artifactFrame({ ...page, html: withoutExits(page.html) }, theme, assets), assets.tokens[theme]["--bg"]));
       /*
-       * Drawn once the frame has loaded, its bridge has no call out or queued
-       * (so a read the frame made has reached KOS), KOS has none unanswered,
+       * Drawn once the frame has loaded, its bridge holds no call KOS has not
+       * heard (so a read the frame made has reached KOS), KOS has none unanswered,
        * and no read new to it has been asked for a quiet while. A poller's
        * repeats of a read already answered are not new: they neither hold
        * the export up nor make it half read. A slow machine is waited for,
@@ -519,7 +521,8 @@ export class ArtifactExporter {
         // The frame gave a read up before KOS heard of it: whatever it froze now would be without that read.
         if ((state?.dropped ?? 0) > 0) throw new ExportRefusal("the artifact gave up on a read before it reached KOS, as on a machine too busy to draw it, so KOS did not export it without its data; try again");
         const quiet = loadedAt !== undefined && Date.now() - Math.max(loadedAt, lastNew) >= QUIET_MS;
-        if (quiet && state?.pending === 0 && unanswered() === 0) break;
+        // Every call the bridge holds is one KOS has heard (a poller's repeat on its way), and none of those is new.
+        if (quiet && state !== undefined && state.pending <= heard() && unanswered() === 0) break;
         if (Date.now() - start > ceiling) {
           const waiting = unanswered();
           if (waiting > 0) throw new ExportRefusal(`the artifact was still waiting on ${waiting} of its reads after ${Math.round(ceiling / 1000)} s, so KOS did not export it with its data half read; try again`);
