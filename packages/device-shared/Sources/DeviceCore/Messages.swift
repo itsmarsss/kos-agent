@@ -69,6 +69,8 @@ public enum Inbound: Equatable {
   case face(FaceDrawing)
   /// The dashboard's theme and the palette it is drawn in, after the welcome and whenever either changes.
   case theme(DashboardTheme)
+  /// Where this app's build stands with KOS's, after the welcome and whenever it changes.
+  case update(UpdateNotice)
 
   public static func decode(_ data: Data) throws -> Inbound {
     let decoder = JSONDecoder()
@@ -94,6 +96,12 @@ public enum Inbound: Equatable {
       }
       // A palette this app does not know is no palette: the mode alone still reads.
       return .theme(DashboardTheme(mode: mode, drawn: body.drawn.flatMap(DrawnTheme.init(rawValue:))))
+    case "update":
+      let body = try decoder.decode(UpdateBody.self, from: data)
+      guard let state = UpdateNotice.State(rawValue: body.state) else { throw DeviceError.badRequest("An update state this app does not know.") }
+      return .update(UpdateNotice(
+        state: state, build: body.build.flatMap { $0.isValid ? $0 : nil }, reason: body.reason.flatMap(UpdateNotice.Reason.init(rawValue:)),
+        detail: body.detail, command: body.command))
     default:
       throw DeviceError.badRequest("Unknown message type \(kind).")
     }
@@ -122,6 +130,14 @@ public enum Inbound: Equatable {
   private struct ThemeBody: Decodable {
     let mode: String?
     let drawn: String?
+  }
+
+  private struct UpdateBody: Decodable {
+    let state: String
+    let build: Build?
+    let reason: String?
+    let detail: String?
+    let command: String?
   }
 
   private struct CallHeader: Decodable {
@@ -160,9 +176,9 @@ public struct Call: Equatable {
 
 /// A message to KOS.
 public enum Outbound {
-  public static func hello(device: String, nonce: String, signature: String, app: AppInfo, state: DeviceState) throws -> Data {
+  public static func hello(device: String, nonce: String, signature: String, app: AppInfo, build: Build? = nil, state: DeviceState) throws -> Data {
     try encode(HelloBody(
-      protocolVersion: protocolVersion, device: device, nonce: nonce, signature: signature, app: app,
+      protocolVersion: protocolVersion, device: device, nonce: nonce, signature: signature, app: app, build: build,
       consent: state.consent, permissions: state.permissions, displays: state.displays))
   }
 
@@ -209,11 +225,13 @@ public enum Outbound {
     let nonce: String
     let signature: String
     let app: AppInfo
+    /// Left out when there is none: KOS reads no build as a build it does not know.
+    let build: Build?
     let consent: Consent
     let permissions: Permissions
     let displays: [DisplayInfo]
     enum CodingKeys: String, CodingKey {
-      case t, device, nonce, signature, app, consent, permissions, displays
+      case t, device, nonce, signature, app, build, consent, permissions, displays
       case protocolVersion = "protocol"
     }
   }
