@@ -143,8 +143,8 @@ export const SHEET_CSS = String.raw`
 @media (max-width: 560px) {
   /* A phone's grid: the row numbers and the first column, the row's name, stay put while the rest scrolls sideways under them, and the header stays put while it scrolls down. A cell keeps to one line, cut past its width; a press on its row reads it whole. */
   .sheet-scroll { contain: inline-size; }
-  /* Cut at 15ch and set close, so four columns fit a phone whole in a wider face too, as Linux's is. */
-  .sheet-grid :where(th, td) { padding: 0 6px; max-width: 15ch; font-size: 13px; }
+  /* Cut at 14ch and set close, so four columns fit a phone whole in a wider face too, as Linux's is. */
+  .sheet-grid :where(th, td) { padding: 0 5px; max-width: 14ch; font-size: 13px; }
   .sheet-grid thead th:not(.rownum) { min-width: 6ch; }
   .sheet-grid tbody tr { cursor: default; }
   .sheet-grid .lead { position: sticky; left: var(--sheet-lead, 0px) !important; max-width: 14ch; box-shadow: 1px 0 0 var(--line-strong, var(--line)); }
