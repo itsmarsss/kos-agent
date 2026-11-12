@@ -81,8 +81,18 @@ public struct Glance: Decodable, Equatable, Sendable {
     halted = try c.decodeIfPresent(Bool.self, forKey: .halted) ?? false
     running = try c.decodeIfPresent([Running].self, forKey: .running) ?? []
     waiting = try c.decodeIfPresent(Int.self, forKey: .waiting) ?? 0
-    asks = try c.decodeIfPresent([Ask].self, forKey: .asks) ?? []
+    // One by one: an ask this app cannot read is left out, and the rest of the glance still comes.
+    asks = (try c.decodeIfPresent([Lenient<Ask>].self, forKey: .asks) ?? []).compactMap(\.value)
     failing = try c.decodeIfPresent([Failing].self, forKey: .failing) ?? []
     next = try c.decodeIfPresent([Next].self, forKey: .next) ?? []
+  }
+}
+
+/// One element of a list, or nothing when it does not read, so the list around it still does.
+private struct Lenient<Value: Decodable>: Decodable {
+  let value: Value?
+
+  init(from decoder: Decoder) throws {
+    value = try? Value(from: decoder)
   }
 }

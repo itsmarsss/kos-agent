@@ -133,6 +133,14 @@ struct GlanceTests {
     #expect(glance.asks[1].chat == nil)
   }
 
+  @Test func anAskThatDoesNotReadIsLeftOutAndTheRestComes() throws {
+    let raw = #"{"waiting":3,"asks":[{"approval":{"tool":"no id"}},{"approval":{"id":"42","tool":"shell.run"}},7],"running":[{"id":"c_1","title":"Garden"}]}"#
+    let glance = try JSONDecoder().decode(Glance.self, from: Data(raw.utf8))
+    #expect(glance.asks.map(\.approval.id) == ["42"])
+    #expect(glance.running.count == 1)
+    #expect(glance.waiting == 3)
+  }
+
   @Test func listsLeftOutAreEmpty() throws {
     let glance = try JSONDecoder().decode(Glance.self, from: Data(#"{"waiting":1}"#.utf8))
     #expect(glance == Glance(waiting: 1))
