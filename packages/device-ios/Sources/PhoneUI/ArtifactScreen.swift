@@ -33,6 +33,8 @@ struct ArtifactScreen<Frame: View>: View {
   /// The dashboard's gutter around a frame on a narrow screen, and its room under the head (artifactcheck.ts, GUTTER).
   static var gutter: CGFloat { 16 }
   static var above: CGFloat { 12 }
+  /// How tall the fade at the frame's foot is.
+  static var fade: CGFloat { 20 }
 
   /// A deck on its side, one slide at a time: the slide takes the screen, with nothing over it but its own bar.
   private var staged: DeckRemote.Place? {
@@ -62,8 +64,14 @@ struct ArtifactScreen<Frame: View>: View {
   private func content(_ shown: ArtifactShelf.Shown) -> some View {
     switch shown {
     case .open(let artifact):
-      // In the gutter the dashboard's column gives every frame, above the home indicator.
+      // In the gutter the dashboard's column gives every frame, above the home indicator, where what scrolls on
+      // fades into the ground rather than stopping at a hard edge.
       frame(artifact, scheme == .dark, deck)
+        .overlay(alignment: .bottom) {
+          LinearGradient(colors: [Theme.bg.opacity(0), Theme.bg], startPoint: .top, endPoint: .bottom)
+            .frame(height: Self.fade)
+            .allowsHitTesting(false)
+        }
         .padding(.horizontal, Self.gutter)
         .padding(.top, Self.above)
         .accessibilityLabel(artifact.title)
@@ -91,9 +99,9 @@ struct ArtifactScreen<Frame: View>: View {
 
 extension ArtifactScreen where Frame == ArtifactWebFrame {
   /// The viewer as a phone draws it, the artifact in its web view.
-  init(shelf: ArtifactShelf, openLink: @escaping (URL) -> Void, close: @escaping () -> Void) {
+  init(shelf: ArtifactShelf, close: @escaping () -> Void) {
     self.init(shelf: shelf, close: close) { artifact, dark, deck in
-      ArtifactWebFrame(artifact: artifact, dark: dark, shelf: shelf, deck: deck, openLink: openLink)
+      ArtifactWebFrame(artifact: artifact, dark: dark, shelf: shelf, deck: deck)
     }
   }
 }
@@ -104,13 +112,12 @@ struct ArtifactWebFrame: View {
   let dark: Bool
   let shelf: ArtifactShelf
   let deck: DeckRemote
-  let openLink: (URL) -> Void
 
   var body: some View {
     ArtifactFrame(
       artifact: artifact, dark: dark,
       read: { method, args, answer in shelf.read(method, args: args, answer: answer) },
-      open: { id in shelf.open(id, dark: dark) }, openLink: openLink, deck: deck)
+      open: { id in shelf.open(id, dark: dark) }, cannot: { why in shelf.cannotShow(artifact.id, why) }, deck: deck)
   }
 }
 

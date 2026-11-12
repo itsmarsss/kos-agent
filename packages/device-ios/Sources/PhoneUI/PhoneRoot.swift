@@ -60,7 +60,6 @@ private struct Repairing: ViewModifier {
 private struct Reading: ViewModifier {
   @ObservedObject var shelf: ArtifactShelf
   let mode: ThemeMode
-  @Environment(\.openURL) private var openURL
 
   func body(content: Content) -> some View {
     let open = Binding(get: { shelf.shown != nil }, set: { if !$0 { shelf.close() } })
@@ -72,7 +71,7 @@ private struct Reading: ViewModifier {
   }
 
   private var viewer: some View {
-    ArtifactScreen(shelf: shelf, openLink: { openURL($0) }, close: shelf.close)
+    ArtifactScreen(shelf: shelf, close: shelf.close)
       .foregroundStyle(Theme.text)
       .tint(Theme.accent)
       .preferredColorScheme(mode.colorScheme)

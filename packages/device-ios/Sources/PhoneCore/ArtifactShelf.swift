@@ -152,6 +152,14 @@ public final class ArtifactShelf: ObservableObject {
     }
   }
 
+  /// The open one cannot be shown here as it must be held (the viewer's own failure): it is shown as one that did not open.
+  public func cannotShow(_ id: String, _ why: String) {
+    guard shown?.id == id else { return }
+    Self.log.error("artifact \(id, privacy: .public) not shown: \(why, privacy: .public)")
+    failReads("The artifact was closed.")
+    shown = .failed(id: id, title: shown?.title, why: why)
+  }
+
   public func received(_ answer: ArtifactReadAnswer) {
     guard case .open(let artifact) = shown, artifact.id == answer.artifact else { return }
     settle(answer.call, answer.error.map { .failure(ReadRefusal($0)) } ?? .success(answer.result ?? .null))

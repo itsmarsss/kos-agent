@@ -46,7 +46,7 @@ extension RenderTests {
   /// What the viewer's web view draws of an artifact, at the size it has in the viewer, `steps` slides on for a deck.
   func picture(_ artifact: ArtifactShelf.Artifact, size: CGSize, steps: Int = 0) async throws -> NSImage {
     let deck = DeckRemote()
-    let frame = ArtifactFrame(artifact: artifact, dark: artifact.dark, read: { _, _, answer in answer(.failure(.init("not in a render"))) }, open: { _ in }, openLink: { _ in }, deck: deck)
+    let frame = ArtifactFrame(artifact: artifact, dark: artifact.dark, read: { _, _, answer in answer(.failure(.init("not in a render"))) }, open: { _ in }, cannot: { _ in }, deck: deck)
     let coordinator = ArtifactFrame.Coordinator(frame)
     let view = frame.makeView(coordinator)
     view.frame = CGRect(origin: .zero, size: size)

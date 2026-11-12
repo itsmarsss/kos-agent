@@ -1,5 +1,6 @@
 import AppKit
 import DeviceCore
+import Network
 import Testing
 import WebKit
 
@@ -35,7 +36,7 @@ struct ArtifactFrameTests {
     call("save",{edit:{}}).catch(function(e){report("save:"+e.message)});
     call("write",{table:"t",op:"insert",values:{}}).catch(function(e){report("write:"+e.message)});
     call("open",{id:"budget"}).catch(function(e){report("open:"+e.message)});
-    setTimeout(function(){location.href="https://example.com/away";setTimeout(function(){report("still here")},400)},100);
+    setTimeout(function(){location.href="https://example.com/away"},100);
     </script></body></html>
     """
 
@@ -47,7 +48,7 @@ struct ArtifactFrameTests {
   @Test func readsGoToKOSAndEverythingElseIsRefused() async throws {
     var reads: [(String, JSONValue)] = []
     var opened: [String] = []
-    var links: [URL] = []
+    var cannot: [String] = []
     let artifact = ArtifactShelf.Artifact(id: "plan", title: "Plan", kind: "doc", document: Self.wrapper(Self.page), themes: .init(light: "", dark: ""), dark: false)
     let frame = ArtifactFrame(
       artifact: artifact, dark: false,
@@ -55,7 +56,7 @@ struct ArtifactFrameTests {
         reads.append((method, args))
         answer(.success(.object(["rows": .array([.object(["n": .number(1)])])])))
       },
-      open: { opened.append($0) }, openLink: { links.append($0) }, deck: DeckRemote())
+      open: { opened.append($0) }, cannot: { cannot.append($0) }, deck: DeckRemote())
     let coordinator = ArtifactFrame.Coordinator(frame)
     let view = frame.makeView(coordinator)
     let heard = Heard()
@@ -66,7 +67,8 @@ struct ArtifactFrameTests {
         injectionTime: .atDocumentStart, forMainFrameOnly: true, in: ArtifactFrame.world))
     view.frame = CGRect(x: 0, y: 0, width: 390, height: 600)
     coordinator.load(into: view)
-    for _ in 0..<60 where !heard.said.contains("still here") { try await Task.sleep(for: .milliseconds(50)) }
+    for _ in 0..<60 where heard.said.count < 7 { try await Task.sleep(for: .milliseconds(50)) }
+    try await Task.sleep(for: .milliseconds(700))
 
     // The page has neither the phone's handler nor its script: both live in a world of their own.
     #expect(heard.said.contains("handler:false"))
@@ -77,15 +79,96 @@ struct ArtifactFrameTests {
     #expect(reads.first?.1 == .object(["sql": .string("SELECT 1")]))
     #expect(heard.said.contains("save:KOS for iPhone only shows this artifact: nothing in it changes here"))
     #expect(heard.said.contains("write:KOS for iPhone only shows this artifact: nothing in it changes here"))
-    // Nobody pressed: another artifact is not opened, and the page did not leave.
+    // Nobody pressed: another artifact is not opened. The page's try at leaving goes nowhere: the view stays on its
+    // own document, and a page that tried is not heard from again, as the dashboard removes one.
     #expect(heard.said.contains("open:an artifact opens only at the owner's press"))
     #expect(opened.isEmpty)
-    #expect(heard.said.contains("still here"))
-    #expect(links.isEmpty)
+    #expect(view.url?.absoluteString == "about:blank")
+    #expect(cannot.isEmpty)
   }
 
-  @Test func blocksEveryLoadButTheDocumentsOwn() async throws {
-    let rules = try #require(await ArtifactFrame.ruleList())
-    #expect(rules.identifier == "kos-phone-artifact")
+  @Test func onlyADocOpensAnotherArtifact() {
+    #expect(ArtifactFrame.openRefusal(kind: "doc", id: "budget") == nil)
+    #expect(ArtifactFrame.openRefusal(kind: "deck", id: "budget") == "only a doc can open an artifact")
+    #expect(ArtifactFrame.openRefusal(kind: "page", id: "budget") == "only a doc can open an artifact")
+    #expect(ArtifactFrame.openRefusal(kind: "doc", id: "../etc") == "that is not an artifact's id")
   }
+
+  /// A page with no policy of its own, loading a picture from a server on this Mac.
+  private static func fetching(_ port: UInt16) -> String {
+    #"<!doctype html><html><body><img src="http://127.0.0.1:\#(port)/p.png" onload="report('loaded')" onerror="report('blocked')"><script>function report(s){(window.webkit&&window.webkit.messageHandlers.test?window.webkit.messageHandlers.test:{postMessage:function(m){top.postMessage({__kos:'test',said:m},'*')}}).postMessage(s)}</script></body></html>"#
+  }
+
+  @Test func blocksEveryLoadButTheDocumentsOwnUnderAnyPolicy() async throws {
+    let server = try PictureServer()
+    // Unheld, the page loads the picture: the server answers.
+    let plain = WKWebView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+    let control = Heard()
+    plain.configuration.userContentController.add(control, name: "test")
+    plain.loadHTMLString(Self.fetching(server.port), baseURL: nil)
+    for _ in 0..<60 where control.said.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+    #expect(control.said == ["loaded"])
+    let served = server.requests
+
+    // Held by the viewer, with no policy in the way, the rule list alone refuses it before any request goes.
+    let page = Self.fetching(server.port).replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "\"", with: "&quot;")
+    let document = "<!doctype html><html><body><iframe sandbox=\"allow-scripts\" srcdoc=\"\(page)\"></iframe></body></html>"
+    let artifact = ArtifactShelf.Artifact(id: "plan", title: "Plan", kind: "doc", document: document, themes: .init(light: "", dark: ""), dark: false)
+    let frame = ArtifactFrame(artifact: artifact, dark: false, read: { _, _, _ in }, open: { _ in }, cannot: { _ in }, deck: DeckRemote())
+    let coordinator = ArtifactFrame.Coordinator(frame)
+    let view = frame.makeView(coordinator)
+    let heard = Heard()
+    view.configuration.userContentController.add(heard, contentWorld: ArtifactFrame.world, name: "test")
+    view.configuration.userContentController.addUserScript(
+      WKUserScript(
+        source: #"addEventListener("message",function(e){var m=e.data||{};if(m.__kos==="test")window.webkit.messageHandlers.test.postMessage(m.said)})"#,
+        injectionTime: .atDocumentStart, forMainFrameOnly: true, in: ArtifactFrame.world))
+    coordinator.load(into: view)
+    for _ in 0..<60 where heard.said.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+    #expect(heard.said == ["blocked"])
+    #expect(server.requests == served)
+  }
+
+  @Test func showsNothingWhenTheRulesDoNotHold() async throws {
+    var cannot: [String] = []
+    let artifact = ArtifactShelf.Artifact(id: "plan", title: "Plan", kind: "doc", document: Self.wrapper(Self.page), themes: .init(light: "", dark: ""), dark: false)
+    let frame = ArtifactFrame(artifact: artifact, dark: false, read: { _, _, _ in }, open: { _ in }, cannot: { cannot.append($0) }, deck: DeckRemote())
+    let coordinator = ArtifactFrame.Coordinator(frame, rules: { nil })
+    let view = frame.makeView(coordinator)
+    coordinator.load(into: view)
+    for _ in 0..<40 where cannot.isEmpty { try await Task.sleep(for: .milliseconds(25)) }
+    #expect(cannot == ["the viewer's content rules did not compile"])
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(view.url == nil && !view.isLoading)
+  }
+}
+
+/// A server on this Mac's loopback answering every request with a one-pixel PNG, counting them.
+final class PictureServer: @unchecked Sendable {
+  private let listener: NWListener
+  private let lock = NSLock()
+  private var count = 0
+
+  init() throws {
+    listener = try NWListener(using: .tcp, on: .any)
+    let ready = DispatchSemaphore(value: 0)
+    listener.stateUpdateHandler = { if case .ready = $0 { ready.signal() } }
+    listener.newConnectionHandler = { [weak self] connection in
+      connection.start(queue: .global())
+      connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { _, _, _, _ in
+        self?.lock.withLock { self?.count += 1 }
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=")!
+        let head = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: \(png.count)\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n"
+        connection.send(content: Data(head.utf8) + png, completion: .contentProcessed { _ in connection.cancel() })
+      }
+    }
+    listener.start(queue: .global())
+    _ = ready.wait(timeout: .now() + 5)
+  }
+
+  var port: UInt16 { listener.port?.rawValue ?? 0 }
+
+  var requests: Int { lock.withLock { count } }
+
+  deinit { listener.cancel() }
 }

@@ -118,20 +118,26 @@ The chats sheet lists the last few artifacts changed, and an artifact KOS
 names in a reply (`@page:<id>`) opens at a tap. The viewer is the dashboard's
 frame, built by KOS from the dashboard's own runtimes and sent over the line
 (docs/computer.md, Artifacts): a doc reads in the dashboard's narrow gutter, a
-sheet scrolls its grid sideways, a deck moves slide by slide with a swipe, a
-tap on either half, or the bar under it. Each follows the app's light and
-dark. It only shows: the frame reaches no network (its policy, and a content
-rule list under it), never navigates, and its window.kos takes reads alone,
-which KOS answers as it answers the dashboard's; another artifact it names
-opens only at the owner's press.
+sheet scrolls its grid sideways, and a deck reads upright as the dashboard's
+column of numbered slides; turned on its side, the viewer turns with it (the
+rest of the app stays upright) and the deck fills the screen a slide at a
+time, moved with a swipe, a tap on either half, or the bar under it. All
+artifacts, by when each changed, is a row under the last few. Each follows
+the app's light and dark. It only shows: the frame reaches no network (its
+policy, and a content rule list under it, without which nothing is shown),
+never navigates, opens nothing outside itself, and its window.kos takes
+reads alone, which KOS answers as it answers the dashboard's; a mention in a
+doc opens that artifact only at the owner's press.
 
 ## Hands-free
 
 Ask KOS opens the app listening, so a question needs no tap. It is an App
 Intent, so Siri, Shortcuts and the Action button all offer it, with the
-phrases "Ask KOS" and "Talk to KOS". The link `kos-device://listen` does the
-same from anywhere that opens links; it carries no words and pairs nothing.
-Opened before KOS is on the line, the app listens once the chat is shown.
+phrases "Ask KOS" and "Talk to KOS". No link starts listening, since any app
+or page can open one. It closes an open artifact first, so the chat it is
+said in shows; opened before KOS is on the line, the app listens once the
+chat is shown. Spoken words go alone: a file in the box goes only with words
+sent from the box, where the owner sees it going.
 
 The Action button (iPhone 15 Pro and later):
 

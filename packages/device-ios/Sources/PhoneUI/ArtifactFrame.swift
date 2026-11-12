@@ -9,14 +9,16 @@ import WebKit
 /// sandboxed frame runs the page, its policy allowing no network. This side
 /// is the dashboard's: a script of the phone's own, in a world of its own on
 /// the wrapper, hears the page's frame alone and answers its window.kos.
-/// Reads go to KOS; `open` opens another artifact on the phone, only just
-/// after the owner's press in the frame; everything else is refused, since
-/// the phone only shows. A deck is the deck runtime's own: upright, its
-/// slides read as a column; on its side, one slide at a time, held as the
-/// dashboard holds one, its controls the viewer's (DeckRemote). A navigation anywhere is refused, a link off the
-/// page opens in the browser only at the owner's tap, and a content rule
-/// list blocks every load but the document's own, under the policy. The
-/// same view runs on a Mac, where it is tested and drawn.
+/// Reads go to KOS; `open` opens another artifact on the phone, from a doc
+/// alone and only just after the owner's press in the frame, as the
+/// dashboard holds it (docbridge.ts); everything else is refused, since the
+/// phone only shows. A deck is the deck runtime's own: upright, its slides
+/// read as a column; on its side, one slide at a time, held as the dashboard
+/// holds one, its controls the viewer's (DeckRemote). Every navigation is
+/// refused and nothing opens outside the view: links leave no artifact here,
+/// as on the dashboard. A content rule list blocks every load but the
+/// document's own, under the policy; without it, the document is not shown.
+/// The same view runs on a Mac, where it is tested and drawn.
 struct ArtifactFrame {
   let artifact: ArtifactShelf.Artifact
   let dark: Bool
@@ -24,8 +26,8 @@ struct ArtifactFrame {
   let read: (_ method: String, _ args: JSONValue, _ answer: @escaping (ArtifactShelf.Answer) -> Void) -> Void
   /// Another artifact, by its id, at the owner's press.
   let open: (String) -> Void
-  /// A link off the page, at the owner's tap.
-  let openLink: (URL) -> Void
+  /// The view cannot be held as it must be (its rule list did not compile): nothing is shown, and the viewer says so.
+  let cannot: (String) -> Void
   /// A deck's place, told up, and the viewer's presses, sent down.
   let deck: DeckRemote
 
@@ -54,17 +56,23 @@ struct ArtifactFrame {
     if(m.method==="query"||m.method==="file"){tell({read:{call:id,method:m.method,args:args}});return}
     if(m.method==="open"){
     if(performance.now()-pressed>\(pressMs))return down({__kos:"reply",id:id,error:"an artifact opens only at the owner's press"});
-    tell({open:String(args.id||"")});return down({__kos:"reply",id:id,result:{opened:true}})}
+    tell({open:{call:id,id:String(args.id||"")}});return}
     down({__kos:"reply",id:id,error:"KOS for iPhone only shows this artifact: nothing in it changes here"});
     });
     window.__kosPhone=Object.freeze({
     reply:function(id,body){down(Object.assign({__kos:"reply",id:id},body))},
     theme:function(mode,rule){down({__kos:"theme",mode:mode,rule:rule})},
-    deck:function(action){if(action==="prev"||action==="next")down({__kos:"deck-do",action:action})},
-    pressedLately:function(){return performance.now()-pressed<=\(pressMs)}
+    deck:function(action){if(action==="prev"||action==="next")down({__kos:"deck-do",action:action})}
     });
     })();
     """
+
+  /// Why the page may not open this artifact, the press already held to: only a doc opens one, as a mention pressed
+  /// (docbridge.ts); a deck's tap moves its slide and swaps nothing.
+  static func openRefusal(kind: String, id: String) -> String? {
+    if kind != "doc" { return "only a doc can open an artifact" }
+    return ArtifactLink.isId(id) ? nil : "that is not an artifact's id"
+  }
 
   /// Every load blocked but the document's own: under the policy, so a page that slipped it still reaches nothing.
   static let rules = #"[{"trigger":{"url-filter":".*"},"action":{"type":"block"}},{"trigger":{"url-filter":"^about:"},"action":{"type":"ignore-previous-rules"}},{"trigger":{"url-filter":"^data:"},"action":{"type":"ignore-previous-rules"}}]"#
@@ -72,6 +80,8 @@ struct ArtifactFrame {
   @MainActor
   final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
     var frame: ArtifactFrame
+    /// The rule list every load is held to; a test gives one that never compiles.
+    let rules: () async -> WKContentRuleList?
     weak var view: WKWebView?
     /// The document loaded, by the artifact it is, so a redraw of the same one keeps its place.
     var loaded: ArtifactShelf.Artifact?
@@ -80,8 +90,9 @@ struct ArtifactFrame {
     private var loads = 0
     private var ruled = false
 
-    init(_ frame: ArtifactFrame) {
+    init(_ frame: ArtifactFrame, rules: @escaping () async -> WKContentRuleList? = { await ArtifactFrame.ruleList() }) {
       self.frame = frame
+      self.rules = rules
     }
 
     func load(into view: WKWebView) {
@@ -97,8 +108,10 @@ struct ArtifactFrame {
       let deck = frame.deck
       Task { deck.place = nil }
       Task {
-        if !ruled, let rules = await ArtifactFrame.ruleList() {
-          view.configuration.userContentController.add(rules)
+        if !ruled {
+          // Fail closed: a view the rule list does not hold loads nothing.
+          guard let list = await rules() else { return frame.cannot("the viewer's content rules did not compile") }
+          view.configuration.userContentController.add(list)
           ruled = true
         }
         guard loaded == artifact else { return }
@@ -122,7 +135,10 @@ struct ArtifactFrame {
       if let read = body["read"] as? [String: Any], let call = read["call"] as? Int, let method = read["method"] as? String {
         let args = (try? JSONSerialization.data(withJSONObject: read["args"] ?? [:])).flatMap { JSONValue(json: $0) } ?? .object([:])
         frame.read(method, args) { [weak self] answer in self?.reply(call, answer) }
-      } else if let id = body["open"] as? String, ArtifactLink.isId(id) {
+      } else if let open = body["open"] as? [String: Any], let call = open["call"] as? Int {
+        let id = open["id"] as? String ?? ""
+        if let no = ArtifactFrame.openRefusal(kind: frame.artifact.kind, id: id) { return reply(call, .failure(.init(no))) }
+        reply(call, .success(.object(["opened": .bool(true)])))
         frame.open(id)
       } else if let place = body["deck"] as? [String: Any], let index = place["index"] as? Int, let count = place["count"] as? Int {
         frame.deck.place = count > 0 ? DeckRemote.Place(index: min(max(index, 0), count - 1), count: count, reading: place["reading"] as? Bool ?? false) : nil
@@ -146,12 +162,6 @@ struct ArtifactFrame {
         return decisionHandler(.allow)
       }
       decisionHandler(.cancel)
-      guard action.navigationType == .linkActivated, let url, ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") else { return }
-      // A link off the page opens in the browser only at the owner's own tap, as the frame's channel says.
-      webView.callAsyncJavaScript("return !!(window.__kosPhone&&window.__kosPhone.pressedLately())", arguments: [:], in: nil, in: ArtifactFrame.world) {
-        [weak self] result in
-        if case .success(let pressed as Bool) = result, pressed { self?.frame.openLink(url) }
-      }
     }
 
     /// No window of its own: a page's window.open is refused.
