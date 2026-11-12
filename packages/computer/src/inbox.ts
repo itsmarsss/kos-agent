@@ -22,9 +22,38 @@ export const ATTACH_FILES = 4;
 export const ATTACH_KEPT_MS = 5 * 60_000;
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** The pictures a model takes, by what their bytes begin with; the phone sends its photos as JPEG. */
+const PICTURES: { type: string; is: (b: Buffer) => boolean }[] = [
+  { type: "image/jpeg", is: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+  { type: "image/png", is: (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) },
+  { type: "image/gif", is: (b) => b.subarray(0, 4).toString("latin1") === "GIF8" },
+  { type: "image/webp", is: (b) => b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP" },
+];
+const OFFICE = /\.(docx|xlsx|pptx)$/i;
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 const NAME_MAX = 200;
 const TYPE_MAX = 120;
+/**
+ * Why a whole file cannot go, or undefined: past the model's limit, as it measures it (harness attachments.ts, from
+ * the base64's length), or not what it says it is. A picture must be one a model takes, by its bytes; a PDF and an
+ * Office file by theirs; a text file must read as text.
+ */
+function contentRefusal(name: string, mediaType: string, data: string): string | undefined {
+  if (Math.floor((data.length * 3) / 4) > ATTACH_FILE_BYTES) return tooBig(name);
+  const head = Buffer.from(data.slice(0, 5_464), "base64");
+  if (mediaType.startsWith("image/")) {
+    const picture = PICTURES.find((p) => p.type === (mediaType === "image/jpg" ? "image/jpeg" : mediaType));
+    if (!picture) return `KOS takes pictures as JPEG, PNG, GIF or WebP, so ${name} cannot go.`;
+    return picture.is(head) ? undefined : `${name} is not the picture it says it is.`;
+  }
+  if (mediaType === "application/pdf" || /\.pdf$/i.test(name)) return head.subarray(0, 5).toString("latin1") === "%PDF-" ? undefined : `${name} is not the PDF it says it is.`;
+  if (OFFICE.test(name)) return head[0] === 0x50 && head[1] === 0x4b ? undefined : `${name} is not the Office file it says it is.`;
+  // Text, which a NUL never is: what is not text is not read as text.
+  return head.includes(0) ? `${name} is not the text file it says it is.` : undefined;
+}
+
+const tooBig = (name: string): string => `${name} is more than KOS takes: files go up to ${ATTACH_FILE_BYTES / 1024 / 1024} MB.`;
+
 /** The base64 of the largest file, and the parts it takes. */
 const FILE_CHARS = Math.ceil(ATTACH_FILE_BYTES / 3) * 4;
 const PARTS_MAX = Math.ceil(FILE_CHARS / ATTACH_PART_CHARS);
@@ -55,6 +84,10 @@ export class AttachmentInbox {
       if (held.size >= ATTACH_FILES) return;
       file = this.begin(data);
       held.set(id, file);
+    } else if (data["part"] === 0) {
+      // A file's first part again is the file sent again (after a dropped line, say): it starts over.
+      file = this.begin(data);
+      held.set(id, file);
     }
     if (file.refused) return;
     const refused = this.add(file, data);
@@ -80,14 +113,17 @@ export class AttachmentInbox {
       if (!file || file.got < file.parts.length || file.parts.length === 0) {
         return { refused: file?.refused ?? `${file?.name ?? "A file"} did not arrive whole. Attach it again.` };
       }
-      files.push({ name: file.name, mediaType: file.mediaType, data: file.parts.join("") });
+      const data = file.parts.join("");
+      const refused = contentRefusal(file.name, file.mediaType, data);
+      if (refused) return { refused };
+      files.push({ name: file.name, mediaType: file.mediaType, data });
     }
     return { files };
   }
 
-  /** What a device has on its way is dropped with its line. */
-  forget(device: string): void {
-    this.byDevice.delete(device);
+  /** What the devices not on a line had on their way is dropped: a device gone or unpaired keeps nothing here. */
+  keepOnly(online: ReadonlySet<string>): void {
+    for (const device of this.byDevice.keys()) if (!online.has(device)) this.byDevice.delete(device);
   }
 
   /** The device's hold, stale files dropped. */
@@ -107,7 +143,8 @@ export class AttachmentInbox {
     const file: Arriving = { name: name || "file", mediaType, parts: [], got: 0, chars: 0, at: this.now() };
     if (!name) file.refused = "A file came with no name. Attach it again.";
     else if (!isReadable(mediaType, name)) file.refused = `KOS cannot read ${name}: send a picture, a PDF, an Office file or a text file.`;
-    else if (typeof parts !== "number" || !Number.isInteger(parts) || parts < 1 || parts > PARTS_MAX) file.refused = `${name} is more than KOS takes: files go up to ${ATTACH_FILE_BYTES / 1024 / 1024} MB.`;
+    else if (mediaType.startsWith("image/") && !PICTURES.some((p) => p.type === mediaType || (mediaType === "image/jpg" && p.type === "image/jpeg"))) file.refused = `KOS takes pictures as JPEG, PNG, GIF or WebP, so ${name} cannot go.`;
+    else if (typeof parts !== "number" || !Number.isInteger(parts) || parts < 1 || parts > PARTS_MAX) file.refused = tooBig(name);
     else file.parts = Array.from({ length: parts });
     return file;
   }
@@ -122,7 +159,7 @@ export class AttachmentInbox {
     // Only the last part may end short or padded, so the parts join into one base64.
     if (part < file.parts.length - 1 && (chunk.length % 4 !== 0 || chunk.endsWith("="))) return whole;
     file.chars += chunk.length;
-    if (file.chars > FILE_CHARS) return `${file.name} is more than KOS takes: files go up to ${ATTACH_FILE_BYTES / 1024 / 1024} MB.`;
+    if (file.chars > FILE_CHARS) return tooBig(file.name);
     file.parts[part] = chunk;
     file.got += 1;
     return undefined;
