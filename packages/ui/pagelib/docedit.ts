@@ -872,7 +872,7 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
     if (!moveBlocks(article, blocks, dir)) return;
     if (!picked.length) at();
     changed();
-    blocks[0]?.scrollIntoView({ block: "nearest" });
+    blocks[0]?.scrollIntoView?.({ block: "nearest" });
     tell(dir < 0 ? "Moved up" : "Moved down");
   }
   function deleteAll(blocks: HTMLElement[]): void {
@@ -1139,7 +1139,7 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
       if (!next) return;
       if (e.shiftKey && pickFrom) pick(span(pickFrom, next), pickFrom);
       else pick([next]);
-      next.scrollIntoView({ block: "nearest" });
+      next.scrollIntoView?.({ block: "nearest" });
       return;
     }
     if (e.key === "Enter" || e.key === "/") {

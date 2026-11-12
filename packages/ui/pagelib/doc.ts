@@ -417,7 +417,7 @@ export function startDoc(): void {
   // A mention opens what it names, in the dashboard, which knows where that is; never while its words are being edited.
   const open = (e: Event): void => {
     const chip = (e.target as Element).closest?.(".mention[data-artifact]");
-    if (!chip || article.isContentEditable) return;
+    if (!chip || article.getAttribute("contenteditable") === "true") return;
     if (e instanceof KeyboardEvent && e.key !== "Enter") return;
     e.preventDefault();
     top?.postMessage({ __kos: "open", artifact: chip.getAttribute("data-artifact") }, "*");

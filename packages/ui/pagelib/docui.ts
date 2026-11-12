@@ -202,7 +202,7 @@ export class Menu {
       b.classList.toggle("on", i === this.pick);
       if (this.opts?.listbox) b.setAttribute("aria-selected", String(i === this.pick));
     });
-    this.buttons()[this.pick]?.scrollIntoView({ block: "nearest" });
+    this.buttons()[this.pick]?.scrollIntoView?.({ block: "nearest" });
   }
 
   private focusPick(): void {

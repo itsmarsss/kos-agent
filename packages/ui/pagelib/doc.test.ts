@@ -282,6 +282,59 @@ describe("kos-doc", () => {
     told.mockRestore();
   });
 
+  it("ticks a to-do while the doc is read, and keeps it at once", async () => {
+    const save = vi.fn().mockResolvedValue({ version: 2 });
+    (window as { kos?: unknown }).kos = { save };
+    const article = mount(`<ul class="checklist"><li data-checked="false">Milk</li><li data-checked="true">Eggs</li></ul>`);
+    startDoc();
+    const boxes = [...article.querySelectorAll<HTMLButtonElement>(".todo-box")];
+    expect(boxes.map((b) => [b.getAttribute("role"), b.getAttribute("aria-checked")])).toEqual([["checkbox", "false"], ["checkbox", "true"]]);
+    boxes[0]!.click();
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0]![0]).toEqual({ doc: '<ul class="checklist"><li data-checked="true">Milk</li><li data-checked="true">Eggs</li></ul>' });
+    expect(boxes[0]!.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("gives a locked doc's to-dos boxes that cannot be ticked", () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn() };
+    const article = mount(`<ul class="checklist"><li data-checked="false">Milk</li></ul>`, "data-locked");
+    startDoc();
+    expect(article.querySelector(".todo-box")!.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("opens a mentioned artifact in the dashboard when pressed, but not while editing", () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn() };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const told = vi.spyOn(window, "postMessage");
+    const article = mount(`<p>See <span class="mention" data-artifact="q4-plan">Q4 Plan</span></p>`);
+    startDoc();
+    const chip = article.querySelector<HTMLElement>(".mention")!;
+    expect([chip.getAttribute("role"), chip.getAttribute("tabindex")]).toEqual(["link", "0"]);
+    chip.click();
+    expect(told.mock.calls.map((c) => c[0])).toContainEqual({ __kos: "open", artifact: "q4-plan" });
+    told.mockClear();
+    press("edit");
+    chip.click();
+    expect(told.mock.calls.map((c) => c[0])).not.toContainEqual({ __kos: "open", artifact: "q4-plan" });
+    told.mockRestore();
+  });
+
+  it("undoes a block's move from the dashboard's Undo, and redoes it", () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn() };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const article = mount(`<p>One</p><p>Two</p>`);
+    startDoc();
+    press("edit");
+    const two = article.children[1]!;
+    getSelection()!.collapse(two.firstChild, 1);
+    article.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", metaKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+    expect(article.textContent).toBe("TwoOne");
+    press("undo");
+    expect(article.textContent).toBe("OneTwo");
+    press("redo");
+    expect(article.textContent).toBe("TwoOne");
+  });
+
   it("takes a drop as plain text, as a paste is", () => {
     (window as { kos?: unknown }).kos = { save: vi.fn() };
     const run = vi.fn();
