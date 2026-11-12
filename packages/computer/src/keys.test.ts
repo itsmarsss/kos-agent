@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtempSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -58,5 +58,15 @@ describe("the secret of this computer", () => {
     expect(key).toHaveLength(32);
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(loadLocalKey(path).equals(key)).toBe(true);
+  });
+
+  it("is made readable by the owner alone when found otherwise, and is never overwritten", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "local-key-")), "device-local.key");
+    writeFileSync(path, `${Buffer.alloc(32, 9).toString("base64")}\n`, { mode: 0o644 });
+    expect(loadLocalKey(path).equals(Buffer.alloc(32, 9))).toBe(true);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    writeFileSync(path, "not a key");
+    expect(() => loadLocalKey(path)).toThrow(/not a KOS device secret/);
+    expect(readFileSync(path, "utf8")).toBe("not a key");
   });
 });

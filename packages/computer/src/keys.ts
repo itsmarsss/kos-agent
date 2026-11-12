@@ -85,14 +85,25 @@ export function loadHostKey(options: { env?: string; path: string }): HostKey {
  * proxy on this computer's loopback, cannot read it.
  */
 export function loadLocalKey(path: string): Buffer {
-  if (existsSync(path)) {
+  const read = (): Buffer | undefined => {
+    if (!existsSync(path)) return undefined;
+    // Kept the owner's alone, however it was left.
+    chmodSync(path, 0o600);
     const key = Buffer.from(readFileSync(path, "utf8").trim(), "base64");
-    if (key.length === 32) return key;
-  }
+    if (key.length !== 32) throw new Error(`${path} is not a KOS device secret; remove it and KOS makes another`);
+    return key;
+  };
+  const kept = read();
+  if (kept) return kept;
   const key = randomBytes(32);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  writeFileSync(path, `${key.toString("base64")}\n`, { mode: 0o600 });
-  chmodSync(path, 0o600);
+  try {
+    // Made only where none is: a second KOS starting at the same moment keeps the first one's.
+    writeFileSync(path, `${key.toString("base64")}\n`, { mode: 0o600, flag: "wx" });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") return read()!;
+    throw err;
+  }
   return key;
 }
 
