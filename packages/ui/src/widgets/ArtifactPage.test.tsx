@@ -604,6 +604,7 @@ describe("a frame as tall as its page", () => {
     say({ __kos: "deck", index: 0, count: 3, grid: false, notes: true, reading: false, hosted: true, said: ["Open on the stakes"] });
     expect(notes()).not.toBeNull();
     // No full screen here, so it presents in place: the notes would sit under the slide the room sees.
+    Object.defineProperty(document, "fullscreenEnabled", { value: false, configurable: true });
     act(() => handle.current!.present());
     expect(notes()).toBeNull();
     act(() => handle.current!.present());
