@@ -382,17 +382,34 @@ the commit. What each app is made from:
 | KOS for iPhone | `packages/device-ios` `Package.swift`, `Sources`, `App`; `packages/device-shared` `Package.swift`, `Sources` | the app target's Run Script phase, `scripts/stamp.sh` |
 
 A native build is not the same bytes twice, so the two native apps are
-their sources; KOS for Chrome is its built folder. Each build writes its
+their sources; KOS for Chrome is its built folder. KOS for Chrome reads its
+stamp once each time Chrome loads its code (session storage, which every
+install, reload, update and Chrome start empties, says when) and keeps it, so
+a worker that wakes after a deploy rebuilt the folder still says the build it
+runs. Each build writes its
 stamp as `build.json` beside the app's code (the extension's folder, the
 Mac app's `Contents/Resources`, the iPhone app's resources) with
 `node packages/computer/dist/stamp.js <chrome|mac|phone> <file>`, and the
 app reads it from there. KOS's own is what is on disk: the extension's
 `dist/build.json` as it is now (what a reload would load), and the two
-native apps' sources, hashed once at start (a deploy restarts KOS).
+native apps' sources, hashed at start (a deploy restarts KOS), again just
+before KOS installs one, and again when a Mac comes back on another build
+than KOS's (the owner may have built one by hand).
+
+**Here.** A device is on the computer KOS runs on when it dialled loopback
+with no proxy between (a request carrying `X-Forwarded-For`, `Forwarded`,
+`X-Real-IP` or a `Tailscale-` header is not), and, for KOS for Mac, since KOS
+reinstalls it, when it also proves it can read this computer's secret: 32
+random bytes KOS keeps in `~/.kos/device-local.key` (mode 0600;
+`KOS_DEVICE_LOCAL_KEY_FILE` moves it), sent as `here`, base64 HMAC-SHA256 with
+that secret over `kos-device/1|here|<KOS nonce>|<device id>`. A Chrome is
+taken on the header rule alone: a Chrome elsewhere told to reload only
+reloads its own folder.
 
 **When.** On every connection KOS compares, settles an update in flight
 (back on the new build: `updated`; reloaded or reinstalled and still not:
-`still_behind`), and acts. It looks again whenever a session or a turn ends,
+`still_behind`), and acts. An install a restart of KOS cut off is settled as
+`failed` when KOS starts again. It looks again whenever a session or a turn ends,
 for an app waiting on that. Each build is tried once per device, kept
 across restarts; the owner's Update now (`POST /api/devices/update { "id"
 }`, or the dashboard's button) tries it once more. Settings, Devices,
@@ -407,14 +424,26 @@ the device, `kind`, `from`, `to`, `outcome` (`reloading`, `installing`,
 reload`. It reloads itself (`chrome.runtime.reload()`) from its folder only
 as an unpacked extension (Load unpacked, `installType` `development`),
 only once no side panel turn runs and no session is held or asked for
-(otherwise when that ends), and only once per build id unless `force`;
-it says `update.state` `reloading` first. Loaded from another folder than
+(otherwise when that ends), and only once per build id unless `force` (and
+not again within ten minutes even then); it reloads only once its folder
+holds that build whole (the manifest reads, the stamp is that id), and
+looks again later while the folder is being rebuilt; it says
+`update.state` `reloading` first. A forced reload is spent on the line it
+was told on. One installed from the store is `store`: Chrome updates it. Loaded from another folder than
 this KOS's `dist`, it comes back on the same build and KOS calls it stuck.
 
 **KOS for Mac**, connected from this computer (loopback), on a Mac checkout,
 is rebuilt and swapped in with `scripts/bundle.sh --install`, one at a
 time, its output in the host's log, once its window holds no session or
-ask and no turn runs in its chats. Only while the owner's signing key is
+ask and no turn runs in its chats. The build runs in a process group of its
+own, with only `HOME`, `PATH`, `TMPDIR`, `DEVELOPER_DIR`, `LANG`, `USER`,
+`LOGNAME`, `KOS_DEVICE_SIGNING_KEYCHAIN` and `KOS_NODE` of the host's
+environment, and is stopped, all of it, after fifteen minutes. The new app is
+copied in beside the old and renamed into place, so a stop leaves an app
+installed; an app that does not quit within ten seconds is not replaced,
+and the update fails saying so. A signing key locked from KOS's side
+(`errSecInternalComponent`) is said as such, with the command to run in the
+owner's own Terminal. Only while the owner's signing key is
 set up (`scripts/signing.sh identity`): signed ad hoc, a rebuild costs the
 app its Screen Recording, Accessibility and Keychain grants, so without
 the key KOS installs nothing on its own and says so, on the dashboard and
@@ -508,7 +537,10 @@ link for a phone over Wi-Fi adds `&pin=<pin>`, the certificate the phone pins
 
 `build` is which build of the app this is, as its build stamped it (see
 [Builds and updates](#builds-and-updates)). An app that sends none, or one
-that does not read, is let in as a build KOS does not know.
+that does not read, is let in as a build KOS does not know. A Chrome adds
+`install`, how Chrome says it was installed (`development` for Load
+unpacked); KOS for Mac on the computer KOS runs on adds `here`, its proof
+that it is there.
 
 Nonces are signed as their base64 text. Either side closes on a bad
 signature. Close codes: `4001` malformed, `4003` unknown device, bad
@@ -581,7 +613,8 @@ build stands with the one it would hand it now:
 `state` is `current`, `behind`, `updating` or `unknown`; `build` the build
 KOS would hand it; `reason`, when it is not current, why: `unbuilt` (KOS
 has none to compare with), `unstamped` (the app said no build), `remote`
-(it runs on another computer), `idle` (waiting for no session and no turn
+(it runs on another computer), `store` (a Chrome installed from the store,
+which Chrome updates), `idle` (waiting for no session and no turn
 on it), `signing` (KOS for Mac's signing key is not set up), `xcode` (a
 phone), `off` (the owner turned updating on their own off), `failed` (with
 `detail`, the build's last line) or `stuck` (updated, and back on the old
