@@ -7,6 +7,7 @@ import { WebSocket } from "ws";
 import { openDatabase } from "@kos/harness";
 
 import { DeviceHub } from "./hub.js";
+import type { LanStatus } from "./lan.js";
 import { rawPublicKey, signText, verifyText } from "./keys.js";
 import { deviceProof, hostProof, PROTOCOL_VERSION, SOCKET_PATH } from "./protocol.js";
 import { deviceRoutes, deviceSocketServer, PREFIX } from "./routes.js";
@@ -53,6 +54,27 @@ describe("the device routes", () => {
     expect(await routes.handle({ method: "GET", path: PREFIX })).toMatchObject({ body: { settings: { askMinutes: 15, unattended: false } } });
     expect(await routes.handle({ method: "POST", path: `${PREFIX}/settings`, body: { askMinutes: 60 } })).toMatchObject({ body: { askMinutes: 60 } });
     expect(await routes.handle({ method: "POST", path: `${PREFIX}/settings`, body: { askMinutes: 9999 } })).toMatchObject({ status: 400 });
+  });
+
+  it("turn the Wi-Fi listener on and off with the setting, and give a phone's code where to find KOS", async () => {
+    const hub = newHub();
+    let on = false;
+    const status = (): LanStatus => ({ on, forced: false, port: 4319, urls: on ? ["https://192.168.1.20:4319"] : [], pin: "PIN", words: "AAAA BBBB CCCC DDDD" });
+    const lan = {
+      status,
+      pairing: () => (on ? { url: "https://192.168.1.20:4319", urls: ["https://192.168.1.20:4319"], pin: "PIN", words: "AAAA BBBB CCCC DDDD" } : undefined),
+      sync: async (wanted: boolean) => {
+        on = wanted;
+        return status();
+      },
+    };
+    const routes = deviceRoutes(() => hub, (id) => id, lan);
+    expect(await routes.handle({ method: "GET", path: PREFIX })).toMatchObject({ body: { settings: { lan: false }, lan: { on: false } } });
+    expect((await routes.handle({ method: "POST", path: `${PREFIX}/pairings` }))!.body).not.toHaveProperty("lan");
+    expect(await routes.handle({ method: "POST", path: `${PREFIX}/settings`, body: { lan: true } })).toMatchObject({ body: { lan: true, lanStatus: { on: true } } });
+    expect(await routes.handle({ method: "POST", path: `${PREFIX}/pairings` })).toMatchObject({ body: { lan: { url: "https://192.168.1.20:4319", pin: "PIN" } } });
+    await routes.handle({ method: "POST", path: `${PREFIX}/settings`, body: { lan: false } });
+    expect(on).toBe(false);
   });
 
   it("say so when computer use is switched off", async () => {

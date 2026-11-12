@@ -42,10 +42,10 @@ import {
   type OutboundMessage,
   type PendingAction,
 } from "@kos/harness";
-import { createComputerUse, type PanelDeps } from "@kos/computer";
+import { createComputerUse, type Glance, type PanelDeps, type PanelPlaceOf } from "@kos/computer";
 
-/** The surfaces a device panel is: a Chrome's side panel, a Mac's window. */
-type PanelSurface = "chrome" | "mac";
+/** The surfaces a device panel is: a Chrome's side panel, a Mac's window, a phone's chat. */
+type PanelSurface = "chrome" | "mac" | "phone";
 
 import { envFilePath } from "./env.js";
 import { ThreadMirror } from "./threadmirror.js";
@@ -72,6 +72,12 @@ export interface HostOptions {
    * port plus one; 0 turns site serving off.
    */
   sitesPort?: number;
+}
+
+/** The port phones on the Wi-Fi reach KOS on: KOS_DEVICE_LAN_PORT, else the dashboard's plus two. */
+function lanPort(dashboard: number): number {
+  const set = Number(process.env.KOS_DEVICE_LAN_PORT ?? "");
+  return Number.isInteger(set) && set > 0 && set < 65_536 ? set : dashboard + 2;
 }
 
 function defaultUiDist(): string | undefined {
@@ -438,6 +444,29 @@ export async function runHost(options: HostOptions): Promise<void> {
   };
   const chromeChat = surfaceChat("chrome");
   const macChat = surfaceChat("mac");
+  const phoneChat = surfaceChat("phone");
+  /** Where a chat lives, as a device's chat list groups it: KOS at the root, a project, or a blob. */
+  const placeOf = (c: { projectSlug: string | null; role: string | null }): PanelPlaceOf => {
+    if (c.role) return { kind: "blob", name: kernel.labelFor("blob", c.role) ?? c.role };
+    if (c.projectSlug) return { kind: "project", name: kernel.labelFor("project", c.projectSlug) ?? c.projectSlug };
+    return { kind: "kos" };
+  };
+  /** What is going on in KOS, for a phone that asks: what runs, what waits on the owner, what fails, what fires next. */
+  const glance = (): Glance => {
+    const next = kernel.crons
+      .list()
+      .filter((job) => job.enabled)
+      .flatMap((job) => kernel.cronNextRuns(job.id, 1).map((at) => ({ name: job.name, at })))
+      .sort((a, b) => a.at - b.at)
+      .slice(0, 5);
+    return {
+      halted: kernel.killSwitch.halted,
+      running: kernel.busyConversations().slice(0, 10).map((id) => ({ id, title: kernel.nameOf(id) })),
+      waiting: kernel.approvals.pending().length,
+      failing: kernel.health.failing().slice(0, 10).map(({ label, streak, error, since }) => ({ label, streak, error, since })),
+      next,
+    };
+  };
   /** What a device panel reads and does, for its own surface's chats and no one else's. */
   const panelDeps = (channel: PanelSurface, current: () => { id: string; title: string } | undefined): PanelDeps => ({
     current,
@@ -456,7 +485,7 @@ export async function runHost(options: HostOptions): Promise<void> {
         .filter((c) => c.channel === channel)
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, 40)
-        .map((c) => ({ id: c.id, title: kernel.titleOf(c.id), updatedAt: c.updatedAt })),
+        .map((c) => ({ id: c.id, title: kernel.titleOf(c.id), updatedAt: c.updatedAt, place: placeOf(c) })),
     switchTo: (id) => {
       const c = kernel.conversations.get(id);
       if (c?.channel !== channel) return false;
@@ -492,7 +521,14 @@ export async function runHost(options: HostOptions): Promise<void> {
     halted: () => kernel.killSwitch.halted,
     face: () => kernel.kosDrawing(),
     theme: () => kernel.dashboardTheme(),
-    panels: { chrome: panelDeps("chrome", chromeChat), mac: panelDeps("mac", macChat) },
+    panels: { chrome: panelDeps("chrome", chromeChat), mac: panelDeps("mac", macChat), phone: { ...panelDeps("phone", phoneChat), glance } },
+    lan: {
+      // The dashboard's port plus two: the sites take plus one.
+      port: lanPort(options.port),
+      host: process.env.KOS_DEVICE_LAN_HOST?.trim() || "0.0.0.0",
+      certPath: process.env.KOS_DEVICE_LAN_CERT_FILE?.trim() || join(homedir(), ".kos", "device-lan.pem"),
+      forced: process.env.KOS_DEVICE_LAN === "1",
+    },
     // A session started unasked is written down as the start it stands for.
     audit: (entry) => void kernel.audit.record(entry),
     // The owner's Stop on a device stops the chat's turn, as the dashboard's does.
@@ -594,6 +630,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       if (smsAdapter && sms) void smsAdapter.requestApproval(sms.owner, request);
       void computer.panel.requestApproval("owner", request);
       void computer.mac.requestApproval("owner", request);
+      void computer.phone.requestApproval("owner", request);
     },
   });
 
@@ -1116,14 +1153,15 @@ export async function runHost(options: HostOptions): Promise<void> {
   }
 
   /*
-   * The side panel of each paired Chrome and the window of each paired Mac:
+   * The side panel of each paired Chrome, the window of each paired Mac and
+   * the chat of each paired phone:
    * surfaces of their own, whatever else is wired, and quiet until a device
    * is paired with computer use on. A turn one did not take (one on the
    * dashboard, one from another of the owner's Chromes) is told there as it
    * goes, as Discord's thread is.
    */
   const panelRuntimes: { stop(): Promise<void> }[] = [];
-  for (const panel of [computer.panel, computer.mac]) {
+  for (const panel of [computer.panel, computer.mac, computer.phone]) {
     const runtime = connectChannel(panel, kernel, { ownerRecipientId: "owner", identity: panel.identity(kernel.profile.ownerId) });
     await runtime.start();
     panelRuntimes.push(runtime);
@@ -1153,7 +1191,7 @@ export async function runHost(options: HostOptions): Promise<void> {
   const shutdown = (): void => {
     console.log("shutting down…");
     clearDaemonState(kernel.workspace.root);
-    computer.close();
+    void computer.close();
     live.close();
     server.close();
     void (async () => {
