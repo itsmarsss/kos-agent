@@ -1495,9 +1495,13 @@ export function startEditor(article: HTMLElement, { save, say, onPending, queue 
         ? before
         : (anchor instanceof Element ? anchor : anchor?.parentElement)?.closest('[contenteditable="false"]');
     if (fixed && fixed !== article && article.contains(fixed)) {
-      // A caret after it at the line's end needs a character to stand on: a zero-width one, which no save keeps (cleanDocHtml).
+      // A caret after it needs a character to stand on: a zero-width one, which no save keeps (cleanDocHtml). Text after it with
+      // none (emptied by a Backspace, then put back by Undo) is given one too.
       let after = fixed.nextSibling;
-      if (!(after instanceof Text) && !fixed.classList.contains("todo-box")) fixed.after((after = document.createTextNode("\u200b")));
+      if (!fixed.classList.contains("todo-box")) {
+        if (!(after instanceof Text)) fixed.after((after = document.createTextNode("\u200b")));
+        else if (!after.data.startsWith("\u200b")) after.insertData(0, "\u200b");
+      }
       const r = document.createRange();
       if (after instanceof Text) r.setStart(after, after.data.startsWith("\u200b") ? 1 : 0);
       else r.setStartAfter(fixed);

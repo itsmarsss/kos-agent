@@ -453,6 +453,26 @@ describe("kos-doc", () => {
     expect(first!.data).toBe(" x");
   });
 
+  it("gives the caret its zero-width step after a chip whose text after it is empty or has none", async () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn() };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    const article = mount(`<p><span class="mention" data-artifact="deck-one">Deck one</span></p><p><span class="mention" data-artifact="deck-two">Deck two</span> more</p>`);
+    startDoc();
+    press("edit");
+    const [one, two] = [...article.querySelectorAll<HTMLElement>(".mention")];
+    // As an Undo after a Backspace leaves it: the chip back, the text after it empty.
+    one!.after(document.createTextNode(""));
+    for (const chip of [one!, two!]) {
+      getSelection()!.collapse(chip.firstChild!, 2);
+      document.dispatchEvent(new Event("selectionchange"));
+      await vi.waitFor(() => expect(getSelection()!.anchorNode).toBe(chip.nextSibling));
+      expect(getSelection()!.anchorOffset).toBe(1);
+    }
+    expect((one!.nextSibling as Text).data).toBe("\u200b");
+    expect((two!.nextSibling as Text).data).toBe("\u200b more");
+    expect(cleanDocHtml(article)).not.toContain("\u200b");
+  });
+
   it("says quietly in the head when an open was refused", async () => {
     const told = vi.spyOn(window, "postMessage");
     (window as { kos?: unknown }).kos = { save: vi.fn(), open: vi.fn().mockRejectedValue(new Error("there is no artifact by that id")) };
