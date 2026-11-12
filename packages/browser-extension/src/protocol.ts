@@ -6,6 +6,8 @@
 
 import { readDashboardTheme, readDrawing, type DashboardTheme, type FaceDrawing } from "@kos/shared";
 
+import { readUpdate, type UpdateNotice } from "./update.js";
+
 export const PROTOCOL = 1;
 
 /** What the extension signs to prove it holds its key. */
@@ -37,6 +39,7 @@ export type KosFrame =
   | { t: "call"; id: number; method: string; params: Record<string, unknown> }
   | { t: "face"; face: FaceDrawing }
   | { t: "theme"; theme: DashboardTheme }
+  | { t: "update"; update: UpdateNotice }
   | { t: "pong" };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -69,6 +72,10 @@ export function readFrame(text: string): KosFrame | undefined {
       // The mode, and the palette a dashboard draws it in when KOS has heard it; only a mode is a theme.
       const theme = readDashboardTheme(raw);
       return theme ? { t: "theme", theme } : undefined;
+    }
+    case "update": {
+      const update = readUpdate(raw);
+      return update ? { t: "update", update } : undefined;
     }
     case "pong":
       return { t: "pong" };
