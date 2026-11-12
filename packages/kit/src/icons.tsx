@@ -431,6 +431,8 @@ export function NavIcon({ name }: { name: string }): ReactElement {
     case "doc": return p("M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6|M8 13h8|M8 17h5");
     case "deck": return p("M3 4h18v12H3z|M12 16v4|M8 20h8|M7 9h6");
     case "sheet": return p("M4 4h16v16H4z|M4 10h16|M4 15h16|M10 4v16");
+    // Where the owner's deleted artifacts wait.
+    case "trash": return p("M4 7h16|M9 7V4h6v3|M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12|M10 11v6|M14 11v6");
     default: return p("c12,12,9");
   }
 }

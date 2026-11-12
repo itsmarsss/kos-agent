@@ -24,7 +24,9 @@ import { NewProjectDialog } from "./NewProjectDialog.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { ProjectPanel } from "./ProjectPanel.js";
 import { ArtifactRail, ArtifactStrip, type RailOwner, useOwnedArtifacts } from "./ArtifactRail.js";
-import { ArtifactViewer, chatIdOf, rootChatId, type ViewerHandle } from "./ArtifactsPage.js";
+import { ArtifactViewer, rootChatId, type ViewerHandle } from "./ArtifactsPage.js";
+import { chatIdOf } from "./artifactowner.js";
+import { PANEL_ROOM, usePanelDrawer, useRoomFor } from "./paneldrawer.js";
 import { ArtifactOpen, type ArtifactOpeners } from "./ArtifactStep.js";
 import { RailGroup, useRailFolds } from "./RailGroup.js";
 import {
@@ -161,9 +163,6 @@ export interface ChatsPageProps {
    * about nothing, and the question it was answering appeared a minute later.
    */
   seed?: { id: string; text: string };
-  /** Words to start the composer with in one chat, for the owner to finish and send; said once, then let go. */
-  prefill?: { id: string; text: string };
-  onPrefilled?: () => void;
 }
 
 
@@ -260,8 +259,6 @@ export function ChatsPage({
   onChanged,
   onDecide,
   seed,
-  prefill,
-  onPrefilled,
 }: ChatsPageProps): ReactElement {
   const [query, setQuery] = useState("");
   /** KOS's face, wherever KOS is drawn on this page. */
@@ -467,19 +464,6 @@ export function ChatsPage({
     };
   }, [project?.slug, conversations, activeId, approvals]);
   const suggestions = useSuggestions(trigger, suggestionOptions);
-
-  // Words handed over to start with ("Make a "): in the composer, the caret after them.
-  useEffect(() => {
-    if (!prefill || prefill.id !== activeId) return;
-    setDraft(prefill.text);
-    onPrefilled?.();
-    requestAnimationFrame(() => {
-      const el = inputRef.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(prefill.text.length, prefill.text.length);
-    });
-  }, [prefill, activeId, onPrefilled]);
 
   const syncTrigger = (): void => {
     const el = inputRef.current;
@@ -862,7 +846,7 @@ export function ChatsPage({
       return true;
     }
   });
-  const togglePanel = (): void => {
+  const rememberPanel = (): void => {
     const next = !panelOpen;
     setPanelOpen(next);
     try {
@@ -871,6 +855,16 @@ export function ChatsPage({
       // Remembered for this visit only.
     }
   };
+  /*
+   * Without the room for a third column the panel is a drawer over the chat,
+   * opened by the same toggle and shut by it, the backdrop or Escape, and not
+   * remembered: the next narrow visit starts on the chat.
+   */
+  const root = useRef<HTMLDivElement>(null);
+  const panelFits = useRoomFor(root, PANEL_ROOM);
+  const drawer = usePanelDrawer(root, panelFits);
+  const panelShown = panelFits ? panelOpen : drawer.open;
+  const togglePanel = (): void => (panelFits ? rememberPanel() : drawer.toggle());
 
   /*
    * Threads a schedule runs in, kept apart from the ones the owner started.
@@ -928,7 +922,7 @@ export function ChatsPage({
     } else if (verb === "export" || verb === "download") {
       exportTranscript();
     } else if (project) {
-      if (!panelOpen) togglePanel();
+      if (!panelShown) togglePanel();
       onNotice("The project's files are in the panel on the right.");
     } else if (active?.projectSlug) {
       onOpenProject(active.projectSlug);
@@ -1431,7 +1425,8 @@ export function ChatsPage({
   return (
     <ArtifactOpen.Provider value={artifactOpeners}>
       <div
-        className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active ? "has-active" : ""} ${listOpen ? "is-list-open" : ""} ${project || agent ? "is-project" : ""} ${(project || agent) && !panelOpen ? "panel-hidden" : ""} ${resizing ? "is-resizing" : ""}`}
+        className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active ? "has-active" : ""} ${listOpen ? "is-list-open" : ""} ${project || agent ? "is-project" : ""} ${(project || agent) && panelFits && !panelOpen ? "panel-hidden" : ""} ${(project || agent) && drawer.open ? "is-panel-drawer" : ""} ${resizing ? "is-resizing" : ""}`}
+        ref={root}
         style={{ "--rail-w": `${railW}px`, "--panel-w": `${panelW}px` } as CSSProperties}
       >
         {narrow && listOpen && (
@@ -2172,13 +2167,13 @@ export function ChatsPage({
                     /* An icon, not words: beside Configure and Archive a third
                        label squeezed the title into two lines. */
                     <IconButton
-                      className={`chats-panel-toggle ${panelOpen ? "is-on" : ""}`}
-                      aria-pressed={panelOpen}
-                      label={panelOpen ? "Hide the workspace panel" : "Show the workspace panel"}
-                      title={panelOpen ? "Hide files, pages and tables" : "Show files, pages and tables"}
+                      className={`chats-panel-toggle ${panelShown ? "is-on" : ""}`}
+                      aria-pressed={panelShown}
+                      label={panelShown ? "Hide the workspace panel" : "Show the workspace panel"}
+                      title={panelShown ? "Hide files, pages and tables" : "Show files, pages and tables"}
                       onClick={togglePanel}
                     >
-                      <PanelIcon on={panelOpen} />
+                      <PanelIcon on={panelShown} />
                     </IconButton>
                   )}
                   <button
@@ -2671,6 +2666,7 @@ export function ChatsPage({
           {(project || agent) && <ArtifactStrip {...railProps} />}
         </section>
 
+        {(project || agent) && drawer.open && <div className="chats-panel-backdrop" aria-hidden="true" onClick={drawer.close} />}
         {project && (
           /* Mounted while hidden, so hiding is the column sliding shut rather
              than the panel vanishing; it polls nothing until it is back. */
@@ -2680,7 +2676,8 @@ export function ChatsPage({
             onOpenFile={project.onOpenFile}
             onChanged={onChanged}
             onError={project.onError}
-            hidden={!panelOpen}
+            hidden={!panelShown}
+            modal={drawer.open}
           />
         )}
         {agent && (
@@ -2691,7 +2688,8 @@ export function ChatsPage({
             onError={agent.onError}
             onNotice={onNotice}
             onRemoved={agent.onRemoved}
-            hidden={!panelOpen}
+            hidden={!panelShown}
+            modal={drawer.open}
             rail={<ArtifactRail {...railProps} />}
           />
         )}
@@ -2739,10 +2737,10 @@ export function ChatsPage({
             }}
             collapsed={!panelOpen}
             onCollapse={() => {
-              if (panelOpen) togglePanel();
+              if (panelOpen) rememberPanel();
             }}
             onExpand={() => {
-              if (!panelOpen) togglePanel();
+              if (!panelOpen) rememberPanel();
             }}
           />
         )}

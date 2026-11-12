@@ -158,8 +158,11 @@ export function Select({
                 // Its own Escape, not the drawer's or dialog's it sits in as well.
                 if (e.key === "Escape") {
                   e.stopPropagation();
+                  e.preventDefault();
                   done();
                 }
+                // Tab leaves it as a native select is left: shut, the focus back on its button, and on from there.
+                if (e.key === "Tab") done();
                 if (e.key === "ArrowDown") {
                   e.preventDefault();
                   setCursor((c) => (c + 1) % options.length);

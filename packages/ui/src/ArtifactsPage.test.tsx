@@ -2,8 +2,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { api, type ArtifactSummary, type Project } from "./api.js";
-import { ArtifactViewer, ArtifactsPage, NEW_ARTIFACT_WORDS, chatOf, convertRequest, editRequest, settleOpenViewers } from "./ArtifactsPage.js";
+import { api, type AgentInfo, type ArtifactSummary, type Project } from "./api.js";
+import { ArtifactViewer, ArtifactsPage, chatOf, convertRequest, editRequest, settleOpenViewers } from "./ArtifactsPage.js";
+import { HANDOFF_MS, newRequest } from "./NewArtifact.js";
 import { hrefFor, NAV, parseRoute } from "./routes.js";
 
 beforeAll(() => {
@@ -58,9 +59,15 @@ describe("the Artifacts page", () => {
     expect(titles()).toEqual(["Ledger"]);
     fireEvent.change(screen.getByLabelText("Search artifacts"), { target: { value: "nothing like this" } });
     expect(screen.getByText("No artifact matches these filters.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Decks0" })).toBeTruthy();
+    // A kind with none left is left out, All kept.
+    expect(screen.queryByRole("button", { name: /^Decks/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "All0" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(titles()).toHaveLength(4);
+    // The one chosen stays, at nought, so it can be let go.
+    fireEvent.click(screen.getByRole("button", { name: "Decks1" }));
+    fireEvent.change(screen.getByLabelText("Search artifacts"), { target: { value: "ledger" } });
+    expect(screen.getByRole("button", { name: "Decks0" }).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("draws cards in their shape while it loads, then groups them by project on asking", async () => {
@@ -73,7 +80,8 @@ describe("the Artifacts page", () => {
     answer(ART);
     await waitFor(() => expect(titles()).toHaveLength(4));
     expect(screen.queryByRole("list", { name: "Loading artifacts" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "By owner" }));
+    fireEvent.click(screen.getByRole("button", { name: "Group" }));
+    fireEvent.click(screen.getByRole("option", { name: "By owner" }));
     const inGroup = (name: string): string[] => [...screen.getByRole("list", { name }).querySelectorAll(".artifact-card-title")].map((t) => t.textContent ?? "");
     expect(inGroup("Household budget")).toEqual(["Spending board", "Ledger"]);
     // The workspace's own come last.
@@ -82,17 +90,130 @@ describe("the Artifacts page", () => {
     expect(heads).toEqual(["Household budget2", "Workspace2"]);
   });
 
-  it("starts a new artifact in KOS's root chat, with the words to finish", async () => {
+  it("makes a new artifact from a kind, an owner and a sentence, asked in the owner's own chat", async () => {
     vi.spyOn(api, "artifacts").mockResolvedValue([]);
-    const started = vi.fn();
-    render(<ArtifactsPage projects={projects} onOpen={() => undefined} onNew={started} />);
+    vi.spyOn(api, "agents").mockResolvedValue({ agents: [{ name: "noter" } as AgentInfo], invalid: [] });
+    const sent = vi.spyOn(api, "message").mockResolvedValue({} as never);
+    const asked = vi.fn();
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} />);
     await screen.findByText("Nothing made yet");
     // In the head, and beside the empty gallery.
     const buttons = screen.getAllByRole("button", { name: "New artifact" });
     expect(buttons).toHaveLength(2);
     fireEvent.click(buttons[0]!);
-    expect(started).toHaveBeenCalledWith(NEW_ARTIFACT_WORDS);
-    expect(NEW_ARTIFACT_WORDS).toBe("Make a ");
+    const dialog = await screen.findByRole("dialog", { name: "New artifact" });
+    // A doc to begin with; the arrows walk the kinds as a radio group.
+    const kinds = within(dialog).getByRole("radiogroup", { name: "Kind" });
+    expect(within(kinds).getByRole("radio", { name: /Doc/ }).getAttribute("aria-checked")).toBe("true");
+    // Each named by its kind alone, what it is for read as its description.
+    const deck = within(kinds).getByRole("radio", { name: "Deck" });
+    expect(document.getElementById(deck.getAttribute("aria-describedby")!)?.textContent).toBe("Slides to present, 16:9");
+    fireEvent.keyDown(kinds, { key: "End" });
+    expect(within(kinds).getByRole("radio", { name: "Page" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.keyDown(kinds, { key: "Home" });
+    fireEvent.keyDown(kinds, { key: "ArrowRight" });
+    expect(deck.getAttribute("aria-checked")).toBe("true");
+    expect(within(dialog).getByText("Goes to KOS")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Owner" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Household budget" }));
+    expect(within(dialog).getByText("Goes to Household budget's chat")).toBeTruthy();
+    const ask = within(dialog).getByRole("button", { name: "Ask KOS" }) as HTMLButtonElement;
+    expect(ask.disabled).toBe(true);
+    fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "Ten slides on the quarter" } });
+    fireEvent.click(ask);
+    expect(sent).toHaveBeenCalledWith(newRequest("deck", "Ten slides on the quarter", { project: "budget" }), "project:budget");
+    await waitFor(() => expect(asked).toHaveBeenCalledWith({ project: "budget" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("keeps the dialog and the words when the request cannot be sent, and says why", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([]);
+    vi.spyOn(api, "agents").mockResolvedValue({ agents: [], invalid: [] });
+    let refuse: (err: Error) => void = () => undefined;
+    vi.spyOn(api, "message").mockReturnValue(new Promise((_, reject) => (refuse = reject)));
+    const asked = vi.fn();
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "New artifact" }))[0]!);
+    const dialog = await screen.findByRole("dialog", { name: "New artifact" });
+    fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "A memo on the move" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Ask KOS" }));
+    // Said while it is on its way, and not sent twice.
+    const busy = within(dialog).getByRole("button", { name: "Asking…" }) as HTMLButtonElement;
+    expect(busy.disabled).toBe(true);
+    refuse(new Error("KOS is halted"));
+    expect((await within(dialog).findByRole("alert")).textContent).toBe("Could not ask KOS: KOS is halted");
+    expect((within(dialog).getByLabelText("What should it be?") as HTMLTextAreaElement).value).toBe("A memo on the move");
+    expect(within(dialog).getByRole("button", { name: "Ask KOS" })).toBeTruthy();
+    expect(asked).not.toHaveBeenCalled();
+  });
+
+  it("hands over to the chat once the send has been on its way a moment, the answer still to come", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([]);
+    vi.spyOn(api, "agents").mockResolvedValue({ agents: [], invalid: [] });
+    vi.spyOn(api, "message").mockReturnValue(new Promise(() => undefined));
+    const asked = vi.fn();
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "New artifact" }))[0]!);
+    const dialog = await screen.findByRole("dialog", { name: "New artifact" });
+    fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "A memo" } });
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Ask KOS" }));
+      await act(() => vi.advanceTimersByTimeAsync(HANDOFF_MS - 100));
+      expect(asked).not.toHaveBeenCalled();
+      await act(() => vi.advanceTimersByTimeAsync(200));
+      expect(asked).toHaveBeenCalledWith(null);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("moves nobody when the page went before the send handed over", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([]);
+    vi.spyOn(api, "agents").mockResolvedValue({ agents: [], invalid: [] });
+    vi.spyOn(api, "message").mockReturnValue(new Promise(() => undefined));
+    const asked = vi.fn();
+    const { unmount } = render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "New artifact" }))[0]!);
+    const dialog = await screen.findByRole("dialog", { name: "New artifact" });
+    fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "A memo" } });
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Ask KOS" }));
+      unmount();
+      await vi.advanceTimersByTimeAsync(HANDOFF_MS + 100);
+      expect(asked).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("goes back to the workspace when the owner chosen is no longer offered", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([]);
+    const agents = vi.spyOn(api, "agents").mockResolvedValue({ agents: [{ name: "noter" } as AgentInfo], invalid: [] });
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={() => undefined} />);
+    const open = async (): Promise<HTMLElement> => {
+      fireEvent.click((await screen.findAllByRole("button", { name: "New artifact" }))[0]!);
+      return screen.findByRole("dialog", { name: "New artifact" });
+    };
+    let dialog = await open();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Owner" }));
+    fireEvent.click(await screen.findByRole("option", { name: "noter" }));
+    expect(within(dialog).getByText("Goes to noter's chat")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // The blob is removed before the dialog opens again.
+    agents.mockResolvedValue({ agents: [], invalid: [] });
+    dialog = await open();
+    await waitFor(() => expect(within(dialog).getByText("Goes to KOS")).toBeTruthy());
+  });
+
+  it("asks KOS at the root for a workspace artifact, and a blob in its own thread", () => {
+    expect(newRequest("doc", " A memo ", null)).toBe(
+      "A memo\n\nWrite it as a doc: read artifacts.guide for a doc, write it with artifacts.write, leaving project out so it is a workspace artifact, and check it once with artifacts.check.",
+    );
+    expect(newRequest("sheet", "Budget", { blob: "noter" })).toContain("write it with artifacts.write, leaving project out so it is your own,");
+    expect(newRequest("page", "Board", { project: "garden" })).toContain("write it with artifacts.write for @project:garden, and check it once");
   });
 
   it("shows a capture when there is a fresh one and redraws a missing or stale one, one at a time", async () => {

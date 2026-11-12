@@ -2297,10 +2297,38 @@ a.turn-via:hover { text-decoration: underline; color: var(--muted); }
 .chats.panel-hidden .chats-gutter--panel:hover::after,
 .chats.is-collapsed .chats-gutter--rail.is-active::after,
 .chats.panel-hidden .chats-gutter--panel.is-active::after { background: var(--accent); }
-@media (max-width: 1100px) {
+/* The page the chats sit in is a container: the panel's column folds by the
+   room the chats have (the nav open or shut), not by the window. Below it the
+   panel is a drawer over the chat, from the right, its backdrop shutting it.
+   The width is PANEL_ROOM in ChatsPage.tsx. */
+.ops-page--full { container: chats-room / inline-size; }
+@container chats-room (max-width: 880px) {
   .chats.is-project { grid-template-columns: var(--rail-w, 240px) minmax(0, 1fr); }
+  .chats.is-project.is-collapsed { grid-template-columns: 0px minmax(0, 1fr); }
   .chats.is-project .project-panel,
   .chats.is-project .chats-gutter--panel { display: none; }
+  .chats.is-project.is-panel-drawer .project-panel {
+    display: flex;
+    position: absolute;
+    z-index: 31;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(340px, calc(100% - 2.5rem));
+    padding: 12px 12px 12px 14px;
+    border-left: 1px solid var(--line-strong);
+    background: var(--bg);
+    box-shadow: var(--float);
+    outline: none;
+    animation: panel-drawer-in 180ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .chats.is-project .artifact-strip { display: block; }
+}
+.chats-panel-backdrop { position: absolute; inset: 0; z-index: 30; background: rgb(0 0 0 / 0.35); animation: panel-backdrop-in 180ms ease-out; }
+@keyframes panel-drawer-in { from { opacity: 0; transform: translateX(16px); } }
+@keyframes panel-backdrop-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .chats.is-project.is-panel-drawer .project-panel, .chats-panel-backdrop { animation: none; }
 }
 .chats-list { min-width: 0; }
 .chats.is-collapsed .chats-list {
@@ -3299,6 +3327,7 @@ li:hover .chats-item-when { opacity: 0; }
   border-radius: var(--r-lg);
   box-shadow: var(--float);
 }
+.modal--sm { width: min(480px, calc(100vw - 2rem)); }
 .modal-head {
   display: flex;
   align-items: center;
@@ -3509,7 +3538,12 @@ li:hover .chats-item-when { opacity: 0; }
   border-bottom: 1px solid var(--line);
 }
 
-/* —— projects —— */
+/* —— projects (ProjectsPage.tsx) ——
+   The list pages' head, then cards of one shape: the mark and name, what it
+   is for in two lines, then a foot of what it holds and when it last moved,
+   pinned to the bottom so a row of cards lines up whatever each says. */
+.projects-page { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+/* The Blobs page's head, until it takes the list pages' one (PageHead). */
 .projects-head {
   display: flex;
   align-items: center;
@@ -3518,47 +3552,46 @@ li:hover .chats-item-when { opacity: 0; }
   margin-bottom: 1.25rem;
 }
 .projects-head h1 { margin: 0; font-size: var(--text-2xl); letter-spacing: -0.02em; }
-.projects-search { max-width: 18rem; }
-
-.projects-group { margin-bottom: 1.75rem; }
-.projects-group h2 {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  margin: 0 0 0.6rem;
-  font-size: var(--text-md);
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: capitalize;
-}
-
-.project-card { min-height: 11rem; }
+.projects-group { display: flex; flex-direction: column; gap: 10px; }
+.projects-group + .projects-group { margin-top: 10px; }
+.projects-group-head { display: flex; align-items: center; gap: 0.4rem; }
+.project-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); }
+.project-card { position: relative; gap: 10px; padding: 12px 14px; min-width: 0; }
+.project-card-link { color: var(--text); text-decoration: none; }
+.project-card-link::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.project-card-link:focus-visible { outline: none; }
+.project-card:has(.project-card-link:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* What is its own sits over the stretched link. */
+.project-card .project-headline, .project-card .project-card-details { position: relative; z-index: 1; }
+.project-card-why { margin: -4px 0 0; color: var(--danger); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-card-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.project-card-head .hero-mark--sm { width: 32px; height: 32px; border-radius: var(--r-sm); }
+.project-card-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.project-card-titles .card-name { font-size: var(--text-lg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-card-sub { color: var(--faint); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-card-head .pill { flex: none; }
 .project-desc {
   margin: 0;
   color: var(--muted);
-  font-size: var(--text-md);
+  font-size: var(--text-base);
+  line-height: 1.45;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 .project-headline { display: flex; align-items: baseline; gap: 0.5rem; color: inherit; text-decoration: none; }
-.project-headline-value { font-size: var(--text-xl); font-weight: 650; font-variant-numeric: tabular-nums; }
+.project-headline:hover .project-headline-label { color: var(--accent); }
+.project-headline-value { font-size: var(--text-xl); font-weight: 600; font-variant-numeric: tabular-nums; }
 .project-headline-label { color: var(--muted); font-size: var(--text-sm); }
-.project-pages {
-  margin-top: auto;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-}
-.project-nopages { margin-top: auto; }
-.project-more {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  font-size: var(--text-base);
-  cursor: pointer;
+.project-card-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); color: var(--faint); font-size: var(--text-sm); min-width: 0; }
+.project-card-holds { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-card-time { flex: none; white-space: nowrap; }
+.project-card-details { flex: none; margin-right: -6px; }
+@media (max-width: 560px) {
+  .projects-page .list-head-tools { width: 100%; }
+  .projects-page .list-search { flex: 1 1 100%; min-width: 0; }
+  .projects-page .list-head-tools .btn--primary { margin-left: auto; }
 }
 
 /* —— knowledge: the Memory page's claims —— */
@@ -6991,6 +7024,34 @@ a.health {
 .chats-root .blob { margin-right: 0.1rem; }
 /* The agent's column, in its own colour: a hero, then cards. */
 .project-panel { --tint: hsl(var(--blob-h, 214) 72% 62%); --tint-dim: hsl(var(--blob-h, 214) 72% 62% / 0.14); }
+/* A project's head (ProjectPanel.tsx): left-aligned and on the column's ground, the mark in its colour the one tinted thing. */
+.project-head { flex: none; display: flex; flex-direction: column; gap: 10px; padding: 4px 2px 2px; }
+.project-head-top { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.project-head-top .hero-mark--sm { width: 36px; height: 36px; border-radius: var(--r-md); }
+.project-head-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.project-head-titles h2 { margin: 0; font-size: var(--text-lg); font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.project-head-sub { color: var(--faint); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-head-top .pill { flex: none; }
+.project-head-desc { margin: 0; color: var(--muted); font-size: var(--text-base); line-height: 1.45; }
+/* How much it holds: four figures in a row, each under its label. */
+.project-stats { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); overflow: hidden; }
+.project-stats > li { display: flex; min-width: 0; }
+.project-stats > li + li { border-left: 1px solid var(--line); }
+.project-stat { flex: 1; display: flex; flex-direction: column; gap: 1px; padding: 7px 8px; min-width: 0; text-align: left; }
+button.project-stat { appearance: none; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; transition: background 140ms ease-out; }
+button.project-stat:hover { background: var(--panel-2); }
+button.project-stat:hover span { color: var(--accent); }
+button.project-stat:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.project-stat strong { font-size: var(--text-lg); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.project-stat span { color: var(--faint); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-head-acts { display: flex; gap: 6px; }
+.project-head-colour { display: flex; flex-direction: column; align-items: flex-start; gap: 0.4rem; min-width: 0; }
+/* Its sections sit on the column, each under a hairline: the cards around everything are gone, the rows inside are what is touched. */
+.project-panel > .card { background: transparent; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 14px 2px 2px; }
+/* The folder's own controls, quiet beside its label: they are there when wanted, not the loud thing in the column. */
+.project-panel > .card > .card-head .btn:not(.btn--primary) { background: transparent; border-color: transparent; color: var(--muted); }
+.project-panel > .card > .card-head .btn:not(.btn--primary):hover:not(:disabled) { background: var(--panel-2); color: var(--text); }
+.project-panel > .card.project-panel-drop.is-over { border-radius: var(--r-md); outline: 1px dashed var(--accent); background: var(--accent-dim); }
 .agent-panel { gap: 0.7rem; }
 .hero { flex: none; position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.3rem; padding: 1.2rem 0.6rem 0.9rem; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: linear-gradient(180deg, var(--tint-dim), transparent 90%); }
 .hero::before { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse 80% 55% at 50% 0%, hsl(var(--blob-h, 214) 80% 60% / 0.32), transparent 100%); pointer-events: none; }
@@ -7135,14 +7196,8 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .confirm-text { margin: 0 0 0.55rem; font-size: var(--text-md); color: var(--text); line-height: 1.4; }
 .confirm-acts { display: flex; gap: 0.4rem; }
 
-/* A project's card: its mark, name and kind, a status pill; its pages; then its ways in. */
-.project-card { min-height: 11rem; gap: 0.6rem; }
-.project-card-head { display: flex; align-items: center; gap: 0.6rem; }
-.project-card-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
-.project-card-sub { font-size: var(--text-xs); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A project's mark at a row's size: on a card, a project's head, the drawer's head. */
 .hero-mark--sm { width: 36px; height: 36px; border-radius: 10px; flex: none; }
-.project-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: auto; padding-top: 0.4rem; border-top: 1px solid var(--line); }
-.project-card-foot .card-acts { display: inline-flex; gap: 0.35rem; }
 
 /* The project drawer's head: the mark on its colour, the words, Edit beside Close. */
 .insp-head--hero { align-items: flex-start; background: linear-gradient(180deg, hsl(var(--blob-h, 214) 72% 62% / 0.12), transparent); }
@@ -7428,21 +7483,30 @@ html.has-presenter { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { .audience-bar { transition: none; } }
 
 /* —— the Artifacts page (ArtifactsPage.tsx) ——
-   A gallery: a bar of filters, then cards of one shape, each its capture on
-   top (16:10, from the top, as a page is read) and three short lines under
-   it. The card answers the pointer as a row does: lighter, its line
-   stronger, never a shadow. It sits on the page's ground, as Projects and
-   Files do, with the list pages' one container (.list-page): the cards are
-   the only shapes, each a panel. */
+   The page head (title, one search, New artifact), one bar of filters (kind
+   at its start; owner, sort and the trash at its end), then cards of one
+   shape: the capture on top (16:10, from the top, as a page is read), the
+   title, a line of description when there is one, and one quiet line of
+   kind, owner and time pinned to the foot. The card answers the pointer as a
+   row does: lighter, its line stronger, never a shadow. */
 .list-title .count { margin-left: 0.5rem; vertical-align: 0.3em; font-size: var(--text-sm); }
 .artifacts-new { display: inline-flex; align-items: center; gap: 0.35rem; }
-.artifacts-bar { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem 0.75rem; flex-wrap: wrap; min-width: 0; padding-bottom: 0.15rem; }
-.artifacts-bar > .chips { flex: 1 1 0; }
-.artifacts-bar-end { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.artifacts { gap: 14px; }
+.artifacts-bar { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; min-width: 0; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.artifacts-bar > .chips { flex: 1 1 auto; }
+.artifacts-bar-end { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+/* The bar's selects at the chips' height, so the row reads as one line of controls. */
+.artifacts-select .sel-button { display: inline-flex; align-items: center; gap: 6px; height: 1.9rem; padding: 0 0.6rem; font-size: var(--text-sm); color: var(--muted); background: var(--panel-2); }
+.artifacts-select .sel-button:hover:not(:disabled) { background: var(--panel-2); }
+.artifacts-select .sel-value { max-width: 11rem; }
+.artifacts-trash { display: inline-flex; align-items: center; gap: 6px; height: 1.9rem; }
+.artifacts-trash svg { width: 15px; height: 15px; }
+.artifacts-bar-end .artifacts-trash { margin-left: 4px; position: relative; }
+.artifacts-bar-end .artifacts-trash::before { content: ""; position: absolute; left: -6px; top: 6px; bottom: 6px; border-left: 1px solid var(--line); }
 .artifacts-empty, .artifacts-none { display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; }
-.artifact-groups { display: flex; flex-direction: column; gap: 1.4rem; }
-.artifact-group { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
-.artifact-group > .label { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.35rem; }
+.artifact-groups { display: flex; flex-direction: column; gap: 24px; }
+.artifact-group { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.artifact-group > .label { display: flex; align-items: center; gap: 0.4rem; }
 .artifact-grid {
   list-style: none;
   margin: 0;
@@ -7504,14 +7568,18 @@ html.has-presenter { overflow: hidden; }
 .artifact-outline-cell[data-type="form"]::after { left: 7px; top: 22px; width: 22%; height: 9px; background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .artifact-outline-cell[data-type="custom_html"] { height: 82px; }
 .artifact-outline-cell[data-type="custom_html"]::after { inset: 8px; border: 1px dashed var(--sketch); }
-.artifact-card-body { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px 12px; min-width: 0; }
-.artifact-card-title { font-size: var(--text-lg); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color 140ms ease; }
+.artifact-card-body { flex: 1; display: flex; flex-direction: column; gap: 3px; padding: 10px 12px 11px; min-width: 0; }
+.artifact-card-title { font-size: var(--text-md); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color 140ms ease; }
 .artifact-card-desc { color: var(--muted); font-size: var(--text-base); line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.artifact-card-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; color: var(--faint); font-size: var(--text-sm); min-width: 0; }
-.artifact-card-owner { display: inline-flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; overflow: hidden; }
-.artifact-card-owner > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.artifact-card-owner .project-mark, .artifact-view-owner .project-mark { width: 16px; height: 16px; font-size: 9.5px; border-radius: 4px; flex: none; }
-.artifact-card-time { flex: none; margin-left: auto; white-space: nowrap; }
+/* One quiet line, kind · owner · time, at the card's foot whatever is above it. */
+.artifact-card-meta { display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 5px; color: var(--faint); font-size: var(--text-sm); min-width: 0; white-space: nowrap; }
+.artifact-card-meta > * + *::before { content: "·"; margin-right: 6px; color: var(--faint); }
+.artifact-card-kind { flex: none; color: var(--muted); }
+.artifact-card-owner { display: inline-flex; align-items: center; gap: 5px; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.artifact-card-owner > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.artifact-card-owner .project-mark, .artifact-view-owner .project-mark { width: 14px; height: 14px; font-size: 8.5px; border-radius: 4px; flex: none; }
+.artifact-card-owner .face, .artifact-card-owner svg { flex: none; }
+.artifact-card-time { flex: none; }
 /* A card's menu sits over its capture's corner, beside the card's button rather than in it (ArtifactMenu). */
 .artifact-card-wrap { position: relative; display: flex; width: 100%; min-width: 0; }
 .artifact-card-menu { position: absolute; top: 8px; right: 8px; opacity: 0; transition: opacity 140ms ease-out; }
@@ -7523,9 +7591,37 @@ html.has-presenter { overflow: hidden; }
 .artifact-view-menu .is-divided { position: relative; margin-top: 7px; }
 .artifact-view-menu .is-divided::before { content: ""; position: absolute; left: 6px; right: 6px; top: -4px; border-top: 1px solid var(--line); pointer-events: none; }
 /* Rename and Move (ArtifactManage.tsx). */
-.artifact-dialog { min-width: 0; }
+.artifact-dialog { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .artifact-dialog .hint { margin: 0; }
-.artifact-dialog-about { resize: vertical; min-height: 3.4rem; font: inherit; line-height: 1.45; }
+.artifact-dialog-about { resize: vertical; min-height: 4.4rem; line-height: 1.45; }
+/* A dialog's foot: what it does in words at the start, then Cancel, then the one to press. */
+.artifact-dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.artifact-dialog-note { margin-right: auto; color: var(--faint); font-size: var(--text-sm); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-move { display: flex; flex-direction: column; gap: 8px; }
+.artifact-move-group-list { display: flex; flex-direction: column; gap: 2px; }
+.artifact-move-group { padding: 8px 9px 3px; }
+.artifact-move-option > svg:last-child { flex: none; color: var(--accent); }
+/* New artifact (NewArtifact.tsx): the four kinds as tiles, chosen as a radio group. */
+.new-artifact-kinds { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.new-artifact-kind { all: unset; box-sizing: border-box; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel-2); cursor: pointer; transition: border-color 140ms ease-out, background 140ms ease-out, transform 80ms ease-out; }
+.new-artifact-kind:hover { border-color: var(--line-strong); }
+.new-artifact-kind:active { transform: scale(0.97); }
+.new-artifact-kind:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.new-artifact-kind .tile { --tone: var(--muted); width: 30px; height: 30px; margin-bottom: 4px; }
+.new-artifact-kind-name { font-weight: 600; font-size: var(--text-base); color: var(--text); }
+.new-artifact-kind-about { color: var(--muted); font-size: var(--text-sm); line-height: 1.35; }
+.new-artifact-kind.is-on { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-dim); }
+.new-artifact-kind.is-on .tile { --tone: var(--accent); }
+.new-artifact-kind.is-on .new-artifact-kind-name { color: var(--accent); }
+.new-artifact-owner { display: flex; }
+.new-artifact-owner .sel-button { flex: 1; max-width: none; }
+@media (max-width: 560px) {
+  .new-artifact-kinds { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .new-artifact-kind, .artifact-card, .artifact-thumb img { transition: none; }
+  .new-artifact-kind:active, .artifact-card:active { transform: none; }
+}
 .artifact-move-list { display: flex; flex-direction: column; gap: 2px; max-height: min(20rem, 50vh); overflow-y: auto; padding: 3px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg); }
 .artifact-move-option {
   all: unset;
@@ -7633,17 +7729,46 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .versions-acts { display: flex; gap: 0.4rem; align-items: center; flex: none; }
 .artifact-preview { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem 0.8rem; flex-wrap: wrap; border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); background: var(--accent-dim); }
 .artifact-preview-acts { display: flex; gap: 0.4rem; }
+/* The trash: rows, each a way in, with its Restore and Delete forever beside it. */
+/* contain: its rows ask for no width of their own, so a long title is cut rather than widening a phone's page. */
+.trash-list { contain: inline-size; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); overflow: hidden; }
+.trash-row { display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 8px; min-width: 0; }
+.trash-row + .trash-row { border-top: 1px solid var(--line); }
+.trash-row-open { all: unset; box-sizing: border-box; flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 2px; border-radius: var(--r-sm); cursor: pointer; }
+.trash-row-open:hover .artifact-card-title { color: var(--accent); }
+.trash-row-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.trash-thumb { flex: none; width: 72px; aspect-ratio: 16 / 10; display: grid; place-items: center; border: 1px solid var(--line); border-radius: var(--r-xs); background: var(--panel-2); color: var(--faint); overflow: hidden; }
+.trash-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top center; opacity: 0.8; }
+.trash-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.trash-row-text .artifact-card-meta { margin-top: 0; padding-top: 0; }
+.trash-row-acts { flex: none; display: flex; align-items: center; gap: 6px; }
+.trash-row-acts .trash-delete { color: var(--danger); }
+/* Empty trash: the danger's words with no fill until the pointer is on it, beside the head's quiet Back. */
+.btn--danger.artifacts-empty-trash { background: transparent; border-color: transparent; }
+.btn--danger.artifacts-empty-trash:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 10%, transparent); border-color: color-mix(in srgb, var(--danger) 25%, transparent); }
+
 @media (max-width: 560px) {
   .artifacts .list-head-tools { width: 100%; }
   .artifacts .list-search { flex: 1; min-width: 0; }
-  .artifacts-bar { flex-direction: column; align-items: stretch; }
+  .artifacts-bar { flex-direction: column; align-items: stretch; gap: 8px; }
   .artifacts-bar > .chips { flex: none; }
-  .artifacts-bar-end { justify-content: space-between; }
-  .artifact-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .artifact-card-body { padding: 8px 10px 10px; }
+  .artifacts-bar-end { margin-left: 0; }
+  .artifacts-bar-end .artifacts-trash { margin-left: auto; }
+  .artifacts-bar-end .artifacts-trash::before { content: none; }
+  /* A phone lists them: the capture small at the start, the title and the quiet line beside it, every row one height. */
+  .artifact-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .artifact-card { flex-direction: row; align-items: stretch; }
+  .artifact-card .artifact-thumb { flex: none; width: 104px; aspect-ratio: 16 / 10; border-bottom: 0; border-right: 1px solid var(--line); }
+  .artifact-card-body { padding: 8px 44px 8px 12px; justify-content: center; gap: 4px; }
   .artifact-card-desc { display: none; }
-  .artifact-card-meta { flex-wrap: wrap; gap: 4px 6px; }
-  .artifact-card-owner { order: -1; flex-basis: 100%; }
+  .artifact-card-meta { margin-top: 0; padding-top: 0; }
+  .artifact-card-menu { top: 50%; right: 8px; transform: translateY(-50%); opacity: 1; }
+  .artifact-card-menu .artifact-view-more { width: 24px; height: 24px; }
+  .artifacts.is-trash .list-search { flex: 1 1 100%; }
+  .artifacts.is-trash .list-head-tools .confirm-wrap { margin-left: auto; }
+  .trash-row { flex-wrap: wrap; gap: 6px; padding: 8px; }
+  .trash-row-open { flex-basis: 100%; }
+  .trash-row-acts { width: 100%; justify-content: flex-end; }
 }
 
 /* —— a project's or a blob's artifacts (ArtifactRail.tsx), and one open in place of the thread —— */
@@ -7669,9 +7794,7 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 /* Under the chat when the panel beside it is folded away (a narrow window, a phone). */
 .artifact-strip { display: none; border-top: 1px solid var(--line); padding: 0.5rem 0.25rem 0; }
 .artifact-strip .collapse-body { padding-top: 0.4rem; max-height: 40dvh; overflow-y: auto; }
-@media (max-width: 1100px) {
-  .chats.is-project .artifact-strip { display: block; }
-}
+
 .chats-view.has-inline > :not(.chats-inline) { display: none; }
 .chats-inline { flex: 1; min-height: 0; overflow-y: auto; padding: 0.25rem 0.75rem 3rem; }
 /* Narrow (a phone, or beside a chat): one line, the title and the menu; Done, and a save that failed, stay in reach. */
