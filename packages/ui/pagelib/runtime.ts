@@ -31,6 +31,26 @@ export const kos = (): KosBridge | undefined => (window as unknown as { kos?: Ko
 /** Whether the owner may edit the artifact here: the bridge can save, and the frame is not showing an older version. */
 export const editable = (): boolean => typeof kos()?.save === "function" && !document.documentElement.hasAttribute("data-locked");
 
+/** Whether the frame is shown in the phone's app, under its own bar naming the artifact (artifactdoc.ts, surface). */
+export const onPhone = (): boolean => document.documentElement.getAttribute("data-surface") === "phone";
+
+const words = (text: string | null | undefined): string => (text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+
+/**
+ * The heading that only repeats the title the phone's bar already shows: the
+ * page's first heading, when it is an h1 saying the artifact's title. A
+ * heading of other words, or after another one, is the agent's own.
+ */
+export function repeatedTitle(root: ParentNode, title: string): HTMLElement | undefined {
+  const first = root.querySelector<HTMLElement>("h1, h2, h3, h4, h5, h6");
+  return first?.tagName === "H1" && words(title) !== "" && words(first.textContent) === words(title) ? first : undefined;
+}
+
+/** On the phone, hide the heading that repeats its bar's title, however the agent's CSS shows headings. */
+export function hideRepeatedTitle(): void {
+  if (onPhone()) repeatedTitle(document.body, document.documentElement.getAttribute("data-title") ?? "")?.style.setProperty("display", "none", "important");
+}
+
 /** Add the runtime's stylesheet right after its own script, so it precedes anything the agent wrote. */
 export function addStyle(css: string, id: string): void {
   if (document.getElementById(id)) return;
