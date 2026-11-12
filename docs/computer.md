@@ -13,6 +13,9 @@ Two packages, one protocol:
 - `packages/device-macos`: KOS for Mac, a menu bar app.
 - `packages/browser-extension`: KOS for Chrome, a device that offers a
   Chrome's tabs instead of a screen (see [browser-extension.md](browser-extension.md)).
+- `packages/device-ios`: KOS for iPhone, a device that only chats. It pairs
+  and proves itself as the others do, but offers KOS no screen, no input and
+  no browser (see [A phone](#a-phone)).
 
 The computer KOS runs on and a laptop across the internet are the same case:
 KOS for Mac on the host Mac dials `127.0.0.1`, on the laptop it dials the
@@ -112,6 +115,99 @@ other address is refused by the device. Tailscale is the simple answer for a
 home server or a VPS: the laptop and the host join one tailnet and the device
 uses the host's tailnet name.
 
+A phone on the home Wi-Fi reaches KOS over the Wi-Fi listener instead: TLS
+with KOS's own certificate, which the phone pins at pairing (see
+[The Wi-Fi listener](#the-wi-fi-listener)).
+
+## A phone
+
+KOS for iPhone pairs as a device of its own kind, `phone`: `app.platform` is
+`"ios"`, and its hello says `consent` `"device"`, `permissions` `{ "screen":
+false, "input": false }` and no displays. A phone only chats. KOS never sends
+it `session.begin` or any computer call; `computer.start` and `chrome.start`
+never pick one, and refuse one named outright; the hub itself refuses a
+session on a phone (`phone`), whatever asked for it. `computer.devices`
+lists it as the owner's phone, chat only.
+
+Its chat is the `phone` surface's, as the Mac window's is `mac`'s: the same
+chat calls and events (`chat.show`, `chat.status`, `chat.ask`,
+`chat.settled`, `chat.chats`, `chat.models`, `chat.mentions`; `chat.open`,
+`chat.send`, `chat.stop`, `chat.decide`, `chat.list`, `chat.switch`,
+`chat.models`, `chat.model`, `chat.mentions`), with `beside` `{ "kind":
+"none" }` and no quote. The turn is told the words were said on the phone,
+which KOS cannot see or work, and its reply is kept short and plain, since
+the phone may read it aloud. A phone answers a call it does not know with
+`bad_request`.
+
+**Glance.** A phone asks what is going on with the event `chat.glance`
+(`{}`), and KOS answers by calling `chat.glance` on it:
+
+```json
+{
+  "halted": false,
+  "running": [{ "id": "c_1", "title": "Garden orchestrator" }],
+  "waiting": 2,
+  "failing": [{ "label": "Nightly backup", "streak": 3, "error": "disk full", "since": 1761800000000 }],
+  "next": [{ "name": "kos.backup", "at": 1761800000000 }]
+}
+```
+
+`running` is the chats with a turn on the go (ten at most), `waiting` every
+approval waiting on the owner, in any chat, `failing` the jobs failing now,
+the longest broken first (ten at most), and `next` the five soonest runs of
+enabled schedules. Times are epoch milliseconds. KOS sends it only when
+asked; a device that does not know the call ignores it.
+
+**Where a chat lives.** Each item of `chat.chats` may carry `place`: `{
+"kind": "kos" }` at the root, `{ "kind": "project", "name": "Garden" }` in a
+project, `{ "kind": "blob", "name": "scout" }` a blob's own. A device that
+does not know it ignores it.
+
+## The Wi-Fi listener
+
+The dashboard, its API and the device socket listen on loopback. For a
+phone on the home Wi-Fi, KOS can open one more listener, for pairing and the
+device socket alone.
+
+- **Off by default.** Settings, Devices, Phones on this Wi-Fi turns it on and
+  off at once (`POST /api/devices/settings { "lan": true }`; the setting is
+  `lan`). `KOS_DEVICE_LAN=1` turns it on whatever the setting says.
+  `GET /api/devices` says where it stands: `lan { on, forced, port, urls,
+  pin, words, error? }`.
+- **Where.** Port `KOS_DEVICE_LAN_PORT`, else the dashboard's plus two
+  (4319 beside 4317), on every interface unless `KOS_DEVICE_LAN_HOST` names
+  one. `urls` are `https://` and each home network address of the host.
+- **Private addresses only.** A connection from outside 10/8, 172.16/12,
+  192.168/16, 169.254/16, 127/8, 100.64/10 (a tailnet), `::1`, fc00::/7 and
+  fe80::/10 (and their IPv4-mapped forms) is dropped before TLS.
+- **TLS only, pinned.** KOS makes its own ECDSA P-256 key and a self-signed
+  certificate once, kept outside the workspace with the device host key
+  (`~/.kos/device-lan.pem`, mode 0600; `KOS_DEVICE_LAN_CERT_FILE` moves it).
+  A phone never trusts it; it pins it. The pin is the SHA-256 of the
+  certificate's DER, base64url without padding. Its words are the hash's
+  first 16 hex digits in four groups (`4F2A 91C3 77D0 1B5E`), for the owner
+  to compare by eye.
+- **What it serves.** `GET /api/devices/lan` answers `{ "kos": true,
+  "protocol": 1 }`, so a phone can see the certificate before it sends a
+  code. `POST /api/devices/pair` pairs as on loopback, for platform `"ios"`
+  only (403 otherwise), its JSON body at most 4 KB (413). The upgrade at
+  `/api/devices/socket` is the device socket, which here takes phones alone:
+  any other device is closed with `4003`, a proved one with `not a phone:
+  only phones connect over Wi-Fi`. Every other path is a 404, the dashboard
+  and the rest of the API among them.
+- **Rate limits.** Five pairing attempts a minute from one address and
+  thirty from all (429 with `Retry-After`), twenty socket upgrades a minute
+  from one address; a wrong code still counts toward voiding every open code.
+  A request whose headers take more than ten seconds is dropped.
+
+While it is on, a code made on the dashboard also carries `lan { url, urls,
+pin, words }`, and the dashboard offers the phone link
+`kos-device://pair?url=<url>&code=<code>&pin=<pin>`. A phone given an
+address and a code instead asks `GET /api/devices/lan`, shows the words of
+the certificate it was served, and pairs, pinned to it, only once the owner
+says they match what the dashboard shows. Every connection then proves both
+keys, as any device's does.
+
 ## Security model
 
 - **Pairing** is a one-time code made on the dashboard, good for ten minutes
@@ -163,7 +259,9 @@ answers `{ "device": "dev_...", "hostKey": "<base64, 32 bytes>", "protocol": 1 }
 A wrong code is a 403. After ten wrong codes in ten minutes every open code
 is void.
 
-The pairing link is `kos-device://pair?url=<KOS address>&code=<code>`.
+The pairing link is `kos-device://pair?url=<KOS address>&code=<code>`, and a
+link for a phone over Wi-Fi adds `&pin=<pin>`, the certificate the phone pins
+(see [The Wi-Fi listener](#the-wi-fi-listener)).
 
 ### Handshake
 
@@ -187,8 +285,8 @@ The pairing link is `kos-device://pair?url=<KOS address>&code=<code>`.
 3. KOS: `{ "t": "welcome", "name": "<device name>", "signature": "<Ed25519 over 'kos-device/1|host|<device nonce>|<device id>'>" }`
 
 Nonces are signed as their base64 text. Either side closes on a bad
-signature. Close codes: `4001` malformed, `4003` unknown device or bad
-signature, `4009` replaced by a newer connection of the same device, `4010`
+signature. Close codes: `4001` malformed, `4003` unknown device, bad
+signature or (on the Wi-Fi listener) not a phone, `4009` replaced by a newer connection of the same device, `4010`
 protocol version not spoken.
 
 After the welcome the device sends `{ "t": "state", ... }` with `consent`,
