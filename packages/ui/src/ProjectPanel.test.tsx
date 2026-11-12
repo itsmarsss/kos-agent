@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { api, type ProjectDetail } from "./api.js";
+import { api, type Conversation, type ProjectDetail } from "./api.js";
 import { ArtifactRail } from "./ArtifactRail.js";
 import { ProjectPanel } from "./ProjectPanel.js";
 
@@ -94,6 +94,20 @@ describe("the project panel", () => {
     expect(screen.getByText(/No artifacts yet/)).toBeTruthy();
     expect(screen.getByText("No tables yet.")).toBeTruthy();
     expect(screen.queryByText("Sites")).toBeNull();
+  });
+
+  it("counts what it holds as the projects list does, each figure in its number's words, and goes to its section", async () => {
+    const thread = (id: string, over: Partial<Conversation>): Conversation => ({ id, projectSlug: slug, kind: "chat", archived: false, ...over }) as Conversation;
+    open({
+      agents: [thread("a", {}), thread("b", {}), thread("old", { archived: true }), thread("job", { kind: "schedule" })],
+      crons: [{ id: 1, name: "kitchen.remind", schedule: "0 9 * * *", type: "self_prompt", enabled: true }],
+    });
+    const figures = await screen.findByRole("list", { name: "What it holds" });
+    expect([...figures.querySelectorAll(".project-stat")].map((f) => f.textContent)).toEqual(["2Agents", "1Artifact", "1Table", "1Job"]);
+    // Agents and jobs are the rail's, beside the chat; artifacts and tables are here.
+    expect(within(figures).getAllByRole("button").map((b) => b.textContent)).toEqual(["1Artifact", "1Table"]);
+    fireEvent.click(within(figures).getByRole("button", { name: "1Table" }));
+    expect(document.activeElement).toBe(screen.getByRole("region", { name: "Tables" }));
   });
 
   it("shows the server's sentence when the project cannot be read", async () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { hexOfHsl, hueOfHex } from "@kos/shared";
 import { Card, Empty, lookOf, Pill } from "@kos/kit";
 
@@ -7,6 +7,7 @@ import { ColourChoice } from "./ColourPicker.js";
 import { FileIcon } from "./FileIcon.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
 import { markInk } from "./ProjectMark.js";
+import { isProjectAgent } from "./ProjectsPage.js";
 
 /**
  * The column beside a project's threads: who the project is and how much it
@@ -41,6 +42,7 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
   const [error, setError] = useState<string | null>(null);
   /** The colour row under the head, shown on request. */
   const [colouring, setColouring] = useState(false);
+  const panel = useRef<HTMLElement>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -87,13 +89,21 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
   }
 
   const { project, tables, sites } = detail;
-  /** What it holds, at a glance: each a section below, or the rail beside the chat. */
-  const stats: [string, number][] = [
-    ["Agents", detail.agents.length],
-    ["Artifacts", detail.pages.filter((p) => p.trashedAt === undefined).length],
-    ["Tables", tables.length],
-    ["Jobs", detail.crons.length],
+  /** What it holds, at a glance; a figure whose list is in this column goes to it. */
+  const stats: { n: number; one: string; section?: string }[] = [
+    { n: detail.agents.filter(isProjectAgent).length, one: "Agent" },
+    { n: detail.pages.filter((p) => p.trashedAt === undefined).length, one: "Artifact", section: "Artifacts" },
+    { n: tables.length, one: "Table", section: "Tables" },
+    { n: detail.crons.length, one: "Job" },
   ];
+  const jump = (section: string): void => {
+    const to = panel.current?.querySelector<HTMLElement>(`section[aria-label="${section}"]`);
+    if (!to) return;
+    const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    to.scrollIntoView?.({ block: "start", behavior: still ? "auto" : "smooth" });
+    to.tabIndex = -1;
+    to.focus({ preventScroll: true });
+  };
   const hue = (project.colour ? hueOfHex(project.colour) : null) ?? lookOf(project.slug).hue;
   const recolour = async (colour: string | null): Promise<void> => {
     try {
@@ -106,7 +116,7 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
   };
 
   return (
-    <aside className="project-panel" aria-label={`${project.name} workspace`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
+    <aside ref={panel} className="project-panel" aria-label={`${project.name} workspace`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
       {/* Who it is: its mark in its own colour, its name, kind and state,
           what it is for, how much it holds, and what can be done with it. */}
       <header className="project-head">
@@ -123,14 +133,27 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
           <Pill tone={project.status === "active" ? "ok" : "muted"}>{project.status}</Pill>
         </div>
         {project.description && <p className="project-head-desc">{project.description}</p>}
-        <dl className="project-stats">
-          {stats.map(([label, n]) => (
-            <div key={label}>
-              <dt>{label}</dt>
-              <dd>{n}</dd>
-            </div>
-          ))}
-        </dl>
+        <ul className="project-stats" aria-label="What it holds">
+          {stats.map(({ n, one, section }) => {
+            const words = (
+              <>
+                <strong>{n}</strong>
+                <span>{n === 1 ? one : `${one}s`}</span>
+              </>
+            );
+            return (
+              <li key={one}>
+                {section ? (
+                  <button type="button" className="project-stat" title={`Go to its ${section.toLowerCase()}`} onClick={() => jump(section)}>
+                    {words}
+                  </button>
+                ) : (
+                  <span className="project-stat">{words}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
         <div className="project-head-acts">
           <button type="button" className="btn btn--sm" title="The project's folder on the Files page" onClick={() => onOpenFile(detail.folder)}>
             Open in Files

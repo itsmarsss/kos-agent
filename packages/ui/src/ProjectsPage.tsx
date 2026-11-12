@@ -50,6 +50,9 @@ interface Attention {
   why?: string;
 }
 
+/** A thread doing a piece of a project's work, as the owner counts them: a chat of its own, not archived, not a schedule's. */
+export const isProjectAgent = (c: Pick<Conversation, "kind" | "archived">): boolean => c.kind === "chat" && !c.archived;
+
 /** How many of a thing, in words, or nothing when there are none. */
 const many = (n: number, one: string): string | null => (n > 0 ? `${n} ${n === 1 ? one : `${one}s`}` : null);
 
@@ -101,7 +104,7 @@ export function ProjectsPage({ projects, pagesByProject, conversations, crons, o
   const failing = useFailingJobs();
 
   const threadsOf = (slug: string): Conversation[] => conversations.filter((c) => c.projectSlug === slug && !c.archived);
-  const agentsOf = (slug: string): number => threadsOf(slug).filter((c) => c.kind === "chat").length;
+  const agentsOf = (slug: string): number => threadsOf(slug).filter(isProjectAgent).length;
   /** When anything in it last moved: the project itself, or any of its threads. */
   const lastOf = (p: Project): number => Math.max(p.lastTouchedAt, ...threadsOf(p.slug).map((c) => c.updatedAt));
   const attentionOf = (p: Project): Attention | null => {

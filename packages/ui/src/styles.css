@@ -6846,11 +6846,16 @@ a.health {
 .project-head-top .pill { flex: none; }
 .project-head-desc { margin: 0; color: var(--muted); font-size: var(--text-base); line-height: 1.45; }
 /* How much it holds: four figures in a row, each under its label. */
-.project-stats { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); }
-.project-stats > div { display: flex; flex-direction: column-reverse; gap: 1px; padding: 7px 8px; min-width: 0; }
-.project-stats > div + div { border-left: 1px solid var(--line); }
-.project-stats dt { color: var(--faint); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-stats dd { margin: 0; font-size: var(--text-lg); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.project-stats { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); overflow: hidden; }
+.project-stats > li { display: flex; min-width: 0; }
+.project-stats > li + li { border-left: 1px solid var(--line); }
+.project-stat { flex: 1; display: flex; flex-direction: column; gap: 1px; padding: 7px 8px; min-width: 0; text-align: left; }
+button.project-stat { appearance: none; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; transition: background 140ms ease-out; }
+button.project-stat:hover { background: var(--panel-2); }
+button.project-stat:hover span { color: var(--accent); }
+button.project-stat:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.project-stat strong { font-size: var(--text-lg); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.project-stat span { color: var(--faint); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-head-acts { display: flex; gap: 6px; }
 .project-head-colour { display: flex; flex-direction: column; align-items: flex-start; gap: 0.4rem; min-width: 0; }
 /* Its sections sit on the column, each under a hairline: the cards around everything are gone, the rows inside are what is touched. */
