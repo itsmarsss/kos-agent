@@ -378,6 +378,24 @@ describe("kos-doc", () => {
     expect(open).toHaveBeenCalledTimes(1);
   });
 
+  it("puts a picked mention in as a chip and a plain space, nothing of the editor's kept", async () => {
+    const save = vi.fn().mockResolvedValue({ version: 2 });
+    const mention = vi.fn().mockResolvedValue({ id: "deck-one", title: "Deck one" });
+    (window as { kos?: unknown }).kos = { save, mention };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    // jsdom lays nothing out: a caret's box is all zeros, as an empty line's would be.
+    Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+    const article = mount(`<p>See @</p>`);
+    startDoc();
+    press("edit");
+    const text = article.querySelector("p")!.firstChild as Text;
+    getSelection()!.collapse(text, text.length);
+    article.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: "@" }));
+    expect(mention).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(article.querySelector(".mention")).not.toBeNull());
+    expect(cleanDocHtml(article)).toBe('<p>See <span class="mention" data-artifact="deck-one">Deck one</span> </p>');
+  });
+
   it("says quietly in the head when an open was refused", async () => {
     const told = vi.spyOn(window, "postMessage");
     (window as { kos?: unknown }).kos = { save: vi.fn(), open: vi.fn().mockRejectedValue(new Error("there is no artifact by that id")) };

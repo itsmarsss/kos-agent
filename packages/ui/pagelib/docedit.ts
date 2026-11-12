@@ -561,10 +561,11 @@ export function startEditor(article: HTMLElement, { save, say, onPending, queue 
       chip.className = "mention";
       chip.setAttribute("data-artifact", id);
       chip.textContent = title;
-      const space = document.createTextNode("\u00a0");
+      // A plain space after the chip, and a zero-width step for the caret to stand on past it (no save keeps it), so nothing stores a &nbsp;.
+      const space = document.createTextNode(" \u200b");
       range.insertNode(space);
       range.insertNode(chip);
-      place({ node: space, offset: 1 });
+      place({ node: space, offset: 2 });
     });
   }
 
