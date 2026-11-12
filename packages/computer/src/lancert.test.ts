@@ -1,5 +1,5 @@
 import { X509Certificate, createPublicKey } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -45,6 +45,20 @@ describe("the Wi-Fi certificate", () => {
     const again = loadLanCert(path);
     expect(again.pin).toBe(first.pin);
     expect(readFileSync(path, "utf8")).toContain("BEGIN PRIVATE KEY");
+  });
+
+  it("narrows a kept file and its folder others can read to the owner alone", () => {
+    dir = mkdtempSync(join(tmpdir(), "kos-lan-"));
+    const folder = join(dir, "kos");
+    const path = join(folder, "device-lan.pem");
+    const made = makeLanCert(Date.now());
+    mkdirSync(folder, { mode: 0o755 });
+    chmodSync(folder, 0o755);
+    writeFileSync(path, `${made.key}${made.cert}`, { mode: 0o644 });
+    chmodSync(path, 0o644);
+    expect(loadLanCert(path).pin).toBe(made.pin);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect(statSync(folder).mode & 0o777).toBe(0o700);
   });
 
   it("refuses a kept file that holds no certificate, rather than making a new one", () => {

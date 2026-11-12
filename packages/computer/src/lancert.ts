@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, generateKeyPairSync, randomBytes, sign, type KeyObject } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 /**
@@ -43,12 +43,23 @@ export function pinOf(der: Buffer): { pin: string; words: string } {
  * every phone pairs again.
  */
 export function loadLanCert(path: string, now: () => number = Date.now): LanCert {
-  if (existsSync(path)) return readLanCert(readFileSync(path, "utf8"));
+  const dir = dirname(path);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  ownerOnly(dir, 0o700);
+  if (existsSync(path)) {
+    ownerOnly(path, 0o600);
+    return readLanCert(readFileSync(path, "utf8"));
+  }
   const made = makeLanCert(now());
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  writeFileSync(path, `${made.key}${made.cert}`, { mode: 0o600 });
-  chmodSync(path, 0o600);
+  // Never over a file that appeared meanwhile: that one is kept, as any is.
+  writeFileSync(path, `${made.key}${made.cert}`, { mode: 0o600, flag: "wx" });
+  ownerOnly(path, 0o600);
   return made;
+}
+
+/** Narrows a path to `mode` when others can reach it; never widens it. */
+function ownerOnly(path: string, mode: number): void {
+  if (statSync(path).mode & 0o077) chmodSync(path, mode);
 }
 
 /** A key and certificate from one PEM file. */
