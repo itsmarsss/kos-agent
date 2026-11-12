@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
 
 import { api, type PageSummary } from "../api.js";
 
@@ -45,13 +45,29 @@ export function MentionPicker({ at, exclude, onPick, onClose }: MentionPickerPro
     return (all ?? []).filter((p) => words.every((w) => p.title.toLowerCase().includes(w))).slice(0, SHOWN);
   }, [all, query]);
 
+  // Closed when the owner goes elsewhere: a press outside it, focus leaving it, or the window losing focus (a press back in the doc's frame does that).
   useEffect(() => {
     const away = (e: PointerEvent): void => {
       if (!box.current?.contains(e.target as Node)) onClose(false);
     };
+    const left = (): void => onClose(false);
     document.addEventListener("pointerdown", away, true);
-    return () => document.removeEventListener("pointerdown", away, true);
+    window.addEventListener("blur", left);
+    return () => {
+      document.removeEventListener("pointerdown", away, true);
+      window.removeEventListener("blur", left);
+    };
   }, [onClose]);
+
+  /** Tab cycles within the picker while it is open: its field, then its rows. */
+  const trap = (e: KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key !== "Tab" || !box.current) return;
+    const stops = [...box.current.querySelectorAll<HTMLElement>("input, button")];
+    if (!stops.length) return;
+    const at = stops.indexOf(document.activeElement as HTMLElement);
+    e.preventDefault();
+    stops[(at + (e.shiftKey ? stops.length - 1 : 1) + stops.length) % stops.length]!.focus();
+  };
 
   const left = Math.max(8, Math.min(at.x, window.innerWidth - 328));
   const top = at.y + 300 > window.innerHeight ? Math.max(8, at.y - 330) : at.y + 6;
@@ -63,6 +79,10 @@ export function MentionPicker({ at, exclude, onPick, onClose }: MentionPickerPro
       style={{ left, top }}
       role="dialog"
       aria-label="Mention an artifact"
+      onKeyDown={trap}
+      onBlur={(e) => {
+        if (!box.current?.contains(e.relatedTarget as Node | null) && e.relatedTarget !== null) onClose(false);
+      }}
     >
       <input
         autoFocus
