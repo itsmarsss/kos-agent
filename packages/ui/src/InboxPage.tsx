@@ -233,7 +233,8 @@ export function InboxPage({
         </section>
       )}
 
-      <InboxDecided {...(data?.decided ? { mark: data.decided } : {})} {...(highlight !== undefined ? { highlight } : {})} onOpenChat={onOpenChat} />
+      {/* Drawn once what waits is here: drawn before it, a link's row was scrolled to and then pushed down the page. */}
+      {data && <InboxDecided {...(data.decided ? { mark: data.decided } : {})} {...(highlight !== undefined ? { highlight } : {})} onOpenChat={onOpenChat} />}
     </div>
   );
 }

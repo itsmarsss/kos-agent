@@ -44,7 +44,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function page(data: InboxData, onDecide = vi.fn(), highlight?: number) {
+function page(data: InboxData | null, onDecide = vi.fn(), highlight?: number) {
   return (
     <InboxPage
       data={data}
@@ -85,6 +85,18 @@ describe("the Inbox", () => {
     expect(history.mock.calls.length).toBe(before);
     rerender(page(inbox({ approvals: [], decided: { total: 13, latest: 900 } })));
     await waitFor(() => expect(history.mock.calls.length).toBe(before + 1));
+  });
+
+  it("draws what was decided only once what waits has arrived, so a link's row stays where it was scrolled to", async () => {
+    const scroll = vi.mocked(Element.prototype.scrollIntoView);
+    scroll.mockClear();
+    const { rerender } = render(page(null, vi.fn(), decided[2]!.id));
+    await act(async () => {});
+    expect(document.querySelector(".inbox-decided")).toBeNull();
+    expect(scroll).not.toHaveBeenCalled();
+    rerender(page(inbox(), vi.fn(), decided[2]!.id));
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
+    expect(scroll.mock.contexts[0]).toBe(document.querySelector(".inbox-decided-row.is-highlit"));
   });
 
   it("says when nothing is waiting", async () => {
