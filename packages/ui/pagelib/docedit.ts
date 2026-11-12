@@ -133,6 +133,37 @@ export interface EditorOptions {
   say: (text: string, bad?: boolean) => void;
   /** Whether an edit is waiting to be saved, each time that changes. */
   onPending?: (pending: boolean) => void;
+  /** The doc's one line of saves, shared with a reader's ticks (doc.ts), so two saves never run at once or too close. */
+  queue?: SaveQueue;
+}
+
+/**
+ * Saves run one after another, never two at once (the second would be made
+ * on the version before the first), and each waits out the server's gap
+ * since the last (PageStore takes one edit every 2 s), so Done right after
+ * an autosave, or a tick right after either, is never "saved a moment ago".
+ */
+export interface SaveQueue {
+  /** Run a save in its turn, once the gap since the last has passed; `skip` says, after that wait, that it is no longer wanted. Resolves to whether it went (or was skipped). */
+  run(save: () => Promise<boolean>, skip?: () => boolean): Promise<boolean>;
+}
+
+export function saveQueue(): SaveQueue {
+  let chain: Promise<boolean> = Promise.resolve(true);
+  let savedAt = -Infinity;
+  return {
+    run(save, skip = () => false) {
+      return (chain = chain.then(async () => {
+        if (skip()) return true;
+        const gap = savedAt + AUTOSAVE_GAP_MS - Date.now();
+        if (gap > 0) await new Promise((r) => setTimeout(r, gap));
+        if (skip()) return true;
+        const ok = await save();
+        savedAt = Date.now();
+        return ok;
+      }));
+    },
+  };
 }
 
 export interface Editor {
@@ -255,12 +286,11 @@ export function toggleMark(range: Range, tag: string, className = "", clearing?:
   }
 }
 
-export function startEditor(article: HTMLElement, { save, say, onPending }: EditorOptions): Editor {
+export function startEditor(article: HTMLElement, { save, say, onPending, queue = saveQueue() }: EditorOptions): Editor {
   run("defaultParagraphSeparator", "p");
   run("styleWithCSS", "false");
   const history = new History(article);
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let savedAt = -Infinity;
   let pending = false;
   let stopped = false;
   const setPending = (on: boolean): void => {
@@ -268,22 +298,13 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
     pending = on;
   };
 
-  /*
-   * Saves run one after another, never two at once (the second would be made
-   * on the version before the first), and each waits out the server's gap
-   * since the last, so Done right after an autosave is never "saved a moment
-   * ago".
-   */
-  let chain: Promise<boolean> = Promise.resolve(true);
+  // Its saves take their turn in the doc's line (saveQueue).
   const flush = (): Promise<boolean> =>
-    (chain = chain.then(async () => {
-      if (!pending || stopped) return true;
-      const gap = savedAt + AUTOSAVE_GAP_MS - Date.now();
-      if (gap > 0) await new Promise((r) => setTimeout(r, gap));
+    queue.run(async () => {
       if (!pending || stopped) return true;
       setPending(false);
       say("Saving…");
-      const ok = await save().then(
+      return save().then(
         () => {
           say("Saved");
           return true;
@@ -295,9 +316,7 @@ export function startEditor(article: HTMLElement, { save, say, onPending }: Edit
           return false;
         },
       );
-      savedAt = Date.now();
-      return ok;
-    }));
+    }, () => !pending || stopped);
 
   const lockChips = (): void => article.querySelectorAll(".mention").forEach((m) => m.setAttribute("contenteditable", "false"));
   ensureTodoBoxes(article);

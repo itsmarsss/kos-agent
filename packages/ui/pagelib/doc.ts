@@ -12,7 +12,7 @@ import { DOC_CSS } from "./doc.css.js";
 import { ARTIFACT_ID_RE, DOC_EDIT_MAX } from "@kos/shared/artifacts";
 
 import { ensureTodoBoxes, toggleTodo } from "./docblocks.js";
-import { AUTOSAVE_GAP_MS, startEditor, type Editor } from "./docedit.js";
+import { saveQueue, startEditor, type Editor } from "./docedit.js";
 import { setView } from "./docui.js";
 import { addStyle, editable, el, keepRanges, kos, ready, reducedMotion } from "./runtime.js";
 
@@ -250,6 +250,7 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
   const bridge = kos();
   if (article.hasAttribute("data-locked") || !editable() || !bridge?.save) return;
   const save = bridge.save.bind(bridge);
+  const queue = saveQueue();
   let enhanced = start();
   let editor: Editor | undefined;
   /** The article as last saved (or as editing began), to put back on Discard; and its clean HTML, to skip a save that changes nothing. */
@@ -281,6 +282,7 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
     document.documentElement.setAttribute("data-editing", "");
     article.focus();
     editor = startEditor(article, {
+      queue,
       say,
       onPending: (pending) => tell({ pending }),
       // An edit that changes nothing is no version; the server refuses one anyway. One too long would only be refused.
@@ -310,7 +312,12 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
     tell({ editing: false, pending: false });
   };
   const finish = async (): Promise<void> => {
-    if (!editor) return;
+    // Not editing: Done (or the frame going) waits for a tick still to be kept.
+    if (!editor) {
+      await ticking;
+      if (ticks.size) await flushTicks();
+      return;
+    }
     if (await editor.stop()) leave();
   };
   const discard = (): void => {
@@ -330,30 +337,54 @@ function editing(article: HTMLElement, start: () => Enhanced): void {
       editor[action]();
     }
   };
-  // Reading, a to-do is ticked where it is and kept at once, one save after another as editing's are.
-  let ticking: Promise<unknown> = Promise.resolve();
-  let tickedAt = -Infinity;
-  article.addEventListener("click", (e) => {
-    const box = editor ? null : (e.target as Element).closest?.(".todo-box");
-    if (!box || !article.contains(box)) return;
-    e.preventDefault();
-    toggleTodo(box.parentElement!);
-    ensureTodoBoxes(article);
-    ticking = ticking.then(async () => {
-      const wait = tickedAt + AUTOSAVE_GAP_MS - Date.now();
-      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-      const html = cleanDocHtml(article);
-      if (html === last) return;
+  // Reading, a to-do is ticked where it is and kept at once: the tick goes onto the doc as last saved, never the live article
+  // (a toggle opened, a chart drawn into it), in the same line of saves as editing's.
+  const ticks = new Map<number, boolean>();
+  let ticking: Promise<boolean> = Promise.resolve(true);
+  const flushTicks = (): Promise<boolean> =>
+    (ticking = queue.run(async () => {
+      const base = document.createElement("template");
+      base.innerHTML = last;
+      const items = [...base.content.querySelectorAll("ul.checklist > li")];
+      const live = article.querySelectorAll("ul.checklist > li").length;
+      const wanted = new Map(ticks);
+      ticks.clear();
+      if (items.length !== live) {
+        tell({ pending: false });
+        say("Not saved: the doc changed since it was drawn; reload it to tick this", true);
+        return false;
+      }
+      for (const [i, done] of wanted) items[i]?.setAttribute("data-checked", String(done));
+      const html = base.innerHTML;
+      if (html === last) {
+        tell({ pending: ticks.size > 0 });
+        return true;
+      }
       say("Saving…");
-      await save({ doc: html }).then(
+      return save({ doc: html }).then(
         () => {
           last = html;
+          tell({ pending: ticks.size > 0 });
           say("Saved");
+          return true;
         },
-        (err: unknown) => say(`Not saved: ${err instanceof Error ? err.message : String(err)}`, true),
+        (err: unknown) => {
+          tell({ pending: ticks.size > 0 });
+          say(`Not saved: ${err instanceof Error ? err.message : String(err)}`, true);
+          return false;
+        },
       );
-      tickedAt = Date.now();
-    });
+    }, () => ticks.size === 0));
+  article.addEventListener("click", (e) => {
+    const box = editor || !e.isTrusted ? null : (e.target as Element).closest?.(".todo-box");
+    if (!box || !article.contains(box)) return;
+    e.preventDefault();
+    const li = box.parentElement!;
+    const index = [...article.querySelectorAll("ul.checklist > li")].indexOf(li);
+    ticks.set(index, toggleTodo(li));
+    ensureTodoBoxes(article);
+    tell({ pending: true });
+    void flushTicks();
   });
   // A note's number, while editing, opens its text in the line to edit, and closes it again.
   article.addEventListener(

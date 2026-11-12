@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TOC_MIN, cleanDocHtml, enhance, slugOf, startDoc } from "./doc.js";
 import { DOC_EDIT_MAX } from "@kos/shared/artifacts";
 
-import { AUTOSAVE_GAP_MS, AUTOSAVE_MS, IMAGE_MAX, inlineMark, shortcutOf, slashMatches } from "./docedit.js";
+import { AUTOSAVE_GAP_MS, AUTOSAVE_MS, IMAGE_MAX, inlineMark, saveQueue, shortcutOf, slashMatches } from "./docedit.js";
 
 const ARTICLE = `<header><p class="kicker">Plan</p><h1>Garden plan</h1><p class="lede">What goes where.</p></header>
 <h2>Beds</h2><p>Three beds<span class="fn">Each 1.2 m by 3 m.</span> along the fence.</p>
@@ -282,7 +282,7 @@ describe("kos-doc", () => {
     told.mockRestore();
   });
 
-  it("ticks a to-do while the doc is read, and keeps it at once", async () => {
+  it("ticks no to-do for a click a script made, only for the owner's own (the Chrome test presses one)", async () => {
     const save = vi.fn().mockResolvedValue({ version: 2 });
     (window as { kos?: unknown }).kos = { save };
     const article = mount(`<ul class="checklist"><li data-checked="false">Milk</li><li data-checked="true">Eggs</li></ul>`);
@@ -290,9 +290,24 @@ describe("kos-doc", () => {
     const boxes = [...article.querySelectorAll<HTMLButtonElement>(".todo-box")];
     expect(boxes.map((b) => [b.getAttribute("role"), b.getAttribute("aria-checked")])).toEqual([["checkbox", "false"], ["checkbox", "true"]]);
     boxes[0]!.click();
-    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
-    expect(save.mock.calls[0]![0]).toEqual({ doc: '<ul class="checklist"><li data-checked="true">Milk</li><li data-checked="true">Eggs</li></ul>' });
-    expect(boxes[0]!.getAttribute("aria-checked")).toBe("true");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(save).not.toHaveBeenCalled();
+    expect(article.querySelector("li")!.getAttribute("data-checked")).toBe("false");
+  });
+
+  it("keeps saves in one line, each the gap after the last", async () => {
+    vi.useFakeTimers();
+    const queue = saveQueue();
+    const at: number[] = [];
+    const run = (): Promise<boolean> => queue.run(async () => (at.push(Date.now()), true));
+    void run();
+    void run();
+    const last = run();
+    await vi.runAllTimersAsync();
+    await last;
+    expect(at[1]! - at[0]!).toBeGreaterThanOrEqual(AUTOSAVE_GAP_MS);
+    expect(at[2]! - at[1]!).toBeGreaterThanOrEqual(AUTOSAVE_GAP_MS);
+    vi.useRealTimers();
   });
 
   it("gives a locked doc's to-dos boxes that cannot be ticked", () => {
