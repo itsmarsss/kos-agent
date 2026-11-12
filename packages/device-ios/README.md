@@ -2,9 +2,10 @@
 
 A chat with your KOS on your phone, voice first, over your home Wi-Fi: press
 the microphone and speak, hear the reply read aloud if you like, send a photo
-or a file with your words, approve or deny what KOS asks in one tap, glance at
-what it is running, what is failing and what runs next, and read the docs,
-decks and sheets KOS makes. It only chats: KOS cannot see or work the phone,
+or a file with your words, approve or deny what KOS asks in one tap, and read
+the docs, decks and sheets KOS makes. Beside the chat are the dashboard's own
+pages, drawn for a phone: the Inbox, artifacts, projects, and under More the
+overview, runs, blobs, files, memory and settings. It only chats: KOS cannot see or work the phone,
 and a phone never gets a computer or browser session. The protocol, the phone
 kind and the Wi-Fi listener are in [docs/computer.md](../../docs/computer.md).
 
@@ -12,12 +13,18 @@ kind and the Wi-Fi listener are in [docs/computer.md](../../docs/computer.md).
 
 - `PhoneCore`: the app's state, no views. `Phone` holds the pairing, the line
   and the chat; `PairingFlow`, `VoiceModel`, `ReplyReader`, `GlanceModel`,
-  `ArtifactShelf` (the artifacts to read, and the one open), `AttachmentTray`
-  (the files going with the next words) and `HandsFree` (Ask KOS) are the
-  machines the screens draw.
-- `PhoneUI`: the screens (pairing, the chat, the approval, glance, chats and
-  settings sheets, the artifact viewer) and `PhoneScene`, the whole app as one
-  scene; `AskKOS`, the App Intent.
+  `ArtifactShelf` (the artifacts to read, the one open, and a sheet's row
+  tapped), `AttachmentTray` (the files going with the next words) and
+  `HandsFree` (Ask KOS) are the machines the screens draw. `Board` holds the
+  dashboard's pages: `Dashboard` asks the dashboard's own routes over the line
+  by call number (docs/computer.md, The dashboard's pages), `Page` keeps what
+  one read, and `InboxModel`, `ProjectsModel`, `GalleryModel`, `BlobsModel`,
+  `FilesModel`, `MemoryModel`, `RunsModel` and `OverviewModel` are each page's;
+  `Routes` reads what the routes answer.
+- `PhoneUI`: the screens (pairing; the tabs, `PhoneHome` and `TabBar`; the
+  chat with its approval and chats sheets; each page; the artifact viewer and
+  its row sheet) and `PhoneScene`, the whole app as one scene; `AskKOS`, the
+  App Intent. `PageKit` is what every page is drawn from.
 - `App/KOSPhoneApp.swift`: the app's one file of its own, with `App/Info.plist`.
   On a Mac it runs as a phone-sized window (`swift run KOSPhoneApp`), pairings
   in memory and no microphone.
@@ -52,8 +59,10 @@ loopback), turns the listener on through the dashboard's API, makes a code,
 and runs `EndToEndTests`: the Swift client pairs through the listener with
 the link's pin, speaks and hears back, approves an ask (the command it allowed
 runs), sends a photo the turn is shown, opens a doc KOS wrote (the dashboard's
-frame, read-only) and has a read of it answered, follows the theme as the
-dashboard changes it, refuses a line to another certificate, and unpairs. The
+frame, read-only) and has a read of it answered, then browses the dashboard's
+pages: denies an ask from the Inbox, opens a project, runs a schedule now and
+pauses it, and reads a file; it follows the theme as the dashboard changes it,
+refuses a line to another certificate, and unpairs. The
 KOS checkout's `packages/cli/dist` and `packages/ui/dist` must be built.
 
 ## What only an iPhone has
@@ -112,18 +121,37 @@ CI already builds `PhoneUI` for the iOS simulator on every pull request
 (`.github/workflows/ci.yml`, `device-ios`), so the iOS-only code compiles
 before Xcode is here.
 
+## The tabs
+
+Chat, Inbox, Artifacts, Projects and More, at the foot as an iPhone app keeps
+them. Chat opens the app and stays voice first; the Inbox is next, since
+deciding what waits is what a phone is reached for most, and carries the
+count; More holds the overview (the glance, grown to the dashboard's first
+page), runs, blobs, files, memory and the phone's settings. Each tab keeps its
+place while another is shown, and pressing the shown tab goes back to its top.
+Every page reads the dashboard's own routes over the line, so it says what the
+dashboard says; pulling one reads it again. What a phone does better is there
+too: swipe an ask right to approve and left to deny, with a tap felt; long
+press for the remembered yes, to run a schedule now or pause it, or to share an
+artifact as its PDF, Markdown, CSV or HTML; search on the Inbox's decided,
+the artifacts, the projects and memory; files open as what they are, a
+picture to pinch or a PDF as the system draws one, with Share.
+
 ## Reading artifacts
 
 The chats sheet lists the last few artifacts changed, and an artifact KOS
 names in a reply (`@page:<id>`) opens at a tap. The viewer is the dashboard's
 frame, built by KOS from the dashboard's own runtimes and sent over the line
-(docs/computer.md, Artifacts): a doc reads in the dashboard's narrow gutter, a
-sheet scrolls its grid sideways, and a deck reads upright as the dashboard's
-column of numbered slides; turned on its side, the viewer turns with it (the
-rest of the app stays upright) and the deck fills the screen a slide at a
-time, moved with a swipe, a tap on either half, or the bar under it. All
-artifacts, by when each changed, is a row under the last few. Each follows
-the app's light and dark. It only shows: the frame reaches no network (its
+(docs/computer.md, Artifacts), marked as the phone's so it reads as part of
+the app: edge to edge on the app's own ground, with no box around it and the
+title only in the viewer's bar. A doc reads in the app's gutter; a sheet's
+grid scrolls sideways under a frozen first column and a sticky head, and a
+row tapped opens as the phone's own sheet with every field labelled; a deck
+reads upright as a column of numbered slides; turned on its side, the viewer
+turns with it (the rest of the app stays upright) and the deck fills the
+screen a slide at a time, moved with a swipe, a tap on either half, or the bar
+under it. All artifacts goes to the Artifacts tab. Each follows the app's
+light and dark. It only shows: the frame reaches no network (its
 policy, and a content rule list under it, without which nothing is shown),
 never navigates, opens nothing outside itself, and its window.kos takes
 reads alone, which KOS answers as it answers the dashboard's; a mention in a

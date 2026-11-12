@@ -123,10 +123,17 @@ its own, in `packages/device-ios/Sources/PhoneUI`.
 | Piece | What it is | Where |
 | --- | --- | --- |
 | Round button | The composer's controls, one height (`Composer.button`, 56): `RoundButton` for a press, `RoundFace` for the same look as a menu's label (attach) | `Composer.swift` |
-| Header button | A 44 point symbol in a bar, with a dot or a count (the chat's head, the viewer's Close) | `HeaderButton` in `ChatScreen.swift` |
+| Header button | A 44 point symbol in a bar, with a dot or a count (the chat's head, a page's back and share, the viewer's Close) | `HeaderButton` in `ChatScreen.swift` |
 | Attachment chip | A file going with the next words, over the box: a picture's thumbnail or a file's mark and kind, 56 square on the box's radius, its cross inside the corner | `AttachmentChip`, `AttachmentStrip` in `Attachments.swift` |
-| Artifact viewer | One artifact full screen to read: the kind's `Tile` in violet, title over kind, owner and age, Close; the frame in the dashboard's gutter, its foot faded; a deck on its side fills the screen over `DeckBar` (Close, back, the place, on) | `ArtifactScreen`, `ArtifactBar`, `DeckBar` in `ArtifactScreen.swift`; the frame is `ArtifactFrame.swift` |
-| Recent artifacts | The last few changed, in the chats sheet under New chat, as `ArtifactRow`s (a `MenuRow` with the kind's `Tile`), then All artifacts, which lists every one under Today, This week and Earlier | `ChatPicker.swift` (`ArtifactRow`, `AllArtifacts`) |
+| Tab bar | Chat, Inbox, Artifacts, Projects, More at the foot: a symbol over its name, the shown one in the accent and filled, a count on the Inbox (waiting) and More (failing) | `TabBar`, `PhoneHome` in `PhoneTabs.swift` |
+| Page head | A page's title over its line, back when it was opened from another, a control or two at the right, the chat head's height | `PageHead`, `PageFrame` in `PageKit.swift` |
+| Page list | A page's rows on the app's ground with hairlines between them, swipe and long press as on any iPhone list, pull to read again; a group's label over its rows (`GroupHead`); a row's tile, words and chevron (`PageRowLabel`) | `PageList`, `pageRow()`, `GroupHead`, `PageRowLabel` in `PageKit.swift` |
+| Search and filters | A field to search a page by, one height, a cross to clear it; the kit's chips in a row that scrolls sideways | `SearchField`, `FilterChips` in `PageKit.swift` |
+| Page states | What a page says loading, empty and failed (with Try again), and over an older read that failed again | `PageNote`, `Loaded`, `StaleNote` in `PageKit.swift` |
+| Toast | What the owner did on a page, said for a moment over the tabs | `ToastLine` in `PhoneTabs.swift` |
+| Artifact viewer | One artifact full screen to read: the kind's `Tile` in violet, title over kind, owner and age, Share (a format a press) and Close; the frame edge to edge on the app's ground, no box; a deck on its side fills the screen over `DeckBar` (Close, back, the place, on); a sheet's row tapped is `RowSheet`, every field labelled | `ArtifactScreen`, `ArtifactBar`, `DeckBar` in `ArtifactScreen.swift`; `RowSheet.swift`; the frame is `ArtifactFrame.swift` |
+| Recent artifacts | The last few changed, in the chats sheet under New chat, as `ArtifactRow`s (a `MenuRow` with the kind's `Tile`), then All artifacts, which opens the Artifacts tab | `ChatPicker.swift` (`ArtifactRow`) |
+| The pages | The Inbox (`AskRow`, `DecidedRow`), Artifacts (`ArtifactListRow`, `ShareMenu`, `ShareSheet`), Projects (`ProjectRow`, `ChatRow`, `CronRow`), Runs (`RunRow`), Blobs (`BlobRow`), a chat read (`ChatReadScreen`), Files, Memory (`ClaimRow`), the overview and More | `InboxScreen.swift`, `GalleryScreen.swift`, `ProjectsScreen.swift`, `RunsScreen.swift`, `BlobsScreen.swift`, `FilesScreen.swift`, `MemoryScreen.swift`, `OverviewScreen.swift`, `MoreScreen.swift` |
 
 ## The device home
 
