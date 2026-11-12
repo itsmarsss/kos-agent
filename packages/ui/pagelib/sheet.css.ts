@@ -146,7 +146,9 @@ export const SHEET_CSS = String.raw`
   .sheet-grid :where(th, td) { padding: 0 10px; max-width: 18ch; font-size: 14px; }
   .sheet-grid thead th:not(.rownum) { min-width: 6ch; }
   .sheet-grid tbody tr { cursor: default; }
-  .sheet-grid .lead { position: sticky; left: var(--sheet-lead, 0px) !important; max-width: 16ch; box-shadow: -1px 0 0 var(--panel), 1px 0 0 var(--line-strong, var(--line)); }
+  .sheet-grid .lead { position: sticky; left: var(--sheet-lead, 0px) !important; max-width: 16ch; box-shadow: 1px 0 0 var(--line-strong, var(--line)); }
+  /* Once the rest slides under it, a pixel of ground at its left edge, so nothing shows through the seam with the row numbers. */
+  .sheet-scroll:not(.at-start) .sheet-grid .lead { box-shadow: -1px 0 0 var(--panel), 1px 0 0 var(--line-strong, var(--line)); }
   /* Over the key figure too, which slides under them once the grid scrolls past it. */
   .sheet-grid .rownum, .sheet-grid .lead { z-index: 2; }
   .sheet-grid thead th.rownum, .sheet-grid thead th.lead, .sheet-grid tfoot th.rownum, .sheet-grid tfoot td.lead { z-index: 4; }
@@ -210,7 +212,7 @@ export const SHEET_CSS = String.raw`
 :where(:root[data-surface="phone"]) .sheet-grid td.focus:not(:focus-visible) { box-shadow: none; }
 :where(:root[data-surface="phone"]) .sheet-grid tfoot :where(th, td) { background: var(--bg); }
 :where(:root[data-surface="phone"]) .sheet-grid .key { box-shadow: none; }
-:where(:root[data-surface="phone"]) .sheet-grid .lead { box-shadow: -1px 0 0 var(--bg); }
+:where(:root[data-surface="phone"]) .sheet-grid .lead { box-shadow: none; }
 :where(:root[data-surface="phone"]) .sheet-scroll:not(.at-start) .sheet-grid .lead { box-shadow: -1px 0 0 var(--bg), 1px 0 0 var(--line); }
 :where(:root[data-surface="phone"]) .sheet-scroll.held .sheet-grid .key { box-shadow: -1px 0 0 var(--line); }
 :where(:root[data-surface="phone"]) .sheet-scroll.held .sheet-grid .key::before { content: none; }
