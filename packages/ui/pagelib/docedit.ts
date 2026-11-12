@@ -923,12 +923,12 @@ export function startEditor(article: HTMLElement, { save, say, onPending, queue 
   const codeTools = el("div", { class: "doc-codetools", hidden: true }, langButton);
   const tableTools = el("div", { class: "doc-tabletools", role: "toolbar", "aria-label": "Table", hidden: true });
   const toolMenu = new Menu();
-  const TABLE_OPS: [Parameters<typeof tableEdit>[1], string, string][] = [
-    ["row-before", "Add a row above", "+ Row above"], ["row-after", "Add a row below", "+ Row below"], ["col-before", "Add a column to the left", "+ Column left"],
-    ["col-after", "Add a column to the right", "+ Column right"], ["row-remove", "Delete this row", "− Row"], ["col-remove", "Delete this column", "− Column"],
+  const TABLE_OPS: [Parameters<typeof tableEdit>[1], string, IconName][] = [
+    ["row-before", "Add a row above", "rowAbove"], ["row-after", "Add a row below", "rowBelow"], ["col-before", "Add a column to the left", "colLeft"],
+    ["col-after", "Add a column to the right", "colRight"], ["row-remove", "Delete this row", "rowRemove"], ["col-remove", "Delete this column", "colRemove"],
   ];
-  for (const [op, label, words] of TABLE_OPS) {
-    const b = el("button", { type: "button", title: label, "aria-label": label, class: op.endsWith("remove") ? "danger" : undefined }, words);
+  for (const [op, label, face] of TABLE_OPS) {
+    const b = el("button", { type: "button", title: label, "aria-label": label, class: op.endsWith("remove") ? "danger" : undefined }, icon(face, 16));
     b.addEventListener("mousedown", (e) => e.preventDefault());
     b.addEventListener("click", () => {
       const node = getSelection()?.anchorNode;
@@ -968,14 +968,39 @@ export function startEditor(article: HTMLElement, { save, say, onPending, queue 
     const cell = (node instanceof Element ? node : node?.parentElement)?.closest("td, th");
     const table = cell && article.contains(cell) ? cell.closest("table") : null;
     tableTools.hidden = !table;
-    if (table) {
-      const r = (table.parentElement?.classList.contains("doc-table") ? table.parentElement : table).getBoundingClientRect();
-      tableTools.style.left = `${Math.round(r.left + scrollX)}px`;
-      // Above the table, over the line before it, rather than over the rows being typed into; held to the part of the table in view, so a long one keeps it at hand.
-      const h = tableTools.offsetHeight;
-      const top = Math.min(Math.max(r.top - h - 6, seenPart().top + 6), r.bottom - h);
-      tableTools.style.top = `${Math.round(top + scrollY)}px`;
-    }
+    if (table) placeTableTools(table);
+  }
+
+  /**
+   * The table's tools at its right edge, at the first place that covers no
+   * words of the blocks beside it: above the table, else below it, else
+   * above anyway; then held to the part of the table in view, so a long one
+   * keeps them at hand.
+   */
+  function placeTableTools(table: HTMLTableElement): void {
+    const block = blockOf(article, table) ?? table;
+    const r = block.getBoundingClientRect();
+    const w = tableTools.offsetWidth;
+    const h = tableTools.offsetHeight;
+    const left = r.right - w;
+    const all = allBlocks(article);
+    const at = all.indexOf(block);
+    const lines = (b: HTMLElement | undefined): DOMRect[] => {
+      if (!b) return [];
+      if (b.matches("hr, figure, table") || b.hasAttribute("data-kos-gen")) return [b.getBoundingClientRect()];
+      const range = document.createRange();
+      range.selectNodeContents(b.tagName === "PRE" ? (b.querySelector("code") ?? b) : b);
+      return [...range.getClientRects()];
+    };
+    const around = [...lines(all[at - 1]), ...lines(all[at + 1])];
+    const free = (top: number): boolean => !around.some((l) => l.width > 0 && l.left < left + w && l.right > left && l.top < top + h && l.bottom > top);
+    const above = r.top - h - 6;
+    const below = r.bottom + 6;
+    const chosen = free(above) ? above : free(below) ? below : above;
+    const seen = seenPart();
+    const top = chosen === below ? Math.min(below, seen.bottom - h - 6) : Math.min(Math.max(above, seen.top + 6), r.bottom - h);
+    tableTools.style.left = `${Math.round(Math.max(0, left) + scrollX)}px`;
+    tableTools.style.top = `${Math.round(Math.max(top, r.top - h - 6) + scrollY)}px`;
   }
 
   /* —— the empty line's placeholder ——————————————————————————————— */

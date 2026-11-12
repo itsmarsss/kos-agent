@@ -39,6 +39,12 @@ export const ICONS = {
   back: "M15 6l-6 6 6 6",
   next: "M9 6l6 6-6 6",
   check: "M5 12l5 5 9-10",
+  rowAbove: "M4 12h16v8H4zM12 3v6M9 6h6",
+  rowBelow: "M4 4h16v8H4zM12 15v6M9 18h6",
+  colLeft: "M12 4h8v16h-8zM6 9v6M3 12h6",
+  colRight: "M4 4h8v16H4zM18 9v6M15 12h6",
+  rowRemove: "M4 8h16v8H4zM9 12h6",
+  colRemove: "M8 4h8v16H8zM10.5 12h3",
 } as const;
 export type IconName = keyof typeof ICONS;
 

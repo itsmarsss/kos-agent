@@ -245,8 +245,8 @@ html.doc-dragging, html.doc-dragging * { cursor: grabbing !important; user-selec
 .doc-codetools { position: absolute; z-index: 4; }
 .doc-codelang { all: unset; cursor: pointer; font: 500 0.75rem / 1 var(--font-ui); color: var(--muted); padding: 5px 8px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line); }
 .doc-codelang:hover, .doc-codelang:focus-visible { color: var(--text); }
-.doc-tabletools { display: flex; flex-wrap: wrap; gap: 1px; padding: 3px; max-width: calc(100vw - 16px); }
-.doc-tabletools > button { all: unset; cursor: pointer; padding: 6px 9px; border-radius: 7px; color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+.doc-tabletools { display: flex; gap: 1px; padding: 3px; }
+.doc-tabletools > button { all: unset; box-sizing: border-box; cursor: pointer; width: 28px; height: 28px; display: inline-grid; place-items: center; border-radius: 7px; color: var(--muted); }
 .doc-tabletools > button:hover, .doc-tabletools > button:focus-visible { background: var(--panel-2); color: var(--text); }
 .doc-tabletools > button.danger:hover { color: var(--danger); }
 .doc-live, .doc-copier { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; opacity: 0; left: -9999px; }
