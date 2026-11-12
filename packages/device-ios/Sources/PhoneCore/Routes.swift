@@ -59,7 +59,6 @@ public enum Routes {
   /// One already decided (`/api/approvals/history`), said in words.
   public struct Decided: Decodable, Equatable, Identifiable, Sendable {
     public let id: Int
-    public let tool: String
     public let status: String
     public let summary: String
     public let asker: String?
@@ -83,24 +82,17 @@ public enum Routes {
     public let since: Double
   }
 
-  /// What waits on the owner (`/api/inbox`): the approvals and the jobs failing, and how many were decided.
+  /// What waits on the owner (`/api/inbox`): the approvals and the jobs failing.
   public struct Inbox: Decodable, Equatable, Sendable {
     public let approvals: [Pending]
     public let failures: [Failing]
-    public let decided: Mark?
 
-    public struct Mark: Decodable, Equatable, Sendable {
-      public let total: Int
-      public let latest: Double?
-    }
-
-    enum CodingKeys: String, CodingKey { case approvals, failures, decided }
+    enum CodingKeys: String, CodingKey { case approvals, failures }
 
     public init(from decoder: Decoder) throws {
       let c = try decoder.container(keyedBy: CodingKeys.self)
       approvals = (try c.decodeIfPresent([Lenient<Pending>].self, forKey: .approvals) ?? []).compactMap(\.value)
       failures = (try c.decodeIfPresent([Lenient<Failing>].self, forKey: .failures) ?? []).compactMap(\.value)
-      decided = try c.decodeIfPresent(Mark.self, forKey: .decided)
     }
   }
 
@@ -206,9 +198,7 @@ public enum Routes {
   public struct Blob: Decodable, Equatable, Identifiable, Sendable {
     public let name: String
     public let description: String
-    public let folder: String
     public let conversationId: String
-    public let project: String?
     public let thread: Thread?
     public let job: Job?
     public var id: String { name }
@@ -218,7 +208,6 @@ public enum Routes {
       public let unread: Bool
       public let updatedAt: Double
       public let lastSaid: String?
-      public let lastError: String?
     }
 
     public struct Job: Decodable, Equatable, Sendable {
@@ -277,7 +266,6 @@ public enum Routes {
     public let text: String?
     /// binary or too-large.
     public let omitted: String?
-    public let language: String?
     /// What was read, when the words came out of a document: "docx, 12 paragraphs".
     public let extracted: String?
   }
@@ -337,12 +325,10 @@ public enum Routes {
     public let runs: [Run]
     public let health: Health
     public let projects: [Project]
-    public let chats: [Chat]
     public let upcoming: [Upcoming]
     public let spend: Spend?
-    public let memory: MemoryCount?
 
-    enum CodingKeys: String, CodingKey { case approvals, runs, health, projects, chats, upcoming, spend, memory }
+    enum CodingKeys: String, CodingKey { case approvals, runs, health, projects, upcoming, spend }
 
     public init(from decoder: Decoder) throws {
       let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -351,10 +337,8 @@ public enum Routes {
       runs = try list(.runs)
       health = try c.decode(Health.self, forKey: .health)
       projects = try list(.projects)
-      chats = try list(.chats)
       upcoming = try list(.upcoming)
       spend = try? c.decodeIfPresent(Spend.self, forKey: .spend)
-      memory = try? c.decodeIfPresent(MemoryCount.self, forKey: .memory)
     }
 
     public struct Health: Decodable, Equatable, Sendable {
@@ -377,14 +361,9 @@ public enum Routes {
       public let models: [Model]
 
       public struct Model: Decodable, Equatable, Sendable {
-        public let model: String
         public let calls: Int
         public let cost: Double?
       }
-    }
-
-    public struct MemoryCount: Decodable, Equatable, Sendable {
-      public let claims: Int
     }
   }
 }

@@ -124,7 +124,7 @@ struct ChatPicker: View {
   }
 }
 
-/// One artifact to open, as the chats sheet and the full list draw it: its kind's mark, its title and its age.
+/// One artifact to open, as the chats sheet draws it: its kind's mark, its title and its age.
 struct ArtifactRow: View {
   let item: ArtifactItem
   let now: Date

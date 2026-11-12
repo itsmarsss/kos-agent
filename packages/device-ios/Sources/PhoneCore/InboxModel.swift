@@ -129,13 +129,12 @@ public final class InboxModel: ObservableObject {
 extension Routes.Inbox {
   /// The same, less one approval decided.
   func without(_ id: Int) -> Routes.Inbox {
-    Routes.Inbox(approvals: approvals.filter { $0.id != id }, failures: failures, decided: decided)
+    Routes.Inbox(approvals: approvals.filter { $0.id != id }, failures: failures)
   }
 
-  public init(approvals: [Routes.Pending], failures: [Routes.Failing] = [], decided: Mark? = nil) {
+  public init(approvals: [Routes.Pending], failures: [Routes.Failing] = []) {
     self.approvals = approvals
     self.failures = failures
-    self.decided = decided
   }
 }
 

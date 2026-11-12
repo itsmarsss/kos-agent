@@ -199,7 +199,10 @@ struct EndToEndTests {
     #expect(top.value?.entries.contains { $0.path == "phone-cron.txt" } == true, "\(top.error ?? "")")
     let file = board.files.file("phone-cron.txt")
     await file.refresh()
-    guard case .text(let read) = file.value else { return Issue.record("the file did not read: \(file.error ?? "")") }
+    guard case .text(let read) = file.value else {
+      Issue.record("the file did not read: \(file.error ?? "")")
+      return
+    }
     #expect(read.text == "ran")
     // Nothing off the list goes through: a traversal is refused before the jail sees it.
     let outside = board.files.folder("../etc")
