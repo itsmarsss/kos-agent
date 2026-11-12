@@ -193,11 +193,14 @@ struct ChatRow: View {
 }
 
 /// A schedule in a list: whether it is on, running or paused, when it runs next or ran last, and its cron line;
-/// Run now and Pause or Resume on a swipe and a long press, as on the dashboard.
+/// Pause or Resume and Run now at its right, one height, and on a swipe and a long press too, as on the dashboard.
 struct CronRow: View {
   let job: Routes.Cron
   @ObservedObject var runs: RunsModel
   let now: Date
+
+  /// The height Pause and Run now share.
+  static let control: CGFloat = 34
 
   private var state: (symbol: String, tint: Color, words: String) {
     if job.running == true { return ("bolt.fill", Theme.accent, "Running now") }
@@ -221,10 +224,23 @@ struct CronRow: View {
       if busy {
         ProgressView().controlSize(.small).frame(width: 44, height: 44)
       } else {
+        Button { Task { await runs.setEnabled(id: job.id, name: job.name, !job.enabled) } } label: {
+          Text(job.enabled ? "Pause" : "Resume").font(.kos(.dense, .semibold)).foregroundStyle(Theme.text)
+            .padding(.horizontal, 12)
+            .frame(height: Self.control)
+            .background(Theme.panel2, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.line))
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(job.enabled ? "Pause" : "Resume") \(job.name)")
         Button { Task { await runs.runNow(id: job.id, name: job.name) } } label: {
           Image(systemName: "play.fill").font(.kos(.dense, .semibold)).foregroundStyle(Theme.accent)
-            .frame(width: 44, height: 44)
+            .frame(width: Self.control, height: Self.control)
             .background(Theme.accent.opacity(Theme.tint), in: Circle())
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(job.running == true)
@@ -247,6 +263,5 @@ struct CronRow: View {
       }
     }
     .accessibilityElement(children: .contain)
-    .accessibilityAction(named: job.enabled ? "Pause" : "Resume") { Task { await runs.setEnabled(id: job.id, name: job.name, !job.enabled) } }
   }
 }
