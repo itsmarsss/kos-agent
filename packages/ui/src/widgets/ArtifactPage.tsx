@@ -6,6 +6,8 @@ import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, 
 
 import { SaveConflict, api, type PageSummary } from "../api.js";
 import { fitsContent, pageDocument, tokenRule, wrapperDocument } from "@kos/shared";
+import { hrefFor } from "../routes.js";
+import { MentionPicker } from "./MentionPicker.js";
 import { heightBucket, heightGate, ownerIn, rememberHeight, rememberedHeight, revealAllowed, revealInDashboard, saveAllowed, type EditTold, type HeightGate, type Reveal } from "./frameheight.js";
 
 /**
@@ -233,6 +235,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const [left, setLeft] = useState(false);
   const [asked, setAsked] = useState<Asked>();
   const [told, setTold] = useState<string>();
+  /** A doc's @ mention, asked for at this place in the view: the dashboard's picker answers it. */
+  const [mention, setMention] = useState<{ x: number; y: number }>();
   const [conflict, setConflict] = useState<string>();
   // Opened at the height it last took at this width (read once the box is laid out), so the dashboard does not jump when the page reports.
   const [height, setHeight] = useState<number>();
@@ -484,6 +488,20 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         setError((current) => current ?? String(m.message ?? "The page hit an error"));
         return;
       }
+      // A doc asks for the artifact picker at its caret; only while it is being edited, at the owner's hand.
+      if (m.__kos === "mention-ask") {
+        const d = m as { x?: unknown; y?: unknown };
+        if (page.kind !== "doc" || locked || !ownerIn(frame.current) || typeof d.x !== "number" || typeof d.y !== "number") return;
+        const r = frame.current.getBoundingClientRect();
+        setMention({ x: Math.round(r.left + d.x), y: Math.round(r.top + d.y) });
+        return;
+      }
+      // A mention pressed in a doc opens what it names, when it names an artifact and the owner's hand pressed it.
+      if (m.__kos === "open") {
+        const id = (m as { artifact?: unknown }).artifact;
+        if (typeof id === "string" && /^[\w.-]{1,120}$/.test(id) && revealAllowed(frame.current, gestures.current.at)) window.location.hash = hrefFor({ name: "artifacts", id });
+        return;
+      }
       // The owner pressed present inside it, or the deck stopped presenting: full screen is only this side's to give or take.
       if (m.__kos === "present") {
         setPresenting((m as { on?: unknown }).on !== false);
@@ -686,6 +704,22 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         </div>
       )}
       {told && <p className="hint">{told}</p>}
+      {mention && (
+        <MentionPicker
+          at={mention}
+          exclude={record.id}
+          onPick={(a) => {
+            setMention(undefined);
+            frame.current?.focus();
+            pageWindow()?.postMessage({ __kos: "mention", id: a.id, title: a.title }, "*");
+          }}
+          onClose={() => {
+            setMention(undefined);
+            frame.current?.focus();
+            pageWindow()?.postMessage({ __kos: "mention" }, "*");
+          }}
+        />
+      )}
       {!left && (
         <div className="artifact-stage" data-layout={layout} data-shown={shown ? "" : undefined}>
           {covered && !error && <Skeleton className={`artifact-skeleton artifact-skeleton--${layout}`} {...(layout === "fit" && height !== undefined ? { height } : {})} radius="var(--r-md)" />}
