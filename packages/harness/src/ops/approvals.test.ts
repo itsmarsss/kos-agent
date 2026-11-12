@@ -148,13 +148,36 @@ describe("ApprovalQueue", () => {
     });
   });
 
+  it("pages through asks decided in the same millisecond without losing or repeating one", () => {
+    const same = new ApprovalQueue(ws.db, undefined, () => 5_000);
+    const ids = [0, 1, 2, 3, 4].map((i) => same.enqueue({ tool: "t", args: { i }, riskTier: "risky" }).id);
+    for (const id of ids) same.approve(id, "owner");
+    const seen: number[] = [];
+    let before: { decidedAt: number; id: number } | undefined;
+    for (;;) {
+      const page = same.decided({ limit: 2, ...(before ? { before } : {}) });
+      if (page.length === 0) break;
+      seen.push(...page.map((r) => r.id));
+      const last = page.at(-1)!;
+      before = { decidedAt: last.decidedAt!, id: last.id };
+    }
+    expect(seen).toEqual([...ids].reverse());
+    expect(same.decided({ limit: 10, status: "approved", before: { decidedAt: 5_000, id: ids[2]! } }).map((r) => r.id)).toEqual([ids[1], ids[0]]);
+  });
+
   it("indexes the decided history, on a workspace from before too", () => {
-    ws.db.exec(`DROP INDEX IF EXISTS pending_actions_status_decided`);
+    ws.db.exec(`DROP INDEX IF EXISTS pending_actions_status_decided; DROP INDEX IF EXISTS pending_actions_decided`);
     new ApprovalQueue(ws.db);
     const index = ws.db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'pending_actions_status_decided'`).get() as { sql: string } | undefined;
     expect(index?.sql).toContain("(status, decided_at, id)");
-    const plan = ws.db.prepare(`EXPLAIN QUERY PLAN SELECT id FROM pending_actions WHERE status = 'denied' ORDER BY decided_at DESC, id DESC LIMIT 5`).all() as { detail: string }[];
-    expect(plan.map((p) => p.detail).join(" ")).toContain("pending_actions_status_decided");
+    const plan = (sql: string): string => (ws.db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all() as { detail: string }[]).map((p) => p.detail).join(" ");
+    expect(plan(`SELECT id FROM pending_actions WHERE status = 'denied' ORDER BY decided_at DESC, id DESC LIMIT 5`)).toContain("pending_actions_status_decided");
+    // Every outcome at once, the default page and the mark: the partial index of what was decided, in order, no sort.
+    const all = plan(`SELECT id FROM pending_actions WHERE status != 'pending' ORDER BY decided_at DESC, id DESC LIMIT 5`);
+    expect(all).toContain("pending_actions_decided");
+    expect(all).not.toContain("TEMP B-TREE");
+    // The mark's count reads an index, never the rows and their pictures.
+    expect(plan(`SELECT COUNT(*) AS n FROM pending_actions WHERE status != 'pending'`)).toContain("USING COVERING INDEX");
   });
 
   it("approves and denies, leaving the queue clear", () => {

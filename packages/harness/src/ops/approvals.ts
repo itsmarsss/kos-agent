@@ -211,8 +211,10 @@ export class ApprovalQueue {
     if (!columns.some((c) => c.name === "waits")) {
       this.db.exec(`ALTER TABLE pending_actions ADD COLUMN waits INTEGER NOT NULL DEFAULT 0`);
     }
-    // The decided history is read by outcome and time, a page at a time.
+    // The decided history is read by outcome and time, a page at a time: one outcome by the first,
+    // every outcome (the Inbox's default page, and its mark) by the second, which holds only what was decided.
     this.db.exec(`CREATE INDEX IF NOT EXISTS pending_actions_status_decided ON pending_actions (status, decided_at, id)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS pending_actions_decided ON pending_actions (decided_at, id) WHERE status != 'pending'`);
   }
 
   /** The picture queued with an action, if one was: base64 JPEG. */
