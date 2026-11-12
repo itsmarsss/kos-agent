@@ -14,7 +14,7 @@ import { ARTIFACT_ID_RE, DOC_EDIT_MAX } from "@kos/shared/artifacts";
 import { ensureTodoBoxes, toggleTodo } from "./docblocks.js";
 import { saveQueue, startEditor, type Editor } from "./docedit.js";
 import { setView } from "./docui.js";
-import { addStyle, editable, el, keepRanges, kos, ready, reducedMotion } from "./runtime.js";
+import { addStyle, editable, el, hideRepeatedTitle, keepRanges, kos, ready, reducedMotion } from "./runtime.js";
 
 /** Whether a click is the owner's own; a test stands in for the browser here, which alone makes trusted events. */
 export const clicks = { trusted: (e: Event): boolean => e.isTrusted };
@@ -496,6 +496,7 @@ export function startDoc(): void {
   article.addEventListener("keydown", open);
   if (article.hasAttribute("data-locked") || !editable()) {
     start();
+    hideRepeatedTitle();
     article.querySelectorAll(".todo-box").forEach((b) => b.setAttribute("disabled", ""));
   } else editing(article, start);
 }

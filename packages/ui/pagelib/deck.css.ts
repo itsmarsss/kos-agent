@@ -5,8 +5,10 @@
  * with no scaling by script. On a phone held upright the slides stack and
  * their type keeps a readable floor. A slide is KOS's panel with a 1 px
  * line on KOS's ground, its type KOS's face, and every slide, the title one
- * too, follows the theme. Selectors sit in :where() or one class, before the
- * agent's own CSS, so the artifact restyles anything.
+ * too, follows the theme. In the phone's app (data-surface="phone") a slide
+ * is no card: it sits on the app's ground, upright a hairline and its number
+ * between slides, on its side the whole screen. Selectors sit in :where() or
+ * one class, before the agent's own CSS, so the artifact restyles anything.
  */
 export const DECK_CSS = String.raw`
 :where(:root) {
@@ -125,7 +127,7 @@ body.deck-grid :where([data-deck]) { height: auto; min-height: calc(100dvh - var
 body.deck-grid .deck-slide { width: 100%; cursor: pointer; }
 body.deck-grid .deck-slide * { pointer-events: none; }
 body.deck-grid .deck-slide.current { box-shadow: 0 0 0 2px var(--accent); }
-body.deck-grid .deck-slide::after { content: attr(data-number); position: absolute; left: 8px; bottom: 6px; font: 600 11px / 1 var(--font-ui); color: var(--muted); font-variant-numeric: tabular-nums; }
+body.deck-grid .deck-slide::after, body.deck-read .deck-slide::after { content: attr(data-number); position: absolute; left: 8px; bottom: 6px; font: 600 11px / 1 var(--font-ui); color: var(--muted); font-variant-numeric: tabular-nums; }
 body.deck-grid .deck-notes { display: none; }
 
 /* Presenting: the slide alone, on black, edge to edge. */
@@ -146,6 +148,16 @@ body.deck-read :where(.deck-slide) > section {
 body.deck-read :where(.deck-slide) > section.split { display: flex; }
 body.deck-read :where([data-deck]) .cols { grid-auto-flow: row; grid-template-columns: minmax(0, 1fr); }
 body.deck-read :where(.deck-slide) > section.bleed { padding: 0; }
+
+/* In the phone's app: no card and no edge, each slide on the app's ground; upright, a hairline and the slide's number between them, the text in the app's 16 px gutter. */
+:where(:root[data-surface="phone"]) { background: var(--bg); }
+:where(:root[data-surface="phone"]) .deck-slide { border-radius: 0; box-shadow: none; }
+:where(:root[data-surface="phone"]) :where(.deck-slide) > section { background: var(--slide-bg, var(--bg)); }
+:where(:root[data-surface="phone"]) body.deck-read :where([data-deck]) { gap: 0; padding: 0; }
+:where(:root[data-surface="phone"]) body.deck-read .deck-slide + .deck-slide { border-top: 1px solid var(--line); }
+:where(:root[data-surface="phone"]) body.deck-read :where(.deck-slide) > section { padding: 40px 16px 32px; }
+:where(:root[data-surface="phone"]) body.deck-read :where(.deck-slide) > section.bleed { padding: 0; }
+:where(:root[data-surface="phone"]) body.deck-read .deck-slide::after { top: 16px; bottom: auto; left: 16px; }
 
 @media (prefers-reduced-motion: no-preference) {
   body:not(.deck-grid):not(.deck-read) .deck-slide.current { animation: kos-slide-in 180ms ease-out; }

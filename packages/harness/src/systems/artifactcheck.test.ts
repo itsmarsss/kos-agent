@@ -5,7 +5,7 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { ArtifactChecker, declaresTokenPlan, hostDocument, parseRelay, reportWords, sweepProfiles, type CheckReport } from "./artifactcheck.js";
+import { ArtifactChecker, artifactFrame, declaresTokenPlan, hostDocument, parseRelay, reportWords, sweepProfiles, type CheckReport } from "./artifactcheck.js";
 
 /**
  * The check's words and its host page, apart from Chrome: what the page
@@ -56,6 +56,25 @@ describe("the check's report", () => {
       expect(words).not.toMatch(/Finish here/);
     }
     expect(after[0]).not.toMatch(/pictures/);
+  });
+});
+
+describe("the artifact's frame", () => {
+  const assets = { css: "", tokens: { light: { "--bg": "#fff" }, dark: { "--bg": "#000" } }, script: () => "", font: () => undefined };
+  const page = { id: "plan", kind: "doc" as const, title: "Plan", html: "<article><h1>Plan</h1></article>" };
+
+  it("is the dashboard's, and locked offers no editing, as an older version is shown", () => {
+    const open = artifactFrame(page, "dark", assets);
+    const locked = artifactFrame(page, "dark", assets, { locked: true });
+    expect(open).toContain('sandbox="allow-scripts"');
+    expect(open).toContain('data-theme=&quot;dark&quot; data-kind=&quot;doc&quot;>');
+    expect(locked).toContain('data-kind=&quot;doc&quot; data-locked>');
+  });
+
+  it("marks the phone's surface and the title its bar shows, only when asked", () => {
+    const phone = artifactFrame({ ...page, title: 'Plan "B" & more' }, "light", assets, { locked: true, surface: "phone" });
+    expect(phone).toContain("data-locked data-surface=&quot;phone&quot; data-title=&quot;Plan &amp;quot;B&amp;quot; &amp;amp; more&quot;>");
+    expect(artifactFrame(page, "light", assets, { locked: true })).not.toContain("data-surface");
   });
 });
 

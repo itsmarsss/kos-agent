@@ -1,0 +1,228 @@
+import Foundation
+import Testing
+
+@testable import DeviceCore
+
+/// The chat KOS draws in the window: its calls read as KOS sends them, and the window's events written as KOS reads them.
+@Suite("Chat on the line")
+struct ChatTests {
+  private func call(_ json: String) throws -> Call {
+    guard case .call(let call) = try Inbound.decode(Data(json.utf8)) else { throw DeviceError.badRequest("not a call") }
+    return call
+  }
+
+  private func object(_ data: Data) throws -> [String: Any] {
+    try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+  }
+
+  @Test func readsTheChatAsKOSShowsIt() throws {
+    let raw = ##"{"t":"call","id":4,"method":"chat.show","params":{"conversation":"mac:owner","title":"Mac","auto":true,"messages":[{"role":"you","text":"what is this?","files":["a.png"]},{"role":"steps","steps":[{"summary":"Look at the screen"},{"summary":"Click Buy","failed":true}]},{"role":"kos","text":"A **deck**."}],"notice":{"text":"Started a new chat.","said":"/new"}}}"##
+    let show = try call(raw).params(ChatShow.self)
+    #expect(ChatMethod(rawValue: "chat.show") == .show)
+    #expect(show.conversation == "mac:owner")
+    #expect(show.auto == true)
+    #expect(show.messages.map(\.role) == ["you", "steps", "kos"])
+    #expect(show.messages[1].steps == [ChatStep(summary: "Look at the screen"), ChatStep(summary: "Click Buy", failed: true)])
+    #expect(show.notice?.said == "/new")
+  }
+
+  @Test func readsAStepsPictureAndTheChatsNewestOnes() throws {
+    let status = try call(#"{"t":"call","id":7,"method":"chat.status","params":{"conversation":"mac:owner","said":"look","frame":{"id":12,"image":"QUJD","mediaType":"image/jpeg"}}}"#).params(ChatStatus.self)
+    #expect(status.frame == ChatFrame(id: 12, image: "QUJD"))
+    // A picture says nothing of the story: the turn is not ended by it.
+    #expect(status.story == nil)
+    let show = try call(##"{"t":"call","id":8,"method":"chat.show","params":{"conversation":"mac:owner","title":"Mac","messages":[{"role":"steps","steps":[{"summary":"Look","frame":12},{"summary":"Type"}]}],"pictures":{"12":"QUJD"}}}"##).params(ChatShow.self)
+    #expect(show.messages[0].steps == [ChatStep(summary: "Look", frame: 12), ChatStep(summary: "Type")])
+    #expect(show.pictures == ["12": "QUJD"])
+    let bare = try call(#"{"t":"call","id":9,"method":"chat.status","params":{"story":"› Look"}}"#).params(ChatStatus.self)
+    #expect(bare.frame == nil)
+  }
+
+  @Test func readsAnAsksStepsBesideItsArguments() throws {
+    let raw = ##"{"t":"call","id":5,"method":"chat.ask","params":{"approval":{"id":"11","tool":"computer.act","args":"{\"intent\":\"Note: just closing the popup\"}","mechanics":"Type “hunter2”, press cmd+q"}}}"##
+    let ask = try call(raw).params(ChatAsk.self).approval
+    #expect(ask.mechanics == "Type “hunter2”, press cmd+q")
+    let plain = try call(#"{"t":"call","id":6,"method":"chat.ask","params":{"approval":{"id":"12","tool":"files.rm","args":"{}"}}}"#).params(ChatAsk.self).approval
+    #expect(plain.mechanics == nil)
+    let mine = try call(#"{"t":"call","id":7,"method":"chat.ask","params":{"chat":"mac:owner","approval":{"id":"13","tool":"files.rm"}}}"#).params(ChatAsk.self)
+    #expect(mine.chat == "mac:owner")
+  }
+
+  @Test func tellsAStoryFromADoneTurnFromNothingSaid() throws {
+    let going = try call(#"{"t":"call","id":1,"method":"chat.status","params":{"conversation":null,"story":"› Look"}}"#).params(ChatStatus.self)
+    let done = try call(#"{"t":"call","id":2,"method":"chat.status","params":{"story":null}}"#).params(ChatStatus.self)
+    let taken = try call(#"{"t":"call","id":3,"method":"chat.status","params":{"taken":true,"said":"hi"}}"#).params(ChatStatus.self)
+    #expect(going.story == .some("› Look"))
+    #expect(done.story == .some(nil))
+    #expect(taken.story == nil)
+    #expect(taken.taken == true)
+  }
+
+  @Test func writesTheOwnersWordsWithTheAppInFront() throws {
+    let send = try object(ChatEvent.send(text: "summarize this", beside: .app(name: "Keynote", bundle: "com.apple.iWork.Keynote", title: "Q3")).frame())
+    #expect(send["t"] as? String == "event")
+    #expect(send["name"] as? String == "chat.send")
+    let data = try #require(send["data"] as? [String: Any])
+    #expect(data["text"] as? String == "summarize this")
+    #expect(data["beside"] as? [String: String] == ["kind": "app", "name": "Keynote", "bundle": "com.apple.iWork.Keynote", "title": "Q3"])
+    let hidden = try #require(object(ChatEvent.send(text: "x", beside: .hidden).frame())["data"] as? [String: Any])
+    #expect(hidden["beside"] as? [String: String] == ["kind": "hidden"])
+  }
+
+  @Test func writesADecisionRememberedOnlyWhenTheOwnerSaidSo() throws {
+    let once = try #require(object(ChatEvent.decide(approval: "7", approved: true, remember: false).frame())["data"] as? [String: Any])
+    #expect(once["approval"] as? String == "7")
+    #expect(once["approved"] as? Bool == true)
+    #expect(once["remember"] == nil)
+    let always = try #require(object(ChatEvent.decide(approval: "7", approved: true, remember: true).frame())["data"] as? [String: Any])
+    #expect(always["remember"] as? Bool == true)
+    #expect(try object(ChatEvent.open.frame())["name"] as? String == "chat.open")
+    #expect(try object(ChatEvent.auto(true).frame())["data"] as? [String: Bool] == ["on": true])
+  }
+
+  @Test func readsWhichChatATurnIsInAndWhatItWaitsOn() throws {
+    let both = try call(#"{"t":"call","id":1,"method":"chat.status","params":{"chat":"mac:owner","conversation":"old","waiting":"consent","held":true}}"#).params(ChatStatus.self)
+    #expect(both.turnChat == "mac:owner")
+    #expect(both.waiting == .consent)
+    #expect(both.held == true)
+    let old = try call(#"{"t":"call","id":2,"method":"chat.status","params":{"conversation":"mac:owner","waiting":"something new"}}"#).params(ChatStatus.self)
+    #expect(old.turnChat == "mac:owner")
+    #expect(old.waiting == .approval)
+    #expect(old.held == nil)
+    let show = try call(#"{"t":"call","id":3,"method":"chat.show","params":{"chat":"mac:owner","conversation":"mac:owner","title":"Mac","messages":[]}}"#).params(ChatShow.self)
+    #expect(show.chat == "mac:owner")
+    let ask = try call(#"{"t":"call","id":4,"method":"chat.ask","params":{"approval":{"id":"9","tool":"computer.act","expiresAt":1700000000000}}}"#).params(ChatAsk.self).approval
+    #expect(ask.expiresAt == 1_700_000_000_000)
+  }
+
+  @Test func writesAQuoteOnceAndAStop() throws {
+    let quoted = try #require(object(ChatEvent.send(text: "fix this", beside: .none, quote: Quote(text: "teh cat", from: "Notes: Draft")).frame())["data"] as? [String: Any])
+    #expect(quoted["quote"] as? [String: String] == ["text": "teh cat", "from": "Notes: Draft"])
+    let plain = try #require(object(ChatEvent.send(text: "hi", beside: .none).frame())["data"] as? [String: Any])
+    #expect(plain["quote"] == nil)
+    let stop = try object(ChatEvent.stop.frame())
+    #expect(stop["name"] as? String == "chat.stop")
+    #expect(stop["data"] as? [String: String] == [:])
+    let mentions = try object(ChatEvent.mentions("ali").frame())
+    #expect(mentions["name"] as? String == "chat.mentions")
+    #expect(mentions["data"] as? [String: String] == ["q": "ali"])
+  }
+}
+
+@Suite("Artifacts and files on the line")
+struct ArtifactWireTests {
+  private func data(_ event: ChatEvent) throws -> [String: Any] {
+    let frame = try #require(JSONSerialization.jsonObject(with: event.frame()) as? [String: Any])
+    return try #require(frame["data"] as? [String: Any])
+  }
+
+  private func call(_ json: String) throws -> Call {
+    guard case .call(let call) = try Inbound.decode(Data(json.utf8)) else { throw DeviceError.badRequest("not a call") }
+    return call
+  }
+
+  @Test func asksForTheListOneArtifactAndItsReads() throws {
+    #expect(try data(.artifacts).isEmpty)
+    #expect(try data(.artifact(id: "plan", theme: "dark")) as? [String: String] == ["id": "plan", "theme": "dark"])
+    let read = try data(.read(artifact: "plan", call: 3, method: "query", args: .object(["sql": .string("SELECT 1"), "params": .array([.number(2)])])))
+    #expect(read["artifact"] as? String == "plan")
+    #expect(read["call"] as? Int == 3)
+    #expect((read["args"] as? [String: Any])?["sql"] as? String == "SELECT 1")
+  }
+
+  @Test func readsWhatKOSSends() throws {
+    let list = try call(#"{"t":"call","id":1,"method":"chat.artifacts","params":{"artifacts":[{"id":"plan","title":"Plan","kind":"doc","updatedAt":5,"place":{"kind":"project","name":"Garden"}},{"id":7}]}}"#).params(ArtifactList.self)
+    #expect(list.artifacts == [ArtifactItem(id: "plan", title: "Plan", kind: "doc", updatedAt: 5, place: ChatPlace(kind: "project", name: "Garden"))])
+    let opened = try call(#"{"t":"call","id":2,"method":"chat.artifact","params":{"id":"plan","title":"Plan","kind":"doc","updatedAt":5,"document":"<!doctype html>","themes":{"light":"a","dark":"b"},"theme":"dark"}}"#).params(ArtifactOpened.self)
+    #expect(opened.document == "<!doctype html>" && opened.themes == .init(light: "a", dark: "b") && opened.error == nil)
+    let refused = try call(#"{"t":"call","id":3,"method":"chat.artifact","params":{"id":"nope","error":"There is no artifact by that id that opens here."}}"#).params(ArtifactOpened.self)
+    #expect(refused.error != nil && refused.document == nil)
+    let answer = try call(#"{"t":"call","id":4,"method":"chat.read","params":{"artifact":"plan","call":3,"result":{"rows":[{"n":1,"ok":true,"name":null}]}}}"#).params(ArtifactReadAnswer.self)
+    #expect(answer.result == .object(["rows": .array([.object(["n": .number(1), "ok": .bool(true), "name": .null])])]))
+    #expect(JSONValue(json: answer.result!.json) == answer.result)
+  }
+
+  @Test func sendsAFileInWholeBase64QuadsAheadOfTheWordsThatNameIt() throws {
+    let bytes = Data((0..<(AttachmentPart.chars / 4 * 3 * 2 + 10)).map { UInt8($0 % 251) })
+    let parts = AttachmentPart.parts(id: "f1", name: "a.jpg", mediaType: "image/jpeg", bytes: bytes)
+    #expect(parts.count == 3)
+    #expect(parts.allSatisfy { $0.parts == 3 } && parts.map(\.part) == [0, 1, 2])
+    #expect(parts.dropLast().allSatisfy { $0.data.count == AttachmentPart.chars && !$0.data.hasSuffix("=") })
+    #expect(Data(base64Encoded: parts.map(\.data).joined()) == bytes)
+    #expect(AttachmentPart.parts(id: "f2", name: "e.txt", mediaType: "text/plain", bytes: Data()).count == 1)
+    let attach = try data(.attach(parts[0]))
+    #expect(attach["id"] as? String == "f1" && attach["parts"] as? Int == 3)
+    let send = try data(.send(text: "", beside: .none, files: ["f1"]))
+    #expect(send["files"] as? [String] == ["f1"])
+    #expect(try data(.send(text: "hi", beside: .none))["files"] == nil)
+  }
+}
+
+@Suite("The dashboard's pages on the line")
+struct DashboardWireTests {
+  @Test func asksARouteByItsCall() throws {
+    let read = try #require(JSONSerialization.jsonObject(with: ChatEvent.dashboard(.init(call: 4, method: "GET", path: "/api/files", query: ["path": "notes"])).frame()) as? [String: Any])
+    #expect(read["name"] as? String == "dashboard.request")
+    let data = try #require(read["data"] as? [String: Any])
+    #expect(data["call"] as? Int == 4 && data["method"] as? String == "GET" && data["path"] as? String == "/api/files")
+    #expect(data["query"] as? [String: String] == ["path": "notes"] && data["body"] == nil)
+    let act = try #require(JSONSerialization.jsonObject(with: ChatEvent.dashboard(.init(call: 5, method: "POST", path: "/api/crons/run", query: [:], body: .object(["id": .number(3)]))).frame()) as? [String: Any])
+    let acted = try #require(act["data"] as? [String: Any])
+    #expect(acted["query"] == nil && (acted["body"] as? [String: Any])?["id"] as? Int == 3)
+  }
+
+  @Test func readsEachAnswer() throws {
+    func reply(_ params: String) throws -> DashboardReply {
+      guard case .call(let call) = try Inbound.decode(Data(#"{"t":"call","id":1,"method":"dashboard.reply","params":\#(params)}"#.utf8)) else { throw DeviceError.badRequest("not a call") }
+      #expect(call.method == DashboardReply.method)
+      return try call.params(DashboardReply.self)
+    }
+    #expect(try reply(#"{"call":1,"status":200,"body":[{"id":7}]}"#) == .init(call: 1, status: 200, body: .array([.object(["id": .number(7)])])))
+    #expect(try reply(#"{"call":2,"status":200,"type":"image/png","data":"iVBO"}"#).data == "iVBO")
+    #expect(try reply(#"{"call":3,"error":"Not on the list."}"#).error == "Not on the list.")
+  }
+}
+
+@Suite("Glance on the line")
+struct GlanceTests {
+  @Test func readsWhatKOSAnswers() throws {
+    let raw = #"{"t":"call","id":9,"method":"chat.glance","params":{"halted":false,"running":[{"id":"c_1","title":"Garden orchestrator"}],"waiting":2,"failing":[{"label":"Nightly backup","streak":3,"error":"disk full","since":1761800000000}],"next":[{"name":"kos.backup","at":1761800000000}]}}"#
+    guard case .call(let call) = try Inbound.decode(Data(raw.utf8)) else { throw DeviceError.badRequest("not a call") }
+    #expect(call.method == Glance.method)
+    let glance = try call.params(Glance.self)
+    #expect(glance.running == [.init(id: "c_1", title: "Garden orchestrator")])
+    #expect(glance.waiting == 2)
+    #expect(glance.failing == [.init(label: "Nightly backup", streak: 3, error: "disk full", since: 1_761_800_000_000)])
+    #expect(glance.next == [.init(name: "kos.backup", at: 1_761_800_000_000)])
+  }
+
+  @Test func itCarriesTheAsksToDecide() throws {
+    let raw = #"{"waiting":3,"asks":[{"chat":{"id":"c_2","title":"Inbox sweep"},"approval":{"id":"41","tool":"files.write","why":"Saving the list.","expiresAt":1761800000000}},{"approval":{"id":"42","tool":"shell.run"}}]}"#
+    let glance = try JSONDecoder().decode(Glance.self, from: Data(raw.utf8))
+    #expect(glance.waiting == 3)
+    #expect(glance.asks.count == 2)
+    #expect(glance.asks[0].chat == .init(id: "c_2", title: "Inbox sweep"))
+    #expect(glance.asks[0].approval == ChatApproval(id: "41", tool: "files.write", why: "Saving the list.", expiresAt: 1_761_800_000_000))
+    // One no chat asked has none.
+    #expect(glance.asks[1].chat == nil)
+  }
+
+  @Test func anAskThatDoesNotReadIsLeftOutAndTheRestComes() throws {
+    let raw = #"{"waiting":3,"asks":[{"approval":{"tool":"no id"}},{"approval":{"id":"42","tool":"shell.run"}},7],"running":[{"id":"c_1","title":"Garden"}]}"#
+    let glance = try JSONDecoder().decode(Glance.self, from: Data(raw.utf8))
+    #expect(glance.asks.map(\.approval.id) == ["42"])
+    #expect(glance.running.count == 1)
+    #expect(glance.waiting == 3)
+  }
+
+  @Test func listsLeftOutAreEmpty() throws {
+    let glance = try JSONDecoder().decode(Glance.self, from: Data(#"{"waiting":1}"#.utf8))
+    #expect(glance == Glance(waiting: 1))
+  }
+
+  @Test func askingForItIsAnEvent() throws {
+    let frame = try JSONSerialization.jsonObject(with: ChatEvent.glance.frame()) as? [String: Any]
+    #expect(frame?["t"] as? String == "event")
+    #expect(frame?["name"] as? String == "chat.glance")
+  }
+}

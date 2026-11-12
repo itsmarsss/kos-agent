@@ -31,21 +31,23 @@ import {
   parseModelSettings,
   createDashboardServer,
   createDashboardSocket,
+  handleApiRequest,
   createPressHandler,
   primarySessionId,
   surfaceSessionId,
   startSiteServer,
   SurfaceDownError,
   type ApprovalRequest,
+  type DashboardServerOptions,
   type NotifyPayload,
   type NotifySent,
   type OutboundMessage,
   type PendingAction,
 } from "@kos/harness";
-import { createComputerUse, type PanelDeps } from "@kos/computer";
+import { createComputerUse, type Glance, type PanelArtifact, type PanelArtifacts, type PanelDeps, type PanelPlaceOf } from "@kos/computer";
 
-/** The surfaces a device panel is: a Chrome's side panel, a Mac's window. */
-type PanelSurface = "chrome" | "mac";
+/** The surfaces a device panel is: a Chrome's side panel, a Mac's window, a phone's chat. */
+type PanelSurface = "chrome" | "mac" | "phone";
 
 import { envFilePath } from "./env.js";
 import { ThreadMirror } from "./threadmirror.js";
@@ -72,6 +74,12 @@ export interface HostOptions {
    * port plus one; 0 turns site serving off.
    */
   sitesPort?: number;
+}
+
+/** The port phones on the Wi-Fi reach KOS on: KOS_DEVICE_LAN_PORT, else the dashboard's plus two. */
+function lanPort(dashboard: number): number {
+  const set = Number(process.env.KOS_DEVICE_LAN_PORT ?? "");
+  return Number.isInteger(set) && set > 0 && set < 65_536 ? set : dashboard + 2;
 }
 
 function defaultUiDist(): string | undefined {
@@ -404,9 +412,9 @@ export async function runHost(options: HostOptions): Promise<void> {
    * outside the workspace, so the agent never reads it, and outside the
    * KOS_SECRET_ names too, which the agent can put in a request.
    */
-  /** A held action as a surface asks about it. */
-  const approvalRequest = (action: PendingAction): ApprovalRequest => {
-    const picture = action.picture ? kernel.approvals.pictureOf(action.id) : undefined;
+  /** A held action as a surface asks about it; `pictured` false leaves its picture unread, for a list that shows none. */
+  const approvalRequest = (action: PendingAction, pictured = true): ApprovalRequest => {
+    const picture = pictured && action.picture ? kernel.approvals.pictureOf(action.id) : undefined;
     const asker = kernel.askerOf(action.conversationId);
     return {
       id: String(action.id),
@@ -438,6 +446,59 @@ export async function runHost(options: HostOptions): Promise<void> {
   };
   const chromeChat = surfaceChat("chrome");
   const macChat = surfaceChat("mac");
+  const phoneChat = surfaceChat("phone");
+  /** Where a chat lives, as a device's chat list groups it: KOS at the root, a project, or a blob. */
+  const placeOf = (c: { projectSlug: string | null; role: string | null }): PanelPlaceOf => {
+    if (c.role) return { kind: "blob", name: kernel.labelFor("blob", c.role) ?? c.role };
+    if (c.projectSlug) return { kind: "project", name: kernel.labelFor("project", c.projectSlug) ?? c.projectSlug };
+    return { kind: "kos" };
+  };
+  /** What is going on in KOS, for a phone that asks: what runs, what waits on the owner, what fails, what fires next. */
+  const glance = (): Glance => {
+    const next = kernel.crons
+      .list()
+      .filter((job) => job.enabled)
+      .flatMap((job) => kernel.cronNextRuns(job.id, 1).map((at) => ({ name: job.name, at })))
+      .sort((a, b) => a.at - b.at)
+      .slice(0, 5);
+    const pending = kernel.approvals.pending();
+    return {
+      halted: kernel.killSwitch.halted,
+      running: kernel.busyConversations().slice(0, 10).map((id) => ({ id, title: kernel.nameOf(id) })),
+      waiting: pending.length,
+      // Every one, each with its chat; the panel sends the first to lapse.
+      asks: pending.map((action) => ({
+        ...(action.conversationId ? { chat: { id: action.conversationId, title: kernel.nameOf(action.conversationId) } } : {}),
+        // A glance sends no picture, so none is read for it.
+        request: approvalRequest(action, false),
+      })),
+      failing: kernel.health.failing().slice(0, 10).map(({ label, streak, error, since }) => ({ label, streak, error, since })),
+      next,
+    };
+  };
+  /** An artifact as a device lists it: what the gallery says of it, and whose it is. */
+  const artifactItem = (r: { id: string; title: string; artifactKind: string; description?: string; updatedAt: number; projectSlug: string | null; blob?: string }): PanelArtifact => ({
+    id: r.id,
+    title: r.title,
+    kind: r.artifactKind,
+    ...(r.description ? { description: r.description } : {}),
+    updatedAt: r.updatedAt,
+    place: r.blob ? { kind: "blob", name: r.blob } : r.projectSlug ? { kind: "project", name: kernel.labelFor("project", r.projectSlug) ?? r.projectSlug } : { kind: "kos" },
+  });
+  /** The owner's artifacts, for a phone to read: the HTML ones out of the trash, as the dashboard opens them, and only read. */
+  const phoneArtifacts: PanelArtifacts = {
+    recent: () =>
+      kernel.pages
+        .list()
+        .filter((r) => r.kind === "html")
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .map(artifactItem),
+    open: (id, theme) => {
+      const view = kernel.artifactView(id, theme);
+      return view && { ...artifactItem(view.record), document: view.document, themes: view.themes };
+    },
+    read: (id, method, args) => kernel.artifactCall(id, method, args),
+  };
   /** What a device panel reads and does, for its own surface's chats and no one else's. */
   const panelDeps = (channel: PanelSurface, current: () => { id: string; title: string } | undefined): PanelDeps => ({
     current,
@@ -448,7 +509,7 @@ export async function runHost(options: HostOptions): Promise<void> {
     // With each step's picture marked, as the dashboard's thread has them.
     events: (id) => withFrames(conversationEvents(kernel.sessions.get(id)), kernel.frames.listFor(id)),
     picture: (frameId) => kernel.frames.shown(frameId),
-    waiting: (id) => kernel.approvals.pending().filter((a) => a.conversationId === id).map(approvalRequest),
+    waiting: (id) => kernel.approvals.pending().filter((a) => a.conversationId === id).map((a) => approvalRequest(a)),
     // The panel's own chats, as /chats there lists them: the surface's stream and the chats made from it, nothing else of the owner's.
     chats: () =>
       kernel.conversations
@@ -456,7 +517,7 @@ export async function runHost(options: HostOptions): Promise<void> {
         .filter((c) => c.channel === channel)
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, 40)
-        .map((c) => ({ id: c.id, title: kernel.titleOf(c.id), updatedAt: c.updatedAt })),
+        .map((c) => ({ id: c.id, title: kernel.titleOf(c.id), updatedAt: c.updatedAt, place: placeOf(c) })),
     switchTo: (id) => {
       const c = kernel.conversations.get(id);
       if (c?.channel !== channel) return false;
@@ -492,7 +553,25 @@ export async function runHost(options: HostOptions): Promise<void> {
     halted: () => kernel.killSwitch.halted,
     face: () => kernel.kosDrawing(),
     theme: () => kernel.dashboardTheme(),
-    panels: { chrome: panelDeps("chrome", chromeChat), mac: panelDeps("mac", macChat) },
+    panels: {
+      chrome: panelDeps("chrome", chromeChat),
+      mac: panelDeps("mac", macChat),
+      phone: {
+        ...panelDeps("phone", phoneChat),
+        glance,
+        artifacts: phoneArtifacts,
+        // The dashboard's own handler, with no token: the phone is proved on its line. Only a phone's panel is given it.
+        dashboard: (req) => handleApiRequest(kernel, req, dashboard),
+        audit: (entry) => void kernel.audit.record({ ...entry, userId: kernel.profile.ownerId }),
+      },
+    },
+    lan: {
+      // The dashboard's port plus two: the sites take plus one.
+      port: lanPort(options.port),
+      host: process.env.KOS_DEVICE_LAN_HOST?.trim() || "0.0.0.0",
+      certPath: process.env.KOS_DEVICE_LAN_CERT_FILE?.trim() || join(homedir(), ".kos", "device-lan.pem"),
+      forced: process.env.KOS_DEVICE_LAN === "1",
+    },
     // A session started unasked is written down as the start it stands for.
     audit: (entry) => void kernel.audit.record(entry),
     // The owner's Stop on a device stops the chat's turn, as the dashboard's does.
@@ -594,6 +673,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       if (smsAdapter && sms) void smsAdapter.requestApproval(sms.owner, request);
       void computer.panel.requestApproval("owner", request);
       void computer.mac.requestApproval("owner", request);
+      void computer.phone.requestApproval("owner", request);
     },
   });
 
@@ -621,12 +701,12 @@ export async function runHost(options: HostOptions): Promise<void> {
     workspace: kernel.workspace.root,
   };
 
-  const server = createDashboardServer(kernel, {
+  /** The dashboard as the server answers it, but for the token, which a phone's asks of it go without. */
+  const dashboard: DashboardServerOptions = {
     ...(staticDir ? { staticDir } : {}),
     // So the settings page can save an API key without anyone opening a
     // dotfile. Refused if it ever resolves inside the workspace.
     envPath: envFilePath(),
-    ...(options.token ? { token: options.token } : {}),
     ...(options.hookSecret ? { hookSecret: options.hookSecret } : {}),
     host: options.host,
     meta,
@@ -643,7 +723,8 @@ export async function runHost(options: HostOptions): Promise<void> {
           },
         }
       : {}),
-  });
+  };
+  const server = createDashboardServer(kernel, { ...dashboard, ...(options.token ? { token: options.token } : {}) });
 
   // A chat that borrowed the owner's Chrome browses there.
   kernel.setBrowserElsewhere(computer.chrome);
@@ -1116,14 +1197,15 @@ export async function runHost(options: HostOptions): Promise<void> {
   }
 
   /*
-   * The side panel of each paired Chrome and the window of each paired Mac:
+   * The side panel of each paired Chrome, the window of each paired Mac and
+   * the chat of each paired phone:
    * surfaces of their own, whatever else is wired, and quiet until a device
    * is paired with computer use on. A turn one did not take (one on the
    * dashboard, one from another of the owner's Chromes) is told there as it
    * goes, as Discord's thread is.
    */
   const panelRuntimes: { stop(): Promise<void> }[] = [];
-  for (const panel of [computer.panel, computer.mac]) {
+  for (const panel of [computer.panel, computer.mac, computer.phone]) {
     const runtime = connectChannel(panel, kernel, { ownerRecipientId: "owner", identity: panel.identity(kernel.profile.ownerId) });
     await runtime.start();
     panelRuntimes.push(runtime);
@@ -1153,7 +1235,7 @@ export async function runHost(options: HostOptions): Promise<void> {
   const shutdown = (): void => {
     console.log("shutting down…");
     clearDaemonState(kernel.workspace.root);
-    computer.close();
+    void computer.close();
     live.close();
     server.close();
     void (async () => {

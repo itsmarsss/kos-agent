@@ -6,6 +6,8 @@ import { WebSocketServer, type WebSocket } from "ws";
 
 import { PairError, type DeviceHub } from "./hub.js";
 import type { Socket } from "./link.js";
+import type { LanPairing, LanStatus } from "./lan.js";
+import type { ComputerSettings, Device } from "./store.js";
 import { MAX_FRAME_BYTES, SOCKET_PATH } from "./protocol.js";
 
 /**
@@ -27,11 +29,18 @@ const PING_EVERY_MS = 30_000;
 const ok = (body: unknown): ApiResponse => ({ status: 200, body });
 const bad = (status: number, error: string): ApiResponse => ({ status, body: { error } });
 
-export function deviceRoutes(hubOf: () => DeviceHub | undefined, titleOf: (conversation: string) => string): ApiExtension {
+/** The Wi-Fi listener as the routes see it: where it stands, what a code carries for a phone, and turning it on or off. */
+export interface LanControl {
+  status(): LanStatus;
+  pairing(): LanPairing | undefined;
+  sync(wanted: boolean): Promise<LanStatus>;
+}
+
+export function deviceRoutes(hubOf: () => DeviceHub | undefined, titleOf: (conversation: string) => string, lan?: LanControl): ApiExtension {
   return {
     prefix: PREFIX,
     open: [PAIR_PATH],
-    handle(req: ApiRequest): ApiResponse | undefined {
+    async handle(req: ApiRequest): Promise<ApiResponse | undefined> {
       const hub = hubOf();
       if (!hub) return bad(503, "computer use is switched off");
       const body = (req.body ?? {}) as Record<string, unknown>;
@@ -54,19 +63,28 @@ export function deviceRoutes(hubOf: () => DeviceHub | undefined, titleOf: (conve
           return ok({
             devices: hub.list().map((d) => (d.session ? { ...d, session: { ...d.session, title: titleOf(d.session.conversation) } } : d)),
             settings: hub.settings(),
+            ...(lan ? { lan: lan.status() } : {}),
           });
         case `POST ${PREFIX}/settings`: {
-          const patch: { askMinutes?: number; unattended?: boolean } = {};
+          const patch: Partial<ComputerSettings> = {};
           if (body.askMinutes !== undefined) patch.askMinutes = Number(body.askMinutes);
           if (body.unattended !== undefined) patch.unattended = body.unattended === true;
+          if (body.lan !== undefined) patch.lan = body.lan === true;
+          let next: ComputerSettings;
           try {
-            return ok(hub.updateSettings(patch));
+            next = hub.updateSettings(patch);
           } catch (err) {
             return bad(400, err instanceof Error ? err.message : String(err));
           }
+          // The listener follows the setting at once, and the answer says where it landed.
+          if (patch.lan !== undefined && lan) return ok({ ...next, lanStatus: await lan.sync(next.lan) });
+          return ok(next);
         }
-        case `POST ${PREFIX}/pairings`:
-          return ok(hub.issueCode());
+        case `POST ${PREFIX}/pairings`: {
+          // While phones may pair over Wi-Fi, the code carries where and how a phone reaches KOS.
+          const forPhone = lan?.pairing();
+          return ok({ ...hub.issueCode(), ...(forPhone ? { lan: forPhone } : {}) });
+        }
         case `POST ${PREFIX}/rename`: {
           if (!id || typeof body.name !== "string") return bad(400, "id and name required");
           try {
@@ -112,8 +130,18 @@ export interface DeviceSocketServer {
   close(): void;
 }
 
-export function deviceSocketServer(hubOf: () => DeviceHub | undefined): DeviceSocketServer {
-  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
+export interface DeviceSocketOptions {
+  /** Narrows which proved devices this server's sockets carry (hub.accept). */
+  admit?: (device: Device) => boolean;
+  /** The largest frame a device may send; the protocol's 16 MB unless less. */
+  maxPayload?: number;
+  /** Sockets open at once. */
+  maxSockets?: number;
+}
+
+export function deviceSocketServer(hubOf: () => DeviceHub | undefined, options: DeviceSocketOptions = {}): DeviceSocketServer {
+  const { admit, maxPayload = MAX_FRAME_BYTES, maxSockets = MAX_SOCKETS } = options;
+  const wss = new WebSocketServer({ noServer: true, maxPayload });
   const alive = new WeakSet<WebSocket>();
   // A connection that stops answering pings is a laptop that went to sleep
   // without saying goodbye; dropping it ends its session.
@@ -133,7 +161,7 @@ export function deviceSocketServer(hubOf: () => DeviceHub | undefined): DeviceSo
     upgrade(req, socket, head) {
       if ((req.url ?? "").split("?")[0] !== SOCKET_PATH) return false;
       const hub = hubOf();
-      if (!hub || wss.clients.size >= MAX_SOCKETS) {
+      if (!hub || wss.clients.size >= maxSockets) {
         socket.write("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
         socket.destroy();
         return true;
@@ -142,7 +170,7 @@ export function deviceSocketServer(hubOf: () => DeviceHub | undefined): DeviceSo
         alive.add(ws);
         ws.on("pong", () => alive.add(ws));
         ws.on("error", () => ws.terminate());
-        hub.accept(asSocket(ws));
+        hub.accept(asSocket(ws), admit);
       });
       return true;
     },

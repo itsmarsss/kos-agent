@@ -1,5 +1,6 @@
 import AppKit
 import DeviceCore
+import DeviceLink
 import DeviceUI
 
 /// Wires the pieces: the pairings, a line to each KOS, the controller that answers them, and the menu.
@@ -116,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       }
     }
 
-    Log.app.notice("launched, version \(Connection.appInfo.version, privacy: .public)")
+    Log.app.notice("launched, version \(AppInfo.mac.version, privacy: .public)")
     loadPairings()
     changed()
     // Nothing to do until it is paired and granted: say so, once, at launch.
@@ -171,7 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// A new line to one KOS, answering for that KOS alone.
   private func line(for paired: Pairing) -> Connection {
     let id = paired.deviceId
-    let line = Connection()
+    let line = Connection(log: Log.line, app: .mac)
     line.state = { [unowned self] in currentState(for: id) }
     // The chat's calls carry the chat, not the computer: they go to the window, every other call to the controller.
     line.onCall = { [unowned self] call in

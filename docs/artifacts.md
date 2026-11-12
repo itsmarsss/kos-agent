@@ -845,12 +845,34 @@ shown (its project, the viewer, full screen):
   never scrolls sideways. Wider, the box sizes to its grid, so a sheet in
   something sized to its content is never clipped, up to the view less its
   gutters, past which the grid scrolls in its box. On a phone the row
-  numbers and a frozen first column stay put sideways; other frozen columns
-  scroll away but keep their header and total in view. A phone narrows the
-  grid before it scrolls (text wraps, a column's `width` is a desktop's),
-  holds the key figure (the first column the tab totals, else its first
-  currency) at the box's right edge, and says in the tools how many columns
-  are out of view.
+  numbers and the first column, the row's name, stay put sideways whatever
+  the tab freezes; other frozen columns scroll away but keep their header and
+  total in view. A cell keeps to one line, cut past its width (a column's
+  `width` is a desktop's), and the key figure (the first column the tab
+  totals, else its first currency) holds at the box's right edge. The tools
+  are one row: the filter, in any column, and the count. A press on a row
+  reads it whole, each field labelled, in a sheet up from the frame's foot
+  that Close, Escape or a press outside closes; on a row the owner can edit
+  there, only a press on its first column does, so the other cells still
+  take typing.
+- KOS for iPhone frames an artifact with `data-surface="phone"` and
+  `data-title` (the title its bar shows) on the page's root
+  (`artifactFrame(..., { surface: "phone" })`, from `artifactView`). There
+  the runtimes draw no box: the page's ground is KOS's `--bg`, edge to edge,
+  the text in a 16 px gutter; a sheet's grid runs full width with hairlines
+  between rows, a doc reads at 17 px, an upright deck's slides sit between
+  hairlines with their numbers, and a slide on its side fills the screen.
+  A doc's or a sheet's first heading, when it is an h1 saying the title, is
+  hidden, since the bar says it. A press on a sheet's row is not drawn in
+  the frame: the sheet posts `{__kos: "row", sheet, title, fields: [{label,
+  value, numeric}]}` to the app (at most 200 fields, each value as the grid
+  shows it, cut to 2000 characters; the title is the first column, or "Row
+  n" when that is empty), which draws it as a sheet of its own, taking it
+  only from a sheet and only just after the owner's press. Where the
+  columns do not all fit, the grid comes to rest on whole columns after the
+  first, and one the held total would cover in part is drawn blank under a
+  quiet mark that more lie that way. On the dashboard at narrow width a
+  press opens a row only on a sheet that cannot be edited there.
 
 ## What an artifact runs in
 

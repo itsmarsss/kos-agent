@@ -5,7 +5,7 @@ import type { DashboardTheme, FaceDrawing } from "@kos/shared";
 import { publicKeyFromRaw, type HostKey } from "./keys.js";
 import { DeviceError, DeviceLink, type Refusal, type Socket } from "./link.js";
 import { PairingCodes, type PairingCode } from "./pairing.js";
-import { BROWSER_PLATFORM, CLOSE, PROTOCOL_VERSION, type Consent, type DeviceEvent, type EndReason, type Grant, type Method, type PanelMethod, type Permissions, type Size, type Target } from "./protocol.js";
+import { BROWSER_PLATFORM, CLOSE, PHONE_PLATFORM, PROTOCOL_VERSION, type Consent, type DeviceEvent, type EndReason, type Grant, type Method, type PanelMethod, type Permissions, type Size, type Target } from "./protocol.js";
 import { MAX_ASK_MINUTES, type ComputerSettings, type Device, type DeviceStore } from "./store.js";
 
 /**
@@ -71,11 +71,12 @@ export interface HubDeps {
   handBackWaitMs?: number;
 }
 
-/** A computer running KOS for Mac, or a Chrome running KOS for Chrome. */
-export type DeviceKind = "computer" | "browser";
+/** A computer running KOS for Mac, a Chrome running KOS for Chrome, or a phone running KOS for iPhone, which only chats. */
+export type DeviceKind = "computer" | "browser" | "phone";
 
 export function kindOf(device: { platform: string }): DeviceKind {
-  return device.platform === BROWSER_PLATFORM ? "browser" : "computer";
+  if (device.platform === BROWSER_PLATFORM) return "browser";
+  return device.platform === PHONE_PLATFORM ? "phone" : "computer";
 }
 
 /** Told of what a device says beyond its sessions' lives: a browser's page events, tabs closed or handed. */
@@ -166,11 +167,16 @@ export class DeviceHub {
     return { device: device.id, hostKey: this.deps.hostKey.publicKey, protocol: PROTOCOL_VERSION };
   }
 
-  /** A socket a device opened; it is in once both keys are proved. */
-  accept(socket: Socket): DeviceLink {
+  /**
+   * A socket a device opened; it is in once both keys are proved. `admit`
+   * narrows which proved devices this socket may carry (the Wi-Fi listener's
+   * phones alone); a device it turns away is refused as `not a phone`.
+   */
+  accept(socket: Socket, admit?: (device: Device) => boolean): DeviceLink {
     return new DeviceLink(socket, {
       hostKey: this.deps.hostKey,
       lookup: (id) => this.deps.store.get(id),
+      ...(admit ? { admit } : {}),
       onReady: (link) => this.ready(link),
       onState: () => this.changed(),
       onEvent: (link, event) => this.event(link, event),
@@ -335,6 +341,8 @@ export class DeviceHub {
       if (held.device === input.device.id) return held;
       throw new DeviceError("busy", "this chat already has a session on another device; end it first");
     }
+    // A phone only chats: whatever named it, it is never a screen or a browser to work.
+    if (kindOf(input.device) === "phone") throw new DeviceError("phone", "a phone is chat only: KOS cannot see or work its screen");
     const link = this.links.get(input.device.id);
     if (!link?.ready) throw new DeviceError("offline", `${input.device.name} is offline: KOS for Mac is not running on it, or cannot reach KOS`);
     const browser = kindOf(input.device) === "browser";

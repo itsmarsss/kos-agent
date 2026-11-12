@@ -202,6 +202,9 @@ const WRITE_CAPABLE = new Set(["list", "card", "form"]);
  * (approve/deny, kill switch, prompt box), page specs, and read-only display
  * queries.
  */
+/** How long Run now not waited on gives a job to be turned away before it is answered as under way. */
+const FIRE_SETTLE_MS = 50;
+
 const HOOKS_PREFIX = "/api/hooks/";
 const CALLER_PREFIX = "/api/caller/";
 const PROJECTS_PREFIX = "/api/projects/";
@@ -802,7 +805,18 @@ export async function handleApiRequest(
     if (!kernel.crons.get(id)) {
       return { status: 404, body: { error: "no such job" } };
     }
-    return ok(await kernel.fireCron(id));
+    const fired = kernel.fireCron(id);
+    if (body.wait !== false) return ok(await fired);
+    /*
+     * Asked not to wait (a phone, whose wait is shorter than a run): what
+     * stops a run (the kill switch, the hour's limit, a run already going)
+     * says so at once, and a run under way is answered as accepted, as a
+     * hook's is, its outcome going to health as a scheduled run's does.
+     */
+    const early = await Promise.race([fired, new Promise<undefined>((done) => setTimeout(() => done(undefined), FIRE_SETTLE_MS).unref())]);
+    if (early) return ok(early);
+    void fired.catch((err: unknown) => console.error(`run now ${id}: ${err instanceof Error ? err.message : String(err)}`));
+    return { status: 202, body: { accepted: true, id } };
   }
 
   if (method === "GET" && path === "/api/settings/models") {

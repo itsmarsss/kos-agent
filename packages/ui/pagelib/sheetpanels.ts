@@ -2,12 +2,14 @@
  * What kos-sheet shows over its grid while the owner decides something: a
  * bar that asks before anything filled is replaced or deleted (the frame
  * refuses window.confirm, and a dialog would hide what it is about), a
- * column's menu, and the preview of a CSV import. Built from the runtime's
+ * column's menu, the preview of a CSV import, and a row opened at a narrow
+ * width with every field labelled. Built from the runtime's
  * own elements, every piece of what came in set as text, never markup.
  */
 
 import type { SheetColumn, SheetColumnType } from "@kos/shared";
 
+import type { RowReport } from "./sheet.js";
 import { DELIMITERS, type Delimiter } from "./sheetimport.js";
 import { el } from "./runtime.js";
 
@@ -148,4 +150,28 @@ export function importPanel(view: ImportView, on: ImportHandlers): HTMLElement {
     notes(view.errors),
     actions,
   );
+}
+
+/**
+ * A row read at a narrow width: a sheet up from the frame's foot, full width,
+ * its title and Close over a list of every field, label then value. Escape,
+ * Close or a press outside it closes it; the focus stays in it while open.
+ */
+export function rowDetail(row: RowReport, close: () => void): HTMLElement {
+  const shut = el("button", { type: "button" }, "Close");
+  shut.addEventListener("click", close);
+  const list = el("dl", {});
+  for (const f of row.fields) list.append(el("div", {}, el("dt", {}, f.label), el("dd", { class: f.numeric ? "num" : undefined }, f.value || "\u2014")));
+  const box = el("section", { class: "sheet-detail-box", role: "dialog", "aria-modal": "true", "aria-label": row.title }, el("header", {}, el("h2", {}, row.title), shut), list);
+  const shade = el("div", { class: "sheet-detail" }, box);
+  shade.addEventListener("click", (e) => {
+    if (e.target === shade) close();
+  });
+  shade.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") close();
+    else if (e.key !== "Tab") return;
+    e.preventDefault();
+    shut.focus();
+  });
+  return shade;
 }

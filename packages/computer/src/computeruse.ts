@@ -7,7 +7,8 @@ import type { DashboardTheme, FaceDrawing } from "@kos/shared";
 import { OwnerChrome } from "./chrome.js";
 import { DeviceHub } from "./hub.js";
 import { loadHostKey } from "./keys.js";
-import { CHROME_PANEL, DevicePanel, MAC_PANEL, type PanelDeps } from "./panel.js";
+import { DeviceLan, type LanOptions } from "./lan.js";
+import { CHROME_PANEL, DevicePanel, MAC_PANEL, PHONE_PANEL, type PanelDeps } from "./panel.js";
 import { deviceRoutes, deviceSocketServer } from "./routes.js";
 import { DeviceStore } from "./store.js";
 import { COMPUTER_MANIFEST, computerModule, type ComputerModule } from "./tools.js";
@@ -34,8 +35,10 @@ export interface ComputerUseOptions {
   face(): FaceDrawing;
   /** The dashboard's theme and the palette it was last drawn in, sent to every device to follow unless it keeps its own. */
   theme(): DashboardTheme;
-  /** The chat each device panel shows, read when it is shown: the Chrome side panel's, and the KOS for Mac window's. */
-  panels: { chrome: PanelDeps; mac: PanelDeps };
+  /** The chat each device panel shows, read when it is shown: the Chrome side panel's, the KOS for Mac window's, and KOS for iPhone's. */
+  panels: { chrome: PanelDeps; mac: PanelDeps; phone: PanelDeps };
+  /** The listener phones on the home Wi-Fi reach the device socket through; off unless the owner turns it on. */
+  lan?: LanOptions;
   /** The audit log, for a session started unasked. */
   audit?(entry: AuditEntry): void;
   /** Stop every live turn in a chat, as the owner's Stop does; false when none was running. */
@@ -50,9 +53,11 @@ export interface ComputerUse {
   panel: DevicePanel;
   /** The chat window of each paired Mac, as a channel. */
   mac: DevicePanel;
+  /** The chat of each paired phone, as a channel. */
+  phone: DevicePanel;
   routes: ApiExtension;
   upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean;
-  close(): void;
+  close(): Promise<void>;
 }
 
 export function createComputerUse(options: ComputerUseOptions): ComputerUse {
@@ -64,12 +69,16 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   const sockets = deviceSocketServer(() => (active ? hub : undefined));
   const panel = new DevicePanel(CHROME_PANEL, options.panels.chrome);
   const mac = new DevicePanel(MAC_PANEL, options.panels.mac);
+  const phone = new DevicePanel(PHONE_PANEL, options.panels.phone);
+  const lan = options.lan ? new DeviceLan(() => (active ? hub : undefined), options.lan) : undefined;
   // The owner leaving a chat on a device ends the session that chat holds there.
   panel.onLeave((c) => active?.left(c, "browser"));
   mac.onLeave((c) => active?.left(c, "computer"));
   // The owner's Stop on either device: the chat's turn, its sessions and its asks end.
   panel.onStop((c) => active?.stopped(c));
   mac.onStop((c) => active?.stopped(c));
+  // A phone holds no session, so leaving a chat there ends nothing; its Stop stops the turn as the others' do.
+  phone.onStop((c) => active?.stopped(c));
 
   const module: KosModule = {
     manifest: COMPUTER_MANIFEST,
@@ -86,6 +95,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       chrome ??= new OwnerChrome(hub);
       panel.attach(hub);
       mac.attach(hub);
+      phone.attach(hub);
       const events = ctx.events;
       unfaced = events?.on("face:changed", () => hub?.tellFace());
       unthemed = events?.on("theme:changed", () => hub?.tellTheme());
@@ -118,6 +128,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
           : {}),
       });
       await active.activate(ctx);
+      await lan?.sync(hub.settings().lan);
     },
     async deactivate() {
       await active?.deactivate?.();
@@ -128,6 +139,8 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       unthemed = undefined;
       panel.attach(undefined);
       mac.attach(undefined);
+      phone.attach(undefined);
+      await lan?.sync(false);
       hub?.closeAll();
     },
   };
@@ -158,11 +171,13 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
     chrome: elsewhere,
     panel,
     mac,
-    routes: deviceRoutes(() => (active ? hub : undefined), options.titleOf),
+    phone,
+    routes: deviceRoutes(() => (active ? hub : undefined), options.titleOf, lan),
     upgrade: (req, socket, head) => sockets.upgrade(req, socket, head),
-    close() {
+    async close() {
       hub?.closeAll();
       sockets.close();
+      await lan?.close();
     },
   };
 }

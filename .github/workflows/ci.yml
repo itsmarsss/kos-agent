@@ -84,3 +84,29 @@ jobs:
 
       - name: Bundle the app
         run: ./scripts/bundle.sh
+
+  # What KOS for Mac and KOS for iPhone share: the wire, the kit and the line.
+  device-shared:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: packages/device-shared
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: swift test
+
+  # KOS for iPhone: its models and screens tested on macOS, then built for
+  # the iOS simulator, which only a runner with Xcode can.
+  device-ios:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: packages/device-ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: swift test
+
+      - name: Build for iOS
+        run: xcodebuild -scheme PhoneUI -destination 'generic/platform=iOS Simulator' -skipPackagePluginValidation build

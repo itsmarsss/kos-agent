@@ -1,13 +1,15 @@
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
-import { attendance, openDatabase, type ChatEvent, type InboundMessage, type ModuleContext } from "@kos/harness";
+import { attendance, openDatabase, type ApiRequest, type AuditEntry, type ChatEvent, type InboundMessage, type ModuleContext } from "@kos/harness";
 
 import { OwnerChrome } from "./chrome.js";
 import { FakeDevice } from "./device.fixture.js";
 import { DeviceHub } from "./hub.js";
 import { rawPublicKey } from "./keys.js";
-import { CHROME_PANEL, DevicePanel, MAC_PANEL, alwaysWords, appNote, besideNote, panelLines, type PanelPlace } from "./panel.js";
+import { ARTIFACT_DOCUMENT_BYTES, type PanelArtifacts } from "./artifacts.js";
+import type { PanelDashboard } from "./dashboard.js";
+import { CHROME_PANEL, DevicePanel, MAC_PANEL, PHONE_PANEL, alwaysWords, appNote, besideNote, panelLines, phoneNote, type Glance, type PanelPlace } from "./panel.js";
 import { DeviceStore } from "./store.js";
 import { computerModule } from "./tools.js";
 
@@ -21,7 +23,7 @@ import { computerModule } from "./tools.js";
 const hostPrivate = generateKeyPairSync("ed25519").privateKey;
 type Handler = (input: Record<string, unknown>) => unknown;
 
-function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<number, { image: string; site?: string }> } = {}) {
+function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<number, { image: string; site?: string }>; glance?: () => Glance; artifacts?: PanelArtifacts; dashboard?: PanelDashboard; audit?: (entry: AuditEntry) => void } = {}) {
   const hub = new DeviceHub({
     store: new DeviceStore(openDatabase(":memory:")),
     hostKey: { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) },
@@ -54,6 +56,10 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
     },
     auto: (c) => acting.has(c),
     picture: (id) => opts.pictures?.[id],
+    ...(opts.glance ? { glance: opts.glance } : {}),
+    ...(opts.artifacts ? { artifacts: opts.artifacts } : {}),
+    ...(opts.dashboard ? { dashboard: opts.dashboard } : {}),
+    ...(opts.audit ? { audit: opts.audit } : {}),
     setAuto: (c, on) => void (on ? acting.add(c) : acting.delete(c)),
     setModel: async (m) => {
       if (m === "broken") throw new Error("no such model");
@@ -72,7 +78,7 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
   const pair = (platform = "chrome"): FakeDevice => {
     const fake = new FakeDevice();
     fake.id = hub.pair({ code: hub.issueCode().code, name: platform === "chrome" ? "Chrome on macOS" : "Studio MacBook", platform, publicKey: fake.publicKey }).device;
-    for (const m of ["chat.show", "chat.status", "chat.ask", "chat.settled", "chat.chats", "chat.models"]) fake.answers.set(m, () => ({ ok: true, result: {} }));
+    for (const m of ["chat.show", "chat.status", "chat.ask", "chat.settled", "chat.chats", "chat.models", "chat.glance", "chat.artifacts", "chat.artifact", "chat.read", "dashboard.reply"]) fake.answers.set(m, () => ({ ok: true, result: {} }));
     hub.accept(fake.socket);
     if (platform === "chrome") fake.hello({ app: { version: "0.1.0", platform: "chrome", os: "macOS" }, permissions: { tabs: true }, displays: [] });
     else fake.hello();
@@ -98,6 +104,315 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 };
+
+describe("KOS for iPhone", () => {
+  const glance: Glance = {
+    halted: false,
+    running: [{ id: "c1", title: "Garden orchestrator" }],
+    waiting: 2,
+    asks: [{ chat: { id: "c2", title: "Inbox sweep" }, request: { id: "7", text: "Approve files.write?", tool: "files.write", args: { path: "notes/list.md" }, why: "Saving the list.", expiresAt: 9 } }],
+    failing: [{ label: "Nightly backup", streak: 3, error: "disk full", since: 1 }],
+    next: [{ name: "kos.backup", at: 2 }],
+  };
+
+  it("takes the owner's words from a paired phone only, said on the phone, with no screen to work", async () => {
+    const { panel, pair } = setup({ place: PHONE_PANEL, glance: () => glance });
+    const mac = pair("macos");
+    const phone = pair("ios");
+    const heard: InboundMessage[] = [];
+    panel.onMessage((m) => void heard.push(m));
+    mac.event("chat.send", { text: "not a phone" });
+    phone.event("chat.send", { text: "what is running?", beside: { kind: "none" } });
+    await flush();
+    expect(heard.map((m) => [m.senderId, m.text])).toEqual([[phone.id, "what is running?"]]);
+    expect(heard[0]!.context).toBe(phoneNote(undefined, "Studio MacBook 2"));
+    expect(heard[0]!.context).toMatch(/KOS for iPhone.*cannot see or work the phone's screen/);
+  });
+
+  it("answers a glance to the phone that asked, and to no other kind of device", async () => {
+    const { pair } = setup({ place: PHONE_PANEL, glance: () => glance });
+    const mac = pair("macos");
+    const phone = pair("ios");
+    phone.event("chat.glance", {});
+    mac.event("chat.glance", {});
+    await flush();
+    // Each waiting ask goes as chat.ask carries one, in words, with the chat it is for.
+    const asks = [{ chat: { id: "c2", title: "Inbox sweep" }, approval: { id: "7", tool: "files.write", summary: "Write file notes/list.md", args: '{"path":"notes/list.md"}', why: "Saving the list.", expiresAt: 9 } }];
+    expect(phone.calls.filter((c) => c.method === "chat.glance").map((c) => c.params)).toEqual([{ ...glance, asks }]);
+    expect(mac.calls.filter((c) => c.method === "chat.glance")).toEqual([]);
+  });
+
+  it("sends the ten asks of a glance that lapse first, soonest first", async () => {
+    const request = (id: number, expiresAt?: number) => ({ id: String(id), text: "Approve x?", tool: "files.write", ...(expiresAt === undefined ? {} : { expiresAt }) });
+    const many: Glance = { ...glance, waiting: 12, asks: [{ request: request(0) }, ...Array.from({ length: 11 }, (_, i) => ({ chat: { id: `c${i}`, title: `Chat ${i}` }, request: request(i + 1, 100 - i) }))] };
+    const { pair } = setup({ place: PHONE_PANEL, glance: () => many });
+    const phone = pair("ios");
+    phone.event("chat.glance", {});
+    await flush();
+    const sent = phone.calls.find((c) => c.method === "chat.glance")!.params as { waiting: number; asks: { chat?: { id: string }; approval: { id: string } }[] };
+    expect(sent.waiting).toBe(12);
+    expect(sent.asks.map((a) => a.approval.id)).toEqual(["11", "10", "9", "8", "7", "6", "5", "4", "3", "2"]);
+    expect(sent.asks[0]!.chat).toEqual({ id: "c10", title: "Chat 10" });
+  });
+
+  it("decides a glance's ask from the phone, and never sets a chat acting unasked", async () => {
+    const { panel, pair, setChat } = setup({ place: PHONE_PANEL, glance: () => glance });
+    const phone = pair("ios");
+    const decided: unknown[] = [];
+    panel.onApproval(async (d) => void decided.push(d));
+    setChat({ id: "phone:owner", title: "iPhone" });
+    phone.event("chat.decide", { approval: "7", approved: true });
+    phone.event("chat.auto", { on: true });
+    await flush();
+    expect(decided).toEqual([{ id: "7", approved: true, deciderId: phone.id }]);
+    expect(phone.calls.filter((c) => c.method === "chat.show")).toEqual([]);
+  });
+
+  it("leaves a glance unanswered on a panel that offers none", async () => {
+    const { pair } = setup({ place: MAC_PANEL });
+    const mac = pair("macos");
+    mac.event("chat.glance", {});
+    await flush();
+    expect(mac.calls.filter((c) => c.method === "chat.glance")).toEqual([]);
+  });
+});
+
+describe("KOS for iPhone's artifacts", () => {
+  const plan = { id: "plan", title: "Garden plan", kind: "doc", updatedAt: 5, place: { kind: "project" as const, name: "Garden" } };
+  /** The host's side: one artifact, a read that answers, and what each was asked. */
+  function shelf(document = "<!doctype html><p>plan</p>") {
+    const opened: [string, string][] = [];
+    const reads: [string, string, Record<string, unknown>][] = [];
+    const artifacts: PanelArtifacts = {
+      recent: () => [plan, ...Array.from({ length: 40 }, (_, i) => ({ id: `a${i}`, title: `A ${i}`, kind: "page", updatedAt: 4 - i }))],
+      open: (id, theme) => {
+        opened.push([id, theme]);
+        if (id === "broken") throw new Error("the dashboard's build has no frame.css");
+        return id === "plan" ? { ...plan, document, themes: { light: ":root{--bg:#fff}", dark: ":root{--bg:#000}" } } : undefined;
+      },
+      read: async (id, method, args) => {
+        reads.push([id, method, args]);
+        if (args["sql"] === "bad") throw new Error("that query reads a table this page's project does not have");
+        return { rows: [{ n: 1 }] };
+      },
+    };
+    return { artifacts, opened, reads };
+  }
+  it("lists the newest few to the phone that asked, and to no other kind of device", async () => {
+    const { artifacts } = shelf();
+    const { pair } = setup({ place: PHONE_PANEL, artifacts });
+    const mac = pair("macos");
+    const phone = pair("ios");
+    phone.event("chat.artifacts", {});
+    mac.event("chat.artifacts", {});
+    mac.event("chat.artifact", { id: "plan", theme: "dark" });
+    await flush();
+    const [list] = sent(phone, "chat.artifacts") as [{ artifacts: { id: string }[] }];
+    expect(list.artifacts).toHaveLength(30);
+    expect(list.artifacts[0]).toEqual(plan);
+    expect(mac.calls.map((c) => c.method)).not.toContain("chat.artifacts");
+    expect(mac.calls.map((c) => c.method)).not.toContain("chat.artifact");
+  });
+
+  it("opens one drawn read-only in the phone's theme, and refuses a bad id, an unknown one and one that cannot be drawn", async () => {
+    const { artifacts, opened } = shelf();
+    const { pair } = setup({ place: PHONE_PANEL, artifacts });
+    const phone = pair("ios");
+    for (const ask of [{ id: "plan", theme: "dark" }, { id: "../etc", theme: "dark" }, { id: 7 }, { id: "a".repeat(200) }, { id: "nope" }, { id: "broken", theme: "light" }]) {
+      phone.event("chat.artifact", ask);
+      await flush();
+    }
+    expect(sent(phone, "chat.artifact")).toEqual([
+      { ...plan, document: "<!doctype html><p>plan</p>", themes: { light: ":root{--bg:#fff}", dark: ":root{--bg:#000}" }, theme: "dark" },
+      { id: "../etc", error: "That is not an artifact's id." },
+      { id: null, error: "That is not an artifact's id." },
+      { id: "a".repeat(120), error: "That is not an artifact's id." },
+      { id: "nope", error: "There is no artifact by that id that opens here." },
+      { id: "broken", error: "the dashboard's build has no frame.css" },
+    ]);
+    // A bad id never reaches the host.
+    expect(opened).toEqual([["plan", "dark"], ["nope", "light"], ["broken", "light"]]);
+  });
+
+  it("sends one at a time to a device, the latest it asked for meanwhile replacing the rest", async () => {
+    const { artifacts, opened } = shelf();
+    const { pair } = setup({ place: PHONE_PANEL, artifacts });
+    const phone = pair("ios");
+    for (const id of ["plan", "nope", "broken", "plan"]) phone.event("chat.artifact", { id, theme: "light" });
+    await flush();
+    expect(opened.map(([id]) => id)).toEqual(["plan", "plan"]);
+    expect(sent(phone, "chat.artifact")).toHaveLength(2);
+  });
+
+  it("forgets what a device had open once it is off its line", async () => {
+    const { artifacts } = shelf();
+    const { pair, hub } = setup({ place: PHONE_PANEL, artifacts });
+    const phone = pair("ios");
+    phone.event("chat.artifact", { id: "plan", theme: "light" });
+    await flush();
+    phone.drop();
+    await flush();
+    // The same phone back on a new line has nothing open until it opens something again.
+    hub.accept(phone.socket);
+    phone.hello();
+    phone.event("chat.read", { artifact: "plan", call: 1, method: "query", args: { sql: "SELECT 1" } });
+    await flush();
+    expect(sent(phone, "chat.read")).toEqual([{ artifact: "plan", call: 1, error: "That artifact is not open here." }]);
+  });
+
+  it("refuses one too big to send to a phone", async () => {
+    const { artifacts } = shelf("x".repeat(ARTIFACT_DOCUMENT_BYTES + 1));
+    const { pair } = setup({ place: PHONE_PANEL, artifacts });
+    const phone = pair("ios");
+    phone.event("chat.artifact", { id: "plan", theme: "light" });
+    await flush();
+    expect(sent(phone, "chat.artifact")).toEqual([{ id: "plan", error: "That artifact is too big to show on a phone. Open it on the dashboard." }]);
+  });
+
+  it("answers the reads of the artifact the phone has open, and no write, nor another artifact's", async () => {
+    const { artifacts, reads } = shelf();
+    const { pair } = setup({ place: PHONE_PANEL, artifacts });
+    const phone = pair("ios");
+    const other = pair("ios");
+    phone.event("chat.read", { artifact: "plan", call: 1, method: "query", args: { sql: "SELECT 1" } });
+    phone.event("chat.artifact", { id: "plan", theme: "light" });
+    await flush();
+    phone.event("chat.read", { artifact: "plan", call: 2, method: "query", args: { sql: "SELECT 1" } });
+    phone.event("chat.read", { artifact: "plan", call: 3, method: "write", args: { table: "t" } });
+    phone.event("chat.read", { artifact: "plan", call: 4, method: "query", args: { sql: "bad" } });
+    phone.event("chat.read", { artifact: "plan", call: "5", method: "query" });
+    other.event("chat.read", { artifact: "plan", call: 6, method: "file", args: { path: "notes.md" } });
+    await flush();
+    // Each answer names its call, so they may come in any order.
+    expect(sent(phone, "chat.read").sort((a, b) => Number(a["call"]) - Number(b["call"]))).toEqual([
+      { artifact: "plan", call: 1, error: "That artifact is not open here." },
+      { artifact: "plan", call: 2, result: { rows: [{ n: 1 }] } },
+      { artifact: "plan", call: 3, error: "A phone only reads an artifact." },
+      { artifact: "plan", call: 4, error: "that query reads a table this page's project does not have" },
+    ]);
+    expect(sent(other, "chat.read")).toEqual([{ artifact: "plan", call: 6, error: "That artifact is not open here." }]);
+    expect(reads.map(([id, method]) => [id, method])).toEqual([["plan", "query"], ["plan", "query"]]);
+  });
+
+  it("leaves the asks unanswered on a panel that offers no artifacts", async () => {
+    const { pair } = setup({ place: PHONE_PANEL });
+    const phone = pair("ios");
+    phone.event("chat.artifacts", {});
+    phone.event("chat.artifact", { id: "plan", theme: "light" });
+    await flush();
+    expect(phone.calls.map((c) => c.method)).toEqual([]);
+  });
+});
+
+describe("KOS for iPhone's dashboard pages", () => {
+  /** The dashboard's handler, as the host gives it: what it was asked, and the inbox as it answers it. */
+  function handler() {
+    const asked: ApiRequest[] = [];
+    const dashboard: PanelDashboard = async (req) => {
+      asked.push(req);
+      return req.path === "/api/crons/run" ? { status: 200, body: { ok: true } } : { status: 200, body: [{ id: 41, tool: "files.write" }] };
+    };
+    return { asked, dashboard };
+  }
+
+  it("answers a phone's read with the dashboard's own answer, by its call", async () => {
+    const { asked, dashboard } = handler();
+    const { pair } = setup({ place: PHONE_PANEL, dashboard });
+    const phone = pair("ios");
+    phone.event("dashboard.request", { call: 1, method: "GET", path: "/api/approvals" });
+    phone.event("dashboard.request", { call: 2, method: "GET", path: "/api/settings" });
+    await flush();
+    expect(sent(phone, "dashboard.reply").sort((a, b) => Number(a["call"]) - Number(b["call"]))).toEqual([
+      { call: 1, status: 200, body: [{ id: 41, tool: "files.write" }] },
+      { call: 2, error: "A phone cannot ask the dashboard for that." },
+    ]);
+    expect(asked).toEqual([{ method: "GET", path: "/api/approvals", url: "/api/approvals" }]);
+  });
+
+  it("decides from a page as chat.decide does, the phone as decider, and writes each action down as the phone's", async () => {
+    const { asked, dashboard } = handler();
+    const audited: AuditEntry[] = [];
+    const { panel, pair } = setup({ place: PHONE_PANEL, dashboard, audit: (e) => void audited.push(e) });
+    const phone = pair("ios");
+    const decided: unknown[] = [];
+    panel.onApproval(async (d) => {
+      decided.push(d);
+      return { outcome: "approved" };
+    });
+    phone.event("dashboard.request", { call: 3, method: "POST", path: "/api/approve", body: { id: 41, remember: true } });
+    phone.event("dashboard.request", { call: 4, method: "POST", path: "/api/crons/run", body: { id: 2 } });
+    await flush();
+    expect(decided).toEqual([{ id: "41", approved: true, deciderId: phone.id, remember: true }]);
+    // Each answer names its call, so they may come in any order.
+    expect(sent(phone, "dashboard.reply").sort((a, b) => Number(a["call"]) - Number(b["call"]))).toEqual([
+      { call: 3, status: 200, body: { id: 41, approved: true, outcome: "approved" } },
+      { call: 4, status: 200, body: { ok: true } },
+    ]);
+    expect(asked.map((r) => r.path)).toEqual(["/api/crons/run"]);
+    expect(audited.map((e) => [e.tool, e.args["device"], e.args["path"]])).toEqual([
+      ["device.dashboard", phone.id, "/api/approve"],
+      ["device.dashboard", phone.id, "/api/crons/run"],
+    ]);
+  });
+
+  it("leaves a Mac's and a Chrome's asks unanswered, given the handler or not", async () => {
+    const { asked, dashboard } = handler();
+    for (const [place, platform] of [[MAC_PANEL, "macos"], [CHROME_PANEL, "chrome"]] as const) {
+      const { pair } = setup({ place, dashboard });
+      const device = pair(platform);
+      device.event("dashboard.request", { call: 5, method: "GET", path: "/api/approvals" });
+      await flush();
+      expect(sent(device, "dashboard.reply")).toEqual([]);
+    }
+    // A phone's ask is not heard by another kind's panel either.
+    const { pair } = setup({ place: MAC_PANEL, dashboard });
+    pair("ios").event("dashboard.request", { call: 6, method: "GET", path: "/api/approvals" });
+    await flush();
+    expect(asked).toEqual([]);
+  });
+
+  it("leaves the asks unanswered on a phone's panel given no handler", async () => {
+    const { pair } = setup({ place: PHONE_PANEL });
+    const phone = pair("ios");
+    phone.event("dashboard.request", { call: 7, method: "GET", path: "/api/approvals" });
+    await flush();
+    expect(phone.calls.map((c) => c.method)).toEqual([]);
+  });
+});
+
+describe("files with the owner's words", () => {
+  const picture = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46]).toString("base64");
+
+  it("go with the words that name them, sent ahead in parts", async () => {
+    const { panel, pair } = setup({ place: PHONE_PANEL });
+    const phone = pair("ios");
+    const heard: InboundMessage[] = [];
+    panel.onMessage((m) => void heard.push(m));
+    phone.event("chat.attach", { id: "f1", name: "receipt.jpg", mediaType: "image/jpeg", part: 0, parts: 2, data: picture.slice(0, 8) });
+    phone.event("chat.attach", { id: "f1", name: "receipt.jpg", mediaType: "image/jpeg", part: 1, parts: 2, data: picture.slice(8) });
+    phone.event("chat.send", { text: "", files: ["f1"], beside: { kind: "none" } });
+    await flush();
+    expect(heard).toEqual([expect.objectContaining({ channel: "phone", senderId: phone.id, text: "", attachments: [{ name: "receipt.jpg", mediaType: "image/jpeg", data: picture }] })]);
+  });
+
+  it("stop the words when one did not arrive whole, which go back to the device with why", async () => {
+    const { panel, pair, setChat } = setup({ place: PHONE_PANEL });
+    setChat({ id: "phone:owner", title: "iPhone" });
+    const phone = pair("ios");
+    const heard: InboundMessage[] = [];
+    panel.onMessage((m) => void heard.push(m));
+    phone.event("chat.attach", { id: "f1", name: "receipt.jpg", mediaType: "image/jpeg", part: 0, parts: 2, data: "AAAA" });
+    phone.event("chat.send", { text: "what is this?", files: ["f1"] });
+    await flush();
+    expect(heard).toEqual([]);
+    expect(sent(phone, "chat.status")).toEqual([expect.objectContaining({ chat: "phone:owner", said: "what is this?", error: "receipt.jpg did not arrive whole. Attach it again." })]);
+  });
+});
+
+/** What a device was called with, by method. */
+function sent(device: { calls: { method: string; params: Record<string, unknown> }[] }, method: string): Record<string, unknown>[] {
+  return device.calls.filter((c) => c.method === method).map((c) => c.params);
+}
 
 describe("the KOS for Mac window", () => {
   it("takes the owner's words from a paired Mac only, with the app in front as where they spoke", async () => {
@@ -550,7 +865,7 @@ describe("a Chrome's side panel", () => {
       rule: { tool: "browser.*", scope: "your-chrome:shop.example", project: null },
       expiresAt: 1_800_000,
     });
-    expect(chrome.calls.filter((c) => c.method === "chat.ask").at(-1)).toEqual({ method: "chat.ask", params: { chat: "chrome:owner", approval: { id: "10", tool: "browser.act", args: '{"steps":[]}', why: "Clicking Buy.", always: "Always on shop.example", expiresAt: 1_800_000 } } });
+    expect(chrome.calls.filter((c) => c.method === "chat.ask").at(-1)).toEqual({ method: "chat.ask", params: { chat: "chrome:owner", approval: { id: "10", tool: "browser.act", summary: "Act on the page", args: '{"steps":[]}', why: "Clicking Buy.", always: "Always on shop.example", expiresAt: 1_800_000 } } });
     // A step said by its purpose carries its actions, in full, beside the arguments cut to fit.
     const actions = Array.from({ length: 10 }, (_, i) => ({ action: "type", text: `${i} ${"x".repeat(80)}` }));
     await panel.requestApproval("owner", { id: "11", text: "x", tool: "computer.act", args: { intent: "Note: just closing the popup", actions }, asker: { name: "Chrome", conversationId: "chrome:owner" } });

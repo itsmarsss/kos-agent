@@ -425,7 +425,12 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     if (devices.length === 0) return kind === "browser" ? "No Chrome is paired." : "Nothing is paired. The owner pairs a computer or a Chrome under Settings, Devices.";
     return devices
       .map((d) => {
-        const what = d.kind === "browser" ? "the owner's own Chrome, through KOS for Chrome; chrome.start works in it" : `a computer (${d.platform}), through KOS for Mac; computer.start uses it`;
+        const what =
+          d.kind === "browser"
+            ? "the owner's own Chrome, through KOS for Chrome; chrome.start works in it"
+            : d.kind === "phone"
+              ? "the owner's phone, through KOS for iPhone; chat only, no computer use"
+              : `a computer (${d.platform}), through KOS for Mac; computer.start uses it`;
         const state = d.online ? "online" : "offline";
         const consent = d.consent === "kos" ? "starts through KOS's approvals" : d.consent === "device" ? "asks on the device" : "";
         const busy = d.session ? `in use by ${deps.titleOf(d.session.conversation)}${d.session.paused ? ", paused by the owner" : ""}` : "free";
@@ -488,6 +493,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     const device = hub.find(input.device, "computer");
     if (!device) {
       if (input.device && hub.find(input.device, "browser")) throw new Error(`${input.device} is the owner's Chrome, not a computer; chrome.start works in it`);
+      if (input.device && hub.find(input.device, "phone")) throw new Error(`${input.device} is the owner's phone, which is chat only: KOS cannot see or work its screen`);
       const which = input.device ? `No computer called ${input.device}.` : "More than one computer could be meant; name one as `device`.";
       throw new Error(`${which} Paired:\n${pairedText("computer")}`);
     }
@@ -535,6 +541,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
     const panel = input.chrome ? undefined : deps.panelChrome?.(chat);
     const device = hub.find(input.chrome ?? panel, "browser");
     if (!device) {
+      if (input.chrome && hub.find(input.chrome, "phone")) throw new Error(`${input.chrome} is the owner's phone, which is chat only: it has no browser KOS can work`);
       const which = input.chrome ? `No Chrome called ${input.chrome}.` : "More than one Chrome could be meant; name one as `chrome`.";
       throw new Error(`${which} Paired:\n${pairedText("browser")}`);
     }

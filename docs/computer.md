@@ -11,8 +11,13 @@ Two packages, one protocol:
 - `packages/computer` (`@kos/computer`): the KOS side. Pairing, the socket
   devices connect to, sessions, and the `computer.*` tools.
 - `packages/device-macos`: KOS for Mac, a menu bar app.
+- `packages/device-shared`: the Swift both apps share: the wire, the kit
+  they are drawn from, and the line to KOS.
 - `packages/browser-extension`: KOS for Chrome, a device that offers a
   Chrome's tabs instead of a screen (see [browser-extension.md](browser-extension.md)).
+- `packages/device-ios`: KOS for iPhone, a device that only chats. It pairs
+  and proves itself as the others do, but offers KOS no screen, no input and
+  no browser (see [A phone](#a-phone)).
 
 The computer KOS runs on and a laptop across the internet are the same case:
 KOS for Mac on the host Mac dials `127.0.0.1`, on the laptop it dials the
@@ -112,6 +117,248 @@ other address is refused by the device. Tailscale is the simple answer for a
 home server or a VPS: the laptop and the host join one tailnet and the device
 uses the host's tailnet name.
 
+A phone on the home Wi-Fi reaches KOS over the Wi-Fi listener instead: TLS
+with KOS's own certificate, which the phone pins at pairing (see
+[The Wi-Fi listener](#the-wi-fi-listener)).
+
+## A phone
+
+KOS for iPhone pairs as a device of its own kind, `phone`: `app.platform` is
+`"ios"`, and its hello says `consent` `"device"`, `permissions` `{ "screen":
+false, "input": false }` and no displays. A phone only chats. KOS never sends
+it `session.begin` or any computer call; `computer.start` and `chrome.start`
+never pick one, and refuse one named outright; the hub itself refuses a
+session on a phone (`phone`), whatever asked for it. `computer.devices`
+lists it as the owner's phone, chat only.
+
+Its chat is the `phone` surface's, as the Mac window's is `mac`'s: the same
+chat calls and events (`chat.show`, `chat.status`, `chat.ask`,
+`chat.settled`, `chat.chats`, `chat.models`, `chat.mentions`; `chat.open`,
+`chat.send`, `chat.attach`, `chat.stop`, `chat.decide`, `chat.list`,
+`chat.switch`, `chat.models`, `chat.model`, `chat.mentions`), with `beside`
+`{ "kind": "none" }` and no quote, and its own: the glance, the artifacts
+and the dashboard's pages (below), the last the one call and event not
+named `chat.`: `dashboard.reply` and `dashboard.request`. A phone's
+`chat.auto` is ignored. The turn is told the words were said on the phone,
+which KOS cannot see or work, and its reply is kept short and plain, since
+the phone may read it aloud. A turn
+begun there reaches the owner's computers and Chromes as one begun anywhere
+does, each asking as it would; and the phone decides approvals, any chat's,
+as the dashboard and Discord do. A phone answers a call it does not know
+with `bad_request`.
+
+**Glance.** A phone asks what is going on with the event `chat.glance`
+(`{}`), and KOS answers by calling `chat.glance` on it:
+
+```json
+{
+  "halted": false,
+  "running": [{ "id": "c_1", "title": "Garden orchestrator" }],
+  "waiting": 2,
+  "asks": [{ "chat": { "id": "c_2", "title": "Inbox sweep" }, "approval": { "id": "41", "tool": "files.write", "args": "{\"path\":\"notes/list.md\"}", "why": "Saving the list.", "expiresAt": 1761800000000 } }],
+  "failing": [{ "label": "Nightly backup", "streak": 3, "error": "disk full", "since": 1761800000000 }],
+  "next": [{ "name": "kos.backup", "at": 1761800000000 }]
+}
+```
+
+`running` is the chats with a turn on the go (ten at most), `waiting` the
+count of every approval waiting on the owner, in any chat, `asks` the first
+ten of them to lapse, soonest first, each as `chat.ask` carries its
+`approval`, with the chat it is for (`chat`, absent for an approval no chat
+asked for). The phone decides one with `chat.decide` by its id, as any
+other. `failing` is the jobs failing now,
+the longest broken first (ten at most), and `next` the five soonest runs of
+enabled schedules. Times are epoch milliseconds. KOS sends it only when
+asked; a device that does not know the call ignores it.
+
+**Where a chat lives.** Each item of `chat.chats` may carry `place`: `{
+"kind": "kos" }` at the root, `{ "kind": "project", "name": "Garden" }` in a
+project, `{ "kind": "blob", "name": "scout" }` a blob's own. A device that
+does not know it ignores it.
+
+**Artifacts.** A phone reads the owner's artifacts, and only reads them. It
+asks with the event `chat.artifacts` (`{}`), and KOS answers by calling
+`chat.artifacts` on it with the thirty changed last of those the dashboard
+opens (HTML artifacts out of the trash), each as the gallery says it:
+
+```json
+{ "artifacts": [{ "id": "plan", "title": "Garden plan", "kind": "doc", "description": "Beds, dates and costs.", "updatedAt": 1761800000000, "place": { "kind": "project", "name": "Garden" } }] }
+```
+
+It opens one with the event `chat.artifact` (`{ "id": "plan", "theme":
+"dark" }`), and KOS calls `chat.artifact` with that item and `document`,
+`themes` and `theme`, or with `{ "id", "error" }`:
+
+- `document` is the frame the dashboard draws, built by KOS from the
+  dashboard's own build: the wrapper document holding the page's in a
+  sandboxed frame, with the policy that allows no network, the guard, the
+  bridge, the tokens, the kit's CSS, the fonts and the kind's runtime, all
+  inline, in the look of an older version (`data-locked`), which offers no
+  editing. Pictures in an artifact are `data:` already (artifacts.md).
+- `themes` is each theme's tokens as the rule the bridge takes on a change
+  of theme: the device posts `{ "__kos": "theme", "mode", "rule" }` to the
+  page's frame, as the dashboard does.
+- The id must be an artifact's (`ARTIFACT_ID_RE`, at most 120 characters);
+  one that is not, one the owner has not, one in the trash, an older widget
+  page and an answer of more than 8 MB as JSON are each refused in words.
+- One goes to a device at a time: one it asks for while another is on its
+  way waits, and a later ask replaces it.
+
+The page's `window.kos` reaches the device as it reaches the dashboard,
+through the wrapper. A read it makes (`query`, `files.read`) goes as the
+event `chat.read` (`{ "artifact", "call", "method": "query" | "file",
+"args" }`), for the artifact the device last opened and no other, and KOS
+answers by calling `chat.read` with `{ "artifact", "call", "result" }` or
+`{ "artifact", "call", "error" }`, decided as the dashboard's reads are.
+Nothing else is relayed: a write, a save, an ask, a mention and a present
+are refused by the device itself. `open`, another artifact by its id, is
+the device's to do from a doc alone, only just after the owner pressed in
+the frame, as the dashboard holds it. The device opens nothing outside
+itself: there are no links off an artifact to open. What a device had open
+is forgotten when it leaves its line. Every other device kind's asks go
+unanswered.
+
+**The dashboard's pages.** A phone's pages (Inbox, Projects, Artifacts,
+Blobs, Files, Memory, Runs, Overview) ask the dashboard's own routes, and
+the dashboard's own handler answers, as the owner, with no token (the
+phone is proved on its line) and no Origin. The phone asks with the event
+`dashboard.request` (`{ "call": 1, "method": "GET" | "POST", "path":
+"/api/...", "query"?: { "<key>": "<string>" }, "body"?: { ... } }`), and
+KOS answers by calling `dashboard.reply` with one of:
+
+- `{ "call", "status", "body" }`: the route's JSON, its own 4xx errors too;
+- `{ "call", "status", "type", "data" }`: the route answered bytes, `type`
+  their content type and `data` their base64 (a picture, a PDF, an export);
+- `{ "call", "error" }`: refused in words before the route was asked, or
+  the route failed.
+
+The reads, each with the query keys it takes and no other:
+
+- `/api/home`, `/api/inbox`, `/api/approvals`, `/api/approvals/history`
+  (`before`, `status`, `q`, `limit`), `/api/approvals/history/counts`,
+  `/api/approvals/<digits>`;
+- `/api/projects`, `/api/projects/<slug>/detail`;
+- `/api/artifacts` (`trashed`), `/api/artifacts/<id>/export` (`format`,
+  `tab`, `theme`; bytes, which the phone shares);
+- `/api/agents`, `/api/conversations/<id>/messages` (which marks the chat
+  read, as opening it on the dashboard does);
+- `/api/files`, `/api/file`, `/api/file/text`, `/api/file/raw` (a picture's
+  bytes), `/api/file/view` (a PDF's bytes), each `path`;
+- `/api/memory` (`limit`), `/api/memory/trace` (`key`);
+- `/api/runs` (`limit`, `failed`), `/api/crons`.
+
+And the actions, `POST`, each with exactly its body: `/api/approve` (`{
+"id": 41, "remember"?: true }`), `/api/deny` (`{ "id": 41 }`),
+`/api/crons/run` (`{ "id": 3 }`), `/api/crons/enable` (`{ "id": 3,
+"enabled": false }`, pause and resume) and `/api/artifacts/<id>/restore`
+(`{}`, out of the trash). An approval is not decided through the handler:
+it is decided as `chat.decide` decides one, the phone as its decider, so it
+settles everywhere as a phone's decision does, and answers `{ "id",
+"approved", "outcome" }`; one with no outcome (no such ask waiting, or not
+the owner's to decide) is an `error`. Run now does not wait on the run,
+which can outlast a phone's wait: it answers `202 { "accepted": true, "id"
+}` once the job is under way, or at once `{ "ok": false, "error" }` with why
+it did not fire (`halted`, `rate_limited`, already running), which is
+written down as not done. Every action is written to the audit log as
+`device.dashboard`, with the device, the method, the path and the body.
+Nothing else is asked, read or write.
+
+- The path is matched whole. A segment is never `.` or `..`, empty, or
+  longer than 160 characters; the path holds no `%`, `\`, `?`, `#` or NUL
+  and is at most 512 characters. `<digits>` is digits, `<slug>` a
+  project's slug, `<id>` an artifact's (`ARTIFACT_ID_RE`) or a chat's as
+  KOS makes them (`c…:owner`, `project:garden`, `agent:scout`, `cron:1`).
+- A query value is a string of at most 1024 characters. A file's `path`
+  that is absolute or steps up (`..`) is refused before the route is
+  asked; the route's own jail is the fence.
+- An answer of more than 8 MB as JSON, the base64 in it, is refused in
+  words; a picture's or a PDF's bytes are refused by their size in their
+  folder's listing before any is read. Four asks are on the way from a phone at once; a fifth is refused
+  in words, so KOS for iPhone holds the rest until one is answered and
+  hands each freed turn straight to the next. An ask's turn is given back
+  when it is answered or after 25 s, the phone's own wait, whichever is
+  first, so the two keep the same count.
+- Phones only: every other device kind's asks go unanswered.
+
+**Files with the words.** A device's frames over the Wi-Fi are at most
+512 KB, so each file the owner sends with their words comes first, in
+parts, as `chat.attach` events, and `chat.send` names them by the ids the
+device gave them (`"files": ["f1"]`); `text` may then be empty:
+
+```json
+{ "id": "f1", "name": "receipt.jpg", "mediaType": "image/jpeg", "part": 0, "parts": 3, "data": "<base64, at most 262144 characters>" }
+```
+
+Every part but the last is a whole number of base64 quads, unpadded. A
+file's part 0 sent again starts that file over. A file is at most 5 MB as
+the model's path measures it (from its base64's length), and is what its
+bytes say: a JPEG, PNG, GIF or WebP picture (SVG, HEIC and TIFF are refused),
+a PDF, an Office file, or text with no NUL in it. Four go with one message,
+and four are held for a device at once, each for five minutes and never past
+the device's line. A file named by `chat.send` that did not arrive whole, or
+was refused on the way in, stops the words: KOS answers with `chat.status`
+carrying `error` and the words as `said`, and nothing is sent to the turn.
+A device downscales a photo before it sends it (KOS for iPhone: 2048 px on
+the long side, as JPEG), and sends a file given back after a dropped line
+under a new id.
+
+## The Wi-Fi listener
+
+The dashboard, its API and the device socket listen on loopback. For a
+phone on the home Wi-Fi, KOS can open one more listener, for pairing and the
+device socket alone.
+
+- **Off by default.** Settings, Devices, Phones on this Wi-Fi turns it on and
+  off at once (`POST /api/devices/settings { "lan": true }`; the setting is
+  `lan`). `KOS_DEVICE_LAN=1` turns it on whatever the setting says.
+  `GET /api/devices` says where it stands: `lan { on, forced, port, urls,
+  pin, words, error? }`. Anyone on the same network can reach its pairing
+  page while it is on, so the dashboard says to leave it off on a shared one.
+- **Where.** Port `KOS_DEVICE_LAN_PORT`, else the dashboard's plus two
+  (4319 beside 4317), on every interface unless `KOS_DEVICE_LAN_HOST` names
+  one. `urls` are `https://` and each home network address of the host.
+- **Private addresses only.** A connection from outside 10/8, 172.16/12,
+  192.168/16, 169.254/16, 127/8, `::1`, fc00::/7 and fe80::/10 (and their
+  IPv4-mapped forms) is dropped before TLS.
+- **TLS only, pinned.** KOS makes its own ECDSA P-256 key and a self-signed
+  certificate once, kept outside the workspace with the device host key
+  (`~/.kos/device-lan.pem`, mode 0600; `KOS_DEVICE_LAN_CERT_FILE` moves it,
+  to a folder others cannot write to).
+  A phone never trusts it; it pins it. The pin is the SHA-256 of the
+  certificate's DER, base64url without padding. Its words are the hash's
+  first 16 hex digits in four groups (`4F2A 91C3 77D0 1B5E`), for the owner
+  to compare by eye.
+- **What it serves.** `GET /api/devices/lan` answers `{ "kos": true,
+  "protocol": 1 }`, so a phone can see the certificate before it sends a
+  code. `POST /api/devices/pair` pairs as on loopback, for platform `"ios"`
+  only (403 otherwise), its JSON body at most 4 KB (413, said before the
+  body is read when its length says so). The upgrade at
+  `/api/devices/socket` is the device socket, which here takes phones alone,
+  in frames of at most 512 KB: any other device is closed with `4003`, a
+  proved one with `not a phone: only phones connect over Wi-Fi`. Every other
+  path is a 404, the dashboard and the rest of the API among them.
+- **Limits.** Five pairing attempts a minute from one address and thirty
+  from all, twenty socket upgrades a minute from one address and sixty from
+  all (429 with `Retry-After`, and the connection closed); a wrong code still
+  counts toward voiding every open code. An IPv6 address counts as its /64.
+  At most eight connections from one address and 64 in all, and two device
+  sockets from one address and sixteen in all (429). A connection whose TLS
+  handshake, or whose request with its body, takes more than ten seconds is
+  dropped.
+
+While it is on, a code made on the dashboard also carries `lan { url, urls,
+pin, words }`, and the dashboard offers the phone link
+`kos-device://pair?url=<url>&code=<code>&pin=<pin>`. A phone given an
+address and a code instead asks `GET /api/devices/lan` for the certificate
+it is served. Either way it shows the address and the certificate's words
+(the link's pin, or the one served) and sends the code, pinned to that
+certificate, only once the owner says they match what the dashboard shows;
+a link for a KOS with no pin is agreed to by its address. Anything on the
+phone can open a link, so none pairs by itself, and one opened while the
+phone is paired first asks to replace that pairing (the KOS it replaces is
+told to forget the phone). Every connection then proves both keys, as any
+device's does.
+
 ## Security model
 
 - **Pairing** is a one-time code made on the dashboard, good for ten minutes
@@ -163,7 +410,9 @@ answers `{ "device": "dev_...", "hostKey": "<base64, 32 bytes>", "protocol": 1 }
 A wrong code is a 403. After ten wrong codes in ten minutes every open code
 is void.
 
-The pairing link is `kos-device://pair?url=<KOS address>&code=<code>`.
+The pairing link is `kos-device://pair?url=<KOS address>&code=<code>`, and a
+link for a phone over Wi-Fi adds `&pin=<pin>`, the certificate the phone pins
+(see [The Wi-Fi listener](#the-wi-fi-listener)).
 
 ### Handshake
 
@@ -187,8 +436,8 @@ The pairing link is `kos-device://pair?url=<KOS address>&code=<code>`.
 3. KOS: `{ "t": "welcome", "name": "<device name>", "signature": "<Ed25519 over 'kos-device/1|host|<device nonce>|<device id>'>" }`
 
 Nonces are signed as their base64 text. Either side closes on a bad
-signature. Close codes: `4001` malformed, `4003` unknown device or bad
-signature, `4009` replaced by a newer connection of the same device, `4010`
+signature. Close codes: `4001` malformed, `4003` unknown device, bad
+signature or (on the Wi-Fi listener) not a phone, `4009` replaced by a newer connection of the same device, `4010`
 protocol version not spoken.
 
 After the welcome the device sends `{ "t": "state", ... }` with `consent`,

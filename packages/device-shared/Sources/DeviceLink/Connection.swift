@@ -1,0 +1,400 @@
+import DeviceCore
+import Foundation
+import Network
+import OSLog
+
+/// The line to KOS: dialled out, proven both ways, kept up.
+///
+/// Nothing KOS sends is acted on until KOS has proven it holds the key
+/// pinned at pairing. The line is pinged, redialled with backoff when it
+/// drops, and redialled at once when the network comes back. A drop is
+/// reported straight away, because a session must not outlive its line.
+/// A pairing made on the local network holds the far end to KOS's own
+/// certificate too (Pairing.pin), before a word is said on it.
+@MainActor
+public final class Connection: NSObject {
+  public enum Status: Equatable {
+    case connecting
+    case connected(name: String)
+    case offline(String)
+    /// The far end could not sign with KOS's key.
+    case untrusted
+    /// Another copy of this device took the line.
+    case replaced
+    /// KOS speaks another protocol version.
+    case outdated
+    /// The owner disconnected on purpose; nothing redials until they connect.
+    case disconnected
+  }
+
+  private enum Close {
+    static let malformed = 4001
+    static let unknownDevice = 4003
+    static let replaced = 4009
+    static let unsupported = 4010
+  }
+
+  public static let maxMessageBytes = 16 * 1024 * 1024
+  private static let pingEvery: TimeInterval = 20
+  private static let handshakeWithin: TimeInterval = 15
+
+  public var onStatus: ((Status) -> Void)?
+  /// A call from a proven KOS; the answer to send, or nothing to send none.
+  public var onCall: ((Call) async -> Data?)?
+  /// The line dropped: end anything live.
+  public var onDrop: (() -> Void)?
+  /// KOS no longer knows this device.
+  public var onRemoved: (() -> Void)?
+  /// That KOS's face, as it is now and whenever the owner changes it.
+  public var onFace: ((FaceDrawing) -> Void)?
+  /// That KOS's dashboard theme and the palette it is drawn in, as they are now and whenever either changes.
+  public var onTheme: ((DashboardTheme) -> Void)?
+  /// What to tell KOS about this device in the hello.
+  public var state: () -> DeviceState = { DeviceState(consent: .device, permissions: Permissions(screen: false, input: false), displays: []) }
+
+  public private(set) var status: Status = .offline("Not started") {
+    didSet { if status != oldValue { onStatus?(status) } }
+  }
+
+  private var pairing: Pairing?
+  private var task: URLSessionWebSocketTask?
+  private lazy var session = URLSession(configuration: .default, delegate: self, delegateQueue: .main)
+  /// Bumped on every new dial, so a late event from an old line is ignored.
+  private var generation = 0
+  private var deviceNonce = ""
+  private var proven = false
+  private var backoff = Backoff()
+  private var redial: Task<Void, Never>?
+  private var pingTimer: Timer?
+  private var handshakeTimer: Timer?
+  private let path = NWPathMonitor()
+  private var pathWasDown = false
+  /// Set while the owner has disconnected on purpose: no redial, no reconnect on a network change.
+  private var heldOff = false
+  /// The certificate the far end must show, for a pairing made on the local network.
+  private nonisolated let trust = PinBox()
+  /// Where the line writes what the owner may need to read afterwards.
+  private let log: Logger
+  /// What this app says it is in the hello.
+  private let app: AppInfo
+
+  public init(log: Logger, app: AppInfo) {
+    self.log = log
+    self.app = app
+    super.init()
+    path.pathUpdateHandler = { [weak self] update in
+      Task { @MainActor in self?.networkChanged(up: update.status == .satisfied) }
+    }
+    path.start(queue: .main)
+  }
+
+  public var isProven: Bool { proven }
+
+  /// Which KOS this line is to, for the log.
+  private var label: String {
+    guard let pairing else { return "no KOS" }
+    return (try? pairing.kosAddress().display) ?? pairing.address
+  }
+
+  public func start(_ pairing: Pairing) {
+    self.pairing = pairing
+    trust.pin = pairing.pin
+    heldOff = false
+    backoff.reset()
+    dial()
+  }
+
+  /// Keeps the pairing, but not the line: KOS sees this Mac offline until Connect.
+  public func hold(_ pairing: Pairing) {
+    self.pairing = pairing
+    trust.pin = pairing.pin
+    heldOff = true
+    log.notice("\(self.label, privacy: .public): held off until Connect")
+    hangUp(code: .normalClosure)
+    status = .disconnected
+  }
+
+  /// Tells the KOS on this line that the owner unpaired it here, so it forgets
+  /// this device too, then hangs up for good. Off the line, or with no word
+  /// back in two seconds, it hangs up anyway: the owner's unpair never waits on KOS.
+  public func unpair(then done: @escaping () -> Void) {
+    guard proven, let task, let message = try? Outbound.unpair() else {
+      stop()
+      return done()
+    }
+    log.notice("\(self.label, privacy: .public): telling KOS this device is unpaired")
+    var finished = false
+    let finish = { [weak self] in
+      guard !finished else { return }
+      finished = true
+      self?.stop()
+      done()
+    }
+    task.send(.string(String(decoding: message, as: UTF8.self))) { _ in
+      Task { @MainActor in finish() }
+    }
+    Task { @MainActor in
+      try? await Task.sleep(nanoseconds: 2_000_000_000)
+      finish()
+    }
+  }
+
+  /// Hangs up for good: unpairing or quitting. The line is not used again; a new pairing gets a new one.
+  public func stop() {
+    log.notice("\(self.label, privacy: .public): hung up for good")
+    pairing = nil
+    hangUp(code: .normalClosure)
+    status = .offline("Not paired")
+    path.cancel()
+    session.invalidateAndCancel()
+  }
+
+  public func redialNow() {
+    guard pairing != nil else { return }
+    heldOff = false
+    backoff.reset()
+    dial()
+  }
+
+  /// Sends a message on a proven line; a message with no line to go on is dropped, as a session ends with it.
+  /// One frame to KOS; `done`, when given, is told once it went, or could not go.
+  public func send(_ data: Data, done: (@MainActor () -> Void)? = nil) {
+    guard proven, let task else {
+      done?()
+      return
+    }
+    let generation = generation
+    task.send(.string(String(decoding: data, as: UTF8.self))) { [weak self] error in
+      Task { @MainActor in
+        done?()
+        guard let error, let self, self.generation == generation else { return }
+        self.lost(error.localizedDescription)
+      }
+    }
+  }
+
+  // MARK: Dialling
+
+  private func dial() {
+    hangUp(code: .goingAway)
+    _ = trust.tookRefusal()
+    guard let pairing, let address = try? pairing.kosAddress() else {
+      status = .offline("The saved address is not allowed. Pair again.")
+      return
+    }
+    generation += 1
+    status = .connecting
+    log.notice("\(self.label, privacy: .public): dialling \(address.socketURL.absoluteString, privacy: .public)")
+    let task = session.webSocketTask(with: address.socketURL)
+    task.maximumMessageSize = Self.maxMessageBytes
+    self.task = task
+    task.resume()
+    listen(on: task, generation: generation)
+    handshakeTimer = Timer.scheduledTimer(withTimeInterval: Self.handshakeWithin, repeats: false) { [weak self] _ in
+      MainActor.assumeIsolated {
+        guard let self, !self.proven else { return }
+        self.lost("KOS did not finish the handshake.")
+      }
+    }
+  }
+
+  private func hangUp(code: URLSessionWebSocketTask.CloseCode) {
+    redial?.cancel()
+    redial = nil
+    pingTimer?.invalidate()
+    pingTimer = nil
+    handshakeTimer?.invalidate()
+    handshakeTimer = nil
+    let wasProven = proven
+    proven = false
+    generation += 1
+    task?.cancel(with: code, reason: nil)
+    task = nil
+    if wasProven { onDrop?() }
+  }
+
+  private func lost(_ reason: String) {
+    log.error("\(self.label, privacy: .public): line lost: \(reason, privacy: .public)")
+    hangUp(code: .goingAway)
+    status = .offline(reason)
+    scheduleRedial()
+  }
+
+  private func scheduleRedial() {
+    guard pairing != nil, !heldOff else {
+      log.notice("\(self.label, privacy: .public): not redialling (\(self.pairing == nil ? "unpaired" : "held off", privacy: .public))")
+      return
+    }
+    let delay = backoff.next()
+    log.notice("\(self.label, privacy: .public): redialling in \(delay, format: .fixed(precision: 1), privacy: .public) s")
+    redial = Task { [weak self] in
+      try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+      guard !Task.isCancelled else { return }
+      self?.dial()
+    }
+  }
+
+  private func networkChanged(up: Bool) {
+    defer { pathWasDown = !up }
+    guard up, pathWasDown, pairing != nil, !proven, !heldOff else { return }
+    log.notice("\(self.label, privacy: .public): network back, redialling")
+    redialNow()
+  }
+
+  // MARK: Receiving
+
+  private func listen(on task: URLSessionWebSocketTask, generation: Int) {
+    Task { [weak self] in
+      while true {
+        let message: URLSessionWebSocketTask.Message
+        do {
+          message = try await task.receive()
+        } catch {
+          guard let self, self.generation == generation else { return }
+          // Not the certificate pinned at pairing: whatever answers there is not KOS, and nothing was said to it.
+          if self.trust.tookRefusal() {
+            self.log.error("\(self.label, privacy: .public): the far end did not show the certificate pinned at pairing")
+            self.hangUp(code: .policyViolation)
+            self.status = .untrusted
+            self.scheduleRedial()
+            return
+          }
+          // A close KOS sent explains itself in didCloseWith; anything else is a lost line.
+          if task.closeCode == .invalid { self.lost(Self.describe(error)) }
+          return
+        }
+        guard let self, self.generation == generation else { return }
+        switch message {
+        case .string(let text): self.handle(Data(text.utf8))
+        case .data(let data): self.handle(data)
+        @unknown default: break
+        }
+      }
+    }
+  }
+
+  private func handle(_ data: Data) {
+    guard let pairing, let task else { return }
+    let message: Inbound
+    do {
+      message = try Inbound.decode(data)
+    } catch {
+      return
+    }
+    switch message {
+    case .challenge(let version, let nonce):
+      guard version == protocolVersion else {
+        log.error("\(self.label, privacy: .public): KOS speaks protocol \(version, privacy: .public), this app \(protocolVersion, privacy: .public)")
+        hangUp(code: .init(rawValue: Close.unsupported) ?? .protocolError)
+        status = .outdated
+        return
+      }
+      guard Handshake.isValidNonce(nonce), let key = try? pairing.signingKey(),
+            let signature = try? key.sign(Handshake.devicePayload(hostNonce: nonce, deviceId: pairing.deviceId)) else {
+        lost("KOS sent a challenge this app cannot answer.")
+        return
+      }
+      deviceNonce = Handshake.makeNonce()
+      let hello = try? Outbound.hello(
+        device: pairing.deviceId, nonce: deviceNonce, signature: signature, app: app, state: state())
+      if let hello { task.send(.string(String(decoding: hello, as: UTF8.self))) { _ in } }
+
+    case .welcome(let name, let signature):
+      guard !proven else { return }
+      let payload = Handshake.hostPayload(deviceNonce: deviceNonce, deviceId: pairing.deviceId)
+      guard let hostKey = try? pairing.pinnedHostKey(), hostKey.verify(signature: signature, payload: payload) else {
+        // Not KOS, whatever its address says. Nothing it sends is acted on.
+        log.error("\(self.label, privacy: .public): the far end did not sign with the key pinned at pairing")
+        hangUp(code: .init(rawValue: Close.unknownDevice) ?? .policyViolation)
+        status = .untrusted
+        scheduleRedial()
+        return
+      }
+      proven = true
+      handshakeTimer?.invalidate()
+      backoff.reset()
+      status = .connected(name: name)
+      log.notice("\(self.label, privacy: .public): proven, connected as \(name, privacy: .public)")
+      startPinging()
+
+    case .face(let face):
+      guard proven else { return }
+      onFace?(face)
+
+    case .theme(let theme):
+      guard proven else { return }
+      onTheme?(theme)
+
+    case .call(let call):
+      guard proven else { return }
+      Task { [weak self] in
+        guard let self, let reply = await self.onCall?(call) else { return }
+        self.send(reply)
+      }
+    }
+  }
+
+  private func startPinging() {
+    pingTimer = Timer.scheduledTimer(withTimeInterval: Self.pingEvery, repeats: true) { [weak self] _ in
+      MainActor.assumeIsolated {
+        guard let self, let task = self.task else { return }
+        let generation = self.generation
+        task.sendPing { error in
+          guard error != nil else { return }
+          Task { @MainActor in
+            guard self.generation == generation else { return }
+            self.lost("KOS stopped answering.")
+          }
+        }
+      }
+    }
+  }
+
+  fileprivate func closed(_ task: URLSessionWebSocketTask, code: Int) {
+    guard task === self.task else { return }
+    log.notice("\(self.label, privacy: .public): KOS closed the line with \(code, privacy: .public)")
+    switch code {
+    case Close.unknownDevice:
+      hangUp(code: .normalClosure)
+      pairing = nil
+      status = .offline("This \(app.platform == "ios" ? "iPhone" : "Mac") was removed from KOS.")
+      onRemoved?()
+    case Close.replaced:
+      hangUp(code: .normalClosure)
+      status = .replaced
+    case Close.unsupported:
+      hangUp(code: .normalClosure)
+      status = .outdated
+      scheduleRedial()
+    case Close.malformed:
+      lost("KOS could not read this app's hello.")
+    default:
+      lost("The line to KOS closed.")
+    }
+  }
+
+  private static func describe(_ error: Error) -> String {
+    let nsError = error as NSError
+    if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCannotConnectToHost || nsError.code == NSURLErrorTimedOut {
+      return "KOS is not answering."
+    }
+    return error.localizedDescription
+  }
+}
+
+extension Connection: URLSessionWebSocketDelegate {
+  public nonisolated func urlSession(
+    _ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+  ) {
+    let (disposition, credential) = trust.answer(challenge)
+    completionHandler(disposition, credential)
+  }
+
+  public nonisolated func urlSession(
+    _ session: URLSession, webSocketTask: URLSessionWebSocketTask,
+    didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?
+  ) {
+    MainActor.assumeIsolated { self.closed(webSocketTask, code: closeCode.rawValue) }
+  }
+}

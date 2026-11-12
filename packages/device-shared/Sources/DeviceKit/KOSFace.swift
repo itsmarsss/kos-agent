@@ -1,0 +1,182 @@
+import SwiftUI
+
+#if os(macOS)
+import AppKit
+#endif
+
+/// KOS's face, alive: the dashboard's blob, drawn every frame from BlobMotion,
+/// as its KOS sent its face.
+///
+/// On a Mac it looks at the pointer wherever it is on the screen and squashes
+/// when the pointer is over it; anywhere, it wobbles, pleased, when it is
+/// pressed. With Reduce Motion on it holds still.
+public struct KOSFace: View {
+  private let size: CGFloat
+  private let mood: BlobMood
+  private let look: FaceLook
+  @StateObject private var driver = BlobDriver()
+  @Environment(\.accessibilityReduceMotion) private var still
+
+  public init(size: CGFloat = 40, mood: BlobMood = .idle, look: FaceLook = .kos) {
+    self.size = size
+    self.mood = mood
+    self.look = look
+  }
+
+  public var body: some View {
+    TimelineView(.animation(paused: still)) { context in
+      let frame = driver.frame(at: context.date.timeIntervalSinceReferenceDate, mood: mood, look: look, still: still)
+      Canvas { canvas, area in Self.draw(frame, look: look, mood: mood, in: &canvas, size: area.width) }
+    }
+    // Greyer when it is down or asleep, as the dashboard's face is.
+    .saturation(mood == .error ? 0.5 : mood == .asleep ? 0.75 : 1)
+    .frame(width: size, height: size)
+    #if os(macOS)
+    .background(PointerProbe(driver: driver))
+    #endif
+    .onHover { driver.hover = $0 }
+    .onTapGesture { driver.poke() }
+    .accessibilityHidden(true)
+  }
+
+  private static func draw(_ frame: BlobFrame, look: FaceLook, mood: BlobMood, in canvas: inout GraphicsContext, size: CGFloat) {
+    let body = Color(hex: look.fill)
+    let ink = Color(hex: look.ink)
+    let c = BlobMotion.center
+    let group = CGAffineTransform(translationX: -c.x, y: -c.y)
+      .concatenating(CGAffineTransform(a: 1, b: 0, c: tan(frame.skew * .pi / 180), d: 1, tx: 0, ty: 0))
+      .concatenating(CGAffineTransform(scaleX: frame.scaleX, y: frame.scaleY))
+      .concatenating(CGAffineTransform(translationX: c.x + frame.lean, y: c.y + frame.lift))
+      .concatenating(CGAffineTransform(scaleX: size / 100, y: size / 100))
+    canvas.fill(smooth(frame.outline).applying(group), with: .color(body))
+
+    for (index, base) in [BlobMotion.eyeLeft, BlobMotion.eyeRight].enumerated() {
+      let at = BlobMotion.eye(base, spread: look.shape.spread)
+      let slant = index == 0 ? frame.slant : -frame.slant
+      let place = CGAffineTransform(scaleX: frame.wide, y: frame.happy ? frame.wide : frame.wide * frame.open)
+        .concatenating(CGAffineTransform(rotationAngle: slant * .pi / 180))
+        .concatenating(CGAffineTransform(translationX: at.x + frame.lookX, y: at.y + frame.lookY))
+        .concatenating(group)
+      if frame.happy {
+        // Pleased: the eyes become arcs, the way a face with no mouth smiles.
+        var grin = Path()
+        grin.move(to: CGPoint(x: -3.8, y: 1.4))
+        grin.addQuadCurve(to: CGPoint(x: 3.8, y: 1.4), control: CGPoint(x: 0, y: -3.4))
+        canvas.stroke(grin.applying(place), with: .color(ink), style: StrokeStyle(lineWidth: 2.4 * size / 100, lineCap: .round))
+      } else if look.eyes == .round {
+        canvas.fill(Path(ellipseIn: CGRect(x: -4, y: -4, width: 8, height: 8)).applying(place), with: .color(ink))
+      } else {
+        let pill = Path(roundedRect: CGRect(x: -2.7, y: -4.8, width: 5.4, height: 9.6), cornerRadius: 2.7)
+        canvas.fill(pill.applying(place), with: .color(ink))
+        if look.eyes == .sparkle {
+          canvas.fill(Path(ellipseIn: CGRect(x: -2, y: -3.4, width: 2, height: 2)).applying(place), with: .color(.white))
+        }
+      }
+    }
+    // Over the face, unmoved by the body: the "!" while it needs you, the "z" while asleep, the dashboard's at its places.
+    switch mood {
+    case .needsYou: mark(Text("!").font(.system(size: 20 * size / 100, weight: .heavy)).foregroundColor(Color(hex: 0xF5A524)), at: CGPoint(x: 80, y: 22), frame, in: &canvas, size: size)
+    case .asleep: mark(Text("z").font(.system(size: 16 * size / 100, weight: .bold)).foregroundColor(ink), at: CGPoint(x: 74, y: 24), frame, in: &canvas, size: size)
+    default: break
+    }
+  }
+
+  /// A mark set on its baseline at `at` in the 100-unit box, as SVG text is, moved and faded as the frame says.
+  private static func mark(_ text: Text, at: CGPoint, _ frame: BlobFrame, in canvas: inout GraphicsContext, size: CGFloat) {
+    let resolved = canvas.resolve(text)
+    let box = resolved.measure(in: CGSize(width: size, height: size))
+    let baseline = resolved.firstBaseline(in: box)
+    var layer = canvas
+    layer.opacity = frame.markOpacity
+    let origin = CGPoint(x: (at.x + frame.mark.dx) * size / 100, y: (at.y + frame.mark.dy) * size / 100 - baseline)
+    layer.draw(resolved, in: CGRect(origin: origin, size: box))
+  }
+
+  /// A closed Catmull-Rom curve through the points, as cubic Béziers, so no corner ever shows.
+  private static func smooth(_ pts: [CGPoint]) -> Path {
+    var path = Path()
+    guard let first = pts.first else { return path }
+    let n = pts.count
+    path.move(to: first)
+    for i in 0..<n {
+      let p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n]
+      path.addCurve(
+        to: p2,
+        control1: CGPoint(x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6),
+        control2: CGPoint(x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6))
+    }
+    path.closeSubpath()
+    return path
+  }
+}
+
+/// The motion between frames, and the pointer as the face sees it.
+@MainActor
+final class BlobDriver: ObservableObject {
+  private var motion = BlobMotion(now: Date.timeIntervalSinceReferenceDate)
+  private var last: TimeInterval?
+  private var pointerAt: TimeInterval = -.infinity
+  private var lastPointer: CGPoint?
+  #if os(macOS)
+  weak var view: NSView?
+  #endif
+
+  var hover: Bool {
+    get { motion.hover }
+    set { motion.hover = newValue }
+  }
+
+  func poke() {
+    motion.poke(now: Date.timeIntervalSinceReferenceDate)
+  }
+
+  func frame(at now: TimeInterval, mood: BlobMood, look: FaceLook, still: Bool) -> BlobFrame {
+    motion.mood = mood
+    motion.look = look
+    let dt = last.map { now - $0 } ?? 0.016
+    last = now
+    var frame = motion.step(now: now, dt: still ? 0.016 : dt, pointer: still ? nil : pointer(now: now))
+    // Held still, the mark sits where it reads plainest, not wherever its drift froze.
+    if still {
+      frame.mark = .zero
+      frame.markOpacity = 1
+    }
+    return frame
+  }
+
+  /// Where the pointer is from the face's centre, y down, while it has moved in the last few seconds.
+  /// A touch screen has no pointer between touches, so there the face glances about of its own accord.
+  private func pointer(now: TimeInterval) -> CGVector? {
+    #if os(macOS)
+    guard let view, let window = view.window else { return nil }
+    let screenPoint = NSEvent.mouseLocation
+    if screenPoint != lastPointer {
+      lastPointer = screenPoint
+      pointerAt = now
+    }
+    guard now - pointerAt < 6 else { return nil }
+    let inView = view.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+    let dy = view.isFlipped ? inView.y - view.bounds.midY : view.bounds.midY - inView.y
+    return CGVector(dx: inView.x - view.bounds.midX, dy: dy)
+    #else
+    return nil
+    #endif
+  }
+}
+
+#if os(macOS)
+/// An empty view behind the face, so the driver can ask where the face is on the screen.
+private struct PointerProbe: NSViewRepresentable {
+  let driver: BlobDriver
+
+  func makeNSView(context: Context) -> NSView {
+    let view = NSView()
+    driver.view = view
+    return view
+  }
+
+  func updateNSView(_ nsView: NSView, context: Context) {
+    driver.view = nsView
+  }
+}
+#endif

@@ -4,6 +4,7 @@ import {
   type ApprovalHandler,
   type ApprovalOutcome,
   type ApprovalRequest,
+  type AuditEntry,
   type ChannelAdapter,
   type ChatEvent,
   type InboundMessage,
@@ -13,9 +14,12 @@ import {
   type TurnPresence,
   type UserMapping,
 } from "@kos/harness";
-import { stepMechanics } from "@kos/shared";
+import { stepMechanics, summarizeAction } from "@kos/shared";
 
+import { ArtifactReader, type PanelArtifacts } from "./artifacts.js";
+import { DashboardRelay, type PanelDashboard } from "./dashboard.js";
 import type { DeviceHub, DeviceKind } from "./hub.js";
+import { AttachmentInbox } from "./inbox.js";
 import type { DeviceEvent, PanelMessage, PanelMethod } from "./protocol.js";
 
 /**
@@ -48,9 +52,25 @@ export interface PanelChat {
   title: string;
 }
 
+/** Where a chat lives: at the root with KOS, in a project, or a blob's own. */
+export type PanelPlaceOf = { kind: "kos" } | { kind: "project"; name: string } | { kind: "blob"; name: string };
+
 /** A chat the panel may switch to, newest first. */
 export interface PanelChatItem extends PanelChat {
   updatedAt: number;
+  place?: PanelPlaceOf;
+}
+
+/** What is going on in KOS at a glance, for a phone: what runs, what waits, what fails, what fires next. */
+export interface Glance {
+  halted: boolean;
+  running: { id: string; title: string }[];
+  /** Every approval waiting on the owner, in any chat. */
+  waiting: number;
+  /** Those approvals, each with the chat it is for, for the owner to decide from the phone; the first ten to lapse are sent. */
+  asks: { chat?: PanelChat; request: ApprovalRequest }[];
+  failing: { label: string; streak: number; error: string | null; since: number }[];
+  next: { name: string; at: number }[];
 }
 
 /** What answers: the model, the ones it may be changed to, or the engine that chooses its own. */
@@ -84,6 +104,14 @@ export interface PanelDeps {
   picture?(frameId: number): { image: string; site?: string } | undefined;
   /** What an @ in the panel's box can name, best first, as the dashboard's @ menu asks. */
   mentions?(q: string, kind?: string): { kind: string; id: string; label: string; hint?: string }[];
+  /** What is going on in KOS, for a device that asks (KOS for iPhone); none, and the ask goes unanswered. */
+  glance?(): Glance;
+  /** The owner's artifacts, for a device that reads them (KOS for iPhone); none, and its asks go unanswered. */
+  artifacts?: PanelArtifacts;
+  /** The dashboard's own handler, for a phone's pages to ask the routes it may (KOS for iPhone); none, and its asks go unanswered. */
+  dashboard?: PanelDashboard;
+  /** The audit log, where what a phone does through the dashboard's routes is written as the phone's. */
+  audit?(entry: AuditEntry): void;
 }
 
 /** As much of what the owner quoted (selected on a page) as rides with their words, and of where it came from. */
@@ -93,8 +121,12 @@ const QUOTE_FROM_MAX = 300;
 const MAX_TEXT = 20_000;
 const SHOWN = 200;
 const MAX_ARGS = 600;
+/** How many waiting asks a glance carries. */
+const GLANCE_ASKS = 10;
 /** How many of the newest step pictures ride with the chat as it is drawn; older ones come from the device's own cache, or not at all. */
 const PICTURES_SHOWN = 4;
+/** How long a device has to take an artifact drawn for it or a dashboard page's answer, which can be a few megabytes over the Wi-Fi. */
+const ARTIFACT_TIMEOUT_MS = 30_000;
 /** How often a running turn's words may be redrawn on a device; a step is told at once. */
 const NARRATE_EVERY_MS = 1_200;
 /**
@@ -154,12 +186,30 @@ export class DevicePanel implements ChannelAdapter {
   private stopping: ((conversation: string) => void) | undefined;
   /** The state each chat's devices were last told, so a change is told once. */
   private readonly told = new Map<string, string>();
+  /** Files on their way from each device, ahead of the words they go with. */
+  private readonly inbox = new AttachmentInbox();
+  /** The artifacts a device opens, when this panel's devices may. */
+  private readonly reader: ArtifactReader | undefined;
+  /** Each device's artifact on its way, and the one it asked for since, which replaces any asked before it. */
+  private readonly opening = new Map<string, Record<string, unknown> | undefined>();
+  /** The dashboard's routes a phone asks, for a phone's panel alone. */
+  private readonly relay: DashboardRelay | undefined;
 
   constructor(
     private readonly place: PanelPlace,
     private readonly deps: PanelDeps,
   ) {
     this.name = place.name;
+    this.reader = deps.artifacts ? new ArtifactReader(deps.artifacts) : undefined;
+    this.relay =
+      deps.dashboard && place.kind === "phone"
+        ? new DashboardRelay({
+            ask: deps.dashboard,
+            // As chat.decide decides, the phone as its decider.
+            decide: (decision) => (this.decisions ? Promise.resolve(this.decisions(decision)) : undefined),
+            ...(deps.audit ? { audit: deps.audit } : {}),
+          })
+        : undefined;
   }
 
   /** The hub while computer use is on; with none, the panel hears nothing and says nothing. */
@@ -172,7 +222,10 @@ export class DevicePanel implements ChannelAdapter {
     }
     const offEvents = hub.onDeviceEvent((device, event) => this.heard(device, event));
     // An ask going up or down on a device, the owner taking over or handing back: told as it happens.
-    const offChange = hub.onChange(() => this.tellState());
+    const offChange = hub.onChange(() => {
+      this.tellState();
+      this.prune();
+    });
     this.unsubscribe = () => {
       offEvents();
       offChange();
@@ -481,21 +534,42 @@ export class DevicePanel implements ChannelAdapter {
   }
 
   private heard(device: string, event: DeviceEvent): void {
-    if (!event.name.startsWith("chat.") || !this.isMine(device)) return;
+    if (!this.isMine(device)) return;
     const data = event.data;
     switch (event.name) {
+      case "dashboard.request":
+        void this.relay?.answer(device, data, (answer) => this.tell(device, "dashboard.reply", answer, ARTIFACT_TIMEOUT_MS));
+        return;
       case "chat.open":
         void this.opened(device);
         return;
+      case "chat.attach":
+        this.inbox.part(device, data);
+        return;
       case "chat.send": {
         const text = typeof data["text"] === "string" ? data["text"].trim().slice(0, MAX_TEXT) : "";
-        if (!text) return;
+        const taken = this.inbox.take(device, data["files"]);
+        // Files that cannot go stop the words too: the owner's words are given back with why, rather than sent without them.
+        if ("refused" in taken) {
+          void this.tell(device, "chat.status", this.statusOf(this.deps.current()?.id, { said: text, error: taken.refused }));
+          return;
+        }
+        const files = taken.files;
+        if (!text && !files.length) return;
         this.last = device;
         this.lastBeside = data["beside"];
         const named = this.hub?.list().find((d) => d.id === device)?.name ?? device;
         const quote = quoteOf(data["quote"]);
         // Where they were says only that, so it rides with words a running turn takes in.
-        void this.messages?.({ channel: this.name, senderId: device, text, context: this.place.beside(data["beside"], named), contextRides: true, ...(quote ? { quote } : {}) });
+        void this.messages?.({
+          channel: this.name,
+          senderId: device,
+          text,
+          context: this.place.beside(data["beside"], named),
+          contextRides: true,
+          ...(quote ? { quote } : {}),
+          ...(files.length ? { attachments: files } : {}),
+        });
         return;
       }
       case "chat.stop": {
@@ -512,6 +586,8 @@ export class DevicePanel implements ChannelAdapter {
         }
         return;
       case "chat.auto": {
+        // A phone holds no session, and its chat is not where computer use is switched to acting unasked.
+        if (this.place.kind === "phone") return;
         const chat = this.deps.current() ?? this.deps.ensure?.();
         if (chat && typeof data["on"] === "boolean") {
           this.deps.setAuto?.(chat.id, data["on"]);
@@ -534,6 +610,21 @@ export class DevicePanel implements ChannelAdapter {
         void this.tell(device, "chat.mentions", { q, mentions: this.deps.mentions?.(q, kind) ?? [] });
         return;
       }
+      case "chat.glance": {
+        const glance = this.deps.glance?.();
+        // Each ask as chat.ask carries it, so the phone decides it as it would one of its own chat's.
+        if (glance) void this.tell(device, "chat.glance", { ...glance, asks: glanceAsks(glance.asks) });
+        return;
+      }
+      case "chat.artifacts":
+        if (this.reader) void this.tell(device, "chat.artifacts", this.reader.list());
+        return;
+      case "chat.artifact":
+        this.openFor(device, data);
+        return;
+      case "chat.read":
+        if (this.reader) void this.reader.read(device, data).then((answer) => (answer ? this.tell(device, "chat.read", answer) : undefined));
+        return;
       case "chat.model":
         if (typeof data["model"] === "string" && data["model"].trim()) {
           const model = data["model"].trim();
@@ -543,6 +634,28 @@ export class DevicePanel implements ChannelAdapter {
       default:
         return;
     }
+  }
+
+  /** One artifact on its way to a device at a time: one asked for meanwhile waits, the latest replacing any before it. */
+  private openFor(device: string, data: Record<string, unknown>): void {
+    if (!this.reader) return;
+    if (this.opening.has(device)) {
+      this.opening.set(device, data);
+      return;
+    }
+    this.opening.set(device, undefined);
+    void this.tell(device, "chat.artifact", this.reader.open(device, data), ARTIFACT_TIMEOUT_MS).finally(() => {
+      const next = this.opening.get(device);
+      this.opening.delete(device);
+      if (next) this.openFor(device, next);
+    });
+  }
+
+  /** What a device off its line had on the way (files, the artifact it had open) goes with it, unpaired or gone. */
+  private prune(): void {
+    const online = new Set(this.hub?.list().filter((d) => d.online).map((d) => d.id) ?? []);
+    this.inbox.keepOnly(online);
+    this.reader?.keepOnly(online);
   }
 
   /** The models, as asked or as just changed; a list that cannot be had says so rather than nothing. */
@@ -566,10 +679,10 @@ export class DevicePanel implements ChannelAdapter {
   }
 
   /** Said to a device, which shows it if its panel is open; one that is off is not told. */
-  private async tell(device: string, method: PanelMethod, params: Record<string, unknown>): Promise<boolean> {
+  private async tell(device: string, method: PanelMethod, params: Record<string, unknown>, timeoutMs?: number): Promise<boolean> {
     if (!this.hub) return false;
     try {
-      await this.hub.request(device, method, params);
+      await this.hub.request(device, method, params, timeoutMs);
       return true;
     } catch {
       return false;
@@ -689,6 +802,23 @@ export const CHROME_PANEL: PanelPlace = { name: "chrome", kind: "browser", title
 export const MAC_PANEL: PanelPlace = { name: "mac", kind: "computer", title: "Mac", beside: appNote };
 
 /**
+ * Where the owner was when they spoke from KOS for iPhone: their phone, which
+ * has no screen KOS can see or work. Without it, "on my laptop" from the phone
+ * read as this device. It says only what the hub holds to: a phone is never a
+ * session's device, and the paired computers and Chromes are reached as from
+ * any chat.
+ */
+export function phoneNote(_beside: unknown, device: string): string {
+  return (
+    `Said in KOS for iPhone, on the owner's phone ${JSON.stringify(device)}. KOS cannot see or work the phone's screen: ` +
+    "the computer and browser tools never reach it. They reach the owner's paired computers and Chromes, as from any chat."
+  );
+}
+
+/** KOS for iPhone's chat, on the owner's phone. */
+export const PHONE_PANEL: PanelPlace = { name: "phone", kind: "phone", title: "iPhone", beside: phoneNote };
+
+/**
  * An approval as the panel shows it: the tool, what it would be given, and
  * why; and for a step said by its purpose, every action it takes, which the
  * arguments, cut to fit, may not reach.
@@ -697,9 +827,12 @@ function approvalOf(req: ApprovalRequest): Record<string, unknown> {
   const args = argsText(req.args);
   const always = req.rule ? alwaysWords(req.rule.scope) : undefined;
   const mechanics = req.tool && req.args !== undefined ? stepMechanics(req.tool, req.args) : undefined;
+  // In words, with its ids named, as the Inbox titles it: a phone lists the ask by this, not by its tool.
+  const summary = req.tool && req.args !== undefined ? summarizeAction(req.tool, req.args, req.names) : undefined;
   return {
     id: req.id,
     tool: req.tool ?? "",
+    ...(summary ? { summary } : {}),
     ...(args ? { args } : {}),
     ...(mechanics ? { mechanics } : {}),
     ...(req.why ? { why: req.why } : {}),
@@ -707,6 +840,14 @@ function approvalOf(req: ApprovalRequest): Record<string, unknown> {
     ...(always ? { always } : {}),
     ...(req.expiresAt !== undefined ? { expiresAt: req.expiresAt } : {}),
   };
+}
+
+/** The asks a glance sends: the first to lapse, as chat.ask carries each, with its chat when it has one. */
+function glanceAsks(asks: Glance["asks"]): Record<string, unknown>[] {
+  return [...asks]
+    .sort((a, b) => (a.request.expiresAt ?? Infinity) - (b.request.expiresAt ?? Infinity))
+    .slice(0, GLANCE_ASKS)
+    .map((a) => ({ ...(a.chat ? { chat: a.chat } : {}), approval: approvalOf(a.request) }));
 }
 
 /** What a remembered yes covers, as a button says it: the site, the folder, the table, the program. */

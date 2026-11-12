@@ -7,6 +7,8 @@
  * CSS, so the artifact restyles anything without fighting it. Colours are
  * KOS's tokens. The dashboard's column gives the doc its gutter; full screen
  * (data-present), or on a ground of its own (data-ground="own"), it takes its own.
+ * In the phone's app (data-surface="phone") it reads as the app does: the
+ * app's 16 px gutter and ground, a phone's reading size, no box around it.
  */
 export const DOC_CSS = String.raw`
 :where(:root) {
@@ -253,6 +255,13 @@ html.doc-dragging, html.doc-dragging * { cursor: grabbing !important; user-selec
 .doc-tabletools > button.danger:hover, .doc-tabletools > button.danger:focus-visible { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
 .doc-tabletools > button:not(.danger) + button.danger { margin-left: 6px; }
 .doc-live, .doc-copier { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; opacity: 0; left: -9999px; }
+/* In the phone's app: its gutter, its ground edge to edge, a phone's reading size, and the contents a list between hairlines rather than a box. The title is the app's bar's, so what led into it leads into the lede. */
+:where(:root[data-surface="phone"]) { --doc-gutter: 16px; --doc-size: 17px; background: var(--bg); }
+:where(:root[data-surface="phone"]) .doc-frame { padding-block: 12px 48px; }
+:where(:root[data-surface="phone"]) :where([data-doc]) .lede { font-size: 1.15em; }
+:where(:root[data-surface="phone"]) :where([data-doc]) .kicker ~ .lede { margin-top: 8px; }
+:where(:root[data-surface="phone"]) :where([data-doc]) h2 { font-size: 1.25rem; }
+:where(:root[data-surface="phone"]) .doc-toc > details { border-width: 1px 0; border-radius: 0; background: none; padding-inline: 0; max-width: none; }
 /* On paper: white under the text, no contents to press, a heading kept with what follows it, and a figure, table, quote or code block whole on its page where it fits. */
 @media print {
   @page { size: letter; margin: 0.75in 0.8in; }

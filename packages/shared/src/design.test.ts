@@ -34,9 +34,9 @@ const STYLESHEETS = {
 };
 const KIT = read("../../kit/src/kit.css");
 const OVERLAY = read("../../browser-extension/src/overlay.ts");
-const SWIFT = read("../../device-macos/Sources/DeviceUI/Theme.swift");
+const SWIFT = read("../../device-shared/Sources/DeviceKit/Theme.swift");
 const PALETTE = read("../../device-macos/Sources/KOSDevice/Overlay/Palette.swift");
-const FACE = read("../../device-macos/Sources/DeviceUI/FaceLook.swift");
+const FACE = read("../../device-shared/Sources/DeviceKit/FaceLook.swift");
 
 /** The Swift spelling of a token: panel-2 is panel2, line-strong is lineStrong. */
 const swiftName = (token: string): string => token.replace(/-(\w)/g, (_, c: string) => c.toUpperCase());
