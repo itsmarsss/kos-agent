@@ -227,5 +227,17 @@ const rows = audits().map((a) => `${a.kind} ${a.from ?? "-"} -> ${a.to} ${a.outc
 say(`audit:\n  ${rows.join("\n  ")}`);
 const want = [`mac ${OLD.id} -> ${macNew.id} installing`, `chrome ${OLD.id} -> ${chromeNew.id} reloading`, `chrome ${OLD.id} -> ${chromeNew.id} updated`, `mac ${OLD.id} -> ${macNew.id} updated`];
 for (const row of want) if (!rows.includes(row)) fail(`no audit row "${row}"`);
+// With shots asked for: a second Mac behind once signing is gone, as the owner would see it, command and all.
+if (SHOTS) {
+  writeFileSync(join(DIR, "signing.sh"), "#!/bin/sh\nexit 1\n");
+  // KOS believes a signing check for a minute.
+  await sleep(61_000);
+  const unsigned = new StubMac();
+  await unsigned.pair();
+  await unsigned.connect(OLD);
+  await until("the second Mac to wait on signing", async () => (await device(unsigned.id))?.update?.reason === "signing");
+  if (installs() !== 1) fail("the installer ran without signing");
+  await shoot(devtools, "devices-signing");
+}
 say("passed");
 process.exit(0);
