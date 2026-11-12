@@ -70,12 +70,17 @@ struct EndToEndTests {
     try await until("KOS's reply", 30) { phone.chat.lines.contains(.kos("Hello from the stub model.")) }
     #expect(phone.chat.lines.contains(.you("hello from the phone", files: [])))
 
-    // An ask, approved from the phone, and the step it allowed.
+    // An ask, approved from the phone's glance, where every waiting ask is listed, and the step it allowed.
     phone.chat.say("make the e2e file")
     try await until("the ask", 30) { !phone.chat.asks.isEmpty }
     let ask = try #require(phone.chat.asks.first)
     #expect(ask.tool.hasPrefix("shell"))
-    phone.chat.answer(ask.id, approved: true)
+    phone.glance.ask()
+    try await until("the ask in the glance") { phone.glance.asks.contains { $0.id == ask.id } }
+    #expect(phone.glance.waiting >= 1)
+    #expect(phone.glance.asks.first { $0.id == ask.id }?.ask.tool == ask.tool)
+    phone.glance.answer(ask.id, approved: true)
+    #expect(phone.chat.asks.isEmpty)
     try await until("the answer after the approval", 30) { phone.chat.lines.contains(.kos("Done: the file is made.")) }
     if let ws = env["KOS_E2E_WORKSPACE"] {
       #expect(FileManager.default.fileExists(atPath: "\(ws)/phone-e2e.txt"), "the approved command did not run")
