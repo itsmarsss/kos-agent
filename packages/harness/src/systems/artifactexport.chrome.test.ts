@@ -11,7 +11,7 @@ import type { HtmlPage } from "@kos/shared";
 
 import { pdfText } from "../files/pdftext.js";
 import { ArtifactChecker } from "./artifactcheck.js";
-import { ArtifactExporter } from "./artifactexport.js";
+import { ArtifactExporter, ExportRefusal } from "./artifactexport.js";
 
 /**
  * Exports printed and drawn by the check's own Chrome, from the dashboard's
@@ -64,6 +64,76 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-deck.js")))("artifact ex
   afterAll(() => {
     checker?.close();
     rmSync(captures, { recursive: true, force: true });
+  });
+
+  describe("on a slow machine", () => {
+    /** How many times slower the drawing tab runs: a hundred fails the loop that froze on a fixed budget, every time. KOS_TEST_THROTTLE tries another. */
+    const THROTTLE = Number(process.env.KOS_TEST_THROTTLE ?? 100);
+    const PAGES_SLOW: Record<string, HtmlPage> = {
+      // Reads as its script runs.
+      "slow reader": { id: "slow reader", title: "Slow reader", html: '<h1>Reader</h1><p id="out">-</p><script>kos.query("SELECT title FROM shelf").then(function(r){out.textContent=r.rows[0].title})</script>' },
+      // Reads a moment after it has loaded.
+      "late reader": { id: "late reader", title: "Late reader", html: '<h1>Reader</h1><p id="out">-</p><script>addEventListener("load",function(){setTimeout(function(){kos.query("SELECT title FROM late").then(function(r){out.textContent=r.rows[0].title})},300)})</script>' },
+      // Reads one thing, then the next once the first is answered, three deep: each read reaches KOS only after the frame has had the last answer.
+      chained: { id: "chained", title: "Chained", html: '<h1>Chained</h1><p id="out">-</p><script>kos.query("SELECT 1").then(function(){return kos.query("SELECT 2")}).then(function(){return kos.query("SELECT 3")}).then(function(r){out.textContent=r.rows[0].title})</script>' },
+      // Reads now, then the same read every 300 ms for as long as it is open.
+      poller: { id: "poller", title: "Poller", html: '<h1>Poller</h1><p id="out">-</p><script>function poll(){kos.query("SELECT title FROM poll").then(function(r){out.textContent="Read: "+r.rows[0].title})}poll();setInterval(poll,300)</script>' },
+    };
+    const slow = (options: { call?: (id: string, verb: "query" | "file", args: Record<string, unknown>) => Promise<unknown>; drawMs?: number; throttle?: number } = {}): ArtifactExporter =>
+      new ArtifactExporter({
+        load: (id) => (PAGES_SLOW[id] ? { page: PAGES_SLOW[id]!, title: id } : undefined),
+        call: options.call ?? (async () => ({ rows: [{ title: "Dune" }], truncated: false })),
+        browser: (work) => checker.withBrowser(work),
+        pageLib: () => BUILT,
+        cpuThrottle: options.throttle ?? THROTTLE,
+        ...(options.drawMs ? { drawMs: options.drawMs } : {}),
+      });
+    const frozen = "&quot;rows&quot;:[{&quot;title&quot;:&quot;Dune&quot;}]";
+
+    /**
+     * What an export of a page does at a throttle: freezes what it read, or
+     * refuses in words (a bridge on so slow a machine can give a read up
+     * before it reaches KOS), but never exports it without its data, which
+     * is what the loop that froze on a fixed budget did.
+     */
+    async function outcome(id: string, has: string, throttle: number): Promise<string> {
+      return slow({ throttle }).export(id, "html").then(
+        (file) => (file.body.toString("utf8").includes(has) ? "frozen" : "MISSING"),
+        (err: unknown) => (err instanceof ExportRefusal ? "refused" : `error: ${String(err)}`),
+      );
+    }
+    const READS = [
+      ["slow reader", frozen],
+      ["late reader", frozen],
+      ["chained", "[\\&quot;query\\&quot;,{\\&quot;sql\\&quot;:\\&quot;SELECT 3\\&quot;}]"],
+    ] as const;
+
+    // KOS_TEST_THROTTLE=200 runs it slower still, by hand: a few minutes, too long for every run.
+    it.each([THROTTLE])("never exports a page without its data at %i times slower: it freezes them, or refuses", async (throttle) => {
+      const seen: string[] = [];
+      for (const [id, has] of READS) {
+        const got = await outcome(id, has, throttle);
+        seen.push(`${id} ${got}`);
+        expect(["frozen", "refused"], `${id}: ${got}`).toContain(got);
+      }
+      console.log(`throttle ${throttle}: ${seen.join(", ")}`);
+    }, 400_000);
+
+    it("exports a page that polls promptly, with what it read, as HTML and as PDF", async () => {
+      const exporter = slow({ throttle: 1 });
+      let started = Date.now();
+      expect((await exporter.export("poller", "html")).body.toString("utf8")).toContain(frozen);
+      // Promptly: a poller's repeats are not new reads, so it is not held up to the 30 s ceiling.
+      expect(Date.now() - started).toBeLessThan(15_000);
+      started = Date.now();
+      expect((await pdfText(new Uint8Array((await exporter.export("poller", "pdf")).body))).text).toContain("Read: Dune");
+      expect(Date.now() - started).toBeLessThan(15_000);
+    }, 60_000);
+
+    it("refuses in words, rather than freeze half its data, when a read is still waiting at the ceiling", async () => {
+      const never = slow({ call: () => new Promise(() => undefined), drawMs: 4000, throttle: 1 });
+      await expect(never.export("slow reader", "html")).rejects.toThrow(/still waiting on 1 of its reads/);
+    }, 60_000);
   });
 
   it("prints a doc on Letter pages, its text and its table in it", async () => {
