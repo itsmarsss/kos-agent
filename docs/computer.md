@@ -198,7 +198,9 @@ It opens one with the event `chat.artifact` (`{ "id": "plan", "theme":
   page's frame, as the dashboard does.
 - The id must be an artifact's (`ARTIFACT_ID_RE`, at most 120 characters);
   one that is not, one the owner has not, one in the trash, an older widget
-  page and a frame of more than 8 MB are each refused in words.
+  page and an answer of more than 8 MB as JSON are each refused in words.
+- One goes to a device at a time: one it asks for while another is on its
+  way waits, and a later ask replaces it.
 
 The page's `window.kos` reaches the device as it reaches the dashboard,
 through the wrapper. A read it makes (`query`, `files.read`) goes as the
@@ -208,8 +210,11 @@ answers by calling `chat.read` with `{ "artifact", "call", "result" }` or
 `{ "artifact", "call", "error" }`, decided as the dashboard's reads are.
 Nothing else is relayed: a write, a save, an ask, a mention and a present
 are refused by the device itself. `open`, another artifact by its id, is
-the device's to do only just after the owner pressed in the frame. Every
-other device kind's asks go unanswered.
+the device's to do from a doc alone, only just after the owner pressed in
+the frame, as the dashboard holds it. The device opens nothing outside
+itself: there are no links off an artifact to open. What a device had open
+is forgotten when it leaves its line. Every other device kind's asks go
+unanswered.
 
 **Files with the words.** A device's frames over the Wi-Fi are at most
 512 KB, so each file the owner sends with their words comes first, in
@@ -220,14 +225,18 @@ device gave them (`"files": ["f1"]`); `text` may then be empty:
 { "id": "f1", "name": "receipt.jpg", "mediaType": "image/jpeg", "part": 0, "parts": 3, "data": "<base64, at most 262144 characters>" }
 ```
 
-Every part but the last is a whole number of base64 quads, unpadded. A file
-is at most 5 MB, as the model's path takes one, and is a picture, a PDF, an
-Office file or a text file; four go with one message, and four are held for
-a device at once, each for five minutes. A file named by `chat.send` that
-did not arrive whole, or was refused on the way in, stops the words: KOS
-answers with `chat.status` carrying `error` and the words as `said`, and
-nothing is sent to the turn. A device downscales a photo before it sends
-it (KOS for iPhone: 2048 px on the long side, as JPEG).
+Every part but the last is a whole number of base64 quads, unpadded. A
+file's part 0 sent again starts that file over. A file is at most 5 MB as
+the model's path measures it (from its base64's length), and is what its
+bytes say: a JPEG, PNG, GIF or WebP picture (SVG, HEIC and TIFF are refused),
+a PDF, an Office file, or text with no NUL in it. Four go with one message,
+and four are held for a device at once, each for five minutes and never past
+the device's line. A file named by `chat.send` that did not arrive whole, or
+was refused on the way in, stops the words: KOS answers with `chat.status`
+carrying `error` and the words as `said`, and nothing is sent to the turn.
+A device downscales a photo before it sends it (KOS for iPhone: 2048 px on
+the long side, as JPEG), and sends a file given back after a dropped line
+under a new id.
 
 ## The Wi-Fi listener
 
@@ -285,10 +294,6 @@ phone can open a link, so none pairs by itself, and one opened while the
 phone is paired first asks to replace that pairing (the KOS it replaces is
 told to forget the phone). Every connection then proves both keys, as any
 device's does.
-
-The phone takes one other link, `kos-device://listen`: it opens the app
-listening (Ask KOS, from Siri, Shortcuts or the Action button), with no query
-and nothing else, so it carries no words and pairs nothing.
 
 ## Security model
 

@@ -125,8 +125,8 @@ its own, in `packages/device-ios/Sources/PhoneUI`.
 | Round button | The composer's controls, one height (`Composer.button`, 56): `RoundButton` for a press, `RoundFace` for the same look as a menu's label (attach) | `Composer.swift` |
 | Header button | A 44 point symbol in a bar, with a dot or a count (the chat's head, the viewer's Close) | `HeaderButton` in `ChatScreen.swift` |
 | Attachment chip | A file going with the next words, over the box: a picture's thumbnail or a file's mark and kind, 56 square on the box's radius, its cross inside the corner | `AttachmentChip`, `AttachmentStrip` in `Attachments.swift` |
-| Artifact viewer | One artifact full screen to read: the kind's `Tile` in violet, title over kind, owner and age, Close; the frame in the dashboard's gutter; a deck's `DeckBar` (back, the place, on) under it | `ArtifactScreen`, `ArtifactBar`, `DeckBar` in `ArtifactScreen.swift`; the frame is `ArtifactFrame.swift` |
-| Recent artifacts | The last few changed, in the chats sheet under New chat, as `MenuRow`s with the kind's `Tile` | `ChatPicker.swift` |
+| Artifact viewer | One artifact full screen to read: the kind's `Tile` in violet, title over kind, owner and age, Close; the frame in the dashboard's gutter, its foot faded; a deck on its side fills the screen over `DeckBar` (Close, back, the place, on) | `ArtifactScreen`, `ArtifactBar`, `DeckBar` in `ArtifactScreen.swift`; the frame is `ArtifactFrame.swift` |
+| Recent artifacts | The last few changed, in the chats sheet under New chat, as `ArtifactRow`s (a `MenuRow` with the kind's `Tile`), then All artifacts, which lists every one under Today, This week and Earlier | `ChatPicker.swift` (`ArtifactRow`, `AllArtifacts`) |
 
 ## The device home
 
