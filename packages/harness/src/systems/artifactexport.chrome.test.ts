@@ -11,7 +11,7 @@ import type { HtmlPage } from "@kos/shared";
 
 import { pdfText } from "../files/pdftext.js";
 import { ArtifactChecker } from "./artifactcheck.js";
-import { ArtifactExporter } from "./artifactexport.js";
+import { ArtifactExporter, ExportRefusal } from "./artifactexport.js";
 
 /**
  * Exports printed and drawn by the check's own Chrome, from the dashboard's
@@ -67,28 +67,58 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-deck.js")))("artifact ex
   });
 
   describe("on a slow machine", () => {
-    // A page as the server test's: it reads once its script runs, and shows what it read.
-    const READER: HtmlPage = { id: "slow reader", title: "Slow reader", html: '<h1>Reader</h1><p id="out">-</p><script>kos.query("SELECT title FROM shelf").then(function(r){out.textContent=r.rows[0].title})</script>' };
-    const LATE: HtmlPage = { id: "late reader", title: "Late reader", html: '<h1>Reader</h1><p id="out">-</p><script>addEventListener("load",function(){setTimeout(function(){kos.query("SELECT title FROM late").then(function(r){out.textContent=r.rows[0].title})},300)})</script>' };
-    const slow = (options: { call?: (id: string, verb: "query" | "file", args: Record<string, unknown>) => Promise<unknown>; drawMs?: number } = {}): ArtifactExporter =>
+    /** How many times slower the drawing tab runs: a hundred fails the loop that froze on a fixed budget, every time. KOS_TEST_THROTTLE tries another. */
+    const THROTTLE = Number(process.env.KOS_TEST_THROTTLE ?? 100);
+    const PAGES_SLOW: Record<string, HtmlPage> = {
+      // Reads as its script runs.
+      "slow reader": { id: "slow reader", title: "Slow reader", html: '<h1>Reader</h1><p id="out">-</p><script>kos.query("SELECT title FROM shelf").then(function(r){out.textContent=r.rows[0].title})</script>' },
+      // Reads a moment after it has loaded.
+      "late reader": { id: "late reader", title: "Late reader", html: '<h1>Reader</h1><p id="out">-</p><script>addEventListener("load",function(){setTimeout(function(){kos.query("SELECT title FROM late").then(function(r){out.textContent=r.rows[0].title})},300)})</script>' },
+      // Reads one thing, then the next once the first is answered, three deep: each read reaches KOS only after the frame has had the last answer.
+      chained: { id: "chained", title: "Chained", html: '<h1>Chained</h1><p id="out">-</p><script>kos.query("SELECT 1").then(function(){return kos.query("SELECT 2")}).then(function(){return kos.query("SELECT 3")}).then(function(r){out.textContent=r.rows[0].title})</script>' },
+    };
+    const slow = (options: { call?: (id: string, verb: "query" | "file", args: Record<string, unknown>) => Promise<unknown>; drawMs?: number; throttle?: number } = {}): ArtifactExporter =>
       new ArtifactExporter({
-        load: (id) => ({ "slow reader": READER, "late reader": LATE })[id] ? { page: ({ "slow reader": READER, "late reader": LATE } as Record<string, HtmlPage>)[id]!, title: id } : undefined,
+        load: (id) => (PAGES_SLOW[id] ? { page: PAGES_SLOW[id]!, title: id } : undefined),
         call: options.call ?? (async () => ({ rows: [{ title: "Dune" }], truncated: false })),
         browser: (work) => checker.withBrowser(work),
         pageLib: () => BUILT,
-        cpuThrottle: 40,
+        cpuThrottle: options.throttle ?? THROTTLE,
         ...(options.drawMs ? { drawMs: options.drawMs } : {}),
       });
+    const frozen = "&quot;rows&quot;:[{&quot;title&quot;:&quot;Dune&quot;}]";
 
-    it("waits for the frame to start and its reads to settle before it freezes them, its CPU forty times slower", async () => {
-      for (const id of ["slow reader", "late reader"]) {
-        const html = (await slow().export(id, "html")).body.toString("utf8");
-        expect(html, id).toContain("&quot;rows&quot;:[{&quot;title&quot;:&quot;Dune&quot;}]");
+    /**
+     * What an export of a page does at a throttle: freezes what it read, or
+     * refuses in words (a bridge on so slow a machine can give a read up
+     * before it reaches KOS), but never exports it without its data, which
+     * is what the loop that froze on a fixed budget did.
+     */
+    async function outcome(id: string, has: string, throttle: number): Promise<string> {
+      return slow({ throttle }).export(id, "html").then(
+        (file) => (file.body.toString("utf8").includes(has) ? "frozen" : "MISSING"),
+        (err: unknown) => (err instanceof ExportRefusal ? "refused" : `error: ${String(err)}`),
+      );
+    }
+    const READS = [
+      ["slow reader", frozen],
+      ["late reader", frozen],
+      ["chained", "[\\&quot;query\\&quot;,{\\&quot;sql\\&quot;:\\&quot;SELECT 3\\&quot;}]"],
+    ] as const;
+
+    // KOS_TEST_THROTTLE=200 runs it slower still, by hand: a few minutes, too long for every run.
+    it.each([THROTTLE])("never exports a page without its data at %i times slower: it freezes them, or refuses", async (throttle) => {
+      const seen: string[] = [];
+      for (const [id, has] of READS) {
+        const got = await outcome(id, has, throttle);
+        seen.push(`${id} ${got}`);
+        expect(["frozen", "refused"], `${id}: ${got}`).toContain(got);
       }
-    }, 90_000);
+      console.log(`throttle ${throttle}: ${seen.join(", ")}`);
+    }, 400_000);
 
     it("refuses in words, rather than freeze half its data, when a read is still waiting at the ceiling", async () => {
-      const never = slow({ call: () => new Promise(() => undefined), drawMs: 4000 });
+      const never = slow({ call: () => new Promise(() => undefined), drawMs: 4000, throttle: 1 });
       await expect(never.export("slow reader", "html")).rejects.toThrow(/still waiting on 1 of its reads/);
     }, 60_000);
   });

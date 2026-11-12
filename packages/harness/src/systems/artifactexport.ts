@@ -453,8 +453,10 @@ export class ArtifactExporter {
     const kind = page.kind ?? "page";
     const answers: Answers = {};
     let size = 0;
-    let inFlight = 0;
-    let lastCall = Date.now();
+    /** Each read's key, once asked: whether it has had an answer (a refusal is one), and how many of it are out now. */
+    const reads = new Map<string, { answered: boolean; out: number }>();
+    /** When a key never asked before was first asked: what the quiet window counts from. */
+    let lastNew = Date.now();
     let left = false;
     const relay = (call: RelayedCall | "left"): void => {
       if (call === "left") {
@@ -463,8 +465,10 @@ export class ArtifactExporter {
       }
       const key = JSON.stringify([call.method, call.args]);
       const verb = call.method === "query" || call.method === "file" ? call.method : undefined;
-      inFlight += 1;
-      lastCall = Date.now();
+      const read = reads.get(key) ?? { answered: false, out: 0 };
+      reads.set(key, read);
+      lastNew = Date.now();
+      read.out += 1;
       // Reads only: an export, like a check, never writes, asks or saves.
       const asked = verb ? this.options.call(id, verb, call.args) : Promise.reject(new Error("an export only reads"));
       void asked
@@ -481,17 +485,27 @@ export class ArtifactExporter {
           },
         )
         .finally(() => {
-          inFlight -= 1;
-          lastCall = Date.now();
+          read.out -= 1;
+          read.answered = true;
+          lastNew = Date.now();
         });
     };
+    /** Reads out now. */
+    const unanswered = (): number => [...reads.values()].reduce((n, r) => n + r.out, 0);
     const tab = await SealedTab.open(cdp, { scripts: true, offline: true, track: job.track, ...(this.options.cpuThrottle ? { cpuThrottle: this.options.cpuThrottle } : {}) }, relay);
     try {
       const view = kind === "deck" ? VIEW.deck : VIEW.other;
       await cdp.send("Emulation.setDeviceMetricsOverride", { ...view, deviceScaleFactor: 1, mobile: false }, tab.sessionId);
       await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }] }, tab.sessionId);
       await tab.navigate(hostDocument(artifactFrame({ ...page, html: withoutExits(page.html) }, theme, assets), assets.tokens[theme]["--bg"]));
-      // Drawn once the frame has loaded and nothing has been read, or waited on, for a quiet while: a slow machine is waited for, not frozen half-read.
+      /*
+       * Drawn once the frame has loaded, its bridge has no call out or queued
+       * (so a read the frame made has reached KOS), KOS has none unanswered,
+       * and no read new to it has been asked for a quiet while. A poller's
+       * repeats of a read already answered are not new: they neither hold
+       * the export up nor make it half read. A slow machine is waited for,
+       * up to the ceiling, never frozen half read.
+       */
       const start = Date.now();
       const ceiling = this.options.drawMs ?? DRAW_MS;
       let loadedAt: number | undefined;
@@ -499,12 +513,19 @@ export class ArtifactExporter {
         if (job.aborted) throw new Error("the export was given up");
         // A frame that left has nothing more to read; what to make of that is below.
         if (left) break;
-        loadedAt ??= (await this.frameLoaded(cdp, tab)) ? Date.now() : undefined;
-        if (loadedAt !== undefined && inFlight === 0 && Date.now() - Math.max(loadedAt, lastCall) >= QUIET_MS) break;
+        const state = await this.frameState(cdp, tab);
+        if (state?.loaded) loadedAt ??= Date.now();
+        // The frame gave a read up before KOS heard of it: whatever it froze now would be without that read.
+        if ((state?.dropped ?? 0) > 0) throw new ExportRefusal("the artifact gave up on a read before it reached KOS, as on a machine too busy to draw it, so KOS did not export it without its data; try again");
+        const quiet = loadedAt !== undefined && Date.now() - Math.max(loadedAt, lastNew) >= QUIET_MS;
+        if (quiet && state?.pending === 0 && unanswered() === 0) break;
         if (Date.now() - start > ceiling) {
-          if (inFlight > 0) throw new ExportRefusal(`the artifact was still waiting on ${inFlight} of its reads after ${Math.round(ceiling / 1000)} s, so KOS did not export it with its data half read; try again`);
+          const waiting = unanswered();
+          if (waiting > 0) throw new ExportRefusal(`the artifact was still waiting on ${waiting} of its reads after ${Math.round(ceiling / 1000)} s, so KOS did not export it with its data half read; try again`);
           if (loadedAt === undefined) throw new ExportRefusal(`the artifact's frame had not finished loading after ${Math.round(ceiling / 1000)} s, so there is nothing whole to export; try again`);
-          // Loaded, nothing waiting, but reading again and again: what it has read is whole.
+          // Its bridge still holds calls KOS never heard of: they may be reads it has no answer for.
+          if ((state?.pending ?? 0) > 0 && reads.size === 0) throw new ExportRefusal(`the artifact's reads had not reached KOS after ${Math.round(ceiling / 1000)} s, so KOS did not export it without its data; try again`);
+          // Loaded, every read it made answered, and only repeating them: what it has read is whole.
           break;
         }
         await sleep(100);
@@ -518,15 +539,27 @@ export class ArtifactExporter {
     }
   }
 
-  /** Whether the artifact's own frame has loaded: its document complete, with its bridge and runtime in it. A frame too busy to say is not yet. */
-  private async frameLoaded(cdp: CdpClient, tab: SealedTab): Promise<boolean> {
+  /**
+   * The artifact's own frame as its bridge says it stands: loaded (its
+   * document complete, with the bridge and runtime in it), and how many of
+   * its calls are out or queued, and how many it gave up on unanswered.
+   * Undefined while no frame can say, or one is too busy to.
+   */
+  private async frameState(cdp: CdpClient, tab: SealedTab): Promise<{ loaded: boolean; pending: number; dropped: number } | undefined> {
     for (const c of tab.contexts) {
       const got = (await cdp
-        .send("Runtime.evaluate", { expression: 'typeof window.kos==="object"&&!!document.documentElement.dataset.kind&&document.readyState==="complete"', contextId: c.id, returnByValue: true }, c.sessionId, ANSWER_MS)
-        .catch(() => undefined)) as { result?: { value?: unknown } } | undefined;
-      if (got?.result?.value === true) return true;
+        .send(
+          "Runtime.evaluate",
+          { expression: 'typeof window.kos==="object"&&!!document.documentElement.dataset.kind?{loaded:document.readyState==="complete",pending:Number(window.kos.pending),dropped:Number(window.kos.dropped)}:null', contextId: c.id, returnByValue: true },
+          c.sessionId,
+          ANSWER_MS,
+        )
+        .catch(() => undefined)) as { result?: { value?: { loaded: boolean; pending: number; dropped: number } | null } } | undefined;
+      const value = got?.result?.value;
+      const count = (n: number): number => (Number.isFinite(n) ? n : 0);
+      if (value && typeof value.loaded === "boolean") return { loaded: value.loaded, pending: count(value.pending), dropped: count(value.dropped) };
     }
-    return false;
+    return undefined;
   }
 
   /**
