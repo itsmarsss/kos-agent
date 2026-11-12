@@ -170,6 +170,14 @@ export const NAV: Array<{ route: Route; label: string }> = [
 export const RUNS_ROUTES: ReadonlySet<Route["name"]> = new Set(["history", "crons", "builds"]);
 
 /** Whether a nav entry is the one the current route belongs to. */
+/** The chat a route shows, by its conversation's id: a chat's, a project's (its orchestrator unless another is open), a blob's own page. */
+export function chatShown(route: Route): string | undefined {
+  if (route.name === "chats") return route.id;
+  if (route.name === "project") return route.id ?? `project:${route.slug}`;
+  if (route.name === "blobs" && route.blob !== undefined && route.blob !== "new") return `agent:${route.blob}`;
+  return undefined;
+}
+
 export function navActive(item: Route, route: Route): boolean {
   if (item.name === "history") return RUNS_ROUTES.has(route.name);
   if (item.name === "projects") {

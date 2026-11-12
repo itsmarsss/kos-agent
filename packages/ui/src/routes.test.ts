@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hrefFor, NAV, navActive, pageKeyOf, parseRoute } from "./routes.js";
+import { chatShown, hrefFor, NAV, navActive, pageKeyOf, parseRoute } from "./routes.js";
 
 describe("an approval's own address", () => {
   it("opens the inbox on that approval, and writes the link the same way", async () => {
@@ -100,5 +100,16 @@ describe("parseRoute", () => {
       name: "page",
       id: "monthly_expense",
     });
+  });
+});
+
+describe("the chat a route shows", () => {
+  it("names a chat's, a project's and a blob's own page's conversation, and none elsewhere", () => {
+    expect(chatShown({ name: "chats", id: "primary:k" })).toBe("primary:k");
+    expect(chatShown({ name: "project", slug: "budget" })).toBe("project:budget");
+    expect(chatShown({ name: "project", slug: "budget", id: "agent:x" })).toBe("agent:x");
+    expect(chatShown({ name: "blobs", blob: "noter" })).toBe("agent:noter");
+    expect(chatShown({ name: "blobs", blob: "new" })).toBeUndefined();
+    expect(chatShown({ name: "artifacts" })).toBeUndefined();
   });
 });

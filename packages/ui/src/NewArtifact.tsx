@@ -33,7 +33,7 @@ const BLOB = "blob:";
  * or cannot be sent fails at once, and that is the failure the dialog keeps
  * the owner's words for. Past this the turn is running, and its chat, where
  * the owner is taken, shows it as it goes; a send that fails later still is
- * said quietly by the dashboard, which onAsked hands it to.
+ * said quietly by the dashboard (onAskFailed), as is one after the dialog went.
  */
 export const HANDOFF_MS = 1500;
 
@@ -50,11 +50,13 @@ export interface NewArtifactProps {
   open: boolean;
   projects: Project[];
   onClose: () => void;
-  /** The request was handed over: go to the chat that is making it. `sent` is the send itself, whose late failure the dashboard says. */
-  onAsked: (owner: ArtifactOwner, sent: Promise<unknown>) => void;
+  /** The request was handed over: go to the chat that is making it. */
+  onAsked: (owner: ArtifactOwner) => void;
+  /** The send failed where the dialog cannot say so: after it handed over, or after it went. */
+  onAskFailed?: (owner: ArtifactOwner, message: string) => void;
 }
 
-export function NewArtifactDialog({ open, projects, onClose, onAsked }: NewArtifactProps): ReactElement {
+export function NewArtifactDialog({ open, projects, onClose, onAsked, onAskFailed }: NewArtifactProps): ReactElement {
   const [kind, setKind] = useState<ArtifactKind>("doc");
   const [owner, setOwner] = useState(WORKSPACE);
   const [words, setWords] = useState("");
@@ -114,6 +116,11 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked }: NewArtif
     setSending(true);
     setError(undefined);
     const send = api.message(newRequest(kind, words, whose), chatIdOf(whose));
+    // Within the handover, with the dialog still here, it says a failure itself; any other is handed on, so none is lost.
+    let handed = false;
+    send.catch((err: unknown) => {
+      if (handed || !mounted.current) onAskFailed?.(whose, err instanceof Error ? err.message : String(err));
+    });
     try {
       await Promise.race([send, new Promise((r) => setTimeout(r, HANDOFF_MS))]);
     } catch (err) {
@@ -122,13 +129,12 @@ export function NewArtifactDialog({ open, projects, onClose, onAsked }: NewArtif
       setError(`Could not ask KOS: ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
-    // A failure after the handover is the dashboard's to say (onAsked), not an unhandled one here.
-    send.catch(() => undefined);
+    handed = true;
     if (!mounted.current) return;
     setSending(false);
     setWords("");
     onClose();
-    onAsked(whose, send);
+    onAsked(whose);
   };
 
   // One stop on the tab key; the arrows walk the kinds and choose as they go, as a radio group does.
