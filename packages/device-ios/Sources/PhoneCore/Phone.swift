@@ -116,6 +116,8 @@ public final class Phone: ObservableObject {
   /// pairing screen is what shows, and nothing listens.
   public func listen() {
     guard paired != nil else { return }
+    // Never behind an open artifact: the chat it is said in shows.
+    artifacts.close()
     if chat.usable {
       beginListening()
     } else {
@@ -303,11 +305,8 @@ public final class Phone: ObservableObject {
     }
     glance.askKOS = { [weak self] in self?.tell(.glance) }
     artifacts.tell = { [weak self] event in self?.tell(event) }
-    // Spoken words take the files picked for them, as typed ones do.
-    voice.send = { [weak self] words in
-      guard let self else { return }
-      self.chat.say(words, files: self.tray.files.map(\.name))
-    }
+    // Spoken words go alone: a question asked hands-free (Ask KOS) takes no file the owner did not see go with it.
+    voice.send = { [weak self] words in self?.chat.say(words) }
     // The owner's voice wins: a reply being read stops for it.
     voice.willListen = { [weak self] in self?.reader.stop() }
     // A turn ending changes what is running: the glance is asked again.
@@ -352,14 +351,20 @@ public final class Phone: ObservableObject {
     tell(.decide(approval: id, approved: approved, remember: remember))
   }
 
-  /// The owner's words, with the files picked for them sent ahead in parts; a command goes alone, and the files wait.
+  /// The owner's words, with the files the box showed going with them sent ahead in parts. Words that named none
+  /// (spoken ones, a command) go alone, and the files wait in the box.
   private func say(_ text: String) {
-    let files = ChatMenus.isCommand(text) ? [] : tray.take()
+    let files = (chat.sendingFiles[text] ?? []).isEmpty ? [] : tray.take()
     for file in files {
       for part in AttachmentPart.parts(id: file.id, name: file.name, mediaType: file.mediaType, bytes: file.bytes) { tell(.attach(part)) }
     }
-    tell(.send(text: text, beside: .none, files: files.map(\.id)))
-    // KOS says it has the words at once; nothing back in a while is a KOS that cannot talk here.
+    taking?.cancel()
+    // KOS says it has the words at once, once they are all sent: the wait starts when the last of them has gone, so
+    // a slow upload is not taken for a KOS that cannot talk here.
+    tell(.send(text: text, beside: .none, files: files.map(\.id))) { [weak self] in self?.waitToBeTaken() }
+  }
+
+  private func waitToBeTaken() {
     taking?.cancel()
     let sleep = timing.sleep, within = timing.takeWithin
     taking = Task { [weak self] in
@@ -375,9 +380,13 @@ public final class Phone: ObservableObject {
     taking = nil
   }
 
-  private func tell(_ event: ChatEvent) {
-    guard let line, let frame = try? event.frame() else { return }
-    line.send(frame)
+  /// An event to KOS; `done` once it went, or could not.
+  private func tell(_ event: ChatEvent, done: (@MainActor () -> Void)? = nil) {
+    guard let line, let frame = try? event.frame() else {
+      done?()
+      return
+    }
+    line.send(frame, done: done)
   }
 
   private enum Keys {

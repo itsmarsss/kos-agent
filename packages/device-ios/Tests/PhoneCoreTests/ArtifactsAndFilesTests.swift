@@ -190,13 +190,47 @@ struct AttachmentTests {
     #expect(rig.phone.tray.files.map(\.name) == ["list.txt"])
   }
 
-  @Test func spokenWordsTakeThePickedFilesToo() async throws {
+  @Test func spokenWordsGoAloneAndTheFilesWait() async throws {
     let rig = try await Rig.online()
     rig.phone.tray.addFile(Data("milk".utf8), name: "list.txt")
     rig.phone.voice.press()
     await settle()
     rig.speech.say("what is on this list", final: true)
     await settle()
-    #expect((rig.line.last("chat.send")?["files"] as? [String])?.count == 1)
+    #expect(rig.line.last("chat.send")?["text"] as? String == "what is on this list")
+    #expect(rig.line.last("chat.send")?["files"] == nil)
+    #expect(!rig.line.events.contains("chat.attach"))
+    #expect(rig.phone.tray.files.map(\.name) == ["list.txt"])
+  }
+
+  @Test func filesGivenBackGoAgainUnderNewIds() async throws {
+    let rig = try await Rig.online()
+    rig.phone.tray.addFile(Data("milk".utf8), name: "list.txt")
+    let first = try #require(rig.phone.tray.files.first?.id)
+    rig.phone.chat.say("and this", files: ["list.txt"])
+    _ = try await rig.line.call("chat.status", #"{"chat":"phone:owner","said":"and this","error":"The line dropped."}"#)
+    let again = try #require(rig.phone.tray.files.first?.id)
+    #expect(again != first)
+    #expect(rig.phone.tray.files.first?.bytes == Data("milk".utf8))
+  }
+
+  @Test func theWaitForKOSStartsOnceTheLastPartHasGone() async throws {
+    let rig = try await Rig.online()
+    rig.line.holding = true
+    rig.phone.tray.addFile(Data(repeating: 7, count: AttachmentPart.chars), name: "notes.txt")
+    rig.phone.chat.say("read this", files: ["notes.txt"])
+    await settle()
+    #expect(!rig.sleeps.pending.contains(.seconds(12)))
+    rig.line.release()
+    await settle()
+    #expect(rig.sleeps.pending.contains(.seconds(12)))
+  }
+
+  @Test func refusesAFileOfExactlyTheLimitAsKOSMeasuresIt() {
+    let tray = AttachmentTray()
+    tray.addFile(Data(count: AttachmentTray.largest), name: "scan.pdf")
+    #expect(tray.files.isEmpty && tray.note != nil)
+    tray.addFile(Data(count: AttachmentTray.largest - 2), name: "scan.pdf")
+    #expect(tray.files.count == 1)
   }
 }

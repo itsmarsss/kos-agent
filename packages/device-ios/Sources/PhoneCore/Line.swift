@@ -16,7 +16,8 @@ public protocol Line: AnyObject {
   func start(_ pairing: Pairing)
   func hold(_ pairing: Pairing)
   func redialNow()
-  func send(_ data: Data)
+  /// One frame; `done` is told once it went, or could not go.
+  func send(_ data: Data, done: (@MainActor () -> Void)?)
   func unpair(then done: @escaping () -> Void)
   func stop()
 }

@@ -18,7 +18,7 @@ public final class QuietLine: Line {
   public func start(_ pairing: Pairing) {}
   public func hold(_ pairing: Pairing) {}
   public func redialNow() {}
-  public func send(_ data: Data) {}
+  public func send(_ data: Data, done: (@MainActor () -> Void)?) { done?() }
   public func unpair(then done: @escaping () -> Void) { done() }
   public func stop() {}
 }

@@ -25,7 +25,21 @@ final class FakeLine: Line {
   func start(_ pairing: Pairing) { started = pairing }
   func hold(_ pairing: Pairing) {}
   func redialNow() { redialled += 1 }
-  func send(_ data: Data) { sent.append((try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]) }
+  /// Frames held on their way, as a slow line holds them: each told gone only at `release`.
+  var holding = false
+  private var held: [@MainActor () -> Void] = []
+
+  func send(_ data: Data, done: (@MainActor () -> Void)?) {
+    sent.append((try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:])
+    guard let done else { return }
+    if holding { held.append(done) } else { done() }
+  }
+
+  func release() {
+    let waiting = held
+    held = []
+    for done in waiting { done() }
+  }
   func unpair(then done: @escaping () -> Void) {
     unpaired = true
     done()

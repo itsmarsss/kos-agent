@@ -157,13 +157,17 @@ public final class Connection: NSObject {
   }
 
   /// Sends a message on a proven line; a message with no line to go on is dropped, as a session ends with it.
-  public func send(_ data: Data) {
-    guard proven, let task else { return }
+  /// One frame to KOS; `done`, when given, is told once it went, or could not go.
+  public func send(_ data: Data, done: (@MainActor () -> Void)? = nil) {
+    guard proven, let task else {
+      done?()
+      return
+    }
     let generation = generation
     task.send(.string(String(decoding: data, as: UTF8.self))) { [weak self] error in
-      guard let error else { return }
       Task { @MainActor in
-        guard let self, self.generation == generation else { return }
+        done?()
+        guard let error, let self, self.generation == generation else { return }
         self.lost(error.localizedDescription)
       }
     }

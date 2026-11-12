@@ -28,6 +28,9 @@ public final class AttachmentTray: ObservableObject {
     }
 
     public var isPicture: Bool { mediaType.hasPrefix("image/") }
+
+    /// The same file under a new id.
+    var renewed: File { File(name: name, mediaType: mediaType, bytes: bytes, thumbnail: thumbnail) }
   }
 
   /// Files with one message, as KOS takes them.
@@ -86,10 +89,11 @@ public final class AttachmentTray: ObservableObject {
     away = []
   }
 
-  /// KOS never took the words: what went with them is back in the box, ahead of anything picked since.
+  /// KOS never took the words: what went with them is back in the box, ahead of anything picked since, each under a
+  /// new id, so sending them again is a new file to KOS rather than the end of one it half has.
   public func giveBack() {
     guard !away.isEmpty else { return }
-    files = Array((away + files).prefix(Self.most))
+    files = Array((away.map(\.renewed) + files).prefix(Self.most))
     away = []
   }
 
@@ -101,7 +105,8 @@ public final class AttachmentTray: ObservableObject {
 
   private func add(_ file: File) {
     guard !full else { return refuse("\(Self.most) files go with one message.") }
-    guard file.bytes.count <= Self.largest else {
+    // Measured as KOS measures it, from the base64's length (harness attachments.ts), so a file it takes here goes.
+    guard (file.bytes.count + 2) / 3 * 3 <= Self.largest else {
       return refuse("\(file.name) is \(Self.megabytes(file.bytes.count)); KOS takes files up to \(Self.largest / 1024 / 1024) MB.")
     }
     note = nil
