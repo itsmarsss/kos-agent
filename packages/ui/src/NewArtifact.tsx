@@ -40,8 +40,9 @@ const ownerOfValue = (value: string): ArtifactOwner => (value === WORKSPACE ? nu
 
 /** What the owner's chat is asked: the owner's words, then the kind, where it goes, and how to finish. */
 export function newRequest(kind: ArtifactKind, words: string, owner: ArtifactOwner): string {
-  const where = !owner ? ", leaving project out so it is a workspace artifact" : "project" in owner ? ` under project "${owner.project}"` : ", leaving project out so it is your own";
-  return `${words.trim()}\n\nMake this as a ${KIND_WORD[kind].toLowerCase()} with artifacts.write${where}. Read artifacts.guide for a ${kind} first, and check it once with artifacts.check.`;
+  const word = KIND_WORD[kind].toLowerCase();
+  const where = !owner ? ", leaving project out so it is a workspace artifact" : "project" in owner ? ` for @project:${owner.project}` : ", leaving project out so it is your own";
+  return `${words.trim()}\n\nWrite it as a ${word}: read artifacts.guide for a ${word}, write it with artifacts.write${where}, and check it once with artifacts.check.`;
 }
 
 export interface NewArtifactProps {

@@ -156,9 +156,11 @@ describe("the Artifacts page", () => {
   });
 
   it("asks KOS at the root for a workspace artifact, and a blob in its own thread", () => {
-    expect(newRequest("doc", " A memo ", null)).toMatch(/^A memo\n\nMake this as a doc with artifacts\.write, leaving project out so it is a workspace artifact\./);
-    expect(newRequest("sheet", "Budget", { blob: "noter" })).toContain("leaving project out so it is your own");
-    expect(newRequest("page", "Board", { project: "garden" })).toContain('under project "garden"');
+    expect(newRequest("doc", " A memo ", null)).toBe(
+      "A memo\n\nWrite it as a doc: read artifacts.guide for a doc, write it with artifacts.write, leaving project out so it is a workspace artifact, and check it once with artifacts.check.",
+    );
+    expect(newRequest("sheet", "Budget", { blob: "noter" })).toContain("write it with artifacts.write, leaving project out so it is your own,");
+    expect(newRequest("page", "Board", { project: "garden" })).toContain("write it with artifacts.write for @project:garden, and check it once");
   });
 
   it("shows a capture when there is a fresh one and redraws a missing or stale one, one at a time", async () => {
