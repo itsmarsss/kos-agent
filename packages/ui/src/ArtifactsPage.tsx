@@ -1,4 +1,4 @@
-import { Chips, Count, Empty, Face, NavIcon, PlusIcon, Skeleton, Tag, type ChipOption } from "@kos/kit";
+import { Chips, Count, Empty, Face, NavIcon, PlusIcon, Skeleton, type ChipOption } from "@kos/kit";
 import { SPAN_COLUMNS, WORKSPACE_SCOPE, relativeWords, type ArtifactKind, type HtmlPage, type WidgetOutline } from "@kos/shared";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
 
@@ -8,9 +8,12 @@ import { Drawer } from "./Drawer.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { VersionList } from "./PageHistory.js";
 import type { Route } from "./routes.js";
-import { Select } from "./Select.js";
+import { Select, type SelectOption } from "./Select.js";
 import { ArtifactHead, ArtifactMenu, type MenuItem } from "./ArtifactHead.js";
-import { TrashNotice, useArtifactOps, type ArtifactChange } from "./ArtifactManage.js";
+import { emptyWords, TrashNotice, useArtifactOps, type ArtifactChange } from "./ArtifactManage.js";
+import { TrashList } from "./ArtifactTrash.js";
+import { ConfirmButton } from "./kit.js";
+import { NewArtifactDialog } from "./NewArtifact.js";
 import { DeckPresenter } from "./DeckPresenter.js";
 import { openAudience, presentSession } from "./presentlink.js";
 import { hrefFor } from "./routes.js";
@@ -76,19 +79,24 @@ export function useDashboardTheme(): "light" | "dark" {
   return theme;
 }
 
-/** How the gallery is laid out: one grid, newest first, or a section per project. */
+/** How the gallery is laid out: one grid, newest first, or a section per owner. */
 type Grouping = "recent" | "project";
-const GROUPINGS: readonly ChipOption<Grouping>[] = [
-  ["recent", "Recent"],
-  ["project", "By owner"],
+const GROUPINGS: SelectOption[] = [
+  { value: "recent", label: "Recent" },
+  { value: "project", label: "By owner" },
 ];
-
-/** What New artifact starts the root chat with, for the owner to finish. */
-export const NEW_ARTIFACT_WORDS = "Make a ";
 
 /** How many cards the loading gallery draws in their place. */
 const SKELETONS = 6;
 
+/** An artifact's kind as its card says it: its word, or an older widget page's tag. */
+const kindWord = (a: ArtifactSummary): string => (isWidgetPage(a) ? WIDGET_PAGE_TAG : KIND_WORD[a.artifactKind]);
+
+/**
+ * One artifact in the gallery: its capture at a fixed 16:10, its title, a
+ * line of description when it has one, then one quiet line of kind, owner and
+ * time. Its menu sits over the capture's corner, beside the card's button.
+ */
 function ArtifactCard({ a, projects, theme, onOpen, menu }: { a: ArtifactSummary; projects: Project[]; theme: "light" | "dark"; onOpen: () => void; menu: MenuItem[] }): ReactElement {
   return (
     <div className="artifact-card-wrap">
@@ -106,16 +114,15 @@ function ArtifactCard({ a, projects, theme, onOpen, menu }: { a: ArtifactSummary
         </span>
         <span className="artifact-card-body">
           <span className="artifact-card-title">{a.title}</span>
-          <span className="artifact-card-desc">{a.description || "\u00a0"}</span>
+          {a.description && <span className="artifact-card-desc">{a.description}</span>}
           <span className="artifact-card-meta">
-            {isWidgetPage(a) ? <Tag title={WIDGET_PAGE_HINT}>{WIDGET_PAGE_TAG}</Tag> : <Tag>{KIND_WORD[a.artifactKind]}</Tag>}
+            <span className="artifact-card-kind" {...(isWidgetPage(a) ? { title: WIDGET_PAGE_HINT } : {})}>
+              {kindWord(a)}
+            </span>
             <span className="artifact-card-owner">
               <OwnerMark record={a} projects={projects} />
             </span>
-            {/* In the trash, when it went there: the view's own head says it is the trash. */}
-            <span className="artifact-card-time" {...(a.trashedAt !== undefined ? { title: "When it was moved to the trash" } : {})}>
-              {relativeWords(Math.round((a.trashedAt ?? a.updatedAt) / 1000))}
-            </span>
+            <span className="artifact-card-time">{relativeWords(Math.round(a.updatedAt / 1000))}</span>
           </span>
         </span>
       </button>
@@ -160,7 +167,16 @@ type View = "all" | "trash";
 const newestFirst = (items: ArtifactSummary[]): ArtifactSummary[] => [...items].sort((a, b) => b.updatedAt - a.updatedAt);
 const trashedFirst = (items: ArtifactSummary[]): ArtifactSummary[] => [...items].sort((a, b) => (b.trashedAt ?? 0) - (a.trashedAt ?? 0));
 
-export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]; onOpen: (id: string) => void; onNew?: (words: string) => void }): ReactElement {
+export function ArtifactsPage({
+  projects,
+  onOpen,
+  onAsked,
+}: {
+  projects: Project[];
+  onOpen: (id: string) => void;
+  /** New artifact's request went to the owner's chat: go there. Without it there is no New artifact. */
+  onAsked?: (owner: ArtifactOwner) => void;
+}): ReactElement {
   const theme = useDashboardTheme();
   const [list, setList] = useState<ArtifactSummary[]>();
   const [trash, setTrash] = useState<ArtifactSummary[]>();
@@ -172,6 +188,7 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
   const [project, setProject] = useState(ALL_PROJECTS);
   const [query, setQuery] = useState("");
   const [grouping, setGrouping] = useState<Grouping>("recent");
+  const [making, setMaking] = useState(false);
   const bySlug = useMemo(() => new Map(projects.map((p) => [p.slug, p])), [projects]);
 
   useEffect(() => {
@@ -257,7 +274,7 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
     const slugs = [...new Set((source ?? []).flatMap((a) => (a.projectSlug ? [a.projectSlug] : [])))];
     const blobs = [...new Map((source ?? []).flatMap((a) => (a.blob ? [[ownerValue(a), a] as const] : []))).values()].sort((a, b) => ownerName(a, projects).localeCompare(ownerName(b, projects)));
     return [
-      { value: ALL_PROJECTS, label: "Everyone's" },
+      { value: ALL_PROJECTS, label: "All owners" },
       ...((source ?? []).some((a) => a.projectSlug === null && !a.blob) ? [{ value: WORKSPACE_SCOPE, label: "Workspace" }] : []),
       ...slugs
         .map((s) => ({ value: s, label: bySlug.get(s)?.name ?? s, icon: <ProjectMark slug={s} name={bySlug.get(s)?.name ?? s} colour={bySlug.get(s)?.colour} /> }))
@@ -276,52 +293,44 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
   }, [shown]);
 
   const filtered = kind !== "all" || project !== ALL_PROJECTS || query.trim() !== "";
+  const clearFilters = (): void => {
+    setKind("all");
+    setProject(ALL_PROJECTS);
+    setQuery("");
+  };
   const card = (a: ArtifactSummary): ReactElement => <ArtifactCard a={a} projects={projects} theme={theme} onOpen={() => onOpen(a.id)} menu={ops.items(a)} />;
   const show = (next: View): void => {
     setView(next);
-    setProject(ALL_PROJECTS);
+    clearFilters();
     setTrashed(undefined);
   };
-  const newArtifact = onNew ? (
-    <button type="button" className="btn btn--primary btn--sm artifacts-new" onClick={() => onNew(NEW_ARTIFACT_WORDS)}>
+  const newArtifact = onAsked ? (
+    <button type="button" className="btn btn--primary artifacts-new" onClick={() => setMaking(true)}>
       <PlusIcon size={13} title="" />
       New artifact
     </button>
   ) : null;
   const actions = inTrash ? (
-    <button type="button" className="btn btn--sm" onClick={() => show("all")}>
-      Back to artifacts
-    </button>
-  ) : (
     <>
-      <button type="button" className="btn btn--ghost btn--sm artifacts-trash" onClick={() => show("trash")}>
-        Trash
-        {trash && trash.length > 0 && <Count n={trash.length} />}
+      <button type="button" className="btn btn--ghost" onClick={() => show("all")}>
+        Back to artifacts
       </button>
-      {newArtifact}
+      {trash && trash.length > 0 && (
+        <ConfirmButton className="btn btn--danger" label="Empty trash" text={emptyWords(trash.length)} disabled={ops.busy} onConfirm={() => ops.empty(trash)} />
+      )}
     </>
+  ) : (
+    newArtifact
   );
+  const search = inTrash ? "Search the trash" : "Search artifacts";
 
   return (
-    <div className="artifacts">
+    <div className={inTrash ? "artifacts is-trash" : "artifacts"}>
       <PageHead
         title={inTrash ? "Trash" : "Artifacts"}
         {...(source ? { count: source.length } : {})}
-        subtitle={
-          inTrash
-            ? "Kept as it was until you restore it or delete it for good. Nothing is deleted on its own."
-            : "The pages, docs, decks and sheets KOS has made, across projects, blobs and the workspace."
-        }
-        search={
-          <input
-            className="list-search"
-            type="search"
-            placeholder={inTrash ? "Search the trash" : "Search artifacts"}
-            aria-label={inTrash ? "Search the trash" : "Search artifacts"}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        }
+        subtitle={inTrash ? "Nothing is deleted on its own. Each stays as it was until you restore it or delete it forever." : "The pages, docs, decks and sheets KOS has made for you."}
+        search={<input className="list-search" type="search" placeholder={search} aria-label={search} value={query} onChange={(e) => setQuery(e.target.value)} />}
         actions={actions}
       />
       {trashed && !inTrash && (
@@ -337,12 +346,19 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
           </span>
         </div>
       )}
-      {source && source.length > 0 && (
-        <div className="artifacts-bar">
-          <Chips options={kinds} selected={kind} onChoose={setKind} label="Kind" small scroll />
+      {((source && source.length > 0) || !inTrash) && (
+        <div className="artifacts-bar" role="toolbar" aria-label="Filters">
+          {source && source.length > 0 && <Chips options={kinds} selected={kind} onChoose={setKind} label="Kind" small scroll />}
           <div className="artifacts-bar-end">
-            {owners.length > 2 && <Select value={project} options={owners} onChange={setProject} label="Owner" />}
-            {!inTrash && <Chips options={GROUPINGS} selected={grouping} onChoose={setGrouping} label="Group" small />}
+            {owners.length > 2 && <Select className="artifacts-select" value={project} options={owners} onChange={setProject} label="Owner" />}
+            {!inTrash && source && source.length > 0 && <Select className="artifacts-select" value={grouping} options={GROUPINGS} onChange={(g) => setGrouping(g as Grouping)} label="Sort" />}
+            {!inTrash && (
+              <button type="button" className="btn btn--ghost btn--sm artifacts-trash" onClick={() => show("trash")}>
+                <NavIcon name="trash" />
+                Trash
+                {trash && trash.length > 0 && <Count n={trash.length} />}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -359,7 +375,6 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
                 <Skeleton className="artifact-thumb" radius={0} height="auto" />
                 <span className="artifact-card-body">
                   <Skeleton width="60%" height={14} />
-                  <Skeleton width="85%" height={12} />
                   <Skeleton width="40%" height={12} />
                 </span>
               </span>
@@ -382,27 +397,19 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
         <div className="artifacts-none">
           <Empty inline>No artifact matches these filters.</Empty>
           {filtered && (
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              onClick={() => {
-                setKind("all");
-                setProject(ALL_PROJECTS);
-                setQuery("");
-              }}
-            >
+            <button type="button" className="btn btn--ghost btn--sm" onClick={clearFilters}>
               Clear filters
             </button>
           )}
         </div>
       )}
-      {shown.length > 0 && (inTrash || grouping === "recent") && (
-        <section className="artifact-group">
-          <h2 className="label">{inTrash ? "Recently trashed" : "Recently updated"}</h2>
-          <CardGrid items={shown} label={inTrash ? "Trash" : "Artifacts"}>
-            {card}
-          </CardGrid>
-        </section>
+      {shown.length > 0 && inTrash && (
+        <TrashList items={shown} theme={theme} ops={ops} kindOf={kindWord} owner={(a) => <OwnerMark record={a} projects={projects} />} onOpen={onOpen} />
+      )}
+      {shown.length > 0 && !inTrash && grouping === "recent" && (
+        <CardGrid items={shown} label="Artifacts">
+          {card}
+        </CardGrid>
       )}
       {shown.length > 0 && !inTrash && grouping === "project" && (
         <div className="artifact-groups" role="list" aria-label="Artifacts">
@@ -419,6 +426,7 @@ export function ArtifactsPage({ projects, onOpen, onNew }: { projects: Project[]
           ))}
         </div>
       )}
+      {onAsked && <NewArtifactDialog open={making} projects={projects} onClose={() => setMaking(false)} onAsked={onAsked} />}
       {ops.dialogs}
     </div>
   );

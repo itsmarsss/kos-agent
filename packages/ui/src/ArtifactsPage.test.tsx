@@ -2,8 +2,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { api, type ArtifactSummary, type Project } from "./api.js";
-import { ArtifactViewer, ArtifactsPage, NEW_ARTIFACT_WORDS, chatOf, convertRequest, editRequest, settleOpenViewers } from "./ArtifactsPage.js";
+import { api, type AgentInfo, type ArtifactSummary, type Project } from "./api.js";
+import { ArtifactViewer, ArtifactsPage, chatOf, convertRequest, editRequest, settleOpenViewers } from "./ArtifactsPage.js";
+import { newRequest } from "./NewArtifact.js";
 import { hrefFor, NAV, parseRoute } from "./routes.js";
 
 beforeAll(() => {
@@ -73,7 +74,8 @@ describe("the Artifacts page", () => {
     answer(ART);
     await waitFor(() => expect(titles()).toHaveLength(4));
     expect(screen.queryByRole("list", { name: "Loading artifacts" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "By owner" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sort" }));
+    fireEvent.click(screen.getByRole("option", { name: "By owner" }));
     const inGroup = (name: string): string[] => [...screen.getByRole("list", { name }).querySelectorAll(".artifact-card-title")].map((t) => t.textContent ?? "");
     expect(inGroup("Household budget")).toEqual(["Spending board", "Ledger"]);
     // The workspace's own come last.
@@ -82,17 +84,40 @@ describe("the Artifacts page", () => {
     expect(heads).toEqual(["Household budget2", "Workspace2"]);
   });
 
-  it("starts a new artifact in KOS's root chat, with the words to finish", async () => {
+  it("makes a new artifact from a kind, an owner and a sentence, asked in the owner's own chat", async () => {
     vi.spyOn(api, "artifacts").mockResolvedValue([]);
-    const started = vi.fn();
-    render(<ArtifactsPage projects={projects} onOpen={() => undefined} onNew={started} />);
+    vi.spyOn(api, "agents").mockResolvedValue({ agents: [{ name: "noter" } as AgentInfo], invalid: [] });
+    const sent = vi.spyOn(api, "message").mockResolvedValue({} as never);
+    const asked = vi.fn();
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} />);
     await screen.findByText("Nothing made yet");
     // In the head, and beside the empty gallery.
     const buttons = screen.getAllByRole("button", { name: "New artifact" });
     expect(buttons).toHaveLength(2);
     fireEvent.click(buttons[0]!);
-    expect(started).toHaveBeenCalledWith(NEW_ARTIFACT_WORDS);
-    expect(NEW_ARTIFACT_WORDS).toBe("Make a ");
+    const dialog = await screen.findByRole("dialog", { name: "New artifact" });
+    // A doc to begin with; the arrows walk the kinds as a radio group.
+    const kinds = within(dialog).getByRole("radiogroup", { name: "Kind" });
+    expect(within(kinds).getByRole("radio", { name: /Doc/ }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.keyDown(kinds, { key: "ArrowRight" });
+    expect(within(kinds).getByRole("radio", { name: /Deck/ }).getAttribute("aria-checked")).toBe("true");
+    expect(within(dialog).getByText("Goes to KOS")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Owner" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Household budget" }));
+    expect(within(dialog).getByText("Goes to Household budget's chat")).toBeTruthy();
+    const ask = within(dialog).getByRole("button", { name: "Ask KOS" }) as HTMLButtonElement;
+    expect(ask.disabled).toBe(true);
+    fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "Ten slides on the quarter" } });
+    fireEvent.click(ask);
+    expect(sent).toHaveBeenCalledWith(newRequest("deck", "Ten slides on the quarter", { project: "budget" }), "project:budget");
+    expect(asked).toHaveBeenCalledWith({ project: "budget" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("asks KOS at the root for a workspace artifact, and a blob in its own thread", () => {
+    expect(newRequest("doc", " A memo ", null)).toMatch(/^A memo\n\nMake this as a doc with artifacts\.write, leaving project out so it is a workspace artifact\./);
+    expect(newRequest("sheet", "Budget", { blob: "noter" })).toContain("leaving project out so it is your own");
+    expect(newRequest("page", "Board", { project: "garden" })).toContain('under project "garden"');
   });
 
   it("shows a capture when there is a fresh one and redraws a missing or stale one, one at a time", async () => {

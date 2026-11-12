@@ -7272,21 +7272,30 @@ html.has-presenter { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { .audience-bar { transition: none; } }
 
 /* —— the Artifacts page (ArtifactsPage.tsx) ——
-   A gallery: a bar of filters, then cards of one shape, each its capture on
-   top (16:10, from the top, as a page is read) and three short lines under
-   it. The card answers the pointer as a row does: lighter, its line
-   stronger, never a shadow. It sits on the page's ground, as Projects and
-   Files do, with the list pages' one container (.list-page): the cards are
-   the only shapes, each a panel. */
+   The page head (title, one search, New artifact), one bar of filters (kind
+   at its start; owner, sort and the trash at its end), then cards of one
+   shape: the capture on top (16:10, from the top, as a page is read), the
+   title, a line of description when there is one, and one quiet line of
+   kind, owner and time pinned to the foot. The card answers the pointer as a
+   row does: lighter, its line stronger, never a shadow. */
 .list-title .count { margin-left: 0.5rem; vertical-align: 0.3em; font-size: var(--text-sm); }
 .artifacts-new { display: inline-flex; align-items: center; gap: 0.35rem; }
-.artifacts-bar { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem 0.75rem; flex-wrap: wrap; min-width: 0; padding-bottom: 0.15rem; }
-.artifacts-bar > .chips { flex: 1 1 0; }
-.artifacts-bar-end { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.artifacts { gap: 14px; }
+.artifacts-bar { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; min-width: 0; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.artifacts-bar > .chips { flex: 1 1 auto; }
+.artifacts-bar-end { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+/* The bar's selects at the chips' height, so the row reads as one line of controls. */
+.artifacts-select .sel-button { display: inline-flex; align-items: center; gap: 6px; height: 1.9rem; padding: 0 0.6rem; font-size: var(--text-sm); color: var(--muted); background: var(--panel-2); }
+.artifacts-select .sel-button:hover:not(:disabled) { background: var(--panel-2); }
+.artifacts-select .sel-value { max-width: 11rem; }
+.artifacts-trash { display: inline-flex; align-items: center; gap: 6px; height: 1.9rem; }
+.artifacts-trash svg { width: 15px; height: 15px; }
+.artifacts-bar-end .artifacts-trash { margin-left: 4px; position: relative; }
+.artifacts-bar-end .artifacts-trash::before { content: ""; position: absolute; left: -6px; top: 6px; bottom: 6px; border-left: 1px solid var(--line); }
 .artifacts-empty, .artifacts-none { display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; }
-.artifact-groups { display: flex; flex-direction: column; gap: 1.4rem; }
-.artifact-group { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
-.artifact-group > .label { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.35rem; }
+.artifact-groups { display: flex; flex-direction: column; gap: 24px; }
+.artifact-group { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.artifact-group > .label { display: flex; align-items: center; gap: 0.4rem; }
 .artifact-grid {
   list-style: none;
   margin: 0;
@@ -7348,14 +7357,18 @@ html.has-presenter { overflow: hidden; }
 .artifact-outline-cell[data-type="form"]::after { left: 7px; top: 22px; width: 22%; height: 9px; background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .artifact-outline-cell[data-type="custom_html"] { height: 82px; }
 .artifact-outline-cell[data-type="custom_html"]::after { inset: 8px; border: 1px dashed var(--sketch); }
-.artifact-card-body { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px 12px; min-width: 0; }
-.artifact-card-title { font-size: var(--text-lg); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color 140ms ease; }
+.artifact-card-body { flex: 1; display: flex; flex-direction: column; gap: 3px; padding: 10px 12px 11px; min-width: 0; }
+.artifact-card-title { font-size: var(--text-md); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color 140ms ease; }
 .artifact-card-desc { color: var(--muted); font-size: var(--text-base); line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.artifact-card-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; color: var(--faint); font-size: var(--text-sm); min-width: 0; }
-.artifact-card-owner { display: inline-flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; overflow: hidden; }
-.artifact-card-owner > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.artifact-card-owner .project-mark, .artifact-view-owner .project-mark { width: 16px; height: 16px; font-size: 9.5px; border-radius: 4px; flex: none; }
-.artifact-card-time { flex: none; margin-left: auto; white-space: nowrap; }
+/* One quiet line, kind · owner · time, at the card's foot whatever is above it. */
+.artifact-card-meta { display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 5px; color: var(--faint); font-size: var(--text-sm); min-width: 0; white-space: nowrap; }
+.artifact-card-meta > * + *::before { content: "·"; margin-right: 6px; color: var(--faint); }
+.artifact-card-kind { flex: none; color: var(--muted); }
+.artifact-card-owner { display: inline-flex; align-items: center; gap: 5px; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.artifact-card-owner > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.artifact-card-owner .project-mark, .artifact-view-owner .project-mark { width: 14px; height: 14px; font-size: 8.5px; border-radius: 4px; flex: none; }
+.artifact-card-owner .face, .artifact-card-owner svg { flex: none; }
+.artifact-card-time { flex: none; }
 /* A card's menu sits over its capture's corner, beside the card's button rather than in it (ArtifactMenu). */
 .artifact-card-wrap { position: relative; display: flex; width: 100%; min-width: 0; }
 .artifact-card-menu { position: absolute; top: 8px; right: 8px; opacity: 0; transition: opacity 140ms ease-out; }
@@ -7504,17 +7517,43 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .versions-acts { display: flex; gap: 0.4rem; align-items: center; flex: none; }
 .artifact-preview { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem 0.8rem; flex-wrap: wrap; border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); background: var(--accent-dim); }
 .artifact-preview-acts { display: flex; gap: 0.4rem; }
+/* The trash: rows, each a way in, with its Restore and Delete forever beside it. */
+/* contain: its rows ask for no width of their own, so a long title is cut rather than widening a phone's page. */
+.trash-list { contain: inline-size; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); overflow: hidden; }
+.trash-row { display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 8px; min-width: 0; }
+.trash-row + .trash-row { border-top: 1px solid var(--line); }
+.trash-row-open { all: unset; box-sizing: border-box; flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 2px; border-radius: var(--r-sm); cursor: pointer; }
+.trash-row-open:hover .artifact-card-title { color: var(--accent); }
+.trash-row-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.trash-thumb { flex: none; width: 72px; aspect-ratio: 16 / 10; display: grid; place-items: center; border: 1px solid var(--line); border-radius: var(--r-xs); background: var(--panel-2); color: var(--faint); overflow: hidden; }
+.trash-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top center; opacity: 0.8; }
+.trash-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.trash-row-text .artifact-card-meta { margin-top: 0; padding-top: 0; }
+.trash-row-acts { flex: none; display: flex; align-items: center; gap: 6px; }
+.trash-row-acts .trash-delete { color: var(--danger); }
+
 @media (max-width: 560px) {
   .artifacts .list-head-tools { width: 100%; }
   .artifacts .list-search { flex: 1; min-width: 0; }
-  .artifacts-bar { flex-direction: column; align-items: stretch; }
+  .artifacts-bar { flex-direction: column; align-items: stretch; gap: 8px; }
   .artifacts-bar > .chips { flex: none; }
-  .artifacts-bar-end { justify-content: space-between; }
-  .artifact-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .artifact-card-body { padding: 8px 10px 10px; }
+  .artifacts-bar-end { margin-left: 0; }
+  .artifacts-bar-end .artifacts-trash { margin-left: auto; }
+  .artifacts-bar-end .artifacts-trash::before { content: none; }
+  /* A phone lists them: the capture small at the start, the title and the quiet line beside it, every row one height. */
+  .artifact-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .artifact-card { flex-direction: row; align-items: stretch; }
+  .artifact-card .artifact-thumb { flex: none; width: 104px; aspect-ratio: 16 / 10; border-bottom: 0; border-right: 1px solid var(--line); }
+  .artifact-card-body { padding: 8px 12px; justify-content: center; gap: 4px; }
   .artifact-card-desc { display: none; }
-  .artifact-card-meta { flex-wrap: wrap; gap: 4px 6px; }
-  .artifact-card-owner { order: -1; flex-basis: 100%; }
+  .artifact-card-meta { margin-top: 0; padding-top: 0; }
+  .artifact-card-menu { top: 6px; right: auto; left: 72px; opacity: 1; }
+  .artifact-card-menu .artifact-view-more { width: 24px; height: 24px; }
+  .artifacts.is-trash .list-search { flex: 1 1 100%; }
+  .artifacts.is-trash .list-head-tools .btn--danger { margin-left: auto; }
+  .trash-row { flex-wrap: wrap; gap: 6px; padding: 8px; }
+  .trash-row-open { flex-basis: 100%; }
+  .trash-row-acts { width: 100%; justify-content: flex-end; }
 }
 
 /* —— a project's or a blob's artifacts (ArtifactRail.tsx), and one open in place of the thread —— */

@@ -92,9 +92,6 @@ export function App(): React.ReactElement {
   const [firing, setFiring] = useState<number | null>(null);
   /** A message the harness sent, until the transcript has it. */
   const [seed, setSeed] = useState<{ id: string; text: string } | null>(null);
-  /** Words to start a chat's composer with, as the Artifacts page's New artifact does. */
-  const [prefill, setPrefill] = useState<{ id: string; text: string } | null>(null);
-  const prefilled = useCallback(() => setPrefill(null), []);
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [pages, setPages] = useState<PageSummary[]>([]);
   const [activity, setActivity] = useState<AuditRecord[]>([]);
@@ -970,7 +967,6 @@ export function App(): React.ReactElement {
         onChanged={() => void refresh()}
         onDecide={decideByPendingId}
         {...(seed ? { seed } : {})}
-        {...(prefill ? { prefill, onPrefilled: prefilled } : {})}
       />,
     );
   }
@@ -1030,12 +1026,7 @@ export function App(): React.ReactElement {
         <ArtifactsPage
           projects={projects}
           onOpen={(id) => go({ name: "artifacts", id })}
-          onNew={(text) => {
-            void chatOf(null).then((chat) => {
-              if (chat.name === "chats" && chat.id) setPrefill({ id: chat.id, text });
-              go(chat);
-            });
-          }}
+          onAsked={(owner) => void chatOf(owner).then(go)}
         />
       ),
     );

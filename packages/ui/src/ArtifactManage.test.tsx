@@ -34,6 +34,9 @@ function openViewer(record: ArtifactSummary, onBack = vi.fn()): void {
   render(<ArtifactViewer id={record.id} projects={projects} onBack={onBack} onOpenChat={() => undefined} />);
 }
 
+/** The titles in a list of cards or rows, in order. */
+const cards = (list = "Artifacts"): string[] => [...screen.getByRole("list", { name: list }).querySelectorAll(".artifact-card-title")].map((t) => t.textContent ?? "");
+
 async function menuItem(name: string, more = "More"): Promise<HTMLElement> {
   fireEvent.click(await screen.findByRole("button", { name: more }));
   return within(screen.getByRole("menu")).getByRole("menuitem", { name });
@@ -229,8 +232,9 @@ describe("exporting an artifact", () => {
     vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD]);
     render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
     fireEvent.click(await screen.findByRole("button", { name: "Trash1" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Actions for Old memo" }));
-    expect(labels()).toEqual(["Restore", "Delete forever"]);
+    // A row in the trash holds only its way back and its way out.
+    const row = within(screen.getByRole("list", { name: "Trash" })).getByRole("listitem");
+    expect(within(row).getAllByRole("button").map((b) => b.textContent)).toEqual(["Old memoDocWorkspace3 minutes ago", "Restore", "Delete forever"]);
   });
 
   it("names the file as the server does, in full when it says so in UTF-8", () => {
@@ -242,7 +246,6 @@ describe("exporting an artifact", () => {
 });
 
 describe("the gallery's trash", () => {
-  const cards = (list = "Artifacts"): string[] => [...screen.getByRole("list", { name: list }).querySelectorAll(".artifact-card-title")].map((t) => t.textContent ?? "");
 
   it("trashes from a card's menu, with an undo, and keeps it in a view of its own", async () => {
     vi.spyOn(api, "artifacts").mockResolvedValue([BRIEF, PITCH]);
@@ -277,7 +280,8 @@ describe("the gallery's trash", () => {
     render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
     fireEvent.click(await screen.findByRole("button", { name: "Trash1" }));
     const gone = vi.spyOn(api, "deleteArtifact").mockResolvedValue({ id: "old", deleted: true });
-    fireEvent.click(await menuItem("Delete forever", "Actions for Old memo"));
+    // Each row holds its own Restore and Delete forever.
+    fireEvent.click(within(screen.getByRole("list", { name: "Trash" })).getByRole("button", { name: "Delete forever" }));
     expect(gone).not.toHaveBeenCalled();
     fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete forever" }));
     await waitFor(() => expect(gone).toHaveBeenCalledWith("old"));
@@ -285,16 +289,50 @@ describe("the gallery's trash", () => {
     expect(screen.getByText(/Nothing is deleted on its own/)).toBeTruthy();
   });
 
-  it("brings one back from the trash's card menu, into the gallery", async () => {
+  it("brings one back from its row in the trash, into the gallery", async () => {
     vi.spyOn(api, "artifacts").mockResolvedValue([BRIEF]);
     vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD]);
     render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
     fireEvent.click(await screen.findByRole("button", { name: "Trash1" }));
     vi.spyOn(api, "restoreArtifact").mockResolvedValue({ ...OLD, trashedAt: undefined } as never);
-    fireEvent.click(await menuItem("Restore", "Actions for Old memo"));
+    fireEvent.click(screen.getByRole("button", { name: "Restore Old memo" }));
     expect(await screen.findByText("The trash is empty")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Back to artifacts" }));
     expect(cards()).toEqual(["Q4 brief", "Old memo"]);
+  });
+});
+
+describe("emptying the trash", () => {
+  const MEMO: ArtifactSummary = { ...OLD, id: "memo", title: "Spare memo", trashedAt: at(5) };
+
+  it("deletes everything in it for good, asking once first, and says so", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([BRIEF]);
+    vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD, MEMO]);
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Trash2" }));
+    const gone = vi.spyOn(api, "deleteArtifact").mockImplementation((id) => Promise.resolve({ id, deleted: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Empty trash" }));
+    expect(gone).not.toHaveBeenCalled();
+    const ask = await screen.findByRole("alertdialog");
+    expect(ask.textContent).toContain("Delete all 2 artifacts in the trash for good");
+    fireEvent.click(within(ask).getByRole("button", { name: "Empty trash" }));
+    await waitFor(() => expect(gone.mock.calls.map((c) => c[0])).toEqual(["old", "memo"]));
+    expect(await screen.findByText("The trash is empty")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Empty trash" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Back to artifacts" }));
+    expect(cards()).toEqual(["Q4 brief"]);
+  });
+
+  it("stops at the first that cannot be deleted, keeping it and the rest, and says why", async () => {
+    vi.spyOn(api, "artifacts").mockResolvedValue([BRIEF]);
+    vi.spyOn(api, "trashedArtifacts").mockResolvedValue([OLD, MEMO]);
+    render(<ArtifactsPage projects={projects} onOpen={() => undefined} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Trash2" }));
+    vi.spyOn(api, "deleteArtifact").mockRejectedValue(new Error("the disk is read-only"));
+    fireEvent.click(screen.getByRole("button", { name: "Empty trash" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Empty trash" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("the disk is read-only");
+    expect(cards("Trash")).toEqual(["Old memo", "Spare memo"]);
   });
 });
 

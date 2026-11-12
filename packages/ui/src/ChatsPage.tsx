@@ -161,9 +161,6 @@ export interface ChatsPageProps {
    * about nothing, and the question it was answering appeared a minute later.
    */
   seed?: { id: string; text: string };
-  /** Words to start the composer with in one chat, for the owner to finish and send; said once, then let go. */
-  prefill?: { id: string; text: string };
-  onPrefilled?: () => void;
 }
 
 
@@ -260,8 +257,6 @@ export function ChatsPage({
   onChanged,
   onDecide,
   seed,
-  prefill,
-  onPrefilled,
 }: ChatsPageProps): ReactElement {
   const [query, setQuery] = useState("");
   /** KOS's face, wherever KOS is drawn on this page. */
@@ -467,19 +462,6 @@ export function ChatsPage({
     };
   }, [project?.slug, conversations, activeId, approvals]);
   const suggestions = useSuggestions(trigger, suggestionOptions);
-
-  // Words handed over to start with ("Make a "): in the composer, the caret after them.
-  useEffect(() => {
-    if (!prefill || prefill.id !== activeId) return;
-    setDraft(prefill.text);
-    onPrefilled?.();
-    requestAnimationFrame(() => {
-      const el = inputRef.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(prefill.text.length, prefill.text.length);
-    });
-  }, [prefill, activeId, onPrefilled]);
 
   const syncTrigger = (): void => {
     const el = inputRef.current;
