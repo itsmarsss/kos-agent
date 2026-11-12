@@ -131,9 +131,6 @@ export function InboxDecided({
       })
       .catch(() => undefined);
   }, [highlight]);
-  useEffect(() => {
-    highlit.current?.scrollIntoView({ block: "center" });
-  }, [highlight, linked]);
 
   const loadOlder = (): void => {
     const last = rows.at(-1);
@@ -158,6 +155,13 @@ export function InboxDecided({
     () => (!linked || filter !== "all" || q || rows.some((r) => r.id === linked.id) ? rows : [linked, ...rows]),
     [rows, linked, filter, q],
   );
+  // Scrolled to once its row is drawn, which may be a page or a read after the link arrived.
+  const scrolledTo = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (highlight === undefined || scrolledTo.current === highlight || !highlit.current) return;
+    scrolledTo.current = highlight;
+    highlit.current.scrollIntoView({ block: "center" });
+  }, [highlight, shown]);
 
   if (total === 0 && shown.length === 0) return null;
   const toggle = (id: number): void =>

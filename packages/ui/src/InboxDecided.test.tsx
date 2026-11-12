@@ -167,6 +167,35 @@ describe("the decided list", () => {
     await waitFor(() => expect(within(group).getByRole("button", { name: /All/ }).getAttribute("aria-pressed")).toBe("true"));
   });
 
+  it("scrolls to a linked ask once its row arrives, and only once", async () => {
+    const scroll = vi.mocked(Element.prototype.scrollIntoView);
+    scroll.mockClear();
+    const all = decidedRows(8);
+    // The history comes back after the page has drawn, as it does over the network.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    serve(all);
+    const history = vi.mocked(api.approvalHistory);
+    const answer = history.getMockImplementation()!;
+    history.mockImplementation(async (query) => {
+      await gate;
+      return answer(query);
+    });
+    vi.mocked(api.approval).mockImplementation(async () => {
+      await gate;
+      return all[2]!;
+    });
+    const { rerender } = render(<InboxDecided mark={mark(8)} highlight={all[2]!.id} onOpenChat={() => {}} />);
+    await act(async () => {});
+    expect(scroll).not.toHaveBeenCalled();
+    await act(async () => release());
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
+    expect(scroll.mock.contexts[0]).toBe(document.querySelector(".inbox-decided-row.is-highlit"));
+    rerender(<InboxDecided mark={mark(9, 1001)} highlight={all[2]!.id} onOpenChat={() => {}} />);
+    await act(async () => {});
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+
   it("draws nothing when nothing was decided", async () => {
     serve([]);
     const { container } = render(<InboxDecided mark={{ total: 0, latest: null }} onOpenChat={() => {}} />);
