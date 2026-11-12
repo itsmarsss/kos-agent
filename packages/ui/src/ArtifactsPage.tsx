@@ -14,7 +14,7 @@ import { ArtifactHead, ArtifactMenu, type MenuItem } from "./ArtifactHead.js";
 import { emptyWords, TrashNotice, useArtifactOps, type ArtifactChange } from "./ArtifactManage.js";
 import { TrashList } from "./ArtifactTrash.js";
 import { ConfirmButton } from "./kit.js";
-import { NewArtifactDialog } from "./NewArtifact.js";
+import { NewArtifactDialog, type NewArtifactProps } from "./NewArtifact.js";
 import { DeckPresenter } from "./DeckPresenter.js";
 import { openAudience, presentSession } from "./presentlink.js";
 import { hrefFor } from "./routes.js";
@@ -174,7 +174,7 @@ export function ArtifactsPage({
   projects: Project[];
   onOpen: (id: string) => void;
   /** New artifact's request went to the owner's chat: go there. Without it there is no New artifact. */
-  onAsked?: (owner: ArtifactOwner) => void;
+  onAsked?: NewArtifactProps["onAsked"];
 }): ReactElement {
   const theme = useDashboardTheme();
   const [list, setList] = useState<ArtifactSummary[]>();

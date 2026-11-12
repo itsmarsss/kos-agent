@@ -122,7 +122,7 @@ describe("the Artifacts page", () => {
     fireEvent.change(within(dialog).getByLabelText("What should it be?"), { target: { value: "Ten slides on the quarter" } });
     fireEvent.click(ask);
     expect(sent).toHaveBeenCalledWith(newRequest("deck", "Ten slides on the quarter", { project: "budget" }), "project:budget");
-    await waitFor(() => expect(asked).toHaveBeenCalledWith({ project: "budget" }));
+    await waitFor(() => expect(asked).toHaveBeenCalledWith({ project: "budget" }, expect.any(Promise)));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
@@ -147,10 +147,11 @@ describe("the Artifacts page", () => {
     expect(asked).not.toHaveBeenCalled();
   });
 
-  it("hands over to the chat once the send has been on its way a moment, the answer still to come", async () => {
+  it("hands over to the chat once the send has been on its way a moment, the answer still to come, and hands on a late failure", async () => {
     vi.spyOn(api, "artifacts").mockResolvedValue([]);
     vi.spyOn(api, "agents").mockResolvedValue({ agents: [], invalid: [] });
-    vi.spyOn(api, "message").mockReturnValue(new Promise(() => undefined));
+    let refuse: (err: Error) => void = () => undefined;
+    vi.spyOn(api, "message").mockReturnValue(new Promise((_, reject) => (refuse = reject)));
     const asked = vi.fn();
     render(<ArtifactsPage projects={projects} onOpen={() => undefined} onAsked={asked} />);
     fireEvent.click((await screen.findAllByRole("button", { name: "New artifact" }))[0]!);
@@ -162,7 +163,11 @@ describe("the Artifacts page", () => {
       await act(() => vi.advanceTimersByTimeAsync(HANDOFF_MS - 100));
       expect(asked).not.toHaveBeenCalled();
       await act(() => vi.advanceTimersByTimeAsync(200));
-      expect(asked).toHaveBeenCalledWith(null);
+      expect(asked).toHaveBeenCalledWith(null, expect.any(Promise));
+      // The dialog has gone: the send failing now is the dashboard's to say, through what it was handed.
+      const late = (asked.mock.calls[0] as [unknown, Promise<unknown>])[1];
+      refuse(new Error("KOS is halted"));
+      await expect(late).rejects.toThrow("KOS is halted");
     } finally {
       vi.useRealTimers();
     }

@@ -1033,7 +1033,11 @@ export function App(): React.ReactElement {
         <ArtifactsPage
           projects={projects}
           onOpen={(id) => go({ name: "artifacts", id })}
-          onAsked={(owner) => void chatOf(owner).then(go)}
+          onAsked={(owner, sent) => {
+            // Past the dialog's handover a failed send has no dialog to say it in: a quiet toast here, rather than nothing.
+            sent.catch((err: unknown) => flash("err", `Could not ask KOS: ${err instanceof Error ? err.message : String(err)}`));
+            void chatOf(owner).then(go);
+          }}
         />
       ),
     );
