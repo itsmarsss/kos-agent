@@ -123,6 +123,37 @@ describe("the claims list", () => {
     expect(document.activeElement).toBe(edit);
   });
 
+  it("counts each kind on its chip", () => {
+    render(<KnowledgePage facts={[fact({ key: "p1", kind: "preference" }), fact({ key: "f1", pinned: true }), fact({ key: "f2" })]} tags={[]} onChanged={() => undefined} />);
+    const kind = screen.getByRole("group", { name: "Kind" });
+    expect(within(kind).getAllByRole("button").map((b) => b.textContent)).toEqual(["All 3", "Preferences 1", "Facts 2", "Pinned 1"]);
+  });
+
+  it("forgets a claim from its row, after asking once", async () => {
+    const forget = vi.spyOn(api, "deleteMemory").mockResolvedValue({ key: "monthly_budget", removed: true });
+    const changed = vi.fn();
+    render(<KnowledgePage facts={[fact()]} tags={[]} onChanged={changed} />);
+    const button = screen.getByRole("button", { name: "Forget monthly_budget" });
+    fireEvent.click(button);
+    expect(forget).not.toHaveBeenCalled();
+    // The row's actions stay drawn while it asks.
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Forget" }));
+    expect(forget).toHaveBeenCalledWith("monthly_budget");
+    await waitFor(() => expect(changed).toHaveBeenCalled());
+  });
+
+  it("narrows to one tag from the tag picker", () => {
+    const facts = [fact({ key: "a", tags: ["budget"] }), fact({ key: "b", tags: ["travel"] }), fact({ key: "c", tags: [] })];
+    render(<KnowledgePage facts={facts} tags={["travel", "budget"]} onChanged={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Tag" }));
+    const list = screen.getByRole("listbox");
+    expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["Any tag", "budget", "travel"]);
+    fireEvent.click(within(list).getByRole("option", { name: "travel" }));
+    expect([...document.querySelectorAll(".know-key")].map((k) => k.textContent)).toEqual(["b"]);
+    expect(document.getElementById(screen.getByRole("button", { name: "Tag" }).getAttribute("aria-describedby")!)?.textContent).toBe("travel");
+  });
+
   it("says what memory is when it holds nothing", () => {
     render(<KnowledgePage facts={[]} tags={[]} onChanged={() => undefined} />);
     expect(screen.getByText("Nothing remembered yet.")).toBeTruthy();
