@@ -25,6 +25,8 @@ struct ArtifactScreen<Frame: View>: View {
   var export: ((ArtifactShelf.Artifact, String) async -> URL?)?
   @StateObject private var deck = DeckRemote()
   @State private var sharing: Shared?
+  /// The row sheet's own height, once laid out, so it stops there.
+  @State private var rowHeight: CGFloat = 0
   @Environment(\.colorScheme) private var scheme
   @Environment(\.verticalSizeClass) private var height
 
@@ -73,8 +75,9 @@ struct ArtifactScreen<Frame: View>: View {
     .background(Theme.bg.ignoresSafeArea())
     .sheet(item: $shelf.row) { row in
       RowSheet(row: row)
+        .onPreferenceChange(FitHeight.self) { rowHeight = $0 }
         .presentationBackground(Theme.panel)
-        .presentationDetents([.medium, .large])
+        .presentationDetents(rowHeight > 0 ? [.height(rowHeight), .large] : [.medium, .large])
         .presentationDragIndicator(.visible)
     }
     .modifier(ShareSheet(shared: $sharing))

@@ -122,7 +122,7 @@ extension RenderTests {
         // A row tapped opens over the sheet as the phone's own sheet, every field labelled.
         if kind == "sheet" {
           try draw("artifact-sheet-row", phone: (phone.0, phone.1), theme: theme) {
-            SheetOver(height: 0.62) { viewer() } sheet: { RowSheet(row: Self.row) }
+            SheetOver { viewer() } sheet: { RowSheet(row: Self.row) }
           }
         }
       }
@@ -136,6 +136,7 @@ extension RenderTests {
       ["label": "Item", "value": "Cedar boards", "numeric": false], ["label": "Where", "value": "Yard", "numeric": false],
       ["label": "Qty", "value": "16", "numeric": true], ["label": "Each", "value": "$18.50", "numeric": true],
       ["label": "Total", "value": "$296.00", "numeric": true], ["label": "Due", "value": "Mar 14, 2026", "numeric": false],
+      ["label": "Note", "value": "Ask the yard for offcuts; the short boards do for the bed ends.", "numeric": false],
     ])!
 
   @Test func aDocToRead() async throws {
