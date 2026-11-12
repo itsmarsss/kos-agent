@@ -246,8 +246,9 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
   const known = useRef<Promise<Set<string>> | undefined>(undefined);
   /**
    * Whether the doc is being edited, for the picker's gate: the dashboard's
-   * own last word (Edit sent, and no Done or Discard since), and the doc
-   * saying so too. The doc's claim alone is the page's, so it is not enough.
+   * own Edit sent, not yet ended by the doc's report that editing stopped,
+   * and the doc saying so too. The doc's claim alone is the page's, so it is
+   * not enough.
    */
   const editing = useRef(false);
   const framed = useRef(false);
@@ -499,6 +500,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
         const d = m as Partial<EditState>;
         const next: EditState = { editing: d.editing === true, pending: d.pending === true, status: String(d.status ?? "").slice(0, 300), bad: d.bad === true };
         setEdit(next);
+        // Editing ends when the doc says it has: a Done whose save is refused leaves it editing, and its @ still works.
+        if (framed.current && !next.editing) editing.current = false;
         framed.current = next.editing;
         if (!next.editing && !next.pending) settled.current.splice(0).forEach((f) => f());
         return;
@@ -643,7 +646,8 @@ export function ArtifactPage({ record, page, onSaved, onReload, locked = false, 
       const touched = gestures.current.at > gestures.current.since;
       sent.current = { action, at: performance.now(), ...(action === "done" && touched ? { touched } : {}) };
       if (action === "edit") editing.current = true;
-      else if (action === "done" || action === "discard") editing.current = false;
+      // Before the doc began editing, Done or Discard calls the Edit off; once it has, the doc's own word ends it.
+      else if ((action === "done" || action === "discard") && !framed.current) editing.current = false;
       pageWindow()?.postMessage({ __kos: "edit-do", action }, "*");
     },
     [pageWindow],

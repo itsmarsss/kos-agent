@@ -764,11 +764,22 @@ describe("a doc's saves, which are the owner's", () => {
     act(() => option.click());
     expect(replies).toHaveBeenCalledWith({ __kos: "reply", id: 33, result: { id: "deck-one", title: "Deck one" } }, "*");
     expect(document.querySelector(".mention-picker")).toBeNull();
-    // After the dashboard's Done, the page still saying it edits asks for nothing.
+    // A Done whose save is refused leaves the doc editing: its @ still opens the picker.
     act(() => handle.current!.edit("done"));
     await press();
     ask(36);
-    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 36, error: expect.stringMatching(/being edited/) as unknown }), "*");
+    await waitFor(() => expect(document.querySelector(".mention-picker")).not.toBeNull());
+    // Once the doc says editing ended, the picker goes and an @ asks for nothing.
+    say({ __kos: "edit", editing: false, pending: false, status: "", bad: false });
+    expect(document.querySelector(".mention-picker")).toBeNull();
+    await press();
+    ask(37);
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 37, error: expect.stringMatching(/being edited/) as unknown }), "*");
+    // Nor once the page claims editing again with no Edit sent.
+    say({ __kos: "edit", editing: true, pending: false, status: "", bad: false });
+    await press();
+    ask(38);
+    expect(replies).toHaveBeenCalledWith(expect.objectContaining({ id: 38, error: expect.stringMatching(/being edited/) as unknown }), "*");
   });
 
   it("closes the picker with no pick when the window loses focus, as a press back in the doc does", async () => {
