@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { DOC_CSS } from "./doc.css.js";
 import { TOC_MIN, cleanDocHtml, clicks, enhance, slugOf, startDoc } from "./doc.js";
 import { DOC_EDIT_MAX } from "@kos/shared/artifacts";
 
@@ -502,6 +503,23 @@ describe("kos-doc", () => {
     expect(place(cell)).toBe(innerWidth - 180 - 8);
     rects.mockRestore();
     Range.prototype.getClientRects = lines;
+  });
+
+  it("draws a table's two deletes apart from its adds: their own glyphs, in the danger tone always, titled", () => {
+    (window as { kos?: unknown }).kos = { save: vi.fn() };
+    document.execCommand = vi.fn() as typeof document.execCommand;
+    mount(`<table><tr><td>A</td></tr></table>`);
+    startDoc();
+    press("edit");
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>(".doc-tabletools > button")];
+    const glyph = (b: HTMLButtonElement): string => b.querySelector("path")!.getAttribute("d")!;
+    const deletes = buttons.filter((b) => b.classList.contains("danger"));
+    expect(deletes.map((b) => b.title)).toEqual(["Delete this row", "Delete this column"]);
+    expect(deletes.map((b) => b.getAttribute("aria-label"))).toEqual(["Delete this row", "Delete this column"]);
+    expect(new Set(buttons.map(glyph)).size).toBe(buttons.length);
+    // A cross in each, which no add has.
+    for (const b of buttons) expect(/l4 4/.test(glyph(b)), b.title).toBe(deletes.includes(b));
+    expect(DOC_CSS).toMatch(/\.doc-tabletools > button\.danger \{ color: var\(--danger\); \}/);
   });
 
   it("takes a drop as plain text, as a paste is", () => {

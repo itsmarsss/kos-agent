@@ -248,7 +248,10 @@ html.doc-dragging, html.doc-dragging * { cursor: grabbing !important; user-selec
 .doc-tabletools { display: flex; gap: 1px; padding: 3px; }
 .doc-tabletools > button { all: unset; box-sizing: border-box; cursor: pointer; width: 28px; height: 28px; display: inline-grid; place-items: center; border-radius: 7px; color: var(--muted); }
 .doc-tabletools > button:hover, .doc-tabletools > button:focus-visible { background: var(--panel-2); color: var(--text); }
-.doc-tabletools > button.danger:hover { color: var(--danger); }
+/* The two deletes stand apart from the adds: in the danger tone always, a gap before them, their own crossed glyphs. */
+.doc-tabletools > button.danger { color: var(--danger); }
+.doc-tabletools > button.danger:hover, .doc-tabletools > button.danger:focus-visible { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.doc-tabletools > button:not(.danger) + button.danger { margin-left: 6px; }
 .doc-live, .doc-copier { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; opacity: 0; left: -9999px; }
 /* On paper: white under the text, no contents to press, a heading kept with what follows it, and a figure, table, quote or code block whole on its page where it fits. */
 @media print {
