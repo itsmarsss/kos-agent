@@ -87,12 +87,3 @@ public struct Glance: Decodable, Equatable, Sendable {
     next = try c.decodeIfPresent([Next].self, forKey: .next) ?? []
   }
 }
-
-/// One element of a list, or nothing when it does not read, so the list around it still does.
-private struct Lenient<Value: Decodable>: Decodable {
-  let value: Value?
-
-  init(from decoder: Decoder) throws {
-    value = try? Value(from: decoder)
-  }
-}

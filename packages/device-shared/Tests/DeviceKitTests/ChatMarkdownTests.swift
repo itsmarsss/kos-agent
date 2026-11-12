@@ -34,6 +34,19 @@ struct ChatMarkdownTests {
     #expect(!String(styled.characters).contains("@page"))
   }
 
+  @Test func linksAnArtifactReferenceOnlyWhereTheAppOpensArtifacts() {
+    let text = "Made @page:[garden-plan], see @page:budget and @project:[Garden]"
+    #expect(chatInline(text).runs.compactMap(\.link).isEmpty)
+    let opened = chatInline(text, opens: true)
+    #expect(opened.runs.compactMap(\.link).map(\.absoluteString) == ["kos-artifact:garden-plan", "kos-artifact:budget"])
+    #expect(String(opened.characters).contains("garden-plan") && String(opened.characters).contains("page budget"))
+    // A reference whose id is not an artifact's is a chip, never a link.
+    #expect(chatInline("@page:[not an id]", opens: true).runs.compactMap(\.link).isEmpty)
+    #expect(ArtifactLink.id(URL(string: "kos-artifact:garden-plan")!) == "garden-plan")
+    #expect(ArtifactLink.id(URL(string: "kos-artifact:../etc")!) == nil)
+    #expect(ArtifactLink.id(URL(string: "https://example.com")!) == nil)
+  }
+
   @Test func drawsATimeAsItsWordsWithTheFullDateOnHover() {
     let soon = Int(Date().timeIntervalSince1970) + 3 * 3600
     let styled = chatInline("Due <t:\(soon):R>, not `<t:\(soon):R>`.")

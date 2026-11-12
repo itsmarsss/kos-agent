@@ -205,12 +205,13 @@ public enum ChatBlock: Equatable {
 
 /// One line of inline marks, as styled text: bold, italics, code, links (the web and mail only), references by name,
 /// times on this Mac's clock.
-/// `size` is the text's own, which a code span sits at nine tenths of, as the dashboard draws one.
-public func chatInline(_ text: String, size: CGFloat = KOSType.body.scaled) -> AttributedString {
+/// `size` is the text's own, which a code span sits at nine tenths of, as the dashboard draws one. With `opens`, a
+/// reference to an artifact is a link too, to `ArtifactLink`'s address for the app to open; elsewhere nothing opens one.
+public func chatInline(_ text: String, size: CGFloat = KOSType.body.scaled, opens: Bool = false) -> AttributedString {
   var source = text
   // KOS's references, @page:[Budget] or @approval:6, as the names they stand for, marked for the violet chip the panel draws.
-  source = source.replacingOccurrences(of: #"@([a-z]+):\[([^\]\n]+)\]"#, with: "[$2](\(referenceScheme):$1)", options: .regularExpression)
-  source = source.replacingOccurrences(of: #"@([a-z]+):([\w.:/-]*\w)"#, with: "[$1 $2](\(referenceScheme):$1)", options: .regularExpression)
+  source = references(source, #"@([a-z]+):\[([^\]\n]+)\]"#) { kind, id in "[\(id)]" }
+  source = references(source, #"@([a-z]+):([\w.:/-]*\w)"#) { kind, id in "[\(kind) \(id)]" }
   // A time, <t:1760845320:R>, as its words on this Mac's clock, marked for the grey chip; never inside a code span.
   // One in a link's words is plain words there.
   source = outsideCode(source) { part in
@@ -246,11 +247,12 @@ public func chatInline(_ text: String, size: CGFloat = KOSType.body.scaled) -> A
       piece.swiftUI.backgroundColor = tint
       styled += pad(tint, size: size) + piece + pad(tint, size: size)
     } else if link.scheme == referenceScheme {
-      // A reference: the panel's violet chip, at the chip's 12, not a link.
+      // A reference: the panel's violet chip, at the chip's 12; a link only to an artifact the app opens.
       let tint = Theme.violet.opacity(Theme.tint).blended(over: Theme.bg)
       piece.swiftUI.foregroundColor = Theme.violet
       piece.swiftUI.backgroundColor = tint
       piece.swiftUI.font = .kos(.detail, .medium)
+      if opens, let artifact = ArtifactLink.reference(link) { piece.link = ArtifactLink.url(artifact) }
       styled += pad(tint, size: size) + piece + pad(tint, size: size)
     } else if ["http", "https", "mailto"].contains(link.scheme?.lowercased() ?? "") {
       // Nothing but the web and mail opens from KOS's words; what does is underlined, as in the dashboard's prose.
@@ -265,8 +267,62 @@ public func chatInline(_ text: String, size: CGFloat = KOSType.body.scaled) -> A
   return styled
 }
 
-/// The scheme a reference is marked with between reading it and drawing it; nothing opens it.
+/// The scheme a reference is marked with between reading it and drawing it, `kos-ref:<kind>:<id>`; nothing opens it.
 private let referenceScheme = "kos-ref"
+
+/// Each reference the pattern finds (groups: the kind, the id) as a link to its mark: its words, by `words`, the id
+/// in the address, so a chip knows what it names.
+private func references(_ text: String, _ pattern: String, words: (String, String) -> String) -> String {
+  guard let re = try? NSRegularExpression(pattern: pattern) else { return text }
+  var out = text
+  for m in re.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+    guard let whole = Range(m.range, in: text), let kind = Range(m.range(at: 1), in: text), let id = Range(m.range(at: 2), in: text) else { continue }
+    let named = String(text[id])
+    let address = named.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-_."))) ?? ""
+    out.replaceSubrange(whole, with: "\(words(String(text[kind]), named))(\(referenceScheme):\(text[kind]):\(address))")
+  }
+  return out
+}
+
+/// A reference to one of the owner's artifacts, as an app that opens artifacts links it: `kos-artifact:<id>`.
+public enum ArtifactLink {
+  public static let scheme = "kos-artifact"
+
+  /// An artifact's id as KOS writes one (ARTIFACT_ID_RE in @kos/shared), at most 120 characters.
+  public static func isId(_ id: String) -> Bool {
+    id.count <= 120 && id.range(of: "^[A-Za-z][A-Za-z0-9_-]*$", options: .regularExpression) != nil
+  }
+
+  public static func url(_ id: String) -> URL? {
+    isId(id) ? URL(string: "\(scheme):\(id)") : nil
+  }
+
+  /// The artifact a link opens, or nil when it is not one.
+  public static func id(_ url: URL) -> String? {
+    guard url.scheme == scheme else { return nil }
+    let id = url.absoluteString.dropFirst(scheme.count + 1)
+    return isId(String(id)) ? String(id) : nil
+  }
+
+  /// The artifact a reference names: `@page:<id>`, the kind artifacts are mentioned by.
+  static func reference(_ link: URL) -> String? {
+    let parts = link.absoluteString.dropFirst(referenceScheme.count + 1).split(separator: ":", maxSplits: 1).map(String.init)
+    guard parts.count == 2, parts[0] == "page", let id = parts[1].removingPercentEncoding, isId(id) else { return nil }
+    return id
+  }
+}
+
+extension EnvironmentValues {
+  /// Whether a reference to an artifact in KOS's words is a link the app opens (KOS for iPhone); off, it is only a chip.
+  public var chatOpensArtifacts: Bool {
+    get { self[OpensArtifacts.self] }
+    set { self[OpensArtifacts.self] = newValue }
+  }
+}
+
+private struct OpensArtifacts: EnvironmentKey {
+  static let defaultValue = false
+}
 
 /// The scheme a time is marked with between reading it and drawing it; nothing opens it.
 private let timeScheme = "kos-time"
@@ -398,6 +454,7 @@ private struct BlocksView: View {
 private struct BlockView: View {
   let block: ChatBlock
   let depth: Int
+  @Environment(\.chatOpensArtifacts) private var opens
 
   /// An item's mark: a disc, a circle, a square for bullets, drawn at the size the dashboard's are;
   /// numbers, then letters under numbers.
@@ -413,14 +470,14 @@ private struct BlockView: View {
   var body: some View {
     switch block {
     case .paragraph(let text):
-      Text(chatInline(text)).fixedSize(horizontal: false, vertical: true).timesHelp(text)
+      Text(chatInline(text, opens: opens)).fixedSize(horizontal: false, vertical: true).timesHelp(text)
     case .heading(_, let text):
       // One size for every level, the chat's own, set apart by weight, as the dashboard's are.
-      Text(chatInline(text)).font(.kos(.body, .semibold)).padding(.top, 2).timesHelp(text)
+      Text(chatInline(text, opens: opens)).font(.kos(.body, .semibold)).padding(.top, 2).timesHelp(text)
     case .small(let text):
-      Text(chatInline(text, size: KOSType.detail.scaled)).font(.kos(.detail)).foregroundStyle(Theme.muted).timesHelp(text)
+      Text(chatInline(text, size: KOSType.detail.scaled, opens: opens)).font(.kos(.detail)).foregroundStyle(Theme.muted).timesHelp(text)
     case .quote(let text):
-      Text(chatInline(text))
+      Text(chatInline(text, opens: opens))
         .foregroundStyle(Theme.muted)
         .padding(.leading, 10)
         .overlay(alignment: .leading) { Rectangle().fill(Theme.lineStrong).frame(width: 2) }
@@ -450,7 +507,7 @@ private struct BlockView: View {
         Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 6) {
           GridRow {
             ForEach(Array(head.enumerated()), id: \.offset) { j, cell in
-              Text(chatInline(cell, size: KOSType.dense.scaled)).font(.kos(.dense, .semibold)).foregroundStyle(Theme.muted)
+              Text(chatInline(cell, size: KOSType.dense.scaled, opens: opens)).font(.kos(.dense, .semibold)).foregroundStyle(Theme.muted)
                 .gridColumnAlignment(j < align.count ? align[j] : .leading)
             }
           }
@@ -458,7 +515,7 @@ private struct BlockView: View {
             Hairline()
             GridRow {
               ForEach(0..<head.count, id: \.self) { j in
-                Text(chatInline(j < row.count ? row[j] : "", size: KOSType.table.scaled)).font(.kos(.table))
+                Text(chatInline(j < row.count ? row[j] : "", size: KOSType.table.scaled, opens: opens)).font(.kos(.table))
                   .timesHelp(j < row.count ? row[j] : "")
               }
             }

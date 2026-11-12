@@ -109,6 +109,55 @@ struct ChatTests {
   }
 }
 
+@Suite("Artifacts and files on the line")
+struct ArtifactWireTests {
+  private func data(_ event: ChatEvent) throws -> [String: Any] {
+    let frame = try #require(JSONSerialization.jsonObject(with: event.frame()) as? [String: Any])
+    return try #require(frame["data"] as? [String: Any])
+  }
+
+  private func call(_ json: String) throws -> Call {
+    guard case .call(let call) = try Inbound.decode(Data(json.utf8)) else { throw DeviceError.badRequest("not a call") }
+    return call
+  }
+
+  @Test func asksForTheListOneArtifactAndItsReads() throws {
+    #expect(try data(.artifacts).isEmpty)
+    #expect(try data(.artifact(id: "plan", theme: "dark")) as? [String: String] == ["id": "plan", "theme": "dark"])
+    let read = try data(.read(artifact: "plan", call: 3, method: "query", args: .object(["sql": .string("SELECT 1"), "params": .array([.number(2)])])))
+    #expect(read["artifact"] as? String == "plan")
+    #expect(read["call"] as? Int == 3)
+    #expect((read["args"] as? [String: Any])?["sql"] as? String == "SELECT 1")
+  }
+
+  @Test func readsWhatKOSSends() throws {
+    let list = try call(#"{"t":"call","id":1,"method":"chat.artifacts","params":{"artifacts":[{"id":"plan","title":"Plan","kind":"doc","updatedAt":5,"place":{"kind":"project","name":"Garden"}},{"id":7}]}}"#).params(ArtifactList.self)
+    #expect(list.artifacts == [ArtifactItem(id: "plan", title: "Plan", kind: "doc", updatedAt: 5, place: ChatPlace(kind: "project", name: "Garden"))])
+    let opened = try call(#"{"t":"call","id":2,"method":"chat.artifact","params":{"id":"plan","title":"Plan","kind":"doc","updatedAt":5,"document":"<!doctype html>","themes":{"light":"a","dark":"b"},"theme":"dark"}}"#).params(ArtifactOpened.self)
+    #expect(opened.document == "<!doctype html>" && opened.themes == .init(light: "a", dark: "b") && opened.error == nil)
+    let refused = try call(#"{"t":"call","id":3,"method":"chat.artifact","params":{"id":"nope","error":"There is no artifact by that id that opens here."}}"#).params(ArtifactOpened.self)
+    #expect(refused.error != nil && refused.document == nil)
+    let answer = try call(#"{"t":"call","id":4,"method":"chat.read","params":{"artifact":"plan","call":3,"result":{"rows":[{"n":1,"ok":true,"name":null}]}}}"#).params(ArtifactReadAnswer.self)
+    #expect(answer.result == .object(["rows": .array([.object(["n": .number(1), "ok": .bool(true), "name": .null])])]))
+    #expect(JSONValue(json: answer.result!.json) == answer.result)
+  }
+
+  @Test func sendsAFileInWholeBase64QuadsAheadOfTheWordsThatNameIt() throws {
+    let bytes = Data((0..<(AttachmentPart.chars / 4 * 3 * 2 + 10)).map { UInt8($0 % 251) })
+    let parts = AttachmentPart.parts(id: "f1", name: "a.jpg", mediaType: "image/jpeg", bytes: bytes)
+    #expect(parts.count == 3)
+    #expect(parts.allSatisfy { $0.parts == 3 } && parts.map(\.part) == [0, 1, 2])
+    #expect(parts.dropLast().allSatisfy { $0.data.count == AttachmentPart.chars && !$0.data.hasSuffix("=") })
+    #expect(Data(base64Encoded: parts.map(\.data).joined()) == bytes)
+    #expect(AttachmentPart.parts(id: "f2", name: "e.txt", mediaType: "text/plain", bytes: Data()).count == 1)
+    let attach = try data(.attach(parts[0]))
+    #expect(attach["id"] as? String == "f1" && attach["parts"] as? Int == 3)
+    let send = try data(.send(text: "", beside: .none, files: ["f1"]))
+    #expect(send["files"] as? [String] == ["f1"])
+    #expect(try data(.send(text: "hi", beside: .none))["files"] == nil)
+  }
+}
+
 @Suite("Glance on the line")
 struct GlanceTests {
   @Test func readsWhatKOSAnswers() throws {

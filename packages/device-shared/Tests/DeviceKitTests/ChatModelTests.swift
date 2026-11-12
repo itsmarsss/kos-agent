@@ -27,6 +27,26 @@ struct ChatModelTests {
     #expect(model.story == nil)
   }
 
+  /// Files may be all the owner sends: they wait, named, with the words they went with, until the chat has them.
+  @Test func filesGoWithTheirWordsOrAlone() {
+    let model = ChatModel()
+    var sent: [String] = []
+    model.send = { text, _ in sent.append(text) }
+    model.say("   ")
+    model.say("", files: ["receipt.jpg"])
+    model.say("and this", files: ["plan.pdf", "b.png"])
+    #expect(sent == ["", "and this"])
+    #expect(model.sending == ["", "and this"])
+    #expect(model.sendingFiles == ["": ["receipt.jpg"], "and this": ["plan.pdf", "b.png"]])
+    model.show(conversation: "phone:owner", title: "iPhone", lines: [.you("", files: ["receipt.jpg"])])
+    #expect(model.sending == ["and this"])
+    #expect(model.sendingFiles == ["and this": ["plan.pdf", "b.png"]])
+    // Never taken: the words go back to the box, and nothing of the files is left waiting.
+    model.giveBack("KOS did not take that.")
+    #expect(model.draft == "and this")
+    #expect(model.sendingFiles.isEmpty)
+  }
+
   /// A step's picture shows under the running steps, stays with the chat by its frame id, and the oldest go past the cap.
   @Test func keepsStepPicturesLiveAndInTheChat() {
     let model = ChatModel()

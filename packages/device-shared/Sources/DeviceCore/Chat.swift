@@ -241,7 +241,10 @@ public struct Quote: Codable, Equatable, Sendable {
 /// What the window tells KOS: it opened, the owner's words, a decision, and what to show next.
 public enum ChatEvent: Sendable {
   case open
-  case send(text: String, beside: Beside, quote: Quote? = nil)
+  /// The owner's words, with the ids of the files sent ahead of them (`attach`).
+  case send(text: String, beside: Beside, quote: Quote? = nil, files: [String] = [])
+  /// One part of a file, ahead of the words it goes with.
+  case attach(AttachmentPart)
   /// Stop the chat's turn, its sessions on this Mac and any ask for one.
   case stop
   /// What an @ may name, by the start of it.
@@ -254,12 +257,19 @@ public enum ChatEvent: Sendable {
   case auto(Bool)
   /// What is running, failing and next across KOS, asked by a phone (docs/computer.md, Glance).
   case glance
+  /// The owner's artifacts to pick from, and one drawn in this theme, asked by a phone (docs/computer.md, Artifacts).
+  case artifacts
+  case artifact(id: String, theme: String)
+  /// A read the open artifact's window.kos made, by the call the page gave it.
+  case read(artifact: String, call: Int, method: String, args: JSONValue)
 
   /// The event as a frame for the line.
   public func frame() throws -> Data {
     switch self {
     case .open: return try Outbound.chatEvent("chat.open", data: Empty())
-    case .send(let text, let beside, let quote): return try Outbound.chatEvent("chat.send", data: Send(text: text, beside: beside, quote: quote))
+    case .send(let text, let beside, let quote, let files):
+      return try Outbound.chatEvent("chat.send", data: Send(text: text, beside: beside, quote: quote, files: files.isEmpty ? nil : files))
+    case .attach(let part): return try Outbound.chatEvent("chat.attach", data: part)
     case .stop: return try Outbound.chatEvent("chat.stop", data: Empty())
     case .mentions(let q): return try Outbound.chatEvent("chat.mentions", data: Mentions(q: q))
     case .decide(let approval, let approved, let remember):
@@ -270,6 +280,10 @@ public enum ChatEvent: Sendable {
     case .model(let model): return try Outbound.chatEvent("chat.model", data: Model(model: model))
     case .auto(let on): return try Outbound.chatEvent("chat.auto", data: Auto(on: on))
     case .glance: return try Outbound.chatEvent("chat.glance", data: Empty())
+    case .artifacts: return try Outbound.chatEvent("chat.artifacts", data: Empty())
+    case .artifact(let id, let theme): return try Outbound.chatEvent("chat.artifact", data: Open(id: id, theme: theme))
+    case .read(let artifact, let call, let method, let args):
+      return try Outbound.chatEvent("chat.read", data: Read(artifact: artifact, call: call, method: method, args: args))
     }
   }
 
@@ -278,6 +292,17 @@ public enum ChatEvent: Sendable {
     let text: String
     let beside: Beside
     let quote: Quote?
+    let files: [String]?
+  }
+  private struct Open: Encodable {
+    let id: String
+    let theme: String
+  }
+  private struct Read: Encodable {
+    let artifact: String
+    let call: Int
+    let method: String
+    let args: JSONValue
   }
   private struct Mentions: Encodable { let q: String }
   private struct Decide: Encodable {

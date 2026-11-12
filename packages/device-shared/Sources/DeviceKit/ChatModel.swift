@@ -163,7 +163,11 @@ public final class ChatModel: ObservableObject {
   @Published public private(set) var title = "KOS"
   @Published public private(set) var lines: [Line] = []
   /// The owner's words sent, and not yet in the chat.
-  @Published public private(set) var sending: [String] = []
+  @Published public private(set) var sending: [String] = [] {
+    didSet { sendingFiles = sendingFiles.filter { sending.contains($0.key) } }
+  }
+  /// The names of the files that go with words on their way, by the words.
+  @Published public private(set) var sendingFiles: [String: [String]] = [:]
   @Published public private(set) var notices: [Notice] = []
   @Published public private(set) var working = false {
     didSet { if working != oldValue { workingSince = working ? Date() : nil } }
@@ -254,16 +258,18 @@ public final class ChatModel: ObservableObject {
 
   // MARK: The owner
 
-  /// The owner's words. A command (/new) is never in the chat's words, so it waits for nothing but its answer.
-  public func say(_ text: String) {
+  /// The owner's words, and the names of the files that go with them, which may be all there is. A command (/new) is
+  /// never in the chat's words, so it waits for nothing but its answer.
+  public func say(_ text: String, files: [String] = []) {
     let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !said.isEmpty else { return }
+    guard !said.isEmpty || !files.isEmpty else { return }
     error = nil
     hint = nil
     // A command is about the chat, not the app: it goes without the selection, which waits for the next words.
     let command = ChatMenus.isCommand(said)
     let quoted = command ? nil : quote
     if !command {
+      if !files.isEmpty { sendingFiles[said] = files }
       sending.append(said)
       unshown = true
     }
@@ -358,7 +364,7 @@ public final class ChatModel: ObservableObject {
       live = []
       // What was waiting was never taken: it goes back to the owner.
       if !sending.isEmpty {
-        draft = sending.joined(separator: "\n")
+        draft = sending.filter { !$0.isEmpty }.joined(separator: "\n")
         sending = []
       }
       return
@@ -555,7 +561,7 @@ public final class ChatModel: ObservableObject {
     stories = []
     live = []
     if !sending.isEmpty {
-      draft = sending.joined(separator: "\n")
+      draft = sending.filter { !$0.isEmpty }.joined(separator: "\n")
       sending = []
     }
   }
