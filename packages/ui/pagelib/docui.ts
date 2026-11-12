@@ -82,6 +82,8 @@ export interface MenuItem {
   group?: string;
 }
 
+let menus = 0;
+
 export interface MenuOptions {
   /** Where it opens: under this box, or above it when there is no room below. */
   at: DOMRect;
@@ -92,6 +94,8 @@ export interface MenuOptions {
   listbox?: boolean;
   /** What to say when nothing matches. */
   empty?: string;
+  /** The listbox's owner, which keeps focus while it is open (the article, for the "/" menu): told which option is picked. */
+  owner?: HTMLElement;
   className?: string;
 }
 
@@ -109,7 +113,7 @@ export class Menu {
   private opts: MenuOptions | undefined;
 
   constructor(private readonly parent?: Menu) {
-    this.root = el("div", { class: "doc-menu", hidden: true });
+    this.root = el("div", { class: "doc-menu", hidden: true, id: `doc-menu-${++menus}` });
     this.root.addEventListener("mousedown", (e) => e.preventDefault());
     this.root.addEventListener("keydown", (e) => {
       if (!this.opts?.listbox && this.key(e)) {
@@ -135,6 +139,8 @@ export class Menu {
     this.draw();
     this.root.hidden = false;
     this.root.scrollTop = 0;
+    opts.owner?.setAttribute("aria-controls", this.root.id);
+    opts.owner?.setAttribute("aria-expanded", "true");
     this.place(opts.at);
     this.mark();
     if (!opts.listbox) this.focusPick();
@@ -146,12 +152,14 @@ export class Menu {
     this.pick = 0;
     this.draw();
     if (this.opts) this.place(this.opts.at);
+    this.mark();
   }
 
   close(): void {
     if (!this.open) return;
     this.child?.close();
     this.root.hidden = true;
+    for (const name of ["aria-controls", "aria-expanded", "aria-activedescendant"]) this.opts?.owner?.removeAttribute(name);
     const done = this.opts?.onClose;
     this.opts = undefined;
     done?.();
@@ -186,6 +194,7 @@ export class Menu {
           "aria-checked": !listbox && item.checked !== undefined && !item.sub ? String(item.checked) : undefined,
           "aria-haspopup": item.sub ? "menu" : undefined,
           tabindex: "-1",
+          id: `${this.root.id}-${i}`,
           class: [i === this.pick ? "on" : "", item.danger ? "danger" : ""].filter(Boolean).join(" ") || undefined,
         },
         item.swatch ? el("span", { class: "doc-menu-swatch", style: `--swatch: ${item.swatch}` }) : item.icon ? el("span", { class: "doc-menu-icon" }, icon(item.icon)) : null,
@@ -217,6 +226,10 @@ export class Menu {
     });
     // The menu scrolls itself to the row, never the dashboard around the frame.
     const row = this.buttons()[this.pick];
+    if (this.opts?.owner) {
+      if (row) this.opts.owner.setAttribute("aria-activedescendant", row.id);
+      else this.opts.owner.removeAttribute("aria-activedescendant");
+    }
     if (row) {
       if (row.offsetTop < this.root.scrollTop) this.root.scrollTop = row.offsetTop - 3;
       else if (row.offsetTop + row.offsetHeight > this.root.scrollTop + this.root.clientHeight) this.root.scrollTop = row.offsetTop + row.offsetHeight - this.root.clientHeight + 3;

@@ -8,6 +8,7 @@ import {
 import { History } from "./dochistory.js";
 import { IMAGE_MAX, PASTE_IMAGE_MAX, cleanPaste, isInline, parseClipboard } from "./docpaste.js";
 import { toggleMark } from "./docedit.js";
+import { Menu } from "./docui.js";
 
 function mount(inner: string): HTMLElement {
   document.body.innerHTML = `<article data-doc>${inner}</article>`;
@@ -200,6 +201,9 @@ describe("to-dos", () => {
     ensureTodoBoxes(a);
     expect(box.getAttribute("aria-checked")).toBe("true");
     expect(a.querySelectorAll(".todo-box")).toHaveLength(1);
+    // The box is named by the item's words, through an id the save takes off again.
+    expect(box.getAttribute("aria-labelledby")).toBe($(a, "li").id);
+    expect(box.hasAttribute("aria-label")).toBe(false);
     expect(cleanDocHtml(a)).toBe(`<ul class="checklist"><li data-checked="true">milk</li></ul>`);
   });
 });
@@ -317,6 +321,22 @@ describe("undo across block operations", () => {
     h.redo();
     h.redo();
     expect(html(a)).toBe(`<p>2ab</p><h2>1</h2>`);
+  });
+});
+
+describe("the \"/\" menu, as a listbox", () => {
+  it("tells the article it owns which list it controls and which option is picked, and forgets on close", () => {
+    const a = mount("<p>x</p>");
+    const menu = new Menu();
+    menu.show([{ id: "p", label: "Text" }, { id: "h1", label: "Heading 1" }], { at: new DOMRect(0, 0, 0, 0), label: "Insert a block", listbox: true, owner: a, onPick: () => undefined });
+    expect(a.getAttribute("aria-controls")).toBe(menu.root.id);
+    expect(a.getAttribute("aria-activedescendant")).toBe(menu.root.querySelector('[role="option"]')!.id);
+    menu.key(new KeyboardEvent("keydown", { key: "ArrowDown" }));
+    expect(a.getAttribute("aria-activedescendant")).toBe(menu.root.querySelectorAll('[role="option"]')[1]!.id);
+    expect(document.getElementById(a.getAttribute("aria-activedescendant")!)?.getAttribute("aria-selected")).toBe("true");
+    menu.close();
+    expect(["aria-controls", "aria-activedescendant", "aria-expanded"].map((n) => a.hasAttribute(n))).toEqual([false, false, false]);
+    menu.remove();
   });
 });
 

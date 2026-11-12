@@ -180,7 +180,8 @@ function targets(article: HTMLElement): { id: string; text: string; el: HTMLElem
   const taken = new Set<string>();
   return [...article.querySelectorAll<HTMLElement>("h1, h2, h3, [id]")].flatMap((h) => {
     const text = h.textContent?.trim().slice(0, 80) ?? "";
-    if (!text || h.closest("[data-kos-gen]:not([data-kos-gen='wrap'])") || taken.has(h.id)) return [];
+    // An id the runtime gave a to-do, to name its box, is no place to link to; a heading's is.
+    if (!text || h.closest("[data-kos-gen]:not([data-kos-gen='wrap'])") || taken.has(h.id) || (h.hasAttribute("data-kos-gen-id") && !/^H[1-3]$/.test(h.tagName))) return [];
     if (!h.id) {
       let id = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "section";
       for (let n = 2; taken.has(id) || document.getElementById(id); n++) id = `${id.replace(/-\d+$/, "")}-${n}`;
@@ -419,7 +420,7 @@ export function startEditor(article: HTMLElement, { save, say, onPending, queue 
   };
   function openSlash(node: Text, offset: number): void {
     slash = { node, offset };
-    slashMenu.show(slashItems(""), { at: caretRect(), label: "Insert a block", listbox: true, empty: "No block by that name", className: "doc-slash", onPick: (item) => chooseSlash(item.id as SlashId), onClose: () => void setTimeout(() => !slashMenu.open && (slash = undefined)) });
+    slashMenu.show(slashItems(""), { at: caretRect(), label: "Insert a block", listbox: true, owner: article, empty: "No block by that name", className: "doc-slash", onPick: (item) => chooseSlash(item.id as SlashId), onClose: () => void setTimeout(() => !slashMenu.open && (slash = undefined)) });
   }
   function chooseSlash(id: SlashId): void {
     const typed = query();

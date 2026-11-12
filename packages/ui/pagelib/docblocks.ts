@@ -719,6 +719,7 @@ export function newTable(owner: Document): HTMLTableElement {
  * reader with a keyboard or a screen reader can tick it as with a pointer;
  * the stored item keeps only data-checked.
  */
+let todos = 0;
 export function ensureTodoBoxes(root: Element): void {
   const owner = doc(root);
   for (const li of root.querySelectorAll<HTMLElement>("ul.checklist > li")) {
@@ -736,7 +737,13 @@ export function ensureTodoBoxes(root: Element): void {
       li.prepend(box);
     }
     box.setAttribute("aria-checked", String(done));
-    box.setAttribute("aria-label", done ? "Done" : "Not done");
+    // Named by the item's own words: an id of the runtime's (data-kos-gen-id, taken off on save) when it has none.
+    if (!li.id) {
+      li.id = `kos-todo-${++todos}`;
+      li.setAttribute("data-kos-gen-id", "");
+    }
+    box.setAttribute("aria-labelledby", li.id);
+    box.removeAttribute("aria-label");
   }
   // A box whose item stopped being a to-do goes.
   for (const box of root.querySelectorAll(".todo-box")) if (!box.parentElement?.matches("ul.checklist > li")) box.remove();
