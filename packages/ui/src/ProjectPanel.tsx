@@ -26,6 +26,8 @@ export interface ProjectPanelProps {
   onError: (message: string) => void;
   /** Slid shut: still mounted so it can slide open, but polling nothing. */
   hidden?: boolean;
+  /** Drawn as a drawer over the chat, where the page has no room for its column: a modal while it is. */
+  modal?: boolean;
   /** The project's artifacts (ArtifactRail), which open in place beside it. */
   rail: ReactNode;
 }
@@ -37,7 +39,7 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = false, rail }: ProjectPanelProps): ReactElement {
+export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = false, modal = false, rail }: ProjectPanelProps): ReactElement {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** The colour row under the head, shown on request. */
@@ -73,7 +75,7 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
 
   if (error) {
     return (
-      <aside className="project-panel" aria-hidden={hidden}>
+      <aside className="project-panel" aria-hidden={hidden} {...(modal ? { role: "dialog", "aria-modal": true } : {})}>
         <p className="ops-alert ops-alert--err" role="alert">
           {error}
         </p>
@@ -82,7 +84,7 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
   }
   if (!detail) {
     return (
-      <aside className="project-panel" aria-hidden={hidden}>
+      <aside className="project-panel" aria-hidden={hidden} {...(modal ? { role: "dialog", "aria-modal": true } : {})}>
         <p className="ops-muted">Loading…</p>
       </aside>
     );
@@ -116,7 +118,7 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
   };
 
   return (
-    <aside ref={panel} className="project-panel" aria-label={`${project.name} workspace`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
+    <aside ref={panel} className="project-panel" {...(modal ? { role: "dialog", "aria-modal": true } : {})} aria-label={`${project.name} workspace`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
       {/* Who it is: its mark in its own colour, its name, kind and state,
           what it is for, how much it holds, and what can be done with it. */}
       <header className="project-head">

@@ -18,7 +18,8 @@ import { useEffect, useRef, type RefObject } from "react";
  *   which looks like the menu has come loose from what it belongs to.
  * - Escape on a menu is taken first and stopped, so one Escape closes the
  *   menu without also closing the dialog the menu is inside; a dialog hears
- *   Escape last, after any menu in it.
+ *   Escape last, after any menu in it, and marks it taken (preventDefault),
+ *   so a drawer under it does not shut on the same press.
  */
 export interface DismissOptions {
   /** What counts as inside: the menu, and the button that opened it. */
@@ -51,6 +52,11 @@ export function useDismiss(open: boolean, onClose: () => void, { inside = [], aw
     const key = (event: KeyboardEvent): void => {
       if (event.key !== "Escape") return;
       if (escape === "menu") event.stopPropagation();
+      // A dialog takes its Escape for itself: what else listens (a drawer behind it) sees it taken and leaves it.
+      if (escape === "dialog") {
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+      }
       close.current();
     };
     // Capture, because the scroll may happen in a panel rather than the page

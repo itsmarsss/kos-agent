@@ -6,7 +6,6 @@ import {
   useState,
   type CSSProperties,
   type ReactElement,
-  type RefObject,
 } from "react";
 
 import { AnimatePresence, m } from "motion/react";
@@ -27,6 +26,7 @@ import { ProjectPanel } from "./ProjectPanel.js";
 import { ArtifactRail, ArtifactStrip, type RailOwner, useOwnedArtifacts } from "./ArtifactRail.js";
 import { ArtifactViewer, rootChatId, type ViewerHandle } from "./ArtifactsPage.js";
 import { chatIdOf } from "./artifactowner.js";
+import { PANEL_ROOM, usePanelDrawer, useRoomFor } from "./paneldrawer.js";
 import { ArtifactOpen, type ArtifactOpeners } from "./ArtifactStep.js";
 import { RailGroup, useRailFolds } from "./RailGroup.js";
 import {
@@ -862,27 +862,9 @@ export function ChatsPage({
    */
   const root = useRef<HTMLDivElement>(null);
   const panelFits = useRoomFor(root, PANEL_ROOM);
-  const [drawer, setDrawer] = useState(false);
-  const panelShown = panelFits ? panelOpen : drawer;
-  const togglePanel = (): void => (panelFits ? rememberPanel() : setDrawer((v) => !v));
-  useEffect(() => {
-    if (panelFits) setDrawer(false);
-  }, [panelFits]);
-  useEffect(() => {
-    if (!drawer) return;
-    const panel = root.current?.querySelector<HTMLElement>(".project-panel");
-    if (panel) {
-      panel.tabIndex = -1;
-      panel.focus({ preventScroll: true });
-    }
-    const shut = (e: KeyboardEvent): void => {
-      if (e.key !== "Escape" || e.defaultPrevented) return;
-      setDrawer(false);
-      root.current?.querySelector<HTMLElement>(".chats-panel-toggle")?.focus();
-    };
-    window.addEventListener("keydown", shut);
-    return () => window.removeEventListener("keydown", shut);
-  }, [drawer]);
+  const drawer = usePanelDrawer(root, panelFits);
+  const panelShown = panelFits ? panelOpen : drawer.open;
+  const togglePanel = (): void => (panelFits ? rememberPanel() : drawer.toggle());
 
   /*
    * Threads a schedule runs in, kept apart from the ones the owner started.
@@ -1443,7 +1425,7 @@ export function ChatsPage({
   return (
     <ArtifactOpen.Provider value={artifactOpeners}>
       <div
-        className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active ? "has-active" : ""} ${listOpen ? "is-list-open" : ""} ${project || agent ? "is-project" : ""} ${(project || agent) && panelFits && !panelOpen ? "panel-hidden" : ""} ${(project || agent) && drawer ? "is-panel-drawer" : ""} ${resizing ? "is-resizing" : ""}`}
+        className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active ? "has-active" : ""} ${listOpen ? "is-list-open" : ""} ${project || agent ? "is-project" : ""} ${(project || agent) && panelFits && !panelOpen ? "panel-hidden" : ""} ${(project || agent) && drawer.open ? "is-panel-drawer" : ""} ${resizing ? "is-resizing" : ""}`}
         ref={root}
         style={{ "--rail-w": `${railW}px`, "--panel-w": `${panelW}px` } as CSSProperties}
       >
@@ -2683,7 +2665,7 @@ export function ChatsPage({
           {(project || agent) && <ArtifactStrip {...railProps} />}
         </section>
 
-        {(project || agent) && drawer && <div className="chats-panel-backdrop" aria-hidden="true" onClick={() => setDrawer(false)} />}
+        {(project || agent) && drawer.open && <div className="chats-panel-backdrop" aria-hidden="true" onClick={drawer.close} />}
         {project && (
           /* Mounted while hidden, so hiding is the column sliding shut rather
              than the panel vanishing; it polls nothing until it is back. */
@@ -2694,6 +2676,7 @@ export function ChatsPage({
             onChanged={onChanged}
             onError={project.onError}
             hidden={!panelShown}
+            modal={drawer.open}
           />
         )}
         {agent && (
@@ -2705,6 +2688,7 @@ export function ChatsPage({
             onNotice={onNotice}
             onRemoved={agent.onRemoved}
             hidden={!panelShown}
+            modal={drawer.open}
             rail={<ArtifactRail {...railProps} />}
           />
         )}
@@ -2797,26 +2781,6 @@ function saveWidth(spec: ColumnSpec, width: number): void {
   } catch {
     // Remembered for this visit only.
   }
-}
-
-/**
- * The width the chats page needs for its third column, the project's or the
- * blob's panel, beside the list and the thread. The stylesheet's container
- * query on the page (chats-room) folds the column at the same width.
- */
-export const PANEL_ROOM = 880;
-
-/** Whether the element is wider than the given width, kept up as it resizes. */
-function useRoomFor(ref: RefObject<HTMLElement | null>, width: number): boolean {
-  const [fits, setFits] = useState(true);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || typeof ResizeObserver !== "function") return;
-    const watch = new ResizeObserver(([entry]) => entry && setFits(entry.contentRect.width > width));
-    watch.observe(el);
-    return () => watch.disconnect();
-  }, [ref, width]);
-  return fits;
 }
 
 /** True below the width at which the two panes stop fitting side by side. */
