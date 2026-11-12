@@ -75,7 +75,7 @@ struct FileScreen: View {
     PageFrame {
       PageHead(title: name, detail: detail, back: { dismiss() }) {
         if let opened = page.value, let file = FilesModel.shared(opened, name: name) {
-          HeaderButton(symbol: "square.and.arrow.up", label: "Share \(name)", tint: Theme.accent) {
+          HeaderButton(symbol: "square.and.arrow.up", label: "Share \(name)") {
             if let url = try? Sharing.file(named: file.name, file.data) { sharing = Shared(url: url) }
           }
         }

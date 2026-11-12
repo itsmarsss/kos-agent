@@ -124,6 +124,7 @@ struct ClaimScreen: View {
                 Text(said.text).font(.kos(.dense)).foregroundStyle(Theme.text).lineLimit(4)
                 Text("\(said.role == "owner" ? "You" : "KOS") · \(ChatTime.relative(said.ts.at, now: now))").font(.kos(.tiny)).foregroundStyle(Theme.faint)
               }
+              .frame(maxWidth: .infinity, alignment: .leading)
               .padding(.vertical, 10)
               .pageRow()
             }

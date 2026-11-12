@@ -108,8 +108,11 @@ extension RenderTests {
     phone.board.inbox.waiting.value = Routes.Inbox(approvals: [])
     try render("inbox-empty", only: ["390"]) { Tabbed(tab: .inbox) { InboxScreen(inbox: phone.board.inbox) } }
     let failed = Page<[Routes.Project]> { throw Dashboard.Refusal("KOS didn't answer in time. Try again.") }
-    let model = ProjectsModel(dashboard: phone.board.dashboard)
-    try render("page-loading", only: ["390"]) { Tabbed(tab: .projects) { ProjectsScreen(projects: model) } }
+    // Asked, and not answered yet.
+    let asked = Page<[Routes.Project]> { [] }
+    try render("page-loading", only: ["390"]) {
+      Tabbed(tab: .projects) { PageFrame { PageHead(title: "Projects") } content: { Loaded(page: asked, loading: "Reading your projects") { _ in EmptyView() } } }
+    }
     await failed.refresh()
     try render("page-failed", only: ["390"]) {
       Tabbed(tab: .projects) {
