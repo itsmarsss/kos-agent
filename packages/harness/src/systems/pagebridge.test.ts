@@ -8,7 +8,7 @@ import type { HtmlPage } from "@kos/shared";
 import { DB_FILENAME, Workspace } from "../store/workspace.js";
 import { ProjectManifest } from "./manifest.js";
 import { Migrator } from "./migrate.js";
-import { BridgeRefusal, pageFile, pageQuery, pageWrite, tablesRead, type BridgePage } from "./pagebridge.js";
+import { BridgeRefusal, PAGE_WRITES_MAX, pageFile, pageQuery, pageWrite, pageWrites, tablesRead, type BridgePage } from "./pagebridge.js";
 import { PageQueries } from "./pagequeries.js";
 import { registeredTables } from "./registered.js";
 
@@ -169,6 +169,45 @@ describe("the page bridge", () => {
     expect(() => pageWrite(ws.db, page, { table: "budget_tx", op: "insert", values: { secret: "x" } })).toThrow(/not editable/);
     expect(() => pageWrite(ws.db, page, { table: "budget_tx", op: "delete", key: { column: "id", value: 1 } })).toThrow(/not allowed/);
     expect(() => pageWrite(ws.db, bridge(), { table: "budget_tx", op: "insert", values: { amount: 1 } })).toThrow(/does not declare any writes/);
+  });
+
+  it("changes one row by its key, refusing a key that names more", () => {
+    const page = bridge({ capabilities: { writes: [{ table: "budget_tx", columns: ["amount", "note"], allow: ["insert", "update", "delete"] }] } });
+    ws.db.exec("INSERT INTO budget_tx (amount, note) VALUES (1, 'dup'), (2, 'dup')");
+    expect(() => pageWrite(ws.db, page, { table: "budget_tx", op: "update", key: { column: "note", value: "dup" }, values: { amount: 9 } })).toThrow(/names more than one row/);
+    expect(() => pageWrite(ws.db, page, { table: "budget_tx", op: "delete", key: { column: "note", value: "dup" } })).toThrow(/names more than one row/);
+    expect(ws.db.prepare("SELECT COUNT(*) AS n FROM budget_tx WHERE note = 'dup' AND amount < 3").get()).toEqual({ n: 2 });
+    expect(pageWrite(ws.db, page, { table: "budget_tx", op: "delete", key: { column: "id", value: 1 } }).changes).toBe(1);
+    // Already gone: nothing changes, and the result says so.
+    expect(pageWrite(ws.db, page, { table: "budget_tx", op: "delete", key: { column: "id", value: 1 } }).changes).toBe(0);
+  });
+
+  it("makes a batch of writes in one transaction, all or none, each checked as one write is", () => {
+    const page = bridge({ capabilities: { writes: [{ table: "budget_tx", columns: ["amount", "note"], allow: ["insert", "update"] }] } });
+    const count = (): unknown => ws.db.prepare("SELECT COUNT(*) AS n FROM budget_tx").get();
+    const got = pageWrites(ws.db, page, [
+      { table: "budget_tx", op: "update", key: { column: "id", value: 2 }, values: { amount: 41 } },
+      { table: "budget_tx", op: "insert", values: { amount: 5, note: "tea" } },
+    ]);
+    expect(got.done).toBe(2);
+    expect(count()).toEqual({ n: 4 });
+    // A refusal in the middle leaves the first change undone too.
+    expect(() =>
+      pageWrites(ws.db, page, [
+        { table: "budget_tx", op: "insert", values: { amount: 6, note: "first" } },
+        { table: "budget_tx", op: "insert", values: { secret: "x" } },
+      ]),
+    ).toThrow(/change 2 of 2: column not editable/);
+    expect(() =>
+      pageWrites(ws.db, page, [
+        { table: "budget_tx", op: "insert", values: { amount: 6, note: "first" } },
+        { table: "budget_tx", op: "update", key: { column: "nope", value: 1 }, values: { amount: 1 } },
+      ]),
+    ).toThrow(/change 2 of 2: .*nothing was changed/);
+    expect(count()).toEqual({ n: 4 });
+    expect(() => pageWrites(ws.db, page, [{ table: "diary_entries", op: "insert", values: { body: "x" } }])).toThrow(/change 1 of 1: this page may write only/);
+    expect(() => pageWrites(ws.db, page, [])).toThrow(/1 to/);
+    expect(() => pageWrites(ws.db, page, Array.from({ length: PAGE_WRITES_MAX + 1 }, () => ({})))).toThrow(/1 to/);
   });
 
   it("writes true and false as 1 and 0, and refuses objects and lists", () => {

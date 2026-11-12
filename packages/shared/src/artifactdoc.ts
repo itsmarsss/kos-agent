@@ -293,6 +293,7 @@ addEventListener("unhandledrejection",function(e){var r=e.reason;report(r&&r.mes
 var kos={
 query:function(sql,params){return new Promise(function(resolve,reject){asks.push({args:{sql:sql,params:params},resolve:resolve,reject:reject});ask()})},
 write:function(table,op,values,key){return call("write",{table:table,op:op,values:values,key:key}).then(function(r){refreshFns.forEach(function(f){try{f()}catch(err){report(err&&err.message||err)}});return r})},
+writes:function(list){return call("write",{writes:list}).then(function(r){refreshFns.forEach(function(f){try{f()}catch(err){report(err&&err.message||err)}});return r})},
 files:Object.freeze({read:function(path){return call("file",{path:path})}}),
 ask:function(text){return call("ask",{text:String(text)})},
 save:function(edit){return call("save",{edit:edit})},

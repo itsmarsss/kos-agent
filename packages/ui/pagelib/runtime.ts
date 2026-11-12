@@ -16,6 +16,8 @@ import type { ArtifactEdit } from "@kos/shared";
 export interface KosBridge {
   query(sql: string, params?: unknown[]): Promise<{ rows: Record<string, unknown>[]; truncated?: boolean }>;
   write(table: string, op: "insert" | "update" | "delete", values: Record<string, unknown>, key?: { column: string; value: unknown }): Promise<unknown>;
+  /** Several writes in one transaction, all or none; newer, so it may be missing. */
+  writes?: (list: { table: string; op: "insert" | "update" | "delete"; values?: Record<string, unknown>; key?: { column: string; value: unknown } }[]) => Promise<{ done: number; results: { changes: number }[] }>;
   save?: (edit: ArtifactEdit) => Promise<unknown>;
   present?: (on?: boolean) => void;
 }

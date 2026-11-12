@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createSocket, type Socket } from "node:dgram";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -181,6 +181,9 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   const log: string[] = [];
   const pages = new Map<string, string>();
   let send: (method: string, params?: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  let sendTo: (session: string, method: string, params?: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  /** What Chrome told this side unasked: an event's method, params and the session it came from. */
+  const events: { method: string; params: Record<string, unknown>; sessionId?: string }[] = [];
   let close = (): void => undefined;
 
   const listen = (server: Server): Promise<number> =>
@@ -208,8 +211,9 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     let n = 0;
     const wait = new Map<number, (m: { result?: Record<string, unknown> }) => void>();
     ws.onmessage = (e) => {
-      const m = JSON.parse(String(e.data)) as { id?: number; result?: Record<string, unknown> };
+      const m = JSON.parse(String(e.data)) as { id?: number; result?: Record<string, unknown>; method?: string; params?: Record<string, unknown>; sessionId?: string };
       if (m.id) wait.get(m.id)?.(m);
+      else if (m.method) events.push({ method: m.method, params: m.params ?? {}, ...(m.sessionId ? { sessionId: m.sessionId } : {}) });
     };
     const raw = (method: string, params: Record<string, unknown> = {}, sessionId?: string): Promise<Record<string, unknown>> =>
       new Promise((resolve, reject) => {
@@ -222,6 +226,7 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     const target = await raw("Target.createTarget", { url: "about:blank" });
     const session = (await raw("Target.attachToTarget", { targetId: target.targetId, flatten: true })).sessionId as string;
     send = (method, params = {}) => raw(method, params, session);
+    sendTo = (to, method, params = {}) => raw(method, params, to);
     close = () => ws.close();
   }, 30_000);
 
@@ -802,14 +807,20 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
   it("keeps a five-column expense sheet's amount whole in its box on a phone", async () => {
     const end = `() => { const grid = document.querySelector(".sheet-scroll"); grid.scrollLeft = grid.scrollWidth; return grid.scrollLeft; }`;
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
-    await sheetPage("/paid", `<h1>October</h1>${sheetData(paid())}`, { keyed, end });
+    // The column menus' buttons take no width on a phone: the grid is as wide with them as without.
+    const menus = `() => { const grid = document.querySelector(".sheet-scroll"); const buttons = document.querySelectorAll(".sheet-grid thead .sheet-colmenu").length; const wide = grid.scrollWidth; const kept = [...document.querySelectorAll(".sheet-colmenu")].map((b) => [b, b.parentNode]); kept.forEach(([b]) => b.remove()); const bare = grid.scrollWidth; kept.forEach(([b, p]) => p.append(b)); return { buttons, wide, bare }; }`;
+    await sheetPage("/paid", `<h1>October</h1>${sheetData(paid())}`, { keyed, end, menus });
     const start = await ask<Keyed>("keyed", (p) => p.more && p.cue !== "");
+    const menu = await ask<{ buttons: number; wide: number; bare: number }>("menus");
+    expect(menu.buttons).toBe(5);
+    expect(menu.wide).toBe(menu.bare);
     expect(start.page).toBeLessThanOrEqual(390);
     // The header, four rows and the total.
     expect(start.keys).toBe(6);
     expect(start.inside).toBe(true);
     expect(start.clear).toBe(true);
-    expect(start.cue).toBe("1 more column \u2192");
+    // How many columns are out of view follows the font's widths (Linux's fallback faces run wider than the Mac's), so the count is held to at least one, not to a number.
+    expect(Number(/^(\d+) more columns? \u2192$/.exec(start.cue)?.[1])).toBeGreaterThanOrEqual(1);
     expect(start.cueShown).toBe(true);
     expect(await ask<number>("end", (x) => x > 0)).toBeGreaterThan(0);
     const scrolled = await ask<Keyed>("keyed", (p) => !p.more);
@@ -823,7 +834,45 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     expect(narrow.inside).toBe(true);
     expect(narrow.clear).toBe(true);
     expect(narrow.fade).toBe("0px");
-    expect(narrow.cue).toMatch(/^[12] more columns? \u2192$/);
+    expect(Number(/^(\d+) more columns? \u2192$/.exec(narrow.cue)?.[1])).toBeGreaterThanOrEqual(1);
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 30_000);
+
+  /*
+   * On a touch screen a press on a header sorts, so its column menu shows
+   * without one: every ⋯ is drawn, over the header's corner, and the grid is
+   * as wide as it is without them.
+   */
+  it("shows each column's menu on a touch screen, taking no width", async () => {
+    const menus = `() => { const grid = document.querySelector(".sheet-scroll"); const all = [...document.querySelectorAll(".sheet-grid thead .sheet-colmenu")]; const shown = all.filter((b) => parseFloat(getComputedStyle(b).opacity) > 0 && getComputedStyle(b).pointerEvents !== "none").length; const wide = grid.scrollWidth; const kept = all.map((b) => [b, b.parentNode]); kept.forEach(([b]) => b.remove()); const bare = grid.scrollWidth; kept.forEach(([b, p]) => p.append(b)); return { buttons: all.length, shown, wide, bare, touch: matchMedia("(hover: none)").matches }; }`;
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    // The sandboxed frames may run in a process of their own, each a target told the same as the page.
+    const from = events.length;
+    await send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+    // A touch screen, as Chrome emulates one: (hover: none) and a coarse pointer. (Emulation.setEmulatedMedia's hover feature does not reach the media query.)
+    const touchOn = async (enabled: boolean): Promise<void> => {
+      const params = enabled ? { enabled, maxTouchPoints: 5 } : { enabled };
+      await send("Emulation.setTouchEmulationEnabled", params);
+      for (const e of events.slice(from).filter((e) => e.method === "Target.attachedToTarget")) await sendTo((e.params as { sessionId: string }).sessionId, "Emulation.setTouchEmulationEnabled", params).catch(() => undefined);
+    };
+    await sheetPage("/touch", `<h1>October</h1>${sheetData(paid())}`, { menus });
+    // A headless Chrome with no mouse (as on Linux CI) is a no-hover screen already; only one with a mouse can show the hovering half.
+    const before = await ask<{ buttons: number; touch: boolean }>("menus", (m) => m.buttons > 0);
+    await touchOn(true);
+    // Waited out: the menus fade in and out, and a slow machine reads them mid-fade.
+    const touch = await ask<{ buttons: number; shown: number; wide: number; bare: number; touch: boolean }>("menus", (m) => m.touch && m.shown === m.buttons);
+    expect(touch.touch).toBe(true);
+    expect(touch.buttons).toBe(5);
+    expect(touch.shown).toBe(5);
+    expect(touch.wide).toBe(touch.bare);
+    // With a pointer that hovers, the same phone keeps them hidden until a header is hovered or focused.
+    await touchOn(false);
+    if (!before.touch) {
+      const mouse = await ask<{ buttons: number; shown: number; wide: number; bare: number; touch: boolean }>("menus", (m) => !m.touch && m.shown === 0);
+      expect(mouse.shown).toBe(0);
+      expect(mouse.wide).toBe(mouse.bare);
+    }
+    await send("Target.setAutoAttach", { autoAttach: false, waitForDebuggerOnStart: false, flatten: true });
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
 
@@ -962,6 +1011,78 @@ describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
     expect(desktop.lines).toBe(1);
     await send("Emulation.clearDeviceMetricsOverride");
   }, 30_000);
+
+  /*
+   * The owner's paste and CSV import, in the frame as the dashboard frames it:
+   * a range on the clipboard (text, and HTML alone) adds rows and asks in the
+   * sheet's own bar before replacing a filled cell, the guard refusing
+   * nothing the sheet does; and Import CSV opens the frame's own file
+   * picker on a real press, under the sandbox, whose file is previewed and
+   * added. Chrome may run the sandboxed frames in a process of their own, so
+   * every target on the page is told to hand its file picker to this side.
+   */
+  it("pastes a range and imports a CSV through the file picker inside the sandboxed frame", async () => {
+    const book = sheetData({ name: "Spend", columns: [{ label: "Date", type: "date" }, { label: "Item" }, { label: "Amount", type: "currency", currency: "CAD" }], rows: [["2026-10-01", "Rent", 1650]], totals: { Amount: "sum" } });
+    const probes = {
+      grid: `() => ({ rows: [...document.querySelectorAll(".sheet-grid tbody tr")].map((tr) => [...tr.querySelectorAll("td")].map((td) => td.textContent)), panel: document.querySelector(".sheet-panel")?.textContent ?? "", total: document.querySelector("tfoot")?.textContent ?? "", errors: window.__errors || [] })`,
+      paste: `() => { addEventListener("error", (e) => (window.__errors = [...(window.__errors || []), e.message])); const td = document.querySelector('td[data-row="1"][data-col="0"]'); td.click(); const dt = new DataTransfer(); dt.setData("text/plain", "2026-10-02\\tGroceries\\t$84.12\\nOct 3, 2026\\t=1+1\\t12,50"); td.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true })); return true; }`,
+      pasteHtml: `() => { const td = document.querySelector('td[data-row="3"][data-col="0"]'); td.click(); const dt = new DataTransfer(); dt.setData("text/html", '<meta charset="utf-8"><style>td{}</style><table><tr><td>2026-10-05</td><td>&lt;b&gt;Books&lt;/b&gt;</td><td>20</td></tr></table>'); td.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true })); return true; }`,
+      press: `() => { const b = [...document.querySelectorAll(".sheet-panel button")].find((n) => n.textContent.startsWith("Add as")); b.click(); return b.textContent; }`,
+      importAt: `() => { const b = [...document.querySelectorAll(".sheet-tools button")].find((n) => n.textContent === "Import CSV"); const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }`,
+      preview: `() => ({ shown: document.querySelector(".sheet-import")?.textContent ?? "", separator: document.querySelector('.sheet-import select[aria-label="Separator"]')?.value })`,
+      add: `() => { const b = [...document.querySelectorAll(".sheet-import button")].find((n) => n.textContent.startsWith("Add")); b.click(); return b.textContent; }`,
+    };
+    await send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false });
+    await send("Page.enable");
+    await send("Page.setInterceptFileChooserDialog", { enabled: true });
+    // Frames Chrome runs apart are attached as they come, each told the same.
+    const from = events.length;
+    await send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+    await sheetPage("/import", `<h1>October</h1>${book}`, probes);
+    await ask("grid", (g: { rows: string[][] }) => g.rows.length === 1);
+    for (const e of events.slice(from).filter((e) => e.method === "Target.attachedToTarget")) {
+      const id = (e.params as { sessionId: string }).sessionId;
+      await sendTo(id, "Page.enable").catch(() => undefined);
+      await sendTo(id, "Page.setInterceptFileChooserDialog", { enabled: true }).catch(() => undefined);
+    }
+
+    await ask("paste");
+    type Grid = { rows: string[][]; panel: string; total: string; errors: string[] };
+    const asked = await ask<Grid>("grid", (g) => g.panel !== "");
+    expect(asked.panel).toContain("This paste would replace 3 filled cells.");
+    expect(await ask<string>("press")).toBe("Add as 2 new rows");
+    const added = await ask<Grid>("grid", (g) => g.rows.length === 3);
+    // A pasted formula is kept as the text it was.
+    expect(added.rows).toEqual([["Oct 1, 2026", "Rent", "$1,650.00"], ["Oct 2, 2026", "Groceries", "$84.12"], ["Oct 3, 2026", "=1+1", "$12.50"]]);
+    await ask("pasteHtml");
+    await ask<Grid>("grid", (g) => g.panel.includes("would replace"));
+    expect(await ask<string>("press")).toBe("Add as a new row");
+    const html = await ask<Grid>("grid", (g) => g.rows.length === 4);
+    expect(html.rows[3]![1]).toBe("<b>Books</b>");
+    expect(html.errors).toEqual([]);
+
+    const at = await ask<{ x: number; y: number }>("importAt");
+    const opened = events.length;
+    for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: at.x, y: at.y, button: "left", clickCount: 1 });
+    await within(() => events.slice(opened).some((e) => e.method === "Page.fileChooserOpened"));
+    const chooser = events.slice(opened).find((e) => e.method === "Page.fileChooserOpened")!;
+    const dir = mkdtempSync(join(tmpdir(), "kos-import-"));
+    const file = join(dir, "november.csv");
+    writeFileSync(file, "\uFEFFItem;Amount;Date\r\nBus pass;82,00;03.11.2026\r\nCoffee;4,50;04.11.2026\r\n");
+    await (chooser.sessionId ? sendTo(chooser.sessionId, "DOM.setFileInputFiles", { files: [file], backendNodeId: chooser.params.backendNodeId }) : send("DOM.setFileInputFiles", { files: [file], backendNodeId: chooser.params.backendNodeId }));
+    const preview = await ask<{ shown: string; separator: string }>("preview", (p) => p.shown !== "");
+    expect(preview.separator).toBe(";");
+    expect(preview.shown).toContain("Import november.csv");
+    expect(preview.shown).toContain("Bus pass");
+    expect(await ask<string>("add")).toBe("Add 2 rows");
+    const imported = await ask<Grid>("grid", (g) => g.rows.length === 6);
+    expect(imported.rows[4]![0]).toBe("Nov 3, 2026");
+    expect(imported.rows[5]![1]).toBe("Coffee");
+    rmSync(dir, { recursive: true, force: true });
+    await send("Target.setAutoAttach", { autoAttach: false, waitForDebuggerOnStart: false, flatten: true });
+    await send("Page.setInterceptFileChooserDialog", { enabled: false });
+    await send("Emulation.clearDeviceMetricsOverride");
+  }, 60_000);
 
   /*
    * Each way out on a page of its own, one after another in one tab: Chrome

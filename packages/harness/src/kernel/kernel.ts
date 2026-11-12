@@ -110,7 +110,7 @@ import { Migrator } from "../systems/migrate.js";
 import { Headlines, type Headline } from "../systems/headlines.js";
 import { ArtifactChecker } from "../systems/artifactcheck.js";
 import { ArtifactExporter } from "../systems/artifactexport.js";
-import { BridgeRefusal, pageFile, pageQuery, pageWrite, type BridgePage } from "../systems/pagebridge.js";
+import { BridgeRefusal, pageFile, pageQuery, pageWrite, pageWrites, type BridgePage } from "../systems/pagebridge.js";
 import { PageQueries } from "../systems/pagequeries.js";
 import { ownerOfRecord, PageStore } from "../systems/pages.js";
 import { registeredTables } from "../systems/registered.js";
@@ -4310,12 +4310,12 @@ export class Kernel {
     }
     try {
       if (verb === "query") return await pageQuery(this.workspace.reader, this.pageQueries, bridge, body.sql, body.params, { key: id });
-      if (verb === "write") return pageWrite(this.workspace.db, bridge, body);
+      if (verb === "write") return Array.isArray(body.writes) ? pageWrites(this.workspace.db, bridge, body.writes) : pageWrite(this.workspace.db, bridge, body);
       if (verb === "file") return pageFile(this.workspace, bridge, body.path);
       return this.pages.applyEdit(id, body.edit as ArtifactEdit, body.base);
     } catch (err) {
       if (err instanceof BridgeRefusal) {
-        const what = verb === "query" ? { sql: body.sql } : verb === "write" ? { table: body.table, op: body.op } : verb === "file" ? { path: body.path } : {};
+        const what = verb === "query" ? { sql: body.sql } : verb === "write" ? (Array.isArray(body.writes) ? { writes: body.writes.length } : { table: body.table, op: body.op }) : verb === "file" ? { path: body.path } : {};
         this.audit.record({ tool: `page.${verb}`, args: { page: id, ...what }, result: err.message, isError: true });
       }
       throw err;

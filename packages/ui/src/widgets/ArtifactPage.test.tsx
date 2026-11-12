@@ -847,10 +847,10 @@ describe("an artifact's kind", () => {
     expect(src).toContain(PAGE_GUARD_CSP.replace(/'/g, "'"));
   });
 
-  it("keeps the bridge to what it was, plus save and present", () => {
+  it("keeps the bridge to what it was, plus writes, save and present", () => {
     const doc = pageDocument({ html: "<p>", tokens: {}, mode: "light", css: "", libraries: [] });
     const api = /var kos=\{([\s\S]*?)\n\};/.exec(doc)?.[1] ?? "";
-    expect([...api.matchAll(/^(\w+):/gm)].map((m) => m[1])).toEqual(["query", "write", "files", "ask", "save", "present", "onTheme", "refresh"]);
+    expect([...api.matchAll(/^(\w+):/gm)].map((m) => m[1])).toEqual(["query", "write", "writes", "files", "ask", "save", "present", "onTheme", "refresh"]);
     expect(doc).toContain('data-theme="light"');
   });
 });

@@ -4,6 +4,7 @@ import { join, relative, sep } from "node:path";
 import { isReadOnlyQuery, type HtmlPage, type MutationTarget } from "@kos/shared";
 
 import type { Db } from "../store/db.js";
+import { assertIdentifier } from "./identifiers.js";
 import type { Workspace } from "../store/workspace.js";
 import { executeMutation, type MutationResult, type WidgetEdit } from "../widgets/mutation.js";
 import type { DisplayQueryResult } from "./display.js";
@@ -136,8 +137,13 @@ function valuesOf(raw: unknown): Record<string, Param> {
   return Object.fromEntries(Object.entries(raw as Record<string, unknown>).map(([k, v]) => [k, valueOf(v, `values.${k}`)]));
 }
 
-/** One change to a declared table, through the same guarded path the widgets use. */
-export function pageWrite(db: Db, bridge: BridgePage, req: { table?: unknown; op?: unknown; values?: unknown; key?: unknown }): MutationResult {
+type WriteRequest = { table?: unknown; op?: unknown; values?: unknown; key?: unknown };
+
+/** The most changes one batch carries, which a sheet's paste or import stays within. */
+export const PAGE_WRITES_MAX = 1000;
+
+/** A write a page asked for, checked against its declarations: the target and the edit. */
+function editOf(bridge: BridgePage, req: WriteRequest): { target: MutationTarget; edit: WidgetEdit } {
   const target = targetFor(bridge, req.table);
   const values = valuesOf(req.values);
   const key = req.key as { column?: unknown; value?: unknown } | undefined;
@@ -145,16 +151,64 @@ export function pageWrite(db: Db, bridge: BridgePage, req: { table?: unknown; op
     if (!key || typeof key !== "object" || typeof key.column !== "string") throw new BridgeRefusal(`${String(req.op)} needs a key: { column, value }`);
     return { column: key.column, value: valueOf(key.value, "key.value") };
   };
-  let edit: WidgetEdit;
-  if (req.op === "insert") edit = { op: "insert", values };
-  else if (req.op === "update") edit = { op: "update", key: keyed(), values };
-  else if (req.op === "delete") edit = { op: "delete", key: keyed() };
-  else throw new BridgeRefusal("op is insert, update or delete");
+  if (req.op === "insert") return { target, edit: { op: "insert", values } };
+  if (req.op === "update") return { target, edit: { op: "update", key: keyed(), values } };
+  if (req.op === "delete") return { target, edit: { op: "delete", key: keyed() } };
+  throw new BridgeRefusal("op is insert, update or delete");
+}
+
+/**
+ * One checked edit. An update or delete changes the one row its key names:
+ * a key that matches more (a column that is not unique, a value many rows
+ * share) is refused before anything changes, since a page cannot see which
+ * rows it would have reached.
+ */
+function applyEdit(db: Db, target: MutationTarget, edit: WidgetEdit): MutationResult {
   try {
+    if (edit.op !== "insert") {
+      const table = assertIdentifier(target.table, "table");
+      const column = assertIdentifier(edit.key.column, "key column");
+      // Two matches are enough to know: a key column with no index is scanned only that far.
+      const { n } = db.prepare(`SELECT COUNT(*) AS n FROM (SELECT 1 FROM ${table} WHERE ${column} = ? LIMIT 2)`).get(edit.key.value) as { n: number };
+      if (n > 1) throw new BridgeRefusal(`the key ${edit.key.column} = ${String(edit.key.value)} names more than one row, and a page changes one row at a time`);
+    }
     return executeMutation(db, target, edit);
   } catch (err) {
+    if (err instanceof BridgeRefusal) throw err;
     throw new BridgeRefusal(err instanceof Error ? err.message : String(err));
   }
+}
+
+/** One change to a declared table, through the same guarded path the widgets use, its key checked in the same transaction. */
+export function pageWrite(db: Db, bridge: BridgePage, req: WriteRequest): MutationResult {
+  const { target, edit } = editOf(bridge, req);
+  return db.transaction(() => applyEdit(db, target, edit))();
+}
+
+/**
+ * Several changes as one: each checked as pageWrite checks it, before any
+ * runs, then all made in one transaction, so a refusal partway changes
+ * nothing. A refusal names which change and why.
+ */
+export function pageWrites(db: Db, bridge: BridgePage, raw: unknown): { done: number; results: MutationResult[] } {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > PAGE_WRITES_MAX) throw new BridgeRefusal(`writes is a list of 1 to ${PAGE_WRITES_MAX} changes`);
+  const planned = raw.map((req: unknown, i) => {
+    try {
+      return editOf(bridge, (req ?? {}) as WriteRequest);
+    } catch (err) {
+      throw new BridgeRefusal(`change ${i + 1} of ${raw.length}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  });
+  const results = db.transaction(() =>
+    planned.map(({ target, edit }, i) => {
+      try {
+        return applyEdit(db, target, edit);
+      } catch (err) {
+        throw new BridgeRefusal(`change ${i + 1} of ${raw.length}: ${err instanceof Error ? err.message : String(err)}; nothing was changed`);
+      }
+    }),
+  )();
+  return { done: results.length, results };
 }
 
 /** A text file inside the page's own project folder, up to a size. */
