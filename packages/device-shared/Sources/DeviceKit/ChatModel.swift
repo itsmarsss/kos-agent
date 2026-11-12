@@ -69,12 +69,22 @@ public final class ChatModel: ObservableObject {
     public let id: String
     public let title: String
     public let updated: Date
+    /// Where it lives, when KOS said.
+    public let place: Place?
 
-    public init(id: String, title: String, updated: Date) {
+    public init(id: String, title: String, updated: Date, place: Place? = nil) {
       self.id = id
       self.title = title
       self.updated = updated
+      self.place = place
     }
+  }
+
+  /// Where a chat lives: at the root with KOS, in a project, or a blob's own.
+  public enum Place: Equatable, Hashable, Sendable {
+    case kos
+    case project(String)
+    case blob(String)
   }
 
   public struct Models: Equatable, Sendable {

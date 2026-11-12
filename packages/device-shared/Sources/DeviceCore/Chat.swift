@@ -150,6 +150,14 @@ public struct ChatItem: Decodable, Equatable, Sendable {
   public let title: String
   /// Epoch milliseconds.
   public let updatedAt: Double
+  /// Where the chat lives, when KOS says: at the root with KOS, in a project, or a blob's.
+  public let place: ChatPlace?
+}
+
+/// Where a chat lives (docs/computer.md): `kos` at the root, `project` or `blob` by its name.
+public struct ChatPlace: Decodable, Equatable, Sendable {
+  public let kind: String
+  public let name: String?
 }
 
 /// The chats the window may continue, newest first.
@@ -230,6 +238,8 @@ public enum ChatEvent: Sendable {
   case models
   case model(String)
   case auto(Bool)
+  /// What is running, failing and next across KOS, asked by a phone (docs/computer.md, Glance).
+  case glance
 
   /// The event as a frame for the line.
   public func frame() throws -> Data {
@@ -245,6 +255,7 @@ public enum ChatEvent: Sendable {
     case .models: return try Outbound.chatEvent("chat.models", data: Empty())
     case .model(let model): return try Outbound.chatEvent("chat.model", data: Model(model: model))
     case .auto(let on): return try Outbound.chatEvent("chat.auto", data: Auto(on: on))
+    case .glance: return try Outbound.chatEvent("chat.glance", data: Empty())
     }
   }
 

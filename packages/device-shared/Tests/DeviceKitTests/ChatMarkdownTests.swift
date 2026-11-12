@@ -1,7 +1,7 @@
 import SwiftUI
 import Testing
 
-@testable import DeviceUI
+@testable import DeviceKit
 
 /// KOS's words as the window reads them: the side panel's markdown.
 @Suite("Chat markdown")

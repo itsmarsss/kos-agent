@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import DeviceUI
+@testable import DeviceKit
 
 /// The window's chat keeps itself as the side panel's does: the owner's words wait until they are in the chat, and a turn says how it goes.
 @MainActor

@@ -1,12 +1,15 @@
-import AppKit
 import SwiftUI
+
+#if os(macOS)
+import AppKit
+#endif
 
 /// KOS's face, alive: the dashboard's blob, drawn every frame from BlobMotion,
 /// as its KOS sent its face.
 ///
-/// It looks at the pointer wherever it is on the screen, squashes when the
-/// pointer is over it, and wobbles, pleased, when it is clicked. With Reduce
-/// Motion on it holds still.
+/// On a Mac it looks at the pointer wherever it is on the screen and squashes
+/// when the pointer is over it; anywhere, it wobbles, pleased, when it is
+/// pressed. With Reduce Motion on it holds still.
 public struct KOSFace: View {
   private let size: CGFloat
   private let mood: BlobMood
@@ -28,7 +31,9 @@ public struct KOSFace: View {
     // Greyer when it is down or asleep, as the dashboard's face is.
     .saturation(mood == .error ? 0.5 : mood == .asleep ? 0.75 : 1)
     .frame(width: size, height: size)
+    #if os(macOS)
     .background(PointerProbe(driver: driver))
+    #endif
     .onHover { driver.hover = $0 }
     .onTapGesture { driver.poke() }
     .accessibilityHidden(true)
@@ -112,7 +117,9 @@ final class BlobDriver: ObservableObject {
   private var last: TimeInterval?
   private var pointerAt: TimeInterval = -.infinity
   private var lastPointer: CGPoint?
+  #if os(macOS)
   weak var view: NSView?
+  #endif
 
   var hover: Bool {
     get { motion.hover }
@@ -138,7 +145,9 @@ final class BlobDriver: ObservableObject {
   }
 
   /// Where the pointer is from the face's centre, y down, while it has moved in the last few seconds.
+  /// A touch screen has no pointer between touches, so there the face glances about of its own accord.
   private func pointer(now: TimeInterval) -> CGVector? {
+    #if os(macOS)
     guard let view, let window = view.window else { return nil }
     let screenPoint = NSEvent.mouseLocation
     if screenPoint != lastPointer {
@@ -149,9 +158,13 @@ final class BlobDriver: ObservableObject {
     let inView = view.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
     let dy = view.isFlipped ? inView.y - view.bounds.midY : view.bounds.midY - inView.y
     return CGVector(dx: inView.x - view.bounds.midX, dy: dy)
+    #else
+    return nil
+    #endif
   }
 }
 
+#if os(macOS)
 /// An empty view behind the face, so the driver can ask where the face is on the screen.
 private struct PointerProbe: NSViewRepresentable {
   let driver: BlobDriver
@@ -166,3 +179,4 @@ private struct PointerProbe: NSViewRepresentable {
     driver.view = nsView
   }
 }
+#endif

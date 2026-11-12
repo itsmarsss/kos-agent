@@ -1,5 +1,10 @@
-import AppKit
 import SwiftUI
+
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// The few controls every window here is made of, drawn in KOS's own style
 /// rather than the system's grey, so they match the dashboard. A window
@@ -179,12 +184,16 @@ public struct SwitchRow: View {
 public struct StepPicture: View {
   /// How wide it is small.
   public static let small: CGFloat = 150
-  private let image: NSImage?
+  private let image: Image?
   private let open: Bool
   private let press: () -> Void
 
   public init(_ data: Data, open: Bool = false, press: @escaping () -> Void = {}) {
-    image = NSImage(data: data)
+    #if os(macOS)
+    image = NSImage(data: data).map(Image.init(nsImage:))
+    #else
+    image = UIImage(data: data).map(Image.init(uiImage:))
+    #endif
     self.open = open
     self.press = press
   }
@@ -192,7 +201,7 @@ public struct StepPicture: View {
   public var body: some View {
     if let image {
       Button(action: press) {
-        Image(nsImage: image)
+        image
           .resizable()
           .aspectRatio(contentMode: .fit)
           .frame(maxWidth: open ? .infinity : Self.small, alignment: .leading)
@@ -645,6 +654,7 @@ private struct PointingHand: ViewModifier {
   @State private var pushed = false
 
   func body(content: Content) -> some View {
+    #if os(macOS)
     content
       .onHover { inside in
         if inside && on && !pushed {
@@ -661,6 +671,10 @@ private struct PointingHand: ViewModifier {
           pushed = false
         }
       }
+    #else
+    // A finger has no cursor to change; a pointer on an iPad is answered by the control's own hover.
+    content
+    #endif
   }
 }
 
@@ -688,10 +702,14 @@ public struct KOSChoices<Value: Hashable>: View {
 }
 
 /// Chips left to right, on to the next line when the next one does not fit, as flex-wrap lays them.
-struct ChipFlow: Layout {
+public struct ChipFlow: Layout {
   let spacing: CGFloat
 
-  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+  public init(spacing: CGFloat) {
+    self.spacing = spacing
+  }
+
+  public func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
     let rows = self.rows(subviews, width: proposal.width ?? .infinity)
     // As wide as offered, as a block of flex-wrap is; its widest row when offered any width.
     let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? rows.map(\.width).max() ?? 0
@@ -699,7 +717,7 @@ struct ChipFlow: Layout {
     return CGSize(width: width, height: height)
   }
 
-  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+  public func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
     var y = bounds.minY
     for row in rows(subviews, width: bounds.width) {
       var x = bounds.minX
@@ -787,6 +805,12 @@ public func elapsedWords(_ seconds: TimeInterval) -> String {
   let minutes = total / 60
   if minutes < 60 { return "\(minutes)m \(total % 60)s" }
   return "\(minutes / 60)h \(minutes % 60)m"
+}
+
+/// What is left before an ask answers itself, as the prompt counts it: "42s", "2m 05s".
+public func secondsLeft(until: Date, now: Date) -> String {
+  let left = max(0, Int(until.timeIntervalSince(now).rounded(.up)))
+  return left < 60 ? "\(left)s" : "\(left / 60)m \(String(format: "%02d", left % 60))s"
 }
 
 /// A text field on the page's own well, with its label above it when it has one.

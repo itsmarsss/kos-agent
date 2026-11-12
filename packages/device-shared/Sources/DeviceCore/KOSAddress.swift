@@ -46,6 +46,9 @@ public struct KOSAddress: Equatable, Sendable {
 
   public var pairURL: URL { base.appendingPathComponent("api/devices/pair") }
 
+  /// What KOS's listener on the local network answers before a code is sent, so its certificate can be checked.
+  public var lanURL: URL { base.appendingPathComponent("api/devices/lan") }
+
   /// The dashboard's Devices page, where codes are made.
   public var devicesPage: URL { page("settings/devices") }
 
@@ -73,6 +76,27 @@ public struct KOSAddress: Equatable, Sendable {
     guard !text.contains("://") else { return text }
     let host = URLComponents(string: "http://\(text)")?.host?.lowercased() ?? ""
     return "\(isPrivatePath(host) ? "http" : "https")://\(text)"
+  }
+
+  /// Whether the host is on the local network: a private IPv4 (10/8, 172.16/12, 192.168/16), a link-local one
+  /// (169.254/16), an IPv6 unique-local or link-local address, or a `.local` name. KOS serves a certificate it
+  /// made itself there, which a device holds it to by its pin.
+  public var isLocalNetwork: Bool {
+    guard let host = base.host?.lowercased() else { return false }
+    let bare = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+    if bare.hasSuffix(".local") { return true }
+    if bare.contains(":") {
+      // A tailnet's own range is unique-local too, and is no local network.
+      return bare.hasPrefix("fe80:") || ((bare.hasPrefix("fc") || bare.hasPrefix("fd")) && !bare.hasPrefix("fd7a:115c:a1e0:"))
+    }
+    let parts = bare.split(separator: ".", omittingEmptySubsequences: false)
+    let octets = parts.compactMap { UInt8($0) }
+    guard parts.count == 4, octets.count == 4 else { return false }
+    switch (octets[0], octets[1]) {
+    case (10, _), (192, 168), (169, 254): return true
+    case (172, let b): return (16...31).contains(b)
+    default: return false
+    }
   }
 
   /// Loopback, a Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48) or a tailnet name.

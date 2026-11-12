@@ -606,12 +606,6 @@ private struct ConsentCard: View {
   }
 }
 
-/// What is left before an ask answers itself, as the prompt counts it.
-func secondsLeft(until: Date, now: Date) -> String {
-  let left = max(0, Int(until.timeIntervalSince(now).rounded(.up)))
-  return left < 60 ? "\(left)s" : "\(left / 60)m \(String(format: "%02d", left % 60))s"
-}
-
 /// An approval to decide in the thread, as the panel's card asks it: what KOS would run, why, with what, and the dashboard's buttons.
 private struct AskCard: View {
   let ask: ChatModel.Ask

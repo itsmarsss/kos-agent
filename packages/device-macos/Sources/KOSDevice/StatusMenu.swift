@@ -1,5 +1,6 @@
 import AppKit
 import DeviceCore
+import DeviceLink
 
 /// The menu bar item: where KOS for Mac stands with each KOS, the live session with Take over and Stop, and the window.
 @MainActor

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import DeviceUI
+@testable import DeviceKit
 
 /// The box's / and @ menus, as the side panel's: commands by the start of their names, and what KOS's index names.
 @MainActor

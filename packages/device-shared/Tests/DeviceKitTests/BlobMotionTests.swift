@@ -1,7 +1,7 @@
 import CoreGraphics
 import Testing
 
-@testable import DeviceUI
+@testable import DeviceKit
 
 /// KOS's blob moves as the dashboard's does: it blinks, breathes, follows the pointer, and answers a poke.
 @Suite("Blob motion")

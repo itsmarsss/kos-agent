@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import DeviceCore
+import DeviceLink
 import DeviceUI
 import SwiftUI
 
@@ -169,7 +170,7 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     Task {
       defer { model.busy = false }
       do {
-        let pairing = try await PairingClient.pair(link, name: label.isEmpty ? "Mac" : label)
+        let pairing = try await PairingClient.pair(link, name: label.isEmpty ? "Mac" : label, platform: "macos")
         model.showPairing = false
         model.code = ""
         say("")

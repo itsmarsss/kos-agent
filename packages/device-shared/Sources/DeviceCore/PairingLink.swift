@@ -6,25 +6,33 @@ public struct PairingLink: Equatable, Sendable {
 
   public let address: KOSAddress
   public let code: String
+  /// The pin of KOS's own certificate, when the link is for its listener on the local network.
+  public let pin: String?
 
-  public init(address: KOSAddress, code: String) throws {
+  public init(address: KOSAddress, code: String, pin: String? = nil) throws {
+    if let pin, !CertificatePin.isValid(pin) {
+      throw DeviceError.badRequest("The pairing link's certificate pin does not read. Copy the link again from KOS.")
+    }
     self.address = address
     self.code = try Self.normalize(code: code)
+    self.pin = pin
   }
 
-  /// `kos-device://pair?url=<KOS address>&code=<code>`, pasted or opened. Nothing for other text.
+  /// `kos-device://pair?url=<KOS address>&code=<code>`, pasted or opened, with `&pin=<pin>` for KOS on the
+  /// local network. Nothing for other text.
   public static func parse(_ text: String) throws -> PairingLink? {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let parts = URLComponents(string: trimmed), parts.scheme?.lowercased() == scheme else { return nil }
     guard parts.host?.lowercased() == "pair" else {
-      throw DeviceError.badRequest("That KOS for Mac link is not a pairing link.")
+      throw DeviceError.badRequest("That KOS link is not a pairing link.")
     }
     let items = parts.queryItems ?? []
     guard let url = items.first(where: { $0.name == "url" })?.value,
           let code = items.first(where: { $0.name == "code" })?.value else {
       throw DeviceError.badRequest("The pairing link is missing its address or code.")
     }
-    return try PairingLink(address: KOSAddress(url), code: code)
+    let pin = items.first(where: { $0.name == "pin" })?.value
+    return try PairingLink(address: KOSAddress(url), code: code, pin: pin)
   }
 
   /// Codes are letters and digits in groups; case and stray spaces do not matter.

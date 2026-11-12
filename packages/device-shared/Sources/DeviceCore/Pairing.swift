@@ -9,15 +9,20 @@ public struct Pairing: Codable, Equatable, Sendable {
   public let hostKey: String
   /// The device's Ed25519 private key for this KOS, raw.
   public let deviceKey: Data
-  /// What this Mac is called in that KOS.
+  /// What this device is called in that KOS.
   public let name: String
+  /// The pin of the certificate KOS serves on the local network (CertificatePin), when it is reached there:
+  /// every connection must show that certificate. Nil for a KOS reached over https a certificate authority
+  /// vouches for, over a tailnet or on this computer, which is every pairing KOS for Mac makes.
+  public let pin: String?
 
-  public init(deviceId: String, address: String, hostKey: String, deviceKey: Data, name: String) {
+  public init(deviceId: String, address: String, hostKey: String, deviceKey: Data, name: String, pin: String? = nil) {
     self.deviceId = deviceId
     self.address = address
     self.hostKey = hostKey
     self.deviceKey = deviceKey
     self.name = name
+    self.pin = pin
   }
 
   public func kosAddress() throws -> KOSAddress { try KOSAddress(address) }
