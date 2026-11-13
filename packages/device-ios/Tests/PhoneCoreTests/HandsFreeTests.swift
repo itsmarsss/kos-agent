@@ -19,6 +19,15 @@ struct HandsFreeTests {
     #expect(rig.speech.starts == 1)
   }
 
+  @Test func askedTwiceBeforeListeningItStartsOnce() async throws {
+    let rig = try await Rig.online()
+    rig.phone.listen()
+    rig.phone.listen()
+    try await until("listening") { rig.phone.voice.state == .listening }
+    await settle()
+    #expect(rig.speech.starts == 1)
+  }
+
   @Test func waitsForTheChatBeforeListeningOnAColdStart() async throws {
     let rig = Rig(paired: Rig.pairing)
     rig.phone.start()

@@ -37,6 +37,15 @@ struct VoiceTests {
     #expect(said.words.count == 1)
   }
 
+  @Test func twoPressesBeforeListeningStartsStartItOnce() async throws {
+    let (model, speech, _, _) = voice()
+    model.press()
+    model.press()
+    try await until("listening") { model.state == .listening }
+    await settle()
+    #expect(speech.starts == 1)
+  }
+
   @Test func aPauseInSpeakingSendsByItself() async throws {
     let (model, speech, sleeps, said) = voice()
     model.press()
