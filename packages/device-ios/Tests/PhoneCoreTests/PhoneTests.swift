@@ -42,15 +42,13 @@ struct PhoneTests {
     #expect(rig.phone.glance.asking)
   }
 
-  @Test func aKOSThatNeverShowsTheChatIsSaidToBeOneThatCannotTalkHere() async {
+  @Test func aKOSThatNeverShowsTheChatIsSaidToBeOneThatCannotTalkHere() async throws {
     let rig = Rig(paired: Rig.pairing)
     rig.phone.start()
     rig.line.onStatus?(.connected(name: "iPhone"))
-    await settle()
-    #expect(rig.sleeps.pending == [.seconds(6)])
+    try await until("the wait for the chat") { rig.sleeps.pending == [.seconds(6)] }
     rig.sleeps.fire()
-    await settle()
-    #expect(rig.phone.chat.silent)
+    try await until("the KOS said to be silent") { rig.phone.chat.silent }
   }
 
   @Test func theChatIsDrawnAsKOSShowsIt() async throws {
@@ -85,10 +83,9 @@ struct PhoneTests {
   @Test func wordsKOSNeverTakesComeBackToTheBox() async throws {
     let rig = try await Rig.online()
     rig.phone.chat.say("hello?")
-    await settle()
+    try await until("the wait for KOS to take the words") { rig.sleeps.pending == [.seconds(12)] }
     rig.sleeps.fire()
-    await settle()
-    #expect(rig.phone.chat.draft == "hello?")
+    try await until("the words given back") { rig.phone.chat.draft == "hello?" }
     #expect(rig.phone.chat.error?.contains("did not take") == true)
   }
 
@@ -149,8 +146,7 @@ struct PhoneTests {
     _ = try await rig.line.call("chat.status", #"{"chat":"phone:owner","said":"tidy the inbox","taken":true}"#)
     rig.line.forget()
     _ = try await rig.line.call("chat.status", #"{"chat":"phone:owner","said":"tidy the inbox","error":"stopped"}"#)
-    await settle()
-    #expect(rig.line.events.contains("chat.glance"))
+    try await until("the glance asked for") { rig.line.events.contains("chat.glance") }
   }
 
   @Test func theDashboardsThemeIsFollowedAndKeptForNextTime() async throws {
@@ -257,8 +253,7 @@ struct PhoneTests {
   @Test func voiceGoesToKOSAsTheOwnersWords() async throws {
     let rig = try await Rig.online()
     rig.phone.voice.press()
-    await settle()
-    #expect(rig.phone.voice.state == .listening)
+    try await until("listening") { rig.phone.voice.state == .listening }
     rig.speech.say("remind me to call mum", final: true)
     #expect(rig.line.last("chat.send")?["text"] as? String == "remind me to call mum")
   }

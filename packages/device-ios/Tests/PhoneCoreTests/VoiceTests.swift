@@ -18,11 +18,10 @@ struct VoiceTests {
 
   final class Said { var words: [String] = [] }
 
-  @Test func aPressListensAndASecondSendsWhatWasHeard() async {
+  @Test func aPressListensAndASecondSendsWhatWasHeard() async throws {
     let (model, speech, sleeps, said) = voice()
     model.press()
-    await settle()
-    #expect(model.state == .listening)
+    try await until("listening") { model.state == .listening }
     speech.say("what's the weather")
     #expect(model.words == "what's the weather")
     model.press()
@@ -38,42 +37,38 @@ struct VoiceTests {
     #expect(said.words.count == 1)
   }
 
-  @Test func aPauseInSpeakingSendsByItself() async {
+  @Test func aPauseInSpeakingSendsByItself() async throws {
     let (model, speech, sleeps, said) = voice()
     model.press()
-    await settle()
+    try await until("listening") { model.state == .listening }
     speech.say("call the plumber")
-    await settle()
+    try await until("the pause after the words") { sleeps.pending == [.seconds(1.6)] }
     sleeps.fire()
-    await settle()
-    #expect(model.state == .finishing)
+    try await until("finishing") { model.state == .finishing }
     // The last words are late: what was heard goes anyway.
+    try await until("the wait for the last words") { sleeps.pending == [.seconds(1.5)] }
     sleeps.fire()
-    await settle()
-    #expect(said.words == ["call the plumber"])
+    try await until("the words sent") { said.words == ["call the plumber"] }
   }
 
-  @Test func silenceBeforeAnyWordListensOnThenGivesUp() async {
+  @Test func silenceBeforeAnyWordListensOnThenGivesUp() async throws {
     let (model, speech, sleeps, said) = voice()
     model.press()
-    await settle()
-    for _ in 0..<(VoiceModel.patience - 1) {
-      sleeps.fire()
-      await settle()
+    for pause in 1...VoiceModel.patience {
+      try await until("pause \(pause)") { sleeps.pending == [.seconds(1.6)] }
       #expect(model.state == .listening)
+      sleeps.fire()
     }
-    sleeps.fire()
-    await settle()
-    #expect(model.state == .idle)
+    try await until("giving up") { model.state == .idle }
     #expect(speech.cancelled == 1)
     #expect(model.note?.hasPrefix("Heard nothing") == true)
     #expect(said.words.isEmpty)
   }
 
-  @Test func theCrossDropsWhatWasHeard() async {
+  @Test func theCrossDropsWhatWasHeard() async throws {
     let (model, speech, _, said) = voice()
     model.press()
-    await settle()
+    try await until("listening") { model.state == .listening }
     speech.say("never mind")
     model.cancel()
     #expect(model.state == .idle)
@@ -82,64 +77,61 @@ struct VoiceTests {
     #expect(said.words.isEmpty)
   }
 
-  @Test func refusedTheMicrophoneItSaysHowToAllowIt() async {
+  @Test func refusedTheMicrophoneItSaysHowToAllowIt() async throws {
     let speech = ScriptedSpeech()
     speech.access = .denied
     let (model, _, _, _) = voice(speech)
     model.press()
-    await settle()
-    guard case .unavailable(let why) = model.state else { Issue.record("not unavailable"); return }
+    try await until("unavailable") { if case .unavailable = model.state { true } else { false } }
+    guard case .unavailable(let why) = model.state else { return }
     #expect(why.contains("Settings"))
     // Allowed since, a press tries again.
     speech.access = .allowed
     model.press()
-    await settle()
-    #expect(model.state == .listening)
+    try await until("listening") { model.state == .listening }
   }
 
-  @Test func noRecognitionHereSaysWhy() async {
+  @Test func noRecognitionHereSaysWhy() async throws {
     let none = VoiceModel(recognizer: NoSpeech())
     none.press()
-    await settle()
-    #expect(none.state == .unavailable("Voice is the iPhone's. Type here instead."))
+    try await until("unavailable") { none.state == .unavailable("Voice is the iPhone's. Type here instead.") }
   }
 
-  @Test func aFailureEndsListeningAndSaysSo() async {
+  @Test func aFailureEndsListeningAndSaysSo() async throws {
     let (model, speech, _, said) = voice()
     model.press()
-    await settle()
+    try await until("listening") { model.state == .listening }
     speech.failed?("The microphone is in use.")
     #expect(model.state == .idle)
     #expect(model.note == "Did not catch that. The microphone is in use.")
     #expect(said.words.isEmpty)
   }
 
-  @Test func nothingHeardIsSaidRatherThanSent() async {
+  @Test func nothingHeardIsSaidRatherThanSent() async throws {
     let (model, speech, _, said) = voice()
     model.press()
-    await settle()
+    try await until("listening") { model.state == .listening }
     model.press()
     speech.say("  ", final: true)
     #expect(said.words.isEmpty)
     #expect(model.note?.hasPrefix("Did not catch that") == true)
   }
 
-  @Test func aStartThatFailsIsSaid() async {
+  @Test func aStartThatFailsIsSaid() async throws {
     let speech = ScriptedSpeech()
     speech.refuseStart = "The microphone is busy."
     let (model, _, _, _) = voice(speech)
     model.press()
-    await settle()
+    try await until("the refusal said") { model.note == "The microphone is busy." }
     #expect(model.state == .idle)
-    #expect(model.note == "The microphone is busy.")
   }
 
-  @Test func listeningSilencesAReplyBeingRead() async {
+  @Test func listeningSilencesAReplyBeingRead() async throws {
     let (model, _, _, _) = voice()
     var told = 0
     model.willListen = { told += 1 }
     model.press()
-    await settle()
+    try await until("listening") { model.state == .listening }
     #expect(told == 1)
   }
 }
