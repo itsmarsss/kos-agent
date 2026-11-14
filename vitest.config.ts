@@ -11,6 +11,7 @@ export default defineConfig({
       "**/node_modules/**",
       "**/dist/**",
       "**/dist.next/**",
+      "**/dist.old/**",
       "**/.claude/**",
       "**/.git/**",
     ],
