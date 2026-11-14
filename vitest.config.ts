@@ -10,6 +10,8 @@ export default defineConfig({
     exclude: [
       "**/node_modules/**",
       "**/dist/**",
+      "**/dist.next/**",
+      "**/dist.old/**",
       "**/.claude/**",
       "**/.git/**",
     ],

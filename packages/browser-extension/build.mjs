@@ -13,7 +13,8 @@ import { KOS_SEED, lookOf } from "@kos/shared";
 import { build } from "esbuild";
 
 const root = dirname(fileURLToPath(import.meta.url));
-const dist = join(root, "dist");
+// Built beside the loaded extension, into the folder named, and swapped in only once whole (swap.mjs).
+const dist = join(root, process.argv[2] ?? "dist");
 mkdirSync(dist, { recursive: true });
 for (const file of readdirSync(join(root, "static"))) copyFileSync(join(root, "static", file), join(dist, file));
 // The kit's look and its scrollbars, which the pages load before their own.
