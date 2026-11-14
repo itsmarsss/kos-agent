@@ -49,6 +49,7 @@ import { createComputerUse, type Glance, type PanelArtifact, type PanelArtifacts
 /** The surfaces a device panel is: a Chrome's side panel, a Mac's window, a phone's chat. */
 type PanelSurface = "chrome" | "mac" | "phone";
 
+import { deviceUpdates } from "./deviceupdates.js";
 import { envFilePath } from "./env.js";
 import { ThreadMirror } from "./threadmirror.js";
 import { pingsOwner, postInPlace, postSaid, type JobFacts, type PlaceDeps, type SaidDeps } from "./saidpost.js";
@@ -547,6 +548,8 @@ export async function runHost(options: HostOptions): Promise<void> {
   const computer = createComputerUse({
     hostKeyPath: process.env.KOS_DEVICE_KEY_FILE?.trim() || join(homedir(), ".kos", "device-host.key"),
     ...(process.env.KOS_DEVICE_HOST_KEY ? { hostKeyEnv: process.env.KOS_DEVICE_HOST_KEY } : {}),
+    // Read by KOS for Mac on this computer to prove it is here, so KOS may rebuild it (docs/computer.md, Builds and updates).
+    localKeyPath: process.env.KOS_DEVICE_LOCAL_KEY_FILE?.trim() || join(homedir(), ".kos", "device-local.key"),
     caller: () => kernel.callerConversationId,
     // An ask to use a computer or a Chrome says who asks by the name it goes by everywhere.
     titleOf: (id) => kernel.nameOf(id),
@@ -576,6 +579,8 @@ export async function runHost(options: HostOptions): Promise<void> {
     audit: (entry) => void kernel.audit.record(entry),
     // The owner's Stop on a device stops the chat's turn, as the dashboard's does.
     stopTurn: (id) => kernel.stop(id),
+    // Each device app kept on the build this checkout holds: packages/cli/dist is two folders down from it.
+    updates: deviceUpdates(fileURLToPath(new URL("../../..", import.meta.url)), (line) => console.error(line)),
   });
 
   // KOS's Chrome answers on 9225; a second KOS on the machine names another port.

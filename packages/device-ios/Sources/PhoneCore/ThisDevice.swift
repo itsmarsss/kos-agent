@@ -13,14 +13,16 @@ extension Phone {
   public static func onThisDevice() -> Phone {
     let log = Logger(subsystem: "com.itsmarsss.kos-phone", category: "line")
     let app = AppInfo.phone
+    // Stamped into the app by its Xcode build phase (README); none from `swift run`.
+    let build = Build.stamped()
     #if os(iOS)
     return Phone(
       vault: KeychainVault(service: "KOS for iPhone"), pairer: NetworkPairer(), recognizer: SystemSpeechRecognizer(), speaker: SystemSpeaker(),
-      haptics: SystemHaptics(), preferences: UserDefaults.standard, line: { Connection(log: log, app: app) })
+      haptics: SystemHaptics(), preferences: UserDefaults.standard, line: { Connection(log: log, app: app, build: build) })
     #else
     return Phone(
       vault: MemoryVault(), pairer: NetworkPairer(), recognizer: NoSpeech(), speaker: SystemSpeaker(), haptics: SystemHaptics(),
-      preferences: MemoryPreferences(), line: { Connection(log: log, app: app) }, name: "KOS for iPhone on a Mac")
+      preferences: MemoryPreferences(), line: { Connection(log: log, app: app, build: build) }, name: "KOS for iPhone on a Mac")
     #endif
   }
 }

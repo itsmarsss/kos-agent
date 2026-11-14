@@ -191,6 +191,10 @@ public struct HomeActions {
   public var setTheme: (ThemeChoice) -> Void = { _ in }
   /// This run's log onto the clipboard, to send.
   public var copyLog: () -> Void = {}
+  /// The update notice put away, until KOS says something new of the build.
+  public var dismissUpdate: () -> Void = {}
+  /// A command the window shows onto the clipboard, to run in Terminal.
+  public var copyCommand: (String) -> Void = { _ in }
 
   public init() {}
 }
@@ -206,6 +210,10 @@ public final class HomeModel: ObservableObject {
   @Published public var face: FaceLook = .kos
   /// The Keychain would not give up the pairing: why, until a try succeeds.
   @Published public var keychainProblem: String?
+  /// KOS's word on this app's build, when it is one to show (UpdateWords) and the owner has not put it away.
+  @Published public var update: UpdateNotice?
+  /// The notice's command was just copied: its button says so for a moment.
+  @Published public var commandCopied = false
   @Published public var screenGranted = false
   @Published public var inputGranted = false
   /// A grant asked for once: the next press goes to its switch in System Settings.

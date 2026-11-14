@@ -440,7 +440,7 @@ describe("a line KOS closes", () => {
     vi.stubGlobal("WebSocket", FakeSocket);
     FakeSocket.made = [];
     const states: [LinkState, string | undefined][] = [];
-    const link = new Link({ url: "http://127.0.0.1:4317", device: "dev_a", hostKey: "k", keys: {} as CryptoKeyPair, hello: () => ({}) as Hello, onCall: async () => ({}), onFace: () => undefined, onTheme: () => undefined, onState: (s, d) => void states.push([s, d]) });
+    const link = new Link({ url: "http://127.0.0.1:4317", device: "dev_a", onUpdate: () => undefined, hostKey: "k", keys: {} as CryptoKeyPair, hello: () => ({}) as Hello, onCall: async () => ({}), onFace: () => undefined, onTheme: () => undefined, onState: (s, d) => void states.push([s, d]) });
     link.start();
     FakeSocket.made[0]!.onclose!({ code, reason });
     vi.advanceTimersByTime(1_000);

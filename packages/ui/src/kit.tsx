@@ -20,7 +20,13 @@ import { ease, useDismiss } from "@kos/kit";
  * every item was a name, then a checkbox on a line of its own, then its
  * description, and four of them read as twelve lines.
  */
-export function FieldRow({ label, hint, badge, meta, className, children }: { label: string; hint?: ReactNode; badge?: ReactNode; meta?: ReactNode; className?: string; children: ReactNode }): ReactElement {
+/**
+ * `note` is a line under the hint that a click does not have to open: where
+ * the thing stands now (a device's build). `after` goes under the words,
+ * outside the press that opens them, for what is selected or pressed on its
+ * own (a command to copy).
+ */
+export function FieldRow({ label, hint, note, after, badge, meta, className, children }: { label: string; hint?: ReactNode; note?: ReactNode; after?: ReactNode; badge?: ReactNode; meta?: ReactNode; className?: string; children: ReactNode }): ReactElement {
   // A row's words open on click: a skill's description can run to a
   // paragraph of triggers, and fourteen of those is a wall.
   const [open, setOpen] = useState(false);
@@ -32,9 +38,30 @@ export function FieldRow({ label, hint, badge, meta, className, children }: { la
           {badge}
         </div>
         {hint && <p className="set-hint">{hint}</p>}
+        {note && <p className="set-hint set-hint--open">{note}</p>}
         {open && meta}
       </button>
       <div className="set-field-control">{children}</div>
+      {after && <div className="set-field-after">{after}</div>}
+    </div>
+  );
+}
+
+/** A command for the owner to run in Terminal: selectable, with Copy beside it that says Copied for a moment, at one width. */
+export function CommandLine({ command }: { command: string }): ReactElement {
+  const [copied, setCopied] = useState(false);
+  const copy = (): void => {
+    void navigator.clipboard.writeText(command).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2_000);
+    });
+  };
+  return (
+    <div className="command-line">
+      <code>{command}</code>
+      <button type="button" className="btn btn--sm command-copy" onClick={copy} aria-label={copied ? "Copied" : "Copy the command"}>
+        {copied ? "Copied" : "Copy"}
+      </button>
     </div>
   );
 }

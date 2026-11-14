@@ -45,6 +45,7 @@ final class Settings {
     static let theme = "theme"
     static let themeByKOS = "themeByKOS"
     static let drawnByKOS = "drawnByKOS"
+    static let dismissedUpdate = "dismissedUpdate"
   }
 
   static let promptWaitChoices = [30, 60, 120, 300]
@@ -148,6 +149,13 @@ final class Settings {
   var idleMinutes: Int {
     get { Self.oneOf(Self.idleChoices, defaults.integer(forKey: Key.idle), else: 3) }
     set { store(newValue, in: Self.idleChoices, key: Key.idle) }
+  }
+
+  /// The update notice the owner put away (UpdateNotice.key): it stays away until KOS says something new.
+  /// Not a rule of the owner's, so nobody is told it changed.
+  var dismissedUpdate: String? {
+    get { defaults.string(forKey: Key.dismissedUpdate) }
+    set { defaults.set(newValue, forKey: Key.dismissedUpdate) }
   }
 
   /// Dial KOS as soon as the app opens; off, it waits for Connect.

@@ -1,5 +1,6 @@
+import type { Build } from "./builds.js";
 import type { HostKey } from "./keys.js";
-import { nonce, signText, verifyText } from "./keys.js";
+import { nonce, signText, verifyHere, verifyText } from "./keys.js";
 import {
   CLOSE,
   PROTOCOL_VERSION,
@@ -49,6 +50,10 @@ export interface LinkDeps {
   lookup(id: string): Device | undefined;
   /** Whether a proved device may use this line; one turned away is refused as `not a phone`. Every device when absent. */
   admit?(device: Device): boolean;
+  /** The device dialled loopback, not through a proxy: it may run on the computer KOS runs on. */
+  local?: boolean;
+  /** The secret a KOS for Mac on this computer proves it is here with; without it, no Mac is taken as here. */
+  localKey?: Buffer;
   /** In: both keys proved. */
   onReady(link: DeviceLink): void;
   onState(link: DeviceLink): void;
@@ -95,6 +100,10 @@ export class DeviceLink {
   private closed = false;
   device: Device | undefined;
   app: AppInfo | undefined;
+  /** The build it said it runs, when it said one, and how Chrome says it was installed. */
+  build: Build | undefined;
+  install: string | undefined;
+  private here = false;
   state: DeviceState | undefined;
 
   constructor(
@@ -105,6 +114,16 @@ export class DeviceLink {
     socket.onClose(() => this.gone());
     socket.send(JSON.stringify({ t: "challenge", protocol: PROTOCOL_VERSION, nonce: this.challenge }));
     this.helloTimer = setTimeout(() => this.close(CLOSE.malformed, "no hello"), deps.helloTimeoutMs ?? HELLO_TIMEOUT_MS);
+  }
+
+  /** On the computer KOS runs on, which is where KOS can rebuild it: on loopback with no proxy between, and a Mac proved so. */
+  get local(): boolean {
+    return this.here;
+  }
+
+  /** On loopback with no proxy between, proved or not. */
+  get loopback(): boolean {
+    return this.deps.local === true;
   }
 
   get ready(): boolean {
@@ -150,6 +169,11 @@ export class DeviceLink {
       clearTimeout(this.helloTimer);
       this.device = device;
       this.app = frame.app;
+      this.build = frame.build;
+      this.install = frame.install;
+      // A Mac is reinstalled from here, so its word alone is not enough: it proves it can read this computer's secret.
+      const mac = device.platform === "macos";
+      this.here = this.deps.local === true && (!mac || (this.deps.localKey !== undefined && verifyHere(this.deps.localKey, this.challenge, device.id, frame.here)));
       this.state = { consent: frame.consent, permissions: frame.permissions, displays: frame.displays };
       const signature = signText(this.deps.hostKey.privateKey, hostProof(frame.nonce, device.id));
       this.socket.send(JSON.stringify({ t: "welcome", name: device.name, signature }));

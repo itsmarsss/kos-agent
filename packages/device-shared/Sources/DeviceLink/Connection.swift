@@ -49,6 +49,10 @@ public final class Connection: NSObject {
   public var onFace: ((FaceDrawing) -> Void)?
   /// That KOS's dashboard theme and the palette it is drawn in, as they are now and whenever either changes.
   public var onTheme: ((DashboardTheme) -> Void)?
+  /// That KOS's word on this app's build, as it is now and whenever it changes.
+  public var onUpdate: ((UpdateNotice) -> Void)?
+  /// The proof this device runs on KOS's computer, for a hello to KOS's nonce (HereProof); none sends none.
+  public var here: ((_ hostNonce: String, _ deviceId: String) -> String?)?
   /// What to tell KOS about this device in the hello.
   public var state: () -> DeviceState = { DeviceState(consent: .device, permissions: Permissions(screen: false, input: false), displays: []) }
 
@@ -75,12 +79,14 @@ public final class Connection: NSObject {
   private nonisolated let trust = PinBox()
   /// Where the line writes what the owner may need to read afterwards.
   private let log: Logger
-  /// What this app says it is in the hello.
+  /// What this app says it is in the hello, and which build of it.
   private let app: AppInfo
+  private let build: Build?
 
-  public init(log: Logger, app: AppInfo) {
+  public init(log: Logger, app: AppInfo, build: Build? = nil) {
     self.log = log
     self.app = app
+    self.build = build
     super.init()
     path.pathUpdateHandler = { [weak self] update in
       Task { @MainActor in self?.networkChanged(up: update.status == .satisfied) }
@@ -296,7 +302,8 @@ public final class Connection: NSObject {
       }
       deviceNonce = Handshake.makeNonce()
       let hello = try? Outbound.hello(
-        device: pairing.deviceId, nonce: deviceNonce, signature: signature, app: app, state: state())
+        device: pairing.deviceId, nonce: deviceNonce, signature: signature, app: app, build: build,
+        here: here?(nonce, pairing.deviceId), state: state())
       if let hello { task.send(.string(String(decoding: hello, as: UTF8.self))) { _ in } }
 
     case .welcome(let name, let signature):
@@ -324,6 +331,10 @@ public final class Connection: NSObject {
     case .theme(let theme):
       guard proven else { return }
       onTheme?(theme)
+
+    case .update(let notice):
+      guard proven else { return }
+      onUpdate?(notice)
 
     case .call(let call):
       guard proven else { return }

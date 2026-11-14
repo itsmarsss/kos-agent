@@ -105,6 +105,23 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 };
 
+describe("a panel falling quiet", () => {
+  it("is busy while a turn runs in its chats, and says when the last one ends", () => {
+    const { panel, setChat } = setup({ place: MAC_PANEL });
+    let quiet = 0;
+    panel.onSettled(() => quiet++);
+    expect(panel.busy()).toBe(false);
+    setChat({ id: "mac:owner", title: "Mac" });
+    panel.watch({ kind: "turn-start", conversationId: "mac:owner", said: "plan my week", from: "mac" });
+    panel.watch({ kind: "turn-start", conversationId: "cm1:owner", said: "and the trip", from: "mac" });
+    expect(panel.busy()).toBe(true);
+    panel.watch({ kind: "turn-end", conversationId: "mac:owner" });
+    expect([panel.busy(), quiet]).toEqual([true, 0]);
+    panel.watch({ kind: "turn-end", conversationId: "cm1:owner" });
+    expect([panel.busy(), quiet]).toEqual([false, 1]);
+  });
+});
+
 describe("KOS for iPhone", () => {
   const glance: Glance = {
     halted: false,

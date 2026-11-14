@@ -8,6 +8,7 @@ import { PairError, type DeviceHub } from "./hub.js";
 import type { Socket } from "./link.js";
 import type { LanPairing, LanStatus } from "./lan.js";
 import type { ComputerSettings, Device } from "./store.js";
+import type { DeviceUpdates } from "./updates.js";
 import { MAX_FRAME_BYTES, SOCKET_PATH } from "./protocol.js";
 
 /**
@@ -36,7 +37,12 @@ export interface LanControl {
   sync(wanted: boolean): Promise<LanStatus>;
 }
 
-export function deviceRoutes(hubOf: () => DeviceHub | undefined, titleOf: (conversation: string) => string, lan?: LanControl): ApiExtension {
+export function deviceRoutes(
+  hubOf: () => DeviceHub | undefined,
+  titleOf: (conversation: string) => string,
+  lan?: LanControl,
+  updatesOf: () => DeviceUpdates | undefined = () => undefined,
+): ApiExtension {
   return {
     prefix: PREFIX,
     open: [PAIR_PATH],
@@ -59,17 +65,32 @@ export function deviceRoutes(hubOf: () => DeviceHub | undefined, titleOf: (conve
             throw err;
           }
         }
-        case `GET ${PREFIX}`:
+        case `GET ${PREFIX}`: {
+          const updates = updatesOf();
           return ok({
-            devices: hub.list().map((d) => (d.session ? { ...d, session: { ...d.session, title: titleOf(d.session.conversation) } } : d)),
+            devices: hub.list().map((d) => {
+              const update = updates?.statusOf(d.id);
+              return { ...d, ...(d.session ? { session: { ...d.session, title: titleOf(d.session.conversation) } } : {}), ...(update ? { update } : {}) };
+            }),
             settings: hub.settings(),
             ...(lan ? { lan: lan.status() } : {}),
           });
+        }
+        case `POST ${PREFIX}/update`: {
+          // The owner's Update now: the build tried once more, when the device is idle.
+          if (!id) return bad(400, "id required");
+          const updates = updatesOf();
+          if (!updates) return bad(503, "this KOS does not update devices");
+          if (!hub.list().some((d) => d.id === id)) return bad(404, "no such device");
+          const status = await updates.updateNow(id);
+          return status ? ok({ update: status }) : bad(409, "that device is offline, or not one KOS updates");
+        }
         case `POST ${PREFIX}/settings`: {
           const patch: Partial<ComputerSettings> = {};
           if (body.askMinutes !== undefined) patch.askMinutes = Number(body.askMinutes);
           if (body.unattended !== undefined) patch.unattended = body.unattended === true;
           if (body.lan !== undefined) patch.lan = body.lan === true;
+          if (body.autoUpdate !== undefined) patch.autoUpdate = body.autoUpdate === true;
           let next: ComputerSettings;
           try {
             next = hub.updateSettings(patch);
@@ -137,10 +158,23 @@ export interface DeviceSocketOptions {
   maxPayload?: number;
   /** Sockets open at once. */
   maxSockets?: number;
+  /** Whether a socket from loopback is a device on this computer; false for a listener whose loopback stands in for a network. */
+  loopback?: boolean;
+}
+
+/** A request a proxy passed on: on loopback, but from wherever the proxy's own client was. */
+export function isForwarded(headers: IncomingMessage["headers"]): boolean {
+  return Object.keys(headers).some((name) => name === "x-forwarded-for" || name === "forwarded" || name === "x-real-ip" || name.startsWith("tailscale-"));
+}
+
+/** An address on this computer: 127/8 or ::1, as itself or IPv4-mapped. */
+export function isLoopback(address: string | undefined): boolean {
+  const a = (address ?? "").replace(/^::ffff:/i, "");
+  return a === "::1" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(a);
 }
 
 export function deviceSocketServer(hubOf: () => DeviceHub | undefined, options: DeviceSocketOptions = {}): DeviceSocketServer {
-  const { admit, maxPayload = MAX_FRAME_BYTES, maxSockets = MAX_SOCKETS } = options;
+  const { admit, maxPayload = MAX_FRAME_BYTES, maxSockets = MAX_SOCKETS, loopback = true } = options;
   const wss = new WebSocketServer({ noServer: true, maxPayload });
   const alive = new WeakSet<WebSocket>();
   // A connection that stops answering pings is a laptop that went to sleep
@@ -170,7 +204,7 @@ export function deviceSocketServer(hubOf: () => DeviceHub | undefined, options: 
         alive.add(ws);
         ws.on("pong", () => alive.add(ws));
         ws.on("error", () => ws.terminate());
-        hub.accept(asSocket(ws), admit);
+        hub.accept(asSocket(ws), { ...(admit ? { admit } : {}), local: loopback && isLoopback(req.socket.remoteAddress) && !isForwarded(req.headers) });
       });
       return true;
     },

@@ -1,4 +1,5 @@
 import AppKit
+import DeviceCore
 import SwiftUI
 
 /// KOS for Mac's one window: where it stands with KOS, what macOS lets it do,
@@ -34,6 +35,7 @@ public struct HomeView: View {
     let needsRestart: Bool
     let kos: [KOSEntry]
     let keychainProblem: Bool
+    let update: String?
     let openKOS: String?
     let hiddenOpen: Bool
   }
@@ -42,7 +44,7 @@ public struct HomeView: View {
     Layout(
       page: model.page, pairing: model.pairing, session: model.session != nil, allGranted: model.allGranted,
       permissionsOpen: permissionsOpen, needsRestart: model.needsRestart, kos: model.kos,
-      keychainProblem: model.keychainProblem != nil, openKOS: openKOS, hiddenOpen: hiddenOpen)
+      keychainProblem: model.keychainProblem != nil, update: model.update?.key, openKOS: openKOS, hiddenOpen: hiddenOpen)
   }
 
   static let motion = Theme.spring
@@ -137,6 +139,9 @@ public struct HomeView: View {
       if let session = model.session {
         sessionCard(session).transition(.opacity.combined(with: .move(edge: .top)))
       }
+      if let update = model.update, let words = UpdateWords(update) {
+        updateCard(update, words).transition(.opacity.combined(with: .move(edge: .top)))
+      }
       kosSection
       KOSSection("Permissions") { permissionsCard }
       KOSSection("On this Mac") { rulesCard }
@@ -226,6 +231,24 @@ public struct HomeView: View {
           Button("Take over", action: model.actions.pause).buttonStyle(KOSButtonStyle(.secondary))
         }
         Button("Stop", action: model.actions.stop).buttonStyle(KOSButtonStyle(.danger))
+      }
+    }
+  }
+
+  // MARK: Update
+
+  /// KOS's word on this app's build, as the keychain's card says a problem: what it is, a cross to put it away, and the command when there is one.
+  private func updateCard(_ notice: UpdateNotice, _ words: UpdateWords) -> some View {
+    Card {
+      HStack(alignment: .top, spacing: 12) {
+        Tile(words.symbol, tint: words.working ? Theme.accent : Theme.warn)
+        RowText(words.title, words.detail)
+        if !words.working {
+          IconButton(symbol: "xmark", label: "Dismiss", action: model.actions.dismissUpdate)
+        }
+      }
+      if let command = notice.command {
+        CommandBox(command, copied: model.commandCopied) { model.actions.copyCommand(command) }
       }
     }
   }

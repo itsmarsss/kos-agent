@@ -3,6 +3,7 @@ import type { DashboardTheme, FaceDrawing } from "@kos/shared";
 import { socketUrl } from "./address.js";
 import { nonce, sign, verify } from "./keys.js";
 import { CallError, PROTOCOL, deviceProof, hostProof, readFrame } from "./protocol.js";
+import type { Build, UpdateNotice } from "./update.js";
 
 /**
  * The extension's connection to KOS: dialled out, both keys proved, then
@@ -23,6 +24,10 @@ export interface Hello {
   consent: Consent;
   permissions: Record<string, boolean>;
   displays: never[];
+  /** The build this extension is, from the stamp in its folder; none when it has no stamp. */
+  build?: Build;
+  /** How Chrome says it was installed: `development` (Load unpacked) is the one kind a reload brings new code to. */
+  install?: string;
 }
 
 export interface LinkOptions {
@@ -37,6 +42,8 @@ export interface LinkOptions {
   onFace: (face: FaceDrawing) => void;
   /** The dashboard's theme, as it is now and whenever the owner changes it. */
   onTheme: (theme: DashboardTheme) => void;
+  /** KOS's word on this extension's build, after the welcome and whenever it changes. */
+  onUpdate: (update: UpdateNotice) => void;
 }
 
 /** How often the extension says it is still there, which also keeps its worker awake. */
@@ -101,6 +108,11 @@ export class Link {
   /** The owner changed who allows a session from this KOS: KOS hears it at once, not at the next connection. */
   consent(consent: Consent): void {
     this.send({ t: "state", consent });
+  }
+
+  /** Until what was sent has left this Chrome, or the wait is up: a reload right after a send would drop it. */
+  async sent(withinMs = 1_000): Promise<void> {
+    for (let waited = 0; (this.ws?.bufferedAmount ?? 0) > 0 && waited < withinMs; waited += 50) await new Promise((r) => setTimeout(r, 50));
   }
 
   /** An event for KOS; dropped while offline, since KOS asks again what it needs. */
@@ -169,6 +181,7 @@ export class Link {
     }
     if (frame.t === "face" && this.welcomed) return this.options.onFace(frame.face);
     if (frame.t === "theme" && this.welcomed) return this.options.onTheme(frame.theme);
+    if (frame.t === "update" && this.welcomed) return this.options.onUpdate(frame.update);
     // Calls are answered side by side: a long one must not hold the frames after it.
     if (frame.t === "call" && this.welcomed) void this.answer(frame.id, frame.method, frame.params);
   }

@@ -1,10 +1,10 @@
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtempSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { loadHostKey, publicKeyFromRaw, rawPublicKey, signText, verifyText } from "./keys.js";
+import { hereProof, loadHostKey, loadLocalKey, publicKeyFromRaw, rawPublicKey, signText, verifyHere, verifyText } from "./keys.js";
 
 describe("keys", () => {
   it("verify only the exact text, by the exact key", () => {
@@ -38,5 +38,35 @@ describe("keys", () => {
     const env = key.export({ format: "der", type: "pkcs8" }).toString("base64");
     const loaded = loadHostKey({ env, path: "/nonexistent/never-written" });
     expect(loaded.publicKey).toBe(rawPublicKey(key));
+  });
+});
+
+describe("the proof a device is on this computer", () => {
+  it("is HMAC-SHA256 of KOS's nonce and the device id, the same in Swift (BuildsTests)", () => {
+    const key = Buffer.alloc(32, 7);
+    expect(hereProof(key, "bm9uY2U=", "dev_1")).toBe("DSnyF6p7ejzOZvXRYLSqCV1MlQQXTSs1ZKKIBztwwZ0=");
+    expect(verifyHere(key, "bm9uY2U=", "dev_1", "DSnyF6p7ejzOZvXRYLSqCV1MlQQXTSs1ZKKIBztwwZ0=")).toBe(true);
+    expect(verifyHere(key, "bm9uY2U=", "dev_2", "DSnyF6p7ejzOZvXRYLSqCV1MlQQXTSs1ZKKIBztwwZ0=")).toBe(false);
+    expect(verifyHere(key, "bm9uY2U=", "dev_1", undefined)).toBe(false);
+  });
+});
+
+describe("the secret of this computer", () => {
+  it("is made once, readable by the owner alone, and the same when read again", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "local-key-")), "kos", "device-local.key");
+    const key = loadLocalKey(path);
+    expect(key).toHaveLength(32);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect(loadLocalKey(path).equals(key)).toBe(true);
+  });
+
+  it("is made readable by the owner alone when found otherwise, and is never overwritten", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "local-key-")), "device-local.key");
+    writeFileSync(path, `${Buffer.alloc(32, 9).toString("base64")}\n`, { mode: 0o644 });
+    expect(loadLocalKey(path).equals(Buffer.alloc(32, 9))).toBe(true);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    writeFileSync(path, "not a key");
+    expect(() => loadLocalKey(path)).toThrow(/not a KOS device secret/);
+    expect(readFileSync(path, "utf8")).toBe("not a key");
   });
 });

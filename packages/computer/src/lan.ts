@@ -324,7 +324,7 @@ export class DeviceLan {
     }
     server.maxConnections = this.limits.connectionsInAll;
     // Phones only, whatever else holds a key, with frames the size of a chat's.
-    const sockets = deviceSocketServer(this.hubOf, { admit: (device) => kindOf(device) === "phone", maxPayload: MAX_FRAME_BYTES, maxSockets: this.limits.socketsInAll });
+    const sockets = deviceSocketServer(this.hubOf, { admit: (device) => kindOf(device) === "phone", loopback: false, maxPayload: MAX_FRAME_BYTES, maxSockets: this.limits.socketsInAll });
     const connections = new Open(this.limits.connectionsPerAddress);
     const socketsOpen = new Open(this.limits.socketsPerAddress);
     // Before TLS: an address off the private networks gets nothing at all, nor one holding its share open.

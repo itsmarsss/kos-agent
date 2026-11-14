@@ -34,6 +34,13 @@ asks Chrome for the debugger, tabs, tab groups, the side panel and its own
 storage. Reading a page for the side panel's chat is the one thing that
 needs more, and it is asked for there, once, when you allow it.
 
+**Updates.** Loaded unpacked from this KOS's `packages/browser-extension/dist`,
+the extension keeps to KOS's build by itself: after a deploy rebuilds the
+folder, KOS tells it, and it reloads into the new build once no side panel
+turn runs and no session is held or asked for, once per build. Settings,
+Devices shows its build and where it stands, with Update now. The rules are
+in [computer.md](computer.md#builds-and-updates).
+
 ### The side panel
 
 The panel button in the popup opens a chat with KOS beside your tabs, as
@@ -208,7 +215,10 @@ The device protocol, version 1, with `app.platform` `"chrome"`,
 device whose host may put it to sleep (a service worker): the device sends
 `{ "t": "ping" }` every 20 s and KOS answers `{ "t": "pong" }`. Pairing is
 sent as `text/plain` (a request a page makes without a preflight), and KOS's
-pair route may be read from any origin: the code is the proof.
+pair route may be read from any origin: the code is the proof. Its hello
+carries `build`, from the `build.json` its package build writes beside its
+code, and it takes the `update` frame and says `update.state` `reloading`
+before it reloads ([computer.md](computer.md#builds-and-updates)).
 
 | Method | Params | Result |
 | --- | --- | --- |

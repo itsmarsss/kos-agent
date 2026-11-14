@@ -359,6 +359,111 @@ phone is paired first asks to replace that pairing (the KOS it replaces is
 told to forget the phone). Every connection then proves both keys, as any
 device's does.
 
+## Builds and updates
+
+Each device app tells KOS which build it is when it connects (the hello's
+`build`), KOS knows which build it would hand each app now, and one behind
+is updated or told so. Everything server-side stays live as it always was;
+this is the apps alone.
+
+**A build** is `{ "id", "commit", "builtAt" }`. `id` is the first 12 hex
+digits of SHA-256 over one line per file of what the app is made from,
+`<path>\0<SHA-256 of its bytes, hex>\n`, the paths relative to the
+checkout, `/`-separated, sorted as bytes, names starting with a dot and
+links left out. `commit` is the checkout's commit (40 hex digits, empty
+outside a git checkout) and `builtAt` when it was built, epoch ms. Only `id`
+decides: a deploy that did not touch an app's files keeps its id, whatever
+the commit. What each app is made from:
+
+| App | Files | Stamped by |
+| --- | --- | --- |
+| KOS for Chrome | `packages/browser-extension/dist`, its `build.json` left out: the folder Chrome loads | its package build, after `build.mjs` |
+| KOS for Mac | `packages/device-macos` `Package.swift`, `Sources`, `Resources`, `scripts/bundle.sh`, `scripts/icon.swift`; `packages/device-shared` `Package.swift`, `Sources` | `scripts/bundle.sh` |
+| KOS for iPhone | `packages/device-ios` `Package.swift`, `Sources`, `App`; `packages/device-shared` `Package.swift`, `Sources` | the app target's Run Script phase, `scripts/stamp.sh` |
+
+A native build is not the same bytes twice, so the two native apps are
+their sources; KOS for Chrome is its built folder. KOS for Chrome reads its
+stamp once each time Chrome loads its code (session storage, which every
+install, reload, update and Chrome start empties, says when) and keeps it, so
+a worker that wakes after a deploy rebuilt the folder still says the build it
+runs. Each build writes its
+stamp as `build.json` beside the app's code (the extension's folder, the
+Mac app's `Contents/Resources`, the iPhone app's resources) with
+`node packages/computer/dist/stamp.js <chrome|mac|phone> <file>`, and the
+app reads it from there. KOS's own is what is on disk: the extension's
+`dist/build.json` as it is now (what a reload would load), and the two
+native apps' sources, hashed at start (a deploy restarts KOS), again just
+before KOS installs one, and again when a Mac comes back on another build
+than KOS's (the owner may have built one by hand).
+
+**Here.** A device is on the computer KOS runs on when it dialled loopback
+with no proxy between (a request carrying `X-Forwarded-For`, `Forwarded`,
+`X-Real-IP` or a `Tailscale-` header is not), and, for KOS for Mac, since KOS
+reinstalls it, when it also proves it can read this computer's secret: 32
+random bytes KOS keeps in `~/.kos/device-local.key` (mode 0600;
+`KOS_DEVICE_LOCAL_KEY_FILE` moves it, for tests and scratch hosts only:
+KOS for Mac always reads `~/.kos/device-local.key`), sent as `here`, base64 HMAC-SHA256 with
+that secret over `kos-device/1|here|<KOS nonce>|<device id>`. A Chrome is
+taken on the header rule alone: a Chrome elsewhere told to reload only
+reloads its own folder. A secret file that does not read is never
+overwritten; computer use goes on as ever, no Mac counts as on this
+computer (so KOS installs nothing by itself), and a Mac on loopback is
+`unproved`, with the file to remove in `detail`, said once in the host's
+log too.
+
+**When.** On every connection KOS compares, settles an update in flight
+(back on the new build: `updated`; reloaded or reinstalled and still not:
+`still_behind`), and acts. An install a restart of KOS cut off is settled as
+`failed` when KOS starts again. It looks again whenever a session or a turn ends,
+for an app waiting on that. Each build is tried once per device, kept
+across restarts; the owner's Update now (`POST /api/devices/update { "id"
+}`, or the dashboard's button) tries it once more. Settings, Devices,
+"Update devices on their own" (`autoUpdate`, on by default) is whether KOS
+starts one itself. `GET /api/devices` lists each device online with its `build`, `local`
+(connected from this computer) and `update` (the frame's fields but
+`action`). Every step is in the audit log as `device.update`, with
+the device, `kind`, `from`, `to`, `outcome` (`reloading`, `installing`,
+`updated`, `failed`, `still_behind`) and `by` (`kos`, `owner`).
+
+**KOS for Chrome**, connected from this computer, is told `action:
+reload`. It reloads itself (`chrome.runtime.reload()`) from its folder only
+as an unpacked extension (Load unpacked, `installType` `development`),
+only once no side panel turn runs and no session is held or asked for
+(otherwise when that ends), and only once per build id unless `force` (and
+not again within ten minutes even then); it reloads only once its folder
+holds that build whole (the manifest reads, the stamp is that id), and
+looks again every 30 s while the folder is being rebuilt, for three minutes,
+then says `missing`; it says
+`update.state` `reloading` first. A forced reload is spent on the line it
+was told on. One installed from the store is `store`: Chrome updates it. Loaded from another folder than
+this KOS's `dist`, it comes back on the same build and KOS calls it stuck.
+
+**KOS for Mac**, connected from this computer (loopback), on a Mac checkout,
+is rebuilt and swapped in with `scripts/bundle.sh --install`, one at a
+time, its output in the host's log, once its window holds no session or
+ask and no turn runs in its chats. The build runs in a process group of its
+own, with only `HOME`, `PATH`, `TMPDIR`, `DEVELOPER_DIR`, `LANG`, `USER`,
+`LOGNAME`, `KOS_DEVICE_SIGNING_KEYCHAIN` and `KOS_NODE` of the host's
+environment, and is stopped, all of it, after fifteen minutes. The new app is
+copied in beside the old and renamed into place, so a stop leaves an app
+installed; an app that does not quit within ten seconds is not replaced,
+and the update fails saying so. A signing key locked from KOS's side
+(`errSecInternalComponent`) is said as such, with the command to run in the
+owner's own Terminal. Only while the owner's signing key is
+set up (`scripts/signing.sh identity`): signed ad hoc, a rebuild costs the
+app its Screen Recording, Accessibility and Keychain grants, so without
+the key KOS installs nothing on its own and says so, on the dashboard and
+in the app, with the one command to run; the owner may still press Update
+now and take that cost. The app quits for the swap on a SIGTERM, which it
+takes as Quit; no Apple Event is sent, so nothing asks the owner's leave.
+`KOS_DEVICE_MAC_INSTALL` and `KOS_DEVICE_MAC_SIGNING` name programs to run
+instead, for a scratch host. One on another computer is `remote`.
+
+**KOS for iPhone** cannot update itself: native code on an iPhone comes
+only from Xcode (or the App Store). KOS says `behind` with `xcode`, and the
+phone shows a quiet "An update is ready" in More and Settings, with the
+steps.
+
 ## Security model
 
 - **Pairing** is a one-time code made on the dashboard, good for ten minutes
@@ -427,6 +532,7 @@ link for a phone over Wi-Fi adds `&pin=<pin>`, the certificate the phone pins
   "nonce": "<base64, 32 bytes>",
   "signature": "<Ed25519 over 'kos-device/1|device|<KOS nonce>|<device id>'>",
   "app": { "version": "0.1.0", "platform": "macos", "os": "26.4.1" },
+  "build": { "id": "8af3ddb87233", "commit": "ffb560c7cc664e3804eccf7aa6f4b06aac25dfd1", "builtAt": 1761800000000 },
   "consent": "device",
   "permissions": { "screen": true, "input": true },
   "displays": [{ "id": 1, "width": 1512, "height": 982, "scale": 2, "main": true }]
@@ -434,6 +540,13 @@ link for a phone over Wi-Fi adds `&pin=<pin>`, the certificate the phone pins
 ```
 
 3. KOS: `{ "t": "welcome", "name": "<device name>", "signature": "<Ed25519 over 'kos-device/1|host|<device nonce>|<device id>'>" }`
+
+`build` is which build of the app this is, as its build stamped it (see
+[Builds and updates](#builds-and-updates)). An app that sends none, or one
+that does not read, is let in as a build KOS does not know. A Chrome adds
+`install`, how Chrome says it was installed (`development` for Load
+unpacked); KOS for Mac on the computer KOS runs on adds `here`, its proof
+that it is there.
 
 Nonces are signed as their base64 text. Either side closes on a bad
 signature. Close codes: `4001` malformed, `4003` unknown device, bad
@@ -495,6 +608,27 @@ several KOS, a device keeps each one's theme and draws that of the KOS whose
 session is at work, else the first connected, else the first paired. Nothing
 KOS sends changes that choice. A device that does not know the frame ignores
 it, and one that does not know `drawn` draws `mode`.
+
+After the theme, and again whenever it changes, KOS says where the app's
+build stands with the one it would hand it now:
+
+```json
+{ "t": "update", "state": "behind", "build": { "id": "8af3ddb87233", "commit": "ffb5…" }, "reason": "signing", "command": "cd … && scripts/signing.sh setup" }
+```
+
+`state` is `current`, `behind`, `updating` or `unknown`; `build` the build
+KOS would hand it; `reason`, when it is not current, why: `unbuilt` (KOS
+has none to compare with), `unstamped` (the app said no build), `remote`
+(it runs on another computer), `unproved` (it may run here, but KOS cannot
+read the secret it would check), `store` (a Chrome installed from the store,
+which Chrome updates), `idle` (waiting for no session and no turn
+on it), `signing` (KOS for Mac's signing key is not set up), `xcode` (a
+phone), `off` (the owner turned updating on their own off), `failed` (with
+`detail`, the build's last line) or `stuck` (updated, and back on the old
+build). `command` is what the owner runs by hand on a Mac. A Chrome is
+also told `"action": "reload"`, and `"force": true` when the owner pressed
+Update now (see [Builds and updates](#builds-and-updates)). A device that
+does not know the frame, a reason or a field ignores it.
 
 When the owner unpairs the device on the device, it sends `{ "t": "unpair" }`
 before it hangs up. KOS forgets it, as Remove on the dashboard does: any
@@ -605,6 +739,7 @@ Device: `{ "t": "event", "name": "session.paused", "data": { "session": "...", "
 | `session.scrolled` | `session` (the owner scrolled without taking over; sent once until KOS takes a whole-screen picture, and until then KOS acts on nothing but a look) |
 | `session.extended` | `session`, `until` (the owner gave it more time on the device) |
 | `session.ended` | `session`, `reason` (`owner`, `expired`, `idle`, `quit`, `host`, `window`) |
+| `update.state` | `build` (the id KOS told of), `state` (`reloading`: a Chrome reloads into it now; `missing`: its folder never came to hold it, so it is loaded from another, and KOS settles it as still behind) |
 
 ### Errors
 

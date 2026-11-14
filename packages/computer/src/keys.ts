@@ -1,4 +1,4 @@
-import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify, type KeyObject } from "node:crypto";
+import { createHmac, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, timingSafeEqual, verify, type KeyObject } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -76,4 +76,46 @@ export function loadHostKey(options: { env?: string; path: string }): HostKey {
   writeFileSync(options.path, privateKey.export({ format: "pem", type: "pkcs8" }), { mode: 0o600 });
   chmodSync(options.path, 0o600);
   return { privateKey, publicKey: rawPublicKey(privateKey) };
+}
+
+/**
+ * The secret a device on this computer proves it is here with (docs/computer.md,
+ * Builds and updates): 32 random bytes, base64, in a file only the owner can read,
+ * made on first use. A device elsewhere, even one whose line comes in through a
+ * proxy on this computer's loopback, cannot read it.
+ */
+export function loadLocalKey(path: string): Buffer {
+  const read = (): Buffer | undefined => {
+    if (!existsSync(path)) return undefined;
+    // Kept the owner's alone, however it was left.
+    chmodSync(path, 0o600);
+    const key = Buffer.from(readFileSync(path, "utf8").trim(), "base64");
+    if (key.length !== 32) throw new Error(`${path} is not a KOS device secret; remove it and KOS makes another`);
+    return key;
+  };
+  const kept = read();
+  if (kept) return kept;
+  const key = randomBytes(32);
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  try {
+    // Made only where none is: a second KOS starting at the same moment keeps the first one's.
+    writeFileSync(path, `${key.toString("base64")}\n`, { mode: 0o600, flag: "wx" });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") return read()!;
+    throw err;
+  }
+  return key;
+}
+
+/** What a device on this computer sends as `here`: HMAC-SHA256 with that secret over KOS's nonce bound to its id. */
+export function hereProof(key: Buffer, hostNonce: string, deviceId: string): string {
+  return createHmac("sha256", key).update(`kos-device/1|here|${hostNonce}|${deviceId}`, "utf8").digest("base64");
+}
+
+/** True only for that proof, compared in constant time. */
+export function verifyHere(key: Buffer, hostNonce: string, deviceId: string, proof: unknown): boolean {
+  if (typeof proof !== "string") return false;
+  const want = Buffer.from(hereProof(key, hostNonce, deviceId), "base64");
+  const got = Buffer.from(proof, "base64");
+  return got.length === want.length && timingSafeEqual(got, want);
 }

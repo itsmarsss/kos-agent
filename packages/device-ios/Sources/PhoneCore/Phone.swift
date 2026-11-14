@@ -32,6 +32,11 @@ public final class Phone: ObservableObject {
   @Published public private(set) var theme: DashboardTheme?
   /// Said over the pairing screen when the saved pairing could not be read or kept.
   @Published public private(set) var problem: String?
+  /// KOS's word on this app's build: a newer one is ready when it says this one is behind.
+  @Published public internal(set) var update: UpdateNotice?
+
+  /// KOS has a newer build of this app. Native code cannot update itself, so it is the owner's to run from Xcode.
+  public var updateReady: Bool { update?.state == .behind }
 
   /// How long the phone waits on KOS: to say it has the owner's words, and to show the chat once asked.
   public struct Timing: Sendable {
@@ -154,6 +159,7 @@ public final class Phone: ObservableObject {
     line.onRemoved = { [weak self] in self?.removed() }
     line.onFace = { [weak self] face in self?.faced(face) }
     line.onTheme = { [weak self] theme in self?.themed(theme) }
+    line.onUpdate = { [weak self] notice in self?.update = notice }
     self.line = line
     chat.link = .connecting
     line.start(pairing)
@@ -278,6 +284,7 @@ public final class Phone: ObservableObject {
   /// Nothing of the KOS this phone was with stays: its theme, its face, its chat and its glance.
   private func leave() {
     theme = nil
+    update = nil
     preferences.set(nil, forKey: Keys.theme)
     preferences.set(nil, forKey: Keys.face)
     reader.stop()
@@ -360,6 +367,7 @@ public final class Phone: ObservableObject {
       replaced.onRemoved = nil
       replaced.onFace = nil
       replaced.onTheme = nil
+      replaced.onUpdate = nil
       replaced.unpair {}
       leave()
     }

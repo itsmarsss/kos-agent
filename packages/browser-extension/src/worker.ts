@@ -13,6 +13,7 @@ import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
 import { checkCommand, forwarded, isInput, isWebUrl, OVERLAY_WORLD as WORLD, Worlds } from "./relay.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, SENT_THEME_KEY, asksFirst, isHidden, readSettings, siteOf, themeOf, type ExtensionSettings } from "./settings.js";
+import { FolderWait, ReloadGate, folderHolds, readBuild, runningBuild, type Build, type Kept, type Reloaded, type UpdateNotice } from "./update.js";
 
 /**
  * The extension's worker: paired with one KOS or several, it answers each
@@ -134,6 +135,19 @@ let settings: ExtensionSettings = DEFAULTS;
 let sentTheme: DashboardTheme | undefined;
 /** KOS the owner disconnected, kept across the worker's sleeps. */
 let held = new Set<string>();
+/** This extension's build, from the stamp beside its code as Chrome loaded it; none for a build from before stamps. */
+let build: Build | undefined;
+/** How Chrome says it was installed. */
+let installType: string | undefined;
+/** The build this extension last reloaded itself into, and when, so one that comes back the same does not reload again. */
+let reloaded: Reloaded | undefined;
+let reloading = false;
+const RELOADED_KEY = "reloaded";
+/** A folder caught mid-rebuild is looked at again after this long, by one timer at a time. */
+const FOLDER_AGAIN_MS = 30_000;
+const folderWait = new FolderWait();
+let folderTimer: ReturnType<typeof setTimeout> | undefined;
+const gate = new ReloadGate();
 const linkStates = new Map<string, { state: LinkState; detail?: string }>();
 let session: Session | undefined;
 /** The KOS whose session it is, or which is asking the owner for one. */
@@ -184,7 +198,11 @@ const kosName = (id: string | undefined): string | undefined => (pairings.length
 
 // Kept across the worker's sleeps: pairings, settings and who is held in local storage, the handed tabs and KOS's window in session storage.
 async function load(): Promise<void> {
-  const local = await chrome.storage.local.get(["pairings", "paired", "settings", "held", SENT_THEME_KEY]);
+  const local = await chrome.storage.local.get(["pairings", "paired", "settings", "held", SENT_THEME_KEY, RELOADED_KEY]);
+  build = await runningBuild(area(chrome.storage.session), area(chrome.storage.local), ownBuild);
+  installType = (await chrome.management.getSelf().catch(() => undefined))?.installType;
+  const last = local[RELOADED_KEY] as Partial<Reloaded> | undefined;
+  reloaded = typeof last?.build === "string" && typeof last.at === "number" ? { build: last.build, at: last.at } : undefined;
   pairings = readPairings(local["pairings"], local["paired"]);
   if (!Array.isArray(local["pairings"]) && pairings.length) {
     await chrome.storage.local.set({ pairings });
@@ -200,6 +218,31 @@ async function load(): Promise<void> {
 }
 const ready = load();
 
+/** A file of this extension's folder as it is on disk now, or none. */
+async function ownFile(file: string): Promise<string | undefined> {
+  try {
+    const answer = await fetch(chrome.runtime.getURL(file), { cache: "no-store" });
+    return answer.ok ? await answer.text() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The stamp the build wrote beside this extension's code (docs/computer.md, Builds). */
+async function ownBuild(): Promise<Build | undefined> {
+  const text = await ownFile("build.json");
+  try {
+    return text ? readBuild(JSON.parse(text)) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A chrome.storage area as the build keeper reads it. */
+function area(of: chrome.storage.StorageArea): Kept {
+  return { get: async (key) => (await of.get(key))[key], set: (key, value) => of.set({ [key]: value }) };
+}
+
 const savePairings = (): Promise<void> => chrome.storage.local.set({ pairings });
 const saveSettings = (): Promise<void> => chrome.storage.local.set({ settings });
 const saveHeld = (): Promise<void> => chrome.storage.local.set({ held: [...held] });
@@ -212,7 +255,56 @@ function hello(id: string): Hello {
     consent: asksFirst(settings, id) ? "device" : "kos",
     permissions: { tabs: true },
     displays: [],
+    ...(build ? { build } : {}),
+    ...(installType ? { install: installType } : {}),
   };
+}
+
+/** KOS's word on this build: a newer one in its folder is reloaded into once nothing is going on. */
+function updated(id: string, update: UpdateNotice): void {
+  gate.told(id, update);
+  if (update.reload) note(`${hostOf(pairingOf(id) ?? { url: id })}: build ${update.build!.id} is ready; reloading once nothing is going on`);
+  void maybeReload();
+}
+
+/**
+ * Reload into the build KOS told of, when it is due: no side panel turn, no
+ * session and no ask for one. Only an unpacked extension, whose folder a
+ * reload reads again; KOS hears it first, so a copy that comes back on the
+ * same build is reported and not reloaded again.
+ */
+async function maybeReload(): Promise<void> {
+  const busy = (): boolean => session !== undefined || owner !== undefined || consents.size > 0;
+  if (reloading || installType !== "development") return;
+  const first = gate.due(busy(), reloaded);
+  if (!first) return;
+  // A folder being rebuilt (the build begins by removing it) is not reloaded into: it is looked at again later,
+  // and after a while KOS is told it lacks the build (loaded from another folder), and settles it as still behind.
+  if (!(await folderHolds(first.build, ownFile))) {
+    const next = folderWait.miss(first.build);
+    if (next === "give-up") {
+      note(`the folder never came to hold build ${first.build}; telling KOS`);
+      links.get(first.kos)?.event("update.state", { build: first.build, state: "missing" });
+    } else if (next === "again" && !folderTimer) {
+      note(`the folder does not hold build ${first.build} yet; looking again shortly`);
+      folderTimer = setTimeout(() => {
+        folderTimer = undefined;
+        void maybeReload();
+      }, FOLDER_AGAIN_MS);
+    }
+    return;
+  }
+  // Asked again after the waits: a session may have begun meanwhile, or KOS named another build.
+  const due = gate.due(busy(), reloaded);
+  if (reloading || due?.build !== first.build) return;
+  reloading = true;
+  reloaded = { build: due.build, at: Date.now() };
+  await chrome.storage.local.set({ [RELOADED_KEY]: reloaded });
+  note(`reloading into build ${due.build}`);
+  const link = links.get(due.kos);
+  link?.event("update.state", { build: due.build, state: "reloading" });
+  await link?.sent();
+  chrome.runtime.reload();
 }
 
 /** A KOS's new face, kept for when it is offline, and on the page it works in at once. */
@@ -256,6 +348,8 @@ function lineState(p: Paired, state: LinkState, detail?: string): void {
   if (state !== was?.state || detail !== was?.detail) note(`${hostOf(p)}: ${state}${detail ? ` (${detail})` : ""}`);
   if (state === was?.state) return;
   void badge();
+  // Its turns and its word on this build are told again once it is back.
+  if (state !== "online") gate.gone(id);
   // A panel open on this KOS is shown its chat as soon as there is a line to show it on.
   if (state === "online") for (const panel of panels) if (panel.kos === id) links.get(id)?.event("chat.open", {});
   // A session lives on its connection: its KOS gone, KOS's hands gone; an ask it made is withdrawn.
@@ -277,6 +371,7 @@ const lines = new Lines<Link>({
       onCall: (method, params) => answer(method, params, p.device),
       onFace: (face) => void showFace(p.device, face),
       onTheme: (theme) => void keepTheme(p.device, theme),
+      onUpdate: (update) => updated(p.device, update),
       onState: (state, detail) => lineState(p, state, detail),
     }),
   wanted: (id) => !!pairingOf(id) && !held.has(id),
@@ -371,6 +466,8 @@ async function answer(method: string, params: Record<string, unknown>, origin: s
     default:
       if (PANEL_CALLS.has(method)) {
         toPanels(method, params, origin);
+        gate.heard(origin, method, params);
+        void maybeReload();
         return {};
       }
       throw new CallError("bad_request", `${method} is not something this extension does`);
@@ -460,7 +557,10 @@ async function begin(params: Record<string, unknown>, origin: string): Promise<R
     await badge();
     return { granted: true, until: session.info.until, ...(alone ? { auto: { site: alone } } : {}) };
   } finally {
-    if (!session) owner = undefined;
+    if (!session) {
+      owner = undefined;
+      void maybeReload();
+    }
   }
 }
 
@@ -533,6 +633,7 @@ async function end(reason: EndReason): Promise<void> {
   owner = undefined;
   note(`ended: ${reason}`);
   await badge();
+  await maybeReload();
 }
 
 async function listTabs(): Promise<{ id: string; url: string; title: string; handed?: true; focus?: true; hidden?: true }[]> {
@@ -1516,6 +1617,9 @@ chrome.runtime.onStartup.addListener(() => {
     note("Chrome opened; waiting for Connect");
   });
 });
+
+// Installed, updated or reloaded into a new build: Chrome starts the worker for this, and it dials at once.
+chrome.runtime.onInstalled.addListener(() => void ready.then(() => connectAll()));
 
 // Awake: connected if paired, and checked every minute in case the worker slept.
 chrome.alarms.create("kos", { periodInMinutes: 1 });

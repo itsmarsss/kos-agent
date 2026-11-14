@@ -7,6 +7,8 @@
  * are kept literal rather than clever.
  */
 
+import { readBuild, type Build } from "./builds.js";
+
 export const PROTOCOL_VERSION = 1;
 
 /** The path a device's WebSocket opens. */
@@ -83,6 +85,12 @@ export interface Hello extends DeviceState {
   nonce: string;
   signature: string;
   app: AppInfo;
+  /** The build of the app, as stamped when it was built; an app that sends none, or none that reads, is of a build KOS does not know. */
+  build?: Build;
+  /** A Chrome's: how it was installed (`development` is Load unpacked, the only kind a reload brings new code to). */
+  install?: string;
+  /** KOS for Mac's proof that it runs on the computer KOS runs on (keys.ts, hereProof). */
+  here?: string;
 }
 
 export interface Welcome {
@@ -276,6 +284,7 @@ export function readFrame(text: string): FromDevice | undefined {
       const permissions = readPermissions(raw.permissions);
       const displays = readDisplays(raw.displays);
       const consent = readConsent(raw.consent);
+      const build = readBuild(raw.build);
       const app = raw.app;
       if (typeof raw.protocol !== "number" || !isString(raw.device) || !isString(raw.nonce) || !isString(raw.signature)) return undefined;
       if (!permissions || !displays || !consent || !isObject(app) || !isString(app.version) || !isString(app.platform) || !isString(app.os)) return undefined;
@@ -286,6 +295,9 @@ export function readFrame(text: string): FromDevice | undefined {
         nonce: raw.nonce,
         signature: raw.signature,
         app: { version: app.version, platform: app.platform, os: app.os },
+        ...(build ? { build } : {}),
+        ...(isString(raw.install) && raw.install.length <= 20 ? { install: raw.install } : {}),
+        ...(isString(raw.here) && raw.here.length <= 64 ? { here: raw.here } : {}),
         consent,
         permissions,
         displays,

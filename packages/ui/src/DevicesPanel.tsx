@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { Empty, Field, Pill, Switch } from "@kos/kit";
+import { Empty, Field, Pill, Switch, type Tone } from "@kos/kit";
 
-import { api, type ComputerSettings, type DeviceCode, type LanStatus, type PairedDevice } from "./api.js";
-import { ConfirmButton, FieldRow } from "./kit.js";
+import { api, type ComputerSettings, type DeviceBuild, type DeviceCode, type LanStatus, type PairedDevice } from "./api.js";
+import { CommandLine, ConfirmButton, FieldRow } from "./kit.js";
 import { agoWords } from "./schedulewords.js";
 import { Select } from "./Select.js";
 
@@ -42,6 +42,21 @@ function SessionRules({ settings, onChange }: { settings: ComputerSettings; onCh
         hint="Off by default: a schedule, a blob's own timer or a guest in a channel cannot start a session. On, they can ask, and the computer still asks you first, or your approval queue does if you set it to."
       >
         <Switch label="Work you did not start may use a computer" on={settings.unattended} onChange={(on) => onChange({ unattended: on })} />
+      </Field>
+    </div>
+  );
+}
+
+/** Whether a device app behind KOS's build updates on its own. */
+function UpdateRules({ settings, onChange }: { settings: ComputerSettings; onChange: (patch: Partial<ComputerSettings>) => void }): ReactElement {
+  return (
+    <div className="set-group device-rules">
+      <h3>Updates</h3>
+      <Field group className="set-field"
+        label="Update devices on their own"
+        hint="KOS for Chrome reloads itself into KOS's new build once its side panel is idle. KOS for Mac on this computer is rebuilt and reopened once it is idle, and only when your signing key is set up, so it keeps its permissions. KOS for iPhone updates from Xcode; it says when one is ready."
+      >
+        <Switch label="Update devices on their own" on={settings.autoUpdate} onChange={(on) => onChange({ autoUpdate: on })} />
       </Field>
     </div>
   );
@@ -101,6 +116,51 @@ function missing(d: PairedDevice): string | undefined {
   return lacks.length ? `Needs ${lacks.join(" and ")} on the computer` : undefined;
 }
 
+/** The build a device runs, in a few words: its commit (its id when built outside a checkout) and when it was built. */
+export function buildWords(build: DeviceBuild | undefined, now = Date.now()): string {
+  if (!build) return "Build unknown";
+  const short = build.commit ? build.commit.slice(0, 7) : build.id;
+  return build.builtAt ? `Build ${short}, built ${agoWords(build.builtAt, now)}` : `Build ${short}`;
+}
+
+/** Where a device's build stands with KOS's, as a pill, and why when it is not up to date. */
+export function updateWords(d: PairedDevice): { pill: string; tone: Tone; why?: string } | undefined {
+  const u = d.update;
+  if (!u) return undefined;
+  const mac = d.kind === "computer";
+  const app = d.kind === "browser" ? "KOS for Chrome" : mac ? "KOS for Mac" : "KOS for iPhone";
+  if (u.state === "current") return { pill: "Up to date", tone: "ok" };
+  if (u.state === "updating") return { pill: "Updating", tone: "accent", why: mac ? "Rebuilding and reopening KOS for Mac" : "Reloading into KOS's build" };
+  if (u.state === "unknown") {
+    return {
+      pill: "Build unknown",
+      tone: "muted",
+      why: u.reason === "unbuilt" ? `KOS has no build of ${app} to compare with; build KOS (pnpm build)` : `This ${app} is from before builds were stamped${mac ? "; Update now rebuilds it" : "; update it once by hand"}`,
+    };
+  }
+  const why = {
+    idle: mac ? "Waiting until no session or turn is on the Mac" : "Reloads once its side panel is idle",
+    signing: "Signing is not set up, so an update here would ask for Screen Recording and Accessibility again. Set it up once, or Update anyway",
+    xcode: "Run KOS for iPhone again from Xcode on your Mac",
+    remote: "On another computer: update it there",
+    unproved: u.detail ?? "KOS can't tell this Mac is its own",
+    store: "Installed from the store; Chrome updates it",
+    off: "Updating on their own is off",
+    failed: `The update did not finish${u.detail ? `: ${u.detail}` : ""}`,
+    stuck: mac ? "Rebuilt, and still on the old build" : "Still on the old build: is it loaded from this KOS's packages/browser-extension/dist?",
+    unbuilt: undefined,
+    unstamped: undefined,
+  }[u.reason ?? "idle"];
+  return { pill: "Behind", tone: "warn", ...(why ? { why } : {}) };
+}
+
+/** Whether Update now can do anything for it: a Chrome or a Mac on this computer that KOS has a newer build for. */
+export function canUpdate(d: PairedDevice): boolean {
+  const u = d.update;
+  if (!u || !d.online || d.kind === "phone" || u.reason === "remote" || u.reason === "unproved" || u.reason === "store" || u.reason === "unbuilt") return false;
+  return u.state === "behind" || (d.kind === "computer" && u.state === "unknown" && u.reason === "unstamped" && d.local === true);
+}
+
 export function describeDevice(d: PairedDevice, now = Date.now()): string {
   const browser = d.kind === "browser";
   if (d.kind === "phone") {
@@ -135,8 +195,18 @@ function DeviceRow({ device, onChanged }: { device: PairedDevice; onChanged: () 
   ) : (
     <Pill tone={device.online ? "ok" : "muted"}>{device.online ? "online" : "offline"}</Pill>
   );
+  const update = updateWords(device);
+  const badge = (
+    <>
+      {state}
+      {update && <Pill tone={update.tone}>{update.pill}</Pill>}
+    </>
+  );
+  // Its build and where that stands, never folded away: the reason is what the owner acts on.
+  const note = device.online ? [buildWords(device.build), update?.why].filter(Boolean).join(" · ") : undefined;
+  const command = device.online ? device.update?.command : undefined;
   return (
-    <FieldRow label={device.name} badge={state} hint={describeDevice(device)}>
+    <FieldRow label={device.name} badge={badge} hint={describeDevice(device)} {...(note ? { note } : {})} {...(command ? { after: <CommandLine command={command} /> } : {})}>
       {name !== null ? (
         <input
           className="kos-input"
@@ -155,6 +225,11 @@ function DeviceRow({ device, onChanged }: { device: PairedDevice; onChanged: () 
           {device.session && (
             <button type="button" className="btn btn--sm" onClick={() => void api.stopDevice(device.id).then(onChanged, onChanged)}>
               Stop
+            </button>
+          )}
+          {canUpdate(device) && (
+            <button type="button" className="btn btn--sm" onClick={() => void api.updateDevice(device.id).then(onChanged, onChanged)}>
+              {device.update?.reason === "signing" ? "Update anyway" : "Update now"}
             </button>
           )}
           <button type="button" className="btn btn--sm btn--ghost" onClick={() => setName(device.name)}>
@@ -298,6 +373,7 @@ export function DevicesPanel(): ReactElement {
       )}
       {settings && <SessionRules settings={settings} onChange={change} />}
       {settings && <PhoneRules settings={settings} lan={lan} onChange={change} />}
+      {settings && <UpdateRules settings={settings} onChange={change} />}
     </>
   );
 }

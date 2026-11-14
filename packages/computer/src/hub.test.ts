@@ -340,10 +340,11 @@ describe("a session", () => {
 
   it("keeps the owner's settings, and refuses ones out of range", () => {
     const { hub } = setup();
-    // Phones on the Wi-Fi are off until the owner turns them on.
-    expect(hub.settings()).toEqual({ askMinutes: 15, unattended: false, lan: false });
-    expect(hub.updateSettings({ askMinutes: 30, unattended: true })).toEqual({ askMinutes: 30, unattended: true, lan: false });
+    // Phones on the Wi-Fi are off until the owner turns them on; devices update on their own until the owner turns that off.
+    expect(hub.settings()).toEqual({ askMinutes: 15, unattended: false, lan: false, autoUpdate: true });
+    expect(hub.updateSettings({ askMinutes: 30, unattended: true })).toEqual({ askMinutes: 30, unattended: true, lan: false, autoUpdate: true });
     expect(hub.updateSettings({ lan: true }).lan).toBe(true);
+    expect(hub.updateSettings({ autoUpdate: false }).autoUpdate).toBe(false);
     expect(() => hub.updateSettings({ askMinutes: 0 })).toThrow(/1 to 480/);
     expect(() => hub.updateSettings({ askMinutes: 2.5 })).toThrow(/whole number/);
     expect(hub.settings().askMinutes).toBe(30);
@@ -460,7 +461,7 @@ describe("a phone", () => {
     fake.state = { consent: "device", permissions: { screen: false, input: false }, displays: [] };
     const { code } = hub.issueCode();
     fake.id = hub.pair({ code, name: "Pocket", platform: "ios", publicKey: fake.publicKey }).device;
-    hub.accept(fake.socket, admit);
+    hub.accept(fake.socket, { admit });
     fake.hello({ app: { version: "0.1.0", platform: "ios", os: "18.1" } });
     await Promise.resolve();
     return fake;
@@ -486,7 +487,7 @@ describe("a phone", () => {
     const mac = new FakeDevice();
     const { code } = hub.issueCode();
     mac.id = hub.pair({ code, name: "Studio MacBook", platform: "macos", publicKey: mac.publicKey }).device;
-    hub.accept(mac.socket, onlyPhones);
+    hub.accept(mac.socket, { admit: onlyPhones });
     mac.hello();
     await Promise.resolve();
     expect(mac.welcome).toBeUndefined();
@@ -498,7 +499,7 @@ describe("a phone", () => {
     const fake = new FakeDevice();
     const { code } = hub.issueCode();
     fake.id = hub.pair({ code, name: "Pocket", platform: "ios", publicKey: fake.publicKey }).device;
-    hub.accept(fake.socket, () => false);
+    hub.accept(fake.socket, { admit: () => false });
     fake.hello({ signature: "AAAA" });
     await Promise.resolve();
     // A bad signature is refused as one: an unproved device does not learn what this line takes.

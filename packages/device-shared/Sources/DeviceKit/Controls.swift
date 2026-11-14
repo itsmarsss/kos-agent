@@ -896,3 +896,39 @@ public struct KOSSwitch: View {
     .accessibilityValue(isOn ? "On" : "Off")
   }
 }
+
+/// A command for the owner to run in Terminal, on the code block's ground,
+/// selectable, with Copy beside it. Copying is the app's to do: `copied`
+/// says it was, for a moment.
+public struct CommandBox: View {
+  private let command: String
+  private let copied: Bool
+  private let copy: () -> Void
+
+  public init(_ command: String, copied: Bool = false, copy: @escaping () -> Void) {
+    self.command = command
+    self.copied = copied
+    self.copy = copy
+  }
+
+  public var body: some View {
+    let shape = RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous)
+    HStack(alignment: .center, spacing: 8) {
+      Text(command).font(.kos(.small, design: .monospaced)).foregroundStyle(Theme.text)
+        .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      // One width whatever it says: the wider word sits under the shown one, unseen.
+      Button(action: copy) {
+        ZStack {
+          Text("Copied").hidden()
+          Text(copied ? "Copied" : "Copy")
+        }
+      }
+      .buttonStyle(KOSButtonStyle(.secondary, small: true))
+      .accessibilityLabel(copied ? "Copied" : "Copy the command")
+    }
+    .padding(.leading, 10).padding(.trailing, 6).padding(.vertical, 6)
+    .background(Theme.panel2, in: shape)
+    .overlay(shape.strokeBorder(Theme.line, lineWidth: 1))
+  }
+}
