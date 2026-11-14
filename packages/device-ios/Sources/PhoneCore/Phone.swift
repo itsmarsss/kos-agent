@@ -38,7 +38,8 @@ public final class Phone: ObservableObject {
   /// KOS has a newer build of this app. Native code cannot update itself, so it is the owner's to run from Xcode.
   public var updateReady: Bool { update?.state == .behind }
 
-  /// How long the phone waits on KOS: to say it has the owner's words, and to show the chat once asked.
+  /// How long the phone waits on KOS: to say it has the owner's words, and to show the chat once asked. `sleep` is the
+  /// clock every wait of the phone's keeps, these and those of its voice, artifacts and pages, so a test drives them all.
   public struct Timing: Sendable {
     public var takeWithin: Duration
     public var showWithin: Duration
@@ -78,9 +79,9 @@ public final class Phone: ObservableObject {
     self.haptics = haptics
     self.preferences = preferences
     self.timing = timing
-    voice = VoiceModel(recognizer: recognizer)
+    voice = VoiceModel(recognizer: recognizer, sleep: timing.sleep)
     artifacts = ArtifactShelf(sleep: timing.sleep)
-    board = Board(haptics: haptics)
+    board = Board(haptics: haptics, sleep: timing.sleep)
     reader = ReplyReader(speaker: speaker, preferences: preferences)
     pairing = PairingFlow(pairer: pairer, name: name)
     theme = preferences.value(KeptTheme.self, Keys.theme)?.theme

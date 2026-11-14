@@ -18,10 +18,11 @@ public final class Board {
   public let runs: RunsModel
   public let overview: OverviewModel
 
-  public init(haptics: Haptics) {
-    let dashboard = Dashboard()
+  /// `sleep` is the clock its waits keep: on KOS's answers, and on each toast.
+  public init(haptics: Haptics, sleep: @escaping @Sendable (Duration) async -> Void) {
+    let dashboard = Dashboard(sleep: sleep)
     self.dashboard = dashboard
-    let toasts = Toasts()
+    let toasts = Toasts(sleep: sleep)
     self.toasts = toasts
     let say: (Toast) -> Void = { toasts.say($0) }
     inbox = InboxModel(dashboard: dashboard, haptics: haptics, say: say)

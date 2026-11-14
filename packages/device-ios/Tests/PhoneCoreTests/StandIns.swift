@@ -66,16 +66,31 @@ final class FakeLine: Line {
   }
 }
 
-/// Sleeps a test wakes when it chooses, so a wait is tested without waiting.
+/// Sleeps a test wakes when it chooses, so a wait is tested without waiting. As `Task.sleep` does, a sleep ends at
+/// once when its task is cancelled, and is no longer pending.
 final class Sleeps: @unchecked Sendable {
   private let lock = NSLock()
-  private var waiting: [(Duration, CheckedContinuation<Void, Never>)] = []
+  private var waiting: [(id: UUID, delay: Duration, done: CheckedContinuation<Void, Never>)] = []
 
   var sleep: @Sendable (Duration) async -> Void {
-    { [self] delay in await withCheckedContinuation { done in lock.withLock { waiting.append((delay, done)) } } }
+    { [self] delay in
+      let id = UUID()
+      await withTaskCancellationHandler {
+        await withCheckedContinuation { done in
+          let cancelled = lock.withLock {
+            if Task.isCancelled { return true }
+            waiting.append((id, delay, done))
+            return false
+          }
+          if cancelled { done.resume() }
+        }
+      } onCancel: {
+        wake(id)
+      }
+    }
   }
 
-  var pending: [Duration] { lock.withLock { waiting.map(\.0) } }
+  var pending: [Duration] { lock.withLock { waiting.map(\.delay) } }
 
   /// Wakes every sleep now waiting.
   func fire() {
@@ -83,14 +98,32 @@ final class Sleeps: @unchecked Sendable {
       defer { waiting = [] }
       return waiting
     }
-    for (_, done) in woken { done.resume() }
+    for sleep in woken { sleep.done.resume() }
+  }
+
+  private func wake(_ id: UUID) {
+    let woken = lock.withLock { waiting.firstIndex { $0.id == id }.map { waiting.remove(at: $0) } }
+    woken?.done.resume()
   }
 }
 
-/// Lets tasks the test started run to their next wait.
+/// Lets tasks the test started run to their next wait: for checking that something did not happen.
 @MainActor
 func settle() async {
   for _ in 0..<40 { await Task.yield() }
+}
+
+/// Waits for `done`, up to `seconds`; what it was waiting for is named when it does not come.
+@MainActor
+func until(_ what: String, _ seconds: Double = 20, _ done: () -> Bool) async throws {
+  let deadline = Date().addingTimeInterval(seconds)
+  while !done() {
+    guard Date() < deadline else {
+      Issue.record("Timed out waiting for \(what)")
+      throw DeviceError(.internal, "timed out: \(what)")
+    }
+    try await Task.sleep(for: .milliseconds(5))
+  }
 }
 
 /// A microphone a test speaks into.

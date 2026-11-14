@@ -58,7 +58,13 @@ public final class VoiceModel: ObservableObject {
   /// The button: start listening, or send what was heard.
   public func press() {
     switch state {
-    case .idle, .unavailable: Task { await begin() }
+    case .idle, .unavailable:
+      // Asking from the press itself, not once its task runs: a second press before then starts nothing more.
+      note = nil
+      state = .asking
+      round += 1
+      let mine = round
+      Task { await begin(round: mine) }
     case .listening: finish()
     case .asking, .finishing: break
     }
@@ -74,11 +80,7 @@ public final class VoiceModel: ObservableObject {
     state = .idle
   }
 
-  private func begin() async {
-    note = nil
-    state = .asking
-    round += 1
-    let mine = round
+  private func begin(round mine: Int) async {
     let access = await recognizer.requestAccess()
     guard mine == round, state == .asking else { return }
     switch access {

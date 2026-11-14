@@ -92,9 +92,9 @@ struct ArtifactShelfTests {
     _ = try await rig.line.call("chat.artifact", opened)
     var answers: [ArtifactShelf.Answer] = []
     rig.phone.artifacts.read("query", args: .null) { answers.append($0) }
-    await settle()
+    try await until("the wait for the read's answer") { rig.sleeps.pending == [.seconds(9)] }
     rig.sleeps.fire()
-    await settle()
+    try await until("the read refused") { !answers.isEmpty }
     #expect(answers == [.failure(.init("KOS did not answer in time; try again."))])
     rig.phone.artifacts.read("query", args: .null) { answers.append($0) }
     rig.phone.artifacts.close()
@@ -201,19 +201,17 @@ struct AttachmentTests {
     #expect(rig.phone.tray.files.map(\.name) == ["list.txt"])
     #expect(rig.phone.chat.draft == "and this")
     rig.phone.chat.say("again", files: ["list.txt"])
-    await settle()
+    try await until("the wait for KOS to take the words") { rig.sleeps.pending == [.seconds(12)] }
     rig.sleeps.fire()
-    await settle()
-    #expect(rig.phone.tray.files.map(\.name) == ["list.txt"])
+    try await until("the files given back") { rig.phone.tray.files.map(\.name) == ["list.txt"] }
   }
 
   @Test func spokenWordsGoAloneAndTheFilesWait() async throws {
     let rig = try await Rig.online()
     rig.phone.tray.addFile(Data("milk".utf8), name: "list.txt")
     rig.phone.voice.press()
-    await settle()
+    try await until("listening") { rig.phone.voice.state == .listening }
     rig.speech.say("what is on this list", final: true)
-    await settle()
     #expect(rig.line.last("chat.send")?["text"] as? String == "what is on this list")
     #expect(rig.line.last("chat.send")?["files"] == nil)
     #expect(!rig.line.events.contains("chat.attach"))
@@ -239,8 +237,7 @@ struct AttachmentTests {
     await settle()
     #expect(!rig.sleeps.pending.contains(.seconds(12)))
     rig.line.release()
-    await settle()
-    #expect(rig.sleeps.pending.contains(.seconds(12)))
+    try await until("the wait for KOS to take the words") { rig.sleeps.pending.contains(.seconds(12)) }
   }
 
   @Test func refusesAFileOfExactlyTheLimitAsKOSMeasuresIt() {

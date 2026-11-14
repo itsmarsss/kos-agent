@@ -16,18 +16,6 @@ import Testing
 struct EndToEndTests {
   private let env = ProcessInfo.processInfo.environment
 
-  /// Waits for `done`, up to `seconds`; what it was waiting for is named when it does not come.
-  private func until(_ what: String, _ seconds: Double = 20, _ done: () -> Bool) async throws {
-    let deadline = Date().addingTimeInterval(seconds)
-    while !done() {
-      guard Date() < deadline else {
-        Issue.record("Timed out waiting for \(what)")
-        throw DeviceError(.internal, "timed out: \(what)")
-      }
-      try await Task.sleep(for: .milliseconds(50))
-    }
-  }
-
   /// The dashboard's own route, as the owner's browser asks it: to set the scratch KOS up, and to check the phone's work.
   @discardableResult
   private func dashboard(_ path: String, _ body: String? = nil) async throws -> Any {

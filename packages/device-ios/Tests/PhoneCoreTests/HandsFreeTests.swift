@@ -11,11 +11,19 @@ struct HandsFreeTests {
   @Test func listensAtOnceWhenKOSIsThere() async throws {
     let rig = try await Rig.online()
     rig.phone.listen()
-    await settle()
-    #expect(rig.phone.voice.state == .listening)
+    try await until("listening") { rig.phone.voice.state == .listening }
     #expect(rig.speech.starts == 1)
     // Asked again while listening, it does not start over.
     rig.phone.listen()
+    await settle()
+    #expect(rig.speech.starts == 1)
+  }
+
+  @Test func askedTwiceBeforeListeningItStartsOnce() async throws {
+    let rig = try await Rig.online()
+    rig.phone.listen()
+    rig.phone.listen()
+    try await until("listening") { rig.phone.voice.state == .listening }
     await settle()
     #expect(rig.speech.starts == 1)
   }
@@ -30,8 +38,7 @@ struct HandsFreeTests {
     await settle()
     #expect(rig.phone.voice.state == .idle)
     _ = try await rig.line.call("chat.show", #"{"chat":"phone:owner","title":"iPhone","messages":[]}"#)
-    await settle()
-    #expect(rig.phone.voice.state == .listening)
+    try await until("listening") { rig.phone.voice.state == .listening }
   }
 
   @Test func listensToNothingUnpaired() async {
@@ -58,8 +65,7 @@ struct HandsFreeTests {
     rig.phone.artifacts.open("plan", dark: false)
     #expect(rig.phone.artifacts.shown != nil)
     rig.phone.listen()
-    await settle()
     #expect(rig.phone.artifacts.shown == nil)
-    #expect(rig.phone.voice.state == .listening)
+    try await until("listening") { rig.phone.voice.state == .listening }
   }
 }
