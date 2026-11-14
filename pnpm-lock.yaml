@@ -32,6 +32,9 @@ importers:
 
   packages/browser-extension:
     devDependencies:
+      '@kos/computer':
+        specifier: workspace:*
+        version: link:../computer
       '@kos/kit':
         specifier: workspace:*
         version: link:../kit
