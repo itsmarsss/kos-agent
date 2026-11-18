@@ -58,6 +58,8 @@ export interface ComputerToolsDeps {
   stopTurn?(conversation: string): boolean;
   /** Whether a chat's steps on the screen each ask the owner first: the KOS for Mac window's chat, set to Ask. */
   asksEachStep?(conversation: string): boolean;
+  /** Whether a chat is in Auto: its steps on the screen are judged risky, so Auto's approval of each is recorded. */
+  inAuto?(conversation: string): boolean;
   /** Whether a chat has an approval open: each step's status says so, so a wait the device missed the end of goes. */
   waitingOn?(conversation: string): boolean;
   /** Subscribe to the owner's words reaching a chat's running turn mid-way: a no they gave may no longer stand. */
@@ -484,17 +486,28 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
    * approvals, once a session is live (the first call only starts one, and
    * the Mac asks for that itself).
    */
+  const stepsOf = (input: Record<string, unknown>): unknown[] => (hasActions(input) && Array.isArray(input.actions) ? (input.actions as unknown[]) : [input]);
   const actRisk: ToolRisk = {
     floor: "safe",
     escalate: (input) => {
       const chat = deps.caller();
-      if (!chat || !hub.sessionOf(chat) || !deps.asksEachStep?.(chat)) return false;
-      const steps = hasActions(input) && Array.isArray(input.actions) ? (input.actions as unknown[]) : [input];
-      const acts = steps.some((a) => typeof a !== "object" || a === null || !LOOKS.has(String((a as Record<string, unknown>).action)));
-      return acts ? "this chat is set to Ask: each step on the screen asks first" : false;
+      if (!chat || !hub.sessionOf(chat)) return false;
+      const ask = deps.asksEachStep?.(chat) === true;
+      // In Auto a step is risky too, so the approval Auto gives it is kept in the Inbox like any other.
+      if (!ask && deps.inAuto?.(chat) !== true) return false;
+      const acts = stepsOf(input).some((a) => typeof a !== "object" || a === null || !LOOKS.has(String((a as Record<string, unknown>).action)));
+      return acts ? (ask ? "this chat is set to Ask: each step on the screen asks first" : "a step on the screen, under Auto") : false;
+    },
+    // The device refused typing into a password field in this session: typing again there is the owner's to allow.
+    beyondAuto: (input) => {
+      const chat = deps.caller();
+      const types = stepsOf(input).some((a) => typeof a === "object" && a !== null && (a as Record<string, unknown>).action === "type");
+      return chat && types && secureFocus.has(chat) ? "types where the computer reported a password field" : false;
     },
     why: "works the owner's screen: moves the pointer and types",
   };
+  /** Chats whose computer last answered that a password field has focus, until a step there goes through. */
+  const secureFocus = new Set<string>();
 
   /** The Mac whose window the calling chat is, by id. */
   function macOf(): string | undefined {
@@ -614,8 +627,16 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       return { action, input };
     },
     name: (a) => a.action,
-    perform: (a, ctx) => perform(chat, session, a.action, a.input, ctx.waits, ctx.signal),
-    why: (err) => (err instanceof DeviceError ? refusalText(err, hub.takeEnding(chat)) : err instanceof Error ? err.message : String(err)),
+    perform: async (a, ctx) => {
+      const done = await perform(chat, session, a.action, a.input, ctx.waits, ctx.signal);
+      // A click or a key that went through moves focus on from the password field the computer reported.
+      if (a.action !== "type" && a.action !== "wait" && a.action !== "mouse_move") secureFocus.delete(chat);
+      return done;
+    },
+    why: (err) => {
+      if (err instanceof DeviceError && err.code === "secure_input") secureFocus.add(chat);
+      return err instanceof DeviceError ? refusalText(err, hub.takeEnding(chat)) : err instanceof Error ? err.message : String(err);
+    },
     betweenMs: BETWEEN_MS,
     // A wait ends at Stop; a device call, once sent, cannot be taken back.
     cancels: (a) => a.action === "wait",

@@ -181,6 +181,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         ...(options.stopTurn ? { stopTurn: options.stopTurn } : {}),
         // The KOS for Mac window's chat set to Ask: each step on the screen asks first.
         asksEachStep: (conversation) => mac.asksEachStep(conversation),
+        inAuto: (conversation) => mac.inAuto(conversation),
         waitingOn: (conversation) => waits?.waiting(conversation) ?? false,
         panelChrome: (conversation) => panel.deviceOf(conversation),
         panelMac: (conversation) => {

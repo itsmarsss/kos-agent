@@ -280,6 +280,11 @@ export class DevicePanel implements ChannelAdapter {
     return this.turns.has(conversation) && this.modeOf(conversation).mode === "ask";
   }
 
+  /** Whether a chat is in Auto now, wherever its turn began. */
+  inAuto(conversation: string): boolean {
+    return this.modeOf(conversation).mode === "auto";
+  }
+
   /** A chat's mode, Ask when the host keeps none. */
   private modeOf(conversation: string): ChatMode {
     return this.deps.mode?.(conversation) ?? ASK;
