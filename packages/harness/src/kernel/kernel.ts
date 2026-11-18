@@ -4016,7 +4016,9 @@ export class Kernel {
       const opening = mine[0];
       const at = opening ? current.findIndex((m, i) => i >= (ctx.before ?? 0) && m.role === "user" && sameWords(m, opening)) : -1;
       const base = at >= 0 ? [...current.slice(0, at), ...current.slice(at + 1)] : current;
-      this.sessions.record(sessionId, [...base, ...mine]);
+      // The opening keeps the time it was written with, when the owner said it, not when the turn ended.
+      const said = at >= 0 && opening ? [{ ...opening, at: current[at]!.at }, ...mine.slice(1)] : mine;
+      this.sessions.record(sessionId, [...base, ...said]);
       // Only the auto-title is withheld from a resume prompt, which is
       // harness plumbing and must not rename anything.
       this.conversations.touch(
@@ -5325,7 +5327,8 @@ export class Kernel {
         (m, i) => i >= at && m.role === "user" && m.content.some((b) => b.type === "text"),
       );
       if (idx >= 0) {
-        after[idx] = { role: "user", content: [...after[idx]!.content, ...carried] };
+        // The message as written, with its time and where it came from, and the files again.
+        after[idx] = { ...after[idx]!, content: [...after[idx]!.content, ...carried] };
         this.sessions.set(target, after);
       }
     }

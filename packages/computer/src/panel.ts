@@ -776,16 +776,17 @@ export function panelLines(events: ChatEvent[], max = SHOWN): PanelMessage[] {
   for (const event of events) {
     switch (event.kind) {
       case "message": {
+        const at = event.at ? { at: event.at } : {};
         if (event.role === "system") {
-          out.push({ role: "note", text: event.text });
+          out.push({ role: "note", text: event.text, ...at });
           break;
         }
         if (event.role === "kos") {
-          if (event.text) out.push({ role: "kos", text: event.text });
+          if (event.text) out.push({ role: "kos", text: event.text, ...at });
           break;
         }
         const files = event.attachments?.map((a) => a.name) ?? [];
-        if (event.text || files.length) out.push({ role: "you", text: event.text, ...(files.length ? { files } : {}), ...(event.quote ? { quote: event.quote } : {}) });
+        if (event.text || files.length) out.push({ role: "you", text: event.text, ...(files.length ? { files } : {}), ...(event.quote ? { quote: event.quote } : {}), ...at });
         break;
       }
       case "tool": {

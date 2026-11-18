@@ -110,7 +110,9 @@ tool rows to one chip.
 | Piece | Dashboard | KOS for Chrome side panel | KOS for Mac chat window |
 | --- | --- | --- | --- |
 | KOS's words | kit `Markdown`; `MentionNames` names references, `RefLinks` (given by `ui/src/refs.tsx`) routes them, `KindMark` marks their kind, `Tex` sets maths | kit `Markdown` (references as plain chips) | `ChatMarkdown` and `chatInline` (`ChatMarkdown.swift`) |
-| The owner's bubble | `.bubble--you` in `ChatsPage.tsx` | `.msg--you` in `panel.tsx` | `Bubble` (`ChatView.swift`) |
+| A message | `MessageTurn.tsx`: the bubble, words or note, its origin, attachments and actions | `LineView` in `panel.tsx` | `ChatLine` (`ChatPieces.swift`), the phone's too |
+| The owner's bubble | `.bubble--you` in `MessageTurn.tsx` | `.msg--you` in `panel.tsx` | `Bubble` (`ChatPieces.swift`) |
+| When it was said | kit `TimeLine` (`.chat-mark`): the day where it changes, the time after 15 minutes' pause; kit `MessageTime` (`.msg-time`, its `Tooltip` the date in full), shown by kit `Timed` or `useTimeReveal` on hover, focus inside the message or a tap: left of the owner's bubble, ending KOS's actions row, after a note; the rules in `shared/src/chattime.ts` | kit `TimeLine`, `MessageTime`, `useTimeReveal`: left of the owner's bubble (`.said`), under KOS's words (`.msg-foot`), after a note | `TimeMarkLine`, `MessageTime` (`ChatPieces.swift`) on `ChatTimes` (DeviceCore), shown on hover (`timeReveal`); the phone shows each from a tap, and every one while the thread is swiped left (`chatTimesShown`) |
 | Steps | `ToolCall.tsx`, a row per call; an artifact written is its card (`ArtifactStep.tsx`) | `Steps` in `panel.tsx`, one chip | `Steps` (`ChatView.swift`), one `Chip(..., opens:)` |
 | Live turn | `LiveTurn.tsx`, its foot `WorkingDots` and `Elapsed` | `Story`, its foot `Working` in `panel.tsx` | live `Steps`, its foot `Working` |
 | Composer | `.composer-box` in `ChatsPage.tsx`, `HighlightedInput.tsx`, `Autocomplete.tsx` | `Composer` in `panel.tsx` | the composer in `ChatView.swift` |

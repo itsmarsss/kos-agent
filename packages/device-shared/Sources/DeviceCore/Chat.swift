@@ -43,14 +43,20 @@ public struct ChatMessage: Decodable, Equatable, Sendable {
   public let steps: [ChatStep]?
   /// What the owner quoted with their words, from a page or an app.
   public let quote: Quote?
+  /// When a line of words was said, epoch milliseconds; none for one kept before lines kept their time.
+  public let at: Double?
 
-  public init(role: String, text: String? = nil, files: [String]? = nil, steps: [ChatStep]? = nil, quote: Quote? = nil) {
+  public init(role: String, text: String? = nil, files: [String]? = nil, steps: [ChatStep]? = nil, quote: Quote? = nil, at: Double? = nil) {
     self.role = role
     self.text = text
     self.files = files
     self.steps = steps
     self.quote = quote
+    self.at = at
   }
+
+  /// When it was said, as a date; none for a line kept before lines kept their time.
+  public var said: Date? { at.flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0 / 1000) : nil } }
 }
 
 /// What was answered and is not in the chat's words: a command's answer, a turn waiting on the owner.

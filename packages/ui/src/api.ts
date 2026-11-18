@@ -616,6 +616,8 @@ export type ChatEvent =
       origin?: MessageOrigin;
       /** What the owner quoted with it (text selected on a page), and where from. */
       quote?: { text: string; from: string };
+      /** When it was written to the chat, epoch milliseconds; absent for one kept before messages kept their time. */
+      at?: number;
     }
   | {
       kind: "tool";

@@ -2865,7 +2865,23 @@ li:hover .chats-item-when { opacity: 0; }
   opacity: 0;
   transition: opacity 140ms;
 }
-.turn:hover .acts, .acts:focus-within { opacity: 1; }
+.turn:hover .acts, .acts:focus-within, .turn.is-timed .acts { opacity: 1; }
+/* KOS's time ends its actions row. */
+.acts .msg-time { align-self: center; margin-left: 0.4rem; }
+
+/* The owner's bubble with its time on the left, a note with its time after it
+   (kit.css .msg-time). The row is as wide as the bubble alone was, and the
+   time hangs outside it, so neither moves nor narrows when it shows. */
+.turn-said { position: relative; display: flex; min-width: 0; }
+.turn--you > .turn-said { max-width: 88%; }
+.turn--you > .turn-said > .bubble { max-width: 100%; }
+.turn--system > .turn-said { align-self: center; max-width: 100%; }
+.turn--system > .turn-said > .bubble { max-width: none; }
+.turn-said > .msg-time { position: absolute; }
+.turn--you > .turn-said > .msg-time { right: 100%; bottom: 0.6rem; margin-right: 0.5rem; }
+.turn--system > .turn-said > .msg-time { left: 100%; bottom: 0.2rem; margin-left: 0.5rem; }
+/* A long note would push its time off the edge: it leaves room for it, and only when it has one. */
+.turn--system > .turn-said:has(> .msg-time) { max-width: calc(100% - 10rem); }
 
 .edit { align-self: stretch; display: flex; flex-direction: column; gap: 0.4rem; }
 .edit-area {
@@ -5725,6 +5741,13 @@ a.health {
   .app { grid-template-columns: minmax(0, 1fr); }
   .ops-page { padding: 0.75rem 1rem 2rem; }
   .ops-page--full { height: calc(100dvh - 3.25rem); padding-top: 0.5rem; }
+  /* The page fills what the phone bar leaves, no more: at 100vh under the bar's
+     3.25rem the document scrolled by the bar's height, and a full page's head
+     slid under it. */
+  .ops { min-height: calc(100dvh - 3.25rem); }
+  /* The shell too: at 100vh, taller than the visible page while a phone's
+     browser shows its toolbars, the page scrolled under them. */
+  body, .app { min-height: 100dvh; }
   .phonebar {
     position: sticky;
     top: 0;

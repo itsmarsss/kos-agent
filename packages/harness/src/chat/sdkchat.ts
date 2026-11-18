@@ -68,14 +68,18 @@ export interface SdkToolCall {
   isError: boolean;
   /** What the owner said while the turn ran, heard with this result. */
   heard?: HeardWords;
+  /** When it landed, epoch ms: kept on its messages, so a call moved to the end of the turn keeps its own time. */
+  at?: number;
 }
 
 /** A call as the transcript stores it, in the shape the other engine writes: its use, then its result. */
 export function sdkCallMessages(c: SdkToolCall): ModelMessage[] {
+  const at = c.at !== undefined ? { at: c.at } : {};
   return [
-    { role: "assistant", content: [{ type: "tool_use", id: c.id, name: c.name, input: c.input }] },
+    { role: "assistant", content: [{ type: "tool_use", id: c.id, name: c.name, input: c.input }], ...at },
     {
       role: "user",
+      ...at,
       content: [
         {
           type: "tool_result",
@@ -470,7 +474,8 @@ async function runQueries(options: SdkChatOptions): Promise<SdkChatResult> {
    * the turn's query under it would lose the subagent's report.
    */
   const cap = split.agent ? undefined : options.picturesPerQuery;
-  const { server, running } = serverFor(options.tools, (call, images) => {
+  const { server, running } = serverFor(options.tools, (done, images) => {
+    const call = { ...done, at: Date.now() };
     calls.push(call);
     options.onCall?.(call);
     // A screen's picture, not a plot python drew or one an MCP tool returned.
@@ -724,7 +729,7 @@ async function runQueries(options: SdkChatOptions): Promise<SdkChatResult> {
       // What was said, and what was under way: the half a reply the owner
       // watched arrive, and each call still running, as stopped.
       text = joinSaid(text, streamed);
-      for (const [id, call] of running) calls.push({ id, ...call, result: STOPPED_RESULT, isError: true });
+      for (const [id, call] of running) calls.push({ id, ...call, result: STOPPED_RESULT, isError: true, at: Date.now() });
       break;
     }
     if (!full || stopped) break;
