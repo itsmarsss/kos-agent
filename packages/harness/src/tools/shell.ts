@@ -9,6 +9,7 @@ import { requireServices } from "../modules/loader.js";
 import { isReadOnlyCommand } from "../risk/readonly.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv } from "../sandbox/env.js";
+import { gitControlPatterns, gitHoldEnv } from "../sandbox/githold.js";
 import { jailedCommand } from "../sandbox/jail.js";
 
 /**
@@ -68,9 +69,15 @@ export function runShell(
 ): Promise<ShellResult> {
   const tmp = join(opts.workspaceRoot, ".kos", "tmp");
   mkdirSync(tmp, { recursive: true });
-  return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot, readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)) }), {
+  const jail = {
+    workspaceRoot: opts.workspaceRoot,
+    readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)),
+    readOnlyPatterns: gitControlPatterns(opts.workspaceRoot),
+  };
+  return runCaptured(jailedCommand(command, jail), {
     cwd: opts.cwd,
-    env: childEnv({ home: opts.workspaceRoot, tmp }),
+    // Git's program-running settings pinned on every line, so a read cannot run the agent's code.
+    env: gitHoldEnv(childEnv({ home: opts.workspaceRoot, tmp })),
     timeoutMs: opts.timeoutMs,
     maxOutput: opts.maxOutput,
     ...stopOf(opts.signal),

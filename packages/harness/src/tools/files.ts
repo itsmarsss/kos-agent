@@ -19,6 +19,7 @@ import { PDF_TEXT_MAX, isPdf, pdfText } from "../files/pdftext.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { SAFE, type ToolRisk } from "../risk/tiers.js";
+import { gitControlRefusal } from "../sandbox/githold.js";
 import { RESERVED } from "../kernel/files.js";
 import { foldedPath, type Workspace } from "../store/workspace.js";
 import { reachOf } from "./sql.js";
@@ -165,6 +166,9 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
     const abs = usable(ws, path);
     const reserved = what === "read" ? undefined : reservedRefusal(ws, relative(ws.root, abs));
     if (reserved) throw new Error(reserved);
+    // A repository's config or hooks name programs a git read would run.
+    const git = what === "replace" ? gitControlRefusal(foldedPath(ws.root, path)) : undefined;
+    if (git) throw new Error(git);
     const pages = ctx.services?.pages;
     if (!pages) return abs;
     const rel = relative(ws.root, abs);
