@@ -24,9 +24,10 @@ const HTML_MAX = 32 * 1024 * 1024;
 const quoted = (path: string): string => `"${path.replace(/["\\]/g, "\\$&")}"`;
 
 /**
- * textutil's sandbox: no network, no writes, nothing read from anyone's
- * files but the one copy it was given (system paths stay readable, as it
- * needs its frameworks and fonts), and nothing run but itself.
+ * textutil's sandbox: no network, no writes, no Mach services (it converts
+ * without any), nothing read from anyone's files or any temp folder but the
+ * one copy it was given (system paths stay readable, as it needs its
+ * frameworks and fonts), and nothing run but itself.
  */
 export function textutilProfile(dir: string): string {
   return [
@@ -35,7 +36,8 @@ export function textutilProfile(dir: string): string {
     "(deny network*)",
     "(deny file-write*)",
     '(allow file-write* (literal "/dev/null"))',
-    `(deny file-read* (subpath "/Users") (subpath "/Volumes") (subpath ${quoted(realpathSync(homedir()))}))`,
+    "(deny mach-lookup)",
+    `(deny file-read* (subpath "/Users") (subpath "/Volumes") (subpath "/private/var/folders") (subpath ${quoted(realpathSync(homedir()))}))`,
     `(allow file-read* (subpath ${quoted(realpathSync(dir))}))`,
     "(deny process-exec)",
     `(allow process-exec (literal ${quoted(TEXTUTIL)}))`,

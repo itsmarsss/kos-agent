@@ -155,7 +155,8 @@ describe("OfficeViewer", () => {
   it("keeps textutil to its own copy: no network, no writes, no one's files, nothing else run", () => {
     const profile = textutilProfile(dir);
     expect(profile).toContain("(deny network*)(deny file-write*)");
-    expect(profile).toMatch(/\(deny file-read\* \(subpath "\/Users"\)/);
+    expect(profile).toMatch(/\(deny file-read\* \(subpath "\/Users"\) \(subpath "\/Volumes"\) \(subpath "\/private\/var\/folders"\)/);
+    expect(profile).toContain("(deny mach-lookup)");
     expect(profile).toContain(`(allow file-read* (subpath "${realpathSync(dir)}"))`);
     expect(profile).toContain('(deny process-exec)(allow process-exec (literal "/usr/bin/textutil"))');
   });
