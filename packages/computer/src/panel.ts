@@ -645,10 +645,9 @@ export class DevicePanel implements ChannelAdapter {
           void this.decisions?.({ id: data["approval"], approved: data["approved"], deciderId: device, ...(remember ? { remember } : {}) });
         }
         return;
-      case "chat.mode":
-      case "chat.auto": {
-        // chat.auto { on } is a device from before modes: Auto with no bounds, or Ask.
-        const mode = event.name === "chat.auto" ? (typeof data["on"] === "boolean" ? (data["on"] ? { mode: "auto" as const } : ASK) : undefined) : parseChatMode(data);
+      case "chat.mode": {
+        // Only chat.mode sets it: a device from before modes sends chat.auto, which meant far less, and is not taken for Auto.
+        const mode = parseChatMode(data);
         const chat = this.deps.current() ?? this.deps.ensure?.();
         this.said(device, `${event.name} for chat ${chat?.id ?? "none"}: ${mode ? mode.mode : "not a mode"}`);
         if (chat && mode) {

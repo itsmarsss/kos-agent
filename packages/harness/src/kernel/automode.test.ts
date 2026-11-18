@@ -81,6 +81,28 @@ describe("a chat's mode, through the kernel", () => {
     expect(kernel.approvals.decided()[0]).toMatchObject({ status: "denied" });
   });
 
+  it("ends every chat's Auto when the kill switch is thrown", async () => {
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Halt" });
+    await setMode(chat.id, { mode: "auto" });
+    kernel.killSwitch.halt();
+    expect(kernel.chatMode(chat.id)).toEqual({ mode: "ask" });
+    kernel.killSwitch.resume();
+  });
+
+  it("tells the owner once that chats which acted alone are back in Ask", async () => {
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Shopping" });
+    kernel.settings.set("browser.actsAlone", [chat.id]);
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: model, chrome: { port: 1, exists: () => false } });
+    expect(kernel.chatMode(chat.id)).toEqual({ mode: "ask" });
+    const notes = kernel.suggestions.pending().filter((n) => n.title === "Auto is now per chat, and off");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.detail).toContain("Shopping");
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: model, chrome: { port: 1, exists: () => false } });
+    expect(kernel.suggestions.pending().filter((n) => n.title === "Auto is now per chat, and off")).toHaveLength(1);
+  });
+
   it("refuses a mode that is not one", async () => {
     const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Bad" });
     expect((await setMode(chat.id, { mode: "always" })).status).toBe(400);

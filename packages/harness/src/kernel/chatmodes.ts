@@ -17,13 +17,15 @@ export const ACTS_ALONE_KEY = "browser.actsAlone";
  */
 export class ChatModes {
   private modes: Record<string, ChatMode>;
+  /** The chats that acted alone in the owner's Chrome before modes, set back to Ask at this boot: the owner is told once. */
+  readonly migrated: string[];
 
   constructor(
     private readonly settings: Pick<SettingsStore, "get" | "set" | "delete">,
     private readonly now: () => number = Date.now,
   ) {
     this.modes = this.read();
-    this.migrate();
+    this.migrated = this.migrate();
   }
 
   /** A chat's mode as it stands now. */
@@ -48,6 +50,16 @@ export class ChatModes {
     return true;
   }
 
+  /** Every chat back to Ask, as the kill switch does: the chats that were in Auto. */
+  clear(): string[] {
+    const were = Object.keys(this.modes);
+    if (were.length) {
+      this.modes = {};
+      this.settings.set(CHAT_MODES_KEY, this.modes);
+    }
+    return were;
+  }
+
   /** The chats in Auto now, by id. */
   autoChats(): string[] {
     const now = this.now();
@@ -67,13 +79,15 @@ export class ChatModes {
     return modes;
   }
 
-  /** A chat that acted alone in the owner's Chrome is in Auto, which now covers that and more of the chat. */
-  private migrate(): void {
+  /**
+   * A chat that acted alone in the owner's Chrome starts in Ask. Auto covers
+   * far more of a chat than that setting did, so it is never widened into
+   * silently: the owner turns Auto on per chat. The ids are told once.
+   */
+  private migrate(): string[] {
     const old = this.settings.get<unknown>(ACTS_ALONE_KEY);
-    if (old === undefined) return;
-    const ids = Array.isArray(old) ? old.filter((id): id is string => typeof id === "string") : [];
-    for (const id of ids) this.modes[id] ??= { mode: "auto" };
-    this.settings.set(CHAT_MODES_KEY, this.modes);
+    if (old === undefined) return [];
     this.settings.delete(ACTS_ALONE_KEY);
+    return Array.isArray(old) ? old.filter((id): id is string => typeof id === "string") : [];
   }
 }

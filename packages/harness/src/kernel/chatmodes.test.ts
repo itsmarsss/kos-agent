@@ -57,14 +57,22 @@ describe("ChatModes", () => {
     expect(m.of("c2").mode).toBe("auto");
   });
 
-  it("carries the chats that acted alone in the owner's Chrome over as Auto, once", () => {
+  it("sets the chats that acted alone in the owner's Chrome back to Ask, once, naming them", () => {
     settings.set(ACTS_ALONE_KEY, ["c1", 7, "c2"]);
     const m = modes();
-    expect(m.of("c1")).toEqual({ mode: "auto" });
-    expect(m.of("c2")).toEqual({ mode: "auto" });
+    expect(m.migrated).toEqual(["c1", "c2"]);
+    expect(m.of("c1").mode).toBe("ask");
     expect(settings.get(ACTS_ALONE_KEY)).toBeUndefined();
-    m.set("c1", { mode: "ask" });
-    expect(modes().of("c1").mode).toBe("ask");
+    expect(modes().migrated).toEqual([]);
+  });
+
+  it("clears every chat's Auto, as the kill switch does", () => {
+    const m = modes();
+    m.set("c1", { mode: "auto" });
+    m.set("c2", { mode: "auto", until: "task" });
+    expect(m.clear()).toEqual(["c1", "c2"]);
+    expect(m.autoChats()).toEqual([]);
+    expect(settings.get(CHAT_MODES_KEY)).toEqual({});
   });
 
   it("ignores a kept value it cannot read", () => {

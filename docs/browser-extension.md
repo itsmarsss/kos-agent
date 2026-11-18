@@ -334,7 +334,7 @@ Events, besides `session.paused`, `session.resumed` and `session.ended`
 | `chat.model` | `model`: KOS answers with it from now on, as the dashboard's picker sets it |
 | `chat.mentions` | `q`, `kind?`: asks what an @ can name |
 | `chat.mode` | `mode` (`ask` or `auto`), `until?` (epoch ms, or `task`: until the chat's running or next turn ends), `sessions?` (true: Auto also starts sessions a device leaves to KOS's approvals): sets the shown chat's mode, made now if there is none yet; anything else is ignored |
-| `chat.auto` | `on`: a device from before modes; `chat.mode` with `auto` and no bounds, or `ask` |
+| `chat.auto` | `on`: a device from before modes; ignored, since Auto now covers far more than that switch did |
 
 ### The chat's mode
 

@@ -1005,21 +1005,20 @@ describe("a Chrome's side panel", () => {
     expect(chrome.calls.at(-1)).toEqual({ method: "chat.mentions", params: { q: "bud", mentions: [{ kind: "project", id: "budget", label: "Budget", hint: "project" }] } });
     // No chat yet: Auto makes the panel's own.
     setChat(undefined);
-    chrome.event("chat.auto", { on: true });
+    chrome.event("chat.mode", { mode: "auto" });
     await flush();
     expect(chrome.calls.at(-1)).toMatchObject({ method: "chat.show", params: { conversation: "chrome:owner", auto: true } });
   });
 
-  it("lets the panel's chat act without asking, and says so with the chat", async () => {
-    const { pair, setChat } = setup();
+  it("never takes a device's old chat.auto for Auto, which now covers far more", async () => {
+    const { pair, setChat, modeOf } = setup();
     const chrome = pair();
     setChat({ id: "chrome:owner", title: "Chrome" });
+    const shown = chrome.calls.length;
     chrome.event("chat.auto", { on: true });
     await flush();
-    expect(chrome.calls.at(-1)).toMatchObject({ method: "chat.show", params: { conversation: "chrome:owner", auto: true } });
-    chrome.event("chat.auto", { on: false });
-    await flush();
-    expect(chrome.calls.at(-1)?.params).toMatchObject({ auto: false });
+    expect(modeOf("chrome:owner").mode).toBe("ask");
+    expect(chrome.calls).toHaveLength(shown);
   });
 
   it("sets the chat's mode with its bounds, ignores one that is not a mode, and redraws a change made elsewhere", async () => {

@@ -830,6 +830,16 @@ export class Kernel {
     });
     this.settings = args.settings;
     this.modes = new ChatModes(args.settings);
+    // Told once, in the Inbox: the chats whose Chrome steps ran unasked are back in Ask, and Auto is turned on per chat.
+    if (this.modes.migrated.length) {
+      const named = this.modes.migrated.map((id) => this.conversations.get(id)?.title ?? id).join(", ");
+      this.suggestions.add("other", "Auto is now per chat, and off", `These chats acted in your Chrome without asking: ${named}. Chat modes replaced that setting, and Auto now covers every risky step in a chat, so they are back in Ask. Turn Auto on from a chat's message box where you want it.`);
+    }
+    // The kill switch ends every chat's Auto, as it ends every session.
+    this.killSwitch.onChange((halted) => {
+      if (!halted) return;
+      for (const id of this.modes.clear()) this.bus.emit({ kind: "chat:mode", conversationId: id, mode: ASK });
+    });
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
     this.inference = args.inference;
