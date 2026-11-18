@@ -765,6 +765,7 @@ export class Kernel {
       approvals: args.approvals,
       permissions: args.permissions,
       conversations: args.conversations,
+      homeOf: (conversationId) => ({ home: this.fileHome(conversationId ?? undefined), root: args.workspace.root }),
       audit: args.audit,
       registry: args.registry,
       secrets: args.secrets,
@@ -3805,7 +3806,7 @@ export class Kernel {
       ...(opts.turnId ? { turnId: opts.turnId } : {}),
       ...(opts.signal ? { signal: opts.signal } : {}),
       permissions: this.permissions,
-      permissionContext: (tool) => this.browserContext(tool, opts.conversationId),
+      permissionContext: (tool) => this.permissionContextFor(tool, opts.conversationId),
       prepare: (tool) => this.readyBrowser(tool, opts.conversationId, opts.signal),
       ...(opts.heard ? { heard: opts.heard } : {}),
       autoApproves: (tool, context) => (opts.conversationId !== undefined && actsInYourChrome(tool, context) ? this.actsAloneOn(opts.conversationId, context?.browser?.site) : false),
@@ -4130,6 +4131,11 @@ export class Kernel {
   private chatsActingAlone(): string[] {
     const saved = this.settings.get(ACTS_ALONE_KEY);
     return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : [];
+  }
+
+  /** What a remembered decision is judged against: the browser's site, and where the turn's file paths land. */
+  permissionContextFor(tool: string, conversationId?: string | null): PermissionContext {
+    return { ...this.browserContext(tool, conversationId ?? undefined), home: this.fileHome(conversationId ?? undefined), root: this.workspace.root };
   }
 
   private browserContext(tool: string, conversationId?: string): PermissionContext | undefined {

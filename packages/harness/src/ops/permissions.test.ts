@@ -154,3 +154,36 @@ describe("trusting a site for the browser", () => {
     expect(store.allows("browser.act", { steps: [] }, undefined, yours)).toBe(true);
   });
 });
+
+describe("remembered decisions from a turn's home", () => {
+  const school = { home: { folder: "projects/school" }, root: "/ws" };
+  const store = (): PermissionStore => new PermissionStore(new Database(":memory:"));
+
+  it("names a file call by where it lands, so two spellings of one place are one scope", () => {
+    expect(scopeOf("files.rm", { path: "notes/x.md" }, school)).toBe("dir:projects/school/notes");
+    expect(scopeOf("files.rm", { path: "school/notes/x.md" }, school)).toBe("dir:projects/school/notes");
+    expect(scopeOf("files.rm", { path: "workspace:notes/x.md" }, school)).toBe("dir:notes");
+    expect(scopeOf("files.rm", { path: "workspace:notes/x.md" }, { home: { folder: "" } })).toBe(scopeOf("files.rm", { path: "notes/x.md" }, { home: { folder: "" } }));
+  });
+
+  it("keeps a root rule for notes/ off a project's own notes/", () => {
+    const rules = store();
+    rules.add({ tool: "files.rm", scope: "dir:notes", project: null });
+    expect(rules.allows("files.rm", { path: "notes/x.md" }, undefined, { home: { folder: "" } })).toBe(true);
+    expect(rules.allows("files.rm", { path: "notes/x.md" }, "school", school)).toBe(false);
+    expect(rules.allows("files.rm", { path: "workspace:notes/x.md" }, "school", school)).toBe(true);
+  });
+
+  it("never lets a rule made in the project cover a call past its folder, and makes none from one", () => {
+    const rules = store();
+    // Kept before homes, in the project's words for the root's folder.
+    rules.add({ tool: "files.rm", scope: "dir:drafts", project: "school" });
+    rules.add({ tool: "export.query", scope: null, project: "school" });
+    expect(rules.allows("files.rm", { path: "workspace:drafts/a.md" }, "school", school)).toBe(false);
+    expect(rules.allows("export.query", { path: "workspace:out.csv" }, "school", { ...school, reached: true })).toBe(false);
+    expect(rules.allows("export.query", { path: "out.csv" }, "school", school)).toBe(true);
+    expect(rules.ruleFor("files.write", { path: "projects/resume/cv.md" }, "school", school)).toBeUndefined();
+    expect(rules.ruleFor("shell.run", { command: "touch a" }, "school", { ...school, reached: true })).toBeUndefined();
+    expect(rules.ruleFor("files.rm", { path: "old/a.md" }, "school", school)).toEqual({ tool: "files.rm", scope: "dir:projects/school/old", project: "school" });
+  });
+});

@@ -1,6 +1,7 @@
 import { summarizeAction } from "@kos/shared";
 
 import type { PendingAction } from "../ops/approvals.js";
+import type { PermissionContext } from "../ops/permissions.js";
 import { SHARED_LANE } from "../ops/queue.js";
 import { injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
@@ -51,10 +52,12 @@ export interface DecisionsDeps {
     pending: () => PendingAction[];
   };
   permissions: {
-    ruleFor: (tool: string, input: Record<string, unknown>, project: string | null) => { tool: string; scope: string | null; project: string | null } | undefined;
+    ruleFor: (tool: string, input: Record<string, unknown>, project: string | null, context?: PermissionContext) => { tool: string; scope: string | null; project: string | null } | undefined;
     add: (rule: { tool: string; scope: string | null; project: string | null }) => unknown;
   };
   conversations: { get: (id: string) => { projectSlug: string | null } | undefined };
+  /** Where the asking chat's file paths land, so a rule named now is named by the place, as one named when the call was queued is. */
+  homeOf?: (conversationId: string | null) => Pick<PermissionContext, "home" | "root">;
   audit: { record: (entry: { tool: string; args: Record<string, unknown>; result: string; isError: boolean; riskTier: "risky"; userId: string }) => unknown };
   registry: { execute: (tool: string, input: Record<string, unknown>) => Promise<{ content: string; isError: boolean }> };
   secrets: SecretsRegistry;
@@ -120,7 +123,7 @@ export class Decisions {
       // action's site is known then and not now. Otherwise named from the
       // call's shape, as before.
       const project = action.conversationId ? (d.conversations.get(action.conversationId)?.projectSlug ?? null) : null;
-      const rule = action.rule ?? d.permissions.ruleFor(action.tool, JSON.parse(action.args) as Record<string, unknown>, project);
+      const rule = action.rule ?? d.permissions.ruleFor(action.tool, JSON.parse(action.args) as Record<string, unknown>, project, d.homeOf?.(action.conversationId ?? null));
       if (rule) d.permissions.add(rule);
     }
 

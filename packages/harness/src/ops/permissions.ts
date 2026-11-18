@@ -1,3 +1,5 @@
+import { placePath, type FileHome } from "@kos/shared";
+
 import type { Db } from "../store/db.js";
 import { hostOf, isSqlWrite, programOf, writtenTables } from "../risk/rules.js";
 import { parseMentions } from "../kernel/mentions.js";
@@ -75,6 +77,33 @@ export interface PermissionContext {
      */
     yours?: boolean;
   };
+  /**
+   * The calling turn's home folder and the workspace root on disk: a file
+   * tool's path is named by where it lands, so "notes/x" from a project and
+   * "workspace:notes/x" are told apart, and two spellings of one place are
+   * one scope.
+   */
+  home?: FileHome;
+  root?: string;
+  /** The call reaches beyond the turn's own folder (its reach rule fired): no rule made inside the home covers it, and none is made from it. */
+  reached?: boolean;
+}
+
+/** The paths a file tool's call names. */
+function filePaths(input: Record<string, unknown>): string[] {
+  return ["path", "from", "to"].map((k) => input[k]).filter((v): v is string => typeof v === "string");
+}
+
+/** A file tool's path, as it lands from the turn's home. */
+function placed(path: string, context?: PermissionContext): string {
+  return context?.home ? placePath(context.home, path, context.root).path : path;
+}
+
+/** True when the call reaches past the turn's own folder: said by its reach rule, or a file path landing outside. */
+function reaches(tool: string, input: Record<string, unknown>, context?: PermissionContext): boolean {
+  if (context?.reached) return true;
+  const home = context?.home;
+  return home !== undefined && tool.startsWith("files.") && filePaths(input).some((p) => placePath(home, p, context?.root).outside);
 }
 
 function browserTool(tool: string, context?: PermissionContext): boolean {
@@ -105,7 +134,7 @@ export function scopeOf(tool: string, input: Record<string, unknown>, context?: 
   }
   if (tool.startsWith("files.")) {
     const path = typeof input["path"] === "string" ? input["path"] : typeof input["from"] === "string" ? input["from"] : "";
-    return `dir:${parentDir(path)}`;
+    return `dir:${parentDir(placed(path, context))}`;
   }
   if (tool === "http.fetch") {
     const host = typeof input["url"] === "string" ? hostOf(input["url"]) : undefined;
@@ -213,13 +242,16 @@ export class PermissionStore {
     const scope = scopeOf(tool, input, context);
     if (scope === undefined) return false;
     const family = familyOf(tool, context);
+    // Past the turn's own folder, only a rule made at the root speaks: one made in the project was about the project.
+    const inProject = !reaches(tool, input, context) && project !== undefined;
     return this.list().some(
-      (r) => (r.tool === tool || r.tool === family) && (r.project === null || r.project === (project ?? null)) && scopeCovers(r.scope, scope),
+      (r) => (r.tool === tool || r.tool === family) && (r.project === null || (inProject && r.project === project)) && scopeCovers(r.scope, scope),
     );
   }
 
   /** The rule a decision would make, for showing before it is kept. */
   ruleFor(tool: string, input: Record<string, unknown>, project: string | null, context?: PermissionContext): { tool: string; scope: string | null; project: string | null } | undefined {
+    if (reaches(tool, input, context)) return undefined;
     const scope = scopeOf(tool, input, context);
     if (scope === undefined) return undefined;
     return { tool: familyOf(tool, context), scope, project };

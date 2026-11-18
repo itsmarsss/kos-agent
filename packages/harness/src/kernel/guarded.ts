@@ -427,7 +427,9 @@ export class GuardedTools implements ToolBox {
        * asked again: the call runs as an approved one would, and the audit
        * shows it ran as risky.
        */
-      const context = this.deps.permissionContext?.(name);
+      // A call past the turn's own folder is judged as one: no rule made inside it covers the call.
+      const given = this.deps.permissionContext?.(name);
+      const context = assessment.reached ? { ...given, reached: true } : given;
       const auto = this.deps.autoApproves?.(name, context) ?? false;
       const ruled = auto !== true && this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true;
       // A yes kept for a site holds on that site alone: the run checks each step against it, and one setting out elsewhere asks.
