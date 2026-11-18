@@ -42,6 +42,7 @@ import {
   type Project,
   type DiscordChannel,
 } from "./api.js";
+import { retireAsides, waitingAsides, waitingRows, type Aside } from "./asides.js";
 import { tabName } from "./address.js";
 import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
@@ -296,6 +297,12 @@ export function ChatsPage({
    * under the running turn, never above the steps and words already shown.
    */
   const [asides, setAsides] = useState<Aside[]>([]);
+  const asideKeys = useRef(0);
+  /** A chat's waiting rows as fetched: each new row is an aside sent here, which it then stands for. */
+  const showPending = (id: string, rows: PendingMessage[]): void => {
+    if (id === activeIdRef.current) setPending(rows);
+    setAsides((a) => retireAsides(a, id, rows));
+  };
   /** The queued message being rewritten, if any. */
   const [editingQueued, setEditingQueued] = useState<{ id: number; text: string } | null>(
     null,
@@ -426,9 +433,6 @@ export function ChatsPage({
   // question.
   const working = Boolean(live) && !live?.ended;
   const running = working || sendingIn === activeId;
-  /** Words the running turn has taken in already: shown in it, so not waiting under it too. */
-  const heardLive = (text: string): boolean =>
-    Boolean(live && !live.ended && (live.said === text || live.steps.some((s) => s.kind === "said" && s.text === text)));
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -612,7 +616,7 @@ export function ChatsPage({
          * message queued behind a running turn stayed invisible until the
          * turn ended, which is the one moment it did not matter.
          */
-        setPending(waiting);
+        showPending(id, waiting);
         /*
          * The transcript itself waits.
          *
@@ -964,7 +968,18 @@ export function ChatsPage({
      * and the live view puts it where the turn took it in.
      */
     const aside: Aside | null =
-      working && !looksLikeCommand ? { key: Date.now(), conversationId: target, text, attachments: files.map((f) => ({ name: f.name })) } : null;
+      running && !looksLikeCommand
+        ? {
+            key: ++asideKeys.current,
+            conversationId: target,
+            text,
+            attachments: files.map((f) => ({ name: f.name })),
+            at: Date.now(),
+            before: pending.map((p) => p.id),
+            ...(live ? { turn: live.since } : {}),
+            steps: live?.steps.length ?? 0,
+          }
+        : null;
     if (aside) setAsides((a) => [...a, aside]);
     else setSendingIn(target);
     if (!looksLikeCommand && !aside) {
@@ -1021,10 +1036,8 @@ export function ChatsPage({
       // approval answers here too, and the reload is what puts its approval
       // card on screen.
       const { events: got, pending: waiting } = await api.conversation(target);
-      if (target === activeIdRef.current) {
-        setEvents(got);
-        setPending(waiting);
-      }
+      if (target === activeIdRef.current) setEvents(got);
+      showPending(target, waiting);
       // Every path that replaces the transcript is a handover: leaving the
       // finished steps up as well shows each tool call twice until something
       // else happens to clear them.
@@ -1053,7 +1066,7 @@ export function ChatsPage({
   const reloadPending = async (id: string): Promise<void> => {
     try {
       const { pending: waiting } = await api.conversation(id);
-      if (id === activeIdRef.current) setPending(waiting);
+      showPending(id, waiting);
     } catch {
       // The list is refreshed on the next turn either way.
     }
@@ -1064,7 +1077,7 @@ export function ChatsPage({
     if (!draftText || !activeId) return;
     try {
       const { pending: waiting } = await api.editPending(id, draftText, activeId);
-      setPending(waiting);
+      showPending(activeId, waiting);
       setEditingQueued(null);
     } catch (err) {
       queuedError(err);
@@ -1076,7 +1089,7 @@ export function ChatsPage({
     if (!activeId) return;
     try {
       const { pending: waiting } = await api.deletePending(id, activeId);
-      setPending(waiting);
+      showPending(activeId, waiting);
     } catch (err) {
       queuedError(err);
     }
@@ -1217,9 +1230,9 @@ export function ChatsPage({
         // The turn is over, so the transcript is the authority again.
         const { events: got, pending: waiting } = await api.conversation(target);
         settleProgress(target);
+        showPending(target, waiting);
         if (target !== activeIdRef.current) return;
         setEvents(got);
-        setPending(waiting);
       })
       .catch((err: unknown) =>
         setEvents((e) => [
@@ -2457,7 +2470,7 @@ export function ChatsPage({
                 {/* A queued message whose turn has just begun is already on
                     the screen as the live turn's own words; shown here too it
                     would read twice until the next fetch. */}
-                {pending.filter((p) => !heardLive(p.text)).map((p) => (
+                {waitingRows(pending, live).map((p) => (
                   <m.div
                     className="queued"
                     key={p.id}
@@ -2546,9 +2559,8 @@ export function ChatsPage({
                 ))}
                 {/* Sent here mid-turn and not yet a row on the server: under the
                     turn, waiting, until the turn takes it in. */}
-                {asides
-                  .filter((a) => a.conversationId === activeId && !heardLive(a.text) && !pending.some((p) => p.text === a.text))
-                  .map((a) => (
+                {activeId !== undefined &&
+                  waitingAsides(asides, activeId, live).map((a) => (
                     <m.div className="queued" key={`aside-${a.key}`} layout variants={listItem} initial="hidden" animate="show" exit="exit" transition={ease}>
                       <div className="bubble bubble--you is-queued">
                         {a.text}
@@ -2785,14 +2797,6 @@ interface ColumnSpec {
   max: number;
   fallback: number;
 }
-/** A message sent while a turn ran here, shown waiting under it until the server has it. */
-interface Aside {
-  key: number;
-  conversationId: string;
-  text: string;
-  attachments: { name: string }[];
-}
-
 /** How long a turn the stream announced is believed over a list that still says idle: three polls. */
 const FRESH_TURN_MS = 15_000;
 
