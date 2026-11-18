@@ -29,7 +29,9 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
     hostKey: { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) },
     halted: () => opts.halted ?? false,
     callTimeoutMs: 500,
+    log: () => undefined,
   });
+  const logged: string[] = [];
   let chat: { id: string; title: string } | undefined;
   let events: ChatEvent[] = [];
   let model = "gpt-5.5";
@@ -55,6 +57,7 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
       return chat;
     },
     auto: (c) => acting.has(c),
+    log: (line) => void logged.push(line),
     picture: (id) => opts.pictures?.[id],
     ...(opts.glance ? { glance: opts.glance } : {}),
     ...(opts.artifacts ? { artifacts: opts.artifacts } : {}),
@@ -89,6 +92,7 @@ function setup(opts: { halted?: boolean; place?: PanelPlace; pictures?: Record<n
     panel,
     tools,
     pair,
+    logged,
     setChat: (c: typeof chat, e: ChatEvent[] = []) => {
       chat = c;
       events = e;
@@ -594,6 +598,22 @@ describe("a Chrome's side panel", () => {
     expect(identity.resolve("chrome", chrome.id)).toBe("owner");
     expect(identity.resolve("chrome", mac.id)).toBeNull();
     expect(identity.resolve("discord", chrome.id)).toBeNull();
+  });
+
+  it("says each panel's words and Stops in the host's log, by device, never the words", async () => {
+    const { pair, setChat, logged } = setup();
+    const chrome = pair();
+    setChat({ id: "chrome:owner", title: "Chrome" });
+    chrome.event("chat.send", { text: "buy the secret mug", beside: { kind: "page", url: "https://shop.example/mugs", title: "Mugs" }, quote: { text: "Glazed", from: "https://shop.example/mugs" } });
+    chrome.event("chat.stop", {});
+    chrome.event("chat.stop", { chat: "someone:else" });
+    await flush();
+    expect(logged).toEqual([
+      `chrome: chat.send to chat chrome:owner: 18 chars, a quote, beside page, from Chrome on macOS (${chrome.id})`,
+      `chrome: chat.stop for chat chrome:owner (the one shown), from Chrome on macOS (${chrome.id})`,
+      `chrome: chat.stop for chat someone:else, not one of its own, from Chrome on macOS (${chrome.id})`,
+    ]);
+    expect(logged.join("\n")).not.toMatch(/secret|Glazed|shop\.example/);
   });
 
   it("shows the chat when the panel opens, and after a turn with what was answered outside it", async () => {

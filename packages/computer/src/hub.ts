@@ -118,7 +118,7 @@ const REFUSAL_LOG_MS = 60_000;
 const MAX_REFUSALS_LOGGED = 100;
 
 /** What a device claimed, safe for a log line: one line, printable, short. */
-const loggable = (text: string, max = 64): string => text.replace(/[^\x20-\x7e]/g, "?").slice(0, max);
+export const loggable = (text: string, max = 64): string => text.replace(/[^\x20-\x7e]/g, "?").slice(0, max);
 
 export class DeviceHub {
   readonly codes: PairingCodes;
