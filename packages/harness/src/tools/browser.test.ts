@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { ToolRegistry } from "../agent/registry.js";
 import { caller } from "../kernel/caller.js";
 import { EventBus } from "../modules/events.js";
-import { createBrowserModule, type BrowserToolsDeps } from "./browser.js";
+import { createBrowserModule, KOS_PAGE_REFUSED, type BrowserToolsDeps } from "./browser.js";
 
 /**
  * The browser as tools: what each costs in trust, and what each hands back.
@@ -99,6 +99,21 @@ describe("what each tool costs in trust", () => {
     // Nothing to read, or a step the parser would refuse: asked, never run unasked.
     expect(tier("browser.act", {})).toBe("risky");
     expect(tier("browser.act", { steps: [{ wait: 500, click: "@e1" }] })).toBe("risky");
+  });
+
+  it("never opens KOS's own dashboard, whose page holds the key a change needs", async () => {
+    const { registry, ready } = harness();
+    await ready;
+    for (const [name, input] of [
+      ["browser.visit", { url: "http://127.0.0.1:4317/#/inbox" }],
+      ["browser.visit", { urls: ["https://example.com", "localhost:4317"] }],
+      ["browser.act", { steps: [{ open: "127.0.0.1:4317" }, { click: "@e1" }] }],
+      ["browser.new_tab", { url: "http://localhost:4318/" }],
+      ["browser.watch", { url: "http://[::1]:4317/api/status" }],
+    ] as const) {
+      expect(registry.refusal(name, input), name).toBe(KOS_PAGE_REFUSED);
+    }
+    expect(registry.refusal("browser.visit", { url: "http://127.0.0.1:5173/" })).toBeUndefined();
   });
 });
 

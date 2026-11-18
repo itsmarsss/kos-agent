@@ -8,7 +8,7 @@ import { ToolRegistry } from "../agent/registry.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { blockedAddress, guardedLookup, refusedUrl } from "./egress.js";
+import { blockedAddress, guardedLookup, reachesKos, refusedUrl } from "./egress.js";
 import { createHttpModule, type FetchImpl } from "./http.js";
 
 describe("where http.fetch may not go", () => {
@@ -88,5 +88,15 @@ describe("http.fetch and KOS's own API", () => {
     expect(res.content).toMatch(/this machine/);
     expect(seen).toEqual(["https://example.com/r"]);
     expect(hits).toBe(0);
+  });
+});
+
+describe("KOS's own page in a browser", () => {
+  it("is any local host at one of KOS's ports, and nothing else", () => {
+    expect(reachesKos("http://127.0.0.1:4317/#/inbox", [4317, 4318])).toBe(true);
+    expect(reachesKos("localhost:4318", [4317, 4318])).toBe(true);
+    expect(reachesKos("http://192.168.1.5:4317", [4317])).toBe(true);
+    expect(reachesKos("http://127.0.0.1:5173", [4317])).toBe(false);
+    expect(reachesKos("https://example.com:4317", [4317])).toBe(false);
   });
 });

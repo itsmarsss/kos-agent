@@ -4,7 +4,10 @@ import { ScreenMemory, actionsOf } from "@kos/shared";
 import { caller, onSite, turnStop } from "../kernel/caller.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import type { WatchLook } from "../ops/watches.js";
-import { RISKY, SAFE } from "../risk/tiers.js";
+import { addressesIn } from "../risk/beyondauto.js";
+import { RISKY, SAFE, type ToolRisk } from "../risk/tiers.js";
+import { kosPorts } from "../sandbox/jail.js";
+import { reachesKos } from "./egress.js";
 
 /**
  * The browser, as tools.
@@ -94,6 +97,17 @@ export interface BrowserToolsDeps {
   /** Which browser the caller's tab is in, in words: KOS's own, or the owner's Chrome. */
   where?: () => string;
 }
+
+/** Said to a step that would open KOS's own dashboard or API in a browser. */
+export const KOS_PAGE_REFUSED = "That address is KOS itself, on this machine: its dashboard is the owner's, and a browser step never opens it.";
+
+/** A browser call refused when one of the addresses it would open is KOS's own. */
+function notKos(input: Record<string, unknown>): string | false {
+  const ports = kosPorts();
+  const urls = [...addressesIn(input), ...(Array.isArray(input["urls"]) ? input["urls"].filter((u): u is string => typeof u === "string") : [])];
+  return urls.some((u) => reachesKos(u, ports)) ? KOS_PAGE_REFUSED : false;
+}
+const NOT_KOS: ToolRisk = { floor: "safe", refuse: notKos };
 
 /**
  * Which browser these tools work in. Said plainly, since there are two
@@ -210,7 +224,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           const scope = str(input, "scope");
           return placed(await visit(await deps.tab(), urlsOf(input), { then: thenOf(input, "look"), ...(scope ? { scope } : {}), until: input["wait"] === "load" ? "load" : "dom", ...always() }));
         },
-        SAFE,
+        NOT_KOS,
       );
 
       ctx.registerTool(
@@ -259,7 +273,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         },
         // Asks only when a step touches the page. A watcher that waits four
         // seconds for a table to render was asking the owner every six hours.
-        { floor: "safe", escalate: (input) => (touchesPage(input) ? "clicks, types or fills on the page" : false) },
+        { floor: "safe", escalate: (input) => (touchesPage(input) ? "clicks, types or fills on the page" : false), refuse: notKos },
       );
 
       ctx.registerTool(
@@ -392,7 +406,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           const seen = await visit(await deps.tab(), [url], { then: thenOf(input, "look"), ...always() });
           return placed({ ...seen, text: `Opened tab ${id}.\n${seen.text}`.trim() });
         },
-        SAFE,
+        NOT_KOS,
       );
 
       /*
@@ -434,7 +448,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           if (input["tell"] === true) await ctx.services?.notify?.({ text: said, target: { kind: "owner" } });
           return said;
         },
-        SAFE,
+        NOT_KOS,
       );
     },
   };

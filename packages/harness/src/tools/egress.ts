@@ -90,3 +90,23 @@ export const guardedLookup: LookupFunction = (hostname, options, callback) => {
     callback(null, addresses[0]!.address, addresses[0]!.family);
   });
 };
+
+/**
+ * Whether an address a browser step would open is KOS's own dashboard or
+ * API on this machine: a local host at one of KOS's ports. KOS's browser
+ * may open local pages (a dev server the agent runs), but never KOS
+ * itself, whose page holds the key that makes a change.
+ */
+export function reachesKos(raw: string, ports: readonly number[]): boolean {
+  const spelled = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw.trim()) ? raw.trim() : `http://${raw.trim()}`;
+  let url: URL;
+  try {
+    url = new URL(spelled);
+  } catch {
+    return false;
+  }
+  const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
+  const local = LOCAL_NAMES.test(host) || (isIP(unmapped(host)) !== 0 && blockedAddress(host));
+  return local && ports.includes(port);
+}
