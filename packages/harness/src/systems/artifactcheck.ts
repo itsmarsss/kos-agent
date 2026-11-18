@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, readlinkSync, existsSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { createServer as createHttpServer, type Server } from "node:http";
@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CdpClient, ChromeHost, probeArtifact, type CdpEvent, type CdpSocket, type ProbeResult } from "@kos/browser";
+import { CdpClient, ChromeHost, probeArtifact, sweepProfiles, type CdpEvent, type CdpSocket, type ProbeResult } from "@kos/browser";
 import { WebSocket } from "ws";
 
 import { artifactAssets, colourOf, fontById, fontFaceCss, fontStackVars, pageDocument, sameGround, wrapperDocument, type HtmlPage } from "@kos/shared";
@@ -206,6 +206,8 @@ export interface CheckerOptions {
   exists?: (path: string) => boolean;
   /** The longest one job may hold the Chrome; JOB_MS unless a test says less. */
   jobMs?: number;
+  /** Where its throwaway profiles go, and left-behind ones are swept from: the system's temp folder unless a test names its own. */
+  tmp?: string;
 }
 
 /** Who is waiting on the Chrome: the agent's checks and the owner's exports first, then the gallery's redraws. */
@@ -228,44 +230,10 @@ export const JOB_MS = 120_000;
 /** The Chrome goes once nothing has been checked for this long. */
 const IDLE_MS = 90_000;
 const PROFILE_PREFIX = "kos-check-";
-
-/** Whether a process is still running: signal 0 checks without sending anything. */
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
-/**
- * Throwaway profiles a check left behind when its host stopped before Chrome
- * did. Chrome's lock names the process that holds a profile; one whose process
- * is gone, or one with no readable lock older than a minute, is no one's. They
- * are removed off the event loop: a backlog can be many thousands of files.
- */
-export async function sweepProfiles(dir = tmpdir(), now = Date.now()): Promise<string[]> {
-  const stale: string[] = [];
-  for (const name of readdirSync(dir)) {
-    if (!name.startsWith(PROFILE_PREFIX)) continue;
-    const path = join(dir, name);
-    try {
-      let pid = NaN;
-      try {
-        pid = Number(readlinkSync(join(path, "SingletonLock")).split("-").pop());
-      } catch {
-        // No lock: Chrome is starting, or has stopped.
-      }
-      const held = Number.isInteger(pid) && pid > 0 ? alive(pid) : now - statSync(path).mtimeMs < 60_000;
-      if (!held) stale.push(path);
-    } catch {
-      // Gone already.
-    }
-  }
-  const removed = await Promise.all(stale.map((path) => rm(path, { recursive: true, force: true, maxRetries: 3 }).then(() => path, () => undefined)));
-  return removed.filter((path): path is string => path !== undefined);
-}
+/** Why a start was given up: the checker was closed while its Chrome came up. */
+const CLOSED = "the check's Chrome was closed as it started";
+/** A throwaway profile deleted, retried while Chrome's last writes settle; never an error. */
+const removeProfile = (profile: string): Promise<void> => rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }).catch(() => undefined);
 
 const freePort = (): Promise<number> =>
   new Promise((ok, fail) => {
@@ -361,44 +329,76 @@ export class ArtifactChecker {
     return { text: reportWords(report, ask), images };
   }
 
+  /** Stop the Chrome and delete its profile, in the background: for callers that cannot wait. */
   close(): void {
+    void this.dispose();
+  }
+
+  /**
+   * Stop the Chrome, wait for it to exit, then delete its throwaway profile,
+   * which Chrome writes to until it has gone. The next job starts afresh.
+   */
+  async dispose(): Promise<void> {
     if (this.idle) clearTimeout(this.idle);
     this.cdp?.close();
     this.server?.close();
     this.server = undefined;
     this.serverUrl = undefined;
     const { chrome, profile } = this;
-    chrome?.stop();
-    // Its throwaway profile goes once Chrome has stopped writing to it.
-    if (chrome && profile) void chrome.waitExit().then(() => rmSync(profile, { recursive: true, force: true, maxRetries: 3 })).catch(() => undefined);
     this.cdp = undefined;
     this.chrome = undefined;
     this.profile = undefined;
+    await chrome?.stop();
+    if (profile) await removeProfile(profile);
   }
 
   private async browser(): Promise<CdpClient> {
+    if (!this.cdp?.open) this.close();
+    // Counted afresh from each job; closing the last Chrome above would have cleared it.
     if (this.idle) clearTimeout(this.idle);
     this.idle = setTimeout(() => this.close(), IDLE_MS);
     this.idle.unref?.();
     if (this.cdp?.open) return this.cdp;
-    this.close();
-    void sweepProfiles().catch(() => undefined);
-    this.profile = mkdtempSync(join(tmpdir(), PROFILE_PREFIX));
+    const tmp = this.options.tmp ?? tmpdir();
+    const profile = mkdtempSync(join(tmp, PROFILE_PREFIX));
+    this.profile = profile;
     const binary = this.options.chrome?.();
-    // Sealed: it draws what KOS did not write, so it reaches nothing but the port KOS serves its documents on.
-    const loopback = await this.servePort();
-    this.chrome = new ChromeHost({
-      port: await freePort(),
-      profileDir: this.profile,
-      ...(this.options.exists ? { exists: this.options.exists } : {}),
-      launch: () => ({ ...(binary ? { binary } : {}), windowSize: { width: 1280, height: 800 }, sealed: { loopback: [loopback] } }),
-    });
-    const url = await this.chrome.ensure();
-    const cdp = new CdpClient((u) => new WebSocket(u) as unknown as CdpSocket);
-    await cdp.dial(url, () => {
-      if (this.cdp === cdp) this.cdp = undefined;
-    });
-    this.cdp = cdp;
+    // close() may run while this waits (the idle timer, a job's ceiling): what it could not see is then this start's to undo.
+    const closed = (): boolean => this.profile !== profile;
+    let chrome: ChromeHost | undefined;
+    let cdp: CdpClient | undefined;
+    try {
+      // Sealed: it draws what KOS did not write, so it reaches nothing but the port KOS serves its documents on.
+      const loopback = await this.servePort();
+      const port = await freePort();
+      if (closed()) throw new Error(CLOSED);
+      chrome = this.chrome = new ChromeHost({
+        port,
+        profileDir: profile,
+        ...(this.options.exists ? { exists: this.options.exists } : {}),
+        launch: () => ({ ...(binary ? { binary } : {}), windowSize: { width: 1280, height: 800 }, sealed: { loopback: [loopback] } }),
+      });
+      const url = await chrome.ensure();
+      if (closed()) throw new Error(CLOSED);
+      const client = (cdp = new CdpClient((u) => new WebSocket(u) as unknown as CdpSocket));
+      await client.dial(url, () => {
+        if (this.cdp === client) this.cdp = undefined;
+      });
+      if (closed()) throw new Error(CLOSED);
+      this.cdp = client;
+    } catch (err) {
+      if (closed()) {
+        cdp?.close();
+        await chrome?.stop();
+        await removeProfile(profile);
+      } else {
+        // No Chrome, or one that never answered: its profile goes now, not at the next job.
+        await this.dispose();
+      }
+      throw err;
+    }
+    // What hosts that stopped before their Chrome left behind, once one of these is known to start.
+    void sweepProfiles({ dir: tmp }).catch(() => undefined);
     return cdp;
   }
 

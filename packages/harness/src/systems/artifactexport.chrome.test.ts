@@ -57,12 +57,12 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-deck.js")))("artifact ex
       asked.push(String(args.sql));
       return { rows: [{ n: 1 }, { n: 2 }, { n: 3 }], truncated: false };
     };
-    checker = new ArtifactChecker({ load, call, captures: (id) => join(captures, id), pageLib: () => BUILT });
+    checker = new ArtifactChecker({ load, call, captures: (id) => join(captures, id), pageLib: () => BUILT, tmp: captures });
     exporter = new ArtifactExporter({ load, call, browser: (work) => checker.withBrowser(work), pageLib: () => BUILT });
   });
 
-  afterAll(() => {
-    checker?.close();
+  afterAll(async () => {
+    await checker?.dispose();
     rmSync(captures, { recursive: true, force: true });
   });
 

@@ -52,3 +52,12 @@ and output tokens. `<label>.json` holds all of it; `<label>.md` a table.
 `--compare` puts two runs side by side.
 
 It measures the SDK engine, which the owner's chats run on.
+
+## Headless Chrome in scripts
+
+Every script that starts a headless Chrome (this bench, the evals' screens)
+starts it with `scripts/lib/headless.mjs`. Chrome runs in its own process
+group with a throwaway `kos-*` profile in the temp folder; `close()` stops the
+group, waits for it to exit and then deletes the profile, and the script
+ending any other way (an error, Ctrl-C, a kill) does the same before it goes.
+A new script that needs a Chrome uses it rather than spawning one.

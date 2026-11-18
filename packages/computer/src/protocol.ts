@@ -91,6 +91,14 @@ export interface Hello extends DeviceState {
   install?: string;
   /** KOS for Mac's proof that it runs on the computer KOS runs on (keys.ts, hereProof). */
   here?: string;
+  /** The session the device held when its line last dropped: still live, or lost while it was away and why. */
+  session?: HeldSession;
+}
+
+/** A session a device says in its hello it held: `ended` when it lost it while away (its worker restarted, its wait for the line ran out). */
+export interface HeldSession {
+  id: string;
+  ended?: EndReason;
 }
 
 export interface Welcome {
@@ -131,7 +139,7 @@ export interface Reply {
 
 export type EventName = "session.paused" | "session.resumed" | "session.scrolled" | "session.extended" | "session.ended";
 
-export type EndReason = "owner" | "expired" | "idle" | "quit" | "host" | "window" | "detached";
+export type EndReason = "owner" | "expired" | "idle" | "quit" | "host" | "window" | "detached" | "restarted";
 
 export interface DeviceEvent {
   t: "event";
@@ -262,6 +270,20 @@ function readDisplays(v: unknown): Display[] | undefined {
   return out;
 }
 
+const END_REASONS: readonly string[] = ["owner", "expired", "idle", "quit", "host", "window", "detached", "restarted"] satisfies EndReason[];
+
+/** Why a device says a session ended; any other word is KOS's own end of it, `host`. */
+export function readEndReason(v: unknown): EndReason {
+  return isString(v) && END_REASONS.includes(v) ? (v as EndReason) : "host";
+}
+
+/** The session a hello says the device held; a malformed one is as none, never a reason to refuse the line. */
+function readHeld(v: unknown): HeldSession | undefined {
+  // An id as KOS makes them: anything else is no session KOS gave, and is not echoed into a log or a call.
+  if (!isObject(v) || !isString(v.id) || !/^[A-Za-z0-9_-]{1,64}$/.test(v.id)) return undefined;
+  return { id: v.id, ...(v.ended !== undefined ? { ended: readEndReason(v.ended) } : {}) };
+}
+
 function readConsent(v: unknown): Consent | undefined {
   return v === "device" || v === "kos" ? v : undefined;
 }
@@ -285,6 +307,7 @@ export function readFrame(text: string): FromDevice | undefined {
       const displays = readDisplays(raw.displays);
       const consent = readConsent(raw.consent);
       const build = readBuild(raw.build);
+      const held = readHeld(raw.session);
       const app = raw.app;
       if (typeof raw.protocol !== "number" || !isString(raw.device) || !isString(raw.nonce) || !isString(raw.signature)) return undefined;
       if (!permissions || !displays || !consent || !isObject(app) || !isString(app.version) || !isString(app.platform) || !isString(app.os)) return undefined;
@@ -298,6 +321,7 @@ export function readFrame(text: string): FromDevice | undefined {
         ...(build ? { build } : {}),
         ...(isString(raw.install) && raw.install.length <= 20 ? { install: raw.install } : {}),
         ...(isString(raw.here) && raw.here.length <= 64 ? { here: raw.here } : {}),
+        ...(held ? { session: held } : {}),
         consent,
         permissions,
         displays,

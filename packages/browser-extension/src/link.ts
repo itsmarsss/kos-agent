@@ -3,6 +3,7 @@ import type { DashboardTheme, FaceDrawing } from "@kos/shared";
 import { socketUrl } from "./address.js";
 import { nonce, sign, verify } from "./keys.js";
 import { CallError, PROTOCOL, deviceProof, hostProof, readFrame } from "./protocol.js";
+import type { EndReason } from "./session.js";
 import type { Build, UpdateNotice } from "./update.js";
 
 /**
@@ -28,6 +29,8 @@ export interface Hello {
   build?: Build;
   /** How Chrome says it was installed: `development` (Load unpacked) is the one kind a reload brings new code to. */
   install?: string;
+  /** The session this Chrome still holds for this KOS, or lost while away from it and why (held.ts). */
+  session?: { id: string; ended?: EndReason };
 }
 
 export interface LinkOptions {

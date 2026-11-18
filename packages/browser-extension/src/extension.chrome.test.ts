@@ -114,6 +114,8 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
   const unpaired = new Set<string>();
   const forgotten = new Set<string>();
   const events: { name: string; data: Record<string, unknown> }[] = [];
+  /** Each hello the extension sent, in order. */
+  const hellos: Record<string, unknown>[] = [];
   const replies = new Map<number, (r: Record<string, unknown>) => void>();
   let nextCall = 1;
 
@@ -169,6 +171,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
       ws.on("message", (raw) => {
         const m = JSON.parse(raw.toString()) as Record<string, unknown>;
         if (m["t"] === "hello") {
+          hellos.push(m);
           const id = String(m["device"]);
           // A device this KOS has forgotten, turned away as the real one does, its reason in the close.
           if (forgotten.has(id)) return ws.close(4003, "unknown device: KOS has no device by this id; pair again");
@@ -189,7 +192,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
 
     profile = mkdtempSync(join(tmpdir(), "kos-extension-"));
     const port = 9800 + Math.floor(Math.random() * 100);
-    chrome = spawn(CHROME!, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--enable-unsafe-extension-debugging", "--no-first-run", "about:blank"], { stdio: "ignore" });
+    chrome = spawn(CHROME!, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--enable-unsafe-extension-debugging", "--no-first-run", "about:blank"], { stdio: "ignore", detached: true });
     let version: { webSocketDebuggerUrl: string } | undefined;
     // A CI machine can take a while to bring Chrome up; ten seconds once was not enough.
     for (let i = 0; i < 300 && !version; i++) {
@@ -216,18 +219,43 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
 
   afterAll(async () => {
     devtools?.close();
-    chrome?.kill();
-    await new Promise((r) => chrome?.once("exit", r));
+    if (chrome && chrome.exitCode === null && chrome.signalCode === null) {
+      const exited = new Promise((r) => chrome.once("exit", r));
+      // Its own process group, helpers and all, so nothing is still writing the profile when it is deleted.
+      try {
+        process.kill(-chrome.pid!, "SIGKILL");
+      } catch {
+        /* gone */
+      }
+      await exited;
+    }
     sockets?.close();
     server?.closeAllConnections();
     server?.close();
-    // Chrome's helpers can still be writing the profile as it goes; a temp folder left behind is no failure.
-    try {
-      rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
-    } catch {
-      /* left for the system to clear */
-    }
+    if (profile) rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });
+
+  /** Whether the overlay's button for an act is drawn on the page: found through its closed shadow root, and given a box. */
+  const boxOf = async (page: string, attr: string, value: string): Promise<{ left: number; right: number; top: number; bottom: number } | undefined> => {
+    type Node = { nodeId: number; attributes?: string[]; children?: Node[]; shadowRoots?: Node[] };
+    const { root } = (await devtools.send("DOM.getDocument", { depth: -1, pierce: true }, page)) as { root: Node };
+    const find = (n: Node): Node | undefined => {
+      const a = n.attributes ?? [];
+      if (a.includes(attr) && a[a.indexOf(attr) + 1] === value) return n;
+      for (const c of [...(n.shadowRoots ?? []), ...(n.children ?? [])]) {
+        const hit = find(c);
+        if (hit) return hit;
+      }
+      return undefined;
+    };
+    const node = find(root);
+    if (!node) return undefined;
+    const model = (await devtools.send("DOM.getBoxModel", { nodeId: node.nodeId }, page).catch(() => undefined)) as { model?: { border: number[] } } | undefined;
+    const q = model?.model?.border;
+    return q ? { left: q[0]!, top: q[1]!, right: q[2]!, bottom: q[5]! } : undefined;
+  };
+  /** Whether the overlay's button for an act is drawn on the page. */
+  const drawn = async (page: string, act: string): Promise<boolean> => (await boxOf(page, "data-act", act)) !== undefined;
 
   it("pairs, proves both keys, and keeps the connection with pings", () => {
     expect(deviceKey).toBeDefined();
@@ -394,13 +422,36 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     for (const type of ["mousePressed", "mouseReleased"]) await cdp("Input.dispatchMouseEvent", { type, x: 120, y: 110, button: "left", clickCount: 1 });
     await until(() => false, 500);
     expect(events.some((e) => e.name === "session.paused")).toBe(false);
+    // The small bar chosen in Settings: KOS's face and Stop alone on the page, and the owner's hand still takes over.
+    const page = await devtools.attach((u) => u.endsWith("/shop"));
+    const overlay = (key: string): Promise<unknown> => devtools.evaluate(page, `document.querySelector('kos-overlay')?.dataset.${key}`);
+    // The full bar folded to KOS's face first: a fold the small bar must not keep.
+    const face = (await boxOf(page, "class", "face"))!;
+    for (const type of ["mousePressed", "mouseReleased"]) await devtools.send("Input.dispatchMouseEvent", { type, x: (face.left + face.right) / 2, y: (face.top + face.bottom) / 2, button: "left", clickCount: 1 }, page);
+    for (let i = 0; i < 50 && (await overlay("folded")) !== "1"; i++) await until(() => false, 100);
+    expect(await overlay("folded")).toBe("1");
+    expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "settings", patch: { fullBar: false } })`)).toMatchObject({ ok: true });
+    for (let i = 0; i < 50 && (await overlay("bar")) !== "chip"; i++) await until(() => false, 100);
+    expect(await overlay("bar")).toBe("chip");
+    expect(await overlay("folded")).toBe("");
+    // Drawn on the page: KOS's face and Stop, one press away, side by side and level; not Take over or the words.
+    const small = (await boxOf(page, "class", "face"))!;
+    const stop = (await boxOf(page, "data-act", "stop"))!;
+    expect(stop.left - small.right).toBeGreaterThanOrEqual(4);
+    expect(Math.abs((stop.top + stop.bottom) / 2 - (small.top + small.bottom) / 2)).toBeLessThan(1.5);
+    expect(Math.abs(stop.bottom - stop.top - (small.bottom - small.top))).toBeLessThan(1);
+    expect(await drawn(page, "take")).toBe(false);
     // The owner's, once the moment after they allowed it has passed: straight to the page, not through KOS.
     await until(() => false, GRACE_MS);
-    const page = await devtools.attach((u) => u.endsWith("/shop"));
     for (const type of ["mousePressed", "mouseReleased"]) await devtools.send("Input.dispatchMouseEvent", { type, x: 300, y: 300, button: "left", clickCount: 1 }, page);
     await until(() => events.some((e) => e.name === "session.paused"));
     expect(events.find((e) => e.name === "session.paused")?.data).toMatchObject({ session: "s1", reason: "owner" });
     expect((await cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 }))["error"]).toMatchObject({ code: "paused" });
+    // Paused, the small bar offers Hand back beside Stop.
+    for (let i = 0; i < 50 && (await overlay("paused")) !== "1"; i++) await until(() => false, 100);
+    expect(await drawn(page, "handback")).toBe(true);
+    expect(await drawn(page, "stop")).toBe(true);
+    expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "settings", patch: { fullBar: true } })`)).toMatchObject({ ok: true });
   }, 30_000);
 
   it("closes a site the owner hid: no look, no way there, and no name in the tab list", async () => {
@@ -555,6 +606,41 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
       await until(() => false, 300);
       expect(await debugged()).toBe(false);
     }, 30_000);
+
+    it("keeps a session across a short drop of its KOS's line, and says so in the hello", async () => {
+      await begin("k1");
+      const before = hellos.length;
+      device!.close();
+      await until(() => hellos.length > before && device?.readyState === 1, 15_000);
+      expect(hellos.at(-1)?.["session"]).toEqual({ id: "k1" });
+      expect(await call("tabs.list", { session: "k1" })).toMatchObject({ ok: true });
+      expect(await call("session.end", { session: "k1" })).toMatchObject({ ok: true });
+    }, 30_000);
+
+    it("tells KOS a session its stopped worker held is over, in the next worker's hello, and lets its tab go", async () => {
+      await begin("r1");
+      expect(await call("cdp.send", { session: "r1", tab, method: "Runtime.evaluate", params: { expression: "1", returnByValue: true } })).toMatchObject({ ok: true });
+      expect(await debugged()).toBe(true);
+      // Chrome stops the worker, as it does when it likes; the next one starts on the popup's word.
+      const { targetInfos } = (await devtools.send("Target.getTargets")) as { targetInfos: { targetId: string; type: string; url: string }[] };
+      const worker = targetInfos.find((t) => t.type === "service_worker" && t.url.endsWith("/worker.js"))!;
+      const before = hellos.length;
+      await devtools.send("Target.closeTarget", { targetId: worker.targetId });
+      for (let i = 0; i < 100 && hellos.length === before; i++) {
+        await popupSays({ type: "state" }).catch(() => undefined);
+        await until(() => false, 100);
+      }
+      await until(() => hellos.length > before && device?.readyState === 1);
+      expect(hellos.at(-1)?.["session"]).toEqual({ id: "r1", ended: "restarted" });
+      expect((await call("tabs.list", { session: "r1" }))["error"]).toMatchObject({ code: "no_session" });
+      await until(() => false, 300);
+      expect(await debugged()).toBe(false);
+      // Told once: the hello after that says nothing of it.
+      const told = hellos.length;
+      device!.close();
+      await until(() => hellos.length > told, 15_000);
+      expect(hellos.at(-1)?.["session"]).toBeUndefined();
+    }, 45_000);
   });
 
   it("carries a side panel's chat, asks for a session there, and works in the tab beside it", async () => {
@@ -615,7 +701,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(await devtools.evaluate(panel, "document.querySelector('.send')?.getAttribute('aria-label')")).toBe("Stop");
     await devtools.evaluate(panel, "document.querySelector('.send--stop').click()");
     await until(() => events.some((e) => e.name === "chat.stop"));
-    expect(events.find((e) => e.name === "chat.stop")?.data).toEqual({ chat: "chrome:owner" });
+    expect(events.find((e) => e.name === "chat.stop")?.data).toMatchObject({ chat: "chrome:owner", waited: expect.any(Number) });
     // Another chat's status, from a turn the owner moved away from, is not drawn here.
     expect(await call("chat.status", { chat: "cm1:owner", conversation: "cm1:owner", said: "elsewhere", story: "› Not here" })).toMatchObject({ ok: true });
     await until(() => false, 200);

@@ -36,6 +36,7 @@ import {
   parseBrowserConfig,
   readAt,
   settleDownload,
+  sweepProfiles,
   type BrowserConfig,
   type BrowserDownload,
   type BrowserStatus,
@@ -1081,7 +1082,8 @@ export class Kernel {
     },
   ): Promise<HandleResult> {
     {
-      const runId = this.runs.start("chat");
+      // Kept with the chat it ran in, so a run in the log leads to its chat.
+      const runId = this.runs.start("chat", sessionId);
       const turnId = String(runId);
       // Who this turn is to the fences: attended unless the harness started it
       // or the sender was not, the owner's only when the door that took the
@@ -4396,9 +4398,25 @@ export class Kernel {
     return value === undefined ? undefined : { label: headline.label, value };
   });
 
-  /** KOS stopping: the browser's sign-ins kept and Chrome closed properly. */
+  /** KOS stopping: the browser's sign-ins kept and Chrome closed properly, and the check's Chrome gone with its profile. */
   async closeBrowser(): Promise<void> {
-    await this.browser.shutdown();
+    await Promise.all([this.browser.shutdown(), this.artifactChecker?.dispose()]);
+  }
+
+  /**
+   * Throwaway Chrome profiles a host that stopped before its Chrome left in
+   * the temp folder, and Chromes a crashed host left running on them, cleared
+   * in the background: the host starts at once.
+   */
+  sweepStaleProfiles(): void {
+    sweepProfiles().then(
+      ({ removed, freed, failed, stopped }) => {
+        if (stopped.length) console.log(`[kernel] stopped ${stopped.length} orphaned Chrome${stopped.length === 1 ? "" : "s"}`);
+        if (removed.length) console.log(`[kernel] swept ${removed.length} stale Chrome profile${removed.length === 1 ? "" : "s"}, freed ${Math.round(freed / 1024 / 1024)}MB`);
+        for (const { path, error } of failed) console.warn(`[kernel] could not sweep ${path}: ${error}`);
+      },
+      (err: unknown) => console.warn("[kernel] could not sweep stale Chrome profiles:", err instanceof Error ? err.message : String(err)),
+    );
   }
 
   /**

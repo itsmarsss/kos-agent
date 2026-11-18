@@ -1704,8 +1704,11 @@ describe("handleApiRequest", () => {
       describe.skipIf(!findChrome(undefined))("with a Chrome on the machine", () => {
         let withChrome: Kernel;
         let root2: string;
+        const tmp = process.env.TMPDIR;
         beforeEach(async () => {
           root2 = mkdtempSync(join(tmpdir(), "kos-api-chrome-"));
+          // The check's Chrome keeps its profile, and sweeps left-behind ones, in a temp folder of the test's own.
+          process.env.TMPDIR = root2;
           // Its own browser for the web is never started here; the check's Chrome is found as on any host.
           withChrome = await Kernel.boot({ rootDir: root2, secrets: new SecretsRegistry(), inference: stub, chrome: { port: 1 } });
           withChrome.manifest.createProject({ name: "Shelf", type: "tracker" });
@@ -1713,8 +1716,11 @@ describe("handleApiRequest", () => {
           withChrome.workspace.db.exec("INSERT INTO shelf_books (title) VALUES ('Dune')");
           withChrome.pages.writeHtml("shelf", { id: "reader", title: "Reader", html: '<h1>Reader</h1><p id="out">-</p><script>kos.query("SELECT title FROM shelf_books").then(function(r){out.textContent=r.rows[0].title})</script>' });
         });
-        afterEach(() => {
+        afterEach(async () => {
+          await withChrome.closeBrowser();
           withChrome.close();
+          if (tmp === undefined) delete process.env.TMPDIR;
+          else process.env.TMPDIR = tmp;
           rmSync(root2, { recursive: true, force: true });
         });
 

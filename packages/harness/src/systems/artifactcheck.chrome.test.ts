@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -142,11 +142,12 @@ describe.skipIf(!chrome)("artifacts.check in Chrome", () => {
       },
       captures: (id) => join(captures, id),
       pageLib: () => lib,
+      tmp: captures,
     });
   });
 
-  afterAll(() => {
-    checker?.close();
+  afterAll(async () => {
+    await checker?.dispose();
     rmSync(lib, { recursive: true, force: true });
     rmSync(captures, { recursive: true, force: true });
   });
@@ -213,10 +214,10 @@ describe.skipIf(!chrome || !existsSync(join(BUILT, "kos-sheet.js")))("each runti
   let checker: ArtifactChecker;
   beforeAll(() => {
     captures = mkdtempSync(join(tmpdir(), "kos-captures-"));
-    checker = new ArtifactChecker({ load: (id) => (KINDS[id] ? { page: KINDS[id]!, title: KINDS[id]!.title } : undefined), call: async () => ({ rows: [] }), captures: (id) => join(captures, id), pageLib: () => BUILT });
+    checker = new ArtifactChecker({ load: (id) => (KINDS[id] ? { page: KINDS[id]!, title: KINDS[id]!.title } : undefined), call: async () => ({ rows: [] }), captures: (id) => join(captures, id), pageLib: () => BUILT, tmp: captures });
   });
-  afterAll(() => {
-    checker?.close();
+  afterAll(async () => {
+    await checker?.dispose();
     rmSync(captures, { recursive: true, force: true });
   });
 
@@ -251,11 +252,12 @@ describe.skipIf(!chrome)("artifacts.check over real page queries", () => {
       call: (id, _verb, args) => queries.run(String(args.sql), (args.params as number[] | undefined) ?? [], { key: id }),
       captures: (id) => join(dir, "captures", id),
       pageLib: () => lib,
+      tmp: dir,
     });
   });
 
-  afterAll(() => {
-    checker?.close();
+  afterAll(async () => {
+    await checker?.dispose();
     queries?.close();
     rmSync(lib, { recursive: true, force: true });
     rmSync(dir, { recursive: true, force: true });
@@ -276,13 +278,38 @@ describe.skipIf(!chrome)("the check's Chrome, one job at a time", () => {
   it("stops a job that holds it past its ceiling, and starts the next on a fresh one", async () => {
     const dir = mkdtempSync(join(tmpdir(), "kos-ceiling-"));
     // Room for the next job to start a Chrome of its own on a busy machine, which the ceiling counts too.
-    const checker = new ArtifactChecker({ load: () => undefined, call: async () => ({}), captures: (id) => join(dir, id), jobMs: 8000 });
+    const checker = new ArtifactChecker({ load: () => undefined, call: async () => ({}), captures: (id) => join(dir, id), jobMs: 8000, tmp: dir });
     try {
       await expect(checker.withBrowser(() => new Promise<never>(() => undefined))).rejects.toThrow(/took too long/);
       expect(await checker.withBrowser(async ({ cdp }) => ((await cdp.send("Browser.getVersion", {})) as { product: string }).product)).toMatch(/Chrome/);
     } finally {
-      checker.close();
+      await checker.dispose();
       rmSync(dir, { recursive: true, force: true });
     }
   }, 60_000);
+
+  it("disposes by waiting for its Chrome to exit, then deleting the profile", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kos-dispose-"));
+    const checker = new ArtifactChecker({ load: () => undefined, call: async () => ({}), captures: (id) => join(dir, id), tmp: dir });
+    const running = (pid: number): boolean => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    try {
+      await checker.withBrowser(async () => undefined);
+      const profile = join(dir, readdirSync(dir).find((name) => name.startsWith("kos-check-"))!);
+      const pid = Number(readlinkSync(join(profile, "SingletonLock")).split("-").pop());
+      expect(running(pid)).toBe(true);
+      await checker.dispose();
+      expect(running(pid)).toBe(false);
+      expect(existsSync(profile)).toBe(false);
+    } finally {
+      await checker.dispose();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
