@@ -759,7 +759,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       const child = spawn(
         process.execPath,
         [fileURLToPath(new URL("./main.js", import.meta.url)), "restart", "--workspace", options.rootDir, "--host", options.host, "--port", String(options.port)],
-        { detached: true, stdio: "ignore", env: process.env },
+        // The vault's key was taken out of this process's env once read; the next host needs it back.
+        { detached: true, stdio: "ignore", env: { ...process.env, ...(vaultKey ? { KOS_VAULT_KEY: vaultKey } : {}) } },
       );
       child.unref();
     },
