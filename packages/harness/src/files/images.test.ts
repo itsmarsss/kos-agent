@@ -1,3 +1,8 @@
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { PNG } from "pngjs";
 import { describe, expect, it } from "vitest";
 
@@ -5,7 +10,7 @@ import { CONVERSIONS_AT_ONCE, IMAGE_MAX_BYTES, IMAGE_MAX_SIDE, base64Length, for
 import { PICTURES } from "./images.fixture.js";
 import { pixels, pixelsConverter } from "./pixels.js";
 import { downscale } from "./pixelsworker.js";
-import { sips } from "./sips.js";
+import { sips, sipsProfile } from "./sips.js";
 
 const MB = 1024 * 1024;
 type Kind = keyof typeof PICTURES;
@@ -202,5 +207,25 @@ describe.each(converters)("forModel with %s", (_, converter) => {
     await expect(forModel(Buffer.from("plain words, not a picture"), converter)).rejects.toThrow(/not a picture KOS reads/);
     const broken = Buffer.concat([picture("image/heic").subarray(0, 40), Buffer.alloc(200)]);
     await expect(forModel(broken, converter)).rejects.toThrow(/./);
+  });
+});
+
+describe.runIf(process.platform === "darwin")("sips's sandbox", () => {
+  it("lets sips write its own folder and nothing else", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kos-sips-test-"));
+    const elsewhere = mkdtempSync(join(tmpdir(), "kos-sips-test-"));
+    try {
+      writeFileSync(join(dir, "in.png"), picture("image/png"));
+      const sandboxed = (out: string): void =>
+        void execFileSync("/usr/bin/sandbox-exec", ["-p", sipsProfile(dir), "/usr/bin/sips", "-s", "format", "jpeg", join(dir, "in.png"), "--out", out], { stdio: "ignore" });
+      sandboxed(join(dir, "out.jpg"));
+      expect(existsSync(join(dir, "out.jpg"))).toBe(true);
+      expect(() => sandboxed(join(elsewhere, "out.jpg"))).toThrow();
+      expect(existsSync(join(elsewhere, "out.jpg"))).toBe(false);
+      expect(sipsProfile(dir)).toContain("(deny network*)");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
   });
 });
