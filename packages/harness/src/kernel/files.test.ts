@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Workspace } from "../store/workspace.js";
 import { writeZip } from "../files/zip.js";
 import { trashEntry } from "./filetrash.js";
-import { copyEntry, isImage, listDirectory, makeDir, readFile, readForText, readForView, readImage, readBytes, readPdf, renameEntry, uniqueName } from "./files.js";
+import { copyEntry, dispositionOf, isImage, listDirectory, makeDir, readFile, readForText, readForView, readImage, readBytes, readPdf, renameEntry, uniqueName } from "./files.js";
 
 describe("workspace file browsing", () => {
   let root: string;
@@ -222,5 +222,12 @@ describe("managing files by hand", () => {
     expect(raw.contentType).toBe("application/octet-stream");
     expect(raw.bytes.toString("utf8")).toBe('{"a":1}');
     expect(() => readBytes(ws, "projects/budget")).toThrow(/not a file/);
+  });
+
+  it("names a file in its Content-Disposition, plainly and in full", () => {
+    expect(dispositionOf("inline", "site survey.pdf")).toBe(`inline; filename="site survey.pdf"; filename*=UTF-8''site%20survey.pdf`);
+    expect(dispositionOf("inline", "Résumé ✓.pdf")).toBe(`inline; filename="R_sum_ _.pdf"; filename*=UTF-8''R%C3%A9sum%C3%A9%20%E2%9C%93.pdf`);
+    expect(dispositionOf("inline", 'a "quoted" \\ name\r\nx.pdf')).toBe(`inline; filename="a _quoted_ _ name__x.pdf"; filename*=UTF-8''a%20%22quoted%22%20%5C%20name%0D%0Ax.pdf`);
+    expect(dispositionOf("attachment", "it's (1).pdf")).toBe(`attachment; filename="it's (1).pdf"; filename*=UTF-8''it%27s%20%281%29.pdf`);
   });
 });

@@ -324,3 +324,14 @@ export function readBytes(ws: Workspace, requestPath: unknown): RawFile & { name
   if (st.size > MAX_DOWNLOAD_BYTES) throw new Error(`too large to download here: ${rel}`);
   return { bytes: readFileSync(abs), contentType: IMAGE_TYPES[extname(rel).toLowerCase()] ?? "application/octet-stream", name: basename(rel) };
 }
+
+/**
+ * A Content-Disposition that names the file, so a viewer's Save or Download
+ * offers its name and not the route's: plain ASCII for old readers, and the
+ * whole name encoded (RFC 6266 and 5987) for the rest.
+ */
+export function dispositionOf(kind: "inline" | "attachment", name: string): string {
+  const plain = name.replace(/[^\x20-\x7e]|["\\]/g, "_");
+  const full = encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `${kind}; filename="${plain}"; filename*=UTF-8''${full}`;
+}

@@ -42,7 +42,7 @@ describe("the file manager's routes", () => {
   it("serves an Office view as inert JSON", async () => {
     const res = await get("/api/file/office", { path: "projects/garden/plan.docx" });
     expect(res?.status).toBe(200);
-    expect(res?.headers).toEqual({ "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'; sandbox" });
+    expect(res?.headers).toEqual({ "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'; sandbox", "content-disposition": `inline; filename="plan.docx"; filename*=UTF-8''plan.docx` });
     expect(res?.body).toMatchObject({ kind: "doc", format: "docx" });
   });
 

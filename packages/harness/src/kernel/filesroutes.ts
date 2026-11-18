@@ -3,7 +3,10 @@ import { OfficeViewer } from "../files/viewer/viewer.js";
 import type { Workspace } from "../store/workspace.js";
 import { createReadStream } from "node:fs";
 
+import { basename } from "node:path";
+
 import { BadRange, fileInfo, readMedia, recentFiles, searchContents, searchNames } from "./fileinfo.js";
+import { dispositionOf } from "./files.js";
 import { emptyTrash, listTrash, restoreEntry, trashEntry } from "./filetrash.js";
 import { THUMB_EDGES, thumbnail } from "./filethumbs.js";
 
@@ -56,7 +59,7 @@ export async function handleFilesRoute(ws: Workspace, req: FilesRequest, deps: F
   try {
     if (method === "GET" && path === "/api/file/office") {
       if (!target) return bad("path required");
-      return { status: 200, body: await deps.viewer.view(ws.resolve(target), target), headers: INERT };
+      return { status: 200, body: await deps.viewer.view(ws.resolve(target), target), headers: { ...INERT, "content-disposition": dispositionOf("inline", basename(target)) } };
     }
     if (method === "GET" && path === "/api/file/thumb") {
       if (!target) return bad("path required");

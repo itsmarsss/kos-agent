@@ -321,6 +321,20 @@ describe("handleApiRequest", () => {
     expect((await list("somewhere/else")).status).toBe(400);
   });
 
+  it("names a previewed PDF and picture by the file, at either address", async () => {
+    mkdirSync(join(root, "docs"), { recursive: true });
+    writeFileSync(join(root, "docs", "Résumé \"v2\".pdf"), "%PDF-1.4\n%%EOF");
+    writeFileSync(join(root, "docs", "a b.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const q = (p: string): string => `?path=${encodeURIComponent(p)}`;
+    for (const route of ["/api/file/view", `/api/file/view/${encodeURIComponent('Résumé "v2".pdf')}`]) {
+      const res = await handleApiRequest(kernel, { method: "GET", path: route, url: `${route}${q('docs/Résumé "v2".pdf')}` });
+      expect(res.status).toBe(200);
+      expect(res.headers?.["content-disposition"]).toBe(`inline; filename="R_sum_ _v2_.pdf"; filename*=UTF-8''R%C3%A9sum%C3%A9%20%22v2%22.pdf`);
+    }
+    const raw = await handleApiRequest(kernel, { method: "GET", path: "/api/file/raw/a%20b.png", url: `/api/file/raw/a%20b.png${q("docs/a b.png")}` });
+    expect(raw.headers?.["content-disposition"]).toBe(`inline; filename="a b.png"; filename*=UTF-8''a%20b.png`);
+  });
+
   it("renames, copies, trashes, makes folders and downloads, inside the jail", async () => {
     const project = kernel.manifest.createProject({ name: "Garden", type: "tasks" });
     const dir = `projects/${project.slug}`;

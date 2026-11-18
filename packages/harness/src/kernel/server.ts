@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { Readable } from "node:stream";
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
-import { dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
 
 import { parseHomeLayout,
   CHAT_COMMANDS,
@@ -45,7 +45,7 @@ import {
 import { historyEvents, type ChatEvent } from "./transcript.js";
 import { isUndone } from "./guarded.js";
 import { defaultFilesDeps, handleFilesRoute } from "./filesroutes.js";
-import { copyEntry, listDirectory, makeDir, readForText, readForView, readImage, readBytes, readPdf, renameEntry, type DirEntry } from "./files.js";
+import { copyEntry, dispositionOf, listDirectory, makeDir, readForText, readForView, readImage, readBytes, readPdf, renameEntry, type DirEntry } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, sumSpend, windowFor, RATES_KEY, type Rates, type SpendSummary } from "../ops/spend.js";
 import type { FailingJob } from "../ops/health.js";
@@ -2697,7 +2697,8 @@ export async function handleApiRequest(
     return ok({ base: sitesBaseUrl() ?? null, sites: listSites(kernel.workspace) });
   }
 
-  if (method === "GET" && path === "/api/file/view") {
+  // The file's name may follow the route (/api/file/view/plan.pdf) for viewers that name a download by its URL; the path query is what is read.
+  if (method === "GET" && (path === "/api/file/view" || path.startsWith("/api/file/view/"))) {
     // A PDF for the browser's own viewer, framed on the Files page. Only a
     // PDF: anything else served inline on this origin could be a page that
     // scripts the dashboard. Same-origin frames only, and never sniffed.
@@ -2713,7 +2714,7 @@ export async function handleApiRequest(
           "content-length": String(raw.bytes.byteLength),
           "x-content-type-options": "nosniff",
           "x-frame-options": "SAMEORIGIN",
-          "content-disposition": "inline",
+          "content-disposition": dispositionOf("inline", raw.name),
         },
       };
     } catch (err) {
@@ -2724,7 +2725,7 @@ export async function handleApiRequest(
     }
   }
 
-  if (method === "GET" && path === "/api/file/raw") {
+  if (method === "GET" && (path === "/api/file/raw" || path.startsWith("/api/file/raw/"))) {
     // Image bytes for the browser to draw. The allow-list and the type live in
     // readImage; nosniff and a sandboxing policy are here so that even a file
     // that somehow reached this point mislabelled cannot become a document on
@@ -2741,7 +2742,7 @@ export async function handleApiRequest(
           "content-length": String(raw.bytes.byteLength),
           "x-content-type-options": "nosniff",
           "content-security-policy": "default-src 'none'; sandbox",
-          "content-disposition": "inline",
+          "content-disposition": dispositionOf("inline", basename(target)),
         },
       };
     } catch (err) {

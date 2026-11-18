@@ -47,7 +47,8 @@ export function isPdfPath(path: string): boolean {
 
 /** Where the browser's viewer gets a PDF from. */
 export function pdfViewUrl(path: string): string {
-  return `/api/file/view?path=${encodeURIComponent(path)}`;
+  // The name at the end of the address too: a viewer that names its download by the URL saves "plan.pdf", not "view".
+  return `/api/file/view/${encodeURIComponent(path.split("/").pop() ?? path)}?path=${encodeURIComponent(path)}`;
 }
 
 const AUDIO = /\.(mp3|m4a|aac|wav|ogg|oga|flac)$/i;
@@ -88,6 +89,31 @@ export function FileBody({ file }: { file: FileContent }): ReactElement {
         : file.text}
     </pre>
   );
+}
+
+const ATTACHED_HINT_KEY = "kos.hint.attached";
+
+/**
+ * Whether to say, this once, what happens to an attachment: for two seconds
+ * the first time one is looked at in this browser, and never again.
+ */
+function useAttachedHint(wanted: boolean): boolean {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!wanted) return undefined;
+    let seen = true;
+    try {
+      seen = localStorage.getItem(ATTACHED_HINT_KEY) === "1";
+      localStorage.setItem(ATTACHED_HINT_KEY, "1");
+    } catch {
+      // No storage: say nothing rather than say it every time.
+    }
+    if (seen) return undefined;
+    setShown(true);
+    const t = setTimeout(() => setShown(false), 2000);
+    return () => clearTimeout(t);
+  }, [wanted]);
+  return shown;
 }
 
 /** A file that is not on disk, an attachment still in the composer, shown by the same window under a key of its own. */
@@ -274,6 +300,8 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
         ? file
         : null;
   const image = !!path && (local ? !!local.src : previewable(path));
+  const attachedOnly = !!local && !local.src && local.text === undefined;
+  const attachedHint = useAttachedHint(attachedOnly);
   const office = !!path && !local && isOfficePath(path);
   const rawable = !!shown && !local && hasRawText(shown);
 
@@ -334,8 +362,11 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
                 )}
                 {!shown && !error && <p className="hint preview-hint">Loading…</p>}
                 {shown && local?.src && <img className="files-image" src={local.src} alt={name} />}
-                {shown && local && !local.src && local.text === undefined && (
-                  <p className="hint preview-hint">Attached. Once sent it is kept in the workspace and shown here as the file.</p>
+                {shown && attachedOnly && (
+                  <div className="preview-attached">
+                    <FileIcon name={name} kind="file" size={40} />
+                    {attachedHint && <p className="hint">Kept in the workspace once sent.</p>}
+                  </div>
                 )}
                 {shown && (!local || (!local.src && local.text !== undefined)) && (raw && rawable && path ? <RawBody path={path} /> : <FileBody file={shown} />)}
               </div>

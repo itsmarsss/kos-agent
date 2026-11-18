@@ -6708,6 +6708,8 @@ a.health {
 .preview-body--image { align-items: center; background: var(--bg); }
 .preview-body .files-image { max-width: 100%; max-height: calc(100vh - 8rem); object-fit: contain; border-radius: 0; }
 .preview-hint { margin: 2rem; }
+.preview-attached { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; margin: 3rem auto; color: var(--faint); }
+.preview-attached .hint { margin: 0; }
 .preview-pre { margin: 0; padding: 0.9rem 1rem; width: 100%; font-family: var(--mono); font-size: var(--text-base); white-space: pre; }
 .preview-md { width: 100%; max-width: 48rem; padding: 1rem 1.25rem; }
 /* A PDF in the browser's own viewer, as tall as the popup allows. */
