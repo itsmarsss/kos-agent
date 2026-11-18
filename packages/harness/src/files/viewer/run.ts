@@ -74,8 +74,9 @@ export function childJobs(script: string, { timeoutMs = CHILD_TIMEOUT_MS, rssMb 
         reject(new Error("superseded"));
         return;
       }
-      // Through a shell only to set the CPU limit; exec then makes the shell the child itself.
-      const child = spawn("/bin/sh", ["-c", `ulimit -t ${cpuSeconds}; exec "$0" "$@"`, process.execPath, `--max-old-space-size=${heapMb}`, script], { stdio: ["ignore", "ignore", "ignore", "ipc"], serialization: "advanced" });
+      // Through a shell only to set the CPU limit; exec then makes the shell the child itself. The soft
+      // limit sends SIGXCPU (said as such); the hard one, a few seconds on, is the kernel's SIGKILL behind it.
+      const child = spawn("/bin/sh", ["-c", `ulimit -t ${cpuSeconds + 5} && ulimit -S -t ${cpuSeconds} && exec "$0" "$@"`, process.execPath, `--max-old-space-size=${heapMb}`, script], { stdio: ["ignore", "ignore", "ignore", "ipc"], serialization: "advanced" });
       let settled = false;
       let measuring = false;
       let failures = 0;
