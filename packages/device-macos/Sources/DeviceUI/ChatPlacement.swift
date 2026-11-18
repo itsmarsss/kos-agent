@@ -54,7 +54,7 @@ public enum ChatPlacement {
 public struct ChatAside: Equatable {
   public enum Event: Equatable {
     /// A session went live; `open` the window is up, `covers` it is over what KOS works in, `typing` the owner is
-    /// typing in it.
+    /// typing in it, so it moves clear rather than going.
     case live(open: Bool, covers: Bool, typing: Bool = false)
     /// The turn waits on the owner, or they took the Mac over.
     case needsOwner
@@ -83,7 +83,12 @@ public struct ChatAside: Equatable {
   public mutating func take(_ event: Event) -> Move {
     switch event {
     case .live(let open, let covers, let typing):
-      guard open, covers, !typing, !aside else { return .stay }
+      guard open, covers, !aside else { return .stay }
+      // The owner is typing in it: it stays up, beside what KOS works in rather than over it.
+      if typing {
+        moved = true
+        return .show(clear: true)
+      }
       aside = true
       return .hide
     case .needsOwner:

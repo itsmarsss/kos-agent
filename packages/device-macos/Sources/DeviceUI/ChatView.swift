@@ -16,6 +16,11 @@ public struct ChatView: View {
   @FocusState private var typing: Bool
 
   public static let size = CGSize(width: 380, height: 560)
+  /// The room over the thread's first line, and the gap between its items.
+  static let threadTop: CGFloat = 16
+  static let threadGap: CGFloat = 10
+
+  private var hasCard: Bool { model.paired && model.beside != nil }
   /// The smallest the window may be: the box and a few lines above it.
   public static let smallest = CGSize(width: 320, height: 380)
 
@@ -31,6 +36,8 @@ public struct ChatView: View {
         AppCard(name: app, title: model.besideTitle, hidden: model.besideHidden, session: model.session)
           .padding(.horizontal, 12)
           .padding(.top, 10)
+          // The thread's own gap under it, so a line scrolled up to the card never sits flush against it.
+          .padding(.bottom, Self.threadGap)
       }
       thread
       if let error = model.error {
@@ -113,7 +120,7 @@ public struct ChatView: View {
           if model.lines.isEmpty && model.sending.isEmpty && model.notices.isEmpty {
             EmptyChat(paired: model.paired, silent: model.silent, online: model.online, ask: model.say)
               // The side panel's .empty-state sits in the middle of the thread (margin: auto), and the thread does not scroll.
-              .frame(minHeight: max(0, threadHeight - EmptyChat.threadChrome))
+              .frame(minHeight: max(0, threadHeight - EmptyChat.threadChrome + (hasCard ? Self.threadGap : 0)))
           }
           // Each item from its own values: a step told elsewhere in the turn never redraws the rest of the thread.
           ForEach(model.items) { item in
@@ -133,9 +140,17 @@ public struct ChatView: View {
           Color.clear.frame(height: 1).id("end")
         }
         .padding(.horizontal, 16)
-        .padding(.top, 16)
+        // Under the app card the card's gap is the thread's; with none, the thread's own top.
+        .padding(.top, hasCard ? Self.threadTop - Self.threadGap : Self.threadTop)
         .padding(.bottom, 8)
         .textSelection(.enabled)
+      }
+      // A line scrolled up under the card fades out over the gap rather than ending in a cut.
+      .mask {
+        VStack(spacing: 0) {
+          LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: hasCard ? Self.threadGap : 0)
+          Color.black
+        }
       }
       // Measured here, not by containerRelativeFrame, which macOS 15 resolves against the window, not the scroll view.
       .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { threadHeight = $0 }

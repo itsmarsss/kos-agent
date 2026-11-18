@@ -104,11 +104,14 @@ struct ChatAsideTests {
     #expect(aside.take(.ended) == .stay)
   }
 
-  @Test func staysWhileTheOwnerTypesInIt() {
+  @Test func movesClearWhileTheOwnerTypesInIt() {
     var aside = ChatAside()
-    #expect(aside.take(.live(open: true, covers: true, typing: true)) == .stay)
-    #expect(aside.take(.needsOwner) == .stay)
+    #expect(aside.take(.live(open: true, covers: false, typing: true)) == .stay)
     #expect(aside.take(.ended) == .stay)
+    #expect(aside.take(.live(open: true, covers: true, typing: true)) == .show(clear: true))
+    #expect(aside.take(.needsOwner) == .stay)
+    // Back where it stood once the session ends.
+    #expect(aside.take(.ended) == .restore)
   }
 
   @Test func standsClearOfAWindowKOSWorksIn() throws {
