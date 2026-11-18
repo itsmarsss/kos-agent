@@ -28,7 +28,7 @@ import {
   parseBehaviour,
 } from "./behaviour.js";
 import { BUILD_SETTINGS_KEY, orchestratorId } from "./kernel.js";
-import { parseAttachments } from "./attachments.js";
+import { FILE_MAX_BYTES, parseAttachments } from "./attachments.js";
 import cron from "node-cron";
 import type { CreateCronInput, ToolCall } from "../cron/types.js";
 import { findMentions, type MentionKind,
@@ -3373,12 +3373,62 @@ async function readRaw(stream: NodeJS.ReadableStream): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-async function readBody(stream: NodeJS.ReadableStream): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) chunks.push(chunk as Buffer);
-  if (chunks.length === 0) return undefined;
+/**
+ * The most a request carrying files may send: three of the largest file KOS
+ * takes, as base64, and room for the words. Not four: a body is parsed as one
+ * string, and V8 makes none past about 512 MB.
+ */
+export const FILES_BODY_MAX = 3 * Math.ceil(FILE_MAX_BYTES / 3) * 4 + 1024 * 1024;
+/** The most any other request may send: words, settings, an artifact's page. */
+export const BODY_MAX = 16 * 1024 * 1024;
+/** The routes that carry files: a chat's message, and an upload. */
+const FILE_ROUTES = /^\/api\/(message|orchestrator|files\/upload|projects\/[^/]+\/files)$/;
+
+class BodyTooLarge extends Error {}
+
+/** The most a route's body may be. */
+export function bodyMax(path: string): number {
+  return FILE_ROUTES.test(path) ? FILES_BODY_MAX : BODY_MAX;
+}
+
+/**
+ * Whether a request may have its body read at all: it carries what its
+ * route checks first (the dashboard token, a hook's secret, a caller's
+ * bearer), or the route is open. One that does not is answered without its
+ * body being read, so nobody without the token makes KOS hold their upload.
+ */
+export function mayReadBody(kernel: Kernel, req: ApiRequest, options: DashboardServerOptions): boolean {
+  if (req.path.startsWith(HOOKS_PREFIX)) return !!options.hookSecret && authorized(req, options.hookSecret);
+  if (req.path.startsWith(CALLER_PREFIX)) {
+    const bearer = bearerOf(req);
+    return !!bearer && kernel.callers.authenticate(bearer) !== undefined;
+  }
+  if (options.extensions?.some((e) => e.open?.includes(req.path))) return true;
+  return !options.token || authorized(req, options.token);
+}
+
+async function readBody(req: IncomingMessage, max: number): Promise<unknown> {
+  if (Number(req.headers["content-length"] ?? 0) > max) throw new BodyTooLarge();
+  // Read by hand, not with for await: leaving that loop destroys the socket, and the 413 with it.
+  const raw = await new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    const onData = (chunk: Buffer): void => {
+      total += chunk.byteLength;
+      if (total <= max) {
+        chunks.push(chunk);
+        return;
+      }
+      req.off("data", onData).off("end", onEnd).off("error", reject);
+      req.pause();
+      reject(new BodyTooLarge());
+    };
+    const onEnd = (): void => resolve(Buffer.concat(chunks));
+    req.on("data", onData).on("end", onEnd).on("error", reject);
+  });
+  if (raw.byteLength === 0) return undefined;
   try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return JSON.parse(raw.toString("utf8"));
   } catch {
     return undefined;
   }
@@ -3701,18 +3751,24 @@ export function createDashboardServer(
       }
 
       if (path.startsWith("/api")) {
-        const body = method === "GET" || method === "HEAD" ? undefined : await readBody(req);
-        const result = await handleApiRequest(
-          kernel,
-          {
-            method,
-            path,
-            body,
-            url: rawUrl,
-            headers: req.headers as Record<string, string | string[] | undefined>,
-          },
-          options,
-        );
+        const asked: ApiRequest = { method, path, url: rawUrl, headers: req.headers as Record<string, string | string[] | undefined> };
+        let body: unknown;
+        const bodied = method !== "GET" && method !== "HEAD";
+        // Unread when its caller may not send one: the route answers it as it would, from its headers.
+        const unread = bodied && !mayReadBody(kernel, asked, options);
+        if (bodied && !unread) {
+          try {
+            body = await readBody(req, bodyMax(path));
+          } catch (err) {
+            if (!(err instanceof BodyTooLarge)) throw err;
+            res.writeHead(413, { "content-type": "application/json", connection: "close", ...corsHeaders(req, options) });
+            res.end(JSON.stringify({ error: `the request is past the ${Math.round(bodyMax(path) / 1024 / 1024)} MB this route takes; a file can be up to ${FILE_MAX_BYTES / 1024 / 1024} MB` }));
+            return;
+          }
+        }
+        const result = await handleApiRequest(kernel, { ...asked, body }, options);
+        // A body left unread is not waited for: the connection closes with the answer.
+        if (unread) res.setHeader("connection", "close");
         res.writeHead(result.status, {
           "content-type": "application/json",
           ...corsHeaders(req, options),
