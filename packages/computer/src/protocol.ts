@@ -186,11 +186,15 @@ export type PanelMethod =
   | "dashboard.reply"
   | "page.read";
 
-/** One line of the panel's chat: the owner's words, KOS's, a note, or the steps a turn took. */
+/**
+ * One line of the panel's chat: the owner's words, KOS's, a note, or the
+ * steps a turn took. `at` is when a line of words was written to the chat,
+ * epoch milliseconds, absent for one kept before lines kept their time.
+ */
 export type PanelMessage =
-  | { role: "you"; text: string; files?: string[]; quote?: { text: string; from: string } }
-  | { role: "kos"; text: string }
-  | { role: "note"; text: string }
+  | { role: "you"; text: string; files?: string[]; quote?: { text: string; from: string }; at?: number }
+  | { role: "kos"; text: string; at?: number }
+  | { role: "note"; text: string; at?: number }
   | { role: "steps"; steps: { summary: string; failed?: true; frame?: number }[] };
 
 /** A device whose host may put it to sleep keeps the connection with these. */

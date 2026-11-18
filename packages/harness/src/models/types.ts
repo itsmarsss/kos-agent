@@ -134,6 +134,12 @@ export interface ModelMessage {
    * handoff's brief) is already in the words.
    */
   origin?: MessageOrigin;
+  /**
+   * When it was written to the chat, epoch milliseconds, stamped by the
+   * session store; 0 for a message kept before messages kept their time,
+   * which no reader is shown a time for. Never sent to the model, as origin.
+   */
+  at?: number;
 }
 
 /** A room on a surface that has rooms: a Discord channel, thread or DM. */

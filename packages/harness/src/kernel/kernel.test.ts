@@ -157,6 +157,21 @@ describe("Kernel", () => {
     expect(kernel.sessions.get("chat:owner").length).toBeGreaterThanOrEqual(2);
   });
 
+  it("keeps the time the owner's words were said, not the time the turn that answered them ended", async () => {
+    kernel = await boot({
+      async generate() {
+        await new Promise((done) => setTimeout(done, 40));
+        return { content: [{ type: "text", text: "There." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    });
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Times" }).id;
+    const before = Date.now();
+    await kernel.handleMessage("where is it", { sessionId: chat });
+    const [asked, answered] = kernel.sessions.get(chat);
+    expect(asked?.at).toBeGreaterThanOrEqual(before);
+    expect(answered!.at! - asked!.at!).toBeGreaterThanOrEqual(35);
+  });
+
   it("hears what the owner says while a turn runs at its next step, in that turn", async () => {
     const step: ModelResponse = { content: [{ type: "tool_use", id: "t1", name: "files.write", input: { path: "scratch/a.txt", content: "a" } }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
     const said = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });

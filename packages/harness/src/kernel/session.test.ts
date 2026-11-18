@@ -187,6 +187,56 @@ describe("SessionStore", () => {
   });
 });
 
+describe("when each message was written", () => {
+  let root: string;
+  let ws: Workspace;
+  let clock: number;
+  let sessions: SessionStore;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-session-"));
+    ws = Workspace.open(root);
+    clock = 1_000;
+    sessions = new SessionStore(ws.db, {}, () => clock);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const said = (text: string, role: "user" | "assistant" = "user"): ModelMessage => ({ role, content: [{ type: "text", text }] });
+
+  it("stamps each message as it is first written, and keeps that time after", () => {
+    sessions.record("c", [said("hi")]);
+    clock = 5_000;
+    sessions.record("c", [...sessions.get("c"), said("hello", "assistant")]);
+    clock = 9_000;
+    sessions.append("c", [said("more")]);
+    expect(sessions.get("c").map((m) => m.at)).toEqual([1_000, 5_000, 9_000]);
+  });
+
+  it("keeps a time the message already has", () => {
+    sessions.record("c", [{ ...said("hi"), at: 42 }]);
+    expect(sessions.get("c")[0]?.at).toBe(42);
+  });
+
+  it("never gives a message kept before times a later turn's time", () => {
+    ws.db.prepare(`INSERT INTO chat_sessions (id, messages_json, updated_at) VALUES (?, ?, ?)`).run("old", JSON.stringify([said("then"), said("ok", "assistant")]), 0);
+    clock = 7_000;
+    sessions.record("old", [...sessions.get("old"), said("now")]);
+    expect(sessions.get("old").map((m) => m.at)).toEqual([0, 0, 7_000]);
+  });
+
+  it("stamps a summary put in a compacted chat's place", () => {
+    sessions.record("c", [said("hi")]);
+    clock = 3_000;
+    sessions.replace("c", [said("summary")], "compacted");
+    expect(sessions.get("c")[0]?.at).toBe(3_000);
+    expect(sessions.earlier("c")[0]?.messages[0]?.at).toBe(1_000);
+  });
+});
+
 describe("saying so when it trims", () => {
   let root: string;
   let ws: Workspace;
