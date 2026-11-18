@@ -30,6 +30,8 @@ describe("a build's query", () => {
       expect(seen.options?.["strictMcpConfig"]).toBe(true);
       expect(seen.options?.["settings"]).toEqual({ disableClaudeAiConnectors: true });
       expect(seen.options?.["mcpServers"]).toBeUndefined();
+      // The build's shells get none of the session's credentials.
+      expect((seen.options?.["env"] as Record<string, string>)["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"]).toBe("1");
     } finally {
       ws.close();
       rmSync(root, { recursive: true, force: true });

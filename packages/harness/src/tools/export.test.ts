@@ -91,6 +91,15 @@ describe("export.query tool", () => {
     expect(written).toBe("note,amount\ncoffee,12.5\ngroceries,40\n");
   });
 
+  it("never writes over KOS's own files: its settings, its database or its state", async () => {
+    for (const path of ["mcp.json", "Profile.json", "daemon.json", "kos.sqlite", "locks/x.csv"]) {
+      const res = await registry.execute("export.query", { query: "SELECT note FROM books_tx", path, format: "json" });
+      expect(res.isError, path).toBe(true);
+      expect(res.content).toContain("is KOS's own");
+    }
+    expect((await registry.execute("export.query", { query: "SELECT note FROM books_tx", path: "exports/mcp.json", format: "json" })).isError).toBe(false);
+  });
+
   it("writes a pdf the owner can open", async () => {
     const res = await registry.execute("export.query", {
       query: "SELECT note, amount FROM books_tx ORDER BY amount",

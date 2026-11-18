@@ -106,6 +106,22 @@ describe("a turn on the SDK", () => {
     expect(Object.keys(options["mcpServers"] as object)).toEqual(["kos"]);
   });
 
+  it("writes no transcript to disk, in the workspace or the owner's home", async () => {
+    run.queries = [];
+    run.script = steps(1, "notify");
+    await runSdkChat({ prompt: "go", system: "s", tools: box(["notify"], () => ({ content: "ok" })), cwd: process.cwd() });
+    expect(run.queries[0]!.options["persistSession"]).toBe(false);
+  });
+
+  it("keeps Claude Code's own files outside the workspace when it signs in with a key", async () => {
+    run.queries = [];
+    run.script = steps(1, "notify");
+    await runSdkChat({ prompt: "go", system: "s", tools: box(["notify"], () => ({ content: "ok" })), cwd: "/work/space", env: { ANTHROPIC_API_KEY: "sk-test", HOME: "/Users/me" } });
+    const env = run.queries[0]!.options["env"] as Record<string, string>;
+    expect(env["HOME"]).toBe("/work/space");
+    expect(env["CLAUDE_CONFIG_DIR"]).toBe("/Users/me/.kos/claude");
+  });
+
   it("holds the turn to its step limit across every fresh query, unless given a turn's own", async () => {
     run.queries = [];
     run.script = steps(50);

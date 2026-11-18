@@ -1,6 +1,7 @@
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -12,12 +13,14 @@ import { SecretsRegistry } from "../secrets/secrets.js";
 import {
   createMcpModule,
   floorFor,
+  mcpSettings,
   mcpToolName,
   parseMcpConfig,
   readMcpConfig,
   removeMcpServer,
   renderContent,
   serversFromJson,
+  unredirectedFetch,
   setMcpServerEnabled,
   upsertMcpServers,
   type McpConfig,
@@ -295,5 +298,60 @@ describe("tools from a server", () => {
     expect(h.reports.some((r) => r.startsWith("broken:"))).toBe(true);
     expect(h.registry.defs().map((d) => d.name)).toContain("mcp.fake.add");
     await h.close();
+  });
+});
+
+describe("an MCP server's secrets", () => {
+  const secrets = new SecretsRegistry(
+    { notion: "ntn_secret_value", maps: "maps-key-value", stray: "stray-key-value" },
+    { notion: { servers: ["notion"] }, maps: { servers: ["maps", "local"], hosts: ["maps.example.com"] } },
+  );
+
+  it("are placed in env, headers and the url's query, for a server the owner bound them to", () => {
+    const set = mcpSettings("notion", { url: "https://mcp.notion.example/?key={{secret:notion}}", headers: { authorization: "Bearer {{secret:notion}}" } }, secrets);
+    expect(set).toEqual({ env: {}, headers: { authorization: "Bearer ntn_secret_value" }, url: "https://mcp.notion.example/?key=ntn_secret_value", holdsSecret: true });
+    expect(mcpSettings("notion", { command: "npx", env: { TOKEN: "{{secret:notion}}" } }, secrets).env).toEqual({ TOKEN: "ntn_secret_value" });
+    expect(mcpSettings("plain", { command: "npx" }, secrets).holdsSecret).toBe(false);
+  });
+
+  it("are refused for a server nobody bound them to, as one an agent might write in", () => {
+    expect(() => mcpSettings("evil", { command: "node", env: { K: "{{secret:stray}}" } }, secrets)).toThrow(/stray is not bound to MCP server evil.*KOS_SECRET_STRAY_MCP=evil/);
+  });
+
+  it("are refused in the command, its args and its cwd", () => {
+    for (const server of [{ command: "{{secret:notion}}" }, { command: "npx", args: ["--key", "{{secret:notion}}"] }, { command: "npx", cwd: "{{secret:notion}}" }]) {
+      expect(() => mcpSettings("notion", server, secrets)).toThrow(/takes no secret/);
+    }
+  });
+
+  it("go to a host-bound server only at that host, and never to a stdio server", () => {
+    expect(mcpSettings("maps", { url: "https://maps.example.com/mcp", headers: { k: "{{secret:maps}}" } }, secrets).headers).toEqual({ k: "maps-key-value" });
+    expect(() => mcpSettings("maps", { url: "https://elsewhere.example/mcp", headers: { k: "{{secret:maps}}" } }, secrets)).toThrow(/only to maps\.example\.com/);
+    expect(() => mcpSettings("local", { command: "npx", env: { K: "{{secret:maps}}" } }, secrets)).toThrow(/stdio server has none/);
+  });
+
+  it("never follow a redirect to another host", async () => {
+    const reachedB: string[] = [];
+    const b: Server = createServer((req, res) => {
+      reachedB.push(String(req.headers["x-api-key"]));
+      res.end("B");
+    });
+    const listen = async (server: Server): Promise<number> => {
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const address = server.address();
+      return typeof address === "object" && address ? address.port : 0;
+    };
+    const bPort = await listen(b);
+    const a: Server = createServer((_req, res) => void res.writeHead(307, { location: `http://127.0.0.1:${bPort}/mcp` }).end());
+    const aPort = await listen(a);
+    try {
+      await expect(unredirectedFetch(`http://127.0.0.1:${aPort}/mcp`, { method: "POST", headers: { "x-api-key": "placed" }, body: "{}" })).rejects.toThrow();
+      expect(reachedB).toEqual([]);
+    } finally {
+      for (const server of [a, b]) {
+        server.closeAllConnections();
+        server.close();
+      }
+    }
   });
 });

@@ -2,6 +2,7 @@ import type { ToolDef } from "../models/types.js";
 import type { HeardWords } from "../models/heard.js";
 import type { ToolImage } from "../models/types.js";
 import { classifyRisk, SAFE, type RiskAssessment, type ToolRisk } from "../risk/tiers.js";
+import type { SecretSlots } from "../secrets/inject.js";
 
 /**
  * Executes a tool call. Receives the parsed input object and returns a string
@@ -34,6 +35,8 @@ export interface ToolMeta {
    * that must not be reachable from an ordinary conversation at all.
    */
   restricted?: boolean;
+  /** Where the call's arguments may carry a `{{secret:name}}` reference; none when absent. */
+  secretSlots?: SecretSlots;
 }
 
 export interface RegisteredTool {
@@ -42,6 +45,7 @@ export interface RegisteredTool {
   risk: ToolRisk;
   tags: string[];
   restricted: boolean;
+  secretSlots?: SecretSlots;
 }
 
 export interface ToolExecution {
@@ -79,6 +83,7 @@ export class ToolRegistry {
       risk,
       tags: meta.tags ?? [],
       restricted: meta.restricted === true,
+      ...(meta.secretSlots ? { secretSlots: meta.secretSlots } : {}),
     });
   }
 
@@ -102,6 +107,11 @@ export class ToolRegistry {
   refusal(name: string, input: Record<string, unknown>): string | undefined {
     const refused = this.tools.get(name)?.risk.refuse?.(input);
     return refused || undefined;
+  }
+
+  /** Where a tool's arguments may carry a secret reference; undefined for a tool that takes none. */
+  secretSlots(name: string): SecretSlots | undefined {
+    return this.tools.get(name)?.secretSlots;
   }
 
   has(name: string): boolean {
