@@ -3,7 +3,7 @@ import { cleanup, renderHook } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { browsingNow, clearProgress, onTurnEnd, seedProgress, settleProgress, useProgress, type Live } from "./progress.js";
+import { browsingNow, clearProgress, onRenamed, onTurnEnd, seedProgress, settleProgress, useProgress, type Live } from "./progress.js";
 
 /**
  * The store is a module singleton watching the dashboard's one socket, so
@@ -197,6 +197,18 @@ describe("hearing a turn end", () => {
     stop();
     deliver({ kind: "turn-end", conversationId: "c1" });
     expect(ended).toEqual(["c1"]);
+  });
+
+  it("tells a listener a chat's new name, and leaves the running turn as it was", () => {
+    // The list and the header fetch again on this, so a name KOS gives lands within a second of the turn starting.
+    const { result } = renderHook(() => useProgress());
+    const named: [string, string][] = [];
+    const stop = onRenamed((id, title) => named.push([id, title]));
+    deliver({ kind: "turn-start", conversationId: "c1", said: "draft me a message" });
+    deliver({ kind: "renamed", conversationId: "c1", title: "Devpost support refund" });
+    expect(named).toEqual([["c1", "Devpost support refund"]]);
+    expect(result.current["c1"]?.steps).toEqual([]);
+    stop();
   });
 });
 

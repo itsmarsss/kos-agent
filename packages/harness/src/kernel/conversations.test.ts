@@ -20,6 +20,11 @@ describe("titleFromText", () => {
     expect(t.length).toBeLessThanOrEqual(61);
   });
 
+  it("never holds a key or an address, since a title goes everywhere", () => {
+    expect(titleFromText("email jane@example.com my password is hunter2 please")).toBe("email my please");
+    expect(titleFromText("sk-ant-api03-abcdefghijklmnop")).toBe("New conversation");
+  });
+
   it("falls back for empty input", () => {
     expect(titleFromText("   ")).toBe("New conversation");
   });

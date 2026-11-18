@@ -1,7 +1,7 @@
 import type { CdpEvent } from "./cdp.js";
 import * as inpage from "./inpage.js";
 import { parseKeys, type KeyPress } from "./keys.js";
-import { controlsOf, indexOf, INDEX_MAX, Refs, treeOf, type AxNode, type Control, type PageIndex } from "./snapshot.js";
+import { controlsOf, HIDDEN_VALUE, holdsValue, indexOf, INDEX_MAX, Refs, secretField, treeOf, type AxNode, type Control, type PageIndex } from "./snapshot.js";
 import { WAIT_FOR_MS, type Step } from "./steps.js";
 
 /**
@@ -793,7 +793,8 @@ export class Page {
     const set = await this.call<string>(field, inpage.setValue, [{ value: text }]).catch((err: unknown) => {
       throw new Error(`${label} would not take the text: ${err instanceof Error ? err.message : String(err)}`);
     });
-    if (set !== text) throw new Error(`${label} would not take the text; it holds ${JSON.stringify(set.slice(0, 60))}`);
+    // Never what it holds: the text may be a password, and an error goes to the model and the transcript.
+    if (set !== text) throw new Error(`${label} would not take the text as typed (it may format or limit what goes in); look to see what it holds now`);
   }
 
   private async choose(node: number, label: string, values: string[]): Promise<string[]> {
@@ -1192,9 +1193,26 @@ export class Page {
       host.childIds = [...(host.childIds ?? []), root.nodeId];
       nodes.push(...got.inner);
     }
+    await this.hideSecrets(nodes);
     if (!scope) return { nodes, unread };
     const within = await this.scopeNodes(scope);
     return { nodes: nodes.filter((n) => n.backendDOMNodeId !== undefined && within.has(n.backendDOMNodeId)), unread };
+  }
+
+  /**
+   * Each field holding a secret has its value said as hidden, by its markup:
+   * the tree says what a field holds but not that it is a card number. A
+   * field whose markup cannot be read is hidden too.
+   */
+  private async hideSecrets(nodes: AxNode[]): Promise<void> {
+    const valued = nodes.filter((n) => n.backendDOMNodeId !== undefined && holdsValue(n));
+    if (valued.length === 0) return;
+    const described = await this.many(valued.map((n) => ({ method: "DOM.describeNode", params: { backendNodeId: n.backendDOMNodeId } })), true);
+    for (const [i, d] of described.entries()) {
+      const flat = d instanceof Error ? undefined : (d["node"] as { attributes?: string[] } | undefined)?.attributes;
+      const attributes = Object.fromEntries((flat ?? []).flatMap((v, j, all) => (j % 2 === 0 ? [[v.toLowerCase(), all[j + 1] ?? ""]] : [])));
+      if (!flat || secretField(attributes)) valued[i]!.value = { value: HIDDEN_VALUE };
+    }
   }
 
   /** Every node inside what a selector names, through shadow roots and frames. */

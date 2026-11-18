@@ -193,3 +193,29 @@ describe("the claims list", () => {
     expect([...document.querySelectorAll(".know-from")].map((e) => e.textContent)).toEqual(["from job #10", "from you"]);
   });
 });
+
+describe("a turn's memory, opened from its chat", () => {
+  afterEach(() => {
+    cleanup();
+    window.location.hash = "";
+  });
+
+  it("shows only the claims the address names, until that is taken off", () => {
+    window.location.hash = "#/memory?tab=claims&ids=1,3";
+    const facts = [1, 2, 3].map((id) => fact({ id, key: `k${id}`, value: `value ${id}` }));
+    render(<Claims facts={facts} tags={[]} onChanged={() => undefined} />);
+    expect(screen.getByText("value 1")).toBeTruthy();
+    expect(screen.queryByText("value 2")).toBeNull();
+    expect(screen.getByText("value 3")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show every claim" }));
+    expect(screen.getByText("value 2")).toBeTruthy();
+    expect(window.location.hash).toBe("#/memory");
+  });
+
+  it("ignores ids that are not whole numbers it can hold", () => {
+    window.location.hash = "#/memory?tab=claims&ids=,99999999999999999999,";
+    render(<Claims facts={[fact({ id: 1, key: "k1", value: "value 1" })]} tags={[]} onChanged={() => undefined} />);
+    expect(screen.getByText("value 1")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Show every claim" })).toBeNull();
+  });
+});

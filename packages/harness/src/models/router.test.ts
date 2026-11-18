@@ -83,6 +83,15 @@ describe("ModelRouter", () => {
       /secret not found/,
     );
   });
+
+  it("says whether a task can be asked: its provider there, and its key", () => {
+    const anthropic = new MockProvider("anthropic", "anthropic");
+    const openai = new MockProvider("openai", "openai");
+    const keyless = new ModelRouter([anthropic, openai], routing, new SecretsRegistry());
+    expect([keyless.ready("reasoning"), keyless.ready("cheap")]).toEqual([false, false]);
+    const one = new ModelRouter([anthropic], routing, new SecretsRegistry({ anthropic: "sk-a", openai: "sk-o" }));
+    expect([one.ready("reasoning"), one.ready("cheap")]).toEqual([true, false]);
+  });
 });
 
 describe("routingForSecrets", () => {
