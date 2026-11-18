@@ -19,6 +19,7 @@ import { PDF_TEXT_MAX, isPdf, pdfText } from "../files/pdftext.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { SAFE, type ToolRisk } from "../risk/tiers.js";
+import { foldName } from "../kernel/files.js";
 import { foldedPath, type Workspace } from "../store/workspace.js";
 import { reachOf } from "./sql.js";
 import { artifactFileRefusal, artifactFolderRefusal } from "./systems.js";
@@ -123,9 +124,9 @@ const rmRisk: ToolRisk = {
   escalate: (input) => (outsideScratch(optStr(input, "path") ?? "") ? "outside the scratch folder" : false),
 };
 
-/** A path under KOS's own state, .kos/, in any case: `.KOS` is the same folder on a case-insensitive disk. */
+/** A path under KOS's own state, .kos/, however it is spelled: `.KOS` and `.ko\u017f` are the same folder on a case-insensitive disk. */
 export function isKosState(ws: Workspace, path: string): boolean {
-  return foldedPath(ws.root, path).split("/")[0] === ".kos";
+  return foldName(foldedPath(ws.root, path).split("/")[0] ?? "") === ".kos" || foldName(path.replace(/\\/g, "/").split("/").find((s) => s !== "" && s !== ".") ?? "") === ".kos";
 }
 
 /**

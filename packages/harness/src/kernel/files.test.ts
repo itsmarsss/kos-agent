@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Workspace } from "../store/workspace.js";
 import { writeZip } from "../files/zip.js";
 import { trashEntry } from "./filetrash.js";
-import { copyEntry, dispositionOf, isImage, listDirectory, makeDir, readFile, readForText, readForView, readImage, readBytes, readPdf, renameEntry, uniqueName } from "./files.js";
+import { copyEntry, dispositionOf, foldName, isImage, isReserved, listDirectory, makeDir, readFile, readForText, readForView, readImage, readBytes, readPdf, renameEntry, uniqueName } from "./files.js";
 
 describe("workspace file browsing", () => {
   let root: string;
@@ -222,6 +222,21 @@ describe("managing files by hand", () => {
     expect(raw.contentType).toBe("application/octet-stream");
     expect(raw.bytes.toString("utf8")).toBe('{"a":1}');
     expect(() => readBytes(ws, "projects/budget")).toThrow(/not a file/);
+  });
+
+  it("refuses the workspace's own files however they are spelled, as APFS folds them", () => {
+    writeFileSync(join(ws.root, "kos.sqlite-wal"), "");
+    writeFileSync(join(ws.root, "profile.json"), "{}");
+    mkdirSync(join(ws.root, "locks"), { recursive: true });
+    mkdirSync(join(ws.root, ".kos"), { recursive: true });
+    for (const path of [".ko\u017f/x", "kos.\u017fqlite-wal", "pro\ufb01le.json", "lock\u017f", "KOS.SQLITE", "Pro\uFB01le.JSON", ".\uFF4Bos/x"]) {
+      expect(foldName(path.split("/")[0]!), path).toMatch(/^(\.kos|kos\.sqlite(-wal)?|profile\.json|locks)$/);
+      expect(isReserved(ws.root, path), path).toBe(true);
+      expect(() => trashEntry(ws, path), path).toThrow(/workspace's own/);
+      expect(() => renameEntry(ws, "projects/budget/spec.json", path), path).toThrow(/workspace's own/);
+      expect(() => makeDir(ws, `${path}/sub`), path).toThrow(/workspace's own/);
+    }
+    expect(isReserved(ws.root, "projects/kos.sqlite")).toBe(false);
   });
 
   it("names a file in its Content-Disposition, plainly and in full", () => {

@@ -6,7 +6,7 @@ import { isPdf, pdfPages } from "../files/pdftext.js";
 import { isZip, readZip } from "../files/zip.js";
 import type { Workspace } from "../store/workspace.js";
 import { scan } from "../tools/scan.js";
-import { RESERVED, type DirEntry } from "./files.js";
+import { isReservedName, type DirEntry } from "./files.js";
 
 /**
  * What the file manager asks of the workspace beyond a folder's listing:
@@ -44,7 +44,7 @@ function walk(ws: Workspace, rel: string, visit: (e: DirEntry) => boolean): bool
       continue;
     }
     for (const d of names) {
-      if (d.name.startsWith(".") || (!d.isFile() && !d.isDirectory()) || (dir === "." && RESERVED.has(d.name.toLowerCase()))) continue;
+      if (d.name.startsWith(".") || (!d.isFile() && !d.isDirectory()) || (dir === "." && isReservedName(d.name))) continue;
       if (++seen > WALK_MAX) return true;
       const path = dir === "." ? d.name : `${dir}/${d.name}`;
       let st;
@@ -97,7 +97,7 @@ export function searchContents(ws: Workspace, dir: unknown, query: string): { en
   const q = query.trim();
   if (!q) return { entries: [], truncated: false };
   const literal = q.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
-  const result = scan(ws.root, abs, literal, { flags: "i", maxMatches: 400, deadline: Date.now() + CONTENTS_MS, skip: (p) => !p.includes("/") && RESERVED.has(p.toLowerCase()) });
+  const result = scan(ws.root, abs, literal, { flags: "i", maxMatches: 400, deadline: Date.now() + CONTENTS_MS, skip: (p) => !p.includes("/") && isReservedName(p) });
   const byPath = new Map<string, ContentHit>();
   for (const hit of result.hits) {
     if (byPath.has(hit.path)) continue;

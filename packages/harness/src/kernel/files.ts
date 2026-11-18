@@ -3,7 +3,7 @@ import { basename, dirname, extname, join, relative as pathRelative, sep } from 
 
 import { isOffice, officeNote, officeText } from "../files/office.js";
 import { isPdf, pdfText } from "../files/pdftext.js";
-import type { Workspace } from "../store/workspace.js";
+import { foldedPath, type Workspace } from "../store/workspace.js";
 
 /**
  * Browsing the workspace for the dashboard.
@@ -246,8 +246,34 @@ export function readImage(ws: Workspace, requestPath: unknown): RawFile {
  * things the workspace cannot do without.
  */
 
-/** Top-level names the file manager leaves alone: the workspace's own state. */
+/** Top-level names the file manager leaves alone: the workspace's own state. Compare with isReserved, never by hand. */
 export const RESERVED = new Set([".kos", "kos.sqlite", "kos.sqlite-shm", "kos.sqlite-wal", "profile.json", "mcp.json", "daemon.json", "locks"]);
+
+/**
+ * A name folded as APFS compares names: compatibility-normalized (NFKC, so
+ * "\ufb01" is "fi"), then case-folded the long way round (upper, then lower,
+ * so "\u017f" is "s"). On a case-insensitive disk "Kos.\u017fqlite-wal" opens
+ * kos.sqlite-wal; folded, it is refused as that.
+ */
+export function foldName(name: string): string {
+  return name.normalize("NFKC").toUpperCase().toLowerCase();
+}
+
+/** A name is one of the workspace's own (RESERVED), however it is spelled. */
+export function isReservedName(name: string): boolean {
+  return RESERVED.has(foldName(name));
+}
+
+/**
+ * A workspace-relative path lies in the workspace's own files: its first
+ * segment folded as the disk folds it, and also as the path lands on disk
+ * (foldedPath reads the real names), so neither a spelling nor a link to one
+ * gets past. The one test for RESERVED; #557 and #561 use it too.
+ */
+export function isReserved(root: string, rel: string): boolean {
+  const first = (p: string): string => p.replace(/\\/g, "/").split("/").find((s) => s !== "" && s !== ".") ?? "";
+  return isReservedName(first(rel)) || isReservedName(first(foldedPath(root, rel)));
+}
 
 /** A path the manager may touch: inside the jail, not the root, not the workspace's own files. */
 export function managedPath(ws: Workspace, requestPath: unknown): { rel: string; abs: string } {
@@ -256,8 +282,7 @@ export function managedPath(ws: Workspace, requestPath: unknown): { rel: string;
   const abs = ws.resolve(relative(requestPath));
   const rel = pathRelative(ws.root, abs).split(sep).join("/");
   if (rel === "") throw new Error("the workspace itself cannot be moved or removed");
-  const top = rel.split("/")[0]!;
-  if (RESERVED.has(top.toLowerCase())) throw new Error(`${top} is the workspace's own; leave it be`);
+  if (isReserved(ws.root, rel)) throw new Error(`${rel.split("/")[0]} is the workspace's own; leave it be`);
   return { rel, abs };
 }
 
