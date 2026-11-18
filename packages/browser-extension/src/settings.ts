@@ -4,7 +4,7 @@
  * The same choices KOS for Mac offers on a Mac, where a browser has them:
  * the longest session, how long the ask waits, the idle limit, what of the
  * owner's hand pauses KOS, whether it connects when Chrome opens, the time
- * left on the icon, the sites KOS never sees, per KOS whether it asks
+ * left on the icon, whether KOS's bar shows on a page, the sites KOS never sees, per KOS whether it asks
  * first, and the theme. Nothing KOS sends reaches them; only the
  * extension's own pages change them, and what is stored is read through
  * here, so a bad value is the default rather than a surprise.
@@ -47,6 +47,8 @@ export interface ExtensionSettings {
   connectOnStart: boolean;
   /** The time a session has left, on the KOS icon. */
   timeOnIcon: boolean;
+  /** KOS's bar on a page it works in; off, the page keeps its glowing border, and Stop is on the KOS icon and in the side panel. */
+  pageBar: boolean;
   /** Sites KOS never opens, never acts on and never sees: hosts, each with its subdomains. */
   hiddenSites: string[];
   /** Per KOS, by this Chrome's device id there: false lets that KOS's approval queue decide. */
@@ -70,6 +72,7 @@ export const DEFAULTS: ExtensionSettings = {
   takeover: "clicksAndKeys",
   connectOnStart: true,
   timeOnIcon: true,
+  pageBar: true,
   hiddenSites: DEFAULT_HIDDEN,
   askFirst: {},
   theme: "dashboard",
@@ -91,6 +94,7 @@ export function readSettings(raw: unknown): ExtensionSettings {
     takeover: r["takeover"] === "anyInput" ? "anyInput" : "clicksAndKeys",
     connectOnStart: typeof r["connectOnStart"] === "boolean" ? r["connectOnStart"] : DEFAULTS.connectOnStart,
     timeOnIcon: typeof r["timeOnIcon"] === "boolean" ? r["timeOnIcon"] : DEFAULTS.timeOnIcon,
+    pageBar: typeof r["pageBar"] === "boolean" ? r["pageBar"] : DEFAULTS.pageBar,
     hiddenSites: [...new Set(sites)],
     askFirst,
     theme: THEME_CHOICES.find((t) => t === r["theme"]) ?? DEFAULTS.theme,

@@ -36,6 +36,8 @@ export interface OverlayState {
   face?: { fill: string; ink: string; eyes: string; body: string };
   /** The palette the bar is drawn in: the extension's theme, "system" being the page's own appearance. */
   theme?: "light" | "dark" | "system";
+  /** False when the owner put the bar away in Settings: the border and KOS's cursor still show it works, and the owner's hand still takes over. */
+  bar?: boolean;
 }
 
 export function installOverlay(): void {
@@ -91,6 +93,7 @@ export function installOverlay(): void {
     host.dataset["paused"] = state.paused ? "1" : "";
     host.dataset["folded"] = state.folded ? "1" : "";
     host.dataset["theme"] = state.theme ?? "system";
+    host.dataset["bar"] = state.bar === false ? "off" : "";
     title.textContent = state.paused ? "Paused, you have control" : "KOS is using this tab";
     text.textContent = state.task || "working";
     left.textContent = minutes();
@@ -141,6 +144,7 @@ export function installOverlay(): void {
         border: 1px solid color-mix(in srgb, var(--tone) 55%, transparent);
         box-shadow: 0 0 12px color-mix(in srgb, var(--tone) 35%, transparent), 0 8px 24px var(--cast); }
       .bar.dragging { cursor: grabbing; }
+      :host([data-bar="off"]) .bar { display: none; }
       :host([data-folded="1"]) .bar { gap: 0; padding: 0 11px; opacity: 0.85; }
       :host([data-folded="1"]) .bar:hover { opacity: 1; }
       :host([data-folded="1"]) .words, :host([data-folded="1"]) button { display: none; }

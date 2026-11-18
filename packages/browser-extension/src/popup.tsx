@@ -601,6 +601,13 @@ function SettingsPage({ state, act, back }: { state: PopupState; act: Act; back:
           <Toggle title="Connect when Chrome opens" detail={s.connectOnStart ? "Each KOS can reach this Chrome as soon as it opens." : "Off: each waits for Connect, so KOS cannot reach this Chrome until you say."} on={s.connectOnStart} set={(on) => set({ connectOnStart: on })} />
           <hr className="rule" />
           <Toggle title="Time left on the KOS icon" detail={s.timeOnIcon ? "The icon counts down while a session runs." : "Off: the icon says ON while a session runs."} on={s.timeOnIcon} set={(on) => set({ timeOnIcon: on })} />
+          <hr className="rule" />
+          <Toggle
+            title="Show KOS's bar on the page while it works"
+            detail={s.pageBar ? "Take over and Stop on the page, beside what KOS is doing." : "Off: the page keeps its glowing border; Stop is on the KOS icon and in the side panel, and your own click still takes over."}
+            on={s.pageBar}
+            set={(on) => set({ pageBar: on })}
+          />
         </div>
       </Section>
       <Section label="Diagnostics">
