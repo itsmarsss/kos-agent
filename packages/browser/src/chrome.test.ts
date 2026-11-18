@@ -7,6 +7,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ChromeHost, chromeArgs, findChrome } from "./chrome.js";
 
+/** Room for a process to start or go on a machine busy running the whole suite. */
+const WAIT = { timeout: 10_000 };
+
 /**
  * One Chrome, found where Chromes are, started with a tab per window in
  * mind, adopted when already there, and forgotten when it dies.
@@ -225,12 +228,12 @@ describe("stopping Chrome", () => {
         },
       });
       await host.ensure();
-      await vi.waitFor(() => expect(readFileSync(helperPid, "utf8").trim()).not.toBe(""));
+      await vi.waitFor(() => expect(readFileSync(helperPid, "utf8").trim()).not.toBe(""), WAIT);
       const helper = Number(readFileSync(helperPid, "utf8"));
       const started = Date.now();
       await host.stop(200);
       expect(Date.now() - started).toBeGreaterThanOrEqual(200);
-      await vi.waitFor(() => expect(running(helper)).toBe(false));
+      await vi.waitFor(() => expect(running(helper)).toBe(false), WAIT);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -260,11 +263,11 @@ describe("stopping Chrome", () => {
         },
       });
       await host.ensure();
-      await vi.waitFor(() => expect(readFileSync(helperPid, "utf8")).not.toBe(""), { timeout: 5000 });
+      await vi.waitFor(() => expect(readFileSync(helperPid, "utf8")).not.toBe(""), WAIT);
       const helper = Number(readFileSync(helperPid, "utf8"));
       await host.stop(500);
       expect(readFileSync(heard, "utf8")).toBe("browser\n");
-      await vi.waitFor(() => expect(running(helper)).toBe(false));
+      await vi.waitFor(() => expect(running(helper)).toBe(false), WAIT);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

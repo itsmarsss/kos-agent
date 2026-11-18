@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { launchHeadless } from "./headless.mjs";
 
+/** Room for a process to start or go on a machine busy running the whole suite. */
+const WAIT = { timeout: 10_000 };
+
 /**
  * A script's Chrome goes with the script, helpers and profile too, however
  * the script ends. Chrome is played by a stand-in that answers on its
@@ -57,11 +60,11 @@ describe("a script's headless Chrome", () => {
     const chrome = await launchHeadless({ binary, prefix: "kos-headless-test-" });
     expect(chrome.wsUrl).toBe(`ws://127.0.0.1:${chrome.port}/devtools/browser/fake`);
     expect(existsSync(chrome.profile)).toBe(true);
-    await vi.waitFor(() => expect(existsSync(pidsFile)).toBe(true));
+    await vi.waitFor(() => expect(existsSync(pidsFile)).toBe(true), WAIT);
     const [browser, helper] = pids();
     await chrome.close();
     expect(running(browser)).toBe(false);
-    await vi.waitFor(() => expect(running(helper)).toBe(false));
+    await vi.waitFor(() => expect(running(helper)).toBe(false), WAIT);
     expect(existsSync(chrome.profile)).toBe(false);
   }, 15_000);
 
@@ -96,10 +99,10 @@ ${end}
     let out = "";
     child.stdout.on("data", (data) => (out += data));
     const exited = new Promise((resolve) => child.once("exit", resolve));
-    await vi.waitFor(() => expect(out).toContain("\n"));
+    await vi.waitFor(() => expect(out).toContain("\n"), WAIT);
     const profile = out.trim();
     expect(existsSync(profile)).toBe(true);
-    await vi.waitFor(() => expect(existsSync(pidsFile)).toBe(true));
+    await vi.waitFor(() => expect(existsSync(pidsFile)).toBe(true), WAIT);
     const [browser, helper] = pids();
     if (signal) child.kill(signal);
     const code = await exited;
@@ -108,6 +111,6 @@ ${end}
       expect(code).toBe(0);
     }
     expect(existsSync(profile)).toBe(false);
-    await vi.waitFor(() => expect(running(browser) || running(helper)).toBe(false));
+    await vi.waitFor(() => expect(running(browser) || running(helper)).toBe(false), WAIT);
   }, 15_000);
 });

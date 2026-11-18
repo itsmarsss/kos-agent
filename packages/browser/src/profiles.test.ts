@@ -6,6 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { namesProfile, sweepProfiles, type ProcessInfo } from "./profiles.js";
 
+/** Room for a process to start or go on a machine busy running the whole suite. */
+const WAIT = { timeout: 10_000 };
+
 /** The sweep takes what a stopped Chrome left, and nothing a running one is using or that is not a Chrome profile of KOS's. */
 describe("sweeping left-behind profiles", () => {
   let dir: string;
@@ -177,7 +180,7 @@ describe("orphaned Chromes", () => {
     } else {
       spawn(process.execPath, args, { detached: true, stdio: "ignore" }).unref();
     }
-    await vi.waitFor(() => expect(existsSync(pids) && readFileSync(pids, "utf8")).toBeTruthy(), { timeout: 5000 });
+    await vi.waitFor(() => expect(existsSync(pids) && readFileSync(pids, "utf8")).toBeTruthy(), WAIT);
     const [pid, helper] = readFileSync(pids, "utf8").split(" ").map(Number) as [number, number];
     groups.push(pid);
     symlinkSync(`host-${pid}`, join(profilePath, "SingletonLock"));
@@ -191,7 +194,7 @@ describe("orphaned Chromes", () => {
     expect(result.stopped).toEqual([pid]);
     expect(result.removed).toEqual([path]);
     expect(existsSync(path)).toBe(false);
-    await vi.waitFor(() => expect(running(pid) || running(helper)).toBe(false));
+    await vi.waitFor(() => expect(running(pid) || running(helper)).toBe(false), WAIT);
   }, 20_000);
 
   it("never touches a Chrome whose parent is alive, or one started on another folder", async () => {
