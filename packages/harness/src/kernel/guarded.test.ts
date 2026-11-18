@@ -216,21 +216,62 @@ describe("GuardedTools", () => {
     expect(caller.getStore()).toBeUndefined();
   });
 
-  it("runs a safe tool, injecting secrets and auditing", async () => {
-    let seen: string | undefined;
+  it("injects a secret only into a slot its tool declared, and audits the reference", async () => {
+    let seen: unknown;
     registry.register(
-      { name: "echo", description: "e", inputSchema: { type: "object" } },
+      { name: "send", description: "s", inputSchema: { type: "object" } },
       (input) => {
-        seen = String(input.key);
+        seen = input.headers;
         return "ok";
       },
+      undefined,
+      { secretSlots: { paths: ["headers.*"] } },
     );
-    const res = await guarded().execute("echo", { key: "{{secret:openai}}" });
+    const res = await guarded().execute("send", { headers: { auth: "Bearer {{secret:openai}}" } });
     expect(res.isError).toBe(false);
-    expect(seen).toBe("sk-real"); // injected before execution
+    expect(seen).toEqual({ auth: "Bearer sk-real" }); // injected before execution
     const [entry] = audit.recent();
-    expect(entry?.tool).toBe("echo");
+    expect(entry?.tool).toBe("send");
     expect(entry?.args).toContain("{{secret:openai}}"); // audit stays redacted
+  });
+
+  it("refuses a secret given to a tool that declares no slot, before it runs or asks", async () => {
+    const ran: unknown[] = [];
+    registry.register({ name: "notify", description: "n", inputSchema: { type: "object" } }, (input) => {
+      ran.push(input);
+      return "sent";
+    });
+    registry.register({ name: "danger", description: "d", inputSchema: { type: "object" } }, (input) => {
+      ran.push(input);
+      return "done";
+    }, { floor: "risky" });
+    const said = await guarded().execute("notify", { text: "your key: {{secret:openai}}" });
+    expect(said).toEqual({ content: expect.stringMatching(/notify takes no secret in text/), isError: true });
+    expect(said.content).not.toContain("sk-real");
+    await guarded({ waitForApproval: false }).execute("danger", { x: "{{secret:openai}}" });
+    expect(ran).toEqual([]);
+    expect(approvals.pending()).toEqual([]);
+  });
+
+  it("scrubs a secret from what a call answers, before the model, the audit, onExecuted or the shelf see it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    registry.register({ name: "leaky", description: "l", inputSchema: { type: "object" } }, () => `echo: sk-real and ${Buffer.from("sk-real-ish:sk-real").toString("base64")}`);
+    secrets.set("long", "sk-real-ish:sk-real");
+    const executed: string[] = [];
+    const shelved: string[] = [];
+    const tools = guarded({
+      onExecuted: (_tool, result) => executed.push(result.content),
+      shelve: async (_tool, _input, content) => {
+        shelved.push(content);
+        return content;
+      },
+    });
+    const res = await tools.execute("leaky", {});
+    for (const seen of [res.content, executed[0]!, shelved[0]!, audit.recent()[0]!.result]) {
+      expect(seen).not.toContain("sk-real");
+      expect(seen).toContain("[secret long]");
+    }
+    warn.mockRestore();
   });
 
   it("refuses a call its rule refuses, before the owner is asked", async () => {

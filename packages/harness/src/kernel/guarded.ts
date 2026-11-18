@@ -6,7 +6,7 @@ import { defang, type HeardWords } from "../models/heard.js";
 import type { AuditLog } from "../ops/audit.js";
 import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
-import { injectSecrets } from "../secrets/inject.js";
+import { placeSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import { attendance, caller, guested, onSite, origin, ownership, scheduled, turn, turnStop, type GuestOrigin, type TurnOrigin } from "./caller.js";
 
@@ -205,8 +205,11 @@ export function parseQueuedApproval(result: string): string | null {
  * The guarded tool path the kernel hands to the agent loop. For every call it:
  *  1. classifies risk in the harness (never the model),
  *  2. queues risky calls for approval and returns without executing,
- *  3. injects `{{secret:name}}` references at call time (model never sees keys),
- *  4. executes safe calls and records a redacted audit entry.
+ *  3. injects `{{secret:name}}` references at call time, only into the slots
+ *     a tool declared (model never sees keys), refusing them anywhere else,
+ *  4. executes safe calls and records a redacted audit entry,
+ *  5. scrubs every secret value from what a call answers, before the model,
+ *     the audit, the shelf or a reader sees it.
  * The model is offered scoped tools when tags are active.
  */
 export class GuardedTools implements ToolBox {
@@ -358,10 +361,14 @@ export class GuardedTools implements ToolBox {
     const within = <T>(work: () => Promise<T>): Promise<T> =>
       scheduled.run(job, () => guested.run(guest, () => attendance.run(attended, () => ownership.run(owner, () => placed(() => (conversationId ? caller.run(conversationId, () => inTurn(work)) : inTurn(work)))))));
     const run = async (n: string, i: Record<string, unknown>, site?: string): Promise<ToolExecution> => {
+      // Placed at the last moment, so a key changed while the owner was asked is the one sent.
+      const placed = placeSecrets(n, i, registry.secretSlots(n), secrets);
+      if ("refused" in placed) return { content: placed.refused, isError: true };
       started.ran = true;
       const ended = this.deps.running?.(n);
       try {
-        return await within(() => (site ? onSite.run(site, () => registry.execute(n, i)) : registry.execute(n, i)));
+        const done = await within(() => (site ? onSite.run(site, () => registry.execute(n, placed.input)) : registry.execute(n, placed.input)));
+        return { ...done, content: secrets.scrub(done.content) };
       } finally {
         ended?.();
       }
@@ -390,6 +397,10 @@ export class GuardedTools implements ToolBox {
     // Judged, asked about and run as stamped: what the owner says yes to is
     // what runs, and the call can check it still holds.
     const input = registry.stamp(name, called);
+
+    // A secret where its tool declared no slot for one, or bound for another host: refused before anyone is asked.
+    const misplaced = placeSecrets(name, input, registry.secretSlots(name), secrets);
+    if ("refused" in misplaced) return { content: misplaced.refused, isError: true };
 
     const assessment = registry.classify(name, input);
 
@@ -435,7 +446,7 @@ export class GuardedTools implements ToolBox {
       if (allowed) {
         const unready = await readyNow();
         if (unready) return unready;
-        const allowedResult = await run(name, injectSecrets(input, secrets), bound);
+        const allowedResult = await run(name, input, bound);
         audit.record({
           tool: name,
           args: input,
@@ -526,8 +537,7 @@ export class GuardedTools implements ToolBox {
 
       const unready = await readyNow();
       if (unready) return unready;
-      const approvedInput = injectSecrets(input, secrets);
-      const approvedRun = await run(name, approvedInput);
+      const approvedRun = await run(name, input);
       audit.record({
         tool: name,
         args: input,
@@ -540,9 +550,8 @@ export class GuardedTools implements ToolBox {
       return approvedResult(approvedRun);
     }
 
-    // Safe: inject secrets just before execution, then run and audit.
-    const injected = injectSecrets(input, secrets);
-    const result = await run(name, injected);
+    // Safe: run (secrets placed as it starts) and audit.
+    const result = await run(name, input);
     audit.record({
       tool: name,
       args: input, // pre-injection; AuditLog also redacts defensively

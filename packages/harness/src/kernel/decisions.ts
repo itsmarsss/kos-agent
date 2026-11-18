@@ -2,7 +2,7 @@ import { summarizeAction } from "@kos/shared";
 
 import type { PendingAction } from "../ops/approvals.js";
 import { SHARED_LANE } from "../ops/queue.js";
-import { injectSecrets } from "../secrets/inject.js";
+import { placeSecrets, type SecretSlots } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import { attendance, guested, ownership } from "./caller.js";
 import { primarySessionId } from "./session.js";
@@ -56,7 +56,10 @@ export interface DecisionsDeps {
   };
   conversations: { get: (id: string) => { projectSlug: string | null } | undefined };
   audit: { record: (entry: { tool: string; args: Record<string, unknown>; result: string; isError: boolean; riskTier: "risky"; userId: string }) => unknown };
-  registry: { execute: (tool: string, input: Record<string, unknown>) => Promise<{ content: string; isError: boolean }> };
+  registry: {
+    execute: (tool: string, input: Record<string, unknown>) => Promise<{ content: string; isError: boolean }>;
+    secretSlots: (tool: string) => SecretSlots | undefined;
+  };
   secrets: SecretsRegistry;
   queue: { enqueue: <T>(work: () => Promise<T>, lane: string) => Promise<T> };
   /** Run work with a conversation as the current one, so tools attribute to it. */
@@ -136,14 +139,20 @@ export class Decisions {
     }
 
     const result = await d.queue.enqueue(async () => {
+      // Secrets only in the slots the tool declared, as GuardedTools places them.
+      const placed = placeSecrets(action.tool, stored, d.registry.secretSlots(action.tool), d.secrets);
       // Run as the turn that asked would have: the owner's reach only if it was the owner's own turn, a guest's room's if a guest's.
-      const r = await guested.run(action.guest ?? undefined, () =>
-        attendance.run(action.attended, () =>
-          ownership.run(action.owner && action.attended, () =>
-            d.inConversation(action.conversationId, () => d.registry.execute(action.tool, injectSecrets(stored, d.secrets))),
-          ),
-        ),
-      );
+      const ran = "refused" in placed
+        ? { content: placed.refused, isError: true }
+        : await guested.run(action.guest ?? undefined, () =>
+            attendance.run(action.attended, () =>
+              ownership.run(action.owner && action.attended, () =>
+                d.inConversation(action.conversationId, () => d.registry.execute(action.tool, placed.input)),
+              ),
+            ),
+          );
+      // What it answered is scrubbed before the audit and the resumed turn read it.
+      const r = { ...ran, content: d.secrets.scrub(ran.content) };
       d.audit.record({ tool: action.tool, args: stored, result: r.content, isError: r.isError, riskTier: "risky", userId: by });
       if (!r.isError) d.onToolRan(action.tool);
       return r;

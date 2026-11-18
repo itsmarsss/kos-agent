@@ -1,9 +1,7 @@
 import { officeKindOf, officeNote, officeText } from "../files/office.js";
 import { pdfText } from "../files/pdftext.js";
-import { injectSecrets, injectSecretsInString } from "../secrets/inject.js";
-import type { SecretsRegistry } from "../secrets/secrets.js";
+import type { SecretSlots } from "../secrets/inject.js";
 import type { KosModule } from "../modules/loader.js";
-import { requireServices } from "../modules/loader.js";
 
 export type FetchImpl = typeof fetch;
 
@@ -57,28 +55,32 @@ function hostOf(url: string): string | undefined {
   }
 }
 
+/**
+ * Where a secret may go: a header, or the URL's query string, never its host
+ * or path, so the host the call is judged and bound by is the one it reaches.
+ * Not the body: a write already asks, and a body is free text the model
+ * shapes, the easiest place to send a key somewhere it was not meant for.
+ */
+export const HTTP_SECRET_SLOTS: SecretSlots = {
+  paths: ["headers.*", "url"],
+  urls: ["url"],
+  host: (input) => (typeof input["url"] === "string" ? hostOf(input["url"]) : undefined),
+};
+
+/** The call as it reaches here has its secrets in place: GuardedTools expands them in the slots above. */
 async function doFetch(
   input: Record<string, unknown>,
   opts: Required<Omit<HttpModuleOptions, "allowedHosts">>,
-  secrets: SecretsRegistry,
 ): Promise<string> {
-  const rawUrl = input.url;
-  if (typeof rawUrl !== "string") throw new Error("http.fetch requires a url");
-  // Inject secrets after reasoning, just before the request leaves.
-  const url = injectSecretsInString(rawUrl, secrets);
+  const url = input.url;
+  if (typeof url !== "string") throw new Error("http.fetch requires a url");
   // The list decides what asks, not what runs: a host not on it reached
   // this handler only because the owner said yes to that call.
-  if (!hostOf(url)) throw new Error(`not a url: ${rawUrl}`);
+  if (!hostOf(url)) throw new Error("not a url");
 
-  const headers = injectSecrets(
-    (input.headers as Record<string, string>) ?? {},
-    secrets,
-  );
+  const headers = (input.headers as Record<string, string>) ?? {};
   const method = typeof input.method === "string" ? input.method : "GET";
-  const body =
-    typeof input.body === "string"
-      ? injectSecretsInString(input.body, secrets)
-      : undefined;
+  const body = typeof input.body === "string" ? input.body : undefined;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
@@ -105,8 +107,9 @@ async function doFetch(
 
 /**
  * The `http.fetch` tool module: fetch a URL, with a timeout and a size cap.
- * Secrets are referenced by name in args ({{secret:name}}) and injected by
- * the harness at call time, so the model never sees the real value. The
+ * Secrets are referenced by name ({{secret:name}}) in a header or the URL's
+ * query string and injected by the harness at call time, so the model never
+ * sees the real value. The
  * owner's host list says which reads run unasked; any other host asks, and
  * a yes the owner remembers is kept per host (see ops/permissions scopeOf).
  */
@@ -132,13 +135,12 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
       riskTier: "risky",
     },
     activate(ctx) {
-      const { secrets } = requireServices(ctx);
       ctx.registerTool(
         {
           name: "http.fetch",
           description:
             "Fetch a URL. A read from a host on the owner's list runs at once; any other host, and any write, asks the owner first, and a yes they remember stands for that host. " +
-            "Reference secrets by name as {{secret:name}} in url/headers/body; the harness injects real values.",
+            "Reference a secret by name as {{secret:name}} in a header or in the URL's query string, nowhere else; the harness injects the real value.",
           inputSchema: {
             type: "object",
             properties: {
@@ -150,7 +152,7 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
             required: ["url"],
           },
         },
-        (input) => doFetch(input, resolved, secrets),
+        (input) => doFetch(input, resolved),
         {
           /*
            * The list is what runs unasked; everything else asks.
@@ -174,6 +176,7 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
             return allowed().has(host) ? false : `${host} is not on the allowed hosts`;
           },
         },
+        { secretSlots: HTTP_SECRET_SLOTS },
       );
     },
   };

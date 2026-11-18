@@ -19,6 +19,16 @@ describe("SecretsRegistry", () => {
     expect(reg.get("stripe")).toBe("sk-stripe");
   });
 
+  it("binds a KOS_SECRET_* to hosts by its _HOSTS twin, which is no secret itself", () => {
+    const reg = SecretsRegistry.fromEnv({
+      KOS_SECRET_STRIPE: "sk-stripe",
+      KOS_SECRET_STRIPE_HOSTS: "API.stripe.com, *.stripe.net",
+    } as NodeJS.ProcessEnv);
+    expect(reg.hostsOf("stripe")).toEqual(["api.stripe.com", "*.stripe.net"]);
+    expect(reg.has("stripe_hosts")).toBe(false);
+    expect(reg.hostsOf("openai")).toBeUndefined();
+  });
+
   it("require throws for a missing secret", () => {
     const reg = new SecretsRegistry();
     expect(() => reg.require("anthropic")).toThrow(/secret not found/);

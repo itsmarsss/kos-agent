@@ -9,7 +9,7 @@ import type { ToolDef } from "../models/types.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { resolvePath } from "../jail/resolvePath.js";
 import { childEnv } from "../sandbox/env.js";
-import { injectSecrets } from "../secrets/inject.js";
+import { placeSecrets, type SecretSlots } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import type { RiskTier } from "../risk/tiers.js";
 
@@ -28,8 +28,10 @@ import type { RiskTier } from "../risk/tiers.js";
  * server does not get a vote.
  *
  * Secrets: `{{secret:NAME}}` in a server's env or headers is substituted at
- * connect time and never written to a log. The config file itself holds only
- * the reference.
+ * connect time and never written to a log; anywhere else in its config it is
+ * refused, as is a secret bound to hosts the server's url is not on. The
+ * config file itself holds only the reference. A call to one of its tools is
+ * an ordinary call, which declares no slot, so it carries no secret.
  *
  * Isolation: a server that fails to start or list its tools is reported and
  * skipped. It is not a reason for the rest of the toolkit, or the host, to
@@ -225,6 +227,20 @@ export function renderContent(content: unknown): string {
     .join("\n");
 }
 
+/** A server's settings take a secret in its env and its headers; one bound to hosts only where its url is one of them. */
+const MCP_SECRET_SLOTS: SecretSlots = {
+  paths: ["env.*", "headers.*"],
+  host: (settings) => (typeof settings["url"] === "string" ? hostOfUrl(settings["url"]) : undefined),
+};
+
+function hostOfUrl(url: string): string | undefined {
+  try {
+    return new URL(url).hostname.toLowerCase() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface McpModuleOptions {
   workspaceRoot: string;
   secrets: SecretsRegistry;
@@ -270,9 +286,17 @@ export function createMcpModule(options: McpModuleOptions): McpModule {
   const report = options.report ?? ((m: string) => console.error(`[mcp] ${m}`));
   const connected = new Map<string, Connected>();
 
+  /** A server's env and headers with their secrets in place, or a throw saying why not. */
+  const settingsOf = (name: string, server: McpServerConfig): { env: Record<string, string>; headers: Record<string, string> } => {
+    const placed = placeSecrets(`MCP server ${name}`, { env: server.env ?? {}, headers: server.headers ?? {}, ...(server.url ? { url: server.url } : {}) }, MCP_SECRET_SLOTS, options.secrets);
+    if ("refused" in placed) throw new Error(placed.refused);
+    return placed.input as { env: Record<string, string>; headers: Record<string, string> };
+  };
+
   const transportFor = (name: string, server: McpServerConfig): Transport => {
     const supplied = options.transportFor?.(name, server);
     if (supplied) return supplied;
+    const { env, headers } = settingsOf(name, server);
     if (server.command) {
       return new StdioClientTransport({
         command: server.command,
@@ -280,12 +304,11 @@ export function createMcpModule(options: McpModuleOptions): McpModule {
         // The same hygiene as any child KOS spawns: an allow-list of host
         // variables, HOME inside the workspace, and only this server's own
         // settings on top, secrets already substituted.
-        env: childEnv({ home: options.workspaceRoot }, injectSecrets(server.env ?? {}, options.secrets)),
+        env: childEnv({ home: options.workspaceRoot }, env),
         cwd: server.cwd ?? options.workspaceRoot,
         stderr: "ignore",
       });
     }
-    const headers = injectSecrets(server.headers ?? {}, options.secrets);
     return new StreamableHTTPClientTransport(new URL(server.url!), {
       requestInit: Object.keys(headers).length ? { headers } : {},
     });
