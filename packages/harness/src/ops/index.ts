@@ -25,3 +25,4 @@ export {
   type Snapshot,
 } from "./backup.js";
 export { withRetry, type RetryPolicy } from "./policy.js";
+export { applyTidy, describeTidy, planTidy, type TidyMove, type TidyPlan, type TidyResult } from "./tidy.js";

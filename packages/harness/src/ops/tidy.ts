@@ -1,0 +1,197 @@
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+
+import { LAYOUT_FOLDERS } from "@kos/shared";
+
+import { MAINTENANCE } from "../kernel/caretaker.js";
+import { RESERVED, uniqueName } from "../kernel/files.js";
+import type { Workspace } from "../store/workspace.js";
+
+/**
+ * Putting a project's files back in its folder.
+ *
+ * Before a turn had a home folder, a project's chat that wrote
+ * "bu252/notes.md" wrote it at the workspace root. This finds such files
+ * and proposes where each belongs; nothing moves until the owner says so,
+ * and nothing is overwritten. A file belongs to a project when it sits in a
+ * root folder named for that project (school/ for the school project), or
+ * when the audit log shows it was written while only that project's turns
+ * were running. Anything else is left where it is.
+ */
+
+/** Top-level names that are KOS's own layout, never a project's misplaced work. */
+const KEPT = new Set([...LAYOUT_FOLDERS, ...RESERVED, "uploads", "downloads", "artifacts", "modules", "library"]);
+
+/** Tools whose path argument is a file the call wrote, by the argument that names it. */
+const WRITES: Record<string, string> = {
+  "files.write": "path",
+  "files.edit": "path",
+  "files.cp": "to",
+  "files.mv": "to",
+  "export.query": "path",
+};
+
+export interface TidyMove {
+  /** Workspace-relative, where it is now. */
+  from: string;
+  /** Workspace-relative, where it would go: under projects/<project>/. */
+  to: string;
+  project: string;
+  /** "named": in a root folder named for the project; "written": the audit log puts its writing in the project's turns. */
+  why: "named" | "written";
+}
+
+export interface TidyPlan {
+  moves: TidyMove[];
+  /** Files under the root's other folders that no project can be told for: listed, never moved. */
+  unknown: string[];
+}
+
+export interface TidyResult {
+  /** Where each file went; a clash was given another name. */
+  moved: { from: string; to: string }[];
+  /** Left where they were, and why. */
+  skipped: { from: string; why: string }[];
+}
+
+/** Every file under a workspace folder, workspace-relative; links are not followed or listed. */
+function filesUnder(ws: Workspace, rel: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(join(ws.root, rel))) {
+    const path = `${rel}/${name}`;
+    const stat = lstatSync(join(ws.root, path));
+    if (stat.isDirectory()) out.push(...filesUnder(ws, path));
+    else if (stat.isFile()) out.push(path);
+  }
+  return out;
+}
+
+/** The root's own folders that could hold a project's work: not KOS's layout, not hidden. */
+function rootFolders(ws: Workspace): string[] {
+  return readdirSync(ws.root).filter((name) => !name.startsWith(".") && !KEPT.has(name.toLowerCase()) && lstatSync(join(ws.root, name)).isDirectory());
+}
+
+/** What a file tool's result says it wrote ("wrote projects/school/x.md"), since a turn's home placed the path. */
+const SAID = /^(?:wrote|edited|copied to|moved to) (.+)$/;
+
+/** The workspace path an audited write landed on: as its result names it, else as its arguments wrote it. */
+function writtenPath(row: { tool: string; args: string; result: string }): string | undefined {
+  const said = SAID.exec(row.result)?.[1];
+  if (said) return said;
+  try {
+    const path = (JSON.parse(row.args) as Record<string, unknown>)[WRITES[row.tool]!];
+    return typeof path === "string" ? path : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Which project each written path's turns belonged to, from the audit log
+ * and the runs that were going at the time. A write is a project's only when
+ * every chat or job running then was that project's; one at the root, or two
+ * projects at once, leaves it unattributed. The latest write of a path wins.
+ */
+function writers(ws: Workspace, projects: Set<string>): Map<string, string> {
+  const rows = ws.db
+    .prepare(`SELECT tool, args, result, created_at AS at FROM audit_log WHERE is_error = 0 AND tool IN (${Object.keys(WRITES).map(() => "?").join(", ")}) ORDER BY id`)
+    .all(...Object.keys(WRITES)) as { tool: string; args: string; result: string; at: number }[];
+  const running = ws.db.prepare(
+    `SELECT CASE r.kind WHEN 'chat' THEN c.project_slug ELSE j.project_slug END AS project
+       FROM runs_log r
+       LEFT JOIN conversations c ON r.kind = 'chat' AND c.id = r.ref
+       LEFT JOIN crons j ON r.kind = 'cron' AND CAST(j.id AS TEXT) = r.ref
+      WHERE r.started_at <= ? AND (r.finished_at IS NULL OR r.finished_at >= ?)`,
+  );
+  const out = new Map<string, string>();
+  for (const row of rows) {
+    const path = writtenPath(row);
+    if (path === undefined) continue;
+    const owners = new Set((running.all(row.at, row.at) as { project: string | null }[]).map((r) => r.project ?? ""));
+    const [only] = owners;
+    const key = path.replace(/\\/g, "/").replace(/^\.?\/+/, "");
+    if (owners.size === 1 && only && projects.has(only) && only !== MAINTENANCE.slug) out.set(key, only);
+    else out.delete(key);
+  }
+  return out;
+}
+
+/** Where a root file goes in a project: "school/x" from the school project is projects/school/x, never projects/school/school/x. */
+function destination(path: string, project: string): string {
+  const [top, ...rest] = path.split("/");
+  return `projects/${project}/${top?.toLowerCase() === project.toLowerCase() ? rest.join("/") : path}`;
+}
+
+/** What tidying would move, without moving anything. */
+export function planTidy(ws: Workspace): TidyPlan {
+  const slugs = (ws.db.prepare("SELECT slug FROM manifest").all() as { slug: string }[]).map((r) => r.slug);
+  const projects = new Set(slugs);
+  const named = new Map(slugs.map((slug) => [slug.toLowerCase(), slug]));
+  const written = writers(ws, projects);
+  const moves: TidyMove[] = [];
+  const unknown: string[] = [];
+  for (const folder of rootFolders(ws)) {
+    const owner = named.get(folder.toLowerCase());
+    for (const from of filesUnder(ws, folder)) {
+      const project = written.get(from) ?? owner;
+      if (!project) unknown.push(from);
+      else moves.push({ from, to: destination(from, project), project, why: written.has(from) ? "written" : "named" });
+    }
+  }
+  return { moves, unknown };
+}
+
+/** Remove the folders a move left empty, from `dir` up to the root's own folder. */
+function pruneEmpty(ws: Workspace, dir: string): void {
+  for (let at = dir; at !== "." && at !== ""; at = dirname(at)) {
+    const abs = ws.resolve(at);
+    if (!existsSync(abs) || readdirSync(abs).length > 0) return;
+    rmdirSync(abs);
+  }
+}
+
+/**
+ * Carry out a plan the owner agreed to. Each move is checked again as it
+ * happens: a file gone since the plan is skipped, the same file already at
+ * its place is left for the owner, and a different one there makes this one
+ * take a free name beside it. Folders merge; nothing is overwritten or deleted.
+ */
+export function applyTidy(ws: Workspace, plan: TidyPlan): TidyResult {
+  const result: TidyResult = { moved: [], skipped: [] };
+  for (const move of plan.moves) {
+    const from = ws.resolve(move.from);
+    if (!existsSync(from)) {
+      result.skipped.push({ from: move.from, why: "no longer there" });
+      continue;
+    }
+    let to = move.to;
+    const target = ws.resolve(to);
+    if (existsSync(target)) {
+      if (lstatSync(target).isFile() && readFileSync(target).equals(readFileSync(from))) {
+        result.skipped.push({ from: move.from, why: `the same file is already at ${to}` });
+        continue;
+      }
+      to = `${dirname(to)}/${uniqueName(ws, dirname(to), basename(to))}`;
+    }
+    mkdirSync(dirname(ws.resolve(to)), { recursive: true });
+    renameSync(from, ws.resolve(to));
+    result.moved.push({ from: move.from, to });
+    pruneEmpty(ws, dirname(move.from));
+  }
+  return result;
+}
+
+/** A plan in lines the owner reads before saying yes, grouped by project. */
+export function describeTidy(plan: TidyPlan): string {
+  if (plan.moves.length === 0 && plan.unknown.length === 0) return "Nothing to tidy: no project's files are loose at the workspace root.";
+  const lines: string[] = [];
+  for (const project of [...new Set(plan.moves.map((m) => m.project))].sort()) {
+    lines.push(`Into projects/${project}/:`);
+    for (const m of plan.moves.filter((x) => x.project === project)) lines.push(`  ${m.from} -> ${m.to}${m.why === "named" ? "" : " (written by its chats)"}`);
+  }
+  if (plan.unknown.length) {
+    lines.push("Left where they are (no project could be told for them):");
+    for (const path of plan.unknown) lines.push(`  ${path}`);
+  }
+  return lines.join("\n");
+}

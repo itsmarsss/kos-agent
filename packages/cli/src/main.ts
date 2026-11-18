@@ -14,11 +14,14 @@ import {
   SecretsRegistry,
   SettingsStore,
   Workspace,
+  applyTidy,
   createDefaultRouter,
+  describeTidy,
   installModule,
   installSkill,
   originOf,
   parseSkillSettings,
+  planTidy,
   primarySessionId,
   readMcpConfig,
   readSkills,
@@ -436,6 +439,42 @@ async function cmdModule(rootDir: string, rest: string[], flags: Record<string, 
   }
 }
 
+/**
+ * kos files tidy [--yes]
+ *
+ * Puts a project's files that were written loose at the workspace root back
+ * in its folder. It shows what it would move and moves only on the owner's
+ * yes (asked here, or --yes); nothing is overwritten.
+ */
+async function cmdFiles(rootDir: string, rest: string[], flags: Record<string, string | boolean>): Promise<void> {
+  if (rest[0] !== "tidy") {
+    console.error("usage: kos files tidy [--yes]");
+    process.exitCode = 1;
+    return;
+  }
+  const ws = Workspace.open(rootDir);
+  try {
+    const plan = planTidy(ws);
+    console.log(describeTidy(plan));
+    if (plan.moves.length === 0) return;
+    let yes = flags.yes === true;
+    if (!yes && process.stdin.isTTY) {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      yes = /^y(es)?$/i.test((await rl.question(`Move ${plan.moves.length} file${plan.moves.length === 1 ? "" : "s"}? (y/N) `)).trim());
+      rl.close();
+    }
+    if (!yes) {
+      console.log(process.stdin.isTTY ? "Nothing moved." : "Nothing moved; run with --yes to move them.");
+      return;
+    }
+    const done = applyTidy(ws, plan);
+    for (const m of done.moved) console.log(`moved ${m.from} -> ${m.to}`);
+    for (const s of done.skipped) console.log(`left ${s.from}: ${s.why}`);
+  } finally {
+    ws.close();
+  }
+}
+
 /** `kos skill ...`: the same four verbs as a module, for a skill. */
 async function cmdSkill(rootDir: string, rest: string[], flags: Record<string, string | boolean>): Promise<void> {
   const [sub, arg] = rest;
@@ -684,6 +723,11 @@ async function main(): Promise<void> {
 
   if (command === "skill") {
     await cmdSkill(rootDir, rest, flags);
+    return;
+  }
+
+  if (command === "files") {
+    await cmdFiles(rootDir, rest, flags);
     return;
   }
 
