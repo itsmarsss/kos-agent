@@ -3,7 +3,7 @@ import { cleanup, renderHook } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { clearProgress, onTurnEnd, seedProgress, settleProgress, useProgress } from "./progress.js";
+import { browsingNow, clearProgress, onTurnEnd, seedProgress, settleProgress, useProgress, type Live } from "./progress.js";
 
 /**
  * The store is a module singleton watching the dashboard's one socket, so
@@ -76,9 +76,11 @@ describe("progress handover", () => {
     deliver({ kind: "tool-start", conversationId: "c1", tool: "chrome.start", summary: "Start in Chrome" });
     deliver({ kind: "tool-end", conversationId: "c1", tool: "chrome.start", isError: false });
     deliver({ kind: "heard", conversationId: "c1", said: "skip the ebooks", from: "dashboard" });
-    deliver({ kind: "tool-start", conversationId: "c1", tool: "chrome.act", summary: "Search" });
+    deliver({ kind: "tool-start", conversationId: "c1", tool: "browser.visit", summary: "Search", yours: true });
     const steps = result.current.c1?.steps ?? [];
-    expect(steps.map((s) => (s.kind === "said" ? `you: ${s.text}` : s.kind === "tool" ? s.tool : s.kind))).toEqual(["chrome.start", "you: skip the ebooks", "chrome.act"]);
+    expect(steps.map((s) => (s.kind === "said" ? `you: ${s.text}` : s.kind === "tool" ? s.tool : s.kind))).toEqual(["chrome.start", "you: skip the ebooks", "browser.visit"]);
+    // Where the step works rides with it, so KOS's browser window stays shut for one in the owner's Chrome.
+    expect(steps[2]).toMatchObject({ kind: "tool", yours: true });
     expect(steps[1]).toEqual({ kind: "said", text: "skip the ebooks", from: "dashboard" });
   });
 
@@ -182,5 +184,20 @@ describe("hearing a turn end", () => {
     stop();
     deliver({ kind: "turn-end", conversationId: "c1" });
     expect(ended).toEqual(["c1"]);
+  });
+});
+
+describe("who is browsing in KOS's own browser", () => {
+  const turn = (steps: Live["steps"]): Live => ({ steps, text: "", since: 0 });
+  const step = (tool: string, done: boolean, yours?: true) => ({ kind: "tool" as const, tool, summary: tool, done, isError: false, ...(yours ? { yours } : {}) });
+
+  it("names a turn whose latest browser step ran in KOS's browser", () => {
+    expect(browsingNow({ c1: turn([step("browser.visit", false)]) })).toEqual({ id: "c1", doing: "browser.visit" });
+  });
+
+  it("leaves out a turn working in the owner's Chrome, even after earlier steps in KOS's", () => {
+    expect(browsingNow({ c1: turn([step("chrome.start", true), step("browser.visit", false, true)]) })).toBeNull();
+    expect(browsingNow({ c1: turn([step("browser.visit", true), step("chrome.start", true), step("browser.act", true, true)]) })).toBeNull();
+    expect(browsingNow({ c1: turn([step("browser.act", true, true)]), c2: turn([step("browser.look", true)]) })).toEqual({ id: "c2" });
   });
 });

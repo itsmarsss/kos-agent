@@ -22,6 +22,7 @@ export type ProgressEvent =
       tool: string;
       summary: string;
       input?: Record<string, unknown>;
+      yours?: true;
     }
   | {
       kind: "tool-end";
@@ -58,6 +59,8 @@ export type LiveStep =
       result?: string;
       /** What the step saw, at /api/frames/:id, once it is kept. */
       frameId?: number;
+      /** A browser step in the owner's own Chrome, not KOS's. */
+      yours?: true;
     }
   /**
    * What the owner said while the turn ran, where the turn took it in: after
@@ -122,6 +125,7 @@ function reduce(live: Live, event: ProgressEvent): Live {
         done: false,
         isError: false,
         ...(event.input ? { input: event.input } : {}),
+        ...(event.yours ? { yours: true as const } : {}),
       });
       return { ...live, steps };
 
@@ -177,6 +181,25 @@ function reduce(live: Live, event: ProgressEvent): Live {
     default:
       return live;
   }
+}
+
+/**
+ * Who is browsing in KOS's own browser right now, and what they are doing, if
+ * anyone is: a turn whose latest browser step ran there. A step in the
+ * owner's Chrome is not: the browser window shows KOS's browser, which that
+ * step never touched, and opening the window starts KOS's Chrome.
+ */
+export function browsingNow(map: ProgressMap): { id: string; doing?: string } | null {
+  for (const [id, turn] of Object.entries(map)) {
+    if (!turn || turn.ended) continue;
+    for (let i = turn.steps.length - 1; i >= 0; i--) {
+      const step = turn.steps[i]!;
+      if (step.kind !== "tool" || !step.tool.startsWith("browser.")) continue;
+      if (step.yours) break;
+      return step.done ? { id } : { id, doing: step.summary };
+    }
+  }
+  return null;
 }
 
 /**
