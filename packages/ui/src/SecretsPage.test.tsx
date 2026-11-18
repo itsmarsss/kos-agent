@@ -25,8 +25,8 @@ type Route = (method: string, body: unknown) => unknown;
 let routes: Record<string, Route>;
 let calls: { method: string; path: string; body: unknown }[];
 
-function serve(state: VaultStatus["state"], extra: Record<string, Route> = {}): void {
-  const status: VaultStatus = { state, slots: ["keyfile"], scrubbed: 3 };
+function serve(state: VaultStatus["state"], extra: Record<string, Route> = {}, more: Partial<VaultStatus> = {}): void {
+  const status: VaultStatus = { state, slots: ["keyfile"], scrubbed: 3, ...more };
   routes = {
     "GET /api/secrets/status": () => status,
     // A server that wrongly sent a value along: the page must still not draw it.
@@ -44,7 +44,11 @@ function serve(state: VaultStatus["state"], extra: Record<string, Route> = {}): 
       calls.push({ method, path, body });
       const route = routes[`${method} ${path}`];
       if (!route) return new Response(JSON.stringify({ error: "no route" }), { status: 404 });
-      return new Response(JSON.stringify(route(method, body)), { status: 200 });
+      try {
+        return new Response(JSON.stringify(route(method, body)), { status: 200 });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: "refused" }), { status: Number((err as Error).message) || 400 });
+      }
     }),
   );
 }
@@ -70,13 +74,54 @@ describe("the Secrets page", () => {
   });
 
   it("asks for the passphrase when locked, and clears it once sent", async () => {
-    serve("locked");
+    serve("locked", {}, { slots: ["passphrase"] });
     render(<SecretsPage />);
     const pass = (await screen.findByLabelText(/^Passphrase/)) as HTMLInputElement;
     fireEvent.change(pass, { target: { value: "correct horse" } });
     fireEvent.click(screen.getByText("Unlock"));
     await waitFor(() => expect(calls.find((c) => c.path === "/api/secrets/unlock")?.body).toEqual({ passphrase: "correct horse" }));
     expect(pass.value).toBe("");
+  });
+
+  it("says why a vault is not ready, and that exact masking waits for the unlock", async () => {
+    serve("locked", {}, { slots: ["keyfile"], problem: "The key file is readable by others." });
+    render(<SecretsPage />);
+    expect(await screen.findByText("The key file is readable by others.")).toBeTruthy();
+    expect(screen.getByText(/not masked word for word/)).toBeTruthy();
+    expect(screen.queryByText("Unlock")).toBeNull();
+  });
+
+  it("adds a passphrase", async () => {
+    serve("ready", { "POST /api/secrets/passphrase": () => ({ state: "ready", slots: ["passphrase"], scrubbed: 3 }) });
+    render(<SecretsPage />);
+    fireEvent.click(await screen.findByText("Add passphrase"));
+    const next = screen.getByLabelText(/^Passphrase/) as HTMLInputElement;
+    fireEvent.change(next, { target: { value: "long and secret" } });
+    fireEvent.click(screen.getByText("Set passphrase"));
+    await waitFor(() => expect(calls.find((c) => c.path === "/api/secrets/passphrase")?.body).toEqual({ passphrase: "long and secret" }));
+    expect(next.value).toBe("");
+    expect(await screen.findByText(/Passphrase set/)).toBeTruthy();
+  });
+
+  it("removes a passphrase with the current one", async () => {
+    serve("ready", { "POST /api/secrets/passphrase": () => ({ state: "ready", slots: ["keyfile"], scrubbed: 3 }) }, { slots: ["passphrase"] });
+    render(<SecretsPage />);
+    fireEvent.click(await screen.findByText("Change passphrase"));
+    fireEvent.change(screen.getByLabelText(/^Current passphrase/), { target: { value: "old one" } });
+    fireEvent.click(screen.getByText("Remove passphrase"));
+    await waitFor(() => expect(calls.find((c) => c.path === "/api/secrets/passphrase")?.body).toEqual({ current: "old one" }));
+  });
+
+  it("says when the try budget is spent", async () => {
+    serve("locked", {}, { slots: ["passphrase"] });
+    render(<SecretsPage />);
+    const pass = await screen.findByLabelText(/^Passphrase/);
+    routes["POST /api/secrets/unlock"] = () => {
+      throw new Error("429");
+    };
+    fireEvent.change(pass, { target: { value: "guess" } });
+    fireEvent.click(screen.getByText("Unlock"));
+    expect(await screen.findByText(/Too many tries/)).toBeTruthy();
   });
 
   it("lists each secret by label, kind, hint, where and when, with the leak counter", async () => {
@@ -148,16 +193,17 @@ describe("the Secrets page", () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
-  it("wipes only once wipe is typed", async () => {
-    serve("ready", { "POST /api/secrets/wipe": () => ({ state: "absent", slots: [], scrubbed: 0 }) });
+  it("wipes only once wipe is typed, with the passphrase when there is one", async () => {
+    serve("ready", { "POST /api/secrets/wipe": () => ({ state: "absent", slots: [], scrubbed: 0 }) }, { slots: ["passphrase"] });
     render(<SecretsPage />);
     fireEvent.click(await screen.findByText("Wipe vault"));
     const go = screen.getByText("Wipe everything") as HTMLButtonElement;
     expect(go.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Type wipe to confirm"), { target: { value: "wipe" } });
+    fireEvent.change(screen.getByLabelText(/^Passphrase/), { target: { value: "long and secret" } });
     expect(go.disabled).toBe(false);
     fireEvent.click(go);
-    await waitFor(() => expect(calls.find((c) => c.path === "/api/secrets/wipe")?.body).toEqual({ confirm: "wipe" }));
+    await waitFor(() => expect(calls.find((c) => c.path === "/api/secrets/wipe")?.body).toEqual({ confirm: "wipe", passphrase: "long and secret" }));
   });
 
   it("reveals after the label is typed, for 30 seconds, then clears it", async () => {

@@ -641,4 +641,4 @@ textarea.secret-input--masked { -webkit-text-security: disc; }
 .origin-items .tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .origin-add { display: flex; gap: 0.4rem; }
 .origin-add .kos-input { flex: 1; min-width: 0; }
-.origin-add .btn { height: 2.25rem; padding-block: 0; }
+.origin-add .btn { height: var(--control-h, 2.25rem); padding-block: 0; }

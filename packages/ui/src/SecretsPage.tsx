@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
 
+import type { SecretSummary, VaultStatus } from "@kos/shared";
 import { Card, Empty, NavIcon, Pill, SecretField, Tag, takeSecretValues } from "@kos/kit";
 
 import { PageHead } from "./PageHead.js";
 import { agoWords } from "./schedulewords.js";
 import { SecretSheet, type SecretSheetMode } from "./SecretSheet.js";
-import type { SecretSummary, VaultStatus } from "@kos/shared";
-
 import { KINDS, refusal, secretsApi, whereWords } from "./secrets.js";
 
 /**
@@ -15,7 +14,8 @@ import { KINDS, refusal, secretsApi, whereWords } from "./secrets.js";
  * The vault first (set it up, unlock it), then the list, a row a secret
  * by its label, kind, hint, where it may be used and when it was last;
  * a row opens its sheet. Values go in and never come back out, except by
- * a reveal with a step-up.
+ * a reveal with a step-up. While the vault is locked the list holds only
+ * the env secrets, read-only.
  */
 export function SecretsPage({ conversations = [] }: { conversations?: readonly { id: string; title: string }[] }): ReactElement {
   const [status, setStatus] = useState<VaultStatus | null>(null);
@@ -27,7 +27,7 @@ export function SecretsPage({ conversations = [] }: { conversations?: readonly {
     try {
       const s = await secretsApi.status();
       setStatus(s);
-      setSecrets(s.state === "ready" ? await secretsApi.list() : null);
+      setSecrets(await secretsApi.list());
       setError(null);
     } catch (err) {
       setError(refusal(err));
@@ -36,6 +36,10 @@ export function SecretsPage({ conversations = [] }: { conversations?: readonly {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  const changed = (s: VaultStatus): void => {
+    setStatus(s);
+    void refresh();
+  };
 
   const close = (): void => setSheet(null);
   const saved = (): void => {
@@ -48,7 +52,7 @@ export function SecretsPage({ conversations = [] }: { conversations?: readonly {
     <div className="secrets">
       <PageHead
         title="Secrets"
-        {...(secrets ? { count: secrets.length } : {})}
+        {...(secrets && ready ? { count: secrets.length } : {})}
         subtitle="Passwords, cards and keys KOS fills in for you without ever seeing them."
         {...(ready
           ? {
@@ -65,17 +69,15 @@ export function SecretsPage({ conversations = [] }: { conversations?: readonly {
           {error}
         </p>
       )}
-      {status?.state === "absent" && <InitCard onDone={setStatus} after={refresh} />}
-      {status?.state === "locked" && <UnlockCard onDone={setStatus} after={refresh} />}
-      {ready && secrets && (
-        <>
-          <SecretList secrets={secrets} onOpen={(secret) => setSheet({ kind: "edit", secret })} onAdd={() => setSheet({ kind: "add" })} />
-          <VaultCard status={status} onChanged={(s) => {
-            setStatus(s);
-            void refresh();
-          }} />
-        </>
+      {status?.problem && (
+        <p className="secret-warn" role="alert">
+          {status.problem}
+        </p>
       )}
+      {status?.state === "absent" && <InitCard onDone={changed} />}
+      {status?.state === "locked" && <UnlockCard status={status} onDone={changed} />}
+      {secrets && (ready || secrets.length > 0) && <SecretList secrets={secrets} onOpen={(secret) => setSheet({ kind: "edit", secret })} onAdd={() => setSheet({ kind: "add" })} />}
+      {ready && <VaultCard status={status} onChanged={changed} />}
       <SecretSheet
         open={sheet !== null}
         mode={sheet ?? { kind: "add" }}
@@ -129,7 +131,7 @@ function SecretList({ secrets, onOpen, onAdd }: { secrets: SecretSummary[]; onOp
   );
 }
 
-function InitCard({ onDone, after }: { onDone: (s: VaultStatus) => void; after: () => Promise<void> }): ReactElement {
+function InitCard({ onDone }: { onDone: (s: VaultStatus) => void }): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const submit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
@@ -138,7 +140,6 @@ function InitCard({ onDone, after }: { onDone: (s: VaultStatus) => void; after: 
     setBusy(true);
     try {
       onDone(await secretsApi.init(passphrase));
-      await after();
     } catch (err) {
       setError(refusal(err));
     } finally {
@@ -148,7 +149,9 @@ function InitCard({ onDone, after }: { onDone: (s: VaultStatus) => void; after: 
   return (
     <Card title="Set up the vault" className="secret-gate">
       <form className="secret-gate-form" onSubmit={(e) => void submit(e)} autoComplete="off">
-        <p className="hint">Secrets are kept encrypted on this computer, outside the workspace. A key file opens the vault when KOS starts; a passphrase, if you set one, also keeps it locked after each start until you type it. Leave it blank to rely on the key file alone.</p>
+        <p className="hint">
+          Secrets are kept encrypted on this computer, outside the workspace. Without a passphrase, a key file beside the vault opens it when KOS starts. With one, there is no key file: the vault stays locked after each start until you type it, and a forgotten passphrase loses every secret.
+        </p>
         <div className="secret-gate-row">
           <SecretField label="Passphrase (optional)" name="passphrase" />
           <button type="submit" className="btn btn--primary" disabled={busy}>
@@ -161,9 +164,10 @@ function InitCard({ onDone, after }: { onDone: (s: VaultStatus) => void; after: 
   );
 }
 
-function UnlockCard({ onDone, after }: { onDone: (s: VaultStatus) => void; after: () => Promise<void> }): ReactElement {
+function UnlockCard({ status, onDone }: { status: VaultStatus; onDone: (s: VaultStatus) => void }): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const waits = status.slots.includes("passphrase") && !status.problem;
   const submit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
     const { passphrase } = takeSecretValues(e.currentTarget);
@@ -175,7 +179,6 @@ function UnlockCard({ onDone, after }: { onDone: (s: VaultStatus) => void; after
     try {
       onDone(await secretsApi.unlock(passphrase));
       setError(null);
-      await after();
     } catch (err) {
       setError(refusal(err));
     } finally {
@@ -185,40 +188,70 @@ function UnlockCard({ onDone, after }: { onDone: (s: VaultStatus) => void; after
   return (
     <Card title="Vault" pill={<Pill tone="warn">Locked</Pill>} className="secret-gate">
       <form className="secret-gate-form" onSubmit={(e) => void submit(e)} autoComplete="off">
-        <p className="hint">The vault has a passphrase, so it stays locked after KOS starts. Until it is unlocked, KOS cannot fill anything from it.</p>
-        <div className="secret-gate-row">
-          <SecretField label="Passphrase" name="passphrase" autoFocus />
-          <button type="submit" className="btn btn--primary" disabled={busy}>
-            Unlock
-          </button>
-        </div>
+        <p className="hint">
+          {waits ? "The vault has a passphrase, so it stays locked after KOS starts. " : ""}
+          Until it is unlocked, KOS cannot fill anything from it, and its values are not masked word for word in what KOS writes; only their shapes (a card number, a key) are.
+        </p>
+        {waits && (
+          <div className="secret-gate-row">
+            <SecretField label="Passphrase" name="passphrase" autoFocus />
+            <button type="submit" className="btn btn--primary" disabled={busy}>
+              Unlock
+            </button>
+          </div>
+        )}
         {error && <p className="field-error" role="alert">{error}</p>}
       </form>
     </Card>
   );
 }
 
-/** The vault itself: how it opens, what was masked since boot, rotating its key and wiping it. */
+/** The vault itself: how it opens, what was masked since boot, its passphrase, rotating its key and wiping it. */
 function VaultCard({ status, onChanged }: { status: VaultStatus; onChanged: (s: VaultStatus) => void }): ReactElement {
-  const [wiping, setWiping] = useState(false);
+  const hasPassphrase = status.slots.includes("passphrase");
+  const [open, setOpen] = useState<"passphrase" | "wipe" | null>(null);
   const [typed, setTyped] = useState("");
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const run = (op: () => Promise<VaultStatus>, done: string): void => {
+  const [busy, setBusy] = useState(false);
+  const run = async (op: () => Promise<VaultStatus>, done: string): Promise<void> => {
     setError(null);
-    void op()
-      .then((s) => {
-        setNote(done);
-        onChanged(s);
-      })
-      .catch((err: unknown) => setError(refusal(err)));
+    setNote(null);
+    setBusy(true);
+    try {
+      const s = await op();
+      setNote(done);
+      setOpen(null);
+      setTyped("");
+      onChanged(s);
+    } catch (err) {
+      setError(refusal(err));
+    } finally {
+      setBusy(false);
+    }
   };
+  const toggle = (which: "passphrase" | "wipe"): void => {
+    setOpen((o) => (o === which ? null : which));
+    setError(null);
+    setTyped("");
+  };
+
+  const changePassphrase = (form: HTMLFormElement, remove: boolean): void => {
+    const { current, next } = takeSecretValues(form);
+    if (hasPassphrase && !current) return setError("Type the current passphrase.");
+    if (!remove && !next) return setError("Type the new passphrase.");
+    void run(
+      () => secretsApi.passphrase({ ...(current ? { current } : {}), ...(remove ? {} : { passphrase: next }) }),
+      remove ? "Passphrase removed; the key file opens it again." : hasPassphrase ? "Passphrase changed." : "Passphrase set; the key file is gone.",
+    );
+  };
+
   return (
-    <Card title="Vault" className="secret-vault">
+    <Card title="Vault" pill={<Pill tone="ok">Open</Pill>} className="secret-vault">
       <dl className="secret-facts">
         <div>
           <dt>Opens with</dt>
-          <dd>{status.slots.map((s) => (s === "keyfile" ? "Key file" : "Passphrase")).join(" and ")}</dd>
+          <dd>{hasPassphrase ? "Passphrase" : "Key file"}</dd>
         </div>
         <div>
           <dt>Masked since start</dt>
@@ -228,36 +261,72 @@ function VaultCard({ status, onChanged }: { status: VaultStatus; onChanged: (s: 
         </div>
       </dl>
       <div className="secret-vault-acts">
-        <button type="button" className="btn" onClick={() => run(secretsApi.rotate, "Key rotated.")}>
+        <button type="button" className="btn" disabled={busy} onClick={() => void run(secretsApi.rotate, "Key rotated.")}>
           Rotate key
         </button>
-        <button type="button" className="btn btn--danger" aria-expanded={wiping} onClick={() => setWiping((v) => !v)}>
+        <button type="button" className="btn" aria-expanded={open === "passphrase"} onClick={() => toggle("passphrase")}>
+          {hasPassphrase ? "Change passphrase" : "Add passphrase"}
+        </button>
+        <button type="button" className="btn btn--danger" aria-expanded={open === "wipe"} onClick={() => toggle("wipe")}>
           Wipe vault
         </button>
         {note && <span className="hint">{note}</span>}
       </div>
-      {wiping && (
-        <div className="secret-wipe" role="group" aria-label="Wipe vault">
-          <p className="hint">Every secret goes, for good: the vault and its key are overwritten. Type wipe to confirm.</p>
+      {open === "passphrase" && (
+        <form key={`pass-${hasPassphrase}`} className="secret-wipe" aria-label="The vault's passphrase" autoComplete="off" onSubmit={(e) => {
+            e.preventDefault();
+            changePassphrase(e.currentTarget, false);
+          }}>
+          <p className="hint">
+            {hasPassphrase
+              ? "Change it, or remove it to go back to the key file. Either needs the current one."
+              : "With a passphrase the key file is erased: the vault is locked after each start until you type it, and a forgotten passphrase loses every secret."}
+          </p>
           <div className="secret-gate-row">
-            <input className="kos-input kos-mono" aria-label="Type wipe to confirm" value={typed} autoComplete="off" spellCheck={false} onChange={(e) => setTyped(e.target.value)} />
-            <button
-              type="button"
-              className="btn btn--danger"
-              disabled={typed !== "wipe"}
-              onClick={() => {
-                setWiping(false);
-                setTyped("");
-                run(secretsApi.wipe, "Vault wiped.");
-              }}
-            >
-              Wipe everything
+            {hasPassphrase && <SecretField label="Current passphrase" name="current" />}
+            <SecretField label={hasPassphrase ? "New passphrase" : "Passphrase"} name="next" />
+          </div>
+          <div className="secret-vault-acts">
+            <button type="submit" className="btn btn--primary" disabled={busy}>
+              {hasPassphrase ? "Change passphrase" : "Set passphrase"}
             </button>
-            <button type="button" className="btn btn--ghost" onClick={() => setWiping(false)}>
+            {hasPassphrase && (
+              <button type="button" className="btn" disabled={busy} onClick={(e) => changePassphrase(e.currentTarget.form!, true)}>
+                Remove passphrase
+              </button>
+            )}
+            <button type="button" className="btn btn--ghost" onClick={() => setOpen(null)}>
               Cancel
             </button>
           </div>
-        </div>
+        </form>
+      )}
+      {open === "wipe" && (
+        <form
+          className="secret-wipe"
+          aria-label="Wipe vault"
+          autoComplete="off"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const { passphrase } = takeSecretValues(e.currentTarget);
+            if (hasPassphrase && !passphrase) return setError("Type the passphrase.");
+            void run(() => secretsApi.wipe(passphrase), "Vault wiped.");
+          }}
+        >
+          <p className="hint">Every secret goes, for good: the vault and its key are overwritten. Type wipe to confirm{hasPassphrase ? ", and the passphrase" : ""}.</p>
+          <div className="secret-gate-row">
+            <input className="kos-input kos-mono" aria-label="Type wipe to confirm" placeholder="wipe" value={typed} autoComplete="off" spellCheck={false} onChange={(e) => setTyped(e.target.value)} />
+            {hasPassphrase && <SecretField label="Passphrase" name="passphrase" />}
+          </div>
+          <div className="secret-vault-acts">
+            <button type="submit" className="btn btn--danger" disabled={typed !== "wipe" || busy}>
+              Wipe everything
+            </button>
+            <button type="button" className="btn btn--ghost" onClick={() => setOpen(null)}>
+              Cancel
+            </button>
+          </div>
+        </form>
       )}
       {error && <p className="field-error" role="alert">{error}</p>}
     </Card>

@@ -8074,8 +8074,8 @@ img.ov-shape { object-fit: fill; }
 .drawer .finder-facts-art { max-height: 15rem; }
 
 /* —— Secrets: the vault, its list, a secret's sheet —— */
-.secrets { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
-.secret-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
+.secrets { --stack: 1rem; display: flex; flex-direction: column; gap: var(--stack); min-width: 0; }
+.secret-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); overflow: hidden; }
 .secret-list li + li { border-top: 1px solid var(--line); }
 .secret-row { display: flex; align-items: center; gap: 0.75rem; width: 100%; min-height: 3.75rem; padding: 0.6rem 0.9rem; border: 0; background: none; color: inherit; text-align: left; cursor: pointer; transition: background 140ms ease; }
 .secret-row:hover { background: var(--panel-2); }
@@ -8094,17 +8094,18 @@ img.ov-shape { object-fit: fill; }
 .secret-gate-row { display: flex; align-items: flex-end; gap: 0.5rem; flex-wrap: wrap; }
 .secret-gate-row > .kos-field { flex: 1 1 12rem; max-width: 22rem; min-width: 0; }
 .secret-gate-row > .kos-input { flex: 0 1 14rem; min-width: 0; }
-.secret-gate-row .btn, .secret-vault-acts .btn, .secret-reveal-row .btn { height: 2.25rem; padding-block: 0; }
+.secret-gate-row .btn, .secret-vault-acts .btn, .secret-reveal-row .btn { height: var(--control-h); padding-block: 0; }
 .secret-facts { display: flex; flex-wrap: wrap; gap: 0.5rem 2.5rem; margin: 0 0 0.9rem; }
 .secret-facts dt { color: var(--muted); font-size: var(--text-sm); font-weight: 600; }
 .secret-facts dd { margin: 0.15rem 0 0; }
 .secret-vault-acts { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-.secret-wipe { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--line); }
+.secret-wipe { display: flex; flex-direction: column; gap: 0.7rem; margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--line); }
 .secret-wipe .hint { margin: 0; }
 
 .secret-sheet { display: flex; flex-direction: column; gap: 1.4rem; }
 .secret-form { display: flex; flex-direction: column; gap: 1.2rem; }
 .secret-fields { display: flex; flex-direction: column; gap: 0.8rem; min-width: 0; }
+.secret-fields > .secret-warn { margin-top: -0.3rem; }
 .secret-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
 .secret-billing { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
 .secret-billing > :nth-child(-n + 2) { grid-column: 1 / -1; }
@@ -8113,7 +8114,7 @@ img.ov-shape { object-fit: fill; }
 .secret-switch-text .hint { font-size: var(--text-sm); }
 .secret-section-hint { margin: 0; }
 .secret-billing + .secret-section-hint { margin-top: 0.5rem; }
-.secret-warn { margin: -0.3rem 0 0; padding: 0.55rem 0.75rem; border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); border-radius: var(--r-sm); background: var(--warn-dim); color: var(--warn); font-size: var(--text-base); line-height: 1.45; }
+.secret-warn { margin: 0; padding: 0.55rem 0.75rem; border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); border-radius: var(--r-sm); background: var(--warn-dim); color: var(--warn); font-size: var(--text-base); line-height: 1.45; }
 .secret-lines { list-style: none; margin: 0; padding: 0; }
 .secret-line { display: flex; align-items: center; gap: 0.6rem; min-height: 2.5rem; padding: 0.35rem 0; border-top: 1px solid var(--line); }
 .secret-line:first-child { border-top: 0; }
