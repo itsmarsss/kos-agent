@@ -34,7 +34,7 @@ How each format is read:
 | csv, tsv | KOS's own, RFC 4180, values never reinterpreted | anywhere |
 | pptx, pptm, ppsx, potx | KOS's own: each slide with what it inherits from its layout and master | anywhere |
 | pages, key | the preview the file keeps for Finder | anywhere |
-| doc, rtf, odt | macOS's textutil in a sandbox (no network, no writes, no reads under /Users or the home folder but its own copy, nothing run but itself), then cleaned | a Mac |
+| doc, rtf, odt | macOS's textutil in a sandbox (no network, no writes, no Mach services, no reads under /Users, /Volumes, the temp folders or the home folder but its own copy, nothing run but itself), then cleaned | a Mac |
 | ppt, odp | not opened: the kind's mark and Download (QuickLook would run the file's generator in KOS's own process tree) | |
 
 The bounds: a file over 30 MB (12 MB for CSV) is not converted; its bytes
@@ -46,8 +46,10 @@ zip bomb is refused; a sheet shows at most 2,000 rows, 100
 columns and 400,000 cells; a deck 200 slides; pictures are inlined only
 as raster data URIs, at most 6 MB each. Conversion runs in a child process of its
 own (`files/viewer/child.ts`), two at a time, with a 512 MB heap, a 20
-second clock and a 1 GB ceiling on its whole resident size, buffers
-included, watched from outside; textutil has the same clock. Every document's HTML leaves the server through one allow-list
+second clock, 25 CPU seconds the kernel enforces (`ulimit -t`), and a
+1 GB ceiling on its whole resident size, buffers included, watched from
+outside (a child whose size cannot be read is stopped); it exits when KOS
+does. textutil has the same clock. Every document's HTML leaves the server through one allow-list
 (`files/viewer/sanitize.ts`): no script, handler, frame, form, link
 target, external picture or fetching CSS. The dashboard then draws it in
 an `<iframe sandbox>` with a policy of `default-src 'none'; img-src
@@ -69,9 +71,10 @@ file's name; the address without the name still works.
   Kept under `.kos/cache/thumbs` by path, time, size and edge, a miss
   included.
 - `GET /api/file/media?path=`: sound and video for a player (mp3, m4a,
-  aac, wav, ogg, flac, mp4, m4v, webm, mov), streamed from disk: the
-  whole file with a 200, one asked range with a 206, a range that cannot
-  be served with a 416.
+  aac, wav, ogg, flac, mp4, m4v, webm, mov), opened without following a
+  link and streamed from that file: the whole file with a 200 (also for
+  several ranges at once), one asked range with a 206, a range that
+  cannot be served with a 416; the file is closed when the player leaves.
 
 ## Facts, search and recents
 
@@ -80,8 +83,9 @@ file's name; the address without the name still works.
   Office file's pages, slides or sheets, and the project it is in.
 - `GET /api/files/search?path=&q=&contents=1`: names holding `q` under
   `path` (300 at most), or with `contents=1` text files holding it, each
-  with the first line that matched (search.grep's own reader, three
-  seconds at most). Hidden names, links, tool caches and the workspace's
+  with the first line that matched (search.grep's own reader, run in the
+  viewer's child, three seconds at most; a newer search stops the one
+  before). Hidden names, links, tool caches and the workspace's
   own files are not walked; 30,000 entries at most.
 - `GET /api/files/recents`: the 60 files changed most lately.
 
@@ -92,7 +96,11 @@ file's name; the address without the name still works.
 
 Every write (rename, copy, new folder, trash, restore) tests the path as
 the jail resolved it, so `./kos.sqlite`, `projects//x` and `./.kos/x` are
-what they are, not what they look like.
+what they are, not what they look like. Names are compared as APFS
+compares them (`foldName`: NFKC, then upper and lower case), so
+`.ko\u017f/x` or `pro\ufb01le.json` is the reserved name it opens;
+`isReserved(root, rel)` in `kernel/files.ts` is the one test, and also
+checks the path as it lands on disk.
 - `GET /api/files/trash`: what is there, the latest first.
 - `POST /api/files/restore {id}`: puts it back where it was, as "name
   (2)" when something took its place.
