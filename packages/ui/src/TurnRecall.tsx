@@ -190,18 +190,28 @@ export function TurnRecall({ recalled }: { recalled: Recall }): ReactElement | n
   );
 }
 
-/** Where the panel sits: over its chip, inside the window. On a phone it is a sheet from the foot instead (styles.css). */
+/** The gap between the panel and what it sits over, and its least margin from the window's edge. */
+const GAP = 8;
+
+/**
+ * Where the panel sits: over the composer the chip is in (the chip itself
+ * outside one), never on it, and inside the window. With little room above,
+ * it is shorter rather than over what the owner is typing. On a phone it is
+ * a sheet from the foot instead (styles.css).
+ */
 function usePlacement(anchor: RefObject<HTMLElement | null>): CSSProperties {
   const [style, setStyle] = useState<CSSProperties>({});
   useLayoutEffect(() => {
-    const box = anchor.current?.getBoundingClientRect();
-    if (!box) return;
-    const width = Math.min(560, window.innerWidth - 16);
+    const chip = anchor.current;
+    if (!chip) return;
+    const box = chip.getBoundingClientRect();
+    const above = (chip.closest(".composer-box") ?? chip).getBoundingClientRect().top;
+    const width = Math.min(560, window.innerWidth - 2 * GAP);
     setStyle({
       "--recall-w": `${width}px`,
-      "--recall-x": `${Math.max(8, Math.min(box.left, window.innerWidth - width - 8))}px`,
-      "--recall-y": `${window.innerHeight - box.top + 8}px`,
-      "--recall-h": `${Math.max(240, Math.min(560, box.top - 16))}px`,
+      "--recall-x": `${Math.max(GAP, Math.min(box.left, window.innerWidth - width - GAP))}px`,
+      "--recall-y": `${window.innerHeight - above + GAP}px`,
+      "--recall-h": `${Math.max(0, Math.min(560, above - 2 * GAP))}px`,
     } as CSSProperties);
   }, [anchor]);
   return style;

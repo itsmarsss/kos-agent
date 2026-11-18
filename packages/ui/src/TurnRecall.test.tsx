@@ -154,6 +154,27 @@ describe("what the last turn was given from memory", () => {
     expect(within(dialog).getByText("3h ago")).toBeTruthy();
   });
 
+  it("sits over the composer it is in, shorter when there is little room, inside the window", () => {
+    const at = (top: number, left: number): DOMRect => ({ top, left, bottom: top + 20, right: left + 120, width: 120, height: 20, x: left, y: top, toJSON: () => ({}) });
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("composer-box") ? at(300, 100) : at(380, 1200);
+    });
+    try {
+      render(
+        <div className="composer-box">
+          <TurnRecall recalled={school} />
+        </div>,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /^memory:/ }));
+      const { style } = screen.getByRole("dialog");
+      expect(style.getPropertyValue("--recall-y")).toBe(`${window.innerHeight - 300 + 8}px`);
+      expect(style.getPropertyValue("--recall-h")).toBe("284px");
+      expect(style.getPropertyValue("--recall-x")).toBe(`${window.innerWidth - 560 - 8}px`);
+    } finally {
+      rect.mockRestore();
+    }
+  });
+
   it("says so when nothing matched", () => {
     render(<TurnRecall recalled={{ at: 1, projectSlug: null, facts: [], events: [] }} />);
     expect(screen.getByText("memory: nothing matched")).toBeTruthy();
