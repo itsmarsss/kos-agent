@@ -346,7 +346,7 @@ describe("KOS end-to-end flows", () => {
       .get() as { n: number };
     expect(before.n).toBe(1);
 
-    const outcome = await kernel.approve(pending[0]!.id);
+    const outcome = await kernel.approve(pending[0]!.id, undefined, { surface: "dashboard" });
     expect(outcome.ok).toBe(true);
 
     const after = kernel.workspace.db
@@ -378,7 +378,7 @@ describe("KOS end-to-end flows", () => {
         .flatMap((b) => (b.type === "text" ? [b.text] : []));
     expect(texts()).toContain("Second answer.");
     // Decided: the first turn finishes, and the transcript keeps both, in the order they ended.
-    expect((await kernel.approve(ask.id)).ok).toBe(true);
+    expect((await kernel.approve(ask.id, undefined, { surface: "dashboard" })).ok).toBe(true);
     await vi.waitFor(() => {
       expect(texts()).toContain("Removed it.");
     });
@@ -430,7 +430,7 @@ describe("KOS end-to-end flows", () => {
 
     // The decision releases the suspended call, and the turn it belongs to
     // ends once the rest of the plan has run.
-    await kernel.approve(kernel.approvals.pending()[0]!.id);
+    await kernel.approve(kernel.approvals.pending()[0]!.id, undefined, { surface: "dashboard" });
     await finished;
     expect(seen).toEqual(["turn-start", "turn-end"]);
     expect(saids).toEqual([true]);
@@ -474,7 +474,7 @@ describe("KOS end-to-end flows", () => {
       await vi.waitFor(() => expect(kernel.approvals.pending()).toHaveLength(1));
       expect((await ask).suspended).toBe(true);
       const said = nextSaid();
-      await kernel.approve(kernel.approvals.pending()[0]!.id);
+      await kernel.approve(kernel.approvals.pending()[0]!.id, undefined, { surface: "dashboard" });
       expect(await said).toEqual({ conversationId: c.id, resumed: true });
       expect(resultShown(model, "c1")).toMatch(/^The owner approved this, and it ran:\n/);
       expect(existsSync(join(kernel.workspace.root, "plan.md"))).toBe(false);
@@ -502,7 +502,7 @@ describe("KOS end-to-end flows", () => {
       const c = kernel.conversations.create({ userId: "owner", title: "Notes" });
       const ask = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "plan.md" }, riskTier: "risky", conversationId: c.id, owner: true, attended: true });
       const said = nextSaid();
-      await kernel.approve(ask.id);
+      await kernel.approve(ask.id, undefined, { surface: "dashboard" });
       expect((await said).conversationId).toBe(c.id);
       expect(model.prompts.at(-1)).toContain(`@approval:${ask.id} Delete plan.md: the owner approved it, and it ran.`);
       expect(existsSync(join(kernel.workspace.root, "plan.md"))).toBe(false);
@@ -609,7 +609,7 @@ describe("KOS end-to-end flows", () => {
     expect(pending).toHaveLength(1);
     expect(pending[0]?.conversationId).toBe(scoped.id);
 
-    await kernel.approve(pending[0]!.id);
+    await kernel.approve(pending[0]!.id, undefined, { surface: "dashboard" });
 
     // The agent that was waiting is the one that carries on, in its own
     // transcript. Nothing about it appears anywhere else.
@@ -643,7 +643,7 @@ describe("KOS end-to-end flows", () => {
     const ahead = kernel.conversations.get(other.id)!.updatedAt;
     expect(kernel.conversations.get(c.id)!.updatedAt).toBeLessThan(ahead);
 
-    await kernel.approve(kernel.approvals.pending()[0]!.id);
+    await kernel.approve(kernel.approvals.pending()[0]!.id, undefined, { surface: "dashboard" });
 
     // A reader watching the list has to see the thread move on when the turn
     // finishes, and its title must survive: the message that started it is
@@ -759,7 +759,7 @@ describe("KOS end-to-end flows", () => {
     const pending = kernel.approvals.pending();
     expect(pending).toHaveLength(1);
 
-    await kernel.approve(pending[0]!.id);
+    await kernel.approve(pending[0]!.id, undefined, { surface: "dashboard" });
 
     // Nothing about the approval machinery is something the owner said, so
     // none of it should become an episode or a remembered fact.
@@ -1175,7 +1175,7 @@ describe("KOS end-to-end flows", () => {
 
     // The decision runs it, which is what approve does for anything nothing
     // is waiting on.
-    await kernel.approve(pending[0]!.id);
+    await kernel.approve(pending[0]!.id, undefined, { surface: "dashboard" });
     expect(existsSync(join(kernel.workspace.root, "doomed.txt"))).toBe(false);
   });
 
@@ -1331,7 +1331,7 @@ describe("KOS end-to-end flows", () => {
     const c = kernel.conversations.create({ userId: "owner", title: "Ops" });
 
     await kernel.handleMessage("delete notes/x.md", { sessionId: c.id });
-    await kernel.approve(kernel.approvals.pending()[0]!.id);
+    await kernel.approve(kernel.approvals.pending()[0]!.id, undefined, { surface: "dashboard" });
 
     await vi.waitFor(() => {
       expect(JSON.stringify(kernel.sessions.get(c.id))).toContain("Deleted it.");
@@ -1402,7 +1402,7 @@ describe("KOS end-to-end flows", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(order).toEqual([]);
 
-    await kernel.approve(pending[0]!.id);
+    await kernel.approve(pending[0]!.id, undefined, { surface: "dashboard" });
     release();
     await occupied;
 

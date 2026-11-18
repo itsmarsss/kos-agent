@@ -86,6 +86,9 @@ describe("the shell jail", { timeout: 30_000 }, () => {
     const deny = p.indexOf('(deny file-read* (subpath "/w/write.key")');
     expect(deny).toBeGreaterThan(p.lastIndexOf("(allow file-read* "));
     expect(kosSecretFiles({ KOS_WRITE_KEY_FILE: "/tmp/k" })[0]).toBe("/tmp/k");
+    // The vault wherever KOS_VAULT_DIR puts it, and its sequence record beside it.
+    expect(kosSecretFiles({ KOS_VAULT_DIR: "/srv/vault" })).toEqual(expect.arrayContaining(["/srv/vault", "/srv/vault.seq"]));
+    expect(sandboxProfile({ workspaceRoot: "/w", homes: [], secretFiles: kosSecretFiles({ KOS_VAULT_DIR: "/srv/vault" }) })).toMatch(/\(deny file-read\*[^\n]*\(subpath "\/srv\/vault"\)/);
   });
 
   it.runIf(process.platform === "darwin")("stops a jailed program reaching KOS's port on this machine, and lets it reach another", async () => {

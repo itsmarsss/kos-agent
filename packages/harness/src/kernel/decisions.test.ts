@@ -31,14 +31,14 @@ describe("remembering", () => {
   it("keeps only the rule the ask named when it was queued, the one every card offered", async () => {
     const action = pending({ tool: "browser.act", args: JSON.stringify({ steps: [{ click: "@e5" }] }), rule: { tool: "browser.*", scope: "site:shop.example", project: null } });
     const { d, log } = deps(action, true);
-    await new Decisions(d).approve(5, "owner", { remember: true });
+    await new Decisions(d).approve(5, "owner", { remember: true, surface: "dashboard" });
     expect(log).toContain("rule:browser.*:site:shop.example:null");
     expect(log.filter((l) => l.startsWith("rule:"))).toHaveLength(1);
   });
 
   it("keeps no rule for a call that reached past its turn's folder, even with none named when it was queued", async () => {
     const { d, log } = deps(pending({ tool: "files.write", args: JSON.stringify({ path: "projects/resume/cv.md" }), reached: true }), true);
-    await new Decisions(d).approve(5, "owner", { remember: true });
+    await new Decisions(d).approve(5, "owner", { remember: true, surface: "dashboard" });
     expect(log.some((l) => l.startsWith("rule:"))).toBe(false);
   });
 });
@@ -46,17 +46,17 @@ describe("remembering", () => {
 describe("approving", () => {
   it("releases a waiting turn and does nothing else", async () => {
     const { d, log } = deps(pending(), true);
-    const r = await new Decisions(d).approve(5);
+    const r = await new Decisions(d).approve(5, undefined, { surface: "dashboard" });
     expect(r).toEqual({ ok: true, message: "Approved @approval:5. files.rm is running." });
     expect(log).toEqual(["approve:5:owner"]);
   });
 
   it("keeps the decision as the rule the ask named when asked, and none for an ask that named none", async () => {
     const { d, log } = deps(pending({ rule: { tool: "files.rm", scope: "dir:projects/books", project: "books" } }), true);
-    await new Decisions(d).approve(5, "owner", { remember: true });
+    await new Decisions(d).approve(5, "owner", { remember: true, surface: "dashboard" });
     expect(log).toContain("rule:files.rm:dir:projects/books:books");
     const none = deps(pending(), true);
-    const said = await new Decisions(none.d).approve(5, "owner", { remember: true });
+    const said = await new Decisions(none.d).approve(5, "owner", { remember: true, surface: "dashboard" });
     expect(none.log.some((l) => l.startsWith("rule:"))).toBe(false);
     expect(said).toMatchObject({ ok: true, remembered: false });
     expect(said.message.startsWith("Approved; nothing to remember for this one.")).toBe(true);
@@ -64,7 +64,7 @@ describe("approving", () => {
 
   it("runs an orphaned action in its conversation and lane, audits it, and resumes the chat", async () => {
     const { d, log } = deps(pending(), false);
-    const r = await new Decisions(d).approve(5);
+    const r = await new Decisions(d).approve(5, undefined, { surface: "dashboard" });
     expect(log).toEqual(["approve:5:owner", "lane:c1", "in:c1", "run:files.rm", "audit:files.rm:ok", "ran:files.rm", "resume:c1:system:approved"]);
     expect(r).toMatchObject({ ok: true, message: "removed", isError: false, reply: "carried on" });
   });
@@ -75,7 +75,7 @@ describe("approving", () => {
       const { d } = deps(pending(asked), false, {
         registry: { execute: async () => { seen = { owner: isOwnerTurn(), attended: isAttended() }; return { content: "ok", isError: false }; }, secretSlots: () => undefined },
       });
-      await new Decisions(d).approve(5);
+      await new Decisions(d).approve(5, undefined, { surface: "dashboard" });
       return seen;
     };
     expect(await as({ owner: true, attended: true })).toEqual({ owner: true, attended: true });
@@ -87,7 +87,7 @@ describe("approving", () => {
 
   it("keeps no rule for a call that sends a secret, even when the owner says remember", async () => {
     const { d, log } = deps(pending({ tool: "http.fetch", args: JSON.stringify({ url: "https://a.example", headers: { k: "{{secret:openai}}" } }) }), true);
-    await new Decisions(d).approve(5, "owner", { remember: true });
+    await new Decisions(d).approve(5, "owner", { remember: true, surface: "dashboard" });
     expect(log.some((l) => l.startsWith("rule:"))).toBe(false);
   });
 
@@ -110,7 +110,7 @@ describe("approving", () => {
         return { reply: "ok" };
       },
     });
-    await new Decisions(d).approve(5);
+    await new Decisions(d).approve(5, undefined, { surface: "dashboard" });
     expect(sent).toEqual({ url: "https://a.example", headers: { k: "sk-orphan-key" } });
     expect([...audited, ...resumed].join("\n")).not.toContain("sk-orphan-key");
     expect(audited[0]).toBe("echoed [secret openai]");
@@ -121,7 +121,7 @@ describe("approving", () => {
       registry: { execute: async () => ({ content: "sent", isError: false }), secretSlots: () => undefined },
       audit: { record: (e) => void refused.push(e.result) },
     });
-    await new Decisions(other).approve(5);
+    await new Decisions(other).approve(5, undefined, { surface: "dashboard" });
     expect(refused[0]).toMatch(/notify takes no secret in text/);
   });
 
@@ -137,7 +137,7 @@ describe("approving", () => {
       pending: () => [...actions.values()].filter((a) => a.status === "pending"),
     };
     const decisions = new Decisions(d);
-    const first = await decisions.approve(5);
+    const first = await decisions.approve(5, undefined, { surface: "dashboard" });
     expect(first).toMatchObject({ ok: true, message: "removed #6 still waiting; the chat continues once it is decided." });
     expect(first.reply).toBeUndefined();
     expect(log.filter((l) => l.startsWith("resume:"))).toEqual([]);
@@ -160,7 +160,7 @@ describe("approving", () => {
       pending: () => [...actions.values()].filter((a) => a.status === "pending"),
     };
     const decisions = new Decisions(d);
-    await decisions.approve(5);
+    await decisions.approve(5, undefined, { surface: "dashboard" });
     await decisions.deny(6);
     expect(prompts).toHaveLength(1);
     expect(prompts[0]!).toContain("- @approval:5 Delete projects/books/x.md: the owner approved it, and it ran. Result: removed");
@@ -170,13 +170,13 @@ describe("approving", () => {
 
   it("says so when the resume fails rather than swallowing it", async () => {
     const { d } = deps(pending(), false, { handleMessage: async () => { throw new Error("model down"); } });
-    const r = await new Decisions(d).approve(5);
+    const r = await new Decisions(d).approve(5, undefined, { surface: "dashboard" });
     expect(r.reply).toBe("Approved @approval:5 but resume failed: model down");
   });
 
   it("leaves a build's request to the build itself", async () => {
     const { d, log } = deps(pending({ tool: "build.Bash" }), false);
-    const r = await new Decisions(d).approve(5);
+    const r = await new Decisions(d).approve(5, undefined, { surface: "dashboard" });
     expect(r.message).toBe("Approved. The build continues with Bash.");
     expect(log.some((l) => l.startsWith("run:"))).toBe(false);
     expect(log).toContain("audit:build.Bash:ok");
@@ -184,7 +184,7 @@ describe("approving", () => {
 
   it("refuses an action that is not pending", async () => {
     const { d } = deps(undefined, false);
-    expect(await new Decisions(d).approve(9)).toEqual({ ok: false, message: "no pending action #9" });
+    expect(await new Decisions(d).approve(9, undefined, { surface: "dashboard" })).toEqual({ ok: false, message: "no pending action #9" });
   });
 });
 

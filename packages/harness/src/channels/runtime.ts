@@ -3,6 +3,7 @@ import type { MessageRoom, Quote } from "../models/types.js";
 import type { Attachment } from "../kernel/attachments.js";
 import type { ProgressEvent } from "../kernel/progress.js";
 import type { ToolRegistry } from "../agent/registry.js";
+import { scrubDeep } from "../secrets/scrub.js";
 import { SingleOwnerMapping, type UserMapping } from "./identity.js";
 import { TurnNarrator } from "./narrate.js";
 import { BindingGoneError } from "./types.js";
@@ -140,6 +141,11 @@ export interface ChannelRuntimeOptions {
   narrateEveryMs?: number;
   /** Whether a turn is already running or queued where this message is going, so the surface can say "queued". */
   isBusy?: (ctx: TurnWatch) => boolean;
+  /**
+   * Secret values out of text, both ways: what a sender pasted, before the
+   * turn or the story matches on it, and every word sent back to the surface.
+   */
+  scrub?: (text: string) => string;
 }
 
 /** Enough to find the conversation a turn will run in, before it does. */
@@ -177,6 +183,7 @@ export class ChannelRuntime {
   private readonly watchTurn: ChannelRuntimeOptions["watchTurn"];
   private readonly narrateEveryMs: number;
   private readonly isBusy: ChannelRuntimeOptions["isBusy"];
+  private readonly scrub: (text: string) => string;
   private unwatch: (() => void) | undefined;
 
   constructor(options: ChannelRuntimeOptions) {
@@ -192,6 +199,12 @@ export class ChannelRuntime {
     this.watchTurn = options.watchTurn;
     this.narrateEveryMs = options.narrateEveryMs ?? NARRATE_EVERY_MS;
     this.isBusy = options.isBusy;
+    this.scrub = options.scrub ?? ((text) => text);
+  }
+
+  /** What goes out to the surface, its words and its card's, with no secret's value in them. */
+  private clean(reply: OutboundMessage): OutboundMessage {
+    return { ...reply, text: this.scrub(reply.text), ...(reply.card ? { card: scrubDeep(reply.card, this.scrub) } : {}) };
   }
 
   async start(): Promise<void> {
@@ -250,7 +263,7 @@ export class ChannelRuntime {
     let last: Promise<void> = Promise.resolve();
     const show = (text: string): void => {
       shownAt = Date.now();
-      last = last.then(() => presence.update(text)).catch(() => undefined);
+      last = last.then(() => presence.update(this.scrub(text))).catch(() => undefined);
     };
     const redraw = (now: boolean): void => {
       if (!narrator.worthShowing()) return;
@@ -328,7 +341,8 @@ export class ChannelRuntime {
     }
   }
 
-  private async dispatch(msg: InboundMessage): Promise<void> {
+  private async dispatch(given: InboundMessage): Promise<void> {
+    const msg: InboundMessage = { ...given, text: this.scrub(given.text) };
     // A guest's words run in the owner's chat, as the owner's user and
     // marked as a guest's; the adapter has already checked the channel
     // was opened to guests.
@@ -345,7 +359,7 @@ export class ChannelRuntime {
     }
     let presence: TurnPresence | undefined;
     try {
-      presence = await this.adapter.acknowledge?.(msg);
+      presence = await this.adapter.acknowledge?.(given);
     } catch {
       presence = undefined;
     }
@@ -408,9 +422,9 @@ export class ChannelRuntime {
       // the decision, and closes itself when the turn ends.
       if (!suspended) await story?.end();
       if (presence) {
-        await presence.complete(reply, suspended ? { waiting: true } : undefined);
+        await presence.complete(this.clean(reply), suspended ? { waiting: true } : undefined);
       } else {
-        await this.adapter.send(msg.senderId, reply);
+        await this.adapter.send(msg.senderId, this.clean(reply));
       }
     } catch (err) {
       // Said in the log whatever happens next: a reply lost to a surface
@@ -433,9 +447,9 @@ export class ChannelRuntime {
       const said = err instanceof BindingGoneError ? err.message : this.errorReply;
       try {
         if (presence) {
-          await presence.fail(said);
+          await presence.fail(this.scrub(said));
         } else {
-          await this.adapter.send(msg.senderId, { text: said });
+          await this.adapter.send(msg.senderId, { text: this.scrub(said) });
         }
       } catch (err) {
         console.error(

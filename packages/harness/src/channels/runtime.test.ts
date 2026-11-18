@@ -457,3 +457,23 @@ describe("a surface that cannot deliver", () => {
     expect(adapter.sent.map((m) => m.msg.text)).toEqual(["that did not work"]);
   });
 });
+
+describe("ChannelRuntime scrubbing", () => {
+  it("masks a pasted value before the turn and every word it sends back", async () => {
+    const adapter = new InMemoryAdapter();
+    const heard: string[] = [];
+    const scrub = (text: string): string => text.replaceAll("sk-pasted-value", "[secret stripe]");
+    const runtime = new ChannelRuntime({
+      adapter,
+      scrub,
+      handleTurn: async (ctx) => {
+        heard.push(ctx.text);
+        return { text: "it was sk-pasted-value", card: { title: "key sk-pasted-value" } };
+      },
+    });
+    await runtime.start();
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "my key sk-pasted-value" });
+    expect(heard).toEqual(["my key [secret stripe]"]);
+    expect(adapter.sent).toEqual([{ recipientId: "u1", msg: { text: "it was [secret stripe]", card: { title: "key [secret stripe]" } } }]);
+  });
+});

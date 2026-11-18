@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { resolvePath } from "../jail/resolvePath.js";
-import { openDatabase, openReadOnlyDatabase, type Db } from "./db.js";
+import { openDatabase, openReadOnlyDatabase, type Db, type Scrub } from "./db.js";
 
 /** The single SQLite file at the workspace root. */
 export const DB_FILENAME = "kos.sqlite";
@@ -20,9 +20,14 @@ export class Workspace {
   /** Opened on first use; display queries never need it until a page renders. */
   private readerDb?: Db;
 
-  private constructor(root: string, db: Db) {
+  private constructor(root: string, db: Db, private readonly scrub: { now?: Scrub }) {
     this.root = root;
     this.db = db;
+  }
+
+  /** From now on every string written to the database passes through `scrub` first (secrets, docs/secrets.md). */
+  scrubWrites(scrub: Scrub): void {
+    this.scrub.now = scrub;
   }
 
   /**
@@ -46,8 +51,9 @@ export class Workspace {
     const abs = resolve(rootDir);
     mkdirSync(abs, { recursive: true });
     const root = realpathSync(abs);
-    const db = openDatabase(resolvePath(root, DB_FILENAME));
-    return new Workspace(root, db);
+    const scrub: { now?: Scrub } = {};
+    const db = openDatabase(resolvePath(root, DB_FILENAME), () => scrub.now);
+    return new Workspace(root, db, scrub);
   }
 
   /** Resolve a workspace-relative path through the jail gate. */

@@ -1,3 +1,4 @@
+export { secretAskElsewhere } from "./decisions.js";
 import { agentConversationId } from "../agents/roles.js";
 import { ChannelRuntime } from "../channels/runtime.js";
 import type { ChannelAdapter } from "../channels/types.js";
@@ -73,6 +74,7 @@ export function connectChannel(
     },
     // A turn running or queued where the message is going: the surface says "queued".
     isBusy: (ctx) => kernel.laneDepth(conversationOf(ctx)) > 0,
+    scrub: (text) => kernel.secrets.scrub(text),
     handleTurn: async (ctx) => {
       // The kernel owns conversation resolution and the /new, /chats, /switch
       // verbs, so every adapter behaves the same without implementing any of it.
@@ -139,7 +141,8 @@ export function connectChannel(
       const chat = action?.conversationId;
       const mirrored = chat ? options.answeredElsewhere?.(chat) === true : false;
       // Recorded before the first await inside: read back at once, below.
-      const run = ctx.approved ? kernel.approve(id, undefined, { remember: ctx.remember === true }) : kernel.deny(id);
+      // The surface is named, so a secret's ask is refused here and said where to decide it.
+      const run = ctx.approved ? kernel.approve(id, undefined, { remember: ctx.remember === true, surface: ctx.channel }) : kernel.deny(id);
       const recorded = kernel.approvals.get(id)?.status;
       const done = run
         .then(async (res) => {

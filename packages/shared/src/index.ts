@@ -76,6 +76,23 @@ export {
 export { formatDuration, waitWords } from "./duration.js";
 
 export { hasSecretRef } from "./secretref.js";
+export {
+  SECRET_FIELDS,
+  SECRET_KINDS,
+  SECRET_REQUIRED,
+  type SecretBilling,
+  type SecretFieldName,
+  type SecretGrant,
+  type SecretKind,
+  type SecretPolicy,
+  type SecretSummary,
+  type SecretSurface,
+  type SecretUse,
+  type SecretUseRow,
+  type SecretValues,
+  type VaultSlotKind,
+  type VaultStatus,
+} from "./secrets.js";
 
 export { BIDI, showInvisible } from "./invisible.js";
 

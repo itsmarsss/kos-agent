@@ -107,7 +107,10 @@ export const HTTP_SECRET_SLOTS: SecretSlots = {
   host: (input) => (typeof input["url"] === "string" ? hostOf(input["url"]) : undefined),
   admit: (name, input, secrets) => {
     const bound = secrets.hostsOf(name);
-    if (!bound) return `Secret ${name} is bound to no host, so http.fetch does not send it. The owner binds it with KOS_SECRET_${name.toUpperCase()}_HOSTS.`;
+    if (!bound) {
+      const how = secrets.inVault(name) ? "under its API hosts on the Secrets page" : `with KOS_SECRET_${name.toUpperCase()}_HOSTS`;
+      return `Secret ${name} is bound to no host, so http.fetch does not send it. The owner binds it ${how}.`;
+    }
     const host = typeof input["url"] === "string" ? hostOf(input["url"]) : undefined;
     return host && hostAllowed(host, bound) ? undefined : `Secret ${name} may be sent only to ${bound.join(", ")}, not ${host ?? "an unknown host"}.`;
   },

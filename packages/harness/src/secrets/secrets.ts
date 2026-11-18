@@ -1,4 +1,9 @@
-import { Scrubber } from "./scrub.js";
+import { SECRET_FIELDS, type SecretFieldName } from "@kos/shared";
+
+import { MIN_SCANNED, Scrubber, STREAM_REACH, type Watched } from "./scrub.js";
+import { SHAPE_REACH, scrubShapes } from "./shapes.js";
+import type { SecretCaller } from "./inject.js";
+import type { Vault } from "./vault.js";
 
 /**
  * Secrets registry. The model never sees a secret value: the agent references
@@ -17,6 +22,13 @@ import { Scrubber } from "./scrub.js";
  *
  * Other credentials the harness holds (a bot token, the dashboard token) are
  * never offered to the agent, but are still looked for by the scrubber.
+ *
+ * With a vault attached (vault.ts), its entries resolve too:
+ * `{{secret:<handle>}}` is the kind's main field (a login's password, a
+ * key's token), `{{secret:<handle>.<field>}}` any field, and an entry's
+ * `use.http.hosts` binds it as `_HOSTS` does. Every vault value is
+ * scrubbed. An env name wins over a handle; a handle always ends in four
+ * random characters after a dash, so the two rarely meet.
  */
 
 const PROVIDER_ENV: Record<string, string> = {
@@ -63,6 +75,8 @@ export class SecretsRegistry {
   /** Built on first use after any change, so it always looks for today's values. */
   private scrubber: Scrubber | undefined;
   private hits = 0;
+  private vault: Vault | undefined;
+  private unwatchVault: (() => void) | undefined;
 
   constructor(entries: Record<string, string> = {}, bindings: Record<string, SecretBinding> = {}, watched: Record<string, string> = {}) {
     this.map = new Map(Object.entries(entries));
@@ -97,17 +111,66 @@ export class SecretsRegistry {
     return new SecretsRegistry(entries, bindings, watched);
   }
 
+  /** Read the vault's entries too, from now on; the scrubber follows every change to it. */
+  attachVault(vault: Vault): void {
+    this.unwatchVault?.();
+    this.vault = vault;
+    this.unwatchVault = vault.onChange(() => (this.scrubber = undefined));
+    this.scrubber = undefined;
+  }
+
   has(name: string): boolean {
-    return this.map.has(name);
+    return this.get(name) !== undefined;
   }
 
   get(name: string): string | undefined {
-    return this.map.get(name);
+    return this.map.get(name) ?? this.fromVault(name);
+  }
+
+  /**
+   * Why a vault secret may not be used for this caller, if it may not:
+   * never by a guest, in an unattended turn only when its policy says so,
+   * and only in the chats its policy names. Env secrets have no policy.
+   */
+  policyRefusal(name: string, who: SecretCaller | undefined): string | undefined {
+    const ref = this.map.has(name) ? undefined : this.vaultRef(name);
+    const policy = ref ? this.vault!.get(ref.handle)?.policy : undefined;
+    if (!policy) return undefined;
+    if (who?.guest) return `Secret ${name} is the owner's; a guest's turn never uses one.`;
+    if (!who?.attended && !policy.unattended) return `Secret ${name} needs the owner present: its policy keeps it from unattended turns.`;
+    if (policy.chats && !(who?.conversationId && policy.chats.includes(who.conversationId))) return `Secret ${name} is not allowed in this chat.`;
+    return undefined;
+  }
+
+  /** Whether `name` is a vault entry's handle (or one of its fields) rather than an env name. */
+  inVault(name: string): boolean {
+    return !this.map.has(name) && this.vaultRef(name) !== undefined;
+  }
+
+  /** The names KOS_SECRET_* and the provider keys go by, for a list of what the env file holds. */
+  envNames(): string[] {
+    return [...this.map.keys()].filter((name) => !(name in PROVIDER_ENV)).sort();
+  }
+
+  /** `<handle>` or `<handle>.<field>` split, the field the kind's main one when not named; undefined for no such entry. */
+  private vaultRef(name: string): { handle: string; field: SecretFieldName } | undefined {
+    if (!this.vault) return undefined;
+    const [handle, field, extra] = name.toLowerCase().split(".");
+    const meta = handle && extra === undefined ? this.vault.get(handle) : undefined;
+    if (!meta) return undefined;
+    const fields = SECRET_FIELDS[meta.kind];
+    const chosen = (field ?? fields[0]) as SecretFieldName;
+    return fields.includes(chosen) ? { handle: meta.handle, field: chosen } : undefined;
+  }
+
+  private fromVault(name: string): string | undefined {
+    const ref = this.vaultRef(name);
+    return ref ? this.vault!.value(ref.handle, ref.field) : undefined;
   }
 
   /** Resolve a secret value or throw if it is not registered. */
   require(name: string): string {
-    const value = this.map.get(name);
+    const value = this.get(name);
     if (value === undefined) {
       throw new Error(`secret not found: ${name}`);
     }
@@ -116,7 +179,8 @@ export class SecretsRegistry {
 
   /** The hosts a secret may be sent to; undefined when it is bound to none. */
   hostsOf(name: string): string[] | undefined {
-    const bound = this.bindings.get(name)?.hosts;
+    const ref = this.map.has(name) ? undefined : this.vaultRef(name);
+    const bound = ref ? this.vault!.get(ref.handle)?.use.http.hosts : this.bindings.get(name)?.hosts;
     return bound?.length ? bound : undefined;
   }
 
@@ -141,7 +205,8 @@ export class SecretsRegistry {
   /**
    * Take on another registry's secrets, bindings and watched values, in
    * place: the router and every tool hold this object, so a reload must
-   * change it, not replace it. Values handed to `watch` stay.
+   * change it, not replace it. Values handed to `watch` stay, and so
+   * does the vault: its entries are read from it, not copied.
    */
   adopt(fresh: SecretsRegistry): void {
     for (const [mine, theirs] of [[this.map, fresh.map], [this.bindings, fresh.bindings], [this.watched, fresh.watched]] as const) {
@@ -152,15 +217,14 @@ export class SecretsRegistry {
   }
 
   /** Every value the scrubber looks for, by name: secrets first, so a shared value keeps its secret's name. */
-  private scanned(): [string, string][] {
-    return [...this.map, ...this.watched, ...this.kept];
+  private scanned(): Watched[] {
+    return [...this.map, ...(this.vault?.scanned() ?? []), ...this.watched, ...this.kept];
   }
 
   private scrubberNow(): Scrubber {
-    this.scrubber ??= new Scrubber(this.scanned(), (name, count) => {
-      this.hits += count;
-      console.warn(`[secrets] took ${count} ${count === 1 ? "copy" : "copies"} of secret ${name} out of text bound for the model or a log`);
-    });
+    // A secret the CLI added while the host runs is looked for within a second.
+    this.vault?.poll();
+    this.scrubber ??= new Scrubber(this.scanned(), (name, count) => this.counted(name, count));
     return this.scrubber;
   }
 
@@ -170,18 +234,62 @@ export class SecretsRegistry {
    * shows, where a `{{secret:name}}` reference would read as an invitation.
    */
   scrub(text: string): string {
-    return this.scrubberNow().scrub(text);
+    return this.sweep(text).text;
+  }
+
+  /**
+   * For text bound for the database: exact, and from the scrub index while
+   * the vault is locked, but never by shape. A shape can match a timestamp
+   * or an id, and a row's data must come back as it was written; a pasted
+   * card is masked by shape at the door, before it is stored.
+   */
+  scrubStored(text: string): string {
+    return this.sweep(text, false).text;
+  }
+
+  /**
+   * Every value masked, and which: exactly by the scrubber, and while the
+   * vault is shut, from its scrub index and by shape too, since its values
+   * cannot be read to be looked for.
+   */
+  private sweep(text: string, shapes = true): { text: string; hits: Map<string, number>; shut: boolean } {
+    const exact = this.scrubberNow().found(text);
+    const shut = this.vault?.shut();
+    if (!shut) return { ...exact, shut: false };
+    const hits = new Map(exact.hits);
+    let out = exact.text;
+    for (const pass of [shut.index ? (t: string) => shut.index!.found(t) : undefined, shapes ? scrubShapes : undefined]) {
+      if (!pass || out.length < MIN_SCANNED) continue;
+      const found = pass(out);
+      out = found.text;
+      for (const [name, count] of found.hits) {
+        hits.set(name, (hits.get(name) ?? 0) + count);
+        this.counted(name, count);
+      }
+    }
+    return { text: out, hits, shut: true };
+  }
+
+  private counted(name: string, count: number): void {
+    this.hits += count;
+    console.warn(`[secrets] took ${count} ${count === 1 ? "copy" : "copies"} of secret ${name} out of text bound for the model or a log`);
+  }
+
+  /** `text` scrubbed, and the names of the secrets found in it, for a door to tell the owner what it masked. */
+  mask(text: string): { text: string; found: string[]; shut: boolean } {
+    const { text: out, hits, shut } = this.sweep(text);
+    return { text: out, found: [...hits.keys()], shut };
   }
 
   /** How much of a stream to hold back so no value is split across its pieces; see Scrubber.holdBack. */
   holdBack(): number {
-    return this.scrubberNow().holdBack;
+    const exact = this.scrubberNow().holdBack;
+    const shut = this.vault?.shut();
+    // A stream holds back no more than an exact value's encoded forms would ask: a longer hold makes a live answer stutter.
+    return shut ? Math.max(exact, Math.min(Math.max((shut.index?.reach ?? 0) - 1, SHAPE_REACH - 1), STREAM_REACH)) : exact;
   }
 
-  /**
-   * How many values the scrubber has taken out since the host started.
-   * Kept for the Secrets page (unit 5 of the secrets design); nothing shows it yet.
-   */
+  /** How many values the scrubber has taken out since the host started: the Secrets page's leak counter. */
   scrubbed(): number {
     return this.hits;
   }

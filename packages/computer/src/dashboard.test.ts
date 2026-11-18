@@ -55,6 +55,17 @@ describe("what a phone may ask the dashboard", () => {
     expect(get("/api/runs", { limit: "20", failed: "1" })).toMatchObject({ request: { url: "/api/runs?limit=20&failed=1" } });
   });
 
+  it("lets the secrets list and a secret's uses through, never a reveal or a change", () => {
+    expect(get("/api/secrets")).toMatchObject({ kind: "read", request: { method: "GET", path: "/api/secrets" } });
+    expect(get("/api/secrets/visa-personal-7k2q/uses", { limit: "20" })).toMatchObject({ request: { url: "/api/secrets/visa-personal-7k2q/uses?limit=20" } });
+    for (const path of ["/api/secrets/status", "/api/secrets/visa-personal-7k2q"]) expect(get(path)).toEqual(NOT_ALLOWED);
+    for (const path of ["/api/secrets", "/api/secrets/visa-personal-7k2q/reveal", "/api/secrets/rotate", "/api/secrets/wipe", "/api/secrets/unlock", "/api/secrets/init"]) {
+      expect(post(path, {})).toEqual(NOT_ALLOWED);
+    }
+    expect(admit({ method: "DELETE", path: "/api/secrets/visa-personal-7k2q" })).toEqual(NOT_ALLOWED);
+    expect(admit({ method: "PATCH", path: "/api/secrets/visa-personal-7k2q" })).toEqual(NOT_ALLOWED);
+  });
+
   it("refuses every other route", () => {
     for (const path of [
       "/api/settings",

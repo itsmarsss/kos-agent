@@ -6,6 +6,7 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 import {
+  AuditLog,
   Kernel,
   MCP_CONFIG_FILE,
   MODULES_DIR,
@@ -57,6 +58,7 @@ import {
   uninstallService,
 } from "./service.js";
 import { runHost, waitForPortFree } from "./host.js";
+import { runSecrets } from "./secrets.js";
 import { serveMemoryMcp } from "./memorymcp.js";
 import { runRemoteCommand } from "./remote.js";
 import {
@@ -700,6 +702,23 @@ async function main(): Promise<void> {
     const reader = flags.agent === true ? "agent" : "extractor";
     const report = await runMemoryEval(inference, undefined, { reader });
     console.log(flags.json === true ? JSON.stringify(report, null, 2) : renderEvalReport(report, reader));
+    return;
+  }
+
+  // kos secrets: the vault from a terminal; unlock and status reach the running host too.
+  if (command === "secrets") {
+    process.exitCode = await runSecrets(rest, flags, {
+      workspace: rootDir,
+      live: async () => (await resolveLiveClient(rootDir))?.client,
+      audit: (entry) => {
+        const ws = Workspace.open(rootDir);
+        try {
+          new AuditLog(ws.db).record(entry);
+        } finally {
+          ws.close();
+        }
+      },
+    });
     return;
   }
 

@@ -671,3 +671,30 @@ describe("a phone", () => {
     expect(fake.closed?.reason).toBe(REFUSED_REASON["bad signature"]);
   });
 });
+
+describe("what KOS sends a device, scrubbed", () => {
+  it("takes a secret's value out of every frame but a secret's own fill", async () => {
+    const store = new DeviceStore(openDatabase(":memory:"));
+    const hub = new DeviceHub({ store, hostKey, halted: () => false, log: () => undefined, callTimeoutMs: 200, scrub: (text) => text.replaceAll("pw-device-canary", "[secret github-9xq1.password]") });
+    const fake = new FakeDevice();
+    fake.id = hub.pair({ code: hub.issueCode().code, name: "Chrome", platform: "chrome", publicKey: fake.publicKey }).device;
+    const raw: string[] = [];
+    const send = fake.socket.send;
+    fake.socket.send = (text) => {
+      raw.push(text);
+      send(text);
+    };
+    for (const m of ["chat.show", "secret.fill"]) fake.answers.set(m, () => ({ ok: true, result: {} }));
+    hub.accept(fake.socket);
+    fake.hello(CHROME_APP);
+    await Promise.resolve();
+    hub.tellDevice(fake.id, { t: "chat.status", text: "typed pw-device-canary" });
+    await hub.request(fake.id, "chat.show", { text: "said pw-device-canary" });
+    await hub.request(fake.id, "secret.fill" as never, { value: "pw-device-canary" });
+    const told = raw.filter((t) => t.includes("chat."));
+    expect(told).toHaveLength(2);
+    for (const t of told) expect(t).toContain("[secret github-9xq1.password]");
+    expect(told.join("")).not.toContain("pw-device-canary");
+    expect(raw.find((t) => t.includes("secret.fill"))).toContain("pw-device-canary");
+  });
+});
