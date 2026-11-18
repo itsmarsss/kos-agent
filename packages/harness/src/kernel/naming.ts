@@ -147,6 +147,19 @@ export async function nameConversation(inference: Inference, firstMessage: strin
   return tidyName(textOf(response.content));
 }
 
+/**
+ * A one-shot ask of the engine the owner's chats run on, at its smallest
+ * model: the same prompt and deadline, its text back. Which engine and model
+ * is the kernel's to say; nothing here names one.
+ */
+export type EngineAsk = (ask: { conversationId: string; system: string; text: string; signal: AbortSignal }) => Promise<string>;
+
+/** The same title asked of the chats' engine instead, for a host whose cheap route cannot be asked. */
+export async function nameWithEngine(ask: EngineAsk, conversationId: string, firstMessage: string): Promise<string | null> {
+  const text = await ask({ conversationId, system: SYSTEM, text: withoutPrivate(firstMessage).slice(0, INPUT_CHARS), signal: AbortSignal.timeout(NAMING_MS) });
+  return tidyName(text);
+}
+
 type Named = Pick<Conversation, "id" | "title" | "channel" | "titledBy">;
 
 export interface ChatNamerDeps {
@@ -158,6 +171,12 @@ export interface ChatNamerDeps {
     rename: (id: string, title: string, by: TitledBy) => unknown;
   };
   inference: Inference;
+  /**
+   * The engine the chats run on, when it can answer without the cheap
+   * route: asked only when that route cannot be (no key), since an ask may
+   * start a process of its own.
+   */
+  engine?: () => EngineAsk | undefined;
   /** Where a title that fell back to the opening words says why. */
   warn: (message: string) => void;
 }
@@ -194,13 +213,16 @@ export class ChatNamer {
     }
   }
 
+  /** The cheap route when it can be asked, else the chats' engine when it can answer, else nothing. */
   private async ask(id: string, message: string): Promise<string | null> {
+    const engine = this.deps.inference.ready?.("cheap") === false ? this.deps.engine?.() : undefined;
+    const via = engine ? "the chat engine" : "the cheap route";
     try {
-      const named = await nameConversation(this.deps.inference, message);
-      if (!named) this.deps.warn(`naming ${id}: the cheap route gave no usable title; used the opening words`);
+      const named = engine ? await nameWithEngine(engine, id, message) : await nameConversation(this.deps.inference, message);
+      if (!named) this.deps.warn(`naming ${id}: ${via} gave no usable title; used the opening words`);
       return named;
     } catch (err) {
-      this.deps.warn(`naming ${id}: ${err instanceof Error ? err.message : String(err)}; used the opening words`);
+      this.deps.warn(`naming ${id}: ${via}: ${err instanceof Error ? err.message : String(err)}; used the opening words`);
       return null;
     }
   }

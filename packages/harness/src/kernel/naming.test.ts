@@ -5,6 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { Inference } from "../agent/loop.js";
 import type { GenerateRequest } from "../models/types.js";
+import type { Provider } from "../models/provider.js";
+import { ModelRouter } from "../models/router.js";
+import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { ConversationStore } from "./conversations.js";
 import { ChatNamer, nameConversation, tidyName, titleFromWords, withoutPrivate } from "./naming.js";
@@ -194,6 +197,74 @@ describe("naming a chat", () => {
     await namer(broken).nameIfUnnamed(id, "draft me a message to devpost support, I accidentally deleted my project");
     expect(store.get(id)).toMatchObject({ title: "Draft me a message to devpost", titledBy: "kos" });
     expect(warned[0]).toMatch(/secret not found.*opening words/);
+  });
+
+  it("asks the chats' engine when the cheap route has no key, with the same prompt, deadline and cleaning", async () => {
+    const asked: { conversationId: string; system: string; text: string; signal: AbortSignal }[] = [];
+    const noKey = { ...broken, ready: () => false };
+    const id = opened("email jane@example.com: draft me a message to devpost support");
+    const n = new ChatNamer({
+      ownerId: "owner",
+      isClosed: () => false,
+      conversations: store,
+      inference: noKey,
+      engine: () => async (ask) => {
+        asked.push(ask);
+        return '"devpost support refund."';
+      },
+      warn: (m) => void warned.push(m),
+    });
+    await n.nameIfUnnamed(id, "email jane@example.com: draft me a message to devpost support");
+    expect(store.get(id)).toMatchObject({ title: "Devpost support refund", titledBy: "kos" });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatchObject({ conversationId: id, system: expect.stringContaining("Two to six words") });
+    expect(asked[0]!.text).not.toContain("jane");
+    expect(asked[0]!.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("keeps to the cheap route when it has a key, and falls back to the opening words when the engine fails too", async () => {
+    let used = 0;
+    const engine = () => async () => {
+      used += 1;
+      throw new Error("Claude Code is not signed in");
+    };
+    const ready = opened("plan the garden");
+    await new ChatNamer({ ownerId: "owner", isClosed: () => false, conversations: store, inference: { ...answers("Garden plan"), ready: () => true }, engine, warn: () => undefined }).nameIfUnnamed(ready, "plan the garden");
+    expect([store.get(ready)?.title, used]).toEqual(["Garden plan", 0]);
+
+    const id = opened("hey, can you plan my week");
+    await new ChatNamer({ ownerId: "owner", isClosed: () => false, conversations: store, inference: { ...broken, ready: () => false }, engine, warn: (m) => void warned.push(m) }).nameIfUnnamed(id, "hey, can you plan my week");
+    expect([store.get(id)?.title, used]).toEqual(["Plan my week", 1]);
+    expect(warned.at(-1)).toMatch(/chat engine: Claude Code is not signed in; used the opening words/);
+  });
+
+  it("names through whatever provider the owner set as cheap: a self-hosted endpoint with no key", async () => {
+    const asked: string[] = [];
+    const local: Provider = {
+      name: "custom",
+      keyName: "custom",
+      optionalKey: true,
+      generate: async (req, spec) => {
+        asked.push(`${spec.model}:${req.maxTokens}`);
+        return { content: [{ type: "text", text: "Garden plan" }], stopReason: "end_turn", usage: { inputTokens: 40, outputTokens: 3 }, model: spec.model };
+      },
+    };
+    const router = new ModelRouter([local], { reasoning: { provider: "custom", spec: { model: "big-local" } }, cheap: { provider: "custom", spec: { model: "small-local" } } }, new SecretsRegistry());
+    let engineAsked = false;
+    const id = opened("plan the garden");
+    const n = new ChatNamer({
+      ownerId: "owner",
+      isClosed: () => false,
+      conversations: store,
+      inference: router,
+      engine: () => async () => {
+        engineAsked = true;
+        return "Wrong";
+      },
+      warn: (m) => void warned.push(m),
+    });
+    await n.nameIfUnnamed(id, "plan the garden");
+    expect([store.get(id)?.title, asked, engineAsked]).toEqual(["Garden plan", ["small-local:16"], false]);
   });
 
   it("falls back when the answer is not a title", async () => {

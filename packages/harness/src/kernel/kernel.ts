@@ -128,7 +128,8 @@ import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
 import type { SuggestionStore } from "../improve/store.js";
 import { AfterTurn, EMBED_MS } from "./afterturn.js";
-import { ChatNamer } from "./naming.js";
+import { ChatNamer, type EngineAsk } from "./naming.js";
+import { askSdkOnce, sdkModelFor } from "../chat/sdkname.js";
 import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF, reachesAll, type FixRequest } from "./caretaker.js";
 import { Decisions, type DecisionResult } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
@@ -833,6 +834,7 @@ export class Kernel {
       isClosed: () => this.closed,
       conversations: args.conversations,
       inference: args.inference,
+      engine: () => this.engineAsk(),
       warn: (message) => console.warn(`[kernel] ${message}`),
     });
     this.settings = args.settings;
@@ -2248,6 +2250,37 @@ export class Kernel {
       throw new Error(`no chat, project or blob called ${raw}; name one with @chat:, @project: or @blob:`);
     }
     return chat;
+  }
+
+  /**
+   * One short answer from the engine the chats run on, at its smallest
+   * model, for when the cheap route cannot be asked. Only the Agent SDK
+   * engine answers apart from the router; on the API engine the cheap route
+   * is the engine's own way of asking, so there is nothing else to try.
+   */
+  private engineAsk(): EngineAsk | undefined {
+    if (this.behaviour().engine !== "sdk") return undefined;
+    const model = sdkModelFor(this.inference.routeFor?.("cheap"));
+    return (ask) => this.askSdk({ ...ask, model });
+  }
+
+  /** One short answer from the Agent SDK, its spend logged as a cheap call on the chat it was for. */
+  private async askSdk(ask: Parameters<EngineAsk>[0] & { model: string }): Promise<string> {
+    const answer = await askSdkOnce(ask, this.workspace.root);
+    for (const used of answer.models) {
+      this.spend.record({
+        conversationId: ask.conversationId,
+        task: "cheap",
+        provider: "anthropic",
+        model: used.model,
+        inputTokens: used.inputTokens + used.cacheReadInputTokens + used.cacheCreationInputTokens,
+        outputTokens: used.outputTokens,
+        cacheReadTokens: used.cacheReadInputTokens,
+        cacheCreationTokens: used.cacheCreationInputTokens,
+        costUSD: used.costUSD,
+      });
+    }
+    return answer.text;
   }
 
   /**
