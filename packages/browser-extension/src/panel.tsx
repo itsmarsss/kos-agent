@@ -1,4 +1,4 @@
-import { KOS_SEED, type AskView } from "@kos/shared";
+import { askRisk, KOS_SEED, type AskView } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
 import { AskCard, BoltIcon, ChevronDown, Chips, Collapse, ComposeIcon, Countdown, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, QuoteLine, SendIcon, spring, StepPicture, StepsIcon, StepTime, StopIcon, type Tone, useDismiss, useOverlayScroll, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
@@ -848,7 +848,9 @@ function Extra({ extra }: { extra: Extra }): ReactElement {
 
 /** An approval, as the dashboard draws it: the kit's AskCard, laid out by the host. */
 function Ask({ approval, decide }: { approval: Approval; decide: (approved: boolean, remember?: boolean) => void }): ReactElement {
-  const { title, summary, tool, place, site, steps, risk, always, alwaysTip } = approval;
+  const { title, summary, tool, place, site, steps, always, alwaysTip } = approval;
+  // An older host sends the rule's words alone.
+  const risk = approval.risk ?? askRisk(approval.reason);
   const view: AskView = { title: title ?? summary ?? tool, ...(place ? { place } : {}), ...(site ? { site } : {}), ...(steps ? { steps } : {}), ...(risk ? { risk } : {}), ...(always ? { always, ...(alwaysTip ? { alwaysTip } : {}) } : {}) };
   return (
     <m.div layout {...enter}>

@@ -710,9 +710,9 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(await call("chat.ask", { approval: { id: "a1", tool: "shell.run", reason: "runs a program", expiresAt: Date.now() + 60_000 } })).toMatchObject({ ok: true });
     for (let i = 0; i < 50 && (await devtools.evaluate(panel, `!!${foot}?.querySelector('.live-dots')`)); i++) await until(() => false, 100);
     expect(await devtools.evaluate(panel, `${foot}?.innerText ?? ''`)).toBe("Waiting on you");
-    expect(await devtools.evaluate(panel, "[...document.querySelectorAll('.ask-card:not(.ask-card--consent):not(.ask-card--read) .row .btn')].map((b) => b.textContent)")).toEqual(["Approve", "Deny"]);
-    expect(await text()).toContain("Asked because it runs a program.");
-    expect(await devtools.evaluate(panel, "document.querySelector('.ask-card .countdown')?.textContent")).toMatch(/^lapses in (59|60|1m 0)s$/);
+    expect(await devtools.evaluate(panel, "[...document.querySelectorAll('.kos-ask .kos-ask-actions .btn')].map((b) => b.textContent)")).toEqual(["Approve", "Deny"]);
+    expect(await devtools.evaluate(panel, "document.querySelector('.kos-ask .tag--warn')?.textContent")).toBe("Runs a program");
+    expect(await devtools.evaluate(panel, "document.querySelector('.kos-ask .countdown')?.textContent")).toMatch(/^lapses in (59|60|1m 0)s$/);
     expect(await call("chat.settled", { approval: "a1" })).toMatchObject({ ok: true });
     // The owner holds the chat's session: the foot says so, with Hand back and Stop.
     expect(await call("chat.status", { chat: "chrome:owner", conversation: "chrome:owner", held: true })).toMatchObject({ ok: true });
