@@ -32,6 +32,7 @@ export {
   type Mood,
 } from "./Face.js";
 export { KindMark, Markdown, MentionNames, RefChip, RefLinks } from "./Markdown.js";
+export { BlockActions, KosBlockView, type BlockText } from "./KosBlock.js";
 export { Field, Req, type FieldProps } from "./Field.js";
 export { Tex } from "./Tex.js";
 export { Tooltip, type TooltipAnchorProps, type TooltipProps } from "./Tooltip.js";

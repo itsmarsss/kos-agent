@@ -13,6 +13,7 @@ import {
   CHANNEL_TOKEN,
   COMMAND_NAMES,
   displayMathAt,
+  fenceAt,
   formatTime,
   instantOf,
   listAt,
@@ -20,6 +21,7 @@ import {
   mathOf,
   type MdList,
   MENTION_SOURCE,
+  parseBlock,
   startsList,
   styleOf,
   TIME_TOKEN,
@@ -27,6 +29,7 @@ import {
 } from "@kos/shared";
 
 import { Face } from "./Face.js";
+import { KosBlockView, type BlockText } from "./KosBlock.js";
 import { Tex } from "./Tex.js";
 import { Tooltip } from "./Tooltip.js";
 
@@ -406,22 +409,24 @@ function blocks(source: string): Block[] {
   while (i < lines.length) {
     const line = lines[i] ?? "";
 
-    const fence = /^\s*```(\w*)\s*$/.exec(line);
+    // A fence runs to its close, or to the end of a reply still arriving. A
+    // typed block (kos:<kind>) is drawn as its kind; a malformed one, as the
+    // code block it would otherwise be.
+    const fence = fenceAt(lines, i);
     if (fence) {
-      const lang = fence[1] ?? "";
-      const body: string[] = [];
-      i++;
-      while (i < lines.length && !/^\s*```\s*$/.test(lines[i] ?? "")) {
-        body.push(lines[i] ?? "");
-        i++;
-      }
-      i++; // closing fence, or end of input for an unterminated block
+      const lang = fence.info;
+      const body = fence.body.join("\n");
+      const block = parseBlock(fence.info, fence.body);
+      i = fence.next;
       out.push({
-        render: (k) => (
-          <pre key={k} className="md-code" data-lang={lang || undefined}>
-            <code>{body.join("\n")}</code>
-          </pre>
-        ),
+        render: (k) =>
+          block ? (
+            <KosBlockView key={k} block={block} text={BLOCK_TEXT} />
+          ) : (
+            <pre key={k} className="md-code" data-lang={lang || undefined}>
+              <code>{body}</code>
+            </pre>
+          ),
       });
       continue;
     }
@@ -568,7 +573,7 @@ function blocks(source: string): Block[] {
     while (
       i < lines.length &&
       (lines[i] ?? "").trim() !== "" &&
-      !/^\s*```/.test(lines[i] ?? "") &&
+      !fenceAt(lines, i) &&
       !displayMathAt(lines, i) &&
       !/^#{1,3}\s/.test(lines[i] ?? "") &&
       !/^\s*>\s?/.test(lines[i] ?? "") &&
@@ -595,6 +600,12 @@ function blocks(source: string): Block[] {
 
   return out;
 }
+
+/** How a typed block draws its fields and a card's body: as KOS's words are drawn. */
+const BLOCK_TEXT: BlockText = {
+  inline: (text) => inline(text),
+  markdown: (text) => blocks(text).map((b, i) => b.render(i)),
+};
 
 export function Markdown({ text }: { text: string }): ReactElement {
   return <div className="md">{blocks(text).map((b, i) => b.render(i))}</div>;

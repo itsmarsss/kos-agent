@@ -359,6 +359,27 @@ export const ExternalIcon = ({ size = 14 }: IconProps = {}): ReactElement => (
   </Glyph>
 );
 
+/** Mail: an envelope, for a draft that opens in the owner's mail app. */
+export const MailIcon = ({ size = 15 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <path d="M4 6h16v12H4zM4 7l8 6 8-6" />
+  </Glyph>
+);
+
+/** A calendar page, for an event that goes into the owner's calendar. */
+export const CalendarIcon = ({ size = 15 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4" />
+  </Glyph>
+);
+
+/** A place on a map: a pin. */
+export const PlaceIcon = ({ size = 15 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11zM12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5" />
+  </Glyph>
+);
+
 /** A list of rows, beside the grid, for how a list is laid out. */
 export const ListIcon = ({ size = 15 }: IconProps = {}): ReactElement => (
   <Glyph size={size}>

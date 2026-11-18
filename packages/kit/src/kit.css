@@ -182,6 +182,45 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
   overflow-x: auto;
 }
 .md-code code { background: none; padding: 0; font-size: var(--text-base); }
+
+/* —— a typed block (docs/blocks.md): its kind's head and actions, its fields in two columns, its body —— */
+.kblock { width: 34rem; max-width: 100%; box-sizing: border-box; margin: 0 0 0.5rem; color: var(--text); white-space: normal; }
+.kblock-head { flex-wrap: nowrap; min-height: 1.625rem; }
+.kblock-head > .label, .kblock-head > .kblock-title { min-width: 0; overflow-wrap: anywhere; }
+.kblock-acts { gap: 0.15rem; margin: -0.2rem -0.3rem -0.2rem 0; }
+/* A link among the actions is the same quiet circle as a button, never the prose link's accent and underline. */
+.kblock .kblock-acts a.icon-btn { color: var(--muted); text-decoration: none; }
+.kblock .kblock-acts a.icon-btn:hover { color: var(--text); }
+.kblock-title { font-weight: 600; overflow-wrap: anywhere; }
+.kblock-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.3rem 0.85rem; margin: 0; }
+.kblock-row { display: contents; }
+.kblock-row dt { color: var(--muted); }
+.kblock-row dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.kblock-value + .kblock-value::before { content: ", "; }
+/* The body under the fields, past a hairline, as a draft's text sits under its header. */
+.kblock-rows ~ .kblock-body, .kblock-rows ~ .kblock-checks, .kblock-rows ~ .kblock-steps, .kblock-rows ~ .kblock-code { margin-top: 0.15rem; }
+.kblock-rows ~ .kblock-body { padding-top: 0.6rem; border-top: 1px solid var(--line); }
+.kblock-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.kblock-md > :last-child { margin-bottom: 0; }
+.kblock-quote { margin: 0; padding-left: 0.65rem; border-left: 2px solid var(--line-strong); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.kblock-rows ~ .kblock-quote { padding-top: 0; border-top: 0; }
+.kblock-code { margin: 0; padding: 0.55rem 0.7rem; background: var(--panel-2); border-radius: var(--r-sm); overflow-x: auto; font-family: var(--mono); font-size: var(--text-base); line-height: 1.5; }
+.kblock-code code { background: none; padding: 0; font-size: inherit; }
+/* A command wraps rather than scrolls: it is read and copied whole, on a phone too. */
+.kblock--mono .kblock-code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.kblock-diff code > span { display: block; margin: 0 -0.7rem; padding: 0 0.7rem; min-height: 1.5em; }
+.kblock-diff-add { color: var(--ok); background: var(--ok-dim); }
+.kblock-diff-del { color: var(--danger); background: var(--danger-dim); }
+.kblock-diff-hunk { color: var(--muted); }
+.kblock-diff code { display: block; min-width: fit-content; }
+.kblock-checks, .kblock-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.3rem; }
+.kblock-check { display: flex; align-items: flex-start; gap: 0.55rem; cursor: pointer; }
+.kblock-check input { flex: none; width: 0.95rem; height: 0.95rem; margin: 0.18em 0 0; accent-color: var(--accent); cursor: pointer; }
+.kblock-check input:checked + span { color: var(--muted); text-decoration: line-through; }
+.kblock-check-note { color: var(--muted); }
+.kblock-steps { counter-reset: kblock-step; }
+.kblock-steps li { display: flex; gap: 0.55rem; counter-increment: kblock-step; overflow-wrap: anywhere; }
+.kblock-steps li::before { content: counter(kblock-step); flex: none; display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; margin-top: 0.05em; border-radius: 50%; background: var(--panel-2); color: var(--muted); font-size: var(--text-xs); font-weight: 600; font-variant-numeric: tabular-nums; }
 /* LaTeX, typeset. A wide formula scrolls on its own rather than widening the bubble. */
 .md-math .katex { font-size: 1.05em; }
 .md-math-block { margin: 0 0 0.5rem; overflow-x: auto; overflow-y: hidden; }
