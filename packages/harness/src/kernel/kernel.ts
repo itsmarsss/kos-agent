@@ -2953,7 +2953,7 @@ export class Kernel {
   }
 
   /** Carry out the owner's decision on a queued action. Every surface comes through here. */
-  async approve(id: number, decidedBy?: string, options: { remember?: boolean } = {}): Promise<DecisionResult> {
+  async approve(id: number, decidedBy?: string, options: { remember?: boolean; surface?: string } = {}): Promise<DecisionResult> {
     return this.decisions.approve(id, decidedBy, options);
   }
 
@@ -3257,7 +3257,7 @@ export class Kernel {
           };
         }
         const result =
-          command.kind === "approve" ? await this.approve(action.id, userId) : await this.deny(action.id, userId);
+          command.kind === "approve" ? await this.approve(action.id, userId, { surface: channel }) : await this.deny(action.id, userId);
         const what = `@approval:${action.id} ${summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id), this.actionHome(action.conversationId))}`;
         return { reply: result.ok ? `${command.kind === "approve" ? "Approved" : "Denied"} ${what}.` : result.message };
       }
