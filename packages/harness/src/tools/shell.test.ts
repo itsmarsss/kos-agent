@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -163,6 +164,61 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     await createShellModule({ timeoutSeconds: 5 }).activate(ctx);
     expect(maintenance.refusal("shell.run", { command: "sqlite3 kos.sqlite .tables" })).toBeUndefined();
     expect(maintenance.classify("shell.run", { command: "sqlite3 -readonly kos.sqlite .tables" }).tier).toBe("risky");
+  });
+
+  it("runs none of a repository's own programs on a git read", async () => {
+    // Written as the agent could have: a fsmonitor hook and a textconv driver, each leaving a mark.
+    const git = (...args: string[]): string => execFileSync("git", args, { cwd: root, encoding: "utf8" });
+    git("init", "-q");
+    git("-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "a");
+    const hook = join(root, "hook.sh");
+    writeFileSync(hook, `#!/bin/sh\ntouch "${root}/FSMONITOR"\n`);
+    chmodSync(hook, 0o755);
+    git("config", "core.fsmonitor", hook);
+    git("config", "diff.mark.textconv", `sh -c 'touch "${root}/TEXTCONV"; cat "$0"'`);
+    writeFileSync(join(root, ".gitattributes"), "*.t diff=mark\n");
+    writeFileSync(join(root, "a.t"), "one\n");
+    git("add", "a.t", ".gitattributes");
+    git("-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "b");
+    writeFileSync(join(root, "a.t"), "two\n");
+    // Unheld, git runs both: the test would see a mark.
+    git("status");
+    git("diff");
+    expect(existsSync(join(root, "FSMONITOR")) && existsSync(join(root, "TEXTCONV"))).toBe(true);
+    rmSync(join(root, "FSMONITOR"));
+    rmSync(join(root, "TEXTCONV"));
+
+    expect(registry.classify("shell.run", { command: "git status && git diff" }).tier).toBe("safe");
+    const status = await run({ command: "git status --short" });
+    expect(status.stdout).toContain("a.t");
+    const diff = await run({ command: "git diff" });
+    expect(diff.stdout).toContain("+two");
+    expect(existsSync(join(root, "FSMONITOR"))).toBe(false);
+    expect(existsSync(join(root, "TEXTCONV"))).toBe(false);
+  });
+
+  it("cannot write a repository's config or hooks, or git's global config", async () => {
+    execFileSync("git", ["init", "-q", "projects/x"], { cwd: root });
+    const config = readFileSync(join(root, "projects/x/.git/config"), "utf8");
+    for (const command of [
+      "printf '[core]\\n\\tfsmonitor = ./x\\n' >> projects/x/.git/config",
+      "cd projects/x && git config core.fsmonitor ./x",
+      "echo x > projects/x/.git/hooks/pre-commit",
+      "mkdir -p projects/x/.git/hooks/sub",
+      "echo x > projects/x/.git/info/attributes",
+      "echo x > .gitconfig",
+      "git config --global core.pager ./x",
+      "mkdir -p .config/git && echo x > .config/git/config",
+    ]) {
+      await run({ command });
+    }
+    expect(readFileSync(join(root, "projects/x/.git/config"), "utf8")).toBe(config);
+    for (const path of ["projects/x/.git/hooks/pre-commit", "projects/x/.git/hooks/sub", "projects/x/.git/info/attributes", ".gitconfig", ".config/git/config"]) {
+      expect(existsSync(join(root, path)), path).toBe(false);
+    }
+    // The rest of a repository is git's to write: a commit still lands.
+    const commit = await run({ command: "cd projects/x && echo a > a && git add a && git -c user.email=a@b -c user.name=a commit -qm a && git log --oneline" });
+    expect(commit.stdout.trim()).toMatch(/^[0-9a-f]+ a$/);
   });
 
   it("is risky by floor, and safe for a line that only reads", () => {
