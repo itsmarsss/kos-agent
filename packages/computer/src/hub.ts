@@ -6,7 +6,7 @@ import type { Build } from "./builds.js";
 import { publicKeyFromRaw, type HostKey } from "./keys.js";
 import { DeviceError, DeviceLink, type Refusal, type Socket } from "./link.js";
 import { PairingCodes, type PairingCode } from "./pairing.js";
-import { BROWSER_PLATFORM, CLOSE, PHONE_PLATFORM, PROTOCOL_VERSION, type Consent, type DeviceEvent, type EndReason, type Grant, type Method, type PanelMethod, type Permissions, type Size, type Target } from "./protocol.js";
+import { BROWSER_PLATFORM, CLOSE, PHONE_PLATFORM, PROTOCOL_VERSION, readEndReason, type Consent, type DeviceEvent, type EndReason, type Grant, type Method, type PanelMethod, type Permissions, type Size, type Target } from "./protocol.js";
 import { MAX_ASK_MINUTES, type ComputerSettings, type Device, type DeviceStore } from "./store.js";
 
 /**
@@ -76,6 +76,8 @@ export interface HubDeps {
   callTimeoutMs?: number;
   /** How long an action waits for the owner to hand a session back. */
   handBackWaitMs?: number;
+  /** How long a session outlives its device's line, for the device to come back and say it still holds it. */
+  lineGraceMs?: number;
 }
 
 /** A computer running KOS for Mac, a Chrome running KOS for Chrome, or a phone running KOS for iPhone, which only chats. */
@@ -104,6 +106,13 @@ const CALL_TIMEOUT_MS = 20_000;
 const PANEL_TIMEOUT_MS = 10_000;
 /** How long KOS waits for the owner to hand back a session they took over, on any device. */
 export const HAND_BACK_WAIT_MS = 5 * 60_000;
+/**
+ * How long a session outlives its device's line. A device that comes back
+ * within it says in its hello whether it still holds the session; one that
+ * does not come back loses it. KOS for Chrome waits less than this for its
+ * line before it ends a session itself, so one it keeps is still here.
+ */
+const LINE_GRACE_MS = 20_000;
 /** A device refused again and again is logged once in this long. */
 const REFUSAL_LOG_MS = 60_000;
 const MAX_REFUSALS_LOGGED = 100;
@@ -125,6 +134,8 @@ export class DeviceHub {
   private readonly asks = new Map<string, { device: string; session: string; withdraw: () => void }>();
   /** When each refused device id was last logged, for each check it failed. */
   private readonly refusalsLogged = new Map<string, number>();
+  /** Devices whose line dropped with a session on them: the session ends when the wait runs out, unless they come back holding it. */
+  private readonly graces = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(private readonly deps: HubDeps) {
     this.codes = new PairingCodes(this.now);
@@ -212,8 +223,17 @@ export class DeviceHub {
     const key = `${device}\n${check}`;
     if (this.refusalsLogged.has(key) || this.refusalsLogged.size >= MAX_REFUSALS_LOGGED) return;
     this.refusalsLogged.set(key, now);
-    const line = `devices: refused ${loggable(device)} (${loggable(app.platform, 20)} ${loggable(app.version, 20)} on ${loggable(app.os, 40)}): ${check}`;
+    this.log(`devices: refused ${loggable(device)} (${loggable(app.platform, 20)} ${loggable(app.version, 20)} on ${loggable(app.os, 40)}): ${check}`);
+  }
+
+  /** One line in the host's log: what a device's line and sessions did, never what anyone said. */
+  private log(line: string): void {
     (this.deps.log ?? ((l: string) => console.error(l)))(line);
+  }
+
+  /** A device as a log line names it: its name and id. */
+  private named(id: string): string {
+    return `${loggable(this.deps.store.get(id)?.name ?? "?", 40)} (${id})`;
   }
 
   private ready(link: DeviceLink): void {
@@ -222,6 +242,9 @@ export class DeviceHub {
     this.links.set(id, link);
     // The newer connection wins: the old one is a laptop that slept and woke.
     older?.close(CLOSE.replaced, "replaced by a newer connection");
+    const app = link.app ? ` ${loggable(link.app.platform, 20)} ${loggable(link.app.version, 20)}` : "";
+    this.log(`devices: ${this.named(id)} line up${app}${link.build ? ` build ${loggable(link.build.id, 40)}` : ""}${older ? ", replacing an older line" : ""}`);
+    this.settleHeld(link);
     this.deps.store.seen(id);
     this.showFace(link);
     this.showTheme(link);
@@ -268,12 +291,56 @@ export class DeviceHub {
 
   private gone(link: DeviceLink): void {
     const id = link.device?.id;
-    if (!id || this.links.get(id) !== link) return;
+    if (!id) return;
+    if (this.links.get(id) !== link) {
+      this.log(`devices: ${this.named(id)} older line down: ${link.closedWith ?? "closed"}`);
+      return;
+    }
     this.links.delete(id);
     this.deps.store.seen(id);
-    // A device that is gone ends its session itself; this side follows.
-    for (const s of this.sessions.values()) if (s.device === id) this.drop(s, "offline");
+    const held = [...this.sessions.values()].filter((s) => s.device === id);
+    this.log(`devices: ${this.named(id)} line down: ${link.closedWith ?? "closed"}${held.length ? `; its session waits ${Math.round(this.graceMs / 1000)} s for it to come back` : ""}`);
+    // The device may be back in a moment holding its session (a Chrome's worker woke, a laptop's Wi-Fi blinked); one that is not loses it.
+    if (held.length) {
+      clearTimeout(this.graces.get(id));
+      this.graces.set(
+        id,
+        setTimeout(() => {
+          this.graces.delete(id);
+          for (const s of [...this.sessions.values()]) if (s.device === id) this.drop(s, "offline", "its line did not come back");
+          this.changed();
+        }, this.graceMs),
+      );
+    }
     this.changed();
+  }
+
+  private get graceMs(): number {
+    return this.deps.lineGraceMs ?? LINE_GRACE_MS;
+  }
+
+  /**
+   * A device back on its line: the session it says it still holds goes on;
+   * one KOS kept for it that it does not hold ends, with the reason it gave
+   * when it lost it while away; one it holds that KOS does not is ended there.
+   */
+  private settleHeld(link: DeviceLink): void {
+    const id = link.device!.id;
+    clearTimeout(this.graces.get(id));
+    this.graces.delete(id);
+    const claim = link.held;
+    for (const s of [...this.sessions.values()]) {
+      if (s.device !== id) continue;
+      if (claim?.id === s.id && !claim.ended) {
+        this.log(`devices: session ${s.id} on ${this.named(id)} goes on across the new line`);
+        continue;
+      }
+      this.drop(s, claim?.id === s.id && claim.ended ? claim.ended : "offline", "the device came back without it");
+    }
+    if (claim && !claim.ended && !this.sessions.has(claim.id)) {
+      this.log(`devices: ${this.named(id)} still held session ${claim.id}, which KOS no longer has; ending it there`);
+      void link.call("session.end", { session: claim.id }, 5_000).catch(() => undefined);
+    }
   }
 
   private event(link: DeviceLink, event: DeviceEvent): void {
@@ -291,12 +358,17 @@ export class DeviceHub {
     else if (event.name === "session.scrolled") session.scrolled = true;
     // The owner gave it more time on the device.
     else if (event.name === "session.extended" && typeof event.data.until === "number" && event.data.until > session.until) session.until = event.data.until;
-    else if (event.name === "session.ended") this.drop(session, endReason(event.data.reason));
+    else if (event.name === "session.ended") {
+      const why = readEndReason(event.data.reason);
+      this.drop(session, why, why === "owner" ? "the owner, on the device" : "the device");
+    }
     this.changed();
   }
 
-  private drop(session: Session, why: EndReason | "offline" | "removed"): void {
+  /** A session over on this side, why, and who ended it, said in the host's log. */
+  private drop(session: Session, why: EndReason | "offline" | "removed", by: string): void {
     if (!this.sessions.delete(session.id)) return;
+    this.log(`devices: session ${session.id} on ${this.named(session.device)} for chat ${session.conversation} ended: ${why}, by ${by}`);
     this.endings.set(session.conversation, why);
     for (const l of [...this.endListeners]) l(session, why);
   }
@@ -350,7 +422,7 @@ export class DeviceHub {
   sessionOf(conversation: string): Session | undefined {
     const session = [...this.sessions.values()].find((s) => s.conversation === conversation);
     if (session && session.until <= this.now()) {
-      this.drop(session, "expired");
+      this.drop(session, "expired", "its time");
       return undefined;
     }
     return session;
@@ -440,6 +512,7 @@ export class DeviceHub {
       ...(grant.site ? { site: grant.site } : {}),
     };
     this.sessions.set(id, session);
+    this.log(`devices: session ${id} on ${this.named(input.device.id)} for chat ${input.conversation} began, ${Math.round((grant.until - this.now()) / 60_000)} min${grant.site ? ", its site's steps unasked" : ""}`);
     this.endings.delete(input.conversation);
     this.changed();
     return session;
@@ -499,7 +572,7 @@ export class DeviceHub {
     if (session.scrolled && method !== "screen.capture") throw new DeviceError("scrolled", "the owner scrolled; look again before acting");
     const link = this.links.get(session.device);
     if (!link?.ready) {
-      this.drop(session, "offline");
+      this.drop(session, "offline", "its line being down when KOS acted");
       throw new DeviceError("offline", "the device went offline");
     }
     try {
@@ -507,7 +580,7 @@ export class DeviceHub {
       if (method === "screen.capture" && params["region"] === undefined) session.scrolled = false;
       return result;
     } catch (err) {
-      if (err instanceof DeviceError && err.code === "no_session") this.drop(session, "host");
+      if (err instanceof DeviceError && err.code === "no_session") this.drop(session, "host", "the device, which said it holds none");
       if (err instanceof DeviceError && err.code === "paused") session.paused = true;
       throw err;
     }
@@ -527,8 +600,8 @@ export class DeviceHub {
   }
 
   /** End a session here and tell the device, without waiting on it: the overlay goes as soon as it hears. */
-  private release(session: Session, why: EndReason): void {
-    this.drop(session, why);
+  private release(session: Session, why: EndReason, by: string): void {
+    this.drop(session, why, by);
     void this.links.get(session.device)?.call("session.end", { session: session.id }, 5_000).catch(() => undefined);
   }
 
@@ -536,7 +609,7 @@ export class DeviceHub {
   end(conversation: string): boolean {
     const session = this.sessionOf(conversation);
     if (!session) return false;
-    this.release(session, "host");
+    this.release(session, "host", "KOS (its chat ended it)");
     this.changed();
     return true;
   }
@@ -545,14 +618,14 @@ export class DeviceHub {
   stopOn(deviceId: string): boolean {
     const session = [...this.sessions.values()].find((s) => s.device === deviceId);
     if (!session) return false;
-    this.release(session, "owner");
+    this.release(session, "owner", "the owner, on the dashboard");
     this.changed();
     return true;
   }
 
   /** End every session: the kill switch, or the module switched off. */
   endAll(reason: EndReason): void {
-    for (const session of [...this.sessions.values()]) this.release(session, reason);
+    for (const session of [...this.sessions.values()]) this.release(session, reason, "KOS (the kill switch, or computer use going off)");
     this.changed();
   }
 
@@ -565,7 +638,9 @@ export class DeviceHub {
   /** Unpair: the key is forgotten and a live connection is closed as unknown. */
   remove(id: string): boolean {
     const removed = this.deps.store.remove(id);
-    for (const s of [...this.sessions.values()]) if (s.device === id) this.drop(s, "removed");
+    for (const s of [...this.sessions.values()]) if (s.device === id) this.drop(s, "removed", "unpairing");
+    clearTimeout(this.graces.get(id));
+    this.graces.delete(id);
     this.links.get(id)?.close(CLOSE.unauthorized, "removed from KOS");
     this.links.delete(id);
     this.changed();
@@ -575,6 +650,8 @@ export class DeviceHub {
   /** Close every connection, for a host shutting down. */
   closeAll(): void {
     this.endAll("host");
+    for (const timer of this.graces.values()) clearTimeout(timer);
+    this.graces.clear();
     for (const link of this.links.values()) link.close(1001, "KOS is stopping");
     this.links.clear();
   }
@@ -644,8 +721,4 @@ function readTarget(v: unknown): Target {
   const t = (v ?? {}) as Record<string, unknown>;
   if (t.kind !== "window") return { kind: "screen" };
   return { kind: "window", ...(typeof t.app === "string" ? { app: t.app } : {}), ...(typeof t.title === "string" ? { title: t.title } : {}) };
-}
-
-function endReason(v: unknown): EndReason {
-  return v === "owner" || v === "expired" || v === "idle" || v === "quit" || v === "window" || v === "detached" || v === "restarted" ? v : "host";
 }

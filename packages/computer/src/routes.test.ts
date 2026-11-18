@@ -16,7 +16,8 @@ import { DeviceStore } from "./store.js";
 const hostPrivate = generateKeyPairSync("ed25519").privateKey;
 const hostKey = { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) };
 
-const newHub = () => new DeviceHub({ store: new DeviceStore(openDatabase(":memory:")), hostKey, halted: () => false });
+// A line that closes ends its session at once here: the wait for the device to come back is the hub's to test.
+const newHub = () => new DeviceHub({ store: new DeviceStore(openDatabase(":memory:")), hostKey, halted: () => false, lineGraceMs: 0, log: () => undefined });
 
 let server: Server | undefined;
 let closeSockets: (() => void) | undefined;
