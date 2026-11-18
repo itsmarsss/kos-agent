@@ -174,12 +174,15 @@ function pair(v: unknown, name: string): Point | undefined {
   return { x: Math.round(v[0] as number), y: Math.round(v[1] as number) };
 }
 
-/** What the agent is told when the device refuses: what happened, and what to do instead. */
-export function refusalText(err: unknown, ending?: string): string {
+/** What the agent is told when the device refuses: what happened, and what to do instead. A Chrome's lost session is told as the owner's Chrome's. */
+export function refusalText(err: unknown, ending?: string, kind: "computer" | "browser" = "computer"): string {
   if (!(err instanceof DeviceError)) return err instanceof Error ? err.message : String(err);
+  const ended = ending ? ` (the last one ended: ${endingText(ending, kind)})` : "";
   switch (err.code) {
     case "no_session":
-      return `No session on a computer in this chat${ending ? ` (the last one ended: ${endingText(ending)})` : ""}. Call computer.start first; when the owner spoke in the KOS for Mac window, computer.act starts one itself.`;
+      return kind === "browser"
+        ? `No session in the owner's Chrome in this chat${ended}. chrome.start asks for one; when the owner spoke in the side panel, the first browser call asks there itself.`
+        : `No session on a computer in this chat${ended}. Call computer.start first; when the owner spoke in the KOS for Mac window, computer.act starts one itself.`;
     case "paused":
       return "The owner took control partway. The next call waits for them to hand it back, then shows you the screen; act on what it shows.";
     case "scrolled":
@@ -203,7 +206,9 @@ export function refusalText(err: unknown, ending?: string): string {
   }
 }
 
-function endingText(why: string): string {
+/** Why a session ended, as the agent and the owner are told it. */
+export function endingText(why: string, kind: "computer" | "browser" = "computer"): string {
+  const device = kind === "browser" ? "the owner's Chrome" : "the computer";
   switch (why) {
     case "owner":
       return "the owner stopped it";
@@ -214,11 +219,17 @@ function endingText(why: string): string {
     case "quit":
       return "KOS for Mac was quit";
     case "offline":
-      return "the computer went offline";
+      return `${device} went offline`;
     case "removed":
-      return "the computer was unpaired";
+      return `${device} was unpaired`;
     case "window":
       return "the window it was given closed";
+    case "detached":
+      return "the owner closed Chrome's debugging bar";
+    case "restarted":
+      return "KOS for Chrome restarted, which ends its session";
+    case "host":
+      return "KOS ended it, or the device's line to KOS dropped";
     default:
       return "KOS ended it";
   }

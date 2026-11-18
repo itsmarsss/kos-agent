@@ -5,6 +5,7 @@ import { kindOf, type DeviceHub, type Session } from "./hub.js";
 import { DeviceError } from "./link.js";
 import type { DeviceEvent } from "./protocol.js";
 import type { Device } from "./store.js";
+import { endingText, refusalText } from "./tools.js";
 
 /**
  * The owner's own Chrome, as a browser KOS's tools can work in.
@@ -221,7 +222,7 @@ export class OwnerChrome implements BrowserElsewhere {
 
   private borrowed(conversation: string): Borrowed {
     const session = this.session(conversation);
-    if (!session) throw new Error("this chat has no session in the owner's Chrome; chrome.start asks for one (from the side panel, the first browser call does)");
+    if (!session) throw new Error(refusalText(new DeviceError("no_session", "no session"), this.hub.takeEnding(conversation), "browser"));
     let b = this.held.get(conversation);
     if (!b || b.session !== session.id) {
       b = { session: session.id, tabs: new Map(), pages: new Map(), moved: 0 };
@@ -230,8 +231,18 @@ export class OwnerChrome implements BrowserElsewhere {
     return b;
   }
 
+  /** A call in the conversation's session; one refused for want of a session says why the last one ended. */
+  private async act(conversation: string, method: "tabs.list" | "tabs.open" | "cdp.send" | "cdp.batch", params: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> {
+    try {
+      return await this.hub.act(conversation, method, params, timeoutMs);
+    } catch (err) {
+      if (err instanceof DeviceError && err.code === "no_session") throw new DeviceError("no_session", refusalText(err, this.hub.takeEnding(conversation), "browser"));
+      throw err;
+    }
+  }
+
   private async refresh(conversation: string, b: Borrowed): Promise<void> {
-    const listed = await this.hub.act(conversation, "tabs.list", {});
+    const listed = await this.act(conversation, "tabs.list", {});
     const tabs = Array.isArray(listed["tabs"]) ? (listed["tabs"] as Record<string, unknown>[]) : [];
     for (const t of tabs) {
       if (typeof t["id"] !== "string") continue;
@@ -240,7 +251,7 @@ export class OwnerChrome implements BrowserElsewhere {
   }
 
   private async open(conversation: string, b: Borrowed): Promise<string> {
-    const opened = await this.hub.act(conversation, "tabs.open", { url: "about:blank" });
+    const opened = await this.act(conversation, "tabs.open", { url: "about:blank" });
     const tab = String(opened["tab"] ?? "");
     if (!tab) throw new Error("the owner's Chrome opened no tab");
     b.tabs.set(tab, { url: "about:blank", title: "", handed: false });
@@ -251,7 +262,7 @@ export class OwnerChrome implements BrowserElsewhere {
     let page = b.pages.get(tab);
     if (!page) {
       page = new Page(
-        relayLine((method, params, timeoutMs) => this.hub.act(conversation, method, params, timeoutMs), tab),
+        relayLine((method, params, timeoutMs) => this.act(conversation, method, params, timeoutMs), tab),
         { gate: (signal) => this.whileOwnerHas(conversation, signal) },
       );
       b.pages.set(tab, page);
@@ -268,7 +279,8 @@ export class OwnerChrome implements BrowserElsewhere {
       if (!(err instanceof DeviceError)) throw err;
       if (err.code === "held") throw new Error("The owner kept control of their Chrome and did not hand it back. Stop here and tell them where you stopped.");
       if (err.code === "stopped_in_control") throw new Error("The owner pressed Stop while they had their Chrome.");
-      throw new Error("The session in the owner's Chrome ended while they had it.");
+      const why = this.hub.takeEnding(conversation);
+      throw new Error(`The session in the owner's Chrome ended while they had it${why ? `: ${endingText(why, "browser")}` : ""}.`);
     }
   }
 

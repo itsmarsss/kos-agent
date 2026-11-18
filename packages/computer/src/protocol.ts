@@ -131,7 +131,7 @@ export interface Reply {
 
 export type EventName = "session.paused" | "session.resumed" | "session.scrolled" | "session.extended" | "session.ended";
 
-export type EndReason = "owner" | "expired" | "idle" | "quit" | "host" | "window" | "detached";
+export type EndReason = "owner" | "expired" | "idle" | "quit" | "host" | "window" | "detached" | "restarted";
 
 export interface DeviceEvent {
   t: "event";

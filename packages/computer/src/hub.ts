@@ -647,5 +647,5 @@ function readTarget(v: unknown): Target {
 }
 
 function endReason(v: unknown): EndReason {
-  return v === "owner" || v === "expired" || v === "idle" || v === "quit" || v === "window" || v === "detached" ? v : "host";
+  return v === "owner" || v === "expired" || v === "idle" || v === "quit" || v === "window" || v === "detached" || v === "restarted" ? v : "host";
 }

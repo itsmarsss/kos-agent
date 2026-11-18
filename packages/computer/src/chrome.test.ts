@@ -142,6 +142,21 @@ describe("a Chrome paired through the extension", () => {
     expect(chrome.active("c1")).toBe(false);
   });
 
+  it("says why the chat's last session in the owner's Chrome ended", async () => {
+    const { tools, chrome, pairChrome } = setup();
+    const fake = pairChrome();
+    await attendance.run(true, () => tools.get("chrome.start")!({ task: "look" }));
+    const session = fake.calls.find((c) => c.method === "session.begin")!.params["session"];
+    fake.event("session.ended", { session, reason: "detached" });
+    await expect(chrome.tab("c1")).rejects.toThrow(/No session in the owner's Chrome in this chat \(the last one ended: the owner closed Chrome's debugging bar\)\. chrome\.start/);
+    // Said once: the next refusal has nothing new to tell.
+    await expect(chrome.tab("c1")).rejects.toThrow(/^No session in the owner's Chrome in this chat\. chrome\.start/);
+    await attendance.run(true, () => tools.get("chrome.start")!({ task: "look again" }));
+    const again = fake.calls.filter((c) => c.method === "session.begin")[1]!.params["session"];
+    fake.event("session.ended", { session: again, reason: "restarted" });
+    await expect(chrome.tab("c1")).rejects.toThrow(/KOS for Chrome restarted/);
+  });
+
   it("drives a tab of its own through the extension, its page hearing the tab's events", async () => {
     const { chrome, tools, pairChrome } = setup();
     const fake = pairChrome();
