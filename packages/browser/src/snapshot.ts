@@ -98,6 +98,41 @@ const MODAL = new Set(["dialog", "alertdialog"]);
 /** Roles that hold a value worth saying. */
 const VALUED = new Set(["textbox", "searchbox", "combobox", "spinbutton", "slider"]);
 
+/** What a secret field's value reads as: a password's, a card's, a one-time code's. */
+export const HIDDEN_VALUE = "(hidden)";
+
+/** Labels and names of fields that hold a secret. inpage.ts keeps its own copy, as page code cannot import. */
+const SECRET_NAMED = /password|passcode|card|cvc|cvv|csc/i;
+
+/** Autocomplete tokens of fields that hold a secret. */
+const SECRET_AUTOCOMPLETE = /^(cc-.*|current-password|new-password|one-time-code)$/;
+
+/**
+ * Whether a field holds a secret, by its markup: a password input, an
+ * autocomplete that names a card, a password or a one-time code, or a name
+ * or id that says so. The tree alone cannot tell a card number's box from a
+ * search box, so the page is asked for these.
+ */
+export function secretField(attributes: Record<string, string>): boolean {
+  if ((attributes["type"] ?? "").toLowerCase() === "password") return true;
+  if ((attributes["autocomplete"] ?? "").toLowerCase().split(/\s+/).some((token) => SECRET_AUTOCOMPLETE.test(token))) return true;
+  return SECRET_NAMED.test(`${attributes["name"] ?? ""} ${attributes["id"] ?? ""}`);
+}
+
+/** Whether a node's role holds a value, and it has one to say. */
+export function holdsValue(node: AxNode): boolean {
+  return VALUED.has(text(node.role, 40)) && text(node.value, 1) !== "";
+}
+
+/** A control's value as it is said: none for a role that holds none, and never a secret's. */
+function valueOf(node: AxNode, role: string, name: string): string {
+  if (!VALUED.has(role)) return "";
+  const value = text(node.value, 60);
+  // Chrome reads a password field out as bullets, one per character: a length is a secret's too.
+  const masked = /^•+$/.test(String(node.value?.value ?? ""));
+  return value && (masked || SECRET_NAMED.test(name)) ? HIDDEN_VALUE : value;
+}
+
 function text(v: AxValue | undefined, max: number): string {
   const raw = v?.value;
   if (typeof raw !== "string" && typeof raw !== "number") return "";
@@ -146,7 +181,8 @@ function describe(role: string, name: string, state: string[], value: string, re
 /** A node as one line, with its ref when it is an element. */
 function lineOf(node: AxNode, role: string, refs: Refs): string {
   const ref = node.backendDOMNodeId !== undefined ? refs.refOf(node.backendDOMNodeId) : "";
-  return describe(role, text(node.name, 100), states(node), VALUED.has(role) ? text(node.value, 60) : "", ref);
+  const name = text(node.name, 100);
+  return describe(role, name, states(node), valueOf(node, role, name), ref);
 }
 
 interface Walked {
@@ -207,7 +243,7 @@ export function controlsOf(nodes: AxNode[]): { controls: Control[]; total: numbe
     if (!CONTROLS.has(role) || node.backendDOMNodeId === undefined) continue;
     const name = text(node.name, 100);
     if (!name && role === "link") continue;
-    const control: Control = { node: node.backendDOMNodeId, role, name, states: states(node), ...(VALUED.has(role) ? { value: text(node.value, 60) } : {}), ...(dialog !== undefined ? { dialog } : {}) };
+    const control: Control = { node: node.backendDOMNodeId, role, name, states: states(node), ...(VALUED.has(role) ? { value: valueOf(node, role, name) } : {}), ...(dialog !== undefined ? { dialog } : {}) };
     if (role === "link") {
       const same = links.get(`${dialog ?? ""}|${name}`);
       if (same) {
@@ -273,7 +309,11 @@ export function treeOf(nodes: AxNode[], refs: Refs, maxChars = TREE_MAX): { text
   const out: string[] = [];
   let size = 0;
   const said: string[] = [];
+  /** How deep the secret field being passed is: what it holds is drawn inside it too, as its text. */
+  let secretAt: number | undefined;
   for (const { node, role, depth } of walk(nodes)) {
+    if (secretAt !== undefined && depth > secretAt) continue;
+    secretAt = valueOf(node, role, text(node.name, 100)) === HIDDEN_VALUE ? depth : undefined;
     said.length = depth;
     let line: string;
     if (role === "StaticText") {
