@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -157,7 +157,7 @@ describe("SecretsRegistry over a vault", () => {
   });
 
   it("names what it masked, for a door to tell the owner", () => {
-    expect(reg.mask("my key is sk_live_vaulted_0123456789")).toEqual({ text: `my key is [secret ${key}.token]`, found: [`${key}.token`] });
+    expect(reg.mask("my key is sk_live_vaulted_0123456789")).toEqual({ text: `my key is [secret ${key}.token]`, found: [`${key}.token`], shut: false });
   });
 
   it("keeps the vault through a reload of the env", () => {
@@ -184,4 +184,47 @@ describe("SecretsRegistry and a vault changed elsewhere", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+});
+
+describe("SecretsRegistry over a locked vault", () => {
+  it("still masks a password and a key from the scrub index, and a card and known keys by shape", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-registry-locked-"));
+    try {
+      const dir = join(root, "secrets");
+      const open = new Vault({ dir });
+      await open.init({ passphrase: "a long passphrase" });
+      const login = open.add({ label: "GitHub", kind: "login", values: { password: "pw-locked-canary-77" } });
+      const key = open.add({ label: "Custom", kind: "apikey", values: { token: "zz_custom_token_0123456789" } });
+      open.add({ label: "Visa", kind: "card", values: { number: "4111 1111 1111 1111" } });
+      expect(readFileSync(join(dir, "scrub.kosi"), "utf8")).not.toMatch(/pw-locked|zz_custom|4111/);
+
+      const locked = new Vault({ dir });
+      expect(locked.status().state).toBe("locked");
+      const reg = new SecretsRegistry();
+      reg.attachVault(locked);
+      const text = [
+        "pw-locked-canary-77",
+        Buffer.from("zz_custom_token_0123456789").toString("base64"),
+        "4111-1111-1111-1111",
+        "5555 5555 5555 4444",
+        "ghp_abcdefghijklmnopqrstuvwxyz0123",
+        "AKIAABCDEFGHIJKLMNOP",
+        "an order id 1234 5678 9012 3456 fails Luhn",
+      ].join("\n");
+      const masked = reg.mask(text);
+      expect(masked.shut).toBe(true);
+      expect(masked.text).toContain(`[secret ${login}.password]`);
+      expect(masked.text).toContain(`[secret ${key}.token]`);
+      expect(masked.text).toContain("[secret card ••1111]");
+      expect(masked.text).toContain("[secret card ••4444]");
+      expect(masked.text.match(/\[secret key\]/g)).toHaveLength(2);
+      expect(masked.text).toContain("1234 5678 9012 3456");
+      expect(masked.text).not.toMatch(/pw-locked|4111-1111|ghp_abc|AKIAABC/);
+      // Unlocked, the exact scrubber takes over.
+      await locked.unlock("a long passphrase");
+      expect(reg.mask("pw-locked-canary-77").shut).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 20_000);
 });

@@ -187,9 +187,36 @@ there and could read an open vault, so the vault refuses to open unless
 vault or the env changes. A value of 6 or more characters is looked for as it
 is, JSON-escaped, URI- and form-encoded, in base64 and base64url at each byte
 alignment, and in hex. A card number is found by its digits with up to two
-spaces, dashes or dots between any two, and replaced as
+spaces, dashes, dots, no-break spaces or `%20` between any two, and replaced as
 `[secret visa-personal-7k2q.number ••4242]`; anything else as
 `[secret <handle>.<field>]`.
+
+### While the vault is locked
+
+A passphrase vault after a restart cannot be read, so its values cannot be
+looked for exactly. Two things stand in until it is unlocked, on every path
+the scrubber runs on:
+
+- **The scrub index** (`scrub.kosi`, made under its own key `scrub.key`, both
+  0600 in the vault's folder and hidden from the jail). For every value but
+  card numbers, and every encoding the scrubber looks for, it keeps the
+  length, a keyed rolling hash and an HMAC-SHA256 under the scrub key. Text
+  is scanned in windows of those lengths; a window whose rolling hash
+  matches is confirmed by its HMAC and masked as `[secret <handle>.<field>]`.
+  It is made again on every change while the vault is open.
+  The tradeoff: anyone holding both files can test a guess at a value
+  offline as fast as HMAC runs, where the vault itself costs a scrypt per
+  guess. A long random token gives that search nothing; a short password
+  does. Card numbers are left out because their space is small (a known
+  prefix, a check digit, a hint's last four), so the search would be cheap.
+- **Shapes** (`shapes.ts`): a Luhn-valid run of 13 to 19 digits, with up to
+  two spaces, dashes, dots, no-break spaces or `%20` between digits, becomes
+  `[secret card ••4242]`; a key starting `sk-`, `sk_live_`, `sk_test_`,
+  `ghp_`, `gho_`, `github_pat_`, `xox?-`, `AKIA`, `AIza` or `glpat-` becomes
+  `[secret key]`. These can mask a number or a word that is no secret.
+
+When a message is masked while the vault is locked, the turn also tells the
+owner the vault is locked and exact masking is off until it is unlocked.
 
 It runs on: every tool result, every progress event, every string a
 statement binds into the workspace database, the owner's messages at the

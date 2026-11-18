@@ -104,6 +104,8 @@ describe("Scrubber digits mode", () => {
     ["spaced", "4242 4242 4242 4242"],
     ["dashed", "4242-4242-4242-4242"],
     ["dotted", "4242.4242.4242.4242"],
+    ["with no-break spaces", "4242\u00a04242\u00a04242\u00a04242"],
+    ["URL-encoded", "4242%204242%204242%204242"],
   ])("takes a card number out %s and keeps its last four", (_how, written) => {
     expect(scrubber.scrub(`card ${written} on file`)).toBe("card [secret visa-personal-7k2q.number ••4242] on file");
   });

@@ -37,9 +37,13 @@ export type Watched = [name: string, value: string] | [name: string, value: stri
 /** The fewest digits a digits-only value has before it is looked for: shorter runs are dates and amounts. */
 const DIGITS_MIN = 12;
 
-/** A number written with up to two separators between any two of its digits, never inside a longer number. */
+/**
+ * A number written with up to two separators between any two of its digits
+ * (a space, a dash, a dot, a no-break space, a URL-encoded space), never
+ * inside a longer number.
+ */
 function digitsPattern(digits: string): RegExp {
-  return new RegExp(`(?<!\\d)${[...digits].join("[ .\\-]{0,2}")}(?!\\d)`, "g");
+  return new RegExp(`(?<!\\d)${[...digits].join("(?:[ .\\-\\u00a0]|%20){0,2}")}(?!\\d)`, "g");
 }
 
 /**
@@ -212,7 +216,7 @@ export class Scrubber {
         const digits = value.replace(/\D/g, "");
         if (digits.length < DIGITS_MIN) continue;
         this.numbers.push({ name, pattern: digitsPattern(digits), last4: digits.slice(-4) });
-        reach = Math.max(reach, digits.length * 3);
+        reach = Math.max(reach, digits.length * 7);
         continue;
       }
       const plain = [value, JSON.stringify(value).slice(1, -1)];

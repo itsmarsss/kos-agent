@@ -1117,7 +1117,7 @@ export class Kernel {
         // A guest's words stay named as theirs, however they were edited.
         text = opts.guest ? `${guestNamed(opts.guest)}${withoutGuestName(row.text, opts.guest)}` : row.text;
       }
-      return this.runTurn(text, userId, sessionId, { ...opts, ...(ran !== undefined ? { pendingId: ran } : {}), ...(masked.found.length ? { masked: masked.found } : {}) });
+      return this.runTurn(text, userId, sessionId, { ...opts, ...(ran !== undefined ? { pendingId: ran } : {}), ...(masked.found.length ? { masked: masked.found, ...(masked.shut ? { maskedShut: true } : {}) } : {}) });
     }, sessionId);
   }
 
@@ -1165,6 +1165,8 @@ export class Kernel {
       pendingId?: number;
       /** The secrets whose values were masked out of these words on the way in. */
       masked?: string[];
+      /** The vault was locked then, so only shapes and the scrub index were looked for. */
+      maskedShut?: boolean;
     },
   ): Promise<HandleResult> {
     {
@@ -1326,7 +1328,7 @@ export class Kernel {
             : null;
         // Said by the turn, on either engine, so the owner learns a pasted secret never reached anything.
         const maskedNote = opts.masked?.length
-          ? `The owner's message held the value of saved secret ${opts.masked.map((name) => `[secret ${name}]`).join(", ")}. KOS masked it before anything kept or read it; you never saw the value. Say so in one short line, and that a secret is saved on the Secrets page, not typed into a chat.`
+          ? `The owner's message held the value of saved secret ${opts.masked.map((name) => `[secret ${name}]`).join(", ")}. KOS masked it before anything kept or read it; you never saw the value. Say so in one short line, and that a secret is saved on the Secrets page, not typed into a chat.${opts.maskedShut ? " The secrets vault is locked, so KOS masked by shape and its scrub index only, not every saved value exactly: tell the owner to unlock it on the Secrets page." : ""}`
           : null;
         const pulled = [opts.context, mentioned, keptNote, guestNote, membersNote, hearingNote, maskedNote].filter((part): part is string => Boolean(part)).join("\n\n");
         const formatting = channelGuidance(opts.channel, this.surfaceStyle(opts.channel, conversation?.projectSlug ?? undefined));

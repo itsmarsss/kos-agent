@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 
 import type { SecretFieldName, SecretKind, SecretPolicy, SecretSummary, SecretUse, SecretValues, VaultSlotKind } from "@kos/shared";
 
+import { buildIndex, SCRUB_INDEX_FORMAT, ScrubIndex, type ScrubIndexFile } from "./scrubindex.js";
 import { checkDir, copyAtomic, excludeFromBackup, fsyncDir, readPrivate, shred, VaultFsError, withFileLock, writeAtomic } from "./vaultfs.js";
 import { checkPolicy, checkUse, checkValues, hintOf, labelOf, originAllowed, scannedOf, slugOf, type ScannedValue } from "./records.js";
 
@@ -37,6 +38,9 @@ const KEY_FILE = "key";
 /** The highest sequence number this machine has seen, so an older copy put back is refused. */
 const SEQ_FILE = "seq";
 const LOCK_FILE = "vault.lock";
+/** What the scrubber reads while the vault is locked (scrubindex.ts), and the key it is made under. */
+const INDEX_FILE = "scrub.kosi";
+const INDEX_KEY_FILE = "scrub.key";
 /** How often a hot caller looks for a change another process made. */
 const POLL_MS = 1_000;
 
@@ -303,6 +307,10 @@ export class Vault {
   private readonly seqPath: string;
   private readonly seqCopy: string;
   private readonly lockPath: string;
+  private readonly indexPath: string;
+  private readonly indexKeyPath: string;
+  /** The scrub index as last read, and the stamp of the file it was read from. */
+  private index: { stamp: string; index: ScrubIndex | undefined } | undefined;
   private readonly now: () => number;
   /** How deep this process is inside the vault's file lock, so a change made inside another takes it once. */
   private lockDepth = 0;
@@ -317,6 +325,7 @@ export class Vault {
   private warning: string | undefined;
   private held = new Map<string, Held>();
   private polled = 0;
+  private indexStale = true;
   private readonly listeners = new Set<() => void>();
 
   constructor(private readonly options: VaultOptions) {
@@ -327,6 +336,8 @@ export class Vault {
     this.seqPath = join(this.dir, SEQ_FILE);
     this.seqCopy = options.seqCopy ?? `${this.dir.replace(/\/+$/, "")}.seq`;
     this.lockPath = join(this.dir, LOCK_FILE);
+    this.indexPath = join(this.dir, INDEX_FILE);
+    this.indexKeyPath = join(this.dir, INDEX_KEY_FILE);
     this.now = options.now ?? Date.now;
     this.refresh();
   }
@@ -351,6 +362,7 @@ export class Vault {
     const t = this.now();
     if (t - this.polled < POLL_MS) return;
     this.polled = t;
+    this.indexStale = true;
     this.refresh();
   }
 
@@ -361,6 +373,50 @@ export class Vault {
     const slots = [...new Set(this.doc.slots.map((s) => s.kind))];
     const problem = this.problem ?? (this.dek ? this.warning : undefined);
     return { state: this.dek ? "ready" : "locked", slots, ...(problem ? { problem } : {}) };
+  }
+
+  /**
+   * While the vault is there but shut (a passphrase not yet given, a file
+   * refused), what the scrubber can still use: the scrub index, when there
+   * is one. Undefined while the vault is open or there is none at all.
+   */
+  shut(): { index: ScrubIndex | undefined } | undefined {
+    // As fresh as the last poll: this is asked on every write the scrubber sees.
+    if (!this.stamp || this.dek) return undefined;
+    if (this.index && !this.indexStale) return { index: this.index.index };
+    this.indexStale = false;
+    let stamp = "";
+    try {
+      const st = statSync(this.indexPath);
+      stamp = `${st.mtimeMs}:${st.size}:${st.ino}`;
+    } catch {
+      stamp = "";
+    }
+    if (this.index?.stamp !== stamp) {
+      let index: ScrubIndex | undefined;
+      try {
+        const file = stamp ? (JSON.parse(readPrivate(this.indexPath)) as ScrubIndexFile) : undefined;
+        const key = file?.format === SCRUB_INDEX_FORMAT ? unb64(readPrivate(this.indexKeyPath).trim()) : undefined;
+        index = file && key?.length === 32 ? new ScrubIndex(key, file) : undefined;
+      } catch {
+        index = undefined;
+      }
+      this.index = { stamp, index };
+    }
+    return { index: this.index.index };
+  }
+
+  /** The scrub index made again from every value, under the scrub key (made once). Only while the vault is open. */
+  private writeIndex(): void {
+    if (!this.dek) return;
+    let key = existsSync(this.indexKeyPath) ? unb64(readPrivate(this.indexKeyPath).trim()) : undefined;
+    if (key?.length !== 32) {
+      key = randomBytes(32);
+      writeAtomic(this.indexKeyPath, `${b64(key)}\n`, this.dir);
+      excludeFromBackup(this.indexKeyPath);
+    }
+    writeAtomic(this.indexPath, `${JSON.stringify(buildIndex(key, this.scanned()))}\n`, this.dir);
+    key.fill(0);
   }
 
   hasPassphrase(): boolean {
@@ -687,7 +743,8 @@ export class Vault {
   /** Crypto-erase: the vault, its last copy, the key and both sequence records overwritten and unlinked, and the keys in memory zeroed. */
   wipe(): void {
     this.locked(() => {
-      for (const path of [this.file, this.prev, `${this.prev}.tmp`, `${this.file}.tmp`, this.keyPath, `${this.keyPath}.next`, `${this.keyPath}.tmp`, this.seqPath, `${this.seqPath}.tmp`, this.seqCopy, `${this.seqCopy}.tmp`]) shred(path);
+      for (const path of [this.file, this.prev, `${this.prev}.tmp`, `${this.file}.tmp`, this.keyPath, `${this.keyPath}.next`, `${this.keyPath}.tmp`, this.seqPath, `${this.seqPath}.tmp`, this.seqCopy, `${this.seqCopy}.tmp`, this.indexPath, `${this.indexPath}.tmp`, this.indexKeyPath, `${this.indexKeyPath}.tmp`]) shred(path);
+      this.index = undefined;
       fsyncDir(this.dir);
       this.forget();
       this.problem = undefined;
@@ -882,6 +939,8 @@ export class Vault {
         this.opener = opened.opener;
         // A key file no slot uses any more (a passphrase added while KOS was away): nothing should be left to try.
         if (!doc.slots.some((sl) => sl.kind === "keyfile") && !this.options.envKey) this.dropKeyFile();
+        // A vault from before the scrub index gets one the first time it opens.
+        if (!existsSync(this.indexPath)) this.writeIndex();
       }
     } catch (err) {
       this.problem = err instanceof Error ? err.message : String(err);
@@ -929,6 +988,7 @@ export class Vault {
     this.doc = undefined;
     this.refresh();
     if (!this.dek) throw new VaultError("tampered", this.problem ?? "the vault did not read back");
+    this.writeIndex();
   }
 
   /** `run` under the vault's file lock, so the host and the CLI never interleave a read and a write. */

@@ -1,6 +1,7 @@
 import { SECRET_FIELDS, type SecretFieldName } from "@kos/shared";
 
-import { Scrubber, type Watched } from "./scrub.js";
+import { MIN_SCANNED, Scrubber, type Watched } from "./scrub.js";
+import { SHAPE_REACH, scrubShapes } from "./shapes.js";
 import type { Vault } from "./vault.js";
 
 /**
@@ -207,10 +208,7 @@ export class SecretsRegistry {
   private scrubberNow(): Scrubber {
     // A secret the CLI added while the host runs is looked for within a second.
     this.vault?.poll();
-    this.scrubber ??= new Scrubber(this.scanned(), (name, count) => {
-      this.hits += count;
-      console.warn(`[secrets] took ${count} ${count === 1 ? "copy" : "copies"} of secret ${name} out of text bound for the model or a log`);
-    });
+    this.scrubber ??= new Scrubber(this.scanned(), (name, count) => this.counted(name, count));
     return this.scrubber;
   }
 
@@ -220,18 +218,48 @@ export class SecretsRegistry {
    * shows, where a `{{secret:name}}` reference would read as an invitation.
    */
   scrub(text: string): string {
-    return this.scrubberNow().scrub(text);
+    return this.sweep(text).text;
+  }
+
+  /**
+   * Every value masked, and which: exactly by the scrubber, and while the
+   * vault is shut, from its scrub index and by shape too, since its values
+   * cannot be read to be looked for.
+   */
+  private sweep(text: string): { text: string; hits: Map<string, number>; shut: boolean } {
+    const exact = this.scrubberNow().found(text);
+    const shut = this.vault?.shut();
+    if (!shut) return { ...exact, shut: false };
+    const hits = new Map(exact.hits);
+    let out = exact.text;
+    for (const pass of [shut.index ? (t: string) => shut.index!.found(t) : undefined, scrubShapes]) {
+      if (!pass || out.length < MIN_SCANNED) continue;
+      const found = pass(out);
+      out = found.text;
+      for (const [name, count] of found.hits) {
+        hits.set(name, (hits.get(name) ?? 0) + count);
+        this.counted(name, count);
+      }
+    }
+    return { text: out, hits, shut: true };
+  }
+
+  private counted(name: string, count: number): void {
+    this.hits += count;
+    console.warn(`[secrets] took ${count} ${count === 1 ? "copy" : "copies"} of secret ${name} out of text bound for the model or a log`);
   }
 
   /** `text` scrubbed, and the names of the secrets found in it, for a door to tell the owner what it masked. */
-  mask(text: string): { text: string; found: string[] } {
-    const { text: out, hits } = this.scrubberNow().found(text);
-    return { text: out, found: [...hits.keys()] };
+  mask(text: string): { text: string; found: string[]; shut: boolean } {
+    const { text: out, hits, shut } = this.sweep(text);
+    return { text: out, found: [...hits.keys()], shut };
   }
 
   /** How much of a stream to hold back so no value is split across its pieces; see Scrubber.holdBack. */
   holdBack(): number {
-    return this.scrubberNow().holdBack;
+    const exact = this.scrubberNow().holdBack;
+    const shut = this.vault?.shut();
+    return shut ? Math.max(exact, (shut.index?.reach ?? 0) - 1, SHAPE_REACH - 1) : exact;
   }
 
   /** How many values the scrubber has taken out since the host started: the Secrets page's leak counter. */
