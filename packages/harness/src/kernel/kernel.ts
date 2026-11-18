@@ -772,7 +772,6 @@ export class Kernel {
       ownerId: args.profile.ownerId,
       approvals: args.approvals,
       permissions: args.permissions,
-      conversations: args.conversations,
       audit: args.audit,
       registry: args.registry,
       secrets: args.secrets,

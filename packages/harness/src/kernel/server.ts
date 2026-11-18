@@ -6,7 +6,7 @@ import { dirname, extname, join, normalize, relative, resolve, sep } from "node:
 import { parseHomeLayout,
   CHAT_COMMANDS,
 } from "@kos/shared";
-import { askView, isExportFormat, outlineOf, stepMechanics, summarizeAction, type AskView, type KeyPlatform, type WidgetOutline } from "@kos/shared";
+import { askView, hasSecretRef, isExportFormat, outlineOf, stepMechanics, summarizeAction, type AskView, type WidgetOutline } from "@kos/shared";
 import type { PendingAction } from "../ops/approvals.js";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
@@ -21,6 +21,7 @@ import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 import { MAINTENANCE } from "./caretaker.js";
+import { HOST_KEYS } from "../channels/hostkeys.js";
 import {
   BEHAVIOUR_DEFAULTS,
   BEHAVIOUR_KEY,
@@ -278,18 +279,31 @@ function conversationLabeller(
  * of a step, the actions it would take. A yes is given for those.
  */
 interface PendingCard extends PendingAction, AskView {
+  asksAlways?: true;
   asker?: string;
   summary: string;
   mechanics?: string;
+}
+
+/** Stored arguments as their object, or nothing to read when they are not JSON. */
+function parsedArgs(args: string): unknown {
+  try {
+    return JSON.parse(args) as unknown;
+  } catch {
+    return undefined;
+  }
 }
 
 function pendingView(kernel: Kernel, a: PendingAction): PendingCard {
   const names = (kind: string, id: string): string | undefined => kernel.labelFor(kind, id);
   const mechanics = stepMechanics(a.tool, a.args, HOST_KEYS);
   // The card's own layout, for a surface that cannot read the arguments itself (KOS for iPhone).
-  const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule, ...(a.yours ? { yours: true } : {}), names, platform: HOST_KEYS });
+  const asksAlways = hasSecretRef(parsedArgs(a.args));
+  const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule, ...(a.yours ? { yours: true } : {}), asksAlways, names, platform: HOST_KEYS });
   return {
     ...a,
+    // It places a secret: asked about every time, never remembered.
+    ...(asksAlways ? { asksAlways: true } : {}),
     asker: kernel.askerOf(a.conversationId)?.name,
     summary: summarizeAction(a.tool, a.args, names, HOST_KEYS),
     ...(mechanics ? { mechanics } : {}),
@@ -297,8 +311,6 @@ function pendingView(kernel: Kernel, a: PendingAction): PendingCard {
   };
 }
 
-/** Whose keyboard a browser ask's keys are said for: the host's, where KOS's browser and, nearly always, the owner's Chrome run. */
-const HOST_KEYS: KeyPlatform = process.platform === "darwin" ? "mac" : "other";
 
 /** A decided ask as the Inbox lists it: in words, who asked, and none of the arguments. */
 function decidedView(kernel: Kernel, a: PendingAction): Omit<PendingAction, "args"> & { asker?: string; summary: string } {

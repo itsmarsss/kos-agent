@@ -52,16 +52,23 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
     if (!busy) setPressed(null);
   }, [busy]);
   const decide = (which: "yes" | "always" | "no"): void => {
-    if (busy) return;
+    // One decision per card: a second press, or a key held down, sends nothing more.
+    if (busy || pressed) return;
     setPressed(which);
     if (which === "no") onDecide(false);
     else if (which === "always") onDecide(true, true);
     else onDecide(true);
   };
+  /**
+   * The card's keys, heard only on the card itself, never on a button or
+   * field inside it, and never as a key held down. Enter approves only when
+   * the focus came by the keyboard (:focus-visible), so a click on the card
+   * and a stray Enter is not a yes.
+   */
   const onKeyDown = (e: KeyboardEvent<HTMLElement>): void => {
-    if (busy || (e.target as HTMLElement).closest("input, textarea, select, [contenteditable='true']")) return;
-    // Enter on a button inside presses that button; on the card it approves.
-    if (e.key === "Enter" && e.target === e.currentTarget) {
+    if (busy || e.repeat || e.target !== e.currentTarget) return;
+    if (e.key === "Enter") {
+      if (tooLong || !keyboardFocused(e.currentTarget)) return;
       e.preventDefault();
       decide("yes");
     } else if (e.key === "Escape" || (e.key === "Backspace" && (e.metaKey || e.ctrlKey))) {
@@ -70,7 +77,9 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
       decide("no");
     }
   };
-  const always = noRemember ? undefined : view.always;
+  // Too big for this surface to have been sent whole: no yes here, only a no and the way to the dashboard.
+  const tooLong = view.tooLong === true;
+  const always = noRemember || tooLong ? undefined : view.always;
   const size = compact ? " btn--sm" : "";
   const working = (which: "yes" | "always" | "no", words: string): ReactNode =>
     busy && pressed === which ? (
@@ -97,7 +106,7 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
       <p className="kos-ask-title">{view.title}</p>
       {view.place && (
         <p className="kos-ask-place">
-          <PlaceMark tool={tool} site={view.site} />
+          <PlaceMark tool={tool} />
           <span>{view.place}</span>
         </p>
       )}
@@ -111,10 +120,13 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
       {children}
       {args !== undefined && args !== "" && <AskDetails tool={tool} args={args} />}
       {meta && <p className="kos-ask-meta">{meta}</p>}
+      {tooLong && <p className="kos-ask-meta">Too long to show here in full. Open it in the dashboard's Inbox to approve it.</p>}
       <div className="kos-ask-actions">
-        <button type="button" className={`btn btn--primary${size}`} disabled={busy} title="Approve (Enter)" onClick={() => decide("yes")}>
-          {working("yes", labels?.yes ?? "Approve")}
-        </button>
+        {!tooLong && (
+          <button type="button" className={`btn btn--primary${size}`} disabled={busy} title="Approve (Enter)" onClick={() => decide("yes")}>
+            {working("yes", labels?.yes ?? "Approve")}
+          </button>
+        )}
         {always && (
           <button type="button" className={`btn${size}`} disabled={busy} onClick={() => decide("always")}>
             {busy && pressed === "always" ? (
@@ -135,6 +147,15 @@ export function AskCard({ view, tool, args, why, asker, expiresAt, busy = false,
       </div>
     </section>
   );
+}
+
+/** The focus came by the keyboard, not a click or a script. */
+function keyboardFocused(el: HTMLElement): boolean {
+  try {
+    return el.matches(":focus-visible");
+  } catch {
+    return false;
+  }
 }
 
 /** Each action of an ask, a line each, numbered when there are several. */
@@ -163,9 +184,12 @@ function StepWords({ line }: { line: StepLine }): ReactElement {
 }
 
 /** The site's own icon, or the kind of place's mark when there is no site or it has none. */
-function PlaceMark({ tool, site }: { tool: string; site: string | undefined }): ReactElement {
-  const [failed, setFailed] = useState(false);
-  if (site && !failed) return <img className="kos-ask-favicon" src={`https://${site}/favicon.ico`} alt="" width={14} height={14} onError={() => setFailed(true)} />;
+/**
+ * The kind of place's own mark. Never a site's icon: fetching one would
+ * reach whatever site the agent named, from the owner's browser, before
+ * they said yes.
+ */
+function PlaceMark({ tool }: { tool: string }): ReactElement {
   if (tool.startsWith("computer.")) return <WindowIcon size={14} title="" />;
   if (tool.startsWith("files.") || tool === "shell.run" || tool === "python.run") return <PageIcon size={14} title="" />;
   if (/^mcp\.[^.]+\.(send_email|email_send)$/.test(tool)) return <MailIcon size={14} title="" />;

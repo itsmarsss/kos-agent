@@ -1085,8 +1085,8 @@ describe("handleApiRequest", () => {
     });
   });
 
-  it("keeps a decision when asked to, and lists and revokes it", async () => {
-    const action = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "projects/books/old.md" }, riskTier: "risky", reason: "test" });
+  it("keeps the rule an ask named when asked to, and lists and revokes it", async () => {
+    const action = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "projects/books/old.md" }, riskTier: "risky", reason: "test", rule: { tool: "files.rm", scope: "dir:projects/books", project: null } });
     await handleApiRequest(kernel, { method: "POST", path: "/api/approve", body: { id: action.id, remember: true } });
     const listed = await handleApiRequest(kernel, { method: "GET", path: "/api/permissions" });
     const rules = (listed.body as { rules: { id: number; tool: string; scope: string | null; project: string | null }[] }).rules;

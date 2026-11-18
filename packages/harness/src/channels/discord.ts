@@ -22,7 +22,7 @@ import {
   type TextChannel,
   type Webhook,
 } from "discord.js";
-import { blocksToText, CHANNEL_TOKEN, detailLines, hasSecretRef, stepActions, summarizeAction, withUnixTimes } from "@kos/shared";
+import { alwaysWords, blocksToText, CHANNEL_TOKEN, detailLines, stepActions, summarizeAction, withUnixTimes } from "@kos/shared";
 
 import { FILE_MAX_BYTES, isReadable, megabytes, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, ChannelRef, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
@@ -34,6 +34,8 @@ import { tablesToCode } from "./tables.js";
 import { shortStory, STEP_MARK } from "./narrate.js";
 import { MESSAGE_LIMITS } from "./types.js";
 import { DownLog } from "./downlog.js";
+import { HOST_KEYS } from "./hostkeys.js";
+import { offersAlways } from "./offers.js";
 import type {
   ApprovalHandler,
   ApprovalRequest,
@@ -216,8 +218,11 @@ export function splitSummary(summary: string): { head: string; body?: string } {
   return { head: summary };
 }
 
+/** A line cut to fit by its middle, so its end always shows: the end of a command is where it hides what it does. */
 function cut(line: string, max: number): string {
-  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+  if (line.length <= max) return line;
+  const tail = Math.floor((max - 1) * 0.4);
+  return `${line.slice(0, max - 1 - tail)}…${line.slice(line.length - tail)}`;
 }
 
 const CODE_FENCE = "```";
@@ -226,6 +231,8 @@ const CODE_FENCE = "```";
 const CARD_MAX = 1900;
 /** The file every step rides in when a card cannot hold them all. */
 const STEPS_FILE = "steps.txt";
+/** Where the whole call goes when the card cannot show all of it. */
+const ARGS_FILE = "call.json";
 
 /** An approval card: its text, and every step as a file when the text cannot hold them. */
 export interface ApprovalCard {
@@ -250,26 +257,21 @@ export function approvalCard(req: ApprovalRequest): ApprovalCard {
     return { content: noPreviews([...said, `${asks} · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n")) };
   }
   const args = req.args ?? {};
-  const summary = summarizeAction(req.tool, args, req.names);
+  const summary = summarizeAction(req.tool, args, req.names, HOST_KEYS);
   // A step said by its purpose is the model's sentence, not a verb and its
   // thing: split on its colon, "Note: just closing the popup" took the whole
   // line as the command and the keys it would press never showed. Its
   // actions are the code instead, each on its own line, every one of them:
   // the yes is for those, not for the model's account of them.
-  const actions = stepActions(req.tool, args);
+  const actions = stepActions(req.tool, args, HOST_KEYS);
   const { head, body } = actions ? { head: summary } : splitSummary(summary);
   // The command itself, or failing that the arguments, in a code block: a
   // `--include=*.ts` that turned italic was a command you could not read
   // back, and an approval you cannot read is not one you can give.
-  const code =
-    actions ??
-    (body
-      ? [cut(body, CODE_MAX)]
-      : detailLines(req.tool, args, req.names)
-          .slice(1)
-          .filter((l) => !l.startsWith("…"))
-          .slice(0, 3)
-          .map((l) => cut(l, DETAIL_MAX)));
+  const details = body ? [body] : detailLines(req.tool, args, req.names).slice(1);
+  const code = actions ?? (body ? [cut(body, CODE_MAX)] : details.filter((l) => !l.startsWith("…")).slice(0, 3).map((l) => cut(l, DETAIL_MAX)));
+  // Anything the card leaves out goes with it whole, in a file: no part of a call is approved unseen.
+  const partial = !actions && (code.length !== details.length || [summary, ...code].some((l, i) => l.includes("…") || (i > 0 && l !== details[i - 1])));
   const small = [`${req.tool} · #${req.id}`, ...(req.reason ? [req.reason] : [])].join(" · ");
   const text = (shown: string[], more?: string): string =>
     noPreviews(
@@ -282,7 +284,15 @@ export function approvalCard(req: ApprovalRequest): ApprovalCard {
       ].join("\n"),
     );
   const whole = text(code);
-  if (!actions || whole.length <= CARD_MAX) return { content: whole };
+  if (!actions) {
+    if (!partial && whole.length <= CARD_MAX) return { content: whole };
+    const json = typeof args === "string" ? args : JSON.stringify(args, null, 2);
+    return {
+      content: text(code, `The whole call is in ${ARGS_FILE}`).slice(0, CARD_MAX + 100),
+      files: [{ attachment: Buffer.from(`${json}\n`, "utf8"), name: ARGS_FILE }],
+    };
+  }
+  if (whole.length <= CARD_MAX) return { content: whole };
   // More steps than a message holds: as many as fit, and every one of them
   // in a file on the card, so none is approved unseen.
   let shown = actions.length;
@@ -3184,14 +3194,13 @@ export class DiscordAdapter implements ChannelAdapter {
 
   private async askNow(recipientId: string, req: ApprovalRequest): Promise<void> {
     const ids = approvalCustomIds(req.id);
-    // A call that places a secret asks every time: no Always, since nothing would be kept.
-    const remembers = !hasSecretRef(req.args ?? {});
+    // Always only by the one rule every surface keeps, its words saying what it keeps.
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(ids.approve)
         .setLabel("Approve")
         .setStyle(ButtonStyle.Success),
-      ...(remembers ? [new ButtonBuilder().setCustomId(ids.always).setLabel("Always").setStyle(ButtonStyle.Primary)] : []),
+      ...(offersAlways(req) ? [new ButtonBuilder().setCustomId(ids.always).setLabel(cut(alwaysWords(req.rule!.scope, req.names), 80)).setStyle(ButtonStyle.Primary)] : []),
       new ButtonBuilder()
         .setCustomId(ids.deny)
         .setLabel("Deny")

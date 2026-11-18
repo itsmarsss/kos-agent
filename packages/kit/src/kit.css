@@ -503,7 +503,7 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 .kos-ask-title { margin: 0; color: var(--text); font-size: var(--text-md); font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
 .kos-ask-place { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.35; min-width: 0; }
 .kos-ask-place > span { overflow-wrap: anywhere; }
-.kos-ask-place svg, .kos-ask-favicon { flex: none; width: 14px; height: 14px; border-radius: 3px; color: var(--faint); }
+.kos-ask-place svg { flex: none; width: 14px; height: 14px; border-radius: 3px; color: var(--faint); }
 .kos-ask-why { margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.4; overflow-wrap: anywhere; }
 .kos-ask-why::before { content: "\201c"; }
 .kos-ask-why::after { content: "\201d"; }

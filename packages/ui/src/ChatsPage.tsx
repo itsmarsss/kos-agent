@@ -1263,7 +1263,8 @@ export function ChatsPage({
         <ToolCall
           key={i}
           event={e}
-          ask={e.pendingId !== undefined && pendingApprovals.has(e.pendingId) ? approvals.find((a) => String(a.id) === e.pendingId) : undefined}
+          waiting={e.pendingId !== undefined && pendingApprovals.has(e.pendingId)}
+          ask={approvals.find((a) => String(a.id) === e.pendingId)}
           onDecide={onDecide}
           deciding={deciding}
         />

@@ -1,11 +1,11 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 
 import { AnimatePresence, m, useReducedMotion } from "motion/react";
 
 import { pathsIn, stepMechanics, waitWords } from "@kos/shared";
 import { ChevronRight, inPlace, spring, StepPicture, StepTime } from "@kos/kit";
 
-import type { ChatEvent, PendingAction } from "./api.js";
+import { api, type ChatEvent, type PendingAction } from "./api.js";
 import { ArtifactStep, writtenArtifact } from "./ArtifactStep.js";
 import { PendingAsk, viewerKeys } from "./PendingAsk.js";
 import { hrefFor } from "./routes.js";
@@ -57,18 +57,35 @@ function Summary({ text }: { text: string }): ReactElement {
  */
 export function ToolCall({
   event,
-  ask,
+  waiting = false,
+  ask: given,
   onDecide,
   deciding = new Set<number>(),
 }: {
   event: Extract<ChatEvent, { kind: "tool" }>;
-  /** Its pending action, while it is still undecided. */
+  /** Its pending action is still undecided. */
+  waiting?: boolean;
+  /** That pending action, when the page has it; read here when it does not, so the buttons are never missing. */
   ask?: PendingAction | undefined;
   onDecide?: (pendingId: string, approved: boolean, remember?: boolean) => void;
   /** Ids being decided right now, so the buttons can say so. */
   deciding?: ReadonlySet<number>;
 }): ReactElement {
   const [open, setOpen] = useState(false);
+  const [read, setRead] = useState<PendingAction | undefined>(undefined);
+  const wanted = waiting && !given && event.pendingId !== undefined;
+  useEffect(() => {
+    if (!wanted) return undefined;
+    let live = true;
+    void api.approvals().then(
+      (all) => live && setRead(all.find((a) => String(a.id) === event.pendingId)),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [wanted, event.pendingId]);
+  const ask = waiting ? (given ?? read) : undefined;
   // Reduced motion opens it at once; otherwise it opens to its height, as the kit's drawers do.
   const still = useReducedMotion() === true;
   // An artifact written is shown as itself, not as the step that wrote it.

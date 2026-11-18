@@ -97,11 +97,23 @@ describe("an ask's card", () => {
   it("is a tool call's in a chat, while it waits, and decides by the pending id", () => {
     const onDecide = vi.fn();
     const event = { kind: "tool" as const, name: "computer.act", summary: "Note: just closing the popup", args: JSON.parse(args) as Record<string, unknown>, pendingId: "7", result: "queued" };
-    render(<ToolCall event={event} ask={ask} onDecide={onDecide} />);
+    render(<ToolCall event={event} waiting ask={ask} onDecide={onDecide} />);
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(onDecide).toHaveBeenCalledWith("7", true);
     cleanup();
-    render(<ToolCall event={event} onDecide={onDecide} />);
+    // Decided: no card, whatever the page still holds.
+    render(<ToolCall event={event} ask={ask} onDecide={onDecide} />);
     expect(document.querySelector(".kos-ask")).toBeNull();
+  });
+
+  it("is read for a tool call still waiting whose ask the page does not have yet", async () => {
+    vi.spyOn(api, "approvals").mockResolvedValue([ask]);
+    const event = { kind: "tool" as const, name: "computer.act", summary: "Note: just closing the popup", args: JSON.parse(args) as Record<string, unknown>, pendingId: "7", result: "queued" };
+    render(<ToolCall event={event} waiting onDecide={() => {}} />);
+    expect(await screen.findByRole("button", { name: "Approve" })).toBeTruthy();
+  });
+
+  it("offers no Always for an ask the host says always asks", () => {
+    expect(pendingView({ ...ask, asksAlways: true, rule: { tool: "computer.act", scope: null, project: null } }).always).toBeUndefined();
   });
 });

@@ -3,6 +3,8 @@ import { promisify } from "node:util";
 
 import { blocksToText, stepMechanics, summarizeAction, timesInWords } from "@kos/shared";
 
+import { HOST_KEYS } from "./hostkeys.js";
+import { offersAlways } from "./offers.js";
 import { ThreadReader, type ThreadMessage } from "./imessagedb.js";
 import type {
   ApprovalHandler,
@@ -158,12 +160,12 @@ function renderBody(msg: OutboundMessage): string {
 export function approvalLines(req: ApprovalRequest): string[] {
   const who = req.asker?.name ?? "KOS";
   const args = req.args ?? {};
-  const mechanics = req.tool !== undefined ? stepMechanics(req.tool, args) : undefined;
+  const mechanics = req.tool !== undefined ? stepMechanics(req.tool, args, HOST_KEYS) : undefined;
   return [
     ...(req.asker ? [`${who} needs your OK.`] : []),
     ...(req.why?.trim() ? [`${who}: ${req.why.trim()}`] : []),
     req.text,
-    ...(req.tool !== undefined ? [summarizeAction(req.tool, args, req.names)] : []),
+    ...(req.tool !== undefined ? [summarizeAction(req.tool, args, req.names, HOST_KEYS)] : []),
     ...(mechanics ? [`Steps: ${mechanics}`] : []),
     ...(req.reason ? [req.reason] : []),
   ];
@@ -287,7 +289,7 @@ export class IMessageAdapter implements ChannelAdapter {
   ): Promise<void> {
     this.pending.add(req.id);
     const lines = approvalLines(req);
-    lines.push(`Reply "approve ${req.id}", "always ${req.id}" to stop asking for this, or "deny ${req.id}".`);
+    lines.push(offersAlways(req) ? `Reply "approve ${req.id}", "always ${req.id}" to stop asking for this, or "deny ${req.id}".` : `Reply "approve ${req.id}" or "deny ${req.id}".`);
     const text = lines.join("\n");
     this.remember(text);
     await this.sender(this.handle, text);

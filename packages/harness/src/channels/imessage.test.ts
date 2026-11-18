@@ -11,6 +11,7 @@ import {
   parseDecision,
   renderForText,
 } from "./imessage.js";
+import { offersAlways } from "./offers.js";
 import type { InboundMessage } from "./types.js";
 
 const OWNER = "+15550001111";
@@ -93,6 +94,19 @@ describe("an approval as plain lines", () => {
     ]);
     // Raised from nowhere in particular, it is KOS's own voice and no headline.
     expect(approvalLines({ id: "9", text: "Approve x?", why: "Doing x." })).toEqual(["KOS: Doing x.", "Approve x?"]);
+  });
+
+  it("offers always only for an ask that names its rule and places no secret", () => {
+    expect(approvalLines({ id: "1", text: "x" }).join("\n")).not.toContain("always");
+    const secret = { id: "2", text: "x", tool: "http.fetch", args: { url: "https://a.example", headers: { a: "{{secret:k}}" } }, rule: { tool: "http.fetch", scope: "host:a.example", project: null } };
+    expect(offersAlways(secret)).toBe(false);
+    expect(offersAlways({ ...secret, args: { url: "https://a.example" } })).toBe(true);
+    expect(offersAlways({ id: "3", text: "x" })).toBe(false);
+  });
+
+  it("lists every step, however many", () => {
+    const actions = ["a", "b", "c", "d", "e", "f"].map((text) => ({ action: "type", text }));
+    expect(approvalLines({ id: "4", text: "x", tool: "computer.act", args: { actions } }).join("\n")).toContain("type “f”");
   });
 
   it("says the action, and every step of one said by its purpose", () => {
@@ -292,7 +306,7 @@ describe("the iMessage adapter", () => {
     });
     await adapter.start();
 
-    await adapter.requestApproval(OWNER, { id: "12", text: "Delete notes.txt?", why: "Those are the duplicate notes from Tuesday." });
+    await adapter.requestApproval(OWNER, { id: "12", text: "Delete notes.txt?", why: "Those are the duplicate notes from Tuesday.", rule: { tool: "files.rm", scope: "dir:", project: null } });
     expect(sent.at(-1)!.startsWith("KOS: Those are the duplicate notes from Tuesday.\nDelete notes.txt?")).toBe(true);
     expect(sent.at(-1)).toContain('"approve 12"');
     expect(sent.at(-1)).toContain('"always 12"');

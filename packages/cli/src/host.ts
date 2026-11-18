@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import {
   AllowlistMapping,
   ChannelRuntime,
+  hasSecretRef,
   type ChannelAdapter,
   DiscordAdapter,
   type KeptPrompts,
@@ -431,6 +432,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       ...(asker ? { asker } : {}),
       ...(action.rule ? { rule: action.rule } : {}),
       ...(action.yours ? { yours: true } : {}),
+      ...(hasSecretRef(JSON.parse(action.args)) ? { asksAlways: true } : {}),
     };
   };
   /** What answers the panel's chat, and what it may be changed to: the dashboard picker's choices. */

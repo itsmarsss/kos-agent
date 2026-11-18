@@ -1,4 +1,6 @@
 import {
+  HOST_KEYS,
+  hasSecretRef,
   parseChatCommand,
   TurnNarrator,
   type ApprovalHandler,
@@ -14,7 +16,7 @@ import {
   type TurnPresence,
   type UserMapping,
 } from "@kos/harness";
-import { askView, runningTail, stepMechanics, summarizeAction, type KeyPlatform } from "@kos/shared";
+import { askView, runningTail, stepMechanics, summarizeAction } from "@kos/shared";
 
 import { ArtifactReader, type PanelArtifacts } from "./artifacts.js";
 import { DashboardRelay, type PanelDashboard } from "./dashboard.js";
@@ -122,7 +124,6 @@ const QUOTE_FROM_MAX = 300;
 /** The longest message the panel sends, and how much of the chat it is shown. */
 const MAX_TEXT = 20_000;
 const SHOWN = 200;
-const MAX_ARGS = 4_000;
 /** How many waiting asks a glance carries. */
 const GLANCE_ASKS = 10;
 /** How many of the newest step pictures ride with the chat as it is drawn; older ones come from the device's own cache, or not at all. */
@@ -893,30 +894,45 @@ export function phoneNote(_beside: unknown, device: string): string {
 /** KOS for iPhone's chat, on the owner's phone. */
 export const PHONE_PANEL: PanelPlace = { name: "phone", kind: "phone", title: "iPhone", beside: phoneNote };
 
-/** Whose keyboard a browser ask's keys are said for: the host's, where KOS's browser and, nearly always, the owner's Chrome run. */
-const HOST_KEYS: KeyPlatform = process.platform === "darwin" ? "mac" : "other";
+/** A line cut by its middle, its end kept. */
+function middle(line: string, max: number): string {
+  if (line.length <= max) return line;
+  const tail = Math.floor((max - 1) * 0.4);
+  return `${line.slice(0, max - 1 - tail)}…${line.slice(line.length - tail)}`;
+}
+
+/**
+ * The most of an ask a device is sent, its arguments and steps together:
+ * well under a phone's frame. Past it the ask goes as too long to show,
+ * with no Approve there: what is approved has to be seen whole.
+ */
+const ASK_MAX = 200_000;
 
 /**
  * An approval as the panel shows it, laid out as every card lays one out
  * (askView): what KOS wants to do, where, each action it takes, why it
- * asks, what a remembered yes keeps; then the arguments, cut to fit, for
- * the details, and who asks.
+ * asks, what a remembered yes keeps; then the arguments whole, for the
+ * details, and who asks.
  */
 function approvalOf(req: ApprovalRequest): Record<string, unknown> {
-  const args = argsText(req.args);
+  const args = req.args === undefined ? "" : typeof req.args === "string" ? req.args : JSON.stringify(req.args);
+  const asksAlways = req.asksAlways ?? hasSecretRef(req.args ?? {});
   const view =
     req.tool && req.args !== undefined
-      ? askView({ tool: req.tool, args: req.args, reason: req.reason ?? null, rule: req.rule ?? null, ...(req.yours ? { yours: true } : {}), ...(req.names ? { names: req.names } : {}), platform: HOST_KEYS })
+      ? askView({ tool: req.tool, args: req.args, reason: req.reason ?? null, rule: req.rule ?? null, ...(req.yours ? { yours: true } : {}), asksAlways, ...(req.names ? { names: req.names } : {}), platform: HOST_KEYS })
       : undefined;
   const mechanics = req.tool && req.args !== undefined ? stepMechanics(req.tool, req.args, HOST_KEYS) : undefined;
+  const whole = args.length + JSON.stringify(view?.steps ?? []).length + (mechanics?.length ?? 0) > ASK_MAX;
+  const { steps, ...rest } = view ?? {};
   return {
     id: req.id,
     tool: req.tool ?? "",
     // In words, with its ids named: a phone lists the ask by its summary, and a card leads with its title.
     ...(req.tool && req.args !== undefined ? { summary: summarizeAction(req.tool, req.args, req.names, HOST_KEYS) } : {}),
-    ...view,
-    ...(args ? { args } : {}),
-    ...(mechanics ? { mechanics } : {}),
+    ...rest,
+    ...(whole
+      ? { tooLong: true, title: middle(view?.title ?? req.tool ?? "An ask", 200) }
+      : { ...(steps ? { steps } : {}), ...(args ? { args } : {}), ...(mechanics ? { mechanics } : {}) }),
     ...(req.why ? { why: req.why } : {}),
     ...(req.reason ? { reason: req.reason } : {}),
     ...(req.asker ? { asker: req.asker.name } : {}),
@@ -930,35 +946,6 @@ function glanceAsks(asks: Glance["asks"]): Record<string, unknown>[] {
     .sort((a, b) => (a.request.expiresAt ?? Infinity) - (b.request.expiresAt ?? Infinity))
     .slice(0, GLANCE_ASKS)
     .map((a) => ({ ...(a.chat ? { chat: a.chat } : {}), approval: approvalOf(a.request) }));
-}
-
-/** A string in the arguments past this is cut, so the card's Details still read them as fields. */
-const MAX_ARG_STRING = 240;
-
-/** Each long string in a value cut to fit, the value's shape kept. */
-function cutStrings(v: unknown): unknown {
-  if (typeof v === "string") return v.length > MAX_ARG_STRING ? `${v.slice(0, MAX_ARG_STRING)}…` : v;
-  if (Array.isArray(v)) return v.map(cutStrings);
-  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, cutStrings(x)]));
-  return v;
-}
-
-/**
- * The arguments as the panel's Details show them: still JSON, each long
- * string cut, so they read as fields; cut as text only past that.
- */
-function argsText(args: ApprovalRequest["args"]): string {
-  if (args === undefined) return "";
-  let value: unknown = args;
-  if (typeof args === "string") {
-    try {
-      value = JSON.parse(args) as unknown;
-    } catch {
-      value = undefined;
-    }
-  }
-  const text = value === undefined ? String(args) : JSON.stringify(cutStrings(value));
-  return text.length > MAX_ARGS ? `${text.slice(0, MAX_ARGS)}…` : text;
 }
 
 /** Where the owner's words were said, as the host's log names it: the kind of place, never its address. */

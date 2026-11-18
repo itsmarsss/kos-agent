@@ -16,10 +16,9 @@ export interface AskRule {
   project?: string | null;
 }
 
-/** Where an ask would act, in words, and the site it is on when it is on one (for its icon). */
+/** Where an ask would act, in words. */
 export interface AskPlace {
   words: string;
-  site?: string;
 }
 
 /** An ask, as a card lays it out. */
@@ -28,8 +27,6 @@ export interface AskView {
   title: string;
   /** Where: "In your Chrome on docs.google.com". */
   place?: string;
-  /** The site it acts on, when it acts on one, for its icon. */
-  site?: string;
   /** Each action it takes, for a run of actions, keys as caps. */
   steps?: StepLine[];
   /** Why it asks, as a phrase: "Clicks, types or fills on the page". */
@@ -40,6 +37,12 @@ export interface AskView {
   alwaysTip?: string;
   /** Why there is no remembered yes, when the ask could otherwise have one: "Secrets always ask". */
   alwaysNote?: string;
+  /**
+   * Set by the host on a device's copy of an ask too big to send whole: its
+   * arguments and steps are left out, so the card offers no Approve and
+   * sends the owner to the dashboard.
+   */
+  tooLong?: boolean;
 }
 
 export interface AskInput {
@@ -49,6 +52,8 @@ export interface AskInput {
   rule?: AskRule | null;
   /** A browser ask in the owner's own Chrome, not KOS's. */
   yours?: boolean;
+  /** It always asks (it places a secret): no remembered yes, whatever its rule. Read from the arguments when not said. */
+  asksAlways?: boolean;
   names?: ActionNames;
   /** Whose keyboard a browser's keys are said for. */
   platform?: KeyPlatform;
@@ -100,7 +105,7 @@ export function askPlace(input: Pick<AskInput, "tool" | "args" | "rule" | "yours
     const scope = scopeParts(rule?.scope);
     const site = scope && (scope[0] === "your-chrome" || scope[0] === "site") ? scope[1] : hostOf(a.url);
     const browser = yours || scope?.[0] === "your-chrome" ? "In your Chrome" : "In KOS's browser";
-    return site ? { words: `${browser} on ${site}`, site } : { words: browser };
+    return { words: site ? `${browser} on ${site}` : browser };
   }
   if (tool.startsWith("chrome.")) return { words: "In your Chrome" };
   if (tool.startsWith("computer.")) return { words: "On your Mac" };
@@ -114,7 +119,7 @@ export function askPlace(input: Pick<AskInput, "tool" | "args" | "rule" | "yours
   }
   if (tool === "http.fetch") {
     const site = hostOf(a.url);
-    return site ? { words: `On ${site}`, site } : undefined;
+    return site ? { words: `On ${site}` } : undefined;
   }
   const mcp = /^mcp\.([^.]+)\./.exec(tool);
   if (mcp) return { words: `Through ${mcp[1]}` };
@@ -135,12 +140,23 @@ export function askRisk(reason: string | null | undefined): string | undefined {
   return said ? upperFirst(said) : undefined;
 }
 
-/** What a remembered yes covers, as its button says it: the site, the folder, the host, the program. */
-export function alwaysWords(scope: string | null): string {
+/** What a destination scope ("to:discord:channel:12", "to:project:garden") names, by the name the caller knows it by. */
+function destination(what: string, names?: ActionNames): string {
+  const bits = what.split(":");
+  const [kind, id] = bits.length >= 2 ? [bits[bits.length - 2]!, bits[bits.length - 1]!] : ["", what];
+  const named = kind ? names?.(kind, id) : undefined;
+  if (named) return kind === "channel" && !named.startsWith("#") ? `#${named}` : named;
+  return kind === "channel" ? `#${id}` : id;
+}
+
+/** What a remembered yes covers, as its button says it: the site, the folder, the host, the program, where it sends. */
+export function alwaysWords(scope: string | null, names?: ActionNames): string {
   const parts = scopeParts(scope);
   if (!parts) return "Always allow";
   const [kind, what] = parts;
   switch (kind) {
+    case "to":
+      return `Always allow to ${destination(what, names)}`;
     case "your-chrome":
     case "site":
       return `Always allow on ${what}`;
@@ -164,7 +180,7 @@ const UNDO = "Undo it in Settings, Permissions.";
  * What a remembered yes keeps, exactly: which calls stop asking, where, and
  * where to take it back. Said on the button's tooltip.
  */
-export function alwaysTip(rule: AskRule): string {
+export function alwaysTip(rule: AskRule, names?: ActionNames): string {
   const parts = scopeParts(rule.scope);
   const project = rule.project ? ` in the project ${rule.project}` : "";
   const family = rule.tool.endsWith(".*") ? rule.tool.slice(0, -2) : undefined;
@@ -192,6 +208,9 @@ export function alwaysTip(rule: AskRule): string {
       case "table":
         keeps = `${calls} on the table ${what} stops asking${project}.`;
         break;
+      case "to":
+        keeps = `${calls} to ${destination(what, names)} stops asking${project}.`;
+        break;
       default:
         keeps = `${calls} to the same place stops asking${project}.`;
     }
@@ -202,21 +221,25 @@ export function alwaysTip(rule: AskRule): string {
 /** An ask, as every card lays it out. */
 export function askView(input: AskInput): AskView {
   const { tool, args, reason, rule, names, platform } = input;
+  const a = argsOf(args);
   const place = askPlace(input);
   const risk = askRisk(reason);
   const lines = actionSteps(tool, args, platform);
   // A run of actions with no purpose said is titled by what it acts on and
   // listed in full; one action alone is its own title.
-  const intent = argsOf(args).intent;
+  const intent = a.intent;
   const said = typeof intent === "string" && intent.trim() !== "";
   const steps = lines && (said || lines.length > 1) ? lines : undefined;
-  const title = steps && !said ? (tool === "computer.act" ? "Use your Mac" : "Act on the page") : summarizeAction(tool, args, names, platform);
+  // A shell command's folder is its place line, so its title is the command alone.
+  const titled = tool === "shell.run" ? { ...a, cwd: undefined } : args;
+  const title = steps && !said ? (tool === "computer.act" ? "Use your Mac" : "Act on the page") : summarizeAction(tool, titled, names, platform);
+  const always = !(input.asksAlways ?? hasSecretRef(a));
   return {
     title,
-    ...(place ? { place: place.words, ...(place.site ? { site: place.site } : {}) } : {}),
+    ...(place ? { place: place.words } : {}),
     ...(steps ? { steps } : {}),
     ...(risk ? { risk } : {}),
     // A call that places a secret is asked about every time: nothing is remembered for it, so nothing is offered.
-    ...(hasSecretRef(argsOf(args)) ? { alwaysNote: "Secrets always ask" } : rule ? { always: alwaysWords(rule.scope), alwaysTip: alwaysTip(rule) } : {}),
+    ...(!always ? { alwaysNote: "Secrets always ask" } : rule ? { always: alwaysWords(rule.scope, names), alwaysTip: alwaysTip(rule, names) } : {}),
   };
 }

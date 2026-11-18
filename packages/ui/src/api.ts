@@ -88,6 +88,13 @@ export interface PendingAction {
   asker?: string;
   /** A browser ask that acts in the owner's own Chrome, not KOS's browser, as it was when raised. */
   yours?: boolean;
+  /** It always asks (it places a secret): no remembered yes is offered. */
+  asksAlways?: boolean;
+  /** It asks even in a chat set to act on its own. */
+  beyondAuto?: boolean;
+  /** The remembered yes in the host's words, its destination named, and exactly what it keeps. */
+  always?: string;
+  alwaysTip?: string;
 }
 
 export interface Project {

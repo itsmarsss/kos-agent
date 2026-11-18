@@ -42,4 +42,13 @@ describe("timing a call", () => {
     expect(kept[1]!.content).toEqual([{ type: "tool_result", toolUseId: "t3", content: "ok", ms: 900 }, { type: "tool_result", toolUseId: "old", content: "ok" }]);
     expect(timer.stamp(turn)).toBe(turn);
   });
+
+  it("lets go of a call that never ended (denied, refused, thrown) with the turn it was in", () => {
+    const timer = new CallTimer(() => 0);
+    for (const id of ["denied", "refused", "thrown"]) timer.started(id);
+    timer.asked("denied", 3);
+    expect(timer.open).toBe(3);
+    timer.stamp([{ role: "assistant", content: ["denied", "refused", "thrown"].map((id) => ({ type: "tool_use" as const, id, name: "shell.run", input: {} })) }]);
+    expect(timer.open).toBe(0);
+  });
 });

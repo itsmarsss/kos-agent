@@ -51,10 +51,8 @@ export interface DecisionsDeps {
     pending: () => PendingAction[];
   };
   permissions: {
-    ruleFor: (tool: string, input: Record<string, unknown>, project: string | null) => { tool: string; scope: string | null; project: string | null } | undefined;
     add: (rule: { tool: string; scope: string | null; project: string | null }) => unknown;
   };
-  conversations: { get: (id: string) => { projectSlug: string | null } | undefined };
   audit: { record: (entry: { tool: string; args: Record<string, unknown>; result: string; isError: boolean; riskTier: "risky"; userId: string }) => unknown };
   registry: {
     execute: (tool: string, input: Record<string, unknown>) => Promise<{ content: string; isError: boolean }>;
@@ -116,17 +114,11 @@ export class Decisions {
     const awaited = d.approvals.isAwaited(id);
     d.approvals.approve(id, decidedBy ?? d.ownerId);
 
-    // Kept, when the owner said so: the shape of this call, in the project
-    // it came from. A call whose shape cannot be named makes no rule.
-    // Never for a call that sends a secret: each of those is asked about.
-    if (options.remember && !hasSecretRef(JSON.parse(action.args))) {
-      // The rule named when the call was queued, if there was one: a browser
-      // action's site is known then and not now. Otherwise named from the
-      // call's shape, as before.
-      const project = action.conversationId ? (d.conversations.get(action.conversationId)?.projectSlug ?? null) : null;
-      const rule = action.rule ?? d.permissions.ruleFor(action.tool, JSON.parse(action.args) as Record<string, unknown>, project);
-      if (rule) d.permissions.add(rule);
-    }
+    // Kept, when the owner said so: the rule the ask named when it was
+    // queued, and only that, since it is the one every card offered. None
+    // for an ask that named none, and never for a call that sends a secret:
+    // each of those is asked about.
+    if (options.remember && action.rule && !hasSecretRef(JSON.parse(action.args))) d.permissions.add(action.rule);
 
     // A turn suspended on this decision does the rest itself.
     if (awaited) return { ok: true, message: `Approved @approval:${id}. ${action.tool} is running.` };

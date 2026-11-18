@@ -397,6 +397,10 @@ export interface ApprovalRequest {
   rule?: { tool: string; scope: string | null; project: string | null };
   /** A browser ask that acts in the owner's own Chrome, not KOS's browser: a card says where. */
   yours?: boolean;
+  /** It always asks (it places a secret): no surface offers a remembered yes for it. */
+  asksAlways?: boolean;
+  /** It asks even in a chat set to act on its own; a surface may say so. */
+  beyondAuto?: boolean;
 }
 
 export interface Asker {

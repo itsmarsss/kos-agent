@@ -38,17 +38,11 @@ describe("the approval card", () => {
     expect(container.querySelector(".kos-ask-who")?.textContent).toBe("Docs asks");
     expect(container.querySelector(".kos-ask-title")?.textContent).toBe("Zoom the browser out so more of the document fits per screen");
     expect(container.querySelector(".kos-ask-place")?.textContent).toBe("In your Chrome on docs.google.com");
-    expect(container.querySelector(".kos-ask-favicon")?.getAttribute("src")).toBe("https://docs.google.com/favicon.ico");
+    // Never a site's own icon: nothing is fetched from where the agent points.
+    expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector(".kos-ask-steps")?.textContent).toBe("Press ⌘− 4 times, then ⌘Home");
     expect([...container.querySelectorAll(".keycap")].map((k) => k.textContent)).toEqual(["⌘−", "⌘Home"]);
     expect(container.querySelector(".kos-ask-risk")?.textContent).toBe("Clicks, types or fills on the page");
-  });
-
-  it("falls back to the place's mark when the site has no icon", () => {
-    const { container } = card();
-    fireEvent.error(container.querySelector(".kos-ask-favicon")!);
-    expect(container.querySelector(".kos-ask-favicon")).toBeNull();
-    expect(container.querySelector(".kos-ask-place svg")).not.toBeNull();
   });
 
   it("keeps the arguments folded under Details until asked, then shows them as fields", () => {
@@ -104,19 +98,45 @@ describe("the approval card", () => {
     expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Approve", "Deny"]);
   });
 
-  it("approves on Enter and denies on Escape or ⌘⌫ when the card is focused", () => {
+  it("approves on Enter only when the focus came by the keyboard, and once", () => {
     const { section, onDecide } = card();
     section.focus();
+    // Focused by a click (not :focus-visible): Enter is no yes.
+    vi.spyOn(section, "matches").mockImplementation((q: string) => q !== ":focus-visible");
     fireEvent.keyDown(section, { key: "Enter" });
+    expect(onDecide).not.toHaveBeenCalled();
+    vi.spyOn(section, "matches").mockImplementation((q: string) => q === ":focus-visible");
+    // A key held down repeats; the repeat sends nothing.
+    fireEvent.keyDown(section, { key: "Enter", repeat: true });
+    expect(onDecide).not.toHaveBeenCalled();
+    fireEvent.keyDown(section, { key: "Enter" });
+    fireEvent.keyDown(section, { key: "Enter" });
+    expect(onDecide).toHaveBeenCalledTimes(1);
     expect(onDecide).toHaveBeenLastCalledWith(true);
-    fireEvent.keyDown(section, { key: "Escape" });
-    expect(onDecide).toHaveBeenLastCalledWith(false);
-    fireEvent.keyDown(section, { key: "Backspace", metaKey: true });
-    expect(onDecide).toHaveBeenCalledTimes(3);
-    expect(onDecide).toHaveBeenLastCalledWith(false);
-    // A plain Backspace is nobody's no.
-    fireEvent.keyDown(section, { key: "Backspace" });
-    expect(onDecide).toHaveBeenCalledTimes(3);
+  });
+
+  it("denies on Escape or ⌘⌫ on the card itself, not on what is inside it", () => {
+    const one = card();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Details" }), { key: "Escape" });
+    expect(one.onDecide).not.toHaveBeenCalled();
+    fireEvent.keyDown(one.section, { key: "Backspace" });
+    expect(one.onDecide).not.toHaveBeenCalled();
+    fireEvent.keyDown(one.section, { key: "Escape" });
+    expect(one.onDecide).toHaveBeenLastCalledWith(false);
+    cleanup();
+    const two = card();
+    fireEvent.keyDown(two.section, { key: "Backspace", metaKey: true });
+    expect(two.onDecide).toHaveBeenCalledWith(false);
+  });
+
+  it("offers no Approve for an ask too long to have been sent whole", () => {
+    const { section, onDecide } = card(vi.fn(), { view: { ...view, tooLong: true } });
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Always/ })).toBeNull();
+    expect(screen.getByText(/Open it in the dashboard's Inbox/)).toBeTruthy();
+    vi.spyOn(section, "matches").mockReturnValue(true);
+    fireEvent.keyDown(section, { key: "Enter" });
+    expect(onDecide).not.toHaveBeenCalled();
   });
 
   it("leaves Enter on a button to that button", () => {
