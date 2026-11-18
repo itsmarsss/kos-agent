@@ -4054,6 +4054,8 @@ li:hover .chats-item-when { opacity: 0; }
 /* A setting: the kit's field, a little airier, its hint a readable measure. */
 .set-field { gap: 0.35rem; }
 .set-field > .hint { max-width: 46rem; line-height: 1.45; }
+.set-token { display: flex; gap: 0.4rem; align-items: center; max-width: 28rem; }
+.set-token .kos-input { flex: 1; min-width: 0; }
 
 /* The row variant's words: the same label and hint as a field anywhere. */
 .set-label {

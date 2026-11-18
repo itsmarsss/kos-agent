@@ -79,14 +79,17 @@ export function createDashboardSocket(kernel: Kernel, options: DashboardSocketOp
   return {
     upgrade(req, socket, head) {
       if ((req.url ?? "").split("?")[0] !== SOCKET_PATH) return false;
-      const asked = { method: "GET", path: SOCKET_PATH, headers: req.headers };
+      // A browser's socket sends no headers of its own: the token may ride in the address instead.
+      const params = new URL(req.url ?? "/", "http://kos").searchParams;
+      const given = params.get("token");
+      const asked = { method: "GET", path: SOCKET_PATH, headers: given ? { ...req.headers, "x-kos-token": given } : req.headers };
       const allowed = ownHost(req.headers.host, options.hostNames ?? []) && originAllowed(req, options.allowedOrigins) && (!options.token || authorized(asked, options.token));
       if (!allowed) {
         socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
         return true;
       }
       // A hand on the browser is the page's that holds this boot's key, or the token's.
-      const key = new URL(req.url ?? "/", "http://kos").searchParams.get("key") ?? undefined;
+      const key = params.get("key") ?? undefined;
       const hands = (options.token !== undefined && authorized(asked, options.token)) || (options.writeKey !== undefined && sameSecret(key, options.writeKey));
       wss.handleUpgrade(req, socket, head, (ws) => serve(kernel, ws, `window-${next++}`, hands));
       return true;

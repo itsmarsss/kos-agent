@@ -1035,7 +1035,7 @@ export function dispositionName(header: string | null): string | undefined {
 }
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(path);
+  const res = await fetch(path, { headers: tokenHeaders() });
   if (!res.ok) throw new Error(await readError(res, path));
   return (await res.json()) as T;
 }
@@ -1047,7 +1047,35 @@ async function get<T>(path: string): Promise<T> {
  */
 export function changeHeaders(): Record<string, string> {
   const key = typeof document === "undefined" ? null : document.querySelector('meta[name="kos-write"]')?.getAttribute("content");
-  return { "content-type": "application/json", ...(key ? { "x-kos-write": key } : {}) };
+  return { "content-type": "application/json", ...(key ? { "x-kos-write": key } : {}), ...tokenHeaders() };
+}
+
+/** Where this tab keeps the dashboard token the owner entered: for the tab's life, never on disk. */
+const TOKEN_KEY = "kos.dashboardToken";
+
+/** The dashboard token entered in Settings, for a KOS that asks for one (in the container, every change does). */
+export function dashboardToken(): string | undefined {
+  try {
+    return sessionStorage.getItem(TOKEN_KEY) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Keep the token for this tab, or forget it with an empty one. */
+export function setDashboardToken(token: string): void {
+  try {
+    if (token.trim()) sessionStorage.setItem(TOKEN_KEY, token.trim());
+    else sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // A browser that keeps nothing for the tab: the token goes unheld, and KOS says so on the next change.
+  }
+}
+
+/** The token as KOS reads it, on every request: it guards reads too, when one is set. */
+export function tokenHeaders(): Record<string, string> {
+  const token = dashboardToken();
+  return token ? { "x-kos-token": token } : {};
 }
 
 async function post<T>(path: string, body: unknown = {}): Promise<T> {

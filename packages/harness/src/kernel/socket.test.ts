@@ -87,6 +87,10 @@ describe("the dashboard's socket", () => {
     const origin = `http://${base.slice("ws://".length)}`;
     await expect(connect({ origin })).rejects.toThrow(/403/);
     await expect(connect({ origin, "x-kos-token": "s3cret" })).resolves.toBeDefined();
+    // A browser's socket sends no headers of its own: the token in the address does as well.
+    const ws = new WebSocket(`${base}/api/socket?token=s3cret`, { headers: { origin } });
+    await expect(new Promise<void>((done, fail) => (ws.once("open", () => done()), ws.once("error", fail)))).resolves.toBeUndefined();
+    ws.close();
   });
 
   it("lets a window without this boot's key watch, but not put its hand on the browser", async () => {

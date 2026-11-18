@@ -45,7 +45,9 @@ serves and into a file only you can read (0600, `KOS_WRITE_KEY_FILE`),
 which the kos CLI and the dev server's proxy read and every jailed program
 is denied; it is never in the environment. In the container, where the
 agent's programs share loopback with KOS, there is no key: every change
-needs `KOS_DASHBOARD_TOKEN`. Every route answers only to KOS's own names
+needs `KOS_DASHBOARD_TOKEN`. Enter it once in the dashboard's Settings,
+Network, Dashboard token: the tab keeps it in session storage (gone when it
+closes, never on disk) and sends it as `x-kos-token` with every request. Every route answers only to KOS's own names
 (localhost, the bound host, `KOS_PUBLIC_URL`'s, the Wi-Fi host) or an
 address, so a page whose name was rebound onto this machine is refused.
 
