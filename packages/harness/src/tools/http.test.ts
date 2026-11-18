@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
@@ -227,5 +228,65 @@ describe("adding a host without a restart", () => {
     expect(tier()).toBe("safe");
     expect((await registry.execute("http.fetch", { url: "https://late.example.com/x" })).isError).toBeFalsy();
     expect(reached).toHaveLength(1);
+  });
+});
+
+describe("http.fetch redirects", () => {
+  let a: Server;
+  let b: Server;
+  let aBase: string;
+  let bBase: string;
+  const reachedB: { url: string; headers: IncomingHttpHeaders }[] = [];
+
+  const listen = async (server: Server): Promise<string> => {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    return `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
+  };
+
+  beforeEach(async () => {
+    reachedB.length = 0;
+    b = createServer((req, res) => {
+      reachedB.push({ url: req.url ?? "", headers: req.headers });
+      res.end("host B");
+    });
+    bBase = await listen(b);
+    a = createServer((req, res) => {
+      const url = req.url ?? "/";
+      if (url.startsWith("/away")) return void res.writeHead(302, { location: `${bBase}/landed${url.slice("/away".length)}` }).end();
+      if (url.startsWith("/hop")) return void res.writeHead(301, { location: "/final" }).end();
+      res.end(`host A ${url} ${req.headers["x-api-key"] ?? ""}`);
+    });
+    aBase = await listen(a);
+  });
+
+  afterEach(() => {
+    for (const server of [a, b]) {
+      server.closeAllConnections();
+      server.close();
+    }
+  });
+
+  async function fetchTool(): Promise<ToolRegistry> {
+    const registry = new ToolRegistry();
+    const root = mkdtempSync(join(tmpdir(), "kos-http-redirect-"));
+    const ws = Workspace.open(root);
+    await new ModuleLoader(toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() })).load([createHttpModule({ allowedHosts: ["127.0.0.1"] })]);
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+    return registry;
+  }
+
+  it("follows a redirect within the origin, headers and all", async () => {
+    const res = await (await fetchTool()).execute("http.fetch", { url: `${aBase}/hop`, headers: { "x-api-key": "k-placed" } });
+    expect(JSON.parse(res.content)).toMatchObject({ status: 200, body: "host A /final k-placed" });
+  });
+
+  it("does not carry headers or the query to another origin, and says where it pointed", async () => {
+    const res = await (await fetchTool()).execute("http.fetch", { url: `${aBase}/away?k=q-placed`, headers: { "x-api-key": "k-placed" } });
+    expect(reachedB).toEqual([]);
+    const out = JSON.parse(res.content);
+    expect(out).toMatchObject({ status: 302, redirect: `${bBase}/landed?k=q-placed` });
+    expect(out.body).toBeUndefined();
   });
 });

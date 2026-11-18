@@ -85,23 +85,54 @@ async function doFetch(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
   try {
-    const res = await opts.fetchImpl(url, {
-      method,
-      headers,
-      body,
-      signal: controller.signal,
-    });
+    const followed = await follow(url, { method, headers, body, signal: controller.signal }, opts.fetchImpl);
+    if ("elsewhere" in followed) {
+      return JSON.stringify({
+        status: followed.status,
+        redirect: followed.elsewhere,
+        note: "The server sent this to another site. Nothing was fetched there; call http.fetch with that url to follow it.",
+      });
+    }
     // A PDF comes back as its words, not its bytes: a paper or a bill at a
     // url is as ordinary a thing to read as a page.
-    const text = await bodyText(res);
+    const text = await bodyText(followed);
     const capped = text.slice(0, opts.maxBytes);
     return JSON.stringify({
-      status: res.status,
+      status: followed.status,
       truncated: text.length > opts.maxBytes,
       body: capped,
     });
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/** Redirects followed within one origin before the chain is called a loop. */
+const REDIRECTS_MAX = 5;
+
+/**
+ * The request, its redirects followed only within its own origin.
+ *
+ * A redirect to another site is not followed: it would carry the call's
+ * headers, secrets among them, to a host nobody judged or bound them to.
+ * Where it pointed is handed back instead, so following it is a call of its
+ * own, judged and checked against the secret's hosts like any other.
+ */
+async function follow(url: string, init: RequestInit, fetchImpl: FetchImpl): Promise<Response | { status: number; elsewhere: string }> {
+  let at = new URL(url);
+  let request = init;
+  for (let hop = 0; ; hop++) {
+    const res = await fetchImpl(at.href, { ...request, redirect: "manual" });
+    const location = res.headers.get("location");
+    if (res.status < 300 || res.status >= 400 || !location) return res;
+    const next = new URL(location, at);
+    await res.body?.cancel();
+    if (next.origin !== at.origin) return { status: res.status, elsewhere: next.href };
+    if (hop >= REDIRECTS_MAX) throw new Error(`more than ${REDIRECTS_MAX} redirects`);
+    // A 303, and a 301 or 302 after a write, is fetched again as a read, as browsers do.
+    const asRead = res.status === 303 || ((res.status === 301 || res.status === 302) && request.method !== "GET" && request.method !== "HEAD");
+    request = asRead ? { ...request, method: "GET", body: null } : request;
+    at = next;
   }
 }
 
