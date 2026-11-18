@@ -281,7 +281,7 @@ export function installOverlay(): void {
       button.stop:hover { background: color-mix(in srgb, var(--danger) 17%, transparent); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
       .cursor { --kos-blue: #7c9cff; --kos-ink: #0b0e14; position: fixed; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
       :host([data-paused="1"]) .cursor, :host([data-capture="1"]) .cursor :is(.halo, .ring, .tag) { visibility: hidden; }
-      .cursor svg { position: absolute; left: 0; top: 0; overflow: visible; filter: drop-shadow(0 0 4px color-mix(in srgb, var(--kos-blue) 95%, transparent)); }
+      .cursor svg { position: absolute; left: 0; top: 0; overflow: visible; filter: drop-shadow(0 0 3px var(--kos-blue)) drop-shadow(0 0 4px color-mix(in srgb, var(--kos-blue) 80%, transparent)); }
       .cursor path { fill: var(--kos-blue); stroke: #fff; stroke-width: 1.4px; stroke-linejoin: round; }
       .cursor .halo { position: absolute; left: -15px; top: -15px; width: 30px; height: 30px; box-sizing: border-box; border-radius: 50%;
         background: color-mix(in srgb, var(--kos-blue) 16%, transparent); border: 1.2px solid color-mix(in srgb, var(--kos-blue) 55%, transparent); }
