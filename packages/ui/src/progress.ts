@@ -198,10 +198,17 @@ function reduce(live: Live, event: ProgressEvent): Live {
 }
 
 /**
+ * Browser steps that work no page: listing the tabs reads what is open and
+ * never starts KOS's browser, so it is no reason to open the window, which
+ * would start it.
+ */
+const WORKS_NO_PAGE: ReadonlySet<string> = new Set(["browser.tabs"]);
+
+/**
  * Who is browsing in KOS's own browser right now, and what they are doing, if
- * anyone is: a turn whose latest browser step ran there. A step in the
- * owner's Chrome is not: the browser window shows KOS's browser, which that
- * step never touched, and opening the window starts KOS's Chrome.
+ * anyone is: a turn whose latest browser step worked a page there. A step in
+ * the owner's Chrome is not: the browser window shows KOS's browser, which
+ * that step never touched, and opening the window starts KOS's Chrome.
  */
 export function browsingNow(map: ProgressMap): { id: string; doing?: string } | null {
   for (const [id, turn] of Object.entries(map)) {
@@ -210,6 +217,7 @@ export function browsingNow(map: ProgressMap): { id: string; doing?: string } | 
       const step = turn.steps[i]!;
       if (step.kind !== "tool" || !step.tool.startsWith("browser.")) continue;
       if (step.yours) break;
+      if (WORKS_NO_PAGE.has(step.tool)) continue;
       return step.done ? { id } : { id, doing: step.summary };
     }
   }

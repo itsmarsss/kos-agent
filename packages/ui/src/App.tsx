@@ -35,6 +35,7 @@ import { DashboardRefs } from "./refs.js";
 import { QuickAsk } from "./QuickAsk.js";
 import { browsingNow, useProgress } from "./progress.js";
 import { FilesPage } from "./FilesPage.js";
+import { fileMention } from "./finder/model.js";
 import { AgentsPage } from "./AgentsPage.js";
 import { BuildsPage } from "./BuildsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
@@ -96,6 +97,8 @@ export function App(): React.ReactElement {
   const [firing, setFiring] = useState<number | null>(null);
   /** A message the harness sent, until the transcript has it. */
   const [seed, setSeed] = useState<{ id: string; text: string } | null>(null);
+  /** Words for a chat's composer, from asking about a file on the Files page. */
+  const [compose, setCompose] = useState<{ text: string; n: number } | null>(null);
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [pages, setPages] = useState<PageSummary[]>([]);
   const [activity, setActivity] = useState<AuditRecord[]>([]);
@@ -774,7 +777,7 @@ export function App(): React.ReactElement {
         <AnimatePresence mode="wait" initial={false}>
           <m.div
             key={pageKeyOf(route)}
-            className={`ops-page ${route.name === "chats" || route.name === "project" || agentPage ? "ops-page--full" : route.name === "settings" ? "ops-page--split" : ""}`}
+            className={`ops-page ${route.name === "chats" || route.name === "project" || route.name === "files" || agentPage ? "ops-page--full" : route.name === "settings" ? "ops-page--split" : ""}`}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
@@ -961,6 +964,7 @@ export function App(): React.ReactElement {
         onChanged={() => void refresh()}
         onDecide={decideByPendingId}
         {...(seed ? { seed } : {})}
+        {...(compose ? { compose, onComposed: () => setCompose(null) } : {})}
       />,
     );
   }
@@ -1035,6 +1039,12 @@ export function App(): React.ReactElement {
       <FilesPage
         {...(route.path ? { path: route.path } : {})}
         onOpen={(p) => go({ name: "files", path: p })}
+        onAsk={(paths) => {
+          // A question about files goes to KOS's own chat, the files referenced in its composer.
+          setCompose({ text: paths.map(fileMention).join(" "), n: Date.now() });
+          const kosChat = conversations.find((c) => c.kind === "orchestrator");
+          go(kosChat ? { name: "chats", id: kosChat.id } : { name: "chats" });
+        }}
       />,
     );
   }

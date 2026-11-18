@@ -44,7 +44,7 @@ those to this table by hand.
 
 | Component | What it is | Web | KOS for Chrome | KOS for Mac |
 | --- | --- | --- | --- | --- |
-| Icons | One set, one stroke (1.7), titled or bare | `kit/src/icons.tsx` (`CloseIcon`, `ChevronDown`, `SendIcon`, `ComposeIcon`, `ChatIcon`, `NavIcon`, ...) | the kit's | SF Symbols, named in the chat and window code |
+| Icons | One set, one stroke (1.7), titled or bare | `kit/src/icons.tsx` (`CloseIcon`, `ChevronDown`, `SendIcon`, `ComposeIcon`, `ChatIcon`, `NavIcon`, `ColumnsIcon`, `InfoIcon`, `UploadIcon`, `FolderPlusIcon`, `ClockIcon`, ...) | the kit's | SF Symbols, named in the chat and window code |
 | `Pill` | A state in a word: its tone, a dot | kit | kit | `Pill` (Controls) |
 | `Tag` | A fact in a word or two on a bordered capsule; not a state; `remove` ends it in a small × | kit (memory kinds, tool families) | kit, with `remove` (a hidden site) | `Tag(_ text:, remove:, leading:)` (Controls), which draws `AppChip`, a hidden app |
 | `Switch` | On or off | kit | kit | `KOSSwitch`, `SwitchRow` (Controls) |
@@ -95,6 +95,11 @@ those to this table by hand.
 | Capsule chip | The steps of a turn, the model, the mode | `.composer-engine` | `.steps-head`, `.model`, `.mode`: one rule | `Chip` and `.chip()` (Controls); `opens:` adds the chevron (the steps chip, the model menu) |
 | Hairline, MenuRow, CapsuleEdge | Small pieces; `CapsuleEdge` is the outline to stroke on a capsule (SwiftUI's `Capsule` stroke draws a stray mark at each end) | | | `Hairline`, `MenuRow`, `CapsuleEdge` (Controls) |
 | Turn menu | What KOS is at, at the head of the menu bar's menu: a dot and the state over the step or the ask, then `MenuRow`s (Approve, Deny, Hand back, Take over, +15, Open chat, Stop), one symbol column | | | `TurnMenu` and `MenuTurn` (`TurnMenu.swift`), in `StatusMenu` |
+| File manager | Finder's: sidebar of places, List (sortable, folders open in place), Columns (with the chosen file's facts at the end) and Icons, the path bar, Quick Look on Space, Finder's selection and keys, the trash; the Files page over the workspace and a project's or blob's panel over its folder; one column below 640 px | `finder/Finder.tsx` with `ListView`, `ColumnsView`, `GalleryView`, `Sidebar`, `Toolbar`, `PathBar`, `TrashView`, `FileFacts` (Info and the last column), `Menu.tsx` (`FinderMenu`), `MoveDialog`; the rules in `finder/model.ts`; `FilesPage.tsx`, `ProjectExplorer.tsx` wrap it | | |
+| File preview | A file over the page: its header (mark, name, size and age, step, File \| Raw, actions, close), the file for what it is; `quickLook` adds Space to close and the up and down arrows; a sheet from the bottom on a phone | `FilePreview.tsx` (`FilePreview`, `FileBody`) | | |
+| Office viewers | A document on its page in a sealed frame, a workbook as tabs over a grid (the header row and row numbers held, figures right), a deck as slides drawn at any size, or a picture of the first page | `OfficeView.tsx` (`OfficeBody`, `SlideStage`) | | |
+| Kind marks for files | One per kind: folder, image, code, text, doc, sheet, deck, PDF, data, archive, audio, video | `FileIcon.tsx` | | |
+| Thumbnail | A picture of a file, fetched when near the screen: an image's own bytes or a document's server-drawn first page, else its kind's mark | `FileThumb.tsx` (`Thumb`) | | |
 | Command | A command for the owner to run in Terminal, selectable, with Copy at one width | `CommandLine` (`ui/src/kit.tsx`), in a `FieldRow`'s `after` (a device's) | | `CommandBox` (Controls; the update notice) |
 
 ## The chat

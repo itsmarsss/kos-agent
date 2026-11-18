@@ -102,7 +102,8 @@ export function InboxPage({
                     </>
                   }
                   extra={
-                    a.tool === "browser.handoff" && onOpenBrowser ? (
+                    /* A handoff in the owner's Chrome is theirs already: KOS's window has nothing of it to show. */
+                    a.tool === "browser.handoff" && !a.yours && onOpenBrowser ? (
                       <button type="button" className="btn" onClick={onOpenBrowser}>
                         Open the browser
                       </button>

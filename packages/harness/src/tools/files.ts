@@ -19,8 +19,8 @@ import { PDF_TEXT_MAX, isPdf, pdfText } from "../files/pdftext.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { SAFE, type ToolRisk } from "../risk/tiers.js";
+import { firstSegment, foldName, isReserved } from "../kernel/files.js";
 import { gitControlRefusal } from "../sandbox/githold.js";
-import { RESERVED } from "../kernel/files.js";
 import { foldedPath, type Workspace } from "../store/workspace.js";
 import { reachOf } from "./sql.js";
 import { artifactFileRefusal, artifactFolderRefusal } from "./systems.js";
@@ -125,9 +125,9 @@ const rmRisk: ToolRisk = {
   escalate: (input) => (outsideScratch(optStr(input, "path") ?? "") ? "outside the scratch folder" : false),
 };
 
-/** A path under KOS's own state, .kos/, in any case: `.KOS` is the same folder on a case-insensitive disk. */
+/** A path under KOS's own state, .kos/, however it is spelled: `.KOS` and `.ko\u017f` are the same folder on a case-insensitive disk. */
 export function isKosState(ws: Workspace, path: string): boolean {
-  return foldedPath(ws.root, path).split("/")[0] === ".kos";
+  return [foldedPath(ws.root, path), path].some((p) => foldName(firstSegment(p)) === ".kos");
 }
 
 /**
@@ -137,8 +137,8 @@ export function isKosState(ws: Workspace, path: string): boolean {
  * would be started with the owner's secrets.
  */
 export function reservedRefusal(ws: Workspace, path: string): string | undefined {
-  const top = foldedPath(ws.root, path).split("/")[0] ?? "";
-  return RESERVED.has(top) ? `${top} is KOS's own, changed only by the owner from the dashboard or the kos command` : undefined;
+  const top = foldName(foldedPath(ws.root, path).split("/")[0] ?? "");
+  return isReserved(ws.root, path) ? `${top} is KOS's own, changed only by the owner from the dashboard or the kos command` : undefined;
 }
 
 /**

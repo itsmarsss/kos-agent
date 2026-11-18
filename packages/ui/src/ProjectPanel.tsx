@@ -23,6 +23,8 @@ export interface ProjectPanelProps {
   onOpenFile: (path: string) => void;
   /** Something changed that the rest of the dashboard lists too. */
   onChanged: () => void;
+  /** Ask KOS about files in the folder, in this chat. */
+  onAskAboutFiles?: (paths: string[]) => void;
   onError: (message: string) => void;
   /** Slid shut: still mounted so it can slide open, but polling nothing. */
   hidden?: boolean;
@@ -39,7 +41,7 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = false, modal = false, rail }: ProjectPanelProps): ReactElement {
+export function ProjectPanel({ slug, onOpenFile, onAskAboutFiles, onChanged, onError, hidden = false, modal = false, rail }: ProjectPanelProps): ReactElement {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** The colour row under the head, shown on request. */
@@ -187,8 +189,8 @@ export function ProjectPanel({ slug, onOpenFile, onChanged, onError, hidden = fa
         root={detail.folder}
         upload={(file, dir) => api.uploadProjectFile(slug, file, dir)}
         onOpenInFiles={onOpenFile}
+        {...(onAskAboutFiles ? { onAsk: onAskAboutFiles } : {})}
         onChanged={onChanged}
-        onError={onError}
         paused={hidden}
       />
 

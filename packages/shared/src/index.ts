@@ -252,3 +252,19 @@ export {
   type CheckItem,
   type FieldSpec,
 } from "./blockkinds.js";
+
+export type {
+  Cell as ViewCell,
+  DocView,
+  Frame as SlideFrame,
+  OfficeView,
+  Paragraph as SlideParagraph,
+  PictureView,
+  Run as SlideRun,
+  Shape as SlideShape,
+  Sheet as ViewSheet,
+  SheetView,
+  Slide,
+  SlidesView,
+  ViewFormat,
+} from "./officeview.js";
