@@ -381,6 +381,22 @@ export class Vault {
     return () => this.listeners.delete(listener);
   }
 
+  /**
+   * The owner's word that the vault file on disk is the one they expect:
+   * both sequence records written again at its sequence. For a vault both
+   * records of which went missing; nothing is decrypted.
+   */
+  trustSeq(): void {
+    this.locked(() => {
+      const doc = this.doc;
+      if (!doc) throw new VaultError("absent", this.problem ?? "there is no vault to trust");
+      writeAtomic(this.seqPath, `${doc.vault} ${doc.index.seq}\n`, this.dir);
+      writeAtomic(this.seqCopy, `${doc.vault} ${doc.index.seq}\n`, dirname(this.seqCopy));
+      this.stamp = "";
+      this.refresh();
+    });
+  }
+
   /** Read the file again if another process changed it, at most once a second: for a caller as hot as the scrubber. */
   poll(): void {
     const t = this.now();
@@ -891,17 +907,17 @@ export class Vault {
    * in the folder and its copy outside it. Both must be put back to pass an
    * old copy off; `missing` says one of them is gone.
    */
-  private highWater(vault: string): { seq: number; missing: boolean } {
+  private highWater(vault: string): { seq: number; missing: number } {
     let seq = 0;
-    let missing = false;
+    let missing = 0;
     for (const path of [this.seqPath, this.seqCopy]) {
       if (!existsSync(path)) {
-        missing = true;
+        missing++;
         continue;
       }
       const [id, n] = readPrivate(path).trim().split(" ");
       if (id === vault && n && /^\d+$/.test(n)) seq = Math.max(seq, Number(n));
-      else if (id !== vault) missing = true;
+      else missing++;
     }
     return { seq, missing };
   }
@@ -915,8 +931,12 @@ export class Vault {
     if (doc.index.seq < seen.seq) {
       throw new VaultError("tampered", `the vault file is older than one KOS wrote (sequence ${doc.index.seq}, last ${seen.seq}): an old copy was put back`);
     }
+    // Both gone: nothing says this is not an old copy, so it waits for the owner to say it is the one.
+    if (seen.missing === 2 && doc.index.seq > 0) {
+      throw new VaultError("tampered", `both records of the vault's last sequence are missing (${this.seqPath} and ${this.seqCopy}), so an older copy put back could not be told from this one; if this is the vault you expect, run kos secrets trust-seq`);
+    }
     this.warning =
-      seen.missing && doc.index.seq > 0
+      seen.missing > 0 && doc.index.seq > 0
         ? `a record of the vault's last sequence is missing (${this.seqPath} or ${this.seqCopy}), so an older copy put back could not be told from this one; the next change writes it again`
         : undefined;
     const held = new Map<string, Held>();

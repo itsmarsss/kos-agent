@@ -228,6 +228,9 @@ describe("Vault", () => {
     writeFileSync(join(out, "vault.kosv"), JSON.stringify(exported), { mode: 0o600 });
     const opened = new Vault({ dir: out });
     expect(opened.status().state).toBe("locked");
+    // A copy restored has no sequence records with it: the owner says it is the one first.
+    await expect(opened.unlock("export passphrase")).rejects.toThrow(/trust-seq/);
+    opened.trustSeq();
     await opened.unlock("export passphrase");
     expect(opened.list()).toHaveLength(2);
   }, 20_000);
@@ -363,14 +366,15 @@ describe("Vault keys and files", () => {
     expect(vaultAt().status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/older than one KOS wrote/) });
   });
 
-  it("says so when a sequence record is missing", async () => {
+  it("says so when one sequence record is missing, and waits for the owner when both are", async () => {
     await twoSecrets();
     rmSync(join(dir, "seq"));
-    expect(vaultAt().status()).toMatchObject({ state: "ready", problem: expect.stringMatching(/sequence is missing|last sequence is missing/) });
+    expect(vaultAt().status()).toMatchObject({ state: "ready", problem: expect.stringMatching(/last sequence is missing/) });
     rmSync(`${dir}.seq`);
     const v = vaultAt();
-    expect(v.status().problem).toMatch(/missing/);
-    v.add({ label: "Again", kind: "note", values: { text: "a note to write" } });
+    expect(v.status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/kos secrets trust-seq/) });
+    v.trustSeq();
+    expect(v.status()).toEqual({ state: "ready", slots: ["keyfile"] });
     expect(vaultAt().status()).toEqual({ state: "ready", slots: ["keyfile"] });
   });
 

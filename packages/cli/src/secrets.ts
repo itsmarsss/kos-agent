@@ -27,6 +27,7 @@ export const SECRETS_USAGE = [
   "                               a new data key; or set a passphrase (its slot alone, the key file erased);",
   "                               or take it off (back to a key file); or a new key file",
   "  export <file>                a copy only the passphrase opens",
+  "  trust-seq [--yes]            take the vault on disk as the latest when both sequence records are gone",
   "  wipe [--yes]                 crypto-erase the vault and its key (a passphrase vault asks for it)",
 ].join("\n");
 
@@ -178,6 +179,14 @@ export async function runSecrets(rest: string[], flags: Record<string, string | 
         const passphrase = vault.hasPassphrase() ? await ask("Vault passphrase: ", true) : await newPassphrase();
         await vault.exportTo(file, passphrase);
         out(`exported to ${file}; only the passphrase opens it`);
+        return 0;
+      }
+      case "trust-seq": {
+        if (vault.status().state === "absent") throw new VaultError("absent", "there is no vault");
+        if (!(await confirmed("This takes the vault file on disk as the latest, though nothing records its sequence. Only do this if you did not put an older copy back.", "trust"))) return 1;
+        vault.trustSeq();
+        const s = vault.status();
+        out(`vault: ${s.state}${s.problem ? `: ${s.problem}` : ""}`);
         return 0;
       }
       case "wipe": {

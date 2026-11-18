@@ -93,8 +93,10 @@ open descriptor.
   the highest sequence number written. Both are written after the vault, so
   a crash leaves them lower, never higher. An older copy of the vault is
   refused when either record is higher than its sequence, so both have to be
-  put back to pass one off. A missing record is shown in the status's
-  `problem` while the vault still opens, and written again on the next change.
+  put back to pass one off. One missing record is shown in the status's
+  `problem` while the vault still opens, and written again on the next
+  change. Both missing, the vault does not open until the owner runs `kos
+  secrets trust-seq`, which takes the file on disk as the latest.
 - `vault.lock`: held while the host or the CLI reads the vault and writes it
   back, so the two never interleave a change; one left by a process that is
   gone, or older than 30 s, is taken over.
@@ -177,8 +179,9 @@ Operations:
   scrubber's copies of every value; that is a known limit.
 
 An older copy put back is refused by design, `.prev` included. To go back to
-an earlier state, restore an export (`kos secrets export`), which is opened
-by its passphrase.
+an earlier state, restore an export (`kos secrets export`): put it in an
+empty vault folder as `vault.kosv` (mode 0600), run `kos secrets trust-seq`,
+then unlock it with its passphrase.
 
 ### In the container
 
@@ -297,6 +300,7 @@ kos secrets add <login|card|apikey|note> <label> [--hosts a,b] [--origins https:
 kos secrets rm <handle> [--yes]
 kos secrets rotate [--passphrase | --no-passphrase | --key]
 kos secrets export <file>
+kos secrets trust-seq [--yes]
 kos secrets wipe [--yes]
 ```
 

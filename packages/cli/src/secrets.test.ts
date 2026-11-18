@@ -90,6 +90,17 @@ describe("kos secrets", () => {
     expect(audits).toEqual(["secrets.passphrase add", "secrets.passphrase remove"]);
   }, 30_000);
 
+  it("trusts the vault on disk once both sequence records are gone, after the owner confirms", async () => {
+    await runSecrets(["init"], {}, cli());
+    await runSecrets(["add", "note", "N"], {}, cli([], "some note text here"));
+    rmSync(join(root, "secrets", "seq"));
+    rmSync(join(root, "secrets.seq"));
+    expect(new Vault({ dir: join(root, "secrets") }).status().state).toBe("locked");
+    expect(await runSecrets(["trust-seq"], {}, cli(["no"]))).toBe(1);
+    expect(await runSecrets(["trust-seq"], {}, cli(["trust"]))).toBe(0);
+    expect(lines.at(-1)).toBe("vault: ready");
+  });
+
   it("says why a command cannot run", async () => {
     expect(await runSecrets(["unlock"], {}, cli())).toBe(1);
     expect(lines.at(-1)).toMatch(/no host is running/);
