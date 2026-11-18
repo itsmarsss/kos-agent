@@ -5288,7 +5288,8 @@ export class Kernel {
         (m, i) => i >= at && m.role === "user" && m.content.some((b) => b.type === "text"),
       );
       if (idx >= 0) {
-        after[idx] = { role: "user", content: [...after[idx]!.content, ...carried] };
+        // The message as written, with its time and where it came from, and the files again.
+        after[idx] = { ...after[idx]!, content: [...after[idx]!.content, ...carried] };
         this.sessions.set(target, after);
       }
     }
