@@ -252,7 +252,7 @@ describe("Kernel", () => {
     expect(sent).not.toContain("never mind this");
     expect(kernel.pending.forConversation(chat)).toEqual([]);
     // Told as heard, for a surface showing the chat elsewhere; the dropped words are not.
-    expect(heard).toEqual([{ kind: "heard", conversationId: chat, said: "use the red one", from: "dashboard" }]);
+    expect(heard).toEqual([{ kind: "heard", conversationId: chat, said: "use the red one", pendingId: expect.any(Number), from: "dashboard" }]);
   });
 
   it("runs words said too late for a step as a turn of their own", async () => {

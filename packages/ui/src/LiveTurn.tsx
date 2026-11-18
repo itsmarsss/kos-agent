@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 
 import { Elapsed, listItem, Markdown, Pill, WorkingDots } from "@kos/kit";
+import { OriginLine } from "./OriginLine.js";
 import { hrefFor } from "./routes.js";
 import { Thinking } from "./Thinking.js";
 import { ToolCall } from "./ToolCall.js";
@@ -103,7 +104,8 @@ export function LiveTurn({
               <div className="bubble bubble--you">
                 <Markdown text={step.text} />
               </div>
-              {step.from && step.from !== "dashboard" && <span className="turn-via">via {step.from}</span>}
+              {/* The line the kept message carries too, from the surface stored with it. */}
+              {step.from && step.from !== "dashboard" && <OriginLine origin={{ via: step.from }} />}
             </m.div>
           ) : (
             <m.div

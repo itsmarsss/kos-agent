@@ -1879,10 +1879,12 @@ export class Kernel {
       this.pending.take(w.id);
       // Where they said it rides with the words, when it says only that.
       const where = row.flags?.contextRides ? row.flags.context : undefined;
-      words.push({ text: row.text, ...(where ? { where } : {}) });
+      // The surface rides too, so the chat says where they were said, live and once kept.
+      const via = w.channel && w.channel !== "dashboard" ? w.channel : undefined;
+      words.push({ text: row.text, ...(where ? { where } : {}), ...(via ? { via } : {}) });
       w.taken("heard");
       // Shown where the chat is mirrored, as the owner's, where the turn heard them.
-      this.progress.emit({ kind: "heard", conversationId: sessionId, said: row.text, ...(w.channel ? { from: w.channel } : {}) });
+      this.progress.emit({ kind: "heard", conversationId: sessionId, said: row.text, pendingId: w.id, ...(w.channel ? { from: w.channel } : {}) });
     }
     if (!words.length) return undefined;
     this.bus.emit({ kind: "turn:heard", conversationId: sessionId });

@@ -45,7 +45,7 @@ describe("LiveTurn states", () => {
     );
     const said = container.querySelector(".turn--you");
     expect(said?.textContent).toContain("skip the ebooks");
-    expect(said?.textContent).toContain("via discord");
+    expect(said?.textContent).toContain("via Discord");
     const text = container.textContent ?? "";
     expect(text.indexOf("Start in Chrome")).toBeLessThan(text.indexOf("skip the ebooks"));
     expect(text.indexOf("skip the ebooks")).toBeLessThan(text.indexOf("Search"));

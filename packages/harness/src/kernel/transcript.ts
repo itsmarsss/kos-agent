@@ -85,21 +85,36 @@ const MAX_RESULT = 2000;
 const OWNER_LINE = "[the owner, while you work · ";
 /** Under the owner's words, where they were when they said them (the tab or app beside a device's chat): not their words. */
 const WHERE_LINE = "[where the owner said that · ";
+/** Under the owner's words, the surface they said them on, when not the dashboard: kept so the chat can say so. */
+const VIA_LINE = "[said on · ";
 
-/** The owner's words, each with where it was said when the surface says so. */
-export function ownerWords(mark: string, words: { text: string; where?: string }[]): string {
-  return words.map((w) => `\n\n${OWNER_LINE}${mark}]\n${w.text}${w.where ? `\n\n${WHERE_LINE}${mark}]\n${w.where}` : ""}`).join("");
+/** Words the owner said while a turn ran: where they were, and the surface, when there is one to say. */
+export interface OwnerWords {
+  text: string;
+  where?: string;
+  via?: string;
 }
 
-/** A tool's result, and the owner's words that rode in after it. */
-export function splitOwnerWords(content: string): { content: string; said: string[] } {
+/** The owner's words, each with where it was said when the surface says so. */
+export function ownerWords(mark: string, words: OwnerWords[]): string {
+  return words
+    .map((w) => `\n\n${OWNER_LINE}${mark}]\n${w.text}${w.where ? `\n\n${WHERE_LINE}${mark}]\n${w.where}` : ""}${w.via ? `\n\n${VIA_LINE}${mark}]\n${w.via}` : ""}`)
+    .join("");
+}
+
+/** A tool's result, and the owner's words that rode in after it, each with the surface it was said on. */
+export function splitOwnerWords(content: string): { content: string; said: { text: string; via?: string }[] } {
   const at = content.indexOf(`\n\n${OWNER_LINE}`);
   if (at === -1) return { content, said: [] };
   const said = content
     .slice(at)
     .split(/\n\n\[the owner, while you work · [0-9a-z]+\]\n/)
-    .map((w) => w.split(/\n\n\[where the owner said that · [0-9a-z]+\]\n/)[0]!.trim())
-    .filter(Boolean);
+    .flatMap((w) => {
+      const text = (w.split(/\n\n\[(?:where the owner said that|said on) · [0-9a-z]+\]\n/)[0] ?? "").trim();
+      if (!text) return [];
+      const via = /\n\n\[said on · [0-9a-z]+\]\n(\S+)/.exec(w)?.[1];
+      return [{ text, ...(via ? { via } : {}) }];
+    });
   return { content: content.slice(0, at), said };
 }
 
@@ -237,7 +252,7 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
           pending.delete(block.toolUseId);
         }
         // What the owner said while the turn ran, where the turn heard it.
-        for (const text of said) events.push({ kind: "message", role: "you", text });
+        for (const w of said) events.push({ kind: "message", role: "you", text: w.text, ...(w.via ? { origin: { via: w.via } } : {}) });
       }
     }
   }

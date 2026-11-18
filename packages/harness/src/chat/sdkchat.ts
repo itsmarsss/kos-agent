@@ -154,7 +154,7 @@ export function carryOn(prompt: string, calls: SdkToolCall[]): string {
     const { content, said } = splitOwnerWords(c.result);
     // A screen step's answer is a line about what it did, and the screen is attached; any other result is kept whole (or its stub), since what it said may be what the rest of the turn needs.
     const answer = isScreenTool(c.name) ? content.replace(/\s+/g, " ").slice(0, 300) : content;
-    const owner = said.map((w) => `\n   The owner said, while you worked: ${w}`).join("");
+    const owner = said.map((w) => `\n   The owner said, while you worked: ${w.text}`).join("");
     return `${i + 1}. ${c.name} ${JSON.stringify(c.input).slice(0, 300)}\n${fenced(c.name, answer)}${owner}`;
   });
   return `${prompt}\n\n[You are partway through this turn. These steps are already done, newest last; the screen as it is now is attached. Carry on from here: do not repeat them or start over, and keep any session that is open.]\n${steps.join("\n")}`;

@@ -107,6 +107,8 @@ export type ProgressEvent =
       kind: "heard";
       conversationId: string;
       said: string;
+      /** The waiting row the words were, so a surface showing it queued knows it is taken. */
+      pendingId?: number;
       from?: string;
     }
   | { kind: "turn-end"; conversationId: string };
