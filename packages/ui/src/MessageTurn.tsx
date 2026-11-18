@@ -1,0 +1,72 @@
+import type { ReactElement } from "react";
+
+import { type BlockActions, MessageTime, QuoteLine, Timed } from "@kos/kit";
+
+import type { ChatEvent } from "./api.js";
+import { AttachmentStrip } from "./AttachmentStrip.js";
+import { ChatWords } from "./ChatWords.js";
+import { MentionedFiles } from "./MentionedFiles.js";
+import { MessageActions } from "./MessageActions.js";
+import { OriginLine } from "./OriginLine.js";
+
+/**
+ * One message in the thread: the owner's bubble, KOS's words or a note,
+ * where it came from, what came with it, and what can be done with it. Its
+ * time shows on hover, focus or a tap: the owner's left of their bubble, a
+ * note's after it, KOS's at the end of its actions row.
+ */
+export function MessageTurn({
+  event: e,
+  actions,
+  linkFor,
+  busy,
+  onEdit,
+  onRetry,
+  onFork,
+}: {
+  event: Extract<ChatEvent, { kind: "message" }>;
+  /** What a typed block in KOS's words may do here. */
+  actions: BlockActions;
+  linkFor: Parameters<typeof OriginLine>[0]["linkFor"];
+  busy: boolean;
+  /** Present on the owner's own turns, which can be changed and run again. */
+  onEdit?: () => void;
+  onRetry?: () => void;
+  onFork?: () => void;
+}): ReactElement {
+  const bubble = e.text && (
+    <div className={`bubble bubble--${e.role}`}>
+      {e.quote && <QuoteLine text={e.quote.text} from={e.quote.from} />}
+      <ChatWords role={e.role} text={e.text} actions={actions} />
+    </div>
+  );
+  return (
+    <Timed className={`turn turn--${e.role}`}>
+      {bubble && e.role !== "kos" ? (
+        <div className="turn-said">
+          {e.role === "you" && e.at ? <MessageTime at={e.at} /> : null}
+          {bubble}
+          {e.role === "system" && e.at ? <MessageTime at={e.at} /> : null}
+        </div>
+      ) : (
+        bubble
+      )}
+      {e.origin && <OriginLine origin={e.origin} {...(linkFor ? { linkFor } : {})} />}
+      {/* Outside the bubble, under it: an attachment is a thing that came
+          with the message, not part of the sentence. The files the message
+          mentions sit there too, for the same reason. */}
+      {e.attachments && e.attachments.length > 0 && <AttachmentStrip items={e.attachments} />}
+      {e.text && e.role !== "system" && <MentionedFiles text={e.text} />}
+      {e.text && e.role !== "system" && (
+        <MessageActions
+          text={e.text}
+          busy={busy}
+          {...(e.role === "kos" && e.at ? { at: e.at } : {})}
+          {...(onEdit ? { onEdit } : {})}
+          {...(onRetry ? { onRetry } : {})}
+          {...(onFork ? { onFork } : {})}
+        />
+      )}
+    </Timed>
+  );
+}

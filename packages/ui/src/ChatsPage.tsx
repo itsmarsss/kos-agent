@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -9,10 +10,9 @@ import {
 } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { runningTail, stepMechanics, summarizeAction } from "@kos/shared";
-import { ArchiveIcon, AskSteps, type BlockActions, QuoteLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
+import { runningTail, stepMechanics, summarizeAction, timeMarks } from "@kos/shared";
+import { ArchiveIcon, AskSteps, type BlockActions, MessageTime, Timed, TimeLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
-import { ChatWords } from "./ChatWords.js";
 import { Decision } from "./Decision.js";
 import { VoiceInput } from "./VoiceInput.js";
 
@@ -48,7 +48,6 @@ import { tabName } from "./address.js";
 import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
 import { OriginLine, surfaceName } from "./OriginLine.js";
-import { MentionedFiles } from "./MentionedFiles.js";
 import { ModelPicker } from "./ModelPicker.js";
 import { HighlightedInput } from "./HighlightedInput.js";
 import {
@@ -60,7 +59,8 @@ import {
   type Trigger,
 } from "./Autocomplete.js";
 import { Thinking } from "./Thinking.js";
-import { MessageActions, MessageEditor } from "./MessageActions.js";
+import { MessageEditor } from "./MessageActions.js";
+import { MessageTurn } from "./MessageTurn.js";
 
 import {
   clearProgress,
@@ -528,6 +528,14 @@ export function ChatsPage({
    */
   const liveHasSteps = live?.steps.some((s) => s.kind === "tool") === true;
   const visible = [...seeded, ...(liveHasSteps ? events.slice(0, runningTail(events)) : events)];
+  /** The owner's words a running turn is for, said somewhere else and not yet in the transcript. */
+  const liveSaid = live?.said && !visible.some((e) => e.kind === "message" && e.role === "you" && e.text === live.said) ? live.said : undefined;
+  /** The day and pause lines over the messages, and over those words, from when each was said. */
+  const marks = timeMarks([
+    ...visible.map((e) => (e.kind === "message" ? e.at : undefined)),
+    liveSaid && live && !live.resumed ? live.since : undefined,
+  ]);
+  const liveMark = marks[visible.length];
 
   /**
    * The words for a reference, where this view knows them. A chat and a
@@ -1007,6 +1015,7 @@ export function ChatsPage({
       kind: "message",
       role: "you",
       text,
+      at: Date.now(),
       ...(files.length
         ? {
             attachments: files.map((f) => ({
@@ -1319,35 +1328,20 @@ export function ChatsPage({
     }
 
     return (
-      <div key={i} className={`turn turn--${e.role}`}>
-        {e.text && (
-          <div className={`bubble bubble--${e.role}`}>
-            {e.quote && <QuoteLine text={e.quote.text} from={e.quote.from} />}
-            <ChatWords role={e.role} text={e.text} actions={blockActions} />
-          </div>
-        )}
-        {e.origin && <OriginLine origin={e.origin} linkFor={roomLink} />}
-        {/* Outside the bubble, under it: an attachment is a thing that came
-            with the message, not part of the sentence. The files the message
-            mentions sit there too, for the same reason. */}
-        {e.attachments && e.attachments.length > 0 && (
-          <AttachmentStrip items={e.attachments} />
-        )}
-        {e.text && e.role !== "system" && <MentionedFiles text={e.text} />}
-        {e.text && e.role !== "system" && (
-          <MessageActions
-            text={e.text}
-            busy={rewinding}
-            {...(turn >= 0
-              ? {
-                  onEdit: () => setEditingIndex(turn),
-                  onRetry: () => rewind(turn),
-                  onFork: () => rewind(turn, { forkTitle: "" }),
-                }
-              : {})}
-          />
-        )}
-      </div>
+      <MessageTurn
+        key={i}
+        event={e}
+        actions={blockActions}
+        linkFor={roomLink}
+        busy={rewinding}
+        {...(turn >= 0
+          ? {
+              onEdit: () => setEditingIndex(turn),
+              onRetry: () => rewind(turn),
+              onFork: () => rewind(turn, { forkTitle: "" }),
+            }
+          : {})}
+      />
     );
   };
 
@@ -2358,21 +2352,34 @@ export function ChatsPage({
                   let owner = -1;
                   return visible.map((e, i) => {
                     const turn = e.kind === "message" && e.role === "you" ? ++owner : -1;
-                    return renderEvent(e, i, turn);
+                    const mark = marks[i];
+                    return (
+                      <Fragment key={i}>
+                        {mark && <TimeLine mark={mark} />}
+                        {renderEvent(e, i, turn)}
+                      </Fragment>
+                    );
                   });
                 })()}
                 {/* Said somewhere else (Discord, a phone, another tab): the
                     words show now, as they would had they been typed here,
                     rather than when the turn ends. This tab's own message is
                     already in the list above. */}
-                {live?.said && !visible.some((e) => e.kind === "message" && e.role === "you" && e.text === live.said) && (
-                  <div className="turn turn--you">
-                    <div className="bubble bubble--you">
-                      <Markdown text={live.said} />
-                    </div>
-                    {live.origin ? <OriginLine origin={live.origin} linkFor={roomLink} /> : live.from && live.from !== "dashboard" && <span className="turn-via">via {live.from}</span>}
-                    {live.files && live.files.length > 0 && <AttachmentStrip items={live.files} />}
-                  </div>
+                {live && liveSaid && (
+                  <>
+                    {liveMark && <TimeLine mark={liveMark} />}
+                    <Timed className="turn turn--you">
+                      <div className="turn-said">
+                        {/* A turn found running when the page loaded began at a time this page never saw. */}
+                        {live.resumed ? null : <MessageTime at={live.since} />}
+                        <div className="bubble bubble--you">
+                          <Markdown text={liveSaid} />
+                        </div>
+                      </div>
+                      {live.origin ? <OriginLine origin={live.origin} linkFor={roomLink} /> : live.from && live.from !== "dashboard" && <span className="turn-via">via {live.from}</span>}
+                      {live.files && live.files.length > 0 && <AttachmentStrip items={live.files} />}
+                    </Timed>
+                  </>
                 )}
                 {/* No BlockActions round a running turn: its steps carry the owner's own words too, and
                     KOS's blocks offer Send once the reply is in the thread. */}

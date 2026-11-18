@@ -16,10 +16,23 @@ export const GAP_MS = 15 * 60_000;
 /** A quiet line between messages: the day where it changes, the time after a pause. */
 export type TimeMark = { kind: "day"; at: number } | { kind: "gap"; at: number };
 
+/** One reader of the calendar per zone: a long chat asks for every message's day on each draw. */
+const calendars = new Map<string, Intl.DateTimeFormat>();
+
+function calendarIn(timeZone?: string): Intl.DateTimeFormat {
+  const key = timeZone ?? "";
+  let calendar = calendars.get(key);
+  if (!calendar) {
+    calendar = new Intl.DateTimeFormat("en-US", { ...(timeZone ? { timeZone } : {}), year: "numeric", month: "numeric", day: "numeric" });
+    calendars.set(key, calendar);
+  }
+  return calendar;
+}
+
 /** The calendar day an instant falls on in a zone, as days since 1970; the reader's zone without one. */
 export function dayNumber(ms: number, timeZone?: string): number {
   const parts = new Map(
-    new Intl.DateTimeFormat("en-US", { ...(timeZone ? { timeZone } : {}), year: "numeric", month: "numeric", day: "numeric" })
+    calendarIn(timeZone)
       .formatToParts(new Date(ms))
       .map((p) => [p.type, Number(p.value)]),
   );

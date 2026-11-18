@@ -2878,7 +2878,8 @@ li:hover .chats-item-when { opacity: 0; }
 /* —— message actions —— */
 .turn { display: flex; flex-direction: column; gap: 0.25rem; align-self: stretch; }
 .turn--you { align-items: flex-end; }
-.turn--kos, .turn--system { align-items: flex-start; }
+.turn--kos { align-items: flex-start; }
+.turn--system { align-items: center; }
 .turn .bubble { max-width: 88%; }
 
 .acts {
@@ -2887,7 +2888,18 @@ li:hover .chats-item-when { opacity: 0; }
   opacity: 0;
   transition: opacity 140ms;
 }
-.turn:hover .acts, .acts:focus-within { opacity: 1; }
+.turn:hover .acts, .acts:focus-within, .turn.is-timed .acts { opacity: 1; }
+/* KOS's time ends its actions row. */
+.acts .msg-time { align-self: center; margin-left: 0.4rem; }
+
+/* The owner's bubble with its time on the left, a note with its time after it
+   (kit.css .msg-time): the time keeps its room while hidden, so nothing moves. */
+.turn-said { display: flex; align-items: flex-end; gap: 0.5rem; max-width: 100%; }
+.turn--you > .turn-said { align-self: stretch; justify-content: flex-end; }
+.turn-said > .bubble { min-width: 0; }
+.turn--you > .turn-said > .msg-time { margin-bottom: 0.4rem; }
+.turn--system > .turn-said { position: relative; }
+.turn--system > .turn-said > .msg-time { position: absolute; left: 100%; bottom: 0.2rem; margin-left: 0.5rem; }
 
 .edit { align-self: stretch; display: flex; flex-direction: column; gap: 0.4rem; }
 .edit-area {

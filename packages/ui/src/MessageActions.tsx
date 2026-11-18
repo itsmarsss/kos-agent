@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from "react";
 
-import { CheckIcon, CopyIcon, EditIcon, ForkIcon, IconButton, RetryIcon } from "@kos/kit";
+import { CheckIcon, CopyIcon, EditIcon, ForkIcon, IconButton, MessageTime, RetryIcon } from "@kos/kit";
 
 /**
  * What you can do with a message you sent, or one you got back.
@@ -17,6 +17,8 @@ export interface MessageActionProps {
   onRetry?: () => void;
   onFork?: () => void;
   busy?: boolean;
+  /** When KOS's message was said: its time ends the row, as the owner's sits beside their bubble. */
+  at?: number;
 }
 
 export function MessageActions({
@@ -25,6 +27,7 @@ export function MessageActions({
   onRetry,
   onFork,
   busy,
+  at,
 }: MessageActionProps): ReactElement {
   const [copied, setCopied] = useState(false);
 
@@ -58,6 +61,7 @@ export function MessageActions({
           <ForkIcon />
         </IconButton>
       )}
+      {at ? <MessageTime at={at} /> : null}
     </div>
   );
 }
