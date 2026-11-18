@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 
 import type { SecretFieldName, SecretKind, SecretPolicy, SecretSummary, SecretUse, SecretValues, VaultSlotKind } from "@kos/shared";
 
-import { buildIndex, SCRUB_INDEX_FORMAT, ScrubIndex, type ScrubIndexFile } from "./scrubindex.js";
+import { buildIndex, SCRUB_INDEX_FORMAT, SCRUB_INDEX_VERSION, ScrubIndex, type ScrubIndexFile } from "./scrubindex.js";
 import { checkDir, copyAtomic, excludeFromBackup, fsyncDir, readPrivate, shred, VaultFsError, withFileLock, writeAtomic } from "./vaultfs.js";
 import { checkPolicy, checkUse, checkValues, hintOf, labelOf, originAllowed, scannedOf, slugOf, type ScannedValue } from "./records.js";
 
@@ -396,7 +396,7 @@ export class Vault {
       let index: ScrubIndex | undefined;
       try {
         const file = stamp ? (JSON.parse(readPrivate(this.indexPath)) as ScrubIndexFile) : undefined;
-        const key = file?.format === SCRUB_INDEX_FORMAT ? unb64(readPrivate(this.indexKeyPath).trim()) : undefined;
+        const key = file?.format === SCRUB_INDEX_FORMAT && file.version === SCRUB_INDEX_VERSION ? unb64(readPrivate(this.indexKeyPath).trim()) : undefined;
         index = file && key?.length === 32 ? new ScrubIndex(key, file) : undefined;
       } catch {
         index = undefined;

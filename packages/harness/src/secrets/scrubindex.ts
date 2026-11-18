@@ -8,9 +8,10 @@ import { needlesOf, scrubbedLabel, type Watched } from "./scrub.js";
  *
  * For every value and every encoding the scrubber looks for, it keeps the
  * length and an HMAC-SHA256 under a scrub key of its own (a 0600 file beside
- * the vault, never the vault's key), plus a short keyed rolling hash that
- * says which windows of a text are worth an HMAC. Text is scanned in windows
- * of each length kept.
+ * the vault, never the vault's key), plus a keyed hash of its first six
+ * characters. Text is scanned once: each position's six-character hash is
+ * looked up, and only a position whose prefix matches has its windows
+ * checked by HMAC.
  *
  * The trade: anyone holding both the index and the scrub key can test a
  * guess at a value offline, as fast as HMAC runs. That is cheap for a short
@@ -22,13 +23,20 @@ import { needlesOf, scrubbedLabel, type Watched } from "./scrub.js";
  */
 
 export const SCRUB_INDEX_FORMAT = "kos-scrub-index";
+export const SCRUB_INDEX_VERSION = 2;
+
+/** Every value is at least this long (scrub.ts MIN_SCANNED): its first characters say which windows are worth an HMAC. */
+export const PREFIX = 6;
+
+/** Past this much text in one call the index does not look; the exact scrubber, when the vault is open, has no such cap. */
+export const INDEX_SCAN_MAX = 2 * 1024 * 1024;
 
 export interface IndexEntry {
   /** UTF-16 code units, as JavaScript strings measure them. */
   len: number;
-  /** The keyed rolling hash of the window, a prefilter. */
-  rk: number;
-  /** HMAC-SHA256 of the window under the scrub key, hex. */
+  /** A keyed hash of the first PREFIX characters: one lookup per position finds the candidates. */
+  pk: number;
+  /** HMAC-SHA256 of the whole window under the scrub key, hex. */
   mac: string;
   /** `<handle>.<field>`, for the label it is replaced with. */
   name: string;
@@ -36,7 +44,7 @@ export interface IndexEntry {
 
 export interface ScrubIndexFile {
   format: typeof SCRUB_INDEX_FORMAT;
-  version: 1;
+  version: typeof SCRUB_INDEX_VERSION;
   entries: IndexEntry[];
 }
 
@@ -45,9 +53,9 @@ const P = 67_108_859;
 
 const baseOf = (key: Buffer): number => (key.readUInt32BE(0) % (P - 2)) + 2;
 
-function rolling(text: string, base: number): number {
+function rolling(text: string, base: number, from = 0, length = text.length): number {
   let h = 0;
-  for (let i = 0; i < text.length; i++) h = (h * base + text.charCodeAt(i)) % P;
+  for (let i = from; i < from + length; i++) h = (h * base + text.charCodeAt(i)) % P;
   return h;
 }
 
@@ -61,55 +69,58 @@ export function buildIndex(key: Buffer, values: Iterable<Watched>): ScrubIndexFi
   for (const [name, value, mode = "exact"] of values) {
     if (mode === "digits") continue;
     for (const form of needlesOf(value)) {
+      if (form.length < PREFIX) continue;
       const mac = macOf(key, form);
       if (seen.has(mac)) continue;
       seen.add(mac);
-      entries.push({ len: form.length, rk: rolling(form, base), mac, name });
+      entries.push({ len: form.length, pk: rolling(form, base, 0, PREFIX), mac, name });
     }
   }
-  return { format: SCRUB_INDEX_FORMAT, version: 1, entries };
+  return { format: SCRUB_INDEX_FORMAT, version: SCRUB_INDEX_VERSION, entries };
 }
 
 export class ScrubIndex {
   private readonly base: number;
-  private readonly byWindow = new Map<string, IndexEntry[]>();
-  private readonly lengths: number[];
+  private readonly byPrefix = new Map<number, IndexEntry[]>();
   /** The longest window, for a stream to hold back. */
   readonly reach: number;
+  private readonly power: number;
 
   constructor(
     private readonly key: Buffer,
     file: ScrubIndexFile,
   ) {
     this.base = baseOf(key);
-    for (const e of file.entries) {
-      const at = `${e.len}:${e.rk}`;
-      this.byWindow.set(at, [...(this.byWindow.get(at) ?? []), e]);
-    }
-    this.lengths = [...new Set(file.entries.map((e) => e.len))].sort((a, b) => b - a);
-    this.reach = this.lengths[0] ?? 0;
+    for (const e of file.entries) this.byPrefix.set(e.pk, [...(this.byPrefix.get(e.pk) ?? []), e]);
+    this.reach = Math.max(0, ...file.entries.map((e) => e.len));
+    let power = 1;
+    for (let i = 1; i < PREFIX; i++) power = (power * this.base) % P;
+    this.power = power;
   }
 
-  /** `text` with every indexed value masked, and which were found how often. */
+  /**
+   * `text` with every indexed value masked, and which were found how often.
+   * One pass: a rolling hash of each PREFIX-character window, looked up;
+   * only a window whose prefix matches is checked by its HMAC. Text past
+   * INDEX_SCAN_MAX is not looked at.
+   */
   found(text: string): { text: string; hits: Map<string, number> } {
-    const matches: { start: number; end: number; name: string }[] = [];
-    for (const len of this.lengths) {
-      if (text.length < len) continue;
-      let power = 1;
-      for (let i = 1; i < len; i++) power = (power * this.base) % P;
-      let h = rolling(text.slice(0, len), this.base);
-      for (let start = 0; ; start++) {
-        const hit = this.byWindow.get(`${len}:${h}`);
-        if (hit) {
-          const mac = macOf(this.key, text.slice(start, start + len));
-          const entry = hit.find((e) => e.mac === mac);
-          if (entry) matches.push({ start, end: start + len, name: entry.name });
-        }
-        if (start + len >= text.length) break;
-        h = ((((h - ((text.charCodeAt(start) * power) % P) + P) % P) * this.base) % P + text.charCodeAt(start + len)) % P;
-      }
-    }
     const hits = new Map<string, number>();
+    const end = Math.min(text.length, INDEX_SCAN_MAX);
+    if (this.byPrefix.size === 0 || end < PREFIX) return { text, hits };
+    const matches: { start: number; end: number; name: string }[] = [];
+    let h = rolling(text, this.base, 0, PREFIX);
+    for (let start = 0; ; start++) {
+      const candidates = this.byPrefix.get(h);
+      if (candidates) {
+        for (const e of candidates) {
+          if (start + e.len > end) continue;
+          if (macOf(this.key, text.slice(start, start + e.len)) === e.mac) matches.push({ start, end: start + e.len, name: e.name });
+        }
+      }
+      if (start + PREFIX >= end) break;
+      h = ((((h - ((text.charCodeAt(start) * this.power) % P) + P) % P) * this.base) % P + text.charCodeAt(start + PREFIX)) % P;
+    }
     if (matches.length === 0) return { text, hits };
     matches.sort((a, b) => a.start - b.start || b.end - a.end);
     let out = "";

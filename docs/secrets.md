@@ -206,9 +206,11 @@ the scrubber runs on:
 - **The scrub index** (`scrub.kosi`, made under its own key `scrub.key`, both
   0600 in the vault's folder and hidden from the jail). For every value but
   card numbers, and every encoding the scrubber looks for, it keeps the
-  length, a keyed rolling hash and an HMAC-SHA256 under the scrub key. Text
-  is scanned in windows of those lengths; a window whose rolling hash
-  matches is confirmed by its HMAC and masked as `[secret <handle>.<field>]`.
+  length, a keyed hash of its first six characters and an HMAC-SHA256 of
+  the whole under the scrub key. Text is scanned once: each position's
+  six-character hash is looked up, and only where a prefix matches is the
+  window checked by its HMAC and masked as `[secret <handle>.<field>]`. The
+  index looks at the first 2 MB of a text and no further.
   It is made again on every change while the vault is open.
   The tradeoff: anyone holding both files can test a guess at a value
   offline as fast as HMAC runs, where the vault itself costs a scrypt per
