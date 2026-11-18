@@ -129,6 +129,15 @@ describe("a browser call from the side panel's chat", () => {
     await turn;
   });
 
+  it("says a browser ask from the chat is in the owner's Chrome, so KOS's window stays shut for it", async () => {
+    kernel = await boot(oneCall("files.ls", { path: "." }).inference);
+    expect(kernel.inOwnersChrome("browser.handoff", "chat:owner")).toBe(false);
+    kernel.setBrowserElsewhere(ownerChrome({ starts: true }));
+    expect(kernel.inOwnersChrome("browser.handoff", "chat:owner")).toBe(true);
+    expect(kernel.inOwnersChrome("files.ls", "chat:owner")).toBe(false);
+    expect(kernel.inOwnersChrome("browser.handoff", null)).toBe(false);
+  });
+
   it("leaves every other tool alone", async () => {
     const { inference } = oneCall("files.ls", { path: "." });
     kernel = await boot(inference);

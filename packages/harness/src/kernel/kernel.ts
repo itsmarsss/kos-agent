@@ -2419,6 +2419,11 @@ export class Kernel {
     return record ? roleTitle(record) : this.titleOf(conversationId);
   }
 
+  /** Whether a browser call from this conversation works in the owner's own Chrome rather than KOS's. */
+  inOwnersChrome(tool: string, conversationId: string | null | undefined): boolean {
+    return this.browserContext(tool, conversationId ?? undefined)?.browser?.yours === true;
+  }
+
   /** Who is asking, for an approval raised from a conversation, by its name. Nothing for an action raised from nowhere. */
   askerOf(conversationId: string | null | undefined): Asker | undefined {
     if (!conversationId) return undefined;
@@ -3787,7 +3792,7 @@ export class Kernel {
           // With the ids named, so a step reads "#leetcode", not a snowflake.
           summary: summarizeAction(tool, input, (kind, id) => this.labelFor(kind, id)),
           input,
-          ...(this.browserContext(tool, opts.conversationId)?.browser?.yours ? { yours: true as const } : {}),
+          ...(this.inOwnersChrome(tool, opts.conversationId) ? { yours: true as const } : {}),
         });
       },
     });

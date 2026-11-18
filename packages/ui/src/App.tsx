@@ -135,7 +135,8 @@ export function App(): React.ReactElement {
   const handoffs = useMemo(
     () =>
       approvals
-        .filter((a) => a.tool === "browser.handoff")
+        // A handoff in the owner's Chrome is theirs already: KOS's window has nothing of it to show.
+        .filter((a) => a.tool === "browser.handoff" && !a.yours)
         .map((a) => {
           let reason = "";
           try {

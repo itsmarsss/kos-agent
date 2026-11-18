@@ -84,6 +84,8 @@ export interface PendingAction {
   why?: string | null;
   /** Who is asking, by the name the owner knows the chat by: a blob's title, a project's name, KOS. */
   asker?: string;
+  /** A browser ask that acts in the owner's own Chrome, not KOS's browser. */
+  yours?: true;
 }
 
 export interface Project {

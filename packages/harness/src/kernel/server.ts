@@ -276,13 +276,15 @@ function conversationLabeller(
  * words with its ids named, and, where those words are the model's account
  * of a step, the actions it would take. A yes is given for those.
  */
-function pendingView(kernel: Kernel, a: PendingAction): PendingAction & { asker?: string; summary: string; mechanics?: string } {
+function pendingView(kernel: Kernel, a: PendingAction): PendingAction & { asker?: string; summary: string; mechanics?: string; yours?: true } {
   const mechanics = stepMechanics(a.tool, a.args);
   return {
     ...a,
     asker: kernel.askerOf(a.conversationId)?.name,
     summary: summarizeAction(a.tool, a.args, (kind, id) => kernel.labelFor(kind, id)),
     ...(mechanics ? { mechanics } : {}),
+    // A browser ask in the owner's Chrome: KOS's browser window has nothing of it to show.
+    ...(kernel.inOwnersChrome(a.tool, a.conversationId) ? { yours: true as const } : {}),
   };
 }
 
