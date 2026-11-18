@@ -32,27 +32,20 @@ const COLUMNS: { key: SortKey; label: string }[] = [
   { key: "kind", label: "Kind" },
 ];
 
-export function ListView({ rows, sort, onSort, onToggle, h, empty }: { rows: ListRow[]; sort: Sort; onSort: (sort: Sort) => void; onToggle?: (entry: DirEntry) => void; h: RowHandlers; empty: string }): ReactElement {
-  const cols = useColumns(LIST_WIDTHS_KEY, LIST_COLUMNS);
+export function ListView({ rows, sort, onSort, onToggle, h, empty, widthsKey = LIST_WIDTHS_KEY }: { rows: ListRow[]; sort: Sort; onSort: (sort: Sort) => void; onToggle?: (entry: DirEntry) => void; h: RowHandlers; empty: string; /** Where the columns' widths are kept: one place a Finder is drawn's apart from another's. */ widthsKey?: string }): ReactElement {
+  const cols = useColumns(widthsKey, LIST_COLUMNS);
   return (
     <div className="finder-list" role="grid" aria-multiselectable="true" aria-label="Files" aria-rowcount={rows.length} style={cols.style}>
       <div className="finder-list-head" role="row" ref={cols.headRef}>
-        {COLUMNS.map((c, i) => (
-          <button
-            key={c.key}
-            type="button"
-            role="columnheader"
-            data-col={c.key}
-            style={{ gridColumn: i + 1 }}
-            className={`finder-col finder-col--${c.key}`}
-            aria-sort={sort.key === c.key ? (sort.desc ? "descending" : "ascending") : "none"}
-            onClick={() => onSort({ key: c.key, desc: sort.key === c.key ? !sort.desc : c.key === "modified" || c.key === "size" })}
-          >
-            {c.label}
-            {sort.key === c.key && <span className={`finder-sort${sort.desc ? " is-desc" : ""}`} aria-hidden="true" />}
-          </button>
+        {COLUMNS.map((c) => (
+          <div key={c.key} role="columnheader" data-head={c.key} className={`finder-col finder-col--${c.key}`} aria-sort={sort.key === c.key ? (sort.desc ? "descending" : "ascending") : "none"}>
+            {cols.divider(c.key)}
+            <button type="button" className="finder-col-label" data-col={c.key} onClick={() => onSort({ key: c.key, desc: sort.key === c.key ? !sort.desc : c.key === "modified" || c.key === "size" })}>
+              {c.label}
+              {sort.key === c.key && <span className={`finder-sort${sort.desc ? " is-desc" : ""}`} aria-hidden="true" />}
+            </button>
+          </div>
         ))}
-        {cols.dividers}
       </div>
       {rows.length === 0 && <p className="finder-empty">{empty}</p>}
       {rows.map(({ entry, depth, open, where, match }) => (

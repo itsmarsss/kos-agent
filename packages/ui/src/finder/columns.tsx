@@ -1,11 +1,16 @@
-import { useCallback, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactElement, type RefObject } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactElement, type RefObject } from "react";
 
 /**
  * The list's columns, sized as Finder sizes them: Name takes whatever the
  * others leave, and each other column is as wide as its owner drags it, by
  * the divider on its left edge. A double-click on a divider fits the column
  * to what it holds; a focused divider moves with the arrow keys, Shift for
- * bigger steps, and Enter fits. The widths are kept per browser.
+ * bigger steps, and Enter fits. The widths are kept per browser, one set
+ * for each place a Finder is drawn (the Files page, a panel beside a chat).
+ *
+ * A column's track is minmax(its least, its width): in a Finder narrower
+ * than the widths, the other columns give way before Name goes under its
+ * least, so a width kept on a wide window never crowds a narrow one.
  */
 
 export interface ColumnSpec {
@@ -37,7 +42,9 @@ export const TRASH_COLUMNS: readonly ColumnSpec[] = [
   { key: "size", label: "Size", width: 88, min: 56 },
 ];
 
+/** The Files page's list, a panel's beside a chat (narrower, so kept apart), and the trash. */
 export const LIST_WIDTHS_KEY = "kos.finder.columns";
+export const PANEL_WIDTHS_KEY = "kos.finder.panelColumns";
 export const TRASH_WIDTHS_KEY = "kos.finder.trashColumns";
 
 export const clampWidth = (width: number, spec: ColumnSpec, max = COLUMN_MAX): number => Math.round(Math.min(Math.max(width, spec.min), Math.max(spec.min, Math.min(max, COLUMN_MAX))));
@@ -68,18 +75,25 @@ export function saveWidths(storeKey: string, widths: ColumnWidths): void {
   }
 }
 
-/** The grid's columns: Name flexible, the others at their widths, then any fixed tail (the trash's actions). */
+/** The grid's columns: Name flexible, each other column between its least and its width, then any fixed tail (the trash's actions). */
 export const columnsTemplate = (specs: readonly ColumnSpec[], widths: ColumnWidths, tail = ""): string =>
-  [`minmax(${NAME_MIN}px, 1fr)`, ...specs.map((s) => `${widths[s.key] ?? s.width}px`), ...(tail ? [tail] : [])].join(" ");
+  [`minmax(${NAME_MIN}px, 1fr)`, ...specs.map((s) => `minmax(${s.min}px, ${widths[s.key] ?? s.width}px)`), ...(tail ? [tail] : [])].join(" ");
+
+/** How wide a cell's contents are drawn, its padding included: a Range over them, since a cell that clips (overflow hidden) reports a scroll width no narrower than itself. */
+export function contentWidth(cell: HTMLElement): number {
+  const range = document.createRange();
+  range.selectNodeContents(cell);
+  const style = getComputedStyle(cell);
+  return range.getBoundingClientRect().width + (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+}
 
 export interface Columns {
-  widths: ColumnWidths;
   /** On the list: its grid, as `--finder-cols`. */
   style: CSSProperties;
   /** On the list's head row: where the dividers measure Name and the cells from. */
   headRef: RefObject<HTMLDivElement | null>;
-  /** The dividers, one at the left edge of each column after Name. */
-  dividers: ReactElement[];
+  /** The divider for each column after Name, by key, to sit in that column's head. */
+  divider: (key: string) => ReactElement | null;
 }
 
 /** A list's resizable columns: the widths, kept under `storeKey`, and the dividers that change them. */
@@ -89,77 +103,105 @@ export function useColumns(storeKey: string, specs: readonly ColumnSpec[], tail 
   const kept = useRef(widths);
   kept.current = widths;
 
-  const set = useCallback(
-    (key: string, width: number, save: boolean): void => {
+  const commit = useCallback(
+    (key: string, width: number): void => {
       const next = { ...kept.current, [key]: width };
       kept.current = next;
       setWidths(next);
-      if (save) saveWidths(storeKey, next);
+      saveWidths(storeKey, next);
     },
     [storeKey],
   );
 
-  /** How far a column may grow before Name would go under its least: unbounded where nothing is laid out (a test). */
-  const room = useCallback((): number => {
-    const name = headRef.current?.querySelector<HTMLElement>('[data-col="name"]')?.getBoundingClientRect().width ?? 0;
-    return name > 0 ? Math.max(0, name - NAME_MIN) : Number.POSITIVE_INFINITY;
-  }, []);
+  /** Mid-drag the grid is set on the list itself, so the rows are not drawn again for every move; let go, the width is kept. */
+  const preview = useCallback(
+    (key: string, width: number): void => {
+      headRef.current?.parentElement?.style.setProperty("--finder-cols", columnsTemplate(specs, { ...kept.current, [key]: width }, tail));
+    },
+    [specs, tail],
+  );
 
-  /** As wide as the widest thing in the column, its head included. */
+  /** A column's head, and how wide it is drawn now (narrower than its width in a narrow Finder). */
+  const headOf = useCallback((key: string): HTMLElement | null => headRef.current?.querySelector<HTMLElement>(`[data-head="${key}"]`) ?? null, []);
+  const drawn = useCallback((key: string): number => {
+    const w = headOf(key)?.getBoundingClientRect().width ?? 0;
+    const stored = kept.current[key] ?? 0;
+    return w > 0 ? Math.min(stored, Math.round(w)) : stored;
+  }, [headOf]);
+
+  /** As wide as a column may go now: as far as Name can give without going under its least. Unbounded where nothing is laid out (jsdom). */
+  const maxOf = useCallback(
+    (spec: ColumnSpec): number => {
+      const name = headOf("name")?.getBoundingClientRect().width ?? 0;
+      return name > 0 ? clampWidth(drawn(spec.key) + name - NAME_MIN, spec) : COLUMN_MAX;
+    },
+    [headOf, drawn],
+  );
+
+  /** As wide as the widest thing in the column, its head's words included: narrower or wider. */
   const fit = useCallback(
     (spec: ColumnSpec): void => {
       const list = headRef.current?.parentElement;
       if (!list) return;
-      const cells = [...list.querySelectorAll<HTMLElement>(`[data-col="${spec.key}"]`)];
-      const widest = Math.max(0, ...cells.map((c) => c.scrollWidth));
-      const now = kept.current[spec.key] ?? spec.width;
-      set(spec.key, clampWidth(widest + 2, spec, now + room()), true);
+      const widest = Math.max(0, ...[...list.querySelectorAll<HTMLElement>(`[data-col="${spec.key}"]`)].map(contentWidth));
+      commit(spec.key, clampWidth(Math.ceil(widest) + 1, spec, maxOf(spec)));
     },
-    [room, set],
+    [commit, maxOf],
   );
 
-  const dividers = useMemo(
-    () =>
-      specs.map((spec, i) => (
-        <Divider
-          key={spec.key}
-          spec={spec}
-          column={i + 2}
-          width={widths[spec.key] ?? spec.width}
-          room={room}
-          onResize={(w, save) => set(spec.key, w, save)}
-          onFit={() => fit(spec)}
-        />
-      )),
-    [specs, widths, room, set, fit],
+  // What a divider says it can reach follows the Finder's width.
+  useLayoutEffect(() => {
+    const head = headRef.current;
+    if (!head) return;
+    const mark = (): void => {
+      for (const spec of specs) head.querySelector(`[data-divider="${spec.key}"]`)?.setAttribute("aria-valuemax", String(maxOf(spec)));
+    };
+    mark();
+    if (typeof ResizeObserver !== "function") return;
+    const watch = new ResizeObserver(mark);
+    watch.observe(head);
+    return () => watch.disconnect();
+  }, [specs, widths, maxOf]);
+
+  const divider = useCallback(
+    (key: string): ReactElement | null => {
+      const spec = specs.find((s) => s.key === key);
+      if (!spec) return null;
+      return <Divider key={key} spec={spec} width={widths[key] ?? spec.width} drawn={() => drawn(key)} max={() => maxOf(spec)} onPreview={(w) => preview(key, w)} onResize={(w) => commit(key, w)} onFit={() => fit(spec)} />;
+    },
+    [specs, widths, drawn, maxOf, preview, commit, fit],
   );
 
   const style = useMemo(() => ({ "--finder-cols": columnsTemplate(specs, widths, tail) }) as CSSProperties, [specs, widths, tail]);
-  return { widths, style, headRef, dividers };
+  return { style, headRef, divider };
 }
 
-function Divider({ spec, column, width, room, onResize, onFit }: { spec: ColumnSpec; column: number; width: number; room: () => number; onResize: (width: number, save: boolean) => void; onFit: () => void }): ReactElement {
+function Divider({ spec, width, drawn, max, onPreview, onResize, onFit }: { spec: ColumnSpec; width: number; drawn: () => number; max: () => number; onPreview: (width: number) => void; onResize: (width: number) => void; onFit: () => void }): ReactElement {
   const drag = useRef<{ x: number; width: number; max: number } | null>(null);
+  const at = (e: PointerEvent<HTMLSpanElement>): number => {
+    const d = drag.current!;
+    // The divider is the column's left edge: dragged left, the column grows.
+    return clampWidth(d.width + d.x - e.clientX, spec, d.max);
+  };
 
   const down = (e: PointerEvent<HTMLSpanElement>): void => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
     e.currentTarget.setPointerCapture?.(e.pointerId);
-    drag.current = { x: e.clientX, width, max: width + room() };
+    e.currentTarget.classList.add("is-dragging");
+    drag.current = { x: e.clientX, width: drawn(), max: max() };
   };
   const move = (e: PointerEvent<HTMLSpanElement>): void => {
-    const d = drag.current;
-    if (!d) return;
-    // The divider is the column's left edge: dragged left, the column grows.
-    onResize(clampWidth(d.width + d.x - e.clientX, spec, d.max), false);
+    if (drag.current) onPreview(at(e));
   };
   const up = (e: PointerEvent<HTMLSpanElement>): void => {
-    const d = drag.current;
-    if (!d) return;
+    if (!drag.current) return;
+    const w = at(e);
     drag.current = null;
+    e.currentTarget.classList.remove("is-dragging");
     e.currentTarget.releasePointerCapture?.(e.pointerId);
-    onResize(clampWidth(d.width + d.x - e.clientX, spec, d.max), true);
+    onResize(w);
   };
   const key = (e: KeyboardEvent<HTMLSpanElement>): void => {
     if (e.key === "Enter") {
@@ -171,7 +213,7 @@ function Divider({ spec, column, width, room, onResize, onFit }: { spec: ColumnS
     const by = e.key === "ArrowLeft" ? step : e.key === "ArrowRight" ? -step : 0;
     if (!by) return;
     e.preventDefault();
-    onResize(clampWidth(width + by, spec, width + room()), true);
+    onResize(clampWidth(drawn() + by, spec, max()));
   };
 
   return (
@@ -182,14 +224,15 @@ function Divider({ spec, column, width, room, onResize, onFit }: { spec: ColumnS
       aria-valuenow={width}
       aria-valuemin={spec.min}
       aria-valuemax={COLUMN_MAX}
+      data-divider={spec.key}
       tabIndex={0}
-      className={`finder-divider${drag.current ? " is-dragging" : ""}`}
-      style={{ gridColumn: column }}
+      className="finder-divider"
       title="Drag to resize, double-click to fit"
       onPointerDown={down}
       onPointerMove={move}
       onPointerUp={up}
       onPointerCancel={up}
+      onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => {
         e.stopPropagation();
         onFit();

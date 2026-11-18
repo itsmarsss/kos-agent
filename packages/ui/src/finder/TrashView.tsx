@@ -44,11 +44,18 @@ export function TrashView({ onChanged, onError, onCount, rootName }: { onChanged
       {items && items.length > 0 && (
         <div className="finder-list" role="grid" aria-label="Trash" style={cols.style}>
           <div className="finder-list-head finder-list-head--trash" role="row" ref={cols.headRef}>
-            <span role="columnheader" className="finder-col finder-col--name" data-col="name" style={{ gridColumn: 1 }}>Name</span>
-            <span role="columnheader" className="finder-col" data-col="trashed" style={{ gridColumn: 2 }}>Date Trashed</span>
-            <span role="columnheader" className="finder-col finder-col--size" data-col="size" style={{ gridColumn: 3 }}>Size</span>
-            <span role="columnheader" className="finder-col" aria-label="Actions" style={{ gridColumn: 4 }} />
-            {cols.dividers}
+            <div role="columnheader" className="finder-col finder-col--name" data-head="name">
+              <span className="finder-col-label">Name</span>
+            </div>
+            <div role="columnheader" className="finder-col" data-head="trashed">
+              {cols.divider("trashed")}
+              <span className="finder-col-label" data-col="trashed">Date Trashed</span>
+            </div>
+            <div role="columnheader" className="finder-col finder-col--size" data-head="size">
+              {cols.divider("size")}
+              <span className="finder-col-label" data-col="size">Size</span>
+            </div>
+            <div role="columnheader" className="finder-col" aria-label="Actions" />
           </div>
           {items.map((item) => (
             <div key={item.id} role="row" className="finder-row finder-row--trash">

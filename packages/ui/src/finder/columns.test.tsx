@@ -3,15 +3,16 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api, type DirEntry } from "../api.js";
-import { columnsTemplate, LIST_COLUMNS, LIST_WIDTHS_KEY, readWidths, TRASH_WIDTHS_KEY } from "./columns.js";
+import { columnsTemplate, LIST_COLUMNS, LIST_WIDTHS_KEY, PANEL_WIDTHS_KEY, readWidths, TRASH_WIDTHS_KEY } from "./columns.js";
 import { ListView } from "./ListView.js";
 import type { RowHandlers } from "./rows.js";
 import { TrashView } from "./TrashView.js";
 
 /**
  * The list's columns, resized as Finder's are: a divider at each column's
- * left edge, dragged or moved by the keys, a double-click to fit, the
- * widths kept per browser, the same in the trash.
+ * left edge, dragged or moved by the keys, the widths kept per browser,
+ * the same in the trash. Fitting and narrow Finders need layout: they are
+ * in columns.chrome.test.ts.
  */
 
 const entry = (name: string): DirEntry => ({ name, path: name, kind: "file", size: 10, modifiedAt: 1 });
@@ -57,23 +58,29 @@ describe("the widths a browser keeps", () => {
     });
     list();
     fireEvent.keyDown(screen.getByRole("separator", { name: "Resize Kind" }), { key: "ArrowLeft" });
-    expect(cols()).toBe("minmax(176px, 1fr) 184px 88px 160px");
+    expect(cols()).toBe("minmax(176px, 1fr) minmax(96px, 184px) minmax(56px, 88px) minmax(72px, 160px)");
   });
 
   it("lays Name out flexible and the rest at their widths", () => {
-    expect(columnsTemplate(LIST_COLUMNS, { modified: 200, size: 60, kind: 100 })).toBe("minmax(176px, 1fr) 200px 60px 100px");
-    expect(columnsTemplate(LIST_COLUMNS, { modified: 200, size: 60, kind: 100 }, "15rem")).toBe("minmax(176px, 1fr) 200px 60px 100px 15rem");
+    expect(columnsTemplate(LIST_COLUMNS, { modified: 200, size: 60, kind: 100 })).toBe("minmax(176px, 1fr) minmax(96px, 200px) minmax(56px, 60px) minmax(72px, 100px)");
+    expect(columnsTemplate(LIST_COLUMNS, { modified: 200, size: 60, kind: 100 }, "15rem")).toBe("minmax(176px, 1fr) minmax(96px, 200px) minmax(56px, 60px) minmax(72px, 100px) 15rem");
   });
 });
 
 describe("a divider in the list's head", () => {
-  it("is one per column after Name, a focusable separator that says the width", () => {
+  it("is one per column after Name, in that column's head, a focusable separator that says the width", () => {
     list();
+    expect(screen.getAllByRole("columnheader").map((c) => [c.textContent, c.querySelector('[role="separator"]')?.getAttribute("aria-label") ?? null])).toEqual([
+      ["Name", null],
+      ["Date Modified", "Resize Date Modified"],
+      ["Size", "Resize Size"],
+      ["Kind", "Resize Kind"],
+    ]);
     const dividers = screen.getAllByRole("separator");
     expect(dividers.map((d) => d.getAttribute("aria-label"))).toEqual(["Resize Date Modified", "Resize Size", "Resize Kind"]);
     expect(dividers.map((d) => d.getAttribute("aria-valuenow"))).toEqual(["184", "88", "152"]);
     expect(dividers.every((d) => d.tabIndex === 0 && d.getAttribute("aria-orientation") === "vertical")).toBe(true);
-    expect(cols()).toBe("minmax(176px, 1fr) 184px 88px 152px");
+    expect(cols()).toBe("minmax(176px, 1fr) minmax(96px, 184px) minmax(56px, 88px) minmax(72px, 152px)");
   });
 
   it("moves with the arrows, further with Shift, never under the column's least, and keeps the width", () => {
@@ -85,7 +92,7 @@ describe("a divider in the list's head", () => {
     expect(modified.getAttribute("aria-valuenow")).toBe("160");
     for (let i = 0; i < 5; i++) fireEvent.keyDown(modified, { key: "ArrowRight", shiftKey: true });
     expect(modified.getAttribute("aria-valuenow")).toBe("96");
-    expect(cols()).toBe("minmax(176px, 1fr) 96px 88px 152px");
+    expect(cols()).toBe("minmax(176px, 1fr) minmax(96px, 96px) minmax(56px, 88px) minmax(72px, 152px)");
     expect(kept(LIST_WIDTHS_KEY)).toEqual({ modified: 96, size: 88, kind: 152 });
   });
 
@@ -94,13 +101,15 @@ describe("a divider in the list's head", () => {
     const size = screen.getByRole("separator", { name: "Resize Size" });
     fireEvent.pointerDown(size, { button: 0, clientX: 600, pointerId: 1 });
     fireEvent.pointerMove(size, { clientX: 560, pointerId: 1 });
-    expect(cols()).toBe("minmax(176px, 1fr) 184px 128px 152px");
+    expect(cols()).toBe("minmax(176px, 1fr) minmax(96px, 184px) minmax(56px, 128px) minmax(72px, 152px)");
+    expect(size.classList.contains("is-dragging")).toBe(true);
     expect(kept(LIST_WIDTHS_KEY)).toBeNull();
     fireEvent.pointerUp(size, { clientX: 550, pointerId: 1 });
     expect(kept(LIST_WIDTHS_KEY)).toEqual({ modified: 184, size: 138, kind: 152 });
+    expect(size.classList.contains("is-dragging")).toBe(false);
     // A move after letting go changes nothing.
     fireEvent.pointerMove(size, { clientX: 300, pointerId: 1 });
-    expect(cols()).toBe("minmax(176px, 1fr) 184px 138px 152px");
+    expect(cols()).toBe("minmax(176px, 1fr) minmax(96px, 184px) minmax(56px, 138px) minmax(72px, 152px)");
   });
 
   it("does not let a sort happen under it: the head's own button keeps its press", () => {
@@ -108,28 +117,21 @@ describe("a divider in the list's head", () => {
     render(<ListView rows={[]} sort={{ key: "name", desc: false }} onSort={onSort} h={h} empty="Empty" />);
     fireEvent.click(screen.getByRole("separator", { name: "Resize Kind" }));
     expect(onSort).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("columnheader", { name: "Kind" }));
+    fireEvent.click(screen.getByRole("button", { name: "Kind" }));
     expect(onSort).toHaveBeenCalledWith({ key: "kind", desc: false });
   });
 
-  it("fits its column to the widest thing in it on a double-click, or on Enter", () => {
-    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (this: HTMLElement) {
-      return this.dataset["col"] === "kind" ? (this.getAttribute("role") === "columnheader" ? 40 : 118) : 0;
-    });
-    list();
-    const kind = screen.getByRole("separator", { name: "Resize Kind" });
-    fireEvent.doubleClick(kind);
-    expect(kind.getAttribute("aria-valuenow")).toBe("120");
-    fireEvent.keyDown(kind, { key: "ArrowLeft", shiftKey: true });
-    fireEvent.keyDown(kind, { key: "Enter" });
-    expect(kind.getAttribute("aria-valuenow")).toBe("120");
-    expect(kept(LIST_WIDTHS_KEY)).toEqual({ modified: 184, size: 88, kind: 120 });
+  it("keeps a panel's widths apart from the Files page's", () => {
+    render(<ListView rows={[]} sort={{ key: "name", desc: false }} onSort={() => undefined} h={h} empty="Empty" widthsKey={PANEL_WIDTHS_KEY} />);
+    fireEvent.keyDown(screen.getByRole("separator", { name: "Resize Size" }), { key: "ArrowLeft" });
+    expect(kept(PANEL_WIDTHS_KEY)).toEqual({ modified: 184, size: 96, kind: 152 });
+    expect(kept(LIST_WIDTHS_KEY)).toBeNull();
   });
 
   it("opens at the widths this browser kept", () => {
     localStorage.setItem(LIST_WIDTHS_KEY, JSON.stringify({ modified: 140, size: 70, kind: 200 }));
     list();
-    expect(cols()).toBe("minmax(176px, 1fr) 140px 70px 200px");
+    expect(cols()).toBe("minmax(176px, 1fr) minmax(96px, 140px) minmax(56px, 70px) minmax(72px, 200px)");
   });
 });
 
@@ -139,9 +141,9 @@ describe("the trash's columns", () => {
     render(<TrashView rootName="Workspace" onChanged={() => undefined} onError={() => undefined} onCount={() => undefined} />);
     const trashed = await screen.findByRole("separator", { name: "Resize Date Trashed" });
     expect(screen.getAllByRole("separator").map((d) => d.getAttribute("aria-label"))).toEqual(["Resize Date Trashed", "Resize Size"]);
-    expect(cols()).toBe("minmax(176px, 1fr) 184px 88px 15rem");
+    expect(cols()).toBe("minmax(176px, 1fr) minmax(96px, 184px) minmax(56px, 88px) 15rem");
     fireEvent.keyDown(trashed, { key: "ArrowLeft", shiftKey: true });
-    expect(cols()).toBe("minmax(176px, 1fr) 216px 88px 15rem");
+    expect(cols()).toBe("minmax(176px, 1fr) minmax(96px, 216px) minmax(56px, 88px) 15rem");
     expect(kept(TRASH_WIDTHS_KEY)).toEqual({ trashed: 216, size: 88 });
     expect(kept(LIST_WIDTHS_KEY)).toBeNull();
   });

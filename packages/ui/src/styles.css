@@ -7797,31 +7797,43 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
+/* A column's head: its label (the sort button, or plain words in the
+   trash), and for each column after Name the divider at its left edge
+   (finder/columns.tsx), so the keys go column by column. */
 .finder-list-head .finder-col {
   all: unset;
   box-sizing: border-box;
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+.finder-list-head .finder-col + .finder-col { box-shadow: inset 1px 0 0 var(--line); }
+.finder-col-label {
+  all: unset;
+  box-sizing: border-box;
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 0.35rem;
   min-width: 0;
   padding: 0 0.6rem;
+  overflow: hidden;
+  white-space: nowrap;
   color: var(--muted);
   font-size: var(--text-sm);
   font-weight: 500;
-  cursor: pointer;
 }
-.finder-list-head .finder-col + .finder-col { box-shadow: inset 1px 0 0 var(--line); }
-/* Each column after Name has a divider at its left edge (finder/columns.tsx):
-   every cell of the head is placed on its one row, so the dividers lay over
-   the column lines rather than taking cells of their own. */
-.finder-list-head > :is(.finder-col, .finder-divider) { grid-row: 1; }
+button.finder-col-label { cursor: pointer; }
+button.finder-col-label:hover { color: var(--text); }
+button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-xs); }
+.finder-list-head .finder-col--size .finder-col-label { justify-content: flex-end; }
 .finder-divider {
-  position: relative;
+  position: absolute;
   z-index: 1;
-  justify-self: start;
-  align-self: stretch;
+  top: 0;
+  bottom: 0;
+  left: -5px;
   width: 9px;
-  margin-left: -5px;
   cursor: col-resize;
   touch-action: none;
   outline: none;
@@ -7840,9 +7852,6 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 }
 .finder-divider:is(:hover, :focus-visible, .is-dragging)::after { background: var(--accent); }
 @media (prefers-reduced-motion: reduce) { .finder-divider::after { transition: none; } }
-.finder-list-head .finder-col:hover { color: var(--text); }
-.finder-list-head .finder-col:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-xs); }
-.finder-list-head .finder-col--size { justify-content: flex-end; }
 .finder-sort { width: 0.35rem; height: 0.35rem; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(0.1rem) rotate(-135deg); }
 .finder-sort.is-desc { transform: translateY(-0.1rem) rotate(45deg); }
 .finder-row {
@@ -7990,7 +7999,6 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .finder-trash { display: flex; flex-direction: column; min-height: 0; }
 .finder-trash-bar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.55rem 0.9rem; border-bottom: 1px solid var(--line); }
 .finder-col--acts .btn { height: 1.35rem; padding: 0 0.55rem; font-size: var(--text-sm); }
-.finder-list-head--trash .finder-col { cursor: default; }
 .finder-col--acts { display: flex; justify-content: flex-end; gap: 0.35rem; overflow: visible; }
 
 /* One column: a phone, or the narrow column beside a chat. */
