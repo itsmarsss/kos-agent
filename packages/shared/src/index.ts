@@ -125,7 +125,20 @@ export {
   type BlobWhim,
   type Lobe,
 } from "./blob.js";
-export type { ActionNames } from "./format-action.js";
+export type { ActionHome, ActionNames } from "./format-action.js";
+export {
+  LAYOUT_FOLDERS,
+  ROOT_HOME,
+  WORKSPACE_MARK,
+  homeWords,
+  outsideHome,
+  placePath,
+  placeWords,
+  reachWords,
+  inFolder,
+  type FileHome,
+  type PlacedPath,
+} from "./filehome.js";
 export {
   UNCHANGED,
   WAIT_BUDGET_MS,
