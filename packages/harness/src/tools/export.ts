@@ -3,7 +3,8 @@ import { dirname, relative } from "node:path";
 
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
-import type { Workspace } from "../store/workspace.js";
+import { gitControlRefusal } from "../sandbox/githold.js";
+import { foldedPath, type Workspace } from "../store/workspace.js";
 import { runDisplayQuery } from "../systems/display.js";
 import { fence } from "./fence.js";
 import { reservedRefusal } from "./files.js";
@@ -116,7 +117,7 @@ function defineExportTool(ws: Workspace, ctx: ModuleContext): void {
       });
       const rel = str(input, "path");
       const abs = ws.resolve(rel);
-      const reserved = reservedRefusal(ws, relative(ws.root, abs));
+      const reserved = reservedRefusal(ws, relative(ws.root, abs)) ?? gitControlRefusal(foldedPath(ws.root, rel));
       if (reserved) throw new Error(reserved);
       mkdirSync(dirname(abs), { recursive: true });
       const title = typeof input.title === "string" ? input.title : undefined;

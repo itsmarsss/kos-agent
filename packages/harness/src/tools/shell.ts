@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { guestOrigin, turnStop } from "../kernel/caller.js";
@@ -6,9 +6,10 @@ import { MAINTENANCE } from "../kernel/caretaker.js";
 import { RESERVED } from "../kernel/files.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
-import { isReadOnlyCommand } from "../risk/readonly.js";
+import { readOnlyLine } from "../risk/readonly.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv } from "../sandbox/env.js";
+import { GIT_INFO_ATTRIBUTES, gitHeldOn, gitHoldEnv } from "../sandbox/githold.js";
 import { jailedCommand } from "../sandbox/jail.js";
 
 /**
@@ -62,19 +63,57 @@ const UNWRITTEN = [...RESERVED].filter((name) => name !== ".kos");
 
 export type ShellResult = CapturedRun;
 
-export function runShell(
+/**
+ * What a read-only run may not read although it is in the workspace: KOS's
+ * own state and settings, and a .env the host may have been started beside.
+ */
+const UNREAD = [...RESERVED, ".env"];
+
+export async function runShell(
   command: string,
-  opts: { workspaceRoot: string; cwd: string; timeoutMs: number; maxOutput: number; signal?: AbortSignal },
+  opts: {
+    workspaceRoot: string;
+    cwd: string;
+    timeoutMs: number;
+    maxOutput: number;
+    signal?: AbortSignal;
+    /**
+     * True for a line judged read-only, which runs without asking. The
+     * judgement is a string's, so the run is made one that cannot matter
+     * if it is wrong: no writes but its own temp folder, no network, none
+     * of KOS's own files, git with no hooks or transport. A run the owner
+     * approved writes the workspace as the shell always has.
+     */
+    readOnlyRun?: boolean;
+  },
 ): Promise<ShellResult> {
-  const tmp = join(opts.workspaceRoot, ".kos", "tmp");
-  mkdirSync(tmp, { recursive: true });
-  return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot, readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)) }), {
-    cwd: opts.cwd,
-    env: childEnv({ home: opts.workspaceRoot, tmp }),
-    timeoutMs: opts.timeoutMs,
-    maxOutput: opts.maxOutput,
-    ...stopOf(opts.signal),
-  });
+  const shared = join(opts.workspaceRoot, ".kos", "tmp");
+  mkdirSync(shared, { recursive: true });
+  const tmp = opts.readOnlyRun ? mkdtempSync(join(shared, "read-")) : shared;
+  const jail = opts.readOnlyRun
+    ? {
+        workspaceRoot: opts.workspaceRoot,
+        writes: [tmp],
+        hidden: UNREAD.map((name) => join(opts.workspaceRoot, name)),
+        unreadable: [GIT_INFO_ATTRIBUTES],
+        network: false,
+        sealed: true,
+      }
+    : { workspaceRoot: opts.workspaceRoot, readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)) };
+  const extra: Record<string, string> = opts.readOnlyRun ? { NPM_CONFIG_UPDATE_NOTIFIER: "false" } : {};
+  try {
+    return await runCaptured(jailedCommand(command, jail), {
+      cwd: opts.cwd,
+      // Git's program-naming settings pinned (fsmonitor, pager, editors, gpg,
+      // attributes); a read-only run's hooks and transport too.
+      env: gitHoldEnv(childEnv({ home: opts.workspaceRoot, tmp }, extra), { readOnly: opts.readOnlyRun ?? false }),
+      timeoutMs: opts.timeoutMs,
+      maxOutput: opts.maxOutput,
+      ...stopOf(opts.signal),
+    });
+  } finally {
+    if (opts.readOnlyRun) rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 export function createShellModule(options: ShellModuleOptions = {}): KosModule {
@@ -89,12 +128,14 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
     },
     activate(ctx: ModuleContext) {
       const ws = requireServices(ctx).workspace;
+      // A git line is a read only where the git a child finds can be held.
+      const readOnly = (command: string): string | undefined => readOnlyLine(command, { gitHeld: gitHeldOn(childEnv({ home: ws.root }).PATH ?? "") });
       ctx.registerTool(
         {
           name: "shell.run",
           description:
             "Run a shell command inside the workspace: git, pnpm, a build, a program. It cannot see the owner's home directory or write outside the workspace. Prefer the files, search and sql tools when one does the job, and python.run for a calculation or a short Python script, which runs at once without asking; use this for programs. " +
-            "A command line that only reads (ls, cat, grep, find, git status/log/diff, and the like, joined by pipes or &&) runs without asking; anything that writes, runs code or reaches the network asks the owner first. Output is capped; long runs time out. " +
+            "A command line that only reads (ls, cat, grep, find, git status/log/diff, and the like, joined by pipes or &&) runs without asking, offline and unable to write; anything that writes, runs code or reaches the network asks the owner first. To see a project's packages, read package.json with files.read; pnpm and yarn ask. Output is capped; long runs time out. " +
             "kos.sqlite, KOS's own database, is refused here, not asked about: jobs, chats, tasks, blobs and memory are read through cron.list, chats.list, tasks.list, blobs.list and memory.recall.",
           inputSchema: {
             type: "object",
@@ -112,7 +153,10 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           const cwdRel = typeof input["cwd"] === "string" && input["cwd"].trim() ? input["cwd"].trim() : ".";
           const cwd = ws.resolve(cwdRel);
           const seconds = typeof input["timeout"] === "number" && input["timeout"] > 0 ? Math.min(input["timeout"], 3600) : timeoutSeconds;
-          const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput: maxOutput, ...stopOf(turnStop.getStore()) });
+          // A line judged read-only ran unasked, so it runs where the judgement cannot matter, as the line that judgement gives.
+          const line = readOnly(command);
+          const readOnlyRun = line !== undefined;
+          const result = await runShell(line ?? command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput, readOnlyRun, ...stopOf(turnStop.getStore()) });
           return JSON.stringify(result);
         },
         // Risky by floor, as the spec says; a line that provably only reads
@@ -125,7 +169,7 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
         {
           floor: "risky",
           why: "a command that may write",
-          relax: (input) => typeof input["command"] === "string" && isReadOnlyCommand(input["command"]),
+          relax: (input) => typeof input["command"] === "string" && readOnly(input["command"]) !== undefined,
           refuse: (input) => {
             if (typeof input["command"] !== "string") return false;
             if (namesHarnessConfig(input["command"])) return CONFIG_REFUSED;
