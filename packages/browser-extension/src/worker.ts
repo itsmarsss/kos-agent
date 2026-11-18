@@ -1098,15 +1098,16 @@ async function fromOverlay(tab: number, world: number, payload: string): Promise
     return;
   }
   switch (message["kind"]) {
-    case "hello":
+    case "hello": {
       overlays.set(tab, (overlays.get(tab) ?? new Set()).add(world));
       await chrome.debugger.sendCommand({ tabId: tab }, "Runtime.evaluate", { expression: `window.__kos && window.__kos.set(${JSON.stringify(overlayState())})`, contextId: world }).catch(() => undefined);
       // A new page of a tab KOS has pointed on: its cursor where it was, not back in the middle.
-      if (pointed.has(tab)) {
-        const at = pointed.get(tab)!;
+      const at = pointed.get(tab);
+      if (at) {
         await chrome.debugger.sendCommand({ tabId: tab }, "Runtime.evaluate", { expression: `window.__kos && window.__kos.point(${at.x}, ${at.y}, "rest")`, contextId: world }).catch(() => undefined);
       }
       return;
+    }
     case "input":
       // The owner may scroll a KOS tab freely, if they said so.
       if (settings.takeover === "clicksAndKeys" && message["type"] === "wheel") return;
