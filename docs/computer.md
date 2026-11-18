@@ -92,8 +92,25 @@ While KOS is in control:
   it does it (click, type "BU354", press Return) is the line when there
   is no intent, and the step's detail on the dashboard when there is.
   Coordinates are never in the line;
-- a bar at the top says what it is doing, with Take over and Stop, and its
-  chat window says the same; Stop there stops the turn too;
+- a bar at the top says what it is doing (the step under way, or that it
+  waits on you), with Take over and Stop, and its chat window says the same;
+  Stop there stops the turn too;
+- the menu bar says it too: the plain icon when nothing runs; the accent and
+  the step, cut to about 24 characters, while KOS works; a badge and
+  "Waiting on you" while an approval waits, its menu offering Approve and
+  Deny for the first one of the chat that waits and Open chat; what is typed
+  is never said there ("Typing"); amber while you have control, with
+  Hand back. Its menu always has Stop, which ends the session and the chat
+  window's turn;
+- the chat window keeps out of the way: when a session goes live and the
+  window covers what KOS works in (that window, or the display of a
+  whole-screen session) it is put away, and comes back, without taking the
+  front, when the turn waits on you, when you take over (beside what KOS
+  works in, or on another display) and when the session ends (where it
+  was). While a session runs it never floats above other windows. A
+  whole-screen session that names an app brings that app to the front once
+  as it begins. Typing in it keeps it where it is, and once the session ends
+  it stands where it stood before it;
 - your own click or key pauses it at once, even right after you press Allow
   or Hand back (on the Mac, a deliberate move of the pointer too, past the
   3 seconds after Allow or Hand back); scrolling and small pointer moves do
@@ -665,6 +682,7 @@ needs a session ([browser-extension.md](browser-extension.md), and below).
 | --- | --- | --- |
 | `session.begin` | `session`, `task`, `requester`, `conversation?`, `target? {app}`, `minutes`, `maxEdge?` | `granted`, `until`, `space {width,height}`, `target {kind, app?, title?}` |
 | `session.end` | `session` | `{}` |
+| `session.status` | `session`, `step?` (the step under way, as its line says it), `waiting?` (true while the session's chat waits on the owner for an approval) | `{}` |
 | `screen.capture` | `session`, `region? {x,y,width,height}`, `settle?` (ms, at most 1000: after an action, look until two pictures 50 ms apart agree, once the screen has changed or 120 ms have passed, or the time is up) | `image` (base64), `mediaType`, `width`, `height`, `cursor {x,y}`, `app?`, `settled?` (true when it waited as asked; KOS then stops waiting on its side) |
 | `pointer.move` | `session`, `x`, `y` | `cursor` |
 | `pointer.click` | `session`, `x`, `y`, `button?` (left, right, middle), `count?` (1 to 3), `modifiers?` | `cursor` |
@@ -672,6 +690,15 @@ needs a session ([browser-extension.md](browser-extension.md), and below).
 | `pointer.scroll` | `session`, `x`, `y`, `dx`, `dy` (lines; positive is down and right) | `cursor` |
 | `keys.type` | `session`, `text` (at most 4000 characters) | `cursor` |
 | `keys.press` | `session`, `keys` (one combination, `cmd+shift+t`), `repeat?` | `cursor` |
+
+**What it is at.** KOS sends `session.status` to a computer (never a
+Chrome) as each `computer.act` starts, with the step's line (its `intent`,
+or how it does it when it has none), and whenever an approval in the
+session's chat is asked (`waiting: true`) or the last one there settles,
+however it settled: decided, lapsed or let go (`waiting: false`); each step's
+status also says whether an ask is open. It is never waited on. KOS for Mac shows the step on its
+bar and in the menu bar, whichever chat its window shows, and a device that
+does not know the call answers `bad_request`, which KOS lets be.
 
 **What is shared.** The owner picks, as a screen-sharing picker offers it: the
 entire screen, or one window. `target.app` is the app KOS would work in; its

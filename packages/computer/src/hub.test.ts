@@ -307,6 +307,24 @@ describe("a session", () => {
     expect(hub.list()[0]?.session).toMatchObject({ conversation: "c1", task: "open Figma", paused: false });
   });
 
+  it("tells a computer what it is at, and never a Chrome, which has no bar for it", async () => {
+    const { hub } = setup();
+    const mac = await online(hub);
+    const chrome = await chromeOnline(hub);
+    const session = await hub.begin({ conversation: "c1", device: hub.find("studio")!, task: "t", requester: "r", minutes: 5 });
+    await hub.begin({ conversation: "c2", device: hub.find("chrome")!, task: "t", requester: "r", minutes: 5 });
+    hub.tellStatus("c1", { step: "Open the tab" });
+    hub.tellStatus("c1", { waiting: true });
+    hub.tellStatus("c2", { step: "Open the tab" });
+    hub.tellStatus("c3", { step: "No session" });
+    await settle();
+    expect(mac.statuses).toEqual([
+      { session: session.id, step: "Open the tab" },
+      { session: session.id, waiting: true },
+    ]);
+    expect(chrome.statuses).toEqual([]);
+  });
+
   it("is refused when the owner denies it, the device is offline, busy, missing a permission, or KOS is halted", async () => {
     let halted = false;
     const { hub } = setup({ halted: () => halted });

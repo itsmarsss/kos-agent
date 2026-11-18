@@ -16,6 +16,11 @@ public struct ChatView: View {
   @FocusState private var typing: Bool
 
   public static let size = CGSize(width: 380, height: 560)
+  /// The room over the thread's first line, and the gap between its items.
+  static let threadTop: CGFloat = 16
+  static let threadGap: CGFloat = 10
+
+  private var hasCard: Bool { model.paired && model.beside != nil }
   /// The smallest the window may be: the box and a few lines above it.
   public static let smallest = CGSize(width: 320, height: 380)
 
@@ -31,6 +36,8 @@ public struct ChatView: View {
         AppCard(name: app, title: model.besideTitle, hidden: model.besideHidden, session: model.session)
           .padding(.horizontal, 12)
           .padding(.top, 10)
+          // The thread's own gap under it, so a line scrolled up to the card never sits flush against it.
+          .padding(.bottom, Self.threadGap)
       }
       thread
       if let error = model.error {
@@ -109,14 +116,15 @@ public struct ChatView: View {
   private var thread: some View {
     ScrollViewReader { reader in
       OverlayScroll {
-        LazyVStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
           if model.lines.isEmpty && model.sending.isEmpty && model.notices.isEmpty {
             EmptyChat(paired: model.paired, silent: model.silent, online: model.online, ask: model.say)
               // The side panel's .empty-state sits in the middle of the thread (margin: auto), and the thread does not scroll.
-              .frame(minHeight: max(0, threadHeight - EmptyChat.threadChrome))
+              .frame(minHeight: max(0, threadHeight - EmptyChat.threadChrome + (hasCard ? Self.threadGap : 0)))
           }
+          // Each item from its own values: a step told elsewhere in the turn never redraws the rest of the thread.
           ForEach(model.items) { item in
-            ItemView(item: item, model: model)
+            ItemView(item: item, pictures: model.pictures(for: item)).equatable()
           }
           // At the foot for as long as the turn runs: words after the steps are not the end of the work.
           // The owner holding the Mac, it is theirs to hand back or stop, here as on the bar.
@@ -132,19 +140,37 @@ public struct ChatView: View {
           Color.clear.frame(height: 1).id("end")
         }
         .padding(.horizontal, 16)
-        .padding(.top, 16)
+        // Under the app card the card's gap is the thread's; with none, the thread's own top.
+        .padding(.top, hasCard ? Self.threadTop - Self.threadGap : Self.threadTop)
         .padding(.bottom, 8)
         .textSelection(.enabled)
       }
+      // A line scrolled up under the card fades out rather than ending in a cut; within the thread's top padding,
+      // so the first line at rest is never faded.
+      .mask {
+        VStack(spacing: 0) {
+          LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: hasCard ? Self.threadTop - Self.threadGap : 0)
+          Color.black
+        }
+      }
       // Measured here, not by containerRelativeFrame, which macOS 15 resolves against the window, not the scroll view.
       .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { threadHeight = $0 }
-      .onChange(of: model.items.count) { reader.scrollTo("end", anchor: .bottom) }
-      .onChange(of: model.stories) { reader.scrollTo("end", anchor: .bottom) }
-      .onChange(of: model.asks.count) { reader.scrollTo("end", anchor: .bottom) }
-      .onChange(of: model.consent) { reader.scrollTo("end", anchor: .bottom) }
-      .onChange(of: model.heldByOwner) { reader.scrollTo("end", anchor: .bottom) }
-      .onAppear { reader.scrollTo("end", anchor: .bottom) }
+      .defaultScrollAnchor(.bottom)
+      // Once what came in has settled, not on each piece of it: a turn telling its steps a few at a time scrolls once.
+      .task(id: scrollKey) {
+        try? await Task.sleep(for: Self.scrollPause)
+        guard !Task.isCancelled else { return }
+        reader.scrollTo("end", anchor: .bottom)
+      }
     }
+  }
+
+  /// How long the thread waits for what came in to settle before it scrolls to the end.
+  static let scrollPause: Duration = .milliseconds(80)
+
+  /// What moves the thread's end: the items, the running stories, the asks, a session's ask, and the owner taking over.
+  private var scrollKey: [AnyHashable] {
+    [model.items.count, model.stories.map(\.text), model.asks.count, model.consent?.task, model.heldByOwner, model.liveFrames]
   }
 
   // MARK: Composer
@@ -389,15 +415,15 @@ private struct EmptyChat: View {
   }
 }
 
-/// One thing in the thread.
-private struct ItemView: View {
+/// One thing in the thread, drawn from its own values alone, so it is redrawn only when they change.
+private struct ItemView: View, Equatable {
   let item: ChatModel.Item
-  @ObservedObject var model: ChatModel
+  let pictures: [ChatModel.Picture]
 
   var body: some View {
     switch item {
     case .line(_, let line):
-      LineView(line: line, model: model)
+      LineView(line: line, pictures: pictures)
     case .notice(_, let notice):
       VStack(alignment: .leading, spacing: 2) {
         // Who answered, when it was not KOS itself, in the violet a passed-on sender is named in.
@@ -409,7 +435,7 @@ private struct ItemView: View {
     case .story(_, let story):
       // A turn on the go: its steps so far, live, and what KOS is saying after them.
       let told = ChatModel.read(story.text)
-      if !told.steps.isEmpty { Steps(steps: told.steps, live: true, pictures: model.picturesOf(model.liveFrames(of: story.said))) }
+      if !told.steps.isEmpty { Steps(steps: told.steps, live: true, pictures: pictures) }
       if !told.words.isEmpty { ChatMarkdown(told.words).foregroundStyle(Theme.muted) }
     }
   }
@@ -417,7 +443,7 @@ private struct ItemView: View {
 
 private struct LineView: View {
   let line: ChatModel.Line
-  @ObservedObject var model: ChatModel
+  let pictures: [ChatModel.Picture]
 
   var body: some View {
     switch line {
@@ -428,7 +454,7 @@ private struct LineView: View {
     case .note(let text):
       Text(text).font(.kos(.tiny)).foregroundStyle(Theme.faint).multilineTextAlignment(.center).frame(maxWidth: .infinity)
     case .steps(let steps):
-      Steps(steps: steps, pictures: model.picturesOf(steps.map(\.frame)))
+      Steps(steps: steps, pictures: pictures)
     }
   }
 }

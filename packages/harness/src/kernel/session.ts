@@ -326,6 +326,18 @@ export class SessionStore {
     return trimmed;
   }
 
+  /**
+   * Messages added to the end as they happen, a running turn's steps: each
+   * result capped as a record caps it, and nothing trimmed. Trimming the whole
+   * history on every step measured it all each time and could tell the owner
+   * it was trimmed once a step; the turn's own record at its end trims once.
+   */
+  append(sessionId: string, messages: ModelMessage[]): void {
+    const added = withoutPictures(messages);
+    const capped = this.autoTrim && this.maxToolResultChars ? added.map((m) => capMessage(m, this.maxToolResultChars)) : added;
+    this.write(sessionId, [...this.get(sessionId), ...capped]);
+  }
+
   /** History to feed the model: prior turns only (caller adds the new user msg). */
   historyForPrompt(sessionId: string): ModelMessage[] {
     return this.get(sessionId);

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   BEHAVIOUR_DEFAULTS,
   parseBehaviour,
+  storedBehaviour,
 } from "./behaviour.js";
 
 describe("behaviour settings", () => {
@@ -19,6 +20,22 @@ describe("behaviour settings", () => {
     // Everything unmentioned still has a value, so a partial save cannot
     // leave a field undefined where a number is expected.
     expect(saved.agentMinutes).toBe(BEHAVIOUR_DEFAULTS.agentMinutes);
+  });
+
+  it("gives the owner's screen turns four times the steps in a turn unless set", () => {
+    expect(BEHAVIOUR_DEFAULTS.screenSteps).toBe(4 * BEHAVIOUR_DEFAULTS.maxSteps);
+    expect(parseBehaviour({ maxSteps: 48 }).screenSteps).toBe(192);
+    expect(parseBehaviour({ maxSteps: 48, screenSteps: 60 }).screenSteps).toBe(60);
+    expect(parseBehaviour({ screenSteps: 9999 }).screenSteps).toBe(400);
+    // Never fewer than the steps in a turn.
+    expect(parseBehaviour({ maxSteps: 60, screenSteps: 10 }).screenSteps).toBe(60);
+  });
+
+  it("stores the screen steps only when set to other than four times, so unset they follow the steps", () => {
+    const followed = storedBehaviour(parseBehaviour({ maxSteps: 30 }));
+    expect("screenSteps" in followed).toBe(false);
+    expect(parseBehaviour({ ...followed, maxSteps: 40 }).screenSteps).toBe(160);
+    expect(storedBehaviour(parseBehaviour({ maxSteps: 30, screenSteps: 90 })).screenSteps).toBe(90);
   });
 
   it("clamps rather than trusting", () => {

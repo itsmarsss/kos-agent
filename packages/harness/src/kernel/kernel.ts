@@ -91,7 +91,7 @@ import { ModuleLoader, type KosModule, type LoadReport } from "../modules/loader
 import { AuditLog } from "../ops/audit.js";
 import { ApprovalQueue, type PendingAction } from "../ops/approvals.js";
 import { PersistentKillSwitch } from "../ops/killswitch.js";
-import { priorForSdk, runSdkChat, type SdkChatResult } from "../chat/sdkchat.js";
+import { priorForSdk, runSdkChat, sdkCallMessages, withoutCalls, type SdkChatResult, type SdkToolCall } from "../chat/sdkchat.js";
 import { HealthMonitor } from "../ops/health.js";
 import { RunsLog } from "../ops/runs.js";
 import { WorkQueue } from "../ops/queue.js";
@@ -250,6 +250,8 @@ const GONE_CHATS_KEY = "discord.gone";
 const GONE_CHATS_MAX = 500;
 /** Chats with a turn running, kept so a restart can say which it cut short. */
 const OPEN_TURNS_KEY = "turns.open";
+/** Lines held for a chat while a turn there writes its transcript, kept so a restart or a crash does not lose them. */
+const HELD_NOTES_KEY = "notes.held";
 
 /** The face the Discord bot wears, as a hash of the PNG, so it is set again only when the look changes. */
 export const WORN_FACE_KEY = "discord.face";
@@ -403,6 +405,9 @@ function guestTools(own: readonly string[] | null | undefined, room: boolean): s
  * sends only the newest. KOS_PICTURES_PER_QUERY=0 runs a turn in one query,
  * as before.
  */
+/** How a turn on the SDK engine that failed after taking steps ends in its chat. */
+export const SDK_FAILED = "I hit an error and stopped:";
+
 const PICTURES_PER_QUERY = Number(process.env["KOS_PICTURES_PER_QUERY"] ?? 8);
 
 function sameWords(a: ModelMessage, b: ModelMessage): boolean {
@@ -727,6 +732,16 @@ export class Kernel {
     this.conversations = args.conversations;
     this.facts = args.facts;
     this.bus = args.bus;
+    // Every settle, however it came (a decision, a lapse, a turn that stopped waiting), told once.
+    this.approvals.onDecided((action) =>
+      this.bus.emit({
+        kind: "approval:decided",
+        id: action.id,
+        approved: action.status === "approved",
+        ...(action.status !== "pending" ? { status: action.status } : {}),
+        decidedBy: action.decidedBy,
+      }),
+    );
     this.embedder = args.embedder;
     this.presses = args.presses;
     this.daemons = args.daemons;
@@ -1370,6 +1385,8 @@ export class Kernel {
            * keeps retention, /compact and rewind meaning something here.
            */
           tools.cutHuge = true;
+          /** The calls this turn has written to the chat so far, by id. */
+          const told = new Set<string>();
           const sdkRun = runSdkChat({
             signal: stop.signal,
             // An aside reads the context chat's history (plus its own earlier
@@ -1401,8 +1418,29 @@ export class Kernel {
             tools,
             cwd: this.workspace.root,
             maxTurns: this.behaviour().maxSteps,
+            // The owner's own turn on a screen (one they dispatched included) carries on in fresh queries up to its
+            // own budget; every other turn (a schedule, a guest, a dispatch or handoff from another chat) stops where
+            // one query would have.
+            ...(owner ? { turnSteps: this.behaviour().screenSteps } : {}),
             picturesPerQuery: PICTURES_PER_QUERY,
-            onFreshQuery: () => this.bus.emit({ kind: "query:fresh", conversationId: sessionId }),
+            onFreshQuery: () => {
+              this.bus.emit({ kind: "query:fresh", conversationId: sessionId });
+              this.progress.emit({ kind: "fresh", conversationId: sessionId });
+            },
+            /*
+             * Each step into the transcript as it lands. Written only at the
+             * end, a chat redrawn from its transcript mid-turn (a reload, a
+             * device opening, a phone reading it) showed the owner's words
+             * and nothing done under them.
+             */
+            ...(useSession
+              ? {
+                  onCall: (call: SdkToolCall) => {
+                    told.add(call.id);
+                    this.sessions.append(sessionId, sdkCallMessages(call));
+                  },
+                }
+              : {}),
             // A screen agent's context has seen no picture yet: the chat's last one is forgotten, so its first look is sent whole.
             onScreenAgent: () => this.bus.emit({ kind: "query:fresh", conversationId: sessionId }),
             ...(this.sdkScreen() ? { screen: this.sdkScreen()! } : {}),
@@ -1416,6 +1454,18 @@ export class Kernel {
             // No tool-start here: the guarded toolbox already emits one for
             // every call, and emitting a second left each bubble with two
             // starts and one end, so half of them never stopped running.
+          }).catch((err: unknown) => {
+            /*
+             * Failed, not stopped: the steps it wrote stand in the chat with
+             * no answer under them, which reads as a turn still running and
+             * leaves the next message looking like part of it. A line of
+             * KOS's own closes it.
+             */
+            if (useSession && told.size > 0 && !stop.signal.aborted) {
+              const why = err instanceof Error ? err.message : String(err);
+              this.sessions.record(sessionId, [...this.sessions.get(sessionId), { role: "assistant", content: [{ type: "text", text: `${SDK_FAILED} ${why}` }] }]);
+            }
+            throw err;
           });
 
           const settleSdk = (sdk: SdkChatResult, resumed = false): string => {
@@ -1430,33 +1480,10 @@ export class Kernel {
                * reloaded. Stored in the same shape the other engine uses, so
                * the transcript renders them the same way.
                */
-              const madeCalls = sdk.calls.flatMap((c) => [
-                {
-                  role: "assistant" as const,
-                  content: [
-                    {
-                      type: "tool_use" as const,
-                      id: c.id,
-                      name: c.name,
-                      input: c.input,
-                    },
-                  ],
-                },
-                {
-                  role: "user" as const,
-                  content: [
-                    {
-                      type: "tool_result" as const,
-                      toolUseId: c.id,
-                      content: c.result,
-                      ...(c.isError ? { isError: true } : {}),
-                      ...(c.heard ? { heard: c.heard } : {}),
-                    },
-                  ],
-                },
-              ]);
+              const madeCalls = sdk.calls.flatMap(sdkCallMessages);
+              // Each call was written as it landed; moved to the end with the reply, the order is what one write at the end made.
               this.sessions.record(sessionId, [
-                ...this.sessions.get(sessionId),
+                ...withoutCalls(this.sessions.get(sessionId), told),
                 ...madeCalls,
                 { role: "assistant", content: [{ type: "text", text: reply }] },
               ]);
@@ -1932,11 +1959,31 @@ export class Kernel {
     this.ownerSaid.delete(sessionId);
     this.progress.emit({ kind: "turn-end", conversationId: sessionId });
     this.bus.emit({ kind: "turn:end", conversationId: sessionId, projectSlug: this.projectOf(sessionId) });
-    // News that arrived while the transcript was being written goes in now.
+    // News that arrived while the transcript was being written goes in now, once no turn there is still writing it.
+    if (!this.stops.has(sessionId)) this.releaseNotes(sessionId);
+  }
+
+  /** The lines held for a chat, written now and no longer kept. */
+  private releaseNotes(sessionId: string): void {
     const held = this.heldNotes.get(sessionId);
-    if (held) {
-      this.heldNotes.delete(sessionId);
-      this.writeNote(sessionId, held);
+    // Written first, and let go only once it is: a write that fails keeps the line for the next boot.
+    if (!held || !this.writeNote(sessionId, held)) return;
+    this.heldNotes.delete(sessionId);
+    this.keepHeld(sessionId);
+  }
+
+  /**
+   * One chat's held lines as they stand, kept across a restart: read, that
+   * chat's entry changed, written back, so another kernel on the same
+   * workspace keeps its own chats' lines.
+   */
+  private keepHeld(sessionId: string): void {
+    try {
+      const { [sessionId]: _was, ...saved } = this.settings.get<Record<string, ModelMessage[]>>(HELD_NOTES_KEY) ?? {};
+      const held = this.heldNotes.get(sessionId);
+      this.settings.set(HELD_NOTES_KEY, held ? { ...saved, [sessionId]: held } : saved);
+    } catch {
+      // A store that has closed keeps nothing more.
     }
   }
 
@@ -1958,6 +2005,12 @@ export class Kernel {
   markInterrupted(): string[] {
     const open = Object.keys(this.settings.get<Record<string, number>>(OPEN_TURNS_KEY) ?? {});
     this.settings.set(OPEN_TURNS_KEY, {});
+    // What was held for a chat while its turn ran goes in first, before the line that says the turn was cut.
+    const held = this.settings.get<Record<string, ModelMessage[]>>(HELD_NOTES_KEY) ?? {};
+    const unwritten = Object.fromEntries(
+      Object.entries(held).filter(([id, messages]) => Array.isArray(messages) && messages.length > 0 && !this.writeNote(id, messages)),
+    );
+    this.settings.set(HELD_NOTES_KEY, unwritten);
     for (const id of open) this.noteIn(id, INTERRUPTED_LINE);
     return open;
   }
@@ -2025,8 +2078,11 @@ export class Kernel {
 
   /** Messages for a chat's transcript, held while a turn there is writing it. */
   private keepIn(conversationId: string, messages: ModelMessage[]): void {
-    if (this.working.has(conversationId)) {
+    // A turn held on an approval is not working, but it is still writing its steps: a line between them would cut
+    // its steps in two, the first half drawn again under the live ones.
+    if (this.working.has(conversationId) || this.stops.has(conversationId)) {
       this.heldNotes.set(conversationId, [...(this.heldNotes.get(conversationId) ?? []), ...messages]);
+      this.keepHeld(conversationId);
       return;
     }
     this.writeNote(conversationId, messages);
@@ -2047,13 +2103,16 @@ export class Kernel {
   }
 
   /** The line itself; a chat that is gone, or a store that has closed, takes nothing. */
-  private writeNote(conversationId: string, messages: ModelMessage[]): void {
+  /** Whether the lines are settled: written, or for a chat that is gone. */
+  private writeNote(conversationId: string, messages: ModelMessage[]): boolean {
     try {
-      if (!this.conversations.get(conversationId)) return;
+      if (!this.conversations.get(conversationId)) return true;
       this.sessions.record(conversationId, [...this.sessions.get(conversationId), ...messages]);
       this.conversations.touch(conversationId);
+      return true;
     } catch {
       // A suspended turn can settle after close; the news has nowhere to go then.
+      return false;
     }
   }
 
@@ -2774,15 +2833,11 @@ export class Kernel {
 
   /** Carry out the owner's decision on a queued action. Every surface comes through here. */
   async approve(id: number, decidedBy?: string, options: { remember?: boolean } = {}): Promise<DecisionResult> {
-    const result = await this.decisions.approve(id, decidedBy, options);
-    this.bus.emit({ kind: "approval:decided", id, approved: true, decidedBy: decidedBy ?? null });
-    return result;
+    return this.decisions.approve(id, decidedBy, options);
   }
 
   async deny(id: number, decidedBy?: string): Promise<DecisionResult> {
-    const result = await this.decisions.deny(id, decidedBy);
-    this.bus.emit({ kind: "approval:decided", id, approved: false, decidedBy: decidedBy ?? null });
-    return result;
+    return this.decisions.deny(id, decidedBy);
   }
 
   async dispatchTo(
@@ -5306,6 +5361,8 @@ export class Kernel {
     void this.loader.unload();
     this.pageQueryRunner?.close();
     this.artifactChecker?.close();
+    // Lines held for a turn that will not end in this process go in now, while the store is open.
+    for (const id of [...this.heldNotes.keys()]) this.releaseNotes(id);
     this.workspace.close();
   }
 }

@@ -439,6 +439,18 @@ export class DeviceHub {
   }
 
   /**
+   * What a computer's session is at, told to its device as it changes: the
+   * step under way, and whether the turn waits on the owner. Never waited
+   * on, and a device that does not know the call is let be.
+   */
+  tellStatus(conversation: string, status: { step?: string; waiting?: boolean }): void {
+    const session = this.sessionOf(conversation);
+    const link = session ? this.links.get(session.device) : undefined;
+    if (!session || !link?.ready || kindOf(link.device!) !== "computer") return;
+    link.call("session.status", { session: session.id, ...status }, this.deps.callTimeoutMs ?? CALL_TIMEOUT_MS).catch(() => undefined);
+  }
+
+  /**
    * A session asked of the owner on the device. `app`, when given, is the
    * app KOS would work in: the owner sees its window offered first. Once
    * `signal` aborts (the owner pressed Stop in the chat that asks), or the

@@ -28,6 +28,24 @@ private func code(_ body: () throws -> Void) -> ErrorCode? {
 
 @Suite("Sessions")
 struct SessionsTests {
+  @Test func keepsWhatTheKOSHoldingItSaysItIsAt() throws {
+    var sessions = try liveSessions()
+    let stepped = sessions.status("s1", from: home, step: "Open the Quizzes tab\n(click)", waiting: nil)
+    #expect(stepped && sessions.live?.step == "Open the Quizzes tab (click)")
+    let waits = sessions.status("s1", from: home, step: nil, waiting: true)
+    #expect(waits && sessions.live?.step == "Open the Quizzes tab (click)" && sessions.live?.waiting == true)
+    // The same again changes nothing; another KOS, or another session, is let be.
+    let again = sessions.status("s1", from: home, step: nil, waiting: true)
+    let other = sessions.status("s1", from: work, step: "Delete everything", waiting: false)
+    let stale = sessions.status("s2", from: home, step: "Delete everything", waiting: false)
+    #expect(!again && !other && !stale)
+    #expect(sessions.live?.step == "Open the Quizzes tab (click)" && sessions.live?.waiting == true)
+    // A step past a bar's line is cut, and a status is not activity.
+    _ = sessions.status("s1", from: home, step: String(repeating: "a", count: 500), waiting: false)
+    #expect(sessions.live?.step?.count == Sessions.stepLimit)
+    #expect(sessions.live?.lastActivity == start)
+  }
+
   @Test func oneKOSAtATimeAndOnlyItActsInTheSession() throws {
     var sessions = try liveSessions()
     // A second KOS hears the Mac is busy, and cannot act in the session even knowing its id.

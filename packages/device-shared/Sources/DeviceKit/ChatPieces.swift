@@ -50,11 +50,11 @@ public struct Bubble: View {
 public struct Steps: View {
   let steps: [ChatModel.Step]
   let live: Bool
-  let pictures: [(id: Int, data: Data)]
+  let pictures: [ChatModel.Picture]
   @State private var open = false
   @Environment(\.accessibilityReduceMotion) private var still
 
-  public init(steps: [ChatModel.Step], live: Bool = false, pictures: [(id: Int, data: Data)] = []) {
+  public init(steps: [ChatModel.Step], live: Bool = false, pictures: [ChatModel.Picture] = []) {
     self.steps = steps
     self.live = live
     self.pictures = pictures
@@ -101,18 +101,18 @@ public struct Steps: View {
 
 /// The steps' pictures in rows that wrap, the newest last; the one pressed opens full width under them.
 private struct FlowPictures: View {
-  let pictures: [(id: Int, data: Data)]
+  let pictures: [ChatModel.Picture]
   @State private var open: Int?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
       LazyVGrid(columns: [GridItem(.adaptive(minimum: StepPicture.small, maximum: StepPicture.small), spacing: 6, alignment: .leading)], alignment: .leading, spacing: 6) {
         ForEach(pictures, id: \.id) { picture in
-          StepPicture(picture.data) { withAnimation(Theme.spring) { open = open == picture.id ? nil : picture.id } }
+          StepPicture(picture) { withAnimation(Theme.spring) { open = open == picture.id ? nil : picture.id } }
         }
       }
       if let open, let picture = pictures.first(where: { $0.id == open }) {
-        StepPicture(picture.data, open: true) { withAnimation(Theme.spring) { self.open = nil } }
+        StepPicture(picture, open: true) { withAnimation(Theme.spring) { self.open = nil } }
           .transition(.opacity)
       }
     }

@@ -6,6 +6,10 @@ import SwiftUI
 public final class SessionBarModel: ObservableObject {
   @Published public var task: String
   @Published public var paused = false
+  /// The step KOS says is under way, in its words: said in place of the task while there is one.
+  @Published public var step: String?
+  /// KOS says the session's chat waits on the owner for an approval.
+  @Published public var waiting = false
   /// When the session ends unless the owner gives it more.
   @Published public var until: Date
   /// The face of the KOS at work.
@@ -32,22 +36,28 @@ public struct SessionBar: View {
     self.model = model
   }
 
-  private var tone: Color { model.paused ? Theme.warn : Theme.accent }
+  private var tone: Color { model.paused || model.waiting ? Theme.warn : Theme.accent }
+
+  private var headline: String {
+    if model.paused { return "Paused, you have control" }
+    return model.waiting ? "Waiting on you" : "KOS is using this Mac"
+  }
 
   public var body: some View {
     HStack(spacing: 12) {
       ZStack(alignment: .bottomTrailing) {
-        KOSFace(size: 26, mood: model.paused ? .idle : .working, look: model.face)
+        KOSFace(size: 26, mood: model.paused ? .idle : model.waiting ? .needsYou : .working, look: model.face)
         Dot(tone, size: 8)
           .overlay(Circle().strokeBorder(Theme.panel, lineWidth: 1.5))
-          .opacity(model.paused ? 1 : (beat ? 0.35 : 1))
+          .opacity(model.paused || model.waiting ? 1 : (beat ? 0.35 : 1))
       }
       VStack(alignment: .leading, spacing: 1) {
-        Text(model.paused ? "Paused, you have control" : "KOS is using this Mac")
+        Text(headline)
           .font(.kos(.control, .semibold))
           .foregroundStyle(Theme.text)
         HStack(spacing: 6) {
-          Text(model.task)
+          // The step at work while KOS says one, else what the session is for.
+          Text(model.step ?? model.task)
             .lineLimit(1)
             .truncationMode(.tail)
             .frame(maxWidth: 230, alignment: .leading)
@@ -74,7 +84,7 @@ public struct SessionBar: View {
     .padding(.trailing, 8)
     .frame(height: Self.height)
     .background(Theme.panel.opacity(0.96), in: Capsule())
-    .overlay(Capsule().strokeBorder(tone.opacity(Theme.edge)))
+    .overlay(CapsuleEdge().strokeBorder(tone.opacity(Theme.edge)))
     .shadow(color: tone.opacity(0.35), radius: 12)
     // A dark lift under the glow, so the bar stands off a light page as well as a dark one.
     .shadow(color: .black.opacity(0.18), radius: 4, y: 1)

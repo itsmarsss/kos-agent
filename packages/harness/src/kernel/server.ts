@@ -26,6 +26,7 @@ import {
   BEHAVIOUR_KEY,
   BEHAVIOUR_LIMITS,
   parseBehaviour,
+  storedBehaviour,
 } from "./behaviour.js";
 import { BUILD_SETTINGS_KEY, orchestratorId } from "./kernel.js";
 import { parseAttachments } from "./attachments.js";
@@ -781,7 +782,7 @@ export async function handleApiRequest(
     // Parsed, not trusted: these govern spend and runaway loops, so every
     // number is clamped to a range before it is stored.
     const behaviour = parseBehaviour(body.behaviour ?? body);
-    kernel.settings.set(BEHAVIOUR_KEY, behaviour);
+    kernel.settings.set(BEHAVIOUR_KEY, storedBehaviour(behaviour));
     return ok({ behaviour });
   }
 

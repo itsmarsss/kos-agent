@@ -32,6 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// This app's build, from the stamp bundle.sh put in it; none from `swift run`.
   private let build = Build.stamped()
   private var stateTimer: Timer?
+  /// Held while a session or a turn is live, so App Nap does not slow the timers and the line computer use runs on.
+  private var awake: NSObjectProtocol?
   /// Quits as the menu's Quit does when told to stop: bundle.sh swaps a new build in that way, with no Apple Event to ask leave for.
   private var terminator: DispatchSourceSignal?
 
@@ -122,7 +124,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if chatKey == nil { Log.app.error("⌥⌘K is taken by another app; the chat window opens from the menu") }
     menu.onPause = { [unowned self] in controller.pause() }
     menu.onResume = { [unowned self] in controller.resume() }
-    menu.onStop = { [unowned self] in controller.stop() }
+    menu.onStop = { [unowned self] in stopFromMenu() }
+    menu.onDecide = { [unowned self] id, approved in chat.model.answer(id, approved: approved) }
+    // Every status KOS tells the window moves the menu bar, the window and whether the Mac stays awake for it.
+    chat.onDrawn = { [unowned self] in turnChanged() }
 
     // Permissions change in System Settings, displays come and go: each KOS hears of it.
     stateTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
@@ -130,6 +135,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self?.reportStateIfChanged()
         // The time left beside the icon counts down.
         if self?.controller.live != nil { self?.menu.refresh() }
+        // A turn that went quiet lets the Mac nap.
+        if let self, self.awake != nil { self.stayAwake(self.turn().state == .working) }
       }
     }
 
@@ -332,7 +339,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   /// The menu's icon and the window follow every line, the session and the pairings.
   private func changed() {
-    menu.refresh()
     chat.model.kosChoices = pairings.map { .init(id: $0.deviceId, name: Self.name($0)) }
     chat.refresh()
     let model = home.model
@@ -360,6 +366,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         task: live.task, requester: live.requester, kos: pairings.count > 1 ? origin.map(Self.name) : nil,
         chat: live.conversation.flatMap { id in try? origin?.kosAddress().chat(id) }, until: live.until, paused: live.paused)
     }
+    turnChanged()
+  }
+
+  /// What KOS is at, on this Mac and in the chat window.
+  private func turn() -> MenuTurn {
+    let kos = pairings.count > 1 ? controller.liveOrigin.flatMap(pairing).map(Self.name) : nil
+    return MenuTurn.of(session: controller.live, kos: kos, chat: chat.model)
+  }
+
+  /// The turn moved: the menu bar says so, the chat window keeps clear of what KOS works in, and the Mac stays awake
+  /// while KOS works at steps: not through a long wait on the owner, nor past a turn that went quiet.
+  private func turnChanged() {
+    let now = turn()
+    menu.refresh()
+    chat.keepClear(of: controller.liveTarget, needsOwner: now.state == .waiting || now.state == .paused)
+    lastHeard = Date()
+    stayAwake(now.state == .working)
+  }
+
+  /// When the turn last moved; working, but quiet past `quietLimit`, the turn's end was lost and the Mac may nap.
+  private var lastHeard = Date()
+  private static let quietLimit: TimeInterval = 10 * 60
+
+  private func stayAwake(_ working: Bool) {
+    let on = working && Date().timeIntervalSince(lastHeard) < Self.quietLimit
+    if on, awake == nil {
+      awake = ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: "KOS is working on this Mac")
+    } else if !on, let held = awake {
+      ProcessInfo.processInfo.endActivity(held)
+      awake = nil
+    }
   }
 
   /// The chat's Stop: a session or an ask of this chat's ends here at once, and KOS stops the turn either way.
@@ -373,11 +410,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
+  /// The menu's Stop: the session on this Mac and the window chat's turn, whichever are going.
+  private func stopFromMenu() {
+    let session = controller.liveOrigin ?? controller.asking?.origin
+    let conversation = controller.live?.conversation ?? controller.asking?.conversation
+    // Another chat's session ends here, and its turn is told by its KOS's own Stop.
+    if let session, !chat.isMine(origin: session, conversation: conversation) { controller.stop() }
+    if chat.model.busy { stopChat() }
+  }
+
   private func snapshot() -> StatusMenu.Snapshot {
     StatusMenu.Snapshot(
       kos: pairings.map { (Self.name($0), lines[$0.deviceId]?.status ?? .disconnected) }, session: controller.live,
-      sessionKOS: pairings.count > 1 ? controller.liveOrigin.flatMap(pairing).map(Self.name) : nil,
-      timeInMenuBar: settings.timeInMenuBar)
+      turn: turn(), timeInMenuBar: settings.timeInMenuBar)
   }
 
   private static func link(_ status: Connection.Status) -> LinkState {

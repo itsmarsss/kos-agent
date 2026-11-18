@@ -90,18 +90,58 @@ describe("what a reader who arrives mid-turn is told", () => {
     expect(bus.snapshot().every((e) => e.conversationId === "b")).toBe(true);
   });
 
-  it("does not grow without bound on a runaway turn", () => {
+  it("keeps every step of a long turn, the words between two steps as one entry", () => {
     const bus = new ProgressBus();
     bus.emit({ kind: "turn-start", conversationId: "c1" });
-    for (let i = 0; i < 5000; i++) {
-      bus.emit({
-        kind: "tool-start",
-        conversationId: "c1",
-        tool: "loop",
-        summary: String(i),
-      });
+    for (let i = 0; i < 300; i++) {
+      for (let d = 0; d < 40; d++) bus.emit({ kind: "delta", conversationId: "c1", of: "reasoning", text: "think " });
+      bus.emit({ kind: "delta", conversationId: "c1", of: "text", text: "Next." });
+      bus.emit({ kind: "tool-start", conversationId: "c1", tool: "computer.act", summary: `step ${i}` });
+      bus.emit({ kind: "frame", conversationId: "c1", tool: "computer.act", frameId: i });
+      bus.emit({ kind: "tool-end", conversationId: "c1", tool: "computer.act", isError: false });
+      if (i % 50 === 0) bus.emit({ kind: "heard", conversationId: "c1", said: `and ${i}` });
     }
-    expect(bus.snapshot().length).toBeLessThan(1000);
+    const replay = bus.snapshot();
+    const count = (kind: string) => replay.filter((e) => e.kind === kind).length;
+    expect(count("turn-start")).toBe(1);
+    expect(count("tool-start")).toBe(300);
+    expect(count("tool-end")).toBe(300);
+    expect(count("frame")).toBe(300);
+    expect(count("heard")).toBe(6);
+    expect(replay.at(-3)).toMatchObject({ kind: "tool-start", summary: "step 299" });
+    // Two runs of words a step at most, and the newest words kept whole.
+    expect(count("delta")).toBeLessThanOrEqual(600);
+    const deltas = replay.filter((e): e is Extract<ProgressEvent, { kind: "delta" }> => e.kind === "delta");
+    expect(deltas.at(-2)!.text).toBe("think ".repeat(40));
+    expect(deltas.at(-1)!.text).toBe("Next.");
+  });
+
+  it("keeps a step's input whole when small, its long words cut, and none when still too big", () => {
+    const bus = new ProgressBus();
+    const live: ProgressEvent[] = [];
+    bus.subscribe((e) => live.push(e));
+    bus.emit({ kind: "turn-start", conversationId: "c1" });
+    const big = "x".repeat(10_000);
+    bus.emit({ kind: "tool-start", conversationId: "c1", tool: "files.read", summary: "Read a", input: { path: "a.md" } });
+    bus.emit({ kind: "tool-start", conversationId: "c1", tool: "files.write", summary: "Write b", input: { path: "b.md", content: big } });
+    bus.emit({ kind: "tool-start", conversationId: "c1", tool: "x.y", summary: "Many", input: Object.fromEntries(Array.from({ length: 400 }, (_, i) => [`k${i}`, i])) });
+    const starts = bus.snapshot().filter((e): e is Extract<ProgressEvent, { kind: "tool-start" }> => e.kind === "tool-start");
+    expect(starts[0]!.input).toEqual({ path: "a.md" });
+    expect(starts[1]!.input).toEqual({ path: "b.md", content: `${"x".repeat(500)}…` });
+    expect(starts[2]!.input).toBeUndefined();
+    // A reader watching as it happens still gets each whole.
+    expect((live[2] as { input?: { content?: string } }).input?.content).toBe(big);
+  });
+
+  it("stamps when a turn began, so a reader joining later keeps its clock", () => {
+    const bus = new ProgressBus();
+    const seen: ProgressEvent[] = [];
+    bus.subscribe((e) => seen.push(e));
+    const before = Date.now();
+    bus.emit({ kind: "turn-start", conversationId: "c1" });
+    const at = (seen[0] as { at?: number }).at!;
+    expect(at).toBeGreaterThanOrEqual(before);
+    expect(bus.snapshot()[0]).toMatchObject({ kind: "turn-start", at });
   });
 
   it("caps the reasoning text it keeps", () => {
@@ -119,7 +159,7 @@ describe("what a reader who arrives mid-turn is told", () => {
       .snapshot()
       .filter((e): e is Extract<typeof e, { kind: "delta" }> => e.kind === "delta")
       .reduce((n, e) => n + e.text.length, 0);
-    expect(kept).toBeLessThanOrEqual(41_000);
+    expect(kept).toBe(40_000);
   });
 
   it("ignores events for a turn it never saw start", () => {

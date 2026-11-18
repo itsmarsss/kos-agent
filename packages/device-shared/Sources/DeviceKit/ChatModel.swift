@@ -29,6 +29,28 @@ public final class ChatModel: ObservableObject {
     }
   }
 
+  /// A step's picture as the thread draws it: one frame id is one picture for good on its KOS, so it is the same by
+  /// the KOS and the id.
+  public struct Picture: Equatable, Sendable {
+    public let id: Int
+    public let data: Data
+    /// The KOS it came from, by its pairing's device id; empty where there is one.
+    public let source: String
+
+    public init(id: Int, data: Data, source: String = "") {
+      self.id = id
+      self.data = data
+      self.source = source
+    }
+
+    public var key: Thumbnails.Key { Thumbnails.Key(source: source, id: id) }
+
+    public static func == (a: Picture, b: Picture) -> Bool { a.key == b.key }
+  }
+
+  /// The KOS this chat's pictures come from, by its pairing's device id: their frame ids are that KOS's.
+  public var source = ""
+
   /// How many step pictures the window keeps; the oldest go first.
   public static let picturesKept = 40
 
@@ -332,11 +354,13 @@ public final class ChatModel: ObservableObject {
     var kept = fresh ? [] : notices.filter { !$0.waiting }
     if let notice { kept.append(Notice(after: said.count, text: notice.text, from: notice.from, waiting: notice.waiting)) }
     notices = kept
-    let lastIsYours: Bool = {
-      if case .you = lines.last { return true }
+    let lastIsKOS: Bool = {
+      if case .kos = lines.last { return true }
       return false
     }()
-    let answered = sending.isEmpty && (notice != nil || !lastIsYours)
+    // Answered by KOS's words after the owner's, or by an answer outside them; a wait on the owner or words the turn
+    // heard leave the turn running, its story and pictures with it.
+    let answered = sending.isEmpty && ((notice.map { !$0.waiting } ?? false) || lastIsKOS)
     working = !sending.isEmpty || (working && !answered)
     if answered {
       stories = []
@@ -439,12 +463,22 @@ public final class ChatModel: ObservableObject {
     live.first { $0.said == said }?.frames ?? []
   }
 
+  /// What an item's steps saw, the pictures the window has of them: a finished turn's by its steps, a running one's
+  /// by the words it is about.
+  public func pictures(for item: Item) -> [Picture] {
+    switch item {
+    case .line(_, .steps(let steps)): return picturesOf(steps.map(\.frame))
+    case .story(_, let story): return picturesOf(liveFrames(of: story.said))
+    default: return []
+    }
+  }
+
   /// The latest turn's steps so far.
   public var story: String? { stories.last?.text }
 
   /// The pictures of these frame ids that the window has, in order.
-  public func picturesOf(_ frames: [Int?]) -> [(id: Int, data: Data)] {
-    frames.compactMap { id in id.flatMap { id in pictures[id].map { (id, $0) } } }
+  public func picturesOf(_ frames: [Int?]) -> [Picture] {
+    frames.compactMap { id in id.flatMap { id in pictures[id].map { Picture(id: id, data: $0, source: source) } } }
   }
 
   @discardableResult
@@ -537,8 +571,9 @@ public final class ChatModel: ObservableObject {
     self.models = error == nil ? models : self.models
   }
 
-  /// Another KOS: nothing of the last one's chat stays.
+  /// Another KOS: nothing of the last one's chat stays, its pictures included.
   public func reset() {
+    Thumbnails.shared.clear()
     silent = false
     conversation = nil
     upcoming = nil
@@ -601,8 +636,8 @@ public final class ChatModel: ObservableObject {
     let lines = (story.hasPrefix("…") ? Array(all.dropFirst()) : all).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
     let steps = lines.filter { $0.hasPrefix(stepMark) }.map { line -> Step in
       let summary = String(line.dropFirst(stepMark.count))
-      let failed = summary.hasSuffix(" (failed)")
-      return Step(summary: failed ? String(summary.dropLast(" (failed)".count)) : summary, failed: failed)
+      if summary.hasSuffix(failedMark) { return Step(summary: String(summary.dropLast(failedMark.count)), failed: true) }
+      return Step(summary: summary.hasSuffix(doneMark) ? String(summary.dropLast(doneMark.count)) : summary)
     }
     return (steps, lines.filter { !$0.hasPrefix(stepMark) }.joined(separator: "\n"))
   }
@@ -620,20 +655,22 @@ public final class ChatModel: ObservableObject {
   public var footLive: Bool { !waitingOnOwner && !heldByOwner }
 
   /// What the running turn's foot says it is at, for as long as it runs, whatever came last; nil once it ends.
-  /// Paused while the owner has the Mac, waiting on you while an ask is up, thinking before it has shown anything,
-  /// its latest step while that is the last thing told, else working.
+  /// Paused while the owner has the Mac, waiting on you while an ask is up, thinking before it has shown anything and
+  /// after a step that finished, its latest step while that runs, else working.
   public var foot: String? {
     guard working || heldByOwner || consent != nil else { return nil }
     if heldByOwner { return "Paused, you have control" }
     if waitingOnOwner { return "Waiting on you" }
-    guard let story else { return "Thinking" }
-    let last = story.components(separatedBy: "\n").last { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
-    if last.hasPrefix(Self.stepMark) && !last.hasSuffix(" (failed)") { return String(last.dropFirst(Self.stepMark.count)) }
-    return last.isEmpty ? "Thinking" : "Working"
+    let last = story?.components(separatedBy: "\n").last { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
+    guard !last.isEmpty, !(last.hasPrefix(Self.stepMark) && last.hasSuffix(Self.doneMark)) else { return "Thinking" }
+    if last.hasPrefix(Self.stepMark) && !last.hasSuffix(Self.failedMark) { return String(last.dropFirst(Self.stepMark.count)) }
+    return "Working"
   }
 
-  /// What marks a step in a story (TurnNarrator's STEP_MARK).
+  /// What marks a step in a story, and ends one that finished or failed (TurnNarrator's STEP_MARK, DONE_MARK, FAILED_MARK).
   static let stepMark = "› "
+  static let doneMark = " (done)"
+  static let failedMark = " (failed)"
 
   /// One thing in the thread, in the order it is drawn.
   public enum Item: Equatable, Identifiable {

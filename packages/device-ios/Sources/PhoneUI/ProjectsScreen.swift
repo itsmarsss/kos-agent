@@ -229,7 +229,7 @@ struct CronRow: View {
             .padding(.horizontal, 12)
             .frame(height: Self.control)
             .background(Theme.panel2, in: Capsule())
-            .overlay(Capsule().strokeBorder(Theme.line))
+            .overlay(CapsuleEdge().strokeBorder(Theme.line))
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }

@@ -14,7 +14,7 @@ import {
   type TurnPresence,
   type UserMapping,
 } from "@kos/harness";
-import { stepMechanics, summarizeAction } from "@kos/shared";
+import { runningTail, stepMechanics, summarizeAction } from "@kos/shared";
 
 import { ArtifactReader, type PanelArtifacts } from "./artifacts.js";
 import { DashboardRelay, type PanelDashboard } from "./dashboard.js";
@@ -148,6 +148,8 @@ interface Running {
   narrator: TurnNarrator;
   /** When it began, epoch ms: a device opened mid-turn starts its clock there. */
   since: number;
+  /** The frame ids of what its steps saw, oldest first: a device opened mid-turn is shown them. */
+  frames: number[];
   shownAt: number;
   timer?: ReturnType<typeof setTimeout>;
 }
@@ -386,19 +388,20 @@ export class DevicePanel implements ChannelAdapter {
       if (event.from === this.name) this.turns.set(id, { ...(speaker ? { device: speaker } : {}), since: Date.now() });
       if (!chat || id !== chat.id) return;
       this.quiet();
-      this.running = { conversation: id, narrator: new TurnNarrator(), since: Date.now(), shownAt: 0, ...(event.said ? { said: event.said } : {}), ...(speaker ? { speaker } : {}) };
-      if (event.said) void this.everyDevice("chat.status", this.statusOf(id, { said: event.said, taken: true, command: false, since: this.running.since }), speaker);
+      const running: Running = { conversation: id, narrator: new TurnNarrator(), since: event.at ?? Date.now(), frames: [], shownAt: 0, ...(event.said ? { said: event.said } : {}), ...(speaker ? { speaker } : {}) };
+      this.running = running;
+      // Working from the start: the owner's words taken, or, for a turn on none, its story so far, which is nothing yet.
+      if (event.said) void this.everyDevice("chat.status", this.statusOf(id, { said: event.said, taken: true, command: false, since: running.since }), speaker);
+      else this.narrate(running, true);
       return;
     }
     const running = this.running;
     if (!running || running.conversation !== id) return;
     if (event.kind === "frame") {
       // To every device of the kind, the speaker too: its presence carries words, not pictures.
-      const shown = this.deps.picture?.(event.frameId);
-      if (shown) {
-        const frame = { id: event.frameId, image: shown.image, mediaType: "image/jpeg", ...(shown.site ? { site: shown.site } : {}) };
-        void this.everyDevice("chat.status", this.statusOf(id, { ...this.about(running), frame }));
-      }
+      running.frames = [...running.frames.filter((f) => f !== event.frameId), event.frameId];
+      const frame = this.frameOf(event.frameId);
+      if (frame) void this.everyDevice("chat.status", this.statusOf(id, { ...this.about(running), frame }));
       return;
     }
     if (running.narrator.take(event)) this.narrate(running, event.kind !== "delta");
@@ -424,9 +427,14 @@ export class DevicePanel implements ChannelAdapter {
     );
   }
 
-  /** The running turn's story, a step at once and words at most every so often. */
+  /** A step's picture as a status carries it; none when it is not kept. */
+  private frameOf(id: number): Record<string, unknown> | undefined {
+    const shown = this.deps.picture?.(id);
+    return shown ? { id, image: shown.image, mediaType: "image/jpeg", ...(shown.site ? { site: shown.site } : {}) } : undefined;
+  }
+
+  /** The running turn's story, from its start: a step at once and words at most every so often. */
   private narrate(running: Running, now: boolean): void {
-    if (!running.narrator.worthShowing()) return;
     const tell = (): void => {
       running.timer = undefined;
       running.shownAt = Date.now();
@@ -501,7 +509,7 @@ export class DevicePanel implements ChannelAdapter {
   /** What chat.show carries: the chat, and what was answered outside its words. */
   private drawn(said?: OutboundMessage, waiting = false, about?: string): Record<string, unknown> {
     const chat = this.deps.current();
-    const messages = chat ? panelLines(this.deps.events(chat.id)) : [];
+    const messages = chat ? panelLines(this.untold(chat.id)) : [];
     const last = messages.at(-1);
     const text = said?.text?.trim();
     const notice =
@@ -518,6 +526,17 @@ export class DevicePanel implements ChannelAdapter {
       ...(notice ? { notice } : {}),
       ...shown,
     };
+  }
+
+  /**
+   * A chat's events as the devices draw them: while a turn running there
+   * tells its steps as a story, the steps it wrote to the transcript so far
+   * are left out, or the thread would show each twice.
+   */
+  private untold(chat: string): ChatEvent[] {
+    const events = this.deps.events(chat);
+    const running = this.running;
+    return running?.conversation === chat && running.narrator.worthShowing() ? events.slice(0, runningTail(events)) : events;
   }
 
   /**
@@ -547,7 +566,12 @@ export class DevicePanel implements ChannelAdapter {
     const running = this.running;
     if (running?.conversation === chat.id) {
       if (running.said) await this.tell(device, "chat.status", this.statusOf(chat.id, { said: running.said, taken: true, command: false, since: running.since }));
-      if (running.narrator.worthShowing()) await this.tell(device, "chat.status", this.statusOf(chat.id, { ...this.about(running), story: running.narrator.render() }));
+      if (running.narrator.worthShowing() || !running.said) await this.tell(device, "chat.status", this.statusOf(chat.id, { ...this.about(running), story: running.narrator.render() }));
+      // What its steps saw so far, the newest few, as the chat carries a finished turn's.
+      for (const id of running.frames.slice(-PICTURES_SHOWN)) {
+        const frame = this.frameOf(id);
+        if (frame) await this.tell(device, "chat.status", this.statusOf(chat.id, { ...this.about(running), frame }));
+      }
     }
     await this.tell(device, "chat.status", this.statusOf(chat.id, {}));
   }

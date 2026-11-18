@@ -34,6 +34,10 @@ public struct LiveSession: Equatable, Sendable {
   public fileprivate(set) var lastActivity: Date
   /// The owner scrolled since KOS last saw the whole screen, and KOS was told.
   public fileprivate(set) var scrolled = false
+  /// The step KOS said is under way, in its words.
+  public fileprivate(set) var step: String?
+  /// KOS said the session's chat waits on the owner for an approval.
+  public fileprivate(set) var waiting = false
 }
 
 /// The one session this device may be in, and every rule about it.
@@ -118,6 +122,23 @@ public struct Sessions: Sendable {
     session.lastActivity = now
     phase = .live(session)
     return session
+  }
+
+  /// The longest step a status keeps: a line for a bar, not a page.
+  public static let stepLimit = 200
+
+  /// What KOS says the live session is at, from the KOS that holds it: true when the step or the wait changed. Not
+  /// activity, so it never keeps an idle session alive; a status for another session, or from another KOS, is let be.
+  public mutating func status(_ id: String, from origin: String, step: String?, waiting: Bool?) -> Bool {
+    guard case .live(var session) = phase, session.id == id, self.origin == origin else { return false }
+    let before = (session.step, session.waiting)
+    if let step {
+      let line = step.split(whereSeparator: \.isNewline).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+      session.step = line.isEmpty ? nil : String(line.prefix(Self.stepLimit))
+    }
+    if let waiting { session.waiting = waiting }
+    phase = .live(session)
+    return before != (session.step, session.waiting)
   }
 
   /// The owner took over. The session's id when this paused it, nothing when it was not running.

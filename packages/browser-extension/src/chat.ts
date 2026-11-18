@@ -90,6 +90,16 @@ export interface Chat {
 
 export const EMPTY: Chat = { conversation: null, title: "Chrome", lines: [], sending: [], working: false, extras: [], stories: [], asks: [], auto: false, pictures: new Map(), live: [], held: false };
 export const STEP = "› ";
+/** How a story's step line ends once it finished, or failed (TurnNarrator's marks). */
+export const DONE = " (done)";
+export const FAILED = " (failed)";
+
+/** A story's step line as a step: its words, and whether it failed. */
+export function storyStep(line: string): Step {
+  const summary = line.slice(STEP.length);
+  if (summary.endsWith(FAILED)) return { summary: summary.slice(0, -FAILED.length), failed: true };
+  return { summary: summary.endsWith(DONE) ? summary.slice(0, -DONE.length) : summary };
+}
 const yours = (lines: Line[]): number => lines.filter((l) => l.role === "you").length;
 
 /** The commands the panel can run, as its / menu offers them: the dashboard's own left out. */
@@ -175,7 +185,8 @@ export function shown(c: Chat, message: Record<string, unknown>): Chat {
     ...kept,
     ...(notice ? [{ after: yours(lines), text: notice.text, ...(notice.said ? { said: notice.said } : {}), ...(notice.from ? { from: notice.from } : {}), ...(notice.waiting ? { waiting: true as const } : {}) }] : []),
   ];
-  const answered = !sending.length && (notice !== undefined || lines.at(-1)?.role !== "you");
+  // Answered by KOS's words after the owner's, or by an answer outside them; a wait on the owner or words the turn heard leave it running.
+  const answered = !sending.length && ((notice !== undefined && !notice.waiting) || lines.at(-1)?.role === "kos");
   return {
     ...c,
     // Shown none again, the words still wait for the first chat.

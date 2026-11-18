@@ -14,12 +14,13 @@ struct Thread: View {
   var body: some View {
     ScrollViewReader { reader in
       ScrollView {
-        LazyVStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
           if chat.lines.isEmpty && chat.sending.isEmpty && chat.notices.isEmpty {
             EmptyThread(online: chat.usable) { chat.say($0) }
           }
+          // Each item from its own values: a step told elsewhere in the turn never redraws the rest of the thread.
           ForEach(chat.items) { item in
-            ItemView(item: item, chat: chat)
+            ItemView(item: item, pictures: chat.pictures(for: item), files: Self.files(of: item, in: chat)).equatable()
           }
           if let foot = chat.foot {
             Foot(what: foot, since: chat.workingSince ?? Date(), live: chat.footLive, stop: chat.stop)
@@ -34,11 +35,20 @@ struct Thread: View {
       }
       .scrollIndicators(.hidden)
       .scrollDismissesKeyboard(.interactively)
-      .onChange(of: chat.items.count) { end(reader) }
-      .onChange(of: chat.stories) { end(reader) }
-      .onChange(of: chat.asks.count) { end(reader) }
-      .onAppear { reader.scrollTo("end", anchor: .bottom) }
+      .defaultScrollAnchor(.bottom)
+      // Once what came in has settled, not on each piece of it: a turn telling its steps a few at a time scrolls once.
+      .task(id: [AnyHashable(chat.items.count), AnyHashable(chat.stories.map(\.text)), AnyHashable(chat.asks.count)]) {
+        try? await Task.sleep(for: .milliseconds(80))
+        guard !Task.isCancelled else { return }
+        end(reader)
+      }
     }
+  }
+
+  /// The files that go with words on their way, for the item that is those words.
+  private static func files(of item: ChatModel.Item, in chat: ChatModel) -> [String] {
+    if case .sending(_, let text) = item { return chat.sendingFiles[text] ?? [] }
+    return []
   }
 
   private func end(_ reader: ScrollViewProxy) {
@@ -46,10 +56,11 @@ struct Thread: View {
   }
 }
 
-/// One thing in the thread.
-private struct ItemView: View {
+/// One thing in the thread, drawn from its own values alone, so it is redrawn only when they change.
+private struct ItemView: View, Equatable {
   let item: ChatModel.Item
-  @ObservedObject var chat: ChatModel
+  let pictures: [ChatModel.Picture]
+  let files: [String]
 
   var body: some View {
     switch item {
@@ -59,7 +70,7 @@ private struct ItemView: View {
       case .kos(let text): ChatMarkdown(text).frame(maxWidth: .infinity, alignment: .leading)
       case .note(let text):
         Text(text).font(.kos(.tiny)).foregroundStyle(Theme.faint).multilineTextAlignment(.center).frame(maxWidth: .infinity)
-      case .steps(let steps): Steps(steps: steps, pictures: chat.picturesOf(steps.map(\.frame)))
+      case .steps(let steps): Steps(steps: steps, pictures: pictures)
       }
     case .notice(_, let notice):
       VStack(alignment: .leading, spacing: 2) {
@@ -67,11 +78,11 @@ private struct ItemView: View {
         ChatMarkdown(notice.text)
       }
     case .sending(_, let text):
-      Bubble(text: text, files: chat.sendingFiles[text] ?? []).opacity(0.6).accessibilityLabel("Sending: \(text)")
+      Bubble(text: text, files: files).opacity(0.6).accessibilityLabel("Sending: \(text)")
     case .story(_, let story):
       // A turn on the go: its steps so far, live, and what KOS is saying after them, streamed.
       let told = ChatModel.read(story.text)
-      if !told.steps.isEmpty { Steps(steps: told.steps, live: true, pictures: chat.picturesOf(chat.liveFrames(of: story.said))) }
+      if !told.steps.isEmpty { Steps(steps: told.steps, live: true, pictures: pictures) }
       if !told.words.isEmpty { ChatMarkdown(told.words).foregroundStyle(Theme.muted) }
     }
   }

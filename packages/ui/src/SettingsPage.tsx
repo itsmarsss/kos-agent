@@ -42,6 +42,7 @@ const BEHAVIOUR_FALLBACK: Behaviour = {
   engine: "api",
   autoFix: false,
   maxSteps: 10,
+  screenSteps: 40,
   fixSteps: 24,
   selfPromptsPerHour: 10,
   agentMinutes: 15,
@@ -1055,10 +1056,20 @@ export function SettingsPage({
               <div className="set-grid">
                 <Limit
                   label="Steps in a turn"
-                  hint={`What an ordinary message gets. Default ${defaults.maxSteps}.`}
+                  hint={`What one message gets, on either engine. Default ${defaults.maxSteps}.`}
                   value={how.maxSteps}
                   range={limits.maxSteps}
-                  onChange={(maxSteps) => setHow({ ...how, maxSteps })}
+                  // Screen steps left at four times these follow them; set to anything else, the owner's number is
+                  // kept as it is, so lowering these again gives it back.
+                  onChange={(maxSteps) => setHow({ ...how, maxSteps, screenSteps: how.screenSteps === 4 * how.maxSteps ? 4 * maxSteps : how.screenSteps })}
+                />
+                <Limit
+                  label="Screen steps in a turn"
+                  hint={`Your own message working a screen on the Claude Agent SDK carries on in fresh queries, each with the steps above, up to this many in all. Other turns stop at the steps above. Four times the steps above unless set.`}
+                  // Never shown under the steps above, which the host holds it to; typed, any number in range is taken.
+                  value={Math.max(how.screenSteps, how.maxSteps)}
+                  range={limits.screenSteps}
+                  onChange={(screenSteps) => setHow({ ...how, screenSteps })}
                 />
                 <Limit
                   label="Steps in a fix attempt"

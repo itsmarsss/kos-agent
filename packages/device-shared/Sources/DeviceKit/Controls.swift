@@ -180,38 +180,52 @@ public struct SwitchRow: View {
 
 /// A symbol on its own tint: what a row is about, at a glance. `small` for a line inside something else, as the tab card's is.
 /// What a step saw (a tab, a screen), as the dashboard's and the side panel's StepPicture (kit):
-/// small under its step, larger when `open`, a press asking for the other.
+/// small under its step, larger when `open`, a press asking for the other. Decoded once by its frame id, off the
+/// main actor (Thumbnails); until then it holds its place.
 public struct StepPicture: View {
   /// How wide it is small.
   public static let small: CGFloat = 150
-  private let image: Image?
+  private let picture: ChatModel.Picture
   private let open: Bool
   private let press: () -> Void
+  /// The picture decoded, with its key: a view handed another picture never shows the last one's.
+  @State private var made: (key: Thumbnails.Key, image: CGImage)?
 
-  public init(_ data: Data, open: Bool = false, press: @escaping () -> Void = {}) {
-    #if os(macOS)
-    image = NSImage(data: data).map(Image.init(nsImage:))
-    #else
-    image = UIImage(data: data).map(Image.init(uiImage:))
-    #endif
+  public init(_ picture: ChatModel.Picture, open: Bool = false, press: @escaping () -> Void = {}) {
+    self.picture = picture
     self.open = open
     self.press = press
   }
 
   public var body: some View {
-    if let image {
-      Button(action: press) {
-        image
-          .resizable()
-          .aspectRatio(contentMode: .fit)
-          .frame(maxWidth: open ? .infinity : Self.small, alignment: .leading)
-          .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
-          .overlay(RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous).strokeBorder(Theme.line))
+    let shown = Self.shown(picture, made: made)
+    Group {
+      if let shown {
+        Button(action: press) {
+          Image(decorative: shown, scale: 2)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(maxWidth: open ? .infinity : Self.small, alignment: .leading)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous).strokeBorder(Theme.line))
+        }
+        .buttonStyle(.plain)
+        .help(open ? "Smaller" : "What this step saw")
+        .accessibilityLabel("What this step saw")
+      } else {
+        RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous).fill(Theme.panel2)
+          .frame(width: Self.small, height: Self.small * 0.62)
       }
-      .buttonStyle(.plain)
-      .help(open ? "Smaller" : "What this step saw")
-      .accessibilityLabel("What this step saw")
     }
+    .task(id: picture.key) {
+      guard made?.key != picture.key, let image = await Thumbnails.shared.image(picture.key, from: picture.data) else { return }
+      made = (picture.key, image)
+    }
+  }
+
+  /// What a picture shows: the one decoded for it here, else the one decoded for it anywhere, else nothing yet.
+  static func shown(_ picture: ChatModel.Picture, made: (key: Thumbnails.Key, image: CGImage)?, from thumbnails: Thumbnails = .shared) -> CGImage? {
+    made?.key == picture.key ? made?.image : thumbnails.cached(picture.key)
   }
 }
 
@@ -232,6 +246,26 @@ public struct Tile: View {
       .foregroundStyle(tint)
       .frame(width: small ? 26 : 32, height: small ? 26 : 32)
       .background(tint.opacity(Theme.tint), in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
+  }
+}
+
+/// A capsule's edge, to stroke. SwiftUI's own Capsule stroke drew a stray straight stroke beside the curve at each
+/// end, a ghost edge on the session bar and every bordered capsule; corners of half the height draw the same
+/// outline without it.
+public struct CapsuleEdge: InsettableShape {
+  private var inset: CGFloat = 0
+
+  public init() {}
+
+  public func path(in rect: CGRect) -> Path {
+    let r = rect.insetBy(dx: inset, dy: inset)
+    return RoundedRectangle(cornerRadius: min(r.width, r.height) / 2, style: .circular).path(in: r)
+  }
+
+  public func inset(by amount: CGFloat) -> CapsuleEdge {
+    var edge = self
+    edge.inset += amount
+    return edge
   }
 }
 
@@ -379,7 +413,7 @@ public struct Tag<Leading: View>: View {
     .padding(.trailing, remove == nil ? 7 : 5)
     .padding(.vertical, 4)
     .background(hovering ? Theme.line.opacity(0.7) : Theme.panel2, in: Capsule())
-    .overlay(Capsule().strokeBorder(hovering ? Theme.lineStrong : Theme.line))
+    .overlay(CapsuleEdge().strokeBorder(hovering ? Theme.lineStrong : Theme.line))
     .onHover { hovering = $0 }
     .animation(Theme.hover, value: hovering)
   }

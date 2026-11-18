@@ -58,7 +58,8 @@ export type KernelEvent =
   | { kind: "chat:deleted"; conversationId: string }
   | { kind: "tool:end"; tool: string; isError: boolean; conversationId: string | null }
   | { kind: "approval:requested"; id: number; tool: string; conversationId: string | null }
-  | { kind: "approval:decided"; id: number; approved: boolean; decidedBy: string | null }
+  /** Every settle: approved, denied, or lapsed unanswered (`expired`). */
+  | { kind: "approval:decided"; id: number; approved: boolean; status?: "approved" | "denied" | "expired"; decidedBy: string | null }
   | { kind: "cron:fired"; jobId: number; name: string; ok: boolean; error: string | null }
   /** The kill switch was thrown or released: whatever runs on its own stops at once. */
   | { kind: "halt:changed"; halted: boolean }

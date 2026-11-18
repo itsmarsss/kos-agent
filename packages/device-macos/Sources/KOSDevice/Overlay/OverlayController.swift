@@ -54,6 +54,11 @@ final class OverlayController {
     hud?.setUntil(until)
   }
 
+  /// What KOS says it is at: the bar says the step, and that the turn waits on the owner.
+  func setStatus(step: String?, waiting: Bool) {
+    hud?.setStatus(step: step, waiting: waiting)
+  }
+
   /// While KOS's pointer acts, the bar lets it through to what is under it.
   func letThrough(_ on: Bool) {
     hud?.ignoresMouseEvents = on

@@ -51,6 +51,11 @@ final class HUDPanel: NSPanel {
     bar.until = until
   }
 
+  func setStatus(step: String?, waiting: Bool) {
+    bar.step = step
+    bar.waiting = waiting
+  }
+
   /// Moves to the other edge when `global` (top-left origin) falls under the bar or near it.
   /// True when it moved, so the caller can let the move land before pointing there.
   func dodge(_ global: CGPoint) -> Bool {

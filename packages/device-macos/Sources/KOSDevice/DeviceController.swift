@@ -78,6 +78,8 @@ final class DeviceController {
   private(set) var asking: Asking?
 
   var live: LiveSession? { sessions.live }
+  /// What the live session works in, in AppKit's screen points: its window, or its whole display.
+  var liveTarget: CGRect? { sessions.live.map { Displays.cocoa($0.space.display.cg) } }
   /// The KOS the live session is for.
   var liveOrigin: String? { sessions.live == nil ? nil : sessions.origin }
 
@@ -92,6 +94,9 @@ final class DeviceController {
       return await answer(call) { try await self.begin(call.params(SessionBeginParams.self), from: origin) }
     case .sessionEnd:
       return await answer(call) { try self.endForKOS(call.params(SessionRef.self), from: origin) }
+    case .sessionStatus:
+      // Said, not done: never behind an action in flight.
+      return await answer(call) { try self.status(call.params(SessionStatusParams.self), from: origin) }
     default:
       return await inTurn { await self.answer(call) { try await self.act(method, call, from: origin) } }
     }
@@ -207,6 +212,8 @@ final class DeviceController {
       if let window = windows.first(where: { String($0.id) == picked }) { await WindowCatalog.raise(window) }
     } else {
       overlay.show(display: id, task: task, until: session.until, face: faceOf(origin))
+      // The app KOS said it would work in, up front once, so its first look is at it; the screen is still all shared.
+      if let suggested { await WindowCatalog.raise(suggested) }
     }
     owner.start(grace: Self.handOverGrace, takeover: settings.takeover)
     ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -253,6 +260,14 @@ final class DeviceController {
       await WindowCatalog.raise(WindowCatalog.Entry(id: id, pid: pid, app: app, bundle: "", title: title, frame: frame))
     }
     return sessions.live ?? session
+  }
+
+  /// What KOS says the session is at: the bar and the menu bar say it. A status for a session this KOS does not hold is let be.
+  private func status(_ params: SessionStatusParams, from origin: String) throws -> EmptyResult {
+    guard sessions.status(params.session, from: origin, step: params.step, waiting: params.waiting), let session = sessions.live else { return EmptyResult() }
+    overlay.setStatus(step: session.step, waiting: session.waiting)
+    onChange?()
+    return EmptyResult()
   }
 
   /// KOS ended it. Already over is fine: an end crossing an expiry is not an error. Another KOS's session is not this one's to end.
@@ -428,7 +443,7 @@ final class DeviceController {
       try await injector.press(combo, times: times)
       return cursor(in: session)
 
-    case .sessionBegin, .sessionEnd:
+    case .sessionBegin, .sessionEnd, .sessionStatus:
       throw DeviceError(.internal, "\(method.rawValue) is not an action.")
     }
   }

@@ -14,6 +14,7 @@ import { SCREEN_HANDOFF, SCREEN_PROMPT, forScreenAgent, isScreenTool } from "../
 import { fenced, isShelved } from "../context/shelf.js";
 import { heardWith, ownerLines, resultText, splitOwnerWords, type HeardWords } from "../models/heard.js";
 import type { Effort } from "../models/provider.js";
+import type { ModelMessage } from "../models/types.js";
 import { toolUse } from "../kernel/caller.js";
 import { STOPPED_RESULT } from "../kernel/guarded.js";
 import { ONLY_OWN_MCP, credentials } from "../builds/runner.js";
@@ -69,6 +70,33 @@ export interface SdkToolCall {
   heard?: HeardWords;
 }
 
+/** A call as the transcript stores it, in the shape the other engine writes: its use, then its result. */
+export function sdkCallMessages(c: SdkToolCall): ModelMessage[] {
+  return [
+    { role: "assistant", content: [{ type: "tool_use", id: c.id, name: c.name, input: c.input }] },
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          toolUseId: c.id,
+          content: c.result,
+          ...(c.isError ? { isError: true } : {}),
+          ...(c.heard ? { heard: c.heard } : {}),
+        },
+      ],
+    },
+  ];
+}
+
+/** A chat without the calls of these ids, their uses and their results. */
+export function withoutCalls(messages: ModelMessage[], ids: ReadonlySet<string>): ModelMessage[] {
+  if (ids.size === 0) return messages;
+  return messages.filter(
+    (m) => !m.content.some((b) => (b.type === "tool_use" && ids.has(b.id)) || (b.type === "tool_result" && ids.has(b.toolUseId))),
+  );
+}
+
 export interface SdkChatResult {
   text: string;
   /**
@@ -120,7 +148,10 @@ export interface SdkChatOptions {
   tools: ToolBox;
   cwd: string;
   model?: string;
+  /** Each query's model round trips. */
   maxTurns?: number;
+  /** The turn's round trips across every query it carries on in; `maxTurns` unless given. */
+  turnSteps?: number;
   /** Streamed reasoning and text, for the live view. */
   onDelta?: (delta: { kind: "reasoning" | "text"; text: string }) => void;
   env?: NodeJS.ProcessEnv;
@@ -136,6 +167,12 @@ export interface SdkChatOptions {
   picturesPerQuery?: number;
   /** Told as the turn carries on in a fresh query, before it starts. */
   onFreshQuery?: () => void;
+  /**
+   * Each call as it lands, so the transcript holds the steps while the turn
+   * runs. Never told after the turn has returned: a call stopped under it is
+   * in the result as stopped, whenever it ends.
+   */
+  onCall?: (call: SdkToolCall) => void;
   /** Told as the turn hands screen work to a subagent, whose context has seen no picture, before it starts. */
   onScreenAgent?: () => void;
   /**
@@ -410,9 +447,18 @@ function seenUsage(model: string, raw: Record<string, unknown> | undefined, befo
   };
 }
 
-export async function runSdkChat(
-  options: SdkChatOptions,
-): Promise<SdkChatResult> {
+export async function runSdkChat(options: SdkChatOptions): Promise<SdkChatResult> {
+  const { onCall } = options;
+  /** The turn has returned or thrown: a call that ends after it is no longer the turn's to tell. */
+  let over = false;
+  try {
+    return await runQueries({ ...options, ...(onCall ? { onCall: (call: SdkToolCall) => void (over || onCall(call)) } : {}) });
+  } finally {
+    over = true;
+  }
+}
+
+async function runQueries(options: SdkChatOptions): Promise<SdkChatResult> {
   const calls: SdkToolCall[] = [];
   /** The newest picture a tool answered with, and how many this query has taken. */
   let lastPicture: { data: string; mediaType: string } | undefined;
@@ -426,6 +472,7 @@ export async function runSdkChat(
   const cap = split.agent ? undefined : options.picturesPerQuery;
   const { server, running } = serverFor(options.tools, (call, images) => {
     calls.push(call);
+    options.onCall?.(call);
     // A screen's picture, not a plot python drew or one an MCP tool returned.
     if (images.length && isScreenTool(call.name)) {
       lastPicture = images.at(-1);
@@ -471,8 +518,9 @@ export async function runSdkChat(
     (options.attachments ?? []).filter((a) => a.mediaType.startsWith("image/")),
   );
 
-  /** The turn's model round trips, across every query it runs in. */
+  /** Each query's model round trips, and the turn's across every query it runs in. */
   const budget = options.maxTurns ?? 24;
+  const ceiling = Math.max(budget, options.turnSteps ?? budget);
   let used = 0;
   for (;;) {
     // A stop that landed before this query, or between two, starts no new one.
@@ -509,7 +557,7 @@ export async function runSdkChat(
         // to hand on. Anything else off the list is refused, as before.
         ...(split.agent ? { canUseTool: screenGate(split.agent.tools) } : {}),
         mcpServers: { [SERVER]: server },
-        maxTurns: budget - used,
+        maxTurns: Math.min(budget, ceiling - used),
         includePartialMessages: true,
         ...(options.model ? { model: options.model } : {}),
         ...(split.agent
@@ -671,9 +719,8 @@ export async function runSdkChat(
       for (const [id, call] of running) calls.push({ id, ...call, result: STOPPED_RESULT, isError: true });
       break;
     }
-    // The steps are the turn's, not each query's: a turn carried on in fresh queries stops where one query would have.
     if (!full || stopped) break;
-    if (used >= budget) {
+    if (used >= ceiling) {
       stopped = true;
       break;
     }
