@@ -384,9 +384,15 @@ Auto never covers, whatever the chat is set to (`autoCovers` in
   LANG, LC_* or DEBUG), writing no file that is there outside scratch,
   and pointing no build, output or program it runs outside the workspace
   (`~` and `$HOME` are the workspace root) (`risk/shellauto.ts`). The list is not the boundary, the jail is: a line
-  Auto lets through runs with no network at all, and git with hooks, the
-  fsmonitor and the pager off, so `git fetch`, `pull`, `clone` and installs
-  ask, saying they need the network. In the container no shell line is
+  Auto lets through writes only where an approved one would (its home's
+  folders, scratch, its own temp and caches), reaches this machine's
+  loopback and nothing past it (a test server it starts, never KOS's
+  ports), is sealed as a read-only line is (no signal to another process,
+  no app opened, no Apple Event, no preference written, only a few mach
+  services), and runs git held as a run nobody approved (`gitHoldEnv`: no
+  hooks, no transport, no lazy fetch, and every program-naming setting
+  pinned), so `git fetch`, `pull`, `clone` and installs ask, saying they
+  need the network. In the container no shell line is
   covered: the container is the jail there, a command runs unwrapped beside
   KOS, and nothing narrower holds the network or KOS's ports;
 - deleting for good: `files.rm` of a whole folder, `files.mv` onto a file
@@ -396,6 +402,9 @@ Auto never covers, whatever the chat is set to (`autoCovers` in
   scratch; `systems.project_delete`, `chats.delete`, `blobs.remove`,
   `daemons.remove`, `discord.prune`; an http DELETE; an MCP tool named for
   deleting, cancelling or revoking;
+- a write into another project's or a blob's folder, or a project's
+  command asking to write the whole workspace (the reach rule's
+  `beyondAuto`, `tools/home.ts`);
 - a message to anyone but the owner (`notify` to a channel or a user) and
   opening a place to others (`discord.audience` past the owner,
   `discord.access`);
@@ -409,6 +418,11 @@ Auto never covers, whatever the chat is set to (`autoCovers` in
   or key there goes through;
 - any turn but the owner's own words in that chat: a schedule's run, a
   guest's words, a dispatch, a handoff, an aside or a resumed approval.
+
+An ask raised in a chat set to Auto for one of these says so on every
+card: its reason reads "asked though the chat is in Auto: ..." and it
+carries `beyondAuto`, so no surface offers Always for it and the card's
+note says Auto never covers it.
 
 Starting a session is covered only with `sessions`, and only on a device
 that leaves its sessions to KOS's approvals (consent `kos`): a device that
