@@ -41,6 +41,8 @@ export interface SecretsCli {
   ask?: (question: string, hidden: boolean) => Promise<string>;
   stdin?: () => Promise<string | undefined>;
   out?: (line: string) => void;
+  /** The workspace, which the vault's folder must not be inside. */
+  workspace?: string;
   /** Into the workspace's audit log: a passphrase added or taken off is recorded as the dashboard records it. */
   audit?: (entry: { tool: string; args: Record<string, unknown>; result: string; isError: boolean }) => void;
 }
@@ -78,7 +80,7 @@ async function piped(): Promise<string | undefined> {
 const list = (value: string | boolean | undefined): string[] => (typeof value === "string" ? value.split(",").map((v) => v.trim()).filter(Boolean) : []);
 
 export async function runSecrets(rest: string[], flags: Record<string, string | boolean>, cli: SecretsCli = {}): Promise<number> {
-  const vault = cli.vault ?? Vault.fromEnv(process.env, isContained());
+  const vault = cli.vault ?? Vault.fromEnv(process.env, isContained(), cli.workspace);
   const ask = cli.ask ?? prompt;
   const out = cli.out ?? ((line: string) => console.log(line));
   const stdin = cli.stdin ?? piped;

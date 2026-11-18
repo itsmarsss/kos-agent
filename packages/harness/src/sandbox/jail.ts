@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
-import { vaultDir } from "../secrets/vault.js";
+import { realOf, vaultDir } from "../secrets/vault.js";
 
 /**
  * How a shell command is kept inside the workspace.
@@ -84,7 +84,8 @@ export function kosPorts(env: NodeJS.ProcessEnv = process.env): number[] {
  * scrub index) and sequence record wherever KOS_VAULT_DIR puts them.
  */
 export function kosSecretFiles(env: NodeJS.ProcessEnv = process.env): string[] {
-  const vault = resolve(vaultDir(env));
+  // Real, so a vault folder reached through a link is denied where it really is.
+  const vault = realOf(vaultDir(env));
   return [...new Set([env.KOS_WRITE_KEY_FILE?.trim(), resolve(homedir(), ".kos"), vault, `${vault}.seq`].filter((p): p is string => !!p))];
 }
 

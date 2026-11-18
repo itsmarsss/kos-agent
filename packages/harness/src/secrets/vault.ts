@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, hkdfSync, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, renameSync, statSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, realpathSync, renameSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import type { SecretFieldName, SecretKind, SecretPolicy, SecretSummary, SecretUse, SecretValues, VaultSlotKind } from "@kos/shared";
 
@@ -263,10 +263,31 @@ export interface VaultOptions {
   contained?: boolean;
   /** KOS_VAULT_ALLOW_SHARED_UID=1: open the vault in the container anyway. */
   allowSharedUid?: boolean;
+  /** The workspace, which the vault's folder must never be inside: it is snapshotted to git and open to the agent. */
+  workspace?: string;
   /** The second record of the highest sequence written, outside the vault's folder: `<dir>.seq` unless given. */
   seqCopy?: string;
   now?: () => number;
 }
+
+/** A path with every link resolved, as far as it exists; the rest as given. */
+export function realOf(path: string): string {
+  const abs = resolve(path);
+  let at = abs;
+  const rest: string[] = [];
+  while (!existsSync(at)) {
+    const up = dirname(at);
+    if (up === at) return abs;
+    rest.unshift(basename(at));
+    at = up;
+  }
+  return join(realpathSync(at), ...rest);
+}
+
+const isWithin = (path: string, root: string): boolean => {
+  const rel = relative(root, path);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+};
 
 /** Where the vault lives: KOS_VAULT_DIR, else ~/.kos/secrets. Never in the workspace. */
 export function vaultDir(env: NodeJS.ProcessEnv = process.env): string {
@@ -342,9 +363,10 @@ export class Vault {
     this.refresh();
   }
 
-  static fromEnv(env: NodeJS.ProcessEnv, contained: boolean): Vault {
+  static fromEnv(env: NodeJS.ProcessEnv, contained: boolean, workspace?: string): Vault {
     return new Vault({
       dir: vaultDir(env),
+      ...(workspace ? { workspace } : {}),
       ...(env.KOS_VAULT_KEY?.trim() ? { envKey: env.KOS_VAULT_KEY.trim() } : {}),
       contained,
       allowSharedUid: env.KOS_VAULT_ALLOW_SHARED_UID === "1",
@@ -800,6 +822,9 @@ export class Vault {
 
   /** In the container the agent's programs share KOS's uid, so they could read an open vault's memory: refused unless the owner says otherwise. */
   private refuseShared(): void {
+    if (this.options.workspace && isWithin(realOf(this.dir), realOf(this.options.workspace))) {
+      throw new VaultError("refused", `the vault's folder ${this.dir} is inside the workspace, which is backed up to git and open to the agent; set KOS_VAULT_DIR outside it`);
+    }
     if (this.options.contained && !this.options.allowSharedUid) {
       throw new VaultError("refused", "in the container tools still run as KOS's own user, so the vault stays shut; set KOS_VAULT_ALLOW_SHARED_UID=1 to open it anyway");
     }

@@ -250,6 +250,16 @@ describe("Vault", () => {
     expect(vaultAt({ envKey: range(0x81, 32).toString("base64") }).status().state).toBe("locked");
   });
 
+  it("refuses a vault folder inside the workspace, links resolved", async () => {
+    const ws = join(dir, "..", "ws");
+    mkdirSync(join(ws, "inner"), { recursive: true });
+    await expect(new Vault({ dir: join(ws, "inner", "secrets"), workspace: ws }).init()).rejects.toMatchObject({ code: "refused" });
+    const { symlinkSync } = await import("node:fs");
+    symlinkSync(join(ws, "inner"), join(dir, "..", "linked"));
+    await expect(new Vault({ dir: join(dir, "..", "linked", "secrets"), workspace: ws }).init()).rejects.toMatchObject({ code: "refused" });
+    await expect(new Vault({ dir, workspace: ws }).init()).resolves.toBeUndefined();
+  });
+
   it("stays shut in the container unless the shared uid is allowed", async () => {
     await expect(vaultAt({ contained: true }).init()).rejects.toMatchObject({ code: "refused" });
     await twoSecrets();

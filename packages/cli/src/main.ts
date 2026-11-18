@@ -708,6 +708,7 @@ async function main(): Promise<void> {
   // kos secrets: the vault from a terminal; unlock and status reach the running host too.
   if (command === "secrets") {
     process.exitCode = await runSecrets(rest, flags, {
+      workspace: rootDir,
       live: async () => (await resolveLiveClient(rootDir))?.client,
       audit: (entry) => {
         const ws = Workspace.open(rootDir);

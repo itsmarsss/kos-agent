@@ -663,7 +663,7 @@ export async function runHost(options: HostOptions): Promise<void> {
    * the same registry as the env file's keys: `{{secret:<handle>}}` resolves,
    * and every value it holds is scrubbed from what KOS keeps and shows.
    */
-  const vault = Vault.fromEnv(process.env, isContained());
+  const vault = Vault.fromEnv(process.env, isContained(), options.rootDir);
   const secrets = SecretsRegistry.fromEnv();
   secrets.attachVault(vault);
   // The vault holds the key now: out of the environment, so no program KOS starts, and no reload, sees it; still scrubbed.
