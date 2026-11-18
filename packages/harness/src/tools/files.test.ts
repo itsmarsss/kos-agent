@@ -82,6 +82,8 @@ describe("filesModule", () => {
       ["files.cp", { from: "notes.txt", to: "projects/x/.git/config" }],
       ["files.mv", { from: "notes.txt", to: "projects/x/.git/config" }],
       ["files.mv", { from: "evil", to: "projects/x/.git" }],
+      ["files.mv", { from: "projects/x/.git", to: "evil/moved" }],
+      ["files.mv", { from: "projects/x/.git/config", to: "notes2.txt" }],
     ] as const) {
       const res = await registry.execute(tool, input);
       expect(res.isError, `${tool} ${JSON.stringify(input)}`).toBe(true);

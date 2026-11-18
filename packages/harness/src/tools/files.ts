@@ -333,6 +333,9 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
     },
     (input) => {
       const to = fenced(str(input, "to"), "replace");
+      // Moved out, a repository's config is changed where it lands and moved back as something else.
+      const fromGit = gitControlRefusal(foldedPath(ws.root, str(input, "from")));
+      if (fromGit) throw new Error(fromGit);
       mkdirSync(dirname(to), { recursive: true });
       renameSync(fenced(str(input, "from"), "remove"), to);
       return "ok";
