@@ -100,12 +100,18 @@ and HMAC-SHA256 only:
   `kos-vault/1|slot|<vault>|<slot id>|<dek id>`. The key file's KEK is its 32
   bytes; a passphrase's is scrypt(NFC passphrase, salt, N=2^17, r=8, p=1, 32).
 - The index MAC is HMAC-SHA256 under HKDF-SHA256(DEK, empty salt, info
-  `kos-vault/1 index`, 32) over `kos-vault/1|<vault>|<seq>|<entry ids sorted,
-  joined by ",">`. Entries are stored in id order.
+  `kos-vault/1 index`, 32) over
+  `kos-vault/1|<vault>|<dek id>|<seq>|slots:<slot digests>|entries:<entry digests>`.
+  A slot digest is `<id>:<hex SHA-256 of "<kind>|<alg>|<N>|<r>|<p>|<salt>|<wrap alg>|<wrap nonce>|<wrap ct>">`
+  (the kdf fields empty for a key-file slot), slots in id order. An entry
+  digest is `<id>:<hex SHA-256 of nonce bytes then ciphertext bytes>`,
+  entries in id order, joined by `,`. Entries are stored in id order.
 
 The vault is refused, and stays locked with the reason in its status, when
-any byte of an entry, slot or MAC changed, an entry was moved, dropped,
-added or swapped, or the sequence is lower than the last one written.
+any byte of an entry, slot or MAC changed; when an entry was moved, dropped,
+added, or swapped for another entry's bytes; when an entry's nonce and
+ciphertext were pasted back from an older copy of the same entry (its digest
+changes); or when the sequence is lower than the last one written.
 
 A vault has one slot:
 
@@ -252,8 +258,10 @@ HMAC with WebCrypto, scrypt with `openssl kdf ... SCRYPT`). Bytes are hex.
   `kfnzNNUk7wpeLNtMG/mpNkRY5ebjDVz0mtnxXV7e1WTT+12UhjE34VJVo4B88bGI7kHG2wtH0KUJ8dUTxkivJtt9fKNpWCCCyAcogt59gGBDnVfCLv8smGJNJgnrHAk1EwLuZPRcQKXzxPvdQe/bqwuXYStwuFK2pPM6ZrQn9Ysb6YNl0ull1ZseAaw=`.
 - Slot `s1`, nonce `707172737475767778797a7b`, wrapped DEK (base64)
   `aX9gaNOtwVkgEipLZP8OHHha0rwdDXbo2fh7U8hyhwKBISZBG/W6aqbovibkPWZ9`.
-- Index key `4712494fa203f3ccddde2bf44f86a6b395a054895e762b055f45e8351ec3f614`;
-  MAC at seq 7 over `e_00000000000000a1,e_00000000000000b2` (base64)
-  `M1H7i7WkMPCKg240K9irnW//odtq1qMJL+Kp3fXZrg0=`.
+- Index key `4712494fa203f3ccddde2bf44f86a6b395a054895e762b055f45e8351ec3f614`.
+  MAC at seq 7, DEK id `k1`, over the slot above (key file, `s1`) and two
+  entries: `e_00000000000000a1` (the entry above) and `e_00000000000000b2`
+  (nonce `808182838485868788898a8b`, ciphertext bytes 0xa0 to 0xc7), base64
+  `04+O45DO+QbFDTgHede6WyIrP4OmVJWUnhY0ranqLgE=`.
 - scrypt of `correct horse battery staple`, salt `404142...4f`, N=2^17 r=8
   p=1: `d383505afdc30eca3c262fccd3eba2260547640663d604b3983d8c3144173d4e`.

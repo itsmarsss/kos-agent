@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, hkdfSync, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -135,10 +135,33 @@ export function indexKey(dek: Buffer): Buffer {
   return Buffer.from(hkdfSync("sha256", dek, Buffer.alloc(0), `${TAG} index`, 32));
 }
 
-export function indexMac(dek: Buffer, vault: string, seq: number, entryIds: readonly string[]): string {
+const sha256 = (...parts: Buffer[]): string => {
+  const h = createHash("sha256");
+  for (const part of parts) h.update(part);
+  return h.digest("hex");
+};
+
+/** What the index MAC says of a slot: everything in it, so no part of one can be swapped for an older copy's. */
+function slotDigest(slot: Slot): string {
+  const kdf = slot.kind === "passphrase" ? `${slot.kdf.alg}|${slot.kdf.N}|${slot.kdf.r}|${slot.kdf.p}|${slot.kdf.salt}` : "";
+  return `${slot.id}:${sha256(Buffer.from(`${slot.kind}|${kdf}|${slot.wrap.alg}|${slot.wrap.nonce}|${slot.wrap.ct}`, "utf8"))}`;
+}
+
+/**
+ * The index MAC: over the vault id, the data key's id, the sequence number,
+ * every slot whole, and every entry as its id with SHA-256 of its nonce and
+ * ciphertext. An entry pasted in from an older copy (its id the same, its
+ * bytes from before) changes its digest, so it is refused like any edit.
+ */
+export function indexMac(dek: Buffer, doc: Pick<VaultFile, "vault" | "dek" | "slots" | "entries">, seq: number): string {
+  const slots = [...doc.slots].sort((a, b) => (a.id < b.id ? -1 : 1)).map(slotDigest).join(",");
+  const entries = [...doc.entries]
+    .sort((a, b) => (a.id < b.id ? -1 : 1))
+    .map((e) => `${e.id}:${sha256(unb64(e.nonce), unb64(e.ct))}`)
+    .join(",");
   const key = indexKey(dek);
   try {
-    return createHmac("sha256", key).update(`${TAG}|${vault}|${seq}|${[...entryIds].sort().join(",")}`).digest("base64");
+    return createHmac("sha256", key).update(`${TAG}|${doc.vault}|${doc.dek}|${seq}|slots:${slots}|entries:${entries}`).digest("base64");
   } finally {
     key.fill(0);
   }
@@ -695,7 +718,8 @@ export class Vault {
       made.kek.fill(0);
       slot = made.slot;
     }
-    writeAtomic(path, `${JSON.stringify({ ...doc, slots: [slot] }, null, 2)}\n`);
+    const copy = { ...doc, slots: [slot] };
+    writeAtomic(path, `${JSON.stringify({ ...copy, index: { seq: doc.index.seq, mac: indexMac(dek, copy, doc.index.seq) } }, null, 2)}\n`);
   }
 
   // Inside
@@ -761,7 +785,7 @@ export class Vault {
 
   /** Every check a file read from disk must pass before anything in it is believed. */
   private verify(doc: VaultFile, dek: Buffer): Map<string, Held> {
-    const mac = indexMac(dek, doc.vault, doc.index.seq, doc.entries.map((e) => e.id));
+    const mac = indexMac(dek, doc, doc.index.seq);
     const given = unb64(doc.index.mac);
     if (given.length !== 32 || !timingSafeEqual(given, unb64(mac))) throw new VaultError("tampered", "the vault's index does not match its entries: one was dropped, added or changed outside KOS");
     const seen = this.highWater();
@@ -870,7 +894,7 @@ export class Vault {
 
   private write(doc: VaultFile, dek: Buffer, opener: Opener): void {
     const seq = Math.max(doc.index.seq, this.highWater()?.vault === doc.vault ? this.highWater()!.seq : 0) + 1;
-    const next: VaultFile = { ...doc, index: { seq, mac: indexMac(dek, doc.vault, seq, doc.entries.map((e) => e.id)) } };
+    const next: VaultFile = { ...doc, index: { seq, mac: indexMac(dek, doc, seq) } };
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     if (existsSync(this.file)) {
       copyFileSync(this.file, `${this.prev}.tmp`);

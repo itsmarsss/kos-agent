@@ -24,7 +24,7 @@ const KAT = {
     "kfnzNNUk7wpeLNtMG/mpNkRY5ebjDVz0mtnxXV7e1WTT+12UhjE34VJVo4B88bGI7kHG2wtH0KUJ8dUTxkivJtt9fKNpWCCCyAcogt59gGBDnVfCLv8smGJNJgnrHAk1EwLuZPRcQKXzxPvdQe/bqwuXYStwuFK2pPM6ZrQn9Ysb6YNl0ull1ZseAaw=",
   slotCt: "aX9gaNOtwVkgEipLZP8OHHha0rwdDXbo2fh7U8hyhwKBISZBG/W6aqbovibkPWZ9",
   indexKey: "4712494fa203f3ccddde2bf44f86a6b395a054895e762b055f45e8351ec3f614",
-  mac: "M1H7i7WkMPCKg240K9irnW//odtq1qMJL+Kp3fXZrg0=",
+  mac: "04+O45DO+QbFDTgHede6WyIrP4OmVJWUnhY0ranqLgE=",
   passphrase: "correct horse battery staple",
   salt: range(0x40, 16),
   passphraseKek: "d383505afdc30eca3c262fccd3eba2260547640663d604b3983d8c3144173d4e",
@@ -48,9 +48,19 @@ describe("vault format vectors", () => {
     expect(seal(KAT.kek, KAT.slotNonce, KAT.dek, slotAad(KAT.vault, "s1", "k1")).toString("base64")).toBe(KAT.slotCt);
   });
 
-  it("derives the index key and MACs the sorted entry ids", () => {
+  it("derives the index key and MACs the slots and each entry's bytes", () => {
     expect(indexKey(KAT.dek).toString("hex")).toBe(KAT.indexKey);
-    expect(indexMac(KAT.dek, KAT.vault, 7, ["e_00000000000000b2", "e_00000000000000a1"])).toBe(KAT.mac);
+    const doc = {
+      vault: KAT.vault,
+      dek: "k1",
+      slots: [{ id: "s1", kind: "keyfile" as const, wrap: { alg: "A256GCM" as const, nonce: KAT.slotNonce.toString("base64"), ct: KAT.slotCt } }],
+      entries: [
+        { id: "e_00000000000000b2", nonce: range(0x80, 12).toString("base64"), ct: range(0xa0, 40).toString("base64") },
+        { id: KAT.entry, nonce: KAT.nonce.toString("base64"), ct: KAT.entryCt },
+      ],
+    };
+    expect(indexMac(KAT.dek, doc, 7)).toBe(KAT.mac);
+    expect(indexMac(KAT.dek, { ...doc, entries: [doc.entries[0]!, { ...doc.entries[1]!, ct: flip(KAT.entryCt) }] }, 7)).not.toBe(KAT.mac);
   });
 
   it("derives a passphrase key with scrypt N=2^17 r=8 p=1", async () => {
@@ -286,6 +296,20 @@ describe("Vault tamper checks", () => {
     await twoSecrets();
     const doc = fileOf();
     edit(doc);
+    writeFile(doc);
+    tampered();
+  });
+
+  it("refuses one entry pasted back from the copy before", async () => {
+    const vault = await twoSecrets();
+    const handle = vault.list()[0]!.handle;
+    vault.update(handle, { values: { password: "pw-the-new-one" } });
+    const prev = JSON.parse(readFileSync(join(dir, "vault.kosv.prev"), "utf8")) as VaultFile;
+    const doc = fileOf();
+    const i = doc.entries.findIndex((e) => prev.entries.some((p) => p.id === e.id && p.ct !== e.ct));
+    expect(i).toBeGreaterThanOrEqual(0);
+    const old = prev.entries.find((p) => p.id === doc.entries[i]!.id)!;
+    doc.entries[i] = { ...old };
     writeFile(doc);
     tampered();
   });
