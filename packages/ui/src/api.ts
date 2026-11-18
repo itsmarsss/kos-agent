@@ -1040,10 +1040,20 @@ async function get<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/**
+ * What a change sends besides its body: this boot's write key, which KOS
+ * wrote into the page it served, so the change is known to come from here
+ * rather than from any program on the machine.
+ */
+export function changeHeaders(): Record<string, string> {
+  const key = typeof document === "undefined" ? null : document.querySelector('meta[name="kos-write"]')?.getAttribute("content");
+  return { "content-type": "application/json", ...(key ? { "x-kos-write": key } : {}) };
+}
+
 async function post<T>(path: string, body: unknown = {}): Promise<T> {
   const res = await fetch(path, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: changeHeaders(),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -1237,7 +1247,7 @@ export const api = {
   /** The owner's edit to a doc or a sheet, made on the version `base` (its record's updatedAt). */
   savePage: async (id: string, edit: unknown, base: number): Promise<PageSummary> => {
     const path = `/api/pages/${encodeURIComponent(id)}/save`;
-    const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ edit, base }) });
+    const res = await fetch(path, { method: "POST", headers: changeHeaders(), body: JSON.stringify({ edit, base }) });
     if (res.status === 409) throw new SaveConflict(await readError(res, path));
     if (!res.ok) throw new Error(await readError(res, path));
     return (await res.json()) as PageSummary;

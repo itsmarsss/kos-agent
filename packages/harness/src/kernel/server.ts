@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
 
 import { parseHomeLayout,
@@ -191,7 +192,20 @@ export interface DashboardServerOptions {
   smsInbound?: (input: { url: string; params: Record<string, string>; signature: string | undefined }) => Promise<boolean>;
   /** Routes answered by packages outside the kernel. */
   extensions?: ApiExtension[];
+  /**
+   * The proof a change comes from KOS's own dashboard page: made at each
+   * boot, written into the page this server serves, and asked of every
+   * request that changes something (`x-kos-write`), token or none. It is
+   * never in the environment, so no program KOS runs is handed it, and a
+   * local program that is not a browser no longer passes for the owner.
+   * Unset (a test, the phone's relay, which its line proves), it is not asked.
+   */
+  writeKey?: string;
 }
+
+/** The header the dashboard sends its write key in, and the page's meta that carries it. */
+export const WRITE_KEY_HEADER = "x-kos-write";
+export const WRITE_KEY_META = "kos-write";
 
 /** Widget types that may carry a guarded mutation target. */
 const WRITE_CAPABLE = new Set(["list", "card", "form"]);
@@ -646,6 +660,13 @@ export async function handleApiRequest(
   // surely as writes change it. With no token the server is loopback-only.
   if (options.token && !authorized(req, options.token)) {
     return { status: 401, body: { error: "unauthorized" } };
+  }
+
+  // A change comes from the page KOS served, which holds this boot's key, or from a holder of the owner's token:
+  // not from a program on this machine that merely sends no Origin.
+  const proved = header(req.headers ?? {}, WRITE_KEY_HEADER) === options.writeKey || (options.token !== undefined && authorized(req, options.token));
+  if (options.writeKey && changes(req) && !proved) {
+    return { status: 403, body: { error: "a change to KOS is made from its own dashboard page; reload the dashboard if KOS restarted" } };
   }
 
   if (extension) return (await extension.handle(req)) ?? notFound;
@@ -3277,8 +3298,12 @@ export function authorized(req: ApiRequest, token: string): boolean {
  * sandboxed frame such as an artifact's) is no one's.
  */
 export function crossSiteWrite(req: ApiRequest, allowedOrigins: readonly string[] = []): boolean {
-  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return false;
-  return fromAnotherSite(req, allowedOrigins);
+  return changes(req) && fromAnotherSite(req, allowedOrigins);
+}
+
+/** Whether a request may change something: any method but a read. */
+function changes(req: ApiRequest): boolean {
+  return req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS";
 }
 
 /** Whether a request, whatever its method, came from a web page other than the dashboard's own, by the same reading as crossSiteWrite. */
@@ -3683,10 +3708,17 @@ const MIME: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
+/** The dashboard's page with this boot's write key in a meta, before its head ends. */
+export function withWriteKey(html: string, key: string): string {
+  const meta = `<meta name="${WRITE_KEY_META}" content="${key}">`;
+  return html.includes("</head>") ? html.replace("</head>", `${meta}</head>`) : `${meta}${html}`;
+}
+
 function tryStatic(
   staticDir: string,
   urlPath: string,
   res: ServerResponse,
+  writeKey?: string,
 ): boolean {
   const clean = decodeURIComponent(urlPath.split("?")[0] ?? "/");
   // Strip leading slash so resolve(staticDir, rel) does not ignore staticDir.
@@ -3714,13 +3746,16 @@ function tryStatic(
   // browser cached it heuristically: an updated KOS kept serving the old app
   // until someone thought to hard-reload.
   const fingerprinted = relative(root, file).split(sep)[0] === "assets";
+  // The page itself carries this boot's write key, and is never kept: a cached one would hold a dead key.
+  const page = writeKey !== undefined && file === join(root, "index.html");
   res.writeHead(200, {
     "content-type": type,
-    "cache-control": fingerprinted
+    "cache-control": page ? "no-store" : fingerprinted
       ? "public, max-age=31536000, immutable"
       : "no-cache",
   });
-  createReadStream(file).pipe(res);
+  if (page) res.end(withWriteKey(readFileSync(file, "utf8"), writeKey));
+  else createReadStream(file).pipe(res);
   return true;
 }
 
@@ -3730,8 +3765,10 @@ function tryStatic(
  */
 export function createDashboardServer(
   kernel: Kernel,
-  options: DashboardServerOptions = {},
+  given: DashboardServerOptions = {},
 ): Server {
+  // This boot's write key: in memory and in the page alone.
+  const options: DashboardServerOptions = { ...given, writeKey: given.writeKey ?? randomBytes(32).toString("base64url") };
   return createServer((req: IncomingMessage, res: ServerResponse) => {
     void (async () => {
       const method = req.method ?? "GET";
@@ -3827,7 +3864,7 @@ export function createDashboardServer(
       }
 
       if (options.staticDir && (method === "GET" || method === "HEAD")) {
-        if (tryStatic(options.staticDir, path, res)) return;
+        if (tryStatic(options.staticDir, path, res, options.writeKey)) return;
       }
 
       res.writeHead(404, { "content-type": "application/json", ...corsHeaders(req, options) });
