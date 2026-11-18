@@ -54,6 +54,12 @@ an `<iframe sandbox>` with a policy of `default-src 'none'; img-src
 data:; style-src 'unsafe-inline'`. A view is kept in memory by path,
 modified time and size.
 
+A previewed file is named by its `Content-Disposition` (`inline;
+filename="…"; filename*=UTF-8''…`) on `/api/file/view`, `/api/file/raw`
+and `/api/file/office`, and the dashboard puts the name at the end of the
+address too (`/api/file/view/<name>?path=`), so a viewer's Save offers the
+file's name; the address without the name still works.
+
 ## Thumbnails and media
 
 - `GET /api/file/thumb?path=&size=128|256|512`: a JPEG of a Pages,
