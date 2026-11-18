@@ -150,8 +150,9 @@ export function scopeOf(tool: string, input: Record<string, unknown>, context?: 
     // One plain command is named by its program, as Claude Code does with
     // Bash(git:*). A chain or a pipeline is not: a remembered "git" must not
     // let "git status && rm -rf ." through on the strength of its first word.
+    // One allowed to write the whole workspace is a different yes from the same program in its own folder.
     const program = typeof input["command"] === "string" ? programOf(input["command"]) : undefined;
-    return program ? `cmd:${program}` : undefined;
+    return program ? `cmd:${program}${input["writes"] === "workspace" ? ":workspace" : ""}` : undefined;
   }
   if (tool === "chats.handoff") {
     // By target, as the owner named it: a remembered yes for one project

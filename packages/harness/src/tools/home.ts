@@ -1,4 +1,4 @@
-import { relative, sep } from "node:path";
+import { join, relative, sep } from "node:path";
 
 import { outsideHome, placePath, reachWords, ROOT_HOME, type FileHome } from "@kos/shared";
 
@@ -32,6 +32,18 @@ export function placeFor(ws: Workspace, ctx: ModuleContext, path: string): HomeP
   const placed = placePath(callerHome(ctx), path, ws.root);
   const abs = ws.resolve(placed.path);
   return { abs, rel: relative(ws.root, abs).split(sep).join("/"), outside: placed.outside };
+}
+
+/**
+ * Where a program run for the calling turn may write, as the sandbox's write
+ * scope: its own folders, the shared scratch area and the children's temp
+ * folder. Undefined, the whole workspace, at the root and for Maintenance,
+ * which reaches as the root does.
+ */
+export function writeScope(ws: Workspace, ctx: ModuleContext): string[] | undefined {
+  const home = callerHome(ctx);
+  if (home.folder === "" || ctx.services?.callerProject?.() === MAINTENANCE.slug) return undefined;
+  return [home.folder, ...(home.also ?? []), "scratch", ".kos/tmp"].map((folder) => join(ws.root, folder));
 }
 
 /** Said to Auto for a write into another project's folder or a blob's: the owner decides those, whatever the chat's mode. */

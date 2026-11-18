@@ -84,6 +84,7 @@ describe("summarizeAction with a home", () => {
     expect(summarizeAction("files.write", { path: "projects/resume/cv.md" }, undefined, where)).toBe("Write file projects/resume/cv.md (outside this project, in the resume project)");
     expect(summarizeAction("files.mv", { from: "a.md", to: "workspace:drafts/a.md" }, undefined, where)).toBe("Move projects/school/a.md → drafts/a.md (outside this project, in drafts/)");
     expect(summarizeAction("shell.run", { command: "ls" }, undefined, where)).toBe("Run: ls (in projects/school)");
+    expect(summarizeAction("shell.run", { command: "make", writes: "workspace" }, undefined, where)).toBe("Run: make (in projects/school), writing anywhere in the workspace");
   });
 
   it("leaves a root chat's steps as they were", () => {

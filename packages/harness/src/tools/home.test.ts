@@ -213,6 +213,35 @@ describe("a turn's file home", () => {
     expect(registry.classify("shell.run", { command: "touch a", cwd: "workspace:notes" }).reason).toBe("a command that may write, outside this project, in the workspace root");
   });
 
+  it.runIf(onMac)("lets a project's command write only in its own folder and scratch, unless the owner allows the workspace by name", async () => {
+    const sh = async (command: string, extra: Record<string, unknown> = {}) => JSON.parse((await registry.execute("shell.run", { command, ...extra })).content) as { exitCode: number };
+    expect((await sh("touch mine.txt")).exitCode).toBe(0);
+    expect(exists("projects/school/mine.txt")).toBe(true);
+    expect((await sh("mkdir -p ~/scratch/t && touch ~/scratch/t/a")).exitCode).toBe(0);
+    expect((await sh("touch ~/loose.txt")).exitCode).not.toBe(0);
+    mkdirSync(join(root, "projects", "resume"), { recursive: true });
+    expect((await sh("touch ~/projects/resume/x.txt")).exitCode).not.toBe(0);
+    expect(exists("loose.txt") || exists("projects/resume/x.txt")).toBe(false);
+    expect((await sh("touch ~/loose.txt", { writes: "workspace" })).exitCode).toBe(0);
+    expect(exists("loose.txt")).toBe(true);
+    // At the root nothing is narrowed.
+    home = ROOT_HOME;
+    project = undefined;
+    expect((await sh("touch ~/root.txt")).exitCode).toBe(0);
+  });
+
+  it("asks for the whole workspace by name, beyond Auto, and only from a project or a blob", () => {
+    expect(registry.classify("shell.run", { command: "make", writes: "workspace" })).toMatchObject({
+      tier: "risky",
+      reason: "a command that may write, may write anywhere in the workspace",
+      reached: true,
+      beyondAuto: "writes into another project",
+    });
+    home = ROOT_HOME;
+    project = undefined;
+    expect(registry.classify("shell.run", { command: "make", writes: "workspace" })).toEqual({ tier: "risky", escalated: false, reason: "a command that may write" });
+  });
+
   it.runIf(onMac)("starts Python in the home", async () => {
     writeFileSync(join(root, "top.txt"), "at the root");
     const res = await registry.execute("python.run", { code: "import os\nprint(os.getcwd())\nprint(open(os.path.expanduser('~/top.txt')).read())" });

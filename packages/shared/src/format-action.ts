@@ -425,7 +425,7 @@ export function summarizeAction(
     // The risky ones most often waiting on an approval. Each says the
     // thing it would do, so "risky tool" is never the whole card.
     case "shell.run":
-      return `Run: ${fmtVal(a.command)}${a.cwd || (where && where.home.folder !== "") ? ` (in ${at(a.cwd, "change")})` : ""}`;
+      return `Run: ${fmtVal(a.command)}${a.cwd || (where && where.home.folder !== "") ? ` (in ${at(a.cwd, "change")})` : ""}${a.writes === "workspace" ? ", writing anywhere in the workspace" : ""}`;
     case "cron.run":
       return `Run the job ${named("schedule", a.id, `#${fmtVal(a.id)}`)} now`;
     case "builds.run":

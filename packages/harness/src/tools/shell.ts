@@ -8,8 +8,8 @@ import { requireServices } from "../modules/loader.js";
 import { isReadOnlyCommand } from "../risk/readonly.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv } from "../sandbox/env.js";
-import { jailedCommand } from "../sandbox/jail.js";
-import { placeFor, reachOutside } from "./home.js";
+import { isContained, jailedCommand } from "../sandbox/jail.js";
+import { INTO_ANOTHER, placeFor, reachOutside, writeScope } from "./home.js";
 
 /**
  * shell.run: a command, in the workspace, jailed.
@@ -45,13 +45,21 @@ export const DATABASE_REFUSED =
 
 export type ShellResult = CapturedRun;
 
+/** Asked for by name to let a project's or a blob's command write past its own folder. */
+export const WIDE_WRITES = "workspace";
+
+/** True when the call asks to write anywhere in the workspace. */
+function wide(input: Record<string, unknown>): boolean {
+  return input["writes"] === WIDE_WRITES;
+}
+
 export function runShell(
   command: string,
-  opts: { workspaceRoot: string; cwd: string; timeoutMs: number; maxOutput: number; signal?: AbortSignal },
+  opts: { workspaceRoot: string; cwd: string; timeoutMs: number; maxOutput: number; signal?: AbortSignal; writes?: string[] },
 ): Promise<ShellResult> {
   const tmp = join(opts.workspaceRoot, ".kos", "tmp");
   mkdirSync(tmp, { recursive: true });
-  return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot }), {
+  return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot, ...(opts.writes ? { writes: opts.writes } : {}) }), {
     cwd: opts.cwd,
     env: childEnv({ home: opts.workspaceRoot, tmp }),
     timeoutMs: opts.timeoutMs,
@@ -72,12 +80,14 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
     },
     activate(ctx: ModuleContext) {
       const ws = requireServices(ctx).workspace;
+      const cwdReach = reachOutside(ws, ctx, (input) => [input["cwd"]]);
       ctx.registerTool(
         {
           name: "shell.run",
           description:
             "Run a shell command inside the workspace: git, pnpm, a build, a program. It cannot see the owner's home directory or write outside the workspace. Prefer the files, search and sql tools when one does the job, and python.run for a calculation or a short Python script, which runs at once without asking; use this for programs. " +
             "A command line that only reads (ls, cat, grep, find, git status/log/diff, and the like, joined by pipes or &&) runs without asking; anything that writes, runs code or reaches the network asks the owner first. Output is capped; long runs time out. " +
+            `In a project's or a blob's chat it writes only in your own folder and scratch/; writes: "${WIDE_WRITES}" lets it write anywhere in the workspace, which the owner is asked for by name. ` +
             "kos.sqlite, KOS's own database, is refused here, not asked about: jobs, chats, tasks, blobs and memory are read through cron.list, chats.list, tasks.list, blobs.list and memory.recall.",
           inputSchema: {
             type: "object",
@@ -88,6 +98,7 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
                 description: "directory to run in: your own folder by default (your project's, or the workspace at the root), and a relative one inside it; workspace:<path> is from the workspace root. ~ is the workspace root.",
               },
               timeout: { type: "number", description: `seconds before it is killed (default ${timeoutSeconds})` },
+              writes: { type: "string", enum: [WIDE_WRITES], description: "only to write outside your own folder and scratch/: asks the owner for the whole workspace" },
             },
             required: ["command"],
           },
@@ -100,7 +111,10 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           // The turn's own folder is made if the project has written nothing yet; a folder asked for must be there.
           if (asked === undefined) mkdirSync(cwd, { recursive: true });
           const seconds = typeof input["timeout"] === "number" && input["timeout"] > 0 ? Math.min(input["timeout"], 3600) : timeoutSeconds;
-          const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput: maxOutput, ...stopOf(turnStop.getStore()) });
+          // A project's or a blob's command writes in its own folders unless the owner allowed the whole workspace by name.
+          const writes = wide(input) ? undefined : writeScope(ws, ctx);
+          for (const dir of writes ?? []) mkdirSync(dir, { recursive: true });
+          const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput: maxOutput, ...stopOf(turnStop.getStore()), ...(writes ? { writes } : {}) });
           return JSON.stringify(result);
         },
         // Risky by floor, as the spec says; a line that provably only reads
@@ -112,10 +126,11 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
         // command that writes, unless a guest's words started the work.
         {
           floor: "risky",
-          why: "a command that may write",
+          // In the container nothing narrower than the container holds a project's command to its folder, and the card says so.
+          why: () => (isContained() && writeScope(ws, ctx) ? "a command that may write anywhere in the workspace: only the container holds it" : "a command that may write"),
           relax: (input) => typeof input["command"] === "string" && isReadOnlyCommand(input["command"]),
-          // Run somewhere outside the turn's own folder, the card says where.
-          reach: reachOutside(ws, ctx, (input) => [input["cwd"]]),
+          // Writing the whole workspace is its own ask, beyond Auto; run somewhere outside the turn's own folder, the card says where.
+          reach: (input) => (wide(input) && writeScope(ws, ctx) ? { why: "may write anywhere in the workspace", beyondAuto: INTO_ANOTHER } : cwdReach(input)),
           refuse: (input) =>
             typeof input["command"] === "string" && namesDatabase(input["command"]) && (ctx.services?.callerProject?.() !== MAINTENANCE.slug || guestOrigin() !== undefined) ? DATABASE_REFUSED : false,
         },
