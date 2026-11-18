@@ -195,6 +195,15 @@ describe("connectChannel", () => {
     expect(kernel.approvals.get(action.id)?.status).not.toBe("pending");
   });
 
+  it("refuses a secret ask from a surface it does not know, and takes one from the CLI", async () => {
+    await boot(stub([]));
+    const ask = () => kernel.approvals.enqueue({ tool: "http.fetch", args: { url: "https://api.stripe.com/v1", headers: { a: "{{secret:stripe-ab12}}" } }, riskTier: "risky" });
+    const first = ask();
+    expect(await kernel.approve(first.id, undefined, { surface: "telegram" })).toEqual({ ok: false, message: secretAskElsewhere(first.id) });
+    expect(kernel.approvals.get(first.id)?.status).toBe("pending");
+    expect((await kernel.approve(first.id, undefined, { surface: "cli" })).ok).toBe(true);
+  });
+
   it("does not restate a decision the surface already showed", async () => {
     /*
      * A surface settles its own prompt in place: the card becomes "Approved,
@@ -316,7 +325,7 @@ describe("connectChannel", () => {
     const pendingId = Number(adapter.approvalsRequested[0]!.req.id);
 
     // The owner answers somewhere else entirely, not through this surface.
-    await kernel.approve(pendingId);
+    await kernel.approve(pendingId, undefined, { surface: "dashboard" });
 
     expect(adapter.settled).toEqual([
       { id: String(pendingId), outcome: "approved" },
@@ -343,7 +352,7 @@ describe("connectChannel", () => {
     const pendingId = Number(adapter.approvalsRequested[0]!.req.id);
 
     await runtime.stop();
-    await kernel.approve(pendingId);
+    await kernel.approve(pendingId, undefined, { surface: "dashboard" });
 
     expect(adapter.settled).toEqual([]);
   });

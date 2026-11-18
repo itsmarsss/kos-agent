@@ -74,11 +74,18 @@ export interface DecisionsDeps {
 
 /**
  * The surfaces a secret's use may be approved from: the dashboard and the
- * paired devices' own windows. A typed /approve on Discord, SMS or iMessage
- * names its surface and is refused; a call with none named is the
- * dashboard's own handler, a device's, or the CLI's.
+ * paired devices' own windows, and the CLI on the owner's machine. A typed
+ * /approve on Discord, SMS or iMessage is refused, as is any surface not
+ * listed.
  */
-export const DECIDING_SURFACES: ReadonlySet<string> = new Set(["dashboard", "chrome", "mac", "phone"]);
+export const DECIDING_SURFACES: ReadonlySet<string> = new Set(["dashboard", "chrome", "mac", "phone", "cli"]);
+
+/**
+ * Where a decision is taken. Required on every approval, so a caller that
+ * forgets to say is a type error, not a pass; any surface outside
+ * DECIDING_SURFACES (a chat channel, one added later) is refused a secret's ask.
+ */
+export type DecisionSurface = "dashboard" | "chrome" | "mac" | "phone" | "cli" | "discord" | "sms" | "imessage" | (string & Record<never, never>);
 
 /** Said on a chat surface for an ask that places a secret, in place of its buttons or a typed decision. */
 export function secretAskElsewhere(id: number | string): string {
@@ -131,12 +138,12 @@ export class Decisions {
     return `#${ids.join(", #")} still waiting; the chat continues once ${ids.length === 1 ? "it is" : "they are"} decided.`;
   }
 
-  async approve(id: number, decidedBy?: string, options: { remember?: boolean; surface?: string } = {}): Promise<DecisionResult> {
+  async approve(id: number, decidedBy: string | undefined, options: { remember?: boolean; surface: DecisionSurface }): Promise<DecisionResult> {
     const d = this.deps;
     const action = d.approvals.get(id);
     if (!action || action.status !== "pending") return { ok: false, message: `no pending action #${id}` };
     // A call that places a secret is approved only where the owner is proved: the dashboard or a paired device, never a chat surface.
-    if (options.surface !== undefined && !DECIDING_SURFACES.has(options.surface) && hasSecretRef(JSON.parse(action.args))) {
+    if (!DECIDING_SURFACES.has(options.surface) && hasSecretRef(JSON.parse(action.args))) {
       return { ok: false, message: secretAskElsewhere(id) };
     }
     const awaited = d.approvals.isAwaited(id);

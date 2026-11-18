@@ -115,7 +115,7 @@ export async function runCommand(
     case "approve": {
       const id = Number(rest[0]);
       if (!Number.isInteger(id)) return "usage: approve <id>";
-      const res = await kernel.approve(id);
+      const res = await kernel.approve(id, undefined, { surface: "cli" });
       return res.reply ?? res.message;
     }
 

@@ -151,7 +151,7 @@ import { AfterTurn, EMBED_MS } from "./afterturn.js";
 import { ChatNamer, type EngineAsk } from "./naming.js";
 import { SdkOneShot, sdkModelFor, type SdkSpent } from "../chat/sdkname.js";
 import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF, reachesAll, type FixRequest } from "./caretaker.js";
-import { Decisions, type DecisionResult } from "./decisions.js";
+import { Decisions, type DecisionResult, type DecisionSurface } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
 import { GuardedTools, finishedAfterStop } from "./guarded.js";
 import { ProgressBus } from "./progress.js";
@@ -2953,7 +2953,7 @@ export class Kernel {
   }
 
   /** Carry out the owner's decision on a queued action. Every surface comes through here. */
-  async approve(id: number, decidedBy?: string, options: { remember?: boolean; surface?: string } = {}): Promise<DecisionResult> {
+  async approve(id: number, decidedBy: string | undefined, options: { remember?: boolean; surface: DecisionSurface }): Promise<DecisionResult> {
     return this.decisions.approve(id, decidedBy, options);
   }
 
