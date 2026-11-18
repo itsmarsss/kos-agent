@@ -446,6 +446,7 @@ export class GuardedTools implements ToolBox {
           isError: allowedResult.isError,
           riskTier: "risky",
           ...(userId ? { userId } : {}),
+          ...(conversationId ? { conversationId } : {}),
         });
         this.deps.onExecuted?.(name, allowedResult);
         return allowedResult;
@@ -538,6 +539,7 @@ export class GuardedTools implements ToolBox {
         isError: approvedRun.isError,
         riskTier: "risky",
         ...(userId ? { userId } : {}),
+        ...(conversationId ? { conversationId } : {}),
       });
       this.deps.onExecuted?.(name, approvedRun);
       return approvedResult(approvedRun);
@@ -553,6 +555,7 @@ export class GuardedTools implements ToolBox {
       isError: result.isError,
       riskTier: "safe",
       ...(userId ? { userId } : {}),
+      ...(conversationId ? { conversationId } : {}),
     });
     this.deps.onExecuted?.(name, result);
     return result;

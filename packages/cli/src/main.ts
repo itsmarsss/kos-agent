@@ -470,6 +470,8 @@ async function cmdFiles(rootDir: string, rest: string[], flags: Record<string, s
     const done = applyTidy(ws, plan);
     for (const m of done.moved) console.log(`moved ${m.from} -> ${m.to}`);
     for (const s of done.skipped) console.log(`left ${s.from}: ${s.why}`);
+    for (const f of done.failed) console.log(`failed ${f.from}: ${f.why}`);
+    if (done.failed.length) process.exitCode = 1;
   } finally {
     ws.close();
   }

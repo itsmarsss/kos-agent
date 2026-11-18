@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 import { LAYOUT_FOLDERS } from "@kos/shared";
@@ -52,6 +52,8 @@ export interface TidyResult {
   moved: { from: string; to: string }[];
   /** Left where they were, and why. */
   skipped: { from: string; why: string }[];
+  /** Moves that went wrong, with the error; the rest of the plan still ran. */
+  failed: { from: string; why: string }[];
 }
 
 /** Every file under a workspace folder, workspace-relative; links are not followed or listed. */
@@ -89,19 +91,41 @@ function writtenPath(row: { tool: string; args: string; result: string }): strin
 /** A run never marked finished (the host went down under it) is taken to have covered at most this long. */
 const LONGEST_RUN_MS = 60 * 60 * 1000;
 
-/** Whose turns a written path came from: a project's, or words for why it is nobody's to move. */
-type Writer = { project: string } | { why: string };
+/** How much later than its audited write a file may have been touched and still be that write's. */
+const WRITE_SLACK_MS = 2000;
 
 /**
- * Whose turns wrote each path, from the audit log and the runs going at the
- * time. A write is a project's only when every chat or job running then was
- * that project's; one at the root, or two at once, leaves it where it is.
- * The latest write of a path wins.
+ * Whose turns last wrote a path, and when. A project's writer moves the file
+ * there; a known writer that is no project's (a root chat, Maintenance)
+ * keeps it where it is even in a folder named for a project; an unknown one
+ * leaves the folder's name to decide.
+ */
+type Writer = { at: number; fromLog: boolean } & ({ project: string } | { why: string; known: boolean });
+
+interface AuditRow {
+  tool: string;
+  args: string;
+  result: string;
+  at: number;
+  conversation: string | null;
+  project: string | null;
+  title: string | null;
+}
+
+/**
+ * Whose turns wrote each path. Rows that carry their conversation say so
+ * outright. Older rows are read against the runs going at the time: a write
+ * is a project's only when every chat or job running then was that
+ * project's. The latest write of a path wins.
  */
 function writers(ws: Workspace, projects: Set<string>): Map<string, Writer> {
   const rows = ws.db
-    .prepare(`SELECT tool, args, result, created_at AS at FROM audit_log WHERE is_error = 0 AND tool IN (${Object.keys(WRITES).map(() => "?").join(", ")}) ORDER BY id`)
-    .all(...Object.keys(WRITES)) as { tool: string; args: string; result: string; at: number }[];
+    .prepare(
+      `SELECT a.tool, a.args, a.result, a.created_at AS at, a.conversation_id AS conversation, c.project_slug AS project, c.title AS title
+         FROM audit_log a LEFT JOIN conversations c ON c.id = a.conversation_id
+        WHERE a.is_error = 0 AND a.tool IN (${Object.keys(WRITES).map(() => "?").join(", ")}) ORDER BY a.id`,
+    )
+    .all(...Object.keys(WRITES)) as AuditRow[];
   const running = ws.db.prepare(
     `SELECT CASE r.kind WHEN 'chat' THEN c.project_slug ELSE j.project_slug END AS project, c.title AS title
        FROM runs_log r
@@ -110,20 +134,39 @@ function writers(ws: Workspace, projects: Set<string>): Map<string, Writer> {
       WHERE r.ref IS NOT NULL AND r.started_at <= @at
         AND (r.finished_at >= @at OR (r.finished_at IS NULL AND r.started_at >= @at - ${LONGEST_RUN_MS}))`,
   );
+  /** One writer's turns, as a Writer: a project's to move to, or a known reason it stays. */
+  const of = (project: string | null, title: string | null, at: number, fromLog: boolean): Writer => {
+    if (project && projects.has(project) && project !== MAINTENANCE.slug) return { at, fromLog, project };
+    if (project) return { at, fromLog, why: `written by ${project}, which reaches as the root does`, known: true };
+    return { at, fromLog, why: `written by the root chat "${title ?? "a job"}"`, known: true };
+  };
   const out = new Map<string, Writer>();
   for (const row of rows) {
     const path = writtenPath(row);
     if (path === undefined) continue;
+    const key = path.replace(/\\/g, "/").replace(/^\.?\/+/, "");
+    if (row.conversation) {
+      out.set(key, of(row.project, row.title, row.at, true));
+      continue;
+    }
     const runs = running.all({ at: row.at }) as { project: string | null; title: string | null }[];
     const owners = new Set(runs.map((r) => r.project ?? ""));
     const [only] = owners;
-    const key = path.replace(/\\/g, "/").replace(/^\.?\/+/, "");
-    if (owners.size === 1 && only && projects.has(only) && only !== MAINTENANCE.slug) out.set(key, { project: only });
-    else if (owners.size === 1 && only === "" && runs.length === 1) out.set(key, { why: `written by the root chat "${runs[0]!.title ?? "a job"}"` });
-    else if (owners.size === 1 && only !== undefined) out.set(key, { why: only === "" ? "written by chats at the root" : `written by ${only}, which reaches as the root does` });
-    else out.set(key, { why: owners.size ? "written while several chats ran" : "no record of what wrote it" });
+    if (owners.size === 1 && (only !== "" || runs.length === 1)) out.set(key, of(only || null, runs[0]!.title, row.at, false));
+    else out.set(key, { at: row.at, fromLog: false, why: owners.size ? "written while several chats ran" : "no record of what wrote it", known: false });
   }
   return out;
+}
+
+/**
+ * A writer read from the runs, held to the file as it is: a file touched
+ * after that write may be some other turn's work since, so it is nobody's
+ * to move. A writer the log names outright stands.
+ */
+function trusted(ws: Workspace, path: string, writer: Writer | undefined): Writer | undefined {
+  if (!writer || writer.fromLog) return writer;
+  const changed = statSync(join(ws.root, path)).mtimeMs;
+  return changed <= writer.at + WRITE_SLACK_MS ? writer : { at: writer.at, fromLog: false, why: "changed since its last recorded write", known: false };
 }
 
 /** Where a root file goes in a project: "school/x" from the school project is projects/school/x, never projects/school/school/x. */
@@ -143,8 +186,9 @@ export function planTidy(ws: Workspace): TidyPlan {
   for (const folder of rootFolders(ws)) {
     const owner = named.get(folder.toLowerCase());
     for (const from of filesUnder(ws, folder)) {
-      const writer = written.get(from);
+      const writer = trusted(ws, from, written.get(from));
       if (writer && "project" in writer) moves.push({ from, to: destination(from, writer.project), project: writer.project, why: "written" });
+      else if (writer?.known) unknown.push({ path: from, why: writer.why });
       else if (owner) moves.push({ from, to: destination(from, owner), project: owner, why: "named" });
       else unknown.push({ path: from, why: writer?.why ?? "no record of what wrote it" });
     }
@@ -168,26 +212,31 @@ function pruneEmpty(ws: Workspace, dir: string): void {
  * take a free name beside it. Folders merge; nothing is overwritten or deleted.
  */
 export function applyTidy(ws: Workspace, plan: TidyPlan): TidyResult {
-  const result: TidyResult = { moved: [], skipped: [] };
+  const result: TidyResult = { moved: [], skipped: [], failed: [] };
   for (const move of plan.moves) {
-    const from = ws.resolve(move.from);
-    if (!existsSync(from)) {
-      result.skipped.push({ from: move.from, why: "no longer there" });
-      continue;
-    }
-    let to = move.to;
-    const target = ws.resolve(to);
-    if (existsSync(target)) {
-      if (lstatSync(target).isFile() && readFileSync(target).equals(readFileSync(from))) {
-        result.skipped.push({ from: move.from, why: `the same file is already at ${to}` });
+    try {
+      const from = ws.resolve(move.from);
+      if (!existsSync(from)) {
+        result.skipped.push({ from: move.from, why: "no longer there" });
         continue;
       }
-      to = `${dirname(to)}/${uniqueName(ws, dirname(to), basename(to))}`;
+      let to = move.to;
+      const target = ws.resolve(to);
+      if (existsSync(target)) {
+        if (lstatSync(target).isFile() && readFileSync(target).equals(readFileSync(from))) {
+          result.skipped.push({ from: move.from, why: `the same file is already at ${to}` });
+          continue;
+        }
+        to = `${dirname(to)}/${uniqueName(ws, dirname(to), basename(to))}`;
+      }
+      mkdirSync(dirname(ws.resolve(to)), { recursive: true });
+      renameSync(from, ws.resolve(to));
+      result.moved.push({ from: move.from, to });
+      pruneEmpty(ws, dirname(move.from));
+    } catch (err) {
+      // One move that fails (a link in the way, a folder where a file goes) leaves the others to run.
+      result.failed.push({ from: move.from, why: err instanceof Error ? err.message : String(err) });
     }
-    mkdirSync(dirname(ws.resolve(to)), { recursive: true });
-    renameSync(from, ws.resolve(to));
-    result.moved.push({ from: move.from, to });
-    pruneEmpty(ws, dirname(move.from));
   }
   return result;
 }

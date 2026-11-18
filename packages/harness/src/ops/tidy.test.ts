@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -15,16 +15,23 @@ import { applyTidy, describeTidy, planTidy } from "./tidy.js";
 describe("tidying a project's files back into its folder", () => {
   let root: string;
   let kernel: Kernel;
+  let school: string;
+  let resume: string;
+  let loose: string;
+  // The records' clock, a little after the files were made, as a write is audited after it lands.
+  const T = Date.now() + 60_000;
 
   const put = (path: string, text = path): void => {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), text);
   };
-  const audit = (tool: string, args: Record<string, unknown>, at: number, result = "ok"): void => {
-    kernel.workspace.db.prepare("INSERT INTO audit_log (tool, args, result, is_error, risk_tier, user_id, created_at) VALUES (?, ?, ?, 0, 'safe', 'owner', ?)").run(tool, JSON.stringify(args), result, at);
+  const audit = (tool: string, args: Record<string, unknown>, at: number, result = "ok", conversation: string | null = null): void => {
+    kernel.workspace.db
+      .prepare("INSERT INTO audit_log (tool, args, result, is_error, risk_tier, user_id, conversation_id, created_at) VALUES (?, ?, ?, 0, 'safe', 'owner', ?, ?)")
+      .run(tool, JSON.stringify(args), result, conversation, T + at);
   };
   const ran = (kind: "chat" | "cron", ref: string, from: number, to: number | null): void => {
-    kernel.workspace.db.prepare("INSERT INTO runs_log (kind, ref, status, started_at, finished_at) VALUES (?, ?, 'ok', ?, ?)").run(kind, ref, from, to);
+    kernel.workspace.db.prepare("INSERT INTO runs_log (kind, ref, status, started_at, finished_at) VALUES (?, ?, 'ok', ?, ?)").run(kind, ref, T + from, to === null ? null : T + to);
   };
 
   beforeEach(async () => {
@@ -32,9 +39,10 @@ describe("tidying a project's files back into its folder", () => {
     kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), chrome: { port: 1, exists: () => false } });
     for (const slug of ["school", "resume"]) kernel.manifest.createProject({ name: slug, type: "notes" });
     const owner = kernel.profile.ownerId;
-    const school = kernel.conversations.create({ userId: owner, title: "Mokable", projectSlug: "school" }).id;
-    const resume = kernel.conversations.create({ userId: owner, title: "CV", projectSlug: "resume" }).id;
-    const root_ = kernel.conversations.create({ userId: owner, title: "Loose" }).id;
+    school = kernel.conversations.create({ userId: owner, title: "Mokable", projectSlug: "school" }).id;
+    resume = kernel.conversations.create({ userId: owner, title: "CV", projectSlug: "resume" }).id;
+    loose = kernel.conversations.create({ userId: owner, title: "Loose" }).id;
+    const root_ = loose;
 
     put("school/bu252/mokable/doc.md");
     put("projects/school/bu252/mokable/doc.md", "already here, different");
@@ -48,7 +56,7 @@ describe("tidying a project's files back into its folder", () => {
 
     // Runs the host went down under, long before, and one with no chat, cover nothing now.
     ran("chat", root_, -10_000_000, null);
-    kernel.workspace.db.prepare("INSERT INTO runs_log (kind, ref, status, started_at) VALUES ('chat', NULL, 'running', 0)").run();
+    kernel.workspace.db.prepare("INSERT INTO runs_log (kind, ref, status, started_at) VALUES ('chat', NULL, 'running', ?)").run(T);
     // A resume chat wrote the cover letter while only it ran.
     ran("chat", resume, 1000, 2000);
     audit("files.write", { path: "drafts/cover-letter.md" }, 1500);
@@ -116,9 +124,41 @@ describe("tidying a project's files back into its folder", () => {
 
   it("reads where a write landed from its result, once a turn's home placed it", () => {
     put("drafts/placed.md");
-    ran("chat", kernel.conversations.list(kernel.profile.ownerId).find((c) => c.projectSlug === "school")!.id, 7000, 8000);
+    ran("chat", school, 7000, 8000);
     // The school chat wrote drafts/placed.md inside its own folder; the root file of that name is not its.
     audit("files.write", { path: "drafts/placed.md" }, 7500, "wrote projects/school/drafts/placed.md");
     expect(planTidy(kernel.workspace).unknown.map((u) => u.path)).toContain("drafts/placed.md");
+  });
+
+  it("takes the conversation a row names over the runs going at the time", () => {
+    put("drafts/named.md");
+    // Both projects ran, but the row says whose turn it was.
+    ran("chat", school, 9000, 10_000);
+    ran("chat", resume, 9000, 10_000);
+    audit("files.write", { path: "drafts/named.md" }, 9500, "ok", school);
+    expect(planTidy(kernel.workspace).moves).toContainEqual({ from: "drafts/named.md", to: "projects/school/drafts/named.md", project: "school", why: "written" });
+  });
+
+  it("does not trust a run-read writer for a file changed since that write", () => {
+    const later = new Date(T + 60_000);
+    utimesSync(join(root, "drafts", "cover-letter.md"), later, later);
+    expect(planTidy(kernel.workspace).unknown).toContainEqual({ path: "drafts/cover-letter.md", why: "changed since its last recorded write" });
+  });
+
+  it("lets a known writer outrank the folder's name", () => {
+    audit("files.write", { path: "school/bu354/review.md" }, 11_000, "ok", loose);
+    const plan = planTidy(kernel.workspace);
+    expect(plan.moves.map((m) => m.from)).not.toContain("school/bu354/review.md");
+    expect(plan.unknown).toContainEqual({ path: "school/bu354/review.md", why: 'written by the root chat "Loose"' });
+  });
+
+  it("carries on past a move that fails and says which", () => {
+    const plan = planTidy(kernel.workspace);
+    // A file where the move needs a folder.
+    put("projects/school/bu354", "in the way");
+    const done = applyTidy(kernel.workspace, plan);
+    expect(done.failed.map((f) => f.from)).toEqual(["school/bu354/review.md"]);
+    expect(done.moved.map((m) => m.from)).toContain("drafts/cover-letter.md");
+    expect(existsSync(join(root, "school", "bu354", "review.md"))).toBe(true);
   });
 });

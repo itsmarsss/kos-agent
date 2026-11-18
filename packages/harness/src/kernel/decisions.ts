@@ -58,7 +58,7 @@ export interface DecisionsDeps {
   conversations: { get: (id: string) => { projectSlug: string | null } | undefined };
   /** Where the asking chat's file paths land, so a rule named now is named by the place, as one named when the call was queued is. */
   homeOf?: (conversationId: string | null) => Pick<PermissionContext, "home" | "root">;
-  audit: { record: (entry: { tool: string; args: Record<string, unknown>; result: string; isError: boolean; riskTier: "risky"; userId: string }) => unknown };
+  audit: { record: (entry: { tool: string; args: Record<string, unknown>; result: string; isError: boolean; riskTier: "risky"; userId: string; conversationId?: string }) => unknown };
   registry: { execute: (tool: string, input: Record<string, unknown>) => Promise<{ content: string; isError: boolean }> };
   secrets: SecretsRegistry;
   queue: { enqueue: <T>(work: () => Promise<T>, lane: string) => Promise<T> };
@@ -140,7 +140,7 @@ export class Decisions {
     const by = decidedBy ?? d.ownerId;
     if (action.tool.startsWith(BUILD_ACTION_PREFIX)) {
       const wanted = action.tool.slice(BUILD_ACTION_PREFIX.length);
-      d.audit.record({ tool: action.tool, args: stored, result: `approved; the build runs ${wanted} itself`, isError: false, riskTier: "risky", userId: by });
+      d.audit.record({ tool: action.tool, args: stored, result: `approved; the build runs ${wanted} itself`, isError: false, riskTier: "risky", userId: by, ...(action.conversationId ? { conversationId: action.conversationId } : {}) });
       return { ok: true, message: `Approved. The build continues with ${wanted}.` };
     }
 
@@ -153,7 +153,7 @@ export class Decisions {
           ),
         ),
       );
-      d.audit.record({ tool: action.tool, args: stored, result: r.content, isError: r.isError, riskTier: "risky", userId: by });
+      d.audit.record({ tool: action.tool, args: stored, result: r.content, isError: r.isError, riskTier: "risky", userId: by, ...(action.conversationId ? { conversationId: action.conversationId } : {}) });
       if (!r.isError) d.onToolRan(action.tool);
       return r;
     }, action.conversationId ?? SHARED_LANE);
