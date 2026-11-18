@@ -9,6 +9,7 @@ import { CallError, deviceProof, fromBase64, hostProof, readFrame, toBase64 } fr
 import { Link, said, type Hello, type LinkState } from "./link.js";
 import { Lines } from "./lines.js";
 import { linkWords, needsPairing, type LineOf } from "./linkwords.js";
+import { CURSOR } from "./cursorlook.js";
 import { installOverlay } from "./overlay.js";
 import { aimOf, middleOf } from "./pointer.js";
 import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
@@ -274,26 +275,62 @@ describe("KOS's cursor", () => {
     expect(middleOf(undefined)).toBeUndefined();
   });
 
-  it("is KOS for Mac's cursor: its outline, size, colours and glide, and never takes the owner's clicks", () => {
-    const source = installOverlay.toString();
-    const mac = readFileSync(fileURLToPath(new URL("../../device-macos/Sources/KOSDevice/Overlay/KOSCursor.swift", import.meta.url)), "utf8");
-    const palette = readFileSync(fileURLToPath(new URL("../../device-macos/Sources/KOSDevice/Overlay/Palette.swift", import.meta.url)), "utf8");
-    const glide = readFileSync(fileURLToPath(new URL("../../device-shared/Sources/DeviceCore/Glide.swift", import.meta.url)), "utf8");
+  it("is KOS for Mac's cursor: the numbers it is drawn and moved by, read from the Mac's own code", () => {
+    const swift = (path: string): string => readFileSync(fileURLToPath(new URL(`../../${path}`, import.meta.url)), "utf8");
+    const mac = swift("device-macos/Sources/KOSDevice/Overlay/KOSCursor.swift");
+    const palette = swift("device-macos/Sources/KOSDevice/Overlay/Palette.swift");
+    const glide = swift("device-shared/Sources/DeviceCore/Glide.swift");
+    /** The number a pattern's first group finds in the Swift. */
+    const num = (text: string, pattern: RegExp): number => {
+      const m = pattern.exec(text);
+      if (!m) throw new Error(`not in the Swift: ${pattern}`);
+      return Number(m[1]);
+    };
     const outline = /outline: \[CGPoint\] = \[([^\]]+)\]/.exec(mac)![1]!;
-    const points = [...outline.matchAll(/CGPoint\(x: ([\d.]+), y: ([\d.]+)\)/g)].map((m) => `[${m[1]}, ${m[2]}]`);
-    expect(points).toHaveLength(7);
-    expect(source).toContain(`[${points.join(", ")}]`);
-    expect(mac).toContain("scale: CGFloat = 1.5");
-    expect(source).toContain("SCALE = 1.5");
-    expect(mac).toContain("haloRadius: CGFloat = 15");
+    expect([...outline.matchAll(/CGPoint\(x: ([\d.]+), y: ([\d.]+)\)/g)].map((m) => [Number(m[1]), Number(m[2])])).toEqual(CURSOR.outline);
+    expect(num(mac, /static let scale: CGFloat = ([\d.]+)/)).toBe(CURSOR.scale);
+    expect(num(mac, /haloRadius: CGFloat = ([\d.]+)/)).toBe(CURSOR.halo.radius);
+    expect(num(mac, /halo\.fillColor = Palette\.accent\.withAlphaComponent\(([\d.]+)\)/)).toBe(CURSOR.halo.fill);
+    expect(num(mac, /halo\.strokeColor = Palette\.accent\.withAlphaComponent\(([\d.]+)\)/)).toBe(CURSOR.halo.edge);
+    expect(num(mac, /halo\.lineWidth = ([\d.]+)/)).toBe(CURSOR.halo.line);
+    expect(num(mac, /arrow\.lineWidth = ([\d.]+)/)).toBe(CURSOR.stroke);
+    expect(num(mac, /arrow\.shadowOpacity = ([\d.]+)/)).toBe(CURSOR.glow.opacity);
+    expect(num(mac, /arrow\.shadowRadius = ([\d.]+)/)).toBe(CURSOR.glow.radius);
+    expect(num(mac, /label\.fontSize = ([\d.]+)/)).toBe(CURSOR.tag.font);
+    expect(mac).toMatch(/systemFont\(ofSize: 10, weight: \.semibold\)/);
+    expect(CURSOR.tag.weight).toBe(600);
+    expect(num(mac, /tag\.cornerRadius = ([\d.]+)/)).toBe(CURSOR.tag.radius);
+    expect(num(mac, /tag\.shadowOpacity = ([\d.]+)/)).toBe(CURSOR.tag.shadow);
+    expect(num(mac, /\.width\) \+ (\d+)/) / 2).toBe(CURSOR.tag.padding);
+    // The tag's frame, in the arrow's bottom-left layer space: from its top-left, as the page draws it.
+    const frame = /tag\.frame = CGRect\(x: ([\d.]+), y: (-?[\d.]+), width: width, height: ([\d.]+)\)/.exec(mac)!;
+    const tall = num(mac, /size = CGSize\(width: 13 \* scale, height: (\d+) \* scale\)/) * CURSOR.scale;
+    expect({ left: Number(frame[1]), top: tall - (Number(frame[2]) + Number(frame[3])), height: Number(frame[3]) }).toEqual({ left: CURSOR.tag.left, top: CURSOR.tag.top, height: CURSOR.tag.height });
+    expect(num(mac, /let radius: CGFloat = ([\d.]+)/)).toBe(CURSOR.ripple.radius);
+    expect(num(mac, /ring\.fillColor = Palette\.accent\.withAlphaComponent\(([\d.]+)\)/)).toBe(CURSOR.ripple.fill);
+    expect(num(mac, /ring\.lineWidth = ([\d.]+)/)).toBe(CURSOR.ripple.line);
+    expect(num(mac, /grow\.fromValue = ([\d.]+)/)).toBe(CURSOR.ripple.from);
+    expect(num(mac, /grow\.toValue = ([\d.]+)/)).toBe(CURSOR.ripple.to);
+    expect(num(mac, /group\.duration = ([\d.]+)/) * 1000).toBe(CURSOR.ripple.ms);
     const hex = (name: string): string => {
       const m = new RegExp(`${name} = NSColor\\(srgbRed: 0x(..) / 255, green: 0x(..) / 255, blue: 0x(..) / 255`).exec(palette)!;
       return `#${m[1]}${m[2]}${m[3]}`.toLowerCase();
     };
-    expect(source).toContain(`--kos-blue: ${hex("accent")}; --kos-ink: ${hex("ink")};`);
-    expect(glide).toMatch(/shortest = 0\.15[\s\S]*longest = 0\.45[\s\S]*farDistance = 1500\.0/);
-    expect(source).toMatch(/150 \+ 300 \* Math\.min\(1, distance \/ 1500\)/);
-    expect(source).toMatch(/\.cursor \{[^}]*pointer-events: none;/);
+    expect({ blue: hex("accent"), ink: hex("ink") }).toEqual({ blue: CURSOR.blue, ink: CURSOR.ink });
+    // The glide: KOS for Chrome's hands always take the quick one, which on the Mac is the owner's choice.
+    expect({
+      rate: num(glide, /rate = ([\d.]+)/),
+      shortest: num(glide, /shortest = ([\d.]+)/),
+      longest: num(glide, /longest = ([\d.]+)/),
+      far: num(glide, /farDistance = ([\d.]+)/),
+      quickShare: num(glide, /quickShare = ([\d.]+)/),
+      bendMost: num(glide, /let bend = min\(([\d.]+), distance \* [\d.]+\)/),
+      bendShare: num(glide, /let bend = min\([\d.]+, distance \* ([\d.]+)\)/),
+    }).toEqual(CURSOR.glide);
+    expect(glide).toContain("t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2");
+    const source = installOverlay.toString();
+    expect(source).toContain("t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2");
+    expect(source).toMatch(/\.cursor \{ --kos-blue: [^\n]*position: fixed;[^\n]*pointer-events: none; \}/);
   });
 });
 

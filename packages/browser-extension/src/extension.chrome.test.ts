@@ -33,6 +33,9 @@ function rawKey(raw: Buffer): KeyObject {
   return createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), raw]), format: "der", type: "spki" });
 }
 
+/** A page's own report of each press it hears. */
+const PRESSES = "addEventListener('pointerdown', () => navigator.sendBeacon('/pressed'), true)";
+
 /** A JPEG's size, from its frame header. */
 function jpegSize(base64: string): { width: number; height: number } {
   const b = Buffer.from(base64, "base64");
@@ -118,6 +121,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
   const hellos: Record<string, unknown>[] = [];
   const replies = new Map<number, (r: Record<string, unknown>) => void>();
   let nextCall = 1;
+  let pressed = 0;
 
   /** A call to the extension, as KOS would make it; one with no answer fails, rather than hanging the test. */
   const call = (method: string, params: Record<string, unknown>, on: WebSocket = device!): Promise<Record<string, unknown>> => {
@@ -159,6 +163,9 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
       }
       // A page made of frames, as SmartBook is: the overlay must leave every one of them when the session ends.
       // A link that goes on to another site, one the owner may hide.
+      // Every press a page here heard, told by the page itself: one on a hidden site counts too.
+      if (req.url === "/pressed") return void (pressed++, res.writeHead(204).end());
+      if (req.url === "/elsewhere") return void res.writeHead(200, { "content-type": "text/html" }).end(`<!doctype html><title>Elsewhere</title><script>${PRESSES}</script><p>Elsewhere`);
       if (req.url === "/away") return void res.writeHead(302, { location: `${base.replace("127.0.0.1", "localhost")}/secret` }).end();
       if (req.url === "/link") return void res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Link</title><a href='/away' style='display:block;margin:80px;padding:20px'>Away</a>");
       if (req.url === "/framed") return void res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Framed</title><iframe src='/inner' style='width:400px;height:200px'></iframe>");
@@ -470,15 +477,13 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     /** The cursor's tip on a point, to within a pixel's rounding. */
     const at = (p: { x: number; y: number }) => ({ x: expect.closeTo(p.x, 0), y: expect.closeTo(p.y, 0) });
     const page = await devtools.attach((u) => u.endsWith("/shop"));
-    // A window in front, as the owner's is when they watch: the cursor glides only where it can be seen.
-    await devtools.send("Emulation.setFocusEmulationEnabled", { enabled: true }, page);
     // On the page before KOS has pointed anywhere, in the middle, letting every click through to the page.
     const view = await value<{ w: number; h: number }>("({ w: innerWidth, h: innerHeight })");
     const first = await cursorOn(page);
     expect(first).toMatchObject({ ...at({ x: view.w / 2, y: view.h / 2 }), shown: true, through: true, tag: "KOS", tagShown: true });
     expect(await value("document.elementFromPoint(innerWidth / 2, innerHeight / 2).tagName")).not.toBe("KOS-OVERLAY");
 
-    // A click as KOS's hands make one: the cursor is on its way before the press, waited on briefly, then arrives and ripples.
+    // A click as KOS's hands make one: the cursor glides there quickly, and is there when the press lands, which ripples.
     const buy = await middle("#buy");
     const started = Date.now();
     const clicked = (await call("cdp.batch", {
@@ -488,9 +493,13 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     }))["result"] as { results: unknown[] };
     const took = Date.now() - started;
     expect(clicked.results).toHaveLength(3);
-    expect(took).toBeGreaterThanOrEqual(100);
-    expect(took).toBeLessThan(450);
-    expect(await cursorSettled(page, (c) => near(c, buy) && c.rippling)).toMatchObject({ ...at(buy), rippling: true, shown: true });
+    expect(took).toBeGreaterThanOrEqual(40);
+    expect(took).toBeLessThan(350);
+    expect(await cursorOn(page)).toMatchObject({ ...at(buy), shown: true });
+    expect(await cursorSettled(page, (c) => c.rippling)).toMatchObject({ rippling: true });
+    // KOS's hands one after another, never side by side.
+    const side = await call("cdp.batch", { session: "s1", tab, parallel: true, calls: [{ method: "Input.dispatchMouseEvent", params: { type: "mouseMoved", x: 5, y: 5 } }] });
+    expect(side["error"]).toMatchObject({ code: "bad_request" });
     // Clicked again where it is: nothing to glide, nothing waited on.
     const again = Date.now();
     await call("cdp.batch", { session: "s1", tab, calls: ["mouseMoved", "mousePressed", "mouseReleased"].map((type) => ({ method: "Input.dispatchMouseEvent", params: { type, x: buy.x, y: buy.y, button: type === "mouseMoved" ? "none" : "left", clickCount: 1 } })) });
@@ -523,14 +532,12 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     await cdp("Input.dispatchMouseEvent", { type: "mouseReleased", x: 340, y: 230, button: "left", clickCount: 1 });
     expect(await cursorSettled(page, (c) => near(c, { x: 340, y: 230 }))).toMatchObject({ x: 340, y: 230 });
 
-    // KOS's own picture of the page: the arrow alone, its halo and tag out of the way, and whole again after.
+    // KOS's own picture of the page: the arrow alone while it is taken, its halo and tag out of the way, and whole again after.
     const host = "document.querySelector('kos-overlay')";
-    await value(`(${host}.dataset.capture = "1", 1)`);
-    expect(await cursorOn(page)).toMatchObject({ shown: true, tagShown: false });
-    await value(`(${host}.dataset.capture = "", 1)`);
+    await devtools.evaluate(page, `(window.kosMarks = [], new MutationObserver(() => kosMarks.push(${host}.dataset.capture)).observe(${host}, { attributeFilter: ["data-capture"] }), 1)`);
     await cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, maxEdge: 400 });
     await until(() => false, 100);
-    expect(await value(`${host}.dataset.capture`)).toBe("");
+    expect(await devtools.evaluate(page, "kosMarks")).toEqual(["1", ""]);
     expect((await cursorOn(page)).tagShown).toBe(true);
 
     // A new page of the tab: the cursor where it was, not back in the middle; and between steps it stays.
@@ -589,6 +596,19 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     await until(() => events.some((e) => e.name === "session.paused"));
     expect(events.find((e) => e.name === "session.paused")?.data).toMatchObject({ session: "s1", reason: "owner" });
     expect((await cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 }))["error"]).toMatchObject({ code: "paused" });
+    // Nothing that could change the page while the owner has it: going places, focus, scroll, a dialog's answer, script. Reads go on.
+    const body = 1;
+    for (const [method, params] of [
+      ["Runtime.evaluate", { expression: "1" }],
+      ["Runtime.callFunctionOn", { functionDeclaration: "() => 1", executionContextId: 1 }],
+      ["DOM.focus", { backendNodeId: body }],
+      ["DOM.scrollIntoViewIfNeeded", { backendNodeId: body }],
+      ["Page.reload", {}],
+      ["Page.navigate", { url: `${base}/shop` }],
+      ["Page.handleJavaScriptDialog", { accept: true }],
+    ] as const) expect((await cdp(method, params))["error"], method).toMatchObject({ code: "paused" });
+    expect(await cdp("Page.getLayoutMetrics")).toMatchObject({ ok: true });
+    expect(await cdp("Accessibility.getFullAXTree", { depth: 1 })).toMatchObject({ ok: true });
     // Paused, the small bar offers Hand back beside Stop; KOS's cursor is gone while the owner has the tab.
     for (let i = 0; i < 50 && (await overlay("paused")) !== "1"; i++) await until(() => false, 100);
     expect(await drawn(page, "handback")).toBe(true);
@@ -605,8 +625,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
   it("sends no click of KOS's once the owner takes the tab while its cursor is on the way", async () => {
     const tab = ((await call("tabs.list", { session: "s1" }))["result"] as { tabs: { id: string }[] }).tabs[0]!.id;
     const page = await devtools.attach((u) => u.endsWith("/shop"));
-    await devtools.send("Emulation.setFocusEmulationEnabled", { enabled: true }, page);
-    await devtools.evaluate(page, "(window.kosBought = 0, document.getElementById('buy').addEventListener('click', () => kosBought++), 1)");
+    await devtools.evaluate(page, "(window.kosBought = 0, document.getElementById('buy').addEventListener('pointerdown', () => kosBought++), 1)");
     const buy = (await devtools.evaluate(page, "(() => { const r = document.getElementById('buy').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()")) as { x: number; y: number };
     // Past the moment after the last hand back; the cursor far from the button.
     await until(() => false, GRACE_MS);
@@ -632,6 +651,48 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(await overlay("folded")).toBe("");
     expect(await drawn(page, "stop")).toBe(true);
     await devtools.evaluate(page, "(document.getElementById('cover').hidePopover(), 1)");
+
+    // A page that tries to hide or recolour the overlay, by a rule or on the element itself: it is put back as it was.
+    await devtools.evaluate(page, `(() => {
+      document.head.insertAdjacentHTML("beforeend", "<style>kos-overlay { display: none !important; opacity: 0 !important; --accent: red !important; --bar: transparent !important; }</style>");
+      const o = document.querySelector("kos-overlay");
+      o.style.setProperty("display", "none", "important");
+      o.removeAttribute("popover");
+      o.dataset.paused = "1";
+      return 1;
+    })()`);
+    await until(() => false, 150);
+    expect(await devtools.evaluate(page, "(() => { const o = document.querySelector('kos-overlay'); return [getComputedStyle(o).display, getComputedStyle(o).opacity, o.matches(':popover-open'), o.dataset.paused]; })()")).toEqual(["block", "1", true, ""]);
+    expect(await drawn(page, "stop")).toBe(true);
+
+    // The site hidden while the cursor is on its way to a press: nothing is pressed, and KOS hears the site is hidden.
+    await devtools.evaluate(page, "(window.kosBought = 0, 1)");
+    await call("cdp.send", { session: "s1", tab, method: "Input.dispatchMouseEvent", params: { type: "mouseMoved", x: 790, y: 590 } });
+    await until(() => false, 300);
+    const hiding = call("cdp.send", { session: "s1", tab, method: "Input.dispatchMouseEvent", params: { type: "mousePressed", x: buy.x, y: buy.y, button: "left", clickCount: 1 } });
+    await until(() => false, 15);
+    expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "hide", site: "127.0.0.1" })`)).toMatchObject({ ok: true });
+    expect((await hiding)["error"]).toMatchObject({ code: "hidden_site" });
+    expect(await devtools.evaluate(page, "kosBought")).toBe(0);
+    expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "unhide", site: "127.0.0.1" })`)).toMatchObject({ ok: true });
+    for (const type of ["mouseReleased"]) await call("cdp.send", { session: "s1", tab, method: "Input.dispatchMouseEvent", params: { type, x: buy.x, y: buy.y, button: "left", clickCount: 1 } });
+
+    // The page sent to a hidden site while the cursor is on its way to a press: nothing is pressed, and KOS hears the site is hidden.
+    const other = base.replace("127.0.0.1", "localhost");
+    await call("cdp.send", { session: "s1", tab, method: "Input.dispatchMouseEvent", params: { type: "mouseMoved", x: 790, y: 590 } });
+    await until(() => false, 300);
+    expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "hide", site: "localhost" })`)).toMatchObject({ ok: true });
+    await devtools.evaluate(page, `(${PRESSES}, 1)`);
+    const before = pressed;
+    const going = call("cdp.send", { session: "s1", tab, method: "Input.dispatchMouseEvent", params: { type: "mousePressed", x: buy.x, y: buy.y, button: "left", clickCount: 1 } });
+    await until(() => false, 15);
+    await devtools.evaluate(page, `(location.href = ${JSON.stringify(`${other}/elsewhere`)}, 1)`);
+    expect((await going)["error"]).toMatchObject({ code: "hidden_site" });
+    await until(() => false, 300);
+    expect(pressed).toBe(before);
+    expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "unhide", site: "localhost" })`)).toMatchObject({ ok: true });
+    await devtools.send("Page.navigate", { url: `${base}/shop` }, page);
+    await devtools.loaded(page);
     await devtools.send("Target.detachFromTarget", { sessionId: page });
   }, 30_000);
 
