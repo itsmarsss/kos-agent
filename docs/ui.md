@@ -10,10 +10,10 @@ Where each one lives, in the dashboard, KOS for Chrome and KOS for Mac, is
 
 - **Page frame** (`frameOf` in `routes.ts`): a workspace (a chat, a
   project, a blob's page, the files) is full, edge to edge with its own
-  panes; a list or a manager (the Overview, the Inbox, the indexes,
-  Memory, Runs) takes the whole width inside the page gutter; a page to
-  read or set (Settings, an artifact or page full size) is a centred
-  column. No page sets its own margins.
+  panes, keeping the gutter on a phone (Files alone goes to the edge); a
+  list or a manager (the Overview, the Inbox, the indexes, Memory, Runs)
+  and an artifact or page open full size take the whole width inside the
+  page gutter; Settings is a centred column. No page sets its own margins.
 - **Page head** (`PageHead`): the page's name, one line on what it is for,
   a search box where there is something to search, and the actions with
   the primary one last, all one height. Every list and reading page opens
