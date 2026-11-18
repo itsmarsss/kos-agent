@@ -7685,7 +7685,6 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .finder {
   container: finder / inline-size;
   --finder-row: 1.75rem;
-  --finder-cols: minmax(11rem, 1fr) 11.5rem 5.5rem 9.5rem;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -7809,6 +7808,35 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
   cursor: pointer;
 }
 .finder-list-head .finder-col + .finder-col { box-shadow: inset 1px 0 0 var(--line); }
+/* Each column after Name has a divider at its left edge (finder/columns.tsx):
+   every cell of the head is placed on its one row, so the dividers lay over
+   the column lines rather than taking cells of their own. */
+.finder-list-head > :is(.finder-col, .finder-divider) { grid-row: 1; }
+.finder-divider {
+  position: relative;
+  z-index: 1;
+  justify-self: start;
+  align-self: stretch;
+  width: 9px;
+  margin-left: -5px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.finder-divider::after {
+  content: "";
+  position: absolute;
+  top: 18%;
+  bottom: 18%;
+  /* Over the column's own line (the cell's inset edge, the divider's 5th px). */
+  left: 4px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 140ms ease-out;
+}
+.finder-divider:is(:hover, :focus-visible, .is-dragging)::after { background: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .finder-divider::after { transition: none; } }
 .finder-list-head .finder-col:hover { color: var(--text); }
 .finder-list-head .finder-col:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-xs); }
 .finder-list-head .finder-col--size { justify-content: flex-end; }
@@ -7958,7 +7986,6 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 /* The trash. */
 .finder-trash { display: flex; flex-direction: column; min-height: 0; }
 .finder-trash-bar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.55rem 0.9rem; border-bottom: 1px solid var(--line); }
-.finder-row--trash, .finder-list-head--trash { grid-template-columns: minmax(11rem, 1fr) 11.5rem 5.5rem 15rem; }
 .finder-col--acts .btn { height: 1.35rem; padding: 0 0.55rem; font-size: var(--text-sm); }
 .finder-list-head--trash .finder-col { cursor: default; }
 .finder-col--acts { display: flex; justify-content: flex-end; gap: 0.35rem; overflow: visible; }
