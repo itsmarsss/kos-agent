@@ -58,7 +58,7 @@ describe("filesModule", () => {
     ] as const) {
       const res = await registry.execute(tool, input);
       expect(res.isError, `${tool} ${JSON.stringify(input)}`).toBe(true);
-      expect(res.content).toContain("KOS's own settings");
+      expect(res.content).toContain("is KOS's own");
     }
     expect(readFileSync(join(root, "mcp.json"), "utf8")).toBe('{"servers":{}}');
     expect((await registry.execute("files.read", { path: "mcp.json" })).content).toBe('{"servers":{}}');
