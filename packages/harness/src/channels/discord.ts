@@ -24,7 +24,7 @@ import {
 } from "discord.js";
 import { CHANNEL_TOKEN, detailLines, stepActions, summarizeAction, withUnixTimes } from "@kos/shared";
 
-import { isReadable, type Attachment } from "../kernel/attachments.js";
+import { FILE_MAX_BYTES, isReadable, megabytes, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, ChannelRef, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
 import { INTERRUPTED_LINE, LATE_RUN_MS, OWNER_ONLY, OWNER_THREAD_PREFIX, channelName, roomConversationId, roomPlaceOf, type Guest } from "./types.js";
@@ -782,15 +782,16 @@ export function bindingOf(
  * identity mapping) before it touches anything, so it enforces the gate without
  * knowing who the owner is.
  */
-/** Bytes per attachment, matching what the dashboard accepts. */
-const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+/** A file past what KOS takes of one, as every surface says it. */
+const tooLarge = (name: string, bytes: number): string => `${name} (${megabytes(bytes)}, too large: files go up to ${FILE_MAX_BYTES / 1024 / 1024} MB)`;
 
 /**
  * Download what came with a Discord message.
  *
  * A photo of a receipt is an ordinary way to tell KOS something, so dropping
  * attachments meant half of what the owner sent went unseen. Only what the
- * model can actually use is fetched: images and text. Anything else is named
+ * model can actually use is fetched: pictures of any kind (an iPhone's HEIC
+ * too), documents and text, each as the dashboard takes it. Anything else is named
  * in the reply rather than silently ignored, because "I do not see an image"
  * is a much worse answer than "I cannot read a .zip".
  */
@@ -807,8 +808,8 @@ export async function collectAttachments(
   for (const file of files) {
     const name = file.name;
     const mediaType = file.contentType ?? "";
-    if (file.size > MAX_ATTACHMENT_BYTES) {
-      skipped.push(`${name} (too large)`);
+    if (file.size > FILE_MAX_BYTES) {
+      skipped.push(tooLarge(name, file.size));
       continue;
     }
     if (!isReadable(mediaType, name)) {
@@ -824,8 +825,8 @@ export async function collectAttachments(
       const bytes = Buffer.from(await res.arrayBuffer());
       // Checked again after the fact: the size Discord reported is not the
       // size that arrived, and the cap exists to bound what is sent to a model.
-      if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
-        skipped.push(`${name} (too large)`);
+      if (bytes.byteLength > FILE_MAX_BYTES) {
+        skipped.push(tooLarge(name, bytes.byteLength));
         continue;
       }
       attachments.push({

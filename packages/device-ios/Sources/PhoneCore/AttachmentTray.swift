@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// The files the owner has picked to go with their next words: pictures,
 /// downscaled as they are picked, and files as they are. Each is held to
 /// what KOS takes (docs/computer.md, Files with the words): four with one
-/// message, five megabytes each, and only what it can read. Sent, they wait
+/// message, a hundred megabytes each, and only what it can read. Sent, they wait
 /// aside until KOS has the words, and come back to the box if it never does.
 @MainActor
 public final class AttachmentTray: ObservableObject {
@@ -35,8 +35,8 @@ public final class AttachmentTray: ObservableObject {
 
   /// Files with one message, as KOS takes them.
   public static let most = 4
-  /// Bytes in one file, as KOS takes them.
-  public static let largest = 5 * 1024 * 1024
+  /// Bytes in one file, as KOS takes them from every surface (harness attachments.ts, FILE_MAX_BYTES).
+  public static let largest = 100 * 1024 * 1024
   /// The long side a photo is brought down to, and its JPEG quality.
   public static let pictureEdge = 2048
   static let pictureQuality = 0.8

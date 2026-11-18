@@ -2,6 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { Message } from "discord.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { PICTURES } from "../files/images.fixture.js";
 import { collectAttachments } from "./discord.js";
 
 /**
@@ -100,13 +101,29 @@ describe("attachments sent on discord", () => {
         {
           name: "huge.png",
           url: `${base}/cat.png`,
-          size: 50 * 1024 * 1024,
+          size: 120 * 1024 * 1024,
           contentType: "image/png",
         },
       ]),
     );
     expect(attachments).toEqual([]);
-    expect(skipped[0]).toContain("too large");
+    expect(skipped).toEqual(["huge.png (120.0 MB, too large: files go up to 100 MB)"]);
+  });
+
+  it("takes an iPhone's HEIC, whatever type Discord gives it, and a picture past the old 5 MB", async () => {
+    // Reported: "HEIC not supported" for a photo off the owner's phone, and a 5 MB cap before that.
+    files["/IMG_0042.HEIC"] = { body: Buffer.from(PICTURES["image/heic"], "base64"), status: 200 };
+    files["/big.png"] = { body: Buffer.alloc(12 * 1024 * 1024, 0x89), status: 200 };
+    const { attachments, skipped } = await collectAttachments(
+      fakeMessage([
+        { name: "IMG_0042.HEIC", url: `${base}/IMG_0042.HEIC`, size: 575, contentType: "image/heic" },
+        { name: "IMG_0043.HEIC", url: `${base}/IMG_0042.HEIC`, size: 575, contentType: null },
+        { name: "big.png", url: `${base}/big.png`, size: 12 * 1024 * 1024, contentType: "image/png" },
+      ]),
+    );
+    expect(skipped).toEqual([]);
+    expect(attachments.map((a) => a.name)).toEqual(["IMG_0042.HEIC", "IMG_0043.HEIC", "big.png"]);
+    expect(Buffer.from(attachments[0]!.data, "base64").equals(Buffer.from(PICTURES["image/heic"], "base64"))).toBe(true);
   });
 
   it("survives a download that fails", async () => {

@@ -125,11 +125,11 @@ describe("the project explorer", () => {
   });
 
   it("says which upload failed", async () => {
-    vi.spyOn(api, "uploadProjectFile").mockRejectedValue(new Error("big.bin is 9MB; the limit is 5MB"));
+    vi.spyOn(api, "uploadProjectFile").mockRejectedValue(new Error("big.bin is 120.0 MB; a file can be up to 100 MB, the most KOS takes of one"));
     const h = open();
     await screen.findByText("plan.md");
     fireEvent.change(screen.getByLabelText("Upload files"), { target: { files: [new File(["x"], "big.bin")] } });
-    await waitFor(() => expect(h.onError).toHaveBeenCalledWith("big.bin: big.bin is 9MB; the limit is 5MB"));
+    await waitFor(() => expect(h.onError).toHaveBeenCalledWith("big.bin: big.bin is 120.0 MB; a file can be up to 100 MB, the most KOS takes of one"));
   });
 
   it("says when the folder is empty", async () => {

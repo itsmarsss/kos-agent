@@ -1,4 +1,4 @@
-import { isReadable, type Attachment } from "@kos/harness";
+import { FILE_MAX_BYTES, imageTypeOf, isReadable, type Attachment } from "@kos/harness";
 
 /**
  * Files a device sends with the owner's words: a picture, a PDF, a text file.
@@ -14,21 +14,21 @@ import { isReadable, type Attachment } from "@kos/harness";
 
 /** Base64 characters in one part: well inside the Wi-Fi listener's frame with the event around it. */
 export const ATTACH_PART_CHARS = 256 * 1024;
-/** Bytes in one file, as the model's path takes them (harness attachments.ts). */
-export const ATTACH_FILE_BYTES = 5 * 1024 * 1024;
+/** Bytes in one file, as KOS takes them from every surface (harness attachments.ts). */
+export const ATTACH_FILE_BYTES = FILE_MAX_BYTES;
 /** Files with one message, and held for one device at once. */
 export const ATTACH_FILES = 4;
 /** How long a file waits for the words it goes with. */
 export const ATTACH_KEPT_MS = 5 * 60_000;
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
-/** The pictures a model takes, by what their bytes begin with; the phone sends its photos as JPEG. */
-const PICTURES: { type: string; is: (b: Buffer) => boolean }[] = [
-  { type: "image/jpeg", is: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
-  { type: "image/png", is: (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) },
-  { type: "image/gif", is: (b) => b.subarray(0, 4).toString("latin1") === "GIF8" },
-  { type: "image/webp", is: (b) => b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP" },
-];
+/**
+ * The pictures KOS takes, by the type claimed. Any of them goes when its bytes are a picture of a kind KOS reads: KOS
+ * goes by the bytes, so a HEIC that is really a PNG is read as the PNG it is (harness files/images.ts).
+ */
+const PICTURES: { type: string; is: (b: Buffer) => boolean }[] = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif", "image/avif", "image/tiff", "image/bmp"].map(
+  (type) => ({ type, is: (b) => imageTypeOf(b) !== undefined }),
+);
 const OFFICE = /\.(docx|xlsx|pptx)$/i;
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 const NAME_MAX = 200;
@@ -43,7 +43,7 @@ function contentRefusal(name: string, mediaType: string, data: string): string |
   const head = Buffer.from(data.slice(0, 5_464), "base64");
   if (mediaType.startsWith("image/")) {
     const picture = PICTURES.find((p) => p.type === (mediaType === "image/jpg" ? "image/jpeg" : mediaType));
-    if (!picture) return `KOS takes pictures as JPEG, PNG, GIF or WebP, so ${name} cannot go.`;
+    if (!picture) return `KOS takes pictures as JPEG, PNG, GIF, WebP, HEIC, HEIF, AVIF, TIFF or BMP, so ${name} cannot go.`;
     return picture.is(head) ? undefined : `${name} is not the picture it says it is.`;
   }
   if (mediaType === "application/pdf" || /\.pdf$/i.test(name)) return head.subarray(0, 5).toString("latin1") === "%PDF-" ? undefined : `${name} is not the PDF it says it is.`;
@@ -143,7 +143,7 @@ export class AttachmentInbox {
     const file: Arriving = { name: name || "file", mediaType, parts: [], got: 0, chars: 0, at: this.now() };
     if (!name) file.refused = "A file came with no name. Attach it again.";
     else if (!isReadable(mediaType, name)) file.refused = `KOS cannot read ${name}: send a picture, a PDF, an Office file or a text file.`;
-    else if (mediaType.startsWith("image/") && !PICTURES.some((p) => p.type === mediaType || (mediaType === "image/jpg" && p.type === "image/jpeg"))) file.refused = `KOS takes pictures as JPEG, PNG, GIF or WebP, so ${name} cannot go.`;
+    else if (mediaType.startsWith("image/") && !PICTURES.some((p) => p.type === mediaType || (mediaType === "image/jpg" && p.type === "image/jpeg"))) file.refused = `KOS takes pictures as JPEG, PNG, GIF, WebP, HEIC, HEIF, AVIF, TIFF or BMP, so ${name} cannot go.`;
     else if (typeof parts !== "number" || !Number.isInteger(parts) || parts < 1 || parts > PARTS_MAX) file.refused = tooBig(name);
     else file.parts = Array.from({ length: parts });
     return file;

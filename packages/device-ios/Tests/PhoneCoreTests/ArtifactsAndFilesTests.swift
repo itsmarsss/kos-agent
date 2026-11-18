@@ -154,7 +154,7 @@ struct AttachmentTests {
     tray.addFile(Data("PK".utf8), name: "photos.zip")
     #expect(tray.note == "KOS cannot read photos.zip: send a picture, a PDF, an Office file or a text file.")
     tray.addFile(Data(count: AttachmentTray.largest + 1), name: "scan.pdf")
-    #expect(tray.note == "scan.pdf is 5.0 MB; KOS takes files up to 5 MB.")
+    #expect(tray.note == "scan.pdf is 100.0 MB; KOS takes files up to 100 MB.")
     #expect(tray.files.map(\.mediaType) == ["application/pdf", "text/csv"])
     tray.addFile(Data("x".utf8), name: "notes.md")
     tray.addFile(Data("{}".utf8), name: "plan.json")

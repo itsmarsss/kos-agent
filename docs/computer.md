@@ -290,10 +290,14 @@ device gave them (`"files": ["f1"]`); `text` may then be empty:
 ```
 
 Every part but the last is a whole number of base64 quads, unpadded. A
-file's part 0 sent again starts that file over. A file is at most 5 MB as
-the model's path measures it (from its base64's length), and is what its
-bytes say: a JPEG, PNG, GIF or WebP picture (SVG, HEIC and TIFF are refused),
-a PDF, an Office file, or text with no NUL in it. Four go with one message,
+file's part 0 sent again starts that file over. A file is at most 100 MB,
+as KOS takes from every surface, measured from its base64's length, and is
+a picture by its bytes (JPEG, PNG, GIF, WebP, HEIC, HEIF, AVIF, TIFF or BMP;
+an SVG as a picture is refused), a PDF, an Office file, or text with no NUL
+in it. KOS keeps the file as it came and makes a picture into a JPEG or PNG
+the model takes, at most 2048 px on its long side and 5 MB; a document past
+32 MB or a text file past 5 MB is named to the model where it was kept, to
+read from there. Four go with one message,
 and four are held for a device at once, each for five minutes and never past
 the device's line. A file named by `chat.send` that did not arrive whole, or
 was refused on the way in, stops the words: KOS answers with `chat.status`

@@ -11,6 +11,10 @@ import { ATTACH_FILE_BYTES, ATTACH_FILES, ATTACH_KEPT_MS, ATTACH_PART_CHARS, Att
 /** A PNG's signature and a little after it: what the inbox reads a picture by. */
 const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from("a picture of a receipt")]).toString("base64");
 
+/** An iPhone photo's head and a TIFF's: what the inbox reads them by. */
+const heic = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from("ftypheic\0\0\0\0mif1heic", "latin1"), Buffer.alloc(32)]).toString("base64");
+const tiff = Buffer.concat([Buffer.from("II*\0", "latin1"), Buffer.alloc(32)]).toString("base64");
+
 /** A file sent as parts of `size` characters, as a device sends it. */
 function send(inbox: AttachmentInbox, id: string, data: string, name = "receipt.png", mediaType = "image/png", size = ATTACH_PART_CHARS): void {
   const parts = Math.max(1, Math.ceil(data.length / size));
@@ -58,7 +62,7 @@ describe("the attachment inbox", () => {
     const parts = Math.ceil((ATTACH_FILE_BYTES * 4) / 3 / ATTACH_PART_CHARS) + 1;
     inbox.part("dev_phone", { id: "big", name: "big.png", mediaType: "image/png", part: 0, parts, data: "AAAA" });
     inbox.part("dev_phone", { id: "zip", name: "photos.zip", mediaType: "application/zip", part: 0, parts: 1, data: "AAAA" });
-    expect(inbox.take("dev_phone", ["big"])).toEqual({ refused: "big.png is more than KOS takes: files go up to 5 MB." });
+    expect(inbox.take("dev_phone", ["big"])).toEqual({ refused: "big.png is more than KOS takes: files go up to 100 MB." });
     expect(inbox.take("dev_phone", ["zip"])).toEqual({ refused: "KOS cannot read photos.zip: send a picture, a PDF, an Office file or a text file." });
   });
 
@@ -73,7 +77,7 @@ describe("the attachment inbox", () => {
     const inbox = new AttachmentInbox();
     const exact = Buffer.alloc(ATTACH_FILE_BYTES, 0x41).toString("base64");
     send(inbox, "f1", exact, "notes.txt", "text/plain");
-    expect(inbox.take("dev_phone", ["f1"])).toEqual({ refused: "notes.txt is more than KOS takes: files go up to 5 MB." });
+    expect(inbox.take("dev_phone", ["f1"])).toEqual({ refused: "notes.txt is more than KOS takes: files go up to 100 MB." });
   });
 
   it("takes only what a file is by its bytes: pictures a model reads, PDFs, Office files and text", () => {
@@ -86,9 +90,12 @@ describe("the attachment inbox", () => {
       ["fake.png", "image/png", Buffer.from("<svg onload=x>").toString("base64"), "fake.png is not the picture it says it is."],
       ["fake.pdf", "application/pdf", png, "fake.pdf is not the PDF it says it is."],
       ["fake.txt", "text/plain", Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0, 1]).toString("base64"), "fake.txt is not the text file it says it is."],
-      ["icon.svg", "image/svg+xml", Buffer.from("<svg/>").toString("base64"), "KOS takes pictures as JPEG, PNG, GIF or WebP, so icon.svg cannot go."],
-      ["IMG_1.heic", "image/heic", png, "KOS takes pictures as JPEG, PNG, GIF or WebP, so IMG_1.heic cannot go."],
-      ["scan.tiff", "image/tiff", png, "KOS takes pictures as JPEG, PNG, GIF or WebP, so scan.tiff cannot go."],
+      ["icon.svg", "image/svg+xml", Buffer.from("<svg/>").toString("base64"), "KOS takes pictures as JPEG, PNG, GIF, WebP, HEIC, HEIF, AVIF, TIFF or BMP, so icon.svg cannot go."],
+      ["IMG_0042.HEIC", "image/heic", heic, undefined],
+      ["scan.tiff", "image/tiff", tiff, undefined],
+      // A HEIC that is really a PNG goes, to be read as the PNG it is.
+      ["IMG_1.heic", "image/heic", png, undefined],
+      ["fake.heic", "image/heic", Buffer.from("not a photo at all").toString("base64"), "fake.heic is not the picture it says it is."],
     ];
     for (const [name, mediaType, data, refused] of cases) {
       const inbox = new AttachmentInbox();
@@ -109,7 +116,7 @@ describe("the attachment inbox", () => {
     const full = "A".repeat(ATTACH_PART_CHARS);
     const parts = Math.ceil((ATTACH_FILE_BYTES * 4) / 3 / ATTACH_PART_CHARS);
     for (let part = 0; part < parts; part++) inbox.part("dev_phone", { id: "f1", name: "scan.pdf", mediaType: "application/pdf", part, parts, data: full });
-    expect(inbox.take("dev_phone", ["f1"])).toEqual({ refused: "scan.pdf is more than KOS takes: files go up to 5 MB." });
+    expect(inbox.take("dev_phone", ["f1"])).toEqual({ refused: "scan.pdf is more than KOS takes: files go up to 100 MB." });
   });
 
   it("holds a few files at once, and sends at most that many with one message", () => {
