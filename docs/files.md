@@ -35,7 +35,7 @@ How each format is read:
 | pptx, pptm, ppsx, potx | KOS's own: each slide with what it inherits from its layout and master | anywhere |
 | pages, key | the preview the file keeps for Finder | anywhere |
 | doc, rtf, odt | macOS's textutil in a sandbox (no network, no writes, no reads under /Users or the home folder but its own copy, nothing run but itself), then cleaned | a Mac |
-| ppt, odp | QuickLook's picture of the first slide | a Mac |
+| ppt, odp | not opened: the kind's mark and Download (QuickLook would run the file's generator in KOS's own process tree) | |
 
 The bounds: a file over 30 MB (12 MB for CSV) is not converted; its bytes
 are sniffed (zip, Office 97, text) and refused when they disagree with its
@@ -65,8 +65,7 @@ file's name; the address without the name still works.
 - `GET /api/file/thumb?path=&size=128|256|512`: a JPEG of a Pages,
   Keynote or Numbers file's own preview, or of a HEIC, HEIF, AVIF or TIFF
   picture (sips in its sandbox on a Mac, the pixels worker elsewhere), or
-  404. Documents and videos get their kind's mark: QuickLook will not run
-  inside a sandbox, so it is used only for an old deck's first slide.
+  404. Documents and videos get their kind's mark; QuickLook is not used.
   Kept under `.kos/cache/thumbs` by path, time, size and edge, a miss
   included.
 - `GET /api/file/media?path=`: sound and video for a player (mp3, m4a,

@@ -17,7 +17,7 @@ const BY_EXTENSION: Record<string, ViewFormat> = {
   doc: "doc", dot: "doc", rtf: "rtf", odt: "odt", pages: "pages",
   xlsx: "xlsx", xlsm: "xlsx", xltx: "xlsx", xltm: "xlsx", xlsb: "xlsx", xls: "xls", ods: "ods",
   csv: "csv", tsv: "tsv", numbers: "numbers",
-  pptx: "pptx", pptm: "pptx", potx: "pptx", ppsx: "pptx", ppt: "ppt", pps: "ppt", odp: "odp", key: "key",
+  pptx: "pptx", pptm: "pptx", potx: "pptx", ppsx: "pptx", key: "key",
 };
 
 export function viewFormatOf(name: string): ViewFormat | undefined {
@@ -27,8 +27,6 @@ export function viewFormatOf(name: string): ViewFormat | undefined {
 
 /** Formats read by macOS's textutil, where the host has it. */
 export const TEXTUTIL_FORMATS = new Set<ViewFormat>(["doc", "rtf", "odt"]);
-/** Formats shown as a picture of their first page or slide, where the host can draw one. */
-export const PICTURE_FORMATS = new Set<ViewFormat>(["ppt", "odp"]);
 
 /** What a zip-based file may inflate to, all told: a large deck's pictures, not a bomb's gigabytes. */
 export const ZIP_TOTAL_MAX = 160 * 1024 * 1024;

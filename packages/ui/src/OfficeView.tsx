@@ -19,7 +19,7 @@ import { api } from "./api.js";
 const VIEWABLE = new Set([
   "docx", "docm", "dotx", "doc", "dot", "rtf", "odt", "pages",
   "xlsx", "xlsm", "xltx", "xlsb", "xls", "ods", "csv", "tsv", "numbers",
-  "pptx", "pptm", "potx", "ppsx", "ppt", "pps", "odp", "key",
+  "pptx", "pptm", "potx", "ppsx", "key",
 ]);
 
 /** Whether the viewers draw a file of this name. */

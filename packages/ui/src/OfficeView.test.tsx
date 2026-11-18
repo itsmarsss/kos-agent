@@ -29,8 +29,8 @@ const show = (view: OfficeView): void => {
 
 describe("the Office viewers", () => {
   it("know which files are theirs and name columns as a spreadsheet does", () => {
-    expect(["a.docx", "b.XLSX", "c.key", "d.csv", "e.ppt"].every(isOfficePath)).toBe(true);
-    expect(["a.pdf", "b.md", "docx"].some(isOfficePath)).toBe(false);
+    expect(["a.docx", "b.XLSX", "c.key", "d.csv", "e.pptx"].every(isOfficePath)).toBe(true);
+    expect(["a.pdf", "b.md", "docx", "old.ppt", "talk.odp"].some(isOfficePath)).toBe(false);
     expect([0, 25, 26, 27, 701, 702].map(columnName)).toEqual(["A", "Z", "AA", "AB", "ZZ", "AAA"]);
   });
 

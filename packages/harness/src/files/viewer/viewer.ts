@@ -1,8 +1,8 @@
 import { readFileSync, statSync } from "node:fs";
 import { extname } from "node:path";
 
-import { PICTURE_FORMATS, TEXTUTIL_FORMATS, viewFormatOf } from "./convert.js";
-import { hasTextutil, sharedQuickLook, textutilHtml } from "./macos.js";
+import { TEXTUTIL_FORMATS, viewFormatOf } from "./convert.js";
+import { hasTextutil, textutilHtml } from "./macos.js";
 import type { OfficeView, ViewFormat } from "@kos/shared";
 import { defaultRunner, type Runner } from "./run.js";
 
@@ -23,20 +23,16 @@ export const VIEW_INPUT_MAX = 30 * 1024 * 1024;
 const DELIMITED_MAX = 12 * 1024 * 1024;
 /** What the kept views may hold together, by the length of their JSON. */
 const CACHE_MAX = 96 * 1024 * 1024;
-/** The picture of a first slide, where that is what the host can show. */
-const PICTURE_EDGE = 1600;
 
 export interface ViewerHost {
   run: Runner;
   textutil?: (bytes: Uint8Array, ext: string) => Promise<string>;
-  quickLook?: (bytes: Uint8Array, ext: string, edge: number) => Promise<Buffer | undefined>;
 }
 
 export function defaultViewerHost(): ViewerHost {
   return {
     run: defaultRunner(),
     ...(hasTextutil() ? { textutil: textutilHtml } : {}),
-    ...(sharedQuickLook ? { quickLook: sharedQuickLook } : {}),
   };
 }
 
@@ -86,11 +82,6 @@ export class OfficeViewer {
       if (!this.host.textutil) throw new Error(`a .${ext} file is read by macOS's textutil, which this host does not have; download it to open it`);
       const html = await this.host.textutil(bytes, ext);
       return { ...(await this.host.run({ op: "sanitize", html, format })), notes: ["Read by macOS; pictures in the file are not shown."] };
-    }
-    if (PICTURE_FORMATS.has(format)) {
-      const png = this.host.quickLook ? await this.host.quickLook(bytes, ext, PICTURE_EDGE) : undefined;
-      if (!png) throw new Error(`a .${ext} file cannot be drawn on this host; download it to open it`);
-      return { kind: "picture", format, src: `data:image/png;base64,${png.toString("base64")}`, notes: ["The first slide, as macOS draws it. Download the file for the rest."] };
     }
     return this.host.run({ op: "convert", bytes, format });
   }

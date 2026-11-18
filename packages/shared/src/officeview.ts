@@ -8,7 +8,7 @@
 export type ViewFormat =
   | "docx" | "doc" | "rtf" | "odt" | "pages"
   | "xlsx" | "xls" | "ods" | "csv" | "tsv" | "numbers"
-  | "pptx" | "ppt" | "odp" | "key";
+  | "pptx" | "key";
 
 export type OfficeView = DocView | SheetView | SlidesView | PictureView;
 
@@ -96,7 +96,7 @@ export interface Run {
   color?: string;
 }
 
-/** A picture of the file, when that is the most this host can show: a Keynote or Pages preview, a QuickLook thumbnail. */
+/** A picture of the file, when that is the most there is to show: the preview a Keynote or Pages file keeps. */
 export interface PictureView extends ViewBase {
   kind: "picture";
   src: string;

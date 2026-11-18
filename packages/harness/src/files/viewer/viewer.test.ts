@@ -160,12 +160,9 @@ describe("OfficeViewer", () => {
     expect(profile).toContain('(deny process-exec)(allow process-exec (literal "/usr/bin/textutil"))');
   });
 
-  it("shows an old deck as the picture macOS draws, or says it cannot", async () => {
+  it("does not open an old deck at all: it is a file to download", async () => {
     writeFileSync(join(dir, "talk.ppt"), "x");
-    const quickLook = vi.fn(async () => Buffer.from("png"));
-    const view = await new OfficeViewer({ ...inProcess, quickLook }).view(join(dir, "talk.ppt"), "talk.ppt");
-    expect(view).toMatchObject({ kind: "picture", src: "data:image/png;base64,cG5n" });
-    await expect(new OfficeViewer(inProcess).view(join(dir, "talk.ppt"), "talk.ppt")).rejects.toThrow(/cannot be drawn on this host/);
+    await expect(new OfficeViewer(inProcess).view(join(dir, "talk.ppt"), "talk.ppt")).rejects.toThrow(/not a document KOS shows/);
   });
 
   it("refuses a file past the size cap and a name it does not show", async () => {

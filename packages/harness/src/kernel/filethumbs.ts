@@ -17,7 +17,7 @@ import type { Workspace } from "../store/workspace.js";
  * Mac, the pixels worker elsewhere). Each is kept under .kos/cache/thumbs
  * by the file's path, time and size, a miss included, so it is drawn once
  * per version. Documents and videos get their kind's mark: QuickLook,
- * which could draw them, will not run inside a sandbox.
+ * which could draw them, will not run inside a sandbox, so KOS does not use it.
  */
 
 const CACHE = ".kos/cache/thumbs";
