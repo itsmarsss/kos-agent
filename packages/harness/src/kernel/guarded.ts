@@ -512,9 +512,12 @@ export class GuardedTools implements ToolBox {
       const given = this.deps.permissionContext?.(name);
       const context = assessment.reached ? { ...given, reached: true } : given;
       // A chat set to Auto, for the owner's own turn: decided by auto mode, kept in the Inbox as such, and said to the model.
-      const covered = autoCovers({ mode: this.deps.chatMode?.(), assessment, ownWords: owner && this.deps.ownWords === true, strict, secret, halted: this.deps.halted?.() === true });
+      const mode = this.deps.chatMode?.();
+      const covered = autoCovers({ mode, assessment, ownWords: owner && this.deps.ownWords === true, strict, secret, halted: this.deps.halted?.() === true });
       // Why Auto held back after all, from what the call would act on: said on the card, so the owner knows why it asked.
       const heldBack = covered ? await this.deps.beyondAutoNow?.(name, input).catch(() => undefined) : undefined;
+      // Why a chat in Auto asks anyway, from its rules or what the call acts on: the card says so and offers no remembered yes.
+      const beyond = heldBack ?? (mode?.mode === "auto" ? assessment.beyondAuto : undefined);
       if (covered && !heldBack) {
         const unready = await readyNow();
         if (unready) return unready;
@@ -563,7 +566,7 @@ export class GuardedTools implements ToolBox {
       // Named now, while the caller's situation is known: the rule a yes-
       // and-remember would keep, and a picture of the page a browser action
       // is aimed at, which the arguments alone cannot show.
-      const rule = always ? undefined : this.deps.permissions?.ruleFor?.(name, input, this.deps.projectSlug?.() ?? null, context);
+      const rule = always || beyond ? undefined : this.deps.permissions?.ruleFor?.(name, input, this.deps.projectSlug?.() ?? null, context);
       const picture = await this.deps.pictureFor?.(name, input).catch(() => undefined);
       const site = context?.browser?.site;
       const why = this.deps.whyFor?.(conversationId)?.trim();
@@ -574,11 +577,12 @@ export class GuardedTools implements ToolBox {
         args: input,
         riskTier: "risky",
         // The rule's own words first; the old labels only where a rule has none.
-        reason: `${heldBack ? `asked though the chat is in Auto: ${heldBack}` : (assessment.reason ?? (assessment.escalated ? "argument escalation" : site ? `on ${site}` : "risky tool"))}${context?.browser?.yours ? ", in your Chrome" : ""}`,
+        reason: `${beyond ? `asked though the chat is in Auto: ${beyond}` : (assessment.reason ?? (assessment.escalated ? "argument escalation" : site ? `on ${site}` : "risky tool"))}${context?.browser?.yours ? ", in your Chrome" : ""}`,
         ...(userId ? { userId } : {}),
         ...(conversationId ? { conversationId } : {}),
         ...(rule ? { rule } : {}),
         ...(assessment.reached ? { reached: true } : {}),
+        ...(beyond ? { beyondAuto: true } : {}),
         ...(picture ? { picture } : {}),
         ...(why ? { why } : {}),
         owner,

@@ -174,6 +174,21 @@ describe("GuardedTools", () => {
       expect((await tools.execute("browser.act", { actions: [{ click: "@next" }] })).content).toBe(`${AUTO_PREFIX}\ndone`);
     });
 
+    it("says on the card why a chat in Auto asked, and offers no remembered yes: a tool's own rule, a write into another project", async () => {
+      registry.register({ name: "shop.pay", description: "p", inputSchema: { type: "object" } }, () => "paid", { floor: "risky", beyondAuto: () => "spends money" });
+      registry.register({ name: "files.write", description: "w", inputSchema: { type: "object" } }, () => "written", { floor: "safe", reach: () => ({ why: "outside this project, in the books project", beyondAuto: "writes into another project" }) });
+      const permissions = { allows: () => false, ruleFor: (tool: string) => ({ tool, scope: null, project: null }) } as unknown as GuardedToolsDeps["permissions"];
+      const tools = auto({ permissions });
+      for (const name of ["shop.pay", "files.write"]) expect((await tools.execute(name, {})).content).toMatch(/Queued for approval/);
+      expect(approvals.pending().map(({ reason, beyondAuto, rule }) => ({ reason, beyondAuto, rule }))).toEqual([
+        { reason: "asked though the chat is in Auto: spends money", beyondAuto: true, rule: null },
+        { reason: "asked though the chat is in Auto: writes into another project", beyondAuto: true, rule: null },
+      ]);
+      // In Ask the same calls ask for their own reasons, and a remembered yes is offered.
+      await auto({ permissions, chatMode: () => ({ mode: "ask" }) }).execute("files.write", { a: 1 });
+      expect(approvals.pending().at(-1)).toMatchObject({ reason: "outside this project, in the books project", beyondAuto: false, rule: { tool: "files.write" } });
+    });
+
     it("lets nothing through while the kill switch is thrown", async () => {
       risky("files.rm");
       expect((await auto({ halted: () => true }).execute("files.rm", {})).content).toMatch(/Queued for approval/);
