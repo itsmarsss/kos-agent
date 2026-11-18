@@ -3352,27 +3352,14 @@ li:hover .chats-item-when { opacity: 0; }
 .toolcall.is-queued { border-color: rgba(230, 184, 77, 0.45); }
 .toolcall.is-queued .toolcall-state { color: var(--warn); }
 
-.toolcall-approve {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-  padding: 0.5rem 0.6rem;
-  border-top: 1px solid var(--line);
-  background: var(--warn-dim);
-  font-size: var(--text-md);
-}
-/* The message grows; the buttons do not. This matched Decision's own
-   wrapper span as well, so both grew and the buttons started halfway across
-   the row with empty space after them. */
-.toolcall-approve-text { flex: 1; min-width: 12rem; }
+/* The ask a queued call waits on: the kit's card, on the call's own tint. */
+.toolcall-approve { padding: 0.75rem 0.85rem; border-top: 1px solid var(--line); background: var(--warn-dim); }
 /* The browser after a step, under its card: a thumbnail, or the whole thing. */
 /* The step's picture (kit StepPicture), under the call's name. */
 .toolcall-frame { margin-left: 1.4rem; }
 /* The page an approval is about: a small picture beats a description. */
 .approval-pic { display: block; max-width: min(28rem, 100%); margin: 0.4rem 0 0.2rem; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); }
-.approval-pic--strip { flex-basis: 100%; max-width: min(32rem, 100%); }
-.toolcall-approve .decision { flex: none; }
+.approval-pic--strip { max-width: min(32rem, 100%); }
 
 /* —— file browser —— */
 .files-crumbs {
@@ -4712,14 +4699,7 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
 .panel-row-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .panel-row-side { flex: none; color: var(--faint); font-size: var(--text-sm); }
 .panel-row.is-error .panel-row-main { color: var(--danger); }
-.panel-approval {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0;
-  font-size: var(--text-base);
-}
-.panel-approval-tool { display: block; color: var(--faint); font-size: var(--text-xs); }
+.panel-approval { padding: 0.6rem 0; }
 .panel-approval-actions { display: flex; gap: 0.4rem; flex: none; }
 .panel-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .panel-stats { display: flex; gap: 1.5rem; }
@@ -4728,44 +4708,8 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
 .panel-note { margin: 0; font-size: var(--text-base); line-height: 1.55; white-space: pre-wrap; }
 .panel-note-edit { font-size: var(--text-base); }
 
-/* An approval that belongs to this chat but to no tool call in it. */
-.loose-approval {
-  display: flex;
-  /* Aligned to the top rather than centred: the description wraps to two or
-     three lines and the buttons drifted to the middle of it. */
-  align-items: flex-start;
-  gap: 0.85rem;
-  padding: 0.7rem 0.85rem;
-  margin: 0.25rem 0;
-  background: var(--warn-dim);
-  border: 1px solid var(--warn);
-  border-radius: var(--r-lg);
-}
-.loose-approval-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; padding-top: 0.1rem; }
-.loose-approval-main code { color: var(--warn); font-size: var(--text-xs); }
-.loose-approval-what { font-size: var(--text-md); line-height: 1.4; overflow-wrap: anywhere; }
-.loose-approval-why { color: var(--faint); font-size: var(--text-sm); }
-.loose-approval-details { margin-top: 0.2rem; font-size: var(--text-sm); }
-.loose-approval-details summary { cursor: pointer; color: var(--muted); }
-.loose-approval-details summary:hover { color: var(--text); }
-.loose-approval-details pre,
-.toolcall-approve-args {
-  margin: 0.3rem 0 0;
-  padding: 0.5rem 0.6rem;
-  max-height: 14rem;
-  overflow: auto;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  font-family: var(--mono);
-  font-size: var(--text-sm);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.toolcall-approve-args { flex-basis: 100%; }
-.loose-approval-actions { display: flex; gap: 0.4rem; flex: none; }
-.term-ask-text code { color: var(--warn); font-size: var(--text-xs); margin-right: 0.25rem; }
-.term-ask-why { color: var(--faint); }
+/* An approval that belongs to this chat but to no tool call in it: the kit's card, in the thread. */
+.loose-approval { margin: 0.25rem 0; }
 
 /* A build read like a terminal. */
 .term-wrap {
@@ -4838,8 +4782,6 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
   background: var(--warn-dim);
   border-top: 1px solid var(--warn);
 }
-.term-ask { display: flex; align-items: center; gap: 0.6rem; font-size: var(--text-base); }
-.term-ask-text { flex: 1; min-width: 0; }
 .term-input {
   display: flex;
   align-items: center;
@@ -4868,11 +4810,7 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
   font-size: var(--text-sm);
 }
 
-.decision { display: inline-flex; gap: 0.4rem; }
 .btn--sm { padding: 0.2rem 0.5rem; font-size: var(--text-sm); }
-.spinner { animation: spin 0.8s linear infinite; margin-right: 0.3rem; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.btn .spinner { vertical-align: -1px; }
 
 /* A build this chat started, linked from the chat. */
 .chat-agent {
@@ -5904,11 +5842,9 @@ a.health {
 .inbox-group-title { display: flex; align-items: center; gap: 0.45rem; margin: 0; font-size: var(--text-lg); font-weight: 600; }
 .inbox-box { min-width: 0; padding: 0.25rem 0.9rem; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); }
 .inbox-group--asks > .inbox-box { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
-.inbox-approval { align-items: flex-start; padding: 0.7rem 0; }
-.inbox-approval .panel-row-main { white-space: normal; overflow-wrap: anywhere; }
+.inbox-approval { padding: 0.85rem 0; }
 .inbox-approval.is-highlit { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
 .inbox-why { display: block; color: var(--muted); font-size: var(--text-sm); }
-.inbox-meta { display: block; color: var(--faint); font-size: var(--text-sm); }
 .inbox-failure { display: flex; align-items: center; gap: 0.75rem; }
 /* Centred, not baseline: the row's label is two lines and its "since" sat
    on the first of them, a step above the buttons beside it. */
@@ -6061,8 +5997,6 @@ a.health {
   .chats-view-actions .head-act { padding: 0 0.45rem; }
   .chats-view-actions .head-act-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   /* An approval's buttons ran off the right edge; stacked, they fit. */
-  .panel-approval,
-  .inbox-approval { flex-direction: column; align-items: stretch; }
   .panel-approval-actions { flex-wrap: wrap; }
   .inbox-failure { flex-direction: column; align-items: stretch; }
   /* A table narrower than its columns broke each cell into letters. It
@@ -7008,7 +6942,6 @@ a.health {
 .ext-item-setup { font-size: var(--text-xs); color: var(--faint); line-height: 1.45; word-break: break-word; }
 
 /* What the agent said before it asked, over the ask it belongs to. */
-.inbox-asker { display: block; margin-bottom: 0.2rem; font-size: var(--text-sm); font-weight: 600; color: var(--muted); }
 .inbox-said { display: block; margin-bottom: 0.2rem; color: var(--text); font-style: italic; }
 .inbox-said::before { content: "“"; }
 .inbox-said::after { content: "”"; }

@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { m } from "motion/react";
-import { summarizeAction } from "@kos/shared";
 
-import { AskSteps, ChevronDown, ChevronRight, ease, spring, StatusDot, useDismiss } from "@kos/kit";
+import { ChevronDown, ChevronRight, ease, spring, StatusDot, useDismiss } from "@kos/kit";
 
 import { api, type BuildRecord, type PendingAction } from "./api.js";
-import { Decision } from "./Decision.js";
+import { PendingAsk } from "./PendingAsk.js";
 import { socket } from "./socket.js";
 import { buildDot } from "./StatusDot.js";
 
@@ -348,14 +347,7 @@ export function AgentTerminal({
         {waiting.length > 0 && (
           <div className="term-asks">
             {waiting.map((a) => (
-              <div className="term-ask" key={a.id}>
-                <span className="term-ask-text">
-                  <code>{a.tool}</code> {a.summary ?? summarizeAction(a.tool, a.args)}
-                  {a.reason && <span className="term-ask-why"> · {a.reason}</span>}
-                  <AskSteps mechanics={a.mechanics} tool={a.tool} args={a.args} />
-                </span>
-                <Decision id={a.id} deciding={deciding} onDecide={onDecide} small />
-              </div>
+              <PendingAsk key={a.id} ask={a} deciding={deciding} onDecide={onDecide} compact />
             ))}
           </div>
         )}

@@ -10,10 +10,10 @@ import {
 
 import { AnimatePresence, m } from "motion/react";
 import { runningTail, stepMechanics, summarizeAction } from "@kos/shared";
-import { ArchiveIcon, AskSteps, type BlockActions, QuoteLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
+import { ArchiveIcon, type BlockActions, QuoteLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { ChatWords } from "./ChatWords.js";
-import { Decision } from "./Decision.js";
+import { PendingAsk } from "./PendingAsk.js";
 import { VoiceInput } from "./VoiceInput.js";
 
 import { ContextMeter } from "./ContextMeter.js";
@@ -167,36 +167,6 @@ export interface ChatsPageProps {
   seed?: { id: string; text: string };
 }
 
-
-/** A tool's arguments as the owner can read them: the JSON laid out, or the string as it came. */
-function prettyArgs(args: string): string {
-  try {
-    return JSON.stringify(JSON.parse(args), null, 2);
-  } catch {
-    return args;
-  }
-}
-
-/**
- * An ask waiting outside any tool card: what it is about to do, first.
- * "risky tool" was the whole card once, and the command it wanted to run
- * was nowhere. The steps sit under the words, the reason is a tag, the
- * arguments a fold.
- */
-export function LooseAsk({ ask: a }: { ask: PendingAction }): ReactElement {
-  return (
-    <div className="loose-approval-main">
-      <code>{a.tool}</code>
-      <span className="loose-approval-what">{a.summary ?? summarizeAction(a.tool, a.args)}</span>
-      <AskSteps mechanics={a.mechanics} tool={a.tool} args={a.args} />
-      {a.reason && <span className="loose-approval-why">{a.reason}</span>}
-      <details className="loose-approval-details">
-        <summary>Arguments</summary>
-        <pre>{prettyArgs(a.args)}</pre>
-      </details>
-    </div>
-  );
-}
 
 function relative(ts: number): string {
   const mins = Math.max(1, Math.round((Date.now() - ts) / 60000));
@@ -1289,10 +1259,9 @@ export function ChatsPage({
         <ToolCall
           key={i}
           event={e}
-          awaitingApproval={
-            e.pendingId !== undefined && pendingApprovals.has(e.pendingId)
-          }
+          ask={e.pendingId !== undefined && pendingApprovals.has(e.pendingId) ? approvals.find((a) => String(a.id) === e.pendingId) : undefined}
           onDecide={onDecide}
+          deciding={deciding}
         />
       );
     }
@@ -2431,14 +2400,7 @@ export function ChatsPage({
                     exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.12 } }}
                     transition={spring}
                   >
-                    <LooseAsk ask={a} />
-                    <div className="loose-approval-actions">
-                      <Decision
-                        id={a.id}
-                        deciding={deciding}
-                        onDecide={(id, ok, remember) => onDecide(String(id), ok, remember)}
-                      />
-                    </div>
+                    <PendingAsk ask={a} deciding={deciding} onDecide={(id, ok, remember) => (remember ? onDecide(String(id), ok, true) : onDecide(String(id), ok))} />
                   </m.div>
                 ))}
                 </AnimatePresence>

@@ -6,7 +6,7 @@ import { dirname, extname, join, normalize, relative, resolve, sep } from "node:
 import { parseHomeLayout,
   CHAT_COMMANDS,
 } from "@kos/shared";
-import { askView, isExportFormat, outlineOf, stepMechanics, summarizeAction, type KeyPlatform, type StepLine, type WidgetOutline } from "@kos/shared";
+import { askView, isExportFormat, outlineOf, stepMechanics, summarizeAction, type AskView, type KeyPlatform, type WidgetOutline } from "@kos/shared";
 import type { PendingAction } from "../ops/approvals.js";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
@@ -277,17 +277,10 @@ function conversationLabeller(
  * words with its ids named, and, where those words are the model's account
  * of a step, the actions it would take. A yes is given for those.
  */
-interface PendingCard extends PendingAction {
+interface PendingCard extends PendingAction, AskView {
   asker?: string;
   summary: string;
   mechanics?: string;
-  title: string;
-  steps?: StepLine[];
-  place?: string;
-  site?: string;
-  risk?: string;
-  always?: string;
-  alwaysTip?: string;
 }
 
 function pendingView(kernel: Kernel, a: PendingAction): PendingCard {
@@ -300,11 +293,7 @@ function pendingView(kernel: Kernel, a: PendingAction): PendingCard {
     asker: kernel.askerOf(a.conversationId)?.name,
     summary: summarizeAction(a.tool, a.args, names, HOST_KEYS),
     ...(mechanics ? { mechanics } : {}),
-    title: view.title,
-    ...(view.steps ? { steps: view.steps } : {}),
-    ...(view.place ? { place: view.place.words, ...(view.place.site ? { site: view.place.site } : {}) } : {}),
-    ...(view.risk ? { risk: view.risk } : {}),
-    ...(view.always ? { always: view.always, alwaysTip: view.alwaysTip } : {}),
+    ...view,
   };
 }
 

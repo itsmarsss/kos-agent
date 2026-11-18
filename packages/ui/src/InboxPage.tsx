@@ -1,13 +1,12 @@
 import { useEffect, useRef, type ReactElement } from "react";
-import { summarizeAction } from "@kos/shared";
 
-import { AskSteps, Count, Empty, Tag } from "@kos/kit";
+import { Count, Empty, Tag } from "@kos/kit";
 
 import { api, type FailingJob, type InboxData } from "./api.js";
-import { Decision } from "./Decision.js";
 import { InboxDecided } from "./InboxDecided.js";
 import { MemoryDecision } from "./MemoryPage.js";
 import { PageHead } from "./PageHead.js";
+import { PendingAsk } from "./PendingAsk.js";
 import { agoWords as ago } from "./schedulewords.js";
 import { ActivityDot, fixLabel } from "./StatusDot.js";
 
@@ -20,16 +19,6 @@ import { ActivityDot, fixLabel } from "./StatusDot.js";
  * running on its own, there has to be one place that says what it is stuck
  * on, and this is it.
  */
-
-/** How long an ask has left before it lapses on its own. */
-function lapses(ts: number): string {
-  const mins = Math.round((ts - Date.now()) / 60000);
-  if (mins < 1) return "lapses any moment";
-  if (mins < 60) return `lapses in ${mins}m`;
-  const hours = Math.round(mins / 60);
-  if (hours < 48) return `lapses in ${hours}h`;
-  return `lapses in ${Math.round(hours / 24)}d`;
-}
 
 export function InboxPage({
   data,
@@ -91,44 +80,35 @@ export function InboxPage({
           </h2>
           <ul className="panel-list inbox-box">
             {approvals.map((a) => (
-              <li key={a.id} ref={a.id === highlight ? highlit : undefined} className={`panel-approval inbox-approval${a.id === highlight ? " is-highlit" : ""}`}>
-                <span className="panel-row-main">
-                  {/* Who is asking, first: a command with no one behind it is a yes to anyone. */}
-                  {a.asker && <span className="inbox-asker">{a.asker} asks</span>}
-                  {a.why && <span className="inbox-said">{a.why}</span>}
-                  {a.summary ?? summarizeAction(a.tool, a.args)}
-                  <AskSteps mechanics={a.mechanics} tool={a.tool} args={a.args} />
-                  <code className="panel-approval-tool">{a.tool}</code>
-                  {a.reason && <span className="inbox-why">{a.reason}</span>}
+              <li key={a.id} ref={a.id === highlight ? highlit : undefined} className={`inbox-approval${a.id === highlight ? " is-highlit" : ""}`}>
+                <PendingAsk
+                  ask={a}
+                  deciding={deciding}
+                  onDecide={onDecide}
+                  bare
+                  meta={
+                    <>
+                      Asked {ago(a.requestedAt)}
+                      {a.conversationId && (
+                        <>
+                          {" · "}
+                          <button type="button" className="link" onClick={() => onOpenChat(a.conversationId!)}>
+                            Open the chat
+                          </button>
+                        </>
+                      )}
+                    </>
+                  }
+                  extra={
+                    a.tool === "browser.handoff" && onOpenBrowser ? (
+                      <button type="button" className="btn" onClick={onOpenBrowser}>
+                        Open the browser
+                      </button>
+                    ) : undefined
+                  }
+                >
                   {a.picture && <img className="approval-pic" src={`/api/approvals/${a.id}/picture`} alt="The page this would act on" />}
-                  {a.rule?.scope?.startsWith("site:") && <span className="inbox-meta">Always would trust {a.rule.scope.slice(5)} for every browser action.</span>}
-                  <span className="inbox-meta">
-                    {ago(a.requestedAt)}
-                    {a.expiresAt !== undefined && ` · ${lapses(a.expiresAt)}`}
-                    {a.conversationId && (
-                      <>
-                        {" · "}
-                        <button type="button" className="link" onClick={() => onOpenChat(a.conversationId!)}>
-                          open the chat
-                        </button>
-                      </>
-                    )}
-                  </span>
-                </span>
-                <span className="panel-approval-actions">
-                  {a.tool === "browser.handoff" && onOpenBrowser && (
-                    <button type="button" className="btn btn--sm" onClick={onOpenBrowser}>
-                      Open the browser
-                    </button>
-                  )}
-                  <Decision
-                    id={a.id}
-                    deciding={deciding}
-                    onDecide={onDecide}
-                    small
-                    {...(a.tool === "browser.handoff" ? { labels: { yes: "Done", no: "Can't" }, noRemember: true } : {})}
-                  />
-                </span>
+                </PendingAsk>
               </li>
             ))}
           </ul>

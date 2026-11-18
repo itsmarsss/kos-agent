@@ -1,4 +1,4 @@
-import { CHAT_COMMANDS } from "@kos/shared";
+import { CHAT_COMMANDS, type AskView } from "@kos/shared";
 
 import { keep, frameOf, picturesOf, type Pictured } from "./frames.js";
 import type { ConsentRequest } from "./worker.js";
@@ -29,18 +29,22 @@ export interface Step {
   frame?: number;
 }
 
-export interface Approval {
+export interface Approval extends Partial<Omit<AskView, "title">> {
   id: string;
   /** The chat it is asked in, as KOS says: what keeps it up once that chat is shown. */
   chat?: string;
   tool: string;
+  /** The action in words, its ids named. */
+  summary?: string;
+  /** What the card leads with: the step's purpose, or what a run of actions acts on. */
+  title?: string;
+  /** Who asks, by the name the owner knows the chat by. */
+  asker?: string;
   args?: string;
   /** Every action a step said by its purpose takes, which the arguments, cut to fit, may not reach. */
   mechanics?: string;
   why?: string;
   reason?: string;
-  /** What a remembered yes covers, as its button says it ("Always on shop.example"), when it can be remembered. */
-  always?: string;
   /** When it lapses if nobody decides, epoch ms. */
   expiresAt?: number;
 }

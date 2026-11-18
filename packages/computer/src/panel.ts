@@ -899,15 +899,11 @@ function approvalOf(req: ApprovalRequest): Record<string, unknown> {
     tool: req.tool ?? "",
     // In words, with its ids named: a phone lists the ask by its summary, and a card leads with its title.
     ...(req.tool && req.args !== undefined ? { summary: summarizeAction(req.tool, req.args, req.names, HOST_KEYS) } : {}),
-    ...(view ? { title: view.title } : {}),
+    ...view,
     ...(args ? { args } : {}),
     ...(mechanics ? { mechanics } : {}),
-    ...(view?.steps ? { steps: view.steps } : {}),
-    ...(view?.place ? { place: view.place.words, ...(view.place.site ? { site: view.place.site } : {}) } : {}),
-    ...(view?.risk ? { risk: view.risk } : {}),
     ...(req.why ? { why: req.why } : {}),
     ...(req.reason ? { reason: req.reason } : {}),
-    ...(view?.always ? { always: view.always, alwaysTip: view.alwaysTip } : {}),
     ...(req.asker ? { asker: req.asker.name } : {}),
     ...(req.expiresAt !== undefined ? { expiresAt: req.expiresAt } : {}),
   };

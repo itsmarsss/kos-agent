@@ -54,7 +54,8 @@ describe("an ask, as a card lays it out", () => {
       yours: true,
     });
     expect(view.title).toBe("Zoom the browser out so more of the document fits per screen");
-    expect(view.place).toEqual({ words: "In your Chrome on docs.google.com", site: "docs.google.com" });
+    expect(view.place).toBe("In your Chrome on docs.google.com");
+    expect(view.site).toBe("docs.google.com");
     expect(text(view.steps)).toEqual(["Press ⌘− 4 times, then ⌘Home"]);
     expect(view.risk).toBe("Clicks, types or fills on the page");
     expect(view.always).toBe("Always allow on docs.google.com");
@@ -75,7 +76,7 @@ describe("an ask, as a card lays it out", () => {
     const view = askView({ tool: "shell.run", args: { command: "rm -rf build" }, reason: "risky tool" });
     expect(view.always).toBeUndefined();
     expect(view.risk).toBeUndefined();
-    expect(view.place).toEqual({ words: "In the workspace" });
+    expect(view.place).toBe("In the workspace");
   });
 });
 

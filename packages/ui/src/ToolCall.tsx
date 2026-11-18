@@ -3,9 +3,9 @@ import { useState, type ReactElement } from "react";
 import { pathsIn, stepMechanics } from "@kos/shared";
 import { ChevronDown, ChevronRight, StepPicture } from "@kos/kit";
 
-import type { ChatEvent } from "./api.js";
+import type { ChatEvent, PendingAction } from "./api.js";
 import { ArtifactStep, writtenArtifact } from "./ArtifactStep.js";
-import { Decision } from "./Decision.js";
+import { PendingAsk, viewerKeys } from "./PendingAsk.js";
 import { hrefFor } from "./routes.js";
 
 /**
@@ -55,13 +55,13 @@ function Summary({ text }: { text: string }): ReactElement {
  */
 export function ToolCall({
   event,
-  awaitingApproval,
+  ask,
   onDecide,
   deciding = new Set<number>(),
 }: {
   event: Extract<ChatEvent, { kind: "tool" }>;
-  /** True while its pending action is still undecided. */
-  awaitingApproval?: boolean;
+  /** Its pending action, while it is still undecided. */
+  ask?: PendingAction | undefined;
   onDecide?: (pendingId: string, approved: boolean, remember?: boolean) => void;
   /** Ids being decided right now, so the buttons can say so. */
   deciding?: ReadonlySet<number>;
@@ -72,8 +72,9 @@ export function ToolCall({
   if (written) return <ArtifactStep art={written} />;
   const running = event.result === undefined;
   const queued = event.pendingId !== undefined;
+  const awaitingApproval = ask !== undefined;
   // A step said by what it is for keeps how it did it here, under the line.
-  const mechanics = stepMechanics(event.name, event.args);
+  const mechanics = stepMechanics(event.name, event.args, viewerKeys());
 
   // A queued call did not fail, but it did not happen either. Calling that
   // "ok" is how a risky tool looks like a tool that silently does nothing.
@@ -115,25 +116,12 @@ export function ToolCall({
         </div>
       )}
 
-      {queued && awaitingApproval && onDecide && (
+      {ask && onDecide && (
         <div className="toolcall-approve">
-          <span className="toolcall-approve-text">
-            This needs your approval before it runs.
-          </span>
-          <Decision id={Number(event.pendingId)} deciding={deciding} onDecide={(id, ok, remember) => onDecide?.(String(id), ok, remember)} small />
-          {/* The page a browser action is aimed at, when there is one; the
-              image hides itself when the queue has none for this call. */}
-          <img
-            className="approval-pic approval-pic--strip"
-            src={`/api/approvals/${event.pendingId}/picture`}
-            alt="The page this would act on"
-            onError={(e) => {
-              e.currentTarget.style.display = "none";
-            }}
-          />
-          {/* The arguments, in view while the decision is open: what a
-              command is, not that there is one, is what gets approved. */}
-          <pre className="toolcall-approve-args">{JSON.stringify(event.args, null, 2)}</pre>
+          <PendingAsk ask={ask} deciding={deciding} onDecide={(id, ok, remember) => (remember ? onDecide(String(id), ok, true) : onDecide(String(id), ok))} bare>
+            {/* The page a browser action is aimed at, when there is one. */}
+            {ask.picture && <img className="approval-pic approval-pic--strip" src={`/api/approvals/${ask.id}/picture`} alt="The page this would act on" />}
+          </PendingAsk>
         </div>
       )}
 

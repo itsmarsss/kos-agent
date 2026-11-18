@@ -26,7 +26,9 @@ export interface AskView {
   /** What KOS wants to do, its ids named: the card's title. */
   title: string;
   /** Where: "In your Chrome on docs.google.com". */
-  place?: AskPlace;
+  place?: string;
+  /** The site it acts on, when it acts on one, for its icon. */
+  site?: string;
   /** Each action it takes, for a run of actions, keys as caps. */
   steps?: StepLine[];
   /** Why it asks, as a phrase: "Clicks, types or fills on the page". */
@@ -208,7 +210,7 @@ export function askView(input: AskInput): AskView {
   const title = steps && !said ? (tool === "computer.act" ? "Use your Mac" : "Act on the page") : summarizeAction(tool, args, names, platform);
   return {
     title,
-    ...(place ? { place } : {}),
+    ...(place ? { place: place.words, ...(place.site ? { site: place.site } : {}) } : {}),
     ...(steps ? { steps } : {}),
     ...(risk ? { risk } : {}),
     ...(rule ? { always: alwaysWords(rule.scope), alwaysTip: alwaysTip(rule) } : {}),
