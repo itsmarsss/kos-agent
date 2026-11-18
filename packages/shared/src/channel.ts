@@ -23,3 +23,8 @@ export function channelNamesIn(text: string): string[] {
   }
   return out;
 }
+
+/** A messaging surface as its maker spells it: "Discord", "iMessage"; one it does not know, as given. */
+export function surfaceName(channel: string): string {
+  return channel === "discord" ? "Discord" : channel === "imessage" ? "iMessage" : channel === "sms" ? "SMS" : channel === "chrome" ? "Chrome" : channel === "mac" ? "Mac" : channel === "phone" ? "iPhone" : channel;
+}

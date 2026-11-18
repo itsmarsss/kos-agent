@@ -1,4 +1,4 @@
-import { TurnNarrator, type MessageFrom, type OutboundMessage, type ProgressEvent, type Sender } from "@kos/harness";
+import { surfaceName, TurnNarrator, type MessageFrom, type OutboundMessage, type ProgressEvent, type Sender } from "@kos/harness";
 
 /**
  * A turn's story, mirrored into the Discord thread (or channel) a chat stands
@@ -124,7 +124,7 @@ export class ThreadMirror {
     const target = this.tracked.get(event.conversationId)?.target ?? this.deps.targetFor(event.conversationId);
     if (!target) return;
     const owner = await this.deps.ownerSender();
-    const text = owner ? event.said.trim() : `${event.said.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard`;
+    const text = owner ? event.said.trim() : quotedOwner(event.said, event.from);
     await this.deps.postIn(target, { text, ...(owner ? { from: owner } : {}), silent: true });
   }
 
@@ -182,7 +182,7 @@ export class ThreadMirror {
     } else {
       // The owner's own words, under their name and picture; quoted by the bot when they cannot be looked up.
       const owner = await this.deps.ownerSender();
-      const text = owner ? event.said.trim() : `${event.said.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard`;
+      const text = owner ? event.said.trim() : quotedOwner(event.said, event.from);
       await this.deps.postIn(target, { text, ...(owner ? { from: owner } : {}), silent: true, ...(files.length ? { files } : {}) });
     }
     this.tracked.set(conv, { target, narrator: new TurnNarrator(), storyTried: false, lastDrawn: 0 });
@@ -223,4 +223,10 @@ export class ThreadMirror {
       t.story.close?.();
     }
   }
+}
+
+/** The owner's words quoted by the bot, when their own name cannot be posted under, with the surface they said them on. */
+function quotedOwner(said: string, from: string | undefined): string {
+  const where = !from || from === "dashboard" ? "the dashboard" : surfaceName(from);
+  return `${said.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on ${where}`;
 }

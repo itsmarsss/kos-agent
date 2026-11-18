@@ -8,6 +8,8 @@
 
 import { KOS_VERSION } from "@kos/shared";
 
+export { surfaceName } from "@kos/shared";
+
 export * from "./modules/index.js";
 export { JailError, resolvePath } from "./jail/index.js";
 export { Workspace, openDatabase, DB_FILENAME, type Db } from "./store/index.js";
