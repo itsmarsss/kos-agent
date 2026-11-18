@@ -16,6 +16,7 @@ import { ArchiveIcon, type BlockActions, MessageTime, Timed, TimeLine, card, Che
 
 import { PictureGallery } from "./Lightbox.js";
 import { PendingAsk } from "./PendingAsk.js";
+import { SecretOffer } from "./SecretOffer.js";
 import { VoiceInput } from "./VoiceInput.js";
 
 import { ContextMeter } from "./ContextMeter.js";
@@ -2621,6 +2622,7 @@ export function ChatsPage({
                   }))}
                   onRemove={attachments.remove}
                 />
+                <SecretOffer draft={draft} onDraft={setDraft} />
                 <div className="composer-input">
                   <AutocompleteMenu
                     suggestions={suggestions}
