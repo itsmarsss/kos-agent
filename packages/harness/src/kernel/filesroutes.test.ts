@@ -89,6 +89,15 @@ describe("the file manager's routes", () => {
     expect(existsSync(join(root, ".kos/cache/thumbs"))).toBe(true);
   });
 
+  it("does not ask QuickLook again about a version it could not draw", async () => {
+    const quickLook = vi.fn(async () => {
+      throw new Error("it took more than 8 s to read, so it was stopped");
+    });
+    deps = { ...deps, quickLook };
+    for (let i = 0; i < 2; i++) expect((await get("/api/file/thumb", { path: "projects/garden/plan.docx" }))?.status).toBe(404);
+    expect(quickLook).toHaveBeenCalledTimes(1);
+  });
+
   it("moves to the trash, restores beside a newcomer, and empties only when told", async () => {
     const trashed = (await post("/api/files/trash", { path: "projects/garden/beds" }))?.body as { id: string };
     expect(existsSync(join(root, "projects/garden/beds"))).toBe(false);

@@ -22,6 +22,8 @@ const TEXTUTIL = "/usr/bin/textutil";
 const QLMANAGE = "/usr/bin/qlmanage";
 const SANDBOX = "/usr/bin/sandbox-exec";
 export const TOOL_TIMEOUT_MS = 20_000;
+/** A thumbnail is a glance: QuickLook given a file it cannot read can sit on it, and a gallery waits behind it. */
+const THUMB_TIMEOUT_MS = 8_000;
 const HTML_MAX = 32 * 1024 * 1024;
 
 const TEXTUTIL_PROFILE = '(version 1)(allow default)(deny network*)(deny file-write*)(allow file-write* (literal "/dev/null"))';
@@ -34,11 +36,11 @@ export function hasQuickLook(): boolean {
   return process.platform === "darwin" && existsSync(QLMANAGE);
 }
 
-function run(file: string, args: string[], maxBuffer: number): Promise<string> {
+function run(file: string, args: string[], maxBuffer: number, timeout = TOOL_TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(file, args, { timeout: TOOL_TIMEOUT_MS, maxBuffer, killSignal: "SIGKILL" }, (err, stdout, stderr) => {
+    execFile(file, args, { timeout, maxBuffer, killSignal: "SIGKILL" }, (err, stdout, stderr) => {
       if (!err) resolve(stdout);
-      else if ((err as { killed?: boolean }).killed) reject(new Error(`it took more than ${TOOL_TIMEOUT_MS / 1000} s to read, so it was stopped`));
+      else if ((err as { killed?: boolean }).killed) reject(new Error(`it took more than ${timeout / 1000} s to read, so it was stopped`));
       else reject(new Error(stderr.trim().split("\n")[0] || err.message));
     });
   });
@@ -64,7 +66,7 @@ export function textutilHtml(bytes: Uint8Array, ext: string): Promise<string> {
 /** A PNG of the file's first page or frame, its long side `edge`, by QuickLook; undefined when it draws none. */
 export function quickLookPng(bytes: Uint8Array, ext: string, edge: number): Promise<Buffer | undefined> {
   return staged(bytes, ext, async (file, dir) => {
-    await run(QLMANAGE, ["-t", "-s", String(edge), "-o", dir, file], 1024 * 1024);
+    await run(QLMANAGE, ["-t", "-s", String(edge), "-o", dir, file], 1024 * 1024, THUMB_TIMEOUT_MS);
     const png = join(dir, `file.${ext}.png`);
     return existsSync(png) ? readFile(png) : undefined;
   });

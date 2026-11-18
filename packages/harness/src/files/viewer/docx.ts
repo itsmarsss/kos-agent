@@ -249,6 +249,8 @@ function run(r: XmlNode, ctx: Context): string {
   if (color && /^[0-9A-Fa-f]{6}$/.test(color) && color !== "000000") css.push(`color:#${color}`);
   const size = Number(kid(rPr, "w:sz")?.attrs["w:val"] ?? 0);
   if (size > 0 && size !== 22 && size !== 24) css.push(`font-size:${(size / 2).toFixed(1)}pt`);
+  const font = kid(rPr, "w:rFonts")?.attrs["w:ascii"] ?? kid(rPr, "w:rFonts")?.attrs["w:hAnsi"];
+  if (font && /^[\w -]{1,40}$/.test(font)) css.push(`font-family:'${font}'`);
   const highlight = kid(rPr, "w:highlight")?.attrs["w:val"];
   if (highlight && /^[a-zA-Z]+$/.test(highlight) && highlight !== "none") css.push(`background-color:${highlight.toLowerCase()}`);
   if (on("w:caps")) css.push("text-transform:uppercase");

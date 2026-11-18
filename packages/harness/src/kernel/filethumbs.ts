@@ -53,6 +53,9 @@ export async function thumbnail(ws: Workspace, rel: string, edge: number, quickL
   const key = createHash("sha256").update(`${rel}\0${st.mtimeMs}\0${st.size}\0${edge}`).digest("hex").slice(0, 32);
   const dir = ws.resolve(CACHE);
   const cached = join(dir, `${key}.img`);
+  // A version no host could draw is not asked about again.
+  const none = join(dir, `${key}.none`);
+  if (existsSync(none)) return undefined;
   if (existsSync(cached)) {
     const bytes = readFileSync(cached);
     return { bytes, contentType: bytes[0] === 0xff ? "image/jpeg" : "image/png" };
@@ -65,10 +68,10 @@ export async function thumbnail(ws: Workspace, rel: string, edge: number, quickL
     if (jpeg) made = { bytes: jpeg, contentType: "image/jpeg" };
   }
   if (!made && quickLook) {
-    const png = await quickLook(bytes, ext.slice(1), edge);
+    const png = await quickLook(bytes, ext.slice(1), edge).catch(() => undefined);
     if (png) made = { bytes: png, contentType: "image/png" };
   }
-  if (made) keep(dir, cached, made.bytes);
+  keep(dir, made ? cached : none, made?.bytes ?? Buffer.alloc(0));
   return made;
 }
 
