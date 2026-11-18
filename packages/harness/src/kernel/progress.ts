@@ -115,6 +115,14 @@ export type ProgressEvent =
       pendingId?: number;
       from?: string;
     }
+  | {
+      /**
+       * The turn carries on in a fresh query, its pictures full: it looks
+       * at the screen again before its next step, which takes a moment.
+       */
+      kind: "fresh";
+      conversationId: string;
+    }
   | { kind: "turn-end"; conversationId: string };
 
 export type ProgressListener = (event: ProgressEvent) => void;

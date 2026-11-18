@@ -269,7 +269,7 @@ describe("telling the turn's story on a surface with a presence", () => {
     await adapter.receive({ channel: "memory", senderId: "u1", text: "look" });
     expect(watched).toEqual(["memory:owner"]);
     // A step is shown the moment it starts; the text after it waits for the timer; the end keeps the steps.
-    expect(adapter.shown).toEqual(["Let me look.\n› List x", "Let me look.\n› List x\nThree files, all fine.", "Let me look.\n› List x"]);
+    expect(adapter.shown).toEqual(["Let me look.\n› List x", "Let me look.\n› List x (done)\nThree files, all fine.", "Let me look.\n› List x (done)"]);
     expect(adapter.completed).toEqual([{ text: "Three files, all fine." }]);
     expect(tell).toBeUndefined();
   });

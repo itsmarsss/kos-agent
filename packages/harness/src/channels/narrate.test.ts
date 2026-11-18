@@ -18,12 +18,34 @@ describe("narrating a turn", () => {
     expect(n.take({ kind: "tool-start", conversationId: c, tool: "files.ls", summary: "List projects/x" })).toBe(true);
     expect(n.worthShowing()).toBe(true);
     expect(n.render()).toBe("Let me look at the folder.\n› List projects/x");
-    expect(n.take({ kind: "tool-end", conversationId: c, tool: "files.ls", isError: false })).toBe(false);
+    // A finished step says so, so the surface can tell it from the one at work.
+    expect(n.take({ kind: "tool-end", conversationId: c, tool: "files.ls", isError: false })).toBe(true);
+    expect(n.render()).toBe("Let me look at the folder.\n› List projects/x (done)");
     n.take({ kind: "delta", conversationId: c, of: "text", text: "Two stale builds. " });
     n.take({ kind: "delta", conversationId: c, of: "text", text: "I'll clear them." });
     n.take({ kind: "tool-start", conversationId: c, tool: "shell.run", summary: "Run: rm -rf build" });
     n.take({ kind: "tool-end", conversationId: c, tool: "shell.run", isError: true });
-    expect(n.render()).toBe("Let me look at the folder.\n› List projects/x\nTwo stale builds. I'll clear them.\n› Run: rm -rf build (failed)");
+    expect(n.render()).toBe("Let me look at the folder.\n› List projects/x (done)\nTwo stale builds. I'll clear them.\n› Run: rm -rf build (failed)");
+  });
+
+  it("marks the step that ended, of steps running side by side", () => {
+    const n = new TurnNarrator();
+    n.take({ kind: "tool-start", conversationId: c, tool: "files.read", summary: "Read a" });
+    n.take({ kind: "tool-start", conversationId: c, tool: "web.fetch", summary: "Fetch b" });
+    n.take({ kind: "tool-end", conversationId: c, tool: "files.read", isError: false });
+    expect(n.render()).toBe("› Read a (done)\n› Fetch b");
+    // An end with no step of its own running changes nothing.
+    expect(n.take({ kind: "tool-end", conversationId: c, tool: "files.read", isError: false })).toBe(false);
+  });
+
+  it("says it looks again as a turn carries on in a fresh query, done at its next step", () => {
+    const n = new TurnNarrator();
+    n.take({ kind: "tool-start", conversationId: c, tool: "computer.act", summary: "Open the tab" });
+    n.take({ kind: "tool-end", conversationId: c, tool: "computer.act", isError: false });
+    expect(n.take({ kind: "fresh", conversationId: c })).toBe(true);
+    expect(n.render()).toBe("› Open the tab (done)\n› Looking again");
+    n.take({ kind: "tool-start", conversationId: c, tool: "computer.act", summary: "Click Save" });
+    expect(n.render()).toBe("› Open the tab (done)\n› Looking again (done)\n› Click Save");
   });
 
   it("leaves the answer out of the story once the turn is over", () => {
@@ -52,6 +74,10 @@ describe("narrating a turn", () => {
 
 describe("a short story", () => {
   const steps = (n: number, say = (i: number) => `Step ${i}`): string => Array.from({ length: n }, (_, i) => `› ${say(i + 1)}`).join("\n");
+
+  it("leaves out which steps finished, so a finished run folds with the one at work", () => {
+    expect(shortStory("› Look (done)\n› Look (done)\n› Look\n› Click (failed)")).toBe("› Look ×3\n› Click (failed)");
+  });
 
   it("folds a run of the same step into one line", () => {
     expect(shortStory("› Look at the screen\n› Look at the screen\n› Look at the screen\n› Click (failed)\n› Look at the screen")).toBe(

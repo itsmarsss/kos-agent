@@ -14,6 +14,12 @@ import type { ProgressEvent } from "../kernel/progress.js";
 
 /** Marks a step line, so a surface can set it apart from the agent's words. */
 export const STEP_MARK = "› ";
+/** Ends a step line that finished, so a surface can tell it from the one running. */
+export const DONE_MARK = " (done)";
+/** Ends a step line that failed. */
+export const FAILED_MARK = " (failed)";
+/** The step a turn carried on in a fresh query takes first: a look at the screen again. */
+export const LOOKING_AGAIN = "Looking again";
 
 export class TurnNarrator {
   /** Paragraphs and steps, oldest first. */
@@ -21,6 +27,8 @@ export class TurnNarrator {
   /** What the model has said since the last step, still arriving. */
   private saying = "";
   private steps = 0;
+  /** The step lines still running, by line and tool: "" for a look again, which ends at the next step. */
+  private running: { at: number; tool: string }[] = [];
 
   /** Take an event in; true when what would be shown has changed. */
   take(event: ProgressEvent): boolean {
@@ -30,16 +38,15 @@ export class TurnNarrator {
         this.saying += event.text;
         return event.text.trim().length > 0;
       case "tool-start":
-        this.flush();
-        this.lines.push(`${STEP_MARK}${event.summary}`);
-        this.steps += 1;
+        this.end("", DONE_MARK);
+        this.step(event.summary, event.tool);
         return true;
-      case "tool-end": {
-        if (!event.isError) return false;
-        const last = this.lines.length - 1;
-        if (last >= 0 && this.lines[last]!.startsWith(STEP_MARK)) this.lines[last] = `${this.lines[last]!.trimEnd()} (failed)`;
+      case "tool-end":
+        return this.end(event.tool, event.isError ? FAILED_MARK : DONE_MARK);
+      case "fresh":
+        this.end("", DONE_MARK);
+        this.step(LOOKING_AGAIN, "");
         return true;
-      }
       case "turn-end":
         // What is being said as the turn ends is the answer, and the answer
         // is a message of its own. Flushed into the lines it was read twice:
@@ -67,6 +74,23 @@ export class TurnNarrator {
    */
   renderSteps(max = 1800): string {
     return tail(this.lines.join("\n"), max);
+  }
+
+  private step(summary: string, tool: string): void {
+    this.flush();
+    this.running.push({ at: this.lines.length, tool });
+    this.lines.push(`${STEP_MARK}${summary}`);
+    this.steps += 1;
+  }
+
+  /** The latest running step of this tool, marked as it ended; false when none was running. */
+  private end(tool: string, mark: string): boolean {
+    let i = this.running.length - 1;
+    while (i >= 0 && this.running[i]!.tool !== tool) i -= 1;
+    if (i < 0) return false;
+    const { at } = this.running.splice(i, 1)[0]!;
+    this.lines[at] = `${this.lines[at]!.trimEnd()}${mark}`;
+    return true;
   }
 
   private flush(): void {
@@ -100,7 +124,9 @@ const STEP_LINE_MAX = 160;
 export function shortStory(story: string, keep = KEEP_STEPS): string {
   const cut = story.startsWith("…");
   const lines: { text: string; times: number; step: boolean }[] = [];
-  for (const line of (cut ? story.slice(1) : story).split("\n")) {
+  for (const told of (cut ? story.slice(1) : story).split("\n")) {
+    // A line redrawn as one message has no room for which steps finished: the last one is the one at work.
+    const line = told.startsWith(STEP_MARK) && told.endsWith(DONE_MARK) ? told.slice(0, -DONE_MARK.length) : told;
     // Folded on the whole line, before any of it is cut: two fills that
     // share their first hundred and sixty characters are two fills.
     const step = line.startsWith(STEP_MARK);

@@ -1402,7 +1402,10 @@ export class Kernel {
             cwd: this.workspace.root,
             maxTurns: this.behaviour().maxSteps,
             picturesPerQuery: PICTURES_PER_QUERY,
-            onFreshQuery: () => this.bus.emit({ kind: "query:fresh", conversationId: sessionId }),
+            onFreshQuery: () => {
+              this.bus.emit({ kind: "query:fresh", conversationId: sessionId });
+              this.progress.emit({ kind: "fresh", conversationId: sessionId });
+            },
             /*
              * Each step into the transcript as it lands. Written only at the
              * end, a chat redrawn from its transcript mid-turn (a reload, a
