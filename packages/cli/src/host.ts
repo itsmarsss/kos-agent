@@ -545,11 +545,13 @@ export async function runHost(options: HostOptions): Promise<void> {
       return panelModels();
     },
   });
+  const hostKeyPath = process.env.KOS_DEVICE_KEY_FILE?.trim() || join(homedir(), ".kos", "device-host.key");
+  const localKeyPath = process.env.KOS_DEVICE_LOCAL_KEY_FILE?.trim() || join(homedir(), ".kos", "device-local.key");
   const computer = createComputerUse({
-    hostKeyPath: process.env.KOS_DEVICE_KEY_FILE?.trim() || join(homedir(), ".kos", "device-host.key"),
+    hostKeyPath,
     ...(process.env.KOS_DEVICE_HOST_KEY ? { hostKeyEnv: process.env.KOS_DEVICE_HOST_KEY } : {}),
     // Read by KOS for Mac on this computer to prove it is here, so KOS may rebuild it (docs/computer.md, Builds and updates).
-    localKeyPath: process.env.KOS_DEVICE_LOCAL_KEY_FILE?.trim() || join(homedir(), ".kos", "device-local.key"),
+    localKeyPath,
     caller: () => kernel.callerConversationId,
     // An ask to use a computer or a Chrome says who asks by the name it goes by everywhere.
     titleOf: (id) => kernel.nameOf(id),
@@ -734,6 +736,10 @@ export async function runHost(options: HostOptions): Promise<void> {
   const server = createDashboardServer(kernel, { ...dashboard, ...(options.token ? { token: options.token } : {}) });
 
   // A chat that borrowed the owner's Chrome browses there.
+  // The device keys are KOS's own: never offered to the agent, and scrubbed should one ever come back in a result.
+  for (const [name, path] of [["device_host_key", hostKeyPath], ["device_local_key", localKeyPath]] as const) {
+    if (existsSync(path)) kernel.secrets.watch(name, readFileSync(path, "utf8").replace(/-----[^-]+-----/g, "").replace(/\s+/g, ""));
+  }
   kernel.setBrowserElsewhere(computer.chrome);
 
   // The two upgrades the dashboard server takes: the dashboard's own socket, and a paired device's.
