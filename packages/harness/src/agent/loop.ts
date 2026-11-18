@@ -159,7 +159,7 @@ export async function runAgent(
        */
       if (options.shouldStop?.()) {
         // The half an answer the owner already watched arrive stays said.
-        if (streamed.trim()) messages.push({ role: "assistant", content: [{ type: "text", text: streamed }] });
+        if (streamed.trim()) messages.push({ role: "assistant", content: [{ type: "text", text: streamed }], at: Date.now() });
         return {
           messages,
           finalText: saidThisTurn(),
@@ -172,7 +172,9 @@ export async function runAgent(
       throw err;
     }
     stopReason = response.stopReason;
-    messages.push({ role: "assistant", content: response.content });
+    // Each message stamped as it is made, so a step, a reply on the way and words heard with a result keep their own
+    // time when the turn is written at its end. The providers send role and content alone.
+    messages.push({ role: "assistant", content: response.content, at: Date.now() });
 
     const toolUses = toolUsesOf(response.content);
     if (toolUses.length === 0) {
@@ -219,7 +221,7 @@ export async function runAgent(
         isError: false,
       });
     }
-    messages.push({ role: "user", content: results });
+    messages.push({ role: "user", content: results, at: Date.now() });
   }
 
   // Hit the iteration cap with tool calls still pending.
