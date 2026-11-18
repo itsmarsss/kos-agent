@@ -43,10 +43,18 @@ export function needlesOf(value: string): string[] {
   if (value.length < MIN_SCANNED) return [];
   const bytes = Buffer.from(value, "utf8");
   const hex = bytes.toString("hex");
+  const json = JSON.stringify(value).slice(1, -1);
+  const uri = encodeURIComponent(value);
   const forms = [
     value,
-    JSON.stringify(value).slice(1, -1),
-    encodeURIComponent(value),
+    json,
+    // PHP and some JSON writers escape the slash too.
+    json.replaceAll("/", "\\/"),
+    uri,
+    // RFC 3986 strict: the sub-delims encodeURIComponent leaves alone.
+    uri.replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`),
+    // Percent escapes in lowercase hex, as some encoders write them.
+    uri.replace(/%[0-9A-F]{2}/g, (escape) => escape.toLowerCase()),
     new URLSearchParams({ v: value }).toString().slice(2),
     ...base64Runs(bytes, "base64"),
     ...base64Runs(bytes, "base64url"),
@@ -145,7 +153,11 @@ class Automaton {
     let out = "";
     let from = 0;
     for (const match of found) {
-      if (match.start < from) continue;
+      // Overlapping values are one run: the label already said covers it, and none of the rest shows.
+      if (match.start < from) {
+        from = Math.max(from, match.end);
+        continue;
+      }
       out += text.slice(from, match.start) + scrubbedLabel(match.name);
       from = match.end;
       hits.set(match.name, (hits.get(match.name) ?? 0) + 1);
@@ -160,6 +172,8 @@ class Automaton {
  */
 export class Scrubber {
   private readonly automaton: Automaton | undefined;
+  /** The longest needle, so a stream can hold back enough to never split one. */
+  readonly longest: number;
 
   constructor(
     values: Iterable<[name: string, value: string]>,
@@ -170,6 +184,7 @@ export class Scrubber {
       for (const text of needlesOf(value)) needles.push({ text, name });
     }
     this.automaton = needles.length > 0 ? new Automaton(needles) : undefined;
+    this.longest = Math.max(0, ...needles.map((needle) => needle.text.length));
   }
 
   /** `text` with every known value, in any form looked for, replaced by `[secret <name>]`. */

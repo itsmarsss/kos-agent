@@ -27,6 +27,8 @@ describe("Scrubber", () => {
     ["base64url at offset 0", embedded64(KEY, 0, true)],
     ["base64url at offset 1", embedded64(KEY, 1, true)],
     ["base64url at offset 2", embedded64(KEY, 2, true)],
+    ["percent-encoded in lowercase hex", encodeURIComponent(KEY).replace(/%[0-9A-F]{2}/g, (e) => e.toLowerCase())],
+    ["JSON with escaped slashes", JSON.stringify(KEY).replaceAll("/", "\\/")],
     ["hex", Buffer.from(KEY).toString("hex")],
     ["upper hex", Buffer.from(KEY).toString("hex").toUpperCase()],
   ])("catches it %s", (_form, text) => {
@@ -44,6 +46,21 @@ describe("Scrubber", () => {
   it("prefers the longest of overlapping values, leftmost first", () => {
     const both = new Scrubber([["short", "abcdef"], ["long", "abcdefgh"]]);
     expect(both.scrub("xx abcdefgh abcdef")).toBe("xx [secret long] [secret short]");
+  });
+
+  it("catches a value with sub-delims percent-encoded as RFC 3986 strictly writes them", () => {
+    const strict = (v: string): string => encodeURIComponent(v).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+    expect(new Scrubber([["k", "key!'()*value"]]).scrub(`?k=${strict("key!'()*value")}`)).toBe("?k=[secret k]");
+  });
+
+  it("takes out the whole of two values that overlap", () => {
+    const both = new Scrubber([["a", "abcdef"], ["b", "defghi"]]);
+    expect(both.scrub("xx abcdefghi yy")).toBe("xx [secret a] yy");
+  });
+
+  it("knows its longest needle", () => {
+    expect(new Scrubber([["a", "abcdef"]]).longest).toBe(Buffer.from("abcdef").toString("hex").length);
+    expect(new Scrubber([]).longest).toBe(0);
   });
 
   it("counts what it took, by name", () => {
