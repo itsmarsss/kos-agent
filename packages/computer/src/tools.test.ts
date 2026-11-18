@@ -139,6 +139,8 @@ describe("the computer tools", () => {
     expect(escalate({ task: "t" })).toBe(false);
     fake.send({ t: "state", consent: "kos" });
     expect(escalate({ task: "t" })).toMatch(/without asking/);
+    // Such an ask is a session's start: a chat's Auto covers it only where the owner let it start sessions.
+    expect(tools.get("computer.start")!.risk!.startsSession).toBe(true);
   });
 
   it("start a session the owner reads by the chat's title, and hand back the screen", async () => {

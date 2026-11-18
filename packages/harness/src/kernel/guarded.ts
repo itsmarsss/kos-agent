@@ -1,4 +1,4 @@
-import { summarizeAction } from "@kos/shared";
+import { AUTO_DECIDER, summarizeAction, type ChatMode } from "@kos/shared";
 
 import type { ToolBox } from "../agent/loop.js";
 import type { ToolExecution, ToolRegistry } from "../agent/registry.js";
@@ -6,6 +6,7 @@ import { defang, type HeardWords } from "../models/heard.js";
 import type { AuditLog } from "../ops/audit.js";
 import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
+import type { RiskAssessment } from "../risk/tiers.js";
 import { injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import { attendance, caller, guested, onSite, origin, ownership, scheduled, turn, turnStop, type GuestOrigin, type TurnOrigin } from "./caller.js";
@@ -70,10 +71,17 @@ export interface GuardedToolsDeps {
   heard?: () => HeardWords | undefined;
   /**
    * The owner let this call run without asking, as a remembered decision
-   * does: true anywhere (the chat is set to Auto), "site" only on the site
-   * its tab is on now (a session allowed for this site's steps).
+   * does: "site" only on the site its tab is on now (a session allowed for
+   * this site's steps). A chat set to Auto is `chatMode`.
    */
-  autoApproves?: (tool: string, context?: PermissionContext) => boolean | "site";
+  autoApproves?: (tool: string, context?: PermissionContext) => "site" | false;
+  /**
+   * The chat's mode, read at each call. Auto lets a risky call run without
+   * asking, decided by auto mode, within what `autoCovers` allows.
+   */
+  chatMode?: () => ChatMode;
+  /** Whether the kill switch is thrown: Auto lets nothing through meanwhile. */
+  halted?: () => boolean;
   /** Whether a call allowed on `site` alone sets out for another, so it is asked about instead. */
   leavesSite?: (tool: string, input: Record<string, unknown>, site: string) => boolean;
   /** A picture of what a call would act on, for the approval; base64 JPEG. */
@@ -160,6 +168,39 @@ export function isUndone(result: string): boolean {
 export function approvedResult(result: ToolExecution): ToolExecution {
   const head = result.isError ? "The owner approved this; it ran and failed:" : "The owner approved this, and it ran:";
   return { ...result, content: `${head}\n${result.content}` };
+}
+
+/** How a call auto mode let through reads to the model, so it says it went ahead under Auto. */
+export const AUTO_PREFIX = "Ran under Auto, without asking the owner (this chat is set to Auto; say so when you report it):";
+
+/** A call auto mode let through, said to be so. */
+export function autoResult(result: ToolExecution): ToolExecution {
+  return { ...result, content: `${AUTO_PREFIX}${result.isError ? " it failed." : ""}\n${result.content}` };
+}
+
+/** What a chat's Auto mode is weighed against for one risky call. */
+export interface AutoCall {
+  mode: ChatMode | undefined;
+  assessment: RiskAssessment;
+  /** The owner's own turn in this chat: not a schedule, a guest, a dispatch or a resumed approval. */
+  owner: boolean;
+  /** A tool of the browser's family that asks every time (script in a page, a handoff). */
+  strict: boolean;
+  halted: boolean;
+}
+
+/**
+ * Whether a chat's Auto mode lets a risky call run without asking. Never
+ * with the kill switch thrown, for a turn the owner did not start in this
+ * chat, for what asks every time, for what a rule puts beyond Auto (money,
+ * deleting outside the workspace), or for a session's start unless the
+ * owner let Auto start sessions. Refusals and Stop are settled before this.
+ */
+export function autoCovers(call: AutoCall): boolean {
+  const { mode, assessment } = call;
+  if (mode?.mode !== "auto" || call.halted || !call.owner || call.strict) return false;
+  if (assessment.tier !== "risky" || assessment.asksAlways || assessment.beyondAuto) return false;
+  return !assessment.startsSession || mode.sessions === true;
 }
 
 /**
@@ -427,11 +468,35 @@ export class GuardedTools implements ToolBox {
        * shows it ran as risky.
        */
       const context = this.deps.permissionContext?.(name);
-      const auto = this.deps.autoApproves?.(name, context) ?? false;
-      const ruled = auto !== true && this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true;
+      // A chat set to Auto, for the owner's own turn: decided by auto mode, kept in the Inbox as such, and said to the model.
+      if (autoCovers({ mode: this.deps.chatMode?.(), assessment, owner, strict, halted: this.deps.halted?.() === true })) {
+        const unready = await readyNow();
+        if (unready) return unready;
+        approvals.settled(
+          {
+            tool: name,
+            args: input,
+            riskTier: "risky",
+            reason: assessment.reason ?? "risky tool",
+            ...(userId ? { userId } : {}),
+            ...(conversationId ? { conversationId } : {}),
+            owner,
+            attended,
+            ...(context?.browser?.yours ? { yours: true } : {}),
+          },
+          AUTO_DECIDER,
+        );
+        const ran = await run(name, injectSecrets(input, secrets));
+        audit.record({ tool: name, args: input, result: ran.content, isError: ran.isError, riskTier: "risky", approvedBy: AUTO_DECIDER, ...(userId ? { userId } : {}) });
+        this.deps.onExecuted?.(name, ran);
+        return autoResult(ran);
+      }
+      // What asks every time is covered by no session's yes and no remembered decision either.
+      const always = assessment.asksAlways === true;
+      const yes = !always && (this.deps.autoApproves?.(name, context) === "site" || this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true);
       // A yes kept for a site holds on that site alone: the run checks each step against it, and one setting out elsewhere asks.
-      const bound = auto !== true && (ruled || auto === "site") ? context?.browser?.site : undefined;
-      const allowed = auto === true || ((ruled || auto === "site") && !(bound !== undefined && this.deps.leavesSite?.(name, input, bound) === true));
+      const bound = yes ? context?.browser?.site : undefined;
+      const allowed = yes && !(bound !== undefined && this.deps.leavesSite?.(name, input, bound) === true);
       if (allowed) {
         const unready = await readyNow();
         if (unready) return unready;
@@ -450,7 +515,7 @@ export class GuardedTools implements ToolBox {
       // Named now, while the caller's situation is known: the rule a yes-
       // and-remember would keep, and a picture of the page a browser action
       // is aimed at, which the arguments alone cannot show.
-      const rule = this.deps.permissions?.ruleFor?.(name, input, this.deps.projectSlug?.() ?? null, context);
+      const rule = always ? undefined : this.deps.permissions?.ruleFor?.(name, input, this.deps.projectSlug?.() ?? null, context);
       const picture = await this.deps.pictureFor?.(name, input).catch(() => undefined);
       const site = context?.browser?.site;
       const why = this.deps.whyFor?.(conversationId)?.trim();

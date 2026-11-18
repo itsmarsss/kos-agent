@@ -534,8 +534,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       }
     },
     models: () => panelModels(),
-    auto: (id) => kernel.actsWithoutAsking(id),
-    setAuto: (id, on) => kernel.setActsWithoutAsking(id, on),
+    mode: (id) => kernel.chatMode(id),
+    setMode: (id, mode) => kernel.setChatMode(id, mode),
     // The dashboard's picker, merged rather than replacing: the route's effort and the cheap route stay as they were.
     setModel: async (model) => {
       const saved = parseModelSettings(kernel.settings.get(MODEL_SETTINGS_KEY));

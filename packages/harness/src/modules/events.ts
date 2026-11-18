@@ -11,7 +11,7 @@
  * module reacting to a turn ending must not be able to end the next one.
  */
 
-import type { DashboardTheme } from "@kos/shared";
+import type { ChatMode, DashboardTheme } from "@kos/shared";
 
 import type { KeptFile } from "../kernel/attachments.js";
 import type { MessageFrom } from "../models/types.js";
@@ -63,6 +63,8 @@ export type KernelEvent =
   | { kind: "cron:fired"; jobId: number; name: string; ok: boolean; error: string | null }
   /** The kill switch was thrown or released: whatever runs on its own stops at once. */
   | { kind: "halt:changed"; halted: boolean }
+  /** A chat's mode changed: set on a surface, or Auto ended with its task. */
+  | { kind: "chat:mode"; conversationId: string; mode: ChatMode }
   /** The owner changed KOS's own face: whatever draws KOS draws it again. */
   | { kind: "face:changed" }
   /** The dashboard's theme or the palette it is drawn in changed: every device that follows it draws it. */

@@ -107,6 +107,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   let active: ComputerModule | undefined;
   let unfaced: (() => void) | undefined;
   let unthemed: (() => void) | undefined;
+  let unmoded: (() => void) | undefined;
   let waits: ReturnType<typeof tellWaits> | undefined;
   const sockets = deviceSocketServer(() => (active ? hub : undefined));
   const panel = new DevicePanel(CHROME_PANEL, options.panels.chrome);
@@ -169,6 +170,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       const events = ctx.events;
       unfaced = events?.on("face:changed", () => hub?.tellFace());
       unthemed = events?.on("theme:changed", () => hub?.tellTheme());
+      unmoded = events?.on("chat:mode", (e) => [panel, mac, phone].forEach((p) => p.modeChanged(e.conversationId)));
       waits = events ? tellWaits(events, devices) : undefined;
       active = computerModule({
         hub,
@@ -210,6 +212,8 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
       unfaced = undefined;
       unthemed?.();
       unthemed = undefined;
+      unmoded?.();
+      unmoded = undefined;
       waits?.off();
       waits = undefined;
       panel.attach(undefined);

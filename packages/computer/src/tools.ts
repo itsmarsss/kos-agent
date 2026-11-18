@@ -460,6 +460,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       return device && hub.consentOf(device.id) === "kos" ? "this computer lets KOS start sessions without asking on it" : false;
     },
     why: "uses the computer: sees the screen and moves the pointer and keys",
+    startsSession: true,
   };
 
   /**
@@ -474,6 +475,7 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       return device && hub.consentOf(device.id) === "kos" ? "this Chrome lets KOS start sessions without asking in it" : false;
     },
     why: "works in the owner's own Chrome, signed in as them",
+    startsSession: true,
   };
 
   /**

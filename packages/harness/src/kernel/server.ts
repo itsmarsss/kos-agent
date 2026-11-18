@@ -6,7 +6,7 @@ import { dirname, extname, join, normalize, relative, resolve, sep } from "node:
 import { parseHomeLayout,
   CHAT_COMMANDS,
 } from "@kos/shared";
-import { isExportFormat, outlineOf, stepMechanics, summarizeAction, type WidgetOutline } from "@kos/shared";
+import { isExportFormat, outlineOf, parseChatMode, stepMechanics, summarizeAction, type ChatMode, type WidgetOutline } from "@kos/shared";
 import type { PendingAction } from "../ops/approvals.js";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
@@ -229,8 +229,10 @@ type Activity = "working" | "needs-you" | "error" | "idle";
  */
 function conversationLabeller(
   kernel: Kernel,
-): (c: Conversation) => Conversation & { kind: ConversationKind; activity: Activity; unread: boolean; lastError?: string; queued?: number } {
+): (c: Conversation) => Conversation & { kind: ConversationKind; activity: Activity; unread: boolean; lastError?: string; queued?: number; mode?: ChatMode } {
   const busy = new Set(kernel.busyConversations());
+  // Ask is said by saying nothing: only a chat in Auto carries its mode.
+  const auto = new Set(kernel.modes.autoChats());
   // Messages waiting behind the turn running in each, from any surface:
   // Discord says "queued" on the message itself, and the list says it here.
   const queued = kernel.pending.counts();
@@ -263,6 +265,7 @@ function conversationLabeller(
       ...(activity === "error" ? { lastError: failed.get(c.id) } : {}),
       ...(c.role && faces.has(c.role) ? { face: faces.get(c.role) } : {}),
       ...(queued[c.id] ? { queued: queued[c.id] } : {}),
+      ...(auto.has(c.id) ? { mode: kernel.chatMode(c.id) } : {}),
     };
   };
 }
@@ -2930,6 +2933,15 @@ export async function handleApiRequest(
       );
     }
     return ok(kernel.conversations.configure(id, config));
+  }
+
+  if (method === "POST" && path === "/api/conversations/mode") {
+    const id = typeof body.id === "string" ? body.id : "";
+    const mode = parseChatMode(body.mode);
+    if (!id || !mode) return { status: 400, body: { error: "id and mode required" } };
+    if (!kernel.conversations.get(id)) return { status: 404, body: { error: "conversation not found" } };
+    kernel.setChatMode(id, mode);
+    return ok({ id, mode: kernel.chatMode(id) });
   }
 
   if (method === "POST" && path === "/api/conversations/rename") {

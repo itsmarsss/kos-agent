@@ -1,0 +1,75 @@
+import { ASK, liveMode, parseChatMode, type ChatMode } from "@kos/shared";
+
+import type { SettingsStore } from "../store/settings.js";
+
+/** Each chat's mode, by conversation id; a chat with none is in Ask. */
+export const CHAT_MODES_KEY = "chat.modes";
+/** The chats that acted in the owner's Chrome without asking, before modes: read once, then gone. */
+export const ACTS_ALONE_KEY = "browser.actsAlone";
+
+/**
+ * The mode each chat is in, kept in the owner's settings.
+ *
+ * Only Auto is stored: Ask is the absence of one, so a chat deleted or never
+ * touched costs nothing. Auto that has run out reads as Ask and is dropped
+ * the next time it is read.
+ */
+export class ChatModes {
+  constructor(
+    private readonly settings: Pick<SettingsStore, "get" | "set" | "delete">,
+    private readonly now: () => number = Date.now,
+  ) {
+    this.migrate();
+  }
+
+  /** A chat's mode as it stands now. */
+  of(conversationId: string): ChatMode {
+    const kept = this.all()[conversationId];
+    const live = liveMode(kept, this.now());
+    if (kept && live === ASK) this.set(conversationId, ASK);
+    return live;
+  }
+
+  /** Set a chat's mode; Ask forgets it. */
+  set(conversationId: string, mode: ChatMode): void {
+    const { [conversationId]: _was, ...others } = this.all();
+    this.settings.set(CHAT_MODES_KEY, mode.mode === "auto" ? { ...others, [conversationId]: mode } : others);
+  }
+
+  /** A turn in the chat finished: Auto set for "this task" ends with it. */
+  taskEnded(conversationId: string): boolean {
+    if (this.all()[conversationId]?.until !== "task") return false;
+    this.set(conversationId, ASK);
+    return true;
+  }
+
+  /** The chats in Auto now, by id. */
+  autoChats(): string[] {
+    const now = this.now();
+    return Object.entries(this.all())
+      .filter(([, mode]) => liveMode(mode, now).mode === "auto")
+      .map(([id]) => id);
+  }
+
+  private all(): Record<string, ChatMode> {
+    const saved = this.settings.get<Record<string, unknown>>(CHAT_MODES_KEY);
+    if (typeof saved !== "object" || saved === null || Array.isArray(saved)) return {};
+    const modes: Record<string, ChatMode> = {};
+    for (const [id, raw] of Object.entries(saved)) {
+      const mode = parseChatMode(raw);
+      if (mode?.mode === "auto") modes[id] = mode;
+    }
+    return modes;
+  }
+
+  /** A chat that acted alone in the owner's Chrome is in Auto, which now covers that and more of the chat. */
+  private migrate(): void {
+    const old = this.settings.get<unknown>(ACTS_ALONE_KEY);
+    if (old === undefined) return;
+    const ids = Array.isArray(old) ? old.filter((id): id is string => typeof id === "string") : [];
+    const modes = this.all();
+    for (const id of ids) modes[id] ??= { mode: "auto" };
+    this.settings.set(CHAT_MODES_KEY, modes);
+    this.settings.delete(ACTS_ALONE_KEY);
+  }
+}

@@ -119,6 +119,7 @@ describe("a Chrome paired through the extension", () => {
     expect(escalate({ task: "t" })).toBe(false);
     fake.send({ t: "state", consent: "kos" });
     expect(escalate({ task: "t" })).toMatch(/without asking/);
+    expect(risks.get("chrome.start")!.startsSession).toBe(true);
   });
 
   it("is offered chrome.start, not the computer's tools, and computer.start sends a Chrome there", async () => {

@@ -14,6 +14,7 @@ import type { PermissionContext } from "../ops/permissions.js";
 import { FrameStore } from "../ops/frames.js";
 import { SeenPages } from "./seen.js";
 import { toolUse } from "./caller.js";
+import { ChatModes } from "./chatmodes.js";
 
 /** KOS's browser tools: they act on the caller's tab and share its site trust. */
 const BROWSER_PREFIX = "browser.";
@@ -139,7 +140,7 @@ import { originOf } from "./origin.js";
 import type { HeardWords, OwnerWords } from "../models/heard.js";
 import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
-import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type HtmlPage, type ThemeMode } from "@kos/shared";
+import { ASK, UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type ChatMode, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type HtmlPage, type ThemeMode } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { assertFits, attachmentBlocks, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -313,9 +314,6 @@ export function surfaceSessionId(channel: string, ownerId = "owner"): string {
  * work when the work is small and hands it on when it belongs somewhere
  * else. The chats tools are granted for exactly that second case.
  */
-/** The chats that act in the owner's Chrome without asking, by id. */
-const ACTS_ALONE_KEY = "browser.actsAlone";
-
 const SURFACE_BRIEF = [
   "This is the owner's continuous stream on this surface. Everything they say here arrives in this one thread, and everything you say goes back to them there.",
   "You have the full toolkit, so do small things here rather than making a conversation for each one.",
@@ -496,6 +494,8 @@ export class Kernel {
   /** Decisions the owner has made before, so the same shape stops asking. */
   readonly permissions: PermissionStore;
   readonly settings: SettingsStore;
+  /** Each chat's mode: Ask, or Auto within its bounds. */
+  readonly modes: ChatModes;
   readonly memoryWriter: MemoryWriter;
   readonly memoryRetriever: MemoryRetriever;
 
@@ -829,6 +829,7 @@ export class Kernel {
       inference: args.inference,
     });
     this.settings = args.settings;
+    this.modes = new ChatModes(args.settings);
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
     this.inference = args.inference;
@@ -1963,6 +1964,8 @@ export class Kernel {
     this.bus.emit({ kind: "turn:end", conversationId: sessionId, projectSlug: this.projectOf(sessionId) });
     // News that arrived while the transcript was being written goes in now, once no turn there is still writing it.
     if (!this.stops.has(sessionId)) this.releaseNotes(sessionId);
+    // Auto set for this task ends with the chat's last turn.
+    if (!this.stops.has(sessionId) && this.modes.taskEnded(sessionId)) this.bus.emit({ kind: "chat:mode", conversationId: sessionId, mode: ASK });
   }
 
   /** The lines held for a chat, written now and no longer kept. */
@@ -3805,7 +3808,9 @@ export class Kernel {
       permissionContext: (tool) => this.browserContext(tool, opts.conversationId),
       prepare: (tool) => this.readyBrowser(tool, opts.conversationId, opts.signal),
       ...(opts.heard ? { heard: opts.heard } : {}),
-      autoApproves: (tool, context) => (opts.conversationId !== undefined && actsInYourChrome(tool, context) ? this.actsAloneOn(opts.conversationId, context?.browser?.site) : false),
+      chatMode: () => (opts.conversationId ? this.modes.of(opts.conversationId) : ASK),
+      halted: () => this.killSwitch.halted,
+      autoApproves: (tool, context) => (opts.conversationId !== undefined && actsInYourChrome(tool, context) ? this.sessionAllows(opts.conversationId, context?.browser?.site) : false),
       leavesSite: (tool, input, site) => tool.startsWith(BROWSER_PREFIX) && opensElsewhere(input, site),
       pictureFor: (tool) => this.browserPicture(tool, opts.conversationId),
       running: (tool) => (opts.conversationId && tool.startsWith(BROWSER_PREFIX) ? this.seen.run(opts.conversationId) : undefined),
@@ -4094,36 +4099,24 @@ export class Kernel {
    * What a browser action's permission turns on: the browser's tool family,
    * the site the caller's tab is on, and the tools never trusted by site.
    */
-  /**
-   * Chats the owner set, from the Chrome side panel, to act in their Chrome
-   * without asking each step. Clicking, typing and going somewhere there run
-   * as a remembered decision does; the strict tools, and everything outside
-   * the owner's Chrome, ask as before. The border, Take over and Stop still
-   * show, and the session is still the owner's to allow.
-   */
-  actsWithoutAsking(conversationId: string): boolean {
-    return this.chatsActingAlone().includes(conversationId);
+  /** A chat's mode as it stands now. */
+  chatMode(conversationId: string): ChatMode {
+    return this.modes.of(conversationId);
+  }
+
+  /** Set a chat's mode from any surface, and tell the others. */
+  setChatMode(conversationId: string, mode: ChatMode): void {
+    this.modes.set(conversationId, mode);
+    this.bus.emit({ kind: "chat:mode", conversationId, mode: this.modes.of(conversationId) });
   }
 
   /**
-   * Whether a chat acts in the owner's Chrome without asking each step:
-   * anywhere when the chat is set to Auto, "site" when the owner allowed its
-   * session with this site's steps unasked, which holds on this site alone.
-   * The strict tools ask either way.
+   * Whether the owner allowed a chat's session in their Chrome with this
+   * site's steps unasked: "site", which holds on this site alone. The strict
+   * tools ask either way.
    */
-  private actsAloneOn(conversationId: string, site: string | undefined): boolean | "site" {
-    if (this.actsWithoutAsking(conversationId)) return true;
+  private sessionAllows(conversationId: string, site: string | undefined): "site" | false {
     return site !== undefined && this.away(conversationId)?.actsAlone?.(conversationId, site) === true ? "site" : false;
-  }
-
-  setActsWithoutAsking(conversationId: string, on: boolean): void {
-    const others = this.chatsActingAlone().filter((id) => id !== conversationId);
-    this.settings.set(ACTS_ALONE_KEY, on ? [...others, conversationId] : others);
-  }
-
-  private chatsActingAlone(): string[] {
-    const saved = this.settings.get(ACTS_ALONE_KEY);
-    return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : [];
   }
 
   private browserContext(tool: string, conversationId?: string): PermissionContext | undefined {
