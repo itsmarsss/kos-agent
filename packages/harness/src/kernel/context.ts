@@ -1,3 +1,5 @@
+import { BLOCKS_GUIDANCE } from "@kos/shared";
+
 import type { ModelMessage } from "../models/types.js";
 import type { Project } from "../systems/manifest.js";
 import { renderSchemas, type ProjectSchema } from "../systems/schema.js";
@@ -70,9 +72,10 @@ export const TURN_CONTEXT_HEADER = "## Recalled for this turn";
 
 /** Build the system prompt block for one agent turn. */
 export function assembleSystemPrompt(parts: ContextParts): AssembledPrompt {
-  // The voice and how KOS acts for the owner come second, before anything
-  // about the workspace: every surface and both engines share them.
-  const sections: string[] = [parts.baseSystem.trim(), VOICE, ACTING];
+  // The voice, how KOS acts for the owner and how it writes a draft come
+  // second, before anything about the workspace: every surface and both
+  // engines share them.
+  const sections: string[] = [parts.baseSystem.trim(), VOICE, ACTING, BLOCKS_GUIDANCE];
 
   sections.push(
     [

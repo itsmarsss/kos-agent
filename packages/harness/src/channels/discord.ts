@@ -22,7 +22,7 @@ import {
   type TextChannel,
   type Webhook,
 } from "discord.js";
-import { CHANNEL_TOKEN, detailLines, stepActions, summarizeAction, withUnixTimes } from "@kos/shared";
+import { blocksToText, CHANNEL_TOKEN, detailLines, stepActions, summarizeAction, withUnixTimes } from "@kos/shared";
 
 import { isReadable, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, ChannelRef, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
@@ -2805,12 +2805,12 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   /**
-   * Words as Discord takes them: times on the reader's clock, references as
-   * links, tables as padded code, a channel named by name as the channel
-   * itself, no previews.
+   * Words as Discord takes them: typed blocks in plain words, times on the
+   * reader's clock, references as links, tables as padded code, a channel
+   * named by name as the channel itself, no previews.
    */
   private words(text: string): string {
-    return noPreviews(linkMentions(this.memberMentions(this.blobMentions(this.channelMentions(tablesToCode(withTimes(text, this.timezone))))), this.dashboardUrl, this.labelOf));
+    return noPreviews(linkMentions(this.memberMentions(this.blobMentions(this.channelMentions(tablesToCode(withTimes(blocksToText(text), this.timezone))))), this.dashboardUrl, this.labelOf));
   }
 
   /**
