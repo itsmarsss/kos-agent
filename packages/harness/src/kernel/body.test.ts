@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Inference } from "../agent/loop.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Kernel } from "./kernel.js";
-import { BODY_MAX, FILES_BODY_MAX, createDashboardServer } from "./server.js";
+import { BODY_MAX, FILES_BODY_MAX, SMS_BODY_MAX, createDashboardServer } from "./server.js";
 
 const stub: Inference = {
   async generate() {
@@ -38,7 +38,7 @@ describe("what a request may send", () => {
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "kos-body-"));
     kernel = await Kernel.boot({ rootDir: join(root, "ws"), secrets: new SecretsRegistry(), inference: stub, chrome: { port: 1, exists: () => false } });
-    server = createDashboardServer(kernel, { token: "secret" });
+    server = createDashboardServer(kernel, { token: "secret", smsInbound: async () => true });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     port = (server.address() as AddressInfo).port;
   });
@@ -79,6 +79,20 @@ describe("what a request may send", () => {
       pump(BODY_MAX / chunk.byteLength + 64);
     });
     expect([413, "EPIPE", "ECONNRESET"]).toContain(sent);
+  });
+
+  it("answers another site's page asking a change before reading what it sends, token or none", async () => {
+    const res = await begin(port, "/api/message", { "content-length": 400 * 1024 * 1024, "x-kos-token": "secret", origin: "https://elsewhere.example" });
+    res.sent();
+    expect(res.status).toBe(403);
+  });
+
+  it("takes at most 64 KB from the text message webhook", async () => {
+    const res = await begin(port, "/api/sms/inbound", { "content-length": SMS_BODY_MAX + 1, "content-type": "application/x-www-form-urlencoded" }, "Body=");
+    res.sent();
+    expect(res.status).toBe(413);
+    const small = await fetch(`http://127.0.0.1:${port}/api/sms/inbound`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "Body=hi" });
+    expect(small.status).toBe(200);
   });
 
   it("reads a body with the token, as the dashboard sends it", async () => {
