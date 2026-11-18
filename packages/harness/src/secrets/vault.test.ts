@@ -1,6 +1,8 @@
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -350,12 +352,31 @@ describe("Vault keys and files", () => {
     writeFileSync(join(dir, "vault.lock"), "999999999\n");
     vault.add({ label: "After a stale lock", kind: "note", values: { text: "written anyway" } });
     expect(existsSync(join(dir, "vault.lock"))).toBe(false);
-    writeFileSync(join(dir, "vault.lock"), `${process.pid}\n`);
-    const start = Date.now();
-    expect(() => vault.add({ label: "Held", kind: "note", values: { text: "never written" } })).toThrow(/another KOS process/);
-    expect(Date.now() - start).toBeGreaterThanOrEqual(4_000);
-    rmSync(join(dir, "vault.lock"));
-  }, 20_000);
+    for (const held of [`${process.pid}\n`, ""]) {
+      // A live holder, and one whose lock does not read yet: both waited for.
+      writeFileSync(join(dir, "vault.lock"), held);
+      const start = Date.now();
+      expect(() => vault.add({ label: "Held", kind: "note", values: { text: "never written" } })).toThrow(/another KOS process/);
+      expect(Date.now() - start).toBeGreaterThanOrEqual(4_000);
+      rmSync(join(dir, "vault.lock"));
+    }
+  }, 30_000);
+
+  it("keeps every change when two processes write at once", async () => {
+    const vault = await twoSecrets();
+    const built = fileURLToPath(new URL("../../dist/secrets/vault.js", import.meta.url));
+    const script = `import { Vault } from ${JSON.stringify(built)}; const v = new Vault({ dir: ${JSON.stringify(dir)} }); for (let i = 0; i < 15; i++) v.add({ label: "child " + i, kind: "note", values: { text: "from the child process " + i } });`;
+    const child = spawn(process.execPath, ["--input-type=module", "-e", script], { stdio: ["ignore", "ignore", "pipe"] });
+    let err = "";
+    child.stderr.on("data", (d: Buffer) => (err += d.toString()));
+    const done = new Promise<number>((resolve) => child.on("exit", (code) => resolve(code ?? 1)));
+    for (let i = 0; i < 15; i++) {
+      vault.add({ label: `parent ${i}`, kind: "note", values: { text: `from the parent process ${i}` } });
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(await done, err).toBe(0);
+    expect(vaultAt().list()).toHaveLength(32);
+  }, 30_000);
 });
 
 describe("Vault tamper checks", () => {

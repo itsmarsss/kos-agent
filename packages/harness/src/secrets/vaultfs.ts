@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { closeSync, constants, copyFileSync, existsSync, fstatSync, fsyncSync, lstatSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants, copyFileSync, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeSync } from "node:fs";
 
 /**
  * The vault's files on disk: read only when they are KOS's own and private,
@@ -163,25 +163,31 @@ function alive(pid: number): boolean {
 
 /**
  * Hold `path` while `run` reads the vault and writes it back, so the host
- * and the CLI never interleave a change. A lock whose process is gone, or
- * that is too old, is taken over.
+ * and the CLI never interleave a change. The lock is made whole before it
+ * appears: the pid goes into a file of this process's own, which is then
+ * linked into place, so no one ever reads a lock half written. A lock whose
+ * process is gone is taken over; one whose content does not read is taken
+ * as live until it is older than the stale limit.
  */
 export function withFileLock<T>(path: string, run: () => T, now: () => number = Date.now): T {
   const until = now() + LOCK_WAIT_MS;
-  let fd: number | undefined;
-  while (fd === undefined) {
-    try {
-      fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-      let stale = false;
+  const mine = `${path}.${process.pid}.${randomBytes(4).toString("hex")}`;
+  const fd = openSync(mine, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  try {
+    writeSync(fd, `${process.pid}\n`);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  try {
+    for (;;) {
       try {
-        const pid = Number(readFileSync(path, "utf8").trim());
-        stale = !Number.isInteger(pid) || pid <= 0 || !alive(pid) || now() - statSync(path).mtimeMs > LOCK_STALE_MS;
-      } catch {
-        stale = false;
+        linkSync(mine, path);
+        break;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
       }
-      if (stale) {
+      if (stale(path, now)) {
         try {
           unlinkSync(path);
         } catch {
@@ -192,10 +198,10 @@ export function withFileLock<T>(path: string, run: () => T, now: () => number = 
       if (now() > until) throw new VaultFsError("another KOS process is changing the vault; try again in a moment");
       pause(20);
     }
+  } finally {
+    unlinkSync(mine);
   }
   try {
-    writeSync(fd, `${process.pid}\n`);
-    closeSync(fd);
     return run();
   } finally {
     try {
@@ -204,4 +210,22 @@ export function withFileLock<T>(path: string, run: () => T, now: () => number = 
       // Gone already.
     }
   }
+}
+
+/** Whether a lock was left by a process that is gone, or has sat past the stale limit. */
+function stale(path: string, now: () => number): boolean {
+  let age: number;
+  try {
+    age = now() - statSync(path).mtimeMs;
+  } catch {
+    return false;
+  }
+  if (age > LOCK_STALE_MS) return true;
+  let pid = Number.NaN;
+  try {
+    pid = Number(readFileSync(path, "utf8").trim());
+  } catch {
+    return false;
+  }
+  return Number.isInteger(pid) && pid > 0 && !alive(pid);
 }
