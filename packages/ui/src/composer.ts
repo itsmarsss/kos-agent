@@ -1,5 +1,10 @@
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
 
+/** The composer after a send that failed: the words back, unless the owner has typed something new since. */
+export function backInComposer(now: string, sent: string): string {
+  return now.trim() ? now : sent;
+}
+
 /**
  * Enter sends, Shift+Enter starts a new line.
  *

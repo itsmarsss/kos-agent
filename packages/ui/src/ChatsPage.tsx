@@ -77,7 +77,7 @@ import { ChatConfig } from "./ChatConfig.js";
 import { Modal } from "./Modal.js";
 import { HandoffForm } from "./HandoffForm.js";
 import { hrefFor } from "./routes.js";
-import { composerKeyDown, useAutoGrow, useStickToBottom } from "./composer.js";
+import { backInComposer, composerKeyDown, useAutoGrow, useStickToBottom } from "./composer.js";
 
 /**
  * The chats page: a list that stays usable at fifty conversations, and the
@@ -982,26 +982,21 @@ export function ChatsPage({
         : null;
     if (aside) setAsides((a) => [...a, aside]);
     else setSendingIn(target);
-    if (!looksLikeCommand && !aside) {
-      setEvents((e) => [
-        ...e,
-        {
-          kind: "message",
-          role: "you",
-          text,
-          ...(files.length
-            ? {
-                attachments: files.map((f) => ({
-                  name: f.name,
-                  ...(f.mediaType.startsWith("image/")
-                    ? { src: `data:${f.mediaType};base64,${f.data}` }
-                    : {}),
-                })),
-              }
-            : {}),
-        },
-      ]);
-    }
+    // Kept by reference, so a send that fails takes back just this bubble.
+    const bubble: ChatEvent = {
+      kind: "message",
+      role: "you",
+      text,
+      ...(files.length
+        ? {
+            attachments: files.map((f) => ({
+              name: f.name,
+              ...(f.mediaType.startsWith("image/") ? { src: `data:${f.mediaType};base64,${f.data}` } : {}),
+            })),
+          }
+        : {}),
+    };
+    if (!looksLikeCommand && !aside) setEvents((e) => [...e, bubble]);
     setDraft("");
     attachments.clear();
 
@@ -1045,7 +1040,10 @@ export function ChatsPage({
       onChanged();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setEvents((e) => [...e, { kind: "message", role: "kos", text: `Error: ${msg}` }]);
+      // Not sent: the words and files go back in the composer to send again, and the bubble that said they went is taken back.
+      setEvents((e) => [...e.filter((x) => x !== bubble), { kind: "message", role: "kos", text: `Error: ${msg}` }]);
+      setDraft((d) => backInComposer(d, text));
+      attachments.restore(files);
     } finally {
       if (aside) setAsides((a) => a.filter((x) => x !== aside));
       else setSendingIn((id) => (id === target ? null : id));
