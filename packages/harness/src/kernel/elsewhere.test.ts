@@ -125,6 +125,8 @@ describe("a browser call from the side panel's chat", () => {
     const turn = kernel.handleMessage("go to the cart");
     await new Promise((r) => setTimeout(r, 60));
     expect(kernel.approvals.pending().length > 0).toBe(asks);
+    // Stamped as it was raised: in the owner's Chrome, so KOS's window stays shut for it.
+    if (asks) expect(kernel.approvals.pending()[0]?.yours).toBe(true);
     kernel.stop("chat:owner");
     await turn;
   });

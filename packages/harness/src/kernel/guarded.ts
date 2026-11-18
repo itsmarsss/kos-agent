@@ -471,6 +471,7 @@ export class GuardedTools implements ToolBox {
         attended,
         ...(guest ? { guest } : {}),
         waits: this.deps.waitForApproval !== false,
+        ...(context?.browser?.yours ? { yours: true } : {}),
       });
       this.deps.onQueued?.(action);
 
