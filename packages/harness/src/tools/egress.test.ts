@@ -34,8 +34,17 @@ describe("where http.fetch may not go", () => {
     expect(refusedUrl("https://kos.example.com./x", ["kos.example.com"])).toMatch(/KOS itself/);
   });
 
+  it("leaves out an entry whose bits do not read, saying so once", () => {
+    const said: string[] = [];
+    const allow = parseLanAllow("10.0.0.5/:80, 10.0.0.5/33:80, x/33:80, 10.0.0.0/8/1:80, ::1/129:80, 10.0.0.6/32:80", [], (e) => void said.push(e));
+    expect(said).toEqual(["10.0.0.5/:80", "10.0.0.5/33:80", "x/33:80", "10.0.0.0/8/1:80", "::1/129:80"]);
+    expect(allow.nets).toHaveLength(1);
+    expect(lanAllows(allow, "10.0.0.5", 80)).toBe(false);
+    expect(lanAllows(allow, "10.0.0.6", 80)).toBe(true);
+  });
+
   it("reaches only the places the owner listed on their network, never KOS's ports, loopback port by port", async () => {
-    const allow = parseLanAllow("192.168.1.0/24:8123, nas.local:5000, loopback:8080, 10.0.0.9:4317, junk", [4317, 4318]);
+    const allow = parseLanAllow("192.168.1.0/24:8123, nas.local:5000, loopback:8080, 10.0.0.9:4317, junk", [4317, 4318], () => undefined);
     expect(lanAllows(allow, "192.168.1.40", 8123)).toBe(true);
     expect(lanAllows(allow, "192.168.1.40", 8124)).toBe(false);
     expect(lanAllows(allow, "192.168.2.40", 8123)).toBe(false);

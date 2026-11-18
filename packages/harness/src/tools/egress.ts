@@ -80,31 +80,49 @@ export interface LanAllow {
 }
 
 /** The owner's list, read: "192.168.1.0/24:8123, nas.local:5000, loopback:8080". An entry that does not read is left out. */
-export function parseLanAllow(raw: string | undefined, kos: readonly number[] = []): LanAllow {
+export function parseLanAllow(raw: string | undefined, kos: readonly number[] = [], warn: (entry: string) => void = warnOnce): LanAllow {
   const allow: LanAllow = { nets: [], names: [], loopback: new Set(), kos };
   for (const entry of (raw ?? "").split(/[,\s]+/).filter(Boolean)) {
-    const m = /^(.+):(\d{1,5})$/.exec(entry.trim());
-    if (!m) continue;
-    const target = m[1]!.replace(/^\[|\]$/g, "").toLowerCase();
-    const port = Number(m[2]);
-    if (port < 1 || port > 65_535) continue;
-    if (target === "loopback") {
-      allow.loopback.add(port);
-      continue;
-    }
-    const [net, bits] = target.split("/");
-    const family = isIP(net ?? "");
-    if (family) {
-      const list = new BlockList();
-      const type = family === 4 ? "ipv4" : "ipv6";
-      if (bits !== undefined) list.addSubnet(net!, Number(bits), type);
-      else list.addAddress(net!, type);
-      allow.nets.push({ list, port });
-    } else if (/^[a-z0-9.-]+$/.test(target)) {
-      allow.names.push({ name: target.replace(/\.$/, ""), port });
-    }
+    if (!takeLanEntry(allow, entry.trim())) warn(entry);
   }
   return allow;
+}
+
+/** One entry of the owner's list into `allow`; false for one that does not read, which is left out. */
+function takeLanEntry(allow: LanAllow, entry: string): boolean {
+  const m = /^(.+):(\d{1,5})$/.exec(entry);
+  if (!m) return false;
+  const target = m[1]!.replace(/^\[|\]$/g, "").toLowerCase();
+  const port = Number(m[2]);
+  if (port < 1 || port > 65_535) return false;
+  if (target === "loopback") {
+    allow.loopback.add(port);
+    return true;
+  }
+  const [net, bits, extra] = target.split("/");
+  const family = isIP(net ?? "");
+  if (family) {
+    const max = family === 4 ? 32 : 128;
+    // Bits are a whole number in range, or the entry is not one: "10.0.0.5/" and "x/33" are left out, not read as wider.
+    if (extra !== undefined || (bits !== undefined && (!/^\d+$/.test(bits) || Number(bits) > max))) return false;
+    const list = new BlockList();
+    const type = family === 4 ? "ipv4" : "ipv6";
+    if (bits !== undefined) list.addSubnet(net!, Number(bits), type);
+    else list.addAddress(net!, type);
+    allow.nets.push({ list, port });
+    return true;
+  }
+  if (bits !== undefined || !/^[a-z0-9.-]+$/.test(target)) return false;
+  allow.names.push({ name: target.replace(/\.$/, ""), port });
+  return true;
+}
+
+/** Entries of KOS_FETCH_LAN already said to be unreadable, so the log says each once. */
+const warned = new Set<string>();
+function warnOnce(entry: string): void {
+  if (warned.has(entry)) return;
+  warned.add(entry);
+  console.warn(`[http] KOS_FETCH_LAN: "${entry}" is not host:port, address:port, CIDR:port or loopback:port; left out`);
 }
 
 /** Whether the owner's list lets a fetch reach this local address at this port: never loopback unless opted in, never KOS. */
