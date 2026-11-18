@@ -13,20 +13,28 @@
 /** A pause this long or longer between two messages puts the time over the second. */
 export const GAP_MS = 15 * 60_000;
 
+/** How far ahead of the reader's clock a time may be and still be read as now. */
+const AHEAD_MS = 60 * 60_000;
+
 /** A quiet line between messages: the day where it changes, the time after a pause. */
 export type TimeMark = { kind: "day"; at: number } | { kind: "gap"; at: number };
 
-/** One reader of the calendar per zone: a long chat asks for every message's day on each draw. */
-const calendars = new Map<string, Intl.DateTimeFormat>();
+/** Each formatter made once per locale, zone and shape: a long chat asks for every message's day and time on each draw. */
+const formatters = new Map<string, Intl.DateTimeFormat | Intl.RelativeTimeFormat>();
+
+function kept<T extends Intl.DateTimeFormat | Intl.RelativeTimeFormat>(key: string, make: () => T): T {
+  let made = formatters.get(key) as T | undefined;
+  if (!made) {
+    made = make();
+    formatters.set(key, made);
+  }
+  return made;
+}
+
+const zoned = (timeZone?: string): { timeZone?: string } => (timeZone ? { timeZone } : {});
 
 function calendarIn(timeZone?: string): Intl.DateTimeFormat {
-  const key = timeZone ?? "";
-  let calendar = calendars.get(key);
-  if (!calendar) {
-    calendar = new Intl.DateTimeFormat("en-US", { ...(timeZone ? { timeZone } : {}), year: "numeric", month: "numeric", day: "numeric" });
-    calendars.set(key, calendar);
-  }
-  return calendar;
+  return kept(`calendar|${timeZone ?? ""}`, () => new Intl.DateTimeFormat("en-US", { ...zoned(timeZone), year: "numeric", month: "numeric", day: "numeric" }));
 }
 
 /** The calendar day an instant falls on in a zone, as days since 1970; the reader's zone without one. */
@@ -68,22 +76,23 @@ function capitalised(word: string, locale?: string): string {
  * year before that, each in the reader's locale.
  */
 export function dayWords(ms: number, now = Date.now(), locale?: string, timeZone?: string): string {
-  const ago = dayNumber(now, timeZone) - dayNumber(ms, timeZone);
-  const zone = timeZone ? { timeZone } : {};
-  if (ago === 0 || ago === 1) return capitalised(new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-ago, "day"), locale);
+  // A clock a little ahead of the reader's (another machine's) is still now.
+  const when = ms > now && ms - now < AHEAD_MS ? now : ms;
+  const ago = dayNumber(now, timeZone) - dayNumber(when, timeZone);
+  if (ago === 0 || ago === 1) {
+    const words = kept(`relative|${locale ?? ""}`, () => new Intl.RelativeTimeFormat(locale, { numeric: "auto" }));
+    return capitalised(words.format(-ago, "day"), locale);
+  }
   const recent = ago > 1 && ago < 7;
-  return new Intl.DateTimeFormat(locale, {
-    ...zone,
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    ...(recent ? {} : { year: "numeric" }),
-  }).format(new Date(ms));
+  const date = kept(`date|${recent ? "week" : "year"}|${locale ?? ""}|${timeZone ?? ""}`, () =>
+    new Intl.DateTimeFormat(locale, { ...zoned(timeZone), weekday: "short", month: "short", day: "numeric", ...(recent ? {} : { year: "numeric" }) }),
+  );
+  return date.format(new Date(when));
 }
 
 /** A message's time on the reader's clock, hours and minutes: "9:41 AM", "21:41". */
 export function clockWords(ms: number, locale?: string, timeZone?: string): string {
-  return new Intl.DateTimeFormat(locale, { ...(timeZone ? { timeZone } : {}), timeStyle: "short" }).format(new Date(ms));
+  return kept(`clock|${locale ?? ""}|${timeZone ?? ""}`, () => new Intl.DateTimeFormat(locale, { ...zoned(timeZone), timeStyle: "short" })).format(new Date(ms));
 }
 
 /** What a mark says: the day's words, or the time after a pause. */

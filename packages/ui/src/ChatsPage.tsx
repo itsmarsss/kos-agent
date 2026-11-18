@@ -60,7 +60,8 @@ import {
 } from "./Autocomplete.js";
 import { Thinking } from "./Thinking.js";
 import { MessageEditor } from "./MessageActions.js";
-import { MessageTurn } from "./MessageTurn.js";
+import { MessageTurn, type TurnAction } from "./MessageTurn.js";
+import { useStable } from "./stable.js";
 
 import {
   clearProgress,
@@ -531,10 +532,10 @@ export function ChatsPage({
   /** The owner's words a running turn is for, said somewhere else and not yet in the transcript. */
   const liveSaid = live?.said && !visible.some((e) => e.kind === "message" && e.role === "you" && e.text === live.said) ? live.said : undefined;
   /** The day and pause lines over the messages, and over those words, from when each was said. */
-  const marks = timeMarks([
-    ...visible.map((e) => (e.kind === "message" ? e.at : undefined)),
-    liveSaid && live && !live.resumed ? live.since : undefined,
-  ]);
+  const times = [...visible.map((e) => (e.kind === "message" ? e.at : undefined)), liveSaid && live && !live.resumed ? live.since : undefined];
+  // Worked out again only when a time changes, not on every stream tick.
+  const timesKey = times.join(",");
+  const marks = useMemo(() => timeMarks(times), [timesKey]);
   const liveMark = marks[visible.length];
 
   /**
@@ -1290,7 +1291,14 @@ export function ChatsPage({
   };
 
   // What a typed block in KOS's words may do here: name a tool this KOS has, and say so to KOS in this chat.
-  const blockActions: BlockActions = { tools: toolNames, ask: (text) => void send(text) };
+  const ask = useStable((text: string) => void send(text));
+  const blockActions: BlockActions = useMemo(() => ({ tools: toolNames, ask }), [toolNames, ask]);
+  const linkFor = useStable(roomLink);
+  /** What the owner does to one of their turns: one handler for every message, so a message redraws only when it changes. */
+  const onTurn = useStable((what: TurnAction, turn: number) => {
+    if (what === "edit") setEditingIndex(turn);
+    else rewind(turn, what === "fork" ? { forkTitle: "" } : {});
+  });
 
   const renderEvent = (e: ChatEvent, i: number, turn: number): ReactElement => {
     if (e.kind === "tool") {
@@ -1328,20 +1336,7 @@ export function ChatsPage({
     }
 
     return (
-      <MessageTurn
-        key={i}
-        event={e}
-        actions={blockActions}
-        linkFor={roomLink}
-        busy={rewinding}
-        {...(turn >= 0
-          ? {
-              onEdit: () => setEditingIndex(turn),
-              onRetry: () => rewind(turn),
-              onFork: () => rewind(turn, { forkTitle: "" }),
-            }
-          : {})}
-      />
+      <MessageTurn key={i} event={e} turn={turn} actions={blockActions} linkFor={linkFor} busy={rewinding} onTurn={onTurn} />
     );
   };
 

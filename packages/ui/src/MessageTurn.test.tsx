@@ -11,7 +11,7 @@ const actions = { tools: [], ask: () => undefined };
 const spaced = (s: string | null | undefined): string => (s ?? "").replace(/\s/g, " ");
 
 function turn(event: Extract<ChatEvent, { kind: "message" }>): HTMLElement {
-  render(<MessageTurn event={event} actions={actions} linkFor={undefined} busy={false} />);
+  render(<MessageTurn event={event} turn={-1} actions={actions} linkFor={undefined} busy={false} onTurn={() => undefined} />);
   return document.querySelector<HTMLElement>(".turn")!;
 }
 

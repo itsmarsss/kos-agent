@@ -2,7 +2,7 @@ import { KOS_SEED, timeMarks } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
 import { AskSteps, BoltIcon, ChevronDown, Chips, Collapse, ComposeIcon, Countdown, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, MessageTime, PageIcon, Pill, QuoteLine, SendIcon, spring, StepPicture, StepsIcon, StopIcon, TimeLine, type Tone, useDismiss, useOverlayScroll, useTimeReveal, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
 
 import { asked, DONE, EMPTY, FAILED, givenBack, isCommand, isShown, PANEL_COMMANDS, sent, shown, statused, STEP, storyStep, yourWords, type Approval, type Chat, type Extra, type Line, type Quote, type Step } from "./chat.js";
@@ -623,7 +623,10 @@ function Thread({
     chat.extras.forEach((x, i) => (placed(x) === n ? items.push(<Extra key={`x${i}`} extra={x} />) : undefined));
   };
   // The day where it changes and the time after a pause, over the line they are about.
-  const marks = timeMarks(chat.lines.map((line) => (line.role === "steps" ? undefined : line.at)));
+  const times = chat.lines.map((line) => (line.role === "steps" ? undefined : line.at));
+  // Worked out again only when a time changes, not on every step a turn tells.
+  const timesKey = times.join(",");
+  const marks = useMemo(() => timeMarks(times), [timesKey]);
   chat.lines.forEach((line, i) => {
     if (line.role === "you") {
       if (seen > 0 || i > 0) after(seen);

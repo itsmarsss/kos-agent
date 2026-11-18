@@ -60,6 +60,12 @@ describe("what the lines say", () => {
     expect(dayWords(at("2025-12-31T12:00:00-05:00"), now, "en-US", NY)).toBe("Wed, Dec 31, 2025");
   });
 
+  it("reads a time a little ahead of the reader's clock as today, even across midnight", () => {
+    const late = at("2026-11-18T23:59:00-05:00");
+    expect(dayWords(late + 5 * 60_000, late, "en-US", NY)).toBe("Today");
+    expect(dayWords(late + 3 * 3_600_000, late, "en-US", NY)).toBe("Thu, Nov 19, 2026");
+  });
+
   it("says them in the reader's locale", () => {
     expect(dayWords(at("2026-11-18T09:00:00-05:00"), now, "fr-FR", NY)).toBe("Aujourd’hui");
     expect(dayWords(at("2026-11-17T09:00:00-05:00"), now, "de-DE", NY)).toBe("Gestern");
