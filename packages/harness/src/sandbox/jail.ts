@@ -26,6 +26,8 @@ export interface JailOptions {
   writes?: string[];
   /** Under the workspace yet not to be read: KOS's own state, for a program that runs without asking. */
   hidden?: string[];
+  /** Under the workspace yet not to be written: KOS's own settings and database, whatever path, glob or link names them. */
+  readOnly?: string[];
   /** Readable although under a denied home: an interpreter's own libraries. */
   reads?: string[];
   /** False for a program that must not reach the network. */
@@ -58,7 +60,7 @@ function subpaths(paths: string[]): string {
  * workspace (or the folders named), then the home directories denied for
  * reading except the workspace, which may itself be under one, then what is
  * hidden inside the workspace, then the writable folders carved back out of
- * that. A later rule wins over an earlier one, which is what lets the
+ * that, then what is read-only inside it. A later rule wins over an earlier one, which is what lets the
  * workspace be carved back out of a denied home. No temp tree is opened up:
  * the child's TMPDIR is inside the workspace, and a program that insists on
  * /tmp fails where it can be seen.
@@ -77,6 +79,7 @@ export function sandboxProfile(options: JailOptions): string {
     `(allow file-read* ${[ws, ...(options.reads?.length ? [subpaths(options.reads)] : [])].join(" ")})`,
     ...(options.hidden?.length ? [`(deny file-read* ${subpaths(options.hidden)})`] : []),
     ...(options.writes?.length ? [`(allow file-read* ${writes})`] : []),
+    ...(options.readOnly?.length ? [`(deny file-write* ${subpaths(options.readOnly)})`] : []),
     "(allow file-read-metadata)",
     "",
   ];

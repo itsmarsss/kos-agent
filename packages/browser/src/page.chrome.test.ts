@@ -68,6 +68,18 @@ const HIDDEN = page(
 
 const NEXT = page("Next", `<main><p>The next page.</p></main>`);
 
+/** Fields that hold secrets, filled, beside one that does not. */
+const SECRETS = page(
+  "Pay",
+  `<label>Password <input type=password value="hunter2-canary"></label>
+<label>Number <input autocomplete="cc-number" value="4242424242424242"></label>
+<label>Code <input autocomplete="one-time-code" value="918273"></label>
+<label>Security <input name="card_cvc" value="737"></label>
+<label>Your PIN <input value="5555"></label>
+<div role=textbox contenteditable aria-label="API token">tok-in-editable</div>
+<label>Email <input type=email value="ada@example.com"></label>`,
+);
+
 /** What a reader would say that a page alone does not show: a closed shadow root, a frame still loading, presentation that cannot hide a control, aria-owns. */
 const FIDELITY = page(
   "Fidelity",
@@ -140,7 +152,7 @@ document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<but
     if (url.startsWith("/beacon") || url.startsWith("/pixel")) return void res.writeHead(204).end();
     if (url === "/api/settings") return void setTimeout(() => res.writeHead(200, { "content-type": "application/json" }).end('{"user":"Ada"}'), 200);
     if (url === "/inner") return html(page("Inner", `<button onclick="parent.postMessage('inner ' + location.port, '*')">Inner button</button>`));
-    const pages: Record<string, string> = { "/elsewhere": elsewhere(), "/fidelity": FIDELITY, "/finder": SEARCH, "/waiting": SLOW, "/fetched": FETCHED, "/chatty": CHATTY, "/stepped": STEPPED, "/app": SPA, "/big": BIG, "/hidden": HIDDEN, "/next": NEXT, "/framed": framed() };
+    const pages: Record<string, string> = { "/elsewhere": elsewhere(), "/fidelity": FIDELITY, "/finder": SEARCH, "/waiting": SLOW, "/fetched": FETCHED, "/chatty": CHATTY, "/stepped": STEPPED, "/app": SPA, "/big": BIG, "/hidden": HIDDEN, "/next": NEXT, "/secrets": SECRETS, "/framed": framed() };
     html(pages[url] ?? page("Start", `<a id=go href="/next">Next</a>`));
   };
 
@@ -267,6 +279,15 @@ document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<but
     const seen = await visit(tab, [`${base}/hidden`], { then: "look" });
     for (const shown of ["Shown", "See-through", "In contents"]) expect(seen.text).toContain(`button "${shown}"`);
     for (const hidden of ["Not drawn", "Invisible", "Kept from readers", "Inert", "Folded away"]) expect(seen.text).not.toContain(hidden);
+  });
+
+  it("says a secret field holds something, never what or how long", async () => {
+    const seen = await visit(tab, [`${base}/secrets`], { then: "look" });
+    for (const label of ["Password", "Number", "Code", "Security", "Your PIN", "API token"]) expect(seen.text).toContain(`textbox "${label}" = "(hidden)"`);
+    expect(seen.text).toContain('"Email" = "ada@example.com"');
+    for (const leaked of ["hunter2", "4242", "918273", "737", "5555", "tok-in-editable", "•"]) expect(seen.text).not.toContain(leaked);
+    const outline = await tab.page.tree();
+    for (const leaked of ["hunter2", "4242", "918273", "737", "5555", "tok-in-editable", "•"]) expect(outline.text).not.toContain(leaked);
   });
 
   it("reads open shadow roots and the frames it can reach, says which it could not, and acts in them", async () => {

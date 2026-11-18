@@ -142,6 +142,16 @@ function roveRow(e: KeyboardEvent<HTMLLIElement>): void {
   }
 }
 
+/** The most claims an address names: a turn is given a few dozen at most. */
+const IDS_MAX = 500;
+
+/** Claims the address names (#/memory?tab=claims&ids=3,7): a turn's memory, opened from its chat. */
+function idsInHash(hash: string): ReadonlySet<number> | null {
+  const m = /[?&]ids=([\d,]+)/.exec(hash);
+  const ids = (m?.[1] ?? "").split(",").filter(Boolean).map(Number).filter(Number.isSafeInteger).slice(0, IDS_MAX);
+  return ids.length > 0 ? new Set(ids) : null;
+}
+
 function splitTags(text: string): string[] {
   return text
     .split(",")
@@ -154,6 +164,7 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<KindFilter>("all");
   const [tag, setTag] = useState<string | null>(null);
+  const [only, setOnly] = useState(() => idsInHash(window.location.hash));
   /** Scopes opened past their first few. */
   const [whole, setWhole] = useState<ReadonlySet<string>>(() => new Set());
   /** The entry being read in full, which is where its actions live too. */
@@ -229,19 +240,25 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
     const matched = facts.filter((f) => {
+      if (only && (f.id === undefined || !only.has(f.id))) return false;
       if (kind === "pinned" ? !f.pinned : kind !== "all" && f.kind !== kind) return false;
       if (tag && !(f.tags ?? []).includes(tag)) return false;
       if (!q) return true;
       return f.key.toLowerCase().includes(q) || f.value.toLowerCase().includes(q) || (f.tags ?? []).some((t) => t.toLowerCase().includes(q));
     });
     return groupByScope(matched, projectNames);
-  }, [facts, query, kind, tag, projectNames]);
+  }, [facts, query, kind, tag, only, projectNames]);
 
-  const filtered = query.trim() !== "" || kind !== "all" || tag !== null;
+  const filtered = query.trim() !== "" || kind !== "all" || tag !== null || only !== null;
+  const showAll = (): void => {
+    setOnly(null);
+    history.replaceState(null, "", hrefFor({ name: "memory" }));
+  };
   const clear = (): void => {
     setQuery("");
     setKind("all");
     setTag(null);
+    if (only) showAll();
   };
 
   const kindOptions = [
@@ -258,6 +275,11 @@ export function KnowledgePage({ facts, tags, adding, onAdding, projectNames, onC
             <SearchIcon size={14} title="" />
             <input type="search" value={query} placeholder="Search claims…" aria-label="Search claims" onChange={(e) => setQuery(e.target.value)} />
           </label>
+          {only && (
+            <Tag title="The claims a turn was given from memory" remove={{ label: "Show every claim", onRemove: showAll }}>
+              Recalled for a turn
+            </Tag>
+          )}
           <div className="know-kinds" ref={kindsRef}>
             <Chips small scroll label="Kind" options={kindOptions} selected={kind} onChoose={(k) => setKind(k === kind ? "all" : k)} />
           </div>

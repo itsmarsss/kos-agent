@@ -546,6 +546,14 @@ async function runQueries(options: SdkChatOptions): Promise<SdkChatResult> {
         settingSources: [],
         // Nor the owner's claude.ai connectors: KOS's tools are the only ones.
         ...ONLY_OWN_MCP,
+        /*
+         * No transcript on disk. KOS keeps the chat itself, and never resumes
+         * a query by its session; a transcript under .claude/projects (the
+         * workspace's own, with an API key, which the workspace snapshot then
+         * commits) is a second copy of every tool result, outside the
+         * scrubber and the owner's retention.
+         */
+        persistSession: false,
         // Only KOS's tools exist. The built-ins are named individually as well
         // as excluded by the allow list, because an allow list that grows a
         // hole is a jail that quietly opens.

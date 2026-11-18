@@ -1,4 +1,6 @@
 import { mkdirSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 import { childEnv } from "../sandbox/env.js";
 import { resolvePath } from "../jail/resolvePath.js";
@@ -207,13 +209,22 @@ async function waitForDecision(
  * Handing over the real HOME is a path, not a permission. Reading anything
  * under it still goes through canUseTool and still asks, so what this widens
  * is where the sub-agent's own config lives, not what it can open.
+ *
+ * With a key, Claude Code's own files (its transcripts, .claude.json) go to
+ * a folder of KOS's outside the workspace rather than to that home: in the
+ * workspace the backup would commit them, every tool result with them.
  */
+/** Where Claude Code keeps its own files for KOS when it signs in with a key: under ~/.kos, never in the workspace. */
+export function claudeConfigDir(source: NodeJS.ProcessEnv = process.env): string {
+  return join(source.HOME ?? homedir(), ".kos", "claude");
+}
+
 export function credentials(
   scopeDir: string,
   source: NodeJS.ProcessEnv = process.env,
 ): { env: Record<string, string>; home: string } {
   const key = source.ANTHROPIC_API_KEY;
-  if (key) return { env: { ANTHROPIC_API_KEY: key }, home: scopeDir };
+  if (key) return { env: { ANTHROPIC_API_KEY: key, CLAUDE_CONFIG_DIR: claudeConfigDir(source) }, home: scopeDir };
 
   const home = source.HOME ?? source.USERPROFILE;
   if (!home) {
@@ -280,7 +291,8 @@ export function prepareScope(workspace: Workspace, dir: string): string {
 export async function runBuild(options: BuildOptions): Promise<BuildResult> {
   const scopeDir = prepareScope(options.workspace, options.dir);
   const auth = credentials(scopeDir);
-  const env = { ...childEnv({ home: auth.home }), ...auth.env };
+  // The build's shells get no credential of the session's: Claude Code strips them from what it spawns.
+  const env = { ...childEnv({ home: auth.home }), ...auth.env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1" };
 
   const controller = new AbortController();
   // Both a timeout and the owner abort the same controller, so the reason has

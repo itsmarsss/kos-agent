@@ -1863,6 +1863,8 @@ export class DiscordAdapter implements ChannelAdapter {
    * renamed the thread and the chat followed.
    */
   async renameThread(threadId: string, title: string): Promise<void> {
+    // A newer name supersedes one held back: a stale KOS name must not land over the owner's later.
+    this.waitingRenames.delete(threadId);
     const name = title.trim().slice(0, 100) || "Chat";
     const thread = (await this.client.channels.fetch(threadId).catch(() => null)) as { name?: string; isThread?: () => boolean; setName?: (n: string) => Promise<unknown> } | null;
     if (!thread?.isThread?.() || !thread.setName || thread.name === name) return;
