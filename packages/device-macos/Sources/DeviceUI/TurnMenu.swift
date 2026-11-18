@@ -46,7 +46,20 @@ public struct MenuTurn: Equatable {
       return .idle
     }
     let foot = chat.working && !chat.waitingOnOwner && !chat.heldByOwner ? chat.foot : nil
-    return MenuTurn(state: state, step: session?.step ?? foot, task: session?.task, kos: kos, ask: chat.asks.first, session: session != nil)
+    // The ask the badge is about: the session's chat's when it is the session that waits, the window's otherwise.
+    let ask: ChatModel.Ask?
+    if let session, session.waiting {
+      ask = session.conversation.flatMap { held in chat.asks.first { ($0.chat ?? chat.conversation) == held } }
+    } else {
+      ask = chat.asks.first
+    }
+    return MenuTurn(state: state, step: (session?.step ?? foot).map(untyped), task: session?.task, kos: kos, ask: ask, session: session != nil)
+  }
+
+  /// A step as the menu bar may say it, where anyone near the screen reads it: what is typed stays out.
+  static func untyped(_ step: String) -> String {
+    if step.hasPrefix("Type “") { return "Typing" }
+    return step.replacingOccurrences(of: "“[^”]*”", with: "…", options: .regularExpression)
   }
 
   /// The longest the words beside the icon run.

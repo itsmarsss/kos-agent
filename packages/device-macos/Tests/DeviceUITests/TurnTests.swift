@@ -55,6 +55,28 @@ struct MenuTurnTests {
     #expect(MenuTurn.of(session: try live(waiting: true), chat: ChatModel()).state == .waiting)
   }
 
+  @Test func keepsWhatIsTypedOutOfTheMenuBar() throws {
+    #expect(MenuTurn.of(session: try live(step: "Type “hunter2”"), chat: ChatModel()).title == "Typing")
+    let turn = MenuTurn.of(session: try live(step: "Sign in (type “sam@example.com”, press Return)"), chat: ChatModel())
+    #expect(turn.detail == "Sign in (type …, press Return)")
+  }
+
+  /// The badge is the session's chat's: its ask is the one Approve decides, not another the window shows.
+  @Test func decidesTheAskOfTheChatThatWaits() throws {
+    let chat = ChatModel()
+    chat.show(conversation: "mac:owner", title: "Mac", lines: [])
+    chat.ask(.init(id: "a1", tool: "files.write", chat: "mac:owner"))
+    // The session is another chat's: nothing here to decide for it.
+    var other = try live(waiting: true)
+    #expect(other.conversation == nil)
+    #expect(MenuTurn.of(session: other, chat: chat).ask == nil)
+    var sessions = Sessions()
+    try sessions.ask("s2", from: "kos")
+    other = try sessions.grant("s2", task: "t", requester: "r", conversation: "mac:owner", minutes: 5, space: Space(display: Rect(x: 0, y: 0, width: 10, height: 10)), now: Date())
+    _ = sessions.status("s2", from: "kos", step: nil, waiting: true)
+    #expect(MenuTurn.of(session: try #require(sessions.live), chat: chat).ask?.id == "a1")
+  }
+
   @Test func pausedWhileTheOwnerHasTheMac() throws {
     let turn = MenuTurn.of(session: try live(paused: true, waiting: true), kos: "home.local", chat: ChatModel())
     #expect(turn.state == .paused && turn.title == nil)
@@ -71,12 +93,21 @@ struct ChatAsideTests {
     #expect(aside.take(.needsOwner) == .stay)
     #expect(aside.take(.live(open: true, covers: true)) == .hide)
     #expect(aside.take(.needsOwner) == .show(clear: true))
-    #expect(aside.take(.ended) == .stay)
+    // Moved clear for the owner, it goes back where it stood once the session ends.
+    #expect(aside.take(.ended) == .restore)
     #expect(aside.take(.live(open: true, covers: true)) == .hide)
     #expect(aside.take(.ended) == .show(clear: false))
+    #expect(aside.take(.ended) == .stay)
     // Opened by the owner meanwhile, it is theirs: nothing to bring back.
     #expect(aside.take(.live(open: true, covers: true)) == .hide)
     #expect(aside.take(.opened) == .stay)
+    #expect(aside.take(.ended) == .stay)
+  }
+
+  @Test func staysWhileTheOwnerTypesInIt() {
+    var aside = ChatAside()
+    #expect(aside.take(.live(open: true, covers: true, typing: true)) == .stay)
+    #expect(aside.take(.needsOwner) == .stay)
     #expect(aside.take(.ended) == .stay)
   }
 

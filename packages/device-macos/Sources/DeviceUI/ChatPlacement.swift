@@ -49,11 +49,13 @@ public enum ChatPlacement {
 
 /// The chat window stepping aside for a session: put away when it would
 /// cover what KOS works in, and back, without taking the front, when the
-/// owner is needed (an approval, a take over) or the session ends.
+/// owner is needed (an approval, a take over) or the session ends; at the end
+/// where it stood before the session, however it was moved for the owner.
 public struct ChatAside: Equatable {
   public enum Event: Equatable {
-    /// A session went live; `open` the window is up, `covers` it is over what KOS works in.
-    case live(open: Bool, covers: Bool)
+    /// A session went live; `open` the window is up, `covers` it is over what KOS works in, `typing` the owner is
+    /// typing in it.
+    case live(open: Bool, covers: Bool, typing: Bool = false)
     /// The turn waits on the owner, or they took the Mac over.
     case needsOwner
     /// The session ended.
@@ -67,23 +69,35 @@ public struct ChatAside: Equatable {
     case hide
     /// Back where it was, or, while a session runs, clear of what KOS works in.
     case show(clear: Bool)
+    /// Where it stood before the session, already up.
+    case restore
   }
 
   /// The window is put away for the session, and comes back.
   public private(set) var aside = false
+  /// It was moved clear of what KOS works in, and goes back where it stood once the session ends.
+  public private(set) var moved = false
 
   public init() {}
 
   public mutating func take(_ event: Event) -> Move {
     switch event {
-    case .live(let open, let covers):
-      guard open, covers, !aside else { return .stay }
+    case .live(let open, let covers, let typing):
+      guard open, covers, !typing, !aside else { return .stay }
       aside = true
       return .hide
-    case .needsOwner, .ended:
+    case .needsOwner:
       guard aside else { return .stay }
       aside = false
-      return .show(clear: event == .needsOwner)
+      moved = true
+      return .show(clear: true)
+    case .ended:
+      defer {
+        aside = false
+        moved = false
+      }
+      if aside { return .show(clear: false) }
+      return moved ? .restore : .stay
     case .opened:
       aside = false
       return .stay

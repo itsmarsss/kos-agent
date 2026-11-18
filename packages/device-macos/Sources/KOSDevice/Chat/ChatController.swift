@@ -35,7 +35,7 @@ final class ChatController {
   private var made = false
   /// What KOS works in while a session runs, in AppKit's screen points: the window keeps clear of it.
   private var workingIn: CGRect?
-  /// The window put away for the session, and where it stood then.
+  /// The window put away for the session, and where it stood when the session began.
   private var aside = ChatAside()
   private var before: CGRect?
   private var talkingTo: String?
@@ -105,7 +105,10 @@ final class ChatController {
   func refresh(asking: Bool = false) {
     let now = target()
     let other = now?.id != talkingTo
-    if other { model.reset() }
+    if other {
+      model.reset()
+      model.source = now?.id ?? ""
+    }
     talkingTo = now?.id
     if other { scope() }
     model.paired = now != nil
@@ -189,7 +192,12 @@ final class ChatController {
     guard made else { return }
     if let target {
       window.level = .normal
-      if was == nil { move(aside.take(.live(open: isOpen, covers: ChatPlacement.covers(window.frame, target: target)))) }
+      if was == nil {
+        before = window.frame
+        // Words being typed in it stay where they are typed: the owner is in the window, not out of KOS's way.
+        let typing = window.isKeyWindow && !model.draft.isEmpty
+        move(aside.take(.live(open: isOpen, covers: ChatPlacement.covers(window.frame, target: target), typing: typing)))
+      }
       if needsOwner { move(aside.take(.needsOwner)) }
     } else if was != nil {
       window.level = .floating
@@ -202,7 +210,6 @@ final class ChatController {
     case .stay:
       return
     case .hide:
-      before = window.frame
       window.orderOut(nil)
     case .show(let clear):
       if clear, let target = workingIn {
@@ -212,6 +219,8 @@ final class ChatController {
       }
       // Up, never key: the app KOS works in, or the owner's, keeps the keyboard.
       window.orderFrontRegardless()
+    case .restore:
+      if let before { window.setFrame(before, display: false) }
     }
   }
 

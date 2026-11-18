@@ -135,6 +135,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self?.reportStateIfChanged()
         // The time left beside the icon counts down.
         if self?.controller.live != nil { self?.menu.refresh() }
+        // A turn that went quiet lets the Mac nap.
+        if let self, self.awake != nil { self.stayAwake(self.turn().state == .working) }
       }
     }
 
@@ -374,15 +376,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   /// The turn moved: the menu bar says so, the chat window keeps clear of what KOS works in, and the Mac stays awake
-  /// while anything runs.
+  /// while KOS works at steps: not through a long wait on the owner, nor past a turn that went quiet.
   private func turnChanged() {
     let now = turn()
     menu.refresh()
     chat.keepClear(of: controller.liveTarget, needsOwner: now.state == .waiting || now.state == .paused)
-    stayAwake(now.state != .idle || controller.asking != nil)
+    lastHeard = Date()
+    stayAwake(now.state == .working)
   }
 
-  private func stayAwake(_ on: Bool) {
+  /// When the turn last moved; working, but quiet past `quietLimit`, the turn's end was lost and the Mac may nap.
+  private var lastHeard = Date()
+  private static let quietLimit: TimeInterval = 10 * 60
+
+  private func stayAwake(_ working: Bool) {
+    let on = working && Date().timeIntervalSince(lastHeard) < Self.quietLimit
     if on, awake == nil {
       awake = ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: "KOS is working on this Mac")
     } else if !on, let held = awake {
