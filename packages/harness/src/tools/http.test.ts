@@ -264,6 +264,9 @@ describe("http.fetch redirects", () => {
       const url = req.url ?? "/";
       if (url.startsWith("/away")) return void res.writeHead(302, { location: `${bBase}/landed${url.slice("/away".length)}` }).end();
       if (url.startsWith("/hop")) return void res.writeHead(301, { location: "/final" }).end();
+      if (url.startsWith("/posted")) return void res.writeHead(Number(url.slice("/posted".length)), { location: "/echo" }).end();
+      if (url.startsWith("/choices")) return void res.writeHead(300, { location: "/final" }).end("pick one");
+      if (url.startsWith("/echo")) return void res.end(`${req.method} ${req.headers["content-type"] ?? "-"} ${req.headers["content-length"] ?? "-"}`);
       res.end(`host A ${url} ${req.headers["x-api-key"] ?? ""}`);
     });
     aBase = await listen(a);
@@ -289,6 +292,21 @@ describe("http.fetch redirects", () => {
   it("follows a redirect within the origin, headers and all", async () => {
     const res = await (await fetchTool()).execute("http.fetch", { url: `${aBase}/hop`, headers: { "x-api-key": "k-placed" } });
     expect(JSON.parse(res.content)).toMatchObject({ status: 200, body: "host A /final k-placed" });
+  });
+
+  it("reads again after a 303, and after a POST's 301 or 302, without the body or its headers; keeps the method on a 307", async () => {
+    const tool = await fetchTool();
+    const answer = async (status: number, method: string): Promise<string> =>
+      JSON.parse((await tool.execute("http.fetch", { url: `${aBase}/posted${status}`, method, headers: { "content-type": "application/json" }, body: "{}" })).content).body;
+    expect(await answer(303, "PUT")).toBe("GET - -");
+    expect(await answer(302, "POST")).toBe("GET - -");
+    expect(await answer(301, "PUT")).toBe("PUT application/json 2");
+    expect(await answer(307, "POST")).toBe("POST application/json 2");
+  });
+
+  it("takes a 300 as an answer, not a redirect", async () => {
+    const res = await (await fetchTool()).execute("http.fetch", { url: `${aBase}/choices` });
+    expect(JSON.parse(res.content)).toMatchObject({ status: 300, body: "pick one" });
   });
 
   it("does not carry headers or the query to another origin, and says where it pointed", async () => {

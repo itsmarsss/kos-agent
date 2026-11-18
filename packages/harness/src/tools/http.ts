@@ -117,6 +117,24 @@ async function doFetch(
 /** Redirects followed within one origin before the chain is called a loop. */
 const REDIRECTS_MAX = 5;
 
+/** The statuses that redirect; a 300 or 304 with a Location is an answer, not a hop. */
+const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * The request a redirect leads to, as browsers make it: a POST after a 301 or
+ * 302, and anything but HEAD after a 303, becomes a GET with no body, and
+ * the headers that described the body go with it.
+ */
+function afterRedirect(status: number, request: RequestInit): RequestInit {
+  const method = (request.method ?? "GET").toUpperCase();
+  const asRead = ((status === 301 || status === 302) && method === "POST") || (status === 303 && method !== "HEAD");
+  if (!asRead) return request;
+  const headers = new Headers(request.headers);
+  headers.delete("content-type");
+  headers.delete("content-length");
+  return { ...request, method: "GET", body: null, headers };
+}
+
 /**
  * The request, its redirects followed only within its own origin.
  *
@@ -131,14 +149,12 @@ async function follow(url: string, init: RequestInit, fetchImpl: FetchImpl): Pro
   for (let hop = 0; ; hop++) {
     const res = await fetchImpl(at.href, { ...request, redirect: "manual" });
     const location = res.headers.get("location");
-    if (res.status < 300 || res.status >= 400 || !location) return res;
+    if (!REDIRECTS.has(res.status) || !location) return res;
     const next = new URL(location, at);
     await res.body?.cancel();
     if (next.origin !== at.origin) return { status: res.status, elsewhere: next.href };
     if (hop >= REDIRECTS_MAX) throw new Error(`more than ${REDIRECTS_MAX} redirects`);
-    // A 303, and a 301 or 302 after a write, is fetched again as a read, as browsers do.
-    const asRead = res.status === 303 || ((res.status === 301 || res.status === 302) && request.method !== "GET" && request.method !== "HEAD");
-    request = asRead ? { ...request, method: "GET", body: null } : request;
+    request = afterRedirect(res.status, request);
     at = next;
   }
 }
