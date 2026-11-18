@@ -1,11 +1,11 @@
 /** The part of libheif-js's WebAssembly build KOS uses: decoding a HEIC or HEIF to RGBA. */
 declare module "libheif-js/wasm-bundle.js" {
-  interface HeifPixels {
+  export interface HeifPixels {
     data: Uint8ClampedArray;
     width: number;
     height: number;
   }
-  interface HeifImage {
+  export interface HeifImage {
     get_width(): number;
     get_height(): number;
     /** Fills `into` with the picture as RGBA and hands it back, or null when it cannot. */

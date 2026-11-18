@@ -1,5 +1,8 @@
+import { imageTypeOf, pictureSize, type ImageType } from "./headers.js";
 import { pixels } from "./pixels.js";
 import { sips } from "./sips.js";
+
+export { imageTypeOf, pictureSize, type ImageType } from "./headers.js";
 
 /**
  * A picture the owner sends, made into one a model takes.
@@ -27,16 +30,15 @@ export const IMAGE_MAX_SIDE = 2048;
 /** A photo's JPEG quality: no visible loss, a third of the bytes of 100. */
 export const JPEG_QUALITY = 85;
 
-export type ImageType =
-  | "image/jpeg"
-  | "image/png"
-  | "image/gif"
-  | "image/webp"
-  | "image/heic"
-  | "image/heif"
-  | "image/avif"
-  | "image/tiff"
-  | "image/bmp";
+/**
+ * The most pixels a picture may have to be read at all: a 50 megapixel
+ * camera's photo goes; past it, decoding alone takes more memory than a
+ * host should give one file, and the model sees 4 megapixels anyway.
+ */
+export const IMAGE_MAX_PIXELS = 50_000_000;
+
+/** Pictures converted at once: each holds its decoded pixels, up to 200 MB, while it is written out. */
+export const CONVERSIONS_AT_ONCE = 2;
 
 /** What a model is sent. */
 export type ModelImageType = "image/jpeg" | "image/png";
@@ -57,41 +59,9 @@ export interface OpenPicture {
   close(): Promise<void>;
 }
 
-/** Reads a picture of any ImageType. */
+/** Reads a picture of any ImageType, refusing one past `maxPixels` as its decoder reports it. */
 export interface Converter {
-  open(bytes: Buffer, type: ImageType): Promise<OpenPicture>;
-}
-
-/** The ISO media brands of a HEIF file, by what it holds. */
-const AVIF_BRANDS = new Set(["avif", "avis"]);
-const HEIC_BRANDS = new Set(["heic", "heix", "heim", "heis", "hevc", "hevx"]);
-const HEIF_BRANDS = new Set(["mif1", "msf1"]);
-/** BITMAPINFOHEADER and its kin, by size: what makes "BM" a bitmap rather than a text file starting "BM". */
-const BMP_HEADERS = new Set([12, 40, 52, 56, 64, 108, 124]);
-
-const ascii = (bytes: Uint8Array, from: number, to: number): string => Buffer.from(bytes.subarray(from, to)).toString("latin1");
-
-/** The picture the bytes are, by their magic numbers; undefined for anything else. */
-export function imageTypeOf(bytes: Uint8Array): ImageType | undefined {
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
-  if (ascii(bytes, 0, 8) === "\x89PNG\r\n\x1a\n") return "image/png";
-  if (/^GIF8[79]a$/.test(ascii(bytes, 0, 6))) return "image/gif";
-  if (ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 12) === "WEBP") return "image/webp";
-  if (bytes.length >= 12 && ascii(bytes, 4, 8) === "ftyp") return heifTypeOf(bytes);
-  if (ascii(bytes, 0, 4) === "II*\0" || ascii(bytes, 0, 4) === "MM\0*") return "image/tiff";
-  if (ascii(bytes, 0, 2) === "BM" && bytes.length > 18 && BMP_HEADERS.has(Buffer.from(bytes).readUInt32LE(14))) return "image/bmp";
-  return undefined;
-}
-
-/** An ISO media file's picture type, from its major and compatible brands. */
-function heifTypeOf(bytes: Uint8Array): ImageType | undefined {
-  const box = Math.min(bytes.length, Buffer.from(bytes).readUInt32BE(0));
-  const brands = [ascii(bytes, 8, 12)];
-  for (let at = 16; at + 4 <= box; at += 4) brands.push(ascii(bytes, at, at + 4));
-  if (brands.some((b) => AVIF_BRANDS.has(b))) return "image/avif";
-  if (brands.some((b) => HEIC_BRANDS.has(b))) return "image/heic";
-  if (brands.some((b) => HEIF_BRANDS.has(b))) return "image/heif";
-  return undefined;
+  open(bytes: Buffer, type: ImageType, maxPixels: number): Promise<OpenPicture>;
 }
 
 /** The base64 a payload of `bytes` travels as. */
@@ -99,31 +69,28 @@ export function base64Length(bytes: number): number {
   return Math.ceil(bytes / 3) * 4;
 }
 
-/** Width and height from a PNG's or a JPEG's header, without decoding it. */
-export function headerSize(bytes: Buffer, type: ImageType): { width: number; height: number } | undefined {
-  if (type === "image/png") return bytes.length >= 24 ? { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) } : undefined;
-  if (type !== "image/jpeg") return undefined;
-  let at = 2;
-  while (at + 9 < bytes.length) {
-    if (bytes[at] !== 0xff) return undefined;
-    const marker = bytes[at + 1]!;
-    // Fill bytes and markers that carry no length.
-    if (marker === 0xff) {
-      at += 1;
-      continue;
+/** A count of things allowed at once, and a queue for the rest. */
+class Semaphore {
+  private held = 0;
+  private readonly waiting: (() => void)[] = [];
+
+  constructor(private readonly most: number) {}
+
+  async run<T>(work: () => Promise<T>): Promise<T> {
+    if (this.held >= this.most) await new Promise<void>((go) => this.waiting.push(go));
+    else this.held += 1;
+    try {
+      return await work();
+    } finally {
+      // Handed straight to the next in line, or given back.
+      const next = this.waiting.shift();
+      if (next) next();
+      else this.held -= 1;
     }
-    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd9)) {
-      at += 2;
-      continue;
-    }
-    // A start of frame: every SOFn but the huffman (C4), arithmetic (CC) and extension (C8) tables.
-    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-      return { height: bytes.readUInt16BE(at + 5), width: bytes.readUInt16BE(at + 7) };
-    }
-    at += 2 + bytes.readUInt16BE(at + 2);
   }
-  return undefined;
 }
+
+const conversions = new Semaphore(CONVERSIONS_AT_ONCE);
 
 /** Pictures that are likely drawn (a screenshot, a diagram, a scan of text): kept sharp as a PNG when one fits. */
 const DRAWN = new Set<ImageType>(["image/png", "image/gif", "image/bmp", "image/tiff"]);
@@ -144,11 +111,21 @@ export function converterHere(): Converter {
 export async function forModel(bytes: Buffer, converter: Converter = converterHere()): Promise<ModelImage> {
   const type = imageTypeOf(bytes);
   if (!type) throw new Error("its bytes are not a picture KOS reads (JPEG, PNG, GIF, WebP, HEIC, HEIF, AVIF, TIFF or BMP)");
-  if (type === "image/jpeg" || type === "image/png") {
-    const size = headerSize(bytes, type);
-    if (fits(bytes) && size && Math.max(size.width, size.height) <= IMAGE_MAX_SIDE) return { mediaType: type, data: bytes };
+  // Sized from its header before anything decodes it, so a picture too big to hold is refused without being held.
+  const size = pictureSize(bytes, type);
+  if (!size || !(size.width > 0 && size.height > 0)) throw new Error("its size could not be read from its header");
+  if (size.width * size.height > IMAGE_MAX_PIXELS) {
+    throw new Error(`it is ${size.width} by ${size.height}, past the ${IMAGE_MAX_PIXELS / 1_000_000} megapixels KOS reads`);
   }
-  const picture = await converter.open(bytes, type);
+  if ((type === "image/jpeg" || type === "image/png") && fits(bytes) && Math.max(size.width, size.height) <= IMAGE_MAX_SIDE) {
+    return { mediaType: type, data: bytes };
+  }
+  return conversions.run(() => convert(bytes, type, converter));
+}
+
+/** A picture read by the converter and written out as the first of a PNG or a JPEG that fits. */
+async function convert(bytes: Buffer, type: ImageType, converter: Converter): Promise<ModelImage> {
+  const picture = await converter.open(bytes, type, IMAGE_MAX_PIXELS);
   try {
     let edge = Math.min(IMAGE_MAX_SIDE, Math.max(picture.width, picture.height));
     if (DRAWN.has(type) || picture.alpha) {

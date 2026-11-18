@@ -1,185 +1,108 @@
-import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { Worker } from "node:worker_threads";
 
-import type { Converter, ImageType, ModelImageType, OpenPicture } from "./images.js";
+import type { ImageType } from "./headers.js";
+import type { Converter, ModelImageType, OpenPicture } from "./images.js";
+import type { PixelsReply, PixelsRequest } from "./pixelsworker.js";
+
+/** What tells pixelsworker.ts it was started to answer; it cannot import this, as it imports nothing of KOS's but types. */
+const PIXELS_WORKER = "kos-pixels";
 
 /**
  * Pictures read and written in JavaScript and WebAssembly, for a host with
  * no sips: Linux, and the container KOS runs in. Nothing here is a native
- * build, so it installs wherever Node does. Each decoder is loaded the first
- * time a picture of its kind comes, not when KOS starts.
+ * build, so it installs wherever Node does.
+ *
+ * Each picture is read in a worker of its own, ended when the picture is
+ * done with: a decoder fed a hostile file can loop or allocate without end,
+ * which no try in the same thread catches, and a worker's end also frees
+ * everything its WebAssembly decoders held. A worker past its memory or its
+ * time is ended, and the picture refused with why.
  */
 
-interface Rgba {
-  width: number;
-  height: number;
-  /** Four bytes a pixel, red, green, blue and alpha, row by row. */
-  data: Uint8Array;
-}
-
-const require = createRequire(import.meta.url);
-
-const arrayBuffer = (bytes: Buffer): ArrayBuffer => new Uint8Array(bytes).buffer;
-
-type Decoder = (buffer: ArrayBuffer) => Promise<{ width: number; height: number; data: Uint8ClampedArray } | null>;
-
-/** jSquash's WebAssembly decoders, each compiled from its file once. */
-const squashed = new Map<string, Promise<Decoder>>();
-
-function squash(kind: "webp" | "avif"): Promise<Decoder> {
-  let codec = squashed.get(kind);
-  if (!codec) {
-    codec = (async () => {
-      // Handed its WebAssembly as bytes: left to find it, it fetches it by URL, which Node cannot.
-      const wasmBinary = arrayBuffer(await readFile(require.resolve(`@jsquash/${kind}/codec/dec/${kind}_dec.wasm`)));
-      const module = kind === "webp" ? await import("@jsquash/webp/decode.js") : await import("@jsquash/avif/decode.js");
-      await module.init({ wasmBinary });
-      return (buffer: ArrayBuffer) => module.default(buffer);
-    })();
-    squashed.set(kind, codec);
-  }
-  return codec;
-}
-
-async function heif(bytes: Buffer): Promise<Rgba> {
-  const { default: libheif } = await import("libheif-js/wasm-bundle.js");
-  const [image] = new libheif.HeifDecoder().decode(bytes);
-  if (!image) throw new Error("no picture in the file");
-  try {
-    const width = image.get_width();
-    const height = image.get_height();
-    const out = await new Promise<Uint8ClampedArray>((resolve, reject) =>
-      image.display({ data: new Uint8ClampedArray(width * height * 4), width, height }, (done) => (done ? resolve(done.data) : reject(new Error("libheif could not decode it")))),
-    );
-    return { width, height, data: new Uint8Array(out.buffer, out.byteOffset, out.byteLength) };
-  } finally {
-    image.free();
-  }
-}
-
-async function decode(bytes: Buffer, type: ImageType): Promise<Rgba> {
-  switch (type) {
-    case "image/jpeg":
-      return (await import("jpeg-js")).decode(bytes, { useTArray: true, formatAsRGBA: true });
-    case "image/png":
-      return (await import("pngjs")).PNG.sync.read(bytes);
-    case "image/gif": {
-      const gif = new (await import("omggif")).GifReader(bytes);
-      const data = new Uint8Array(gif.width * gif.height * 4);
-      // The first frame: what a still of a moving picture shows.
-      gif.decodeAndBlitFrameRGBA(0, data);
-      return { width: gif.width, height: gif.height, data };
-    }
-    case "image/webp":
-    case "image/avif": {
-      const read = await (await squash(type === "image/webp" ? "webp" : "avif"))(arrayBuffer(bytes));
-      if (!read) throw new Error("the decoder could not read it");
-      return { width: read.width, height: read.height, data: new Uint8Array(read.data.buffer, read.data.byteOffset, read.data.byteLength) };
-    }
-    case "image/heic":
-    case "image/heif":
-      return heif(bytes);
-    case "image/tiff": {
-      const { default: UTIF } = await import("utif2");
-      const [page] = UTIF.decode(bytes);
-      if (!page) throw new Error("no picture in the file");
-      UTIF.decodeImage(bytes, page);
-      return { width: page.width, height: page.height, data: UTIF.toRGBA8(page) };
-    }
-    case "image/bmp": {
-      // bmp-js hands back each pixel as alpha, blue, green, red, with an alpha that means nothing: a bitmap is opaque.
-      const bmp = (await import("bmp-js")).decode(bytes);
-      const data = new Uint8Array(bmp.width * bmp.height * 4);
-      for (let i = 0; i < data.length; i += 4) {
-        data[i] = bmp.data[i + 3]!;
-        data[i + 1] = bmp.data[i + 2]!;
-        data[i + 2] = bmp.data[i + 1]!;
-        data[i + 3] = 255;
-      }
-      return { width: bmp.width, height: bmp.height, data };
-    }
-  }
-}
-
-/** Whether any pixel is see-through. */
-function seeThrough(image: Rgba): boolean {
-  for (let i = 3; i < image.data.length; i += 4) if (image.data[i]! < 255) return true;
-  return false;
-}
+/** The heap a picture's worker may use: a 50 megapixel picture is 200 MB of pixels, decoded and brought down. */
+export const WORKER_HEAP_MB = 1024;
+/** How long one step (a read, or a write at one size) may take; a 50 megapixel TIFF reads in a few seconds. */
+export const WORKER_STEP_MS = 30_000;
 
 /**
- * The picture with its long side at most `edge`, each pixel the average of
- * the ones it covers, weighed by their alpha so a see-through edge does not
- * darken. Never made larger.
+ * The worker's code: built beside this file, or, run from source (the
+ * tests), the TypeScript itself, which Node runs with its types stripped.
  */
-export function downscale(image: Rgba, edge: number): Rgba {
-  const long = Math.max(image.width, image.height);
-  if (long <= edge) return image;
-  const width = Math.max(1, Math.round((image.width * edge) / long));
-  const height = Math.max(1, Math.round((image.height * edge) / long));
-  const src = image.data;
-  const data = new Uint8Array(width * height * 4);
-  const sx = image.width / width;
-  const sy = image.height / height;
-  for (let y = 0; y < height; y += 1) {
-    const y0 = Math.floor(y * sy);
-    const y1 = Math.max(y0 + 1, Math.floor((y + 1) * sy));
-    for (let x = 0; x < width; x += 1) {
-      const x0 = Math.floor(x * sx);
-      const x1 = Math.max(x0 + 1, Math.floor((x + 1) * sx));
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      let a = 0;
-      for (let yy = y0; yy < y1; yy += 1) {
-        for (let i = (yy * image.width + x0) * 4, end = (yy * image.width + x1) * 4; i < end; i += 4) {
-          const alpha = src[i + 3]!;
-          r += src[i]! * alpha;
-          g += src[i + 1]! * alpha;
-          b += src[i + 2]! * alpha;
-          a += alpha;
-        }
-      }
-      const o = (y * width + x) * 4;
-      if (a > 0) {
-        data[o] = Math.round(r / a);
-        data[o + 1] = Math.round(g / a);
-        data[o + 2] = Math.round(b / a);
-      }
-      data[o + 3] = Math.round(a / ((y1 - y0) * (x1 - x0)));
-    }
+function workerUrl(): URL {
+  const built = new URL("./pixelsworker.js", import.meta.url);
+  return existsSync(fileURLToPath(built)) ? built : new URL("./pixelsworker.ts", import.meta.url);
+}
+
+/** A worker for one picture, asked one thing at a time, and ended on a timeout, a crash or a refusal. */
+class PictureWorker {
+  private readonly worker = new Worker(workerUrl(), { workerData: PIXELS_WORKER, resourceLimits: { maxOldGenerationSizeMb: WORKER_HEAP_MB }, stdout: true, stderr: true });
+  private ended = false;
+
+  constructor(private readonly stepMs: number) {}
+
+  ask(request: PixelsRequest, transfer: ArrayBuffer[] = []): Promise<Exclude<PixelsReply, { ok: false }>> {
+    if (this.ended) return Promise.reject(new Error("the picture's reader has ended"));
+    return new Promise((resolve, reject) => {
+      const done = (): void => {
+        clearTimeout(timer);
+        this.worker.off("message", onMessage).off("error", onError).off("exit", onExit);
+      };
+      const fail = (why: string): void => {
+        done();
+        void this.end();
+        reject(new Error(why));
+      };
+      const onMessage = (reply: PixelsReply): void => {
+        if (reply.ok) {
+          done();
+          resolve(reply);
+        } else fail(reply.error);
+      };
+      // Out of memory, or a stack the decoder blew: the worker dies, and says so here.
+      const onError = (err: Error): void => fail(`its decoder failed: ${err.message}`);
+      const onExit = (): void => fail("its decoder stopped");
+      const timer = setTimeout(() => fail(`it took more than ${this.stepMs / 1000} s to read`), this.stepMs);
+      this.worker.on("message", onMessage).on("error", onError).on("exit", onExit);
+      this.worker.postMessage(request, transfer);
+    });
   }
-  return { width, height, data };
-}
 
-/** The picture laid on white: a JPEG has no alpha, and a see-through screenshot on black is unreadable. */
-function onWhite(image: Rgba): Rgba {
-  const data = new Uint8Array(image.data.length);
-  for (let i = 0; i < data.length; i += 4) {
-    const alpha = image.data[i + 3]! / 255;
-    for (let c = 0; c < 3; c += 1) data[i + c] = Math.round(image.data[i + c]! * alpha + 255 * (1 - alpha));
-    data[i + 3] = 255;
+  async end(): Promise<void> {
+    if (this.ended) return;
+    this.ended = true;
+    await this.worker.terminate();
   }
-  return { ...image, data };
 }
 
-async function encode(image: Rgba, to: ModelImageType, quality: number): Promise<Buffer> {
-  if (to === "image/jpeg") return (await import("jpeg-js")).encode(onWhite(image), quality).data;
-  const { PNG } = await import("pngjs");
-  const png = new PNG({ width: image.width, height: image.height });
-  png.data = Buffer.from(image.data.buffer, image.data.byteOffset, image.data.byteLength);
-  return PNG.sync.write(png);
+/** A converter whose workers each have `stepMs` for a step; the default is WORKER_STEP_MS. */
+export function pixelsConverter(stepMs = WORKER_STEP_MS): Converter {
+  return {
+    async open(bytes: Buffer, type: ImageType, maxPixels: number): Promise<OpenPicture> {
+      const worker = new PictureWorker(stepMs);
+      try {
+        // A copy is handed over, so the caller keeps its own bytes.
+        const copy = new Uint8Array(bytes);
+        const read = await worker.ask({ op: "open", bytes: copy, type, maxPixels }, [copy.buffer]);
+        if (!("width" in read)) throw new Error("its decoder said nothing of its size");
+        return {
+          width: read.width,
+          height: read.height,
+          alpha: read.alpha,
+          async encode(to: ModelImageType, edge: number, quality: number): Promise<Buffer> {
+            const written = await worker.ask({ op: "encode", to, edge, quality });
+            if (!("data" in written)) throw new Error("its encoder wrote nothing");
+            return Buffer.from(written.data.buffer, written.data.byteOffset, written.data.byteLength);
+          },
+          close: () => worker.end(),
+        };
+      } catch (err) {
+        await worker.end();
+        throw err;
+      }
+    },
+  };
 }
 
-export const pixels: Converter = {
-  async open(bytes: Buffer, type: ImageType): Promise<OpenPicture> {
-    const image = await decode(bytes, type);
-    return {
-      width: image.width,
-      height: image.height,
-      alpha: seeThrough(image),
-      encode: (to, edge, quality) => encode(downscale(image, edge), to, quality),
-      close: async () => {},
-    };
-  },
-};
+export const pixels = pixelsConverter();
