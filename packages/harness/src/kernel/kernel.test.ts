@@ -806,6 +806,16 @@ describe("Kernel", () => {
     expect(readFileSync(join(root, "blobs", "recap", "uploads", "notes.txt"), "utf8")).toBe("hi");
   });
 
+  it("refuses a file past its kind's ceiling before keeping it, saying why", async () => {
+    kernel = await boot(stubInference([]));
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Scans" });
+    const big = Buffer.alloc(33 * 1024 * 1024, 0x20).toString("base64");
+    await expect(kernel.handleMessage("read this", { sessionId: c.id, attachments: [{ name: "scan.pdf", mediaType: "application/pdf", data: big }] })).rejects.toThrow(
+      /scan\.pdf is 33\.0 MB; a document can be up to 32 MB/,
+    );
+    expect(existsSync(join(root, "uploads", "scan.pdf"))).toBe(false);
+  });
+
   it("keeps a cleared chat on the page above a line, and tells the mirror a command ran", async () => {
     const answer = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
     kernel = await boot(stubInference([answer("Three things."), answer("Fresh start.")]));

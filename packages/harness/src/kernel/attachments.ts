@@ -29,8 +29,21 @@ export interface KeptFile {
   path: string;
 }
 
-/** Bytes per attachment. Base64 inflates by a third, and prompts have limits. */
-const MAX_BYTES = 5 * 1024 * 1024;
+const MB = 1024 * 1024;
+
+/**
+ * The most a document (a PDF, a Word, Excel or PowerPoint file) may be: what
+ * the model providers take of a PDF in one request (Anthropic's is 32 MB). A
+ * document is read into its text at the door, so this bounds the file kept
+ * and read, not what the prompt carries.
+ */
+export const DOCUMENT_MAX_BYTES = 32 * MB;
+
+/** The most a picture may be: what the providers take of one image. */
+export const IMAGE_MAX_BYTES = 5 * MB;
+
+/** The most a text file may be: it is read into the prompt whole. */
+export const TEXT_MAX_BYTES = 5 * MB;
 
 const TEXTUAL = /^(text\/|application\/(json|xml|x-yaml|yaml|toml|javascript|typescript|x-tex|x-latex|sql|x-sh|rtf))/;
 
@@ -79,10 +92,8 @@ export async function readAttachments(attachments: Attachment[]): Promise<Attach
       out.push(file);
       continue;
     }
+    assertFits(file);
     const bytes = Buffer.from(file.data, "base64");
-    if (bytes.byteLength > MAX_BYTES) {
-      throw new Error(`${file.name} is ${Math.round(bytes.byteLength / 1024 / 1024)}MB; the limit is ${MAX_BYTES / 1024 / 1024}MB`);
-    }
     let note: string;
     let text: string;
     if (isPdfFile(file.mediaType, file.name)) {
@@ -113,6 +124,35 @@ export function isTextual(mediaType: string, name: string): boolean {
   return false;
 }
 
+/** Bytes a base64 payload decodes to, without decoding it. */
+export function decodedBytes(data: string): number {
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((data.length * 3) / 4) - padding);
+}
+
+/** Megabytes as a reader says them: "6.2 MB". */
+export function megabytes(bytes: number): string {
+  return `${(bytes / MB).toFixed(1)} MB`;
+}
+
+/** The ceiling for a file of this kind, and why it is that. */
+function limitOf(mediaType: string, name: string): { bytes: number; why: string } {
+  if (isImage(mediaType)) return { bytes: IMAGE_MAX_BYTES, why: `an image can be up to ${IMAGE_MAX_BYTES / MB} MB, the most the model providers take of one picture` };
+  if (isDocument(mediaType, name)) return { bytes: DOCUMENT_MAX_BYTES, why: `a document can be up to ${DOCUMENT_MAX_BYTES / MB} MB, the most the model providers take of a PDF in one request` };
+  return { bytes: TEXT_MAX_BYTES, why: `a text file can be up to ${TEXT_MAX_BYTES / MB} MB, as it is read into the prompt whole` };
+}
+
+/**
+ * Refuse a file past its kind's ceiling, saying the real limit and why.
+ * Sized from the encoding, so an oversize file is refused before it is
+ * decoded or kept.
+ */
+export function assertFits(file: Pick<Attachment, "name" | "mediaType" | "data">): void {
+  const bytes = decodedBytes(file.data);
+  const limit = limitOf(file.mediaType, file.name);
+  if (bytes > limit.bytes) throw new Error(`${file.name} is ${megabytes(bytes)}; ${limit.why}`);
+}
+
 export function parseAttachments(raw: unknown): Attachment[] {
   if (!Array.isArray(raw)) return [];
   const out: Attachment[] = [];
@@ -137,12 +177,7 @@ export function parseAttachments(raw: unknown): Attachment[] {
 export function attachmentBlocks(attachments: Attachment[]): ContentBlock[] {
   const blocks: ContentBlock[] = [];
   for (const file of attachments) {
-    const bytes = Math.floor((file.data.length * 3) / 4);
-    if (bytes > MAX_BYTES) {
-      throw new Error(
-        `${file.name} is ${Math.round(bytes / 1024 / 1024)}MB; the limit is ${MAX_BYTES / 1024 / 1024}MB`,
-      );
-    }
+    assertFits(file);
     const kept = file.path ? { path: file.path } : {};
     if (isImage(file.mediaType)) {
       blocks.push({
