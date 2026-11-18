@@ -5041,6 +5041,9 @@ a.health {
 .hist-took {
   font-variant-numeric: tabular-nums;
 }
+/* One line, so a run's row is a tool's height where the column is narrow (a
+   phone): wrapped, the time and its duration made the row half again taller. */
+.hist-when { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .ops-table--fixed {
   table-layout: fixed;

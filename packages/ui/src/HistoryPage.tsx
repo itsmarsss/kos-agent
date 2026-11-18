@@ -229,7 +229,7 @@ export function HistoryPage({
           header: "When",
           width: "12%",
           render: (r) => (
-            <span className="ops-muted">
+            <span className="ops-muted hist-when">
               {timeOfDay(r.at)}
               {r.kind === "run" && r.run.durationMs ? (
                 <span className="hist-took">
