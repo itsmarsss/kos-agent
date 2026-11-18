@@ -5775,7 +5775,7 @@ a.health {
   .app { grid-template-columns: minmax(0, 1fr); }
   :root { --page-gutter: 1rem; --page-top: 0.75rem; }
   .ops-page { padding-bottom: 2rem; }
-  .ops-page--full { height: calc(100dvh - 3.25rem); padding-top: 0.5rem; }
+  .ops-page--full { height: calc(100dvh - 3.25rem); padding-top: 0.5rem; padding-inline: var(--page-gutter); }
   /* The page fills what the phone bar leaves, no more: at 100vh under the bar's
      3.25rem the document scrolled by the bar's height, and a full page's head
      slid under it. */
