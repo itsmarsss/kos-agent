@@ -113,8 +113,12 @@ line you can open, and an approval the chat asks for is decided in place.
   its own) is typeset, as on the dashboard.
 - **Found again.** Chrome stops the extension's worker when it likes; the
   panel finds the new one in a moment and keeps what you pressed meanwhile
-  (Stop, an approval, your words), sent in order once it is back, and the
-  worker keeps a Stop or a decision until its line to KOS is back. A turn
+  (Stop, an approval, your words), sent in order once it is back; words
+  given back to the box are not sent. The worker keeps a Stop or a decision
+  until its line to KOS is back, across its own restarts. A Stop lapses
+  after a minute, one that names no chat is not kept, and each says how
+  long ago it was pressed, so KOS lets go of one pressed before the turn
+  running by then began. A turn
   that ran while the panel was away shows as running, with its steps so far
   and its clock from when it began. When the chat's session in this Chrome
   ends, the panel says why.
@@ -310,7 +314,7 @@ Events, besides `session.paused`, `session.resumed` and `session.ended`
 | `chat.open` | `{}`: a panel opened on this KOS, and asks to be shown the chat |
 | `chat.send` | `text`: the owner's words in the panel; `beside?`: the tab they were said beside, `{ kind: "page", url, title }`, `{ kind: "hidden" }` or `{ kind: "other" }` (not a web page), told to that turn (and taken into a running one with the words) and not kept; `quote? { text, from }`: what they selected on that page and its address, kept with the message; `files? [id]`: files sent ahead with `chat.attach`, to go with the words ([computer.md](computer.md), A phone) |
 | `chat.attach` | `id`, `name`, `mediaType`, `part`, `parts`, `data`: one part of a file's base64, ahead of the `chat.send` that names it |
-| `chat.stop` | `chat?`: the owner pressed Stop for that chat, or the one shown: its turn stops, its sessions end on every device, an ask for one is withdrawn, and the rest of the turn asks for none |
+| `chat.stop` | `chat?`: the owner pressed Stop for that chat, or the one shown; `waited?`: how many ms ago it was pressed, when it waited on the way (KOS ignores it when the chat's running turn began after the press): its turn stops, its sessions end on every device, an ask for one is withdrawn, and the rest of the turn asks for none |
 | `chat.decide` | `approval`, `approved` |
 | `chat.list` | `{}`: asks for `chat.chats` |
 | `chat.switch` | `conversation`: the panel continues that chat, and is shown it; a session the chat it left holds ends, once a turn running there ends |

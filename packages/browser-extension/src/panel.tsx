@@ -8,6 +8,7 @@ import { createRoot } from "react-dom/client";
 import { asked, EMPTY, givenBack, isCommand, isShown, PANEL_COMMANDS, sent, shown, statused, STEP, yourWords, type Approval, type Chat, type Extra, type Line, type Quote, type Step } from "./chat.js";
 import { pictureSrc, showable, type Pictured } from "./frames.js";
 import { linkWords } from "./linkwords.js";
+import { lapsed } from "./waiting.js";
 import { isHidden } from "./settings.js";
 import { ask, minutesLeft, minutesWords } from "./pages.js";
 import type { ConsentRequest, KosState, PopupState } from "./worker.js";
@@ -107,8 +108,8 @@ function useChat(windowId: number | undefined, online: boolean): {
     shownChat.current = chat.conversation;
   }, [chat.conversation]);
   const port = useRef<chrome.runtime.Port | null>(null);
-  /** What the owner did while the worker was away (a Stop, an approval, words), sent in order once it is back. */
-  const outbox = useRef<Record<string, unknown>[]>([]);
+  /** What the owner did while the worker was away (a Stop, an approval, words), with when, sent in order once it is back. */
+  const outbox = useRef<{ message: Record<string, unknown>; at: number }[]>([]);
   const chosen = useRef<string | null>(null);
   const taking = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** Heard from KOS since the words went: no need to wait on it any longer. */
@@ -119,6 +120,8 @@ function useChat(windowId: number | undefined, online: boolean): {
   // Words that went and were never taken come back, and the panel says why.
   const giveBack = (why: string): void => {
     heardBack();
+    // Words back in the box are the owner's to send again, not the worker's when it is back.
+    outbox.current = outbox.current.filter((x) => x.message["type"] !== "send");
     setError(why);
     setChat(givenBack);
   };
@@ -146,7 +149,8 @@ function useChat(windowId: number | undefined, online: boolean): {
       // The KOS and the chat it showed, so a Stop said meanwhile still names its chat; then what waited for the worker.
       p.postMessage({ type: "hello", window: windowId, kos: chosen.current, conversation: shownChat.current });
       port.current = p;
-      for (const message of outbox.current.splice(0)) post(message);
+      const now = Date.now();
+      for (const { message, at } of outbox.current.splice(0)) if (!lapsed(message["type"] === "stop", at, now)) post(message);
     };
     const heard = (message: Record<string, unknown>): void => {
       switch (message["type"]) {
@@ -277,7 +281,7 @@ function useChat(windowId: number | undefined, online: boolean): {
     } catch {
       port.current = null;
     }
-    outbox.current = [...outbox.current, message].slice(-OUTBOX_MAX);
+    outbox.current = [...outbox.current, { message, at: Date.now() }].slice(-OUTBOX_MAX);
   }
 }
 
@@ -347,7 +351,8 @@ function Panel(): ReactElement {
   const held = chat.held || session?.paused === true;
   // Something to stop: a turn running, a session at work, or an ask up for one.
   const busy = chat.working || chat.consent !== undefined || session !== undefined;
-  const stop = (): void => say({ type: "stop" });
+  // When it was pressed goes with it: a Stop that waited for the worker is not for a turn begun since.
+  const stop = (): void => say({ type: "stop", at: Date.now() });
   useEffect(() => setKosId(kos), [kos]);
   const [switching, setSwitching] = useState(false);
   const titleRef = useRef<HTMLButtonElement>(null);
@@ -495,7 +500,7 @@ function TabBar({
           <button type="button" className="btn btn--sm" onClick={() => say({ type: session?.paused ? "handback" : "take" })}>
             {session?.paused ? "Hand back" : "Take over"}
           </button>
-          <button type="button" className="btn btn--sm btn--danger" onClick={() => say({ type: "stop" })}>
+          <button type="button" className="btn btn--sm btn--danger" onClick={() => say({ type: "stop", at: Date.now() })}>
             Stop
           </button>
         </div>
@@ -807,7 +812,7 @@ function Held({ say }: { say: (m: Record<string, unknown>) => void }): ReactElem
       <button type="button" className="btn btn--sm" onClick={() => say({ type: "handback" })}>
         Hand back
       </button>
-      <button type="button" className="btn btn--sm btn--danger" onClick={() => say({ type: "stop" })}>
+      <button type="button" className="btn btn--sm btn--danger" onClick={() => say({ type: "stop", at: Date.now() })}>
         Stop
       </button>
     </m.div>

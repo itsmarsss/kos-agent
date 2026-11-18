@@ -5,6 +5,7 @@ import { ENDED_KEY, HELD_KEY, afterRestart, endedFor, endedWords, helloSession, 
 import { forgetKeys, keepKeys, keysFor, newKeys, publicKey } from "./keys.js";
 import { Link, type Hello, type LinkState } from "./link.js";
 import { Lines } from "./lines.js";
+import { WAITING_KEY, due, lapsed, queued, readWaiting, stopWith, type WaitingEvent } from "./waiting.js";
 import { note, recent, saveLog } from "./log.js";
 import { iconPixels } from "./icon.js";
 import { installOverlay, type OverlayState } from "./overlay.js";
@@ -155,6 +156,9 @@ let session: Session | undefined;
 let lastSession: HeldSession | undefined;
 /** Why the last session ended, for a side panel on its chat. */
 let lastEnded: Ended | undefined;
+/** The owner's Stops and decisions in a panel while their KOS was off its line, sent in order once it is back (waiting.ts); kept across the worker's restarts. */
+let waitingForLine: WaitingEvent[] = [];
+
 /** The wait for the session's KOS to come back on its line before the session ends. */
 let lineWait: ReturnType<typeof setTimeout> | undefined;
 /** How long a session outlives its KOS's line: shorter than KOS's own wait, so a session kept here is still kept there. */
@@ -221,8 +225,9 @@ async function load(): Promise<void> {
   settings = readSettings(local["settings"]);
   sentTheme = readDashboardTheme(local[SENT_THEME_KEY]);
   held = new Set(Array.isArray(local["held"]) ? (local["held"] as unknown[]).filter((v): v is string => typeof v === "string") : []);
-  const kept = await chrome.storage.session.get(["handed", "bar", HELD_KEY, ENDED_KEY]);
+  const kept = await chrome.storage.session.get(["handed", "bar", HELD_KEY, ENDED_KEY, WAITING_KEY]);
   lastEnded = readEnded(kept[ENDED_KEY]);
+  waitingForLine = readWaiting(kept[WAITING_KEY]);
   for (const tab of Array.isArray(kept["handed"]) ? (kept["handed"] as number[]) : []) handed.add(tab);
   if (typeof kept["bar"] === "object" && kept["bar"] !== null) barPlace = kept["bar"] as typeof barPlace;
   await lostAtStart(readHeld(kept[HELD_KEY]));
@@ -423,9 +428,15 @@ function waitForLine(p: Paired): void {
 
 /** A KOS back on its line: told in its hello of the session this Chrome still holds or lost meanwhile, so what was kept to tell it is done with. */
 function backOnLine(id: string): void {
-  if (lastSession?.kos === id && lastSession.ended) void keepSession(undefined);
-  for (const { name, data, at } of waitingForLine.get(id) ?? []) if (Date.now() - at < WAITING_MS) links.get(id)?.event(name, data);
-  waitingForLine.delete(id);
+  const link = links.get(id);
+  // Said in the hello already; said as the event too, for a KOS that reads only that.
+  if (lastSession?.kos === id && lastSession.ended) {
+    link?.event("session.ended", { session: lastSession.id, reason: lastSession.ended });
+    void keepSession(undefined);
+  }
+  const { send, rest } = due(waitingForLine, id, Date.now());
+  for (const { name, data } of send) link?.event(name, data);
+  if (send.length || rest.length !== waitingForLine.length) void keepWaiting(rest);
   if (owner !== id || !session) return;
   clearTimeout(lineWait);
   lineWait = undefined;
@@ -597,7 +608,8 @@ async function begin(params: Record<string, unknown>, origin: string): Promise<R
       ...(site ? { site } : {}),
       expiresAt: Date.now() + settings.promptWaitSeconds * 1000,
     };
-    note(`${hostOf(pairingOf(origin) ?? { url: origin })} asks for ${asked} min, from ${request.requester}`);
+    // The requester is a chat's title, the owner's words: not for a log kept on disk.
+    note(`${hostOf(pairingOf(origin) ?? { url: origin })} asks for ${asked} min${conversation ? ` for chat ${conversation}` : ""}`);
     let minutes = asked;
     let alone: string | undefined;
     if (asksFirst(settings, origin)) {
@@ -1467,7 +1479,7 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
     }
     case "stop": {
       // Stop in the panel: the chat's turn, its session and any ask for one, all at once. A chat not known yet is the one KOS shows.
-      if (panel.kos) fromOwner(panel.kos, "chat.stop", panel.conversation ? { chat: panel.conversation } : {});
+      if (panel.kos) fromOwner(panel.kos, "chat.stop", panel.conversation ? { chat: panel.conversation } : {}, pressedAt(message["at"]));
       // Said to KOS first, so the ask it takes back is not read as a no; then the prompt comes down here at once.
       for (const asked of consents.values()) if (asked.panel === panel) asked.answer({ allowed: false, minutes: 0, why: "withdrawn" });
       if (session && owner === panel.kos && session.info.conversation === panel.conversation) await end("owner");
@@ -1482,18 +1494,30 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
   }
 }
 
-/** The owner's Stops and decisions in a panel while its KOS was off its line (the worker just woke), by KOS, sent in order once it is back. */
-const waitingForLine = new Map<string, { name: string; data: Record<string, unknown>; at: number }[]>();
-const WAITING_MAX = 20;
-/** How long one waits: a Stop pressed long ago must not stop the turn running when the line is back. */
-const WAITING_MS = 60_000;
+async function keepWaiting(next: WaitingEvent[]): Promise<void> {
+  waitingForLine = next;
+  await chrome.storage.session.set({ [WAITING_KEY]: next });
+}
 
-/** A Stop or a decision from a panel, told its KOS now, or as soon as its line is back: never dropped for a line a moment down. */
-function fromOwner(kos: string, name: "chat.stop" | "chat.decide", data: Record<string, unknown>): void {
+/**
+ * A Stop or a decision from a panel, pressed at `at`: told its KOS now, or
+ * as soon as its line is back, unless it has lapsed. A Stop says how long
+ * ago it was pressed, so KOS does not take it for a turn begun since.
+ */
+function fromOwner(kos: string, name: "chat.stop" | "chat.decide", data: Record<string, unknown>, at = Date.now()): void {
+  const now = Date.now();
+  const stop = name === "chat.stop";
+  if (lapsed(stop, at, now)) return note(`${name} from the side panel lapsed before it could go`);
   const link = links.get(kos);
-  if (link?.online) return link.event(name, data);
-  note(`${name} from the side panel waits for KOS's line`);
-  waitingForLine.set(kos, [...(waitingForLine.get(kos) ?? []), { name, data, at: Date.now() }].slice(-WAITING_MAX));
+  if (link?.online) return link.event(name, stop ? stopWith(data, at, now) : data);
+  const next = queued(waitingForLine, { kos, name, data, at });
+  note(next === waitingForLine ? `${name} for no chat known yet is not kept for KOS's line` : `${name} from the side panel waits for KOS's line`);
+  if (next !== waitingForLine) void keepWaiting(next);
+}
+
+/** When the panel says the owner pressed it: a time it gives, never later than now; now when it gives none. */
+function pressedAt(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) ? Math.min(v, Date.now()) : Date.now();
 }
 
 /** The page beside the panel a chat is in, for that chat's KOS and no other, never a hidden site. */
