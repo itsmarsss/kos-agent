@@ -3,7 +3,7 @@ import { extname } from "node:path";
 
 import { PICTURE_FORMATS, TEXTUTIL_FORMATS, viewFormatOf } from "./convert.js";
 import { hasQuickLook, hasTextutil, quickLookPng, textutilHtml } from "./macos.js";
-import type { OfficeView, ViewFormat } from "./model.js";
+import type { OfficeView, ViewFormat } from "@kos/shared";
 import { defaultRunner, type Runner } from "./run.js";
 
 /**

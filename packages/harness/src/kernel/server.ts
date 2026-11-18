@@ -1947,7 +1947,8 @@ export async function handleApiRequest(
 
   // Office views, thumbnails, a file's facts, search, recents and the trash (filesroutes.ts).
   if (path.startsWith("/api/file")) {
-    const files = await handleFilesRoute(kernel.workspace, { method, path, query: queryParams(req.url), body }, defaultFilesDeps((slug) => kernel.manifest.get(slug)?.name));
+    const range = req.headers?.range;
+    const files = await handleFilesRoute(kernel.workspace, { method, path, query: queryParams(req.url), body, ...(typeof range === "string" ? { range } : {}) }, defaultFilesDeps((slug) => kernel.manifest.get(slug)?.name));
     if (files) return files;
   }
 

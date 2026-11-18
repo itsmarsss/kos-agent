@@ -1,5 +1,5 @@
 import { joinPart, pictureUri, relsOf } from "./docx.js";
-import type { Frame, Paragraph, Run, Shape, Slide, SlidesView } from "./model.js";
+import type { SlideFrame as Frame, SlideParagraph as Paragraph, SlideRun as Run, SlideShape as Shape, Slide, SlidesView } from "@kos/shared";
 import { find, kid, kids, parseXml, path, textOf, type XmlNode } from "./xml.js";
 
 /**

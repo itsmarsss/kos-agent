@@ -114,6 +114,18 @@ describe("the file manager's routes", () => {
     for (const id of ["../../etc", "1", { $ne: 1 }]) expect((await post("/api/files/restore", { id }))?.status).toBe(400);
   });
 
+  it("plays sound and video by range, and nothing that is not media", async () => {
+    writeFileSync(join(root, "projects/garden/clip.mp4"), Buffer.from("0123456789"));
+    const whole = await get("/api/file/media", { path: "projects/garden/clip.mp4" });
+    expect(whole?.status).toBe(200);
+    expect(whole?.headers).toMatchObject({ "content-type": "video/mp4", "accept-ranges": "bytes", "x-content-type-options": "nosniff" });
+    const part = await handleFilesRoute(ws, { method: "GET", path: "/api/file/media", query: new URLSearchParams({ path: "projects/garden/clip.mp4" }), body: {}, range: "bytes=2-4" }, deps);
+    expect(part?.status).toBe(206);
+    expect(String(part?.body)).toBe("234");
+    expect(part?.headers?.["content-range"]).toBe("bytes 2-4/10");
+    expect((await get("/api/file/media", { path: "projects/garden/plan.docx" }))?.status).toBe(400);
+  });
+
   it("leaves other paths to the server", async () => {
     expect(await get("/api/files")).toBeUndefined();
     expect(await post("/api/files/rename", {})).toBeUndefined();

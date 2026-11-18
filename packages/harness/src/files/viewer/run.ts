@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 
 import { runRequest, type ConvertRequest } from "./convert.js";
-import type { OfficeView } from "./model.js";
+import type { OfficeView } from "@kos/shared";
 import { VIEWER_WORKER } from "./worker.js";
 
 /**

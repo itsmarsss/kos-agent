@@ -1,6 +1,6 @@
 import { read, utils, type CellObject, type WorkSheet } from "xlsx";
 
-import type { Cell, Sheet, SheetView, ViewFormat } from "./model.js";
+import type { ViewCell as Cell, ViewSheet as Sheet, SheetView, ViewFormat } from "@kos/shared";
 
 /**
  * A workbook as sheets to look at.

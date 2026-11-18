@@ -1,6 +1,6 @@
 import { isZip, readZip, ZipTooLarge } from "../zip.js";
 import { docxToView } from "./docx.js";
-import type { OfficeView, ViewFormat } from "./model.js";
+import type { OfficeView, ViewFormat } from "@kos/shared";
 import { pptxToView } from "./pptx.js";
 import { sanitizeHtml } from "./sanitize.js";
 import { delimitedToView, workbookToView } from "./sheets.js";

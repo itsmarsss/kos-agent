@@ -1,4 +1,4 @@
-import type { DocView } from "./model.js";
+import type { DocView } from "@kos/shared";
 import { find, kid, kids, parseXml, path, textOf, type XmlNode } from "./xml.js";
 
 /**

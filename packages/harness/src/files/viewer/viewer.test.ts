@@ -6,7 +6,7 @@ import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { convert, runRequest } from "./convert.js";
-import type { DocView, SheetView, SlidesView } from "./model.js";
+import type { DocView, SheetView, SlidesView } from "@kos/shared";
 import { hostileDocx, keynote, sampleDeck, sampleDocx, sampleWorkbook, zipBomb } from "./office.fixture.js";
 import { workerRunner } from "./run.js";
 import { ROWS_MAX } from "./sheets.js";

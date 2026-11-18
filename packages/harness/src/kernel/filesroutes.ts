@@ -1,7 +1,7 @@
 import { hasQuickLook, quickLookPng } from "../files/viewer/macos.js";
 import { OfficeViewer } from "../files/viewer/viewer.js";
 import type { Workspace } from "../store/workspace.js";
-import { fileInfo, recentFiles, searchContents, searchNames } from "./fileinfo.js";
+import { fileInfo, readMedia, recentFiles, searchContents, searchNames } from "./fileinfo.js";
 import { emptyTrash, listTrash, restoreEntry, trashEntry } from "./filetrash.js";
 import { THUMB_EDGES, thumbnail, type QuickLook } from "./filethumbs.js";
 
@@ -17,6 +17,8 @@ export interface FilesRequest {
   path: string;
   query: URLSearchParams;
   body: Record<string, unknown>;
+  /** The Range header, for a player seeking in a video. */
+  range?: string;
 }
 
 export interface FilesResponse {
@@ -77,6 +79,21 @@ export async function handleFilesRoute(ws: Workspace, req: FilesRequest, deps: F
       const thumb = await thumbnail(ws, target, edge, deps.quickLook);
       if (!thumb) return { status: 404, body: { error: "no thumbnail for this file" } };
       return { status: 200, body: thumb.bytes, headers: { ...INERT, "content-type": thumb.contentType, "content-length": String(thumb.bytes.byteLength), "cache-control": "private, max-age=300" } };
+    }
+    if (method === "GET" && path === "/api/file/media") {
+      if (!target) return bad("path required");
+      const media = readMedia(ws, target, req.range);
+      return {
+        status: media.partial ? 206 : 200,
+        body: media.bytes,
+        headers: {
+          ...INERT,
+          "content-type": media.contentType,
+          "content-length": String(media.bytes.byteLength),
+          "accept-ranges": "bytes",
+          ...(media.partial ? { "content-range": media.partial } : {}),
+        },
+      };
     }
     if (method === "GET" && path === "/api/files/info") {
       const info = await fileInfo(ws, target || ".");
