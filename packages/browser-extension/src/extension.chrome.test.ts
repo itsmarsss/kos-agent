@@ -233,12 +233,12 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
   });
 
   /** Whether the overlay's button for an act is drawn on the page: found through its closed shadow root, and given a box. */
-  const drawn = async (page: string, act: string): Promise<boolean> => {
+  const boxOf = async (page: string, attr: string, value: string): Promise<{ left: number; right: number; top: number; bottom: number } | undefined> => {
     type Node = { nodeId: number; attributes?: string[]; children?: Node[]; shadowRoots?: Node[] };
     const { root } = (await devtools.send("DOM.getDocument", { depth: -1, pierce: true }, page)) as { root: Node };
     const find = (n: Node): Node | undefined => {
       const a = n.attributes ?? [];
-      if (a[a.indexOf("data-act") + 1] === act && a.includes("data-act")) return n;
+      if (a.includes(attr) && a[a.indexOf(attr) + 1] === value) return n;
       for (const c of [...(n.shadowRoots ?? []), ...(n.children ?? [])]) {
         const hit = find(c);
         if (hit) return hit;
@@ -246,12 +246,13 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
       return undefined;
     };
     const node = find(root);
-    if (!node) return false;
-    return devtools.send("DOM.getBoxModel", { nodeId: node.nodeId }, page).then(
-      () => true,
-      () => false,
-    );
+    if (!node) return undefined;
+    const model = (await devtools.send("DOM.getBoxModel", { nodeId: node.nodeId }, page).catch(() => undefined)) as { model?: { border: number[] } } | undefined;
+    const q = model?.model?.border;
+    return q ? { left: q[0]!, top: q[1]!, right: q[2]!, bottom: q[5]! } : undefined;
   };
+  /** Whether the overlay's button for an act is drawn on the page. */
+  const drawn = async (page: string, act: string): Promise<boolean> => (await boxOf(page, "data-act", act)) !== undefined;
 
   it("pairs, proves both keys, and keeps the connection with pings", () => {
     expect(deviceKey).toBeDefined();
@@ -420,11 +421,22 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(events.some((e) => e.name === "session.paused")).toBe(false);
     // The small bar chosen in Settings: KOS's face and Stop alone on the page, and the owner's hand still takes over.
     const page = await devtools.attach((u) => u.endsWith("/shop"));
+    const overlay = (key: string): Promise<unknown> => devtools.evaluate(page, `document.querySelector('kos-overlay')?.dataset.${key}`);
+    // The full bar folded to KOS's face first: a fold the small bar must not keep.
+    const face = (await boxOf(page, "class", "face"))!;
+    for (const type of ["mousePressed", "mouseReleased"]) await devtools.send("Input.dispatchMouseEvent", { type, x: (face.left + face.right) / 2, y: (face.top + face.bottom) / 2, button: "left", clickCount: 1 }, page);
+    for (let i = 0; i < 50 && (await overlay("folded")) !== "1"; i++) await until(() => false, 100);
+    expect(await overlay("folded")).toBe("1");
     expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "settings", patch: { fullBar: false } })`)).toMatchObject({ ok: true });
-    for (let i = 0; i < 50 && (await devtools.evaluate(page, "document.querySelector('kos-overlay')?.dataset.bar")) !== "chip"; i++) await until(() => false, 100);
-    expect(await devtools.evaluate(page, "document.querySelector('kos-overlay')?.dataset.bar")).toBe("chip");
-    // Drawn on the page: Stop, one press away, and not Take over or the words.
-    expect(await drawn(page, "stop")).toBe(true);
+    for (let i = 0; i < 50 && (await overlay("bar")) !== "chip"; i++) await until(() => false, 100);
+    expect(await overlay("bar")).toBe("chip");
+    expect(await overlay("folded")).toBe("");
+    // Drawn on the page: KOS's face and Stop, one press away, side by side and level; not Take over or the words.
+    const small = (await boxOf(page, "class", "face"))!;
+    const stop = (await boxOf(page, "data-act", "stop"))!;
+    expect(stop.left - small.right).toBeGreaterThanOrEqual(4);
+    expect(Math.abs((stop.top + stop.bottom) / 2 - (small.top + small.bottom) / 2)).toBeLessThan(1.5);
+    expect(Math.abs(stop.bottom - stop.top - (small.bottom - small.top))).toBeLessThan(1);
     expect(await drawn(page, "take")).toBe(false);
     // The owner's, once the moment after they allowed it has passed: straight to the page, not through KOS.
     await until(() => false, GRACE_MS);
@@ -432,6 +444,10 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     await until(() => events.some((e) => e.name === "session.paused"));
     expect(events.find((e) => e.name === "session.paused")?.data).toMatchObject({ session: "s1", reason: "owner" });
     expect((await cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 }))["error"]).toMatchObject({ code: "paused" });
+    // Paused, the small bar offers Hand back beside Stop.
+    for (let i = 0; i < 50 && (await overlay("paused")) !== "1"; i++) await until(() => false, 100);
+    expect(await drawn(page, "handback")).toBe(true);
+    expect(await drawn(page, "stop")).toBe(true);
     expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "settings", patch: { fullBar: true } })`)).toMatchObject({ ok: true });
   }, 30_000);
 
