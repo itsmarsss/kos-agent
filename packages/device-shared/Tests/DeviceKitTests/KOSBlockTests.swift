@@ -44,6 +44,11 @@ struct KOSBlockTests {
     #expect(KOSBlock.fence(["say ```this```"], at: 0) == nil)
   }
 
+  @Test func takesTheOpenersIndentOffEachLineAndNoMore() {
+    let fence = KOSBlock.fence(lines("   ```kos:email\n   to: a@x.com\n   ---\n   Hi,\n     indented\n flush\n   ```"), at: 0)
+    #expect(fence?.body == ["to: a@x.com", "---", "Hi,", "  indented", "flush"])
+  }
+
   @Test func takesAnyInfoStringAsCommonMarkDoesTheFirstWordItsLanguage() throws {
     let titled = try #require(KOSBlock.fence(lines("```ts title=\"x.ts\"\nconst a = 1;\n```\nafter"), at: 0))
     #expect(titled.info == "ts title=\"x.ts\"" && titled.lang == "ts" && titled.next == 3 && titled.closed)
@@ -60,6 +65,7 @@ struct KOSBlockTests {
     let link = try #require(try links(["open https://xn--pple-43d.com/login Apple"]).first)
     #expect(link.label == "Apple" && link.host == "xn--pple-43d.com" && link.url.absoluteString == "https://xn--pple-43d.com/login")
     #expect(try links(["open https://x.com \u{202E}moc.knab\u{202C}"]).first?.label == "moc.knab")
+    #expect(try links(["open\thttps://example.com:8443/a\tAdmin"]).first.map { "\($0.label) \($0.host)" } == "Admin example.com:8443")
     // A host in another script is shown as it is reached, or is no link at all; never as the look-alike.
     #expect(try links(["open https://\u{0430}pple.com"]).allSatisfy { $0.host == "xn--pple-43d.com" })
   }

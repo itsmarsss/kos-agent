@@ -48,10 +48,12 @@ public struct KOSBlock: Equatable, Sendable {
     let ticks = line.prefix { $0 == "`" }.count
     let info = line.dropFirst(ticks).trimmingCharacters(in: .whitespaces)
     guard ticks >= 3, !info.contains("`") else { return nil }
+    // A fence indented under a list item: its lines lose as many spaces as its opener has, as CommonMark has it.
+    let indent = lines[start].prefix { $0 == " " }.count
     var body: [String] = []
     var i = start + 1
     while i < lines.count, !closes(lines[i], ticks: ticks) {
-      body.append(lines[i])
+      body.append(String(lines[i].dropFirst(min(indent, lines[i].prefix { $0 == " " }.count))))
       i += 1
     }
     let closed = i < lines.count
@@ -225,13 +227,14 @@ extension KOSBlock {
 
   /// `open <url> [words]` as a link, only to an https address with no user in it; anything else is no link.
   static func link(_ action: String) -> BlockLayout.Link? {
-    let parts = action.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true).map(String.init)
+    let parts = action.split(maxSplits: 2, omittingEmptySubsequences: true, whereSeparator: \.isWhitespace).map(String.init)
     guard parts.count >= 2, parts[0].lowercased() == "open", let parsed = URLComponents(string: parts[1]),
           parsed.scheme?.lowercased() == "https", parsed.user == nil, parsed.password == nil,
           let url = parsed.url, let host = url.host, !host.isEmpty else { return nil }
     let words = (parts.count > 2 ? parts[2] : "").unicodeScalars.filter { !bidiMarks.contains($0) }
     let label = String(String.UnicodeScalarView(words)).trimmingCharacters(in: .whitespaces)
-    return .init(label: label.isEmpty ? "Open" : label, url: url, host: host)
+    // The host with its port, as it is reached.
+    return .init(label: label.isEmpty ? "Open" : label, url: url, host: url.port.map { "\(host):\($0)" } ?? host)
   }
 
   /// Marks that turn text around without showing: a label carrying one could read as something else.

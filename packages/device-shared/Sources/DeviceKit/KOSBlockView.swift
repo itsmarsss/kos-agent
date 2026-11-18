@@ -64,7 +64,8 @@ public struct KOSBlockView: View {
           Text(row.label).font(.kos(.body)).foregroundStyle(Theme.muted)
           value(row.values)
             .font(.kos(.body))
-            // A value that opens on a chip (a time) starts its words where the plain values do.
+            // A value that opens on a chip (a time) starts its words where the plain values do. The whole Text
+            // moves, so a value that wraps sits its later lines that sliver left too; a time rarely wraps.
             .padding(.leading, row.values.first?.hasPrefix("<t:") == true ? -chipPadWidth(size: KOSType.body.scaled) : 0)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
