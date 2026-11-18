@@ -155,6 +155,14 @@ describe("GuardedTools", () => {
       expect(approvals.pending().map((a) => a.tool)).toEqual(["browser.eval", "browser.handoff", "vault.fill", "shop.pay"]);
     });
 
+    it("never covers what KOS's own rules hold back: a permanent delete, a message to others", async () => {
+      risky("chats.delete", "notify");
+      const tools = auto();
+      expect((await tools.execute("chats.delete", { id: "c2" })).content).toMatch(/Queued for approval/);
+      expect((await tools.execute("notify", { text: "hi", to: "channel:1" })).content).toMatch(/Queued for approval/);
+      expect((await tools.execute("notify", { text: "hi" })).content).toBe(`${AUTO_PREFIX}\ndone`);
+    });
+
     it("lets nothing through while the kill switch is thrown", async () => {
       risky("files.rm");
       expect((await auto({ halted: () => true }).execute("files.rm", {})).content).toMatch(/Queued for approval/);

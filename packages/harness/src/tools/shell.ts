@@ -1,14 +1,16 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { guestOrigin, turnStop } from "../kernel/caller.js";
 import { MAINTENANCE } from "../kernel/caretaker.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
+import { destructiveCommand } from "../risk/beyondauto.js";
 import { isReadOnlyCommand } from "../risk/readonly.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv } from "../sandbox/env.js";
 import { jailedCommand } from "../sandbox/jail.js";
+import { outsideScratch } from "./files.js";
 
 /**
  * shell.run: a command, in the workspace, jailed.
@@ -108,6 +110,20 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           floor: "risky",
           why: "a command that may write",
           relax: (input) => typeof input["command"] === "string" && isReadOnlyCommand(input["command"]),
+          // What a chat's Auto never runs unasked: a line that destroys work past undoing.
+          beyondAuto: (input) =>
+            typeof input["command"] === "string" &&
+            destructiveCommand(
+              input["command"],
+              (path) => {
+                try {
+                  return existsSync(ws.resolve(path));
+                } catch {
+                  return true;
+                }
+              },
+              (path) => !outsideScratch(path),
+            ),
           refuse: (input) =>
             typeof input["command"] === "string" && namesDatabase(input["command"]) && (ctx.services?.callerProject?.() !== MAINTENANCE.slug || guestOrigin() !== undefined) ? DATABASE_REFUSED : false,
         },

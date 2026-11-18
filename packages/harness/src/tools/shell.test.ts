@@ -129,6 +129,12 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     expect(maintenance.classify("shell.run", { command: "sqlite3 -readonly kos.sqlite .tables" }).tier).toBe("risky");
   });
 
+  it("puts a line that destroys work beyond a chat's Auto", () => {
+    expect(registry.classify("shell.run", { command: "rm -rf x" }).beyondAuto).toBe("deletes recursively");
+    expect(registry.classify("shell.run", { command: "git push --force" }).beyondAuto).toBe("force-pushes");
+    expect(registry.classify("shell.run", { command: "pnpm build" }).beyondAuto).toBeUndefined();
+  });
+
   it("is risky by floor, and safe for a line that only reads", () => {
     expect(registry.classify("shell.run", { command: "rm -rf x" }).tier).toBe("risky");
     expect(registry.classify("shell.run", { command: "ls && rm -rf x" }).tier).toBe("risky");

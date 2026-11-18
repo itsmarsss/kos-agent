@@ -215,6 +215,10 @@ describe("the fence around the tables", () => {
     expect(trust.reason).toMatch(/trust tables are never written/);
     expect(fence(db, "UPDATE 'pending_actions' SET status = 'approved'", reach("books")).reason).toMatch(/trust tables/);
     expect(fence(db, "SELECT * FROM pending_actions", reach("maintenance")).ok).toBe(true);
+    // A chat's mode, what runs unattended, and the record of what ran: no statement widens its own reach.
+    for (const sql of ["UPDATE settings SET value = '{}' WHERE key = 'chat.modes'", "DELETE FROM crons", "INSERT INTO crons (id) VALUES (9)", "DELETE FROM pending_actions"]) {
+      expect(fence(db, sql, reach("maintenance")).reason, sql).toMatch(/trust tables/);
+    }
     // Read into a project's table, a trust table is only read.
     expect(fence(db, "INSERT INTO books_notes (text) SELECT status FROM pending_actions", reach("maintenance")).ok).toBe(true);
   });

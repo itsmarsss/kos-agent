@@ -152,6 +152,12 @@ describe("filesModule", () => {
     expect(registry.classify("files.rm", { path: "projects/x" }).tier).toBe("risky");
   });
 
+  it("puts a whole folder beyond a chat's Auto, and leaves one file to it", async () => {
+    await registry.execute("files.write", { path: "projects/a/one.md", content: "x" });
+    expect(registry.classify("files.rm", { path: "projects/a" }).beyondAuto).toBe("deletes a whole folder");
+    expect(registry.classify("files.rm", { path: "projects/a/one.md" }).beyondAuto).toBeUndefined();
+  });
+
   it("classifies read/write as safe", () => {
     expect(registry.classify("files.read", { path: "x" }).tier).toBe("safe");
     expect(registry.classify("files.write", { path: "x" }).tier).toBe("safe");

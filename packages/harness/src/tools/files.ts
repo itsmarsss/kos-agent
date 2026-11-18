@@ -118,6 +118,15 @@ export function outsideScratch(path: string): boolean {
   return norm !== SCRATCH_PREFIX && !norm.startsWith(`${SCRATCH_PREFIX}/`);
 }
 
+/** Whether a workspace path is a folder now; a path the jail refuses is no folder of its own. */
+function isFolder(ws: Workspace, path: string): boolean {
+  try {
+    return statSync(ws.resolve(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 const rmRisk: ToolRisk = {
   floor: "safe",
   escalate: (input) => (outsideScratch(optStr(input, "path") ?? "") ? "outside the scratch folder" : false),
@@ -336,7 +345,8 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       rmSync(fenced(str(input, "path"), "remove"), { recursive: true, force: true });
       return "ok";
     },
-    rmRisk,
+    // One file is covered by a chat's Auto; a whole folder at once never is.
+    { ...rmRisk, beyondAuto: (input) => (isFolder(ws, optStr(input, "path") ?? "") ? "deletes a whole folder" : false) },
   );
 }
 

@@ -66,8 +66,13 @@ export const KERNEL_TABLES = new Set([
 /** Families of KOS's own tables: the memory stores and their index shadows, and SQLite's. */
 export const KERNEL_TABLE_PREFIXES = ["memory_", "sqlite_"];
 
-/** Written by nobody but the owner, through the dashboard. `devices` is the computers KOS may drive. */
-export const TRUST_TABLES = new Set(["pending_actions", "permission_rules", "kill_switch", "devices", "device_settings"]);
+/**
+ * Written by nobody but the owner, through the dashboard. `devices` is the
+ * computers KOS may drive; `settings` holds each chat's mode, `crons` what
+ * runs unattended, and `audit_log` the record of what ran, so no statement
+ * widens its own reach or rewrites its own history.
+ */
+export const TRUST_TABLES = new Set(["pending_actions", "permission_rules", "kill_switch", "devices", "device_settings", "settings", "crons", "audit_log"]);
 
 /** The one project that reaches everything, by its slug, for the tools that judge reach. */
 export const MAINTENANCE_SLUG = MAINTENANCE.slug;
@@ -127,7 +132,7 @@ export interface Plan {
 
 /** The plan of a statement, or nothing for one that does not compile: no such table, a syntax error, the wrong count of params. */
 export function planOf(db: Db, sql: string, params: readonly unknown[] = []): Plan | undefined {
-  let ops: { opcode: string; p2: number; p3: number }[];
+  let ops: { opcode: string; p1: number; p2: number; p3: number }[];
   try {
     ops = db.prepare(`EXPLAIN ${sql}`).all(...params) as typeof ops;
   } catch {
@@ -147,6 +152,10 @@ export function planOf(db: Db, sql: string, params: readonly unknown[] = []): Pl
     else if (op.opcode === "OpenRead" || op.opcode === "ReopenIdx" || op.opcode === "OpenWrite") {
       if (op.p3 !== 0) elsewhere = true;
       else (op.opcode === "OpenWrite" ? writes : reads).add(tableAt(op.p2));
+    } else if (op.opcode === "Clear") {
+      // A DELETE with no WHERE empties the table by its root page and opens no cursor on it: a write all the same.
+      if (op.p2 !== 0) elsewhere = true;
+      else writes.add(tableAt(op.p1));
     }
   }
   let virtual = vwrite;

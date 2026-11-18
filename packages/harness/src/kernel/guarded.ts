@@ -6,6 +6,7 @@ import { defang, type HeardWords } from "../models/heard.js";
 import type { AuditLog } from "../ops/audit.js";
 import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
+import { beyondAutoRule } from "../risk/beyondauto.js";
 import type { RiskAssessment } from "../risk/tiers.js";
 import { hasSecretRef, injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
@@ -440,7 +441,10 @@ export class GuardedTools implements ToolBox {
     // what runs, and the call can check it still holds.
     const input = registry.stamp(name, called);
 
-    const assessment = registry.classify(name, input);
+    // What KOS's own rules put beyond a chat's Auto, beside what the tool's own says.
+    const classified = registry.classify(name, input);
+    const barred = classified.tier === "risky" && !classified.beyondAuto ? beyondAutoRule(name, input) : false;
+    const assessment = barred ? { ...classified, beyondAuto: barred } : classified;
     // A call that places a secret asks every time, whatever its tool's tier: Auto and remembered decisions never cover it.
     const secret = hasSecretRef(input);
 
