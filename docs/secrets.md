@@ -214,10 +214,14 @@ the scrubber runs on:
   0600 in the vault's folder and hidden from the jail). For every value but
   card numbers, and every encoding the scrubber looks for, it keeps the
   length, a keyed hash of its first six characters and an HMAC-SHA256 of
-  the whole under the scrub key. Text is scanned once: each position's
-  six-character hash is looked up, and only where a prefix matches is the
-  window checked by its HMAC and masked as `[secret <handle>.<field>]`. The
-  index looks at the first 2 MB of a text and no further.
+  the whole under the scrub key. Text is scanned once, end to end with no
+  cap: each position's six-character hash is rolled on from the last and
+  looked up, and only where a prefix matches is the window checked by its
+  HMAC and masked as `[secret <handle>.<field>]`. The prefix hash is a
+  polynomial modulo 2^61 - 1 with its base from 8 bytes of the scrub key:
+  in a 61-bit field planted text cannot hit a prefix by chance, and it costs
+  a few integer steps a character where an HMAC at every position would
+  cost a hash each.
   It is made again on every change while the vault is open.
   The tradeoff: anyone holding both files can test a guess at a value
   offline as fast as HMAC runs, where the vault itself costs a scrypt per

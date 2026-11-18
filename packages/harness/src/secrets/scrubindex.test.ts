@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
-import { buildIndex, INDEX_SCAN_MAX, ScrubIndex } from "./scrubindex.js";
+import { buildIndex, ScrubIndex } from "./scrubindex.js";
 
 const key = randomBytes(32);
 const values: [string, string][] = Array.from({ length: 50 }, (_, i) => [`s${i}.token`, `tok_${randomBytes(12).toString("hex")}_${i}`]);
@@ -27,9 +27,13 @@ describe("ScrubIndex", () => {
     expect(ms).toBeLessThan(1_000);
   });
 
-  it("does not look past its cap", () => {
-    const [, value] = values[3]!;
-    const text = `${"x".repeat(INDEX_SCAN_MAX)}${value}`;
-    expect(index.found(text).text).toBe(text);
-  });
+  it("finds a value at any offset of a long text, past 2 MB too", () => {
+    const [name, value] = values[3]!;
+    for (const at of [2 * 1024 * 1024 - 3, 5 * 1024 * 1024]) {
+      const text = `${"x".repeat(at)}${value}tail`;
+      const out = index.found(text).text;
+      expect(out.endsWith(`[secret ${name}]tail`)).toBe(true);
+      expect(out.length).toBe(at + `[secret ${name}]tail`.length);
+    }
+  }, 30_000);
 });

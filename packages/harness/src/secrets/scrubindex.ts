@@ -8,8 +8,8 @@ import { needlesOf, scrubbedLabel, type Watched } from "./scrub.js";
  *
  * For every value and every encoding the scrubber looks for, it keeps the
  * length and an HMAC-SHA256 under a scrub key of its own (a 0600 file beside
- * the vault, never the vault's key), plus a keyed hash of its first six
- * characters. Text is scanned once: each position's six-character hash is
+ * the vault, never the vault's key), plus a keyed 61-bit hash of its first
+ * six characters. Text is scanned once: each position's six-character hash is
  * looked up, and only a position whose prefix matches has its windows
  * checked by HMAC.
  *
@@ -23,19 +23,17 @@ import { needlesOf, scrubbedLabel, type Watched } from "./scrub.js";
  */
 
 export const SCRUB_INDEX_FORMAT = "kos-scrub-index";
-export const SCRUB_INDEX_VERSION = 2;
+export const SCRUB_INDEX_VERSION = 3;
 
 /** Every value is at least this long (scrub.ts MIN_SCANNED): its first characters say which windows are worth an HMAC. */
 export const PREFIX = 6;
 
-/** Past this much text in one call the index does not look; the exact scrubber, when the vault is open, has no such cap. */
-export const INDEX_SCAN_MAX = 2 * 1024 * 1024;
 
 export interface IndexEntry {
   /** UTF-16 code units, as JavaScript strings measure them. */
   len: number;
-  /** A keyed hash of the first PREFIX characters: one lookup per position finds the candidates. */
-  pk: number;
+  /** A keyed hash of the first PREFIX characters, as a decimal string: one lookup per position finds the candidates. */
+  pk: string;
   /** HMAC-SHA256 of the whole window under the scrub key, hex. */
   mac: string;
   /** `<handle>.<field>`, for the label it is replaced with. */
@@ -48,14 +46,22 @@ export interface ScrubIndexFile {
   entries: IndexEntry[];
 }
 
-/** A prime under 2^26, so a hash times the base stays exact in a double. */
-const P = 67_108_859;
+/**
+ * The prefix hash: a polynomial over the prefix's UTF-16 code units modulo
+ * the Mersenne prime 2^61 - 1, its base taken from 8 bytes of the scrub key.
+ * A 61-bit field keeps an attacker who can plant text from finding prefix
+ * collisions by chance (a 26-bit one had them every few million windows),
+ * and keyed, the hash says nothing about a prefix without the key; it costs
+ * a few BigInt steps a character, where an HMAC at every position would cost
+ * a hash each. It only picks the windows an HMAC then confirms.
+ */
+const M = (1n << 61n) - 1n;
 
-const baseOf = (key: Buffer): number => (key.readUInt32BE(0) % (P - 2)) + 2;
+const baseOf = (key: Buffer): bigint => (key.readBigUInt64BE(0) % (M - 2n)) + 2n;
 
-function rolling(text: string, base: number, from = 0, length = text.length): number {
-  let h = 0;
-  for (let i = from; i < from + length; i++) h = (h * base + text.charCodeAt(i)) % P;
+function prefixHash(text: string, base: bigint, from = 0): bigint {
+  let h = 0n;
+  for (let i = from; i < from + PREFIX; i++) h = (h * base + BigInt(text.charCodeAt(i))) % M;
   return h;
 }
 
@@ -73,43 +79,46 @@ export function buildIndex(key: Buffer, values: Iterable<Watched>): ScrubIndexFi
       const mac = macOf(key, form);
       if (seen.has(mac)) continue;
       seen.add(mac);
-      entries.push({ len: form.length, pk: rolling(form, base, 0, PREFIX), mac, name });
+      entries.push({ len: form.length, pk: prefixHash(form, base).toString(), mac, name });
     }
   }
   return { format: SCRUB_INDEX_FORMAT, version: SCRUB_INDEX_VERSION, entries };
 }
 
 export class ScrubIndex {
-  private readonly base: number;
-  private readonly byPrefix = new Map<number, IndexEntry[]>();
+  private readonly base: bigint;
+  private readonly byPrefix = new Map<bigint, IndexEntry[]>();
   /** The longest window, for a stream to hold back. */
   readonly reach: number;
-  private readonly power: number;
+  private readonly power: bigint;
 
   constructor(
     private readonly key: Buffer,
     file: ScrubIndexFile,
   ) {
     this.base = baseOf(key);
-    for (const e of file.entries) this.byPrefix.set(e.pk, [...(this.byPrefix.get(e.pk) ?? []), e]);
+    for (const e of file.entries) {
+      const pk = BigInt(e.pk);
+      this.byPrefix.set(pk, [...(this.byPrefix.get(pk) ?? []), e]);
+    }
     this.reach = Math.max(0, ...file.entries.map((e) => e.len));
-    let power = 1;
-    for (let i = 1; i < PREFIX; i++) power = (power * this.base) % P;
+    let power = 1n;
+    for (let i = 1; i < PREFIX; i++) power = (power * this.base) % M;
     this.power = power;
   }
 
   /**
    * `text` with every indexed value masked, and which were found how often.
-   * One pass: a rolling hash of each PREFIX-character window, looked up;
-   * only a window whose prefix matches is checked by its HMAC. Text past
-   * INDEX_SCAN_MAX is not looked at.
+   * One pass over the whole text, however long, the prefix hash rolled from
+   * each position to the next: only a window whose prefix matches is
+   * checked by its HMAC, so no value is missed at any offset.
    */
   found(text: string): { text: string; hits: Map<string, number> } {
     const hits = new Map<string, number>();
-    const end = Math.min(text.length, INDEX_SCAN_MAX);
+    const end = text.length;
     if (this.byPrefix.size === 0 || end < PREFIX) return { text, hits };
     const matches: { start: number; end: number; name: string }[] = [];
-    let h = rolling(text, this.base, 0, PREFIX);
+    let h = prefixHash(text, this.base);
     for (let start = 0; ; start++) {
       const candidates = this.byPrefix.get(h);
       if (candidates) {
@@ -119,7 +128,7 @@ export class ScrubIndex {
         }
       }
       if (start + PREFIX >= end) break;
-      h = ((((h - ((text.charCodeAt(start) * this.power) % P) + P) % P) * this.base) % P + text.charCodeAt(start + PREFIX)) % P;
+      h = ((((h - BigInt(text.charCodeAt(start)) * this.power) % M) + M) % M * this.base + BigInt(text.charCodeAt(start + PREFIX))) % M;
     }
     if (matches.length === 0) return { text, hits };
     matches.sort((a, b) => a.start - b.start || b.end - a.end);
