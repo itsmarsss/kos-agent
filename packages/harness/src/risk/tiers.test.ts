@@ -37,17 +37,28 @@ describe("classifyRisk", () => {
     expect(classifyRisk({ floor: "risky", why: "deletes it for good" }, {})).toEqual({ tier: "risky", escalated: false, reason: "deletes it for good" });
   });
 
-  it("raises a safe call one notch for where it reaches, and marks it as raised", () => {
-    const risk: ToolRisk = { floor: "safe", reach: (i) => (i.out ? "outside this project, in the resume project" : false) };
-    expect(classifyRisk(risk, { out: true })).toEqual({ tier: "risky", escalated: true, raised: true, reason: "outside this project, in the resume project" });
-    expect(classifyRisk(risk, { out: false })).toEqual({ tier: "safe", escalated: false });
-    // A call that asks anyway keeps its own reason first and is not marked raised: the reach did not make it ask.
+  it("raises a safe call one notch for where it reaches, and says what Auto may not cover", () => {
+    const risk: ToolRisk = {
+      floor: "safe",
+      reach: (i) => (i.into ? { why: "outside this project, in the resume project", beyondAuto: "writes into another project" } : i.root ? { why: "outside this project, in the workspace root" } : false),
+    };
+    expect(classifyRisk(risk, { into: true })).toEqual({
+      tier: "risky",
+      escalated: true,
+      reason: "outside this project, in the resume project",
+      reached: true,
+      beyondAuto: "writes into another project",
+    });
+    expect(classifyRisk(risk, { root: true })).toEqual({ tier: "risky", escalated: true, reason: "outside this project, in the workspace root", reached: true });
+    expect(classifyRisk(risk, {})).toEqual({ tier: "safe", escalated: false });
+    // A call that asks anyway keeps its own reason first.
     const both: ToolRisk = { ...risk, escalate: () => "outside the scratch folder" };
-    expect(classifyRisk(both, { out: true })).toEqual({ tier: "risky", escalated: true, reason: "outside the scratch folder, outside this project, in the resume project" });
-    expect(classifyRisk({ floor: "risky", why: "a command that may write", reach: risk.reach }, { out: true })).toEqual({
+    expect(classifyRisk(both, { root: true }).reason).toBe("outside the scratch folder, outside this project, in the workspace root");
+    expect(classifyRisk({ floor: "risky", why: "a command that may write", reach: risk.reach }, { root: true })).toEqual({
       tier: "risky",
       escalated: false,
-      reason: "a command that may write, outside this project, in the resume project",
+      reason: "a command that may write, outside this project, in the workspace root",
+      reached: true,
     });
   });
 

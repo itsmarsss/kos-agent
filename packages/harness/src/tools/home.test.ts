@@ -99,8 +99,8 @@ describe("a turn's file home", () => {
     expect(registry.classify("files.write", { path: "workspace:notes/x.md" })).toEqual({
       tier: "risky",
       escalated: true,
-      raised: true,
       reason: "outside this project, in notes/",
+      reached: true,
     });
     // Once allowed, it lands where it was written.
     await write("workspace:notes/x.md");
@@ -108,7 +108,7 @@ describe("a turn's file home", () => {
     expect(exists("projects/school/notes")).toBe(false);
   });
 
-  it("names another project's folder when a change lands in it", () => {
+  it("names another project's folder when a change lands in it, and keeps that beyond Auto", () => {
     for (const [tool, input] of [
       ["files.write", { path: "projects/resume/cv.md" }],
       ["files.edit", { path: "workspace:projects/resume/cv.md" }],
@@ -119,7 +119,11 @@ describe("a turn's file home", () => {
       const judged = registry.classify(tool, input);
       expect(judged.tier, tool).toBe("risky");
       expect(judged.reason, tool).toBe("outside this project, in the resume project");
+      expect(judged.beyondAuto, tool).toBe("writes into another project");
     }
+    expect(registry.classify("files.write", { path: "blobs/noter/x.md" }).beyondAuto).toBe("writes into another project");
+    // A file kept at the workspace root is still Auto's to allow.
+    expect(registry.classify("files.write", { path: "workspace:notes/x.md" }).beyondAuto).toBeUndefined();
   });
 
   it("keeps a removal's own reason and adds where it reaches", () => {
@@ -127,6 +131,8 @@ describe("a turn's file home", () => {
       tier: "risky",
       escalated: true,
       reason: "outside the scratch folder, outside this project, in the resume project",
+      reached: true,
+      beyondAuto: "writes into another project",
     });
     expect(registry.classify("files.rm", { path: "old.md" })).toEqual({ tier: "risky", escalated: true, reason: "outside the scratch folder" });
     expect(registry.classify("files.mv", { from: "a.md", to: "workspace:a.md" }).reason).toBe("outside the scratch folder, outside this project, in the workspace root");

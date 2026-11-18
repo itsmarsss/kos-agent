@@ -20,7 +20,7 @@ import { PDF_TEXT_MAX, isPdf, pdfText } from "../files/pdftext.js";
 
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
-import { SAFE, type Escalation } from "../risk/tiers.js";
+import { SAFE, type Escalation, type ToolRisk } from "../risk/tiers.js";
 import { foldedPath, type Workspace } from "../store/workspace.js";
 import { callerHome, placeFor, reachOutside, type HomePath } from "./home.js";
 import { reachOf } from "./sql.js";
@@ -146,7 +146,7 @@ function usable(ws: Workspace, ctx: ModuleContext, path: string): HomePath {
 
 function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
   /** The paths a call changes, for the reach rule: asks when one is outside the turn's home. */
-  const changing = (...keys: string[]): Escalation => reachOutside(ws, ctx, (input) => keys.map((k) => input[k]));
+  const changing = (...keys: string[]): ToolRisk["reach"] => reachOutside(ws, ctx, (input) => keys.map((k) => input[k]));
   /** Asks for a removal outside the scratch area, judged where the path lands. */
   const scratchOnly = (key: string): Escalation => (input) =>
     outsideScratch(placePath(callerHome(ctx), optStr(input, key) ?? "", ws.root).path) ? "outside the scratch folder" : false;

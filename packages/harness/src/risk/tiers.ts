@@ -47,7 +47,14 @@ export interface ToolRisk {
    * beside its own reason. Judged inside the turn's stores, since where a
    * turn's own folder is depends on who is calling.
    */
-  reach?: Escalation;
+  reach?: (input: Record<string, unknown>) => Reach | false;
+}
+
+/** Where a call reaches beyond the calling turn's own folder: the card's words, and why Auto never covers it, when it does not. */
+export interface Reach {
+  why: string;
+  /** Set for a write into another project's or a blob's folder: Auto mode asks for it as Ask does. */
+  beyondAuto?: string;
 }
 
 export interface RiskAssessment {
@@ -56,13 +63,10 @@ export interface RiskAssessment {
   escalated: boolean;
   /** Why it asks, when the rule or the floor says so in words. */
   reason?: string;
-  /**
-   * True when only the reach rule made the call ask: it would run at once
-   * inside the turn's own folder. The hook for a chat the owner set to Auto,
-   * which may let such a call run where it would still ask for one risky in
-   * itself.
-   */
-  raised?: boolean;
+  /** The reach rule fired: a decision remembered inside the turn's own folder never covers it. */
+  reached?: true;
+  /** Why a risky call is beyond a chat's Auto mode, when it is. */
+  beyondAuto?: string;
 }
 
 export const SAFE: ToolRisk = { floor: "safe" };
@@ -78,21 +82,21 @@ export function classifyRisk(
   input: Record<string, unknown>,
 ): RiskAssessment {
   const floor = risk?.floor ?? "safe";
-  const reach = risk?.reach?.(input);
-  const reachWords = typeof reach === "string" ? reach : undefined;
-  const joined = (own: string | undefined): { reason?: string } => {
-    const reason = [own, reachWords].filter(Boolean).join(", ");
-    return reason ? { reason } : {};
+  const reach = risk?.reach?.(input) || undefined;
+  // The call's own reason first, where it reaches beside it, and what that means for Auto.
+  const told = (own: string | undefined): Pick<RiskAssessment, "reason" | "reached" | "beyondAuto"> => {
+    const reason = [own, reach?.why].filter(Boolean).join(", ");
+    return { ...(reason ? { reason } : {}), ...(reach ? { reached: true as const } : {}), ...(reach?.beyondAuto ? { beyondAuto: reach.beyondAuto } : {}) };
   };
   if (floor === "risky") {
     if (risk?.relax?.(input)) return { tier: "safe", escalated: false };
     const why = typeof risk?.why === "function" ? risk.why(input) : risk?.why;
-    return { tier: "risky", escalated: false, ...joined(why) };
+    return { tier: "risky", escalated: false, ...told(why) };
   }
   const fired = risk?.escalate?.(input);
   if (fired) {
-    return { tier: "risky", escalated: true, ...joined(typeof fired === "string" ? fired : undefined) };
+    return { tier: "risky", escalated: true, ...told(typeof fired === "string" ? fired : undefined) };
   }
-  if (reach) return { tier: "risky", escalated: true, raised: true, ...joined(undefined) };
+  if (reach) return { tier: "risky", escalated: true, ...told(undefined) };
   return { tier: "safe", escalated: false };
 }
