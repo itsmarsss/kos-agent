@@ -159,7 +159,7 @@ export function SkillsAdd({ onInstalled }: { onInstalled: () => void }): ReactEl
   return (
     <div className="set-group ext-add-area">
       <div className="ext-add-head">
-        <h3>Add a skill</h3>
+        <h2>Add a skill</h2>
         <Chips<SkillTab>
           small
           label="How to add a skill"
@@ -569,7 +569,7 @@ export function McpAdd({ onAdded }: { onAdded: () => void }): ReactElement {
   return (
     <div className="set-group ext-add-area">
       <div className="ext-add-head">
-        <h3>Add a server</h3>
+        <h2>Add a server</h2>
         <Chips<McpTab>
           small
           label="How to add a server"
