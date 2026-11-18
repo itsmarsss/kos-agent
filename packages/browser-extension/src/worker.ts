@@ -1,6 +1,7 @@
 import { KOS_SEED, drawingOf, eyeAt, lookOf, outline, readDashboardTheme, smoothPath, type DashboardTheme, type FaceDrawing } from "@kos/shared";
 
 import { kosAddress, parsePairing, type Pairing } from "./address.js";
+import { HELD_KEY, afterRestart, endedWords, helloSession, readHeld, type HeldSession } from "./held.js";
 import { forgetKeys, keepKeys, keysFor, newKeys, publicKey } from "./keys.js";
 import { Link, type Hello, type LinkState } from "./link.js";
 import { Lines } from "./lines.js";
@@ -150,6 +151,12 @@ let folderTimer: ReturnType<typeof setTimeout> | undefined;
 const gate = new ReloadGate();
 const linkStates = new Map<string, { state: LinkState; detail?: string }>();
 let session: Session | undefined;
+/** The session as kept beside memory, for a worker started again and for a KOS whose line was down when it ended (held.ts). */
+let lastSession: HeldSession | undefined;
+/** The wait for the session's KOS to come back on its line before the session ends. */
+let lineWait: ReturnType<typeof setTimeout> | undefined;
+/** How long a session outlives its KOS's line: shorter than KOS's own wait, so a session kept here is still kept there. */
+const LINE_WAIT_MS = 10_000;
 /** The KOS whose session it is, or which is asking the owner for one. */
 let owner: string | undefined;
 let ticker: ReturnType<typeof setInterval> | undefined;
@@ -212,9 +219,32 @@ async function load(): Promise<void> {
   settings = readSettings(local["settings"]);
   sentTheme = readDashboardTheme(local[SENT_THEME_KEY]);
   held = new Set(Array.isArray(local["held"]) ? (local["held"] as unknown[]).filter((v): v is string => typeof v === "string") : []);
-  const kept = await chrome.storage.session.get(["handed", "bar"]);
+  const kept = await chrome.storage.session.get(["handed", "bar", HELD_KEY]);
   for (const tab of Array.isArray(kept["handed"]) ? (kept["handed"] as number[]) : []) handed.add(tab);
   if (typeof kept["bar"] === "object" && kept["bar"] !== null) barPlace = kept["bar"] as typeof barPlace;
+  await lostAtStart(readHeld(kept[HELD_KEY]));
+}
+
+/**
+ * A session the last worker held is over with it: its debugger and its
+ * pages went when that worker did. Its tabs are let go of, and its KOS
+ * hears why in this worker's hello.
+ */
+async function lostAtStart(found: HeldSession | undefined): Promise<void> {
+  const after = afterRestart(found);
+  if (!after || after === found) {
+    lastSession = found;
+    return;
+  }
+  note(`session ${after.id} ended: KOS for Chrome restarted; telling its KOS`);
+  await Promise.all(after.tabs.map((tab) => chrome.debugger.detach({ tabId: tab }).catch(() => undefined)));
+  await keepSession(after);
+}
+
+/** The session as kept beside memory, or none once its KOS knows it is over. */
+async function keepSession(next: HeldSession | undefined): Promise<void> {
+  lastSession = next;
+  await (next ? chrome.storage.session.set({ [HELD_KEY]: next }) : chrome.storage.session.remove(HELD_KEY));
 }
 const ready = load();
 
@@ -250,6 +280,7 @@ const saveHanded = (): Promise<void> => chrome.storage.session.set({ handed: [..
 
 function hello(id: string): Hello {
   const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform;
+  const kept = helloSession(lastSession, id);
   return {
     app: { version: chrome.runtime.getManifest().version, platform: "chrome", os: platform || "unknown" },
     consent: asksFirst(settings, id) ? "device" : "kos",
@@ -257,6 +288,7 @@ function hello(id: string): Hello {
     displays: [],
     ...(build ? { build } : {}),
     ...(installType ? { install: installType } : {}),
+    ...(kept ? { session: kept } : {}),
   };
 }
 
@@ -274,7 +306,8 @@ function updated(id: string, update: UpdateNotice): void {
  * same build is reported and not reloaded again.
  */
 async function maybeReload(): Promise<void> {
-  const busy = (): boolean => session !== undefined || owner !== undefined || consents.size > 0;
+  // An open side panel is busy too: a reload takes its page down under the owner, whatever it is doing.
+  const busy = (): boolean => session !== undefined || owner !== undefined || consents.size > 0 || panels.size > 0;
   if (reloading || installType !== "development") return;
   const first = gate.due(busy(), reloaded);
   if (!first) return;
@@ -353,11 +386,36 @@ function lineState(p: Paired, state: LinkState, detail?: string): void {
   if (state !== "online") gate.gone(id);
   // A panel open on this KOS is shown its chat as soon as there is a line to show it on.
   if (state === "online") for (const panel of panels) if (panel.kos === id) links.get(id)?.event("chat.open", {});
-  // A session lives on its connection: its KOS gone, KOS's hands gone; an ask it made is withdrawn.
+  if (state === "online") backOnLine(id);
+  // A session lives on its connection: its KOS gone a moment is waited for, gone for good ends it; an ask it made is withdrawn.
   if (state !== "online" && state !== "connecting" && owner === id) {
-    if (session) void end("host");
+    if (session && state === "offline") waitForLine(p);
+    else if (session) void end("host");
     for (const asked of consents.values()) if (asked.origin === id) asked.answer({ allowed: false, minutes: 0, why: "withdrawn" });
   }
+}
+
+/** The session's KOS dropped its line: its hello says the session is still held if it is back in time; else the session ends. */
+function waitForLine(p: Paired): void {
+  if (lineWait) return;
+  note(`${hostOf(p)}: keeping the session ${LINE_WAIT_MS / 1000} s for the line to come back`);
+  lineWait = setTimeout(() => {
+    lineWait = undefined;
+    if (session && owner === p.device && !links.get(p.device)?.online) void end("host");
+  }, LINE_WAIT_MS);
+}
+
+/** A KOS back on its line: told in its hello of the session this Chrome still holds or lost meanwhile, so what was kept to tell it is done with. */
+function backOnLine(id: string): void {
+  if (lastSession?.kos === id && lastSession.ended) void keepSession(undefined);
+  for (const { name, data } of waitingForLine.get(id) ?? []) links.get(id)?.event(name, data);
+  waitingForLine.delete(id);
+  if (owner !== id || !session) return;
+  clearTimeout(lineWait);
+  lineWait = undefined;
+  note("the session goes on across the new line");
+  // What KOS may have missed meanwhile: the owner taking over.
+  if (session.paused) tell("session.paused", { session: session.info.id, reason: "owner" });
 }
 
 const lines = new Lines<Link>({
@@ -555,6 +613,7 @@ async function begin(params: Record<string, unknown>, origin: string): Promise<R
       if (++beat % 3 === 0) for (const tab of overlays.keys()) void toOverlays(tab, "window.__kos && window.__kos.alive()");
     }, 1_000);
     note(`live for ${minutes} min`);
+    await keepSession({ id, kos: origin, tabs: [] });
     await badge();
     return { granted: true, until: session.info.until, ...(alone ? { auto: { site: alone } } : {}) };
   } finally {
@@ -630,9 +689,16 @@ async function end(reason: EndReason): Promise<void> {
   worldsOf.clear();
   openRequests.clear();
   beside = undefined;
+  clearTimeout(lineWait);
+  lineWait = undefined;
+  // A KOS off its line hears it in its next hello instead.
+  const heard = owner !== undefined && links.get(owner)?.online === true;
   tell("session.ended", { session: ended.info.id, reason });
+  await keepSession(heard || !owner ? undefined : { id: ended.info.id, kos: owner, tabs: [], ended: reason });
   owner = undefined;
-  note(`ended: ${reason}`);
+  note(`ended: ${reason}${heard ? "" : "; its KOS hears it when back on its line"}`);
+  const conversation = ended.info.conversation;
+  if (conversation) for (const panel of panels) panel.port.postMessage({ type: "session.ended", conversation, reason, words: endedWords(reason) });
   await badge();
   await maybeReload();
 }
@@ -693,6 +759,7 @@ function attach(tab: number): Promise<void> {
 async function attachNow(tab: number): Promise<void> {
   await chrome.debugger.attach({ tabId: tab }, "1.3");
   attached.add(tab);
+  if (lastSession && !lastSession.ended) await keepSession({ ...lastSession, tabs: [...attached] });
   const t = await chrome.tabs.get(tab).catch(() => undefined);
   if (t?.url) tabUrls.set(tab, t.url);
   const send = (method: string, params: Record<string, unknown> = {}): Promise<unknown> => chrome.debugger.sendCommand({ tabId: tab }, method, params);
@@ -1305,10 +1372,16 @@ async function besideTab(panel: Panel): Promise<chrome.tabs.Tab | undefined> {
   return tab?.id !== undefined && isWebUrl(url) && !isHidden(url, settings.hiddenSites) ? tab : undefined;
 }
 
-/** The panel's KOS: the one asked for, else the first that is on, else the first there is. */
-function choose(panel: Panel, id: string): void {
+/**
+ * The panel's KOS: the one asked for, else the first that is on, else the
+ * first there is. A panel found again after the worker woke names the chat
+ * it shows, which is still its chat with that KOS until KOS shows another:
+ * a Stop pressed then still names it.
+ */
+function choose(panel: Panel, id: string, conversation = ""): void {
   panel.kos = (pairingOf(id) ?? pairings.find((p) => linkStates.get(p.device)?.state === "online" && !held.has(p.device)) ?? pairings[0])?.device;
-  delete panel.conversation;
+  if (conversation && panel.kos === id) panel.conversation = conversation;
+  else delete panel.conversation;
   panel.port.postMessage({ type: "kos", id: panel.kos ?? null });
   if (panel.kos) links.get(panel.kos)?.event("chat.open", {});
 }
@@ -1318,7 +1391,7 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
     case "hello":
       panel.window = Number(message["window"]);
       void watchFront(panel);
-      return choose(panel, str(message["kos"]));
+      return choose(panel, str(message["kos"]), str(message["conversation"]));
     case "kos":
       return choose(panel, str(message["id"]));
     case "send": {
@@ -1349,7 +1422,7 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
       return;
     }
     case "decide":
-      if (panel.kos) links.get(panel.kos)?.event("chat.decide", { approval: str(message["approval"]), approved: message["approved"] === true, ...(message["remember"] === true ? { remember: true } : {}) });
+      if (panel.kos) fromOwner(panel.kos, "chat.decide", { approval: str(message["approval"]), approved: message["approved"] === true, ...(message["remember"] === true ? { remember: true } : {}) });
       return;
     case "auto":
     case "mentions":
@@ -1374,9 +1447,8 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
       return;
     }
     case "stop": {
-      // Stop in the panel: the chat's turn, its session and any ask for one, all at once.
-      const link = panel.kos ? links.get(panel.kos) : undefined;
-      if (panel.conversation) link?.event("chat.stop", { chat: panel.conversation });
+      // Stop in the panel: the chat's turn, its session and any ask for one, all at once. A chat not known yet is the one KOS shows.
+      if (panel.kos) fromOwner(panel.kos, "chat.stop", panel.conversation ? { chat: panel.conversation } : {});
       // Said to KOS first, so the ask it takes back is not read as a no; then the prompt comes down here at once.
       for (const asked of consents.values()) if (asked.panel === panel) asked.answer({ allowed: false, minutes: 0, why: "withdrawn" });
       if (session && owner === panel.kos && session.info.conversation === panel.conversation) await end("owner");
@@ -1389,6 +1461,18 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
     default:
       return;
   }
+}
+
+/** The owner's Stops and decisions in a panel while its KOS was off its line (the worker just woke), by KOS, sent in order once it is back. */
+const waitingForLine = new Map<string, { name: string; data: Record<string, unknown> }[]>();
+const WAITING_MAX = 20;
+
+/** A Stop or a decision from a panel, told its KOS now, or as soon as its line is back: never dropped for a line a moment down. */
+function fromOwner(kos: string, name: "chat.stop" | "chat.decide", data: Record<string, unknown>): void {
+  const link = links.get(kos);
+  if (link?.online) return link.event(name, data);
+  note(`${name} from the side panel waits for KOS's line`);
+  waitingForLine.set(kos, [...(waitingForLine.get(kos) ?? []), { name, data }].slice(-WAITING_MAX));
 }
 
 /** The page beside the panel a chat is in, for that chat's KOS and no other, never a hidden site. */
@@ -1452,6 +1536,8 @@ chrome.runtime.onConnect.addListener((port) => {
     for (const asked of reads.values()) if (asked.panel === panel) asked.answer(false);
     // The window's last panel gone: what was selected there is no one's to send.
     if (![...panels].some((p) => p.window === panel.window)) void forgetSelections(panel.window);
+    // The last panel closed: a build waiting on it may go in now.
+    void maybeReload();
   });
 });
 
