@@ -757,8 +757,8 @@ times as the dashboard does, on its own clock and in the owner's locale and
 12- or 24-hour preference: a quiet line naming the day where the day changes
 ("Today", "Yesterday", the weekday and date within the week, the full date
 before that), the time over a line said more than 15 minutes after the one
-before it, and each line's own time on hover (KOS for Mac) or a swipe to the
-left (KOS for iPhone). A running turn's start is `chat.status`'s `since`.
+before it, and each line's own time on hover (KOS for Mac) or a tap, with
+every line's while the thread is swiped to the left (KOS for iPhone). A running turn's start is `chat.status`'s `since`.
 
 `chat.send`'s `beside` is where the owner was: `{ "kind": "app", "name",
 "bundle"?, "title"? }`, the app in front of the window and its front
