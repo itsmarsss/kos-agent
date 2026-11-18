@@ -161,15 +161,15 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
             if (contained) return CONTAINED_BEYOND_AUTO;
             const command = typeof input["command"] === "string" ? input["command"] : "";
             const cwd = typeof input["cwd"] === "string" && input["cwd"].trim() ? input["cwd"].trim() : ".";
-            // A file (not a folder) that is there outside scratch, where the line runs: one the jail would not let it reach is not there for it.
+            // A file (not a folder) that is there outside scratch, by its path from the root: one the jail would not let the line reach is not there for it.
             const exists = (path: string): boolean => {
               try {
-                return outsideScratch(join(cwd, path)) && statSync(ws.resolve(join(cwd, path))).isFile();
+                return outsideScratch(path) && statSync(ws.resolve(path)).isFile();
               } catch {
                 return false;
               }
             };
-            return destructiveCommand(command, exists, (path) => !outsideScratch(join(cwd, path))) || shellBeyondAuto(command, exists);
+            return destructiveCommand(command, (path) => exists(join(cwd, path)), (path) => !outsideScratch(join(cwd, path))) || shellBeyondAuto(command, exists, cwd);
           },
           refuse: (input) => {
             if (typeof input["command"] !== "string") return false;

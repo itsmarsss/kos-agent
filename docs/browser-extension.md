@@ -364,8 +364,9 @@ Auto never covers, whatever the chat is set to (`autoCovers` in
 - a shell line unless every program in it is on a short list of reading,
   building and testing programs, called plainly (by name, not by a path;
   with no assignment before it but CI, NODE_ENV, FORCE_COLOR, NO_COLOR, TZ,
-  LANG, LC_* or DEBUG), writing no file that is there outside scratch
-  (`risk/shellauto.ts`). The list is not the boundary, the jail is: a line
+  LANG, LC_* or DEBUG), writing no file that is there outside scratch,
+  and pointing no build, output or program it runs outside the workspace
+  (`~` and `$HOME` are the workspace root) (`risk/shellauto.ts`). The list is not the boundary, the jail is: a line
   Auto lets through runs with no network at all, and git with hooks, the
   fsmonitor and the pager off, so `git fetch`, `pull`, `clone` and installs
   ask, saying they need the network. In the container no shell line is

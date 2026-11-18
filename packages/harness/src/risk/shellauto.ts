@@ -1,3 +1,5 @@
+import { posix } from "node:path";
+
 /**
  * Which shell lines a chat's Auto may run unasked: an allow-list, not a
  * deny-list. A line is covered only when every program in it (through
@@ -83,9 +85,48 @@ export function callsOf(line: string): Call[] | string {
   return calls;
 }
 
-/** A path that stays in the workspace: relative, with no way up and out. */
+/**
+ * What a path names under the child's home, which is the workspace root:
+ * ~/x, $HOME/x and ${HOME}/x are the root's x. Null for any other path.
+ */
+function homeRest(path: string): string | null {
+  const m = /^(?:~|\$HOME|\$\{HOME\})(?:\/(.*))?$/.exec(path);
+  return m ? m[1] || "." : null;
+}
+
+/** A path that stays in the workspace: relative or under ~, with no way up and out and no other variable in it. */
 function inWorkspace(path: string): boolean {
-  return !path.startsWith("/") && !path.startsWith("~") && !path.split("/").includes("..");
+  const p = homeRest(path) ?? path;
+  return !p.startsWith("/") && !p.startsWith("~") && !p.includes("$") && !p.split("/").includes("..");
+}
+
+/** The values a call gives an option, however spelled: -o v, -ov for one letter, and n v or n=v for every name. */
+function valuesOf(args: readonly string[], names: readonly string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    for (const n of names) {
+      if (a === n) out.push(args[i + 1] ?? "");
+      else if (a.startsWith(`${n}=`)) out.push(a.slice(n.length + 1));
+      else if (/^-[A-Za-z]$/.test(n) && a.startsWith(n)) out.push(a.slice(2));
+    }
+  }
+  return out;
+}
+
+/** The first value of these options outside the workspace, or undefined. */
+function awayValue(args: readonly string[], names: readonly string[]): string | undefined {
+  return valuesOf(args, names).find((v) => !inWorkspace(v));
+}
+
+/** A program an option runs: one in the workspace by its path, not a name looked up on PATH. */
+function workspaceProgram(value: string): boolean {
+  return value.includes("/") && inWorkspace(value);
+}
+
+/** Why pytest loads a plugin from the line (-p name), or false; -p no:name only turns one off. */
+function pytestPlugin(args: readonly string[]): string | false {
+  return valuesOf(args, ["-p"]).some((v) => !v.startsWith("no:")) ? "pytest loading a plugin named on the line" : false;
 }
 
 /** The words of a call past its redirects, and the files it writes to with them. */
@@ -146,7 +187,7 @@ const SAFE_ASSIGNMENTS = /^(CI|NODE_ENV|FORCE_COLOR|NO_COLOR|TZ|LANG|LC_[A-Z_]+|
 /** Programs that read, and nothing else, however they are called. */
 const READS = new Set(["ls", "cat", "head", "tail", "grep", "egrep", "fgrep", "rg", "wc", "sort", "uniq", "diff", "echo", "printf", "pwd", "true", "false", "test", "[", "which", "file", "stat", "du", "df", "date", "basename", "dirname", "realpath", "tr", "cut", "nl", "tree", "cmp", "comm"]);
 /** Programs that build or test the workspace, called plainly. */
-const BUILDS = new Set(["pytest", "make", "tsc", "mkdir", "touch", "tee"]);
+const BUILDS = new Set(["mkdir", "touch", "tee"]);
 /** The package managers' scripts that build, test or check. */
 const SCRIPTS = new Set(["build", "test", "lint", "typecheck", "check", "format"]);
 /** What git may do unasked: read, and record work locally. */
@@ -178,14 +219,19 @@ function callBeyond(call: Call): string | false {
     case "find":
       return args.some((a) => /^-(exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)$/.test(a)) ? "find that runs or deletes" : false;
     case "git": {
-      if (args.some((a) => /^(-C|-c|--git-dir|--work-tree|--exec-path|--config-env|--namespace|--super-prefix)/.test(a))) return "git pointed elsewhere or reconfigured";
-      const sub = args.find((a) => !a.startsWith("-"));
+      // git's own options come before its command: switch -c and log -C after it are the command's.
+      const at = args.findIndex((a) => !a.startsWith("-"));
+      const sub = at < 0 ? undefined : args[at];
+      if (args.slice(0, at < 0 ? args.length : at).some((a) => /^(-C|-c|--git-dir|--work-tree|--exec-path|--config-env|--namespace|--super-prefix)/.test(a))) return "git pointed elsewhere or reconfigured";
       if (sub === "checkout") return args.includes("-b") ? false : "git checkout, which can throw work away";
-      if (sub === "branch") return args.some((a) => /^-[a-zA-Z]*[dDmMcC]/.test(a) || a === "--delete" || a === "--force") ? "git branch that deletes or moves one" : false;
+      if (sub === "branch") return args.some((a) => /^-[a-zA-Z]*[dDmMcCf]/.test(a) || a === "--delete" || a === "--force") ? "git branch that deletes, moves or resets one" : false;
       if (sub === "stash") return ["list", "show", "push", "save", undefined].includes(args[args.indexOf("stash") + 1]) ? false : "git stash that drops work";
       if (sub && GIT_NETWORK.has(sub)) return `git ${sub} needs the network, which a line Auto runs does not have`;
       if (sub === "switch" && args.some((a) => a === "-f" || a === "--force" || a === "--discard-changes")) return "git switch that throws away changes";
-      if (args.some((a) => a === "--output" || a.startsWith("--output="))) return "git writing its output to a file";
+      if (sub === "commit" && args.includes("--amend")) return "git commit --amend, which rewrites a commit";
+      if (sub === "switch" && args.some((a) => a === "--orphan" || a === "-C" || a === "--force-create")) return "git switch that resets a branch or starts one with no history";
+      if (args.includes("--ext-diff")) return "git running an external diff program";
+      if (args.some((a) => a === "--output" || a.startsWith("--output=")) || (["diff", "show", "log"].includes(sub ?? "") && args.some((a) => /^-o/.test(a)))) return "git writing its output to a file";
       return sub && GIT_OK.has(sub) ? false : `git ${sub ?? ""}, which a chat's Auto does not run unasked`.replace("  ", " ");
     }
     case "node":
@@ -195,7 +241,20 @@ function callBeyond(call: Call): string | false {
     case "python3":
       // -c takes its code fused too: -cimport os, -Ic'...'.
       if (args.some((a) => a === "-" || /^-[a-zA-Z]*c/.test(a))) return "python with code on the line";
-      return args[0] === "-m" && !["pytest", "unittest"].includes(args[1] ?? "") ? "python running a module" : !args.length ? "python with no script" : false;
+      if (args[0] === "-m" && args[1] === "pytest") return pytestPlugin(args.slice(2));
+      return args[0] === "-m" && args[1] !== "unittest" ? "python running a module" : !args.length ? "python with no script" : false;
+    case "pytest":
+      return pytestPlugin(args);
+    case "make": {
+      if (args.some((a) => /^(SHELL|\.SHELLFLAGS)=/.test(a))) return "make with its shell set on the line";
+      const away = awayValue(args, ["-f", "--file", "--makefile", "-C", "--directory"]);
+      return away === undefined ? false : `make pointed at ${away}, outside the workspace`;
+    }
+    case "tsc": {
+      // tsc reads its options in any case: --outdir is --outDir.
+      const away = awayValue(args.map((a) => a.toLowerCase()), ["--outdir", "--outfile", "--declarationdir", "--tsbuildinfofile"]);
+      return away === undefined ? false : `tsc writing to ${away}, outside the workspace`;
+    }
     case "npm":
     case "pnpm":
     case "yarn": {
@@ -205,8 +264,18 @@ function callBeyond(call: Call): string | false {
       return script && SCRIPTS.has(script) ? false : `${program} ${plain.join(" ")}, which a chat's Auto does not run unasked`;
     }
     case "cargo":
-    case "go":
-      return ["build", "test", "check", "vet", "fmt"].includes(args.find((a) => !a.startsWith("-")) ?? "") ? false : runs;
+    case "go": {
+      if (!["build", "test", "check", "vet", "fmt"].includes(args.find((a) => !a.startsWith("-")) ?? "")) return runs;
+      if (program === "cargo") {
+        if (args.some((a) => a === "--config" || a.startsWith("--config="))) return "cargo with config set on the line";
+        const away = awayValue(args, ["--target-dir"]);
+        return away === undefined ? false : `cargo building into ${away}, outside the workspace`;
+      }
+      const ran = valuesOf(args, ["-exec", "--exec", "-toolexec", "--toolexec"]).find((v) => !workspaceProgram(v));
+      if (ran !== undefined) return `go running ${ran}, a program outside the workspace`;
+      const away = awayValue(args, ["-o", "--o"]);
+      return away === undefined ? false : `go building into ${away}, outside the workspace`;
+    }
     case "cp":
     case "mv":
       return args.filter((a) => !a.startsWith("-")).every(inWorkspace) ? false : `${program} to or from outside the workspace`;
@@ -219,9 +288,11 @@ function callBeyond(call: Call): string | false {
  * Why a shell line is beyond a chat's Auto, or false: a program not on the
  * list, called in a way that runs code, deletes or reaches the network, a
  * substitution that hides what runs, or a redirect that writes outside the
- * workspace or onto a file that exists outside scratch (`overwrites`).
+ * workspace or onto a file that exists outside scratch (`overwrites`, given
+ * the path from the workspace root). `cwd` is where the line runs, from the
+ * root; ~ and $HOME are the root, the child's home.
  */
-export function shellBeyondAuto(line: string, overwrites: (path: string) => boolean): string | false {
+export function shellBeyondAuto(line: string, overwrites: (path: string) => boolean, cwd = "."): string | false {
   // overwrites: a file (not a folder) is there now outside scratch, so writing it loses what it held.
   const calls = callsOf(line);
   if (typeof calls === "string") return `${calls}, which hides what runs`;
@@ -231,7 +302,7 @@ export function shellBeyondAuto(line: string, overwrites: (path: string) => bool
     for (const { path, truncates } of targets) {
       if (path === "/dev/null" || path === "/dev/stdout" || path === "/dev/stderr") continue;
       if (!inWorkspace(path)) return `writes ${path}, outside the workspace`;
-      if (truncates && overwrites(path)) return `overwrites ${path}`;
+      if (truncates && overwrites(homeRest(path) ?? posix.join(cwd, path))) return `overwrites ${path}`;
     }
     const beyond = callBeyond(words);
     if (beyond) return beyond;
