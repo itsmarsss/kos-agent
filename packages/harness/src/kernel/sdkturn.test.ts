@@ -14,7 +14,7 @@ vi.mock("../chat/sdkchat.js", async (actual) => ({
   runSdkChat: (o: SdkChatOptions) => sdk.run!(o),
 }));
 
-const { Kernel } = await import("./kernel.js");
+const { Kernel, SDK_FAILED } = await import("./kernel.js");
 const { SecretsRegistry } = await import("../secrets/secrets.js");
 const { BEHAVIOUR_KEY } = await import("./behaviour.js");
 
@@ -86,5 +86,15 @@ describe("a turn on the SDK engine", () => {
     await turn("look at my screen");
     await kernel.handleMessage("from a schedule", { sessionId: chat, origin: "system" });
     expect(asked).toEqual([120, undefined]);
+  });
+
+  it("closes a turn that failed after its steps with a line of its own, so the steps do not read as still running", async () => {
+    sdk.run = async (o) => {
+      o.onCall?.(call(1));
+      throw new Error("the SDK process exited");
+    };
+    await expect(turn("go")).rejects.toThrow("the SDK process exited");
+    const stored = kernel.sessions.get(chat).map(shape);
+    expect(stored).toEqual(["user go", "use sdk-t-1", "result sdk-t-1", `assistant ${SDK_FAILED} the SDK process exited`]);
   });
 });

@@ -403,6 +403,9 @@ function guestTools(own: readonly string[] | null | undefined, room: boolean): s
  * sends only the newest. KOS_PICTURES_PER_QUERY=0 runs a turn in one query,
  * as before.
  */
+/** How a turn on the SDK engine that failed after taking steps ends in its chat. */
+export const SDK_FAILED = "I hit an error and stopped:";
+
 const PICTURES_PER_QUERY = Number(process.env["KOS_PICTURES_PER_QUERY"] ?? 8);
 
 function sameWords(a: ModelMessage, b: ModelMessage): boolean {
@@ -1431,7 +1434,7 @@ export class Kernel {
               ? {
                   onCall: (call: SdkToolCall) => {
                     told.add(call.id);
-                    this.sessions.record(sessionId, [...this.sessions.get(sessionId), ...sdkCallMessages(call)]);
+                    this.sessions.append(sessionId, sdkCallMessages(call));
                   },
                 }
               : {}),
@@ -1448,6 +1451,18 @@ export class Kernel {
             // No tool-start here: the guarded toolbox already emits one for
             // every call, and emitting a second left each bubble with two
             // starts and one end, so half of them never stopped running.
+          }).catch((err: unknown) => {
+            /*
+             * Failed, not stopped: the steps it wrote stand in the chat with
+             * no answer under them, which reads as a turn still running and
+             * leaves the next message looking like part of it. A line of
+             * KOS's own closes it.
+             */
+            if (useSession && told.size > 0 && !stop.signal.aborted) {
+              const why = err instanceof Error ? err.message : String(err);
+              this.sessions.record(sessionId, [...this.sessions.get(sessionId), { role: "assistant", content: [{ type: "text", text: `${SDK_FAILED} ${why}` }] }]);
+            }
+            throw err;
           });
 
           const settleSdk = (sdk: SdkChatResult, resumed = false): string => {

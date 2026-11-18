@@ -101,6 +101,22 @@ describe("SessionStore", () => {
     expect(store.get("s3").length).toBe(4);
   });
 
+  it("appends a running turn's steps capped and untrimmed, and trims once when the turn records", () => {
+    let trims = 0;
+    const store = new SessionStore(ws.db, { maxChars: 700, maxToolResultChars: 20, onTrimmed: () => void trims++ });
+    for (let i = 0; i < 3; i++) store.record("s5", toolExchange(`old ${i} ${"x".repeat(300)}`, "files.read"));
+    trims = 0;
+    const before = store.get("s5").length;
+    const step = toolExchange("now", "files.read").slice(1, 3);
+    store.append("s5", [{ role: "user", content: [{ type: "text", text: "y".repeat(600) }] }, ...step, ...step]);
+    expect(trims).toBe(0);
+    expect(store.get("s5").length).toBe(before + 5);
+    const result = store.get("s5").at(-1)?.content[0] as { content: string };
+    expect(result.content.length).toBeLessThan(200);
+    store.record("s5", store.get("s5"));
+    expect(trims).toBe(1);
+  });
+
   it("caps oversized tool results instead of dropping the block", () => {
     const store = new SessionStore(ws.db, { maxToolResultChars: 20 });
     store.record("s4", [
