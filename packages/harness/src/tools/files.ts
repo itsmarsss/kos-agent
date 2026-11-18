@@ -20,6 +20,7 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { SAFE, type ToolRisk } from "../risk/tiers.js";
 import { firstSegment, foldName, isReserved } from "../kernel/files.js";
+import { gitControlRefusal } from "../sandbox/githold.js";
 import { foldedPath, type Workspace } from "../store/workspace.js";
 import { reachOf } from "./sql.js";
 import { artifactFileRefusal, artifactFolderRefusal } from "./systems.js";
@@ -165,6 +166,9 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
     const abs = usable(ws, path);
     const reserved = what === "read" ? undefined : reservedRefusal(ws, relative(ws.root, abs));
     if (reserved) throw new Error(reserved);
+    // A repository's config or hooks name programs a git read would run.
+    const git = what === "replace" ? gitControlRefusal(foldedPath(ws.root, path)) : undefined;
+    if (git) throw new Error(git);
     const pages = ctx.services?.pages;
     if (!pages) return abs;
     const rel = relative(ws.root, abs);
@@ -329,6 +333,9 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
     },
     (input) => {
       const to = fenced(str(input, "to"), "replace");
+      // Moved out, a repository's config is changed where it lands and moved back as something else.
+      const fromGit = gitControlRefusal(foldedPath(ws.root, str(input, "from")));
+      if (fromGit) throw new Error(fromGit);
       mkdirSync(dirname(to), { recursive: true });
       renameSync(fenced(str(input, "from"), "remove"), to);
       return "ok";
