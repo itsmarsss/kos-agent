@@ -109,7 +109,7 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
       <PageHead
         title="Blobs"
         {...(agents ? { count: agents.length } : {})}
-        subtitle={'A blob is a responsibility KOS keeps for you, with a face: a folder under blobs/ with a thread of its own and a schedule if it needs one. Ask KOS for one in a chat ("keep an eye on…", "every Saturday…"), or write one here.'}
+        subtitle='A blob is a responsibility KOS keeps for you, with a face: a folder under blobs/ with a thread of its own and a schedule if it needs one. Ask KOS for one in a chat ("keep an eye on…", "every Saturday…"), or write one here. A card opens the blob’s own page.'
         actions={
           <button type="button" className="btn btn--primary" onClick={() => onOpen("new")}>
             New blob
