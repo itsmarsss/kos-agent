@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { addressesIn, checkoutVerdict, PAY_BUTTON, PAY_FRAMES, beyondAutoByName, beyondAutoRule, destructiveCommand, looksLikeCheckout } from "./beyondauto.js";
+import { addressesIn, checkoutVerdict, PAY_BUTTON, PAY_FRAMES, beyondAutoByName, beyondAutoRule, destructiveCommand, looksLikeCheckout, mcpBrowserStep } from "./beyondauto.js";
 
 describe("beyondAutoByName", () => {
   it("names a tool that spends money, deletes or cancels", () => {
@@ -16,6 +16,14 @@ describe("beyondAutoByName", () => {
     expect(beyondAutoByName("mcp.auth.revoke_token")).toMatch(/delete or cancel/);
   });
 
+  it("holds back a tool named for sending or publishing to others", () => {
+    for (const name of ["mcp.slack.send_message", "mcp.slack.postMessage", "mcp.gmail.send_email", "mcp.mail.reply", "mcp.blog.publish", "mcp.x.tweet", "mcp.github.add_comment", "mcp.cal.invite", "mcp.drive.share_file", "mcp.chat.message"]) {
+      expect(beyondAutoByName(name), name).toBe("may send or publish something others see");
+    }
+    expect(beyondAutoByName("mcp.slack.list_messages")).toBe(false);
+    expect(beyondAutoByName("mcp.github.comments_count")).toBe(false);
+  });
+
   it("leaves other names alone, words that only contain one included", () => {
     expect(beyondAutoByName("mcp.drive.list_files")).toBe(false);
     expect(beyondAutoByName("mcp.notes.reorder")).toBe(false);
@@ -24,9 +32,16 @@ describe("beyondAutoByName", () => {
   });
 });
 
+describe("mcpBrowserStep", () => {
+  it("is a browser step of an MCP server, judged on its page like KOS's own", () => {
+    for (const tool of ["mcp.agent_browser.agent_browser_click", "mcp.tools.browser_navigate", "mcp.playwright_browser.click"]) expect(mcpBrowserStep(tool), tool).toBe(true);
+    for (const tool of ["browser.act", "mcp.drive.list_files", "mcp.notes.open_browser_tab"]) expect(mcpBrowserStep(tool), tool).toBe(false);
+  });
+});
+
 describe("beyondAutoRule", () => {
   it("holds back what deletes for good or changes KOS itself", () => {
-    for (const tool of ["systems.project_delete", "chats.delete", "blobs.remove", "daemons.remove", "discord.prune", "skills.commit", "skills.promote", "modules.instantiate", "modules.create", "modules.promote", "daemons.create", "daemons.start", "sites.create", "cron.schedule", "discord.role", "discord.react"]) {
+    for (const tool of ["systems.project_delete", "chats.delete", "blobs.remove", "daemons.remove", "discord.prune", "skills.commit", "skills.promote", "modules.instantiate", "modules.create", "modules.promote", "daemons.create", "daemons.start", "sites.create", "cron.schedule", "builds.run", "discord.role", "discord.react"]) {
       expect(beyondAutoRule(tool, {}), tool).toBeTruthy();
     }
   });

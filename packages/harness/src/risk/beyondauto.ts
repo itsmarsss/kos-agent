@@ -9,6 +9,15 @@
 
 const PAYS = /(^|[^a-z])(pay|payment|purchase|checkout|charge|buy|order|transfer|send_money|refund|donate|subscribe)(?![a-z])/;
 const DELETES = /(^|[^a-z])(delete|remove|destroy|drop|purge|trash|erase|wipe|unlink|rm|cancel|revoke)(?![a-z])/;
+const SENDS = /(^|[^a-z])(send|post|message|email|mail|reply|publish|tweet|comment|invite|share)(?![a-z])/;
+
+/**
+ * Why no shell or Python run is Auto's where nothing narrower than the host
+ * or the container holds it: a command runs unwrapped beside KOS, and nothing
+ * keeps it off the network or KOS's own ports, so the offline line Auto
+ * relies on is not there.
+ */
+export const CONTAINED_BEYOND_AUTO = "nothing narrower than the container holds the network";
 
 /** Why Auto does not cover a tool by this name (one KOS did not write: an MCP server's), or false. */
 export function beyondAutoByName(name: string): string | false {
@@ -16,7 +25,20 @@ export function beyondAutoByName(name: string): string | false {
   const words = name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
   if (PAYS.test(words)) return "may spend money";
   if (DELETES.test(words)) return "may delete or cancel something outside the workspace";
+  if (SENDS.test(words)) return "may send or publish something others see";
   return false;
+}
+
+/**
+ * A browser step from an MCP server: agent-browser's `agent_browser_*`, a
+ * `browser_*` tool, or any tool of a server named for a browser. Judged on
+ * the page as KOS's own browser steps are, since a checkout is a checkout
+ * whichever tool clicks on it.
+ */
+export function mcpBrowserStep(tool: string): boolean {
+  const [kind, server, name] = tool.split(".");
+  if (kind !== "mcp" || server === undefined || name === undefined) return false;
+  return /browser/.test(server) || /^(agent_)?browser_/.test(name);
 }
 
 /** KOS's own tools that undo something for good, change what KOS itself is, run on without the owner, or speak in public: never under Auto. */
@@ -35,6 +57,7 @@ const PERMANENT: Record<string, string> = {
   "daemons.start": "starts a program that keeps running",
   "sites.create": "publishes a site",
   "cron.schedule": "schedules work that runs later without you",
+  "builds.run": "starts a coding agent that runs on its own",
   // Seen by everyone on the server: a role hands out access, a reaction speaks in public.
   "discord.role": "makes a role that hands out access on the server",
   "discord.react": "reacts in public on the server",

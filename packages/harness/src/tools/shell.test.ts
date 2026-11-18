@@ -10,7 +10,8 @@ import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { underAuto } from "../kernel/caller.js";
 import { programOf } from "../risk/rules.js";
-import { CONFIG_REFUSED, CONTAINED_BEYOND_AUTO, createShellModule, DATABASE_REFUSED, namesDatabase, runShell, type ShellResult } from "./shell.js";
+import { CONTAINED_BEYOND_AUTO } from "../risk/beyondauto.js";
+import { CONFIG_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, runShell, type ShellResult } from "./shell.js";
 
 const onMac = process.platform === "darwin";
 

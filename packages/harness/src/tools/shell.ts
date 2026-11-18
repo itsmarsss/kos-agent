@@ -6,7 +6,7 @@ import { MAINTENANCE } from "../kernel/caretaker.js";
 import { foldName, RESERVED } from "../kernel/files.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
-import { destructiveCommand } from "../risk/beyondauto.js";
+import { CONTAINED_BEYOND_AUTO, destructiveCommand } from "../risk/beyondauto.js";
 import { readOnlyLine } from "../risk/readonly.js";
 import { shellBeyondAuto } from "../risk/shellauto.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
@@ -71,13 +71,6 @@ export const CONFIG_REFUSED =
 const UNWRITTEN = [...RESERVED].filter((name) => name !== ".kos");
 
 export type ShellResult = CapturedRun;
-
-/**
- * Why no shell line is Auto's in the container: there the container is the
- * jail, a command runs unwrapped beside KOS, and nothing keeps it off the
- * network or KOS's own ports, so the offline line Auto relies on is not there.
- */
-export const CONTAINED_BEYOND_AUTO = "nothing narrower than the container holds the network";
 
 /** Asked for by name to let a project's or a blob's command write past its own folder. */
 export const WIDE_WRITES = "workspace";

@@ -7,6 +7,7 @@ import { ToolRegistry } from "../agent/registry.js";
 import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
+import { CONTAINED_BEYOND_AUTO } from "../risk/beyondauto.js";
 import { createPythonModule, type PythonModuleOptions, type PythonResult } from "./python.js";
 
 const onMac = process.platform === "darwin";
@@ -36,7 +37,9 @@ describe("python.run's tier", () => {
     const mac = await registryWith(ws, { platform: "darwin", contained: false });
     expect(mac.classify("python.run", { code: "print(1)" }).tier).toBe("safe");
     const container = await registryWith(ws, { platform: "linux", contained: true });
-    expect(container.classify("python.run", { code: "print(1)" }).tier).toBe("risky");
+    expect(container.classify("python.run", { code: "print(1)" })).toMatchObject({ tier: "risky", beyondAuto: CONTAINED_BEYOND_AUTO });
+    const linux = await registryWith(ws, { platform: "linux", contained: false });
+    expect(linux.classify("python.run", { code: "print(1)" }).beyondAuto).toBe(CONTAINED_BEYOND_AUTO);
   });
 });
 

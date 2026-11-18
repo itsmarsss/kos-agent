@@ -48,7 +48,7 @@ import {
   type Page,
   type Tab,
 } from "@kos/browser";
-import { addressesIn, CHECKOUT_WORDS, checkoutVerdict, looksLikeCheckout, PAY_BUTTON, PAY_FRAMES, type PageLook } from "../risk/beyondauto.js";
+import { addressesIn, CHECKOUT_WORDS, checkoutVerdict, looksLikeCheckout, mcpBrowserStep, PAY_BUTTON, PAY_FRAMES, type PageLook } from "../risk/beyondauto.js";
 
 /** What a checkout check reads of a page: the first checkout phrase anywhere in its words, a card field, a payment provider's frame. */
 const CHECKOUT_LOOK = `(() => {
@@ -3906,7 +3906,7 @@ export class Kernel {
       onAutoRan: () => {
         if (opts.conversationId) this.underAuto.set(opts.conversationId, true);
       },
-      beyondAutoNow: (tool, input) => (opts.conversationId && tool.startsWith(BROWSER_PREFIX) ? this.checkoutSays(opts.conversationId, input) : Promise.resolve(undefined)),
+      beyondAutoNow: (tool, input) => (opts.conversationId && (tool.startsWith(BROWSER_PREFIX) || mcpBrowserStep(tool)) ? this.checkoutSays(opts.conversationId, input) : Promise.resolve(undefined)),
       halted: () => this.killSwitch.halted,
       autoApproves: (tool, context) => (opts.conversationId !== undefined && actsInYourChrome(tool, context) ? this.sessionAllows(opts.conversationId, context?.browser?.site) : false),
       leavesSite: (tool, input, site) => tool.startsWith(BROWSER_PREFIX) && opensElsewhere(input, site),
