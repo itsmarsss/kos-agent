@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -105,6 +105,34 @@ describe("secrets routes", () => {
     expect((await call("POST", "/api/secrets/unlock", { passphrase: "nope nope nope" })).status).toBe(400);
     expect((await call("POST", "/api/secrets/unlock", { passphrase: "the vault passphrase" })).body).toMatchObject({ state: "ready" });
   }, 20_000);
+
+  it("makes a passphrase vault with that slot alone, and limits unlock tries", async () => {
+    expect((await call("POST", "/api/secrets/init", { passphrase: "the vault passphrase" })).body).toMatchObject({ state: "ready", slots: ["passphrase"] });
+    routes = secretsRoutes({ vault: new Vault({ dir: join(root, "secrets") }), secrets: new SecretsRegistry(), uses, audit: () => undefined, now: () => clock });
+    for (let i = 0; i < 4; i++) expect((await call("POST", "/api/secrets/unlock", { passphrase: `wrong guess ${i}` })).status).toBe(400);
+    expect((await call("POST", "/api/secrets/unlock", { passphrase: "the vault passphrase" })).status).toBe(200);
+    expect((await call("POST", "/api/secrets/unlock", { passphrase: "the vault passphrase" })).status).toBe(429);
+    clock += REVEAL_WINDOW_MS;
+    expect((await call("POST", "/api/secrets/unlock", { passphrase: "wrong once more" })).status).toBe(400);
+  }, 30_000);
+
+  it("adds, changes and takes off the passphrase, audited", async () => {
+    await call("POST", "/api/secrets/init", {});
+    expect((await call("POST", "/api/secrets/passphrase", {})).status).toBe(400);
+    expect((await call("POST", "/api/secrets/passphrase", { passphrase: "first passphrase" })).body).toMatchObject({ slots: ["passphrase"] });
+    expect(existsSync(join(root, "secrets", "key"))).toBe(false);
+    expect((await call("POST", "/api/secrets/passphrase", { current: "not the one", passphrase: "second passphrase" })).status).toBe(400);
+    expect((await call("POST", "/api/secrets/passphrase", { current: "first passphrase", passphrase: "second passphrase" })).body).toMatchObject({ slots: ["passphrase"] });
+    expect((await call("POST", "/api/secrets/passphrase", { current: "second passphrase" })).body).toMatchObject({ state: "ready", slots: ["keyfile"] });
+    expect(new Vault({ dir: join(root, "secrets") }).status().state).toBe("ready");
+    expect(audited.filter((a) => a.tool === "secrets.passphrase").map((a) => [a.args.change, a.isError])).toEqual([
+      ["add", false],
+      ["change", true],
+      ["change", false],
+      ["remove", false],
+    ]);
+    expect(JSON.stringify(audited)).not.toMatch(/first passphrase|second passphrase/);
+  }, 30_000);
 
   it("lists uses, revokes a grant, rotates and wipes", async () => {
     await call("POST", "/api/secrets/init", {});

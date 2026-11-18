@@ -22,6 +22,8 @@ export const SECRETS_PREFIX = "/api/secrets";
 /** Reveals allowed in a window, counting refused ones: the step-up cannot be guessed at speed. */
 export const REVEALS_PER_WINDOW = 5;
 export const REVEAL_WINDOW_MS = 10 * 60_000;
+/** Passphrase tries (unlock, and the current one asked to change it) in the same window, kept apart from reveals. */
+export const UNLOCKS_PER_WINDOW = 5;
 
 export interface SecretsRoutesDeps {
   vault: Vault;
@@ -71,6 +73,7 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
   const { vault, secrets, uses } = deps;
   const now = deps.now ?? Date.now;
   const reveals: number[] = [];
+  const unlocks: number[] = [];
 
   const status = (): VaultStatus => ({ ...vault.status(), scrubbed: secrets.scrubbed() });
 
@@ -99,14 +102,38 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
 
   const isEnv = (handle: string): boolean => secrets.envNames().includes(handle);
 
-  /** A reveal counted against the window; false when the window is full. */
-  const admitReveal = (): boolean => {
+  /** A try counted against its window; false when the window is full. */
+  const admit = (tries: number[], most: number): boolean => {
     const t = now();
-    while (reveals.length && t - reveals[0]! >= REVEAL_WINDOW_MS) reveals.shift();
-    if (reveals.length >= REVEALS_PER_WINDOW) return false;
-    reveals.push(t);
+    while (tries.length && t - tries[0]! >= REVEAL_WINDOW_MS) tries.shift();
+    if (tries.length >= most) return false;
+    tries.push(t);
     return true;
   };
+  const admitReveal = (): boolean => admit(reveals, REVEALS_PER_WINDOW);
+  const tooManyTries = (): ApiResponse => fail(429, `at most ${UNLOCKS_PER_WINDOW} passphrase tries in ${REVEAL_WINDOW_MS / 60_000} minutes; try again later`);
+
+  /**
+   * The passphrase added, changed or taken off. Adding one leaves it the
+   * vault's only slot and erases the key file; taking it off goes back to a
+   * key file. A vault that has one asks for it first.
+   */
+  async function passphrase(body: Record<string, unknown>): Promise<ApiResponse> {
+    const next = text(body.passphrase) || undefined;
+    const had = vault.hasPassphrase();
+    if (had) {
+      if (!admit(unlocks, UNLOCKS_PER_WINDOW)) return tooManyTries();
+      if (!(await vault.checkPassphrase(text(body.current) ?? ""))) {
+        deps.audit({ tool: "secrets.passphrase", args: { change: next ? "change" : "remove" }, result: "refused: not the current passphrase", isError: true });
+        return fail(400, "current is not the vault's passphrase");
+      }
+    }
+    if (next) await vault.setPassphrase(next);
+    else if (had) vault.removePassphrase();
+    else return fail(400, "this vault has no passphrase to take off; give one to add it");
+    deps.audit({ tool: "secrets.passphrase", args: { change: next ? (had ? "change" : "add") : "remove" }, result: next ? "passphrase slot only, key file erased" : "key-file slot only", isError: false });
+    return ok(status());
+  }
 
   async function reveal(handle: string, body: Record<string, unknown>): Promise<ApiResponse> {
     const field = text(body.field) as SecretFieldName | undefined;
@@ -158,9 +185,11 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
       if (method === "POST" && name === "unlock") {
         const passphrase = text(body.passphrase);
         if (!passphrase) return fail(400, "passphrase is required");
+        if (!admit(unlocks, UNLOCKS_PER_WINDOW)) return tooManyTries();
         await vault.unlock(passphrase);
         return ok(status());
       }
+      if (method === "POST" && name === "passphrase") return passphrase(body);
       if (method === "POST" && name === "rotate") {
         vault.rotateDataKey();
         deps.audit({ tool: "secrets.rotate", args: { what: "data key" }, result: "rotated", isError: false });
