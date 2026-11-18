@@ -43,16 +43,21 @@ describe("WorkspaceBackup", () => {
     expect(readFileSync(file, "utf8")).toBe("v1");
   });
 
-  it("never snapshots Claude Code's own files, wherever a build left them", async () => {
+  it("never snapshots Claude Code's own records, wherever a build left them, and keeps a project's .claude settings", async () => {
     await backup.ensureRepo();
-    mkdirSync(join(root, ".claude", "projects"), { recursive: true });
-    mkdirSync(join(root, "sites", "app", ".claude", "projects"), { recursive: true });
-    writeFileSync(join(root, ".claude", "projects", "t.jsonl"), "{}");
-    writeFileSync(join(root, "sites", "app", ".claude", "projects", "t.jsonl"), "{}");
-    writeFileSync(join(root, "sites", "app", ".claude.json"), "{}");
-    writeFileSync(join(root, "sites", "app", "index.html"), "<p>hi</p>");
+    const put = (path: string, body = "{}"): void => {
+      mkdirSync(join(root, path, ".."), { recursive: true });
+      writeFileSync(join(root, path), body);
+    };
+    put("sites/app/index.html", "<p>hi</p>");
+    put("sites/app/.claude/settings.json");
+    // Committed before the exclude existed: taken out of the index, left on disk.
+    put("sites/old/.claude/projects/t.jsonl");
+    execFileSync("git", ["add", "-f", "sites/old/.claude/projects/t.jsonl"], { cwd: root });
+    for (const path of [".claude/projects/t.jsonl", "sites/app/.claude/projects/t.jsonl", "sites/app/.claude/todos/t.json", "sites/app/.claude/statsig/s", "sites/app/.claude.json"]) put(path);
     await backup.snapshot("with a build");
-    expect(await backup.tracked()).toEqual(["sites/app/index.html"]);
+    expect(await backup.tracked()).toEqual(["sites/app/.claude/settings.json", "sites/app/index.html"]);
+    expect(readFileSync(join(root, "sites/old/.claude/projects/t.jsonl"), "utf8")).toBe("{}");
   });
 
   it("returns null when there is nothing to commit", async () => {
