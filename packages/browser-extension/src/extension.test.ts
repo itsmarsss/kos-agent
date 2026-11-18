@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { KOS_SEED, drawingOf, lookOf } from "@kos/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -255,8 +258,9 @@ describe("KOS's cursor", () => {
   });
 
   it("goes to an element focused or scrolled to, and says KOS is typing for keys and text", () => {
-    expect(aimOf("DOM.focus", { backendNodeId: 7 })).toEqual({ node: { backendNodeId: 7 } });
-    expect(aimOf("DOM.scrollIntoViewIfNeeded", { backendNodeId: 7 })).toEqual({ node: { backendNodeId: 7 } });
+    expect(aimOf("DOM.focus", { backendNodeId: 7 })).toEqual({ node: { backendNodeId: 7 }, how: "move" });
+    // Scrolled to on the way to a press elsewhere (a drag's far end): rested there, not glided to and back.
+    expect(aimOf("DOM.scrollIntoViewIfNeeded", { backendNodeId: 7 })).toEqual({ node: { backendNodeId: 7 }, how: "rest" });
     expect(aimOf("DOM.focus", { nodeId: 7 })).toBeUndefined();
     expect(aimOf("Input.insertText", { text: "a" })).toEqual({ typing: true });
     expect(aimOf("Input.dispatchKeyEvent", { type: "keyDown", key: "a" })).toEqual({ typing: true });
@@ -270,11 +274,26 @@ describe("KOS's cursor", () => {
     expect(middleOf(undefined)).toBeUndefined();
   });
 
-  it("wears the dashboard's accent and its ink in both palettes, and never takes the owner's clicks", () => {
+  it("is KOS for Mac's cursor: its outline, size, colours and glide, and never takes the owner's clicks", () => {
     const source = installOverlay.toString();
-    expect(source).toMatch(/--accent: #7c9cff; --on-accent: #0b0e14;/);
-    expect(source).toMatch(/--accent: #3558d6; --on-accent: #ffffff;/);
-    expect(source).toMatch(/\.cursor \{ position: fixed;[^}]*pointer-events: none;/);
+    const mac = readFileSync(fileURLToPath(new URL("../../device-macos/Sources/KOSDevice/Overlay/KOSCursor.swift", import.meta.url)), "utf8");
+    const palette = readFileSync(fileURLToPath(new URL("../../device-macos/Sources/KOSDevice/Overlay/Palette.swift", import.meta.url)), "utf8");
+    const glide = readFileSync(fileURLToPath(new URL("../../device-shared/Sources/DeviceCore/Glide.swift", import.meta.url)), "utf8");
+    const outline = /outline: \[CGPoint\] = \[([^\]]+)\]/.exec(mac)![1]!;
+    const points = [...outline.matchAll(/CGPoint\(x: ([\d.]+), y: ([\d.]+)\)/g)].map((m) => `[${m[1]}, ${m[2]}]`);
+    expect(points).toHaveLength(7);
+    expect(source).toContain(`[${points.join(", ")}]`);
+    expect(mac).toContain("scale: CGFloat = 1.5");
+    expect(source).toContain("SCALE = 1.5");
+    expect(mac).toContain("haloRadius: CGFloat = 15");
+    const hex = (name: string): string => {
+      const m = new RegExp(`${name} = NSColor\\(srgbRed: 0x(..) / 255, green: 0x(..) / 255, blue: 0x(..) / 255`).exec(palette)!;
+      return `#${m[1]}${m[2]}${m[3]}`.toLowerCase();
+    };
+    expect(source).toContain(`--kos-blue: ${hex("accent")}; --kos-ink: ${hex("ink")};`);
+    expect(glide).toMatch(/shortest = 0\.15[\s\S]*longest = 0\.45[\s\S]*farDistance = 1500\.0/);
+    expect(source).toMatch(/150 \+ 300 \* Math\.min\(1, distance \/ 1500\)/);
+    expect(source).toMatch(/\.cursor \{[^}]*pointer-events: none;/);
   });
 });
 

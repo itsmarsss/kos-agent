@@ -416,7 +416,8 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
   }, 30_000);
 
   /** KOS's cursor on a page, read through the overlay's closed shadow root: where its tip is, whether it ripples, shows and lets clicks through, and its tag. */
-  const cursorOn = async (page: string): Promise<{ x: number; y: number; rippling: boolean; shown: boolean; through: boolean; tag: string }> => {
+  type Cursor = { x: number; y: number; rippling: boolean; shown: boolean; through: boolean; tag: string; tagShown: boolean };
+  const cursorOn = async (page: string): Promise<Cursor> => {
     type Node = { nodeId: number; attributes?: string[]; children?: Node[]; shadowRoots?: Node[] };
     const { root } = (await devtools.send("DOM.getDocument", { depth: -1, pierce: true }, page)) as { root: Node };
     const find = (n: Node): Node | undefined => {
@@ -435,11 +436,22 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
       const m = new DOMMatrix(getComputedStyle(this).transform);
       const style = getComputedStyle(this);
       return { x: m.e, y: m.f, rippling: this.getAnimations({ subtree: true }).some((a) => a.animationName === "ripple" && a.playState === "running"),
-        shown: style.visibility === "visible" && Number(style.opacity) === 1, through: style.pointerEvents === "none", tag: this.querySelector(".tag").textContent };
+        shown: style.visibility === "visible" && Number(style.opacity) === 1, through: style.pointerEvents === "none", tag: this.querySelector(".tag").textContent,
+        tagShown: getComputedStyle(this.querySelector(".tag")).visibility === "visible" };
     }`;
-    const r = (await devtools.send("Runtime.callFunctionOn", { objectId: object.objectId, functionDeclaration: read, returnByValue: true }, page)) as { result: { value: { x: number; y: number; rippling: boolean; shown: boolean; through: boolean; tag: string } } };
+    const r = (await devtools.send("Runtime.callFunctionOn", { objectId: object.objectId, functionDeclaration: read, returnByValue: true }, page)) as { result: { value: Cursor } };
     return r.result.value;
   };
+  /** The cursor once it has come to rest where expected, or as it is after a second. */
+  const cursorSettled = async (page: string, want: (c: Cursor) => boolean): Promise<Cursor> => {
+    let c = await cursorOn(page);
+    for (let i = 0; i < 40 && !want(c); i++) {
+      await until(() => false, 25);
+      c = await cursorOn(page);
+    }
+    return c;
+  };
+  const near = (c: { x: number; y: number }, p: { x: number; y: number }): boolean => Math.abs(c.x - p.x) < 0.5 && Math.abs(c.y - p.y) < 0.5;
 
   it("shows KOS's cursor from the start, and glides it to each point KOS acts at before acting there", async () => {
     const tab = ((await call("tabs.list", { session: "s1" }))["result"] as { tabs: { id: string }[] }).tabs[0]!.id;
@@ -458,13 +470,15 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     /** The cursor's tip on a point, to within a pixel's rounding. */
     const at = (p: { x: number; y: number }) => ({ x: expect.closeTo(p.x, 0), y: expect.closeTo(p.y, 0) });
     const page = await devtools.attach((u) => u.endsWith("/shop"));
+    // A window in front, as the owner's is when they watch: the cursor glides only where it can be seen.
+    await devtools.send("Emulation.setFocusEmulationEnabled", { enabled: true }, page);
     // On the page before KOS has pointed anywhere, in the middle, letting every click through to the page.
     const view = await value<{ w: number; h: number }>("({ w: innerWidth, h: innerHeight })");
     const first = await cursorOn(page);
-    expect(first).toMatchObject({ ...at({ x: view.w / 2, y: view.h / 2 }), shown: true, through: true, tag: "KOS" });
+    expect(first).toMatchObject({ ...at({ x: view.w / 2, y: view.h / 2 }), shown: true, through: true, tag: "KOS", tagShown: true });
     expect(await value("document.elementFromPoint(innerWidth / 2, innerHeight / 2).tagName")).not.toBe("KOS-OVERLAY");
 
-    // A click as KOS's hands make one: the cursor has glided there before the press, which ripples.
+    // A click as KOS's hands make one: the cursor is on its way before the press, waited on briefly, then arrives and ripples.
     const buy = await middle("#buy");
     const started = Date.now();
     const clicked = (await call("cdp.batch", {
@@ -472,35 +486,52 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
       tab,
       calls: ["mouseMoved", "mousePressed", "mouseReleased"].map((type) => ({ method: "Input.dispatchMouseEvent", params: { type, x: buy.x, y: buy.y, button: type === "mouseMoved" ? "none" : "left", clickCount: 1 } })),
     }))["result"] as { results: unknown[] };
+    const took = Date.now() - started;
     expect(clicked.results).toHaveLength(3);
-    expect(Date.now() - started).toBeGreaterThanOrEqual(150);
-    expect(await cursorOn(page)).toMatchObject({ ...at(buy), rippling: true, shown: true });
+    expect(took).toBeGreaterThanOrEqual(100);
+    expect(took).toBeLessThan(450);
+    expect(await cursorSettled(page, (c) => near(c, buy) && c.rippling)).toMatchObject({ ...at(buy), rippling: true, shown: true });
+    // Clicked again where it is: nothing to glide, nothing waited on.
+    const again = Date.now();
+    await call("cdp.batch", { session: "s1", tab, calls: ["mouseMoved", "mousePressed", "mouseReleased"].map((type) => ({ method: "Input.dispatchMouseEvent", params: { type, x: buy.x, y: buy.y, button: type === "mouseMoved" ? "none" : "left", clickCount: 1 } })) });
+    expect(Date.now() - again).toBeLessThan(100);
 
-    // A field focused to type in: the cursor at its middle once focused, and its tag says KOS is typing.
+    // A field focused to type in: the cursor goes to its middle, and its tag says KOS is typing.
     await value("(() => { document.body.insertAdjacentHTML('beforeend', `<input id='name' style='position:fixed;left:40px;top:300px;width:160px'><div style='height:3000px'></div><p id='far'>Far</p>`); return 1; })()");
     await cdp("DOM.focus", { backendNodeId: await nodeOf("#name") });
-    expect(await cursorOn(page)).toMatchObject(at(await middle("#name")));
+    const name = await middle("#name");
+    expect(await cursorSettled(page, (c) => near(c, name))).toMatchObject(at(name));
     await cdp("Input.insertText", { text: "Ada" });
     expect((await cursorOn(page)).tag).toBe("KOS · typing");
 
-    // Scrolled to: the cursor at the element's middle where the scroll brought it.
+    // Scrolled to: the cursor rests at the element's middle where the scroll brought it, a moment later.
     await cdp("DOM.scrollIntoViewIfNeeded", { backendNodeId: await nodeOf("#far") });
     expect(await value<number>("scrollY")).toBeGreaterThan(1000);
-    expect(await cursorOn(page)).toMatchObject(at(await middle("#far")));
+    const far = await middle("#far");
+    expect(await cursorSettled(page, (c) => near(c, far))).toMatchObject(at(far));
 
     // A wheel turned where KOS points: the cursor there, and kept there as the page scrolls under it, as a pointer is.
     const before = await value<number>("scrollY");
     await cdp("Input.dispatchMouseEvent", { type: "mouseWheel", x: 220, y: 160, deltaX: 0, deltaY: -400 });
     for (let i = 0; i < 30 && (await value<number>("scrollY")) === before; i++) await until(() => false, 50);
     expect(await value<number>("scrollY")).toBeLessThan(before);
-    expect(await cursorOn(page)).toMatchObject({ x: 220, y: 160 });
+    expect(await cursorSettled(page, (c) => near(c, { x: 220, y: 160 }))).toMatchObject({ x: 220, y: 160 });
 
-    // A drag follows the held button at once; its press ripples where it began.
+    // A drag follows the held button closely; its press ripples where it began.
     await cdp("Input.dispatchMouseEvent", { type: "mousePressed", x: 300, y: 200, button: "left", buttons: 1, clickCount: 1 });
     await cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: 340, y: 230, button: "left", buttons: 1 });
     await cdp("Input.dispatchMouseEvent", { type: "mouseReleased", x: 340, y: 230, button: "left", clickCount: 1 });
-    await until(() => false, 120);
-    expect(await cursorOn(page)).toMatchObject({ x: 340, y: 230 });
+    expect(await cursorSettled(page, (c) => near(c, { x: 340, y: 230 }))).toMatchObject({ x: 340, y: 230 });
+
+    // KOS's own picture of the page: the arrow alone, its halo and tag out of the way, and whole again after.
+    const host = "document.querySelector('kos-overlay')";
+    await value(`(${host}.dataset.capture = "1", 1)`);
+    expect(await cursorOn(page)).toMatchObject({ shown: true, tagShown: false });
+    await value(`(${host}.dataset.capture = "", 1)`);
+    await cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, maxEdge: 400 });
+    await until(() => false, 100);
+    expect(await value(`${host}.dataset.capture`)).toBe("");
+    expect((await cursorOn(page)).tagShown).toBe(true);
 
     // A new page of the tab: the cursor where it was, not back in the middle; and between steps it stays.
     await cdp("Page.reload");
@@ -520,7 +551,8 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     await value("(window.kosSeen = [], addEventListener('pointermove', (e) => kosSeen.push({ x: e.clientX, y: e.clientY }), true), 1)");
     await cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: aimed.x, y: aimed.y });
     expect(await value("kosSeen.at(-1)")).toMatchObject(at(aimed));
-    expect(await cursorOn(page)).toMatchObject(at(await middle("#buy")));
+    const drawn = await middle("#buy");
+    expect(await cursorSettled(page, (c) => near(c, drawn))).toMatchObject(at(drawn));
     await devtools.evaluate(popup, `chrome.tabs.setZoom(${tab}, 0)`);
     await devtools.send("Target.detachFromTarget", { sessionId: page });
   }, 30_000);
@@ -568,6 +600,39 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     for (let i = 0; i < 50 && (await overlay("paused")) === "1"; i++) await until(() => false, 100);
     expect(await cursorOn(page)).toMatchObject({ x: kept.x, y: kept.y, shown: true });
     expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "settings", patch: { fullBar: true } })`)).toMatchObject({ ok: true });
+  }, 30_000);
+
+  it("sends no click of KOS's once the owner takes the tab while its cursor is on the way", async () => {
+    const tab = ((await call("tabs.list", { session: "s1" }))["result"] as { tabs: { id: string }[] }).tabs[0]!.id;
+    const page = await devtools.attach((u) => u.endsWith("/shop"));
+    await devtools.send("Emulation.setFocusEmulationEnabled", { enabled: true }, page);
+    await devtools.evaluate(page, "(window.kosBought = 0, document.getElementById('buy').addEventListener('click', () => kosBought++), 1)");
+    const buy = (await devtools.evaluate(page, "(() => { const r = document.getElementById('buy').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()")) as { x: number; y: number };
+    // Past the moment after the last hand back; the cursor far from the button.
+    await until(() => false, GRACE_MS);
+    await call("cdp.send", { session: "s1", tab, method: "Input.dispatchMouseEvent", params: { type: "mouseMoved", x: 700, y: 500 } });
+    await until(() => false, 500);
+    const pressing = call("cdp.send", { session: "s1", tab, method: "Input.dispatchMouseEvent", params: { type: "mousePressed", x: buy.x, y: buy.y, button: "left", clickCount: 1 } });
+    await until(() => false, 30);
+    for (const type of ["mousePressed", "mouseReleased"]) await devtools.send("Input.dispatchMouseEvent", { type, x: 600, y: 60, button: "left", clickCount: 1 }, page);
+    expect((await pressing)["error"]).toMatchObject({ code: "paused" });
+    expect((await call("cdp.send", { session: "s1", tab, method: "Input.dispatchMouseEvent", params: { type: "mouseReleased", x: buy.x, y: buy.y, button: "left", clickCount: 1 } }))["error"]).toMatchObject({ code: "paused" });
+    expect(await devtools.evaluate(page, "kosBought")).toBe(0);
+
+    // Something the page puts over everything in the top layer, where no z-index reaches: the bar is over it still, and answers the owner.
+    expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "handback" })`)).toMatchObject({ ok: true });
+    const overlay = (key: string): Promise<unknown> => devtools.evaluate(page, `document.querySelector('kos-overlay')?.dataset.${key}`);
+    for (let i = 0; i < 50 && (await overlay("paused")) === "1"; i++) await until(() => false, 100);
+    await devtools.evaluate(page, "(() => { const d = document.createElement('div'); d.id = 'cover'; d.popover = 'manual'; d.style.cssText = 'inset: 0; width: 100vw; height: 100vh; margin: 0'; d.textContent = 'Subscribe!'; document.body.append(d); d.showPopover(); return 1; })()");
+    // Folded to KOS's face since the owner pressed it: a press on it opens the bar again, over what the page put there.
+    expect(await overlay("folded")).toBe("1");
+    const face = (await boxOf(page, "class", "face"))!;
+    for (const type of ["mousePressed", "mouseReleased"]) await devtools.send("Input.dispatchMouseEvent", { type, x: (face.left + face.right) / 2, y: (face.top + face.bottom) / 2, button: "left", clickCount: 1 }, page);
+    for (let i = 0; i < 50 && (await overlay("folded")) === "1"; i++) await until(() => false, 100);
+    expect(await overlay("folded")).toBe("");
+    expect(await drawn(page, "stop")).toBe(true);
+    await devtools.evaluate(page, "(document.getElementById('cover').hidePopover(), 1)");
+    await devtools.send("Target.detachFromTarget", { sessionId: page });
   }, 30_000);
 
   it("closes a site the owner hid: no look, no way there, and no name in the tab list", async () => {

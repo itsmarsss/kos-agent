@@ -6,10 +6,14 @@ import type { PointHow } from "./overlay.js";
  * type and scroll to an element by the element, whose middle is the point
  * once it is in view; keys and text say KOS is typing where it is.
  */
-export type Aim = { at: { x: number; y: number }; how: PointHow } | { node: { backendNodeId: number } } | { typing: true };
+export type Aim = { at: { x: number; y: number }; how: PointHow } | { node: { backendNodeId: number }; how: PointHow } | { typing: true };
 
 const KEY_DOWN = new Set(["keyDown", "rawKeyDown", "char"]);
-const BY_NODE = new Set(["DOM.focus", "DOM.scrollIntoViewIfNeeded"]);
+/** A field focused to type in is where KOS acts; an element scrolled to is often only on the way to a press elsewhere (a drag's far end), so the cursor rests there. */
+const BY_NODE: ReadonlyMap<string, PointHow> = new Map([
+  ["DOM.focus", "move"],
+  ["DOM.scrollIntoViewIfNeeded", "rest"],
+]);
 
 export function aimOf(method: string, params: Record<string, unknown>): Aim | undefined {
   const { x, y, type } = params;
@@ -22,7 +26,8 @@ export function aimOf(method: string, params: Record<string, unknown>): Aim | un
     if (type === "mouseReleased" || (type === "mouseMoved" && held)) return { at, how: "drag" };
     return { at, how: "move" };
   }
-  if (BY_NODE.has(method) && typeof params["backendNodeId"] === "number") return { node: { backendNodeId: params["backendNodeId"] } };
+  const byNode = BY_NODE.get(method);
+  if (byNode && typeof params["backendNodeId"] === "number") return { node: { backendNodeId: params["backendNodeId"] }, how: byNode };
   if (method === "Input.insertText" || (method === "Input.dispatchKeyEvent" && KEY_DOWN.has(String(type)))) return { typing: true };
   return undefined;
 }
