@@ -36,6 +36,7 @@ import {
   parseBrowserConfig,
   readAt,
   settleDownload,
+  sweepProfiles,
   type BrowserConfig,
   type BrowserDownload,
   type BrowserStatus,
@@ -4380,9 +4381,17 @@ export class Kernel {
     return value === undefined ? undefined : { label: headline.label, value };
   });
 
-  /** KOS stopping: the browser's sign-ins kept and Chrome closed properly. */
+  /** KOS stopping: the browser's sign-ins kept and Chrome closed properly, and the check's Chrome gone with its profile. */
   async closeBrowser(): Promise<void> {
-    await this.browser.shutdown();
+    await Promise.all([this.browser.shutdown(), this.artifactChecker?.dispose()]);
+  }
+
+  /**
+   * Throwaway Chrome profiles a host that stopped before its Chrome left in
+   * the temp folder, removed in the background: the host starts at once.
+   */
+  sweepStaleProfiles(): void {
+    void sweepProfiles().catch(() => undefined);
   }
 
   /**
