@@ -1059,13 +1059,14 @@ export function SettingsPage({
                   hint={`What one message gets, on either engine. Default ${defaults.maxSteps}.`}
                   value={how.maxSteps}
                   range={limits.maxSteps}
-                  onChange={(maxSteps) => setHow({ ...how, maxSteps })}
+                  // Screen steps left at four times these follow them; set to anything else, they stay.
+                  onChange={(maxSteps) => setHow({ ...how, maxSteps, screenSteps: how.screenSteps === 4 * how.maxSteps ? 4 * maxSteps : Math.max(how.screenSteps, maxSteps) })}
                 />
                 <Limit
                   label="Screen steps in a turn"
-                  hint={`Your own message working a screen on the Claude Agent SDK carries on in fresh queries, each with the steps above, up to this many in all. Other turns stop at the steps above. Default ${defaults.screenSteps}.`}
+                  hint={`Your own message working a screen on the Claude Agent SDK carries on in fresh queries, each with the steps above, up to this many in all. Other turns stop at the steps above. Four times the steps above unless set.`}
                   value={how.screenSteps}
-                  range={limits.screenSteps}
+                  range={limits.screenSteps ? [Math.max(limits.screenSteps[0], how.maxSteps), limits.screenSteps[1]] : undefined}
                   onChange={(screenSteps) => setHow({ ...how, screenSteps })}
                 />
                 <Limit

@@ -154,8 +154,11 @@ export function parseBehaviour(raw: unknown): Behaviour {
     autoFix:
       typeof input["autoFix"] === "boolean" ? input["autoFix"] : BEHAVIOUR_DEFAULTS.autoFix,
     maxSteps: clamp(input["maxSteps"], "maxSteps"),
-    // Unset, four times the steps in a turn, whatever those were set to.
-    screenSteps: clamp(input["screenSteps"] ?? SCREEN_STEPS_PER_STEP * clamp(input["maxSteps"], "maxSteps"), "screenSteps"),
+    // Unset, four times the steps in a turn, whatever those were set to; never fewer than those.
+    screenSteps: Math.max(
+      clamp(input["maxSteps"], "maxSteps"),
+      clamp(input["screenSteps"] ?? SCREEN_STEPS_PER_STEP * clamp(input["maxSteps"], "maxSteps"), "screenSteps"),
+    ),
     fixSteps: clamp(input["fixSteps"], "fixSteps"),
     selfPromptsPerHour: clamp(input["selfPromptsPerHour"], "selfPromptsPerHour"),
     agentMinutes: clamp(input["agentMinutes"], "agentMinutes"),
@@ -171,4 +174,13 @@ export function parseBehaviour(raw: unknown): Behaviour {
     extractEveryChars: clamp(input["extractEveryChars"], "extractEveryChars"),
     memoryDecideAbove: clamp(input["memoryDecideAbove"], "memoryDecideAbove"),
   };
+}
+
+/**
+ * What is stored: the screen steps only when the owner set them to other
+ * than four times the steps in a turn, so they keep following those.
+ */
+export function storedBehaviour(b: Behaviour): Omit<Behaviour, "screenSteps"> & { screenSteps?: number } {
+  const { screenSteps, ...rest } = b;
+  return screenSteps === Math.min(BEHAVIOUR_LIMITS.screenSteps[1], SCREEN_STEPS_PER_STEP * b.maxSteps) ? rest : b;
 }

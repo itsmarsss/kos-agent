@@ -99,8 +99,9 @@ tools loaded up front, cached after the first call.
   `KOS_PICTURES_PER_QUERY=0` in the host's environment to run each turn in one
   query. Each fresh query of the owner's own turn gets the whole "Steps in a
   turn", and the turn stops at "Screen steps in a turn" in all (Settings,
-  Behaviour; four times the steps unless set); every other turn (a schedule,
-  a dispatch, a guest) stops at "Steps in a turn" across its queries.
+  Behaviour; four times the steps unless set); a dispatch the owner made
+  counts as theirs; every other turn (a schedule, a guest, a dispatch or
+  handoff from another chat) stops at "Steps in a turn" across its queries.
 - **Big results set aside** (Settings, Behaviour, "Set big results aside once
   read"). A result over 32,000 characters (about 8k tokens) is kept whole under
   the workspace (`.kos/results/`) and in the chat for the turn it came in and
