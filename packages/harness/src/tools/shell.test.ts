@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -115,11 +115,40 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     expect(r.truncated).toBe(true);
   });
 
-  it("refuses a command that names KOS's own settings, which files.read reads", () => {
-    for (const command of ["echo '{}' > mcp.json", "cp evil.json MCP.json", "sed -i '' s/a/b/ profile.json", "rm daemon.json", "cat mcp.json"]) {
-      expect(registry.refusal("shell.run", { command })).toBe(CONFIG_REFUSED);
+  it("tells a command naming KOS's own settings at the root why, and leaves the same names elsewhere alone", () => {
+    for (const command of ["echo '{}' > mcp.json", "cp evil.json ./MCP.json", "sed -i '' s/a/b/ profile.json", "rm daemon.json", "cat mcp.json"]) {
+      expect(registry.refusal("shell.run", { command }), command).toBe(CONFIG_REFUSED);
     }
-    expect(registry.refusal("shell.run", { command: "cat sites/app/package.json" })).toBeUndefined();
+    for (const command of ["cat .mcp.json", "cat sites/app/profile.json", "cat ~/.docker/daemon.json", "cat sites/app/package.json"]) {
+      expect(registry.refusal("shell.run", { command }), command).toBeUndefined();
+    }
+  });
+
+  it("cannot write KOS's own settings or database however a command names them", async () => {
+    writeFileSync(join(root, "mcp.json"), '{"servers":{}}');
+    writeFileSync(join(root, "profile.json"), "{}");
+    mkdirSync(join(root, "sites"), { recursive: true });
+    for (const command of [
+      "echo '{\"servers\":{\"evil\":{}}}' > m*.json",
+      "echo x > 'mcp'.json",
+      'f=mcp; echo x > "$f.json"',
+      "ln -s ../mcp.json sites/link && echo x > sites/link",
+      "cd sites && echo x > ../mcp.json",
+      "mv mcp.json gone.json",
+      "rm -f profile.json",
+      "echo x > daemon.json",
+      "echo x > kos.sqlite-wal",
+    ]) {
+      await run({ command });
+      expect(readFileSync(join(root, "mcp.json"), "utf8"), command).toBe('{"servers":{}}');
+    }
+    expect(existsSync(join(root, "profile.json"))).toBe(true);
+    expect(existsSync(join(root, "daemon.json"))).toBe(false);
+    const wal = join(root, "kos.sqlite-wal");
+    expect(existsSync(wal) ? readFileSync(wal, "utf8") : "").not.toBe("x\n");
+    // The rest of the workspace is the shell's to write, .kos/tmp included.
+    const fine = await run({ command: "echo ok > sites/note.txt && echo ok > \"$TMPDIR/t\" && cat sites/note.txt" });
+    expect(fine.stdout.trim()).toBe("ok");
   });
 
   it("refuses to open KOS's own database, except from Maintenance, which asks", async () => {

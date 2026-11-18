@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { guestOrigin, turnStop } from "../kernel/caller.js";
 import { MAINTENANCE } from "../kernel/caretaker.js";
+import { RESERVED } from "../kernel/files.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { isReadOnlyCommand } from "../risk/readonly.js";
@@ -42,14 +43,22 @@ export const DATABASE_REFUSED =
   "cron.list for jobs, chats.list and chats.read for chats, tasks.list, blobs.list, memory.recall for what KOS knows, discord.threads for threads; " +
   "your project's own tables through sql.";
 
-/** One of the harness's settings named on a command line: the shell's road around the files fence. */
+/**
+ * One of the harness's settings named at the workspace root on a command
+ * line. Only a courtesy, so the chat is told why rather than shown a denied
+ * write: the sandbox is what keeps these files unwritten, however a command
+ * names them.
+ */
 export function namesHarnessConfig(command: string): boolean {
-  return /\b(mcp|profile|daemon)\.json\b/i.test(command);
+  return /(^|[\s;&|<>()'"`=])(\.\/)?(mcp|profile|daemon)\.json\b/i.test(command);
 }
 
 /** Said to a chat that reached for the harness's settings with the shell. */
 export const CONFIG_REFUSED =
   "mcp.json, profile.json and daemon.json are KOS's own settings, which the shell does not touch: read one with files.read. The owner changes them from the dashboard or the kos command.";
+
+/** The workspace's own top-level entries no command may write; .kos stays writable, as the shell's TMPDIR is inside it. */
+const UNWRITTEN = [...RESERVED].filter((name) => name !== ".kos");
 
 export type ShellResult = CapturedRun;
 
@@ -59,7 +68,7 @@ export function runShell(
 ): Promise<ShellResult> {
   const tmp = join(opts.workspaceRoot, ".kos", "tmp");
   mkdirSync(tmp, { recursive: true });
-  return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot }), {
+  return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot, readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)) }), {
     cwd: opts.cwd,
     env: childEnv({ home: opts.workspaceRoot, tmp }),
     timeoutMs: opts.timeoutMs,
