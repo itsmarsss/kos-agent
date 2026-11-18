@@ -58,6 +58,14 @@ describe("fenceAt", () => {
     expect(fenceAt(lines("```kos:email\nto: a@x.com"), 0)).toMatchObject({ next: 2, closed: false });
   });
 
+  it("takes any info string without a backtick, as CommonMark does: the first word is the language", () => {
+    const titled = fenceAt(lines('```ts title="x.ts"\nconst a = 1;\n```\nafter'), 0);
+    expect(titled).toMatchObject({ info: 'ts title="x.ts"', lang: "ts", body: ["const a = 1;"], next: 3, closed: true });
+    expect(fenceAt(lines("```js {1,3}\nx\n```"), 0)).toMatchObject({ lang: "js", next: 3, closed: true });
+    // The kind is read off the first word too.
+    expect(parseBlock("kos:email draft", lines("to: a@x.com"))?.kind).toBe("email");
+  });
+
   it("opens only on a line of backticks and an info word", () => {
     expect(fenceAt(lines("say ```this```"), 0)).toBeNull();
     expect(fenceAt(lines("``not``"), 0)).toBeNull();

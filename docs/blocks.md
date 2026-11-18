@@ -27,10 +27,16 @@ Still on for Saturday at 4?
 ```
 ````
 
-- **Fence.** A line of three or more backticks, then `kos:<kind>`. It
+- **Fence.** A line of three or more backticks, then an info string with no
+  backtick in it, as CommonMark has it; its first word is the language, and
+  a typed block's is `kos:<kind>` (` ```ts title="a.ts" ` is ts code). It
   closes on a line of at least as many backticks and nothing else, so a
   block that holds a fence in its body opens with four. A fence the input
-  ends inside (a reply still arriving) runs to the end.
+  ends inside (a reply still arriving, or one cut short) runs to the end,
+  and its block offers Copy alone until it closes.
+- **Where.** A block at the top level of a reply, or inside a list item
+  (the item's indent taken off its lines), is drawn as its kind. One inside
+  a quote stays words.
 - **Kind.** A letter, then letters, digits and hyphens. Read case-folded.
 - **Header.** Lines of `key: value`, before the first line that is `---`
   alone. A key is a letter then letters, digits, `-` and `_`, written in
@@ -46,8 +52,11 @@ Still on for Saturday at 4?
   malformed, and it is drawn as the plain code block it would otherwise
   have been. No text is ever lost.
 - **`action:`** On any kind, `action: open <https url> [words]` adds a link
-  that opens the address, labelled by the words ("Open" without them). No
-  other action can be asked for in a block; the kind decides the rest.
+  that opens the address, labelled by the words ("Open" without them) with
+  the host it really goes to beside them, as the browser reaches it
+  (punycode for another script). Only `https:` with no user or password in
+  it is a link, and marks that turn text around are taken out of the words.
+  No other action can be asked for in a block; the kind decides the rest.
 
 ## Kinds
 
@@ -77,13 +86,16 @@ its key ("follow-up" as "Follow up").
   a date alone (`2026-11-21`) for a whole day; `2026-11-21 16:00` is read
   too. The .ics keeps the time as written, on the owner's clock (a floating
   time); an event with no end lasts an hour, or a day.
+- **channel** is drawn by its name: `imessage` as iMessage, `sms` as SMS,
+  `discord` as Discord.
 - **Copy** copies the body of a draft, a command or a list, and the whole
   block in words otherwise.
 - **Send** is shown only when this KOS has a tool for it: for an email, one
   whose name holds "mail" and "send"; for a message, `notify` on Discord,
   else one whose name holds the channel and "send". It sends the owner's
   words to KOS asking it to send the draft with that tool, the draft quoted
-  exactly. The tool call is tiered and approved as any other: nothing in a
+  exactly and named as data, to go only to the recipients in its header.
+  Only KOS's own words offer it, never the owner's or a guest's. The tool call is tiered and approved as any other: nothing in a
   block acts on its own.
 
 ## Plain words

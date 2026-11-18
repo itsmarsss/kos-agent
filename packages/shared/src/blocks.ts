@@ -25,7 +25,10 @@
 export interface Fence {
   /** How many backticks opened it; only a run at least as long closes it. */
   ticks: number;
+  /** Everything after the backticks, trimmed: `ts title="x"`. */
   info: string;
+  /** Its first word: the language, or `kos:<kind>`. */
+  lang: string;
   body: string[];
   /** The index of the first line after the fence. */
   next: number;
@@ -41,9 +44,10 @@ export interface KosBlock {
   body: string;
 }
 
-const OPEN = /^\s*(`{3,})\s*([^`\s]*)\s*$/;
+/** Any info string without a backtick, as CommonMark has it: ```ts title="x" and ```js {1,3} are fences. */
+const OPEN = /^\s*(`{3,})([^`]*)$/;
 const KOS_INFO = /^kos:([a-z][a-z0-9-]*)$/i;
-const HEADER_LINE = /^([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*?)[ \t]*$/;
+const HEADER_LINE = /^([A-Za-z][\w-]*):(.*)$/;
 const RULE = /^\s*---\s*$/;
 
 /**
@@ -64,12 +68,13 @@ export function fenceAt(lines: readonly string[], i: number): Fence | null {
     j++;
   }
   const closed = j < lines.length;
-  return { ticks, info: open[2] ?? "", body, next: closed ? j + 1 : j, closed };
+  const info = (open[2] ?? "").trim();
+  return { ticks, info, lang: info.split(/\s+/)[0] ?? "", body, next: closed ? j + 1 : j, closed };
 }
 
-/** The kind an info string names, `kos:email` as "email"; nothing for any other fence. */
+/** The kind an info string's first word names, `kos:email` as "email"; nothing for any other fence. */
 export function kindOfInfo(info: string): string | undefined {
-  return KOS_INFO.exec(info.trim())?.[1]?.toLowerCase();
+  return KOS_INFO.exec(info.trim().split(/\s+/)[0] ?? "")?.[1]?.toLowerCase();
 }
 
 /** A fence's lines as a typed block, or null when its info is not `kos:<kind>` or its header is malformed. */
@@ -83,7 +88,7 @@ export function parseBlock(info: string, lines: readonly string[]): KosBlock | n
     if (line.trim() === "") continue;
     const m = HEADER_LINE.exec(line.trim());
     if (!m) return null;
-    fields.push([(m[1] ?? "").toLowerCase(), m[2] ?? ""]);
+    fields.push([(m[1] ?? "").toLowerCase(), (m[2] ?? "").trim()]);
   }
   const body = rule === -1 ? [] : lines.slice(rule + 1);
   return { kind, fields, body: trimBlankEnds(body).join("\n") };

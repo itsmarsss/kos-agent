@@ -203,6 +203,7 @@ export { blocksIn, fenceAt, kindOfInfo, parseBlock, replaceBlocks, valueOf, valu
 export {
   BLOCK_KINDS,
   BLOCKS_GUIDANCE,
+  CHANNEL_NAMES,
   blocksToText,
   checklistOf,
   copyOf,
