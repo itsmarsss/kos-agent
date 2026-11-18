@@ -31,7 +31,7 @@ const email = block("email", "to: sam@example.com\nto: amy@example.com\ncc: lee@
 describe("the registry", () => {
   it("knows each kind once, and draws an unknown one as a card under its own name", () => {
     expect(new Set(BLOCK_KINDS.map((k) => k.name)).size).toBe(BLOCK_KINDS.length);
-    expect(kindOf("recipe")).toMatchObject({ name: "recipe", label: "Recipe", title: "title", body: "prose", actions: ["copy"] });
+    expect(kindOf("recipe")).toMatchObject({ name: "recipe", label: "Recipe", title: "title", body: "markdown", actions: ["copy"] });
     expect(kindOf("follow-up").label).toBe("Follow up");
   });
 

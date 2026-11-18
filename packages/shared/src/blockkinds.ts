@@ -10,8 +10,8 @@ import { valueOf, valuesOf, replaceBlocks, type KosBlock } from "./blocks.js";
  * not in the table is drawn as a card from its fields, so KOS may coin one.
  */
 
-/** How a block's body is drawn. */
-export type BodyStyle = "prose" | "mono" | "checklist" | "steps" | "quote" | "diff";
+/** How a block's body is drawn: as written (a draft is sent as it reads), as markdown, monospace, or by its lines. */
+export type BodyStyle = "text" | "markdown" | "mono" | "checklist" | "steps" | "quote" | "diff";
 
 /** What a block offers. Each is local or goes through a tool and its approval; none acts on its own. */
 export type BlockAction = "copy" | "mail" | "send" | "ics" | "map";
@@ -48,7 +48,7 @@ export const BLOCK_KINDS: readonly BlockKind[] = [
     label: "Email",
     plain: "Draft email",
     fields: [field("to", "To", true), field("cc", "Cc", true), field("bcc", "Bcc", true), field("subject", "Subject")],
-    body: "prose",
+    body: "text",
     copies: "body",
     actions: ["copy", "mail", "send"],
   },
@@ -57,7 +57,7 @@ export const BLOCK_KINDS: readonly BlockKind[] = [
     label: "Message",
     plain: "Draft message",
     fields: [field("to", "To", true), field("channel", "Via")],
-    body: "prose",
+    body: "text",
     copies: "body",
     actions: ["copy", "send"],
   },
@@ -67,7 +67,7 @@ export const BLOCK_KINDS: readonly BlockKind[] = [
     plain: "Event",
     fields: [field("when", "When"), field("end", "Ends"), field("where", "Where"), field("notes", "Notes")],
     title: "title",
-    body: "prose",
+    body: "text",
     copies: "all",
     actions: ["copy", "ics"],
   },
@@ -77,7 +77,7 @@ export const BLOCK_KINDS: readonly BlockKind[] = [
     plain: "Contact",
     fields: [field("phone", "Phone", true), field("email", "Email", true), field("company", "Company"), field("address", "Address"), field("notes", "Notes")],
     title: "name",
-    body: "prose",
+    body: "text",
     copies: "all",
     actions: ["copy"],
   },
@@ -87,7 +87,7 @@ export const BLOCK_KINDS: readonly BlockKind[] = [
     plain: "Address",
     fields: [field("phone", "Phone"), field("notes", "Notes")],
     title: "name",
-    body: "prose",
+    body: "text",
     copies: "body",
     actions: ["copy", "map"],
   },
@@ -96,7 +96,7 @@ export const BLOCK_KINDS: readonly BlockKind[] = [
   { name: "quote", label: "Quote", plain: "Quote", fields: [field("source", "Source")], body: "quote", copies: "body", actions: ["copy"] },
   { name: "command", label: "Command", plain: "Command", fields: [field("cwd", "In")], body: "mono", copies: "body", actions: ["copy"] },
   { name: "diff", label: "Diff", plain: "Diff", fields: [], title: "file", body: "diff", copies: "body", actions: ["copy"] },
-  { name: "card", label: "", plain: "", fields: [], title: "title", body: "prose", copies: "all", actions: ["copy"] },
+  { name: "card", label: "", plain: "", fields: [], title: "title", body: "markdown", copies: "all", actions: ["copy"] },
 ];
 
 const BY_NAME = new Map(BLOCK_KINDS.map((k) => [k.name, k]));
@@ -356,7 +356,7 @@ export function icsOf(block: KosBlock, now: Date = new Date()): string | undefin
 export const BLOCKS_GUIDANCE = [
   "## Typed blocks",
   "A draft or a structured thing goes in a typed block, which every surface draws as that thing with its own Copy and actions: a fenced block whose info string is kos:<kind>, then `key: value` header lines (lowercase keys, one line each, a key repeated for a list), a line `---`, then the body exactly as it should read.",
-  "An email or message draft is always kos:email (to, cc, bcc, subject) or kos:message (to, channel: imessage, sms or discord). Where one fits: kos:event (title, when as 2026-11-21 16:00, end, where, notes), kos:contact (name, phone, email, company), kos:address (name; the address as the body), kos:checklist (title; `- [ ] item` lines), kos:steps (title; a step a line), kos:quote (source), kos:command (one command to run), kos:diff (file). Other structured output is kos:card (title, any fields, `action: open <url> <words>` for a link).",
+  "An email or message draft is always kos:email (to, cc, bcc, subject) or kos:message (to, channel: imessage, sms or discord). Where one fits: kos:event (title, when and end as time tokens, <t:2026-11-21T16:00:f>, or a date alone for a whole day, where, notes), kos:contact (name, phone, email, company), kos:address (name; the address as the body), kos:checklist (title; `- [ ] item` lines), kos:steps (title; a step a line), kos:quote (source), kos:command (one command to run), kos:diff (file). Other structured output is kos:card (title, any fields, `action: open <url> <words>` for a link).",
   "Everything else stays ordinary markdown; never wrap prose or an answer in a block. Example:",
   "```kos:email\nto: sam@example.com\nsubject: Saturday at 4\n---\nHi Sam,\n\nStill on for Saturday at 4?\n```",
 ].join("\n");

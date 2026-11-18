@@ -72,9 +72,11 @@ A kind not in the table is a card under its own name: `kos:recipe` is
 headed "Recipe". A field a kind does not know is drawn after its own, by
 its key ("follow-up" as "Follow up").
 
-- **when / end.** `2026-11-21 16:00`, `2026-11-21`, or a time token around
-  one (`<t:2026-11-21T16:00:f>`). The .ics keeps it on the owner's clock (a
-  floating time); an event with no end lasts an hour, or a day.
+- **when / end.** A time token, `<t:2026-11-21T16:00:f>`, which every
+  surface already draws on the reader's clock and the channels say in words;
+  a date alone (`2026-11-21`) for a whole day; `2026-11-21 16:00` is read
+  too. The .ics keeps the time as written, on the owner's clock (a floating
+  time); an event with no end lasts an hour, or a day.
 - **Copy** copies the body of a draft, a command or a list, and the whole
   block in words otherwise.
 - **Send** is shown only when this KOS has a tool for it: for an email, one

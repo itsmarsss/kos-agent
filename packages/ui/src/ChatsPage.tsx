@@ -10,7 +10,7 @@ import {
 
 import { AnimatePresence, m } from "motion/react";
 import { stepMechanics, summarizeAction } from "@kos/shared";
-import { ArchiveIcon, AskSteps, QuoteLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
+import { ArchiveIcon, AskSteps, BlockActions, QuoteLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { Decision } from "./Decision.js";
 import { VoiceInput } from "./VoiceInput.js";
@@ -281,6 +281,11 @@ export function ChatsPage({
       : [];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  // The tools a typed block's Send may name; none known, it offers no Send.
+  const [toolNames, setToolNames] = useState<string[]>([]);
+  useEffect(() => {
+    void api.tools().then((tools) => setToolNames(tools.map((t) => t.name)), () => setToolNames([]));
+  }, []);
   // Which conversation is mid-send, not whether any is: shared across chats it
   // showed "sending" in every other thread while one was working.
   const [sendingIn, setSendingIn] = useState<string | null>(null);
@@ -945,11 +950,16 @@ export function ChatsPage({
     return true;
   };
 
-  async function send(): Promise<void> {
-    const text = draft.trim();
+  /**
+   * Sends what is in the composer, or, given words, those words alone: a
+   * typed block's Send speaks for the owner and leaves the composer as it is.
+   */
+  async function send(spoken?: string): Promise<void> {
+    const composed = spoken === undefined;
+    const text = composed ? draft.trim() : spoken;
     const target = activeId;
-    if ((!text && attachments.files.length === 0) || !target) return;
-    if (runLocally(text)) {
+    if ((!text && (!composed || attachments.files.length === 0)) || !target) return;
+    if (composed && runLocally(text)) {
       setDraft("");
       return;
     }
@@ -957,7 +967,7 @@ export function ChatsPage({
     // way: the bubble carries its attachments straight away and the composer
     // is empty. Waiting for the turn meant the files sat in the composer,
     // looking unsent, until the answer came back.
-    const files = attachments.files;
+    const files = composed ? attachments.files : [];
     // A command is not part of the conversation, so it gets no bubble: one
     // appeared and was taken away again by the reload a moment later.
     const looksLikeCommand = /^\/\S/.test(text) && files.length === 0;
@@ -999,8 +1009,10 @@ export function ChatsPage({
         : {}),
     };
     if (!looksLikeCommand && !aside) setEvents((e) => [...e, bubble]);
-    setDraft("");
-    attachments.clear();
+    if (composed) {
+      setDraft("");
+      attachments.clear();
+    }
 
     try {
       const res = await api.message(text, target, files);
@@ -1052,7 +1064,7 @@ export function ChatsPage({
        */
       const waiting = await api.conversation(target).then((r) => r.pending).catch(() => undefined);
       if (waiting) showPending(target, waiting);
-      if (!waiting || !queuedAnyway(waiting, before, text)) {
+      if (composed && (!waiting || !queuedAnyway(waiting, before, text))) {
         setDraft((d) => backInComposer(d, text));
         attachments.restore(files);
       }
@@ -2327,6 +2339,7 @@ export function ChatsPage({
               {/* The thread knows the chats and agents by name, so a chip can
                   read "Lane A" rather than the id it is addressed by. */}
               <MentionNames resolve={nameFor} hrefOf={channelHref}>
+              <BlockActions.Provider value={{ tools: toolNames, ask: (text) => void send(text) }}>
               <div className="chats-thread" ref={threadScroll}>
                 {visible.length === 0 && <Empty inline>Nothing said yet.</Empty>}
                 {(() => {
@@ -2581,6 +2594,7 @@ export function ChatsPage({
                   ))}
                 </AnimatePresence>
               </div>
+              </BlockActions.Provider>
               </MentionNames>
 
               <div
