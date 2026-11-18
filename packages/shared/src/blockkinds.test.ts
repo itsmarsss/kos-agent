@@ -56,6 +56,7 @@ describe("links", () => {
   it("opens only https with no user in it, and names the host it really goes to", () => {
     expect(links("open http://example.com", "open https://bank.com@evil.com Bank", "open javascript:alert(1)", "open https://user:pw@x.com")).toEqual([]);
     expect(links("open https://xn--pple-43d.com/login Apple")).toEqual([{ label: "Apple", href: "https://xn--pple-43d.com/login", host: "xn--pple-43d.com" }]);
+    expect(links("open https://example.com:8443/a Admin")[0]?.host).toBe("example.com:8443");
     // A host written in another script is shown as the browser reaches it.
     expect(links("open https://аpple.com")[0]?.host).toBe("xn--pple-43d.com");
   });
@@ -153,6 +154,21 @@ describe("actions", () => {
       expect(icsOf(block("event", `title: x\nwhen: ${when}`), now)).toBeUndefined();
     }
     expect(icsOf(block("event", "title: Leap\nwhen: 2028-02-29"), now)).toContain("DTSTART;VALUE=DATE:20280229");
+    // Words after the date are not a date.
+    expect(icsOf(block("event", "title: x\nwhen: 2026-11-21 19:30 Pacific"), now)).toBeUndefined();
+  });
+
+  it("keeps a time written with its zone as that instant, in UTC", () => {
+    const now = new Date("2026-11-18T12:00:00Z");
+    const z = icsOf(block("event", "title: Call\nwhen: <t:2026-11-21T19:30Z:f>\nend: <t:2026-11-21T20:15Z:t>"), now);
+    expect(z).toContain("DTSTART:20261121T193000Z\r\n");
+    expect(z).toContain("DTEND:20261121T201500Z\r\n");
+    const offset = icsOf(block("event", "title: Call\nwhen: <t:2026-11-21T23:30+05:30:f>"), now);
+    expect(offset).toContain("DTSTART:20261121T180000Z\r\n");
+    expect(offset).toContain("DTEND:20261121T190000Z\r\n");
+    expect(icsOf(block("event", "title: Call\nwhen: 2026-11-21T01:00-0800"), now)).toContain("DTSTART:20261121T090000Z");
+    // A floating end for a zoned start is no end: an hour after the start, in UTC too.
+    expect(icsOf(block("event", "title: Call\nwhen: 2026-11-21T19:30Z\nend: 2026-11-21 21:00"), now)).toContain("DTEND:20261121T203000Z");
     expect(icsOf(email, now)).toBeUndefined();
   });
 

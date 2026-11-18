@@ -158,7 +158,8 @@ function linkOf(action: string): BlockLink | undefined {
   }
   if (url.protocol !== "https:" || url.username || url.password || !url.hostname) return undefined;
   const label = (m[2] ?? "").replace(BIDI, "").trim() || "Open";
-  return { label, href: url.href, host: url.hostname };
+  // The host with its port, as the browser reaches it.
+  return { label, href: url.href, host: url.host };
 }
 
 /** The header as rows: the kind's own fields in its order, then any other in the order written; the title and actions are not rows. */
@@ -294,7 +295,11 @@ export function diffLineOf(line: string): "add" | "del" | "hunk" | "same" {
   return "same";
 }
 
-const WALL = /^(?:<t:)?(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/;
+/**
+ * A date, a date and time, or a time token around one, and nothing after it.
+ * A zone (Z, +02:00) makes it an instant; without one it is the owner's clock.
+ */
+const WALL = /^(?:<t:)?(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}(?::?\d{2})?)?)?(?:(?::[A-Za-z])?>)?$/;
 
 interface Wall {
   y: number;
@@ -302,6 +307,15 @@ interface Wall {
   d: number;
   h?: number;
   mi?: number;
+  /** In UTC, from a time written with its zone; otherwise floating, on the owner's clock. */
+  utc?: boolean;
+}
+
+/** A zone's offset from UTC in minutes: Z, +02, +0530, -07:00. */
+function offsetOf(zone: string): number {
+  if (zone === "Z") return 0;
+  const [, sign, h, mi] = /^([+-])(\d{2}):?(\d{2})?$/.exec(zone) ?? [];
+  return (sign === "-" ? -1 : 1) * (Number(h) * 60 + Number(mi ?? 0));
 }
 
 function wallOf(value: string | undefined): Wall | undefined {
@@ -314,20 +328,27 @@ function wallOf(value: string | undefined): Wall | undefined {
   if (m[4] === undefined) return { y, mo, d };
   const [h, mi] = [Number(m[4]), Number(m[5])];
   if (h > 23 || mi > 59) return undefined;
-  return { y, mo, d, h, mi };
+  if (m[6] === undefined) return { y, mo, d, h, mi };
+  return wallAt(Date.UTC(y, mo - 1, d, h, mi) - offsetOf(m[6]) * 60_000, true);
+}
+
+/** The wall clock at an instant, read in UTC. */
+function wallAt(ms: number, utc: boolean): Wall {
+  const at = new Date(ms);
+  return { y: at.getUTCFullYear(), mo: at.getUTCMonth() + 1, d: at.getUTCDate(), h: at.getUTCHours(), mi: at.getUTCMinutes(), ...(utc ? { utc } : {}) };
 }
 
 const two = (n: number): string => String(n).padStart(2, "0");
 const dateOf = (w: Wall): string => `${w.y}${two(w.mo)}${two(w.d)}`;
-/** Floating time: the clock the owner reads it on, as the block says it. */
-const stampOf = (w: Wall): string => `${dateOf(w)}T${two(w.h ?? 0)}${two(w.mi ?? 0)}00`;
+/** A time in UTC ends in Z; one without is floating, on the clock the owner reads it on, as the block says it. */
+const stampOf = (w: Wall): string => `${dateOf(w)}T${two(w.h ?? 0)}${two(w.mi ?? 0)}00${w.utc ? "Z" : ""}`;
 
 /** The day after, or an hour after, as an event with no end lasts. */
 function laterOf(w: Wall): Wall {
-  const at = new Date(Date.UTC(w.y, w.mo - 1, w.d, w.h ?? 0, w.mi ?? 0));
-  at.setTime(at.getTime() + (w.h === undefined ? 24 : 1) * 3_600_000);
-  const next: Wall = { y: at.getUTCFullYear(), mo: at.getUTCMonth() + 1, d: at.getUTCDate() };
-  return w.h === undefined ? next : { ...next, h: at.getUTCHours(), mi: at.getUTCMinutes() };
+  const ms = Date.UTC(w.y, w.mo - 1, w.d, w.h ?? 0, w.mi ?? 0);
+  if (w.h !== undefined) return wallAt(ms + 3_600_000, Boolean(w.utc));
+  const next = new Date(ms + 24 * 3_600_000);
+  return { y: next.getUTCFullYear(), mo: next.getUTCMonth() + 1, d: next.getUTCDate() };
 }
 
 /** Text in an iCalendar value: backslash, semicolon, comma and line breaks escaped. */
@@ -365,7 +386,8 @@ export function icsOf(block: KosBlock, now: Date = new Date()): string | undefin
   const start = wallOf(valueOf(block, "when"));
   if (!start) return undefined;
   const given = wallOf(valueOf(block, "end"));
-  const end = given && (given.h === undefined) === (start.h === undefined) ? given : laterOf(start);
+  // An end of another sort (a date for a timed start, a floating time for a zoned one) is no end.
+  const end = given && (given.h === undefined) === (start.h === undefined) && Boolean(given.utc) === Boolean(start.utc) ? given : laterOf(start);
   const allDay = start.h === undefined;
   const title = valueOf(block, "title") ?? "Event";
   const notes = [valueOf(block, "notes"), block.body].filter(Boolean).join("\n\n");
@@ -393,7 +415,7 @@ export function icsOf(block: KosBlock, now: Date = new Date()): string | undefin
 export const BLOCKS_GUIDANCE = [
   "## Typed blocks",
   "A draft or a structured thing goes in a typed block, which every surface draws as that thing with its own Copy and actions: a fenced block whose info string is kos:<kind>, then `key: value` header lines (lowercase keys, one line each, a key repeated for a list), a line `---`, then the body exactly as it should read.",
-  "An email or message draft is always kos:email (to, cc, bcc, subject) or kos:message (to, channel: imessage, sms or discord). Where one fits: kos:event (title, when and end as time tokens, <t:2026-11-21T16:00:f>, or a date alone for a whole day, where, notes), kos:contact (name, phone, email, company), kos:address (name; the address as the body), kos:checklist (title; `- [ ] item` lines), kos:steps (title; a step a line), kos:quote (source), kos:command (one command to run), kos:diff (file). Other structured output is kos:card (title, any fields, `action: open <url> <words>` for a link).",
+  "An email or message draft is always kos:email (to, cc, bcc, subject) or kos:message (to, channel: imessage, sms or discord). Where one fits: kos:event (title, when and end as time tokens, <t:2026-11-21T16:00:f>, or a date alone for a whole day, where, notes), kos:contact (name, phone, email, company), kos:address (name; the address as the body), kos:checklist (title; `- [ ] item` lines), kos:steps (title; a step a line), kos:quote (source), kos:command (one command to run), kos:diff (file). Other structured output is kos:card (title, any fields, `action: open <https url> <words>` for a link).",
   "Everything else stays ordinary markdown; never wrap prose or an answer in a block. Example:",
   "```kos:email\nto: sam@example.com\nsubject: Saturday at 4\n---\nHi Sam,\n\nStill on for Saturday at 4?\n```",
 ].join("\n");

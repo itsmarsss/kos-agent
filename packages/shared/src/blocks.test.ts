@@ -54,6 +54,12 @@ describe("fenceAt", () => {
     expect(fence?.body).toEqual(["title: Snippet", "---", "```ts", "const a = 1;", "```"]);
   });
 
+  it("takes the opener's indent off each line, and no more", () => {
+    const fence = fenceAt(lines("   ```kos:email\n   to: a@x.com\n   ---\n   Hi,\n     indented\n flush\n   ```"), 0);
+    expect(fence?.body).toEqual(["to: a@x.com", "---", "Hi,", "  indented", "flush"]);
+    expect(replaceBlocks("1. Send:\n\n   ```kos:message\n   to: Sam\n   ---\n   Hi\n   ```", (b) => b.body)).toBe("1. Send:\n\nHi");
+  });
+
   it("runs to the end when nothing closes it, as a reply still arriving", () => {
     expect(fenceAt(lines("```kos:email\nto: a@x.com"), 0)).toMatchObject({ next: 2, closed: false });
   });

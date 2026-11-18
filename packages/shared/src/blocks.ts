@@ -54,17 +54,21 @@ const RULE = /^\s*---\s*$/;
  * The fence opening at `lines[i]`, read to its close, or null when the line
  * opens none. A run of N backticks closes only on a line of at least N and
  * nothing else, so a block written with four holds a three-backtick fence
- * in its body, as CommonMark has it.
+ * in its body, as CommonMark has it; each line loses up to as many spaces as
+ * the opener is indented by, so a channel says an indented block as a view
+ * draws it.
  */
 export function fenceAt(lines: readonly string[], i: number): Fence | null {
   const open = OPEN.exec(lines[i] ?? "");
   if (!open) return null;
   const ticks = (open[1] ?? "").length;
   const close = new RegExp(`^\\s*\`{${ticks},}\\s*$`);
+  // A fence indented under a list item: its lines lose as many spaces as its opener has, as CommonMark has it.
+  const indent = new RegExp(`^ {0,${/^ */.exec(lines[i] ?? "")?.[0].length ?? 0}}`);
   const body: string[] = [];
   let j = i + 1;
   while (j < lines.length && !close.test(lines[j] ?? "")) {
-    body.push(lines[j] ?? "");
+    body.push((lines[j] ?? "").replace(indent, ""));
     j++;
   }
   const closed = j < lines.length;
