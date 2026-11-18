@@ -20,6 +20,8 @@ export interface AgentPanelProps {
   name: string;
   onOpenFile: (path: string) => void;
   onChanged: () => void;
+  /** Ask KOS about files in the folder, in this chat. */
+  onAskAboutFiles?: (paths: string[]) => void;
   onError: (message: string) => void;
   onNotice: (text: string) => void;
   /** The agent was removed; the page it sat on has nothing left to show. */
@@ -54,7 +56,7 @@ export function stateOf(a: AgentInfo, paused: boolean): { tone: "working" | "nee
 /** What each blob's panel last showed, so opening it again does not pass through "Loading…". */
 const remembered = new Map<string, AgentInfo | null>();
 
-export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onRemoved, hidden = false, modal = false, rail }: AgentPanelProps): ReactElement {
+export function AgentPanel({ name, onOpenFile, onAskAboutFiles, onChanged, onError, onNotice, onRemoved, hidden = false, modal = false, rail }: AgentPanelProps): ReactElement {
   const [agent, setAgent] = useState<AgentInfo | null | undefined>(remembered.get(name));
   const [invalidReason, setInvalidReason] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -209,7 +211,7 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
 
       {/* Its folder, browsed in place as a project's is: agent.md says what
           it is, and the rest is what it has made. */}
-      <ProjectExplorer label={agent.name} root={agent.folder} upload={(file, dir) => api.uploadFile(dir ? `${agent.folder}/${dir}` : agent.folder, file)} onOpenInFiles={onOpenFile} onChanged={onChanged} onError={onError} paused={hidden} />
+      <ProjectExplorer label={agent.name} root={agent.folder} upload={(file, dir) => api.uploadFile(dir ? `${agent.folder}/${dir}` : agent.folder, file)} onOpenInFiles={onOpenFile} {...(onAskAboutFiles ? { onAsk: onAskAboutFiles } : {})} onChanged={onChanged} paused={hidden} />
 
       {rail}
 

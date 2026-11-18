@@ -46,7 +46,7 @@ describe("what a phone may ask the dashboard", () => {
     expect(get("/api/artifacts", { trashed: "1" })).toMatchObject({ request: { url: "/api/artifacts?trashed=1" } });
     expect(get("/api/artifacts/plan/export", { format: "pdf", theme: "dark" })).toMatchObject({ request: { url: "/api/artifacts/plan/export?format=pdf&theme=dark" } });
     expect(get("/api/artifacts/budget/export", { format: "csv", tab: "0" })).toMatchObject({ kind: "read", request: { path: "/api/artifacts/budget/export" } });
-    for (const path of ["/api/files", "/api/file", "/api/file/text", "/api/file/raw", "/api/file/view"]) {
+    for (const path of ["/api/files", "/api/file", "/api/file/text", "/api/file/raw", "/api/file/view", "/api/file/office"]) {
       expect(get(path, { path: "notes/garden plan.md" })).toMatchObject({ kind: "read", request: { url: `${path}?path=notes%2Fgarden+plan.md` } });
     }
     expect(get("/api/files")).toMatchObject({ request: { url: "/api/files" } });

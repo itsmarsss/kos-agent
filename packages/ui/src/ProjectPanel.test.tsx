@@ -90,7 +90,7 @@ describe("the project panel", () => {
   it("leaves out what the project has none of, and says so", async () => {
     open({ pages: [], tables: [] }, []);
     await screen.findByText("Kitchen redo");
-    expect(await screen.findByText(/Nothing here yet/)).toBeTruthy();
+    expect(await screen.findByText("This folder is empty.")).toBeTruthy();
     expect(screen.getByText(/No artifacts yet/)).toBeTruthy();
     expect(screen.getByText("No tables yet.")).toBeTruthy();
     expect(screen.queryByText("Sites")).toBeNull();

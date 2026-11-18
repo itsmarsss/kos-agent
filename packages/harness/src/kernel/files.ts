@@ -1,17 +1,17 @@
-import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
-import { basename, dirname, extname, join } from "node:path";
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, statSync } from "node:fs";
+import { basename, dirname, extname, join, relative as pathRelative, sep } from "node:path";
 
 import { isOffice, officeNote, officeText } from "../files/office.js";
 import { isPdf, pdfText } from "../files/pdftext.js";
-import type { Workspace } from "../store/workspace.js";
+import { foldedPath, type Workspace } from "../store/workspace.js";
 
 /**
- * Read-only browsing of the workspace for the dashboard.
+ * Browsing the workspace for the dashboard.
  *
  * Every path resolves through the jail, so a request cannot walk out of the
- * workspace even though these routes take a path from the client. Browsing is
- * read-only on purpose: the agent edits files through its own guarded tools,
- * and a second write path here would be a second thing to get right.
+ * workspace even though these routes take a path from the client. The agent
+ * edits files through its own guarded tools; what is here for writing is the
+ * owner's own hand on their files (below), which the agent never reaches.
  */
 
 export interface DirEntry {
@@ -246,28 +246,60 @@ export function readImage(ws: Workspace, requestPath: unknown): RawFile {
  * things the workspace cannot do without.
  */
 
-/** Top-level names the file manager leaves alone: the workspace's own state. */
+/** Top-level names the file manager leaves alone: the workspace's own state. Compare with isReserved, never by hand. */
 export const RESERVED = new Set([".kos", "kos.sqlite", "kos.sqlite-shm", "kos.sqlite-wal", "profile.json", "mcp.json", "daemon.json", "locks"]);
 
+/**
+ * A name folded as APFS compares names: compatibility-normalized (NFKC, so
+ * "\ufb01" is "fi"), then case-folded the long way round (upper, then lower,
+ * so "\u017f" is "s"). On a case-insensitive disk "Kos.\u017fqlite-wal" opens
+ * kos.sqlite-wal; folded, it is refused as that.
+ */
+export function foldName(name: string): string {
+  return name.normalize("NFKC").toUpperCase().toLowerCase();
+}
+
+/** A name is one of the workspace's own (RESERVED), however it is spelled. */
+export function isReservedName(name: string): boolean {
+  return RESERVED.has(foldName(name));
+}
+
+/**
+ * A workspace-relative path lies in the workspace's own files: its first
+ * segment folded as the disk folds it, and also as the path lands on disk
+ * (foldedPath reads the real names), so neither a spelling nor a link to one
+ * gets past. The one test for RESERVED; #557 and #561 use it too.
+ */
+export function isReserved(root: string, rel: string): boolean {
+  return isReservedName(firstSegment(rel)) || isReservedName(firstSegment(foldedPath(root, rel)));
+}
+
+/** A workspace-relative path's first name, past any "." or empty segment, either slash. */
+export function firstSegment(path: string): string {
+  return path.replace(/\\/g, "/").split("/").find((s) => s !== "" && s !== ".") ?? "";
+}
+
 /** A path the manager may touch: inside the jail, not the root, not the workspace's own files. */
-function managed(ws: Workspace, requestPath: unknown): { rel: string; abs: string } {
-  const rel = relative(requestPath).replace(/\/+$/, "");
-  if (rel === "." || rel === "") throw new Error("the workspace itself cannot be moved or removed");
-  const top = rel.split("/")[0]!;
-  if (RESERVED.has(top.toLowerCase())) throw new Error(`${top} is the workspace's own; leave it be`);
-  return { rel, abs: ws.resolve(rel) };
+export function managedPath(ws: Workspace, requestPath: unknown): { rel: string; abs: string } {
+  // Through the jail first, then named as the jail resolved it: "./kos.sqlite",
+  // "projects//x" and "a/./b" are tested as what they are, not as typed.
+  const abs = ws.resolve(relative(requestPath));
+  const rel = pathRelative(ws.root, abs).split(sep).join("/");
+  if (rel === "") throw new Error("the workspace itself cannot be moved or removed");
+  if (isReserved(ws.root, rel)) throw new Error(`${rel.split("/")[0]} is the workspace's own; leave it be`);
+  return { rel, abs };
 }
 
 /** Something at the top level is part of the workspace's layout, not a thing to move. */
-function layout(rel: string): void {
+export function refuseLayout(rel: string): void {
   if (!rel.includes("/")) throw new Error(`${rel} is part of the workspace's layout; manage what is inside it`);
 }
 
 /** Move or rename, never over something that exists. */
 export function renameEntry(ws: Workspace, from: unknown, to: unknown): { path: string } {
-  const src = managed(ws, from);
-  const dst = managed(ws, to);
-  layout(src.rel);
+  const src = managedPath(ws, from);
+  const dst = managedPath(ws, to);
+  refuseLayout(src.rel);
   if (!existsSync(src.abs)) throw new Error(`no such file: ${src.rel}`);
   if (existsSync(dst.abs)) throw new Error(`${dst.rel} already exists`);
   if (dst.rel === src.rel || dst.rel.startsWith(`${src.rel}/`)) throw new Error("a folder cannot be moved into itself");
@@ -290,11 +322,11 @@ export function uniqueName(ws: Workspace, dir: string, name: string): string {
 
 /** Copy a file or a folder; without a destination, a sibling called "… copy". */
 export function copyEntry(ws: Workspace, from: unknown, to?: unknown): { path: string } {
-  const src = managed(ws, from);
+  const src = managedPath(ws, from);
   if (!existsSync(src.abs)) throw new Error(`no such file: ${src.rel}`);
   const parent = dirname(src.rel) === "." ? "" : dirname(src.rel);
   const target = typeof to === "string" && to ? to : `${parent ? `${parent}/` : ""}${uniqueName(ws, parent || ".", basename(src.rel))}`;
-  const dst = managed(ws, target);
+  const dst = managedPath(ws, target);
   if (existsSync(dst.abs)) throw new Error(`${dst.rel} already exists`);
   if (dst.rel.startsWith(`${src.rel}/`)) throw new Error("a folder cannot be copied into itself");
   mkdirSync(dirname(dst.abs), { recursive: true });
@@ -302,17 +334,8 @@ export function copyEntry(ws: Workspace, from: unknown, to?: unknown): { path: s
   return { path: dst.rel };
 }
 
-/** Remove a file, or a folder and everything in it. */
-export function deleteEntry(ws: Workspace, requestPath: unknown): { path: string } {
-  const { rel, abs } = managed(ws, requestPath);
-  layout(rel);
-  if (!existsSync(abs)) throw new Error(`no such file: ${rel}`);
-  rmSync(abs, { recursive: true, force: true });
-  return { path: rel };
-}
-
 export function makeDir(ws: Workspace, requestPath: unknown): { path: string } {
-  const { rel, abs } = managed(ws, requestPath);
+  const { rel, abs } = managedPath(ws, requestPath);
   if (existsSync(abs)) throw new Error(`${rel} already exists`);
   mkdirSync(abs, { recursive: true });
   return { path: rel };
@@ -329,4 +352,15 @@ export function readBytes(ws: Workspace, requestPath: unknown): RawFile & { name
   if (!st.isFile()) throw new Error(`not a file: ${rel}`);
   if (st.size > MAX_DOWNLOAD_BYTES) throw new Error(`too large to download here: ${rel}`);
   return { bytes: readFileSync(abs), contentType: IMAGE_TYPES[extname(rel).toLowerCase()] ?? "application/octet-stream", name: basename(rel) };
+}
+
+/**
+ * A Content-Disposition that names the file, so a viewer's Save or Download
+ * offers its name and not the route's: plain ASCII for old readers, and the
+ * whole name encoded (RFC 6266 and 5987) for the rest.
+ */
+export function dispositionOf(kind: "inline" | "attachment", name: string): string {
+  const plain = name.replace(/[^\x20-\x7e]|["\\]/g, "_");
+  const full = encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `${kind}; filename="${plain}"; filename*=UTF-8''${full}`;
 }

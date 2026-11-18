@@ -6,9 +6,9 @@ import { api, type DirEntry, type FileContent } from "./api.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
 
 /**
- * The project's folder, browsed without leaving the chat: folders open
- * here, files open here, and the Files page is reached only by asking.
- * Uploads land in the folder being looked at.
+ * The project's folder, browsed without leaving the chat: the same file
+ * manager as Files, kept inside the project, its uploads landing in the
+ * folder being looked at, and its questions going to the chat beside it.
  */
 
 const slug = "kitchen_redo";
@@ -18,37 +18,29 @@ function entry(name: string, kind: "dir" | "file", dir = root, size = 0): DirEnt
   return { name, path: `${dir}/${name}`, kind, size, modifiedAt: 0 };
 }
 
-const tree: Record<string, DirEntry[]> = {
-  [root]: [entry("plan.md", "file", root, 2048), entry("pages", "dir"), entry("cat.png", "file", root, 10)],
-  [`${root}/pages`]: [entry("board.html", "file", `${root}/pages`, 300)],
-};
-
+let tree: Record<string, DirEntry[]>;
 const contents: Record<string, FileContent> = {
   [`${root}/plan.md`]: { path: `${root}/plan.md`, size: 2048, modifiedAt: 0, text: "# Plan\n\nTiles first.", language: "markdown" },
   [`${root}/cat.png`]: { path: `${root}/cat.png`, size: 10, modifiedAt: 0, omitted: "binary", language: "" },
-  [`${root}/pages/board.html`]: { path: `${root}/pages/board.html`, size: 300, modifiedAt: 0, text: "<h1>Board</h1>", language: "html" },
 };
 
-type Handlers = {
-  onOpenInFiles: ReturnType<typeof vi.fn>;
-  onChanged: ReturnType<typeof vi.fn>;
-  onError: ReturnType<typeof vi.fn>;
-};
+const row = (path: string): HTMLElement => document.querySelector(`[data-path="${path}"]`) as HTMLElement;
 
-function open(): Handlers {
-  const h: Handlers = { onOpenInFiles: vi.fn(), onChanged: vi.fn(), onError: vi.fn() };
+function open(onAsk = vi.fn()) {
+  const h = { onOpenInFiles: vi.fn(), onChanged: vi.fn(), onAsk };
   render(<ProjectExplorer label={slug} root={root} upload={(file, dir) => api.uploadProjectFile(slug, file, dir)} {...h} />);
   return h;
 }
 
 beforeEach(() => {
-  vi.stubGlobal(
-    "IntersectionObserver",
-    class {
-      observe(): void {}
-      disconnect(): void {}
-    },
-  );
+  tree = {
+    [root]: [entry("plan.md", "file", root, 2048), entry("pages", "dir"), entry("cat.png", "file", root, 10)],
+    [`${root}/pages`]: [entry("board.html", "file", `${root}/pages`, 300)],
+  };
+  vi.stubGlobal("IntersectionObserver", class {
+    observe(): void {}
+    disconnect(): void {}
+  });
   vi.spyOn(api, "files").mockImplementation(async (path = ".") => ({ path, entries: tree[path] ?? [] }));
   vi.spyOn(api, "file").mockImplementation(async (path) => {
     const f = contents[path];
@@ -56,7 +48,6 @@ beforeEach(() => {
     return f;
   });
   vi.spyOn(api, "imageUrl").mockResolvedValue("blob:cat");
-  // jsdom makes object URLs but cannot revoke them; the viewer revokes on the way out.
   (URL as unknown as { revokeObjectURL?: (u: string) => void }).revokeObjectURL ??= () => undefined;
 });
 
@@ -67,78 +58,68 @@ afterEach(() => {
 });
 
 describe("the project explorer", () => {
-  it("lists the folder with folders first, and steps into one and back", async () => {
+  it("lists the project's folder, folders first, kept inside the project", async () => {
     open();
     await screen.findByText("plan.md");
-    const names = screen.getAllByRole("listitem").map((li) => li.textContent);
-    expect(names[0]).toContain("pages");
-    expect(screen.getByText("2.0 KB")).toBeTruthy();
+    const names = [...document.querySelectorAll(".finder-row .finder-name")].map((n) => n.textContent);
+    expect(names).toEqual(["pages", "cat.png", "plan.md"]);
+    expect(screen.getByText("2 KB")).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Locations" })).toBeNull();
 
-    fireEvent.click(screen.getByText("pages"));
+    fireEvent.doubleClick(row(`${root}/pages`));
     await screen.findByText("board.html");
     expect(api.files).toHaveBeenCalledWith(`${root}/pages`);
-    expect(screen.queryByText("plan.md")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: slug }));
+    // Up from the project's own folder goes nowhere: it is the root here.
+    fireEvent.keyDown(document.querySelector(".finder-main")!, { key: "ArrowUp", metaKey: true });
     await screen.findByText("plan.md");
+    fireEvent.keyDown(document.querySelector(".finder-main")!, { key: "ArrowUp", metaKey: true });
+    expect(screen.getByText("plan.md")).toBeTruthy();
   });
 
-  it("opens a file in a popup and leaves for Files only when asked", async () => {
+  it("looks at a file in Quick Look and leaves for Files only when asked", async () => {
     const h = open();
-    fireEvent.click(await screen.findByText("plan.md"));
+    fireEvent.doubleClick(await screen.findByText("plan.md"));
     expect(await screen.findByText("Tiles first.")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Plan" })).toBeTruthy();
     expect(h.onOpenInFiles).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByText("Open in Files"));
+    fireEvent.contextMenu(row(`${root}/plan.md`), { clientX: 10, clientY: 10 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /Show in Files/ }));
     expect(h.onOpenInFiles).toHaveBeenCalledWith(`${root}/plan.md`);
-
-    fireEvent.click(screen.getByRole("button", { name: slug }));
-    await screen.findByText("cat.png");
   });
 
-  it("shows a picture as a picture", async () => {
-    open();
-    fireEvent.click(await screen.findByText("cat.png"));
-    const img = await screen.findByAltText(`${root}/cat.png`);
-    expect(img.getAttribute("src")).toBe("blob:cat");
+  it("asks about a file in the chat beside it", async () => {
+    const h = open();
+    fireEvent.contextMenu(await screen.findByText("cat.png"), { clientX: 10, clientY: 10 });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Ask KOS about this" }));
+    expect(h.onAsk).toHaveBeenCalledWith([`${root}/cat.png`]);
   });
 
-  it("uploads into the folder being looked at, then re-reads it", async () => {
+  it("uploads into the folder being looked at, relative to the project, then re-reads it", async () => {
     const upload = vi.spyOn(api, "uploadProjectFile").mockResolvedValue({ path: `${root}/pages/notes.txt`, size: 5 });
     const h = open();
-    fireEvent.click(await screen.findByText("pages"));
+    fireEvent.doubleClick(await screen.findByText("pages"));
     await screen.findByText("board.html");
     const read = api.files as ReturnType<typeof vi.fn>;
     const before = read.mock.calls.length;
-
-    fireEvent.change(screen.getByLabelText("Upload files"), {
-      target: { files: [new File(["hello"], "notes.txt", { type: "text/plain" })] },
-    });
-
-    await waitFor(() =>
-      expect(upload).toHaveBeenCalledWith(slug, { name: "notes.txt", mediaType: "text/plain", data: btoa("hello") }, "pages"),
-    );
+    fireEvent.change(screen.getByLabelText("Upload files"), { target: { files: [new File(["hello"], "notes.txt", { type: "text/plain" })] } });
+    await waitFor(() => expect(upload).toHaveBeenCalledWith(slug, { name: "notes.txt", mediaType: "text/plain", data: btoa("hello") }, "pages"));
     await waitFor(() => expect(read.mock.calls.length).toBeGreaterThan(before));
     await waitFor(() => expect(h.onChanged).toHaveBeenCalled());
-    expect(h.onError).not.toHaveBeenCalled();
   });
 
-  it("says which upload failed", async () => {
-    vi.spyOn(api, "uploadProjectFile").mockRejectedValue(new Error("big.bin is 120.0 MB; a file can be up to 100 MB, the most KOS takes of one"));
-    const h = open();
+  it("says which upload failed, and refuses one past the size cap before sending it", async () => {
+    const upload = vi.spyOn(api, "uploadProjectFile").mockRejectedValue(new Error("the disk is full"));
+    open();
     await screen.findByText("plan.md");
-    fireEvent.change(screen.getByLabelText("Upload files"), { target: { files: [new File(["x"], "big.bin")] } });
-    await waitFor(() => expect(h.onError).toHaveBeenCalledWith("big.bin: big.bin is 120.0 MB; a file can be up to 100 MB, the most KOS takes of one"));
+    const big = new File(["x"], "big.bin");
+    Object.defineProperty(big, "size", { value: 101 * 1024 * 1024 });
+    fireEvent.change(screen.getByLabelText("Upload files"), { target: { files: [big, new File(["x"], "small.txt")] } });
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("big.bin: over the 100 MB a file can be · small.txt: the disk is full"));
+    expect(upload).toHaveBeenCalledTimes(1);
   });
 
   it("says when the folder is empty", async () => {
     tree[root] = [];
-    try {
-      open();
-      expect(await screen.findByText(/Nothing here yet/)).toBeTruthy();
-    } finally {
-      tree[root] = [entry("plan.md", "file", root, 2048), entry("pages", "dir"), entry("cat.png", "file", root, 10)];
-    }
+    open();
+    expect(await screen.findByText("This folder is empty.")).toBeTruthy();
   });
 });

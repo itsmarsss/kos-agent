@@ -300,17 +300,53 @@ blob is listed with the reason. See docs/blobs.md.
 
 ## Files
 
-A PDF or an Office file opened here, or in the preview window from a
-project, a chat or a mention, has File | Raw in its header: the document
-itself, or the words KOS reads out of it, the same words a turn is given
-when the file is attached.
+The workspace kept as Finder keeps a Mac's (`ui/src/finder/`), and the same
+file manager in a project's or a blob's panel, kept inside its folder.
 
-A file opens for what it is: text and code as text, markdown as a page,
-an image as itself, a PDF in the browser's own viewer, and a Word, Excel
-or PowerPoint file as the text read out of it, with a line saying so and
-Download for the file itself.
+- **Sidebar**: Workspace, Recents (the files changed lately), Downloads and
+  Uploads when the workspace has them, Projects and each project, Blobs,
+  and the Trash. Each folder there takes a drop; the Trash takes one and
+  moves what was dropped into it.
+- **Views**: List (Name, Date Modified, Size, Kind, each sortable; a
+  folder opens in place under its triangle), Columns (the path as panes,
+  the chosen file's picture and facts at the end) and Icons (a picture of
+  each thing where there is one: a photo, a PDF's first page, an Office or
+  iWork file's first page or slide). The view is remembered per folder.
+- **Toolbar**: back and forward, the view, sort, actions, new folder,
+  upload, Get Info, and search, by name or, with Contents, inside text
+  files too, over the folder and everything below it.
+- **Path bar** at the foot: where the chosen thing is, each step a place
+  to go and to drop on, and a count.
+- **Quick Look**: Space on a file opens it large over the page (pictures,
+  PDFs, text and code coloured, markdown as a page, Office files drawn by
+  the viewers below, sound and video in a player); the arrows step, Space
+  or Escape closes. On a phone it is a sheet from the bottom.
+- **Choosing**: a click, Shift for a run, Cmd for one more; the arrows,
+  Return to rename in place, Cmd+Down to open, Cmd+Up to go up, Cmd+Delete
+  to the Trash, Cmd+I for Info, Cmd+D to duplicate, Shift+Cmd+N for a new
+  folder, Cmd+1 to 3 for the views, and typing a name's first letters.
+- **Doing**: upload by a drop from the desktop or the button (100 MB a
+  file), download, rename, new folder, move by a drag (or Move to…),
+  duplicate, copy the path, Ask KOS about this (KOS's chat, or the
+  project's beside it, with the file referenced in the composer), Get Info
+  (kind, size, where, made and changed, pixels or pages, the project), and
+  Move to Trash with Undo. The Trash lists what is there with Put Back and
+  Delete Immediately; Empty Trash asks first. Nothing is deleted any other
+  way. The workspace's own files (`.kos`, the database, its settings) and
+  its top-level folders are not moved.
+- At a phone's width it is one column: no sidebar (a menu of places
+  instead), no Columns view, rows a thumb tall.
 
-The workspace as a browser. Folders, files with a preview, filter and sort.
+A file opened by its address (`#/files/<path>`) opens its folder with the
+file chosen and in Quick Look. A PDF or an Office file has File | Raw in
+its header: the document itself, or the words KOS reads out of it.
+
+### Office files
+
+Word, Excel and PowerPoint files (and their OpenDocument, iWork, RTF, CSV
+and TSV kin) are converted on the server to a view (`GET
+/api/file/office`), once per version of the file, in a bounded worker,
+and drawn here; see [files.md](files.md).
 
 ## Memory
 

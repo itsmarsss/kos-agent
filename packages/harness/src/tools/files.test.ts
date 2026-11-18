@@ -106,6 +106,8 @@ describe("filesModule", () => {
       ["files.cp", { from: "notes.txt", to: ".kos/results/notes.txt" }],
       ["files.mv", { from: ".kos/results/r_00000000.json", to: "moved.json" }],
       ["files.mv", { from: "notes.txt", to: ".kos/notes.txt" }],
+      ["files.read", { path: ".ko\u017f/results/r_00000000.json" }],
+      ["files.ls", { path: ".\uFF4Bos/results" }],
     ] as const) {
       const res = await registry.execute(tool, input);
       expect(res.isError, `${tool} ${JSON.stringify(input)}`).toBe(true);
