@@ -115,6 +115,32 @@ describe("what each tool costs in trust", () => {
     }
     expect(registry.refusal("browser.visit", { url: "http://127.0.0.1:5173/" })).toBeUndefined();
   });
+
+  it("refuses to work a tab that is on KOS's own dashboard, and leaves one a redirect took there", async () => {
+    const { registry, ready, script } = harness();
+    await ready;
+    script.url = "http://127.0.0.1:4317/#/inbox";
+    for (const [name, input] of [
+      ["browser.look", {}],
+      ["browser.act", { actions: [{ click: "@e1" }] }],
+      ["browser.eval", { code: "document.title" }],
+    ] as const) {
+      const res = await registry.execute(name, input);
+      expect(res.isError, name).toBe(true);
+      expect(res.content, name).toContain(KOS_PAGE_REFUSED);
+    }
+    // A public address that lands on KOS: judged by where the tab is, and taken off it.
+    const send = script.send.bind(script);
+    script.send = async (method, params = {}) => {
+      const answer = await send(method, params);
+      if (method === "Page.navigate" && String(params["url"]).includes("bounce")) script.url = "http://localhost:4317/";
+      return answer;
+    };
+    const bounced = await registry.execute("browser.visit", { url: "https://bounce.example/" });
+    expect(bounced.isError).toBe(true);
+    expect(bounced.content).toContain(KOS_PAGE_REFUSED);
+    expect(script.url).toBe("about:blank");
+  });
 });
 
 describe("browser.visit", () => {

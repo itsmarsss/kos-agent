@@ -109,6 +109,25 @@ function notKos(input: Record<string, unknown>): string | false {
 }
 const NOT_KOS: ToolRisk = { floor: "safe", refuse: notKos };
 
+/** Whether a tab is on KOS's own dashboard or API now, by where it actually is: a redirect or a typed address alike. */
+async function onKos(tab: Tab): Promise<boolean> {
+  const url = await tab.page.whereAmI().then((w) => w.url, () => "");
+  return reachesKos(url, kosPorts());
+}
+
+/** Refused while the tab is on KOS itself. */
+async function awayFromKos(tab: Tab): Promise<Tab> {
+  if (await onKos(tab)) throw new Error(KOS_PAGE_REFUSED);
+  return tab;
+}
+
+/** A tab that ended up on KOS itself is taken off it, and nothing it saw there is handed back. */
+async function leaveKos<T>(tab: Tab, seen: T): Promise<T> {
+  if (!(await onKos(tab))) return seen;
+  await tab.page.goto("about:blank").catch(() => undefined);
+  throw new Error(KOS_PAGE_REFUSED);
+}
+
 /**
  * Which browser these tools work in. Said plainly, since there are two
  * Chromes and a computer that has one too, and "the browser" was read as
@@ -222,7 +241,8 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         },
         async (input) => {
           const scope = str(input, "scope");
-          return placed(await visit(await deps.tab(), urlsOf(input), { then: thenOf(input, "look"), ...(scope ? { scope } : {}), until: input["wait"] === "load" ? "load" : "dom", ...always() }));
+          const tab = await deps.tab();
+          return placed(await leaveKos(tab, await visit(tab, urlsOf(input), { then: thenOf(input, "look"), ...(scope ? { scope } : {}), until: input["wait"] === "load" ? "load" : "dom", ...always() })));
         },
         NOT_KOS,
       );
@@ -263,10 +283,10 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         },
         async (input) => {
           const steps = stepsOf(actionsOf(input, STEPS_MAX));
-          const tab = await deps.tab();
+          const tab = await awayFromKos(await deps.tab());
           const before = new Set(deps.mine?.() ?? []);
           const site = onSite.getStore();
-          const seen = await act(tab, steps, thenOf(input, "look"), turnStop.getStore(), { ...ifChanged(), ...(site ? { site } : {}) });
+          const seen = await leaveKos(tab, await act(tab, steps, thenOf(input, "look"), turnStop.getStore(), { ...ifChanged(), ...(site ? { site } : {}) }));
           const opened = (deps.mine?.() ?? []).filter((t) => !before.has(t));
           const note = opened.length ? `\nIt opened ${opened.length === 1 ? `a tab, ${opened[0]}` : `tabs ${opened.join(", ")}`}; browser.use_tab works there.` : "";
           return placed({ ...seen, text: `${seen.text}${note}` });
@@ -285,7 +305,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
             'browser.visit gives. `then: "snapshot"` for the whole outline instead, `then: "read"` for its text; `scope` narrows either.',
           inputSchema: { type: "object", properties: { then: THEN, scope: { type: "string" } } },
         },
-        async (input) => placed(await look(await deps.tab(), thenOf(input, "look"), str(input, "scope"), always())),
+        async (input) => placed(await look(await awayFromKos(await deps.tab()), thenOf(input, "look"), str(input, "scope"), always())),
         SAFE,
       );
 
@@ -305,7 +325,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         async (input) => {
           const code = str(input, "code");
           if (!code) throw new Error("code required");
-          return placedText(await evaluate(await deps.tab(), code));
+          return placedText(await evaluate(await awayFromKos(await deps.tab()), code));
         },
         RISKY,
       );
@@ -381,7 +401,8 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           if (!tab) throw new Error("tab required");
           if (!deps.useTab) throw new Error("no browser to switch tabs in");
           await deps.useTab(tab);
-          const seen = await look(await deps.tab(), thenOf(input, "look"), undefined, always());
+          // A tab already on KOS's own dashboard is not one to work in: seen, it would show the page that holds the key.
+          const seen = await look(await awayFromKos(await deps.tab()), thenOf(input, "look"), undefined, always());
           return placed({ ...seen, text: `Now on tab ${tab}.\n${seen.text}`.trim() });
         },
         SAFE,
@@ -403,7 +424,8 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           const url = raw ? urlFor(raw) : undefined;
           const id = await deps.newTab();
           if (!url) return placedText(`Opened tab ${id}; it is blank, and yours.`);
-          const seen = await visit(await deps.tab(), [url], { then: thenOf(input, "look"), ...always() });
+          const opened = await deps.tab();
+          const seen = await leaveKos(opened, await visit(opened, [url], { then: thenOf(input, "look"), ...always() }));
           return placed({ ...seen, text: `Opened tab ${id}.\n${seen.text}`.trim() });
         },
         NOT_KOS,
