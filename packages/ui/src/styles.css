@@ -2897,8 +2897,9 @@ li:hover .chats-item-when { opacity: 0; }
 .turn-said { display: flex; align-items: flex-end; gap: 0.5rem; max-width: 100%; }
 .turn--you > .turn-said { align-self: stretch; justify-content: flex-end; }
 .turn-said > .bubble { min-width: 0; }
-.turn--you > .turn-said > .msg-time { margin-bottom: 0.4rem; }
-.turn--system > .turn-said { position: relative; }
+.turn--you > .turn-said > .msg-time { margin-bottom: 0.6rem; }
+.turn--system > .turn-said { position: relative; max-width: 100%; }
+.turn--system > .turn-said > .bubble { max-width: none; }
 .turn--system > .turn-said > .msg-time { position: absolute; left: 100%; bottom: 0.2rem; margin-left: 0.5rem; }
 
 .edit { align-self: stretch; display: flex; flex-direction: column; gap: 0.4rem; }
