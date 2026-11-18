@@ -197,6 +197,8 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 .kblock-row dt { color: var(--muted); }
 .kblock-row dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .kblock-value + .kblock-value::before { content: ", "; }
+/* A value that opens on a time chip starts its words where the plain values do, the chip's padding hung in the gap. */
+.kblock-row dd > .kblock-value:first-child > .md-time:first-child { margin-left: -0.3rem; }
 /* The body under the fields, past a hairline, as a draft's text sits under its header. */
 .kblock-rows ~ .kblock-body, .kblock-rows ~ .kblock-checks, .kblock-rows ~ .kblock-steps, .kblock-rows ~ .kblock-code { margin-top: 0.15rem; }
 .kblock-rows ~ .kblock-body { padding-top: 0.6rem; border-top: 1px solid var(--line); }
