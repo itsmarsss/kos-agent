@@ -44,7 +44,12 @@ See [channels.md](channels.md).
 ## Secrets
 
 Any `KOS_SECRET_NAME` is exposed to the agent as `{{secret:name}}`: injected
-at call time, never shown to the model, redacted from logs.
+at call time, never shown to the model, redacted from logs. A reference works
+only in an `http.fetch` header or its URL's query string, and in an MCP
+server's env or headers; any other tool given one refuses the call.
+`KOS_SECRET_NAME_HOSTS` (comma separated, `*.example.com` allowed) binds the
+secret to those hosts. A value that comes back in a tool's answer, as it is
+or encoded, is replaced by `[secret name]` before the model or a log sees it.
 
 ## Behaviour (Settings, Behaviour)
 
