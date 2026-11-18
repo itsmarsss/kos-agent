@@ -55,7 +55,7 @@ final class Routed {
   }
 }
 
-private let pending = #"{"id":41,"tool":"files.write","args":"{\"path\":\"notes/list.md\"}","reason":null,"summary":"Write notes/list.md","conversationId":"c_2","asker":"Inbox sweep","requestedAt":1761800000000,"expiresAt":1761803600000,"rule":{"tool":"files.write","scope":"dir:notes","project":null}}"#
+private let pending = #"{"id":41,"tool":"files.write","args":"{\"path\":\"notes/list.md\"}","reason":null,"summary":"Write notes/list.md","conversationId":"c_2","asker":"Inbox sweep","requestedAt":1761800000000,"expiresAt":1761803600000,"rule":{"tool":"files.write","scope":"dir:notes","project":null},"title":"Write notes/list.md","place":"In notes","steps":[[{"text":"Press "},{"key":"⌘S"}]],"always":"Always allow in notes","alwaysTip":"Approves this. Undo it in Settings, Permissions."}"#
 private let decided = #"[{"id":40,"tool":"shell.run","status":"approved","summary":"Run git push","asker":"KOS","decidedAt":1761799000000,"requestedAt":1761798000000,"conversationId":null,"reason":null}]"#
 
 @MainActor
@@ -76,7 +76,10 @@ struct InboxTests {
     #expect(inbox.waiting.value?.approvals.map(\.id) == [41])
     #expect(inbox.waiting.value?.failures.first?.label == "Nightly backup")
     #expect(inbox.decided.map(\.id) == [40] && inbox.counts?.approved == 12 && !inbox.more)
-    #expect(inbox.waiting.value?.approvals.first?.always == "Always in notes")
+    // The card as the host laid it out: the remembered yes in its words, each step's keys as caps.
+    let ask = try #require(inbox.waiting.value?.approvals.first)
+    #expect(ask.always == "Always allow in notes" && ask.place == "In notes")
+    #expect(ask.steps == [[.text("Press "), .key("⌘S")]])
     #expect(inbox.decided.first?.byAuto == false)
   }
 

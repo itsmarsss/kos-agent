@@ -1,6 +1,7 @@
-import { summarizeAction } from "@kos/shared";
+import { summarizeAction, type ActionHome } from "@kos/shared";
 
 import type { PendingAction } from "../ops/approvals.js";
+import type { PermissionContext } from "../ops/permissions.js";
 import { SHARED_LANE } from "../ops/queue.js";
 import { hasSecretRef, placeSecrets, type SecretSlots } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
@@ -25,8 +26,8 @@ export const BUILD_ACTION_PREFIX = "build.";
 export const RESUME_HEAD = "System: the owner decided on";
 
 /** One decided action, as the resumed turn is told it: what it was, and what came of it. */
-export function decidedLine(id: number, tool: string, args: string, outcome: { approved: true; isError: boolean; result: string } | { approved: false }): string {
-  const head = `@approval:${id} ${summarizeAction(tool, args)}`;
+export function decidedLine(id: number, tool: string, args: string, outcome: { approved: true; isError: boolean; result: string } | { approved: false }, where?: ActionHome): string {
+  const head = `@approval:${id} ${summarizeAction(tool, args, undefined, where)}`;
   if (!outcome.approved) return `${head}: the owner denied this. It was not done.`;
   // On one line: a result's own lines could otherwise pass for another decision.
   const result = outcome.result.replace(/\s*\n\s*/g, " ");
@@ -38,6 +39,8 @@ export interface DecisionResult {
   message: string;
   isError?: boolean;
   reply?: string;
+  /** Asked to remember: whether a rule was kept. */
+  remembered?: boolean;
 }
 
 export interface DecisionsDeps {
@@ -51,11 +54,11 @@ export interface DecisionsDeps {
     pending: () => PendingAction[];
   };
   permissions: {
-    ruleFor: (tool: string, input: Record<string, unknown>, project: string | null) => { tool: string; scope: string | null; project: string | null } | undefined;
     add: (rule: { tool: string; scope: string | null; project: string | null }) => unknown;
   };
-  conversations: { get: (id: string) => { projectSlug: string | null } | undefined };
-  audit: { record: (entry: { tool: string; args: Record<string, unknown>; result: string; isError: boolean; riskTier: "risky"; userId: string }) => unknown };
+  /** Where the asking chat's file paths land, for the line that tells it the outcome. */
+  homeOf?: (conversationId: string | null) => Pick<PermissionContext, "home" | "root">;
+  audit: { record: (entry: { tool: string; args: Record<string, unknown>; result: string; isError: boolean; riskTier: "risky"; userId: string; conversationId?: string }) => unknown };
   registry: {
     execute: (tool: string, input: Record<string, unknown>) => Promise<{ content: string; isError: boolean }>;
     secretSlots: (tool: string) => SecretSlots | undefined;
@@ -105,6 +108,12 @@ export class Decisions {
     ].join("\n");
   }
 
+  /** Where the asking chat's paths land, for the line that tells it the outcome. */
+  private whereOf(conversationId: string | null | undefined): ActionHome | undefined {
+    const at = this.deps.homeOf?.(conversationId ?? null);
+    return at?.home ? { home: at.home, ...(at.root ? { root: at.root } : {}) } : undefined;
+  }
+
   private stillWaiting(ids: number[]): string {
     return `#${ids.join(", #")} still waiting; the chat continues once ${ids.length === 1 ? "it is" : "they are"} decided.`;
   }
@@ -116,27 +125,26 @@ export class Decisions {
     const awaited = d.approvals.isAwaited(id);
     d.approvals.approve(id, decidedBy ?? d.ownerId);
 
-    // Kept, when the owner said so: the shape of this call, in the project
-    // it came from. A call whose shape cannot be named makes no rule.
-    // Never for a call that sends a secret: each of those is asked about.
-    if (options.remember && !hasSecretRef(JSON.parse(action.args))) {
-      // The rule named when the call was queued, if there was one: a browser
-      // action's site is known then and not now. Otherwise named from the
-      // call's shape, as before.
-      const project = action.conversationId ? (d.conversations.get(action.conversationId)?.projectSlug ?? null) : null;
-      const rule = action.rule ?? d.permissions.ruleFor(action.tool, JSON.parse(action.args) as Record<string, unknown>, project);
-      if (rule) d.permissions.add(rule);
-    }
+    // Kept, when the owner said so: the rule the ask named when it was
+    // queued, and only that, since it is the one every card offered. None
+    // for an ask that named none, none for a call that reached past its
+    // turn's folder, and never for a call that sends a secret: each of
+    // those is asked about.
+    const kept = options.remember === true && action.rule !== null && !action.reached && !hasSecretRef(JSON.parse(action.args));
+    if (kept) d.permissions.add(action.rule!);
+    // Asked to remember one that keeps nothing: said so, rather than taken as kept.
+    const done = (r: DecisionResult): DecisionResult =>
+      !options.remember ? r : kept ? { ...r, remembered: true } : { ...r, remembered: false, message: `Approved; nothing to remember for this one. ${r.message}` };
 
     // A turn suspended on this decision does the rest itself.
-    if (awaited) return { ok: true, message: `Approved @approval:${id}. ${action.tool} is running.` };
+    if (awaited) return done({ ok: true, message: `Approved @approval:${id}. ${action.tool} is running.` });
 
     const stored = JSON.parse(action.args) as Record<string, unknown>;
     const by = decidedBy ?? d.ownerId;
     if (action.tool.startsWith(BUILD_ACTION_PREFIX)) {
       const wanted = action.tool.slice(BUILD_ACTION_PREFIX.length);
-      d.audit.record({ tool: action.tool, args: stored, result: `approved; the build runs ${wanted} itself`, isError: false, riskTier: "risky", userId: by });
-      return { ok: true, message: `Approved. The build continues with ${wanted}.` };
+      d.audit.record({ tool: action.tool, args: stored, result: `approved; the build runs ${wanted} itself`, isError: false, riskTier: "risky", userId: by, ...(action.conversationId ? { conversationId: action.conversationId } : {}) });
+      return done({ ok: true, message: `Approved. The build continues with ${wanted}.` });
     }
 
     const result = await d.queue.enqueue(async () => {
@@ -154,17 +162,17 @@ export class Decisions {
           );
       // What it answered is scrubbed before the audit and the resumed turn read it.
       const r = { ...ran, content: d.secrets.scrub(ran.content) };
-      d.audit.record({ tool: action.tool, args: stored, result: r.content, isError: r.isError, riskTier: "risky", userId: by });
+      d.audit.record({ tool: action.tool, args: stored, result: r.content, isError: r.isError, riskTier: "risky", userId: by, ...(action.conversationId ? { conversationId: action.conversationId } : {}) });
       if (!r.isError) d.onToolRan(action.tool);
       return r;
     }, action.conversationId ?? SHARED_LANE);
 
     const sessionId = action.conversationId ?? primarySessionId(d.ownerId);
-    const outcome = decidedLine(id, action.tool, action.args, { approved: true, isError: result.isError, result: result.content });
+    const outcome = decidedLine(id, action.tool, action.args, { approved: true, isError: result.isError, result: result.content }, this.whereOf(action.conversationId));
     const waiting = this.siblingsWaiting(action.conversationId, id);
     if (waiting.length > 0) {
       this.held.set(sessionId, [...(this.held.get(sessionId) ?? []), outcome]);
-      return { ok: true, message: `${result.content} ${this.stillWaiting(waiting)}`, isError: result.isError };
+      return done({ ok: true, message: `${result.content} ${this.stillWaiting(waiting)}`, isError: result.isError });
     }
     let reply: string | undefined;
     try {
@@ -172,7 +180,7 @@ export class Decisions {
     } catch (err) {
       reply = `Approved @approval:${id} but resume failed: ${err instanceof Error ? err.message : String(err)}`;
     }
-    return { ok: true, message: result.content, isError: result.isError, ...(reply !== undefined ? { reply } : {}) };
+    return done({ ok: true, message: result.content, isError: result.isError, ...(reply !== undefined ? { reply } : {}) });
   }
 
   async deny(id: number, decidedBy?: string): Promise<DecisionResult> {
@@ -185,7 +193,7 @@ export class Decisions {
       return { ok: true, message: `Declined. The build was told it may not ${denied.tool.slice(BUILD_ACTION_PREFIX.length)}.` };
     }
     const sessionId = denied.conversationId ?? primarySessionId(d.ownerId);
-    const outcome = decidedLine(id, denied.tool, denied.args, { approved: false });
+    const outcome = decidedLine(id, denied.tool, denied.args, { approved: false }, this.whereOf(denied.conversationId));
     const waiting = this.siblingsWaiting(denied.conversationId, id);
     if (waiting.length > 0) {
       this.held.set(sessionId, [...(this.held.get(sessionId) ?? []), outcome]);

@@ -8,11 +8,13 @@ import { Lines } from "./lines.js";
 import { WAITING_KEY, due, lapsed, queued, readWaiting, stopWith, type WaitingEvent } from "./waiting.js";
 import { note, recent, saveLog } from "./log.js";
 import { iconPixels } from "./icon.js";
-import { installOverlay, type OverlayState } from "./overlay.js";
+import { CURSOR } from "./cursorlook.js";
+import { installOverlay, type OverlayState, type PointHow } from "./overlay.js";
 import { readPage } from "./page.js";
+import { aimOf, middleOf } from "./pointer.js";
 import { adding, readPairings, removing, replacedBy, shownOf, type Paired } from "./pairings.js";
 import { CallError, PROTOCOL, fromBase64, toBase64 } from "./protocol.js";
-import { checkCommand, forwarded, isInput, isWebUrl, OVERLAY_WORLD as WORLD, Worlds } from "./relay.js";
+import { changesPage, checkCommand, forwarded, isInput, isWebUrl, OVERLAY_WORLD as WORLD, Worlds } from "./relay.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, SENT_THEME_KEY, asksFirst, isHidden, readSettings, siteOf, themeOf, type ExtensionSettings } from "./settings.js";
 import { FolderWait, ReloadGate, folderHolds, readBuild, runningBuild, type Build, type Kept, type Reloaded, type UpdateNotice } from "./update.js";
@@ -666,7 +668,8 @@ function askOwner(request: ConsentRequest, origin: string, panel?: Panel): Promi
       asked?.panel?.port.postMessage({ type: "consent.done", id: request.id });
       resolve(a);
     };
-    const timer = setTimeout(() => settle({ allowed: false, minutes: 0, why: "unanswered" }), request.waitMs);
+    // A no exactly when the window says it will be.
+    const timer = setTimeout(() => settle({ allowed: false, minutes: 0, why: "unanswered" }), Math.max(0, request.expiresAt - Date.now()));
     const entry: Asked = { request, origin, answer: settle, ...(panel ? { panel } : {}) };
     consents.set(request.id, entry);
     if (panel) {
@@ -683,17 +686,64 @@ function askOwner(request: ConsentRequest, origin: string, panel?: Panel): Promi
 }
 
 /** An expression in every frame's copy of the overlay on a tab, each given a moment and no more: a busy page holds nothing up. */
-async function toOverlays(tab: number, expression: string, withinMs = 1_500): Promise<void> {
+async function toOverlays(tab: number, expression: string, withinMs = 1_500, awaitPromise = false): Promise<void> {
   const worlds = overlays.get(tab);
   if (!worlds) return;
   await Promise.all(
     [...worlds].map((world) =>
       Promise.race([
-        chrome.debugger.sendCommand({ tabId: tab }, "Runtime.evaluate", { expression, contextId: world }).catch(() => worlds.delete(world)),
+        chrome.debugger.sendCommand({ tabId: tab }, "Runtime.evaluate", { expression, contextId: world, awaitPromise }).catch(() => worlds.delete(world)),
         new Promise((r) => setTimeout(r, withinMs)),
       ]),
     ),
   );
+}
+
+/** The most KOS's hands wait on the cursor: its quick glide is 45 to 135 ms, and a busy page holds nothing up past this. */
+const GLIDE_WAIT_MS = 150;
+/** Where KOS's cursor went last on each tab, to know whether it has anywhere to go. */
+const pointed = new Map<number, { x: number; y: number }>();
+/** Where it is or rests on each tab, for a new page there to put it back. */
+const restsAt = new Map<number, { x: number; y: number }>();
+
+/**
+ * KOS's cursor to a point on a tab. A move or a press somewhere new is waited
+ * on, briefly, so the owner sees it go before the act; anything else is sent
+ * and not waited for. An element scrolled to only rests the cursor there.
+ */
+async function point(tab: number, at: { x: number; y: number }, how: PointHow): Promise<void> {
+  const expression = `window.__kos && window.__kos.point(${at.x}, ${at.y}, ${JSON.stringify(how)})`;
+  restsAt.set(tab, at);
+  if (how === "rest") return void toOverlays(tab, expression, 300);
+  const from = pointed.get(tab);
+  pointed.set(tab, at);
+  const goes = (how === "move" || how === "press") && (!from || Math.hypot(at.x - from.x, at.y - from.y) >= 1);
+  if (!goes) return void toOverlays(tab, expression, 300);
+  // The overlay starts the glide and says at once how long it takes (none on a tab no one sees): KOS's hands wait that
+  // long on their own clock, from when it was sent, and never past the cap, however slow the tab is to answer.
+  const sent = Date.now();
+  const worlds = [...(overlays.get(tab) ?? [])];
+  const glides = await Promise.race([
+    Promise.all(
+      worlds.map((world) =>
+        chrome.debugger
+          .sendCommand({ tabId: tab }, "Runtime.evaluate", { expression, contextId: world, returnByValue: true })
+          .then(
+            (r) => Number((r as { result?: { value?: unknown } } | undefined)?.result?.value) || 0,
+            () => (overlays.get(tab)?.delete(world), 0),
+          ),
+      ),
+    ),
+    new Promise<number[]>((r) => setTimeout(() => r([GLIDE_WAIT_MS]), GLIDE_WAIT_MS)),
+  ]);
+  const left = Math.min(Math.max(0, ...glides), GLIDE_WAIT_MS) - (Date.now() - sent);
+  if (left > 0) await new Promise((r) => setTimeout(r, left));
+}
+
+async function pointAtNode(tab: number, node: { backendNodeId: number }, how: PointHow): Promise<void> {
+  const got = (await chrome.debugger.sendCommand({ tabId: tab }, "DOM.getContentQuads", node).catch(() => undefined)) as { quads?: unknown } | undefined;
+  const at = middleOf(got?.quads);
+  if (at) await point(tab, at, how);
 }
 
 async function end(reason: EndReason): Promise<void> {
@@ -711,6 +761,8 @@ async function end(reason: EndReason): Promise<void> {
   attached.clear();
   for (const wake of [...commits]) wake();
   overlays.clear();
+  pointed.clear();
+  restsAt.clear();
   tabUrls.clear();
   loaders.clear();
   mainFrames.clear();
@@ -799,7 +851,7 @@ async function attachNow(tab: number): Promise<void> {
   if (typeof main?.url === "string") tabUrls.set(tab, main.url);
   if (typeof main?.id === "string") mainFrames.set(tab, main.id);
   await send("Runtime.addBinding", { name: BINDING, executionContextName: WORLD });
-  await send("Page.addScriptToEvaluateOnNewDocument", { source: `(${installOverlay.toString()})()`, worldName: WORLD, runImmediately: true });
+  await send("Page.addScriptToEvaluateOnNewDocument", { source: `(${installOverlay.toString()})(${JSON.stringify(CURSOR)})`, worldName: WORLD, runImmediately: true });
 }
 
 const record = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
@@ -823,6 +875,8 @@ async function relayAll(params: Record<string, unknown>, origin: string): Promis
   const tab = tabOf(s, params);
   const calls = (Array.isArray(params["calls"]) ? params["calls"] : []).map(record);
   if (calls.length === 0 || calls.length > BATCH_MAX) throw new CallError("bad_request", `a batch is 1 to ${BATCH_MAX} commands`);
+  // KOS's hands act one after another, each after its cursor: never side by side.
+  if (params["parallel"] === true && calls.some((c) => isInput(str(c["method"])))) throw new CallError("bad_request", "a batch with input in it runs in order");
   const one = async (call: Record<string, unknown>): Promise<Record<string, unknown>> => {
     try {
       return { result: await relayOne(s, tab, str(call["method"]), record(call["params"])) };
@@ -842,6 +896,10 @@ async function relayAll(params: Record<string, unknown>, origin: string): Promis
   return { results };
 }
 
+function pausedError(): CallError {
+  return new CallError("paused", "the owner has taken over this tab; wait for them to hand it back");
+}
+
 async function relayOne(s: Session, tab: number, method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   checkCommand(method, args);
   stillIn(s, tab);
@@ -849,7 +907,7 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
   await refuseHidden(tab);
   stillIn(s, tab);
   if (method === "Page.navigate" && isHidden(str(args["url"]), settings.hiddenSites)) throw hiddenError(str(args["url"]));
-  if (s.paused && (isInput(method) || method === "Page.navigate")) throw new CallError("paused", "the owner has taken over this tab; wait for them to hand it back");
+  if (s.paused && changesPage(method)) throw pausedError();
   await attach(tab);
   // Let go of meanwhile: not held on to for a session that has gone.
   if (session !== s || !s.tabs.has(tab)) {
@@ -857,14 +915,26 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
     stillIn(s, tab);
   }
   await reachable(tab, args);
-  if (isInput(method)) s.dispatching(method, args, Date.now());
-  // KOS's pointer, shown where its hands are about to act.
-  if (method === "Input.dispatchMouseEvent" && typeof args["x"] === "number" && typeof args["y"] === "number") {
-    void toOverlays(tab, `window.__kos && window.__kos.point(${args["x"]}, ${args["y"]}, ${args["type"] === "mousePressed"})`, 300);
+  // KOS's cursor where its hands are about to act, on its way before they do.
+  const aim = aimOf(method, args);
+  if (aim && "at" in aim) await point(tab, aim.at, aim.how);
+  else if (aim && "typing" in aim) void toOverlays(tab, "window.__kos && window.__kos.typing()", 300);
+  if (changesPage(method)) {
+    // A step back or forward to a hidden site is refused by where it goes; asked of the tab first, so nothing is awaited after the checks below.
+    if (method === "Page.navigateToHistoryEntry") {
+      await refuseHiddenEntry(tab, args["entryId"]).catch((err: unknown) => {
+        throw err instanceof CallError ? err : new CallError("cdp", err instanceof Error ? err.message : String(err));
+      });
+    }
+    // Anything could have happened while the tab was taken up and the cursor went: the page gone to a hidden site, the
+    // owner's hand on it. Checked again, and nothing awaited between this and sending.
+    await refuseHidden(tab);
+    stillIn(s, tab);
+    if (s.paused) throw pausedError();
   }
+  if (isInput(method)) s.dispatching(method, args, Date.now());
   let answer: Record<string, unknown>;
   try {
-    if (method === "Page.navigateToHistoryEntry") await refuseHiddenEntry(tab, args["entryId"]);
     if (method === "Page.captureScreenshot") answer = await picture(tab, args);
     else answer = ((await chrome.debugger.sendCommand({ tabId: tab }, method, args)) as Record<string, unknown> | undefined) ?? {};
     // A navigation answers before its page is in; the next command waits for it, so it is checked against where the tab went.
@@ -879,6 +949,8 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
   }
   // Checked again once answered: a page that went to a hidden site while the command ran (a click, a reload, a redirect) gives KOS nothing of it.
   await refuseHidden(tab);
+  // An element focused to type in, or scrolled to: the cursor to its middle, now that it is in view, before KOS's next command.
+  if (aim && "node" in aim) await pointAtNode(tab, aim.node, aim.how);
   if (method === "Page.getNavigationHistory") return withoutHidden(answer);
   return answer;
 }
@@ -968,7 +1040,26 @@ const framing = new Map<number, Promise<string | undefined>>();
  * here. `maxEdge` is the relay's own, not the protocol's: the picture's
  * longer side.
  */
+/** Pictures being taken, by tab: the cursor is whole again once the last is in. */
+const picturing = new Map<number, number>();
+
+/** A picture of the tab with KOS's cursor down to its arrow, whose halo and tag would cover what KOS reads. */
 async function picture(tab: number, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  picturing.set(tab, (picturing.get(tab) ?? 0) + 1);
+  await toOverlays(tab, "window.__kos && window.__kos.capturing(true)", 100, true);
+  try {
+    return await pictureOf(tab, args);
+  } finally {
+    const left = (picturing.get(tab) ?? 1) - 1;
+    if (left > 0) picturing.set(tab, left);
+    else {
+      picturing.delete(tab);
+      void toOverlays(tab, "window.__kos && window.__kos.capturing(false)", 300);
+    }
+  }
+}
+
+async function pictureOf(tab: number, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const format = args["format"] === "png" ? "png" : "jpeg";
   const quality = typeof args["quality"] === "number" ? Math.min(100, Math.max(1, Math.round(args["quality"]))) : 80;
   const edge = typeof args["maxEdge"] === "number" && args["maxEdge"] > 0 ? Math.round(args["maxEdge"]) : 0;
@@ -1077,10 +1168,16 @@ async function fromOverlay(tab: number, world: number, payload: string): Promise
     return;
   }
   switch (message["kind"]) {
-    case "hello":
+    case "hello": {
       overlays.set(tab, (overlays.get(tab) ?? new Set()).add(world));
       await chrome.debugger.sendCommand({ tabId: tab }, "Runtime.evaluate", { expression: `window.__kos && window.__kos.set(${JSON.stringify(overlayState())})`, contextId: world }).catch(() => undefined);
+      // A new page of a tab KOS has pointed on: its cursor where it was, not back in the middle.
+      const at = restsAt.get(tab);
+      if (at) {
+        await chrome.debugger.sendCommand({ tabId: tab }, "Runtime.evaluate", { expression: `window.__kos && window.__kos.point(${at.x}, ${at.y}, "place")`, contextId: world }).catch(() => undefined);
+      }
       return;
+    }
     case "input":
       // The owner may scroll a KOS tab freely, if they said so.
       if (settings.takeover === "clicksAndKeys" && message["type"] === "wheel") return;
@@ -1179,6 +1276,8 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   if (tab === undefined) return;
   attached.delete(tab);
   overlays.delete(tab);
+  pointed.delete(tab);
+  restsAt.delete(tab);
   tabUrls.delete(tab);
   loaders.delete(tab);
   mainFrames.delete(tab);
@@ -1370,6 +1469,8 @@ async function hand(tab: number, give: boolean): Promise<void> {
     if (session?.tabs.delete(tab)) {
       tell("tab.closed", { session: session.info.id, tab: String(tab) });
       overlays.delete(tab);
+      pointed.delete(tab);
+      restsAt.delete(tab);
       tabUrls.delete(tab);
       loaders.delete(tab);
       mainFrames.delete(tab);

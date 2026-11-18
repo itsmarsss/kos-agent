@@ -175,8 +175,23 @@ While KOS works in your Chrome:
   face and Stop, one press, beside the border and KOS's cursor; Take over
   is your own click, and the KOS icon and the side panel still say KOS is
   working;
-- KOS's own cursor glides to each point it acts at and ripples as it
-  presses, as on the Mac;
+- KOS's own cursor is KOS for Mac's, drawn and moved the same: the arrow
+  in KOS's blue with its halo and KOS tag, gliding along the Mac's shallow
+  arc, in the Mac's quick time (45 to 135 ms by distance). It is on the page
+  from the session's start, in the middle until KOS points somewhere. It
+  gets to each point before KOS acts there (a click, the field it types in,
+  a hover, a drag), and ripples as it presses; it rests on what KOS scrolls
+  to.
+  It stays put between steps and across a new page in the tab, as a pointer
+  does while the page scrolls under it. It goes while you have the tab and
+  comes back on Hand back, and never takes your clicks. Your hand on the tab
+  while it is on its way stops KOS's act, and nothing that could change the
+  page is sent while you have it. Only its arrow is in KOS's own pictures,
+  as the Mac's pointer is in its. It glides only on a tab in front, so it
+  does while you type beside Chrome. The bar is drawn in the top
+  layer, over what a page puts there, though a page's modal dialog still
+  holds it, as it holds the rest of the page (the popup and the side panel
+  stop KOS then);
 - the pictures KOS takes never redraw the page you are looking at: a tab
   on screen is pictured from the frame Chrome already drew, made small as
   it is taken, and one that is not is captured as it is and made smaller
@@ -274,7 +289,7 @@ beside it when the chat asks.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `chat.show` | `chat` and `conversation` (the chat shown, or null), `title`, `messages [{ role, text?, files?, quote? { text, from }, steps? [{ summary, failed?, frame? }] }]`, `mode { mode, until?, sessions? }` (the chat's mode; `auto`, true in Auto, for a device from before modes), `notice? { text, from? }`, `pictures? { <frame id>: <base64 JPEG> }` (the newest four steps' pictures), `sites? { <frame id>: <host> }` (the page each shows) | `{}` |
+| `chat.show` | `chat` and `conversation` (the chat shown, or null), `title`, `messages [{ role, text?, files?, quote? { text, from }, at?, steps? [{ summary, failed?, frame? }] }]`, `mode { mode, until?, sessions? }` (the chat's mode; `auto`, true in Auto, for a device from before modes), `notice? { text, from? }`, `pictures? { <frame id>: <base64 JPEG> }` (the newest four steps' pictures), `sites? { <frame id>: <host> }` (the page each shows) | `{}` |
 | `chat.status` | `chat` and `conversation` (the chat the turn runs in, learned when it starts, never the one the panel moved to), `since?` (with `taken`: when the turn began, epoch ms, so a panel opened mid-turn keeps its clock), `waiting?` (`consent`: a device asks the owner for this chat's session; `approval`: an approval waits), `held` (the owner has control of its session), `said?` (the owner's words the turn is for), `taken?` (KOS has those words, said at once; ones said elsewhere are drawn on their way), `story?` (the turn told from its start: its steps so far, `› ` before each, ` (done)` after one that finished and ` (failed)` after one that failed, and what KOS says between them; empty before it has said or done anything; null when done), `error?`, `frame? { id, image, mediaType, site? }` (what a step just saw, with `said`, sent on its own to every device of the kind; a device never draws one whose `site` is on its hidden list) | `{}` |
 | `chat.ask` | `chat`, `approval { id, tool, summary?, args?, mechanics?, why?, reason?, always?, expiresAt? }` (`summary`: the action in words with its ids named, as the Inbox titles it; `expiresAt`: when it lapses unanswered, epoch ms) | `{}` |
 | `chat.settled` | `approval`, `outcome` (`approved`, `denied`, `expired`) | `{}` |
@@ -287,7 +302,9 @@ The KOS for Mac chat window takes the same calls and sends the same
 events, but reads no page ([computer.md](computer.md), the chat window).
 
 A message's `role` is `you`, `kos`, `note`, or `steps` with `steps [{
-summary, failed? }]`. Every status carries the chat's `waiting` and `held`
+summary, failed? }]`. `at` is when a `you`, `kos` or `note` line was
+written to the chat, epoch milliseconds; a line kept before lines kept their
+time has none, and a device shows no time for it rather than a guessed one. Every status carries the chat's `waiting` and `held`
 as they stand, and a status without them clears them; one with none of
 `said`, `taken`, `story`, `error` or `frame` says the state alone, and is
 sent whenever it changes. A device draws no status or ask whose `chat` is

@@ -62,3 +62,5 @@ export type { IMessageOptions } from "./imessage.js";
 export { ThreadReader } from "./imessagedb.js";
 export type { ThreadMessage } from "./imessagedb.js";
 export { SmsAdapter, chunkSms, twilioSignature, verifyTwilioSignature, type SmsOptions } from "./sms.js";
+export { HOST_KEYS } from "./hostkeys.js";
+export { offersAlways } from "./offers.js";

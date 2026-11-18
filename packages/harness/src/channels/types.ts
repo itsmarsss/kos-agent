@@ -1,3 +1,5 @@
+import type { ActionHome } from "@kos/shared";
+
 import type { Attachment } from "../kernel/attachments.js";
 import type { MessageRoom, Quote } from "../models/types.js";
 
@@ -386,6 +388,8 @@ export interface ApprovalRequest {
   why?: string;
   /** What to call the ids in the arguments: a channel's name, a chat's title, a job's name. */
   names?: (kind: string, id: string) => string | undefined;
+  /** Where the asking chat's file paths land, so the card names the place a path really is. */
+  where?: ActionHome;
   /**
    * Who is asking: the chat the action belongs to, by the name the owner
    * knows it by (a blob's title, a project's name, KOS itself). A prompt
@@ -395,6 +399,12 @@ export interface ApprovalRequest {
   asker?: Asker;
   /** The rule a yes-and-remember keeps, when the call's shape can be named: a surface offers "always" by it. */
   rule?: { tool: string; scope: string | null; project: string | null };
+  /** A browser ask that acts in the owner's own Chrome, not KOS's browser: a card says where. */
+  yours?: boolean;
+  /** It always asks (it places a secret): no surface offers a remembered yes for it. */
+  asksAlways?: boolean;
+  /** It asks even in a chat set to act on its own; a surface may say so. */
+  beyondAuto?: boolean;
 }
 
 export interface Asker {

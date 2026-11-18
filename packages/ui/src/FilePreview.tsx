@@ -8,6 +8,7 @@ import { api, type FileContent, type FileText } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
 import { ImageView } from "./FileThumb.js";
 import { highlights, tokenize } from "./highlight.js";
+import { isOfficePath, OfficeBody } from "./OfficeView.js";
 import { hrefFor } from "./routes.js";
 
 /**
@@ -46,11 +47,19 @@ export function isPdfPath(path: string): boolean {
 
 /** Where the browser's viewer gets a PDF from. */
 export function pdfViewUrl(path: string): string {
-  return `/api/file/view?path=${encodeURIComponent(path)}`;
+  // The name at the end of the address too: a viewer that names its download by the URL saves "plan.pdf", not "view".
+  return `/api/file/view/${encodeURIComponent(path.split("/").pop() ?? path)}?path=${encodeURIComponent(path)}`;
 }
+
+const AUDIO = /\.(mp3|m4a|aac|wav|ogg|oga|flac)$/i;
+const VIDEO = /\.(mp4|m4v|webm|mov)$/i;
 
 /** The file's contents, shown for what they are. */
 export function FileBody({ file }: { file: FileContent }): ReactElement {
+  // A document, a workbook or a deck is drawn as itself; its words are a Raw away.
+  if (isOfficePath(file.path)) return <OfficeBody path={file.path} version={`${file.modifiedAt}:${file.size}`} />;
+  if (AUDIO.test(file.path)) return <audio className="preview-audio" controls preload="metadata" src={api.mediaUrl(file.path)} />;
+  if (VIDEO.test(file.path)) return <video className="preview-video" controls preload="metadata" playsInline src={api.mediaUrl(file.path)} />;
   if (file.omitted === "binary") {
     if (previewable(file.path)) return <ImageView path={file.path} />;
     if (isPdfPath(file.path)) return <iframe className="preview-frame" src={pdfViewUrl(file.path)} title={file.path.split("/").pop() ?? file.path} />;
@@ -62,16 +71,6 @@ export function FileBody({ file }: { file: FileContent }): ReactElement {
     return (
       <div className="preview-md">
         <Markdown text={file.text} />
-      </div>
-    );
-  }
-  // Text read out of a Word, Excel or PowerPoint file: said so, since it is
-  // the document's words and not the document.
-  if (file.extracted) {
-    return (
-      <div className="preview-extracted">
-        <p className="hint preview-extracted-note">Text read from the document ({file.extracted}). Download it for the file itself.</p>
-        <pre className="preview-pre">{file.text}</pre>
       </div>
     );
   }
@@ -92,6 +91,31 @@ export function FileBody({ file }: { file: FileContent }): ReactElement {
   );
 }
 
+const ATTACHED_HINT_KEY = "kos.hint.attached";
+
+/**
+ * Whether to say, this once, what happens to an attachment: for two seconds
+ * the first time one is looked at in this browser, and never again.
+ */
+function useAttachedHint(wanted: boolean): boolean {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!wanted) return undefined;
+    let seen = true;
+    try {
+      seen = localStorage.getItem(ATTACHED_HINT_KEY) === "1";
+      localStorage.setItem(ATTACHED_HINT_KEY, "1");
+    } catch {
+      // No storage: say nothing rather than say it every time.
+    }
+    if (seen) return undefined;
+    setShown(true);
+    const t = setTimeout(() => setShown(false), 2000);
+    return () => clearTimeout(t);
+  }, [wanted]);
+  return shown;
+}
+
 /** A file that is not on disk, an attachment still in the composer, shown by the same window under a key of its own. */
 export interface LocalFile {
   name: string;
@@ -101,9 +125,9 @@ export interface LocalFile {
   size?: number;
 }
 
-/** A document whose words can be shown instead of the file: a PDF, or an Office file read as text. */
+/** A document whose words can be shown instead of the file: a PDF, an Office file read as text, a table's own text. */
 export function hasRawText(file: Pick<FileContent, "path" | "extracted">): boolean {
-  return isPdfPath(file.path) || !!file.extracted;
+  return isPdfPath(file.path) || !!file.extracted || /\.(csv|tsv)$/i.test(file.path);
 }
 
 /** The words of a document, fetched once wanted. */
@@ -189,9 +213,11 @@ export interface FilePreviewProps {
   paused?: boolean;
   /** Files that are not on disk, by the key they are opened under; shown without a fetch. */
   locals?: Record<string, LocalFile>;
+  /** Opened as Quick Look from a file list: Space closes it too, and the up and down arrows step as well. */
+  quickLook?: boolean;
 }
 
-export function FilePreview({ path, siblings = [], onStep, onClose, actions, paused = false, locals }: FilePreviewProps): ReactElement | null {
+export function FilePreview({ path, siblings = [], onStep, onClose, actions, paused = false, locals, quickLook = false }: FilePreviewProps): ReactElement | null {
   const [file, setFile] = useState<FileContent | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The words instead of the document; back to the file on every step.
@@ -237,14 +263,27 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
   useEffect(() => {
     if (!path) return;
     const onKey = (e: KeyboardEvent): void => {
+      // Taken already: by a menu over the window, or by the file list that opened it, which steps its own selection.
+      if (e.defaultPrevented) return;
       if (e.target instanceof HTMLElement && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
-      if (e.key === "Escape") onClose();
-      else if (e.key === "ArrowLeft" && prev && onStep) onStep(prev);
-      else if (e.key === "ArrowRight" && next && onStep) onStep(next);
+      // A player has its own keys: Space plays, the arrows seek.
+      if (e.target instanceof HTMLMediaElement) return;
+      const back = e.key === "ArrowLeft" || (quickLook && e.key === "ArrowUp");
+      const on = e.key === "ArrowRight" || (quickLook && e.key === "ArrowDown");
+      if (e.key === "Escape" || (quickLook && e.key === " ")) {
+        e.preventDefault();
+        onClose();
+      } else if (back && prev && onStep) {
+        e.preventDefault();
+        onStep(prev);
+      } else if (on && next && onStep) {
+        e.preventDefault();
+        onStep(next);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [path, prev, next, onStep, onClose]);
+  }, [path, prev, next, onStep, onClose, quickLook]);
 
   const name = local?.name ?? (path ? (path.split("/").pop() ?? path) : "");
   // The file in hand may still be the previous one for a beat after stepping.
@@ -261,6 +300,9 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
         ? file
         : null;
   const image = !!path && (local ? !!local.src : previewable(path));
+  const attachedOnly = !!local && !local.src && local.text === undefined;
+  const attachedHint = useAttachedHint(attachedOnly);
+  const office = !!path && !local && isOfficePath(path);
   const rawable = !!shown && !local && hasRawText(shown);
 
   return createPortal(
@@ -273,7 +315,7 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
               className="preview"
               role="dialog"
               aria-modal="true"
-              aria-label={name}
+              aria-label={quickLook ? `Quick Look: ${name}` : name}
               initial={{ opacity: 0, scale: 0.98, y: 8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.99, y: 4 }}
@@ -307,12 +349,12 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
                   )}
                   {rawable && <RawToggle raw={raw} onChange={setRaw} />}
                   {actions}
-                  <IconButton className="preview-close" label="Close" onClick={onClose}>
-                    <CloseIcon size={14} title="" />
-                  </IconButton>
                 </span>
+                <IconButton className="preview-close" label="Close" onClick={onClose}>
+                  <CloseIcon size={14} title="" />
+                </IconButton>
               </header>
-              <div className={`preview-body${image ? " preview-body--image" : ""}`}>
+              <div className={`preview-body${image ? " preview-body--image" : ""}${office && !raw ? " preview-body--office" : ""}`}>
                 {error && (
                   <p className="ops-alert ops-alert--err preview-hint" role="alert">
                     {error}
@@ -320,8 +362,11 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
                 )}
                 {!shown && !error && <p className="hint preview-hint">Loading…</p>}
                 {shown && local?.src && <img className="files-image" src={local.src} alt={name} />}
-                {shown && local && !local.src && local.text === undefined && (
-                  <p className="hint preview-hint">Attached. Once sent it is kept in the workspace and shown here as the file.</p>
+                {shown && attachedOnly && (
+                  <div className="preview-attached">
+                    <FileIcon name={name} kind="file" size={40} />
+                    {attachedHint && <p className="hint">Kept in the workspace once sent.</p>}
+                  </div>
                 )}
                 {shown && (!local || (!local.src && local.text !== undefined)) && (raw && rawable && path ? <RawBody path={path} /> : <FileBody file={shown} />)}
               </div>

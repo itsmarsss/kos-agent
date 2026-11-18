@@ -1,3 +1,4 @@
+import DeviceCore
 import Foundation
 import DeviceCore
 
@@ -22,11 +23,14 @@ public final class ChatModel: ObservableObject {
     public let failed: Bool
     /// The frame id of what it saw, when it kept a picture.
     public let frame: Int?
+    /// How long it ran, ms, when it was timed.
+    public let ms: Double?
 
-    public init(summary: String, failed: Bool = false, frame: Int? = nil) {
+    public init(summary: String, failed: Bool = false, frame: Int? = nil, ms: Double? = nil) {
       self.summary = summary
       self.failed = failed
       self.frame = frame
+      self.ms = ms
     }
   }
 
@@ -59,34 +63,71 @@ public final class ChatModel: ObservableObject {
   public struct Ask: Equatable, Identifiable, Sendable {
     public let id: String
     public let tool: String
-    /// The action in words with its ids named, as the Inbox titles it.
+    /// The action in words with its ids named, as the Inbox lists it.
     public let summary: String?
+    /// What the card leads with, from the host; the summary, or the tool, from an older one.
+    public let title: String?
     public let args: String?
     /// What the step does, action by action, when its words are the model's account of it.
     public let mechanics: String?
+    /// The same actions as lines, keys as caps, repeats counted.
+    public let steps: [StepLine]?
+    /// What the model said the step is for, as KOS's words.
+    public let said: String?
+    /// Where it acts.
+    public let place: String?
+    /// Too big to have been sent whole: the card offers no Approve and sends the owner to the dashboard.
+    public let tooLong: Bool
+    /// Why it asks, as a phrase.
+    public let risk: String?
     public let why: String?
     public let reason: String?
-    /// The words of a yes that is remembered, when one may be.
+    /// The words of a yes that is remembered, when one may be, and exactly what it keeps.
     public let always: String?
+    public let alwaysTip: String?
+    /// Why there is no remembered yes, when there could have been one.
+    public let alwaysNote: String?
+    /// Who asks, by the chat's name.
+    public let asker: String?
     /// When it times out if the owner does not answer, when it does.
     public let expires: Date?
     /// The chat it is asked in, as KOS says: what keeps it up once that chat is shown.
     public let chat: String?
 
     public init(
-      id: String, tool: String, summary: String? = nil, args: String? = nil, mechanics: String? = nil, why: String? = nil, reason: String? = nil,
-      always: String? = nil, expires: Date? = nil, chat: String? = nil
+      id: String, tool: String, summary: String? = nil, title: String? = nil, args: String? = nil, mechanics: String? = nil,
+      steps: [StepLine]? = nil, said: String? = nil, place: String? = nil, tooLong: Bool = false, risk: String? = nil, why: String? = nil, reason: String? = nil,
+      always: String? = nil, alwaysTip: String? = nil, alwaysNote: String? = nil, asker: String? = nil, expires: Date? = nil,
+      chat: String? = nil
     ) {
       self.id = id
       self.summary = summary
+      self.title = title
       self.chat = chat
       self.tool = tool
       self.args = args
       self.mechanics = mechanics
+      self.steps = steps
+      self.place = place
+      self.tooLong = tooLong
+      self.said = said
+      self.risk = risk
       self.why = why
       self.reason = reason
       self.always = always
+      self.alwaysTip = alwaysTip
+      self.alwaysNote = alwaysNote
+      self.asker = asker
       self.expires = expires
+    }
+
+    /// The card's title: the host's, or the summary or tool an older host sent alone.
+    public var heading: String { title ?? summary ?? tool }
+
+    /// The steps the card lists: the host's lines, or an older host's mechanics as one line.
+    public var stepLines: [StepLine] {
+      if let steps { return steps }
+      return mechanics.map { [[.text($0)]] } ?? []
     }
   }
 
@@ -188,6 +229,8 @@ public final class ChatModel: ObservableObject {
   @Published public private(set) var conversation: String?
   @Published public private(set) var title = "KOS"
   @Published public private(set) var lines: [Line] = []
+  /// When each line was said, by its place in `lines`; nil for steps and for a line kept before lines kept their time.
+  @Published public private(set) var times: [Date?] = []
   /// The owner's words sent, and not yet in the chat.
   @Published public private(set) var sending: [String] = [] {
     didSet { sendingFiles = sendingFiles.filter { sending.contains($0.key) } }
@@ -350,7 +393,7 @@ public final class ChatModel: ObservableObject {
   /// to the first: the chat a status named them in, or, before any did, the first one shown. An ask made in the chat now
   /// shown stays, though it came
   /// before it was: the first chat's first turn can ask while the window still shows none.
-  public func show(conversation: String?, title: String, lines: [Line], notice: (text: String, from: String?, waiting: Bool)? = nil, mode: ChatMode = .ask, pictures: [Int: String] = [:]) {
+  public func show(conversation: String?, title: String, lines: [Line], times: [Date?] = [], notice: (text: String, from: String?, waiting: Bool)? = nil, mode: ChatMode = .ask, pictures: [Int: String] = [:]) {
     let fresh = conversation != self.conversation
     // Words sent while no chat was shown are on their way to the chat they went in, what their turn saw with them.
     let theirs = self.conversation == nil && (upcoming.map { $0 == conversation } ?? unshown)
@@ -389,6 +432,7 @@ public final class ChatModel: ObservableObject {
     }
     self.title = title
     self.lines = lines
+    self.times = lines.indices.map { times.indices.contains($0) ? times[$0] : nil }
     self.mode = mode
   }
 
@@ -481,7 +525,7 @@ public final class ChatModel: ObservableObject {
   /// by the words it is about.
   public func pictures(for item: Item) -> [Picture] {
     switch item {
-    case .line(_, .steps(let steps)): return picturesOf(steps.map(\.frame))
+    case .line(_, .steps(let steps), _): return picturesOf(steps.map(\.frame))
     case .story(_, let story): return picturesOf(liveFrames(of: story.said))
     default: return []
     }
@@ -594,6 +638,7 @@ public final class ChatModel: ObservableObject {
     unshown = false
     title = "KOS"
     lines = []
+    times = []
     sending = []
     notices = []
     working = false
@@ -686,16 +731,19 @@ public final class ChatModel: ObservableObject {
   static let doneMark = " (done)"
   static let failedMark = " (failed)"
 
-  /// One thing in the thread, in the order it is drawn.
+  /// One thing in the thread, in the order it is drawn: a line with when it was said, the day or pause over the line
+  /// of the same place, a notice, words on their way, a turn's story.
   public enum Item: Equatable, Identifiable {
-    case line(Int, Line)
+    case line(Int, Line, Date?)
+    case mark(Int, ChatTimes.Mark)
     case notice(Int, Notice)
     case sending(Int, String)
     case story(Int, Story)
 
     public var id: String {
       switch self {
-      case .line(let i, _): return "l\(i)"
+      case .line(let i, _, _): return "l\(i)"
+      case .mark(let i, _): return "m\(i)"
       case .notice(let i, _): return "n\(i)"
       case .sending(let i, _): return "s\(i)"
       case .story(let i, _): return "t\(i)"
@@ -725,12 +773,14 @@ public final class ChatModel: ObservableObject {
         placed.insert(i)
       }
     }
+    let marks = ChatTimes.marks(times)
     for (i, line) in lines.enumerated() {
       if case .you = line {
         place(yours)
         yours += 1
       }
-      out.append(.line(i, line))
+      if let mark = marks[i] { out.append(.mark(i, mark)) }
+      out.append(.line(i, line, times[i]))
     }
     for (i, text) in sending.enumerated() {
       place(yours)

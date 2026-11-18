@@ -1,7 +1,7 @@
 import { AnimatePresence, m, type HTMLMotionProps } from "motion/react";
-import { useEffect, useLayoutEffect, useRef, useState, type HTMLAttributes, type ReactElement, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type HTMLAttributes, type ReactElement, type ReactNode } from "react";
 
-import { stepMechanics } from "@kos/shared";
+import { formatDuration } from "@kos/shared";
 
 import { ChevronDown, CloseIcon, QuoteIcon } from "./icons.js";
 import { hover, inPlace, listItem, spring } from "./motion.js";
@@ -29,9 +29,9 @@ export function Pill({ tone = "muted", title, children }: { tone?: Tone; title?:
  * button, and not a state (that is a Pill). With `remove`, it ends in a
  * small × that takes it away: a hidden site, a hidden app.
  */
-export function Tag({ mono = false, title, remove, children }: { mono?: boolean; title?: string; remove?: { label: string; onRemove: () => void }; children: ReactNode }): ReactElement {
+export function Tag({ mono = false, tone, title, remove, children }: { mono?: boolean; tone?: "warn"; title?: string; remove?: { label: string; onRemove: () => void }; children: ReactNode }): ReactElement {
   return (
-    <span className={`tag${mono ? " tag--mono" : ""}${remove ? " tag--removable" : ""}`} title={title}>
+    <span className={`tag${mono ? " tag--mono" : ""}${tone ? ` tag--${tone}` : ""}${remove ? " tag--removable" : ""}`} title={title}>
       {children}
       {remove && (
         <IconButton tone="bare" label={remove.label} onClick={remove.onRemove}>
@@ -232,6 +232,31 @@ export function Countdown({ until, lead = "lapses in" }: { until: number; lead?:
   return <span className="countdown" data-soon={left < 15_000 || undefined}>{left > 0 ? `${lead} ${formatElapsed(left)}` : "lapsing"}</span>;
 }
 
+/**
+ * How long a step takes: counting each second while it runs, in whole
+ * seconds and tabular digits so it does not jitter, beside a soft pulse;
+ * how long it took once it has ("2.4s"). Nothing for a step kept before
+ * steps were timed, rather than a wrong time.
+ */
+export function StepTime({ running, startedAt, ms }: { running: boolean; startedAt?: number | undefined; ms?: number | undefined }): ReactElement | null {
+  const [now, setNow] = useState(() => Date.now());
+  const live = running && startedAt !== undefined;
+  useEffect(() => {
+    if (!live) return undefined;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [live]);
+  if (live) {
+    return (
+      <span className="step-time step-time--live" aria-label={`running ${formatDuration(now - startedAt, true)}`}>
+        <i aria-hidden="true" />
+        {formatDuration(now - startedAt, true)}
+      </span>
+    );
+  }
+  return !running && ms !== undefined ? <span className="step-time">{formatDuration(ms)}</span> : null;
+}
+
 /** A small uppercase head over what it labels, with an action at its right. */
 export function Section({ label, action, children }: { label: string; action?: ReactNode; children: ReactNode }): ReactElement {
   return (
@@ -288,14 +313,30 @@ export function DrawerRow({ icon, tone, title, detail, open, onToggle, trailing,
  * the dashboard's thread and KOS for Chrome's side panel show a step's
  * picture the same way.
  */
-export function StepPicture({ src, alt = "What this step saw" }: { src: string; alt?: string }): ReactElement {
+export function StepPicture({ src, alt = "What this step saw", caption, at }: { src: string; alt?: string; caption?: string | undefined; at?: number | undefined }): ReactElement {
   const [open, setOpen] = useState(false);
+  const view = useContext(PictureViewer);
+  if (view) {
+    return (
+      <button type="button" className="step-picture" onClick={(e) => view(e.currentTarget)} title={alt} data-picture={src} data-caption={caption} data-at={at}>
+        <img src={src} alt={alt} loading="lazy" />
+      </button>
+    );
+  }
   return (
     <button type="button" className={`step-picture${open ? " is-open" : ""}`} onClick={() => setOpen((v) => !v)} title={open ? "Smaller" : alt} aria-expanded={open}>
       <img src={src} alt={alt} loading="lazy" />
     </button>
   );
 }
+
+/**
+ * Where a step's picture opens when pressed, given the picture's button:
+ * a viewer over the page (the dashboard's Lightbox), which reads the
+ * button's data-picture, data-caption and data-at. Without one the picture
+ * grows in place, as KOS for Chrome's narrow panel has it.
+ */
+export const PictureViewer = createContext<((from: HTMLElement) => void) | null>(null);
 
 /** Where a quote came from, as a person names it: a page's site, or the app's name as the Mac gave it. */
 export function quoteSource(from: string): string {
@@ -350,14 +391,3 @@ export function QuoteLine({ text, from, label, lines = 3, onRemove }: { text: st
   );
 }
 
-/**
- * Under an ask's summary, the actions it would take, where the summary is
- * the model's account of a step rather than the step: "Close the popup"
- * over "Type “hunter2”, press cmd+q". The yes is for these, so they are on
- * the row itself, never behind a fold and never cut; a long run wraps.
- * From the host's `mechanics` when it sent them, else from the arguments.
- */
-export function AskSteps({ mechanics, tool, args }: { mechanics?: string | undefined; tool?: string; args?: string | Record<string, unknown> }): ReactElement | null {
-  const steps = mechanics ?? (tool && args !== undefined ? stepMechanics(tool, args) : undefined);
-  return steps ? <span className="ask-steps">{steps}</span> : null;
-}

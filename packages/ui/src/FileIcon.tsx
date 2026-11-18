@@ -14,9 +14,14 @@ export type FileClass =
   | "image"
   | "code"
   | "text"
+  | "doc"
+  | "sheet"
+  | "deck"
+  | "pdf"
   | "data"
   | "archive"
-  | "media"
+  | "audio"
+  | "video"
   | "file";
 
 const BY_EXTENSION: Record<string, FileClass> = {
@@ -27,16 +32,20 @@ const BY_EXTENSION: Record<string, FileClass> = {
   py: "code", rb: "code", go: "code", rs: "code", java: "code", c: "code",
   h: "code", cpp: "code", sh: "code", css: "code", html: "code", sql: "code",
 
-  md: "text", markdown: "text", txt: "text", log: "text", pdf: "text",
-  doc: "text", docx: "text",
+  md: "text", markdown: "text", txt: "text", log: "text",
 
-  json: "data", jsonl: "data", csv: "data", tsv: "data", yaml: "data",
+  pdf: "pdf",
+  doc: "doc", docx: "doc", docm: "doc", dotx: "doc", rtf: "doc", odt: "doc", pages: "doc",
+  xls: "sheet", xlsx: "sheet", xlsm: "sheet", xlsb: "sheet", ods: "sheet", numbers: "sheet", csv: "sheet", tsv: "sheet",
+  ppt: "deck", pptx: "deck", pptm: "deck", ppsx: "deck", pps: "deck", odp: "deck", key: "deck",
+
+  json: "data", jsonl: "data", yaml: "data",
   yml: "data", toml: "data", xml: "data", db: "data", sqlite: "data",
 
   zip: "archive", tar: "archive", gz: "archive", tgz: "archive", rar: "archive",
 
-  mp3: "media", wav: "media", m4a: "media", mp4: "media", mov: "media",
-  webm: "media", avi: "media",
+  mp3: "audio", wav: "audio", m4a: "audio", aac: "audio", flac: "audio", ogg: "audio",
+  mp4: "video", m4v: "video", mov: "video", webm: "video", avi: "video",
 };
 
 /**
@@ -88,6 +97,32 @@ const GLYPH: Record<FileClass, ReactElement> = {
       <path d="M8.5 13h5M8.5 16h3" />
     </>
   ),
+  doc: (
+    <>
+      {PAGE}
+      {FOLD}
+      <path d="M8.5 12.5h7M8.5 15.5h7M8.5 18.5h4" />
+    </>
+  ),
+  sheet: (
+    <>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <path d="M4 9.5h16M4 14.5h16M10 4v16" />
+    </>
+  ),
+  deck: (
+    <>
+      <rect x="3" y="4.5" width="18" height="12" rx="1.5" />
+      <path d="M12 16.5v3.5M8.5 20h7M7.5 9h5M7.5 12h8" />
+    </>
+  ),
+  pdf: (
+    <>
+      {PAGE}
+      {FOLD}
+      <path d="M8 16.5h8M8 13.5h5" strokeWidth="2.2" />
+    </>
+  ),
   data: (
     <>
       <ellipse cx="12" cy="6" rx="7" ry="3" />
@@ -102,7 +137,14 @@ const GLYPH: Record<FileClass, ReactElement> = {
       <path d="M11 12h2M11 15h2M11 18h2" />
     </>
   ),
-  media: (
+  audio: (
+    <>
+      <path d="M9 18V6l11-2v12" />
+      <circle cx="6.5" cy="18" r="2.5" />
+      <circle cx="17.5" cy="16" r="2.5" />
+    </>
+  ),
+  video: (
     <>
       <circle cx="12" cy="12" r="9" />
       <path d="M10 8.5v7l6-3.5-6-3.5Z" />

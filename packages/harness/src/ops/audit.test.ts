@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { caller } from "../kernel/caller.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { AuditLog } from "./audit.js";
@@ -19,6 +20,15 @@ describe("AuditLog", () => {
   afterEach(() => {
     ws.close();
     rmSync(root, { recursive: true, force: true });
+  });
+
+  it("keeps whose turn made a call: as said, else the calling turn's, on an older table too", () => {
+    ws.db.exec("CREATE TABLE audit_log (id INTEGER PRIMARY KEY, tool TEXT NOT NULL, args TEXT NOT NULL, result TEXT NOT NULL, is_error INTEGER NOT NULL, risk_tier TEXT, user_id TEXT, created_at INTEGER NOT NULL)");
+    const log = new AuditLog(ws.db);
+    const said = log.record({ tool: "files.write", args: {}, result: "ok", isError: false, conversationId: "c1" });
+    const called = caller.run("c2", () => log.record({ tool: "files.write", args: {}, result: "ok", isError: false }));
+    const none = log.record({ tool: "files.write", args: {}, result: "ok", isError: false });
+    expect([said, called, none].map((id) => log.get(id)?.conversationId)).toEqual(["c1", "c2", null]);
   });
 
   it("records tool calls and returns them newest-first", () => {

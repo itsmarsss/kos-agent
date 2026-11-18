@@ -13,6 +13,7 @@ import type { McpModule } from "../tools/mcp.js";
 import type { PermissionContext } from "../ops/permissions.js";
 import { FrameStore } from "../ops/frames.js";
 import { SeenPages } from "./seen.js";
+import { CallTimer } from "./calltimer.js";
 import { toolUse } from "./caller.js";
 import { ChatModes } from "./chatmodes.js";
 import { ownerLinesIn } from "./transcript.js";
@@ -66,6 +67,7 @@ import { PageWatchStore, type WatchLook } from "../ops/watches.js";
 import type { BuiltinFeature } from "../modules/builtins.js";
 import { MODULES_KEY, parseModuleSettings, withBuiltinEnabled } from "../modules/workspace.js";
 import { bootKernel, callerBlobOf } from "./boot.js";
+import { fileHomeOf, homeNote } from "./home.js";
 import { artifactFileRefusal, whyNot } from "../tools/systems.js";
 import { isKosState } from "../tools/files.js";
 import type { Reach } from "../tools/fence.js";
@@ -158,7 +160,7 @@ import { originOf } from "./origin.js";
 import type { HeardWords, OwnerWords } from "../models/heard.js";
 import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
-import { ASK, UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type ChatMode, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type HtmlPage, type ThemeMode } from "@kos/shared";
+import { ASK, UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type ChatMode, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type ActionHome, type FileHome, type HtmlPage, type ThemeMode } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { assertFits, attachmentBlocks, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -610,6 +612,8 @@ export class Kernel {
 
   /** Turn progress, for readers watching a conversation as it runs. */
   readonly progress = new ProgressBus({ scrub: (text) => this.secrets.scrub(text), holdBack: () => this.secrets.holdBack() });
+  /** How long each call of a turn takes, kept onto its result as the turn is kept. */
+  private readonly callTimer = new CallTimer();
   /**
    * What each conversation's model has said since its last tool call, from
    * the same stream the dashboard watches, so an approval can quote the
@@ -789,7 +793,7 @@ export class Kernel {
       ownerId: args.profile.ownerId,
       approvals: args.approvals,
       permissions: args.permissions,
-      conversations: args.conversations,
+      homeOf: (conversationId) => ({ home: this.fileHome(conversationId ?? undefined), root: args.workspace.root }),
       audit: args.audit,
       registry: args.registry,
       secrets: args.secrets,
@@ -1344,7 +1348,9 @@ export class Kernel {
             ? `You are the blob "${conversation.role}", a standing helper, working inside the project ${conversation.projectSlug}. What you make for it goes in the project's folder, projects/${conversation.projectSlug}/, so it lands with the project. Your own folder, blobs/${conversation.role}/, is for your notes: keep them there and read them back next time.`
             : `You are the blob "${conversation.role}", a standing helper. Your folder is blobs/${conversation.role}/: keep your notes and anything you make in it, and read it back next time.`
           : null;
-        const extra = [formatting, conversation?.brief, roleNote, scopeNote, asideNote]
+        // Where its files go and how to reach elsewhere, on both engines: a project's chat wrote to the root without it.
+        const filesNote = homeNote(this.fileHome(sessionId));
+        const extra = [formatting, conversation?.brief, roleNote, filesNote, scopeNote, asideNote]
           .filter((part): part is string => Boolean(part && part.trim()))
           .join("\n\n");
         // A guest's work is shown the room's project alone, and its tables only where sql reaches them.
@@ -3228,7 +3234,7 @@ export class Kernel {
         }
         const result =
           command.kind === "approve" ? await this.approve(action.id, userId) : await this.deny(action.id, userId);
-        const what = `@approval:${action.id} ${summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id))}`;
+        const what = `@approval:${action.id} ${summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id), this.actionHome(action.conversationId))}`;
         return { reply: result.ok ? `${command.kind === "approve" ? "Approved" : "Denied"} ${what}.` : result.message };
       }
 
@@ -3893,7 +3899,7 @@ export class Kernel {
       ...(opts.turnId ? { turnId: opts.turnId } : {}),
       ...(opts.signal ? { signal: opts.signal } : {}),
       permissions: this.permissions,
-      permissionContext: (tool) => this.browserContext(tool, opts.conversationId),
+      permissionContext: (tool) => this.permissionContextFor(tool, opts.conversationId),
       prepare: (tool) => this.readyBrowser(tool, opts.conversationId, opts.signal),
       ...(opts.heard ? { heard: opts.heard } : {}),
       chatMode: () => (opts.conversationId ? this.modes.of(opts.conversationId) : ASK),
@@ -3920,11 +3926,13 @@ export class Kernel {
       ...(opts.guest ? { guest: opts.guest } : {}),
       ...(opts.origin ? { origin: opts.origin } : {}),
       onQueued: (action) => {
+        this.callTimer.asked(toolUse.getStore(), action.id);
         opts.onQueued?.(action);
         this.onApprovalRequested?.(action);
         this.bus.emit({ kind: "approval:requested", id: action.id, tool: action.tool, conversationId: opts.conversationId ?? null });
       },
       onExecuted: (tool, result) => {
+        const took = this.callTimer.ended(toolUse.getStore(), (id) => this.approvals.get(id));
         this.afterToolRan(tool);
         this.keepFrame(tool, opts.conversationId, result);
         this.bus.emit({ kind: "tool:end", tool, isError: result.isError === true, conversationId: opts.conversationId ?? null });
@@ -3942,6 +3950,7 @@ export class Kernel {
             ...(typeof result.content === "string"
               ? { result: result.content.slice(0, 4000) }
               : {}),
+            ...took,
           });
         }
       },
@@ -3951,15 +3960,17 @@ export class Kernel {
       approvalTimeoutMs: this.behaviour().approvalMinutes * 60_000,
       whyFor: (id) => (id ? this.saidSince.get(id) : undefined),
       onStarted: (tool, input) => {
+        const at = this.callTimer.started(toolUse.getStore());
         if (!opts.conversationId) return;
         this.progress.emit({
           kind: "tool-start",
           conversationId: opts.conversationId,
           tool,
           // With the ids named, so a step reads "#leetcode", not a snowflake.
-          summary: summarizeAction(tool, input, (kind, id) => this.labelFor(kind, id)),
+          summary: summarizeAction(tool, input, (kind, id) => this.labelFor(kind, id), this.actionHome(opts.conversationId)),
           input,
           ...(this.inOwnersChrome(tool, opts.conversationId) ? { yours: true as const } : {}),
+          at,
         });
       },
     });
@@ -4035,14 +4046,14 @@ export class Kernel {
       // Without what this turn recalled: it was sent so the model had it, and
       // keeping it would write the transcript's own summary back into the
       // transcript on every turn.
-      const whole = withoutTurnContext(
+      const whole = this.callTimer.stamp(withoutTurnContext(
         spoke
           ? result.messages
           : [
               ...result.messages,
               { role: "assistant", content: [{ type: "text", text: reply }] },
             ],
-      );
+      ));
       /*
        * The turn's own messages, after whatever the chat holds now.
        *
@@ -4059,7 +4070,9 @@ export class Kernel {
       const opening = mine[0];
       const at = opening ? current.findIndex((m, i) => i >= (ctx.before ?? 0) && m.role === "user" && sameWords(m, opening)) : -1;
       const base = at >= 0 ? [...current.slice(0, at), ...current.slice(at + 1)] : current;
-      this.sessions.record(sessionId, [...base, ...mine]);
+      // The opening keeps the time it was written with, when the owner said it, not when the turn ended.
+      const said = at >= 0 && opening ? [{ ...opening, at: current[at]!.at }, ...mine.slice(1)] : mine;
+      this.sessions.record(sessionId, [...base, ...said]);
       // Only the auto-title is withheld from a resume prompt, which is
       // harness plumbing and must not rename anything.
       this.conversations.touch(
@@ -4124,18 +4137,26 @@ export class Kernel {
     }
   }
 
-  /** Where a chat's uploads go: its project's folder, its blob's, or the root's own. */
-  private uploadsDirOf(sessionId: string): string {
+  /** The folder a conversation's files belong in, and its relative paths start from (home.ts). */
+  fileHome(conversationId: string | undefined): FileHome {
     let conversation: Conversation | undefined;
     try {
-      conversation = this.conversations.get(sessionId);
+      conversation = conversationId ? this.conversations.get(conversationId) : undefined;
     } catch {
       conversation = undefined;
     }
-    if (conversation?.projectSlug) return `projects/${conversation.projectSlug}/uploads`;
-    const record = conversation?.role ? this.roles.get(conversation.role) : undefined;
-    if (record) return `${record.folder.replace(/\/+$/, "")}/uploads`;
-    return "uploads";
+    return fileHomeOf(conversation, conversation?.role ? this.roles.get(conversation.role)?.folder : undefined);
+  }
+
+  /** Where a chat's file paths land, as a step or a card names them. */
+  actionHome(conversationId: string | null | undefined): ActionHome {
+    return { home: this.fileHome(conversationId ?? undefined), root: this.workspace.root };
+  }
+
+  /** Where a chat's uploads go: its project's folder, its blob's, or the root's own. */
+  private uploadsDirOf(sessionId: string): string {
+    const { folder } = this.fileHome(sessionId);
+    return folder ? `${folder}/uploads` : "uploads";
   }
 
   /**
@@ -4207,6 +4228,11 @@ export class Kernel {
     return site !== undefined && this.away(conversationId)?.actsAlone?.(conversationId, site) === true ? "site" : false;
   }
 
+  /** What a remembered decision is judged against: the browser's site, and where the turn's file paths land. */
+  permissionContextFor(tool: string, conversationId?: string | null): PermissionContext {
+    return { ...this.browserContext(tool, conversationId ?? undefined), home: this.fileHome(conversationId ?? undefined), root: this.workspace.root };
+  }
+
   private browserContext(tool: string, conversationId?: string): PermissionContext | undefined {
     if (!tool.startsWith(BROWSER_PREFIX)) return undefined;
     const away = this.away(conversationId);
@@ -4255,13 +4281,12 @@ export class Kernel {
    * the thread as a file, so it shows up as a card and in Files.
    */
   private placeDownload(download: BrowserDownload): void {
-    const conversation = download.conversationId ? this.conversations.get(download.conversationId) : undefined;
     try {
       const settled = settleDownload({
         workspaceRoot: this.workspace.root,
         stagingPath: download.stagingPath,
         suggestedFilename: download.suggestedFilename,
-        projectSlug: conversation?.projectSlug ?? null,
+        home: this.fileHome(download.conversationId).folder,
       });
       if (download.conversationId) {
         this.progress.emit({ kind: "note", conversationId: download.conversationId, text: `Downloaded @file:${settled.path}` });
@@ -4346,7 +4371,7 @@ export class Kernel {
     for (const action of lapsed) {
       const id = action.conversationId;
       if (!id) continue;
-      this.noteIn(id, `@approval:${action.id} (${summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id))}) lapsed: nobody decided within ${hours} hour${hours === 1 ? "" : "s"}, so nothing was done. Ask again if it is still wanted.`);
+      this.noteIn(id, `@approval:${action.id} (${summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id), this.actionHome(id))}) lapsed: nobody decided within ${hours} hour${hours === 1 ? "" : "s"}, so nothing was done. Ask again if it is still wanted.`);
     }
     return lapsed;
   }
@@ -5136,7 +5161,7 @@ export class Kernel {
           parts.push(`Approval #${action.id}: not shown; it was asked in a chat that is not this one's to read.`);
           continue;
         }
-        const what = summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id));
+        const what = summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id), this.actionHome(action.conversationId));
         const fate =
           action.status === "pending"
             ? "still waiting on the owner"
@@ -5387,7 +5412,8 @@ export class Kernel {
         (m, i) => i >= at && m.role === "user" && m.content.some((b) => b.type === "text"),
       );
       if (idx >= 0) {
-        after[idx] = { role: "user", content: [...after[idx]!.content, ...carried] };
+        // The message as written, with its time and where it came from, and the files again.
+        after[idx] = { ...after[idx]!, content: [...after[idx]!.content, ...carried] };
         this.sessions.set(target, after);
       }
     }

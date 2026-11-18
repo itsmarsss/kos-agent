@@ -234,9 +234,9 @@ describe("the computer tools", () => {
     await call("computer.act", { action: "key", text: "cmd+s" });
     const session = fake.calls.find((c) => c.method === "session.begin")!.params["session"];
     expect(fake.statuses).toEqual([
-      { session, step: "Open the Quizzes tab (click)", waiting: false },
+      { session, step: "Open the Quizzes tab (click at 10, 20)", waiting: false },
       { session, step: "Search for it", waiting: false },
-      { session, step: "Press cmd+s", waiting: false },
+      { session, step: "Press ⌘S", waiting: false },
     ]);
   });
 

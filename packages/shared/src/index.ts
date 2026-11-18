@@ -62,12 +62,36 @@ export {
 } from "./htmlpage.js";
 
 export {
+  actionSteps,
   detailLines,
   formatApprovalPrompt,
   stepActions,
   stepMechanics,
+  stepText,
   summarizeAction,
+  type StepLine,
+  type StepPiece,
 } from "./format-action.js";
+
+export { formatDuration, waitWords } from "./duration.js";
+
+export { hasSecretRef } from "./secretref.js";
+
+export { BIDI, showInvisible } from "./invisible.js";
+
+export { keyCap, keyCaps, keyPlatformOf, type KeyPlatform } from "./keys.js";
+
+export {
+  alwaysTip,
+  alwaysWords,
+  askPlace,
+  askRisk,
+  askView,
+  type AskInput,
+  type AskPlace,
+  type AskRule,
+  type AskView,
+} from "./ask.js";
 
 export {
   CHAT_COMMANDS,
@@ -125,7 +149,21 @@ export {
   type BlobWhim,
   type Lobe,
 } from "./blob.js";
-export type { ActionNames } from "./format-action.js";
+export type { ActionHome, ActionNames } from "./format-action.js";
+export {
+  LAYOUT_FOLDERS,
+  ROOT_HOME,
+  WORKSPACE_MARK,
+  foldName,
+  homeWords,
+  outsideHome,
+  placePath,
+  placeWords,
+  reachWords,
+  inFolder,
+  type FileHome,
+  type PlacedPath,
+} from "./filehome.js";
 export {
   UNCHANGED,
   WAIT_BUDGET_MS,
@@ -146,6 +184,7 @@ export {
   type RunAdapter,
   type RunOptions,
 } from "./screenrun.js";
+export { GAP_MS, clockWords, dayNumber, dayWords, markWords, timeMarks, type TimeMark } from "./chattime.js";
 export { TIME_TOKEN, formatTime, instantOf, relativeWords, styleOf, timeCard, timesInWords, withUnixTimes, type TimeStyle } from "./time.js";
 export { pathsIn, type PathPart } from "./workspacepath.js";
 export { CHANNEL_TOKEN, channelNamesIn, surfaceName } from "./channel.js";
@@ -250,3 +289,18 @@ export {
   type ChatMode,
   type ChatModeName,
 } from "./chatmode.js";
+export type {
+  Cell as ViewCell,
+  DocView,
+  Frame as SlideFrame,
+  OfficeView,
+  Paragraph as SlideParagraph,
+  PictureView,
+  Run as SlideRun,
+  Shape as SlideShape,
+  Sheet as ViewSheet,
+  SheetView,
+  Slide,
+  SlidesView,
+  ViewFormat,
+} from "./officeview.js";

@@ -1,6 +1,6 @@
 import { accessSync, constants, existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, isAbsolute, join, relative } from "node:path";
 
 /**
  * The environment a spawned skill is given.
@@ -91,7 +91,15 @@ export function childEnv(
   }
   // A PATH is not optional; without one, spawning anything that is not an
   // absolute path fails in a way that reads as the skill being broken.
-  env.PATH = withBins(env.PATH ?? ["/usr/local/bin", "/usr/bin", "/bin"].join(delimiter), bins);
+  // Only absolute directories outside the child's home: a relative entry or
+  // one in the workspace would let a file the agent wrote stand in for a program.
+  const outside = (dir: string): boolean => {
+    if (!isAbsolute(dir)) return false;
+    const rel = relative(options.home, dir);
+    return rel.startsWith("..") || isAbsolute(rel);
+  };
+  const path = withBins(env.PATH ?? ["/usr/local/bin", "/usr/bin", "/bin"].join(delimiter), bins);
+  env.PATH = path.split(delimiter).filter(outside).join(delimiter);
 
   env.HOME = options.home;
   env.USERPROFILE = options.home;

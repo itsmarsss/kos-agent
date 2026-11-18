@@ -3,7 +3,7 @@ import { dirname, posix } from "node:path";
 
 import { PROJECTS_DIR } from "../sites/server.js";
 import { FILE_MAX_BYTES, decodedBytes, megabytes } from "./attachments.js";
-import { RESERVED } from "./files.js";
+import { isReservedName } from "./files.js";
 import type { Workspace } from "../store/workspace.js";
 
 /**
@@ -100,7 +100,7 @@ export function uploadDirAnywhere(dir: string): string {
   const rel = posix.normalize(clean);
   if (rel === "." || rel === "" || rel.startsWith("../") || rel === "..") throw new Error(`${dir} is not inside the workspace`);
   const top = rel.split("/")[0]!;
-  if (RESERVED.has(top.toLowerCase())) throw new Error(`${top} is the workspace's own; nothing is uploaded there`);
+  if (isReservedName(top)) throw new Error(`${top} is the workspace's own; nothing is uploaded there`);
   return rel;
 }
 

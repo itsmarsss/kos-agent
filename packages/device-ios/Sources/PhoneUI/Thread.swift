@@ -10,6 +10,10 @@ struct Thread: View {
   @ObservedObject var chat: ChatModel
   let review: () -> Void
   @Environment(\.accessibilityReduceMotion) private var still
+  /// The owner is swiping the thread to the left: every line shows its time, as iMessage reveals its times.
+  @State private var swiped = false
+  /// Every line's time shown from outside the thread too, as a render asks.
+  @Environment(\.chatTimesShown) private var shownAbove
 
   var body: some View {
     ScrollViewReader { reader in
@@ -32,7 +36,17 @@ struct Thread: View {
         .padding(.top, 16)
         .padding(.bottom, 12)
         .textSelection(.enabled)
+        .environment(\.chatTimesShown, swiped || shownAbove)
+        .animation(still ? nil : Theme.hover, value: swiped)
       }
+      // Sideways only: a drag that is mostly up or down is the thread's scroll.
+      .simultaneousGesture(
+        DragGesture(minimumDistance: 16)
+          .onChanged { drag in
+            let sideways = abs(drag.translation.width) > abs(drag.translation.height) * 1.5
+            swiped = sideways && drag.translation.width < -Self.revealDistance
+          }
+          .onEnded { _ in swiped = false })
       .scrollIndicators(.hidden)
       .scrollDismissesKeyboard(.interactively)
       .defaultScrollAnchor(.bottom)
@@ -51,6 +65,9 @@ struct Thread: View {
     return []
   }
 
+  /// How far to the left a swipe goes before the times show.
+  static let revealDistance: CGFloat = 32
+
   private func end(_ reader: ScrollViewProxy) {
     withAnimation(still ? nil : Theme.spring) { reader.scrollTo("end", anchor: .bottom) }
   }
@@ -64,14 +81,10 @@ private struct ItemView: View, Equatable {
 
   var body: some View {
     switch item {
-    case .line(_, let line):
-      switch line {
-      case .you(let text, let files, let quote): Bubble(text: text, files: files, quote: quote)
-      case .kos(let text): ChatMarkdown(text).frame(maxWidth: .infinity, alignment: .leading)
-      case .note(let text):
-        Text(text).font(.kos(.tiny)).foregroundStyle(Theme.faint).multilineTextAlignment(.center).frame(maxWidth: .infinity)
-      case .steps(let steps): Steps(steps: steps, pictures: pictures)
-      }
+    case .line(_, let line, let time):
+      ChatLine(line, time: time, pictures: pictures)
+    case .mark(_, let mark):
+      TimeMarkLine(mark)
     case .notice(_, let notice):
       VStack(alignment: .leading, spacing: 2) {
         if let from = notice.from { Text(from).font(.kos(.tiny, .semibold)).foregroundStyle(Theme.violet) }
@@ -120,14 +133,14 @@ private struct AskLine: View {
       Card(tone: Theme.warn, padding: EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12)) {
         HStack(spacing: 10) {
           Tile("hand.raised.fill", tint: Theme.warn, small: true)
-          RowText("KOS asks to run \(ask.tool)", ask.why ?? ask.reason ?? "Waiting on you", size: .control, titleLines: 1, detailLines: 2)
+          RowText(ask.heading, ask.place ?? ask.why ?? ask.reason ?? "Waiting on you", size: .control, titleLines: 1, detailLines: 2)
           Spacer(minLength: 6)
           Text("Review").font(.kos(.control, .semibold)).foregroundStyle(Theme.accent)
         }
       }
     }
     .buttonStyle(.plain)
-    .accessibilityLabel("KOS asks to run \(ask.tool). \(ask.why ?? ask.reason ?? "")")
+    .accessibilityLabel("\(ask.asker ?? "KOS") asks: \(ask.heading). \(ask.place ?? ask.why ?? ask.reason ?? "")")
     .accessibilityHint("Opens it to approve or deny")
   }
 }

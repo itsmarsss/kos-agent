@@ -1,4 +1,4 @@
-import { summarizeAction } from "@kos/shared";
+import { summarizeAction, type ActionHome } from "@kos/shared";
 
 import { heardWith } from "../models/heard.js";
 import { saidText, type MessageOrigin, type ModelMessage, type Quote } from "../models/types.js";
@@ -46,6 +46,8 @@ export type ChatEvent =
       origin?: MessageOrigin;
       /** What the owner quoted with it (text selected on a page), and where from: shown with their words, never as them. */
       quote?: Quote;
+      /** When it was written to the chat, epoch milliseconds; absent when it was kept before messages kept their time. */
+      at?: number;
     }
   | {
       kind: "tool";
@@ -66,6 +68,10 @@ export type ChatEvent =
       toolUseId?: string;
       /** A picture of the browser after this step, at /api/frames/:id. */
       frameId?: number;
+      /** How long it ran, ms, not counting a wait for the owner's yes; absent for a call kept before calls were timed. */
+      ms?: number;
+      /** How long it waited on the owner's yes, ms, when it asked. */
+      waitedMs?: number;
     }
   | {
       /** A line across the chat where it was cleared or compacted: what is above is kept for the reader, not for the model. */
@@ -128,14 +134,16 @@ export function ownerLinesIn(message: ModelMessage): number {
 
 /**
  * Walk a stored transcript into ordered events, pairing each tool call with
- * the result that came back for it.
+ * the result that came back for it. With the chat's home, a file step names
+ * where its path really lands and says when that is outside the home.
  */
-export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
+export function conversationEvents(messages: ModelMessage[], where?: ActionHome): ChatEvent[] {
   const events: ChatEvent[] = [];
   // tool_use id -> the event waiting for its result.
   const pending = new Map<string, Extract<ChatEvent, { kind: "tool" }>>();
 
   for (const message of messages) {
+    const at = message.at ? { at: message.at } : {};
     for (const block of message.content) {
       if (block.type === "reasoning") {
         const text = block.text.trim();
@@ -164,6 +172,7 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
             text: "",
             attachments: [attachment],
             ...(message.origin ? { origin: message.origin } : {}),
+            ...at,
           });
         }
         continue;
@@ -183,12 +192,13 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
           const note = message.role === "user" ? approvalNote(text) : null;
           events.push(
             note
-              ? { kind: "message", role: "system", text: note }
+              ? { kind: "message", role: "system", text: note, ...at }
               : {
                   kind: "message",
                   role: message.role === "user" ? "you" : "kos",
                   text,
                   ...(message.role === "user" && message.origin ? { origin: message.origin } : {}),
+                  ...at,
                 },
           );
         }
@@ -199,7 +209,7 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
         const event: Extract<ChatEvent, { kind: "tool" }> = {
           kind: "tool",
           name: block.name,
-          summary: summarizeAction(block.name, block.input),
+          summary: summarizeAction(block.name, block.input, undefined, where),
           args: block.input,
           toolUseId: block.id,
         };
@@ -216,12 +226,14 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
         if (target) {
           target.result = content.slice(0, MAX_RESULT);
           if (block.isError) target.isError = true;
+          if (block.ms !== undefined) target.ms = block.ms;
+          if (block.waitedMs !== undefined) target.waitedMs = block.waitedMs;
           const queued = parseQueuedApproval(content);
           if (queued) target.pendingId = queued;
           pending.delete(block.toolUseId);
         }
-        // What the owner said while the turn ran, where the turn heard it.
-        for (const w of said) events.push({ kind: "message", role: "you", text: w.text, ...(w.via ? { origin: { via: w.via } } : {}) });
+        // What the owner said while the turn ran, where the turn heard it, and when: the step that took it in.
+        for (const w of said) events.push({ kind: "message", role: "you", text: w.text, ...(w.via ? { origin: { via: w.via } } : {}), ...at });
       }
     }
   }
@@ -246,16 +258,16 @@ export function spokenTurns(
  * a compaction, each under a line saying so, then the chat as the model has
  * it now.
  */
-export function historyEvents(earlier: EarlierHistory[], current: ModelMessage[]): ChatEvent[] {
+export function historyEvents(earlier: EarlierHistory[], current: ModelMessage[], where?: ActionHome): ChatEvent[] {
   const out: ChatEvent[] = [];
   for (const stretch of earlier) {
-    out.push(...conversationEvents(stretch.messages));
+    out.push(...conversationEvents(stretch.messages, where));
     out.push({
       kind: "divider",
       at: stretch.at,
       text: stretch.why === "compacted" ? "Compacted here: what is above was folded into the summary below" : "Cleared here: what is above is kept for you, not for KOS",
     });
   }
-  out.push(...conversationEvents(current));
+  out.push(...conversationEvents(current, where));
   return out;
 }

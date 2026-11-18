@@ -1,18 +1,20 @@
-import { mkdirSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { guestOrigin, turnStop, underAuto } from "../kernel/caller.js";
 import { MAINTENANCE } from "../kernel/caretaker.js";
-import { RESERVED } from "../kernel/files.js";
+import { foldName, RESERVED } from "../kernel/files.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { destructiveCommand } from "../risk/beyondauto.js";
+import { readOnlyLine } from "../risk/readonly.js";
 import { shellBeyondAuto } from "../risk/shellauto.js";
-import { isReadOnlyCommand } from "../risk/readonly.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv } from "../sandbox/env.js";
+import { GIT_INFO_ATTRIBUTES, gitHeldOn, gitHoldEnv } from "../sandbox/githold.js";
 import { isContained, jailedCommand } from "../sandbox/jail.js";
 import { outsideScratch } from "./files.js";
+import { homeDirs, INTO_ANOTHER, placeFor, reachOutside, writeScope } from "./home.js";
 
 /**
  * shell.run: a command, in the workspace, jailed.
@@ -39,8 +41,11 @@ export const SHELL_MAX_OUTPUT = 20_000;
 
 /** The workspace database named on a command line: the shell's road around the sql fence. */
 export function namesDatabase(command: string): boolean {
-  return /kos\.sqlite/.test(command);
+  return /kos\.sqlite/i.test(foldName(command));
 }
+
+/** KOS's database and its journals, which a command run for anyone but Maintenance cannot read at all. */
+const DATABASE_FILES = ["kos.sqlite", "kos.sqlite-wal", "kos.sqlite-shm"];
 
 /** Said to a chat that reached for the database with the shell, instead of asking the owner. */
 export const DATABASE_REFUSED =
@@ -55,7 +60,7 @@ export const DATABASE_REFUSED =
  * names them.
  */
 export function namesHarnessConfig(command: string): boolean {
-  return /(^|[\s;&|<>()'"`=])(\.\/)?(mcp|profile|daemon)\.json\b/i.test(command);
+  return /(^|[\s;&|<>()'"`=])(\.\/)?(mcp|profile|daemon)\.json\b/i.test(foldName(command));
 }
 
 /** Said to a chat that reached for the harness's settings with the shell. */
@@ -74,35 +79,105 @@ export type ShellResult = CapturedRun;
  */
 export const CONTAINED_BEYOND_AUTO = "nothing narrower than the container holds the network";
 
-/**
- * What git is told for a line a chat's Auto runs: no hooks, no fsmonitor, no
- * pager, as command-line config that a repository's own cannot override, so a
- * config or a hook the agent wrote runs nothing on a git status.
- */
-export const AUTO_GIT_CONFIG: Record<string, string> = {
-  GIT_CONFIG_COUNT: "3",
-  GIT_CONFIG_KEY_0: "core.hooksPath",
-  GIT_CONFIG_VALUE_0: "/dev/null",
-  GIT_CONFIG_KEY_1: "core.fsmonitor",
-  GIT_CONFIG_VALUE_1: "false",
-  GIT_CONFIG_KEY_2: "core.pager",
-  GIT_CONFIG_VALUE_2: "cat",
-};
+/** Asked for by name to let a project's or a blob's command write past its own folder. */
+export const WIDE_WRITES = "workspace";
 
-export function runShell(
+/** True when the call asks to write anywhere in the workspace. */
+function wide(input: Record<string, unknown>): boolean {
+  return input["writes"] === WIDE_WRITES;
+}
+
+/**
+ * Where a project's or a blob's command keeps its tools' caches: its home's
+ * own cache folder. HOME is the workspace root, which such a command may not
+ * write, so pip, npm, Go, Cargo and anything that follows XDG would fail to
+ * cache or install for the user; and a cache is code the next run loads, so
+ * none is shared with another home.
+ */
+export function cacheEnv(cache: string): Record<string, string> {
+  return {
+    XDG_CACHE_HOME: cache,
+    npm_config_cache: join(cache, "npm"),
+    PIP_CACHE_DIR: join(cache, "pip"),
+    PYTHONUSERBASE: join(cache, "python"),
+    GOCACHE: join(cache, "go", "build"),
+    GOMODCACHE: join(cache, "go", "mod"),
+    CARGO_HOME: join(cache, "cargo"),
+  };
+}
+
+/**
+ * What a read-only run may not read although it is in the workspace: KOS's
+ * own state and settings, and a .env the host may have been started beside.
+ */
+const UNREAD = [...RESERVED, ".env"];
+
+export async function runShell(
   command: string,
-  opts: { workspaceRoot: string; cwd: string; timeoutMs: number; maxOutput: number; signal?: AbortSignal; auto?: boolean },
+  opts: {
+    workspaceRoot: string;
+    cwd: string;
+    timeoutMs: number;
+    maxOutput: number;
+    signal?: AbortSignal;
+    /**
+     * True for a line judged read-only, which runs without asking. The
+     * judgement is a string's, so the run is made one that cannot matter
+     * if it is wrong: no writes but its own temp folder, no network, none
+     * of KOS's own files, git with no hooks or transport. A run the owner
+     * approved writes the workspace, or only the folders in writes.
+     */
+    readOnlyRun?: boolean;
+    /** Where an approved run may write: a project's or a blob's own folders; the whole workspace when absent. */
+    writes?: string[];
+    /** Paths no run may read, read-only or approved. */
+    hidden?: string[];
+    /** A home's own temp and caches, in place of the workspace's shared temp. */
+    dirs?: { tmp: string; cache: string };
+    /**
+     * True for a line a chat's Auto let run unasked. It writes as an
+     * approved run does (Auto must be able to build), but the jail, not the
+     * list of programs, is the boundary: this machine's network only, and
+     * git held as for a read-only run.
+     */
+    auto?: boolean;
+  },
 ): Promise<ShellResult> {
-  const tmp = join(opts.workspaceRoot, ".kos", "tmp");
-  mkdirSync(tmp, { recursive: true });
-  // A line Auto let run: the jail, not the list, is the boundary, so it runs with no network and git held to itself.
-  return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot, readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)), ...(opts.auto ? { network: "local" as const } : {}) }), {
-    cwd: opts.cwd,
-    env: { ...childEnv({ home: opts.workspaceRoot, tmp }), ...(opts.auto ? AUTO_GIT_CONFIG : {}) },
-    timeoutMs: opts.timeoutMs,
-    maxOutput: opts.maxOutput,
-    ...stopOf(opts.signal),
-  });
+  // A home's own temp and caches, or the workspace's shared temp at the root; a read-only run's fresh temp inside it.
+  const shared = opts.dirs?.tmp ?? join(opts.workspaceRoot, ".kos", "tmp");
+  for (const dir of [shared, ...(opts.dirs ? [opts.dirs.cache] : [])]) mkdirSync(dir, { recursive: true });
+  const tmp = opts.readOnlyRun ? mkdtempSync(join(shared, "read-")) : shared;
+  const jail = opts.readOnlyRun
+    ? {
+        workspaceRoot: opts.workspaceRoot,
+        writes: [tmp],
+        hidden: [...UNREAD.map((name) => join(opts.workspaceRoot, name)), ...(opts.hidden ?? [])],
+        unreadable: [GIT_INFO_ATTRIBUTES],
+        network: false,
+        sealed: true,
+      }
+    : {
+        workspaceRoot: opts.workspaceRoot,
+        readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)),
+        ...(opts.writes ? { writes: opts.writes } : {}),
+        ...(opts.hidden ? { hidden: opts.hidden } : {}),
+        ...(opts.auto ? { network: "local" as const } : {}),
+      };
+  // A read-only run writes no cache; an approved one keeps its home's own.
+  const extra: Record<string, string> = opts.readOnlyRun ? { NPM_CONFIG_UPDATE_NOTIFIER: "false" } : opts.dirs ? cacheEnv(opts.dirs.cache) : {};
+  try {
+    return await runCaptured(jailedCommand(command, jail), {
+      cwd: opts.cwd,
+      // Git's program-naming settings pinned (fsmonitor, pager, editors, gpg,
+      // attributes); hooks and transport too for a run nobody approved, read-only or Auto's.
+      env: gitHoldEnv(childEnv({ home: opts.workspaceRoot, tmp }, extra), { readOnly: opts.readOnlyRun === true || opts.auto === true }),
+      timeoutMs: opts.timeoutMs,
+      maxOutput: opts.maxOutput,
+      ...stopOf(opts.signal),
+    });
+  } finally {
+    if (opts.readOnlyRun) rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 export function createShellModule(options: ShellModuleOptions = {}): KosModule {
@@ -118,19 +193,27 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
     },
     activate(ctx: ModuleContext) {
       const ws = requireServices(ctx).workspace;
+      const cwdReach = reachOutside(ws, ctx, (input) => [input["cwd"]]);
+      // A git line is a read only where the git a child finds can be held.
+      const readOnly = (command: string): string | undefined => readOnlyLine(command, { gitHeld: gitHeldOn(childEnv({ home: ws.root }).PATH ?? "") });
       ctx.registerTool(
         {
           name: "shell.run",
           description:
             "Run a shell command inside the workspace: git, pnpm, a build, a program. It cannot see the owner's home directory or write outside the workspace. Prefer the files, search and sql tools when one does the job, and python.run for a calculation or a short Python script, which runs at once without asking; use this for programs. " +
-            "A command line that only reads (ls, cat, grep, find, git status/log/diff, and the like, joined by pipes or &&) runs without asking; anything that writes, runs code or reaches the network asks the owner first. Output is capped; long runs time out. " +
+            "A command line that only reads (ls, cat, grep, find, git status/log/diff, and the like, joined by pipes or &&) runs without asking, offline and unable to write; anything that writes, runs code or reaches the network asks the owner first. To see a project's packages, read package.json with files.read; pnpm and yarn ask. Output is capped; long runs time out. " +
+            `In a project's or a blob's chat it writes only in your own folder and scratch/; writes: "${WIDE_WRITES}" lets it write anywhere in the workspace, which the owner is asked for by name. ` +
             "kos.sqlite, KOS's own database, is refused here, not asked about: jobs, chats, tasks, blobs and memory are read through cron.list, chats.list, tasks.list, blobs.list and memory.recall.",
           inputSchema: {
             type: "object",
             properties: {
               command: { type: "string", description: "the command line, run by /bin/sh" },
-              cwd: { type: "string", description: "workspace-relative directory to run in; the workspace root by default" },
+              cwd: {
+                type: "string",
+                description: "directory to run in: your own folder by default (your project's, or the workspace at the root), and a relative one inside it; workspace:<path> is from the workspace root. ~ is the workspace root.",
+              },
               timeout: { type: "number", description: `seconds before it is killed (default ${timeoutSeconds})` },
+              writes: { type: "string", enum: [WIDE_WRITES], description: "only to write outside your own folder and scratch/: asks the owner for the whole workspace" },
             },
             required: ["command"],
           },
@@ -138,10 +221,23 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
         async (input) => {
           const command = typeof input["command"] === "string" ? input["command"].trim() : "";
           if (!command) throw new Error("command is required");
-          const cwdRel = typeof input["cwd"] === "string" && input["cwd"].trim() ? input["cwd"].trim() : ".";
-          const cwd = ws.resolve(cwdRel);
+          const asked = typeof input["cwd"] === "string" && input["cwd"].trim() ? input["cwd"].trim() : undefined;
+          const cwd = placeFor(ws, ctx, asked ?? ".").abs;
+          // The turn's own folder is made if the project has written nothing yet; a folder asked for must be there.
+          if (asked === undefined) mkdirSync(cwd, { recursive: true });
           const seconds = typeof input["timeout"] === "number" && input["timeout"] > 0 ? Math.min(input["timeout"], 3600) : timeoutSeconds;
-          const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput: maxOutput, ...stopOf(turnStop.getStore()), ...(underAuto.getStore() ? { auto: true } : {}) });
+          // A project's or a blob's command writes in its own folders unless the owner allowed the whole workspace by name.
+          const narrowed = writeScope(ws, ctx);
+          const writes = wide(input) ? undefined : narrowed;
+          // A project's or a blob's own temp and caches, even when it may write the whole workspace.
+          const dirs = narrowed ? homeDirs(ws, ctx) : undefined;
+          for (const dir of writes ?? []) mkdirSync(dir, { recursive: true });
+          // The database is unreadable to every command but Maintenance's own, whatever spelling or glob names it.
+          const repairs = ctx.services?.callerProject?.() === MAINTENANCE.slug && guestOrigin() === undefined;
+          const hidden = repairs ? undefined : DATABASE_FILES.map((name) => join(ws.root, name));
+          // A line judged read-only ran unasked, so it runs where the judgement cannot matter, as the line that judgement gives.
+          const line = readOnly(command);
+          const result = await runShell(line ?? command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput, readOnlyRun: line !== undefined, ...stopOf(turnStop.getStore()), ...(line === undefined && underAuto.getStore() ? { auto: true } : {}), ...(writes ? { writes } : {}), ...(hidden ? { hidden } : {}), ...(dirs ? { dirs } : {}) });
           return JSON.stringify(result);
         },
         // Risky by floor, as the spec says; a line that provably only reads
@@ -153,14 +249,24 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
         // command that writes, unless a guest's words started the work.
         {
           floor: "risky",
-          why: "a command that may write",
-          relax: (input) => typeof input["command"] === "string" && isReadOnlyCommand(input["command"]),
+          // In the container nothing narrower than the container holds a project's command to its folder, and the card says so.
+          why: () => (isContained() && writeScope(ws, ctx) ? "a command that may write anywhere in the workspace: only the container holds it" : "a command that may write"),
+          relax: (input) => typeof input["command"] === "string" && readOnly(input["command"]) !== undefined,
+          // Writing the whole workspace is its own ask, beyond Auto; run somewhere outside the turn's own folder, the card says where.
+          reach: (input) => (wide(input) && writeScope(ws, ctx) ? { why: "may write anywhere in the workspace", beyondAuto: INTO_ANOTHER } : cwdReach(input)),
           // What a chat's Auto runs unasked: only a line of reading and building programs (risk/shellauto.ts).
           // A line that destroys work says so first, as the reason the owner reads.
           beyondAuto: (input) => {
             if (contained) return CONTAINED_BEYOND_AUTO;
             const command = typeof input["command"] === "string" ? input["command"] : "";
-            const cwd = typeof input["cwd"] === "string" && input["cwd"].trim() ? input["cwd"].trim() : ".";
+            const asked = typeof input["cwd"] === "string" && input["cwd"].trim() ? input["cwd"].trim() : ".";
+            // Where the line runs, from the workspace root, placed as the run places it: from the turn's home.
+            let cwd: string;
+            try {
+              cwd = placeFor(ws, ctx, asked).rel || ".";
+            } catch {
+              return "runs in a folder the jail refuses";
+            }
             // A file (not a folder) that is there outside scratch, by its path from the root: one the jail would not let the line reach is not there for it.
             const exists = (path: string): boolean => {
               try {
@@ -169,7 +275,12 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
                 return false;
               }
             };
-            return destructiveCommand(command, (path) => exists(join(cwd, path)), (path) => !outsideScratch(join(cwd, path))) || shellBeyondAuto(command, exists, cwd);
+            // A target as the line names it, from the root: ~ and $HOME are the root, the child's home.
+            const fromRoot = (path: string): string => {
+              const home = /^(?:~|\$HOME|\$\{HOME\})(?:\/(.*))?$/.exec(path);
+              return home ? home[1] || "." : join(cwd, path);
+            };
+            return destructiveCommand(command, (path) => exists(fromRoot(path)), (path) => !outsideScratch(fromRoot(path))) || shellBeyondAuto(command, exists, cwd);
           },
           refuse: (input) => {
             if (typeof input["command"] !== "string") return false;

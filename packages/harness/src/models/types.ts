@@ -56,6 +56,10 @@ export interface ToolResultBlock {
   images?: ToolImage[];
   /** What the owner said while the turn ran, heard with this result; joined to its text only for a model. */
   heard?: HeardWords;
+  /** How long the call ran, ms, not counting a wait for the owner's yes; absent from calls kept before it was timed. */
+  ms?: number;
+  /** How long it waited on the owner's yes, ms, when it asked. */
+  waitedMs?: number;
 }
 
 /**
@@ -134,6 +138,12 @@ export interface ModelMessage {
    * handoff's brief) is already in the words.
    */
   origin?: MessageOrigin;
+  /**
+   * When it was written to the chat, epoch milliseconds, stamped by the
+   * session store; 0 for a message kept before messages kept their time,
+   * which no reader is shown a time for. Never sent to the model, as origin.
+   */
+  at?: number;
 }
 
 /** A room on a surface that has rooms: a Discord channel, thread or DM. */

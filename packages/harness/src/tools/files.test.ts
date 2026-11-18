@@ -65,6 +65,36 @@ describe("filesModule", () => {
     expect((await registry.execute("files.write", { path: "sites/mcp.json", content: "{}" })).isError).toBe(false);
   });
 
+  it("never writes git's own control, whose settings name programs a git read runs", async () => {
+    mkdirSync(join(root, "projects", "x", ".git", "hooks"), { recursive: true });
+    writeFileSync(join(root, "projects", "x", ".git", "config"), "[core]\n");
+    mkdirSync(join(root, "evil"), { recursive: true });
+    writeFileSync(join(root, "notes.txt"), "[core]\n\tfsmonitor = ./x\n");
+    for (const [tool, input] of [
+      ["files.write", { path: "projects/x/.git/config", content: "[core]\n\tfsmonitor = ./x\n" }],
+      ["files.write", { path: "projects/x/.GIT/config", content: "x" }],
+      ["files.write", { path: "projects/x/.git/hooks/pre-commit", content: "#!/bin/sh\n" }],
+      ["files.write", { path: "projects/x/.git/info/attributes", content: "* diff=x\n" }],
+      ["files.write", { path: "projects/y/.git", content: "gitdir: ../g\n" }],
+      ["files.write", { path: ".gitconfig", content: "[core]\n" }],
+      ["files.write", { path: ".config/git/config", content: "[core]\n" }],
+      ["files.edit", { path: "projects/x/.git/config", find: "[core]", replace: "[core]\n\tpager = ./x" }],
+      ["files.cp", { from: "notes.txt", to: "projects/x/.git/config" }],
+      ["files.mv", { from: "notes.txt", to: "projects/x/.git/config" }],
+      ["files.mv", { from: "evil", to: "projects/x/.git" }],
+      ["files.mv", { from: "projects/x/.git", to: "evil/moved" }],
+      ["files.mv", { from: "projects/x/.git/config", to: "notes2.txt" }],
+    ] as const) {
+      const res = await registry.execute(tool, input);
+      expect(res.isError, `${tool} ${JSON.stringify(input)}`).toBe(true);
+      expect(res.content).toContain("git's own control");
+    }
+    expect(readFileSync(join(root, "projects", "x", ".git", "config"), "utf8")).toBe("[core]\n");
+    expect(existsSync(join(root, ".gitconfig"))).toBe(false);
+    expect((await registry.execute("files.read", { path: "projects/x/.git/config" })).content).toBe("[core]\n");
+    expect((await registry.execute("files.write", { path: "projects/x/.gitignore", content: "dist\n" })).isError).toBe(false);
+  });
+
   it("leaves .kos alone: results set aside there are read only through context.recall", async () => {
     mkdirSync(join(root, ".kos", "results"), { recursive: true });
     writeFileSync(join(root, ".kos", "results", "r_00000000.json"), "{}");
@@ -76,6 +106,8 @@ describe("filesModule", () => {
       ["files.cp", { from: "notes.txt", to: ".kos/results/notes.txt" }],
       ["files.mv", { from: ".kos/results/r_00000000.json", to: "moved.json" }],
       ["files.mv", { from: "notes.txt", to: ".kos/notes.txt" }],
+      ["files.read", { path: ".ko\u017f/results/r_00000000.json" }],
+      ["files.ls", { path: ".\uFF4Bos/results" }],
     ] as const) {
       const res = await registry.execute(tool, input);
       expect(res.isError, `${tool} ${JSON.stringify(input)}`).toBe(true);

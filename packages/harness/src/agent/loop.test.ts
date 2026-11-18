@@ -89,6 +89,22 @@ describe("runAgent", () => {
     });
   });
 
+  it("stamps each message as it is made, so a step keeps its own time", async () => {
+    const reg = new ToolRegistry();
+    reg.register({ name: "slow", description: "takes a while", inputSchema: { type: "object" } }, async () => {
+      await new Promise((done) => setTimeout(done, 40));
+      return "done";
+    });
+    const inference = new ScriptedInference([
+      { content: [{ type: "tool_use", id: "t1", name: "slow", input: {} }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "mock" },
+      { content: [{ type: "text", text: "Finished." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "mock" },
+    ]);
+    const result = await runAgent(inference, reg, "go");
+    const [, called, heard, replied] = result.messages.map((m) => m.at);
+    expect(heard! - called!).toBeGreaterThanOrEqual(35);
+    expect(replied!).toBeGreaterThanOrEqual(heard!);
+  });
+
   it("passes tool defs to the model when tools are registered", async () => {
     const inference = new ScriptedInference([
       {
@@ -304,7 +320,7 @@ describe("stopping a turn", () => {
     const result = await runAgent(inference, addRegistry(), "write an essay", { shouldStop: () => stopped, onDelta: () => undefined });
     expect(result.stopped).toBe(true);
     expect(result.finalText).toBe("The press began in Mainz");
-    expect(result.messages.at(-1)).toEqual({ role: "assistant", content: [{ type: "text", text: "The press began in Mainz" }] });
+    expect(result.messages.at(-1)).toEqual({ role: "assistant", content: [{ type: "text", text: "The press began in Mainz" }], at: expect.any(Number) });
   });
 
   it("still raises when the call failed for its own reasons", async () => {

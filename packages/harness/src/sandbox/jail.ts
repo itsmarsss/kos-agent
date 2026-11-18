@@ -28,6 +28,15 @@ export interface JailOptions {
   hidden?: string[];
   /** Under the workspace yet not to be written: KOS's own settings and database, whatever path, glob or link names them. */
   readOnly?: string[];
+  /** Regexes over absolute paths not to be read, wherever they fall. */
+  unreadable?: string[];
+  /**
+   * True to keep the program from reaching past the sandbox through the
+   * system: no signals to other processes, no Apple Events, no preference
+   * writes, and only the mach services a plain program needs, so no
+   * LaunchServices (`open`), pasteboard or other daemon does its bidding.
+   */
+  sealed?: boolean;
   /** Readable although under a denied home: an interpreter's own libraries. */
   reads?: string[];
   /**
@@ -89,6 +98,23 @@ function subpaths(paths: string[]): string {
   return paths.flatMap(spellings).map((p) => `(subpath ${sb(p)})`).join(" ");
 }
 
+/** The mach services a sealed program may look up: name lookup, notifications, logging. */
+const SEALED_SERVICES = [
+  "com.apple.system.opendirectoryd.libinfo",
+  "com.apple.system.notification_center",
+  "com.apple.system.logger",
+  "com.apple.logd",
+  "com.apple.diagnosticd",
+];
+
+const SEALED = [
+  "(deny signal (target others))",
+  "(deny mach-lookup)",
+  `(allow mach-lookup ${SEALED_SERVICES.map((name) => `(global-name ${sb(name)})`).join(" ")})`,
+  "(deny appleevent-send)",
+  "(deny user-preference-write)",
+];
+
 /**
  * The profile: everything allowed, then writes denied except in the
  * workspace (or the folders named), then the home directories denied for
@@ -126,15 +152,17 @@ export function sandboxProfile(options: JailOptions): string {
     "(allow default)",
     ...networkRules(options.network, options.kosPorts ?? kosPorts()),
     "(deny file-write*)",
-    `(allow file-write* ${writes} (literal "/dev/null") (regex #"^/dev/tty"))`,
+    `(allow file-write* ${writes} (literal "/dev/null") (literal "/dev/tty"))`,
     ...homes.map((h) => `(deny file-read* (subpath ${sb(resolve(h))}))`),
     `(allow file-read* ${[ws, ...(options.reads?.length ? [subpaths(options.reads)] : [])].join(" ")})`,
     ...(options.hidden?.length ? [`(deny file-read* ${subpaths(options.hidden)})`] : []),
     ...(options.writes?.length ? [`(allow file-read* ${writes})`] : []),
     ...(options.readOnly?.length ? [`(deny file-write* ${subpaths(options.readOnly)})`] : []),
+    ...(options.unreadable?.length ? [`(deny file-read* ${options.unreadable.map((r) => `(regex #"${r}")`).join(" ")})`] : []),
     // Last, so no allow above carves them back out.
     ...((options.secretFiles ?? kosSecretFiles()).length ? [`(deny file-read* ${subpaths(options.secretFiles ?? kosSecretFiles())})`] : []),
     "(allow file-read-metadata)",
+    ...(options.sealed ? SEALED : []),
     "",
   ];
   return lines.join("\n");

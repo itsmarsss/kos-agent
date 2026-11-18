@@ -12,8 +12,8 @@ describe("settling a download", () => {
     expect(safeName("../../etc/passwd")).toBe("passwd");
     expect(safeName('bad:name?.txt')).toBe("bad_name_.txt");
     expect(safeName("")).toBe("download");
-    expect(downloadsFolder("garden")).toBe("projects/garden/downloads");
-    expect(downloadsFolder(null)).toBe("downloads");
+    expect(downloadsFolder("projects/garden")).toBe("projects/garden/downloads");
+    expect(downloadsFolder("")).toBe("downloads");
   });
 
   it("finds a name nothing has yet", () => {
@@ -26,12 +26,12 @@ describe("settling a download", () => {
     const moves: [string, string][] = [];
     const made: string[] = [];
     const result = settleDownload(
-      { workspaceRoot: "/w", stagingPath: "/w/.kos/browser-downloads/abc-guid", suggestedFilename: "Q3 report.pdf", projectSlug: "finance" },
+      { workspaceRoot: "/w", stagingPath: "/w/.kos/browser-downloads/abc-guid", suggestedFilename: "Q3 report.pdf", home: "projects/finance" },
       { exists: (p) => p === "/w/.kos/browser-downloads/abc-guid", mkdir: (p) => made.push(p), rename: (a, b) => moves.push([a, b]) },
     );
     expect(result).toEqual({ path: "projects/finance/downloads/Q3 report.pdf", name: "Q3 report.pdf" });
     expect(made).toEqual(["/w/projects/finance/downloads"]);
     expect(moves).toEqual([["/w/.kos/browser-downloads/abc-guid", "/w/projects/finance/downloads/Q3 report.pdf"]]);
-    expect(() => settleDownload({ workspaceRoot: "/w", stagingPath: "/w/.kos/browser-downloads/nope", suggestedFilename: "x", projectSlug: null }, { exists: () => false })).toThrow(/not found/);
+    expect(() => settleDownload({ workspaceRoot: "/w", stagingPath: "/w/.kos/browser-downloads/nope", suggestedFilename: "x", home: "" }, { exists: () => false })).toThrow(/not found/);
   });
 });

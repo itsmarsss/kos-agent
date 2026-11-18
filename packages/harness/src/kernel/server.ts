@@ -1,14 +1,15 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { pipeline, Readable, type Writable } from "node:stream";
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
-import { dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
 
 import { parseHomeLayout,
   CHAT_COMMANDS,
 } from "@kos/shared";
-import { isExportFormat, outlineOf, parseChatMode, stepMechanics, summarizeAction, type ChatMode, type WidgetOutline } from "@kos/shared";
+import { askView, hasSecretRef, isExportFormat, outlineOf, parseChatMode, stepMechanics, summarizeAction, type AskView, type ChatMode, type WidgetOutline } from "@kos/shared";
 import type { PendingAction } from "../ops/approvals.js";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
@@ -23,6 +24,7 @@ import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 import { MAINTENANCE } from "./caretaker.js";
+import { HOST_KEYS } from "../channels/hostkeys.js";
 import {
   BEHAVIOUR_DEFAULTS,
   BEHAVIOUR_KEY,
@@ -45,7 +47,8 @@ import {
 } from "../models/settings.js";
 import { historyEvents, type ChatEvent } from "./transcript.js";
 import { isUndone } from "./guarded.js";
-import { copyEntry, deleteEntry, listDirectory, makeDir, readForText, readForView, readImage, readBytes, readPdf, renameEntry, type DirEntry } from "./files.js";
+import { defaultFilesDeps, handleFilesRoute } from "./filesroutes.js";
+import { copyEntry, dispositionOf, listDirectory, makeDir, readForText, readForView, readImage, readBytes, readPdf, renameEntry, type DirEntry } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, sumSpend, windowFor, RATES_KEY, type Rates, type SpendSummary } from "../ops/spend.js";
 import type { FailingJob } from "../ops/health.js";
@@ -88,7 +91,7 @@ import {
 } from "../catalog/catalog.js";
 import { DEFAULT_SEARCH } from "@kos/browser";
 import { readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
-import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId } from "./session.js";
+import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId, historySize } from "./session.js";
 
 /** Where the owner's home arrangement lives. */
 export const HOME_LAYOUT_KEY = "home.layout";
@@ -307,15 +310,40 @@ function conversationLabeller(
  * words with its ids named, and, where those words are the model's account
  * of a step, the actions it would take. A yes is given for those.
  */
-function pendingView(kernel: Kernel, a: PendingAction): PendingAction & { asker?: string; summary: string; mechanics?: string } {
-  const mechanics = stepMechanics(a.tool, a.args);
+interface PendingCard extends PendingAction, AskView {
+  asksAlways?: true;
+  asker?: string;
+  summary: string;
+  mechanics?: string;
+}
+
+/** Stored arguments as their object, or nothing to read when they are not JSON. */
+function parsedArgs(args: string): unknown {
+  try {
+    return JSON.parse(args) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function pendingView(kernel: Kernel, a: PendingAction): PendingCard {
+  const names = (kind: string, id: string): string | undefined => kernel.labelFor(kind, id);
+  const where = kernel.actionHome(a.conversationId);
+  const mechanics = stepMechanics(a.tool, a.args, HOST_KEYS);
+  // The card's own layout, for a surface that cannot read the arguments itself (KOS for iPhone).
+  const asksAlways = hasSecretRef(parsedArgs(a.args));
+  const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule, ...(a.yours ? { yours: true } : {}), asksAlways, names, where, platform: HOST_KEYS });
   return {
     ...a,
+    // It places a secret: asked about every time, never remembered.
+    ...(asksAlways ? { asksAlways: true } : {}),
     asker: kernel.askerOf(a.conversationId)?.name,
-    summary: summarizeAction(a.tool, a.args, (kind, id) => kernel.labelFor(kind, id)),
+    summary: summarizeAction(a.tool, a.args, names, where, HOST_KEYS),
     ...(mechanics ? { mechanics } : {}),
+    ...view,
   };
 }
+
 
 /** A decided ask as the Inbox lists it: in words, who asked, and none of the arguments. */
 function decidedView(kernel: Kernel, a: PendingAction): Omit<PendingAction, "args"> & { asker?: string; summary: string } {
@@ -323,7 +351,7 @@ function decidedView(kernel: Kernel, a: PendingAction): Omit<PendingAction, "arg
   return {
     ...rest,
     asker: kernel.askerOf(a.conversationId)?.name,
-    summary: summarizeAction(a.tool, args, (kind, id) => kernel.labelFor(kind, id)),
+    summary: summarizeAction(a.tool, args, (kind, id) => kernel.labelFor(kind, id), kernel.actionHome(a.conversationId)),
   };
 }
 
@@ -541,6 +569,16 @@ function knownChannels(kernel: Kernel): KnownChannel[] {
     ...(p.bound ? { bound: p.bound, home: kernel.titleOf(p.bound) } : {}),
     ...(p.audience ? { audience: p.audience } : {}),
   }));
+}
+
+/**
+ * A stream answered: the file read from disk to the socket, and the file
+ * closed whichever ends first, a read that fails or a client that leaves.
+ */
+export function streamTo(body: Readable, res: Writable): void {
+  pipeline(body, res, () => {
+    // An abort or a failed read ends both; there is no one left to tell.
+  });
 }
 
 export async function handleApiRequest(
@@ -1969,15 +2007,21 @@ export async function handleApiRequest(
    * new folder, download. Theirs, so no approval; jailed, so no escape;
    * and the workspace's own files refused by name.
    */
-  if (method === "POST" && (path === "/api/files/rename" || path === "/api/files/copy" || path === "/api/files/delete" || path === "/api/files/mkdir")) {
+  if (method === "POST" && (path === "/api/files/rename" || path === "/api/files/copy" || path === "/api/files/mkdir")) {
     try {
       if (path === "/api/files/rename") return ok(renameEntry(kernel.workspace, body.from, body.to));
       if (path === "/api/files/copy") return ok(copyEntry(kernel.workspace, body.from, typeof body.to === "string" ? body.to : undefined));
-      if (path === "/api/files/delete") return ok(deleteEntry(kernel.workspace, body.path));
       return ok(makeDir(kernel.workspace, body.path));
     } catch (err) {
       return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
     }
+  }
+
+  // Office views, thumbnails, a file's facts, search, recents and the trash (filesroutes.ts).
+  if (path.startsWith("/api/file")) {
+    const range = req.headers?.range;
+    const files = await handleFilesRoute(kernel.workspace, { method, path, query: queryParams(req.url), body, ...(typeof range === "string" ? { range } : {}) }, defaultFilesDeps((slug) => kernel.manifest.get(slug)?.name));
+    if (files) return files;
   }
 
   if (method === "GET" && path === "/api/browser/status") {
@@ -2580,7 +2624,7 @@ export async function handleApiRequest(
     // context window is anywhere near full. A percentage of the model window
     // alone said 2% while the conversation was about to start losing its
     // oldest turns.
-    const historyChars = JSON.stringify(retained).length;
+    const historyChars = historySize(retained);
     const exchanges = retained.filter((m) => m.role === "user").length;
     return ok({
       conversationId: id,
@@ -2724,7 +2768,8 @@ export async function handleApiRequest(
     return ok({ base: sitesBaseUrl() ?? null, sites: listSites(kernel.workspace) });
   }
 
-  if (method === "GET" && path === "/api/file/view") {
+  // The file's name may follow the route (/api/file/view/plan.pdf) for viewers that name a download by its URL; the path query is what is read.
+  if (method === "GET" && (path === "/api/file/view" || path.startsWith("/api/file/view/"))) {
     // A PDF for the browser's own viewer, framed on the Files page. Only a
     // PDF: anything else served inline on this origin could be a page that
     // scripts the dashboard. Same-origin frames only, and never sniffed.
@@ -2740,7 +2785,7 @@ export async function handleApiRequest(
           "content-length": String(raw.bytes.byteLength),
           "x-content-type-options": "nosniff",
           "x-frame-options": "SAMEORIGIN",
-          "content-disposition": "inline",
+          "content-disposition": dispositionOf("inline", raw.name),
         },
       };
     } catch (err) {
@@ -2751,7 +2796,7 @@ export async function handleApiRequest(
     }
   }
 
-  if (method === "GET" && path === "/api/file/raw") {
+  if (method === "GET" && (path === "/api/file/raw" || path.startsWith("/api/file/raw/"))) {
     // Image bytes for the browser to draw. The allow-list and the type live in
     // readImage; nosniff and a sandboxing policy are here so that even a file
     // that somehow reached this point mislabelled cannot become a document on
@@ -2768,7 +2813,7 @@ export async function handleApiRequest(
           "content-length": String(raw.bytes.byteLength),
           "x-content-type-options": "nosniff",
           "content-security-policy": "default-src 'none'; sandbox",
-          "content-disposition": "inline",
+          "content-disposition": dispositionOf("inline", basename(target)),
         },
       };
     } catch (err) {
@@ -2914,7 +2959,7 @@ export async function handleApiRequest(
     return ok({
       id,
       messages: transcriptOf(kernel, id),
-      events: withFrames(withKeptPaths(kernel, id, historyEvents(kernel.sessions.earlier(id), kernel.sessions.get(id))), kernel.frames.listFor(id)),
+      events: withFrames(withKeptPaths(kernel, id, historyEvents(kernel.sessions.earlier(id), kernel.sessions.get(id), kernel.actionHome(id))), kernel.frames.listFor(id)),
       // Sent but not yet run. Shown after the transcript because that is where
       // they will land, and separately because they have not happened yet.
       pending: kernel.pending.forConversation(id).map((m) => ({
@@ -3225,7 +3270,7 @@ export function mentionsOf(kernel: Kernel, q: string, limit: number, kind?: stri
       // The browser's tabs, each named for whose it is in words.
       tabs: kernel.browser.tabs().map(({ owner, ...t }) => ({ ...t, ...(owner ? { owner: kernel.conversations.get(owner)?.title ?? owner } : {}) })),
       channels: knownChannels(kernel),
-      approvals: kernel.approvals.pending().map((a) => ({ id: a.id, summary: summarizeAction(a.tool, a.args, (k, id) => kernel.labelFor(k, id)) })),
+      approvals: kernel.approvals.pending().map((a) => ({ id: a.id, summary: summarizeAction(a.tool, a.args, (k, id) => kernel.labelFor(k, id), kernel.actionHome(a.conversationId)) })),
     },
     q,
     limit,
@@ -3900,6 +3945,8 @@ export function createDashboardServer(
         // A route that answers with bytes has already said what they are; JSON
         // encoding them would turn an image into a list of numbers.
         else if (Buffer.isBuffer(result.body)) res.end(result.body);
+        // A file streamed from disk (a film for a player); a read that fails ends the answer.
+        else if (result.body instanceof Readable) streamTo(result.body, res);
         else res.end(JSON.stringify(result.body));
         return;
       }

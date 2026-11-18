@@ -57,6 +57,21 @@ export interface ToolRisk {
    * itself still asks there.
    */
   startsSession?: boolean;
+  /**
+   * Raises the call one notch for where it reaches rather than what it
+   * does: a write outside the calling turn's own folder. A safe call then
+   * asks, with these words on the card; a call already asking says them
+   * beside its own reason. Judged inside the turn's stores, since where a
+   * turn's own folder is depends on who is calling.
+   */
+  reach?: (input: Record<string, unknown>) => Reach | false;
+}
+
+/** Where a call reaches beyond the calling turn's own folder: the card's words, and why Auto never covers it, when it does not. */
+export interface Reach {
+  why: string;
+  /** Set for a write into another project's or a blob's folder: Auto mode asks for it as Ask does. */
+  beyondAuto?: string;
 }
 
 export interface RiskAssessment {
@@ -65,6 +80,8 @@ export interface RiskAssessment {
   escalated: boolean;
   /** Why it asks, when the rule or the floor says so in words. */
   reason?: string;
+  /** The reach rule fired: a decision remembered inside the turn's own folder never covers it. */
+  reached?: true;
   /** Asked about every time: no remembered yes and no Auto covers it (a call that sends a secret, a tool marked so). */
   asksAlways?: true;
   /** Why a risky call is beyond a chat's Auto mode, when it is. */
@@ -86,21 +103,28 @@ export function classifyRisk(
   input: Record<string, unknown>,
 ): RiskAssessment {
   const floor = risk?.floor ?? "safe";
+  const reach = risk?.reach?.(input) || undefined;
+  // The call's own reason first, where it reaches beside it.
+  const told = (own: string | undefined): Pick<RiskAssessment, "reason" | "reached"> => {
+    const reason = [own, reach?.why].filter(Boolean).join(", ");
+    return { ...(reason ? { reason } : {}), ...(reach ? { reached: true as const } : {}) };
+  };
   if (floor === "risky") {
     if (risk?.relax?.(input)) return { tier: "safe", escalated: false };
     const why = typeof risk?.why === "function" ? risk.why(input) : risk?.why;
-    return { tier: "risky", escalated: false, ...(why ? { reason: why } : {}), ...autoFacts(risk, input) };
+    return { tier: "risky", escalated: false, ...told(why), ...autoFacts(risk, input, reach) };
   }
   const fired = risk?.escalate?.(input);
   if (fired) {
-    return { tier: "risky", escalated: true, ...(typeof fired === "string" ? { reason: fired } : {}), ...autoFacts(risk, input) };
+    return { tier: "risky", escalated: true, ...told(typeof fired === "string" ? fired : undefined), ...autoFacts(risk, input, reach) };
   }
+  if (reach) return { tier: "risky", escalated: true, ...told(undefined), ...autoFacts(risk, input, reach) };
   return { tier: "safe", escalated: false };
 }
 
-/** What a risky call's rules say about Auto mode, read only once the call is risky. */
-function autoFacts(risk: ToolRisk | undefined, input: Record<string, unknown>): Pick<RiskAssessment, "asksAlways" | "beyondAuto" | "startsSession"> {
-  const beyond = risk?.beyondAuto?.(input);
+/** What a risky call's rules say about Auto mode, read only once the call is risky: the tool's own word first, then where it reaches. */
+function autoFacts(risk: ToolRisk | undefined, input: Record<string, unknown>, reach: Reach | undefined): Pick<RiskAssessment, "asksAlways" | "beyondAuto" | "startsSession"> {
+  const beyond = risk?.beyondAuto?.(input) || reach?.beyondAuto;
   return {
     ...(risk?.asksAlways ? { asksAlways: true as const } : {}),
     ...(beyond ? { beyondAuto: typeof beyond === "string" ? beyond : "beyond what Auto covers" } : {}),

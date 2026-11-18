@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -63,6 +63,20 @@ describe("a turn on the SDK engine", () => {
     expect(heard.heard).toEqual({ mark: "m1", words: [{ text: "and the third" }] });
   });
 
+  it("keeps each call's own time, where it landed, through the write at the turn's end", async () => {
+    const landed = Date.now() - 60_000;
+    sdk.run = async (o) => {
+      const made = [call(1, { at: landed })];
+      for (const c of made) o.onCall?.(c);
+      return answer(made, "Read it.");
+    };
+    await turn("read the note");
+    const stored = kernel.sessions.get(chat);
+    expect(stored.map(shape)).toEqual(["user read the note", "use sdk-t-1", "result sdk-t-1", "assistant Read it."]);
+    expect(stored.slice(1, 3).map((m) => m.at)).toEqual([landed, landed]);
+    expect(stored[3]!.at!).toBeGreaterThan(landed + 50_000);
+  });
+
   it("moves the steps after anything said in the chat meanwhile, where the end-of-turn write put them", async () => {
     sdk.run = async (o) => {
       o.onCall?.(call(1));
@@ -96,6 +110,43 @@ describe("a turn on the SDK engine", () => {
     await expect(turn("go")).rejects.toThrow("the SDK process exited");
     const stored = kernel.sessions.get(chat).map(shape);
     expect(stored).toEqual(["user go", "use sdk-t-1", "result sdk-t-1", `assistant ${SDK_FAILED} the SDK process exited`]);
+  });
+
+  it("tells a project's chat its folder, keeps its files there and asks before it writes elsewhere", async () => {
+    const school = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Mokable", projectSlug: "school" }).id;
+    let system = "";
+    const results: string[] = [];
+    sdk.run = async (o) => {
+      system = o.system ?? "";
+      for (const path of ["bu252/mokable/doc.md", "school/bu252/plan.md", "projects/school/notes.md"]) {
+        results.push((await o.tools.execute("files.write", { path, content: "x" })).content);
+      }
+      await o.tools.execute("files.write", { path: "projects/resume/cv.md", content: "x" });
+      return answer([], "Saved.");
+    };
+    const first = await kernel.handleChannelTurn({ text: "save the doc", userId: kernel.profile.ownerId, channel: "dashboard", conversationId: school });
+    expect(system).toContain("Your files live in projects/school/");
+    expect(system).toContain("workspace:<path>");
+    expect(results).toEqual(["wrote projects/school/bu252/mokable/doc.md", "wrote projects/school/bu252/plan.md", "wrote projects/school/notes.md"]);
+    expect(existsSync(join(root, "school"))).toBe(false);
+    // Judged as the project's turn, though the call ran inside the SDK's bridge.
+    expect(first.suspended).toBe(true);
+    const ask = kernel.approvals.pending().find((a) => a.conversationId === school)!;
+    expect(ask.reason).toBe("outside this project, in the resume project");
+    expect(ask.reached).toBe(true);
+    expect(ask.rule).toBeNull();
+    await kernel.deny(ask.id, "owner");
+    expect(existsSync(join(root, "projects", "resume", "cv.md"))).toBe(false);
+  });
+
+  it("tells a root chat nothing about a folder of its own", async () => {
+    let system = "";
+    sdk.run = async (o) => {
+      system = o.system ?? "";
+      return answer([], "Hi.");
+    };
+    await turn("hello");
+    expect(system).not.toContain("## Your files");
   });
 
   it("holds a line for the chat while its turn waits on the owner, and writes it after the turn", async () => {

@@ -23,6 +23,7 @@ export type ProgressEvent =
       summary: string;
       input?: Record<string, unknown>;
       yours?: true;
+      at?: number;
     }
   | {
       kind: "tool-end";
@@ -30,6 +31,8 @@ export type ProgressEvent =
       tool: string;
       isError: boolean;
       result?: string;
+      ms?: number;
+      waitedMs?: number;
     }
   | { kind: "delta"; conversationId: string; of: "reasoning" | "text"; text: string }
   | { kind: "note"; conversationId: string; text: string }
@@ -62,6 +65,11 @@ export type LiveStep =
       frameId?: number;
       /** A browser step in the owner's own Chrome, not KOS's. */
       yours?: true;
+      /** When it began, epoch ms: the host's stamp, or when this page heard of it. */
+      startedAt?: number;
+      /** How long it ran, and waited on the owner, once it has ended and the host timed it. */
+      ms?: number;
+      waitedMs?: number;
     }
   /**
    * What the owner said while the turn ran, where the turn took it in: after
@@ -129,6 +137,7 @@ function reduce(live: Live, event: ProgressEvent): Live {
         isError: false,
         ...(event.input ? { input: event.input } : {}),
         ...(event.yours ? { yours: true as const } : {}),
+        startedAt: event.at ?? Date.now(),
       });
       return { ...live, steps };
 
@@ -142,6 +151,8 @@ function reduce(live: Live, event: ProgressEvent): Live {
             done: true,
             isError: event.isError,
             ...(event.result !== undefined ? { result: event.result } : {}),
+            ...(event.ms !== undefined ? { ms: event.ms } : {}),
+            ...(event.waitedMs !== undefined ? { waitedMs: event.waitedMs } : {}),
           };
           break;
         }
@@ -187,10 +198,17 @@ function reduce(live: Live, event: ProgressEvent): Live {
 }
 
 /**
+ * Browser steps that work no page: listing the tabs reads what is open and
+ * never starts KOS's browser, so it is no reason to open the window, which
+ * would start it.
+ */
+const WORKS_NO_PAGE: ReadonlySet<string> = new Set(["browser.tabs"]);
+
+/**
  * Who is browsing in KOS's own browser right now, and what they are doing, if
- * anyone is: a turn whose latest browser step ran there. A step in the
- * owner's Chrome is not: the browser window shows KOS's browser, which that
- * step never touched, and opening the window starts KOS's Chrome.
+ * anyone is: a turn whose latest browser step worked a page there. A step in
+ * the owner's Chrome is not: the browser window shows KOS's browser, which
+ * that step never touched, and opening the window starts KOS's Chrome.
  */
 export function browsingNow(map: ProgressMap): { id: string; doing?: string } | null {
   for (const [id, turn] of Object.entries(map)) {
@@ -199,6 +217,7 @@ export function browsingNow(map: ProgressMap): { id: string; doing?: string } | 
       const step = turn.steps[i]!;
       if (step.kind !== "tool" || !step.tool.startsWith("browser.")) continue;
       if (step.yours) break;
+      if (WORKS_NO_PAGE.has(step.tool)) continue;
       return step.done ? { id } : { id, doing: step.summary };
     }
   }

@@ -29,6 +29,16 @@ describe("a tool card knows its call", () => {
     ]);
     expect(events[0]).toMatchObject({ kind: "tool", name: "browser.visit", toolUseId: "tu_7", result: "Opened https://x" });
   });
+
+  it("says how long the call took, and nothing for one kept before calls were timed", () => {
+    const [timed, older] = conversationEvents([
+      { role: "assistant", content: [{ type: "tool_use", id: "a", name: "shell.run", input: {} }, { type: "tool_use", id: "b", name: "files.read", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", toolUseId: "a", content: "ok", ms: 2_400, waitedMs: 120_000 }, { type: "tool_result", toolUseId: "b", content: "ok" }] },
+    ]);
+    expect(timed).toMatchObject({ ms: 2_400, waitedMs: 120_000 });
+    expect(older).not.toHaveProperty("ms");
+    expect(older).not.toHaveProperty("waitedMs");
+  });
 });
 
 describe("conversationEvents", () => {
@@ -209,6 +219,33 @@ describe("words the owner said while a turn ran", () => {
       { role: "user", content: [{ type: "tool_result", toolUseId: "t1", content }] },
     ]);
     expect(events.map((e) => (e.kind === "tool" ? e.result : e.kind === "message" ? e.text : e.kind))).toEqual(["Opened the cart.", "skip the ebooks"]);
+  });
+});
+
+describe("when a message was written", () => {
+  it("rides on each message, a note and the words heard mid-turn by the step that took them in", () => {
+    const heard = { mark: "ab12", words: [{ text: "and the red one" }] };
+    const events = conversationEvents([
+      { role: "user", content: [{ type: "text", text: "buy it" }], at: 1_000 },
+      { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "browser.visit", input: {} }], at: 2_000 },
+      { role: "user", content: [{ type: "tool_result", toolUseId: "t1", content: "Opened.", heard }], at: 3_000 },
+      { role: "user", content: [{ type: "text", text: "System: the owner denied pending action #4." }], at: 4_000 },
+      { role: "assistant", content: [{ type: "text", text: "Done." }], at: 5_000 },
+    ]);
+    expect(events.flatMap((e) => (e.kind === "message" ? [[e.role, e.at]] : []))).toEqual([
+      ["you", 1_000],
+      ["you", 3_000],
+      ["system", 4_000],
+      ["kos", 5_000],
+    ]);
+  });
+
+  it("is left out for a message kept before messages kept their time", () => {
+    const events = conversationEvents([
+      { role: "user", content: [{ type: "text", text: "then" }], at: 0 },
+      { role: "assistant", content: [{ type: "text", text: "ok" }] },
+    ]);
+    expect(events.every((e) => !("at" in e))).toBe(true);
   });
 });
 

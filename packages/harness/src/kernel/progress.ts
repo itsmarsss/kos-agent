@@ -53,6 +53,8 @@ export type ProgressEvent =
        * surface showing KOS's browser has nothing of this step to show.
        */
       yours?: true;
+      /** When it began, epoch ms, so a surface can count how long it runs. */
+      at?: number;
     }
   | {
       kind: "tool-end";
@@ -61,6 +63,10 @@ export type ProgressEvent =
       isError: boolean;
       /** What came back, capped. Absent when there was nothing to show. */
       result?: string;
+      /** How long it ran, ms, not counting the wait for the owner's yes. */
+      ms?: number;
+      /** How long it waited on the owner's yes, ms, when it asked. */
+      waitedMs?: number;
     }
   | {
       /** A piece of the answer, or of the model's own account of its thinking. */

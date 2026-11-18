@@ -40,7 +40,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   },
 }));
 
-const { runSdkChat } = await import("./sdkchat.js");
+const { runSdkChat, sdkCallMessages } = await import("./sdkchat.js");
 const { STOPPED_RESULT } = await import("../kernel/guarded.js");
 
 /** Never settles: the SDK's stream as it is for the two seconds after an abort, or a tool still running. */
@@ -162,6 +162,20 @@ describe("a turn on the SDK", () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(told).toEqual(["notify"]);
     expect(r.calls.map((c) => c.name)).toEqual(["notify"]);
+  });
+
+  it("stamps each call with when it landed, onto both its messages", async () => {
+    run.queries = [];
+    run.script = async function* (_q, tools) {
+      await tools.get("notify")!({});
+      yield { type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "text", text: "Sent." }] } };
+      yield result(1);
+    };
+    const before = Date.now();
+    const r = await runSdkChat({ prompt: "go", system: "s", tools: box(["notify"], () => ({ content: "sent" })), cwd: process.cwd() });
+    const at = r.calls[0]?.at;
+    expect(at).toBeGreaterThanOrEqual(before);
+    expect(sdkCallMessages(r.calls[0]!).map((m) => m.at)).toEqual([at, at]);
   });
 
   it("counts only a screen's pictures, not a plot or an MCP tool's", async () => {

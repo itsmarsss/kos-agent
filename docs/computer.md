@@ -754,6 +754,17 @@ session its chat holds running, so KOS can work the screen. Its chats are the `m
 surface's, as the panel's are `chrome`'s, and a Chrome's words never reach
 it nor the other way round.
 
+**When each line was said.** Each `you`, `kos` and `note` line of
+`chat.show` carries `at`, when it was written to the chat, in epoch
+milliseconds; a line kept before lines kept their time has none, and a
+device shows nothing for it rather than a guessed time. A device draws
+times as the dashboard does, on its own clock and in the owner's locale and
+12- or 24-hour preference: a quiet line naming the day where the day changes
+("Today", "Yesterday", the weekday and date within the week, the full date
+before that), the time over a line said more than 15 minutes after the one
+before it, and each line's own time on hover (KOS for Mac) or a tap, with
+every line's while the thread is swiped to the left (KOS for iPhone). A running turn's start is `chat.status`'s `since`.
+
 `chat.send`'s `beside` is where the owner was: `{ "kind": "app", "name",
 "bundle"?, "title"? }`, the app in front of the window and its front
 window's title; `{ "kind": "hidden" }`, an app the owner hid from KOS,

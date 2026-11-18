@@ -22,7 +22,7 @@ import {
   type TextChannel,
   type Webhook,
 } from "discord.js";
-import { blocksToText, CHANNEL_TOKEN, detailLines, stepActions, summarizeAction, withUnixTimes } from "@kos/shared";
+import { alwaysWords, askView, blocksToText, CHANNEL_TOKEN, detailLines, stepText, summarizeAction, withUnixTimes } from "@kos/shared";
 
 import { FILE_MAX_BYTES, isReadable, megabytes, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, ChannelRef, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
@@ -34,6 +34,8 @@ import { tablesToCode } from "./tables.js";
 import { shortStory, STEP_MARK } from "./narrate.js";
 import { MESSAGE_LIMITS } from "./types.js";
 import { DownLog } from "./downlog.js";
+import { HOST_KEYS } from "./hostkeys.js";
+import { offersAlways } from "./offers.js";
 import type {
   ApprovalHandler,
   ApprovalRequest,
@@ -216,8 +218,11 @@ export function splitSummary(summary: string): { head: string; body?: string } {
   return { head: summary };
 }
 
+/** A line cut to fit by its middle, so its end always shows: the end of a command is where it hides what it does. */
 function cut(line: string, max: number): string {
-  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+  if (line.length <= max) return line;
+  const tail = Math.floor((max - 1) * 0.4);
+  return `${line.slice(0, max - 1 - tail)}…${line.slice(line.length - tail)}`;
 }
 
 const CODE_FENCE = "```";
@@ -226,6 +231,8 @@ const CODE_FENCE = "```";
 const CARD_MAX = 1900;
 /** The file every step rides in when a card cannot hold them all. */
 const STEPS_FILE = "steps.txt";
+/** Where the whole call goes when the card cannot show all of it. */
+const ARGS_FILE = "call.json";
 
 /** An approval card: its text, and every step as a file when the text cannot hold them. */
 export interface ApprovalCard {
@@ -243,33 +250,30 @@ export function approvalCard(req: ApprovalRequest): ApprovalCard {
   // prompt to click yes blind.
   // The model's words, all of it, so made literal: a masked link or a
   // mention in them reads as written and does nothing.
-  const said = req.why?.trim() ? [`> ${literal(cut(req.why.trim().replace(/\s*\n+\s*/g, " "), WHY_MAX))}`] : [];
+  const quote = (words: string): string => `> ${literal(cut(words.trim().replace(/\s*\n+\s*/g, " "), WHY_MAX))}`;
+  const said = req.why?.trim() ? [quote(req.why)] : [];
   // Who is asking, in the headline: "Recap needs your OK", not a bare command.
   const asks = req.asker ? `**${literal(req.asker.name)} needs your OK**` : "**Needs your OK**";
   if (req.tool === undefined) {
     return { content: noPreviews([...said, `${asks} · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n")) };
   }
   const args = req.args ?? {};
-  const summary = summarizeAction(req.tool, args, req.names);
-  // A step said by its purpose is the model's sentence, not a verb and its
-  // thing: split on its colon, "Note: just closing the popup" took the whole
-  // line as the command and the keys it would press never showed. Its
-  // actions are the code instead, each on its own line, every one of them:
-  // the yes is for those, not for the model's account of them.
-  const actions = stepActions(req.tool, args);
-  const { head, body } = actions ? { head: summary } : splitSummary(summary);
+  const view = askView({ tool: req.tool, args, ...(req.names ? { names: req.names } : {}), ...(req.where ? { where: req.where } : {}), platform: HOST_KEYS });
+  const summary = summarizeAction(req.tool, args, req.names, req.where, HOST_KEYS);
+  // A run of actions is headed by where it acts, and its actions are the
+  // code, each on its own line, every one of them: the yes is for those.
+  // What the model said the step is for is its words, quoted with the rest
+  // of what it said, never the headline.
+  const actions = view.steps?.map(stepText);
+  if (view.said) said.push(quote(`KOS says: ${view.said}`));
+  const { head, body } = actions ? { head: view.place ?? view.title } : splitSummary(summary);
   // The command itself, or failing that the arguments, in a code block: a
   // `--include=*.ts` that turned italic was a command you could not read
   // back, and an approval you cannot read is not one you can give.
-  const code =
-    actions ??
-    (body
-      ? [cut(body, CODE_MAX)]
-      : detailLines(req.tool, args, req.names)
-          .slice(1)
-          .filter((l) => !l.startsWith("…"))
-          .slice(0, 3)
-          .map((l) => cut(l, DETAIL_MAX)));
+  const details = body ? [body] : detailLines(req.tool, args, req.names, req.where).slice(1);
+  const code = actions ?? (body ? [cut(body, CODE_MAX)] : details.filter((l) => !l.startsWith("…")).slice(0, 3).map((l) => cut(l, DETAIL_MAX)));
+  // Anything the card leaves out goes with it whole, in a file: no part of a call is approved unseen.
+  const partial = !actions && (code.length !== details.length || [summary, ...code].some((l, i) => l.includes("…") || (i > 0 && l !== details[i - 1])));
   const small = [`${req.tool} · #${req.id}`, ...(req.reason ? [req.reason] : [])].join(" · ");
   const text = (shown: string[], more?: string): string =>
     noPreviews(
@@ -282,7 +286,15 @@ export function approvalCard(req: ApprovalRequest): ApprovalCard {
       ].join("\n"),
     );
   const whole = text(code);
-  if (!actions || whole.length <= CARD_MAX) return { content: whole };
+  if (!actions) {
+    if (!partial && whole.length <= CARD_MAX) return { content: whole };
+    const json = typeof args === "string" ? args : JSON.stringify(args, null, 2);
+    return {
+      content: text(code, `The whole call is in ${ARGS_FILE}`).slice(0, CARD_MAX + 100),
+      files: [{ attachment: Buffer.from(`${json}\n`, "utf8"), name: ARGS_FILE }],
+    };
+  }
+  if (whole.length <= CARD_MAX) return { content: whole };
   // More steps than a message holds: as many as fit, and every one of them
   // in a file on the card, so none is approved unseen.
   let shown = actions.length;
@@ -386,6 +398,8 @@ export function chunkText(text: string, max = 1900): string[] {
 export interface DiscordAdapterOptions {
   /** Bot token, resolved from the secrets registry by the harness. */
   token: string;
+  /** Takes any secret's value out of what an approval card sends: its text and the call it attaches. */
+  scrub?: (text: string) => string;
   /**
    * The owner's Discord id, so a message addressed to "owner" has somewhere to
    * go without the caller knowing who that is.
@@ -1018,6 +1032,8 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly prompts = new Map<string, { copies: PromptCopy[]; summary: string }>();
   private commands?: SlashContext;
   private readonly ownerId?: string;
+  /** Takes any secret's value out of an approval card. */
+  private readonly scrub: (text: string) => string = (text) => text;
   private readonly dashboardUrl?: string;
   private readonly guildId?: string;
   private readonly threadOf?: (threadId: string) => string | undefined;
@@ -1074,6 +1090,7 @@ export class DiscordAdapter implements ChannelAdapter {
   constructor(options: DiscordAdapterOptions) {
     this.token = options.token;
     if (options.ownerId) this.ownerId = options.ownerId;
+    if (options.scrub) this.scrub = options.scrub;
     if (options.dashboardUrl) this.dashboardUrl = options.dashboardUrl;
     if (options.guildId) this.guildId = options.guildId;
     if (options.threadOf) this.threadOf = options.threadOf;
@@ -3184,23 +3201,27 @@ export class DiscordAdapter implements ChannelAdapter {
 
   private async askNow(recipientId: string, req: ApprovalRequest): Promise<void> {
     const ids = approvalCustomIds(req.id);
+    // Always only by the one rule every surface keeps, its words saying what it keeps.
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(ids.approve)
         .setLabel("Approve")
         .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId(ids.always)
-        .setLabel("Always")
-        .setStyle(ButtonStyle.Primary),
+      ...(offersAlways(req) ? [new ButtonBuilder().setCustomId(ids.always).setLabel(cut(alwaysWords(req.rule!.scope, req.names), 80)).setStyle(ButtonStyle.Primary)] : []),
       new ButtonBuilder()
         .setCustomId(ids.deny)
         .setLabel("Deny")
         .setStyle(ButtonStyle.Danger),
     );
 
-    const summary = req.tool !== undefined ? summarizeAction(req.tool, req.args ?? {}, req.names) : req.text;
-    const card = approvalCard(req);
+    const summary = req.tool !== undefined ? summarizeAction(req.tool, req.args ?? {}, req.names, req.where) : req.text;
+    // No secret leaves in a card, its words or the call it carries.
+    const scrub = this.scrub;
+    const unscrubbed = approvalCard(req);
+    const card: ApprovalCard = {
+      content: scrub(unscrubbed.content),
+      ...(unscrubbed.files ? { files: unscrubbed.files.map((f) => ({ ...f, attachment: Buffer.from(scrub(f.attachment.toString("utf8")), "utf8") })) } : {}),
+    };
     // The page a browser action is aimed at, when there is one: the thing
     // being approved, rather than a description of it.
     const files = [...(req.picture ? [{ attachment: Buffer.from(req.picture, "base64"), name: "page.jpg" }] : []), ...(card.files ?? [])];

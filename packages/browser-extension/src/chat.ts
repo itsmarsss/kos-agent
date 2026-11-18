@@ -1,4 +1,4 @@
-import { ASK, CHAT_COMMANDS, parseChatMode, type ChatMode } from "@kos/shared";
+import { ASK, CHAT_COMMANDS, parseChatMode, type AskView, type ChatMode } from "@kos/shared";
 
 import { keep, frameOf, picturesOf, type Pictured } from "./frames.js";
 import type { ConsentRequest } from "./worker.js";
@@ -16,10 +16,11 @@ export interface Quote {
   from: string;
 }
 
+/** A line of the chat as KOS shows it; `at` is when a line of words was said, epoch ms, absent for one kept before lines kept their time. */
 export type Line =
-  | { role: "you"; text: string; files?: string[]; quote?: Quote }
-  | { role: "kos"; text: string }
-  | { role: "note"; text: string }
+  | { role: "you"; text: string; files?: string[]; quote?: Quote; at?: number }
+  | { role: "kos"; text: string; at?: number }
+  | { role: "note"; text: string; at?: number }
   | { role: "steps"; steps: Step[] };
 
 /** A step of a turn, with the frame id of what it saw when it kept a picture. */
@@ -27,20 +28,26 @@ export interface Step {
   summary: string;
   failed?: true;
   frame?: number;
+  /** How long it ran, ms, when it was timed. */
+  ms?: number;
 }
 
-export interface Approval {
+export interface Approval extends Partial<Omit<AskView, "title">> {
   id: string;
   /** The chat it is asked in, as KOS says: what keeps it up once that chat is shown. */
   chat?: string;
   tool: string;
+  /** The action in words, its ids named. */
+  summary?: string;
+  /** What the card leads with: the step's purpose, or what a run of actions acts on. */
+  title?: string;
+  /** Who asks, by the name the owner knows the chat by. */
+  asker?: string;
   args?: string;
   /** Every action a step said by its purpose takes, which the arguments, cut to fit, may not reach. */
   mechanics?: string;
   why?: string;
   reason?: string;
-  /** What a remembered yes covers, as its button says it ("Always on shop.example"), when it can be remembered. */
-  always?: string;
   /** When it lapses if nobody decides, epoch ms. */
   expiresAt?: number;
 }

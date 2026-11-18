@@ -321,7 +321,21 @@ describe("handleApiRequest", () => {
     expect((await list("somewhere/else")).status).toBe(400);
   });
 
-  it("renames, copies, deletes, makes folders and downloads, inside the jail", async () => {
+  it("names a previewed PDF and picture by the file, at either address", async () => {
+    mkdirSync(join(root, "docs"), { recursive: true });
+    writeFileSync(join(root, "docs", "Résumé \"v2\".pdf"), "%PDF-1.4\n%%EOF");
+    writeFileSync(join(root, "docs", "a b.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const q = (p: string): string => `?path=${encodeURIComponent(p)}`;
+    for (const route of ["/api/file/view", `/api/file/view/${encodeURIComponent('Résumé "v2".pdf')}`]) {
+      const res = await handleApiRequest(kernel, { method: "GET", path: route, url: `${route}${q('docs/Résumé "v2".pdf')}` });
+      expect(res.status).toBe(200);
+      expect(res.headers?.["content-disposition"]).toBe(`inline; filename="R_sum_ _v2_.pdf"; filename*=UTF-8''R%C3%A9sum%C3%A9%20%22v2%22.pdf`);
+    }
+    const raw = await handleApiRequest(kernel, { method: "GET", path: "/api/file/raw/a%20b.png", url: `/api/file/raw/a%20b.png${q("docs/a b.png")}` });
+    expect(raw.headers?.["content-disposition"]).toBe(`inline; filename="a b.png"; filename*=UTF-8''a%20b.png`);
+  });
+
+  it("renames, copies, trashes, makes folders and downloads, inside the jail", async () => {
     const project = kernel.manifest.createProject({ name: "Garden", type: "tasks" });
     const dir = `projects/${project.slug}`;
     mkdirSync(join(root, dir), { recursive: true });
@@ -332,10 +346,10 @@ describe("handleApiRequest", () => {
     expect((await call("/api/files/rename", { from: `${dir}/a.txt`, to: `${dir}/out/b.txt` })).body).toEqual({ path: `${dir}/out/b.txt` });
     expect((await call("/api/files/copy", { from: `${dir}/out/b.txt` })).body).toEqual({ path: `${dir}/out/b copy.txt` });
     expect((await call("/api/files/copy", { from: `${dir}/out`, to: `${dir}/out-2` })).body).toEqual({ path: `${dir}/out-2` });
-    expect((await call("/api/files/delete", { path: `${dir}/out-2` })).body).toEqual({ path: `${dir}/out-2` });
+    expect((await call("/api/files/trash", { path: `${dir}/out-2` })).body).toMatchObject({ path: `${dir}/out-2`, kind: "dir" });
     expect(existsSync(join(root, dir, "out-2"))).toBe(false);
 
-    const refused = await call("/api/files/delete", { path: "mcp.json" });
+    const refused = await call("/api/files/trash", { path: "mcp.json" });
     expect(refused.status).toBe(400);
     expect((await call("/api/files/rename", { from: `${dir}/out/b.txt`, to: "../escape.txt" })).status).toBe(400);
     expect((await call("/api/files/mkdir", { path: `${dir}/out` })).status).toBe(400);
@@ -696,7 +710,7 @@ describe("handleApiRequest", () => {
       ((await handleApiRequest(kernel, { method: "GET", path: "/api/home" })).body as { approvals: Listed[] }).approvals,
     ];
     for (const list of lists) {
-      expect(list[0]).toMatchObject({ summary: "Note: just closing the popup", mechanics: "Type “hunter2”, press cmd+q" });
+      expect(list[0]).toMatchObject({ summary: "Note: just closing the popup", mechanics: "Type “hunter2”, press ⌘Q" });
       // Where the summary already is the action, there is nothing beside it.
       expect(list[1]).toMatchObject({ summary: "Delete x" });
       expect(list[1]).not.toHaveProperty("mechanics");
@@ -1085,8 +1099,8 @@ describe("handleApiRequest", () => {
     });
   });
 
-  it("keeps a decision when asked to, and lists and revokes it", async () => {
-    const action = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "projects/books/old.md" }, riskTier: "risky", reason: "test" });
+  it("keeps the rule an ask named when asked to, and lists and revokes it", async () => {
+    const action = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "projects/books/old.md" }, riskTier: "risky", reason: "test", rule: { tool: "files.rm", scope: "dir:projects/books", project: null } });
     await handleApiRequest(kernel, { method: "POST", path: "/api/approve", body: { id: action.id, remember: true } });
     const listed = await handleApiRequest(kernel, { method: "GET", path: "/api/permissions" });
     const rules = (listed.body as { rules: { id: number; tool: string; scope: string | null; project: string | null }[] }).rules;

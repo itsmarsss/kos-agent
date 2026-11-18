@@ -1,8 +1,8 @@
-import { cycled, KOS_SEED, type ChatMode } from "@kos/shared";
+import { askRisk, cycled, KOS_SEED, timeMarks, type AskView, type ChatMode } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { AskSteps, ChevronDown, Chips, Collapse, ComposeIcon, Countdown, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, isModeKey, Markdown, ModeChip, PageIcon, Pill, QuoteLine, SendIcon, spring, StepPicture, StepsIcon, StopIcon, type Tone, useDismiss, useOverlayScroll, WorkingDots } from "@kos/kit";
+import { AskCard, ChevronDown, Chips, Collapse, ComposeIcon, Countdown, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, isModeKey, Markdown, MessageTime, ModeChip, PageIcon, Pill, QuoteLine, SendIcon, spring, StepPicture, StepsIcon, StepTime, StopIcon, TimeLine, type Tone, useDismiss, useOverlayScroll, useTimeReveal, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
 
 import { asked, DONE, EMPTY, FAILED, givenBack, isCommand, isShown, PANEL_COMMANDS, sent, shown, statused, STEP, storyStep, yourWords, type Approval, type Chat, type Extra, type Line, type Quote, type Step } from "./chat.js";
@@ -622,11 +622,18 @@ function Thread({
     chat.stories.forEach((x, i) => (placed(x) === n ? items.push(<Story key={`story${i}-${n}`} text={x.text} frames={chat.live.find((l) => l.said === x.said)?.frames ?? []} />) : undefined));
     chat.extras.forEach((x, i) => (placed(x) === n ? items.push(<Extra key={`x${i}`} extra={x} />) : undefined));
   };
+  // The day where it changes and the time after a pause, over the line they are about.
+  const times = chat.lines.map((line) => (line.role === "steps" ? undefined : line.at));
+  // Worked out again only when a time changes, not on every step a turn tells.
+  const timesKey = times.join(",");
+  const marks = useMemo(() => timeMarks(times), [timesKey]);
   chat.lines.forEach((line, i) => {
     if (line.role === "you") {
       if (seen > 0 || i > 0) after(seen);
       seen++;
     }
+    const mark = marks[i];
+    if (mark) items.push(<TimeLine key={`m${i}`} mark={mark} />);
     items.push(<LineView key={`l${i}`} line={line} />);
   });
   chat.sending.forEach((text, i) => {
@@ -671,7 +678,7 @@ function Thread({
       )}
       <AnimatePresence>
         {chat.asks.map((a) => (
-          <AskCard key={`ask${a.id}`} approval={a} decide={(approved, remember) => answer({ type: "decide", approval: a.id, approved, ...(remember ? { remember: true } : {}) })} />
+          <Ask key={`ask${a.id}`} approval={a} decide={(approved, remember) => answer({ type: "decide", approval: a.id, approved, ...(remember ? { remember: true } : {}) })} />
         ))}
         {chat.consent && <ConsentCard key={`consent${chat.consent.id}`} request={chat.consent} answer={(allowed, minutes, site) => answer({ type: "consent.answer", id: chat.consent!.id, allowed, minutes, ...(site ? { site: true } : {}) })} />}
         {reads.map((r) => (
@@ -684,35 +691,52 @@ function Thread({
 
 const enter = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0 }, transition: spring };
 
+/**
+ * One line of the chat. A line KOS said when shows its time on hover, focus
+ * inside it or a tap, as the dashboard's: the owner's left of their bubble,
+ * KOS's under its words, a note's after it.
+ */
 function LineView({ line, pending }: { line: Line; pending?: boolean }): ReactElement {
+  const reveal = useTimeReveal();
+  const at = line.role !== "steps" && line.at && !pending ? line.at : undefined;
+  const timed = reveal.shown ? " is-timed" : "";
   switch (line.role) {
     case "you":
       return (
-        <m.div className="msg msg--you" data-pending={pending || undefined} layout="position" {...enter}>
-          {line.quote && <QuoteLine text={line.quote.text} from={line.quote.from} />}
-          {line.text && <Markdown text={line.text} />}
-          {line.files?.length ? (
-            <div className="files">
-              {line.files.map((f) => (
-                <span key={f} className="file-chip">
-                  <PageIcon size={11} />
-                  {f}
-                </span>
-              ))}
-            </div>
-          ) : null}
+        <m.div className={`said${timed}`} layout="position" {...enter} {...reveal.props}>
+          {at && <MessageTime at={at} />}
+          <div className="msg msg--you" data-pending={pending || undefined}>
+            {line.quote && <QuoteLine text={line.quote.text} from={line.quote.from} />}
+            {line.text && <Markdown text={line.text} />}
+            {line.files?.length ? (
+              <div className="files">
+                {line.files.map((f) => (
+                  <span key={f} className="file-chip">
+                    <PageIcon size={11} />
+                    {f}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </m.div>
       );
     case "kos":
       return (
-        <m.div className="msg msg--kos" layout="position" {...enter}>
+        <m.div className={`msg msg--kos${timed}`} layout="position" {...enter} {...reveal.props}>
           <Markdown text={line.text} />
+          {at && (
+            <div className="msg-foot">
+              <MessageTime at={at} />
+            </div>
+          )}
         </m.div>
       );
     case "note":
       return (
-        <m.p className="note" layout="position" {...enter}>
+        <m.p className={`note${timed}`} layout="position" {...enter} {...reveal.props}>
           {line.text}
+          {at && <MessageTime at={at} />}
         </m.p>
       );
     case "steps":
@@ -763,6 +787,7 @@ function Steps({ steps, live, frames }: { steps: Step[]; live?: boolean; frames?
           {steps.map((s, i) => (
             <li key={i} data-failed={s.failed || undefined}>
               {s.summary}
+              <StepTime running={false} ms={s.ms} />
             </li>
           ))}
         </ol>
@@ -845,33 +870,30 @@ function Extra({ extra }: { extra: Extra }): ReactElement {
   );
 }
 
-/** An approval, as the dashboard's: what it would run, why, what it is asked for, and Approve, Always, Deny in that order. */
-function AskCard({ approval, decide }: { approval: Approval; decide: (approved: boolean, remember?: boolean) => void }): ReactElement {
+/** An approval, as the dashboard draws it: the kit's AskCard, laid out by the host. */
+function Ask({ approval, decide }: { approval: Approval; decide: (approved: boolean, remember?: boolean) => void }): ReactElement {
+  const { title, summary, tool, place, steps, always, alwaysTip, alwaysNote, tooLong } = approval;
+  // An older host sends the rule's words alone.
+  const risk = approval.risk ?? askRisk(approval.reason);
+  const view: AskView = {
+    title: title ?? summary ?? tool,
+    ...(place ? { place } : {}),
+    ...(steps ? { steps } : {}),
+    ...(risk ? { risk } : {}),
+    ...(always ? { always, ...(alwaysTip ? { alwaysTip } : {}) } : {}),
+    ...(alwaysNote ? { alwaysNote } : {}),
+    ...(tooLong ? { tooLong } : {}),
+  };
+  // Decided once: the card waits for KOS to settle it, so a held key or a second press sends nothing more.
+  const [busy, setBusy] = useState(false);
+  const once = (approved: boolean, remember?: boolean): void => {
+    setBusy(true);
+    decide(approved, remember);
+  };
   return (
-    <m.section className="card ask-card" layout {...enter}>
-      <div className="ask-card-head">
-        <p className="label">KOS asks to run</p>
-        {approval.expiresAt !== undefined && <Countdown until={approval.expiresAt} />}
-      </div>
-      <strong className="mono">{approval.tool}</strong>
-      <AskSteps mechanics={approval.mechanics} />
-      {approval.why && <p className="hint">{approval.why}</p>}
-      {approval.reason && <p className="hint ask-reason">Asked because it {approval.reason}.</p>}
-      {approval.args && <pre className="args">{approval.args}</pre>}
-      <div className="row">
-        <button type="button" className="btn btn--primary" onClick={() => decide(true)}>
-          Approve
-        </button>
-        {approval.always && (
-          <button type="button" className="btn" title="Approve, and stop asking for this" onClick={() => decide(true, true)}>
-            {approval.always}
-          </button>
-        )}
-        <button type="button" className="btn" onClick={() => decide(false)}>
-          Deny
-        </button>
-      </div>
-    </m.section>
+    <m.div layout {...enter}>
+      <AskCard view={view} tool={approval.tool} args={approval.args} why={approval.why} asker={approval.asker} expiresAt={approval.expiresAt} busy={busy} onDecide={once} />
+    </m.div>
   );
 }
 

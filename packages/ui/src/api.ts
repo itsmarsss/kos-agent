@@ -1,6 +1,6 @@
 /** Typed client for the KOS dashboard API. */
 
-import type { ChatMode, DrawnTheme, ExportFormat, HtmlPage, ThemeMode as Theme } from "@kos/shared";
+import type { ChatMode, DrawnTheme, ExportFormat, HtmlPage, OfficeView, ThemeMode as Theme } from "@kos/shared";
 
 /** Whether a restart is wanted, and what it is waiting on. */
 export interface RestartState {
@@ -69,6 +69,8 @@ export interface PendingAction {
   reason: string | null;
   /** The action in words, with the ids named by the server; the page's own summary only when absent. */
   summary?: string;
+  /** What the card leads with, its ids named by the server: the step's purpose, or what a run of actions acts on. */
+  title?: string;
   /** What the action does, step by step, when the summary is the model's account of it. */
   mechanics?: string;
   /** The conversation that asked, so a decision can be taken where it lives. */
@@ -86,6 +88,13 @@ export interface PendingAction {
   asker?: string;
   /** A browser ask that acts in the owner's own Chrome, not KOS's browser, as it was when raised. */
   yours?: boolean;
+  /** It always asks (it places a secret): no remembered yes is offered. */
+  asksAlways?: boolean;
+  /** It asks even in a chat set to act on its own. */
+  beyondAuto?: boolean;
+  /** The remembered yes in the host's words, its destination named, and exactly what it keeps. */
+  always?: string;
+  alwaysTip?: string;
 }
 
 export interface Project {
@@ -609,6 +618,8 @@ export type ChatEvent =
       origin?: MessageOrigin;
       /** What the owner quoted with it (text selected on a page), and where from. */
       quote?: { text: string; from: string };
+      /** When it was written to the chat, epoch milliseconds; absent for one kept before messages kept their time. */
+      at?: number;
     }
   | {
       kind: "tool";
@@ -621,6 +632,12 @@ export type ChatEvent =
       pendingId?: string;
       /** A picture of what this step saw (a browser tab, a computer's screen), at /api/frames/:id. */
       frameId?: number;
+      /** When it began, epoch ms, for a call still running. */
+      startedAt?: number;
+      /** How long it ran, ms, not counting a wait for the owner's yes; absent for a call kept before calls were timed. */
+      ms?: number;
+      /** How long it waited on the owner's yes, ms, when it asked. */
+      waitedMs?: number;
     }
   | {
       /** A line across the chat where it was cleared or compacted: what is above is kept for the reader, not for the model. */
@@ -646,6 +663,33 @@ export interface FileContent {
   language: string;
   /** Set when the text was read out of a document (Word, Excel, PowerPoint): what was read, "docx, 12 paragraphs". */
   extracted?: string;
+}
+
+/** One file's or folder's facts, for the Info panel. */
+export interface FileInfo extends DirEntry {
+  createdAt: number;
+  items?: number;
+  width?: number;
+  height?: number;
+  pages?: number;
+  pagesUnit?: "pages" | "slides" | "sheets";
+  project?: { slug: string; name: string };
+}
+
+/** A search's results; a contents search says the line that matched. */
+export interface FileSearch {
+  entries: (DirEntry & { line?: number; text?: string })[];
+  truncated: boolean;
+}
+
+/** Something the owner put in the files' trash, and where it was. */
+export interface TrashedFile {
+  id: string;
+  path: string;
+  name: string;
+  kind: "dir" | "file";
+  size: number;
+  trashedAt: number;
 }
 
 /** A file as words: a PDF or an Office file read the way KOS reads it, a text file as it is. */
@@ -1034,8 +1078,8 @@ export function dispositionName(header: string | null): string | undefined {
   return /filename="([^"]*)"/i.exec(header)?.[1] || undefined;
 }
 
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(path, { headers: tokenHeaders() });
+async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(path, { headers: tokenHeaders(), ...(signal ? { signal } : {}) });
   if (!res.ok) throw new Error(await readError(res, path));
   return (await res.json()) as T;
 }
@@ -1368,10 +1412,29 @@ export const api = {
   browserSettings: () => get<BrowserSettings>("/api/browser/settings"),
   saveBrowserSettings: (settings: { headed: boolean; chrome: string; extensions: string[]; search: string }) => post<BrowserSettings>("/api/browser/settings", settings),
   browserRestart: () => post<{ chrome: string; attached: boolean }>("/api/browser/restart", {}),
+  /** An Office file, a CSV or an iWork file as the viewers draw it. */
+  officeView: (path: string) => get<OfficeView>(`/api/file/office?path=${encodeURIComponent(path)}`),
+  /** A document's thumbnail as an object URL, or null when no host can draw one; the caller revokes it. */
+  thumbUrl: async (path: string, size: number): Promise<string | null> => {
+    const res = await fetch(`/api/file/thumb?path=${encodeURIComponent(path)}&size=${size}`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(await readError(res, "/api/file/thumb"));
+    return URL.createObjectURL(await res.blob());
+  },
+  /** Where a player streams a sound or a video from. */
+  mediaUrl: (path: string) => `/api/file/media?path=${encodeURIComponent(path)}`,
+  fileInfo: (path: string) => get<FileInfo>(`/api/files/info?path=${encodeURIComponent(path)}`),
+  /** A search; `signal` drops it when a newer one is asked (the next keystroke), and the server stops it too. */
+  searchFiles: (path: string, q: string, contents: boolean, signal?: AbortSignal) => get<FileSearch>(`/api/files/search?${new URLSearchParams({ path, q, ...(contents ? { contents: "1" } : {}) })}`, signal),
+  recentFiles: () => get<{ entries: DirEntry[] }>("/api/files/recents"),
   /** Managing files by hand: each returns where the thing now is. */
   renameFile: (from: string, to: string) => post<{ path: string }>("/api/files/rename", { from, to }),
   copyFile: (from: string, to?: string) => post<{ path: string }>("/api/files/copy", to ? { from, to } : { from }),
-  deleteFile: (path: string) => post<{ path: string }>("/api/files/delete", { path }),
+  trashFile: (path: string) => post<TrashedFile>("/api/files/trash", { path }),
+  fileTrash: () => get<{ items: TrashedFile[] }>("/api/files/trash"),
+  restoreFile: (id: string) => post<{ path: string }>("/api/files/restore", { id }),
+  /** Gone for good: the items named, or everything. */
+  emptyFileTrash: (ids?: string[]) => post<{ removed: number }>("/api/files/empty-trash", { confirm: true, ...(ids ? { ids } : {}) }),
   makeDir: (path: string) => post<{ path: string }>("/api/files/mkdir", { path }),
   /** Save a file through the browser's own download, under its own name. */
   downloadFile: async (path: string): Promise<void> => {
@@ -1577,7 +1640,7 @@ export const api = {
     post<{ key: string; removed: boolean }>("/api/memory/delete", { key }),
   /** Approve; with remember, the same shape stops asking. */
   approve: (id: number, remember = false) =>
-    post<{ ok: boolean; message: string; reply?: string }>("/api/approve", {
+    post<{ ok: boolean; message: string; reply?: string; remembered?: boolean }>("/api/approve", {
       id,
       ...(remember ? { remember: true } : {}),
     }),

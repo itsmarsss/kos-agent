@@ -10,7 +10,7 @@ import type { ObservationStore } from "../memory/observations.js";
 import { heardWith, ownerLines } from "../models/heard.js";
 import type { ModelMessage } from "../models/types.js";
 import { COMPACTED_PREFIX } from "../kernel/compact.js";
-import { toExchanges } from "../kernel/session.js";
+import { historySize, toExchanges } from "../kernel/session.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 
@@ -626,7 +626,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       for (const c of t.conversations.list(ownerId)) {
         if (busy.has(c.id)) continue;
         const history = t.sessions.get(c.id);
-        const chars = JSON.stringify(history).length;
+        const chars = historySize(history);
         if (chars < minChars || toExchanges(history).length <= KEEP_EXCHANGES) continue;
         out.push({ id: c.id, title: c.title, ...(c.projectSlug ? { project: c.projectSlug } : {}), messages: history.length, chars, observations: t.observations.count(c.id) });
       }
@@ -680,8 +680,10 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       const when = new Date().toISOString().slice(0, 10);
       const earlier = t.observations.list(id);
       const stood = earlier.map((o) => `${new Date(o.createdAt).toISOString().slice(0, 10)}: ${o.text}`).concat(`${when}: ${note}`).join("\n\n");
+      // The summary stands where the kept messages begin, at their time: stamped now, it would sit a day line ahead of them.
+      const from = kept[0]?.at;
       t.sessions.set(id, [
-        { role: "user", content: [{ type: "text", text: `${COMPACTED_PREFIX}\n\n${stood}` }] },
+        { role: "user", content: [{ type: "text", text: `${COMPACTED_PREFIX}\n\n${stood}` }], ...(from !== undefined ? { at: from } : {}) },
         ...kept,
       ]);
       const observation = t.observations.add(id, note, covered.flat().length);

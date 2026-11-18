@@ -67,10 +67,7 @@ struct RenderTests {
       ])
   }
 
-  private static let ask = ChatModel.Ask(
-    id: "41", tool: "shell.run", args: #"{"command":"git -C ~/kos-workspace/garden push origin main"}"#,
-    mechanics: "run: git -C garden push origin main\nthen: report what was pushed", why: "Push the garden plan you approved this morning.",
-    always: "Always for git push", expires: Date().addingTimeInterval(4 * 60 + 12), chat: "phone:owner")
+  private static let ask = AskCases.all[0].ask
 
   static func glance() -> Glance {
     let now = Date().timeIntervalSince1970 * 1000
@@ -154,6 +151,31 @@ struct RenderTests {
     try render("phone-menu-auto", only: ["390"]) { ModeSheet(chat: phone.chat) }
   }
 
+  /// The chat with when each line was said: the day over yesterday's and today's, the time after a pause; then every
+  /// line's time, as a swipe to the left shows them.
+  @Test func aConversationWithTimes() throws {
+    let phone = Phone.preview()
+    online(phone)
+    let calendar = Calendar.autoupdatingCurrent
+    let today = calendar.startOfDay(for: Date())
+    let at = { (days: Int, hour: Int, minute: Int) in calendar.date(byAdding: DateComponents(day: days, hour: hour, minute: minute), to: today) }
+    phone.chat.show(
+      conversation: "phone:owner", title: "Saturday plans",
+      lines: [
+        .you("What's on this weekend?", files: []),
+        .steps([.init(summary: "Read the calendar")]),
+        .kos("Saturday is clear until **4 pm**, then dinner with Sam at Lucia's."),
+        .you("Push the bike service to Sunday morning", files: []),
+        .note("Approved #7 · browser.click ran"),
+        .kos("Done: **Sunday 9:00**."),
+        .you("Thanks", files: []),
+        .kos("Any time."),
+      ],
+      times: [at(-1, 21, 10), nil, at(-1, 21, 11), at(0, 8, 2), at(0, 8, 3), at(0, 8, 4), at(0, 9, 30), at(0, 9, 30)])
+    try render("chat-times") { Tabbed { ChatScreen(phone: phone) } }
+    try render("chat-times-shown") { Tabbed { ChatScreen(phone: phone).environment(\.chatTimesShown, true) } }
+  }
+
   @Test func aTurnStreamingWithStop() throws {
     let phone = Phone.preview()
     conversation(phone)
@@ -182,6 +204,21 @@ struct RenderTests {
     try render("chat-ask", only: ["390"]) { Tabbed { ChatScreen(phone: phone) } }
     try render("approval") {
       SheetOver(height: 0.62) { Tabbed { ChatScreen(phone: phone) } } sheet: { ApprovalSheet(chat: phone.chat) {} }
+    }
+  }
+
+  @Test func theAskCases() throws {
+    let phone = Phone.preview()
+    conversation(phone)
+    for (name, ask) in AskCases.all {
+      try render("approval-\(name)", only: ["390"]) {
+        SheetOver(height: 0.8) { Tabbed { ChatScreen(phone: phone) } } sheet: {
+          AskBody(ask: ask, more: 0) { _, _ in }.frame(maxHeight: .infinity, alignment: .top)
+        }
+      }
+    }
+    try render("approval-details", only: ["390"]) {
+      AskDetails(tool: AskCases.all[2].ask.tool, args: AskCases.all[2].ask.args ?? "", open: true).padding(20).frame(maxHeight: .infinity, alignment: .top).background(Theme.panel)
     }
   }
 
