@@ -1,4 +1,5 @@
 import type { Db } from "../store/db.js";
+import { withoutPrivate } from "./private.js";
 
 /**
  * Named, parallel conversations.
@@ -142,10 +143,11 @@ const MAX_TITLE = 60;
 
 /**
  * A title from the opening message, shown until KOS names the chat
- * (naming.ts) a moment later. Deterministic and free.
+ * (naming.ts) a moment later. Deterministic and free, and without any key or
+ * address the message held: a title goes everywhere the chat is shown.
  */
 export function titleFromText(text: string): string {
-  const line = text.replace(/\s+/g, " ").trim();
+  const line = withoutPrivate(text).replace(/\s+/g, " ").trim();
   if (line === "") return "New conversation";
   if (line.length <= MAX_TITLE) return line;
   const cut = line.slice(0, MAX_TITLE);

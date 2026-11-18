@@ -493,8 +493,9 @@ export class Kernel {
   readonly caretaker: Caretaker;
   /** Carrying out approve and deny, including the recovery path for an orphaned action. */
   private readonly decisions: Decisions;
-  /** Remembering and naming, once a turn has answered. */
+  /** Remembering what was said, once a turn has answered. */
   private readonly afterTurn: AfterTurn;
+  /** Naming a new chat from its opening message, as its first turn starts. */
   private readonly namer: ChatNamer;
   /** Decisions the owner has made before, so the same shape stops asking. */
   readonly permissions: PermissionStore;
@@ -1371,8 +1372,8 @@ export class Kernel {
             sessionId,
             ...(opts.origin === "system" ? [] : [text]),
           );
-          // Named as the turn starts, so the name lands with the first words of the reply. Not awaited.
-          if (opts.origin !== "system") void this.namer.nameIfUnnamed(sessionId, text);
+          // Named as the turn starts, so the name lands with the first words of the reply; a guest's words never name it. Not awaited.
+          if (opts.origin !== "system" && !opts.guest) void this.namer.nameIfUnnamed(sessionId, text);
         } else if (opts.contextFrom) {
           // An aside: the model sees the context chat's history and any
           // earlier asides, but nothing is recorded anywhere. The main thread

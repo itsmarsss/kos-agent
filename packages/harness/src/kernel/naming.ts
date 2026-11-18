@@ -1,6 +1,7 @@
 import type { Inference } from "../agent/loop.js";
 import { textOf } from "../models/types.js";
 import { isFixed, titleFromText, type Conversation, type TitledBy } from "./conversations.js";
+import { withoutPrivate } from "./private.js";
 
 /**
  * What to call a conversation.
@@ -41,37 +42,31 @@ const HEURISTIC_WORDS = 6;
 /** Characters of a clause written without spaces, which is all one "word". */
 const UNSPACED_CHARS = 24;
 
-/**
- * Anything in the message that is nobody's business but the owner's.
- *
- * The title is sent to the cheap route, which may be another provider than
- * the turn's, and comes back to every surface including a shared Discord
- * thread. A key or an address in it is not what the chat is about, so it is
- * taken out before the model sees it or a fallback title is made from it.
- */
-const PRIVATE: RegExp[] = [
-  /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g,
-  /\b(?:password|passwd|pwd|passcode|secret|token|api[_ -]?key|apikey)\b\s*[:=]?\s*\S+/gi,
-  /\bBearer\s+\S+/gi,
-  /\b(?:sk|pk|rk)-[\w-]{8,}/g,
-  /\bgh[pousr]_[A-Za-z0-9]{16,}/g,
-  /\bxox[abprs]-[\w-]{8,}/g,
-  /\bAKIA[0-9A-Z]{16}\b/g,
-  /\bAIza[\w-]{30,}/g,
-  /\beyJ[\w-]+\.[\w-]+\.[\w-]+/g,
-  // A long run of letters and digits mixed is a key or a token, not a word.
-  /\b(?=[\w+/=-]*\d)(?=[\w+/=-]*[A-Za-z])[\w+/=-]{24,}/g,
-];
-
-export function withoutPrivate(text: string): string {
-  return PRIVATE.reduce((out, pattern) => out.replace(pattern, " "), text).replace(/[ \t]+/g, " ").trim();
-}
-
 /** The first letter up, unless the first word is cased on purpose ("iPhone"). */
 function sentenceCase(text: string): string {
   const word = text.split(" ")[0] ?? "";
   if (/\p{Lu}/u.test(word.slice(1))) return text;
   return text.charAt(0).toLocaleUpperCase() + text.slice(1);
+}
+
+/**
+ * What a title may not hold, whoever wrote it: characters that are not
+ * text (controls, and the format and direction marks that make a name read
+ * other than it is), links and domains, the sigils that ping or tag on a
+ * surface (@, #), and markdown that would draw as something else there.
+ */
+const UNSHOWABLE: RegExp[] = [
+  /[\p{Cc}\p{Cf}]/gu,
+  /\b(?:https?:\/\/|www\.)\S*/gi,
+  /[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.[a-z]{2,}\b(?:\/\S*)?/giu,
+  /[@#*_`~|]/g,
+];
+
+/** Words written to the model rather than about the chat. */
+const INSTRUCTION = /\b(?:ignore|disregard|forget|override)\b.{0,40}\b(?:instructions?|prompts?|rules|previous|above)\b|^(?:system|assistant|developer)\s*[:：]|\byou are now\b/i;
+
+function showable(text: string): string {
+  return UNSHOWABLE.reduce((out, pattern) => out.replace(pattern, " "), text).replace(/[ \t]+/g, " ").trim();
 }
 
 /**
@@ -83,7 +78,7 @@ function sentenceCase(text: string): string {
  */
 export function tidyName(raw: string): string | null {
   const first = raw.split("\n").map((l) => l.trim()).find(Boolean) ?? "";
-  const bare = first
+  const bare = showable(first)
     .replace(/^(?:title|name)\s*[:：-]\s*/i, "")
     .replace(/^[\s"'`“”‘’«»*_#]+|[\s"'`“”‘’«»*_]+$/g, "")
     .replace(/[\s.。!！?？,，;；:：…]+$/u, "")
@@ -93,6 +88,8 @@ export function tidyName(raw: string): string | null {
   if (/^(?:sure|here|okay|ok|sorry|i can|i'm|i am)\b/i.test(bare)) return null;
   // Nor is a structure: {"facts":[]} would otherwise have become the label on a conversation.
   if (/[{}[\]<>]/.test(bare)) return null;
+  // And an instruction is not one: the opening words stand in for it.
+  if (INSTRUCTION.test(bare)) return null;
   return sentenceCase(bare);
 }
 
@@ -109,14 +106,13 @@ const DANGLING = new Set(["a", "an", "the", "to", "of", "for", "with", "and", "o
  * key) or did not answer; still better than a sentence cut mid-word.
  */
 export function titleFromWords(text: string): string | null {
-  const clause = withoutPrivate(text)
-    .replace(/\s+/g, " ")
+  const clause = showable(withoutPrivate(text).replace(/\s+/g, " "))
     .replace(GREETING, "")
     .replace(ASKING, "")
     .split(/[.!?;:,()。！？；：，]/)
     .map((c) => c.trim())
     .find(Boolean);
-  if (!clause) return null;
+  if (!clause || INSTRUCTION.test(clause)) return null;
   const words = clause
     .split(" ")
     .map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}'+#&-]+$/gu, ""))
@@ -184,11 +180,12 @@ export interface ChatNamerDeps {
 /**
  * Names each new chat once, from the message that opened it.
  *
- * Only a title nobody chose is replaced: the opening words, or a cut
- * sentence left from before chats were named. A fixed thread keeps its own
- * name (a project, a blob, a surface's stream), a title the owner or KOS
- * already chose is final, and a rename that lands while the model is
- * thinking wins.
+ * Only the title that message gave it is replaced, so a chat from before
+ * chats were named keeps its title rather than being named after whatever
+ * was said in it later. A fixed thread keeps its own name (a project, a blob,
+ * a surface's stream), a title the owner or KOS already chose is final, and a
+ * rename that lands while the model is thinking wins. Whatever happens, the
+ * chat is marked as named, so it is asked about once.
  */
 export class ChatNamer {
   /** Chats being named right now: a second message sent meanwhile does not ask again. */
@@ -202,8 +199,10 @@ export class ChatNamer {
     if (!before || !message.trim() || this.naming.has(id) || !unnamed(before, message, this.deps.ownerId)) return;
     this.naming.add(id);
     try {
-      const title = (await this.ask(id, message)) ?? titleFromWords(message);
-      if (!title || this.deps.isClosed()) return;
+      // Nothing left once keys and addresses are out: nothing to send, and nothing better to call it.
+      const words = withoutPrivate(message);
+      const title = (words ? ((await this.ask(id, words)) ?? titleFromWords(words)) : null) ?? before.title;
+      if (this.deps.isClosed()) return;
       const now = this.deps.conversations.get(id);
       if (now && now.title === before.title && now.titledBy === null) this.deps.conversations.rename(id, title, "kos");
     } catch (err) {
@@ -213,9 +212,14 @@ export class ChatNamer {
     }
   }
 
-  /** The cheap route when it can be asked, else the chats' engine when it can answer, else nothing. */
+  /**
+   * The cheap route when it can be asked, else the chats' engine when it can
+   * answer, else nothing, quietly: a host with neither is not news on every chat.
+   */
   private async ask(id: string, message: string): Promise<string | null> {
-    const engine = this.deps.inference.ready?.("cheap") === false ? this.deps.engine?.() : undefined;
+    const reachable = this.deps.inference.ready?.("cheap") !== false;
+    const engine = reachable ? undefined : this.deps.engine?.();
+    if (!reachable && !engine) return null;
     const via = engine ? "the chat engine" : "the cheap route";
     try {
       const named = engine ? await nameWithEngine(engine, id, message) : await nameConversation(this.deps.inference, message);
@@ -228,8 +232,7 @@ export class ChatNamer {
   }
 }
 
-/** Whether a chat's title is still one nobody chose. */
+/** Whether a chat's title is still the one its opening message gave it. */
 function unnamed(c: Named, message: string, ownerId: string): boolean {
-  if (c.titledBy !== null || isFixed(c, ownerId)) return false;
-  return c.title === titleFromText(message) || c.title.endsWith("…");
+  return c.titledBy === null && !isFixed(c, ownerId) && c.title === titleFromText(message);
 }
