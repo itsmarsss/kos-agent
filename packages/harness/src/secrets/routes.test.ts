@@ -122,3 +122,14 @@ describe("secrets routes", () => {
     expect(audited.map((a) => a.tool)).toContain("secrets.wipe");
   });
 });
+
+describe("secrets routes on a vault that is not open", () => {
+  it("answers 409 for a handle, not 404", async () => {
+    await call("POST", "/api/secrets/init", { passphrase: "the vault passphrase" });
+    const { handle } = (await call("POST", "/api/secrets", login)).body as { handle: string };
+    routes = secretsRoutes({ vault: new Vault({ dir: join(root, "secrets") }), secrets: new SecretsRegistry(), uses, audit: () => undefined });
+    for (const [method, path] of [["GET", `/api/secrets/${handle}/uses`], ["POST", `/api/secrets/${handle}/reveal`], ["PATCH", `/api/secrets/${handle}`], ["DELETE", `/api/secrets/${handle}`]] as const) {
+      expect((await call(method, path, {})).status).toBe(409);
+    }
+  }, 20_000);
+});

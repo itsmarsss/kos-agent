@@ -175,6 +175,7 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
       const handle = segment(name);
       if (!handle) return fail(400, "not a handle");
       if (method !== "PATCH" && method !== "DELETE") return undefined;
+      if (!isEnv(handle) && vault.status().state !== "ready") return fail(409, vault.status().problem ?? "the vault is not open");
       if (isEnv(handle) && !vault.get(handle)) return fail(423, "a secret from the env file is changed in the env file, not here");
       if (method === "PATCH") {
         const patch = {
@@ -196,6 +197,7 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
 
     const handle = segment(parts[0]!);
     if (!handle) return fail(400, "not a handle");
+    if (!isEnv(handle) && vault.status().state !== "ready") return fail(409, vault.status().problem ?? "the vault is not open");
     if (parts.length === 2 && parts[1] === "uses" && method === "GET") {
       if (!vault.get(handle) && !isEnv(handle)) return fail(404, `there is no secret ${handle}`);
       const query = new URLSearchParams(req.url?.includes("?") ? req.url.slice(req.url.indexOf("?") + 1) : "");

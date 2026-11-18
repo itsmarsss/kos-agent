@@ -205,6 +205,8 @@ export class SecretsRegistry {
   }
 
   private scrubberNow(): Scrubber {
+    // A secret the CLI added while the host runs is looked for within a second.
+    this.vault?.poll();
     this.scrubber ??= new Scrubber(this.scanned(), (name, count) => {
       this.hits += count;
       console.warn(`[secrets] took ${count} ${count === 1 ? "copy" : "copies"} of secret ${name} out of text bound for the model or a log`);

@@ -166,3 +166,22 @@ describe("SecretsRegistry over a vault", () => {
     expect(reg.get("stripe")).toBeUndefined();
   });
 });
+
+describe("SecretsRegistry and a vault changed elsewhere", () => {
+  it("scrubs a value another process added, within a poll", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-registry-poll-"));
+    try {
+      let now = 0;
+      const vault = new Vault({ dir: join(root, "secrets"), now: () => now });
+      await vault.init();
+      const reg = new SecretsRegistry();
+      reg.attachVault(vault);
+      expect(reg.scrub("pw-added-by-the-cli")).toBe("pw-added-by-the-cli");
+      const handle = new Vault({ dir: join(root, "secrets") }).add({ label: "CLI", kind: "login", values: { password: "pw-added-by-the-cli" } });
+      now += 1_000;
+      expect(reg.scrub("pw-added-by-the-cli")).toBe(`[secret ${handle}.password]`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

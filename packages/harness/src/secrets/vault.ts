@@ -36,6 +36,8 @@ const VAULT_FILE = "vault.kosv";
 const KEY_FILE = "key";
 /** The highest sequence number this machine has seen, so an older copy put back is refused. */
 const SEQ_FILE = "seq";
+/** How often a hot caller looks for a change another process made. */
+const POLL_MS = 1_000;
 
 interface Wrap {
   alg: "A256GCM";
@@ -326,6 +328,7 @@ export class Vault {
   private opener: Opener | undefined;
   private problem: string | undefined;
   private held = new Map<string, Held>();
+  private polled = 0;
   private readonly listeners = new Set<() => void>();
 
   constructor(private readonly options: VaultOptions) {
@@ -351,6 +354,14 @@ export class Vault {
   onChange(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Read the file again if another process changed it, at most once a second: for a caller as hot as the scrubber. */
+  poll(): void {
+    const t = this.now();
+    if (t - this.polled < POLL_MS) return;
+    this.polled = t;
+    this.refresh();
   }
 
   status(): { state: "absent" | "locked" | "ready"; slots: VaultSlotKind[]; problem?: string } {
