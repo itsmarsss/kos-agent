@@ -59,6 +59,7 @@ export const KERNEL_TABLES = new Set([
   "permission_rules",
   "runs_log",
   "schema_migrations",
+  "secret_uses",
   "settings",
   "token_usage",
 ]);
@@ -70,9 +71,10 @@ export const KERNEL_TABLE_PREFIXES = ["memory_", "sqlite_"];
  * Written by nobody but the owner, through the dashboard. `devices` is the
  * computers KOS may drive; `settings` holds each chat's mode, `crons` what
  * runs unattended, and `audit_log` the record of what ran, so no statement
- * widens its own reach or rewrites its own history.
+ * widens its own reach or rewrites its own history; `secret_uses` is the
+ * record of every secret used.
  */
-export const TRUST_TABLES = new Set(["pending_actions", "permission_rules", "kill_switch", "devices", "device_settings", "settings", "crons", "audit_log"]);
+export const TRUST_TABLES = new Set(["pending_actions", "permission_rules", "kill_switch", "devices", "device_settings", "settings", "crons", "audit_log", "secret_uses"]);
 
 /** The one project that reaches everything, by its slug, for the tools that judge reach. */
 export const MAINTENANCE_SLUG = MAINTENANCE.slug;
