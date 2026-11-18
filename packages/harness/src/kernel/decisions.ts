@@ -2,7 +2,7 @@ import { summarizeAction } from "@kos/shared";
 
 import type { PendingAction } from "../ops/approvals.js";
 import { SHARED_LANE } from "../ops/queue.js";
-import { placeSecrets, type SecretSlots } from "../secrets/inject.js";
+import { hasSecretRef, placeSecrets, type SecretSlots } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import { attendance, guested, ownership } from "./caller.js";
 import { primarySessionId } from "./session.js";
@@ -118,7 +118,8 @@ export class Decisions {
 
     // Kept, when the owner said so: the shape of this call, in the project
     // it came from. A call whose shape cannot be named makes no rule.
-    if (options.remember) {
+    // Never for a call that sends a secret: each of those is asked about.
+    if (options.remember && !hasSecretRef(JSON.parse(action.args))) {
       // The rule named when the call was queued, if there was one: a browser
       // action's site is known then and not now. Otherwise named from the
       // call's shape, as before.

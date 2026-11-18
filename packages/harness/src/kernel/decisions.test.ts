@@ -75,6 +75,12 @@ describe("approving", () => {
     expect(await as({ owner: true, attended: false })).toEqual({ owner: false, attended: false });
   });
 
+  it("keeps no rule for a call that sends a secret, even when the owner says remember", async () => {
+    const { d, log } = deps(pending({ tool: "http.fetch", args: JSON.stringify({ url: "https://a.example", headers: { k: "{{secret:openai}}" } }) }), true);
+    await new Decisions(d).approve(5, "owner", { remember: true });
+    expect(log.some((l) => l.startsWith("rule:"))).toBe(false);
+  });
+
   it("runs an orphaned action with secrets only in its slots, and scrubs what it answered", async () => {
     const audited: string[] = [];
     const resumed: string[] = [];

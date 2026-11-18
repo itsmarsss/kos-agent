@@ -6,7 +6,7 @@ import { defang, type HeardWords } from "../models/heard.js";
 import type { AuditLog } from "../ops/audit.js";
 import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
-import { placeSecrets } from "../secrets/inject.js";
+import { placeSecrets, secretsNamed } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import { attendance, caller, guested, onSite, origin, ownership, scheduled, turn, turnStop, type GuestOrigin, type TurnOrigin } from "./caller.js";
 
@@ -327,7 +327,7 @@ export class GuardedTools implements ToolBox {
       const tell = (result: ToolExecution): void => {
         if (started.ran) this.deps.onFinishedAfterStop?.(name, result);
       };
-      calling.then(tell, (err: unknown) => tell({ content: err instanceof Error ? err.message : String(err), isError: true }));
+      calling.then(tell, (err: unknown) => tell({ content: this.deps.secrets.scrub(err instanceof Error ? err.message : String(err)), isError: true }));
       return { content: STOPPED_RESULT, isError: true };
     }
     const kept = this.deps.shelve && !called.isError ? { ...called, content: await this.deps.shelve(name, input, called.content, this.cutHuge) } : called;
@@ -402,7 +402,14 @@ export class GuardedTools implements ToolBox {
     const misplaced = placeSecrets(name, input, registry.secretSlots(name), secrets);
     if ("refused" in misplaced) return { content: misplaced.refused, isError: true };
 
-    const assessment = registry.classify(name, input);
+    /*
+     * A call that sends a secret asks the owner every time, until the
+     * secrets tools bring their own tier: no remembered yes and no Auto
+     * covers it, and the ask names the secret and the host it goes to.
+     */
+    const using = secretsNamed(input);
+    const sends = using.length > 0 ? `sends secret ${using.join(", ")} to ${registry.secretSlots(name)?.host?.(input) ?? "an unknown host"}` : undefined;
+    const assessment = sends ? { tier: "risky" as const, escalated: true, reason: sends } : registry.classify(name, input);
 
     /*
      * Readied before it is judged on where it runs: a browser call from the
@@ -438,8 +445,8 @@ export class GuardedTools implements ToolBox {
        * shows it ran as risky.
        */
       const context = this.deps.permissionContext?.(name);
-      const auto = this.deps.autoApproves?.(name, context) ?? false;
-      const ruled = auto !== true && this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true;
+      const auto = sends ? false : (this.deps.autoApproves?.(name, context) ?? false);
+      const ruled = !sends && auto !== true && this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) === true;
       // A yes kept for a site holds on that site alone: the run checks each step against it, and one setting out elsewhere asks.
       const bound = auto !== true && (ruled || auto === "site") ? context?.browser?.site : undefined;
       const allowed = auto === true || ((ruled || auto === "site") && !(bound !== undefined && this.deps.leavesSite?.(name, input, bound) === true));
@@ -461,7 +468,7 @@ export class GuardedTools implements ToolBox {
       // Named now, while the caller's situation is known: the rule a yes-
       // and-remember would keep, and a picture of the page a browser action
       // is aimed at, which the arguments alone cannot show.
-      const rule = this.deps.permissions?.ruleFor?.(name, input, this.deps.projectSlug?.() ?? null, context);
+      const rule = sends ? undefined : this.deps.permissions?.ruleFor?.(name, input, this.deps.projectSlug?.() ?? null, context);
       const picture = await this.deps.pictureFor?.(name, input).catch(() => undefined);
       const site = context?.browser?.site;
       const why = this.deps.whyFor?.(conversationId)?.trim();

@@ -216,7 +216,7 @@ describe("GuardedTools", () => {
     expect(caller.getStore()).toBeUndefined();
   });
 
-  it("injects a secret only into a slot its tool declared, and audits the reference", async () => {
+  it("injects a secret only into a slot its tool declared, asking every time, and audits the reference", async () => {
     let seen: unknown;
     registry.register(
       { name: "send", description: "s", inputSchema: { type: "object" } },
@@ -225,9 +225,17 @@ describe("GuardedTools", () => {
         return "ok";
       },
       undefined,
-      { secretSlots: { paths: ["headers.*"], admit: () => undefined } },
+      { secretSlots: { paths: ["headers.*"], host: () => "api.example.com", admit: () => undefined } },
     );
-    const res = await guarded().execute("send", { headers: { auth: "Bearer {{secret:openai}}" } });
+    // Neither Auto nor a remembered yes covers it.
+    const call = guarded({ autoApproves: () => true, permissions: { allows: () => true, ruleFor: () => ({ tool: "send", scope: null, project: null }) } }).execute("send", { headers: { auth: "Bearer {{secret:openai}}" } });
+    await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+    const ask = approvals.pending()[0]!;
+    expect(ask.reason).toBe("sends secret openai to api.example.com");
+    expect(ask.rule).toBeNull();
+    expect(seen).toBeUndefined();
+    approvals.approve(ask.id, "owner");
+    const res = await call;
     expect(res.isError).toBe(false);
     expect(seen).toEqual({ auth: "Bearer sk-real" }); // injected before execution
     const [entry] = audit.recent();
