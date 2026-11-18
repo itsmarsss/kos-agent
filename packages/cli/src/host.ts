@@ -181,7 +181,6 @@ export function surfaceUp(surfaces: Map<string, () => ChannelAdapter | undefined
   return send;
 }
 
-/** The dashboard as Discord links to it: KOS_PUBLIC_URL when set, this host otherwise. */
 /**
  * Listen, then do what only the host holding the port may (keep its write
  * key): a port already in use refuses with what to do, and `then` never runs.
@@ -222,6 +221,7 @@ function publicHostsOf(url: string | undefined): string[] {
   }
 }
 
+/** The dashboard as Discord links to it: KOS_PUBLIC_URL when set, this host otherwise. */
 export function dashboardUrlFor(host: string, port: number): string {
   return process.env.KOS_PUBLIC_URL?.trim() || `http://${host === "0.0.0.0" ? "localhost" : host}:${port}`;
 }
