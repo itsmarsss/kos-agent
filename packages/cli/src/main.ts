@@ -57,6 +57,7 @@ import {
   uninstallService,
 } from "./service.js";
 import { runHost, waitForPortFree } from "./host.js";
+import { runSecrets } from "./secrets.js";
 import { serveMemoryMcp } from "./memorymcp.js";
 import { runRemoteCommand } from "./remote.js";
 import {
@@ -700,6 +701,12 @@ async function main(): Promise<void> {
     const reader = flags.agent === true ? "agent" : "extractor";
     const report = await runMemoryEval(inference, undefined, { reader });
     console.log(flags.json === true ? JSON.stringify(report, null, 2) : renderEvalReport(report, reader));
+    return;
+  }
+
+  // kos secrets: the vault from a terminal; unlock and status reach the running host too.
+  if (command === "secrets") {
+    process.exitCode = await runSecrets(rest, flags, { live: async () => (await resolveLiveClient(rootDir))?.client });
     return;
   }
 

@@ -9,6 +9,7 @@
 import { KOS_VERSION } from "@kos/shared";
 
 export { surfaceName } from "@kos/shared";
+export { SECRET_FIELDS, SECRET_KINDS, SECRET_REQUIRED, type SecretFieldName, type SecretKind, type SecretSummary, type SecretValues, type VaultStatus } from "@kos/shared";
 
 export * from "./modules/index.js";
 export { JailError, resolvePath } from "./jail/index.js";
