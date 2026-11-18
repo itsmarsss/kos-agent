@@ -503,3 +503,32 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .kos-thumb { transition: none; }
 }
+
+/* —— the chat's mode in a composer: one capsule, its word to cycle and a caret for the menu; KOS's colour in Auto —— */
+.mode-chip { flex: none; display: inline-flex; align-items: stretch; min-width: 0; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-size: var(--text-sm); line-height: 1.45; transition: color 140ms ease, background 140ms ease; }
+.mode-chip button { appearance: none; display: inline-flex; align-items: center; gap: 4px; margin: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; border-radius: 999px; }
+.mode-chip button:disabled { cursor: default; opacity: 0.6; }
+.mode-chip button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mode-chip-main { padding: 0.2rem 0.15rem 0.2rem 0.6rem; white-space: nowrap; }
+.mode-chip-more { padding: 0.2rem 0.5rem 0.2rem 0.25rem; }
+.mode-chip:hover { color: var(--text); background: var(--line); }
+.mode-chip[data-mode="auto"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.mode-chip[data-mode="auto"]:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.mode-chip[data-running] .mode-chip-main svg { animation: mode-beat 1.2s ease-in-out infinite; }
+@keyframes mode-beat { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .mode-chip[data-running] .mode-chip-main svg { animation: none; } }
+
+.mode-menu { position: fixed; z-index: 1000; width: min(19rem, calc(100vw - 16px)); max-height: min(30rem, calc(100vh - 80px)); overflow-y: auto; display: flex; flex-direction: column; gap: 1px; padding: 4px; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--panel); box-shadow: var(--float); color: var(--text); font-size: var(--text-base); text-align: left; }
+.mode-menu-row { appearance: none; display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: var(--r-sm); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.mode-menu-row > svg:first-child { flex: none; margin-top: 2px; color: var(--muted); }
+.mode-menu-row > svg:last-child:not(:first-child) { flex: none; margin-top: 2px; color: var(--accent); }
+.mode-menu-row:hover, .mode-menu-row:focus-visible { background: color-mix(in srgb, var(--accent) 10%, transparent); outline: none; }
+.mode-menu-row[aria-checked="true"] > svg:first-child { color: var(--accent); }
+.mode-menu-row--span { align-items: center; padding: 5px 8px 5px 29px; }
+.mode-menu-row--span > svg:last-child { margin-top: 0; }
+.mode-menu-span { flex: 1; min-width: 0; }
+.mode-menu .line-text strong { font-weight: 500; }
+.mode-menu-head { padding: 8px 8px 3px; }
+.mode-menu-switch { display: flex; align-items: center; gap: 10px; padding: 6px 8px; cursor: pointer; }
+.mode-menu-never { margin: 0; padding: 0 8px 6px 25px; color: var(--muted); font-size: var(--text-sm); line-height: 1.45; }
+.mode-menu-never li + li { margin-top: 2px; }

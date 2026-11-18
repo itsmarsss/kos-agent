@@ -27,6 +27,11 @@ export function nextMode(mode: ChatModeName): ChatModeName {
   return CHAT_MODES[(CHAT_MODES.indexOf(mode) + 1) % CHAT_MODES.length]!;
 }
 
+/** What a press on the chip (or Shift+Tab) makes of a mode: the next one, Auto with no bounds; the menu sets those. */
+export function cycled(mode: ChatMode): ChatMode {
+  return nextMode(mode.mode) === "auto" ? { mode: "auto" } : ASK;
+}
+
 /** The mode as it stands at `now`: Ask when none is kept or Auto's time ran out. */
 export function liveMode(mode: ChatMode | undefined, now: number): ChatMode {
   if (!mode || mode.mode !== "auto") return ASK;

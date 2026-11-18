@@ -236,6 +236,7 @@ export {
   AUTO_SESSIONS,
   AUTO_SPANS,
   CHAT_MODES,
+  cycled,
   leftWords,
   liveMode,
   MODE_WORDS,

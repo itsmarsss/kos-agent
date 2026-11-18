@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ASK, leftWords, liveMode, modeLabel, nextMode, parseChatMode, spanOf, untilOf } from "./chatmode.js";
+import { ASK, cycled, leftWords, liveMode, modeLabel, nextMode, parseChatMode, spanOf, untilOf } from "./chatmode.js";
 
 const NOW = 1_700_000_000_000;
 
@@ -41,5 +41,12 @@ describe("chat mode", () => {
     expect(modeLabel({ mode: "auto", until: NOW - 1 }, NOW)).toBe("Ask");
     expect(leftWords(30_000)).toBe("under a minute");
     expect(leftWords(45 * 60_000)).toBe("45m");
+  });
+});
+
+describe("cycled", () => {
+  it("goes Ask to Auto with no bounds, and Auto back to Ask", () => {
+    expect(cycled(ASK)).toEqual({ mode: "auto" });
+    expect(cycled({ mode: "auto", until: "task", sessions: true })).toBe(ASK);
   });
 });
