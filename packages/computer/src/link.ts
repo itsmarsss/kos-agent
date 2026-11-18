@@ -1,3 +1,5 @@
+import { scrubDeep } from "@kos/harness";
+
 import type { Build } from "./builds.js";
 import type { HostKey } from "./keys.js";
 import { nonce, signText, verifyHere, verifyText } from "./keys.js";
@@ -56,6 +58,8 @@ export interface LinkDeps {
   local?: boolean;
   /** The secret a KOS for Mac on this computer proves it is here with; without it, no Mac is taken as here. */
   localKey?: Buffer;
+  /** Secret values out of what KOS sends, but for the calls that carry one on purpose. */
+  scrub?: (text: string) => string;
   /** In: both keys proved. */
   onReady(link: DeviceLink): void;
   onState(link: DeviceLink): void;
@@ -87,6 +91,9 @@ export const REFUSED_REASON: Record<RefusedCheck, string> = {
 };
 
 const HELLO_TIMEOUT_MS = 10_000;
+
+/** The device methods that carry a secret's value by design (docs/secrets.md, Protocol): sent as built. */
+const SECRET_METHODS: ReadonlySet<string> = new Set(["secret.fill", "keys.secret"]);
 
 interface Pending {
   resolve(result: Record<string, unknown>): void;
@@ -141,7 +148,12 @@ export class DeviceLink {
 
   /** Tell the device something that needs no answer, once it is in. */
   tell(frame: { t: string } & Record<string, unknown>): void {
-    if (this.ready) this.socket.send(JSON.stringify(frame));
+    if (this.ready) this.socket.send(JSON.stringify(this.clean(frame)));
+  }
+
+  /** A frame with no secret's value in it: whatever a chat shows or a call carries passes the scrubber first. */
+  private clean<T>(value: T): T {
+    return this.deps.scrub ? scrubDeep(value, this.deps.scrub) : value;
   }
 
   /** Ask the device to do something; its result, or a DeviceError with its reason. */
@@ -154,7 +166,9 @@ export class DeviceLink {
         reject(new DeviceError("timeout", `the device did not answer ${method} in time`));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      this.socket.send(JSON.stringify({ t: "call", id, method, params }));
+      // A secret's fill is built by the resolver to carry its value; every other call is scrubbed.
+      const sent = SECRET_METHODS.has(method) ? params : this.clean(params);
+      this.socket.send(JSON.stringify({ t: "call", id, method, params: sent }));
     });
   }
 
