@@ -189,10 +189,16 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
    */
   const fenced = (path: string, what: "read" | "replace" | "remove", folder = false): HomePath => {
     const placed = usable(ws, ctx, path);
-    const refused = (what === "read" ? undefined : reservedRefusal(ws, placed.rel)) ?? (what === "remove" ? layoutRefusal(placed.rel) : undefined);
-    if (refused) throw new Error(refused);
+    const reserved = what === "read" ? undefined : reservedRefusal(ws, placed.rel);
+    if (reserved) throw new Error(reserved);
+    // Said after the artifacts' own refusals, which name what a folder holds.
+    const laidOut = (): HomePath => {
+      const refused = what === "remove" ? layoutRefusal(placed.rel) : undefined;
+      if (refused) throw new Error(refused);
+      return placed;
+    };
     const pages = ctx.services?.pages;
-    if (!pages) return placed;
+    if (!pages) return laidOut();
     const { rel } = placed;
     const reach = reachOf(ctx);
     const as = what === "read" ? "read" : "change";
@@ -209,7 +215,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
     if (held) {
       throw new Error(`${rel} ${record ? "is part of" : "holds"} the artifact ${held.id}, which files.* does not take away: KOS never deletes an artifact; the owner puts one in the trash from the Artifacts page. To give it another owner, use artifacts.move`);
     }
-    return placed;
+    return laidOut();
   };
   ctx.registerTool(
     {
