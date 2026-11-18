@@ -1075,7 +1075,8 @@ export class Kernel {
     },
   ): Promise<HandleResult> {
     {
-      const runId = this.runs.start("chat");
+      // Kept with the chat it ran in, so a run in the log leads to its chat.
+      const runId = this.runs.start("chat", sessionId);
       const turnId = String(runId);
       // Who this turn is to the fences: attended unless the harness started it
       // or the sender was not, the owner's only when the door that took the
