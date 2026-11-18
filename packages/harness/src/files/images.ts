@@ -73,12 +73,11 @@ const ascii = (bytes: Uint8Array, from: number, to: number): string => Buffer.fr
 
 /** The picture the bytes are, by their magic numbers; undefined for anything else. */
 export function imageTypeOf(bytes: Uint8Array): ImageType | undefined {
-  if (bytes.length < 12) return undefined;
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
   if (ascii(bytes, 0, 8) === "\x89PNG\r\n\x1a\n") return "image/png";
   if (/^GIF8[79]a$/.test(ascii(bytes, 0, 6))) return "image/gif";
   if (ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 12) === "WEBP") return "image/webp";
-  if (ascii(bytes, 4, 8) === "ftyp") return heifTypeOf(bytes);
+  if (bytes.length >= 12 && ascii(bytes, 4, 8) === "ftyp") return heifTypeOf(bytes);
   if (ascii(bytes, 0, 4) === "II*\0" || ascii(bytes, 0, 4) === "MM\0*") return "image/tiff";
   if (ascii(bytes, 0, 2) === "BM" && bytes.length > 18 && BMP_HEADERS.has(Buffer.from(bytes).readUInt32LE(14))) return "image/bmp";
   return undefined;

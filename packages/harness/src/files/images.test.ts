@@ -32,6 +32,9 @@ function sizeOf(data: Buffer): { width: number; height: number } {
 describe("imageTypeOf", () => {
   it("knows each picture by its bytes", () => {
     for (const type of TYPES) expect(imageTypeOf(picture(type))).toBe(type);
+    // A JPEG's head alone is a JPEG: the phone's inbox checks only the first bytes.
+    expect(imageTypeOf(Buffer.from([0xff, 0xd8, 0xff, 0xe0]))).toBe("image/jpeg");
+    expect(imageTypeOf(Buffer.alloc(0))).toBeUndefined();
   });
 
   it("reads a HEIF's brands: an iPhone's mif1 file that holds HEVC is a HEIC", () => {
