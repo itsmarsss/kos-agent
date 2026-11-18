@@ -9,7 +9,7 @@ import { DeviceHub } from "./hub.js";
 import { rawPublicKey } from "./keys.js";
 import { ARTIFACT_DOCUMENT_BYTES, type PanelArtifacts } from "./artifacts.js";
 import type { PanelDashboard } from "./dashboard.js";
-import { CHROME_PANEL, DevicePanel, MAC_PANEL, PHONE_PANEL, alwaysWords, appNote, besideNote, panelLines, phoneNote, type Glance, type PanelPlace } from "./panel.js";
+import { CHROME_PANEL, DevicePanel, MAC_PANEL, PHONE_PANEL, appNote, besideNote, panelLines, phoneNote, type Glance, type PanelPlace } from "./panel.js";
 import { DeviceStore } from "./store.js";
 import { computerModule } from "./tools.js";
 
@@ -158,7 +158,7 @@ describe("KOS for iPhone", () => {
     mac.event("chat.glance", {});
     await flush();
     // Each waiting ask goes as chat.ask carries one, in words, with the chat it is for.
-    const asks = [{ chat: { id: "c2", title: "Inbox sweep" }, approval: { id: "7", tool: "files.write", summary: "Write file notes/list.md", args: '{"path":"notes/list.md"}', why: "Saving the list.", expiresAt: 9 } }];
+    const asks = [{ chat: { id: "c2", title: "Inbox sweep" }, approval: { id: "7", tool: "files.write", summary: "Write file notes/list.md", title: "Write file notes/list.md", args: '{"path":"notes/list.md"}', place: "In notes", why: "Saving the list.", expiresAt: 9 } }];
     expect(phone.calls.filter((c) => c.method === "chat.glance").map((c) => c.params)).toEqual([{ ...glance, asks }]);
     expect(mac.calls.filter((c) => c.method === "chat.glance")).toEqual([]);
   });
@@ -971,7 +971,26 @@ describe("a Chrome's side panel", () => {
       rule: { tool: "browser.*", scope: "your-chrome:shop.example", project: null },
       expiresAt: 1_800_000,
     });
-    expect(chrome.calls.filter((c) => c.method === "chat.ask").at(-1)).toEqual({ method: "chat.ask", params: { chat: "chrome:owner", approval: { id: "10", tool: "browser.act", summary: "Act on the page", args: '{"steps":[]}', why: "Clicking Buy.", always: "Always on shop.example", expiresAt: 1_800_000 } } });
+    expect(chrome.calls.filter((c) => c.method === "chat.ask").at(-1)).toEqual({
+      method: "chat.ask",
+      params: {
+        chat: "chrome:owner",
+        approval: {
+          id: "10",
+          tool: "browser.act",
+          summary: "Act on the page",
+          title: "Act on the page",
+          args: '{"steps":[]}',
+          place: "In your Chrome on shop.example",
+          site: "shop.example",
+          why: "Clicking Buy.",
+          always: "Always allow on shop.example",
+          alwaysTip: "Approves this, and from now on clicking, typing and going to pages on shop.example in your Chrome stop asking. Running script in the page still asks. Undo it in Settings, Permissions.",
+          asker: "Chrome",
+          expiresAt: 1_800_000,
+        },
+      },
+    });
     // A step said by its purpose carries its actions, in full, beside the arguments cut to fit.
     const actions = Array.from({ length: 10 }, (_, i) => ({ action: "type", text: `${i} ${"x".repeat(80)}` }));
     await panel.requestApproval("owner", { id: "11", text: "x", tool: "computer.act", args: { intent: "Note: just closing the popup", actions }, asker: { name: "Chrome", conversationId: "chrome:owner" } });
@@ -1017,15 +1036,6 @@ describe("a Chrome's side panel", () => {
     chrome.event("chat.auto", { on: false });
     await flush();
     expect(chrome.calls.at(-1)?.params).toMatchObject({ auto: false });
-  });
-
-  it("names what an always covers", () => {
-    expect(alwaysWords("your-chrome:shop.example")).toBe("Always on shop.example");
-    expect(alwaysWords("dir:projects/budget")).toBe("Always in projects/budget");
-    expect(alwaysWords("dir:")).toBe("Always in the workspace");
-    expect(alwaysWords("table:expenses")).toBe("Always for expenses");
-    expect(alwaysWords(null)).toBe("Always");
-    expect(alwaysWords("to:discord:channel:1")).toBe("Always here");
   });
 
   it("reads the page beside the panel for the panel's chat, and for no other", async () => {

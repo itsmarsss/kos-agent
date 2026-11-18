@@ -233,7 +233,7 @@ describe("the computer tools", () => {
     expect(fake.statuses).toEqual([
       { session, step: "Open the Quizzes tab (click)", waiting: false },
       { session, step: "Search for it", waiting: false },
-      { session, step: "Press cmd+s", waiting: false },
+      { session, step: "Press ⌘S", waiting: false },
     ]);
   });
 

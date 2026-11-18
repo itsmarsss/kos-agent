@@ -430,6 +430,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       ...(action.why ? { why: action.why } : {}),
       ...(asker ? { asker } : {}),
       ...(action.rule ? { rule: action.rule } : {}),
+      ...(action.yours ? { yours: true } : {}),
     };
   };
   /** What answers the panel's chat, and what it may be changed to: the dashboard picker's choices. */

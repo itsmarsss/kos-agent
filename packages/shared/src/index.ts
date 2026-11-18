@@ -62,12 +62,30 @@ export {
 } from "./htmlpage.js";
 
 export {
+  actionSteps,
   detailLines,
   formatApprovalPrompt,
   stepActions,
   stepMechanics,
+  stepText,
   summarizeAction,
+  type StepLine,
+  type StepPiece,
 } from "./format-action.js";
+
+export { keyCap, keyCaps, keyPlatformOf, type KeyPlatform } from "./keys.js";
+
+export {
+  alwaysTip,
+  alwaysWords,
+  askPlace,
+  askRisk,
+  askView,
+  type AskInput,
+  type AskPlace,
+  type AskRule,
+  type AskView,
+} from "./ask.js";
 
 export {
   CHAT_COMMANDS,

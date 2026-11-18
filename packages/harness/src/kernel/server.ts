@@ -6,7 +6,7 @@ import { dirname, extname, join, normalize, relative, resolve, sep } from "node:
 import { parseHomeLayout,
   CHAT_COMMANDS,
 } from "@kos/shared";
-import { isExportFormat, outlineOf, stepMechanics, summarizeAction, type WidgetOutline } from "@kos/shared";
+import { askView, isExportFormat, outlineOf, stepMechanics, summarizeAction, type KeyPlatform, type StepLine, type WidgetOutline } from "@kos/shared";
 import type { PendingAction } from "../ops/approvals.js";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
@@ -277,15 +277,39 @@ function conversationLabeller(
  * words with its ids named, and, where those words are the model's account
  * of a step, the actions it would take. A yes is given for those.
  */
-function pendingView(kernel: Kernel, a: PendingAction): PendingAction & { asker?: string; summary: string; mechanics?: string } {
-  const mechanics = stepMechanics(a.tool, a.args);
+interface PendingCard extends PendingAction {
+  asker?: string;
+  summary: string;
+  mechanics?: string;
+  title: string;
+  steps?: StepLine[];
+  place?: string;
+  site?: string;
+  risk?: string;
+  always?: string;
+  alwaysTip?: string;
+}
+
+function pendingView(kernel: Kernel, a: PendingAction): PendingCard {
+  const names = (kind: string, id: string): string | undefined => kernel.labelFor(kind, id);
+  const mechanics = stepMechanics(a.tool, a.args, HOST_KEYS);
+  // The card's own layout, for a surface that cannot read the arguments itself (KOS for iPhone).
+  const view = askView({ tool: a.tool, args: a.args, reason: a.reason, rule: a.rule, ...(a.yours ? { yours: true } : {}), names, platform: HOST_KEYS });
   return {
     ...a,
     asker: kernel.askerOf(a.conversationId)?.name,
-    summary: summarizeAction(a.tool, a.args, (kind, id) => kernel.labelFor(kind, id)),
+    summary: summarizeAction(a.tool, a.args, names, HOST_KEYS),
     ...(mechanics ? { mechanics } : {}),
+    title: view.title,
+    ...(view.steps ? { steps: view.steps } : {}),
+    ...(view.place ? { place: view.place.words, ...(view.place.site ? { site: view.place.site } : {}) } : {}),
+    ...(view.risk ? { risk: view.risk } : {}),
+    ...(view.always ? { always: view.always, alwaysTip: view.alwaysTip } : {}),
   };
 }
+
+/** Whose keyboard a browser ask's keys are said for: the host's, where KOS's browser and, nearly always, the owner's Chrome run. */
+const HOST_KEYS: KeyPlatform = process.platform === "darwin" ? "mac" : "other";
 
 /** A decided ask as the Inbox lists it: in words, who asked, and none of the arguments. */
 function decidedView(kernel: Kernel, a: PendingAction): Omit<PendingAction, "args"> & { asker?: string; summary: string } {

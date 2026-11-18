@@ -14,7 +14,7 @@ import {
   type TurnPresence,
   type UserMapping,
 } from "@kos/harness";
-import { runningTail, stepMechanics, summarizeAction } from "@kos/shared";
+import { askView, runningTail, stepMechanics, summarizeAction, type KeyPlatform } from "@kos/shared";
 
 import { ArtifactReader, type PanelArtifacts } from "./artifacts.js";
 import { DashboardRelay, type PanelDashboard } from "./dashboard.js";
@@ -878,26 +878,37 @@ export function phoneNote(_beside: unknown, device: string): string {
 /** KOS for iPhone's chat, on the owner's phone. */
 export const PHONE_PANEL: PanelPlace = { name: "phone", kind: "phone", title: "iPhone", beside: phoneNote };
 
+/** Whose keyboard a browser ask's keys are said for: the host's, where KOS's browser and, nearly always, the owner's Chrome run. */
+const HOST_KEYS: KeyPlatform = process.platform === "darwin" ? "mac" : "other";
+
 /**
- * An approval as the panel shows it: the tool, what it would be given, and
- * why; and for a step said by its purpose, every action it takes, which the
- * arguments, cut to fit, may not reach.
+ * An approval as the panel shows it, laid out as every card lays one out
+ * (askView): what KOS wants to do, where, each action it takes, why it
+ * asks, what a remembered yes keeps; then the arguments, cut to fit, for
+ * the details, and who asks.
  */
 function approvalOf(req: ApprovalRequest): Record<string, unknown> {
   const args = argsText(req.args);
-  const always = req.rule ? alwaysWords(req.rule.scope) : undefined;
-  const mechanics = req.tool && req.args !== undefined ? stepMechanics(req.tool, req.args) : undefined;
-  // In words, with its ids named, as the Inbox titles it: a phone lists the ask by this, not by its tool.
-  const summary = req.tool && req.args !== undefined ? summarizeAction(req.tool, req.args, req.names) : undefined;
+  const view =
+    req.tool && req.args !== undefined
+      ? askView({ tool: req.tool, args: req.args, reason: req.reason ?? null, rule: req.rule ?? null, ...(req.yours ? { yours: true } : {}), ...(req.names ? { names: req.names } : {}), platform: HOST_KEYS })
+      : undefined;
+  const mechanics = req.tool && req.args !== undefined ? stepMechanics(req.tool, req.args, HOST_KEYS) : undefined;
   return {
     id: req.id,
     tool: req.tool ?? "",
-    ...(summary ? { summary } : {}),
+    // In words, with its ids named: a phone lists the ask by its summary, and a card leads with its title.
+    ...(req.tool && req.args !== undefined ? { summary: summarizeAction(req.tool, req.args, req.names, HOST_KEYS) } : {}),
+    ...(view ? { title: view.title } : {}),
     ...(args ? { args } : {}),
     ...(mechanics ? { mechanics } : {}),
+    ...(view?.steps ? { steps: view.steps } : {}),
+    ...(view?.place ? { place: view.place.words, ...(view.place.site ? { site: view.place.site } : {}) } : {}),
+    ...(view?.risk ? { risk: view.risk } : {}),
     ...(req.why ? { why: req.why } : {}),
     ...(req.reason ? { reason: req.reason } : {}),
-    ...(always ? { always } : {}),
+    ...(view?.always ? { always: view.always, alwaysTip: view.alwaysTip } : {}),
+    ...(req.asker ? { asker: req.asker.name } : {}),
     ...(req.expiresAt !== undefined ? { expiresAt: req.expiresAt } : {}),
   };
 }
@@ -908,26 +919,6 @@ function glanceAsks(asks: Glance["asks"]): Record<string, unknown>[] {
     .sort((a, b) => (a.request.expiresAt ?? Infinity) - (b.request.expiresAt ?? Infinity))
     .slice(0, GLANCE_ASKS)
     .map((a) => ({ ...(a.chat ? { chat: a.chat } : {}), approval: approvalOf(a.request) }));
-}
-
-/** What a remembered yes covers, as a button says it: the site, the folder, the table, the program. */
-export function alwaysWords(scope: string | null): string {
-  if (scope === null) return "Always";
-  const [kind, ...rest] = scope.split(":");
-  const what = rest.join(":");
-  switch (kind) {
-    case "your-chrome":
-    case "site":
-      return `Always on ${what}`;
-    case "dir":
-      return what ? `Always in ${what}` : "Always in the workspace";
-    case "host":
-    case "table":
-    case "cmd":
-      return `Always for ${what}`;
-    default:
-      return "Always here";
-  }
 }
 
 function argsText(args: ApprovalRequest["args"]): string {

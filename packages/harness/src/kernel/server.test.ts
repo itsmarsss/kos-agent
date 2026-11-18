@@ -696,7 +696,7 @@ describe("handleApiRequest", () => {
       ((await handleApiRequest(kernel, { method: "GET", path: "/api/home" })).body as { approvals: Listed[] }).approvals,
     ];
     for (const list of lists) {
-      expect(list[0]).toMatchObject({ summary: "Note: just closing the popup", mechanics: "Type “hunter2”, press cmd+q" });
+      expect(list[0]).toMatchObject({ summary: "Note: just closing the popup", mechanics: "Type “hunter2”, press ⌘Q" });
       // Where the summary already is the action, there is nothing beside it.
       expect(list[1]).toMatchObject({ summary: "Delete x" });
       expect(list[1]).not.toHaveProperty("mechanics");

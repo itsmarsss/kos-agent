@@ -556,10 +556,10 @@ describe("the approval prompt", () => {
       tool: "computer.act",
       args: { intent: "Note: just closing the popup", actions: [{ action: "type", text: "hunter2" }, { action: "key", text: "cmd+q" }] },
     });
-    expect(text.split("\n")).toEqual(["**Needs your OK** · Note: just closing the popup", "```", "Type “hunter2”", "Press cmd+q", "```", "-# computer.act · #21"]);
-    // Repeats are each said: an approval folds nothing.
-    const tabs = approvalText({ id: "22", text: "x", tool: "browser.act", args: { intent: "move on", steps: [{ press: "Tab" }, { press: "Tab" }] } });
-    expect(tabs).toContain("```\nPress Tab\nPress Tab\n```");
+    expect(text.split("\n")).toEqual(["**Needs your OK** · Note: just closing the popup", "```", "Type “hunter2”", "Press ⌘Q", "```", "-# computer.act · #21"]);
+    // Repeats are said once with their exact count: an approval leaves nothing out.
+    const tabs = approvalText({ id: "22", text: "x", tool: "browser.act", args: { intent: "move on", steps: [{ press: "Tab" }, { press: "Tab" }, { press: "Enter" }] } });
+    expect(tabs).toContain("```\nPress Tab twice, then ⏎\n```");
   });
 
   it("reads the model's words literally: no ping, no link, no bold", () => {
@@ -581,13 +581,13 @@ describe("the approval prompt", () => {
   });
 
   it("puts every step in a file when the card cannot hold them", () => {
-    const steps = Array.from({ length: 20 }, (_, i) => ({ fill: { target: `@e${i}`, text: `${i} ${"x".repeat(150)}` } }));
+    const steps = Array.from({ length: 60 }, (_, i) => ({ fill: { target: `@e${i}`, text: `${i} ${"x".repeat(150)}` } }));
     const card = approvalCard({ id: "23", text: "x", tool: "browser.act", args: { intent: "fill the form", steps } });
     expect(card.content.length).toBeLessThanOrEqual(1900);
     expect(card.content).toMatch(/-# \d+ more steps; every one is in steps\.txt/);
     const file = card.files?.[0];
     expect(file?.name).toBe("steps.txt");
-    expect(file?.attachment.toString("utf8").trim().split("\n")).toHaveLength(20);
+    expect(file?.attachment.toString("utf8").trim().split("\n")).toHaveLength(60);
   });
 
   it("settles with the verb and the thing in inline code", () => {

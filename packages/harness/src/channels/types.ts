@@ -395,6 +395,8 @@ export interface ApprovalRequest {
   asker?: Asker;
   /** The rule a yes-and-remember keeps, when the call's shape can be named: a surface offers "always" by it. */
   rule?: { tool: string; scope: string | null; project: string | null };
+  /** A browser ask that acts in the owner's own Chrome, not KOS's browser: a card says where. */
+  yours?: boolean;
 }
 
 export interface Asker {

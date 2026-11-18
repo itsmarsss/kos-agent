@@ -100,7 +100,7 @@ describe("an approval as plain lines", () => {
     expect(approvalLines({ id: "9", text: "Approve computer.act?", tool: "computer.act", args })).toEqual([
       "Approve computer.act?",
       "Note: just closing the popup",
-      "Steps: Type “hunter2”, press cmd+q",
+      "Steps: Type “hunter2”, press ⌘Q",
     ]);
     expect(approvalLines({ id: "9", text: "Approve files.rm?", tool: "files.rm", args: { path: "a.txt" } })).toEqual(["Approve files.rm?", "Delete a.txt"]);
   });
