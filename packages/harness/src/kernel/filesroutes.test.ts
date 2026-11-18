@@ -65,6 +65,15 @@ describe("the file manager's routes", () => {
     expect(contents.entries).toEqual([expect.objectContaining({ path: "projects/garden/beds/tomato notes.md", line: 1, text: "Water the Tomatoes daily." })]);
   });
 
+  it("reads contents by structured hits, leaves the workspace's own files out, and stops at its deadline", async () => {
+    writeFileSync(join(root, "projects/garden/odd:7:name.md"), "tomato odd");
+    writeFileSync(join(root, "profile.json"), '{"note": "tomato"}');
+    const found = (await get("/api/files/search", { path: ".", q: "TOMATO", contents: "1" }))?.body as { entries: { path: string; line: number }[] };
+    expect(found.entries.map((e) => e.path).sort()).toEqual(["projects/garden/beds/tomato notes.md", "projects/garden/odd:7:name.md"]);
+    const { scan } = await import("../tools/scan.js");
+    expect(scan(root, root, "tomato", { deadline: Date.now() - 1 }).truncated).toBe(true);
+  });
+
   it("lists the latest files and gives one's facts with its project", async () => {
     const recents = (await get("/api/files/recents"))?.body as { entries: { path: string }[] };
     expect(recents.entries.map((e) => e.path).sort()).toEqual(["projects/garden/beds/tomato notes.md", "projects/garden/plan.docx", "projects/garden/talk.key"]);

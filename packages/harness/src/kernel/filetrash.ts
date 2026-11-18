@@ -45,8 +45,16 @@ export function trashEntry(ws: Workspace, requestPath: unknown, now = Date.now()
   const holder = join(trashDir(ws), id);
   mkdirSync(holder);
   const item: TrashItem = { id, path: rel, name: basename(rel), kind: st.isDirectory() ? "dir" : "file", size: st.isFile() ? st.size : 0, trashedAt: now };
-  renameSync(abs, join(holder, item.name));
-  writeFileSync(join(trashDir(ws), `${id}.json`), JSON.stringify(item));
+  // The note first: a move that then fails leaves no note behind, and a note is never missing for something moved.
+  const note = join(trashDir(ws), `${id}.json`);
+  writeFileSync(note, JSON.stringify(item));
+  try {
+    renameSync(abs, join(holder, item.name));
+  } catch (err) {
+    rmSync(note, { force: true });
+    rmSync(holder, { recursive: true, force: true });
+    throw err;
+  }
   return item;
 }
 

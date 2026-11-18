@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { extname, join, relative } from "node:path";
+import { extname, join, relative, sep } from "node:path";
 
 /**
  * Searching the workspace without ripgrep.
@@ -50,8 +50,17 @@ const MAX_MATCHES = 500;
 /** Files larger than this are skipped: a grep hit in a 50MB file helps nobody. */
 const MAX_BYTES = 2_000_000;
 
+/** A line that matched: its file (workspace-relative, forward-slashed), its number, its words. */
+export interface ScanHit {
+  path: string;
+  line: number;
+  text: string;
+}
+
 export interface ScanResult {
   lines: string[];
+  /** The same matches, structured: a name holding ":3:" stays its own. */
+  hits: ScanHit[];
   /** True when the walk stopped early, so the caller can say so. */
   truncated: boolean;
 }
@@ -70,11 +79,20 @@ export function scan(
   root: string,
   target: string,
   pattern: string,
-  options: { maxMatches?: number; maxFiles?: number } = {},
+  options: {
+    maxMatches?: number;
+    maxFiles?: number;
+    /** RegExp flags: "i" for any case. */
+    flags?: string;
+    /** When the walk stops, epoch ms; what was found by then is returned, marked truncated. */
+    deadline?: number;
+    /** A path (relative to root) not to look in. */
+    skip?: (rel: string) => boolean;
+  } = {},
 ): ScanResult {
   let regex: RegExp;
   try {
-    regex = new RegExp(pattern);
+    regex = new RegExp(pattern, options.flags);
   } catch (err) {
     throw new Error(
       `not a valid pattern: ${err instanceof Error ? err.message : String(err)}`,
@@ -83,7 +101,7 @@ export function scan(
 
   const maxMatches = options.maxMatches ?? MAX_MATCHES;
   const maxFiles = options.maxFiles ?? MAX_FILES;
-  const lines: string[] = [];
+  const hits: ScanHit[] = [];
   let files = 0;
   let truncated = false;
 
@@ -99,10 +117,10 @@ export function scan(
     // A NUL byte means binary whatever the extension claimed.
     if (text.includes("\0")) return;
 
-    const rel = relative(root, file);
+    const rel = relative(root, file).split(sep).join("/");
     const split = text.split("\n");
     for (let i = 0; i < split.length; i++) {
-      if (lines.length >= maxMatches) {
+      if (hits.length >= maxMatches) {
         truncated = true;
         return;
       }
@@ -110,13 +128,14 @@ export function scan(
       if (regex.test(line)) {
         // Long lines are trimmed: a minified bundle would otherwise fill the
         // whole result with one match.
-        lines.push(`${rel}:${i + 1}:${line.slice(0, 500)}`);
+        hits.push({ path: rel, line: i + 1, text: line.slice(0, 500) });
       }
     }
   };
 
+  const over = (): boolean => files >= maxFiles || hits.length >= maxMatches || (options.deadline !== undefined && Date.now() > options.deadline);
   const walk = (dir: string): void => {
-    if (files >= maxFiles || lines.length >= maxMatches) {
+    if (over()) {
       truncated = true;
       return;
     }
@@ -127,12 +146,13 @@ export function scan(
       return;
     }
     for (const entry of entries) {
-      if (files >= maxFiles || lines.length >= maxMatches) {
+      if (over()) {
         truncated = true;
         return;
       }
       if (entry.name.startsWith(".") && entry.name !== ".env") continue;
       const full = join(dir, entry.name);
+      if (options.skip?.(relative(root, full).split(sep).join("/"))) continue;
       if (entry.isDirectory()) {
         if (SKIP_DIRS.has(entry.name)) continue;
         walk(full);
@@ -147,7 +167,7 @@ export function scan(
   try {
     stats = statSync(target);
   } catch {
-    return { lines: [], truncated: false };
+    return { lines: [], hits: [], truncated: false };
   }
   if (stats.isFile()) {
     files += 1;
@@ -156,5 +176,5 @@ export function scan(
     walk(target);
   }
 
-  return { lines, truncated };
+  return { lines: hits.map((h) => `${h.path}:${h.line}:${h.text}`), hits, truncated };
 }

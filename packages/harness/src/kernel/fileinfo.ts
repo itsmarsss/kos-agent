@@ -87,10 +87,8 @@ export interface ContentHit extends DirEntry {
   text: string;
 }
 
-/** A literal pattern any case, for a search with no flags: each letter as both of its cases. */
-function anyCase(query: string): string {
-  return query.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&").replace(/\p{L}/gu, (ch) => (ch.toLowerCase() === ch.toUpperCase() ? ch : `[${ch.toLowerCase()}${ch.toUpperCase()}]`));
-}
+/** How long a contents search may read before it answers with what it found. */
+const CONTENTS_MS = 3000;
 
 /** Text files under `dir` holding `query`, any case: the workspace search the agent uses (search.grep's own reader). */
 export function searchContents(ws: Workspace, dir: unknown, query: string): { entries: ContentHit[]; truncated: boolean } {
@@ -98,15 +96,14 @@ export function searchContents(ws: Workspace, dir: unknown, query: string): { en
   const abs = ws.resolve(rel);
   const q = query.trim();
   if (!q) return { entries: [], truncated: false };
-  const result = scan(ws.root, abs, anyCase(q), { maxMatches: 400 });
+  const literal = q.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+  const result = scan(ws.root, abs, literal, { flags: "i", maxMatches: 400, deadline: Date.now() + CONTENTS_MS, skip: (p) => !p.includes("/") && RESERVED.has(p.toLowerCase()) });
   const byPath = new Map<string, ContentHit>();
-  for (const line of result.lines) {
-    const m = /^(.*?):(\d+):(.*)$/.exec(line);
-    if (!m || byPath.has(m[1]!)) continue;
-    const path = m[1]!.split("\\").join("/");
+  for (const hit of result.hits) {
+    if (byPath.has(hit.path)) continue;
     try {
-      const st = statSync(join(ws.root, path));
-      byPath.set(m[1]!, { name: basename(path), path, kind: "file", size: st.size, modifiedAt: st.mtimeMs, line: Number(m[2]), text: m[3]!.trim().slice(0, 200) });
+      const st = statSync(join(ws.root, hit.path));
+      byPath.set(hit.path, { name: basename(hit.path), path: hit.path, kind: "file", size: st.size, modifiedAt: st.mtimeMs, line: hit.line, text: hit.text.trim().slice(0, 200) });
     } catch {
       // Gone since the search read it.
     }
