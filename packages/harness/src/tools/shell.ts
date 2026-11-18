@@ -35,8 +35,20 @@ export const SHELL_MAX_OUTPUT = 20_000;
 
 /** The workspace database named on a command line: the shell's road around the sql fence. */
 export function namesDatabase(command: string): boolean {
-  return /kos\.sqlite/.test(command);
+  return /kos\.sqlite/i.test(folded(command));
 }
+
+/**
+ * A command line as a case-folding disk reads names: compatibility forms
+ * folded (the long s, ſ, is an s) and lower case. Only for the courtesy
+ * refusals; the sandbox is what holds, and it folds names itself.
+ */
+function folded(command: string): string {
+  return command.normalize("NFKC").toLowerCase();
+}
+
+/** KOS's database and its journals, which a command run for anyone but Maintenance cannot read at all. */
+const DATABASE_FILES = ["kos.sqlite", "kos.sqlite-wal", "kos.sqlite-shm"];
 
 /** Said to a chat that reached for the database with the shell, instead of asking the owner. */
 export const DATABASE_REFUSED =
@@ -51,7 +63,7 @@ export const DATABASE_REFUSED =
  * names them.
  */
 export function namesHarnessConfig(command: string): boolean {
-  return /(^|[\s;&|<>()'"`=])(\.\/)?(mcp|profile|daemon)\.json\b/i.test(command);
+  return /(^|[\s;&|<>()'"`=])(\.\/)?(mcp|profile|daemon)\.json\b/i.test(folded(command));
 }
 
 /** Said to a chat that reached for the harness's settings with the shell. */
@@ -92,12 +104,12 @@ export function cacheEnv(workspaceRoot: string): Record<string, string> {
 
 export function runShell(
   command: string,
-  opts: { workspaceRoot: string; cwd: string; timeoutMs: number; maxOutput: number; signal?: AbortSignal; writes?: string[] },
+  opts: { workspaceRoot: string; cwd: string; timeoutMs: number; maxOutput: number; signal?: AbortSignal; writes?: string[]; hidden?: string[] },
 ): Promise<ShellResult> {
   const tmp = join(opts.workspaceRoot, ".kos", "tmp");
   mkdirSync(tmp, { recursive: true });
   const readOnly = UNWRITTEN.map((name) => join(opts.workspaceRoot, name));
-  return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot, readOnly, ...(opts.writes ? { writes: opts.writes } : {}) }), {
+  return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot, readOnly, ...(opts.writes ? { writes: opts.writes } : {}), ...(opts.hidden ? { hidden: opts.hidden } : {}) }), {
     cwd: opts.cwd,
     env: childEnv({ home: opts.workspaceRoot, tmp }, opts.writes ? cacheEnv(opts.workspaceRoot) : {}),
     timeoutMs: opts.timeoutMs,
@@ -152,7 +164,10 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           // A project's or a blob's command writes in its own folders unless the owner allowed the whole workspace by name.
           const writes = wide(input) ? undefined : writeScope(ws, ctx);
           for (const dir of writes ?? []) mkdirSync(dir, { recursive: true });
-          const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput: maxOutput, ...stopOf(turnStop.getStore()), ...(writes ? { writes } : {}) });
+          // The database is unreadable to every command but Maintenance's own, whatever spelling or glob names it.
+          const repairs = ctx.services?.callerProject?.() === MAINTENANCE.slug && guestOrigin() === undefined;
+          const hidden = repairs ? undefined : DATABASE_FILES.map((name) => join(ws.root, name));
+          const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput: maxOutput, ...stopOf(turnStop.getStore()), ...(writes ? { writes } : {}), ...(hidden ? { hidden } : {}) });
           return JSON.stringify(result);
         },
         // Risky by floor, as the spec says; a line that provably only reads

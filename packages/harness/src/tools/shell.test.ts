@@ -8,7 +8,7 @@ import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { programOf } from "../risk/rules.js";
-import { CONFIG_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, type ShellResult } from "./shell.js";
+import { CONFIG_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, runShell, type ShellResult } from "./shell.js";
 
 const onMac = process.platform === "darwin";
 
@@ -163,6 +163,27 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     await createShellModule({ timeoutSeconds: 5 }).activate(ctx);
     expect(maintenance.refusal("shell.run", { command: "sqlite3 kos.sqlite .tables" })).toBeUndefined();
     expect(maintenance.classify("shell.run", { command: "sqlite3 -readonly kos.sqlite .tables" }).tier).toBe("risky");
+  });
+
+  it("keeps the database unreadable however it is spelled, to everyone but Maintenance", async () => {
+    const spellings = ["cat KOS.SQLITE", "cat kos.\u017fqlite", "strings Kos.Sqlite", "cat kos.sql*"];
+    // The courtesy refusal folds case and the long s; a glob slips past it.
+    expect(spellings.map((command) => registry.refusal("shell.run", { command }))).toEqual([DATABASE_REFUSED, DATABASE_REFUSED, DATABASE_REFUSED, undefined]);
+    expect(registry.refusal("shell.run", { command: "cat mcp.j\u017fon" })).toBe(CONFIG_REFUSED);
+    // The sandbox is what holds, for every spelling.
+    const hidden = ["kos.sqlite", "kos.sqlite-wal", "kos.sqlite-shm"].map((name) => join(ws.root, name));
+    for (const command of spellings) {
+      const read = await runShell(command, { workspaceRoot: ws.root, cwd: ws.root, timeoutMs: 5000, maxOutput: 2000, hidden });
+      expect(read.stdout, command).not.toContain("SQLite format 3");
+    }
+    const glob = await run({ command: "cat kos.sql*" });
+    expect(glob.stdout).not.toContain("SQLite format 3");
+    // Maintenance repairs KOS, and reads it.
+    const maintenance = new ToolRegistry();
+    const ctx = toolRegistryContext(maintenance, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), callerProject: () => "maintenance" });
+    await createShellModule({ timeoutSeconds: 5 }).activate(ctx);
+    const own = JSON.parse((await maintenance.execute("shell.run", { command: "head -c 15 kos.sql*" })).content) as ShellResult;
+    expect(own.stdout).toContain("SQLite format 3");
   });
 
   it("is risky by floor, and safe for a line that only reads", () => {
