@@ -18,6 +18,12 @@ export const ATTACH_PART_CHARS = 256 * 1024;
 export const ATTACH_FILE_BYTES = FILE_MAX_BYTES;
 /** Files with one message, and held for one device at once. */
 export const ATTACH_FILES = 4;
+/**
+ * Files arriving at once, across every device: each is held whole, as base64,
+ * until its words come, so this bounds what devices can make KOS hold while
+ * they send. A device sends its files one after another, so one at a time.
+ */
+export const ATTACH_ARRIVING = 2;
 /** How long a file waits for the words it goes with. */
 export const ATTACH_KEPT_MS = 5 * 60_000;
 
@@ -82,7 +88,12 @@ export class AttachmentInbox {
     let file = held.get(id);
     if (!file) {
       if (held.size >= ATTACH_FILES) return;
+      const arriving = this.arriving();
       file = this.begin(data);
+      if (!file.refused && arriving >= ATTACH_ARRIVING) {
+        file.refused = `KOS is taking other files now. Attach ${file.name} again in a moment.`;
+        file.parts = [];
+      }
       held.set(id, file);
     } else if (data["part"] === 0) {
       // A file's first part again is the file sent again (after a dropped line, say): it starts over.
@@ -124,6 +135,16 @@ export class AttachmentInbox {
   /** What the devices not on a line had on their way is dropped: a device gone or unpaired keeps nothing here. */
   keepOnly(online: ReadonlySet<string>): void {
     for (const device of this.byDevice.keys()) if (!online.has(device)) this.byDevice.delete(device);
+  }
+
+  /** Files on their way to any device's hold, begun and not yet whole, and not gone stale. */
+  private arriving(): number {
+    const now = this.now();
+    let count = 0;
+    for (const held of this.byDevice.values()) {
+      for (const file of held.values()) if (!file.refused && file.got < file.parts.length && now - file.at <= ATTACH_KEPT_MS) count += 1;
+    }
+    return count;
   }
 
   /** The device's hold, stale files dropped. */

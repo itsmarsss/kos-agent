@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ATTACH_FILE_BYTES, ATTACH_FILES, ATTACH_KEPT_MS, ATTACH_PART_CHARS, AttachmentInbox } from "./inbox.js";
+import { ATTACH_ARRIVING, ATTACH_FILE_BYTES, ATTACH_FILES, ATTACH_KEPT_MS, ATTACH_PART_CHARS, AttachmentInbox } from "./inbox.js";
 
 /**
  * Files a device sends in parts ahead of the words they go with: whole ones
@@ -102,6 +102,19 @@ describe("the attachment inbox", () => {
       send(inbox, "f1", data, name, mediaType);
       expect(inbox.take("dev_phone", ["f1"])).toEqual(refused ? { refused } : { files: [{ name, mediaType, data }] });
     }
+  });
+
+  it("takes at most two files arriving at once, across every device", () => {
+    const inbox = new AttachmentInbox();
+    // Three devices each begin a file of two parts; the third waits its turn.
+    for (const device of ["dev_a", "dev_b", "dev_c"]) inbox.part(device, { id: "f1", name: "scan.pdf", mediaType: "application/pdf", part: 0, parts: 2, data: "JVBERi0x" });
+    expect(ATTACH_ARRIVING).toBe(2);
+    expect(inbox.take("dev_c", ["f1"])).toEqual({ refused: "KOS is taking other files now. Attach scan.pdf again in a moment." });
+    // One whole frees its place, and a file begun after goes.
+    inbox.part("dev_a", { id: "f1", part: 1, data: "LjcK" });
+    inbox.part("dev_c", { id: "f2", name: "notes.txt", mediaType: "text/plain", part: 0, parts: 1, data: Buffer.from("milk").toString("base64") });
+    expect(inbox.take("dev_a", ["f1"])).toMatchObject({ files: [{ name: "scan.pdf" }] });
+    expect(inbox.take("dev_c", ["f2"])).toMatchObject({ files: [{ name: "notes.txt" }] });
   });
 
   it("keeps nothing for a device that is no longer on its line", () => {
