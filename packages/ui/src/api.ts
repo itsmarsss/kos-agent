@@ -1550,7 +1550,7 @@ export const api = {
     post<{ key: string; removed: boolean }>("/api/memory/delete", { key }),
   /** Approve; with remember, the same shape stops asking. */
   approve: (id: number, remember = false) =>
-    post<{ ok: boolean; message: string; reply?: string }>("/api/approve", {
+    post<{ ok: boolean; message: string; reply?: string; remembered?: boolean }>("/api/approve", {
       id,
       ...(remember ? { remember: true } : {}),
     }),

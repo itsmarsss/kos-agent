@@ -556,7 +556,7 @@ describe("the approval prompt", () => {
       tool: "computer.act",
       args: { intent: "Note: just closing the popup", actions: [{ action: "type", text: "hunter2" }, { action: "key", text: "cmd+q" }] },
     });
-    expect(text.split("\n")).toEqual(["**Needs your OK** · Note: just closing the popup", "```", "Type “hunter2”", "Press ⌘Q", "```", "-# computer.act · #21"]);
+    expect(text.split("\n")).toEqual(["> KOS says: Note: just closing the popup", "**Needs your OK** · On your Mac", "```", "Type “hunter2”", "Press ⌘Q", "```", "-# computer.act · #21"]);
     // Repeats are said once with their exact count: an approval leaves nothing out.
     const tabs = approvalText({ id: "22", text: "x", tool: "browser.act", args: { intent: "move on", steps: [{ press: "Tab" }, { press: "Tab" }, { press: "Enter" }] } });
     expect(tabs).toContain("```\nPress Tab twice, then ⏎\n```");
@@ -570,8 +570,10 @@ describe("the approval prompt", () => {
       args: { intent: "**Safe** [close the popup](https://evil.example) @everyone <@&42>", steps: [{ click: "@e1" }] },
       why: "# Heads up @here, see [the docs](https://evil.example)",
     });
-    const [why, head] = card.split("\n");
-    expect(head).toBe("**Needs your OK** · \\*\\*Safe\\*\\* \\[close the popup\\]\\(<https://evil.example>\\) \\@everyone \\<\\@&42\\> \\(click element e1\\)");
+    const [why, intent, head] = card.split("\n");
+    // The model's words are quoted, literal; the headline is where the call acts.
+    expect(intent).toBe("> KOS says: \\*\\*Safe\\*\\* \\[close the popup\\]\\(<https://evil.example>\\) \\@everyone \\<\\@&42\\>");
+    expect(head).toBe("**Needs your OK** · In KOS's browser");
     expect(why).toBe("> \\# Heads up \\@here, see \\[the docs\\]\\(<https://evil.example>\\)");
     expect(settledText("approved", "**Done** @everyone", "24")).toBe("-# ✅ Approved · \\*\\*Done\\*\\* \\@everyone");
     // A step line in the story too, its references still linked.
@@ -677,6 +679,20 @@ describe("who a message may ping", () => {
 });
 
 describe("a prompt with a picture", () => {
+  it("takes any secret's value out of a card, its words and the call it carries", async () => {
+    const payloads: Record<string, unknown>[] = [];
+    const adapter = new DiscordAdapter({ token: "t", scrub: (t) => t.replaceAll("hunter2-secret-value", "[secret]") });
+    (adapter as unknown as { client: { users: unknown } }).client = {
+      users: { fetch: async () => ({ send: async (p: Record<string, unknown>) => { payloads.push(p); return { edit: async () => undefined }; } }) },
+    };
+    const command = `curl -H 'x: hunter2-secret-value' ${"a".repeat(900)}`;
+    await adapter.requestApproval("owner-id", { id: "8", text: "x", tool: "shell.run", args: { command } });
+    const files = payloads[0]?.files as { name: string; attachment: Buffer }[];
+    expect(String(payloads[0]?.content)).not.toContain("hunter2-secret-value");
+    expect(files.find((f) => f.name === "call.json")?.attachment.toString("utf8")).toContain("[secret]");
+    expect(files.some((f) => f.attachment.toString("utf8").includes("hunter2-secret-value"))).toBe(false);
+  });
+
   it("attaches the page the action is aimed at", async () => {
     const payloads: Record<string, unknown>[] = [];
     const adapter = new DiscordAdapter({ token: "t" });
@@ -690,7 +706,7 @@ describe("a prompt with a picture", () => {
     expect(files[0]?.attachment.toString("utf8")).toBe("PIC");
     // The step as it reads, and the step as given, under it.
     const lines = String(payloads[0]?.content).split("\n");
-    expect(lines.slice(0, 4)).toEqual(["**Needs your OK** · Click element e5", "```", 'steps: [{"click":"@e5"}]', "```"]);
+    expect(lines.slice(0, 4)).toEqual(["**Needs your OK** · In KOS's browser", "```", "Click element e5", "```"]);
     expect(lines[4]).toBe("-# browser.act · #7 · on shop.example");
   });
 });

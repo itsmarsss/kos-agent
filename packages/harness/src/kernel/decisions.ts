@@ -38,6 +38,8 @@ export interface DecisionResult {
   message: string;
   isError?: boolean;
   reply?: string;
+  /** Asked to remember: whether a rule was kept. */
+  remembered?: boolean;
 }
 
 export interface DecisionsDeps {
@@ -118,17 +120,21 @@ export class Decisions {
     // queued, and only that, since it is the one every card offered. None
     // for an ask that named none, and never for a call that sends a secret:
     // each of those is asked about.
-    if (options.remember && action.rule && !hasSecretRef(JSON.parse(action.args))) d.permissions.add(action.rule);
+    const kept = options.remember === true && action.rule !== null && !hasSecretRef(JSON.parse(action.args));
+    if (kept) d.permissions.add(action.rule!);
+    // Asked to remember one that keeps nothing: said so, rather than taken as kept.
+    const done = (r: DecisionResult): DecisionResult =>
+      !options.remember ? r : kept ? { ...r, remembered: true } : { ...r, remembered: false, message: `Approved; nothing to remember for this one. ${r.message}` };
 
     // A turn suspended on this decision does the rest itself.
-    if (awaited) return { ok: true, message: `Approved @approval:${id}. ${action.tool} is running.` };
+    if (awaited) return done({ ok: true, message: `Approved @approval:${id}. ${action.tool} is running.` });
 
     const stored = JSON.parse(action.args) as Record<string, unknown>;
     const by = decidedBy ?? d.ownerId;
     if (action.tool.startsWith(BUILD_ACTION_PREFIX)) {
       const wanted = action.tool.slice(BUILD_ACTION_PREFIX.length);
       d.audit.record({ tool: action.tool, args: stored, result: `approved; the build runs ${wanted} itself`, isError: false, riskTier: "risky", userId: by });
-      return { ok: true, message: `Approved. The build continues with ${wanted}.` };
+      return done({ ok: true, message: `Approved. The build continues with ${wanted}.` });
     }
 
     const result = await d.queue.enqueue(async () => {
@@ -156,7 +162,7 @@ export class Decisions {
     const waiting = this.siblingsWaiting(action.conversationId, id);
     if (waiting.length > 0) {
       this.held.set(sessionId, [...(this.held.get(sessionId) ?? []), outcome]);
-      return { ok: true, message: `${result.content} ${this.stillWaiting(waiting)}`, isError: result.isError };
+      return done({ ok: true, message: `${result.content} ${this.stillWaiting(waiting)}`, isError: result.isError });
     }
     let reply: string | undefined;
     try {
@@ -164,7 +170,7 @@ export class Decisions {
     } catch (err) {
       reply = `Approved @approval:${id} but resume failed: ${err instanceof Error ? err.message : String(err)}`;
     }
-    return { ok: true, message: result.content, isError: result.isError, ...(reply !== undefined ? { reply } : {}) };
+    return done({ ok: true, message: result.content, isError: result.isError, ...(reply !== undefined ? { reply } : {}) });
   }
 
   async deny(id: number, decidedBy?: string): Promise<DecisionResult> {

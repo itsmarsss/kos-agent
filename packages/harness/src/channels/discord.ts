@@ -22,7 +22,7 @@ import {
   type TextChannel,
   type Webhook,
 } from "discord.js";
-import { alwaysWords, blocksToText, CHANNEL_TOKEN, detailLines, stepActions, summarizeAction, withUnixTimes } from "@kos/shared";
+import { alwaysWords, askView, blocksToText, CHANNEL_TOKEN, detailLines, stepText, summarizeAction, withUnixTimes } from "@kos/shared";
 
 import { FILE_MAX_BYTES, isReadable, megabytes, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, ChannelRef, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
@@ -250,21 +250,23 @@ export function approvalCard(req: ApprovalRequest): ApprovalCard {
   // prompt to click yes blind.
   // The model's words, all of it, so made literal: a masked link or a
   // mention in them reads as written and does nothing.
-  const said = req.why?.trim() ? [`> ${literal(cut(req.why.trim().replace(/\s*\n+\s*/g, " "), WHY_MAX))}`] : [];
+  const quote = (words: string): string => `> ${literal(cut(words.trim().replace(/\s*\n+\s*/g, " "), WHY_MAX))}`;
+  const said = req.why?.trim() ? [quote(req.why)] : [];
   // Who is asking, in the headline: "Recap needs your OK", not a bare command.
   const asks = req.asker ? `**${literal(req.asker.name)} needs your OK**` : "**Needs your OK**";
   if (req.tool === undefined) {
     return { content: noPreviews([...said, `${asks} · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n")) };
   }
   const args = req.args ?? {};
+  const view = askView({ tool: req.tool, args, ...(req.names ? { names: req.names } : {}), platform: HOST_KEYS });
   const summary = summarizeAction(req.tool, args, req.names, HOST_KEYS);
-  // A step said by its purpose is the model's sentence, not a verb and its
-  // thing: split on its colon, "Note: just closing the popup" took the whole
-  // line as the command and the keys it would press never showed. Its
-  // actions are the code instead, each on its own line, every one of them:
-  // the yes is for those, not for the model's account of them.
-  const actions = stepActions(req.tool, args, HOST_KEYS);
-  const { head, body } = actions ? { head: summary } : splitSummary(summary);
+  // A run of actions is headed by where it acts, and its actions are the
+  // code, each on its own line, every one of them: the yes is for those.
+  // What the model said the step is for is its words, quoted with the rest
+  // of what it said, never the headline.
+  const actions = view.steps?.map(stepText);
+  if (view.said) said.push(quote(`KOS says: ${view.said}`));
+  const { head, body } = actions ? { head: view.place ?? view.title } : splitSummary(summary);
   // The command itself, or failing that the arguments, in a code block: a
   // `--include=*.ts` that turned italic was a command you could not read
   // back, and an approval you cannot read is not one you can give.
@@ -396,6 +398,8 @@ export function chunkText(text: string, max = 1900): string[] {
 export interface DiscordAdapterOptions {
   /** Bot token, resolved from the secrets registry by the harness. */
   token: string;
+  /** Takes any secret's value out of what an approval card sends: its text and the call it attaches. */
+  scrub?: (text: string) => string;
   /**
    * The owner's Discord id, so a message addressed to "owner" has somewhere to
    * go without the caller knowing who that is.
@@ -1028,6 +1032,8 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly prompts = new Map<string, { copies: PromptCopy[]; summary: string }>();
   private commands?: SlashContext;
   private readonly ownerId?: string;
+  /** Takes any secret's value out of an approval card. */
+  private readonly scrub: (text: string) => string = (text) => text;
   private readonly dashboardUrl?: string;
   private readonly guildId?: string;
   private readonly threadOf?: (threadId: string) => string | undefined;
@@ -1084,6 +1090,7 @@ export class DiscordAdapter implements ChannelAdapter {
   constructor(options: DiscordAdapterOptions) {
     this.token = options.token;
     if (options.ownerId) this.ownerId = options.ownerId;
+    if (options.scrub) this.scrub = options.scrub;
     if (options.dashboardUrl) this.dashboardUrl = options.dashboardUrl;
     if (options.guildId) this.guildId = options.guildId;
     if (options.threadOf) this.threadOf = options.threadOf;
@@ -3208,7 +3215,13 @@ export class DiscordAdapter implements ChannelAdapter {
     );
 
     const summary = req.tool !== undefined ? summarizeAction(req.tool, req.args ?? {}, req.names) : req.text;
-    const card = approvalCard(req);
+    // No secret leaves in a card, its words or the call it carries.
+    const scrub = this.scrub;
+    const unscrubbed = approvalCard(req);
+    const card: ApprovalCard = {
+      content: scrub(unscrubbed.content),
+      ...(unscrubbed.files ? { files: unscrubbed.files.map((f) => ({ ...f, attachment: Buffer.from(scrub(f.attachment.toString("utf8")), "utf8") })) } : {}),
+    };
     // The page a browser action is aimed at, when there is one: the thing
     // being approved, rather than a description of it.
     const files = [...(req.picture ? [{ attachment: Buffer.from(req.picture, "base64"), name: "page.jpg" }] : []), ...(card.files ?? [])];

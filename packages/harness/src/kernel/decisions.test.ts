@@ -50,8 +50,10 @@ describe("approving", () => {
     await new Decisions(d).approve(5, "owner", { remember: true });
     expect(log).toContain("rule:files.rm:dir:projects/books:books");
     const none = deps(pending(), true);
-    await new Decisions(none.d).approve(5, "owner", { remember: true });
+    const said = await new Decisions(none.d).approve(5, "owner", { remember: true });
     expect(none.log.some((l) => l.startsWith("rule:"))).toBe(false);
+    expect(said).toMatchObject({ ok: true, remembered: false });
+    expect(said.message.startsWith("Approved; nothing to remember for this one.")).toBe(true);
   });
 
   it("runs an orphaned action in its conversation and lane, audits it, and resumes the chat", async () => {

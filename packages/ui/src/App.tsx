@@ -390,7 +390,9 @@ export function App(): React.ReactElement {
       // which Chats is already watching; there is no panel to echo it into.
       // The server's own line when there is one: it says when the chat is
       // held for another decision still waiting.
-      flash("ok", res.reply ? res.reply.slice(0, 120) : res.message ? res.message.slice(0, 160) : approved ? (remember ? `Approved #${id}, and remembered` : `Approved #${id}`) : `Denied #${id}`);
+      // Asked to remember one that keeps nothing: said, and never called remembered.
+      const kept = remember && res.remembered !== false;
+      flash("ok", remember && !kept ? `Approved #${id}; nothing to remember for this one` : res.reply ? res.reply.slice(0, 120) : res.message ? res.message.slice(0, 160) : approved ? (kept ? `Approved #${id}, and remembered` : `Approved #${id}`) : `Denied #${id}`);
       await refresh();
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
