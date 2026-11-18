@@ -91,6 +91,17 @@ describe("a browser call from the side panel's chat", () => {
     expect(resultOf(sent)).toContain("Cart: https://shop.example/cart");
   });
 
+  it("says each step works in the owner's Chrome, and never starts KOS's own", async () => {
+    const { inference } = oneCall("browser.tabs", {});
+    kernel = await boot(inference);
+    kernel.setBrowserElsewhere(ownerChrome({ starts: true }));
+    const starts: unknown[] = [];
+    kernel.progress.subscribe((e) => void (e.kind === "tool-start" && starts.push(e)));
+    await kernel.handleMessage("which tab am I on?");
+    expect(starts).toEqual([expect.objectContaining({ tool: "browser.tabs", yours: true })]);
+    expect(kernel.browser.status()).toMatchObject({ chrome: "stopped", attached: false });
+  });
+
   it("refuses the call when the session cannot start, rather than use KOS's own browser", async () => {
     const { inference, sent } = oneCall("browser.tabs", {});
     kernel = await boot(inference);
@@ -123,8 +134,11 @@ describe("a browser call from the side panel's chat", () => {
     kernel = await boot(inference);
     const chrome = ownerChrome({ starts: true });
     kernel.setBrowserElsewhere(chrome);
+    const starts: unknown[] = [];
+    kernel.progress.subscribe((e) => void (e.kind === "tool-start" && starts.push(e)));
     await kernel.handleMessage("what files are there?");
     expect(chrome.ensured).toEqual([]);
+    expect(starts).toEqual([expect.not.objectContaining({ yours: true })]);
   });
 });
 

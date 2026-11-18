@@ -3785,6 +3785,7 @@ export class Kernel {
           // With the ids named, so a step reads "#leetcode", not a snowflake.
           summary: summarizeAction(tool, input, (kind, id) => this.labelFor(kind, id)),
           input,
+          ...(this.browserContext(tool, opts.conversationId)?.browser?.yours ? { yours: true as const } : {}),
         });
       },
     });
