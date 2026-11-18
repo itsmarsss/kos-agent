@@ -84,15 +84,25 @@ export function installOverlay(look: CursorLook): void {
   const DRAG_MS = 60;
   // An element scrolled to: the cursor goes there this much later, unless KOS points again first.
   const REST_MS = 150;
-  /** At most `n` a second of something a page could make the overlay do over and over. */
-  const budget = (n: number): (() => boolean) => {
+  /**
+   * At most `n` a second of something a page could make the overlay do over
+   * and over; one asked for past that runs once more as the second ends, so
+   * the page's last word is answered too.
+   */
+  const limited = (n: number, run: () => void): (() => void) => {
     let since = 0;
     let used = 0;
-    return () => {
+    let trailing: ReturnType<typeof setTimeout> | undefined;
+    const go = (): void => {
       const now = Date.now();
       if (now - since > 1000) [since, used] = [now, 0];
-      return ++used <= n;
+      if (++used <= n) return run();
+      trailing ??= setTimeout(() => {
+        trailing = undefined;
+        go();
+      }, since + 1000 - now + 1);
     };
+    return go;
   };
   const tell = (message: Record<string, unknown>): void => {
     try {
@@ -186,17 +196,16 @@ export function installOverlay(look: CursorLook): void {
       ),
     };
   };
-  const raising = budget(10);
   /** The overlay to the top of the top layer, over whatever the page last put there. */
-  const raise = (): void => {
-    if (!host?.isConnected || removed || !raising()) return;
+  const raise = limited(10, () => {
+    if (!host?.isConnected || removed) return;
     try {
       if (host.matches(":popover-open")) host.hidePopover();
       host.showPopover();
     } catch {
       /* a browser without popovers: the z-index is all there is */
     }
-  };
+  });
   const ripple = (): void => {
     if (!cursor) return;
     cursor.classList.remove("press");
@@ -237,7 +246,6 @@ export function installOverlay(look: CursorLook): void {
   // Every rule its own and important, so no style of the page's reaches it.
   const HOST_STYLE = "all: initial !important; position: fixed !important; inset: 0 !important; z-index: 2147483647 !important; pointer-events: none !important;";
   const STOPPED_STYLE = `${HOST_STYLE} display: none !important;`;
-  const restoring = budget(10);
   /** The host's style as the browser wrote it back, to tell the page's change from none. */
   let styled = "";
   const styleHost = (style: string): void => {
@@ -246,8 +254,8 @@ export function installOverlay(look: CursorLook): void {
     styled = host.getAttribute("style") ?? "";
   };
   /** The host as the overlay made it, put back when the page changes its style, its popover or its marks. */
-  const restore = (): void => {
-    if (!host || removed || !restoring()) return;
+  const restore = limited(10, () => {
+    if (!host || removed) return;
     if (host.getAttribute("style") !== styled) styleHost(stopped ? STOPPED_STYLE : HOST_STYLE);
     if (host.getAttribute("popover") !== "manual") {
       host.setAttribute("popover", "manual");
@@ -255,7 +263,7 @@ export function installOverlay(look: CursorLook): void {
     }
     if (host.getAttribute("aria-hidden") !== "true") host.setAttribute("aria-hidden", "true");
     render();
-  };
+  });
 
   const build = (): void => {
     if (!top || removed || host || !document.documentElement) return;
@@ -405,12 +413,12 @@ export function installOverlay(look: CursorLook): void {
     document.documentElement.appendChild(host);
     raise();
     // A page that rewrites itself takes the overlay with it; put back.
-    const appending = budget(10);
-    new MutationObserver(() => {
-      if (removed || !host || host.isConnected || !appending()) return;
+    const reappend = limited(10, () => {
+      if (removed || !host || host.isConnected) return;
       document.documentElement?.appendChild(host);
       raise();
-    }).observe(document.documentElement, { childList: true });
+    });
+    new MutationObserver(() => host && !host.isConnected && reappend()).observe(document.documentElement, { childList: true });
     new MutationObserver(restore).observe(host, { attributes: true, attributeFilter: ["style", "popover", "aria-hidden", "data-paused", "data-folded", "data-theme", "data-bar", "data-capture"] });
     // The page's own popover or full screen goes over it in the top layer: it goes back over them. (A modal dialog
     // makes the rest of the page inert, the overlay too wherever it is drawn: the popup and the side panel still stop KOS.)
@@ -487,7 +495,7 @@ export function installOverlay(look: CursorLook): void {
   // Re-read the time left, and go if the extension has not been heard from: the session is over.
   const ticker = setInterval(() => {
     if (Date.now() - lastAlive > ALIVE_MS) remove();
-    else render();
+    else restore();
   }, 3_000);
   if (document.documentElement) build();
   else document.addEventListener("readystatechange", build, { once: true });

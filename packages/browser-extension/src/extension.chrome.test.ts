@@ -694,8 +694,22 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "unhide", site: "localhost" })`)).toMatchObject({ ok: true });
     await devtools.send("Page.navigate", { url: `${base}/shop` }, page);
     await devtools.loaded(page);
+
+    // A step back once the owner has taken the tab: refused, and the tab stays where it is. (The owner's hand landing inside the
+    // worker's read of the history cannot be timed from here; the recheck after that read is what refuses it then.)
+    await devtools.evaluate(page, "(history.pushState({}, '', '/shop?step'), 1)");
+    const history = (await call("cdp.send", { session: "s1", tab, method: "Page.getNavigationHistory", params: {} }))["result"] as { currentIndex: number; entries: { id: number }[] };
+    const back = history.entries[history.currentIndex - 1]!.id;
+    await until(() => false, GRACE_MS);
+    const pausedBefore = events.filter((e) => e.name === "session.paused").length;
+    for (const type of ["mousePressed", "mouseReleased"]) await devtools.send("Input.dispatchMouseEvent", { type, x: 600, y: 60, button: "left", clickCount: 1 }, page);
+    await until(() => events.filter((e) => e.name === "session.paused").length > pausedBefore);
+    expect((await call("cdp.send", { session: "s1", tab, method: "Page.navigateToHistoryEntry", params: { entryId: back } }))["error"]).toMatchObject({ code: "paused" });
+    await until(() => false, 200);
+    expect(await devtools.evaluate(page, "location.search")).toBe("?step");
+    expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "handback" })`)).toMatchObject({ ok: true });
     await devtools.send("Target.detachFromTarget", { sessionId: page });
-  }, 30_000);
+  }, 40_000);
 
   it("closes a site the owner hid: no look, no way there, and no name in the tab list", async () => {
     const tab = ((await call("tabs.list", { session: "s1" }))["result"] as { tabs: { id: string }[] }).tabs[0]!.id;

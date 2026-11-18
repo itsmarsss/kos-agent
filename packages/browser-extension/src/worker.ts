@@ -728,7 +728,10 @@ async function point(tab: number, at: { x: number; y: number }, how: PointHow): 
       worlds.map((world) =>
         chrome.debugger
           .sendCommand({ tabId: tab }, "Runtime.evaluate", { expression, contextId: world, returnByValue: true })
-          .then((r) => Number((r as { result?: { value?: unknown } } | undefined)?.result?.value) || 0, () => 0),
+          .then(
+            (r) => Number((r as { result?: { value?: unknown } } | undefined)?.result?.value) || 0,
+            () => (overlays.get(tab)?.delete(world), 0),
+          ),
       ),
     ),
     new Promise<number[]>((r) => setTimeout(() => r([GLIDE_WAIT_MS]), GLIDE_WAIT_MS)),
@@ -917,6 +920,12 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
   if (aim && "at" in aim) await point(tab, aim.at, aim.how);
   else if (aim && "typing" in aim) void toOverlays(tab, "window.__kos && window.__kos.typing()", 300);
   if (changesPage(method)) {
+    // A step back or forward to a hidden site is refused by where it goes; asked of the tab first, so nothing is awaited after the checks below.
+    if (method === "Page.navigateToHistoryEntry") {
+      await refuseHiddenEntry(tab, args["entryId"]).catch((err: unknown) => {
+        throw err instanceof CallError ? err : new CallError("cdp", err instanceof Error ? err.message : String(err));
+      });
+    }
     // Anything could have happened while the tab was taken up and the cursor went: the page gone to a hidden site, the
     // owner's hand on it. Checked again, and nothing awaited between this and sending.
     await refuseHidden(tab);
@@ -926,7 +935,6 @@ async function relayOne(s: Session, tab: number, method: string, args: Record<st
   if (isInput(method)) s.dispatching(method, args, Date.now());
   let answer: Record<string, unknown>;
   try {
-    if (method === "Page.navigateToHistoryEntry") await refuseHiddenEntry(tab, args["entryId"]);
     if (method === "Page.captureScreenshot") answer = await picture(tab, args);
     else answer = ((await chrome.debugger.sendCommand({ tabId: tab }, method, args)) as Record<string, unknown> | undefined) ?? {};
     // A navigation answers before its page is in; the next command waits for it, so it is checked against where the tab went.

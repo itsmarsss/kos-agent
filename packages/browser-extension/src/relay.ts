@@ -216,7 +216,7 @@ export function forwarded(method: string, params: Record<string, unknown>, open:
 }
 
 /**
- * What may change the page or where it is: KOS's hands, going places, the
+ * What may change the page or where it is: KOS's hands (every Input command), going places, the
  * focus and the scroll, a dialog's answer, and running script, which can do
  * anything. None of it while the owner has the tab; a picture, the tree and
  * the page's own reports are reads, and stay open.
@@ -233,7 +233,7 @@ const CHANGES_PAGE: ReadonlySet<string> = new Set([
 ]);
 
 export function changesPage(method: string): boolean {
-  return isInput(method) || CHANGES_PAGE.has(method);
+  return method.startsWith("Input.") || CHANGES_PAGE.has(method);
 }
 
 /** Pointer and key commands, which are KOS's own hands: told apart from the owner's. */

@@ -281,10 +281,10 @@ describe("KOS's cursor", () => {
     const palette = swift("device-macos/Sources/KOSDevice/Overlay/Palette.swift");
     const glide = swift("device-shared/Sources/DeviceCore/Glide.swift");
     /** The number a pattern's first group finds in the Swift. */
-    const num = (text: string, pattern: RegExp): number => {
+    const num = (text: string, pattern: RegExp, radix = 10): number => {
       const m = pattern.exec(text);
-      if (!m) throw new Error(`not in the Swift: ${pattern}`);
-      return Number(m[1]);
+      if (!m?.[1]) throw new Error(`not in the Swift: ${pattern}`);
+      return radix === 10 ? Number(m[1]) : parseInt(m[1], radix);
     };
     const outline = /outline: \[CGPoint\] = \[([^\]]+)\]/.exec(mac)![1]!;
     expect([...outline.matchAll(/CGPoint\(x: ([\d.]+), y: ([\d.]+)\)/g)].map((m) => [Number(m[1]), Number(m[2])])).toEqual(CURSOR.outline);
@@ -303,23 +303,23 @@ describe("KOS's cursor", () => {
     expect(num(mac, /tag\.shadowOpacity = ([\d.]+)/)).toBe(CURSOR.tag.shadow);
     expect(num(mac, /\.width\) \+ (\d+)/) / 2).toBe(CURSOR.tag.padding);
     // The tag's frame, in the arrow's bottom-left layer space: from its top-left, as the page draws it.
-    const frame = /tag\.frame = CGRect\(x: ([\d.]+), y: (-?[\d.]+), width: width, height: ([\d.]+)\)/.exec(mac)!;
+    const frame = (part: "x" | "y" | "height"): number => num(mac, new RegExp(`tag\\.frame = CGRect\\(.*\\b${part}: (-?[\\d.]+)`));
     const tall = num(mac, /size = CGSize\(width: 13 \* scale, height: (\d+) \* scale\)/) * CURSOR.scale;
-    expect({ left: Number(frame[1]), top: tall - (Number(frame[2]) + Number(frame[3])), height: Number(frame[3]) }).toEqual({ left: CURSOR.tag.left, top: CURSOR.tag.top, height: CURSOR.tag.height });
+    expect({ left: frame("x"), top: tall - (frame("y") + frame("height")), height: frame("height") }).toEqual({ left: CURSOR.tag.left, top: CURSOR.tag.top, height: CURSOR.tag.height });
     expect(num(mac, /let radius: CGFloat = ([\d.]+)/)).toBe(CURSOR.ripple.radius);
     expect(num(mac, /ring\.fillColor = Palette\.accent\.withAlphaComponent\(([\d.]+)\)/)).toBe(CURSOR.ripple.fill);
     expect(num(mac, /ring\.lineWidth = ([\d.]+)/)).toBe(CURSOR.ripple.line);
     expect(num(mac, /grow\.fromValue = ([\d.]+)/)).toBe(CURSOR.ripple.from);
     expect(num(mac, /grow\.toValue = ([\d.]+)/)).toBe(CURSOR.ripple.to);
     expect(num(mac, /group\.duration = ([\d.]+)/) * 1000).toBe(CURSOR.ripple.ms);
-    const hex = (name: string): string => {
-      const m = new RegExp(`${name} = NSColor\\(srgbRed: 0x(..) / 255, green: 0x(..) / 255, blue: 0x(..) / 255`).exec(palette)!;
-      return `#${m[1]}${m[2]}${m[3]}`.toLowerCase();
-    };
-    expect({ blue: hex("accent"), ink: hex("ink") }).toEqual({ blue: CURSOR.blue, ink: CURSOR.ink });
+    /** A colour's channels: from the Swift's hex, and from the CSS's. */
+    const swiftRgb = (name: string): number[] => ["srgbRed", "green", "blue"].map((c) => num(palette, new RegExp(`static let ${name} = NSColor\\(.*\\b${c}: 0x([0-9A-Fa-f]{2}) / 255`), 16));
+    const cssRgb = (hex: string): number[] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    expect(swiftRgb("accent")).toEqual(cssRgb(CURSOR.blue));
+    expect(swiftRgb("ink")).toEqual(cssRgb(CURSOR.ink));
     // The glide: KOS for Chrome's hands always take the quick one, which on the Mac is the owner's choice.
     expect({
-      rate: num(glide, /rate = ([\d.]+)/),
+      rate: num(glide, /static let rate = ([\d.]+)/),
       shortest: num(glide, /shortest = ([\d.]+)/),
       longest: num(glide, /longest = ([\d.]+)/),
       far: num(glide, /farDistance = ([\d.]+)/),
