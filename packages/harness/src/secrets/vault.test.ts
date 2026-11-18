@@ -230,7 +230,8 @@ describe("Vault", () => {
     expect(opened.status().state).toBe("locked");
     // A copy restored has no sequence records with it: the owner says it is the one first.
     await expect(opened.unlock("export passphrase")).rejects.toThrow(/trust-seq/);
-    opened.trustSeq();
+    await expect(opened.trustSeq("not the passphrase")).rejects.toMatchObject({ code: "passphrase" });
+    await opened.trustSeq("export passphrase");
     await opened.unlock("export passphrase");
     expect(opened.list()).toHaveLength(2);
   }, 20_000);
@@ -373,7 +374,14 @@ describe("Vault keys and files", () => {
     rmSync(`${dir}.seq`);
     const v = vaultAt();
     expect(v.status()).toMatchObject({ state: "locked", problem: expect.stringMatching(/kos secrets trust-seq/) });
-    v.trustSeq();
+    // A file whose index does not match vouches for no sequence.
+    const good = readFileSync(join(dir, "vault.kosv"), "utf8");
+    const bad = JSON.parse(good) as VaultFile;
+    bad.index.seq += 5;
+    writeFile(bad);
+    await expect(vaultAt().trustSeq()).rejects.toMatchObject({ code: "tampered" });
+    writeFileSync(join(dir, "vault.kosv"), good);
+    await v.trustSeq();
     expect(v.status()).toEqual({ state: "ready", slots: ["keyfile"] });
     expect(vaultAt().status()).toEqual({ state: "ready", slots: ["keyfile"] });
   });

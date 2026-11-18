@@ -165,9 +165,11 @@ export async function runSecrets(rest: string[], flags: Record<string, string | 
           out("passphrase taken off: the vault opens with its key file again");
         } else if (flags.key === true) {
           vault.rotateKeyfile();
+          cli.audit?.({ tool: "secrets.rotate", args: { what: "key file", from: "cli" }, result: "rotated", isError: false });
           out("new key file written; the vault opens with it");
         } else {
           vault.rotateDataKey();
+          cli.audit?.({ tool: "secrets.rotate", args: { what: "data key", from: "cli" }, result: "rotated", isError: false });
           out("data key rotated: every entry sealed again, every slot wrapped again");
         }
         return 0;
@@ -184,7 +186,8 @@ export async function runSecrets(rest: string[], flags: Record<string, string | 
       case "trust-seq": {
         if (vault.status().state === "absent") throw new VaultError("absent", "there is no vault");
         if (!(await confirmed("This takes the vault file on disk as the latest, though nothing records its sequence. Only do this if you did not put an older copy back.", "trust"))) return 1;
-        vault.trustSeq();
+        await vault.trustSeq(vault.hasPassphrase() ? await ask("Vault passphrase: ", true) : undefined);
+        cli.audit?.({ tool: "secrets.trust-seq", args: { from: "cli" }, result: "sequence records written again", isError: false });
         const s = vault.status();
         out(`vault: ${s.state}${s.problem ? `: ${s.problem}` : ""}`);
         return 0;
@@ -193,6 +196,7 @@ export async function runSecrets(rest: string[], flags: Record<string, string | 
         if (vault.status().state === "absent") throw new VaultError("absent", "there is no vault to wipe");
         if (!(await confirmed("This erases every secret for good.", "wipe"))) return 1;
         await vault.wipe(vault.hasPassphrase() ? await ask("Vault passphrase: ", true) : undefined);
+        cli.audit?.({ tool: "secrets.wipe", args: { from: "cli" }, result: "wiped", isError: false });
         out("vault wiped");
         return 0;
       }

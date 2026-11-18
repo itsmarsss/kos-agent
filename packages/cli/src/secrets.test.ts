@@ -96,9 +96,15 @@ describe("kos secrets", () => {
     rmSync(join(root, "secrets", "seq"));
     rmSync(join(root, "secrets.seq"));
     expect(new Vault({ dir: join(root, "secrets") }).status().state).toBe("locked");
-    expect(await runSecrets(["trust-seq"], {}, cli(["no"]))).toBe(1);
-    expect(await runSecrets(["trust-seq"], {}, cli(["trust"]))).toBe(0);
+    const audits: string[] = [];
+    const io = (answers: string[]): SecretsCli => ({ ...cli(answers), audit: (e) => audits.push(e.tool) });
+    expect(await runSecrets(["trust-seq"], {}, io(["no"]))).toBe(1);
+    expect(await runSecrets(["trust-seq"], {}, io(["trust"]))).toBe(0);
     expect(lines.at(-1)).toBe("vault: ready");
+    await runSecrets(["rotate"], {}, io([]));
+    await runSecrets(["rotate"], { key: true }, io([]));
+    await runSecrets(["wipe"], { yes: true }, io([]));
+    expect(audits).toEqual(["secrets.trust-seq", "secrets.rotate", "secrets.rotate", "secrets.wipe"]);
   });
 
   it("says why a command cannot run", async () => {

@@ -96,7 +96,9 @@ open descriptor.
   put back to pass one off. One missing record is shown in the status's
   `problem` while the vault still opens, and written again on the next
   change. Both missing, the vault does not open until the owner runs `kos
-  secrets trust-seq`, which takes the file on disk as the latest.
+  secrets trust-seq`, which takes the file on disk as the latest. It records
+  only a sequence the vault's own MAC vouches for: the data key is opened
+  (the key file, or the passphrase it asks for) and the index checked first.
 - `vault.lock`: held while the host or the CLI reads the vault and writes it
   back, so the two never interleave a change. It is written whole (the pid
   into a file of the writer's own, then linked into place); one left by a
@@ -319,7 +321,9 @@ kos secrets trust-seq [--yes]
 kos secrets wipe [--yes]
 ```
 
-They work on the vault file, with or without a running host; the host reads
+They work on the vault file, with or without a running host, and write to
+the workspace's audit log as the dashboard does (`secrets.passphrase`,
+`secrets.rotate`, `secrets.trust-seq`, `secrets.wipe`); the host reads
 a change on its next use. `unlock` gives the passphrase to the running host.
 A value is never taken from the command line: it is typed at a prompt that
 does not echo, or piped on stdin as the main field's value or a JSON object

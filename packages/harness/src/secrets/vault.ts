@@ -382,14 +382,29 @@ export class Vault {
   }
 
   /**
-   * The owner's word that the vault file on disk is the one they expect:
-   * both sequence records written again at its sequence. For a vault both
-   * records of which went missing; nothing is decrypted.
+   * The owner's word that the vault file on disk is the one they expect,
+   * for a vault both sequence records of which went missing: both written
+   * again at its sequence. Only a sequence the vault's own MAC vouches for
+   * is recorded, so the data key is opened (the key file, or the passphrase)
+   * and the index checked first; nothing else is decrypted.
    */
-  trustSeq(): void {
+  async trustSeq(passphrase?: string): Promise<void> {
+    this.refresh();
+    const doc = this.present();
+    const pass = doc.slots.some((sl) => sl.kind === "passphrase");
+    const kek = pass ? (await this.passphraseOpener(doc, passphrase ?? "")).kek : this.keyBytes();
+    const slot = doc.slots.find((sl) => sl.kind === (pass ? "passphrase" : "keyfile"));
+    const dek = kek && slot ? unwrapDek(kek, slot, doc.vault, doc.dek) : undefined;
+    kek?.fill(0);
+    if (!dek) throw new VaultError("locked", "the vault does not open with what was given, so its sequence cannot be vouched for");
+    const given = unb64(doc.index.mac);
+    const sound = given.length === 32 && timingSafeEqual(given, unb64(indexMac(dek, doc, doc.index.seq)));
+    dek.fill(0);
+    if (!sound) throw new VaultError("tampered", "the vault's index does not match its entries, so there is no sequence to trust");
     this.locked(() => {
-      const doc = this.doc;
-      if (!doc) throw new VaultError("absent", this.problem ?? "there is no vault to trust");
+      // The file under the lock must still be the one just checked.
+      const now = this.doc;
+      if (!now || now.vault !== doc.vault || now.index.seq !== doc.index.seq || now.index.mac !== doc.index.mac) throw new VaultError("tampered", "the vault changed while it was being checked; run trust-seq again");
       writeAtomic(this.seqPath, `${doc.vault} ${doc.index.seq}\n`, this.dir);
       writeAtomic(this.seqCopy, `${doc.vault} ${doc.index.seq}\n`, dirname(this.seqCopy));
       this.stamp = "";
