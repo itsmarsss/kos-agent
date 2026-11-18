@@ -86,7 +86,11 @@ struct ChatModelTests {
     #expect(model.workingSince != nil)
     model.status(taken: false, story: .some("› Run a query"), error: nil)
     #expect(model.foot == "Run a query")
-    model.status(taken: false, story: .some("› Run a query\nData check first: 17 books. Building page 1 now."), error: nil)
+    // A step that finished is not one at work: KOS is thinking about the next.
+    model.status(taken: false, story: .some("› Run a query (done)"), error: nil)
+    #expect(model.foot == "Thinking")
+    #expect(model.running.steps == [ChatModel.Step(summary: "Run a query")])
+    model.status(taken: false, story: .some("› Run a query (done)\nData check first: 17 books. Building page 1 now."), error: nil)
     #expect(model.working)
     #expect(model.foot == "Working")
     model.status(taken: false, story: .some(nil), error: nil)
@@ -286,6 +290,25 @@ struct ChatModelTests {
     model.status(taken: true, story: nil, error: nil, said: "next", conversation: "mac:owner")
     #expect(model.sending == ["next"])
     #expect(model.working)
+  }
+
+  /// The chat shown again mid-turn with a wait on the owner or words the turn heard is not an answer: the story,
+  /// its pictures and the foot stay until KOS's words come after the owner's, or the turn says it is done.
+  @Test func aWaitOrWordsHeardMidTurnKeepTheStory() {
+    let model = ChatModel()
+    let asked: [ChatModel.Line] = [.you("tidy", files: [])]
+    model.show(conversation: "mac:owner", title: "Mac", lines: asked)
+    model.status(taken: true, story: nil, error: nil, said: "tidy", conversation: "mac:owner")
+    model.status(taken: false, story: .some("› List the folder (done)"), error: nil, said: "tidy", conversation: "mac:owner")
+    model.frame(4, image: "SU1H", said: "tidy", conversation: "mac:owner")
+    for notice in ["Waiting on you: files.rm needs approval.", "Heard: and the logs"] {
+      model.show(conversation: "mac:owner", title: "Mac", lines: asked, notice: (text: notice, from: nil, waiting: true))
+      #expect(model.working)
+      #expect(model.story == "› List the folder (done)")
+      #expect(model.liveFrames == [4])
+    }
+    model.show(conversation: "mac:owner", title: "Mac", lines: asked + [.steps([.init(summary: "List the folder", frame: 4)]), .kos("Tidied.")])
+    #expect(!model.working && model.stories.isEmpty && model.live.isEmpty)
   }
 
   /// An ask made while the window showed no chat stays once its chat is shown; another chat's goes.
