@@ -3,13 +3,13 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { FetchLike, Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
 import type { ToolDef } from "../models/types.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { resolvePath } from "../jail/resolvePath.js";
 import { childEnv } from "../sandbox/env.js";
-import { placeSecrets, type SecretSlots } from "../secrets/inject.js";
+import { hasSecretRef, hostAllowed, placeSecrets, type SecretSlots } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import type { RiskTier } from "../risk/tiers.js";
 
@@ -27,11 +27,15 @@ import type { RiskTier } from "../risk/tiers.js";
  * owner says `"risk": "safe"` for that server. The harness classifies; the
  * server does not get a vote.
  *
- * Secrets: `{{secret:NAME}}` in a server's env or headers is substituted at
- * connect time and never written to a log; anywhere else in its config it is
- * refused, as is a secret bound to hosts the server's url is not on. The
- * config file itself holds only the reference. A call to one of its tools is
- * an ordinary call, which declares no slot, so it carries no secret.
+ * Secrets: `{{secret:NAME}}` in a server's env, headers or url query string is
+ * substituted at connect time and never written to a log, for a secret the
+ * owner bound to that server (`KOS_SECRET_<NAME>_MCP`); anywhere else in its
+ * config (command, args, cwd) it is refused, as is a secret bound to hosts the
+ * server's url is not on. A stdio server has no host, so it cannot take a
+ * host-bound secret. The config file itself holds only the reference. A
+ * server given a secret over HTTP is never followed through a redirect. A
+ * call to one of its tools is an ordinary call, which declares no slot, so it
+ * carries no secret.
  *
  * Isolation: a server that fails to start or list its tools is reported and
  * skipped. It is not a reason for the rest of the toolkit, or the host, to
@@ -227,11 +231,56 @@ export function renderContent(content: unknown): string {
     .join("\n");
 }
 
-/** A server's settings take a secret in its env and its headers; one bound to hosts only where its url is one of them. */
-const MCP_SECRET_SLOTS: SecretSlots = {
-  paths: ["env.*", "headers.*"],
-  host: (settings) => (typeof settings["url"] === "string" ? hostOfUrl(settings["url"]) : undefined),
-};
+/**
+ * Where a server's settings may carry a secret: its env, its headers and its
+ * url's query, for a secret the owner bound to this server, and to its host
+ * when the secret is bound to hosts.
+ */
+function slotsFor(name: string): SecretSlots {
+  return {
+    paths: ["env.*", "headers.*", "url"],
+    urls: ["url"],
+    host: (settings) => (typeof settings["url"] === "string" ? hostOfUrl(settings["url"]) : undefined),
+    admit: (secret, settings, secrets) => {
+      if (!secrets.serversOf(secret)?.includes(name.toLowerCase())) {
+        return `Secret ${secret} is not bound to MCP server ${name}. The owner binds it with KOS_SECRET_${secret.toUpperCase()}_MCP=${name}.`;
+      }
+      const hosts = secrets.hostsOf(secret);
+      if (!hosts) return undefined;
+      const host = typeof settings["url"] === "string" ? hostOfUrl(settings["url"]) : undefined;
+      if (!host) return `Secret ${secret} is bound to hosts, and a stdio server has none, so it cannot take it.`;
+      return hostAllowed(host, hosts) ? undefined : `Secret ${secret} may be sent only to ${hosts.join(", ")}, not ${host}.`;
+    },
+  };
+}
+
+/** What a server is started or reached with, its secrets in place. */
+export interface McpSettings {
+  env: Record<string, string>;
+  headers: Record<string, string>;
+  url?: string;
+  /** A secret went into these settings, so the connection follows no redirect. */
+  holdsSecret: boolean;
+}
+
+/** A server's settings with their secrets in place; a throw saying why, for a secret placed where it may not go. */
+export function mcpSettings(name: string, server: McpServerConfig, secrets: SecretsRegistry): McpSettings {
+  const given = {
+    env: server.env ?? {},
+    headers: server.headers ?? {},
+    ...(server.url ? { url: server.url } : {}),
+    ...(server.command ? { command: server.command } : {}),
+    ...(server.args ? { args: server.args } : {}),
+    ...(server.cwd ? { cwd: server.cwd } : {}),
+  };
+  const placed = placeSecrets(`MCP server ${name}`, given, slotsFor(name), secrets);
+  if ("refused" in placed) throw new Error(placed.refused);
+  const { env, headers, url } = placed.input as { env: Record<string, string>; headers: Record<string, string>; url?: string };
+  return { env, headers, ...(url ? { url } : {}), holdsSecret: hasSecretRef(given) };
+}
+
+/** A fetch that will not follow a redirect: a secret header must not reach a host nobody bound it to. */
+export const unredirectedFetch: FetchLike = (url, init) => fetch(url, { ...init, redirect: "error" });
 
 function hostOfUrl(url: string): string | undefined {
   try {
@@ -286,17 +335,10 @@ export function createMcpModule(options: McpModuleOptions): McpModule {
   const report = options.report ?? ((m: string) => console.error(`[mcp] ${m}`));
   const connected = new Map<string, Connected>();
 
-  /** A server's env and headers with their secrets in place, or a throw saying why not. */
-  const settingsOf = (name: string, server: McpServerConfig): { env: Record<string, string>; headers: Record<string, string> } => {
-    const placed = placeSecrets(`MCP server ${name}`, { env: server.env ?? {}, headers: server.headers ?? {}, ...(server.url ? { url: server.url } : {}) }, MCP_SECRET_SLOTS, options.secrets);
-    if ("refused" in placed) throw new Error(placed.refused);
-    return placed.input as { env: Record<string, string>; headers: Record<string, string> };
-  };
-
   const transportFor = (name: string, server: McpServerConfig): Transport => {
     const supplied = options.transportFor?.(name, server);
     if (supplied) return supplied;
-    const { env, headers } = settingsOf(name, server);
+    const { env, headers, url, holdsSecret } = mcpSettings(name, server, options.secrets);
     if (server.command) {
       return new StdioClientTransport({
         command: server.command,
@@ -309,8 +351,9 @@ export function createMcpModule(options: McpModuleOptions): McpModule {
         stderr: "ignore",
       });
     }
-    return new StreamableHTTPClientTransport(new URL(server.url!), {
+    return new StreamableHTTPClientTransport(new URL(url!), {
       requestInit: Object.keys(headers).length ? { headers } : {},
+      ...(holdsSecret ? { fetch: unredirectedFetch } : {}),
     });
   };
 
