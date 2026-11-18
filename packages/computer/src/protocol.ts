@@ -279,7 +279,8 @@ export function readEndReason(v: unknown): EndReason {
 
 /** The session a hello says the device held; a malformed one is as none, never a reason to refuse the line. */
 function readHeld(v: unknown): HeldSession | undefined {
-  if (!isObject(v) || !isString(v.id) || !v.id || v.id.length > 64) return undefined;
+  // An id as KOS makes them: anything else is no session KOS gave, and is not echoed into a log or a call.
+  if (!isObject(v) || !isString(v.id) || !/^[A-Za-z0-9_-]{1,64}$/.test(v.id)) return undefined;
   return { id: v.id, ...(v.ended !== undefined ? { ended: readEndReason(v.ended) } : {}) };
 }
 

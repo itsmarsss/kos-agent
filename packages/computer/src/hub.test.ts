@@ -489,6 +489,12 @@ describe("a session", () => {
     stale.hello({ ...CHROME_APP, session: { id: "ses_gone" } });
     await settle();
     expect(stale.calls).toEqual([{ method: "session.end", params: { session: "ses_gone" } }]);
+    // A claim that is no id KOS makes is as none: nothing is ended, nothing logged of it.
+    const odd = new FakeDevice(fake.id, fake.key);
+    hub.accept(odd.socket);
+    odd.hello({ ...CHROME_APP, session: { id: "ses\nfake line" } });
+    await settle();
+    expect(odd.calls).toEqual([]);
   });
 
   it("says in the host's log each line up and down and each session's start and end, by whom, and never the task", async () => {

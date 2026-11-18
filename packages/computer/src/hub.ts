@@ -341,7 +341,7 @@ export class DeviceHub {
       this.drop(s, claim?.id === s.id && claim.ended ? claim.ended : "offline", "the device came back without it");
     }
     if (claim && !claim.ended && !this.sessions.has(claim.id)) {
-      this.log(`devices: ${this.named(id)} still held session ${claim.id}, which KOS no longer has; ending it there`);
+      this.log(`devices: ${this.named(id)} still held session ${loggable(claim.id)}, which KOS no longer has; ending it there`);
       void link.call("session.end", { session: claim.id }, 5_000).catch(() => undefined);
     }
   }
