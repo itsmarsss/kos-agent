@@ -988,7 +988,7 @@ describe("a Chrome's side panel", () => {
       id: "10",
       text: "Approve x?",
       tool: "browser.act",
-      args: { steps: [] },
+      args: { actions: [{ click: "text=Buy" }] },
       why: "Clicking Buy.",
       asker: { name: "Chrome", conversationId: "chrome:owner" },
       rule: { tool: "browser.*", scope: "your-chrome:shop.example", project: null },
@@ -1001,9 +1001,10 @@ describe("a Chrome's side panel", () => {
         approval: {
           id: "10",
           tool: "browser.act",
-          summary: "Act on the page",
+          summary: "Click “Buy”",
           title: "Act on the page",
-          args: '{"steps":[]}',
+          steps: [[{ text: "Click “Buy”" }]],
+          args: '{"actions":[{"click":"text=Buy"}]}',
           place: "In your Chrome on shop.example",
           why: "Clicking Buy.",
           always: "Always allow on shop.example",
@@ -1023,7 +1024,11 @@ describe("a Chrome's side panel", () => {
     const huge = { intent: "Paste the report", actions: [{ action: "type", text: "y".repeat(250_000) }] };
     await panel.requestApproval("owner", { id: "12", text: "x", tool: "computer.act", args: huge, asker: { name: "Chrome", conversationId: "chrome:owner" } });
     const big = (chrome.calls.filter((c) => c.method === "chat.ask").at(-1)?.params as { approval: Record<string, unknown> }).approval;
-    expect(big).toMatchObject({ tooLong: true, title: "Paste the report" });
+    expect(big).toMatchObject({ tooLong: true, title: "Use your Mac", said: "Paste the report" });
+    // The model's words, however long, cut to fit too.
+    await panel.requestApproval("owner", { id: "14", text: "x", tool: "computer.act", args: { ...huge, intent: "z".repeat(5_000) }, asker: { name: "Chrome", conversationId: "chrome:owner" } });
+    const said = (chrome.calls.filter((c) => c.method === "chat.ask").at(-1)?.params as { approval: { said: string } }).approval.said;
+    expect(said.length).toBe(400);
     expect(big).not.toHaveProperty("args");
     expect(big).not.toHaveProperty("steps");
     // The probe, whole, its line break a key.

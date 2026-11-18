@@ -931,7 +931,7 @@ function approvalOf(req: ApprovalRequest): Record<string, unknown> {
     ...(req.tool && req.args !== undefined ? { summary: summarizeAction(req.tool, req.args, req.names, HOST_KEYS) } : {}),
     ...rest,
     ...(whole
-      ? { tooLong: true, title: middle(view?.title ?? req.tool ?? "An ask", 200) }
+      ? { tooLong: true, title: middle(view?.title ?? req.tool ?? "An ask", 200), ...(view?.said ? { said: middle(view.said, 400) } : {}) }
       : { ...(steps ? { steps } : {}), ...(args ? { args } : {}), ...(mechanics ? { mechanics } : {}) }),
     ...(req.why ? { why: req.why } : {}),
     ...(req.reason ? { reason: req.reason } : {}),
