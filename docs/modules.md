@@ -123,7 +123,8 @@ when it is switched off. The heartbeat is a module built this way.
 
 `mcp.json` at the workspace root declares servers the way Claude Code does.
 A browser, mail, anything with an MCP server. Same floors, same jail, same
-`{{secret:NAME}}` injection. A browser runs its own profile inside the
+`{{secret:NAME}}` injection, for secrets bound to the server with
+`KOS_SECRET_NAME_MCP`. The agent cannot write `mcp.json`. A browser runs its own profile inside the
 workspace, never your logged-in one, and KOS never enters a password or a
 payment detail.
 

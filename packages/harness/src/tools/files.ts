@@ -19,6 +19,7 @@ import { PDF_TEXT_MAX, isPdf, pdfText } from "../files/pdftext.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { SAFE, type ToolRisk } from "../risk/tiers.js";
+import { RESERVED } from "../kernel/files.js";
 import { foldedPath, type Workspace } from "../store/workspace.js";
 import { reachOf } from "./sql.js";
 import { artifactFileRefusal, artifactFolderRefusal } from "./systems.js";
@@ -129,6 +130,17 @@ export function isKosState(ws: Workspace, path: string): boolean {
 }
 
 /**
+ * Why a tool may not write `path`, when it is one of the workspace's own
+ * top-level entries (kernel/files.ts RESERVED): KOS's database, its state and
+ * its settings, which only the owner changes. A server written into mcp.json
+ * would be started with the owner's secrets.
+ */
+export function reservedRefusal(ws: Workspace, path: string): string | undefined {
+  const top = foldedPath(ws.root, path).split("/")[0] ?? "";
+  return RESERVED.has(top) ? `${top} is KOS's own, changed only by the owner from the dashboard or the kos command` : undefined;
+}
+
+/**
  * A path the file tools may use: anything in the jail but KOS's own state
  * under .kos/, which holds results set aside from other chats and other
  * projects, and is read only through context.recall, which checks whose they are.
@@ -151,6 +163,8 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
    */
   const fenced = (path: string, what: "read" | "replace" | "remove", folder = false): string => {
     const abs = usable(ws, path);
+    const reserved = what === "read" ? undefined : reservedRefusal(ws, relative(ws.root, abs));
+    if (reserved) throw new Error(reserved);
     const pages = ctx.services?.pages;
     if (!pages) return abs;
     const rel = relative(ws.root, abs);

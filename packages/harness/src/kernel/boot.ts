@@ -236,6 +236,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const pending = new PendingMessages(workspace.db);
   const builds = new BuildRegistry(
     () => (kernelRef?.behaviour().stallMinutes ?? 3) * 60_000,
+    (text) => secrets.scrub(text),
   );
   const killSwitch = new PersistentKillSwitch(workspace.db);
   const queue = new WorkQueue();

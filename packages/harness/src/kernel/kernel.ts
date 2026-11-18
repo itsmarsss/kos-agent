@@ -583,7 +583,7 @@ export class Kernel {
   private readonly stops = new Map<string, Map<string, AbortController>>();
 
   /** Turn progress, for readers watching a conversation as it runs. */
-  readonly progress = new ProgressBus();
+  readonly progress = new ProgressBus({ scrub: (text) => this.secrets.scrub(text), holdBack: () => this.secrets.holdBack() });
   /**
    * What each conversation's model has said since its last tool call, from
    * the same stream the dashboard watches, so an approval can quote the
@@ -4761,13 +4761,7 @@ export class Kernel {
    * restart, which is exactly what saving from the dashboard is meant to avoid.
    */
   reloadSecrets(): void {
-    const fresh = SecretsRegistry.fromEnv();
-    for (const name of this.secrets.names()) {
-      if (!fresh.has(name)) this.secrets.remove(name);
-    }
-    for (const name of fresh.names()) {
-      this.secrets.set(name, fresh.require(name));
-    }
+    this.secrets.adopt(SecretsRegistry.fromEnv());
   }
 
   /** Repoint the router at the owner's saved choices, without a restart. */
