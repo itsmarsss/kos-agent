@@ -391,7 +391,8 @@ export class GuardedTools implements ToolBox {
     // what runs, and the call can check it still holds.
     const input = registry.stamp(name, called);
 
-    const assessment = registry.classify(name, input);
+    // Judged inside the turn's stores too: a call's reach depends on whose turn it is.
+    const assessment = await within(async () => registry.classify(name, input));
 
     /*
      * Readied before it is judged on where it runs: a browser call from the
