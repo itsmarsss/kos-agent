@@ -71,6 +71,25 @@ function wide(input: Record<string, unknown>): boolean {
   return input["writes"] === WIDE_WRITES;
 }
 
+/**
+ * Where a command whose writes are narrowed keeps its tools' caches. HOME is
+ * the workspace root, which such a command may not write, so pip, npm, Go,
+ * Cargo and anything that follows XDG would fail to cache or install for the
+ * user; each is pointed under .kos/tmp/cache instead, which it may write.
+ */
+export function cacheEnv(workspaceRoot: string): Record<string, string> {
+  const cache = join(workspaceRoot, ".kos", "tmp", "cache");
+  return {
+    XDG_CACHE_HOME: cache,
+    npm_config_cache: join(cache, "npm"),
+    PIP_CACHE_DIR: join(cache, "pip"),
+    PYTHONUSERBASE: join(cache, "python"),
+    GOCACHE: join(cache, "go", "build"),
+    GOMODCACHE: join(cache, "go", "mod"),
+    CARGO_HOME: join(cache, "cargo"),
+  };
+}
+
 export function runShell(
   command: string,
   opts: { workspaceRoot: string; cwd: string; timeoutMs: number; maxOutput: number; signal?: AbortSignal; writes?: string[] },
@@ -80,7 +99,7 @@ export function runShell(
   const readOnly = UNWRITTEN.map((name) => join(opts.workspaceRoot, name));
   return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot, readOnly, ...(opts.writes ? { writes: opts.writes } : {}) }), {
     cwd: opts.cwd,
-    env: childEnv({ home: opts.workspaceRoot, tmp }),
+    env: childEnv({ home: opts.workspaceRoot, tmp }, opts.writes ? cacheEnv(opts.workspaceRoot) : {}),
     timeoutMs: opts.timeoutMs,
     maxOutput: opts.maxOutput,
     ...stopOf(opts.signal),

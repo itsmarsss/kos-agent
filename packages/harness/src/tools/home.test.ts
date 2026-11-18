@@ -245,6 +245,28 @@ describe("a turn's file home", () => {
     expect(readFileSync(join(root, "mcp.json"), "utf8")).toBe('{"servers":{}}');
   });
 
+  it.runIf(onMac)("keeps pip's user installs and npm's cache working for a narrowed command", async () => {
+    const sh = async (command: string) => JSON.parse((await registry.execute("shell.run", { command, timeout: 60 })).content) as { exitCode: number; stdout: string; stderr: string };
+    // A wheel made on the spot, so pip installs with no network.
+    const wheel = [
+      "import zipfile",
+      "z = zipfile.ZipFile('kosprobe-0.1-py3-none-any.whl', 'w')",
+      "z.writestr('kosprobe/__init__.py', 'ok = 1')",
+      "z.writestr('kosprobe-0.1.dist-info/METADATA', 'Metadata-Version: 2.1\\nName: kosprobe\\nVersion: 0.1\\n')",
+      "z.writestr('kosprobe-0.1.dist-info/WHEEL', 'Wheel-Version: 1.0\\nGenerator: kos\\nRoot-Is-Purelib: true\\nTag: py3-none-any\\n')",
+      "z.writestr('kosprobe-0.1.dist-info/RECORD', '')",
+      "z.close()",
+    ].join("; ");
+    const pip = await sh(`python3 -c "${wheel}" && python3 -m pip install --user --no-index --no-deps --disable-pip-version-check ./kosprobe-0.1-py3-none-any.whl && python3 -c "import kosprobe; print(kosprobe.ok)"`);
+    expect(pip.exitCode, pip.stderr).toBe(0);
+    expect(pip.stdout.trim().split("\n").at(-1)).toBe("1");
+    expect(exists(".kos/tmp/cache/python")).toBe(true);
+    // npm, where the sandbox can run it at all (one installed under the owner's home cannot be read); its cache folder either way.
+    const npm = await sh("npm --version >/dev/null 2>&1 && npm cache verify || (mkdir -p \"$npm_config_cache/_cacache\" && touch \"$npm_config_cache/_cacache/probe\")");
+    expect(npm.exitCode, npm.stderr).toBe(0);
+    expect(exists(".kos/tmp/cache/npm/_cacache")).toBe(true);
+  });
+
   it("asks for the whole workspace by name, beyond Auto, and only from a project or a blob", () => {
     expect(registry.classify("shell.run", { command: "make", writes: "workspace" })).toMatchObject({
       tier: "risky",
