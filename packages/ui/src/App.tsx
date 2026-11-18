@@ -44,6 +44,7 @@ import { ProjectsPage } from "./ProjectsPage.js";
 import { ArtifactViewer, ArtifactsPage, chatOf, chatOpen, settleOpenViewers } from "./ArtifactsPage.js";
 import { placeOf } from "./chattree.js";
 import { MemoryPage } from "./MemoryPage.js";
+import { SecretsPage } from "./SecretsPage.js";
 import { InboxPage } from "./InboxPage.js";
 import { RunsTabs } from "./RunsTabs.js";
 import { Sidebar } from "./Sidebar.js";
@@ -1340,6 +1341,10 @@ export function App(): React.ReactElement {
         onChanged={() => void refresh()}
       />,
     );
+  }
+
+  if (route.name === "secrets") {
+    return shell(<SecretsPage conversations={conversations} />);
   }
 
   if (route.name === "memory") {
