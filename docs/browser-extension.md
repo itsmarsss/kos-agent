@@ -37,7 +37,8 @@ needs more, and it is asked for there, once, when you allow it.
 **Updates.** Loaded unpacked from this KOS's `packages/browser-extension/dist`,
 the extension keeps to KOS's build by itself: after a deploy rebuilds the
 folder, KOS tells it, and it reloads into the new build once no side panel
-turn runs and no session is held or asked for, once per build. Settings,
+is open, no side panel turn runs and no session is held or asked for, once
+per build: a reload takes an open panel down under the owner. Settings,
 Devices shows its build and where it stands, with Update now. The rules are
 in [computer.md](computer.md#builds-and-updates).
 
@@ -110,6 +111,13 @@ line you can open, and an approval the chat asks for is decided in place.
   engine instead, which chooses its own.
 - **Math.** A formula KOS writes in LaTeX (`$...$` in a line, `$$...$$` on
   its own) is typeset, as on the dashboard.
+- **Found again.** Chrome stops the extension's worker when it likes; the
+  panel finds the new one in a moment and keeps what you pressed meanwhile
+  (Stop, an approval, your words), sent in order once it is back, and the
+  worker keeps a Stop or a decision until its line to KOS is back. A turn
+  that ran while the panel was away shows as running, with its steps so far
+  and its clock from when it began. When the chat's session in this Chrome
+  ends, the panel says why.
 - **Nothing waits forever.** KOS says it took your words at once; if it does
   not within a few seconds, the panel says so and puts them back in the box.
   A KOS that is connected but never shows the chat is one from before the
@@ -131,8 +139,11 @@ it does on the dashboard (the same code, `@kos/shared/blobmotion`):
   passed on.
 - **Settings**, behind the gear: the longest session, how long the ask waits,
   the idle limit, whether scrolling a KOS tab pauses KOS, the theme, whether
-  each KOS connects when Chrome opens, the time left on the KOS icon, and
-  Copy log.
+  each KOS connects when Chrome opens, the time left on the KOS icon,
+  whether KOS's bar shows on the page while it works, and Copy log. The log
+  is kept for the browser session, and its newest lines (about 40,000
+  characters) in local storage too, so a reload of the extension or of
+  Chrome keeps them.
 - **The theme.** Same as dashboard (the default), Light, Dark or System,
   kept in this Chrome (`chrome.storage.local`). Same as dashboard draws as
   the dashboard looks: the palette a KOS sent (`drawn` in `{ "t": "theme" }`,
@@ -155,7 +166,10 @@ While KOS works in your Chrome:
   is doing, with **Take over** and **Stop**; drag the bar anywhere, or
   press KOS's face on it to fold it to the face, and it stays so for the
   session. Only the page's top frame draws it, and it leaves by itself when
-  the extension stops checking in, so a session that ended leaves nothing;
+  the extension stops checking in, so a session that ended leaves nothing.
+  With the bar off in Settings the page shows the border and KOS's cursor
+  alone: the KOS icon (ON, or the time left) and the side panel still say
+  KOS is working and offer Stop, and your own click still takes over;
 - KOS's own cursor glides to each point it acts at and ripples as it
   presses, as on the Mac;
 - the pictures KOS takes never redraw the page you are looking at: a tab
@@ -175,7 +189,10 @@ While KOS works in your Chrome:
   places in your Chrome without asking each step (running script in a page,
   files, messages and everything else still ask);
 - the session ends at its time limit, when idle, on Stop, when you close
-  Chrome's debugging bar, and when the connection to its KOS drops.
+  Chrome's debugging bar, when the connection to its KOS drops and is not
+  back within 10 s, and when Chrome stops the extension's worker: the
+  worker keeps the session's id beside its memory, and the next one to
+  start lets its tabs go and tells KOS (`restarted`) in its hello.
 
 ## Security model
 
@@ -251,7 +268,7 @@ beside it when the chat asks.
 | Method | Params | Result |
 | --- | --- | --- |
 | `chat.show` | `chat` and `conversation` (the chat shown, or null), `title`, `messages [{ role, text?, files?, quote? { text, from }, steps? [{ summary, failed?, frame? }] }]`, `notice? { text, from? }`, `pictures? { <frame id>: <base64 JPEG> }` (the newest four steps' pictures), `sites? { <frame id>: <host> }` (the page each shows) | `{}` |
-| `chat.status` | `chat` and `conversation` (the chat the turn runs in, learned when it starts, never the one the panel moved to), `waiting?` (`consent`: a device asks the owner for this chat's session; `approval`: an approval waits), `held` (the owner has control of its session), `said?` (the owner's words the turn is for), `taken?` (KOS has those words, said at once; ones said elsewhere are drawn on their way), `story?` (the turn's steps so far, `› ` before each; null when done), `error?`, `frame? { id, image, mediaType, site? }` (what a step just saw, with `said`, sent on its own to every device of the kind; a device never draws one whose `site` is on its hidden list) | `{}` |
+| `chat.status` | `chat` and `conversation` (the chat the turn runs in, learned when it starts, never the one the panel moved to), `since?` (with `taken`: when the turn began, epoch ms, so a panel opened mid-turn keeps its clock), `waiting?` (`consent`: a device asks the owner for this chat's session; `approval`: an approval waits), `held` (the owner has control of its session), `said?` (the owner's words the turn is for), `taken?` (KOS has those words, said at once; ones said elsewhere are drawn on their way), `story?` (the turn's steps so far, `› ` before each; null when done), `error?`, `frame? { id, image, mediaType, site? }` (what a step just saw, with `said`, sent on its own to every device of the kind; a device never draws one whose `site` is on its hidden list) | `{}` |
 | `chat.ask` | `chat`, `approval { id, tool, summary?, args?, mechanics?, why?, reason?, always?, expiresAt? }` (`summary`: the action in words with its ids named, as the Inbox titles it; `expiresAt`: when it lapses unanswered, epoch ms) | `{}` |
 | `chat.settled` | `approval`, `outcome` (`approved`, `denied`, `expired`) | `{}` |
 | `chat.chats` | `chats [{ id, title, updatedAt }]`, `current` | `{}` |
@@ -282,7 +299,7 @@ wait, then reads or answers `permission`. KOS refuses it itself under the
 kill switch.
 
 Events, besides `session.paused`, `session.resumed` and `session.ended`
-(reason `owner`, `expired`, `idle`, `detached` or `host`):
+(reason `owner`, `expired`, `idle`, `detached`, `host` or `restarted`):
 
 | Event | Data |
 | --- | --- |
