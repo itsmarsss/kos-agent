@@ -43,7 +43,8 @@ import {
 } from "../models/settings.js";
 import { historyEvents, type ChatEvent } from "./transcript.js";
 import { isUndone } from "./guarded.js";
-import { copyEntry, deleteEntry, listDirectory, makeDir, readForText, readForView, readImage, readBytes, readPdf, renameEntry, type DirEntry } from "./files.js";
+import { defaultFilesDeps, handleFilesRoute } from "./filesroutes.js";
+import { copyEntry, listDirectory, makeDir, readForText, readForView, readImage, readBytes, readPdf, renameEntry, type DirEntry } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, sumSpend, windowFor, RATES_KEY, type Rates, type SpendSummary } from "../ops/spend.js";
 import type { FailingJob } from "../ops/health.js";
@@ -1934,15 +1935,20 @@ export async function handleApiRequest(
    * new folder, download. Theirs, so no approval; jailed, so no escape;
    * and the workspace's own files refused by name.
    */
-  if (method === "POST" && (path === "/api/files/rename" || path === "/api/files/copy" || path === "/api/files/delete" || path === "/api/files/mkdir")) {
+  if (method === "POST" && (path === "/api/files/rename" || path === "/api/files/copy" || path === "/api/files/mkdir")) {
     try {
       if (path === "/api/files/rename") return ok(renameEntry(kernel.workspace, body.from, body.to));
       if (path === "/api/files/copy") return ok(copyEntry(kernel.workspace, body.from, typeof body.to === "string" ? body.to : undefined));
-      if (path === "/api/files/delete") return ok(deleteEntry(kernel.workspace, body.path));
       return ok(makeDir(kernel.workspace, body.path));
     } catch (err) {
       return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
     }
+  }
+
+  // Office views, thumbnails, a file's facts, search, recents and the trash (filesroutes.ts).
+  if (path.startsWith("/api/file")) {
+    const files = await handleFilesRoute(kernel.workspace, { method, path, query: queryParams(req.url), body }, defaultFilesDeps((slug) => kernel.manifest.get(slug)?.name));
+    if (files) return files;
   }
 
   if (method === "GET" && path === "/api/browser/status") {

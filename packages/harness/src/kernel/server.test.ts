@@ -321,7 +321,7 @@ describe("handleApiRequest", () => {
     expect((await list("somewhere/else")).status).toBe(400);
   });
 
-  it("renames, copies, deletes, makes folders and downloads, inside the jail", async () => {
+  it("renames, copies, trashes, makes folders and downloads, inside the jail", async () => {
     const project = kernel.manifest.createProject({ name: "Garden", type: "tasks" });
     const dir = `projects/${project.slug}`;
     mkdirSync(join(root, dir), { recursive: true });
@@ -332,10 +332,10 @@ describe("handleApiRequest", () => {
     expect((await call("/api/files/rename", { from: `${dir}/a.txt`, to: `${dir}/out/b.txt` })).body).toEqual({ path: `${dir}/out/b.txt` });
     expect((await call("/api/files/copy", { from: `${dir}/out/b.txt` })).body).toEqual({ path: `${dir}/out/b copy.txt` });
     expect((await call("/api/files/copy", { from: `${dir}/out`, to: `${dir}/out-2` })).body).toEqual({ path: `${dir}/out-2` });
-    expect((await call("/api/files/delete", { path: `${dir}/out-2` })).body).toEqual({ path: `${dir}/out-2` });
+    expect((await call("/api/files/trash", { path: `${dir}/out-2` })).body).toMatchObject({ path: `${dir}/out-2`, kind: "dir" });
     expect(existsSync(join(root, dir, "out-2"))).toBe(false);
 
-    const refused = await call("/api/files/delete", { path: "mcp.json" });
+    const refused = await call("/api/files/trash", { path: "mcp.json" });
     expect(refused.status).toBe(400);
     expect((await call("/api/files/rename", { from: `${dir}/out/b.txt`, to: "../escape.txt" })).status).toBe(400);
     expect((await call("/api/files/mkdir", { path: `${dir}/out` })).status).toBe(400);

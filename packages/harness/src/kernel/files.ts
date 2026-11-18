@@ -1,4 +1,4 @@
-import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, statSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 
 import { isOffice, officeNote, officeText } from "../files/office.js";
@@ -6,12 +6,12 @@ import { isPdf, pdfText } from "../files/pdftext.js";
 import type { Workspace } from "../store/workspace.js";
 
 /**
- * Read-only browsing of the workspace for the dashboard.
+ * Browsing the workspace for the dashboard.
  *
  * Every path resolves through the jail, so a request cannot walk out of the
- * workspace even though these routes take a path from the client. Browsing is
- * read-only on purpose: the agent edits files through its own guarded tools,
- * and a second write path here would be a second thing to get right.
+ * workspace even though these routes take a path from the client. The agent
+ * edits files through its own guarded tools; what is here for writing is the
+ * owner's own hand on their files (below), which the agent never reaches.
  */
 
 export interface DirEntry {
@@ -250,7 +250,7 @@ export function readImage(ws: Workspace, requestPath: unknown): RawFile {
 export const RESERVED = new Set([".kos", "kos.sqlite", "kos.sqlite-shm", "kos.sqlite-wal", "profile.json", "mcp.json", "daemon.json", "locks"]);
 
 /** A path the manager may touch: inside the jail, not the root, not the workspace's own files. */
-function managed(ws: Workspace, requestPath: unknown): { rel: string; abs: string } {
+export function managedPath(ws: Workspace, requestPath: unknown): { rel: string; abs: string } {
   const rel = relative(requestPath).replace(/\/+$/, "");
   if (rel === "." || rel === "") throw new Error("the workspace itself cannot be moved or removed");
   const top = rel.split("/")[0]!;
@@ -259,15 +259,15 @@ function managed(ws: Workspace, requestPath: unknown): { rel: string; abs: strin
 }
 
 /** Something at the top level is part of the workspace's layout, not a thing to move. */
-function layout(rel: string): void {
+export function refuseLayout(rel: string): void {
   if (!rel.includes("/")) throw new Error(`${rel} is part of the workspace's layout; manage what is inside it`);
 }
 
 /** Move or rename, never over something that exists. */
 export function renameEntry(ws: Workspace, from: unknown, to: unknown): { path: string } {
-  const src = managed(ws, from);
-  const dst = managed(ws, to);
-  layout(src.rel);
+  const src = managedPath(ws, from);
+  const dst = managedPath(ws, to);
+  refuseLayout(src.rel);
   if (!existsSync(src.abs)) throw new Error(`no such file: ${src.rel}`);
   if (existsSync(dst.abs)) throw new Error(`${dst.rel} already exists`);
   if (dst.rel === src.rel || dst.rel.startsWith(`${src.rel}/`)) throw new Error("a folder cannot be moved into itself");
@@ -290,11 +290,11 @@ export function uniqueName(ws: Workspace, dir: string, name: string): string {
 
 /** Copy a file or a folder; without a destination, a sibling called "… copy". */
 export function copyEntry(ws: Workspace, from: unknown, to?: unknown): { path: string } {
-  const src = managed(ws, from);
+  const src = managedPath(ws, from);
   if (!existsSync(src.abs)) throw new Error(`no such file: ${src.rel}`);
   const parent = dirname(src.rel) === "." ? "" : dirname(src.rel);
   const target = typeof to === "string" && to ? to : `${parent ? `${parent}/` : ""}${uniqueName(ws, parent || ".", basename(src.rel))}`;
-  const dst = managed(ws, target);
+  const dst = managedPath(ws, target);
   if (existsSync(dst.abs)) throw new Error(`${dst.rel} already exists`);
   if (dst.rel.startsWith(`${src.rel}/`)) throw new Error("a folder cannot be copied into itself");
   mkdirSync(dirname(dst.abs), { recursive: true });
@@ -302,17 +302,8 @@ export function copyEntry(ws: Workspace, from: unknown, to?: unknown): { path: s
   return { path: dst.rel };
 }
 
-/** Remove a file, or a folder and everything in it. */
-export function deleteEntry(ws: Workspace, requestPath: unknown): { path: string } {
-  const { rel, abs } = managed(ws, requestPath);
-  layout(rel);
-  if (!existsSync(abs)) throw new Error(`no such file: ${rel}`);
-  rmSync(abs, { recursive: true, force: true });
-  return { path: rel };
-}
-
 export function makeDir(ws: Workspace, requestPath: unknown): { path: string } {
-  const { rel, abs } = managed(ws, requestPath);
+  const { rel, abs } = managedPath(ws, requestPath);
   if (existsSync(abs)) throw new Error(`${rel} already exists`);
   mkdirSync(abs, { recursive: true });
   return { path: rel };

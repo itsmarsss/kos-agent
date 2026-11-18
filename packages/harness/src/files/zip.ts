@@ -24,13 +24,29 @@ export function isZip(bytes: Uint8Array): boolean {
   return bytes.length > 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
 }
 
+/** How much a reader lets an archive hold. */
+export interface ZipLimits {
+  /** The most one entry may inflate to. */
+  entryMax?: number;
+  /** The most all entries together may inflate to; past it the archive is refused. */
+  totalMax?: number;
+  /** An entry past entryMax: left out (a text reader's way) or the archive refused (a viewer's). */
+  oversize?: "skip" | "refuse";
+  /** Only the entries this keeps are inflated: a preview out of a large package without the rest. */
+  only?: (name: string) => boolean;
+}
+
+/** Thrown for an archive that inflates past its limits: a zip bomb, or near enough. */
+export class ZipTooLarge extends Error {}
+
 /** The entries by name, each decompressed; a folder entry carries no bytes and is left out. */
-export function readZip(bytes: Uint8Array): Map<string, Buffer> {
+export function readZip(bytes: Uint8Array, { entryMax = ENTRY_MAX, totalMax = Infinity, oversize = "skip", only }: ZipLimits = {}): Map<string, Buffer> {
   const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const end = endRecord(buf);
   const count = buf.readUInt16LE(end + 10);
   let at = buf.readUInt32LE(end + 16);
   const out = new Map<string, Buffer>();
+  let total = 0;
   for (let n = 0; n < count; n += 1) {
     if (at + 46 > buf.length || buf.readUInt32LE(at) !== CENTRAL) throw new Error("not a zip: the central directory is broken");
     const flags = buf.readUInt16LE(at + 8);
@@ -43,17 +59,35 @@ export function readZip(bytes: Uint8Array): Map<string, Buffer> {
     const local = buf.readUInt32LE(at + 42);
     const name = buf.subarray(at + 46, at + 46 + nameLength).toString("utf8");
     at += 46 + nameLength + extraLength + commentLength;
-    if (name.endsWith("/")) continue;
+    if (name.endsWith("/") || (only && !only(name))) continue;
     if (flags & 0x1) throw new Error(`${name} is encrypted`);
-    if (size > ENTRY_MAX || compressed > ENTRY_MAX) continue;
+    if (size > entryMax || compressed > entryMax) {
+      if (oversize === "refuse") throw new ZipTooLarge(`${name} is larger than a document holds`);
+      continue;
+    }
     if (local + 30 > buf.length || buf.readUInt32LE(local) !== LOCAL) throw new Error(`not a zip: ${name} has no local header`);
     const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
     const data = buf.subarray(start, start + compressed);
-    if (method === 0) out.set(name, Buffer.from(data));
-    else if (method === 8) out.set(name, inflateRawSync(data, { maxOutputLength: ENTRY_MAX }));
+    let entry: Buffer;
+    if (method === 0) entry = Buffer.from(data);
+    else if (method === 8) entry = inflate(data, name, entryMax);
     else throw new Error(`${name} is compressed a way this reader does not know (method ${method})`);
+    // The sizes the directory gives can lie; what was inflated cannot.
+    total += entry.length;
+    if (total > totalMax) throw new ZipTooLarge(`it inflates past ${Math.round(totalMax / 1024 / 1024)} MB`);
+    out.set(name, entry);
   }
   return out;
+}
+
+/** An entry inflated, never past `max`, whatever its header claimed. */
+function inflate(data: Buffer, name: string, max: number): Buffer {
+  try {
+    return inflateRawSync(data, { maxOutputLength: max });
+  } catch (err) {
+    if (err instanceof RangeError || (err as { code?: string }).code === "ERR_BUFFER_TOO_LARGE") throw new ZipTooLarge(`${name} inflates past what a document holds`);
+    throw err;
+  }
 }
 
 /** Where the end-of-central-directory record starts: scanned back from the end, past any comment. */

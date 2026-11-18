@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
 import { writeZip } from "../files/zip.js";
-import { copyEntry, deleteEntry, isImage, listDirectory, makeDir, readFile, readForText, readForView, readImage, readBytes, readPdf, renameEntry, uniqueName } from "./files.js";
+import { trashEntry } from "./filetrash.js";
+import { copyEntry, isImage, listDirectory, makeDir, readFile, readForText, readForView, readImage, readBytes, readPdf, renameEntry, uniqueName } from "./files.js";
 
 describe("workspace file browsing", () => {
   let root: string;
@@ -178,17 +179,17 @@ describe("managing files by hand", () => {
     expect(() => copyEntry(ws, "projects/budget/notes", "projects/budget/notes/again")).toThrow(/into itself/);
   });
 
-  it("deletes a file or a whole folder, and makes folders", () => {
+  it("trashes a file or a whole folder, and makes folders", () => {
     expect(makeDir(ws, "projects/budget/out")).toEqual({ path: "projects/budget/out" });
     expect(() => makeDir(ws, "projects/budget/out")).toThrow(/already exists/);
-    expect(deleteEntry(ws, "projects/budget/notes")).toEqual({ path: "projects/budget/notes" });
+    expect(trashEntry(ws, "projects/budget/notes")).toMatchObject({ path: "projects/budget/notes" });
     expect(listDirectory(ws, "projects/budget").map((e) => e.name)).toEqual(["out", "spec.json"]);
   });
 
   it("leaves the workspace's own files and the root alone, and stays in the jail", () => {
-    expect(() => deleteEntry(ws, ".")).toThrow(/workspace itself/);
-    expect(() => deleteEntry(ws, "mcp.json")).toThrow(/workspace's own/);
-    expect(() => deleteEntry(ws, "projects")).toThrow(/layout/);
+    expect(() => trashEntry(ws, ".")).toThrow(/workspace itself/);
+    expect(() => trashEntry(ws, "mcp.json")).toThrow(/workspace's own/);
+    expect(() => trashEntry(ws, "projects")).toThrow(/layout/);
     expect(() => renameEntry(ws, "projects", "stuff")).toThrow(/layout/);
     expect(() => renameEntry(ws, "projects/budget/spec.json", "kos.sqlite")).toThrow(/workspace's own/);
     expect(() => renameEntry(ws, "projects/budget/spec.json", "../outside.json")).toThrow();
