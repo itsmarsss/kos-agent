@@ -28,6 +28,13 @@ const SCAN_DEPTH = 5;
 /** Marks the block this writes, so anything above it is left alone. */
 const MARKER = "# kos: folders with their own git repo";
 
+/**
+ * Never in a snapshot, wherever they are: Claude Code's own files (a
+ * transcript holds every tool result), left by a build or chat from before
+ * they were kept outside the workspace.
+ */
+const UNKEPT = [".claude/", ".claude.json"];
+
 export class WorkspaceBackup {
   constructor(
     private readonly root: string,
@@ -103,7 +110,7 @@ export class WorkspaceBackup {
       )
       .join("\n")
       .replace(/\n+$/, "");
-    const block = [MARKER, ...nested.map((p) => `/${p}/`)].join("\n");
+    const block = [MARKER, ...nested.map((p) => `/${p}/`), ...UNKEPT].join("\n");
     const next = `${kept ? `${kept}\n` : ""}${block}\n`;
     if (next !== existing) writeFileSync(path, next);
     return nested;

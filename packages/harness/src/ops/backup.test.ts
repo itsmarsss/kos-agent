@@ -43,6 +43,18 @@ describe("WorkspaceBackup", () => {
     expect(readFileSync(file, "utf8")).toBe("v1");
   });
 
+  it("never snapshots Claude Code's own files, wherever a build left them", async () => {
+    await backup.ensureRepo();
+    mkdirSync(join(root, ".claude", "projects"), { recursive: true });
+    mkdirSync(join(root, "sites", "app", ".claude", "projects"), { recursive: true });
+    writeFileSync(join(root, ".claude", "projects", "t.jsonl"), "{}");
+    writeFileSync(join(root, "sites", "app", ".claude", "projects", "t.jsonl"), "{}");
+    writeFileSync(join(root, "sites", "app", ".claude.json"), "{}");
+    writeFileSync(join(root, "sites", "app", "index.html"), "<p>hi</p>");
+    await backup.snapshot("with a build");
+    expect(await backup.tracked()).toEqual(["sites/app/index.html"]);
+  });
+
   it("returns null when there is nothing to commit", async () => {
     await backup.ensureRepo();
     writeFileSync(join(root, "x.txt"), "a");
