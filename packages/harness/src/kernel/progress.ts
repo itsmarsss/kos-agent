@@ -35,6 +35,8 @@ export type ProgressEvent =
       files?: { name: string; path: string }[];
       /** The surface those words came in on. */
       from?: string;
+      /** The waiting row those words were, when they waited behind another turn. */
+      pendingId?: number;
     }
   | {
       kind: "tool-start";
@@ -43,6 +45,11 @@ export type ProgressEvent =
       summary: string;
       /** What it was called with, so a live call can be opened like a finished one. */
       input?: Record<string, unknown>;
+      /**
+       * A browser step that works in the owner's own Chrome, not KOS's: a
+       * surface showing KOS's browser has nothing of this step to show.
+       */
+      yours?: true;
     }
   | {
       kind: "tool-end";
@@ -102,6 +109,8 @@ export type ProgressEvent =
       kind: "heard";
       conversationId: string;
       said: string;
+      /** The waiting row the words were, so a surface showing it queued knows it is taken. */
+      pendingId?: number;
       from?: string;
     }
   | { kind: "turn-end"; conversationId: string };

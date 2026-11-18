@@ -33,7 +33,7 @@ import { BrowserWindow } from "./BrowserWindow.js";
 import { OpenTab } from "./opentab.js";
 import { DashboardRefs } from "./refs.js";
 import { QuickAsk } from "./QuickAsk.js";
-import { useProgress } from "./progress.js";
+import { browsingNow, useProgress } from "./progress.js";
 import { FilesPage } from "./FilesPage.js";
 import { AgentsPage } from "./AgentsPage.js";
 import { BuildsPage } from "./BuildsPage.js";
@@ -129,22 +129,14 @@ export function App(): React.ReactElement {
     setBrowserPick({ tab, n: Date.now() });
     setBrowserOpen(true);
   }, []);
-  /** Who is browsing right now, and what they are doing, if anyone is. */
-  const browsing = useMemo((): { id: string; doing?: string } | null => {
-    for (const [id, turn] of Object.entries(live)) {
-      if (!turn || turn.ended) continue;
-      for (let i = turn.steps.length - 1; i >= 0; i--) {
-        const step = turn.steps[i]!;
-        if (step.kind === "tool" && step.tool.startsWith("browser.")) return step.done ? { id } : { id, doing: step.summary };
-      }
-    }
-    return null;
-  }, [live]);
+  /** Who is browsing in KOS's own browser right now, and what they are doing, if anyone is. */
+  const browsing = useMemo(() => browsingNow(live), [live]);
   /** Agents waiting for the owner's hands on their tab: the window opens itself for those. */
   const handoffs = useMemo(
     () =>
       approvals
-        .filter((a) => a.tool === "browser.handoff")
+        // A handoff in the owner's Chrome is theirs already: KOS's window has nothing of it to show.
+        .filter((a) => a.tool === "browser.handoff" && !a.yours)
         .map((a) => {
           let reason = "";
           try {

@@ -1,4 +1,5 @@
 import type { ToolDef } from "../models/types.js";
+import type { HeardWords } from "../models/heard.js";
 import type { ToolImage } from "../models/types.js";
 import { classifyRisk, SAFE, type RiskAssessment, type ToolRisk } from "../risk/tiers.js";
 
@@ -50,6 +51,8 @@ export interface ToolExecution {
   images?: ToolImage[];
   /** The call ended somewhere its last picture is not of. */
   endUnseen?: boolean;
+  /** What the owner said while the turn ran, heard with this result. */
+  heard?: HeardWords;
 }
 
 

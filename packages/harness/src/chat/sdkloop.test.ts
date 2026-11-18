@@ -147,6 +147,46 @@ describe("a turn on the SDK", () => {
       { kind: "text", text: "The price is $16." },
     ]);
   });
+
+  it("streams the words on either side of a step as the stored reply joins them", async () => {
+    run.queries = [];
+    const text = (t: string) => ({ type: "stream_event", parent_tool_use_id: null, event: { delta: { text: t } } });
+    const block = (t: string) => ({ type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "text", text: t }] } });
+    run.script = async function* (_q, tools) {
+      yield text("The cart came to ");
+      yield text("$80.85.");
+      yield block("The cart came to $80.85.");
+      await tools.get("files_read")!({});
+      yield { type: "user", parent_tool_use_id: null };
+      yield text("Building a fresh cart now.");
+      yield block("Building a fresh cart now.");
+      yield text("\nSearch mixes in ebooks.");
+      yield block("\nSearch mixes in ebooks.");
+      yield result(3);
+    };
+    let live = "";
+    const r = await runSdkChat({ prompt: "cart?", system: "s", tools: box(["files.read"], () => ({ content: "ok" })), cwd: process.cwd(), onDelta: (d) => void (d.kind === "text" && (live += d.text)) });
+    expect(r.text).toBe("The cart came to $80.85. Building a fresh cart now.\nSearch mixes in ebooks.");
+    expect(live).toBe(r.text);
+  });
+
+  it("joins two text blocks of one message live as the stored reply does", async () => {
+    run.queries = [];
+    const start = { type: "stream_event", parent_tool_use_id: null, event: { type: "content_block_start", content_block: { type: "text", text: "" } } };
+    const text = (t: string) => ({ type: "stream_event", parent_tool_use_id: null, event: { delta: { type: "text_delta", text: t } } });
+    run.script = async function* () {
+      yield start;
+      yield text("Found it.");
+      yield start;
+      yield text("Adding to the cart.");
+      yield { type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "text", text: "Found it." }, { type: "text", text: "Adding to the cart." }] } };
+      yield result(1);
+    };
+    let live = "";
+    const r = await runSdkChat({ prompt: "go", system: "s", tools: box([], () => ({ content: "" })), cwd: process.cwd(), onDelta: (d) => void (d.kind === "text" && (live += d.text)) });
+    expect(r.text).toBe("Found it. Adding to the cart.");
+    expect(live).toBe(r.text);
+  });
 });
 
 describe("a turn on the SDK the owner stops", () => {

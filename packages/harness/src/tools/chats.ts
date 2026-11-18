@@ -1,6 +1,7 @@
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { tokenize } from "../memory/facts.js";
+import { heardWith } from "../models/heard.js";
 import { saidText } from "../models/types.js";
 import { guestOrigin } from "../kernel/caller.js";
 import { reachesAll } from "../kernel/caretaker.js";
@@ -184,6 +185,10 @@ function spokenTurns(
   for (const message of sessions.get(id)) {
     const text = saidText(message.content).trim();
     if (text) out.push({ role: message.role === "user" ? "owner" : "kos", text });
+    // What the owner said while a turn ran, heard with a result: spoken too, and theirs.
+    for (const block of message.content) {
+      if (block.type === "tool_result") for (const w of heardWith(block).said) out.push({ role: "owner", text: w.text });
+    }
   }
   return out;
 }

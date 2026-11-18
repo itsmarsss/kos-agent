@@ -1,4 +1,5 @@
 import type { GuestOrigin } from "../kernel/caller.js";
+import type { HeardWords } from "./heard.js";
 
 /**
  * Internal, provider-neutral model types. Every provider adapter normalizes to
@@ -53,6 +54,8 @@ export interface ToolResultBlock {
   isError?: boolean;
   /** Pictures that came with the result, for a model that can look. */
   images?: ToolImage[];
+  /** What the owner said while the turn ran, heard with this result; joined to its text only for a model. */
+  heard?: HeardWords;
 }
 
 /**

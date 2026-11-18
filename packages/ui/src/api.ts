@@ -84,6 +84,8 @@ export interface PendingAction {
   why?: string | null;
   /** Who is asking, by the name the owner knows the chat by: a blob's title, a project's name, KOS. */
   asker?: string;
+  /** A browser ask that acts in the owner's own Chrome, not KOS's browser, as it was when raised. */
+  yours?: boolean;
 }
 
 export interface Project {
@@ -1557,6 +1559,10 @@ export const api = {
       isCommand?: boolean;
       switchedTo?: string;
       opens?: "tools";
+      /** Taken into the turn already running, which answers it too. */
+      steered?: boolean;
+      /** Dropped while it waited: it does not run. */
+      dropped?: boolean;
     }>("/api/message", {
       text,
       ...(sessionId ? { sessionId } : {}),

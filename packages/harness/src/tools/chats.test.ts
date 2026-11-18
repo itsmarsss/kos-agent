@@ -96,6 +96,25 @@ describe("chats.archive and chats.delete", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it("reads and finds the owner's words heard mid-turn, as theirs", async () => {
+    const h = await harness(ws);
+    const chat = h.conversations.create({ userId: OWNER, title: "Cart" });
+    new SessionStore(ws.db).set(chat.id, [
+      { role: "user", content: [{ type: "text", text: "build a cart" }] },
+      { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "browser.look", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", toolUseId: "t1", content: "Opened it.", heard: { mark: "ab12cd34", words: [{ text: "skip the ebooks" }] } }] },
+      { role: "assistant", content: [{ type: "text", text: "Done." }] },
+    ]);
+    const read = JSON.parse((await h.registry.execute("chats.read", { id: chat.id })).content) as { role: string; text: string }[];
+    expect(read).toEqual([
+      { role: "owner", text: "build a cart" },
+      { role: "owner", text: "skip the ebooks" },
+      { role: "kos", text: "Done." },
+    ]);
+    const found = JSON.parse((await h.registry.execute("chats.search", { query: "ebooks" })).content) as { id: string }[];
+    expect(found.map((f) => f.id)).toEqual([chat.id]);
+  });
+
   it("puts away and brings back a chat in reach, refuses fixed threads and other projects' chats, and deletes only on an ask", async () => {
     const h = await harness(ws, { scope: "garden" });
     const mine = h.conversations.create({ userId: OWNER, title: "Beds", projectSlug: "garden" });

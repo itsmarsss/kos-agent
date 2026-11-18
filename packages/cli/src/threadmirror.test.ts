@@ -189,6 +189,16 @@ describe("words steered into a running turn from the dashboard", () => {
   });
 });
 
+describe("heard words quoted by the bot", () => {
+  it("say the surface they were said on, not always the dashboard", async () => {
+    const h = harness({ ownerSender: async () => undefined });
+    h.mirror.onProgress({ kind: "heard", conversationId: "c-thread", said: "use the red one", from: "chrome" });
+    h.mirror.onProgress({ kind: "heard", conversationId: "c-thread", said: "and the blue", from: "dashboard" });
+    await h.mirror.settle();
+    expect(h.posts.map((p) => p.text)).toEqual(["> use the red one\n-# you, on Chrome", "> and the blue\n-# you, on the dashboard"]);
+  });
+});
+
 describe("the owner's own words mirrored into a thread", () => {
   it("go up without a notification, while the answer does notify", async () => {
     const posted: { text: string; silent?: boolean }[] = [];

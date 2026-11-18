@@ -1,5 +1,6 @@
 import { summarizeAction } from "@kos/shared";
 
+import { heardWith } from "../models/heard.js";
 import { saidText, type MessageOrigin, type ModelMessage, type Quote } from "../models/types.js";
 import { RESUME_HEAD } from "./decisions.js";
 import { parseQueuedApproval } from "./guarded.js";
@@ -74,34 +75,6 @@ export type ChatEvent =
     };
 
 const MAX_RESULT = 2000;
-
-/**
- * The owner's words said while a turn runs, as they reach it: after the
- * result of the turn's next tool call, under a line carrying a mark the
- * turn was told and nothing outside it knows. A page or a file can write
- * anything into a result, but not that mark, so it cannot pass for the
- * owner speaking.
- */
-const OWNER_LINE = "[the owner, while you work · ";
-/** Under the owner's words, where they were when they said them (the tab or app beside a device's chat): not their words. */
-const WHERE_LINE = "[where the owner said that · ";
-
-/** The owner's words, each with where it was said when the surface says so. */
-export function ownerWords(mark: string, words: { text: string; where?: string }[]): string {
-  return words.map((w) => `\n\n${OWNER_LINE}${mark}]\n${w.text}${w.where ? `\n\n${WHERE_LINE}${mark}]\n${w.where}` : ""}`).join("");
-}
-
-/** A tool's result, and the owner's words that rode in after it. */
-export function splitOwnerWords(content: string): { content: string; said: string[] } {
-  const at = content.indexOf(`\n\n${OWNER_LINE}`);
-  if (at === -1) return { content, said: [] };
-  const said = content
-    .slice(at)
-    .split(/\n\n\[the owner, while you work · [0-9a-z]+\]\n/)
-    .map((w) => w.split(/\n\n\[where the owner said that · [0-9a-z]+\]\n/)[0]!.trim())
-    .filter(Boolean);
-  return { content: content.slice(0, at), said };
-}
 
 /** One decided action in a resume, as a note: today's words, or the outcome lines that came before them. */
 function decidedNote(line: string): string | null {
@@ -228,7 +201,7 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
         // Attach to the call it answers; an unmatched result is a fragment
         // from an older truncation and has nothing to attach to.
         const target = pending.get(block.toolUseId);
-        const { content, said } = splitOwnerWords(block.content);
+        const { content, said } = heardWith(block);
         if (target) {
           target.result = content.slice(0, MAX_RESULT);
           if (block.isError) target.isError = true;
@@ -237,7 +210,7 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
           pending.delete(block.toolUseId);
         }
         // What the owner said while the turn ran, where the turn heard it.
-        for (const text of said) events.push({ kind: "message", role: "you", text });
+        for (const w of said) events.push({ kind: "message", role: "you", text: w.text, ...(w.via ? { origin: { via: w.via } } : {}) });
       }
     }
   }

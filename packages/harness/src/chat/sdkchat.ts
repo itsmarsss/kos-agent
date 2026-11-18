@@ -12,7 +12,7 @@ import {
 import type { ToolBox } from "../agent/loop.js";
 import { SCREEN_HANDOFF, SCREEN_PROMPT, forScreenAgent, isScreenTool } from "../agent/screen.js";
 import { fenced, isShelved } from "../context/shelf.js";
-import { splitOwnerWords } from "../kernel/transcript.js";
+import { heardWith, ownerLines, resultText, splitOwnerWords, type HeardWords } from "../models/heard.js";
 import type { Effort } from "../models/provider.js";
 import { toolUse } from "../kernel/caller.js";
 import { STOPPED_RESULT } from "../kernel/guarded.js";
@@ -65,6 +65,8 @@ export interface SdkToolCall {
   input: Record<string, unknown>;
   result: string;
   isError: boolean;
+  /** What the owner said while the turn ran, heard with this result. */
+  heard?: HeardWords;
 }
 
 export interface SdkChatResult {
@@ -151,10 +153,10 @@ export interface SdkChatOptions {
 export function carryOn(prompt: string, calls: SdkToolCall[]): string {
   const steps = calls.map((c, i) => {
     // The owner's words that rode in on a result are theirs, kept whole and outside the result's fence.
-    const { content, said } = splitOwnerWords(c.result);
+    const { content, said } = heardWith({ content: c.result, ...(c.heard ? { heard: c.heard } : {}) });
     // A screen step's answer is a line about what it did, and the screen is attached; any other result is kept whole (or its stub), since what it said may be what the rest of the turn needs.
     const answer = isScreenTool(c.name) ? content.replace(/\s+/g, " ").slice(0, 300) : content;
-    const owner = said.map((w) => `\n   The owner said, while you worked: ${w}`).join("");
+    const owner = said.map((w) => `\n   The owner said, while you worked: ${w.text}`).join("");
     return `${i + 1}. ${c.name} ${JSON.stringify(c.input).slice(0, 300)}\n${fenced(c.name, answer)}${owner}`;
   });
   return `${prompt}\n\n[You are partway through this turn. These steps are already done, newest last; the screen as it is now is attached. Carry on from here: do not repeat them or start over, and keep any session that is open.]\n${steps.join("\n")}`;
@@ -205,8 +207,14 @@ export function priorForSdk(
   opts: { kept?: boolean } = {},
 ): string {
   const spoken = history
-    .map((m) => {
+    .flatMap((m) => {
       const blocks = Array.isArray(m.content) ? m.content : [];
+      // What the owner said while a turn ran, heard with a result: their words, carried as theirs.
+      const heard = blocks.flatMap((b) => {
+        const result = b as { type?: string; content?: unknown; heard?: HeardWords };
+        if (result.type !== "tool_result" || typeof result.content !== "string") return [];
+        return ownerLines({ content: result.content, ...(result.heard ? { heard: result.heard } : {}) });
+      });
       /*
        * Text, plus a note where something was not text.
        *
@@ -228,17 +236,17 @@ export function priorForSdk(
           }
           // A big result is carried in words, whole while it is recent and as its stub after, so a follow-up need not read it again.
           const result = b as { type?: string; content?: unknown };
-          if (opts.kept && result.type === "tool_result" && typeof result.content === "string" && isShelved(result.content)) {
-            return fenced("result", result.content);
+          if (opts.kept && result.type === "tool_result" && typeof result.content === "string") {
+            const { content } = splitOwnerWords(result.content);
+            if (isShelved(content)) return fenced("result", content);
           }
           return "";
         })
         .filter(Boolean)
         .join("\n")
         .trim();
-      if (!said) return "";
       const fromTool = blocks.length > 0 && blocks.every((b) => (b as { type?: string }).type === "tool_result");
-      return `${fromTool ? "A tool you called" : m.role === "user" ? "Owner" : "You"}: ${said}`;
+      return [...(said ? [`${fromTool ? "A tool you called" : m.role === "user" ? "Owner" : "You"}: ${said}`] : []), ...heard];
     })
     .filter(Boolean);
 
@@ -314,10 +322,11 @@ function serverFor(tools: ToolBox, record: (call: SdkToolCall, images: { data: s
           input: args ?? {},
           result: result.content,
           isError: result.isError === true,
+          ...(result.heard ? { heard: result.heard } : {}),
         }, result.images ?? []);
         return {
           content: [
-            { type: "text" as const, text: result.content },
+            { type: "text" as const, text: resultText(result) },
             ...(result.images ?? []).map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mediaType })),
           ],
           ...(result.isError ? { isError: true } : {}),
@@ -429,6 +438,8 @@ export async function runSdkChat(
   let text = "";
   /** What the reply in progress has said so far: kept if the turn is stopped before it is whole. */
   let streamed = "";
+  /** The next piece of text starts a block, and is joined to what came before as the reply joins blocks. */
+  let blockStart = true;
   const usage = { inputTokens: 0, outputTokens: 0 };
   const models: SdkModelUsage[] = [];
   let costUSD = 0;
@@ -578,11 +589,17 @@ export async function runSdkChat(
         }
 
         if (m["type"] === "stream_event") {
-          const event = m["event"] as { delta?: { type?: string; text?: string; thinking?: string } };
+          const event = m["event"] as { type?: string; content_block?: { type?: string }; delta?: { type?: string; text?: string; thinking?: string } };
+          if (event?.type === "content_block_start" && event.content_block?.type === "text" && !inSubagent) blockStart = true;
           const delta = event?.delta;
           if (delta?.text && !inSubagent) {
-            streamed += delta.text;
-            options.onDelta?.({ kind: "text", text: delta.text });
+            // A block's first piece is joined to what came before as the
+            // stored reply joins whole blocks, so the live text reads the same.
+            const sofar = text + streamed;
+            const piece = blockStart ? joinSaid(sofar, delta.text).slice(sofar.length) : delta.text;
+            blockStart = false;
+            streamed += piece;
+            options.onDelta?.({ kind: "text", text: piece });
           }
           if (delta?.thinking) {
             options.onDelta?.({ kind: "reasoning", text: delta.thinking });
@@ -593,6 +610,7 @@ export async function runSdkChat(
         if (m["type"] === "assistant") {
           if (inSubagent) continue;
           streamed = "";
+          blockStart = true;
           const content = said?.content ?? [];
           for (const block of content) {
             const b = block as { type?: string; text?: string };

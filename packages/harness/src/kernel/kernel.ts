@@ -136,7 +136,7 @@ import { ProgressBus } from "./progress.js";
 import { BEHAVIOUR_KEY, parseBehaviour, type Behaviour } from "./behaviour.js";
 import { parseMentions } from "./mentions.js";
 import { originOf } from "./origin.js";
-import { ownerWords } from "./transcript.js";
+import type { HeardWords, OwnerWords } from "../models/heard.js";
 import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
 import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type HtmlPage, type ThemeMode } from "@kos/shared";
@@ -1003,6 +1003,8 @@ export class Kernel {
      */
     const dropped: HandleResult = { reply: "", halted: false, sessionId, dropped: true };
     let parked: number | undefined;
+    /** The waiting row this turn runs, so a page showing it waiting knows which went. */
+    let ran: number | undefined;
     if (useSession && this.working.has(sessionId) && opts.origin !== "system" && !opts.attachments?.length && !opts.guest && !opts.guested && !opts.contextFrom && (!opts.context || opts.contextRides) && !opts.roomTalk && !opts.quote) {
       const waiting = this.pending.add(sessionId, text, [], originOf(opts), flagsOf(opts));
       const how = await new Promise<Heard>((taken) => this.steered.set(sessionId, [...(this.steered.get(sessionId) ?? []), { id: waiting, ...(opts.channel ? { channel: opts.channel } : {}), taken }]));
@@ -1015,6 +1017,7 @@ export class Kernel {
         const row = this.pending.get(waiting);
         if (!row) return dropped;
         this.pending.take(waiting);
+        ran = waiting;
         text = row.text;
       }
     } else if (useSession && this.queue.depthOf(sessionId) > 0) {
@@ -1026,10 +1029,11 @@ export class Kernel {
         const row = this.pending.get(parked);
         if (!row) return dropped;
         this.pending.take(parked);
+        ran = parked;
         // A guest's words stay named as theirs, however they were edited.
         text = opts.guest ? `${guestNamed(opts.guest)}${withoutGuestName(row.text, opts.guest)}` : row.text;
       }
-      return this.runTurn(text, userId, sessionId, opts);
+      return this.runTurn(text, userId, sessionId, { ...opts, ...(ran !== undefined ? { pendingId: ran } : {}) });
     }, sessionId);
   }
 
@@ -1073,6 +1077,8 @@ export class Kernel {
       contextFrom?: string;
       priorTurns?: ModelMessage[];
       replayed?: boolean;
+      /** The waiting row these words were, when they waited. */
+      pendingId?: number;
     },
   ): Promise<HandleResult> {
     {
@@ -1110,6 +1116,7 @@ export class Kernel {
       this.progress.emit({
         kind: "turn-start",
         conversationId: sessionId,
+        ...(opts.pendingId !== undefined ? { pendingId: opts.pendingId } : {}),
         ...(opts.origin !== "system" && text.trim()
           ? {
               said: text,
@@ -1441,6 +1448,7 @@ export class Kernel {
                       toolUseId: c.id,
                       content: c.result,
                       ...(c.isError ? { isError: true } : {}),
+                      ...(c.heard ? { heard: c.heard } : {}),
                     },
                   ],
                 },
@@ -1867,11 +1875,11 @@ export class Kernel {
    * turn's mark; each told it was heard. Read from its waiting row, so an
    * edit counts and one dropped meanwhile is not heard at all.
    */
-  private hear(sessionId: string, mark: string): string | undefined {
+  private hear(sessionId: string, mark: string): HeardWords | undefined {
     const waiting = this.steered.get(sessionId);
     if (!waiting?.length) return undefined;
     this.steered.delete(sessionId);
-    const words: { text: string; where?: string }[] = [];
+    const words: OwnerWords[] = [];
     for (const w of waiting) {
       const row = this.pending.get(w.id);
       if (!row) {
@@ -1881,14 +1889,16 @@ export class Kernel {
       this.pending.take(w.id);
       // Where they said it rides with the words, when it says only that.
       const where = row.flags?.contextRides ? row.flags.context : undefined;
-      words.push({ text: row.text, ...(where ? { where } : {}) });
+      // The surface rides too, so the chat says where they were said, live and once kept.
+      const via = w.channel && w.channel !== "dashboard" ? w.channel : undefined;
+      words.push({ text: row.text, ...(where ? { where } : {}), ...(via ? { via } : {}) });
       w.taken("heard");
       // Shown where the chat is mirrored, as the owner's, where the turn heard them.
-      this.progress.emit({ kind: "heard", conversationId: sessionId, said: row.text, ...(w.channel ? { from: w.channel } : {}) });
+      this.progress.emit({ kind: "heard", conversationId: sessionId, said: row.text, pendingId: w.id, ...(w.channel ? { from: w.channel } : {}) });
     }
     if (!words.length) return undefined;
     this.bus.emit({ kind: "turn:heard", conversationId: sessionId });
-    return ownerWords(mark, words);
+    return { mark, words };
   }
 
   /**
@@ -2417,6 +2427,11 @@ export class Kernel {
     }
     const record = role ? this.roles.get(role) : undefined;
     return record ? roleTitle(record) : this.titleOf(conversationId);
+  }
+
+  /** Whether a browser call from this conversation works in the owner's own Chrome rather than KOS's. */
+  inOwnersChrome(tool: string, conversationId: string | null | undefined): boolean {
+    return this.browserContext(tool, conversationId ?? undefined)?.browser?.yours === true;
   }
 
   /** Who is asking, for an approval raised from a conversation, by its name. Nothing for an action raised from nowhere. */
@@ -3700,7 +3715,7 @@ export class Kernel {
     /** The surface the turn's words arrived on, and those words. */
     origin?: TurnOrigin;
     /** The owner's words said since the last call, for the model with this call's result. */
-    heard?: () => string | undefined;
+    heard?: () => HeardWords | undefined;
     /** The turn's stop. */
     signal?: AbortSignal;
   } = {}): GuardedTools {
@@ -3787,6 +3802,7 @@ export class Kernel {
           // With the ids named, so a step reads "#leetcode", not a snowflake.
           summary: summarizeAction(tool, input, (kind, id) => this.labelFor(kind, id)),
           input,
+          ...(this.inOwnersChrome(tool, opts.conversationId) ? { yours: true as const } : {}),
         });
       },
     });

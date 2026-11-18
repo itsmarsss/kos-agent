@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 
+import { resultText } from "../heard.js";
 import type { Effort, ModelSpec, Provider } from "../provider.js";
 import type {
   ContentBlock,
@@ -91,10 +92,10 @@ function toInputItems(message: ModelMessage): ResponseInputItem[] {
       call_id: result.toolUseId,
       output: images.length
         ? [
-            { type: "input_text" as const, text: result.content },
+            { type: "input_text" as const, text: resultText(result) },
             ...images.map((img) => ({ type: "input_image" as const, image_url: `data:${img.mediaType};base64,${img.data}`, detail: "auto" as const })),
           ]
-        : result.content,
+        : resultText(result),
     });
   }
   if (results.length === 0) {

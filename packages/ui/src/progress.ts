@@ -15,13 +15,14 @@ import { socket } from "./socket.js";
  */
 
 export type ProgressEvent =
-  | { kind: "turn-start"; conversationId: string; said?: string; from?: string; origin?: MessageOrigin; files?: { name: string; path: string }[] }
+  | { kind: "turn-start"; conversationId: string; said?: string; from?: string; origin?: MessageOrigin; files?: { name: string; path: string }[]; pendingId?: number }
   | {
       kind: "tool-start";
       conversationId: string;
       tool: string;
       summary: string;
       input?: Record<string, unknown>;
+      yours?: true;
     }
   | {
       kind: "tool-end";
@@ -34,6 +35,7 @@ export type ProgressEvent =
   | { kind: "note"; conversationId: string; text: string }
   | { kind: "congregation"; conversationId: string; members: CongregationMember[] }
   | { kind: "frame"; conversationId: string; tool: string; frameId: number; toolUseId?: string; site?: string }
+  | { kind: "heard"; conversationId: string; said: string; pendingId?: number; from?: string }
   | { kind: "turn-end"; conversationId: string };
 
 /** One conversation a turn is waiting on, when it asked several at once. */
@@ -57,7 +59,14 @@ export type LiveStep =
       result?: string;
       /** What the step saw, at /api/frames/:id, once it is kept. */
       frameId?: number;
-    };
+      /** A browser step in the owner's own Chrome, not KOS's. */
+      yours?: true;
+    }
+  /**
+   * What the owner said while the turn ran, where the turn took it in: after
+   * the step whose result carried it, as the stored transcript keeps it.
+   */
+  | { kind: "said"; text: string; from?: string; pendingId?: number };
 
 export interface Live {
   /** Everything so far this turn, oldest first. */
@@ -77,6 +86,8 @@ export interface Live {
   origin?: MessageOrigin;
   /** The files that came with them, kept already. */
   files?: { name: string; path: string }[];
+  /** The waiting row the turn's words were, when they waited behind another turn. */
+  pendingId?: number;
   /**
    * The turn is over, but what it did is still the only copy on screen.
    *
@@ -116,6 +127,7 @@ function reduce(live: Live, event: ProgressEvent): Live {
         done: false,
         isError: false,
         ...(event.input ? { input: event.input } : {}),
+        ...(event.yours ? { yours: true as const } : {}),
       });
       return { ...live, steps };
 
@@ -149,6 +161,10 @@ function reduce(live: Live, event: ProgressEvent): Live {
       return { ...live, steps };
     }
 
+    case "heard":
+      steps.push({ kind: "said", text: event.said, ...(event.from ? { from: event.from } : {}), ...(event.pendingId !== undefined ? { pendingId: event.pendingId } : {}) });
+      return { ...live, steps };
+
     case "congregation":
       return { ...live, congregation: { members: event.members } };
 
@@ -167,6 +183,25 @@ function reduce(live: Live, event: ProgressEvent): Live {
     default:
       return live;
   }
+}
+
+/**
+ * Who is browsing in KOS's own browser right now, and what they are doing, if
+ * anyone is: a turn whose latest browser step ran there. A step in the
+ * owner's Chrome is not: the browser window shows KOS's browser, which that
+ * step never touched, and opening the window starts KOS's Chrome.
+ */
+export function browsingNow(map: ProgressMap): { id: string; doing?: string } | null {
+  for (const [id, turn] of Object.entries(map)) {
+    if (!turn || turn.ended) continue;
+    for (let i = turn.steps.length - 1; i >= 0; i--) {
+      const step = turn.steps[i]!;
+      if (step.kind !== "tool" || !step.tool.startsWith("browser.")) continue;
+      if (step.yours) break;
+      return step.done ? { id } : { id, doing: step.summary };
+    }
+  }
+  return null;
 }
 
 /**
@@ -256,6 +291,7 @@ class ProgressStore {
             steps: [],
             text: "",
             since: Date.now(),
+            ...(event.pendingId !== undefined ? { pendingId: event.pendingId } : {}),
             ...(event.said
               ? { said: event.said, ...(event.from ? { from: event.from } : {}), ...(event.origin ? { origin: event.origin } : {}), ...(event.files?.length ? { files: event.files } : {}) }
               : {}),

@@ -67,11 +67,18 @@ describe("ApprovalQueue", () => {
     ws.db.exec(`CREATE TABLE pending_actions (id INTEGER PRIMARY KEY, tool TEXT NOT NULL, args TEXT NOT NULL, risk_tier TEXT NOT NULL, reason TEXT, status TEXT NOT NULL DEFAULT 'pending', user_id TEXT, conversation_id TEXT, requested_at INTEGER NOT NULL, decided_at INTEGER, decided_by TEXT, rule TEXT, picture TEXT, why TEXT)`);
     ws.db.exec(`INSERT INTO pending_actions (tool, args, risk_tier, requested_at) VALUES ('files.rm', '{}', 'risky', 1)`);
     const older = new ApprovalQueue(ws.db);
-    expect(older.pending()[0]).toMatchObject({ tool: "files.rm", owner: false, attended: false, waits: false });
+    expect(older.pending()[0]).toMatchObject({ tool: "files.rm", owner: false, attended: false, waits: false, yours: false });
     // Migrated once: opening it again neither fails nor changes the row.
     const again = new ApprovalQueue(ws.db);
     expect(again.pending()[0]).toMatchObject({ owner: false, attended: false });
     expect(again.enqueue({ tool: "shell", args: {}, riskTier: "risky", owner: true, attended: true })).toMatchObject({ owner: true, attended: true });
+  });
+
+  it("keeps a browser ask in the owner's Chrome as raised there", () => {
+    const there = queue.enqueue({ tool: "browser.handoff", args: {}, riskTier: "risky", yours: true });
+    const here = queue.enqueue({ tool: "browser.handoff", args: {}, riskTier: "risky" });
+    expect(queue.get(there.id)?.yours).toBe(true);
+    expect(queue.get(here.id)?.yours).toBe(false);
   });
 
   it("lapses a held turn's ask with the approval window and an ask nothing waits on with the inbox's hours", () => {

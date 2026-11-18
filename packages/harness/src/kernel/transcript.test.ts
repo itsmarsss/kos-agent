@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ModelMessage } from "../models/types.js";
 import { decidedLine } from "./decisions.js";
+import { ownerWords } from "../models/heard.js";
 import { conversationEvents, historyEvents, spokenTurns } from "./transcript.js";
 
 const withTool: ModelMessage[] = [
@@ -182,6 +183,32 @@ describe("where a message came from", () => {
     expect(events[0]).toMatchObject({ kind: "message", role: "you", text: "hi", origin });
     expect(events[1]).not.toHaveProperty("origin");
     expect(events[2]).toMatchObject({ kind: "message", role: "you", attachments: [{ name: "a.txt" }], origin: { via: "imessage" } });
+  });
+});
+
+describe("words the owner said while a turn ran", () => {
+  it("sit after the result that carried them, with the surface they were said on", () => {
+    const heard = { mark: "ab12", words: [{ text: "skip the ebooks", via: "discord" }, { text: "and the red one", where: "Said beside their tab at https://shop.test" }] };
+    const events = conversationEvents([
+      { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "browser.visit", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", toolUseId: "t1", content: "Opened the cart.", heard }] },
+      { role: "assistant", content: [{ type: "text", text: "Done." }] },
+    ]);
+    expect(events.map((e) => (e.kind === "tool" ? e.result : e.kind === "message" ? e : e.kind))).toEqual([
+      "Opened the cart.",
+      { kind: "message", role: "you", text: "skip the ebooks", origin: { via: "discord" } },
+      { kind: "message", role: "you", text: "and the red one" },
+      { kind: "message", role: "kos", text: "Done." },
+    ]);
+  });
+
+  it("are still read from inside a result kept before they had a field", () => {
+    const content = `Opened the cart.${ownerWords("ab12cd34", [{ text: "skip the ebooks" }])}`;
+    const events = conversationEvents([
+      { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "browser.visit", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", toolUseId: "t1", content }] },
+    ]);
+    expect(events.map((e) => (e.kind === "tool" ? e.result : e.kind === "message" ? e.text : e.kind))).toEqual(["Opened the cart.", "skip the ebooks"]);
   });
 });
 

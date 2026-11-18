@@ -1,12 +1,11 @@
 import type { ReactElement } from "react";
 
+import { surfaceName } from "@kos/shared";
+
 import type { MessageOrigin } from "./api.js";
 import { hrefFor } from "./routes.js";
 
-/** A messaging surface as its maker spells it. */
-export function surfaceName(channel: string): string {
-  return channel === "discord" ? "Discord" : channel === "imessage" ? "iMessage" : channel === "sms" ? "SMS" : channel === "chrome" ? "Chrome" : channel === "mac" ? "Mac" : channel === "phone" ? "iPhone" : channel;
-}
+export { surfaceName };
 
 /**
  * Where a message came from, in words: "via #leetcode on Discord", "Ana, a

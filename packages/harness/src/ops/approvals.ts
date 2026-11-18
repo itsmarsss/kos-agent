@@ -31,6 +31,8 @@ export interface EnqueueInput {
   guest?: GuestOrigin;
   /** The asking turn holds for the answer, so the ask lapses with the approval window rather than the inbox's hours. */
   waits?: boolean;
+  /** A browser call that acts in the owner's own Chrome, not KOS's browser. */
+  yours?: boolean;
 }
 
 export interface PendingAction {
@@ -62,6 +64,8 @@ export interface PendingAction {
   guest: GuestOrigin | null;
   /** Whether a turn held for the answer: its ask lapses with the approval window, not the inbox's. False for a row from before. */
   waits: boolean;
+  /** A browser ask in the owner's own Chrome, as it was when raised. False for a row from before. */
+  yours: boolean;
 }
 
 /**
@@ -108,10 +112,11 @@ interface Row {
   attended: number;
   guest: string | null;
   waits: number;
+  yours: number;
 }
 
 /** Every column a listed action needs: the picture is only whether there is one, read on its own when shown. */
-const LIST_COLUMNS = `id, tool, args, risk_tier, reason, status, user_id, conversation_id, requested_at, decided_at, decided_by, rule, (picture IS NOT NULL) AS has_picture, why, owner, attended, guest, waits`;
+const LIST_COLUMNS = `id, tool, args, risk_tier, reason, status, user_id, conversation_id, requested_at, decided_at, decided_by, rule, (picture IS NOT NULL) AS has_picture, why, owner, attended, guest, waits, yours`;
 
 /** The most decided asks one page may hold. */
 export const DECIDED_MAX = 500;
@@ -147,6 +152,7 @@ function toAction(row: Row): PendingAction {
     attended: row.attended === 1,
     guest: row.guest === null ? null : guestOf(JSON.parse(row.guest) as { project: string | null; chat?: string; home?: string }),
     waits: row.waits === 1,
+    yours: row.yours === 1,
     decidedAt: row.decided_at,
     decidedBy: row.decided_by,
   };
@@ -211,6 +217,9 @@ export class ApprovalQueue {
     if (!columns.some((c) => c.name === "waits")) {
       this.db.exec(`ALTER TABLE pending_actions ADD COLUMN waits INTEGER NOT NULL DEFAULT 0`);
     }
+    if (!columns.some((c) => c.name === "yours")) {
+      this.db.exec(`ALTER TABLE pending_actions ADD COLUMN yours INTEGER NOT NULL DEFAULT 0`);
+    }
     // The decided history is read by outcome and time, a page at a time: one outcome by the first,
     // every outcome (the Inbox's default page, and its mark) by the second, which holds only what was decided.
     this.db.exec(`CREATE INDEX IF NOT EXISTS pending_actions_status_decided ON pending_actions (status, decided_at, id)`);
@@ -228,8 +237,8 @@ export class ApprovalQueue {
     const args = this.secrets ? this.secrets.redact(argsJson) : argsJson;
     const info = this.db
       .prepare(
-        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why, owner, attended, guest, waits)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why, owner, attended, guest, waits, yours)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.tool,
@@ -246,6 +255,7 @@ export class ApprovalQueue {
         input.attended === true ? 1 : 0,
         input.guest ? JSON.stringify({ project: input.guest.project ?? null, chat: input.guest.chat, ...(input.guest.home ? { home: input.guest.home } : {}) }) : null,
         input.waits === true ? 1 : 0,
+        input.yours === true ? 1 : 0,
       );
     return this.get(Number(info.lastInsertRowid))!;
   }

@@ -36,6 +36,8 @@ export function useAttachments(): {
   add: (list: FileList | null) => Promise<void>;
   remove: (index: number) => void;
   clear: () => void;
+  /** Put back what a send that failed carried, unless something new is in the composer by then. */
+  restore: (sent: Attachment[]) => void;
 } {
   const [files, setFiles] = useState<Attachment[]>([]);
   return {
@@ -49,6 +51,7 @@ export function useAttachments(): {
     },
     remove: (index) => setFiles((f) => f.filter((_, i) => i !== index)),
     clear: () => setFiles([]),
+    restore: (sent) => setFiles((f) => (f.length ? f : sent)),
   };
 }
 

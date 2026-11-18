@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 
 import { Elapsed, listItem, Markdown, Pill, WorkingDots } from "@kos/kit";
+import { OriginLine } from "./OriginLine.js";
 import { hrefFor } from "./routes.js";
 import { Thinking } from "./Thinking.js";
 import { ToolCall } from "./ToolCall.js";
@@ -10,9 +11,10 @@ import type { CongregationMember, Live, LiveStep } from "./progress.js";
 /**
  * A turn while it is still happening.
  *
- * Each thought and each tool call appears as it occurs, in the same shapes the
- * finished transcript uses, so the turn does not rearrange itself when it
- * lands. The reply streams in underneath.
+ * Each thought, each tool call and each thing the owner says meanwhile
+ * appears as it occurs, in the same shapes the finished transcript uses, so
+ * the turn does not rearrange itself when it lands. The reply streams in
+ * underneath.
  */
 
 /** The one-line account of a roster: who is done, who is still at it. */
@@ -87,6 +89,23 @@ export function LiveTurn({
               layout="position"
             >
               <Thinking text={step.text} />
+            </m.div>
+          ) : step.kind === "said" ? (
+            // The owner's words, where the turn took them in: the place the
+            // transcript keeps them, so nothing moves when the turn lands.
+            <m.div
+              key={`s${i}`}
+              className="turn turn--you"
+              variants={listItem}
+              initial="hidden"
+              animate="show"
+              layout="position"
+            >
+              <div className="bubble bubble--you">
+                <Markdown text={step.text} />
+              </div>
+              {/* The line the kept message carries too, from the surface stored with it. */}
+              {step.from && step.from !== "dashboard" && <OriginLine origin={{ via: step.from }} />}
             </m.div>
           ) : (
             <m.div

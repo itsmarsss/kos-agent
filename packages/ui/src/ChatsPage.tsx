@@ -42,6 +42,7 @@ import {
   type Project,
   type DiscordChannel,
 } from "./api.js";
+import { answeredAside, queuedAnyway, retireAsides, waitingAsides, waitingRows, type Aside } from "./asides.js";
 import { tabName } from "./address.js";
 import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
@@ -76,7 +77,7 @@ import { ChatConfig } from "./ChatConfig.js";
 import { Modal } from "./Modal.js";
 import { HandoffForm } from "./HandoffForm.js";
 import { hrefFor } from "./routes.js";
-import { composerKeyDown, useAutoGrow, useStickToBottom } from "./composer.js";
+import { backInComposer, composerKeyDown, useAutoGrow, useStickToBottom } from "./composer.js";
 
 /**
  * The chats page: a list that stays usable at fifty conversations, and the
@@ -290,6 +291,18 @@ export function ChatsPage({
   // at all, and /clear emptied the chat without saying it had.
   const [notes, setNotes] = useState<{ id: number; text: string }[]>([]);
   const [pending, setPending] = useState<PendingMessage[]>([]);
+  /**
+   * Sent while a turn was running here, until the server answers for it. The
+   * turn takes it in at its next step, or it runs after; either way it waits
+   * under the running turn, never above the steps and words already shown.
+   */
+  const [asides, setAsides] = useState<Aside[]>([]);
+  const asideKeys = useRef(0);
+  /** A chat's waiting rows as fetched: each new row is an aside sent here, which it then stands for. */
+  const showPending = (id: string, rows: PendingMessage[]): void => {
+    if (id === activeIdRef.current) setPending(rows);
+    setAsides((a) => retireAsides(a, id, rows));
+  };
   /** The queued message being rewritten, if any. */
   const [editingQueued, setEditingQueued] = useState<{ id: number; text: string } | null>(
     null,
@@ -603,7 +616,7 @@ export function ChatsPage({
          * message queued behind a running turn stayed invisible until the
          * turn ended, which is the one moment it did not matter.
          */
-        setPending(waiting);
+        showPending(id, waiting);
         /*
          * The transcript itself waits.
          *
@@ -631,7 +644,7 @@ export function ChatsPage({
   }, [activeId, stamp, sendingIn, loadedFor, justEnded, turnRunningHere]);
 
   // The live turn grows as it streams, so it is part of what pins the scroll.
-  useStickToBottom(boxRef, [events, sendingIn, activeId, live?.steps.length, live?.text], `${activeId}:${sendingIn === activeId}`);
+  useStickToBottom(boxRef, [events, sendingIn, activeId, live?.steps.length, live?.text, asides.length], `${activeId}:${sendingIn === activeId}`);
 
   /*
    * Grow the composer with what is typed.
@@ -940,10 +953,6 @@ export function ChatsPage({
       setDraft("");
       return;
     }
-    // Not blocked while a turn runs. A follow-up is queued on the server and
-    // runs next, which is what the owner meant by sending it.
-    setSendingIn(target);
-
     // The message is sent the moment Send is pressed, so it should read that
     // way: the bubble carries its attachments straight away and the composer
     // is empty. Waiting for the turn meant the files sat in the composer,
@@ -952,31 +961,50 @@ export function ChatsPage({
     // A command is not part of the conversation, so it gets no bubble: one
     // appeared and was taken away again by the reload a moment later.
     const looksLikeCommand = /^\/\S/.test(text) && files.length === 0;
-    if (!looksLikeCommand) {
-      setEvents((e) => [
-        ...e,
-        {
-          kind: "message",
-          role: "you",
-          text,
-          ...(files.length
-            ? {
-                attachments: files.map((f) => ({
-                  name: f.name,
-                  ...(f.mediaType.startsWith("image/")
-                    ? { src: `data:${f.mediaType};base64,${f.data}` }
-                    : {}),
-                })),
-              }
-            : {}),
-        },
-      ]);
-    }
+    /*
+     * Not blocked while a turn runs: the turn hears it at its next step, or
+     * it runs next. A bubble in the transcript would draw it above the
+     * running turn's steps and words, so it waits under the turn instead,
+     * and the live view puts it where the turn took it in.
+     */
+    // The rows waiting now: none of them is this message.
+    const before = pending.map((p) => p.id);
+    const aside: Aside | null =
+      running && !looksLikeCommand
+        ? {
+            key: ++asideKeys.current,
+            conversationId: target,
+            text,
+            attachments: files.map((f) => ({ name: f.name })),
+            at: Date.now(),
+            before,
+            ...(live ? { turn: live.since } : {}),
+            steps: live?.steps.length ?? 0,
+          }
+        : null;
+    if (aside) setAsides((a) => [...a, aside]);
+    else setSendingIn(target);
+    // Kept by reference, so a send that fails takes back just this bubble.
+    const bubble: ChatEvent = {
+      kind: "message",
+      role: "you",
+      text,
+      ...(files.length
+        ? {
+            attachments: files.map((f) => ({
+              name: f.name,
+              ...(f.mediaType.startsWith("image/") ? { src: `data:${f.mediaType};base64,${f.data}` } : {}),
+            })),
+          }
+        : {}),
+    };
+    if (!looksLikeCommand && !aside) setEvents((e) => [...e, bubble]);
     setDraft("");
     attachments.clear();
 
     try {
       const res = await api.message(text, target, files);
+      if (aside) setAsides((a) => answeredAside(a, aside, res));
       // A command writes nothing to the transcript, so the reload below would
       // drop its reply on the floor. It is kept as a note instead: for /help
       // the reply is the entire output, and for /clear it is the only sign
@@ -1006,10 +1034,8 @@ export function ChatsPage({
       // approval answers here too, and the reload is what puts its approval
       // card on screen.
       const { events: got, pending: waiting } = await api.conversation(target);
-      if (target === activeIdRef.current) {
-        setEvents(got);
-        setPending(waiting);
-      }
+      if (target === activeIdRef.current) setEvents(got);
+      showPending(target, waiting);
       // Every path that replaces the transcript is a handover: leaving the
       // finished steps up as well shows each tool call twice until something
       // else happens to clear them.
@@ -1017,9 +1043,22 @@ export function ChatsPage({
       onChanged();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setEvents((e) => [...e, { kind: "message", role: "kos", text: `Error: ${msg}` }]);
+      setEvents((e) => [...e.filter((x) => x !== bubble), { kind: "message", role: "kos", text: `Error: ${msg}` }]);
+      /*
+       * Back in the composer only when it is not waiting on the server: an
+       * answer lost on the way back can follow a message that was queued all
+       * the same, and that one shows as its row. Put back as well, it would
+       * be sent twice.
+       */
+      const waiting = await api.conversation(target).then((r) => r.pending).catch(() => undefined);
+      if (waiting) showPending(target, waiting);
+      if (!waiting || !queuedAnyway(waiting, before, text)) {
+        setDraft((d) => backInComposer(d, text));
+        attachments.restore(files);
+      }
     } finally {
-      setSendingIn((id) => (id === target ? null : id));
+      if (aside) setAsides((a) => a.filter((x) => x !== aside));
+      else setSendingIn((id) => (id === target ? null : id));
     }
   }
 
@@ -1037,7 +1076,7 @@ export function ChatsPage({
   const reloadPending = async (id: string): Promise<void> => {
     try {
       const { pending: waiting } = await api.conversation(id);
-      if (id === activeIdRef.current) setPending(waiting);
+      showPending(id, waiting);
     } catch {
       // The list is refreshed on the next turn either way.
     }
@@ -1048,7 +1087,7 @@ export function ChatsPage({
     if (!draftText || !activeId) return;
     try {
       const { pending: waiting } = await api.editPending(id, draftText, activeId);
-      setPending(waiting);
+      showPending(activeId, waiting);
       setEditingQueued(null);
     } catch (err) {
       queuedError(err);
@@ -1060,7 +1099,7 @@ export function ChatsPage({
     if (!activeId) return;
     try {
       const { pending: waiting } = await api.deletePending(id, activeId);
-      setPending(waiting);
+      showPending(activeId, waiting);
     } catch (err) {
       queuedError(err);
     }
@@ -1201,9 +1240,9 @@ export function ChatsPage({
         // The turn is over, so the transcript is the authority again.
         const { events: got, pending: waiting } = await api.conversation(target);
         settleProgress(target);
+        showPending(target, waiting);
         if (target !== activeIdRef.current) return;
         setEvents(got);
-        setPending(waiting);
       })
       .catch((err: unknown) =>
         setEvents((e) => [
@@ -2303,7 +2342,7 @@ export function ChatsPage({
                     words show now, as they would had they been typed here,
                     rather than when the turn ends. This tab's own message is
                     already in the list above. */}
-                {live?.said && sendingIn !== activeId && !visible.some((e) => e.kind === "message" && e.role === "you" && e.text === live.said) && (
+                {live?.said && !visible.some((e) => e.kind === "message" && e.role === "you" && e.text === live.said) && (
                   <div className="turn turn--you">
                     <div className="bubble bubble--you">
                       <Markdown text={live.said} />
@@ -2441,7 +2480,7 @@ export function ChatsPage({
                 {/* A queued message whose turn has just begun is already on
                     the screen as the live turn's own words; shown here too it
                     would read twice until the next fetch. */}
-                {pending.filter((p) => !(live?.said && !live.ended && p.text === live.said)).map((p) => (
+                {waitingRows(pending, live).map((p) => (
                   <m.div
                     className="queued"
                     key={p.id}
@@ -2528,6 +2567,18 @@ export function ChatsPage({
                     )}
                   </m.div>
                 ))}
+                {/* Sent here mid-turn and not yet a row on the server: under the
+                    turn, waiting, until the turn takes it in. */}
+                {activeId !== undefined &&
+                  waitingAsides(asides, activeId, live).map((a) => (
+                    <m.div className="queued" key={`aside-${a.key}`} layout variants={listItem} initial="hidden" animate="show" exit="exit" transition={ease}>
+                      <div className="bubble bubble--you is-queued">
+                        {a.text}
+                        <span className="label queued-mark">queued</span>
+                      </div>
+                      {a.attachments.length > 0 && <AttachmentStrip items={a.attachments} />}
+                    </m.div>
+                  ))}
                 </AnimatePresence>
               </div>
               </MentionNames>
