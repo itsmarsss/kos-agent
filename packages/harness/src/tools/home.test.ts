@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -50,6 +50,12 @@ describe("a turn's file home", () => {
   });
 
   const write = (path: string) => registry.execute("files.write", { path, content: "x" });
+  /** The cache folder of the home whose key starts so. */
+  const homeCache = (prefix: string): string => {
+    const homes = join(root, ".kos", "cache", "homes");
+    const key = existsSync(homes) ? readdirSync(homes).find((k) => k.startsWith(prefix)) : undefined;
+    return join(homes, key ?? `${prefix}missing`);
+  };
   const exists = (path: string) => existsSync(join(root, path));
 
   it("puts a relative path from a project inside the project, and says where", async () => {
@@ -167,6 +173,14 @@ describe("a turn's file home", () => {
     expect(registry.classify("files.write", { path: `/${ws.root}/projects/school/a.md` })).toEqual({ tier: "safe", escalated: false });
   });
 
+  it("judges another project's folder as the disk names it, however it is spelled", () => {
+    mkdirSync(join(root, "projects", "other"), { recursive: true });
+    for (const path of ["workspace:project\u017f/other/x.md", "workspace:Projects/Other/x.md", "PROJECTS/other/x.md", "workspace:blob\u017f/noter/x.md"]) {
+      expect(registry.classify("files.write", { path }), path).toMatchObject({ tier: "risky", reached: true, beyondAuto: "writes into another project" });
+    }
+    expect(registry.classify("files.write", { path: "Projects/School/x.md" })).toEqual({ tier: "safe", escalated: false });
+  });
+
   it("still refuses a path that leaves the workspace", async () => {
     expect((await write("../escape.md")).isError).toBe(true);
     expect((await write("workspace:../escape.md")).isError).toBe(true);
@@ -262,11 +276,32 @@ describe("a turn's file home", () => {
     const pip = await sh(`python3 -c "${wheel}" && python3 -m pip install --user --no-index --no-deps --disable-pip-version-check ./kosprobe-0.1-py3-none-any.whl && python3 -c "import kosprobe; print(kosprobe.ok)"`);
     expect(pip.exitCode, pip.stderr).toBe(0);
     expect(pip.stdout.trim().split("\n").at(-1)).toBe("1");
-    expect(exists(".kos/tmp/cache/python")).toBe(true);
+    expect(existsSync(join(homeCache("projects-school-"), "python"))).toBe(true);
     // npm, where the sandbox can run it at all (one installed under the owner's home cannot be read); its cache folder either way.
     const npm = await sh("npm --version >/dev/null 2>&1 && npm cache verify || (mkdir -p \"$npm_config_cache/_cacache\" && touch \"$npm_config_cache/_cacache/probe\")");
     expect(npm.exitCode, npm.stderr).toBe(0);
-    expect(exists(".kos/tmp/cache/npm/_cacache")).toBe(true);
+    expect(existsSync(join(homeCache("projects-school-"), "npm", "_cacache"))).toBe(true);
+  });
+
+  it.runIf(onMac)("never lets one project plant what another project's command loads", async () => {
+    const sh = async (command: string) => JSON.parse((await registry.execute("shell.run", { command, timeout: 60 })).content) as { exitCode: number; stdout: string; stderr: string };
+    // From the school project: a .pth in its Python user base runs in every interpreter that loads it.
+    await registry.execute("files.write", {
+      path: "plant.py",
+      content: "import os, site\np = site.getusersitepackages()\nos.makedirs(p, exist_ok=True)\nopen(os.path.join(p, 'plant.pth'), 'w').write('import sys; sys.stdout.write(\"PLANTED\\\\n\")\\n')\n",
+    });
+    const planted = await sh("python3 plant.py && python3 -c 'print(1)'");
+    expect(planted.exitCode, planted.stderr).toBe(0);
+    expect(planted.stdout).toContain("PLANTED");
+    // The resume project's command, and its python.run, load none of it.
+    home = { folder: "projects/resume" };
+    project = "resume";
+    const other = await sh("python3 -c 'print(2)'");
+    expect(other.exitCode, other.stderr).toBe(0);
+    expect(other.stdout).not.toContain("PLANTED");
+    const run = JSON.parse((await registry.execute("python.run", { code: "print(3)" })).content) as { stdout: string };
+    expect(run.stdout).not.toContain("PLANTED");
+    expect(homeCache("projects-resume-")).not.toBe(homeCache("projects-school-"));
   });
 
   it("asks for the whole workspace by name, beyond Auto, and only from a project or a blob", () => {

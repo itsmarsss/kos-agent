@@ -10,7 +10,7 @@ import { isReadOnlyCommand } from "../risk/readonly.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv } from "../sandbox/env.js";
 import { isContained, jailedCommand } from "../sandbox/jail.js";
-import { INTO_ANOTHER, placeFor, reachOutside, writeScope } from "./home.js";
+import { homeDirs, INTO_ANOTHER, placeFor, reachOutside, writeScope } from "./home.js";
 
 /**
  * shell.run: a command, in the workspace, jailed.
@@ -84,13 +84,13 @@ function wide(input: Record<string, unknown>): boolean {
 }
 
 /**
- * Where a command whose writes are narrowed keeps its tools' caches. HOME is
- * the workspace root, which such a command may not write, so pip, npm, Go,
- * Cargo and anything that follows XDG would fail to cache or install for the
- * user; each is pointed under .kos/tmp/cache instead, which it may write.
+ * Where a project's or a blob's command keeps its tools' caches: its home's
+ * own cache folder. HOME is the workspace root, which such a command may not
+ * write, so pip, npm, Go, Cargo and anything that follows XDG would fail to
+ * cache or install for the user; and a cache is code the next run loads, so
+ * none is shared with another home.
  */
-export function cacheEnv(workspaceRoot: string): Record<string, string> {
-  const cache = join(workspaceRoot, ".kos", "tmp", "cache");
+export function cacheEnv(cache: string): Record<string, string> {
   return {
     XDG_CACHE_HOME: cache,
     npm_config_cache: join(cache, "npm"),
@@ -104,14 +104,15 @@ export function cacheEnv(workspaceRoot: string): Record<string, string> {
 
 export function runShell(
   command: string,
-  opts: { workspaceRoot: string; cwd: string; timeoutMs: number; maxOutput: number; signal?: AbortSignal; writes?: string[]; hidden?: string[] },
+  opts: { workspaceRoot: string; cwd: string; timeoutMs: number; maxOutput: number; signal?: AbortSignal; writes?: string[]; hidden?: string[]; dirs?: { tmp: string; cache: string } },
 ): Promise<ShellResult> {
-  const tmp = join(opts.workspaceRoot, ".kos", "tmp");
-  mkdirSync(tmp, { recursive: true });
+  // A home's own temp and caches, or the workspace's shared temp at the root.
+  const tmp = opts.dirs?.tmp ?? join(opts.workspaceRoot, ".kos", "tmp");
+  for (const dir of [tmp, ...(opts.dirs ? [opts.dirs.cache] : [])]) mkdirSync(dir, { recursive: true });
   const readOnly = UNWRITTEN.map((name) => join(opts.workspaceRoot, name));
   return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot, readOnly, ...(opts.writes ? { writes: opts.writes } : {}), ...(opts.hidden ? { hidden: opts.hidden } : {}) }), {
     cwd: opts.cwd,
-    env: childEnv({ home: opts.workspaceRoot, tmp }, opts.writes ? cacheEnv(opts.workspaceRoot) : {}),
+    env: childEnv({ home: opts.workspaceRoot, tmp }, opts.dirs ? cacheEnv(opts.dirs.cache) : {}),
     timeoutMs: opts.timeoutMs,
     maxOutput: opts.maxOutput,
     ...stopOf(opts.signal),
@@ -162,12 +163,15 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           if (asked === undefined) mkdirSync(cwd, { recursive: true });
           const seconds = typeof input["timeout"] === "number" && input["timeout"] > 0 ? Math.min(input["timeout"], 3600) : timeoutSeconds;
           // A project's or a blob's command writes in its own folders unless the owner allowed the whole workspace by name.
-          const writes = wide(input) ? undefined : writeScope(ws, ctx);
+          const narrowed = writeScope(ws, ctx);
+          const writes = wide(input) ? undefined : narrowed;
+          // A project's or a blob's own temp and caches, even when it may write the whole workspace.
+          const dirs = narrowed ? homeDirs(ws, ctx) : undefined;
           for (const dir of writes ?? []) mkdirSync(dir, { recursive: true });
           // The database is unreadable to every command but Maintenance's own, whatever spelling or glob names it.
           const repairs = ctx.services?.callerProject?.() === MAINTENANCE.slug && guestOrigin() === undefined;
           const hidden = repairs ? undefined : DATABASE_FILES.map((name) => join(ws.root, name));
-          const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput: maxOutput, ...stopOf(turnStop.getStore()), ...(writes ? { writes } : {}), ...(hidden ? { hidden } : {}) });
+          const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput: maxOutput, ...stopOf(turnStop.getStore()), ...(writes ? { writes } : {}), ...(hidden ? { hidden } : {}), ...(dirs ? { dirs } : {}) });
           return JSON.stringify(result);
         },
         // Risky by floor, as the spec says; a line that provably only reads

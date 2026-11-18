@@ -182,6 +182,10 @@ describe("remembered decisions from a turn's home", () => {
     rules.add({ tool: "files.rm", scope: "dir:drafts", project: "school" });
     rules.add({ tool: "export.query", scope: null, project: "school" });
     expect(rules.allows("files.rm", { path: "workspace:drafts/a.md" }, "school", school)).toBe(false);
+    // However the folder is spelled.
+    rules.add({ tool: "files.write", scope: "dir:projects/other", project: "school" });
+    expect(rules.allows("files.write", { path: "workspace:project\u017f/other/a.md" }, "school", school)).toBe(false);
+    expect(rules.ruleFor("files.write", { path: "Projects/Other/a.md" }, "school", school)).toBeUndefined();
     expect(rules.allows("export.query", { path: "workspace:out.csv" }, "school", { ...school, reached: true })).toBe(false);
     expect(rules.allows("export.query", { path: "out.csv" }, "school", school)).toBe(true);
     expect(rules.ruleFor("files.write", { path: "projects/resume/cv.md" }, "school", school)).toBeUndefined();

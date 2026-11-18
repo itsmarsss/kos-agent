@@ -1,8 +1,9 @@
-import { placePath, type FileHome } from "@kos/shared";
+import { foldName, placePath, type FileHome } from "@kos/shared";
 
 import type { Db } from "../store/db.js";
 import { hostOf, isSqlWrite, programOf, writtenTables } from "../risk/rules.js";
 import { parseMentions } from "../kernel/mentions.js";
+import { placeOnDisk } from "../tools/home.js";
 import { parseTarget } from "../tools/notify.js";
 
 /**
@@ -94,16 +95,17 @@ function filePaths(input: Record<string, unknown>): string[] {
   return ["path", "from", "to"].map((k) => input[k]).filter((v): v is string => typeof v === "string");
 }
 
-/** A file tool's path, as it lands from the turn's home. */
+/** A file tool's path, as it lands from the turn's home and as the disk names it. */
 function placed(path: string, context?: PermissionContext): string {
-  return context?.home ? placePath(context.home, path, context.root).path : path;
+  if (!context?.home) return path;
+  return context.root ? placeOnDisk(context.root, context.home, path).path : foldName(placePath(context.home, path).path);
 }
 
 /** True when the call reaches past the turn's own folder: said by its reach rule, or a file path landing outside. */
 function reaches(tool: string, input: Record<string, unknown>, context?: PermissionContext): boolean {
   if (context?.reached) return true;
   const home = context?.home;
-  return home !== undefined && tool.startsWith("files.") && filePaths(input).some((p) => placePath(home, p, context?.root).outside);
+  return home !== undefined && tool.startsWith("files.") && filePaths(input).some((p) => (context?.root ? placeOnDisk(context.root, home, p) : placePath(home, p)).outside);
 }
 
 function browserTool(tool: string, context?: PermissionContext): boolean {

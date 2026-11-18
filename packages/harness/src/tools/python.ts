@@ -12,7 +12,7 @@ import { requireServices } from "../modules/loader.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv, findProgram } from "../sandbox/env.js";
 import { isContained, jailedProgram } from "../sandbox/jail.js";
-import { placeFor } from "./home.js";
+import { homeDirs, placeFor } from "./home.js";
 
 /**
  * python.run: a short Python program, run for its answer.
@@ -139,7 +139,8 @@ export function createPythonModule(options: PythonModuleOptions = {}): KosModule
             typeof input["timeout"] === "number" && input["timeout"] > 0 ? Math.min(input["timeout"], PYTHON_MAX_TIMEOUT_SECONDS) : timeoutSeconds;
           const id = runId();
           const tmp = join(ws.root, ".kos", "tmp", `python-${id}`);
-          const cache = join(ws.root, ".kos", "cache", "python");
+          // The home's own cache: matplotlib's and anything XDG keeps are loaded by the next run, so never another home's.
+          const cache = join(homeDirs(ws, ctx).cache, "python");
           const outRel = `scratch/python/${id}`;
           const out = ws.resolve(outRel);
           const env = childEnv({ home: ws.root, tmp });
