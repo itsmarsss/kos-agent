@@ -1,17 +1,29 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 
 import { api } from "./api.js";
-import { FileIcon } from "./FileIcon.js";
+import { FileIcon, previewable } from "./FileIcon.js";
+
+/** Documents the server may draw a thumbnail of (on a Mac, QuickLook; anywhere, an iWork file's own preview). */
+const DRAWN = /\.(pdf|docx|doc|rtf|odt|pages|xlsx|xls|ods|numbers|pptx|ppt|odp|key|mov|mp4|m4v|heic|heif|tiff?|psd)$/i;
+/** Thumbnails the server could not draw this session, so a folder is not asked twice. */
+const UNDRAWN = new Set<string>();
+
+/** Whether a file has a picture of itself to show: an image's own bytes, or a document the server may draw. */
+export function hasThumb(name: string): boolean {
+  return previewable(name) || DRAWN.test(name);
+}
 
 /**
- * An image drawn from its own bytes, fetched only once it is near the screen.
+ * An image drawn from its own bytes, or a document as the server draws it,
+ * fetched only once it is near the screen; the kind's mark until then, and
+ * for anything that has no picture.
  *
  * A folder of a few hundred photographs should cost a few hundred kilobytes to
  * look at, not all of them at once, so the fetch waits for the tile to come
  * into view. The object URL is revoked on the way out; without that, scrolling
  * a large folder leaks every image it drew.
  */
-export function Thumb({ path, name }: { path: string; name: string }): ReactElement {
+export function Thumb({ path, name, edge = 256, iconSize = 30, version }: { path: string; name: string; edge?: number; iconSize?: number; version?: number }): ReactElement {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -31,12 +43,17 @@ export function Thumb({ path, name }: { path: string; name: string }): ReactElem
   }, [near]);
 
   useEffect(() => {
-    if (!near) return;
+    if (!near || !hasThumb(name) || UNDRAWN.has(path)) return;
     let revoked: string | null = null;
     let cancelled = false;
-    void api
-      .imageUrl(path)
+    const fetched = previewable(name) ? api.imageUrl(path) : api.thumbUrl(path, edge);
+    void fetched
       .then((u) => {
+        if (u === null) {
+          UNDRAWN.add(path);
+          if (!cancelled) setFailed(true);
+          return;
+        }
         if (cancelled) {
           URL.revokeObjectURL(u);
           return;
@@ -51,14 +68,14 @@ export function Thumb({ path, name }: { path: string; name: string }): ReactElem
       cancelled = true;
       if (revoked) URL.revokeObjectURL(revoked);
     };
-  }, [near, path]);
+  }, [near, path, name, edge, version]);
 
   return (
-    <div className="files-thumb" ref={box}>
+    <div className={`files-thumb${url && !failed ? " has-picture" : ""}${url && !previewable(name) ? " is-document" : ""}`} ref={box}>
       {url && !failed ? (
-        <img src={url} alt={name} loading="lazy" />
+        <img src={url} alt={name} loading="lazy" draggable={false} />
       ) : (
-        <FileIcon name={name} kind="file" size={30} />
+        <FileIcon name={name} kind="file" size={iconSize} />
       )}
     </div>
   );
