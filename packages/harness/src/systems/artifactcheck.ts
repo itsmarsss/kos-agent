@@ -230,6 +230,10 @@ export const JOB_MS = 120_000;
 /** The Chrome goes once nothing has been checked for this long. */
 const IDLE_MS = 90_000;
 const PROFILE_PREFIX = "kos-check-";
+/** Why a start was given up: the checker was closed while its Chrome came up. */
+const CLOSED = "the check's Chrome was closed as it started";
+/** A throwaway profile deleted, retried while Chrome's last writes settle; never an error. */
+const removeProfile = (profile: string): Promise<void> => rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }).catch(() => undefined);
 
 const freePort = (): Promise<number> =>
   new Promise((ok, fail) => {
@@ -345,7 +349,7 @@ export class ArtifactChecker {
     this.chrome = undefined;
     this.profile = undefined;
     await chrome?.stop();
-    if (profile) await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }).catch(() => undefined);
+    if (profile) await removeProfile(profile);
   }
 
   private async browser(): Promise<CdpClient> {
@@ -356,27 +360,41 @@ export class ArtifactChecker {
     this.idle.unref?.();
     if (this.cdp?.open) return this.cdp;
     const tmp = this.options.tmp ?? tmpdir();
-    this.profile = mkdtempSync(join(tmp, PROFILE_PREFIX));
+    const profile = mkdtempSync(join(tmp, PROFILE_PREFIX));
+    this.profile = profile;
     const binary = this.options.chrome?.();
-    let cdp: CdpClient;
+    // close() may run while this waits (the idle timer, a job's ceiling): what it could not see is then this start's to undo.
+    const closed = (): boolean => this.profile !== profile;
+    let chrome: ChromeHost | undefined;
+    let cdp: CdpClient | undefined;
     try {
       // Sealed: it draws what KOS did not write, so it reaches nothing but the port KOS serves its documents on.
       const loopback = await this.servePort();
-      this.chrome = new ChromeHost({
-        port: await freePort(),
-        profileDir: this.profile,
+      const port = await freePort();
+      if (closed()) throw new Error(CLOSED);
+      chrome = this.chrome = new ChromeHost({
+        port,
+        profileDir: profile,
         ...(this.options.exists ? { exists: this.options.exists } : {}),
         launch: () => ({ ...(binary ? { binary } : {}), windowSize: { width: 1280, height: 800 }, sealed: { loopback: [loopback] } }),
       });
-      const url = await this.chrome.ensure();
+      const url = await chrome.ensure();
+      if (closed()) throw new Error(CLOSED);
       const client = (cdp = new CdpClient((u) => new WebSocket(u) as unknown as CdpSocket));
       await client.dial(url, () => {
         if (this.cdp === client) this.cdp = undefined;
       });
+      if (closed()) throw new Error(CLOSED);
       this.cdp = client;
     } catch (err) {
-      // No Chrome, or one that never answered: its profile goes now, not at the next job.
-      await this.dispose();
+      if (closed()) {
+        cdp?.close();
+        await chrome?.stop();
+        await removeProfile(profile);
+      } else {
+        // No Chrome, or one that never answered: its profile goes now, not at the next job.
+        await this.dispose();
+      }
       throw err;
     }
     // What hosts that stopped before their Chrome left behind, once one of these is known to start.

@@ -1,3 +1,6 @@
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
@@ -135,6 +138,21 @@ describe("the check's queue", () => {
     expect(order).toEqual(["g1", "mine"]);
     expect(await Promise.all(gallery)).toEqual([report([]), report([]), "broken"]);
     expect(order).toEqual(["g1", "mine", "g2", "g3"]);
+  });
+
+  it("gives up a start the checker was closed during, and deletes the profile it made", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "check-closed-"));
+    try {
+      const checker = new ArtifactChecker({ load: () => undefined, call: () => Promise.resolve(undefined), captures: () => "", exists: () => false, tmp });
+      const job = checker.withBrowser(async () => "drawn");
+      // The start has made its profile and is waiting on its loopback port.
+      expect(readdirSync(tmp)).toHaveLength(1);
+      checker.close();
+      await expect(job).rejects.toThrow(/closed as it started/);
+      expect(readdirSync(tmp)).toEqual([]);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 
