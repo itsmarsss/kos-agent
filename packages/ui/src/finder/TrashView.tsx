@@ -4,6 +4,7 @@ import { api, type TrashedFile } from "../api.js";
 import { FileIcon } from "../FileIcon.js";
 import { ConfirmButton } from "../kit.js";
 import { Modal } from "../Modal.js";
+import { TRASH_COLUMNS, TRASH_WIDTHS_KEY, useColumns } from "./columns.js";
 import { dateWords, parentOf, sizeWords } from "./model.js";
 
 /**
@@ -15,6 +16,7 @@ export function TrashView({ onChanged, onError, onCount, rootName }: { onChanged
   const [items, setItems] = useState<TrashedFile[] | null>(null);
   useEffect(() => onCount(items?.length ?? 0), [items, onCount]);
   const [asking, setAsking] = useState(false);
+  const cols = useColumns(TRASH_WIDTHS_KEY, TRASH_COLUMNS, "15rem");
   const read = (): void => {
     void api
       .fileTrash()
@@ -40,12 +42,20 @@ export function TrashView({ onChanged, onError, onCount, rootName }: { onChanged
         </button>
       </div>
       {items && items.length > 0 && (
-        <div className="finder-list" role="grid" aria-label="Trash">
-          <div className="finder-list-head finder-list-head--trash" role="row">
-            <span role="columnheader" className="finder-col finder-col--name">Name</span>
-            <span role="columnheader" className="finder-col">Date Trashed</span>
-            <span role="columnheader" className="finder-col finder-col--size">Size</span>
-            <span role="columnheader" className="finder-col" aria-label="Actions" />
+        <div className="finder-list" role="grid" aria-label="Trash" style={cols.style}>
+          <div className="finder-list-head finder-list-head--trash" role="row" ref={cols.headRef}>
+            <div role="columnheader" className="finder-col finder-col--name" data-head="name">
+              <span className="finder-col-label">Name</span>
+            </div>
+            <div role="columnheader" className="finder-col" data-head="trashed">
+              {cols.divider("trashed")}
+              <span className="finder-col-label" data-col="trashed">Date Trashed</span>
+            </div>
+            <div role="columnheader" className="finder-col finder-col--size" data-head="size">
+              {cols.divider("size")}
+              <span className="finder-col-label" data-col="size">Size</span>
+            </div>
+            <div role="columnheader" className="finder-col" aria-label="Actions" />
           </div>
           {items.map((item) => (
             <div key={item.id} role="row" className="finder-row finder-row--trash">
@@ -56,10 +66,10 @@ export function TrashView({ onChanged, onError, onCount, rootName }: { onChanged
                   <span className="finder-where">From {parentOf(item.path) === "." ? rootName : parentOf(item.path)}</span>
                 </span>
               </span>
-              <span role="gridcell" className="finder-col finder-col--modified">
+              <span role="gridcell" className="finder-col finder-col--modified" data-col="trashed">
                 {dateWords(item.trashedAt)}
               </span>
-              <span role="gridcell" className="finder-col finder-col--size">
+              <span role="gridcell" className="finder-col finder-col--size" data-col="size">
                 {item.kind === "file" ? sizeWords(item.size) : "--"}
               </span>
               <span role="gridcell" className="finder-col finder-col--acts">

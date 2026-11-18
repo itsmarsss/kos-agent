@@ -10,6 +10,7 @@ import {
 import type { FaceLook } from "./api.js";
 import { FaceEditor } from "./FaceEditor.js";
 import { ModelSettings } from "./ModelSettings.js";
+import { PageHead } from "./PageHead.js";
 import { FieldRow } from "./kit.js";
 import { useOpenTab } from "./opentab.js";
 import { hrefFor } from "./routes.js";
@@ -265,32 +266,31 @@ function Section({
   extra?: ReactNode;
 }): ReactElement {
   return (
-    <section className="set-card">
-      <header className="set-card-head">
-        <h2>{title}</h2>
-        <p>{blurb}</p>
-      </header>
-      <div className="set-card-body">{children}</div>
-      {onSave && (
-        <footer className="set-card-foot">
-          <button
-            type="button"
-            className="btn btn--primary"
-            disabled={saving || canSave === false}
-            onClick={onSave}
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
-          {extra}
-          {saved && (
-            <span
-              className={`set-saved ${saved === "Not saved yet" ? "is-unsaved" : ""}`}
+    <section className="set-section">
+      <PageHead title={title} subtitle={blurb} />
+      <div className="set-card">
+        <div className="set-card-body">{children}</div>
+        {onSave && (
+          <footer className="set-card-foot">
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={saving || canSave === false}
+              onClick={onSave}
             >
-              {saved}
-            </span>
-          )}
-        </footer>
-      )}
+              {saving ? "Saving…" : "Save"}
+            </button>
+            {extra}
+            {saved && (
+              <span
+                className={`set-saved ${saved === "Not saved yet" ? "is-unsaved" : ""}`}
+              >
+                {saved}
+              </span>
+            )}
+          </footer>
+        )}
+      </div>
     </section>
   );
 }
@@ -952,7 +952,7 @@ export function SettingsPage({
             )}
           >
             <div className="set-group">
-              <h3>Who does the thinking</h3>
+              <h2>Who does the thinking</h2>
               <p className="hint">
                 A turn can go to the model provider, which bills API credits,
                 or through the Claude Agent SDK, which is what builds
@@ -982,7 +982,7 @@ export function SettingsPage({
             </div>
 
             <div className="set-group">
-              <h3>Which model answers</h3>
+              <h2>Which model answers</h2>
               <p className="hint">
                 Applied on the next turn, no restart. Blank keeps the default.
                 Ignored while the Claude Agent SDK is answering, which picks
@@ -1000,7 +1000,7 @@ export function SettingsPage({
             </div>
 
             <div className="set-group">
-              <h3>Builds</h3>
+              <h2>Builds</h2>
               <p className="hint">
                 Which model does the building when KOS hands work to a build.
               </p>
@@ -1047,7 +1047,7 @@ export function SettingsPage({
             )}
           >
             <div className="set-group">
-              <h3>When something fails</h3>
+              <h2>When something fails</h2>
               <p className="hint">
                 A job that fails at 3am tells you either way. This decides
                 whether KOS also tries to do something about it before you wake
@@ -1074,7 +1074,7 @@ export function SettingsPage({
             </div>
 
             <div className="set-group">
-              <h3>How hard it tries</h3>
+              <h2>How hard it tries</h2>
               <p className="hint">
                 A step is one round-trip to the model, roughly one thought and
                 one tool call. Past the limit a turn stops and says it got stuck
@@ -1109,7 +1109,7 @@ export function SettingsPage({
             </div>
 
             <div className="set-group">
-              <h3>Unattended work</h3>
+              <h2>Unattended work</h2>
               <p className="hint">
                 Limits on what KOS may do while nobody is watching: the guards
                 against a loop that runs all night.
@@ -1434,7 +1434,7 @@ export function SettingsPage({
             </div>
             {skills.invalid.length > 0 && (
               <div className="set-group">
-                <h3>Could not be read</h3>
+                <h2>Could not be read</h2>
                 {skills.invalid.map((bad) => (
                   <p key={bad.name} className="hint">
                     <span className="ops-mono">{bad.name}</span>: {bad.reason}
@@ -1497,7 +1497,7 @@ export function SettingsPage({
           <Section title="Modules" blurb="Each one is a folder under modules/ with a module.json. A server module runs tools, and off is the default: nothing runs until you switch it on here. A blueprint is a project template; each instance is a project of its own.">
             {(modules.builtins ?? []).length > 0 && (
               <div className="set-group">
-                <h3>Built in</h3>
+                <h2>Built in</h2>
                 <p className="hint">Features the kernel ships but does not insist on. Off takes their tools away at once; on brings them back.</p>
                 <div className="set-rows">
                 {(modules.builtins ?? []).map((b) => (
@@ -1642,7 +1642,7 @@ export function SettingsPage({
             ))}
             {modules.invalid.length > 0 && (
               <div className="set-group">
-                <h3>Could not be read</h3>
+                <h2>Could not be read</h2>
                 {modules.invalid.map((bad) => (
                   <p key={bad.name} className="hint">
                     <span className="ops-mono">{bad.name}</span>: {bad.reason}
@@ -1704,7 +1704,7 @@ export function SettingsPage({
             {browserDraft && (
               <>
                 <div className="set-group">
-                  <h3>The window</h3>
+                  <h2>The window</h2>
                   <Field group className="set-field"
                     label="Show the window on this machine"
                     hint="Off, Chrome runs unseen and the dashboard's Browser window is the only view. On, Chrome's own windows open here too: that is how you install extensions from the Web Store, and it is where Chrome's own dialogs appear."
@@ -1726,7 +1726,7 @@ export function SettingsPage({
                   </Field>
                 </div>
                 <div className="set-group">
-                  <h3>Extensions</h3>
+                  <h2>Extensions</h2>
                   <p className="hint">
                     Extensions live in KOS's own Chrome profile and stay there. The sure way in is to show the window, open chrome://extensions in a tab of your own, and install from the Web Store or Load unpacked there.
                     The folders below are loaded each time Chrome starts.
@@ -1751,7 +1751,7 @@ export function SettingsPage({
                   )}
                 </div>
                 <div className="set-group">
-                  <h3>Search</h3>
+                  <h2>Search</h2>
                   <Field group className="set-field" label="Where the address bar searches" hint="Words that are not an address go here, with %s standing for them.">
                     <input
                       className="kos-input"

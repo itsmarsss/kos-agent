@@ -4,8 +4,7 @@ import { Chips, Empty, Pill, Switch, Tag } from "@kos/kit";
 
 import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
-import { useEdgeFade } from "./edgefade.js";
-import { PageHead } from "./PageHead.js";
+import { PageHead, PageTabs, tabId } from "./PageHead.js";
 import { hrefFor } from "./routes.js";
 
 /**
@@ -53,7 +52,6 @@ export function MemoryPage({
     if (/[?&]ids=/.test(window.location.hash)) history.replaceState(null, "", `${hrefFor({ name: "memory" })}?tab=${next}`);
     setTab(next);
   };
-  const tabsRef = useEdgeFade<HTMLDivElement>();
   /** The new-claim form, opened from the page head. */
   const [adding, setAdding] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
@@ -74,35 +72,25 @@ export function MemoryPage({
               ),
             }
           : {})}
+        tabs={
+          <PageTabs
+            label="Memory"
+            current={tab}
+            controls="mem-panel"
+            onChoose={(id) => choose(id as Tab)}
+            tabs={TABS.map((t) => ({
+              id: t.id,
+              label: (
+                <>
+                  {t.label}
+                  {t.id === "decisions" && pendingCount > 0 && <Pill tone="warn">{pendingCount}</Pill>}
+                </>
+              ),
+            }))}
+          />
+        }
       />
-      <div className="mem-tabs" role="tablist" aria-label="Memory" ref={tabsRef} onKeyDown={(e) => {
-        // The arrows move between tabs, Home and End to the ends; Tab goes on to what the tab shows.
-        const at = TABS.findIndex((t) => t.id === tab);
-        const to = e.key === "ArrowRight" ? at + 1 : e.key === "ArrowLeft" ? at - 1 : e.key === "Home" ? 0 : e.key === "End" ? TABS.length - 1 : null;
-        if (to === null) return;
-        e.preventDefault();
-        const next = TABS[(to + TABS.length) % TABS.length]!;
-        choose(next.id);
-        e.currentTarget.querySelector<HTMLElement>(`#mem-tab-${next.id}`)?.focus();
-      }}>
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            id={`mem-tab-${t.id}`}
-            type="button"
-            role="tab"
-            className="mem-tab"
-            aria-selected={t.id === tab}
-            aria-controls="mem-panel"
-            tabIndex={t.id === tab ? 0 : -1}
-            onClick={() => choose(t.id)}
-          >
-            {t.label}
-            {t.id === "decisions" && pendingCount > 0 && <Pill tone="warn">{pendingCount}</Pill>}
-          </button>
-        ))}
-      </div>
-      <div id="mem-panel" role="tabpanel" aria-labelledby={`mem-tab-${tab}`} className="mem-panel">
+      <div id="mem-panel" role="tabpanel" aria-labelledby={tabId("Memory", tab)} className="mem-panel">
       {tab === "claims" && <KnowledgePage facts={facts} tags={tags} adding={adding} onAdding={setAdding} {...(projectNames ? { projectNames } : {})} onChanged={onChanged} />}
       {tab === "decisions" && <DecisionsTab onChanged={onChanged} />}
       {tab === "pages" && <PagesTab />}

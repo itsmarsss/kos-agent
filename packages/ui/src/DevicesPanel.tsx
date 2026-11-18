@@ -28,7 +28,7 @@ function SessionRules({ settings, onChange }: { settings: ComputerSettings; onCh
   const options = [...new Set([...ASK_MINUTES, settings.askMinutes])].sort((a, b) => a - b);
   return (
     <div className="set-group device-rules">
-      <h3>Sessions</h3>
+      <h2>Sessions</h2>
       <Field group className="set-field" label="KOS asks for" hint="How long a session KOS asks for when the chat does not say. Each computer can allow less: its own longest session wins.">
         <Select
           label="KOS asks for"
@@ -51,7 +51,7 @@ function SessionRules({ settings, onChange }: { settings: ComputerSettings; onCh
 function UpdateRules({ settings, onChange }: { settings: ComputerSettings; onChange: (patch: Partial<ComputerSettings>) => void }): ReactElement {
   return (
     <div className="set-group device-rules">
-      <h3>Updates</h3>
+      <h2>Updates</h2>
       <Field group className="set-field"
         label="Update devices on their own"
         hint="KOS for Chrome reloads itself into KOS's new build once its side panel is idle. KOS for Mac on this computer is rebuilt and reopened once it is idle, and only when your signing key is set up, so it keeps its permissions. KOS for iPhone updates from Xcode; it says when one is ready."
@@ -75,7 +75,7 @@ function PhoneRules({ settings, lan, onChange }: { settings: ComputerSettings; l
   const where = lan?.on ? `${lan.urls.join(", ") || `port ${lan.port}, but this computer has no address on a home network`}. Your iPhone checks KOS shows ${lan.words}.` : undefined;
   return (
     <div className="set-group device-rules">
-      <h3>Phones</h3>
+      <h2>Phones</h2>
       <Field group className="set-field"
         label="Phones on this Wi-Fi"
         hint={

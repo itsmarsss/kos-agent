@@ -1466,18 +1466,31 @@ select {
 .know,
 .builds,
 .artifacts {
+  --stack: 0.55rem;
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
+  gap: var(--stack);
   min-width: 0;
 }
 
+/* The page head (PageHead.tsx): titles at the left, tools at the right on
+   one control height, the page's tabs under it. */
 .list-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+  /* The room under the head is the head's, one rem on every page: a page
+     that stacks its parts with a gap of its own names it as --stack. */
+  margin-bottom: calc(1rem - var(--stack));
+}
+.list-head-row {
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;
   flex-wrap: wrap;
   align-items: flex-start;
+  min-width: 0;
 }
 
 .list-title {
@@ -1502,6 +1515,51 @@ select {
   gap: 0.4rem;
   align-items: center;
 }
+/* One height for everything in the row: the search, a menu, a button. */
+.list-head-tools > :is(.btn, .list-search, input),
+.list-head-tools > :is(.sel, .confirm-wrap) > :is(.sel-button, .btn) { height: var(--control-h); }
+.list-head-tools > .btn, .list-head-tools > .confirm-wrap > .btn { display: inline-flex; align-items: center; gap: 0.35rem; }
+@media (max-width: 860px) {
+  /* A phone: the tools on a row of their own, the search taking what the
+     buttons leave, the primary last at the right, on every page alike. */
+  .list-head-tools { flex: 1 1 100%; justify-content: flex-end; }
+  .list-head-tools > .list-search { flex: 1 1 10rem; min-width: 0; }
+}
+
+/* The bar under a head (a list's filters, Artifacts' kinds and menus,
+   Memory's search and tags): every control in it one small height, where
+   chips, menus and buttons had sat at 26, 30 and 32px in one row. */
+:is(.list-filters, .artifacts-bar, .know-bar) :is(.chips button, .sel-button, .btn, .know-search) { height: var(--control-h-sm); box-sizing: border-box; }
+:is(.list-filters, .artifacts-bar, .know-bar) .btn { display: inline-flex; align-items: center; gap: 0.35rem; }
+
+/* A page's tabs (PageTabs): a line under the head, the open one underlined
+   in the accent. Chips are for filtering a list; these change the page.
+   Memory's tablist and Runs' links are the one row. */
+.page-tabs { display: flex; gap: 0.25rem; min-width: 0; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--line); }
+.page-tabs::-webkit-scrollbar { display: none; }
+.page-tab {
+  appearance: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: -1px;
+  padding: 0.5rem 0.7rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 140ms ease-out, border-color 140ms ease-out;
+}
+.page-tab:hover { color: var(--text); }
+.page-tab:is([aria-selected="true"], [aria-current="page"]) { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+.page-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-sm); }
 
 .list-search {
   border: 1px solid var(--line);
@@ -1598,18 +1656,31 @@ select {
   --r-sm: 7px;
   --r-md: 10px;
   --r-lg: 14px;
+  /* The page frame (frameOf in routes.ts): the gutter every list and reading
+     page keeps at both sides, the room over its head, and the reading
+     column's width. A control in a page head is one height. */
+  --page-gutter: 1.5rem;
+  --page-top: 1.25rem;
+  --page-reading: 62rem;
+  --control-h: 2.25rem;
+  /* A control in the bar under a head (filters, menus, a small button). */
+  --control-h-sm: 1.875rem;
 }
 
-/* Beside a sidebar the page reads from the left edge; centring it left a
-   gutter the chat list floated in. */
-/* The frame a page reads in: a reading width and the page gutter. On the
-   page rather than on the main element, so a page fading out keeps its own
-   frame while the next one arrives in its. */
+/* The frame a page sits in, one of three by what the page is (frameOf in
+   routes.ts). On the page rather than on the main element, so a page fading
+   out keeps its own frame while the next one arrives in its. A list page
+   takes the whole width inside the gutter, as the chats and the files do;
+   a reading page is a centred column; a full page is edge to edge (below).
+   Each page used to pick: most a left-aligned 1200px column with a dead
+   strip at its right, the chats and files the whole window. */
 .ops-page {
+  --stack: 0px;
   width: 100%;
-  max-width: 1200px;
-  padding: 1.25rem 1.5rem 4rem;
+  margin-inline: auto;
+  padding: var(--page-top) var(--page-gutter) 4rem;
 }
+.ops-page--reading { max-width: calc(var(--page-reading) + 2 * var(--page-gutter)); }
 
 /* Exactly the viewport, so nothing behind the chat can scroll. The pane takes
    whatever is left after the top bar rather than guessing at its height. */
@@ -3434,16 +3505,7 @@ li:hover .chats-item-when { opacity: 0; }
    The list pages' head, then cards of one shape: the mark and name, what it
    is for in two lines, then a foot of what it holds and when it last moved,
    pinned to the bottom so a row of cards lines up whatever each says. */
-.projects-page { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-/* The Blobs page's head, until it takes the list pages' one (PageHead). */
-.projects-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1.25rem;
-}
-.projects-head h1 { margin: 0; font-size: var(--text-2xl); letter-spacing: -0.02em; }
+.projects-page { --stack: 14px; display: flex; flex-direction: column; gap: var(--stack); min-width: 0; }
 .projects-group { display: flex; flex-direction: column; gap: 10px; }
 .projects-group + .projects-group { margin-top: 10px; }
 .projects-group-head { display: flex; align-items: center; gap: 0.4rem; }
@@ -3480,17 +3542,12 @@ li:hover .chats-item-when { opacity: 0; }
 .project-card-holds { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-card-time { flex: none; white-space: nowrap; }
 .project-card-details { flex: none; margin-right: -6px; }
-@media (max-width: 560px) {
-  .projects-page .list-head-tools { width: 100%; }
-  .projects-page .list-search { flex: 1 1 100%; min-width: 0; }
-  .projects-page .list-head-tools .btn--primary { margin-left: auto; }
-}
 
 /* —— knowledge: the Memory page's claims —— */
 /* A filter row on one line, then a label and one box of rows per scope.
    A row is the claim's words on one line and a quiet line under them; its
    actions show under the pointer or the focus, and always on a touch screen. */
-.know { gap: 1.25rem; }
+.know { --stack: 1.25rem; gap: var(--stack); }
 .know-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.6rem; min-width: 0; }
 .know-search {
   display: flex;
@@ -3821,7 +3878,7 @@ li:hover .chats-item-when { opacity: 0; }
   grid-template-columns: 15rem minmax(0, 1fr);
   gap: 1.5rem;
   align-items: start;
-  max-width: 62rem;
+  max-width: var(--page-reading);
 }
 @media (max-width: 52rem) {
   .settings-page { grid-template-columns: minmax(0, 1fr); }
@@ -3927,9 +3984,8 @@ li:hover .chats-item-when { opacity: 0; }
   border-radius: var(--r-lg);
   overflow: hidden;
 }
-.set-card-head { padding: 1rem 1.15rem 0.85rem; border-bottom: 1px solid var(--line); }
-.set-card-head h2 { margin: 0 0 0.2rem; font-size: var(--text-xl); }
-.set-card-head p { margin: 0; color: var(--muted); font-size: var(--text-base); max-width: 46rem; }
+/* A section is a page: the page head over its card. */
+.set-section { --stack: 1rem; display: flex; flex-direction: column; gap: var(--stack); min-width: 0; }
 .set-card-body { padding: 1.15rem; display: flex; flex-direction: column; gap: 1.1rem; }
 .set-card-foot {
   display: flex;
@@ -4158,8 +4214,6 @@ li:hover .chats-item-when { opacity: 0; }
 .agent-event--text { color: var(--text); }
 
 /* Home: panels the owner arranges. */
-.home-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
-.home-bar h1 { margin: 0; font-size: var(--text-2xl); letter-spacing: -0.02em; }
 .home-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -4207,7 +4261,6 @@ li:hover .chats-item-when { opacity: 0; }
 .home-add-item:disabled { opacity: 0.4; cursor: default; }
 .home-add-name { font-size: var(--text-md); }
 .home-add-blurb { color: var(--faint); font-size: var(--text-sm); }
-.home-bar-hint { margin-left: auto; margin-right: 0.75rem; color: var(--muted); font-size: var(--text-sm); }
 .panel-stat--lead { color: var(--accent); }
 .panel-stat--link {
   display: block;
@@ -4317,7 +4370,7 @@ li:hover .chats-item-when { opacity: 0; }
    to be open at once, which was a wall rather than a page. */
 .ext-add-area { margin-top: 0.5rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 .ext-add-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.7rem; }
-.ext-add-head h3 { margin: 0; }
+.ext-add-head h2 { margin: 0; }
 .ext-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 0.7rem; }
 .ext-source {
   padding: 0.3rem 0.7rem;
@@ -4988,6 +5041,9 @@ a.health {
 .hist-took {
   font-variant-numeric: tabular-nums;
 }
+/* One line, so a run's row is a tool's height where the column is narrow (a
+   phone): wrapped, the time and its duration made the row half again taller. */
+.hist-when { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .ops-table--fixed {
   table-layout: fixed;
@@ -5152,7 +5208,7 @@ a.health {
   padding-top: 1.3rem;
   border-top: 1px solid var(--line);
 }
-.set-group h3 {
+.set-group :is(h2, h3) {
   margin: 0;
   font-size: var(--text-lg);
 }
@@ -5379,7 +5435,7 @@ a.health {
    inside a settings card would space them twice over. */
 .cron-editor .set-group { display: flex; flex-direction: column; gap: 0.8rem; }
 .cron-editor .set-group + .set-group { margin-top: 0; padding-top: 1.1rem; }
-.cron-editor .set-group h3 { margin-bottom: -0.35rem; }
+.cron-editor .set-group :is(h2, h3) { margin-bottom: -0.35rem; }
 .cron-editor .set-group > .hint { margin: 0; }
 
 /* What an existing job is doing, and what can be done to it, above the form
@@ -5439,33 +5495,7 @@ a.health {
 .know-page { white-space: pre-wrap; font-size: 0.85rem; max-height: 24rem; overflow: auto; }
 
 /* Memory: one page, six tabs. */
-.mem { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
-/* Tabs, not chips: a line under the page head, the open one underlined in
-   the accent. Chips are for filtering a list; these change the page. */
-.mem-tabs { display: flex; gap: 0.25rem; min-width: 0; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--line); }
-.mem-tabs::-webkit-scrollbar { display: none; }
-.mem-tab {
-  appearance: none;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-bottom: -1px;
-  padding: 0.5rem 0.7rem;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: var(--text-md);
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: color 140ms ease-out, border-color 140ms ease-out;
-}
-.mem-tab:hover { color: var(--text); }
-.mem-tab[aria-selected="true"] { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
-.mem-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-sm); }
+.mem { --stack: 1rem; display: flex; flex-direction: column; gap: var(--stack); min-width: 0; }
 /* A row that scrolls sideways fades at the edge with more past it (useEdgeFade sets data-more),
    so the tabs or chips off screen say they are there. */
 [data-more="end"] { mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent); }
@@ -5476,7 +5506,7 @@ a.health {
 [data-more-y="start"] { mask-image: linear-gradient(to top, #000 calc(100% - 1.5rem), transparent); }
 [data-more-y="start end"] { mask-image: linear-gradient(to bottom, transparent, #000 1.5rem, #000 calc(100% - 1.5rem), transparent); }
 .mem-panel { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
-@media (prefers-reduced-motion: reduce) { .mem-tab { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .page-tab { transition: none; } }
 .mem-group { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.75rem; }
 .mem-group-head h2 { margin: 0; font-size: var(--text-lg); }
 .mem-group-head .hint { margin: 0.25rem 0 0; }
@@ -5743,8 +5773,9 @@ a.health {
      its longest unbreakable line, and one long command or claim widened
      every page past the phone. */
   .app { grid-template-columns: minmax(0, 1fr); }
-  .ops-page { padding: 0.75rem 1rem 2rem; }
-  .ops-page--full { height: calc(100dvh - 3.25rem); padding-top: 0.5rem; }
+  :root { --page-gutter: 1rem; --page-top: 0.75rem; }
+  .ops-page { padding-bottom: 2rem; }
+  .ops-page--full { height: calc(100dvh - 3.25rem); padding-top: 0.5rem; padding-inline: var(--page-gutter); }
   /* The page fills what the phone bar leaves, no more: at 100vh under the bar's
      3.25rem the document scrolled by the bar's height, and a full page's head
      slid under it. */
@@ -5815,7 +5846,7 @@ a.health {
 /* What waits leads, each group a label over one box of rows; what was
    decided comes last and quiet, a few lines and more a press away. Every
    piece keeps min-width 0, or one long command widened the page on a phone. */
-.inbox { display: flex; flex-direction: column; gap: 1.5rem; min-width: 0; }
+.inbox { --stack: 1.5rem; display: flex; flex-direction: column; gap: var(--stack); min-width: 0; }
 .inbox-group { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
 .inbox-group > .hint { margin: 0; max-width: 72ch; }
 .inbox-group-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 0.75rem; min-width: 0; }
@@ -5895,17 +5926,6 @@ a.health {
 }
 
 /* —— runs: three pages, one strip —— */
-.runs { display: flex; flex-direction: column; gap: 0.75rem; }
-.runs-tabs { display: flex; gap: 0.15rem; }
-.runs-tab {
-  padding: 0.32rem 0.8rem;
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: var(--text-md);
-  text-decoration: none;
-}
-.runs-tab:hover { color: var(--text); background: var(--panel); }
-.runs-tab.is-active { color: var(--text); background: var(--panel-2); }
 
 /* —— chats: the front door —— */
 .chats-welcome {
@@ -5983,11 +6003,6 @@ a.health {
      scrolls sideways instead, under a thumb. */
   .list-table { overflow-x: auto; }
   .list-table table { min-width: 38rem; }
-  /* Tab strips scroll rather than wrap. */
-  .runs-tabs { flex-wrap: nowrap; }
-  .runs-tabs { overflow-x: auto; scrollbar-width: none; }
-  .runs-tabs::-webkit-scrollbar { display: none; }
-  .runs-tab { white-space: nowrap; flex: none; }
 }
 /* Settings on a phone: the rail is a strip across the top, not a column the
    card hides under. */
@@ -6839,7 +6854,10 @@ a.health {
 .agents-brief { font-family: var(--mono); font-size: var(--text-sm); line-height: 1.5; resize: vertical; }
 .agents-actions { flex-wrap: wrap; }
 @media (max-width: 720px) { .agents-split { grid-template-columns: 1fr; } }
-.agents-list--index { max-width: none; }
+/* The blobs as the projects are: a grid of cards, one height to a row. */
+.agents-list--index { max-width: none; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); }
+.agents-list--index > li { display: flex; min-width: 0; }
+.agents-list--index .agents-row { flex: 1; min-width: 0; }
 .agents-row-upto { color: var(--text); font-size: var(--text-sm); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agents-row-upto.is-working { color: var(--accent); }
 .agents-row-upto.is-needs-you { color: var(--warn, #f5a524); }
@@ -7312,7 +7330,7 @@ html.has-presenter { overflow: hidden; }
    row does: lighter, its line stronger, never a shadow. */
 .list-title .count { margin-left: 0.5rem; vertical-align: 0.3em; font-size: var(--text-sm); }
 .artifacts-new { display: inline-flex; align-items: center; gap: 0.35rem; }
-.artifacts { gap: 14px; }
+.artifacts { --stack: 14px; gap: var(--stack); }
 .artifacts-bar { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; min-width: 0; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 .artifacts-bar > .chips { flex: 1 1 auto; }
 .artifacts-bar-end { display: flex; align-items: center; gap: 6px; margin-left: auto; }
@@ -7564,13 +7582,11 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .trash-row-text .artifact-card-meta { margin-top: 0; padding-top: 0; }
 .trash-row-acts { flex: none; display: flex; align-items: center; gap: 6px; }
 .trash-row-acts .trash-delete { color: var(--danger); }
-/* Empty trash: the danger's words with no fill until the pointer is on it, beside the head's quiet Back. */
+/* Empty trash: the danger's words with no fill until the pointer is on it, beside the head's Back. */
 .btn--danger.artifacts-empty-trash { background: transparent; border-color: transparent; }
 .btn--danger.artifacts-empty-trash:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 10%, transparent); border-color: color-mix(in srgb, var(--danger) 25%, transparent); }
 
 @media (max-width: 560px) {
-  .artifacts .list-head-tools { width: 100%; }
-  .artifacts .list-search { flex: 1; min-width: 0; }
   .artifacts-bar { flex-direction: column; align-items: stretch; gap: 8px; }
   .artifacts-bar > .chips { flex: none; }
   .artifacts-bar-end { margin-left: 0; }
@@ -7585,8 +7601,6 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
   .artifact-card-meta { margin-top: 0; padding-top: 0; }
   .artifact-card-menu { top: 50%; right: 8px; transform: translateY(-50%); opacity: 1; }
   .artifact-card-menu .artifact-view-more { width: 24px; height: 24px; }
-  .artifacts.is-trash .list-search { flex: 1 1 100%; }
-  .artifacts.is-trash .list-head-tools .confirm-wrap { margin-left: auto; }
   .trash-row { flex-wrap: wrap; gap: 6px; padding: 8px; }
   .trash-row-open { flex-basis: 100%; }
   .trash-row-acts { width: 100%; justify-content: flex-end; }
@@ -7670,7 +7684,6 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 .finder {
   container: finder / inline-size;
   --finder-row: 1.75rem;
-  --finder-cols: minmax(11rem, 1fr) 11.5rem 5.5rem 9.5rem;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -7780,23 +7793,61 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
+/* A column's head: its label (the sort button, or plain words in the
+   trash), and for each column after Name the divider at its left edge
+   (finder/columns.tsx), so the keys go column by column. */
 .finder-list-head .finder-col {
   all: unset;
   box-sizing: border-box;
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+.finder-list-head .finder-col + .finder-col { box-shadow: inset 1px 0 0 var(--line); }
+.finder-col-label {
+  all: unset;
+  box-sizing: border-box;
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 0.35rem;
   min-width: 0;
   padding: 0 0.6rem;
+  overflow: hidden;
+  white-space: nowrap;
   color: var(--muted);
   font-size: var(--text-sm);
   font-weight: 500;
-  cursor: pointer;
 }
-.finder-list-head .finder-col + .finder-col { box-shadow: inset 1px 0 0 var(--line); }
-.finder-list-head .finder-col:hover { color: var(--text); }
-.finder-list-head .finder-col:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-xs); }
-.finder-list-head .finder-col--size { justify-content: flex-end; }
+button.finder-col-label { cursor: pointer; }
+button.finder-col-label:hover { color: var(--text); }
+button.finder-col-label:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-xs); }
+.finder-list-head .finder-col--size .finder-col-label { justify-content: flex-end; }
+.finder-divider {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.finder-divider::after {
+  content: "";
+  position: absolute;
+  top: 18%;
+  bottom: 18%;
+  /* Over the column's own line (the cell's inset edge, the divider's 5th px). */
+  left: 4px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 140ms ease-out;
+}
+.finder-divider:is(:hover, :focus-visible, .is-dragging)::after { background: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .finder-divider::after { transition: none; } }
 .finder-sort { width: 0.35rem; height: 0.35rem; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(0.1rem) rotate(-135deg); }
 .finder-sort.is-desc { transform: translateY(-0.1rem) rotate(45deg); }
 .finder-row {
@@ -7943,9 +7994,7 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 /* The trash. */
 .finder-trash { display: flex; flex-direction: column; min-height: 0; }
 .finder-trash-bar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.55rem 0.9rem; border-bottom: 1px solid var(--line); }
-.finder-row--trash, .finder-list-head--trash { grid-template-columns: minmax(11rem, 1fr) 11.5rem 5.5rem 15rem; }
 .finder-col--acts .btn { height: 1.35rem; padding: 0 0.55rem; font-size: var(--text-sm); }
-.finder-list-head--trash .finder-col { cursor: default; }
 .finder-col--acts { display: flex; justify-content: flex-end; gap: 0.35rem; overflow: visible; }
 
 /* One column: a phone, or the narrow column beside a chat. */
