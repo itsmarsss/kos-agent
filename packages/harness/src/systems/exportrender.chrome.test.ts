@@ -50,14 +50,9 @@ describe.skipIf(!chrome)("a sealed tab's locks, each alone", () => {
 
   afterAll(async () => {
     cdp?.close();
-    host?.stop();
-    await host?.waitExit().catch(() => undefined);
-    // Chrome's helpers can still be writing the profile a moment after it exits: a stray folder in tmp is no failure of the test.
-    try {
-      rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
-    } catch {
-      /* left for the OS to sweep */
-    }
+    // Chrome and its helpers gone first, so nothing is still writing the profile as it is deleted.
+    await host?.stop();
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     listener?.close();
   });
 
