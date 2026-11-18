@@ -73,3 +73,17 @@ export function waitingRows(rows: PendingMessage[], live: Live | undefined): Pen
   if (live.pendingId !== undefined) taken.add(live.pendingId);
   return rows.filter((r) => !taken.has(r.id));
 }
+
+/**
+ * The asides once the server has answered a send: one that ran as a turn of
+ * its own, or was dropped, is not waiting any more, whatever the live view
+ * shows by then. One the running turn heard stays until the turn shows it.
+ */
+export function answeredAside(asides: Aside[], aside: Aside, answer: { steered?: boolean }): Aside[] {
+  return answer.steered ? asides : asides.filter((a) => a !== aside);
+}
+
+/** Whether a send that failed on the way back is waiting on the server all the same: a row new since, with its words. */
+export function queuedAnyway(rows: PendingMessage[], before: number[], text: string): boolean {
+  return rows.some((r) => !before.includes(r.id) && r.text === text);
+}

@@ -42,7 +42,7 @@ import {
   type Project,
   type DiscordChannel,
 } from "./api.js";
-import { retireAsides, waitingAsides, waitingRows, type Aside } from "./asides.js";
+import { answeredAside, queuedAnyway, retireAsides, waitingAsides, waitingRows, type Aside } from "./asides.js";
 import { tabName } from "./address.js";
 import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
@@ -967,6 +967,8 @@ export function ChatsPage({
      * running turn's steps and words, so it waits under the turn instead,
      * and the live view puts it where the turn took it in.
      */
+    // The rows waiting now: none of them is this message.
+    const before = pending.map((p) => p.id);
     const aside: Aside | null =
       running && !looksLikeCommand
         ? {
@@ -975,7 +977,7 @@ export function ChatsPage({
             text,
             attachments: files.map((f) => ({ name: f.name })),
             at: Date.now(),
-            before: pending.map((p) => p.id),
+            before,
             ...(live ? { turn: live.since } : {}),
             steps: live?.steps.length ?? 0,
           }
@@ -1002,6 +1004,7 @@ export function ChatsPage({
 
     try {
       const res = await api.message(text, target, files);
+      if (aside) setAsides((a) => answeredAside(a, aside, res));
       // A command writes nothing to the transcript, so the reload below would
       // drop its reply on the floor. It is kept as a note instead: for /help
       // the reply is the entire output, and for /clear it is the only sign
@@ -1040,10 +1043,19 @@ export function ChatsPage({
       onChanged();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Not sent: the words and files go back in the composer to send again, and the bubble that said they went is taken back.
       setEvents((e) => [...e.filter((x) => x !== bubble), { kind: "message", role: "kos", text: `Error: ${msg}` }]);
-      setDraft((d) => backInComposer(d, text));
-      attachments.restore(files);
+      /*
+       * Back in the composer only when it is not waiting on the server: an
+       * answer lost on the way back can follow a message that was queued all
+       * the same, and that one shows as its row. Put back as well, it would
+       * be sent twice.
+       */
+      const waiting = await api.conversation(target).then((r) => r.pending).catch(() => undefined);
+      if (waiting) showPending(target, waiting);
+      if (!waiting || !queuedAnyway(waiting, before, text)) {
+        setDraft((d) => backInComposer(d, text));
+        attachments.restore(files);
+      }
     } finally {
       if (aside) setAsides((a) => a.filter((x) => x !== aside));
       else setSendingIn((id) => (id === target ? null : id));

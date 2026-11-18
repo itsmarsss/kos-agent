@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { PendingMessage } from "./api.js";
-import { retireAsides, waitingAsides, waitingRows, type Aside } from "./asides.js";
+import { answeredAside, queuedAnyway, retireAsides, waitingAsides, waitingRows, type Aside } from "./asides.js";
 import type { Live } from "./progress.js";
 
 const aside = (key: number, text: string, more: Partial<Aside> = {}): Aside => ({ key, conversationId: "c1", text, attachments: [], at: 100, before: [], steps: 0, ...more });
@@ -73,5 +73,20 @@ describe("the waiting rows shown under a turn", () => {
     // The turn started with "ok" typed while idle; "ok" sent again mid-turn is really waiting.
     const rows = [row(7, "ok")];
     expect(waitingRows(rows, live({ said: "ok" }))).toEqual(rows);
+  });
+});
+
+describe("the server's answer to a message sent mid-turn", () => {
+  it("lets the aside go at once when it ran as a turn of its own or was dropped, and not when the turn heard it", () => {
+    const sent = [aside(1, "and the red one"), aside(2, "yes")];
+    expect(answeredAside(sent, sent[0]!, { steered: false })).toEqual([sent[1]]);
+    expect(answeredAside(sent, sent[0]!, {})).toEqual([sent[1]]);
+    expect(answeredAside(sent, sent[0]!, { steered: true })).toEqual(sent);
+  });
+
+  it("after a failed send, says it is waiting all the same only for a new row with its words", () => {
+    expect(queuedAnyway([row(3, "ok"), row(9, "ok")], [3], "ok")).toBe(true);
+    expect(queuedAnyway([row(3, "ok")], [3], "ok")).toBe(false);
+    expect(queuedAnyway([row(9, "other")], [3], "ok")).toBe(false);
   });
 });

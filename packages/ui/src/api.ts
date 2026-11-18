@@ -1559,6 +1559,10 @@ export const api = {
       isCommand?: boolean;
       switchedTo?: string;
       opens?: "tools";
+      /** Taken into the turn already running, which answers it too. */
+      steered?: boolean;
+      /** Dropped while it waited: it does not run. */
+      dropped?: boolean;
     }>("/api/message", {
       text,
       ...(sessionId ? { sessionId } : {}),
