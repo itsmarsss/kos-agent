@@ -71,6 +71,7 @@ import { EXTRACTOR_KEY } from "../memory/extractor.js";
 import { ensureDefaultDreamCron, ensureDefaultMemoryCron, ensureDefaultObserveCron } from "../memory/job.js";
 import { ObservationStore } from "../memory/observations.js";
 import { CallerStore } from "../memory/callers.js";
+import { SecretUses } from "../ops/secretuses.js";
 import { PageLog } from "../memory/pages.js";
 import { ReviewQueue } from "../memory/review.js";
 import { agentConversationId, RoleStore } from "../agents/roles.js";
@@ -184,6 +185,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   let kernelRef: Kernel | undefined;
   const workspace = Workspace.open(options.rootDir);
   const secrets = options.secrets ?? SecretsRegistry.fromEnv();
+  // Whatever path a secret's value takes into a row, it is masked before SQLite keeps it.
+  workspace.scrubWrites((text) => secrets.scrub(text));
   const profile = ensureProfile(workspace, options.profileOverrides);
   const registry = new ToolRegistry();
 
@@ -258,6 +261,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const suggestions = new SuggestionStore(workspace.db);
   const observations = new ObservationStore(workspace.db);
   const callers = new CallerStore(workspace.db);
+  const secretUses = new SecretUses(workspace.db);
   const pageLog = new PageLog(workspace.db);
   const embedder = pickEmbedder(secrets);
   const events = new EventLog(workspace.db, embedder.dimension, Date.now, embedder.name);
@@ -699,7 +703,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const shelf = new ResultShelf(
     join(workspace.root, ".kos", "results"),
     outlinerFor(inference, () => (kernelRef?.behaviour().engine === "sdk" ? "anthropic" : inference.routeFor?.("reasoning").provider)),
-    (text) => secrets.redact(text),
+    (text) => secrets.scrub(text),
   );
   // Kept results age out after KEEP_DAYS: swept now and once a day.
   shelf.sweep();
@@ -759,6 +763,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     roles,
     suggestions,
     callers,
+    secretUses,
     pageLog,
     permissions,
     workspace,

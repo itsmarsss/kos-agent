@@ -73,6 +73,7 @@ export function connectChannel(
     },
     // A turn running or queued where the message is going: the surface says "queued".
     isBusy: (ctx) => kernel.laneDepth(conversationOf(ctx)) > 0,
+    scrub: (text) => kernel.secrets.scrub(text),
     handleTurn: async (ctx) => {
       // The kernel owns conversation resolution and the /new, /chats, /switch
       // verbs, so every adapter behaves the same without implementing any of it.
