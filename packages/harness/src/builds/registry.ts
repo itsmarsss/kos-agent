@@ -1,3 +1,4 @@
+import { scrubDeep } from "../secrets/scrub.js";
 import type { BuildControl, BuildEvent, BuildPhase, BuildUsage } from "./runner.js";
 
 /**
@@ -79,7 +80,11 @@ export class BuildRegistry {
    */
   private readonly silenceMs: () => number;
 
-  constructor(silenceMs: () => number = () => SILENCE_MS) {
+  /** `scrub` takes secret values out of what a build says before it is kept or shown. */
+  constructor(
+    silenceMs: () => number = () => SILENCE_MS,
+    private readonly scrub: (text: string) => string = (text) => text,
+  ) {
     this.silenceMs = silenceMs;
   }
   private readonly records = new Map<number, BuildRecord>();
@@ -136,9 +141,10 @@ export class BuildRegistry {
   }
 
   /** Record something a build did. */
-  record(id: number, event: BuildEvent, now = Date.now()): void {
+  record(id: number, given: BuildEvent, now = Date.now()): void {
     const record = this.records.get(id);
     if (!record) return;
+    const event = { ...given, text: this.scrub(given.text), ...(given.input ? { input: scrubDeep(given.input, this.scrub) } : {}) };
     // A result is what came back, not what the build is doing; letting it
     // overwrite `latest` made the one-line summary a wall of tool output.
     if (event.kind !== "result") record.latest = event.text.slice(0, 200);

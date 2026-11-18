@@ -61,7 +61,8 @@ describe("preparing a build", () => {
   describe("what it is given to sign in with", () => {
     it("passes an api key and keeps home inside the build", () => {
       const auth = credentials("/scope", { ANTHROPIC_API_KEY: "sk-x", HOME: "/Users/me" });
-      expect(auth.env).toEqual({ ANTHROPIC_API_KEY: "sk-x" });
+      // Claude Code's own files go under ~/.kos, never into the build folder the backup commits.
+      expect(auth.env).toEqual({ ANTHROPIC_API_KEY: "sk-x", CLAUDE_CONFIG_DIR: "/Users/me/.kos/claude" });
       expect(auth.home).toBe("/scope");
     });
 
@@ -86,7 +87,7 @@ describe("preparing a build", () => {
         KOS_SECRET_DISCORD: "token",
         AWS_SECRET_ACCESS_KEY: "aws",
       });
-      expect(Object.keys(auth.env)).toEqual(["ANTHROPIC_API_KEY"]);
+      expect(Object.keys(auth.env)).toEqual(["ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR"]);
 
       const fallback = credentials("/scope", {
         HOME: "/Users/me",

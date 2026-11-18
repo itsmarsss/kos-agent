@@ -392,10 +392,20 @@ export function controls(scope: string | null, max: number): Element[] {
     }
     return squash(el.getAttribute("title") || el.getAttribute("placeholder") || el.getAttribute("aria-placeholder") || "");
   };
-  const valueOf = (el: Element, role: string): string | undefined => {
+  /** As snapshot.ts secretField and its SECRET_NAMED, kept here because page code cannot import. */
+  const SECRET_NAMED = /password|passcode|passphrase|card|cvc|cvv|csc|security.?code|social.?security|token|api.?key|secret|(^|[^a-z])(pin|otp|ssn)([^a-z]|$)/i;
+  const SECRET_AUTOCOMPLETE = /^(cc-.*|current-password|new-password|one-time-code)$/;
+  /** A field that holds a password, a card or a one-time code, by its markup or its label. */
+  const secret = (el: Element, name: string): boolean =>
+    (el instanceof HTMLInputElement && el.type === "password") ||
+    (el.getAttribute("autocomplete") ?? "").toLowerCase().split(/\s+/).some((token) => SECRET_AUTOCOMPLETE.test(token)) ||
+    SECRET_NAMED.test(`${el.getAttribute("name") ?? ""} ${el.id} ${name}`);
+  /** What a control holds; a secret field's never, nor its length, only that it holds something. */
+  const valueOf = (el: Element, role: string, name: string): string | undefined => {
     if (!VALUED.has(role)) return undefined;
-    if (el instanceof HTMLInputElement) return el.type === "password" ? "•".repeat(el.value.length) : el.value;
-    if (el instanceof HTMLTextAreaElement) return el.value;
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el.value && secret(el, name) ? "(hidden)" : el.value;
+    // A box typed into that is no input (contenteditable): what it holds is its text.
+    if (el instanceof HTMLElement && el.isContentEditable && secret(el, name)) return el.textContent?.trim() ? "(hidden)" : "";
     if (el instanceof HTMLSelectElement) {
       const picked = el.selectedOptions[0];
       return picked ? squash(picked.label || picked.text) : "";
@@ -450,7 +460,7 @@ export function controls(scope: string | null, max: number): Element[] {
   const add = (el: Element, role: string, dialog: string | undefined): void => {
     const name = nameOf(el, role);
     if (role === "link" && !name) return;
-    const value = valueOf(el, role);
+    const value = valueOf(el, role, name);
     const item: FoundControl = { role, name, states: statesOf(el, role), ...(value !== undefined ? { value } : {}), ...(dialog !== undefined ? { dialog } : {}) };
     const group = dialog ?? "";
     if (role === "link") {

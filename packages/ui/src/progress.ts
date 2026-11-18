@@ -39,6 +39,7 @@ export type ProgressEvent =
   | { kind: "congregation"; conversationId: string; members: CongregationMember[] }
   | { kind: "frame"; conversationId: string; tool: string; frameId: number; toolUseId?: string; site?: string }
   | { kind: "heard"; conversationId: string; said: string; pendingId?: number; from?: string }
+  | { kind: "renamed"; conversationId: string; title: string }
   | { kind: "turn-end"; conversationId: string };
 
 /** One conversation a turn is waiting on, when it asked several at once. */
@@ -287,6 +288,11 @@ class ProgressStore {
         for (const listener of noteListeners) listener(id, event.text);
         return;
       }
+      if (event.kind === "renamed") {
+        // Nor is a new title: whoever keeps the list fetches it again.
+        for (const listener of renameListeners) listener(id, event.title);
+        return;
+      }
       if (event.kind === "turn-end") {
         // Marked rather than dropped: whoever is showing it swaps it for the
         // transcript, and clears it then.
@@ -341,11 +347,18 @@ const store = new ProgressStore();
 /** Told when something finishes on its own, after the turn that started it. */
 const noteListeners = new Set<(conversationId: string, text: string) => void>();
 const endListeners = new Set<(conversationId: string) => void>();
+const renameListeners = new Set<(conversationId: string, title: string) => void>();
 
 /** Called when any turn ends, with the conversation it was in. */
 export function onTurnEnd(listener: (conversationId: string) => void): () => void {
   endListeners.add(listener);
   return () => endListeners.delete(listener);
+}
+
+/** Called when a chat gets a new title: named by KOS as its first turn starts, or renamed anywhere. */
+export function onRenamed(listener: (conversationId: string, title: string) => void): () => void {
+  renameListeners.add(listener);
+  return () => renameListeners.delete(listener);
 }
 
 export function onNote(

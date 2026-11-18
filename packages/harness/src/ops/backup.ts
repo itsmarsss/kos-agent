@@ -28,6 +28,17 @@ const SCAN_DEPTH = 5;
 /** Marks the block this writes, so anything above it is left alone. */
 const MARKER = "# kos: folders with their own git repo";
 
+/**
+ * Never in a snapshot, wherever they are: Claude Code's own records (a
+ * transcript holds every tool result), left by a build or chat from before
+ * they were kept outside the workspace. A project's own .claude settings
+ * stay in.
+ */
+const UNKEPT = ["**/.claude/projects/", "**/.claude/todos/", "**/.claude/statsig/", ".claude.json"];
+
+/** A tracked path under one of those. */
+const UNKEPT_PATH = /(^|\/)(\.claude\/(projects|todos|statsig)\/|\.claude\.json$)/;
+
 export class WorkspaceBackup {
   constructor(
     private readonly root: string,
@@ -103,10 +114,21 @@ export class WorkspaceBackup {
       )
       .join("\n")
       .replace(/\n+$/, "");
-    const block = [MARKER, ...nested.map((p) => `/${p}/`)].join("\n");
+    const block = [MARKER, ...nested.map((p) => `/${p}/`), ...UNKEPT].join("\n");
     const next = `${kept ? `${kept}\n` : ""}${block}\n`;
     if (next !== existing) writeFileSync(path, next);
     return nested;
+  }
+
+  /**
+   * Take out of the index what an older snapshot committed before it was
+   * excluded: an exclude only stops new files, and a tracked transcript would
+   * go on being committed. The files stay on disk; history keeps old copies.
+   */
+  private async untrackUnkept(): Promise<void> {
+    const { stdout } = await this.git(["ls-files"]);
+    const unkept = stdout.split("\n").filter((path) => UNKEPT_PATH.test(path));
+    if (unkept.length > 0) await this.git(["rm", "-r", "-q", "--cached", "--", ...unkept]);
   }
 
   /** Folders the backup is deliberately not covering, and why it is not. */
@@ -126,6 +148,7 @@ export class WorkspaceBackup {
     // Before add, because a folder that gained its own repo since the last
     // snapshot is exactly the case that used to break this.
     this.syncExcludes();
+    await this.untrackUnkept();
     await this.git(["add", "-A"]);
     const { stdout: status } = await this.git(["status", "--porcelain"]);
     if (status.trim() === "") return null;

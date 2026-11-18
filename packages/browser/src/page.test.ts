@@ -203,6 +203,58 @@ describe("the time a page is given after typing", () => {
   });
 });
 
+describe("a field that will not take the text", () => {
+  it("says so without saying what was typed or what it holds", async () => {
+    const quiet = `(${inpage.domQuiet.toString()})(`;
+    const { session } = tab({
+      "Page.getFrameTree": () => FRAME,
+      "Page.createIsolatedWorld": () => ({ executionContextId: 9 }),
+      "Runtime.evaluate": (p) => (String(p["expression"]).startsWith(quiet) ? { result: { value: true } } : { result: { objectId: "el", value: "complete" } }),
+      "DOM.describeNode": () => ({ node: { backendNodeId: 10 } }),
+      "DOM.resolveNode": () => ({ object: { objectId: "el" } }),
+      "Runtime.callFunctionOn": (p) => {
+        const fn = String(p["functionDeclaration"]);
+        // A field cut to its maxlength: it holds the start of the password, never all of it.
+        if (fn === inpage.valueOf.toString() || fn === inpage.setValue.toString()) return { result: { value: "hunter2-Sec" } };
+        return { result: p["returnByValue"] ? { value: null } : {} };
+      },
+    });
+    const page = new Page(session);
+    const failed = await page.step({ fill: { target: "#password", text: "hunter2-Secret" } }).then(
+      () => undefined,
+      (err: unknown) => (err instanceof Error ? err.message : String(err)),
+    );
+    expect(failed).toMatch(/#password would not take the text as typed/);
+    expect(failed).not.toContain("hunter2");
+  });
+});
+
+describe("the outline of a page with a secret field", () => {
+  it("hides a field's value by its markup, and one whose markup cannot be read", async () => {
+    const nodes = [
+      { nodeId: "1", role: { value: "RootWebArea" }, name: { value: "Pay" }, childIds: ["2", "3", "4"] },
+      { nodeId: "2", parentId: "1", role: { value: "textbox" }, name: { value: "Number" }, value: { value: "4242424242424242" }, backendDOMNodeId: 2 },
+      { nodeId: "3", parentId: "1", role: { value: "textbox" }, name: { value: "Note" }, value: { value: "gone" }, backendDOMNodeId: 3 },
+      { nodeId: "4", parentId: "1", role: { value: "textbox" }, name: { value: "Email" }, value: { value: "ada@example.com" }, backendDOMNodeId: 4 },
+    ];
+    const markup: Record<number, string[]> = { 2: ["type", "text", "autocomplete", "cc-number"], 4: ["type", "email", "name", "email"] };
+    const { session } = tab({
+      "Page.getFrameTree": () => FRAME,
+      "Accessibility.getFullAXTree": () => ({ nodes }),
+      "DOM.describeNode": (p) => {
+        const attributes = markup[Number(p["backendNodeId"])];
+        if (!attributes) throw new Error("No node with given id found");
+        return { node: { attributes } };
+      },
+    });
+    const { text } = await new Page(session).tree();
+    expect(text).toContain('textbox "Number" = "(hidden)"');
+    expect(text).toContain('textbox "Note" = "(hidden)"');
+    expect(text).toContain('textbox "Email" = "ada@example.com"');
+    expect(text).not.toContain("4242");
+  });
+});
+
 describe("the browser's clock", () => {
   it("dates a request heard late by when the browser sent it, and reads the clock afresh after a sleep", () => {
     const clock = new BrowserClock();
