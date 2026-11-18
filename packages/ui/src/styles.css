@@ -7873,7 +7873,6 @@ button.artifact-view-owner:focus-visible { outline: 2px solid var(--accent); out
 /* The trash. */
 .finder-trash { display: flex; flex-direction: column; min-height: 0; }
 .finder-trash-bar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.55rem 0.9rem; border-bottom: 1px solid var(--line); }
-.finder-trash .finder-list { padding-top: 0.35rem; }
 .finder-row--trash, .finder-list-head--trash { grid-template-columns: minmax(11rem, 1fr) 11.5rem 5.5rem 15rem; }
 .finder-row--trash { height: 2.25rem; }
 .finder-list-head--trash .finder-col { cursor: default; }
