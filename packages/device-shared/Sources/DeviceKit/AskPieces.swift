@@ -26,7 +26,7 @@ public struct AskSummary: View {
         .fixedSize(horizontal: false, vertical: true)
       if let place = ask.place {
         HStack(spacing: 6) {
-          PlaceMark(tool: ask.tool, site: ask.site)
+          PlaceMark(tool: ask.tool)
           Text(place).font(.kos(.detail)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
         }
       }
@@ -96,28 +96,12 @@ public struct RiskTag: View {
   }
 }
 
-/// The site's own icon, or the kind of place's symbol.
+/// The kind of place's own symbol. Never a site's icon: fetching one would reach whatever site the agent named,
+/// from the owner's device, before they said yes.
 struct PlaceMark: View {
   let tool: String
-  let site: String?
 
   var body: some View {
-    if let site, let url = URL(string: "https://\(site)/favicon.ico") {
-      AsyncImage(url: url) { phase in
-        if let image = phase.image {
-          image.resizable().interpolation(.high)
-        } else {
-          symbol
-        }
-      }
-      .frame(width: 14, height: 14)
-      .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
-    } else {
-      symbol
-    }
-  }
-
-  private var symbol: some View {
     Image(systemName: AskWords.placeSymbol(tool))
       .font(.system(size: 11))
       .foregroundStyle(Theme.faint)
@@ -268,10 +252,9 @@ public indirect enum ArgNode: Equatable, Sendable {
   public static let long = 240
 
   public static func parse(_ args: String) -> ArgNode {
-    guard let data = args.data(using: .utf8), let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
-      return .text(args)
-    }
-    return node(value, source: args)
+    var reader = OrderedJSON(Array(args.utf8))
+    guard let node = reader.document() else { return .text(args) }
+    return node
   }
 
   /// The arguments laid out for copying: JSON indented, or the text as it came.
@@ -281,23 +264,117 @@ public indirect enum ArgNode: Equatable, Sendable {
     else { return args }
     return String(decoding: out, as: UTF8.self)
   }
+}
 
-  /// A parsed value as a node. An object's keys keep the order they were written in, which JSONSerialization
-  /// drops: each is placed where its name first appears in the text.
-  private static func node(_ value: Any, source: String) -> ArgNode {
-    switch value {
-    case let s as String: return .text(s)
-    case let n as NSNumber:
-      if CFGetTypeID(n) == CFBooleanGetTypeID() { return .plain(n.boolValue ? "true" : "false") }
-      return .plain(n.stringValue)
-    case let items as [Any]: return .list(items.map { node($0, source: source) })
-    case let object as [String: Any]:
-      let at = { (key: String) -> Int in
-        source.range(of: "\"\(key)\"").map { source.distance(from: source.startIndex, to: $0.lowerBound) } ?? Int.max
-      }
-      return .fields(object.keys.sorted { (at($0), $0) < (at($1), $1) }.map { Field(key: $0, value: node(object[$0]!, source: source)) })
-    default: return .plain("null")
+/// JSON read into an ArgNode with each object's fields in the order the text gives them, which Foundation's
+/// readers do not keep. Nothing for text that is not one whole JSON value.
+private struct OrderedJSON {
+  private let bytes: [UInt8]
+  private var at = 0
+
+  init(_ bytes: [UInt8]) {
+    self.bytes = bytes
+  }
+
+  mutating func document() -> ArgNode? {
+    guard let value = value() else { return nil }
+    space()
+    return at == bytes.count ? value : nil
+  }
+
+  private mutating func space() {
+    while at < bytes.count, [0x20, 0x0A, 0x0D, 0x09].contains(bytes[at]) { at += 1 }
+  }
+
+  private mutating func value() -> ArgNode? {
+    space()
+    guard at < bytes.count else { return nil }
+    switch bytes[at] {
+    case UInt8(ascii: "{"): return object()
+    case UInt8(ascii: "["): return list()
+    case UInt8(ascii: "\""): return string().map(ArgNode.text)
+    default: return literal()
     }
+  }
+
+  private mutating func object() -> ArgNode? {
+    at += 1
+    var fields: [ArgNode.Field] = []
+    space()
+    if at < bytes.count, bytes[at] == UInt8(ascii: "}") {
+      at += 1
+      return .fields(fields)
+    }
+    while true {
+      space()
+      guard at < bytes.count, bytes[at] == UInt8(ascii: "\""), let key = string() else { return nil }
+      space()
+      guard at < bytes.count, bytes[at] == UInt8(ascii: ":") else { return nil }
+      at += 1
+      guard let v = value() else { return nil }
+      fields.append(.init(key: key, value: v))
+      space()
+      guard at < bytes.count else { return nil }
+      if bytes[at] == UInt8(ascii: ",") {
+        at += 1
+      } else if bytes[at] == UInt8(ascii: "}") {
+        at += 1
+        return .fields(fields)
+      } else {
+        return nil
+      }
+    }
+  }
+
+  private mutating func list() -> ArgNode? {
+    at += 1
+    var items: [ArgNode] = []
+    space()
+    if at < bytes.count, bytes[at] == UInt8(ascii: "]") {
+      at += 1
+      return .list(items)
+    }
+    while true {
+      guard let v = value() else { return nil }
+      items.append(v)
+      space()
+      guard at < bytes.count else { return nil }
+      if bytes[at] == UInt8(ascii: ",") {
+        at += 1
+      } else if bytes[at] == UInt8(ascii: "]") {
+        at += 1
+        return .list(items)
+      } else {
+        return nil
+      }
+    }
+  }
+
+  /// A string's text, its escapes read by Foundation, which knows them all.
+  private mutating func string() -> String? {
+    let start = at
+    at += 1
+    while at < bytes.count {
+      if bytes[at] == UInt8(ascii: "\\") {
+        at += 2
+        continue
+      }
+      if bytes[at] == UInt8(ascii: "\"") {
+        at += 1
+        return try? JSONDecoder().decode(String.self, from: Data(bytes[start..<at]))
+      }
+      at += 1
+    }
+    return nil
+  }
+
+  /// A number, true, false or null, as written.
+  private mutating func literal() -> ArgNode? {
+    let start = at
+    while at < bytes.count, !(Set(",]} \n\r\t".utf8)).contains(bytes[at]) { at += 1 }
+    let word = String(decoding: bytes[start..<at], as: UTF8.self)
+    if word == "true" || word == "false" || word == "null" || Double(word) != nil { return .plain(word) }
+    return nil
   }
 }
 
@@ -325,7 +402,7 @@ public enum AskWords {
     line.map(\.words).joined()
   }
 
-  /// The symbol for where an ask acts, when the site has no icon or there is no site.
+  /// The symbol for where an ask acts.
   public static func placeSymbol(_ tool: String) -> String {
     if tool.hasPrefix("computer.") { return "desktopcomputer" }
     if tool.hasPrefix("files.") || tool == "shell.run" || tool == "python.run" { return "folder" }

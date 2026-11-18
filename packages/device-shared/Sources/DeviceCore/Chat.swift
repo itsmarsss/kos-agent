@@ -165,8 +165,8 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
   public let steps: [StepLine]?
   /// Where it acts: "In your Chrome on docs.google.com".
   public let place: String?
-  /// The site it acts on, for its icon.
-  public let site: String?
+  /// Too big to have been sent whole: no arguments or steps came, so the card offers no Approve.
+  public let tooLong: Bool?
   /// Why it asks, as a phrase: "Clicks, types or fills on the page".
   public let risk: String?
   public let why: String?
@@ -184,7 +184,7 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
 
   public init(
     id: String, tool: String, summary: String? = nil, title: String? = nil, args: String? = nil, mechanics: String? = nil,
-    steps: [StepLine]? = nil, place: String? = nil, site: String? = nil, risk: String? = nil, why: String? = nil, reason: String? = nil,
+    steps: [StepLine]? = nil, place: String? = nil, tooLong: Bool? = nil, risk: String? = nil, why: String? = nil, reason: String? = nil,
     always: String? = nil, alwaysTip: String? = nil, alwaysNote: String? = nil, asker: String? = nil, expiresAt: Double? = nil
   ) {
     self.id = id
@@ -195,7 +195,7 @@ public struct ChatApproval: Decodable, Equatable, Sendable {
     self.mechanics = mechanics
     self.steps = steps
     self.place = place
-    self.site = site
+    self.tooLong = tooLong
     self.risk = risk
     self.why = why
     self.reason = reason

@@ -35,6 +35,17 @@ struct AskPiecesTests {
     #expect(fields[2].value == .plain("2") && fields[3].value == .plain("true") && fields[4].value == .plain("null"))
   }
 
+  @Test func keepsEachObjectsOwnOrderWhateverItsWordsSay() {
+    // A key's name appearing earlier inside a string must not move it.
+    let node = ArgNode.parse(#"{"note":"see \"zeta\" and the actions","zeta":{"b":2,"a":[true,null,-1.5e2]},"actions":[]}"#)
+    #expect(node == .fields([
+      .init(key: "note", value: .text(#"see "zeta" and the actions"#)),
+      .init(key: "zeta", value: .fields([.init(key: "b", value: .plain("2")), .init(key: "a", value: .list([.plain("true"), .plain("null"), .plain("-1.5e2")]))])),
+      .init(key: "actions", value: .list([])),
+    ]))
+    #expect(ArgNode.parse(#"{"a":1} trailing"#) == .text(#"{"a":1} trailing"#))
+  }
+
   @Test func keepsTextCutToFitAsTheTextItIs() {
     #expect(ArgNode.parse(#"{"command":"ls -la /ve…"#) == .text(#"{"command":"ls -la /ve…"#))
     #expect(ArgNode.pretty(#"{"a":1}"#) == "{\n  \"a\" : 1\n}")

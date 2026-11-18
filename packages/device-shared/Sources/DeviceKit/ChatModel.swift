@@ -71,9 +71,10 @@ public final class ChatModel: ObservableObject {
     public let mechanics: String?
     /// The same actions as lines, keys as caps, repeats counted.
     public let steps: [StepLine]?
-    /// Where it acts, and the site it acts on.
+    /// Where it acts.
     public let place: String?
-    public let site: String?
+    /// Too big to have been sent whole: the card offers no Approve and sends the owner to the dashboard.
+    public let tooLong: Bool
     /// Why it asks, as a phrase.
     public let risk: String?
     public let why: String?
@@ -92,7 +93,7 @@ public final class ChatModel: ObservableObject {
 
     public init(
       id: String, tool: String, summary: String? = nil, title: String? = nil, args: String? = nil, mechanics: String? = nil,
-      steps: [StepLine]? = nil, place: String? = nil, site: String? = nil, risk: String? = nil, why: String? = nil, reason: String? = nil,
+      steps: [StepLine]? = nil, place: String? = nil, tooLong: Bool = false, risk: String? = nil, why: String? = nil, reason: String? = nil,
       always: String? = nil, alwaysTip: String? = nil, alwaysNote: String? = nil, asker: String? = nil, expires: Date? = nil,
       chat: String? = nil
     ) {
@@ -105,7 +106,7 @@ public final class ChatModel: ObservableObject {
       self.mechanics = mechanics
       self.steps = steps
       self.place = place
-      self.site = site
+      self.tooLong = tooLong
       self.risk = risk
       self.why = why
       self.reason = reason

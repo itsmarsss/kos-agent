@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// KOS for Mac's chat window: the side panel's chat, floating over the
 /// owner's apps (docs/design.md, Chat), drawn from the kit (Controls.swift)
@@ -499,6 +500,10 @@ struct AskCard: View {
   let ask: ChatModel.Ask
   let answer: (String, Bool, Bool) -> Void
   @FocusState private var focused: Bool
+  /// The focus came by the Tab key, not a click or the window's own first focus: only then does Return approve.
+  @State private var byTab = false
+  /// A decision has gone: a second press or a held key sends nothing more.
+  @State private var decided = false
 
   var body: some View {
     Card(tone: Theme.warn, padding: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)) {
@@ -515,7 +520,12 @@ struct AskCard: View {
       }
       AskSummary(ask)
       if let args = ask.args { AskDetails(tool: ask.tool, args: args) }
-      if ask.always == nil, let note = ask.alwaysNote { Text(note).font(.kos(.detail)).foregroundStyle(Theme.faint) }
+      if ask.tooLong {
+        Text("Too long to show here in full. Open it in the dashboard's Inbox to approve it.").font(.kos(.detail)).foregroundStyle(Theme.muted)
+          .fixedSize(horizontal: false, vertical: true)
+      } else if ask.always == nil, let note = ask.alwaysNote {
+        Text(note).font(.kos(.detail)).foregroundStyle(Theme.faint)
+      }
       // One row at the foot when it fits; else one to a row, full width, Approve first.
       ViewThatFits(in: .horizontal) {
         HStack(spacing: 6) {
@@ -536,37 +546,41 @@ struct AskCard: View {
     .focused($focused)
     .focusEffectDisabled()
     .overlay(RoundedRectangle(cornerRadius: Theme.radiusMd + 2, style: .continuous).strokeBorder(Theme.accent, lineWidth: 2).padding(-3).opacity(focused ? 1 : 0))
-    .onKeyPress(.return) {
-      answer(ask.id, true, false)
-      return .handled
-    }
-    .onKeyPress(.escape) {
-      answer(ask.id, false, false)
-      return .handled
-    }
-    .onKeyPress(.delete, phases: .down) { press in
-      guard press.modifiers.contains(.command) else { return .ignored }
-      answer(ask.id, false, false)
+    .onChange(of: focused) { _, now in byTab = now && AskKeys.cameByTab(NSApp.currentEvent) }
+    // Down only: a held key's repeats are other phases, and are not heard.
+    .onKeyPress(keys: [.return, .escape, .delete], phases: .down) { press in
+      guard let approved = AskKeys.decision(press.key, command: press.modifiers.contains(.command), focused: focused, byTab: byTab, canApprove: !ask.tooLong) else {
+        return .ignored
+      }
+      decide(approved: approved, remember: false)
       return .handled
     }
   }
 
-  private func approve(wide: Bool) -> some View {
-    Button { answer(ask.id, true, false) } label: { Text("Approve").frame(maxWidth: wide ? .infinity : nil) }
-      .buttonStyle(KOSButtonStyle(.primary))
-      .help("Approve (Return)")
+  private func decide(approved: Bool, remember: Bool) {
+    guard !decided else { return }
+    decided = true
+    answer(ask.id, approved, remember)
+  }
+
+  @ViewBuilder private func approve(wide: Bool) -> some View {
+    if !ask.tooLong {
+      Button { decide(approved: true, remember: false) } label: { Text("Approve").frame(maxWidth: wide ? .infinity : nil) }
+        .buttonStyle(KOSButtonStyle(.primary))
+        .help("Approve (Return, once Tab has moved to the card)")
+    }
   }
 
   @ViewBuilder private func always(wide: Bool) -> some View {
-    if let always = ask.always {
-      Button { answer(ask.id, true, true) } label: { Text(always).frame(maxWidth: wide ? .infinity : nil) }
+    if let always = ask.always, !ask.tooLong {
+      Button { decide(approved: true, remember: true) } label: { Text(always).frame(maxWidth: wide ? .infinity : nil) }
         .buttonStyle(KOSButtonStyle(.secondary))
         .help(ask.alwaysTip ?? "Approves this, and stops asking for the same again. Undo it in Settings, Permissions.")
     }
   }
 
   private func deny(wide: Bool) -> some View {
-    Button { answer(ask.id, false, false) } label: { Text("Deny").frame(maxWidth: wide ? .infinity : nil) }
+    Button { decide(approved: false, remember: false) } label: { Text("Deny").frame(maxWidth: wide ? .infinity : nil) }
       .buttonStyle(KOSButtonStyle(.secondary))
       .help("Deny (Esc)")
   }
@@ -625,3 +639,26 @@ private struct Switcher: View {
   }
 }
 
+/// The approval card's keys, apart from the view so they can be tested: Return approves only with the card
+/// focused by Tab (a click or the window's own first focus is no yes), Escape and ⌘⌫ deny with the card focused.
+enum AskKeys {
+  /// The Tab key's virtual key code.
+  static let tab: UInt16 = 48
+
+  /// A focus that came with this event came by the Tab key.
+  static func cameByTab(_ event: NSEvent?) -> Bool {
+    guard let event, event.type == .keyDown else { return false }
+    return event.keyCode == tab
+  }
+
+  /// What a key on the card decides: true to approve, false to deny, nil for nothing.
+  static func decision(_ key: KeyEquivalent, command: Bool, focused: Bool, byTab: Bool, canApprove: Bool) -> Bool? {
+    guard focused else { return nil }
+    switch key {
+    case .return: return byTab && canApprove ? true : nil
+    case .escape: return false
+    case .delete: return command ? false : nil
+    default: return nil
+    }
+  }
+}

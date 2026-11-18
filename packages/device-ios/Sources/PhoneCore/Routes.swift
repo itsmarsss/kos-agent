@@ -28,7 +28,6 @@ public enum Routes {
     public let title: String?
     public let steps: [StepLine]?
     public let place: String?
-    public let site: String?
     public let risk: String?
     public let why: String?
     public let conversationId: String?
@@ -43,7 +42,7 @@ public enum Routes {
 
     public init(
       id: Int, tool: String, args: String? = nil, reason: String? = nil, summary: String? = nil, mechanics: String? = nil, title: String? = nil,
-      steps: [StepLine]? = nil, place: String? = nil, site: String? = nil, risk: String? = nil, why: String? = nil,
+      steps: [StepLine]? = nil, place: String? = nil, risk: String? = nil, why: String? = nil,
       conversationId: String? = nil, asker: String? = nil, requestedAt: Double, expiresAt: Double? = nil, always: String? = nil,
       alwaysTip: String? = nil, alwaysNote: String? = nil
     ) {
@@ -56,7 +55,6 @@ public enum Routes {
       self.title = title
       self.steps = steps
       self.place = place
-      self.site = site
       self.risk = risk
       self.why = why
       self.conversationId = conversationId

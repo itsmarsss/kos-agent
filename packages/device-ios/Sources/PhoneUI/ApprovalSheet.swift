@@ -63,12 +63,19 @@ struct AskBody: View {
       .scrollIndicators(.hidden)
 
       if let expires = ask.expires { Lapse(until: expires) }
-      if ask.always == nil, let note = ask.alwaysNote { Text(note).font(.kos(.detail)).foregroundStyle(Theme.faint) }
+      if ask.tooLong {
+        Text("Too long to show here in full. Open it in the dashboard's Inbox to approve it.").font(.kos(.detail)).foregroundStyle(Theme.muted)
+          .fixedSize(horizontal: false, vertical: true)
+      } else if ask.always == nil, let note = ask.alwaysNote {
+        Text(note).font(.kos(.detail)).foregroundStyle(Theme.faint)
+      }
       VStack(spacing: 8) {
-        Button("Approve") { answer(true, false) }
-          .buttonStyle(KOSButtonStyle(.primary, large: true))
-          .accessibilityHint("KOS runs \(ask.tool) once")
-        if let always = ask.always {
+        if !ask.tooLong {
+          Button("Approve") { answer(true, false) }
+            .buttonStyle(KOSButtonStyle(.primary, large: true))
+            .accessibilityHint("KOS runs \(ask.tool) once")
+        }
+        if let always = ask.always, !ask.tooLong {
           Button(always) { answer(true, true) }
             .buttonStyle(KOSButtonStyle(.secondary, large: true))
             .accessibilityHint(ask.alwaysTip ?? "Approves, and stops asking for this")
