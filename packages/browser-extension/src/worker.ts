@@ -698,7 +698,7 @@ async function toOverlays(tab: number, expression: string, withinMs = 1_500): Pr
 }
 
 /** The longest a glide takes (the overlay's), and a little over: past it, KOS's hands act without waiting on the page. */
-const GLIDE_WAIT_MS = 600;
+const GLIDE_WAIT_MS = 700;
 /** Where KOS's cursor is on each tab, for a new page there to put it back. */
 const pointed = new Map<number, { x: number; y: number }>();
 

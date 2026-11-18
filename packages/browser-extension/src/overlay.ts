@@ -115,12 +115,22 @@ export function installOverlay(): void {
     bar.style.left = `${x}px`;
     bar.style.top = `${y}px`;
   };
-  /** The cursor's tip on a point, over `ms`: answered when it is there. */
+  /** The cursor's tip on a point, over `ms`: answered when it is there, or a moment after it should be (a glide cut short by the next ends no transition). */
   const goTo = (to: { x: number; y: number }, ms: number): Promise<void> => {
-    if (!cursor) return Promise.resolve();
-    cursor.style.setProperty("--glide", `${ms}ms`);
-    cursor.style.transform = `translate(${to.x}px, ${to.y}px)`;
-    return new Promise((r) => (ms ? setTimeout(r, ms) : r()));
+    const it = cursor;
+    if (!it) return Promise.resolve();
+    it.style.setProperty("--glide", `${ms}ms`);
+    it.style.transform = `translate(${to.x}px, ${to.y}px)`;
+    if (!ms) return Promise.resolve();
+    return new Promise((r) => {
+      const done = (): void => {
+        clearTimeout(late);
+        it.removeEventListener("transitionend", done);
+        r();
+      };
+      const late = setTimeout(done, ms + 100);
+      it.addEventListener("transitionend", done);
+    });
   };
   const ripple = (): void => {
     if (!cursor) return;
