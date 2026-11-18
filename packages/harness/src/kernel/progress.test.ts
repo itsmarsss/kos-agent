@@ -169,7 +169,7 @@ describe("what a reader who arrives mid-turn is told", () => {
   });
 
   it("takes secrets out of every event's words before a reader or a late reader sees them", () => {
-    const bus = new ProgressBus((text) => text.replaceAll("sk-live", "[secret k]"));
+    const bus = new ProgressBus({ scrub: (text) => text.replaceAll("sk-live", "[secret k]"), longest: () => "sk-live".length });
     const heard: ProgressEvent[] = [];
     bus.subscribe((e) => heard.push(e));
     bus.emit({ kind: "turn-start", conversationId: "c", said: "use sk-live", at: 1 });
@@ -177,9 +177,29 @@ describe("what a reader who arrives mid-turn is told", () => {
     bus.emit({ kind: "tool-end", conversationId: "c", tool: "http.fetch", isError: false, result: "echo sk-live" });
     bus.emit({ kind: "delta", conversationId: "c", of: "text", text: "it was sk-live" });
     bus.emit({ kind: "heard", conversationId: "c", said: "and sk-live" });
-    for (const seen of [heard, bus.snapshot()]) {
-      expect(JSON.stringify(seen)).not.toContain("sk-live");
-      expect(JSON.stringify(seen).match(/\[secret k\]/g)).toHaveLength(6);
-    }
+    bus.emit({ kind: "turn-end", conversationId: "c" });
+    // Streamed words may arrive in more than one piece: read them joined.
+    const words = heard.map((e) => (e.kind === "delta" ? e.text : JSON.stringify(e))).join("");
+    expect(words).not.toContain("sk-live");
+    expect(words.match(/\[secret k\]/g)).toHaveLength(6);
+  });
+
+  it("finds a secret split across streamed pieces, holding back only what could be its start, and lets it go at the turn's end", () => {
+    const bus = new ProgressBus({ scrub: (text) => text.replaceAll("sk-live", "[secret k]"), longest: () => "sk-live".length });
+    const heard: ProgressEvent[] = [];
+    bus.subscribe((e) => heard.push(e));
+    bus.emit({ kind: "turn-start", conversationId: "c", at: 1 });
+    for (const piece of ["the key is s", "k-l", "ive, and that", " is all"]) bus.emit({ kind: "delta", conversationId: "c", of: "text", text: piece });
+    const said = (): string => heard.flatMap((e) => (e.kind === "delta" ? [e.text] : [])).join("");
+    expect(said()).not.toContain("sk-");
+    // A late reader is replayed the words so far, scrubbed, in one run.
+    expect(JSON.stringify(bus.snapshot())).not.toContain("sk-live");
+    bus.emit({ kind: "tool-start", conversationId: "c", tool: "x", summary: "x" });
+    expect(said()).toBe("the key is [secret k], and that is all");
+    // Held words go out before the step that follows them.
+    expect(heard.at(-1)?.kind).toBe("tool-start");
+    bus.emit({ kind: "delta", conversationId: "c", of: "text", text: "done" });
+    bus.emit({ kind: "turn-end", conversationId: "c" });
+    expect(said()).toBe("the key is [secret k], and that is alldone");
   });
 });

@@ -103,6 +103,6 @@ describe("a secret in what a tool answers", () => {
     const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Keys" }).id;
     await kernel.handleChannelTurn({ text: "check the key", userId: kernel.profile.ownerId, channel: "dashboard", conversationId: chat });
     expectScrubbed(seenByModel);
-    expect(events.some((e) => e.kind === "delta" && e.text === "the key was [secret canary]")).toBe(true);
+    expect(events.flatMap((e) => (e.kind === "delta" ? [e.text] : [])).join("")).toBe("the key was [secret canary]");
   });
 });

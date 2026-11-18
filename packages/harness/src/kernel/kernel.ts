@@ -583,7 +583,7 @@ export class Kernel {
   private readonly stops = new Map<string, Map<string, AbortController>>();
 
   /** Turn progress, for readers watching a conversation as it runs. */
-  readonly progress = new ProgressBus((text) => this.secrets.scrub(text));
+  readonly progress = new ProgressBus({ scrub: (text) => this.secrets.scrub(text), longest: () => this.secrets.longestScanned() });
   /**
    * What each conversation's model has said since its last tool call, from
    * the same stream the dashboard watches, so an approval can quote the
