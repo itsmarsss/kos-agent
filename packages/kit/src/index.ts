@@ -34,6 +34,7 @@ export {
 export { KindMark, Markdown, MentionNames, RefChip, RefLinks } from "./Markdown.js";
 export { BlockActions, KosBlockView, type BlockText } from "./KosBlock.js";
 export { Field, Req, type FieldProps } from "./Field.js";
+export { checkOrigin, OriginList, PAYMENT_FRAMES, SecretField, takeSecretValues, type OriginListProps, type OriginMode, type SecretFieldProps } from "./Secrets.js";
 export { Tex } from "./Tex.js";
 export { MessageTime, TAPPED_MS, TimeCard, TimeLine, Timed, useTimeReveal, useToday, type TimeRevealProps } from "./ChatTime.js";
 export { Tooltip, type TooltipAnchorProps, type TooltipProps } from "./Tooltip.js";
