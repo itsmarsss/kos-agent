@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import { dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
 
 import { parseHomeLayout,
@@ -201,6 +202,19 @@ export interface DashboardServerOptions {
    * Unset (a test, the phone's relay, which its line proves), it is not asked.
    */
   writeKey?: string;
+  /**
+   * Changes need the dashboard token and nothing else will do: the host runs
+   * in the container, where the agent's own programs share loopback with
+   * KOS, so a key served in the page would be theirs to read too.
+   */
+  tokenForWrites?: boolean;
+  /**
+   * The names KOS is reached by (localhost, the bound host, its public and
+   * LAN names), for the Host check that stops a page whose name was rebound
+   * onto this machine. An address given as an IP is always taken: a
+   * rebinding needs a name.
+   */
+  hostNames?: string[];
 }
 
 /** The header the dashboard sends its write key in, and the page's meta that carries it. */
@@ -664,10 +678,8 @@ export async function handleApiRequest(
 
   // A change comes from the page KOS served, which holds this boot's key, or from a holder of the owner's token:
   // not from a program on this machine that merely sends no Origin.
-  const proved = header(req.headers ?? {}, WRITE_KEY_HEADER) === options.writeKey || (options.token !== undefined && authorized(req, options.token));
-  if (options.writeKey && changes(req) && !proved) {
-    return { status: 403, body: { error: "a change to KOS is made from its own dashboard page; reload the dashboard if KOS restarted" } };
-  }
+  const refusedChange = changeRefusal(req, options);
+  if (refusedChange) return { status: 403, body: { error: refusedChange } };
 
   if (extension) return (await extension.handle(req)) ?? notFound;
 
@@ -3274,13 +3286,48 @@ function bearerOf(req: ApiRequest): string | undefined {
   return auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
 }
 
+/** Two secrets compared in constant time, so the time an answer takes says nothing of how much of one was right. */
+export function sameSecret(given: string | undefined, secret: string): boolean {
+  if (given === undefined) return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(secret);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 /** Whether a request carries the dashboard's token, as a bearer or as x-kos-token. */
 export function authorized(req: ApiRequest, token: string): boolean {
   const headers = req.headers ?? {};
   const auth = header(headers, "authorization");
-  if (auth?.startsWith("Bearer ") && auth.slice(7) === token) return true;
-  const x = header(headers, "x-kos-token");
-  return x === token;
+  if (auth?.startsWith("Bearer ") && sameSecret(auth.slice(7), token)) return true;
+  return sameSecret(header(headers, "x-kos-token"), token);
+}
+
+/**
+ * Why a change is refused for want of proof, or undefined: this boot's
+ * write key, or the owner's token. In the container only the token will do.
+ * Said for a terminal too, since the kos CLI and scripts meet it there.
+ */
+export function changeRefusal(req: ApiRequest, options: DashboardServerOptions): string | undefined {
+  if (!changes(req)) return undefined;
+  const token = options.token !== undefined && authorized(req, options.token);
+  if (options.tokenForWrites) {
+    return token ? undefined : "In the container a change to KOS needs the dashboard token: set KOS_DASHBOARD_TOKEN and send it as x-kos-token.";
+  }
+  if (!options.writeKey || token || sameSecret(header(req.headers ?? {}, WRITE_KEY_HEADER), options.writeKey)) return undefined;
+  return "A change to KOS needs this boot's write key. From the dashboard, reload the page (KOS may have restarted). From a terminal, use the kos CLI, or send the key in ~/.kos/write.key (write-<port>.key for another port) as the x-kos-write header.";
+}
+
+/**
+ * Whether a request names KOS by a name it goes by, or by an address. A
+ * page on a name the attacker controls, rebound to 127.0.0.1, sends that
+ * name as its Host: it is refused, whatever it asks. No Host (a program
+ * speaking HTTP/1.0) is taken as this machine's.
+ */
+export function ownHost(hostHeader: string | undefined, names: readonly string[]): boolean {
+  if (!hostHeader) return true;
+  const host = hostHeader.trim().toLowerCase().replace(/:\d+$/, "").replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (isIP(host) !== 0) return true;
+  return ["localhost", ...names.map((n) => n.toLowerCase())].includes(host);
 }
 
 /**
@@ -3441,6 +3488,8 @@ export function mayReadBody(kernel: Kernel, req: ApiRequest, options: DashboardS
   if (options.extensions?.some((e) => e.open?.includes(req.path))) return true;
   // In the order the routes check it: another site's page in the owner's browser is refused before the token.
   if (crossSiteWrite(req, options.allowedOrigins)) return false;
+  // A change without its proof is answered from its headers, its body never read.
+  if (changeRefusal(req, options)) return false;
   return !options.token || authorized(req, options.token);
 }
 
@@ -3767,13 +3816,21 @@ export function createDashboardServer(
   kernel: Kernel,
   given: DashboardServerOptions = {},
 ): Server {
-  // This boot's write key: in memory and in the page alone.
-  const options: DashboardServerOptions = { ...given, writeKey: given.writeKey ?? randomBytes(32).toString("base64url") };
+  // This boot's write key: in memory and in the page alone. In the container there is none: the token is the proof.
+  const { writeKey: givenKey, ...rest } = given;
+  const options: DashboardServerOptions = given.tokenForWrites ? rest : { ...rest, writeKey: givenKey ?? randomBytes(32).toString("base64url") };
   return createServer((req: IncomingMessage, res: ServerResponse) => {
     void (async () => {
       const method = req.method ?? "GET";
       const rawUrl = req.url ?? "/";
       const path = rawUrl.split("?")[0] ?? "/";
+
+      // A name KOS does not go by, on any route: a page whose name was rebound onto this machine.
+      if (!ownHost(req.headers.host, options.hostNames ?? [])) {
+        res.writeHead(421, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "KOS does not answer to that name" }));
+        return;
+      }
 
       if (method === "OPTIONS") {
         res.writeHead(204, corsHeaders(req, options));
@@ -3931,7 +3988,7 @@ function corsHeaders(
   }
   return {
     "access-control-allow-origin": origin,
-    "access-control-allow-headers": "content-type, authorization, x-kos-token",
+    "access-control-allow-headers": "content-type, authorization, x-kos-token, x-kos-write",
     "access-control-allow-methods": "GET, POST, OPTIONS",
     vary: "origin",
   };

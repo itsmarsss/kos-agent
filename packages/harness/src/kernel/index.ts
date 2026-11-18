@@ -18,6 +18,7 @@ export {
 export { connectChannel, type ConnectChannelOptions } from "./channel.js";
 export { conversationEvents, type ChatEvent } from "./transcript.js";
 export { SOCKET_PATH, createDashboardSocket, type DashboardSocket, type DashboardSocketOptions } from "./socket.js";
+export { readWriteKey, saveWriteKey, writeKeyPath } from "./writekey.js";
 export {
   createDashboardServer,
   handleApiRequest,

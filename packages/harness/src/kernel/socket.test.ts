@@ -31,9 +31,11 @@ describe("the dashboard's socket", () => {
   let live: DashboardSocket;
   let base: string;
 
+  const KEY = "boot-key";
+
   async function start(token?: string): Promise<void> {
-    server = createDashboardServer(kernel, token ? { token } : {});
-    live = createDashboardSocket(kernel, token ? { token } : {});
+    server = createDashboardServer(kernel, { ...(token ? { token } : {}), writeKey: KEY });
+    live = createDashboardSocket(kernel, { ...(token ? { token } : {}), writeKey: KEY });
     server.on("upgrade", (req, socket, head) => {
       if (!live.upgrade(req, socket, head)) socket.destroy();
     });
@@ -41,9 +43,9 @@ describe("the dashboard's socket", () => {
     base = `ws://127.0.0.1:${(server.address() as AddressInfo).port}`;
   }
 
-  /** A connection, and what it has heard so far. */
-  async function connect(headers: Record<string, string> = {}): Promise<{ ws: WebSocket; heard: Record<string, unknown>[] }> {
-    const ws = new WebSocket(`${base}/api/socket`, { headers });
+  /** A connection from the dashboard's own page unless said, with this boot's key unless said, and what it has heard so far. */
+  async function connect(headers: Record<string, string> = { origin: `http://${base.slice("ws://".length)}` }, key: string | undefined = KEY): Promise<{ ws: WebSocket; heard: Record<string, unknown>[] }> {
+    const ws = new WebSocket(`${base}/api/socket${key ? `?key=${key}` : ""}`, { headers });
     const heard: Record<string, unknown>[] = [];
     ws.on("message", (data, binary) => {
       if (!binary) heard.push(JSON.parse(data.toString()) as Record<string, unknown>);
@@ -71,18 +73,29 @@ describe("the dashboard's socket", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("lets in the dashboard's own page and a caller with no page, and refuses any other site", async () => {
+  it("lets in the dashboard's own page, and refuses any other site, a caller that names none, and a rebound name", async () => {
     await start();
     const host = base.slice("ws://".length);
     await expect(connect({ origin: `http://${host}` })).resolves.toBeDefined();
-    await expect(connect()).resolves.toBeDefined();
+    await expect(connect({})).rejects.toThrow(/403/);
     await expect(connect({ origin: "https://evil.example" })).rejects.toThrow(/403/);
+    await expect(connect({ origin: "http://evil.example", host: "evil.example" })).rejects.toThrow(/403|421/);
   });
 
   it("asks for the dashboard's token when it has one", async () => {
     await start("s3cret");
-    await expect(connect()).rejects.toThrow(/403/);
-    await expect(connect({ "x-kos-token": "s3cret" })).resolves.toBeDefined();
+    const origin = `http://${base.slice("ws://".length)}`;
+    await expect(connect({ origin })).rejects.toThrow(/403/);
+    await expect(connect({ origin, "x-kos-token": "s3cret" })).resolves.toBeDefined();
+  });
+
+  it("lets a window without this boot's key watch, but not put its hand on the browser", async () => {
+    await start();
+    const { ws, heard } = await connect(undefined, "");
+    ws.send(JSON.stringify({ op: "take", tab: "T1" }));
+    ws.send(JSON.stringify({ op: "input", tab: "T1", type: "input_mouse" }));
+    await until(() => heard.filter((m) => m["type"] === "error").length >= 2);
+    expect(heard.filter((m) => m["type"] === "error").map((m) => m["error"])).toEqual([expect.stringMatching(/no key/), expect.stringMatching(/no key/)]);
   });
 
   it("carries a turn's progress, caught up first on what is running", async () => {

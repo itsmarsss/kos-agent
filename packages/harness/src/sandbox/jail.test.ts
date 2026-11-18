@@ -1,10 +1,12 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer } from "node:http";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { jailedCommand, kosPorts, sandboxProfile } from "./jail.js";
+import { jailedCommand, kosPorts, kosSecretFiles, sandboxProfile } from "./jail.js";
 
 describe("the shell jail", () => {
   it("denies the owner's home for reading and carves the workspace back out", () => {
@@ -56,13 +58,20 @@ describe("the shell jail", () => {
   });
 
   it("keeps the network and the whole workspace writable unless told otherwise, all but KOS's own ports", () => {
-    const p = sandboxProfile({ workspaceRoot: "/w", homes: [], kosPorts: [4317, 4318] });
+    const p = sandboxProfile({ workspaceRoot: "/w", homes: [], kosPorts: [4317, 4318], secretFiles: [] });
     expect(p).not.toContain("network*");
-    expect(p).toContain('(deny network-outbound (remote ip "localhost:4317"))');
-    expect(p).toContain('(deny network-outbound (remote ip "localhost:4318"))');
+    expect(p).toContain('(deny network-outbound (remote ip "*:4317"))');
+    expect(p).toContain('(deny network-outbound (remote ip "*:4318"))');
     expect(p).toContain('(allow file-write* (subpath "/w")');
-    expect(kosPorts({ KOS_PORT: "4420" })).toEqual([4420, 4421]);
-    expect(kosPorts({})).toEqual([4317, 4318]);
+    expect(kosPorts({ KOS_PORT: "4420" })).toEqual([4420, 4421, 4422, 9225]);
+    expect(kosPorts({ KOS_DEVICE_LAN_PORT: "4500", KOS_BROWSER_PORT: "9300" })).toEqual([4317, 4318, 4500, 9300]);
+  });
+
+  it("denies reading this boot's write key and KOS's keys, after every allow", () => {
+    const p = sandboxProfile({ workspaceRoot: "/w", homes: [], secretFiles: ["/w/write.key", "/Users/me/.kos"] });
+    const deny = p.indexOf('(deny file-read* (subpath "/w/write.key")');
+    expect(deny).toBeGreaterThan(p.lastIndexOf("(allow file-read* "));
+    expect(kosSecretFiles({ KOS_WRITE_KEY_FILE: "/tmp/k" })[0]).toBe("/tmp/k");
   });
 
   it.runIf(process.platform === "darwin")("stops a jailed program reaching KOS's port on this machine, and lets it reach another", async () => {
@@ -72,7 +81,7 @@ describe("the shell jail", () => {
     const portOf = (s: ReturnType<typeof createServer>): number => (s.address() as { port: number }).port;
     // Run apart from this process, whose servers must go on answering meanwhile.
     const run = async (port: number): Promise<string> => {
-      const jailed = jailedCommand(`curl -s -m 3 http://127.0.0.1:${port}/ || echo refused`, { workspaceRoot: tmpdir(), homes: [], kosPorts: [portOf(kos)] });
+      const jailed = jailedCommand(`curl -s -m 3 http://127.0.0.1:${port}/ || echo refused`, { workspaceRoot: tmpdir(), homes: [], kosPorts: [portOf(kos)], secretFiles: [] });
       return (await promisify(execFile)(jailed.file, jailed.args, { encoding: "utf8" })).stdout.trim();
     };
     try {
@@ -80,6 +89,27 @@ describe("the shell jail", () => {
       expect(await run(portOf(other))).toBe("other");
     } finally {
       await Promise.all([kos, other].map((s) => new Promise((done) => s.close(done))));
+    }
+  });
+
+  it.runIf(process.platform === "darwin")("stops a jailed program reading the write key, and reaching KOS's port by a mapped address", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kos-jail-key-"));
+    const key = join(dir, "write.key");
+    writeFileSync(key, "sekrit\n");
+    const kos = createServer((_q, r) => r.end("kos"));
+    await new Promise<void>((done) => kos.listen(0, "::", done));
+    const port = (kos.address() as { port: number }).port;
+    const run = async (command: string): Promise<string> => {
+      const jailed = jailedCommand(`${command} 2>/dev/null || echo refused`, { workspaceRoot: dir, homes: [], kosPorts: [port], secretFiles: [key] });
+      return (await promisify(execFile)(jailed.file, jailed.args, { encoding: "utf8" })).stdout.trim();
+    };
+    try {
+      expect(await run(`cat ${key}`)).toBe("refused");
+      expect(await run(`curl -s -m 3 'http://[::ffff:127.0.0.1]:${port}/'`)).toBe("refused");
+      expect(await run(`curl -s -m 3 'http://[::1]:${port}/'`)).toBe("refused");
+    } finally {
+      await new Promise((done) => kos.close(done));
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 

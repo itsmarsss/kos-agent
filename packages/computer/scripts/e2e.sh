@@ -63,7 +63,7 @@ chmod +x "$DIR/installer.sh" "$DIR/signing.sh"
 node scripts/e2e/stubmodel.mjs "$MODEL" > "$DIR/model.log" 2>&1 &
 PIDS+=($!)
 
-env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
+env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" KOS_WRITE_KEY_FILE="$DIR/write.key" \
   DISCORD_TOKEN= KOS_OWNER_DISCORD= KOS_DISCORD_GUILD= KOS_OWNER_IMESSAGE= \
   KOS_DEVICE_KEY_FILE="$DIR/device-host.key" KOS_DEVICE_LAN_CERT_FILE="$DIR/device-lan.pem" KOS_DEVICE_LOCAL_KEY_FILE="$DIR/device-local.key" \
   KOS_DEVICE_LAN_HOST=127.0.0.1 KOS_DEVICE_LAN_PORT="$LAN" KOS_BROWSER_PORT="$BROWSER" \

@@ -13,6 +13,8 @@ export interface KosClientOptions {
   baseUrl: string;
   /** The dashboard token, when the host was started with one. */
   token?: string;
+  /** This boot's write key, from the file the host keeps it in (~/.kos/write.key): a change sends it. */
+  writeKey?: string;
 }
 
 export interface Fact {
@@ -36,16 +38,20 @@ export interface Reply {
 export class KosClient {
   private readonly baseUrl: string;
   private readonly token?: string;
+  private readonly writeKey?: string;
 
   constructor(options: KosClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
     if (options.token) this.token = options.token;
+    if (options.writeKey) this.writeKey = options.writeKey;
   }
 
   private headers(json = false, bearer = this.token): Record<string, string> {
     const h: Record<string, string> = {};
     if (json) h["content-type"] = "application/json";
     if (bearer) h.authorization = `Bearer ${bearer}`;
+    // Sent with a change, as the dashboard's page sends it.
+    if (json && this.writeKey) h["x-kos-write"] = this.writeKey;
     return h;
   }
 

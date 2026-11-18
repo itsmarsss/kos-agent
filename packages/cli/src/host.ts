@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import type { Server } from "node:http";
 import { connect } from "node:net";
@@ -32,6 +33,9 @@ import {
   createDashboardServer,
   createDashboardSocket,
   handleApiRequest,
+  isContained,
+  saveWriteKey,
+  writeKeyPath,
   createPressHandler,
   primarySessionId,
   surfaceSessionId,
@@ -746,13 +750,30 @@ export async function runHost(options: HostOptions): Promise<void> {
         }
       : {}),
   };
-  const server = createDashboardServer(kernel, { ...dashboard, ...(options.token ? { token: options.token } : {}) });
+  /*
+   * This boot's write key: in the page KOS serves, and in a file only the
+   * owner reads (0600, outside the workspace, denied to every jailed
+   * program) for the kos CLI. Never in the environment. In the container
+   * the agent's programs share loopback with KOS, so there is no key and
+   * every change needs the dashboard token.
+   */
+  const contained = isContained();
+  const writeKey = contained ? undefined : randomBytes(32).toString("base64url");
+  if (writeKey) {
+    const keyFile = writeKeyPath(options.port);
+    saveWriteKey(keyFile, writeKey);
+    // The path alone, so the jail can deny reading it (sandbox/jail.ts).
+    process.env.KOS_WRITE_KEY_FILE = keyFile;
+  }
+  // The names KOS answers to; an address is always taken (a rebinding needs a name).
+  const hostNames = [options.host, process.env.KOS_DEVICE_LAN_HOST, ...publicHostsOf(process.env.KOS_PUBLIC_URL).map((h) => h.replace(/:\d+$/, ""))].filter((h): h is string => !!h?.trim());
+  const server = createDashboardServer(kernel, { ...dashboard, ...(options.token ? { token: options.token } : {}), ...(writeKey ? { writeKey } : { tokenForWrites: true }), hostNames });
 
   // A chat that borrowed the owner's Chrome browses there.
   kernel.setBrowserElsewhere(computer.chrome);
 
   // The two upgrades the dashboard server takes: the dashboard's own socket, and a paired device's.
-  const live = createDashboardSocket(kernel, { ...(options.token ? { token: options.token } : {}) });
+  const live = createDashboardSocket(kernel, { ...(options.token ? { token: options.token } : {}), ...(writeKey ? { writeKey } : {}), hostNames });
   server.on("upgrade", (req, socket, head) => {
     if (!live.upgrade(req, socket, head) && !computer.upgrade(req, socket, head)) socket.destroy();
   });

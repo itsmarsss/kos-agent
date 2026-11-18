@@ -33,18 +33,35 @@ export interface JailOptions {
   /** False for a program that must not reach the network. */
   network?: boolean;
   /**
-   * KOS's own ports on this machine, which no jailed program may connect
-   * to: its API takes a change from any local program that does not say it
-   * is a browser. KOS_PORT and the sites port after it by default.
+   * KOS's own ports, which no jailed program may connect to, on any address
+   * (a v4 address in v6 form included): see `kosPorts`.
    */
   kosPorts?: number[];
+  /** Files and folders never read, wherever they are: see `kosSecretFiles`. */
+  secretFiles?: string[];
 }
 
-/** KOS's API port and its sites port, as this host was started with them. */
+/** A port named in the environment, or the default. */
+function portIn(value: string | undefined, fallback: number): number {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 && n < 65_536 ? n : fallback;
+}
+
+/**
+ * Every port KOS itself listens on, as this host was started: the API, the
+ * sites server after it, the Wi-Fi listener for phones (the API's plus two
+ * unless KOS_DEVICE_LAN_PORT says), and KOS's own Chrome's debugging port
+ * (9225 unless KOS_BROWSER_PORT says), which drives a browser signed in to
+ * whatever KOS browses.
+ */
 export function kosPorts(env: NodeJS.ProcessEnv = process.env): number[] {
-  const port = Number(env.KOS_PORT);
-  const api = Number.isInteger(port) && port > 0 && port < 65_535 ? port : 4317;
-  return [api, api + 1];
+  const api = portIn(env.KOS_PORT, 4317);
+  return [...new Set([api, api + 1, portIn(env.KOS_DEVICE_LAN_PORT, api + 2), portIn(env.KOS_BROWSER_PORT, 9225)])];
+}
+
+/** Files no jailed program may read wherever they are: this boot's write key, and KOS's keys under ~/.kos. */
+export function kosSecretFiles(env: NodeJS.ProcessEnv = process.env): string[] {
+  return [env.KOS_WRITE_KEY_FILE?.trim(), resolve(homedir(), ".kos")].filter((p): p is string => !!p);
 }
 
 export interface JailedCommand {
@@ -85,7 +102,7 @@ export function sandboxProfile(options: JailOptions): string {
   const lines = [
     "(version 1)",
     "(allow default)",
-    ...(options.network === false ? ["(deny network*)"] : (options.kosPorts ?? kosPorts()).map((p) => `(deny network-outbound (remote ip ${sb(`localhost:${p}`)}))`)),
+    ...(options.network === false ? ["(deny network*)"] : (options.kosPorts ?? kosPorts()).map((p) => `(deny network-outbound (remote ip ${sb(`*:${p}`)}))`)),
     "(deny file-write*)",
     `(allow file-write* ${writes} (literal "/dev/null") (regex #"^/dev/tty"))`,
     ...homes.map((h) => `(deny file-read* (subpath ${sb(resolve(h))}))`),
@@ -93,6 +110,8 @@ export function sandboxProfile(options: JailOptions): string {
     ...(options.hidden?.length ? [`(deny file-read* ${subpaths(options.hidden)})`] : []),
     ...(options.writes?.length ? [`(allow file-read* ${writes})`] : []),
     ...(options.readOnly?.length ? [`(deny file-write* ${subpaths(options.readOnly)})`] : []),
+    // Last, so no allow above carves them back out.
+    ...((options.secretFiles ?? kosSecretFiles()).length ? [`(deny file-read* ${subpaths(options.secretFiles ?? kosSecretFiles())})`] : []),
     "(allow file-read-metadata)",
     "",
   ];

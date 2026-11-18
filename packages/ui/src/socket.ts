@@ -86,7 +86,9 @@ class KosSocket {
 
   private open(): void {
     if (this.ws || this.reconnect !== undefined) return;
-    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/socket`);
+    // This boot's key, from the page KOS served: a window without it may watch but not work the browser.
+    const key = document.querySelector('meta[name="kos-write"]')?.getAttribute("content");
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/socket${key ? `?key=${encodeURIComponent(key)}` : ""}`);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
     ws.onopen = () => {
