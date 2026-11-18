@@ -19,6 +19,8 @@ export interface Inference {
   generate(task: Task, req: GenerateRequest): Promise<ModelResponse>;
   /** What answers a task, where the inference can say. */
   routeFor?(task: Task): Route;
+  /** Whether a task can be asked at all, where the inference can say. */
+  ready?(task: Task): boolean;
 }
 
 /**

@@ -71,6 +71,7 @@ import {
   useProgress,
   onNote,
   onTurnEnd,
+  onRenamed,
   type Live,
 } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
@@ -325,6 +326,8 @@ export function ChatsPage({
   // A reply landing anywhere refreshes the list at once, so the unread dot
   // appears when the reply does rather than on the next poll.
   useEffect(() => onTurnEnd(() => onChanged()), [onChanged]);
+  // And a chat's new name the moment it lands, in the list and the header.
+  useEffect(() => onRenamed(() => onChanged()), [onChanged]);
 
   // The list is the authority on what is running: a turn that started before
   // this view opened produced no events it could have seen, and one that

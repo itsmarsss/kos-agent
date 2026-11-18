@@ -2864,6 +2864,20 @@ describe("renames", () => {
     expect(names).toEqual(["Seed order"]);
   });
 
+  it("drops a held-back name once a newer one comes, so a stale name never lands over the owner's", async () => {
+    const names: string[] = [];
+    const thread = { name: "Old", isThread: () => true, setName: async (n: string) => void (names.push(n), (thread.name = n)) };
+    const adapter = new DiscordAdapter({ token: "t" });
+    (adapter as unknown as { client: unknown }).client = { channels: { fetch: async () => thread } };
+    const internals = adapter as unknown as { waitingRenames: Map<string, string> };
+    internals.waitingRenames.set("t1", "Named by KOS");
+    // The owner named the thread on Discord; the chat followed and its rename comes back here.
+    thread.name = "Owner's name";
+    await adapter.renameThread("t1", "Owner's name");
+    expect(internals.waitingRenames.has("t1")).toBe(false);
+    expect(names).toEqual([]);
+  });
+
   it("tells the host when the owner renames a thread of the owner's or KOS's on Discord, and of no one else's", async () => {
     const renamed: [string, string][] = [];
     const adapter = new DiscordAdapter({ token: "t", onThreadRenamed: (id, name) => void renamed.push([id, name]) });

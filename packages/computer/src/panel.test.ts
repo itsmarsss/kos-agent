@@ -470,6 +470,28 @@ describe("the KOS for Mac window", () => {
   });
 });
 
+describe("a chat named while it is shown", () => {
+  it("tells every device the new list, and redraws the header only where that chat is open", async () => {
+    const { panel, pair, setChat } = setup();
+    const one = pair();
+    setChat({ id: "cm1:owner", title: "Trip plan" });
+    panel.watch({ kind: "renamed", conversationId: "cm1:owner", title: "Trip plan" });
+    await flush();
+    expect(one.calls.filter((c) => c.method === "chat.chats").map((c) => c.params)).toEqual([
+      { chats: [{ id: "chrome:owner", title: "Chrome", updatedAt: 2 }, { id: "cm1:owner", title: "Trip plan", updatedAt: 1 }], current: "cm1:owner" },
+    ]);
+    expect(one.calls.filter((c) => c.method === "chat.show").map((c) => (c.params as { title: string }).title)).toEqual(["Trip plan"]);
+
+    // Another chat's name, shown here: the list alone. One not of this panel's: nothing.
+    setChat({ id: "chrome:owner", title: "Chrome" });
+    one.calls.length = 0;
+    panel.watch({ kind: "renamed", conversationId: "cm1:owner", title: "Trip plan" });
+    panel.watch({ kind: "renamed", conversationId: "c9:owner", title: "Elsewhere" });
+    await flush();
+    expect(one.calls.map((c) => c.method)).toEqual(["chat.chats"]);
+  });
+});
+
 describe("a step's pictures on a device's chat", () => {
   const pictures = { 5: { image: "P5", site: "shop.test" }, 6: { image: "P6" } };
 

@@ -395,6 +395,7 @@ export class DevicePanel implements ChannelAdapter {
   watch(event: ProgressEvent): void {
     const id = event.conversationId;
     if (event.kind === "turn-end") return this.turnEnded(id);
+    if (event.kind === "renamed") return this.renamed(id);
     const chat = this.deps.current();
     if (event.kind === "turn-start") {
       this.forgetLost();
@@ -420,6 +421,14 @@ export class DevicePanel implements ChannelAdapter {
       return;
     }
     if (running.narrator.take(event)) this.narrate(running, event.kind !== "delta");
+  }
+
+  /** A chat of the panel's with a new title: its list on every device, and its header where it is the one shown. */
+  private renamed(id: string): void {
+    const chats = this.deps.chats?.() ?? [];
+    if (!chats.some((c) => c.id === id)) return;
+    void this.everyDevice("chat.chats", { chats, current: this.deps.current()?.id ?? null });
+    if (id === this.deps.current()?.id) void this.everyDevice("chat.show", this.drawn());
   }
 
   /** Turns kept as running past any wait they could be in: their end was never heard, so they end here. */
