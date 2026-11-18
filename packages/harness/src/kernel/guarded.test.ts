@@ -169,6 +169,8 @@ describe("GuardedTools", () => {
       risky("browser.act");
       const tools = auto({ beyondAutoNow: async (_tool, input) => (JSON.stringify(input).includes("pay") ? "acts on a checkout or payment page" : undefined) });
       expect((await tools.execute("browser.act", { actions: [{ click: "@pay" }] })).content).toMatch(/Queued for approval/);
+      // The card says why it asked, though the chat is in Auto.
+      expect(approvals.pending().at(-1)?.reason).toMatch(/^asked though the chat is in Auto: acts on a checkout or payment page/);
       expect((await tools.execute("browser.act", { actions: [{ click: "@next" }] })).content).toBe(`${AUTO_PREFIX}\ndone`);
     });
 

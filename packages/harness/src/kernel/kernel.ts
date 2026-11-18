@@ -47,14 +47,19 @@ import {
   type Page,
   type Tab,
 } from "@kos/browser";
-import { addressesIn, CHECKOUT_WORDS, checkoutVerdict, looksLikeCheckout, PAY_FRAMES, type PageLook } from "../risk/beyondauto.js";
+import { addressesIn, CHECKOUT_WORDS, checkoutVerdict, looksLikeCheckout, PAY_BUTTON, PAY_FRAMES, type PageLook } from "../risk/beyondauto.js";
 
 /** What a checkout check reads of a page: the first checkout phrase anywhere in its words, a card field, a payment provider's frame. */
-const CHECKOUT_LOOK = `JSON.stringify({
-  text: ((document.body ? document.body.innerText : "").match(${CHECKOUT_WORDS.toString()}) || [""])[0],
-  cardField: !!document.querySelector('[autocomplete^="cc-"]'),
-  payFrame: [...document.querySelectorAll("iframe")].some((f) => ${PAY_FRAMES.toString()}.test(f.src || "")),
-})`;
+const CHECKOUT_LOOK = `(() => {
+  const shown = (el) => { const r = el.getBoundingClientRect(); const st = getComputedStyle(el); return r.width >= 100 && r.height >= 30 && st.visibility !== "hidden" && st.display !== "none" && Number(st.opacity) > 0; };
+  const pressable = [...document.querySelectorAll("button, input[type=submit], input[type=button], a[role=button], [role=button]")];
+  return JSON.stringify({
+    text: ((document.body ? document.body.innerText : "").match(${CHECKOUT_WORDS.toString()}) || [""])[0],
+    cardField: !!document.querySelector('[autocomplete^="cc-"]'),
+    payFrame: [...document.querySelectorAll("iframe")].some((f) => ${PAY_FRAMES.toString()}.test(f.src || "") && shown(f)),
+    payButton: pressable.some((b) => ${PAY_BUTTON.toString()}.test((b.innerText || b.value || b.getAttribute("aria-label") || "").trim())),
+  });
+})()`;
 import { BROWSER_KEY, BROWSER_PORT, browserConfig } from "../ops/browsersettings.js";
 import type { BrowserElsewhere, PageSpot, TabInfo } from "../tools/browser.js";
 import { PageWatchStore, type WatchLook } from "../ops/watches.js";

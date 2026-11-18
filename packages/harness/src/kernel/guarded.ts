@@ -510,7 +510,9 @@ export class GuardedTools implements ToolBox {
       const context = this.deps.permissionContext?.(name);
       // A chat set to Auto, for the owner's own turn: decided by auto mode, kept in the Inbox as such, and said to the model.
       const covered = autoCovers({ mode: this.deps.chatMode?.(), assessment, ownWords: owner && this.deps.ownWords === true, strict, secret, halted: this.deps.halted?.() === true });
-      if (covered && !(await this.deps.beyondAutoNow?.(name, input).catch(() => undefined))) {
+      // Why Auto held back after all, from what the call would act on: said on the card, so the owner knows why it asked.
+      const heldBack = covered ? await this.deps.beyondAutoNow?.(name, input).catch(() => undefined) : undefined;
+      if (covered && !heldBack) {
         const unready = await readyNow();
         if (unready) return unready;
         approvals.settled(
@@ -568,7 +570,7 @@ export class GuardedTools implements ToolBox {
         args: input,
         riskTier: "risky",
         // The rule's own words first; the old labels only where a rule has none.
-        reason: `${assessment.reason ?? (assessment.escalated ? "argument escalation" : site ? `on ${site}` : "risky tool")}${context?.browser?.yours ? ", in your Chrome" : ""}`,
+        reason: `${heldBack ? `asked though the chat is in Auto: ${heldBack}` : (assessment.reason ?? (assessment.escalated ? "argument escalation" : site ? `on ${site}` : "risky tool"))}${context?.browser?.yours ? ", in your Chrome" : ""}`,
         ...(userId ? { userId } : {}),
         ...(conversationId ? { conversationId } : {}),
         ...(rule ? { rule } : {}),

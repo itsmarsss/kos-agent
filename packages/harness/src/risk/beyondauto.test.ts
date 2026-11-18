@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { addressesIn, checkoutVerdict, PAY_FRAMES, beyondAutoByName, beyondAutoRule, destructiveCommand, looksLikeCheckout } from "./beyondauto.js";
+import { addressesIn, checkoutVerdict, PAY_BUTTON, PAY_FRAMES, beyondAutoByName, beyondAutoRule, destructiveCommand, looksLikeCheckout } from "./beyondauto.js";
 
 describe("beyondAutoByName", () => {
   it("names a tool that spends money, deletes or cancels", () => {
@@ -80,8 +80,13 @@ describe("looksLikeCheckout", () => {
     expect(looksLikeCheckout(["https://shop.example/checkout/step-2"], undefined)).toMatch(/checkout or payment page/);
     expect(looksLikeCheckout(["https://shop.example/cart"], undefined)).toBe(false);
     expect(looksLikeCheckout(["https://shop.example/a"], page("Shipping", true))).toMatch(/card field/);
-    expect(looksLikeCheckout(["https://shop.example/a"], page("Review, then Place order"))).toMatch(/reads like a checkout/);
-    expect(looksLikeCheckout(["https://shop.example/a"], page("Buy now and save"))).toMatch(/reads like a checkout/);
+    expect(looksLikeCheckout(["https://shop.example/a"], { ...page("Review, then Place order"), payButton: true })).toMatch(/reads like a checkout/);
+    // A footer's "Payment methods" alone is not a checkout.
+    expect(looksLikeCheckout(["https://shop.example/a"], page("Payment methods we take"))).toBe(false);
+    expect(looksLikeCheckout(["https://shop.example/a"], { ...page(""), payButton: true })).toMatch(/button that pays/);
+    expect(PAY_BUTTON.test("Place order")).toBe(true);
+    expect(PAY_BUTTON.test("Pay $12.00")).toBe(true);
+    expect(PAY_BUTTON.test("Payment methods")).toBe(false);
     expect(looksLikeCheckout([], page("The weather in Lisbon"))).toBe(false);
     expect(looksLikeCheckout(["https://shop.example/buy/now"], undefined)).toMatch(/checkout or payment page/);
     expect(looksLikeCheckout([], { text: "", cardField: false, payFrame: true })).toMatch(/payment provider/);
@@ -100,6 +105,7 @@ describe("checkoutVerdict", () => {
     expect(checkoutVerdict(["https://a.example/"], undefined, false)).toBe(false);
     expect(checkoutVerdict([], null, true)).toBe(false);
     expect(checkoutVerdict(["https://a.example/checkout"], undefined, false)).toMatch(/checkout/);
-    expect(checkoutVerdict([], { text: "Pay now", cardField: false }, true)).toMatch(/reads like a checkout/);
+    expect(checkoutVerdict([], { text: "Pay now", cardField: false, payButton: true }, true)).toMatch(/reads like a checkout/);
+    expect(checkoutVerdict([], { text: "Pay now", cardField: false }, true)).toBe(false);
   });
 });

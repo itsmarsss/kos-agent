@@ -87,11 +87,20 @@ export const CHECKOUT_WORDS = /\b(checkout|check out|place (?:your )?order|buy n
 /** A payment provider's frame, whose card fields the page itself cannot see into. */
 export const PAY_FRAMES = /(js\.stripe\.com|stripe\.network|paypal\.com|paypalobjects\.com|adyen\.com|braintree(gateway|-api)?\.com|checkout\.com|squareup\.com|klarna\.com)/i;
 
-/** What a browser step's page tells of it: its checkout words, a card field (autocomplete cc-*), a payment provider's frame. */
+/** A button that pays, by its words. */
+export const PAY_BUTTON = /^(place (?:your |the )?order|pay(?: now| \S+)?|buy now|complete (?:your |the )?(?:purchase|order)|confirm (?:and pay|purchase|order)|checkout|check out|subscribe)\b/i;
+
+/**
+ * What a browser step's page tells of it: the first checkout phrase in its
+ * words, a card field (autocomplete cc-*), a payment provider's frame that is
+ * shown (a hidden stripe.js frame is on every page that loads it), and a
+ * button that pays.
+ */
 export interface PageLook {
   text: string;
   cardField: boolean;
   payFrame?: boolean;
+  payButton?: boolean;
 }
 
 /**
@@ -113,7 +122,8 @@ export function looksLikeCheckout(urls: readonly string[], page: PageLook | unde
   }
   if (page?.cardField) return "acts on a page with a card field";
   if (page?.payFrame) return "acts on a page with a payment provider's frame";
-  if (page && CHECKOUT_WORDS.test(page.text)) return "acts on a page that reads like a checkout";
+  // A checkout's words alone are a footer's too ("Payment methods"): they count beside a button that pays.
+  if (page?.payButton) return CHECKOUT_WORDS.test(page.text) ? "acts on a page that reads like a checkout" : "acts on a page with a button that pays";
   return false;
 }
 
