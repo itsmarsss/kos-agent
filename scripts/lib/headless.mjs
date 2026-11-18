@@ -1,10 +1,12 @@
 // A headless Chrome a script starts for itself, which never outlives the script or leaves its profile behind.
 //
 // Chrome runs in a process group of its own, so its helpers go with it. close()
-// stops the group, waits for it to exit and only then deletes the profile, which
-// Chrome writes to until it has gone. The script ending any other way (an
-// uncaught error, process.exit, Ctrl-C, a kill) kills the group and deletes
-// the profile before it goes.
+// asks the browser to quit, kills the group if it has not within a grace
+// period, waits for it to exit and only then deletes the profile, which Chrome
+// writes to until it has gone. The script ending any other way (an uncaught
+// error, process.exit, Ctrl-C, a kill) kills the group and deletes the profile
+// before it goes. SIGINT and SIGTERM are answered only when the script does
+// not answer them itself; when its own handler exits, the same clean-up runs.
 
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -39,6 +41,39 @@ function signalGroup(proc, signal) {
 }
 
 /**
+ * What to do, synchronously, for each Chrome still running if the script goes
+ * without closing it: nothing asynchronous runs any more by then.
+ */
+const running = new Set();
+const cleanUp = () => {
+  for (const kill of running) kill();
+};
+/** The signals this module answers: only those the script does not answer itself. */
+let answered = [];
+const onSignal = (signal) => {
+  cleanUp();
+  process.exit(signal === "SIGINT" ? 130 : 143);
+};
+
+function track(kill) {
+  if (!running.size) {
+    process.on("exit", cleanUp);
+    // A script with its own handler decides whether to exit; when it does, "exit" cleans up.
+    answered = ["SIGINT", "SIGTERM"].filter((signal) => process.listenerCount(signal) === 0);
+    for (const signal of answered) process.on(signal, onSignal);
+  }
+  running.add(kill);
+}
+
+function untrack(kill) {
+  running.delete(kill);
+  if (running.size) return;
+  process.off("exit", cleanUp);
+  for (const signal of answered) process.off(signal, onSignal);
+  answered = [];
+}
+
+/**
  * Start Chrome headless with a throwaway profile (a kos-* folder in the temp
  * folder) and wait for its DevTools endpoint.
  *
@@ -53,9 +88,12 @@ export async function launchHeadless({ binary = CHROME, args = [], prefix = "kos
     proc.once("exit", resolve);
     proc.once("error", resolve);
   });
+  if (!proc.pid) {
+    rmSync(profile, RM);
+    throw new Error(`could not start ${binary}`);
+  }
 
-  // The script going without close(): nothing asynchronous runs any more, so the kill and the delete are synchronous.
-  const onExit = () => {
+  const killNow = () => {
     signalGroup(proc, "SIGKILL");
     try {
       rmSync(profile, RM);
@@ -63,22 +101,15 @@ export async function launchHeadless({ binary = CHROME, args = [], prefix = "kos
       /* the next sweep's */
     }
   };
-  const onSignal = (signal) => {
-    onExit();
-    process.exit(signal === "SIGINT" ? 130 : 143);
-  };
-  process.on("exit", onExit);
-  process.on("SIGINT", onSignal);
-  process.on("SIGTERM", onSignal);
+  track(killNow);
 
   let closing;
   const close = () =>
     (closing ??= (async () => {
-      process.off("exit", onExit);
-      process.off("SIGINT", onSignal);
-      process.off("SIGTERM", onSignal);
+      untrack(killNow);
       if (proc.exitCode === null && proc.signalCode === null) {
-        signalGroup(proc, "SIGTERM");
+        // The browser alone first: it closes its own helpers.
+        proc.kill("SIGTERM");
         const kill = setTimeout(() => signalGroup(proc, "SIGKILL"), GRACE_MS);
         await exited;
         clearTimeout(kill);

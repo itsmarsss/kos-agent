@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -66,28 +66,47 @@ describe("a script's headless Chrome", () => {
   }, 15_000);
 
   /** A script that starts one and then ends as it is told, printing its profile once the Chrome is up. */
-  const SCRIPT = (end) => `
+  const script = ({ before = "", end }) => `
 import { launchHeadless } from ${JSON.stringify(fileURLToPath(new URL("./headless.mjs", import.meta.url)))};
+${before}
 const chrome = await launchHeadless({ binary: ${JSON.stringify(binary)}, prefix: "kos-headless-test-" });
 console.log(chrome.profile);
 ${end}
 `;
+  const idle = "setInterval(() => {}, 1000);";
+
+  it("fails at once when the binary cannot be started, and leaves no profile", async () => {
+    const started = Date.now();
+    const prefix = `kos-headless-test-${process.pid}-`;
+    await expect(launchHeadless({ binary: join(dir, "no-such-chrome"), prefix })).rejects.toThrow(/could not start/);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(readdirSync(tmpdir()).some((name) => name.startsWith(prefix))).toBe(false);
+  });
 
   it.each([
-    ["SIGTERM", "setInterval(() => {}, 1000);"],
-    ["SIGINT", "setInterval(() => {}, 1000);"],
-    ["an uncaught error", "setTimeout(() => { throw new Error('boom'); }, 200);"],
-  ])("goes with a script ended by %s", async (how, end) => {
-    const script = join(dir, "script.mjs");
-    writeFileSync(script, SCRIPT(end));
-    const child = spawn(process.execPath, [script], { stdio: ["ignore", "pipe", "ignore"] });
+    ["SIGTERM", "SIGTERM", () => ({ end: idle })],
+    ["SIGINT", "SIGINT", () => ({ end: idle })],
+    ["an uncaught error", undefined, () => ({ end: "setTimeout(() => { throw new Error('boom'); }, 200);" })],
+    // Its own handler is left to answer, and its exit cleans up.
+    ["SIGTERM to its own handler", "SIGTERM", () => ({ before: `process.on("SIGTERM", () => { console.log("handled"); process.exit(0); });`, end: idle })],
+  ])("goes with a script ended by %s", async (how, signal, parts) => {
+    const file = join(dir, "script.mjs");
+    writeFileSync(file, script(parts()));
+    const child = spawn(process.execPath, [file], { stdio: ["ignore", "pipe", "ignore"] });
+    let out = "";
+    child.stdout.on("data", (data) => (out += data));
     const exited = new Promise((resolve) => child.once("exit", resolve));
-    const profile = await new Promise((resolve) => child.stdout.once("data", (data) => resolve(String(data).trim())));
+    await vi.waitFor(() => expect(out).toContain("\n"));
+    const profile = out.trim();
     expect(existsSync(profile)).toBe(true);
     await vi.waitFor(() => expect(existsSync(pidsFile)).toBe(true));
     const [browser, helper] = pids();
-    if (how.startsWith("SIG")) child.kill(how);
-    await exited;
+    if (signal) child.kill(signal);
+    const code = await exited;
+    if (how.endsWith("own handler")) {
+      expect(out).toContain("handled");
+      expect(code).toBe(0);
+    }
     expect(existsSync(profile)).toBe(false);
     await vi.waitFor(() => expect(running(browser) || running(helper)).toBe(false));
   }, 15_000);
