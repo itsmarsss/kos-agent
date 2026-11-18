@@ -31,6 +31,16 @@ describe("the shell jail", { timeout: 30_000 }, () => {
     expect(deny).toBeGreaterThan(allow);
   });
 
+  it("carves writable folders back out of a read-only one, then denies the unwritable patterns over both", () => {
+    const p = sandboxProfile({ workspaceRoot: "/tmp/ws", homes: [], readOnly: ["/tmp/ws/.kos"], writableWithin: ["/tmp/ws/.kos/tmp"], unwritable: ["/\\.git/hooks(/|$)"] });
+    const deny = p.indexOf('(deny file-write* (subpath "/tmp/ws/.kos")');
+    const carved = p.indexOf('(allow file-write* (subpath "/tmp/ws/.kos/tmp")');
+    const pattern = p.indexOf('(deny file-write* (regex #"/\\.git/hooks(/|$)"))');
+    expect(deny).toBeGreaterThan(-1);
+    expect(carved).toBeGreaterThan(deny);
+    expect(pattern).toBeGreaterThan(carved);
+  });
+
   it("spells a /tmp or /var workspace both ways, since macOS links them into /private", () => {
     const p = sandboxProfile({ workspaceRoot: "/tmp/ws", homes: [] });
     expect(p).toContain('(subpath "/tmp/ws") (subpath "/private/tmp/ws")');

@@ -28,6 +28,10 @@ export interface JailOptions {
   hidden?: string[];
   /** Under the workspace yet not to be written: KOS's own settings and database, whatever path, glob or link names them. */
   readOnly?: string[];
+  /** Inside a read-only folder yet writable again: KOS's temp and caches under its own state. */
+  writableWithin?: string[];
+  /** Regexes over absolute paths not to be written, wherever they fall: a repository's config and hooks. */
+  unwritable?: string[];
   /** Regexes over absolute paths not to be read, wherever they fall. */
   unreadable?: string[];
   /**
@@ -158,6 +162,8 @@ export function sandboxProfile(options: JailOptions): string {
     ...(options.hidden?.length ? [`(deny file-read* ${subpaths(options.hidden)})`] : []),
     ...(options.writes?.length ? [`(allow file-read* ${writes})`] : []),
     ...(options.readOnly?.length ? [`(deny file-write* ${subpaths(options.readOnly)})`] : []),
+    ...(options.writableWithin?.length ? [`(allow file-write* ${subpaths(options.writableWithin)})`] : []),
+    ...(options.unwritable?.length ? [`(deny file-write* ${options.unwritable.map((r) => `(regex #"${r}")`).join(" ")})`] : []),
     ...(options.unreadable?.length ? [`(deny file-read* ${options.unreadable.map((r) => `(regex #"${r}")`).join(" ")})`] : []),
     // Last, so no allow above carves them back out.
     ...((options.secretFiles ?? kosSecretFiles()).length ? [`(deny file-read* ${subpaths(options.secretFiles ?? kosSecretFiles())})`] : []),

@@ -138,6 +138,53 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     expect(git.stdout.trim()).toBe("|1|/dev/null");
   }, 30_000);
 
+  it("keeps an Auto line off git's control and KOS's own files, and lets it commit", async () => {
+    const homed = new ToolRegistry();
+    await createShellModule({ timeoutSeconds: 10 }).activate(
+      toolRegistryContext(homed, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), callerHome: () => ({ folder: "projects/books" }), callerProject: () => "books" }),
+    );
+    const inBooks = async (command: string, auto = true): Promise<ShellResult> => {
+      const call = (): Promise<{ content: string }> => homed.execute("shell.run", { command });
+      return JSON.parse((auto ? await underAuto.run(true, call) : await call()).content) as ShellResult;
+    };
+    const atRoot = async (command: string): Promise<ShellResult> => JSON.parse((await underAuto.run(true, () => registry.execute("shell.run", { command }))).content) as ShellResult;
+    // A repository the owner made, and KOS's own files beside the workspace's.
+    await inBooks("git init -q && git config user.email a@b && git config user.name a", false);
+    const books = join(root, "projects/books");
+    const config = readFileSync(join(books, ".git/config"), "utf8");
+    for (const [name, text] of [[".env", "env-secret"], ["mcp.json", "mcp-secret"], ["profile.json", "profile-secret"]] as const) writeFileSync(join(root, name), text);
+    for (const command of [
+      "printf '#!/bin/sh\\ntouch PLANTED\\n' > .git/hooks/pre-commit && echo REACHED",
+      "printf '[core]\\n\\thooksPath = x\\n' >> .git/config && echo REACHED",
+      "mkdir -p .git/info && echo '* diff=x' > .git/info/attributes && echo REACHED",
+      "mkdir -p .GIT/Hooks/x && echo REACHED",
+      "mkdir -p sub && echo 'gitdir: /tmp/x' > sub/.git && echo REACHED",
+    ]) {
+      expect((await inBooks(command)).stdout, command).not.toContain("REACHED");
+    }
+    expect(readFileSync(join(books, ".git/config"), "utf8")).toBe(config);
+    expect(existsSync(join(books, ".git/hooks/pre-commit"))).toBe(false);
+    expect(existsSync(join(books, "sub/.git"))).toBe(false);
+    for (const command of [
+      "echo '[core] hooksPath = x' > .gitconfig && echo REACHED",
+      "mkdir -p .config/git && echo x > .config/git/config && echo REACHED",
+      "echo X=1 >> .env && echo REACHED",
+      "mkdir -p .kos/results && echo x > .kos/results/x && echo REACHED",
+      "cat .env mcp.json profile.json",
+    ]) {
+      const r = await atRoot(command);
+      expect(r.stdout, command).not.toContain("REACHED");
+      expect(r.stdout, command).not.toMatch(/secret/);
+    }
+    expect(existsSync(join(root, ".gitconfig")) || existsSync(join(root, ".config/git"))).toBe(false);
+    expect(readFileSync(join(root, ".env"), "utf8")).toBe("env-secret");
+    expect(existsSync(join(root, ".kos/results/x"))).toBe(false);
+    // What a build needs still works: its temp, and git add and commit.
+    const commit = await inBooks('echo ok > "$TMPDIR/t" && cat "$TMPDIR/t" && echo one > a.txt && git add a.txt && git commit -qm one && git log --oneline | wc -l');
+    expect(commit.exitCode, commit.stderr).toBe(0);
+    expect(commit.stdout.split(/\s+/).filter(Boolean)).toEqual(["ok", "1"]);
+  }, 30_000);
+
   it("runs a command in the workspace and hands back what it said", async () => {
     const r = await run({ command: "echo hello && pwd" });
     expect(r.exitCode).toBe(0);

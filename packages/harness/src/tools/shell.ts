@@ -11,8 +11,8 @@ import { readOnlyLine } from "../risk/readonly.js";
 import { shellBeyondAuto } from "../risk/shellauto.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv } from "../sandbox/env.js";
-import { GIT_INFO_ATTRIBUTES, gitHeldOn, gitHoldEnv } from "../sandbox/githold.js";
-import { isContained, jailedCommand } from "../sandbox/jail.js";
+import { GIT_CONTROL_WRITES, GIT_INFO_ATTRIBUTES, gitGlobalConfig, gitHeldOn, gitHoldEnv } from "../sandbox/githold.js";
+import { isContained, jailedCommand, type JailOptions } from "../sandbox/jail.js";
 import { outsideScratch } from "./files.js";
 import { homeDirs, INTO_ANOTHER, placeFor, reachOutside, writeScope } from "./home.js";
 
@@ -112,6 +112,30 @@ export function cacheEnv(cache: string): Record<string, string> {
  */
 const UNREAD = [...RESERVED, ".env"];
 
+/**
+ * The jail of a line a chat's Auto let run. It writes where an approved run
+ * of its home would, and no further: none of KOS's own state but its temp
+ * and caches, no .env, no repository's config or hooks and no git global
+ * config, where a planted program would run on the owner's next approved
+ * git command. It reads none of KOS's settings or a .env, reaches this
+ * machine's loopback and nothing past it, and is sealed: no app opened, no
+ * other process signalled, no preference written.
+ */
+function autoJail(root: string, writes: string[] | undefined, hidden: string[] | undefined): JailOptions {
+  const kos = join(root, ".kos");
+  return {
+    workspaceRoot: root,
+    ...(writes ? { writes } : {}),
+    hidden: [...UNREAD.filter((name) => name !== ".kos").map((name) => join(root, name)), ...(hidden ?? [])],
+    readOnly: [...UNWRITTEN.map((name) => join(root, name)), kos, join(root, ".env"), ...gitGlobalConfig(root)],
+    writableWithin: [join(kos, "tmp"), join(kos, "cache")],
+    unwritable: GIT_CONTROL_WRITES,
+    unreadable: [GIT_INFO_ATTRIBUTES],
+    network: "local",
+    sealed: true,
+  };
+}
+
 export async function runShell(
   command: string,
   opts: {
@@ -156,14 +180,14 @@ export async function runShell(
         network: false,
         sealed: true,
       }
-    : {
-        workspaceRoot: opts.workspaceRoot,
-        readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)),
-        ...(opts.writes ? { writes: opts.writes } : {}),
-        ...(opts.hidden ? { hidden: opts.hidden } : {}),
-        // Auto's line reaches no further than its sandbox: no app opened, no other process signalled, no preference written.
-        ...(opts.auto ? { network: "local" as const, sealed: true, unreadable: [GIT_INFO_ATTRIBUTES] } : {}),
-      };
+    : opts.auto
+      ? autoJail(opts.workspaceRoot, opts.writes, opts.hidden)
+      : {
+          workspaceRoot: opts.workspaceRoot,
+          readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)),
+          ...(opts.writes ? { writes: opts.writes } : {}),
+          ...(opts.hidden ? { hidden: opts.hidden } : {}),
+        };
   // A read-only run writes no cache; an approved one keeps its home's own.
   const extra: Record<string, string> = opts.readOnlyRun ? { NPM_CONFIG_UPDATE_NOTIFIER: "false" } : opts.dirs ? cacheEnv(opts.dirs.cache) : {};
   try {

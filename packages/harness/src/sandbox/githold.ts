@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { join } from "node:path";
 
 import { findProgram } from "./env.js";
 
@@ -101,6 +102,29 @@ export function gitHoldEnv(env: Record<string, string>, options: GitHoldOptions 
     out.GIT_NO_LAZY_FETCH = "1";
   }
   return out;
+}
+
+/** A name in either case, as a sandbox regex: the disk opens `.GIT/Hooks` as `.git/hooks`. */
+function anyCase(name: string): string {
+  return [...name].map((c) => (/[a-z]/i.test(c) ? `[${c.toLowerCase()}${c.toUpperCase()}]` : c)).join("");
+}
+
+/**
+ * Sandbox regexes for what a run nobody approved may not write in any
+ * repository: its config, hooks, info (attributes, excludes), submodules'
+ * and worktrees' control, and a .git file, which can point git at a folder
+ * of the agent's. Planted there, a program would run on the owner's next
+ * approved git command. The index, objects and refs stay writable, so
+ * `git add` and `git commit` work.
+ */
+export const GIT_CONTROL_WRITES = [
+  `/${anyCase(".git")}/(${["config", "hooks", "info", "modules", "worktrees"].map(anyCase).join("|")})(/|$)`,
+  `/${anyCase(".git")}$`,
+];
+
+/** Git's global config under a home, which every child reads: HOME is the workspace root. */
+export function gitGlobalConfig(home: string): string[] {
+  return [join(home, ".gitconfig"), join(home, ".config", "git")];
 }
 
 /** Sandbox regex for a repository's info/attributes, which a read-only run does not read. */
