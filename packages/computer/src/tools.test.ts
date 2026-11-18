@@ -557,6 +557,10 @@ describe("the computer tools", () => {
     // A click elsewhere moves focus on.
     await call("computer.act", { action: "left_click", coordinate: [5, 5] });
     expect(risk.beyondAuto!({ action: "type", text: "x" })).toBe(false);
+    // A click said to buy is the owner's, under Auto or not.
+    expect(risk.beyondAuto!({ action: "left_click", coordinate: [5, 5], intent: "Place order" })).toMatch(/places an order or pays/);
+    expect(risk.beyondAuto!({ actions: [{ action: "left_click", coordinate: [5, 5] }], intent: "confirm purchase of the mug" })).toMatch(/places an order/);
+    expect(risk.beyondAuto!({ action: "left_click", coordinate: [5, 5], intent: "open the payroll report" })).toBe(false);
   });
 
   it("ask for the owner's default length, and refuse work the owner did not start unless allowed", async () => {

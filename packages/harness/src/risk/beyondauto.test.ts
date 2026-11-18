@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { addressesIn, beyondAutoByName, beyondAutoRule, destructiveCommand, looksLikeCheckout } from "./beyondauto.js";
+import { addressesIn, checkoutVerdict, PAY_FRAMES, beyondAutoByName, beyondAutoRule, destructiveCommand, looksLikeCheckout } from "./beyondauto.js";
 
 describe("beyondAutoByName", () => {
   it("names a tool that spends money, deletes or cancels", () => {
@@ -83,9 +83,23 @@ describe("looksLikeCheckout", () => {
     expect(looksLikeCheckout(["https://shop.example/a"], page("Review, then Place order"))).toMatch(/reads like a checkout/);
     expect(looksLikeCheckout(["https://shop.example/a"], page("Buy now and save"))).toMatch(/reads like a checkout/);
     expect(looksLikeCheckout([], page("The weather in Lisbon"))).toBe(false);
+    expect(looksLikeCheckout(["https://shop.example/buy/now"], undefined)).toMatch(/checkout or payment page/);
+    expect(looksLikeCheckout([], { text: "", cardField: false, payFrame: true })).toMatch(/payment provider/);
+    expect(PAY_FRAMES.test("https://js.stripe.com/v3/elements-inner-card.html")).toBe(true);
+    expect(PAY_FRAMES.test("https://www.youtube.com/embed/x")).toBe(false);
   });
 
   it("finds the addresses a call's steps would open", () => {
     expect(addressesIn({ actions: [{ open: "https://a.example/pay" }, { click: "@e1" }, { goto: "b.example" }] })).toEqual(["https://a.example/pay", "b.example"]);
+  });
+});
+
+describe("checkoutVerdict", () => {
+  it("fails closed: a page that could not be read holds back a step that touches it", () => {
+    expect(checkoutVerdict(["https://a.example/"], undefined, true)).toMatch(/could not read the page/);
+    expect(checkoutVerdict(["https://a.example/"], undefined, false)).toBe(false);
+    expect(checkoutVerdict([], null, true)).toBe(false);
+    expect(checkoutVerdict(["https://a.example/checkout"], undefined, false)).toMatch(/checkout/);
+    expect(checkoutVerdict([], { text: "Pay now", cardField: false }, true)).toMatch(/reads like a checkout/);
   });
 });

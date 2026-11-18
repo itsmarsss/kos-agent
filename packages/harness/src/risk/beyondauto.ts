@@ -72,14 +72,17 @@ export function destructiveCommand(command: string, exists: (path: string) => bo
 }
 
 /** A page address that is a checkout or a payment step. */
-const CHECKOUT_PATH = /(^|[/._-])(checkout|payment|payments|pay|purchase|place-?order|billing)([/._?#-]|$)/i;
-/** Words a checkout or payment page shows. */
-const CHECKOUT_WORDS = /\b(checkout|check out|place (?:your )?order|buy now|pay now|payment)\b/i;
+const CHECKOUT_PATH = /(^|[/._-])(checkout|payment|payments|pay|purchase|buy|place-?order|billing)([/._?#-]|$)/i;
+/** Words a checkout or payment page shows; read over the whole page, in it. */
+export const CHECKOUT_WORDS = /\b(checkout|check out|place (?:your )?order|buy now|pay now|payment)\b/i;
+/** A payment provider's frame, whose card fields the page itself cannot see into. */
+export const PAY_FRAMES = /(js\.stripe\.com|stripe\.network|paypal\.com|paypalobjects\.com|adyen\.com|braintree(gateway|-api)?\.com|checkout\.com|squareup\.com|klarna\.com)/i;
 
-/** What a browser step's page tells of it: its text, and whether it has a card field (autocomplete cc-*). */
+/** What a browser step's page tells of it: its checkout words, a card field (autocomplete cc-*), a payment provider's frame. */
 export interface PageLook {
   text: string;
   cardField: boolean;
+  payFrame?: boolean;
 }
 
 /**
@@ -100,8 +103,21 @@ export function looksLikeCheckout(urls: readonly string[], page: PageLook | unde
     if (CHECKOUT_PATH.test(path)) return "acts on a checkout or payment page";
   }
   if (page?.cardField) return "acts on a page with a card field";
+  if (page?.payFrame) return "acts on a page with a payment provider's frame";
   if (page && CHECKOUT_WORDS.test(page.text)) return "acts on a page that reads like a checkout";
   return false;
+}
+
+/**
+ * The verdict for a browser step under Auto: the addresses first, then the
+ * page as read (`null`: no tab yet, nothing to read), and a page that could
+ * not be read in time (`undefined`) holds back any step that touches it.
+ */
+export function checkoutVerdict(urls: readonly string[], look: PageLook | null | undefined, touches: boolean): string | false {
+  const byAddress = looksLikeCheckout(urls, undefined);
+  if (byAddress) return byAddress;
+  if (look === undefined) return touches ? "could not read the page to rule out a checkout" : false;
+  return look ? looksLikeCheckout([], look) : false;
 }
 
 /** The addresses a browser call's steps would open: every string under an open, goto, url or visit key. */

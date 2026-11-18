@@ -126,6 +126,8 @@ const SETTLE_MS = 450;
 const STOPPED_TEXT = "The owner pressed Stop. Do not start a session again unless they say so; tell them where you stopped.";
 /** The actions that only look or wait, which ask nobody even in a chat set to Ask. */
 const LOOKS = new Set(["screenshot", "zoom", "wait"]);
+/** What a click that spends money says it does. */
+const PURCHASE_WORDS = /\b(place (?:the |your |my )?order|pay(?: now)?|buy(?: now)?|check ?out|confirm (?:the |your )?purchase|subscribe|complete (?:the |your )?purchase)\b/i;
 /** As much of the owner's words as a session's prompt shows for a task KOS did not write. */
 const SAID_MAX = 120;
 /**
@@ -499,10 +501,13 @@ export function computerModule(deps: ComputerToolsDeps): ComputerModule {
       return acts ? (ask ? "this chat is set to Ask: each step on the screen asks first" : "a step on the screen, under Auto") : false;
     },
     // The device refused typing into a password field in this session: typing again there is the owner's to allow.
+    // And a click said to place an order or pay: the device reports no element under a click, so the step's own intent is what names it.
     beyondAuto: (input) => {
       const chat = deps.caller();
-      const types = stepsOf(input).some((a) => typeof a === "object" && a !== null && (a as Record<string, unknown>).action === "type");
-      return chat && types && secureFocus.has(chat) ? "types where the computer reported a password field" : false;
+      const steps = stepsOf(input).filter((a): a is Record<string, unknown> => typeof a === "object" && a !== null);
+      if (chat && secureFocus.has(chat) && steps.some((a) => a.action === "type")) return "types where the computer reported a password field";
+      const clicks = steps.some((a) => String(a.action).endsWith("_click"));
+      return clicks && PURCHASE_WORDS.test(str(input.intent) ?? "") ? "a click that places an order or pays" : false;
     },
     why: "works the owner's screen: moves the pointer and types",
   };

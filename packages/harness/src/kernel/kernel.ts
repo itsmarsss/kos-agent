@@ -38,6 +38,7 @@ import {
   readAt,
   settleDownload,
   sweepProfiles,
+  touchesPage,
   type BrowserConfig,
   type BrowserDownload,
   type BrowserStatus,
@@ -45,10 +46,14 @@ import {
   type Page,
   type Tab,
 } from "@kos/browser";
-import { addressesIn, looksLikeCheckout, type PageLook } from "../risk/beyondauto.js";
+import { addressesIn, CHECKOUT_WORDS, checkoutVerdict, looksLikeCheckout, PAY_FRAMES, type PageLook } from "../risk/beyondauto.js";
 
-/** What a checkout check reads of a page: its words (the first stretch) and whether it has a card field. */
-const CHECKOUT_LOOK = `JSON.stringify({ text: (document.body ? document.body.innerText : "").slice(0, 4000), cardField: !!document.querySelector('[autocomplete^="cc-"]') })`;
+/** What a checkout check reads of a page: the first checkout phrase anywhere in its words, a card field, a payment provider's frame. */
+const CHECKOUT_LOOK = `JSON.stringify({
+  text: ((document.body ? document.body.innerText : "").match(${CHECKOUT_WORDS.toString()}) || [""])[0],
+  cardField: !!document.querySelector('[autocomplete^="cc-"]'),
+  payFrame: [...document.querySelectorAll("iframe")].some((f) => ${PAY_FRAMES.toString()}.test(f.src || "")),
+})`;
 import { BROWSER_KEY, BROWSER_PORT, browserConfig } from "../ops/browsersettings.js";
 import type { BrowserElsewhere, PageSpot, TabInfo } from "../tools/browser.js";
 import { PageWatchStore, type WatchLook } from "../ops/watches.js";
@@ -4614,32 +4619,36 @@ export class Kernel {
   }
 
   /**
-   * The page a browser action is aimed at, pictured for the approval: the
-   * picture the agent just saw it by, while it still stands for the page
-   * (see SeenPages), rather than another taken on the same line to the tab.
-   */
-  /**
    * Whether a browser step in this chat would act on a checkout or a payment
    * page, in KOS's browser or the owner's Chrome: by the tab's address, the
-   * addresses the step opens, and the page's own words and card fields.
-   * A page that cannot be read in a moment is judged by its address alone.
+   * addresses the step opens, and the page itself (checkout words anywhere
+   * in it, a card field, a payment provider's frame). A page that cannot be
+   * read in a moment counts as one for a step that touches it: the check
+   * fails closed.
    */
   private async checkoutSays(conversationId: string, input: Record<string, unknown>): Promise<string | undefined> {
     const away = this.away(conversationId);
     const spot = away ? away.spot(conversationId) : this.browser.spot(conversationId);
     const urls = [...(spot ? [spot.url] : []), ...addressesIn(input)];
+    if (looksLikeCheckout(urls, undefined)) return checkoutVerdict(urls, null, false) || undefined;
     const page = async (): Promise<Page | undefined> => {
       if (away) return spot ? (await away.tab(conversationId)).page : undefined;
       const tab = this.browser.tabOf(conversationId);
       return tab ? this.browser.page(tab) : undefined;
     };
     const look = await Promise.race([
-      page().then(async (p) => (p ? (JSON.parse(await p.evaluate(CHECKOUT_LOOK)) as PageLook) : undefined)),
+      page().then(async (p) => (p ? (JSON.parse(await p.evaluate(CHECKOUT_LOOK)) as PageLook) : null)),
       new Promise<undefined>((done) => setTimeout(() => done(undefined), 1500).unref()),
     ]).catch(() => undefined);
-    return looksLikeCheckout(urls, look) || undefined;
+    // No tab yet is nothing to read; a page that would not say is a page a step must not touch unasked.
+    return checkoutVerdict(urls, look, touchesPage(input)) || undefined;
   }
 
+  /**
+   * The page a browser action is aimed at, pictured for the approval: the
+   * picture the agent just saw it by, while it still stands for the page
+   * (see SeenPages), rather than another taken on the same line to the tab.
+   */
   private async browserPicture(tool: string, conversationId?: string): Promise<string | undefined> {
     const context = conversationId ? this.browserContext(tool, conversationId) : undefined;
     if (!conversationId || !context) return undefined;
