@@ -47,25 +47,27 @@ export function defang(content: string): string {
 }
 
 /** The owner's line as a turn's mark made it: eight hex digits, as randomBytes(4) writes them. */
-const OLD_OWNER_LINE = /\n\n\[the owner, while you work · ([0-9a-f]{8})\]\n/;
+const OLD_OWNER_LINE = /\n\n\[the owner, while you work · ([0-9a-f]{8})\]\n/g;
 
 /**
  * A result kept before the words had a field of their own, and the owner's
  * words appended to it then: only under a mark a turn could have made, and
- * split only at lines with that same mark.
+ * split only at lines with that same mark. The owner's words came last, so
+ * the mark is the last line's: a line the page wrote above them stays its own.
  */
 export function splitOwnerWords(content: string): { content: string; said: OwnerWords[] } {
-  const first = OLD_OWNER_LINE.exec(content);
-  if (!first) return { content, said: [] };
-  const mark = first[1]!;
+  const last = [...content.matchAll(OLD_OWNER_LINE)].at(-1);
+  if (!last) return { content, said: [] };
+  const mark = last[1]!;
+  const start = content.indexOf(`\n\n${OWNER_LINE}${mark}]\n`);
   const said = content
-    .slice(first.index)
+    .slice(start)
     .split(`\n\n${OWNER_LINE}${mark}]\n`)
     .flatMap((w) => {
       const text = (w.split(`\n\n${WHERE_LINE}${mark}]\n`)[0] ?? "").trim();
       return text ? [{ text }] : [];
     });
-  return { content: content.slice(0, first.index), said };
+  return { content: content.slice(0, start), said };
 }
 
 /** A result and the owner's words with it, whether kept beside it or, in an older chat, inside it. */
