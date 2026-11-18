@@ -1,3 +1,4 @@
+import DeviceCore
 import DeviceKit
 import Foundation
 
@@ -58,24 +59,29 @@ public final class ReplyReader: ObservableObject {
 }
 
 /// KOS's markdown as words to say: the marks gone, links by their words, a
-/// time as it reads, and what does not read aloud (code, a table) named, not spelled out.
+/// time as it reads, and what does not read aloud (code, a table) named, not spelled out; a typed block by what
+/// it is ("There is a draft email to Sam on screen.").
 public enum SpokenWords {
   public static func plain(_ markdown: String, now: Date = Date()) -> String {
     var out: [String] = []
-    var inCode = false
     var saidCode = false
     var inTable = false
-    for raw in markdown.components(separatedBy: "\n") {
-      let line = raw.trimmingCharacters(in: .whitespaces)
-      if line.hasPrefix("```") {
-        inCode.toggle()
-        if inCode && !saidCode {
+    let lines = markdown.components(separatedBy: "\n")
+    var i = 0
+    while i < lines.count {
+      let line = lines[i].trimmingCharacters(in: .whitespaces)
+      if let fence = KOSBlock.fence(lines, at: i) {
+        i = fence.next
+        inTable = false
+        if let block = KOSBlock.parse(info: fence.info, lines: fence.body) {
+          out.append("There is \(block.spoken) on screen.")
+        } else if !saidCode {
           out.append("There is some code on screen.")
           saidCode = true
         }
         continue
       }
-      if inCode { continue }
+      i += 1
       if line.hasPrefix("|") {
         if !inTable { out.append("There is a table on screen.") }
         inTable = true

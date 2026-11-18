@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { stepMechanics, summarizeAction, timesInWords } from "@kos/shared";
+import { blocksToText, stepMechanics, summarizeAction, timesInWords } from "@kos/shared";
 
 import { ThreadReader, type ThreadMessage } from "./imessagedb.js";
 import type {
@@ -110,11 +110,12 @@ end run`;
  * what was on offer and say it back, and a silent omission would make the
  * agent look like it had said less than it did. A blob's message starts
  * with its name, the one tag plain text can carry. A time token is said in
- * words on the owner's clock, and the "-# " that makes a line small on
- * surfaces that can is dropped here, where nothing is small.
+ * words on the owner's clock, a typed block in plain words, and the "-# "
+ * that makes a line small on surfaces that can is dropped here, where
+ * nothing is small.
  */
 export function renderForText(msg: OutboundMessage, timezone?: string): string {
-  const body = timesInWords(renderBody(msg), timezone).replace(/^[ \t]*-#[ \t]+/gm, "");
+  const body = timesInWords(blocksToText(renderBody(msg)), timezone).replace(/^[ \t]*-#[ \t]+/gm, "");
   return msg.from && body ? `${msg.from.name}: ${body}` : body;
 }
 

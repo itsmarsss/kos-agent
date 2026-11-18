@@ -115,6 +115,7 @@ tool rows to one chip.
 | What the chat is beside | | `TabBar` in `panel.tsx` (the tab, a status pill) | `AppCard` (`ChatView.swift`, the app in front) |
 | Chat switcher | the chats rail | `ChatSwitcher` in `panel.tsx` | `Switcher` (`ChatView.swift`) |
 | Message actions | `MessageActions.tsx` (kit `IconButton`s) | | |
+| Typed block | kit `KosBlockView` (`KosBlock.tsx`), drawn by `Markdown` for a ```` ```kos:<kind> ```` fence ([blocks.md](blocks.md)); its Send through `BlockActions` (`ChatsPage.tsx`); `MailIcon`, `CalendarIcon`, `PlaceIcon` | kit (through Markdown), Copy, Mail and links only | `KOSBlockView` (`KOSBlockView.swift`), drawn by `ChatMarkdown`; `KOSBlock` (DeviceCore) reads it |
 | A quoted selection | kit `QuoteLine` in the owner's bubble | kit `QuoteLine` labelled "Selected text" with the site the worker sends, two lines, over the box; once sent, kit `QuoteLine` in `.msg--you` | `QuoteCard` labelled "Selected text" with the app, two lines, over the box; once sent, `QuoteCard` in `Bubble` |
 
 ## KOS for iPhone's own

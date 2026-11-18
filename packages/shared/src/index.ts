@@ -200,3 +200,31 @@ export {
 export { EXPORT_FORMATS, EXPORT_WORDS, KIND_EXPORTS, exportName, isExportFormat, type ExportFormat } from "./artifactexport.js";
 export { ARTIFACT_FONTS, fontById, fontFaceCss, fontStackVars, type ArtifactFont, type FontFile, type FontRole } from "./artifactfonts.js";
 export { runningTail, type TurnEvent } from "./runningturn.js";
+export { blocksIn, fenceAt, kindOfInfo, parseBlock, replaceBlocks, valueOf, valuesOf, type Fence, type KosBlock } from "./blocks.js";
+export {
+  BLOCK_KINDS,
+  BLOCKS_GUIDANCE,
+  CHANNEL_NAMES,
+  blocksToText,
+  checklistOf,
+  copyOf,
+  diffLineOf,
+  icsOf,
+  kindOf,
+  mailtoOf,
+  mapOf,
+  plainOf,
+  sendRequestOf,
+  sendToolOf,
+  sourceOf,
+  stepsOf,
+  viewOf,
+  type BlockAction,
+  type BlockKind,
+  type BlockLink,
+  type BlockRow,
+  type BlockView,
+  type BodyStyle,
+  type CheckItem,
+  type FieldSpec,
+} from "./blockkinds.js";

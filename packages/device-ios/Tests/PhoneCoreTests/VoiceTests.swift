@@ -208,6 +208,11 @@ struct SpokenWordsTests {
     #expect(SpokenWords.plain(reply) == "Here it is: There is some code on screen. There is a table on screen. Done.")
   }
 
+  @Test func aTypedBlockIsNamedByWhatItIs() {
+    let reply = "Drafted:\n```kos:email\nto: Sam\nsubject: Saturday\n---\nHi Sam\n```\n```kos:event\ntitle: Dinner\n```\nDone."
+    #expect(SpokenWords.plain(reply) == "Drafted: There is a draft email to Sam on screen. There is an event, Dinner on screen. Done.")
+  }
+
   @Test func aTimeIsSaidAsItReads() {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let said = SpokenWords.plain("Due <t:1800003600:R>.", now: now)

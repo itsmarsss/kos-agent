@@ -1893,6 +1893,17 @@ describe("mentioning a blob on Discord", () => {
   });
 });
 
+describe("a typed block on Discord", () => {
+  it("is said in plain words, its times on the reader's clock", () => {
+    const adapter = new DiscordAdapter({ token: "t" });
+    const internals = adapter as unknown as { words(t: string): string };
+    const text = "```kos:event\ntitle: Dinner\nwhen: <t:2026-11-21T19:00:f>\nwhere: Nopa\n```";
+    expect(internals.words(text)).toMatch(/^Event: Dinner\nWhen: <t:\d+:f>\nWhere: Nopa$/);
+    // A plain code block is the code block it was.
+    expect(internals.words("```ts\nx\n```")).toBe("```ts\nx\n```");
+  });
+});
+
 describe("Run now from Discord", () => {
   it("builds a cron button with the job in its custom id", () => {
     const rows = buildButtons([{ label: "Run now", cron: 7 }]);
