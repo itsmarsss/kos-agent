@@ -1,6 +1,6 @@
 import { SECRET_FIELDS, type SecretFieldName } from "@kos/shared";
 
-import { MIN_SCANNED, Scrubber, type Watched } from "./scrub.js";
+import { MIN_SCANNED, Scrubber, STREAM_REACH, type Watched } from "./scrub.js";
 import { SHAPE_REACH, scrubShapes } from "./shapes.js";
 import type { SecretCaller } from "./inject.js";
 import type { Vault } from "./vault.js";
@@ -238,17 +238,27 @@ export class SecretsRegistry {
   }
 
   /**
+   * For text bound for the database: exact, and from the scrub index while
+   * the vault is locked, but never by shape. A shape can match a timestamp
+   * or an id, and a row's data must come back as it was written; a pasted
+   * card is masked by shape at the door, before it is stored.
+   */
+  scrubStored(text: string): string {
+    return this.sweep(text, false).text;
+  }
+
+  /**
    * Every value masked, and which: exactly by the scrubber, and while the
    * vault is shut, from its scrub index and by shape too, since its values
    * cannot be read to be looked for.
    */
-  private sweep(text: string): { text: string; hits: Map<string, number>; shut: boolean } {
+  private sweep(text: string, shapes = true): { text: string; hits: Map<string, number>; shut: boolean } {
     const exact = this.scrubberNow().found(text);
     const shut = this.vault?.shut();
     if (!shut) return { ...exact, shut: false };
     const hits = new Map(exact.hits);
     let out = exact.text;
-    for (const pass of [shut.index ? (t: string) => shut.index!.found(t) : undefined, scrubShapes]) {
+    for (const pass of [shut.index ? (t: string) => shut.index!.found(t) : undefined, shapes ? scrubShapes : undefined]) {
       if (!pass || out.length < MIN_SCANNED) continue;
       const found = pass(out);
       out = found.text;
@@ -275,7 +285,8 @@ export class SecretsRegistry {
   holdBack(): number {
     const exact = this.scrubberNow().holdBack;
     const shut = this.vault?.shut();
-    return shut ? Math.max(exact, (shut.index?.reach ?? 0) - 1, SHAPE_REACH - 1) : exact;
+    // A stream holds back no more than an exact value's encoded forms would ask: a longer hold makes a live answer stutter.
+    return shut ? Math.max(exact, Math.min(Math.max((shut.index?.reach ?? 0) - 1, SHAPE_REACH - 1), STREAM_REACH)) : exact;
   }
 
   /** How many values the scrubber has taken out since the host started: the Secrets page's leak counter. */

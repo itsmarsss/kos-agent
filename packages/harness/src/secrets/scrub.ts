@@ -14,6 +14,8 @@
  * match says more about the text than the secret.
  */
 
+import { CARD_SEP } from "./shapes.js";
+
 /** Values shorter than this are not scanned for: they would match ordinary text. */
 export const MIN_SCANNED = 6;
 
@@ -38,12 +40,12 @@ export type Watched = [name: string, value: string] | [name: string, value: stri
 const DIGITS_MIN = 12;
 
 /**
- * A number written with up to two separators between any two of its digits
- * (a space, a dash, a dot, a no-break space, a URL-encoded space), never
- * inside a longer number.
+ * A number written with up to three separators between any two of its
+ * digits (CARD_SEP: spaces, tabs, dashes, dots, plus, underscore, slash,
+ * no-break spaces, their URL encodings), never inside a longer number.
  */
 function digitsPattern(digits: string): RegExp {
-  return new RegExp(`(?<!\\d)${[...digits].join("(?:[ .\\-\\u00a0]|%20){0,2}")}(?!\\d)`, "g");
+  return new RegExp(`(?<!\\d)${[...digits].join(`${CARD_SEP}{0,3}`)}(?!\\d)`, "g");
 }
 
 /**
@@ -216,7 +218,7 @@ export class Scrubber {
         const digits = value.replace(/\D/g, "");
         if (digits.length < DIGITS_MIN) continue;
         this.numbers.push({ name, pattern: digitsPattern(digits), last4: digits.slice(-4) });
-        reach = Math.max(reach, digits.length * 7);
+        reach = Math.max(reach, digits.length * 19);
         continue;
       }
       const plain = [value, JSON.stringify(value).slice(1, -1)];

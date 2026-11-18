@@ -30,3 +30,37 @@ describe("scrubShapes", () => {
     expect(luhn("4242424242424241")).toBe(false);
   });
 });
+
+/** The first number from `start` up that passes Luhn: a timestamp or an id that would look like a card. */
+function luhnFrom(start: bigint): string {
+  for (let n = start; ; n++) if (luhn(String(n))) return String(n);
+}
+
+describe("scrubShapes leaves ordinary data alone", () => {
+  const stamp = luhnFrom(1763400000000n);
+  const snowflake = luhnFrom(123456789012345678n);
+  const sixteen = luhnFrom(4000000000000000n);
+
+  it("keeps a Luhn-valid millisecond timestamp and an 18-digit snowflake", () => {
+    for (const text of [`at ${stamp}`, `message ${snowflake}`, `<@${snowflake}>`]) expect(scrubShapes(text).text).toBe(text);
+  });
+
+  it("keeps a bare JSON number, so JSON still parses", () => {
+    const json = JSON.stringify({ at: Number(stamp), n: Number(sixteen), list: [Number(sixteen)] });
+    expect(scrubShapes(json).text).toBe(json);
+    expect(() => JSON.parse(scrubShapes(json).text) as unknown).not.toThrow();
+  });
+
+  it("keeps a run inside an id or a longer number", () => {
+    for (const text of [`id_${sixteen}`, `x${sixteen}`, `${sixteen}abc`, `12-${sixteen}`, `${sixteen}.5`]) expect(scrubShapes(text).text).toBe(text);
+  });
+
+  it("still masks a card standing alone, quoted, or written with new separators", () => {
+    expect(scrubShapes(`card ${sixteen}`).text).toBe(`card [secret card ••${sixteen.slice(-4)}]`);
+    expect(scrubShapes(JSON.stringify({ card: sixteen }))).toMatchObject({ text: `{"card":"[secret card ••${sixteen.slice(-4)}]"}` });
+    for (const sep of ["+", "\t", "_", "/", "%C2%A0", " - "]) {
+      const written = sixteen.match(/.{4}/g)!.join(sep);
+      expect(scrubShapes(`pay ${written} now`).text).toBe(`pay [secret card ••${sixteen.slice(-4)}] now`);
+    }
+  });
+});

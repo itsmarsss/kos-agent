@@ -186,7 +186,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const workspace = Workspace.open(options.rootDir);
   const secrets = options.secrets ?? SecretsRegistry.fromEnv();
   // Whatever path a secret's value takes into a row, it is masked before SQLite keeps it.
-  workspace.scrubWrites((text) => secrets.scrub(text));
+  workspace.scrubWrites((text) => secrets.scrubStored(text));
   const profile = ensureProfile(workspace, options.profileOverrides);
   const registry = new ToolRegistry();
 

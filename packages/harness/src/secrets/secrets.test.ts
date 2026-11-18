@@ -235,6 +235,8 @@ describe("SecretsRegistry over a locked vault", () => {
       expect(masked.text.match(/\[secret key\]/g)).toHaveLength(2);
       expect(masked.text).toContain("1234 5678 9012 3456");
       expect(masked.text).not.toMatch(/pw-locked|4111-1111|ghp_abc|AKIAABC/);
+      // Bound for the database: the index still masks, shapes never do.
+      expect(reg.scrubStored("pw-locked-canary-77 at 5555 5555 5555 4444")).toBe(`[secret ${login}.password] at 5555 5555 5555 4444`);
       // Unlocked, the exact scrubber takes over.
       await locked.unlock("a long passphrase");
       expect(reg.mask("pw-locked-canary-77").shut).toBe(false);
