@@ -621,6 +621,12 @@ export type ChatEvent =
       pendingId?: string;
       /** A picture of what this step saw (a browser tab, a computer's screen), at /api/frames/:id. */
       frameId?: number;
+      /** When it began, epoch ms, for a call still running. */
+      startedAt?: number;
+      /** How long it ran, ms, not counting a wait for the owner's yes; absent for a call kept before calls were timed. */
+      ms?: number;
+      /** How long it waited on the owner's yes, ms, when it asked. */
+      waitedMs?: number;
     }
   | {
       /** A line across the chat where it was cleared or compacted: what is above is kept for the reader, not for the model. */

@@ -1,6 +1,6 @@
 import { KOS_SEED, type AskView } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { AskCard, BoltIcon, ChevronDown, Chips, Collapse, ComposeIcon, Countdown, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, QuoteLine, SendIcon, spring, StepPicture, StepsIcon, StopIcon, type Tone, useDismiss, useOverlayScroll, WorkingDots } from "@kos/kit";
+import { AskCard, BoltIcon, ChevronDown, Chips, Collapse, ComposeIcon, Countdown, ease, Elapsed, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, QuoteLine, SendIcon, spring, StepPicture, StepsIcon, StepTime, StopIcon, type Tone, useDismiss, useOverlayScroll, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
@@ -763,6 +763,7 @@ function Steps({ steps, live, frames }: { steps: Step[]; live?: boolean; frames?
           {steps.map((s, i) => (
             <li key={i} data-failed={s.failed || undefined}>
               {s.summary}
+              <StepTime running={false} ms={s.ms} />
             </li>
           ))}
         </ol>

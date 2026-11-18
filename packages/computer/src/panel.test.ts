@@ -548,7 +548,7 @@ describe("the panel's chat as it draws it", () => {
     const events: ChatEvent[] = [
       { kind: "message", role: "you", text: "what is this page", attachments: [{ name: "receipt.png" }] },
       { kind: "reasoning", text: "thinking" },
-      { kind: "tool", name: "chrome.page", summary: "Read the page", args: {} },
+      { kind: "tool", name: "chrome.page", summary: "Read the page", args: {}, ms: 840 },
       { kind: "tool", name: "browser.click", summary: "Clicked Buy", args: {}, isError: true },
       { kind: "message", role: "kos", text: "A shop." },
       { kind: "message", role: "system", text: "Approved #4 · chrome.start ran" },
@@ -556,7 +556,8 @@ describe("the panel's chat as it draws it", () => {
     ];
     expect(panelLines(events)).toEqual([
       { role: "you", text: "what is this page", files: ["receipt.png"] },
-      { role: "steps", steps: [{ summary: "Read the page" }, { summary: "Clicked Buy", failed: true }] },
+      // How long a timed step took goes with it; an older one says none.
+      { role: "steps", steps: [{ summary: "Read the page", ms: 840 }, { summary: "Clicked Buy", failed: true }] },
       { role: "kos", text: "A shop." },
       { role: "note", text: "Approved #4 · chrome.start ran" },
       { role: "note", text: "Cleared" },

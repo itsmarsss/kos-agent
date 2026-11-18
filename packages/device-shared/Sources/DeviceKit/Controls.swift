@@ -855,6 +855,18 @@ public func elapsedWords(_ seconds: TimeInterval) -> String {
 }
 
 /// What is left before an ask answers itself, as the prompt counts it: "42s", "2m 05s".
+/// How long a step took, as `@kos/shared` formatDuration says it: "420ms", "2.4s", "12s", "1m 04s", "1h 04m".
+public func durationWords(_ ms: Double) -> String {
+  let t = max(0, ms)
+  if t < 1_000 { return "\(Int(t.rounded()))ms" }
+  if t < 9_950 { return String(format: "%.1fs", t / 1_000) }
+  let seconds = Int(t / 1_000)
+  if seconds < 60 { return "\(seconds)s" }
+  let minutes = seconds / 60
+  if minutes < 60 { return "\(minutes)m \(String(format: "%02d", seconds % 60))s" }
+  return "\(minutes / 60)h \(String(format: "%02d", minutes % 60))m"
+}
+
 public func secondsLeft(until: Date, now: Date) -> String {
   let left = max(0, Int(until.timeIntervalSince(now).rounded(.up)))
   return left < 60 ? "\(left)s" : "\(left / 60)m \(String(format: "%02d", left % 60))s"

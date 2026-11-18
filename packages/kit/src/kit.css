@@ -24,6 +24,11 @@
   .live-dots i { animation: none; opacity: 0.7; }
 }
 .live-elapsed { color: var(--faint); font-variant-numeric: tabular-nums; }
+/* How long a step takes (StepTime): a soft pulse while it runs, then how long it took. */
+.step-time { display: inline-flex; align-items: center; gap: 5px; color: var(--faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.step-time--live i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: step-pulse 1.4s ease-in-out infinite; }
+@keyframes step-pulse { 50% { opacity: 0.3; transform: scale(0.8); } }
+@media (prefers-reduced-motion: reduce) { .step-time--live i { animation: none; } }
 .countdown { color: var(--faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .countdown[data-soon] { color: var(--warn); }
 

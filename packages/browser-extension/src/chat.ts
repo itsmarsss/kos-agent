@@ -27,6 +27,8 @@ export interface Step {
   summary: string;
   failed?: true;
   frame?: number;
+  /** How long it ran, ms, when it was timed. */
+  ms?: number;
 }
 
 export interface Approval extends Partial<Omit<AskView, "title">> {

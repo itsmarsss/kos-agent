@@ -29,6 +29,16 @@ describe("a tool card knows its call", () => {
     ]);
     expect(events[0]).toMatchObject({ kind: "tool", name: "browser.visit", toolUseId: "tu_7", result: "Opened https://x" });
   });
+
+  it("says how long the call took, and nothing for one kept before calls were timed", () => {
+    const [timed, older] = conversationEvents([
+      { role: "assistant", content: [{ type: "tool_use", id: "a", name: "shell.run", input: {} }, { type: "tool_use", id: "b", name: "files.read", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", toolUseId: "a", content: "ok", ms: 2_400, waitedMs: 120_000 }, { type: "tool_result", toolUseId: "b", content: "ok" }] },
+    ]);
+    expect(timed).toMatchObject({ ms: 2_400, waitedMs: 120_000 });
+    expect(older).not.toHaveProperty("ms");
+    expect(older).not.toHaveProperty("waitedMs");
+  });
 });
 
 describe("conversationEvents", () => {

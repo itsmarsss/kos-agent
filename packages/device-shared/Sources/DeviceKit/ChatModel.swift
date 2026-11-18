@@ -22,11 +22,14 @@ public final class ChatModel: ObservableObject {
     public let failed: Bool
     /// The frame id of what it saw, when it kept a picture.
     public let frame: Int?
+    /// How long it ran, ms, when it was timed.
+    public let ms: Double?
 
-    public init(summary: String, failed: Bool = false, frame: Int? = nil) {
+    public init(summary: String, failed: Bool = false, frame: Int? = nil, ms: Double? = nil) {
       self.summary = summary
       self.failed = failed
       self.frame = frame
+      self.ms = ms
     }
   }
 

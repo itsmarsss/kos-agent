@@ -18,9 +18,12 @@ public struct ChatStep: Decodable, Equatable, Sendable {
   public let failed: Bool?
   /// The frame id of what the step saw, when it kept a picture.
   public let frame: Int?
+  /// How long it ran, ms, when it was timed; none for a step kept before steps were.
+  public let ms: Double?
 
-  public init(summary: String, failed: Bool? = nil, frame: Int? = nil) {
+  public init(summary: String, failed: Bool? = nil, frame: Int? = nil, ms: Double? = nil) {
     self.summary = summary
+    self.ms = ms
     self.failed = failed
     self.frame = frame
   }

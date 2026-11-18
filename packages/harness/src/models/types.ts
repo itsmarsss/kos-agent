@@ -56,6 +56,10 @@ export interface ToolResultBlock {
   images?: ToolImage[];
   /** What the owner said while the turn ran, heard with this result; joined to its text only for a model. */
   heard?: HeardWords;
+  /** How long the call ran, ms, not counting a wait for the owner's yes; absent from calls kept before it was timed. */
+  ms?: number;
+  /** How long it waited on the owner's yes, ms, when it asked. */
+  waitedMs?: number;
 }
 
 /**

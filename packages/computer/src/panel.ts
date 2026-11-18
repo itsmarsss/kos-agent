@@ -779,7 +779,13 @@ export function panelLines(events: ChatEvent[], max = SHOWN): PanelMessage[] {
         break;
       }
       case "tool": {
-        const step = { summary: event.summary, ...(event.isError ? { failed: true as const } : {}), ...(event.frameId !== undefined ? { frame: event.frameId } : {}) };
+        const step = {
+          summary: event.summary,
+          ...(event.isError ? { failed: true as const } : {}),
+          ...(event.frameId !== undefined ? { frame: event.frameId } : {}),
+          // How long it ran, for a call that was timed; an older one says none.
+          ...(event.ms !== undefined ? { ms: event.ms } : {}),
+        };
         const last = out.at(-1);
         if (last?.role === "steps") last.steps.push(step);
         else out.push({ role: "steps", steps: [step] });

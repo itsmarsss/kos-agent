@@ -68,7 +68,7 @@ public enum ChatCalls {
     case "you": return .you(m.text ?? "", files: m.files ?? [], quote: m.quote.map { .init(text: $0.text, from: $0.from) })
     case "kos": return m.text.map { .kos($0) }
     case "note": return m.text.map { .note($0) }
-    case "steps": return .steps((m.steps ?? []).map { .init(summary: $0.summary, failed: $0.failed ?? false, frame: $0.frame) })
+    case "steps": return .steps((m.steps ?? []).map { .init(summary: $0.summary, failed: $0.failed ?? false, frame: $0.frame, ms: $0.ms) })
     default: return nil
     }
   }

@@ -73,6 +73,8 @@ export {
   type StepPiece,
 } from "./format-action.js";
 
+export { formatDuration, waitWords } from "./duration.js";
+
 export { keyCap, keyCaps, keyPlatformOf, type KeyPlatform } from "./keys.js";
 
 export {

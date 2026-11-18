@@ -54,4 +54,12 @@ struct AskPiecesTests {
     #expect(AskWords.risk("risky tool") == nil)
     #expect(AskWords.risk("on shop.example") == nil)
   }
+
+  @Test func saysHowLongAStepTookAsTheDashboardDoes() {
+    #expect(durationWords(420) == "420ms")
+    #expect(durationWords(2_400) == "2.4s")
+    #expect(durationWords(12_300) == "12s")
+    #expect(durationWords(64_000) == "1m 04s")
+    #expect(durationWords(3_840_000) == "1h 04m")
+  }
 }
