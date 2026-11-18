@@ -120,8 +120,13 @@ describe("a turn on the SDK engine", () => {
       await o.tools.execute("files.rm", { path: "notes.md" });
       return answer([call(1)], "Left it.");
     };
+    // Another kernel's held line, for a chat of its own, stays whatever this one keeps.
+    const theirs = { role: "assistant", content: [{ type: "text", text: "Theirs." }] };
+    kernel.settings.set("notes.held", { "other:owner": [theirs] });
     expect((await turn("tidy up")).suspended).toBe(true);
     kernel.noteIn(chat, "The backup finished.");
+    expect(kernel.settings.get<Record<string, unknown>>("notes.held")?.["other:owner"]).toEqual([theirs]);
+    kernel.settings.set("notes.held", { [chat]: kernel.settings.get<Record<string, unknown>>("notes.held")?.[chat] });
     // Kept where a crash would not lose it.
     expect(kernel.settings.get("notes.held")).toEqual({ [chat]: [{ role: "assistant", content: [{ type: "text", text: "The backup finished." }] }] });
     kernel.close();

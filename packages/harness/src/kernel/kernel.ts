@@ -1966,16 +1966,22 @@ export class Kernel {
   /** The lines held for a chat, written now and no longer kept. */
   private releaseNotes(sessionId: string): void {
     const held = this.heldNotes.get(sessionId);
-    if (!held) return;
+    // Written first, and let go only once it is: a write that fails keeps the line for the next boot.
+    if (!held || !this.writeNote(sessionId, held)) return;
     this.heldNotes.delete(sessionId);
-    this.keepHeld();
-    this.writeNote(sessionId, held);
+    this.keepHeld(sessionId);
   }
 
-  /** The held lines as they stand, kept across a restart. */
-  private keepHeld(): void {
+  /**
+   * One chat's held lines as they stand, kept across a restart: read, that
+   * chat's entry changed, written back, so another kernel on the same
+   * workspace keeps its own chats' lines.
+   */
+  private keepHeld(sessionId: string): void {
     try {
-      this.settings.set(HELD_NOTES_KEY, Object.fromEntries(this.heldNotes));
+      const { [sessionId]: _was, ...saved } = this.settings.get<Record<string, ModelMessage[]>>(HELD_NOTES_KEY) ?? {};
+      const held = this.heldNotes.get(sessionId);
+      this.settings.set(HELD_NOTES_KEY, held ? { ...saved, [sessionId]: held } : saved);
     } catch {
       // A store that has closed keeps nothing more.
     }
@@ -2001,8 +2007,10 @@ export class Kernel {
     this.settings.set(OPEN_TURNS_KEY, {});
     // What was held for a chat while its turn ran goes in first, before the line that says the turn was cut.
     const held = this.settings.get<Record<string, ModelMessage[]>>(HELD_NOTES_KEY) ?? {};
-    this.settings.set(HELD_NOTES_KEY, {});
-    for (const [id, messages] of Object.entries(held)) if (Array.isArray(messages) && messages.length) this.writeNote(id, messages);
+    const unwritten = Object.fromEntries(
+      Object.entries(held).filter(([id, messages]) => Array.isArray(messages) && messages.length > 0 && !this.writeNote(id, messages)),
+    );
+    this.settings.set(HELD_NOTES_KEY, unwritten);
     for (const id of open) this.noteIn(id, INTERRUPTED_LINE);
     return open;
   }
@@ -2074,7 +2082,7 @@ export class Kernel {
     // its steps in two, the first half drawn again under the live ones.
     if (this.working.has(conversationId) || this.stops.has(conversationId)) {
       this.heldNotes.set(conversationId, [...(this.heldNotes.get(conversationId) ?? []), ...messages]);
-      this.keepHeld();
+      this.keepHeld(conversationId);
       return;
     }
     this.writeNote(conversationId, messages);
@@ -2095,13 +2103,16 @@ export class Kernel {
   }
 
   /** The line itself; a chat that is gone, or a store that has closed, takes nothing. */
-  private writeNote(conversationId: string, messages: ModelMessage[]): void {
+  /** Whether the lines are settled: written, or for a chat that is gone. */
+  private writeNote(conversationId: string, messages: ModelMessage[]): boolean {
     try {
-      if (!this.conversations.get(conversationId)) return;
+      if (!this.conversations.get(conversationId)) return true;
       this.sessions.record(conversationId, [...this.sessions.get(conversationId), ...messages]);
       this.conversations.touch(conversationId);
+      return true;
     } catch {
       // A suspended turn can settle after close; the news has nowhere to go then.
+      return false;
     }
   }
 
