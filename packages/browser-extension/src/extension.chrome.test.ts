@@ -564,6 +564,16 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
       expect(await debugged()).toBe(false);
     }, 30_000);
 
+    it("keeps a session across a short drop of its KOS's line, and says so in the hello", async () => {
+      await begin("k1");
+      const before = hellos.length;
+      device!.close();
+      await until(() => hellos.length > before && device?.readyState === 1, 15_000);
+      expect(hellos.at(-1)?.["session"]).toEqual({ id: "k1" });
+      expect(await call("tabs.list", { session: "k1" })).toMatchObject({ ok: true });
+      expect(await call("session.end", { session: "k1" })).toMatchObject({ ok: true });
+    }, 30_000);
+
     it("tells KOS a session its stopped worker held is over, in the next worker's hello, and lets its tab go", async () => {
       await begin("r1");
       expect(await call("cdp.send", { session: "r1", tab, method: "Runtime.evaluate", params: { expression: "1", returnByValue: true } })).toMatchObject({ ok: true });

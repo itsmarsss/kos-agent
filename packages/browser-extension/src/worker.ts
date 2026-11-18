@@ -424,7 +424,7 @@ function waitForLine(p: Paired): void {
 /** A KOS back on its line: told in its hello of the session this Chrome still holds or lost meanwhile, so what was kept to tell it is done with. */
 function backOnLine(id: string): void {
   if (lastSession?.kos === id && lastSession.ended) void keepSession(undefined);
-  for (const { name, data } of waitingForLine.get(id) ?? []) links.get(id)?.event(name, data);
+  for (const { name, data, at } of waitingForLine.get(id) ?? []) if (Date.now() - at < WAITING_MS) links.get(id)?.event(name, data);
   waitingForLine.delete(id);
   if (owner !== id || !session) return;
   clearTimeout(lineWait);
@@ -1483,15 +1483,17 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
 }
 
 /** The owner's Stops and decisions in a panel while its KOS was off its line (the worker just woke), by KOS, sent in order once it is back. */
-const waitingForLine = new Map<string, { name: string; data: Record<string, unknown> }[]>();
+const waitingForLine = new Map<string, { name: string; data: Record<string, unknown>; at: number }[]>();
 const WAITING_MAX = 20;
+/** How long one waits: a Stop pressed long ago must not stop the turn running when the line is back. */
+const WAITING_MS = 60_000;
 
 /** A Stop or a decision from a panel, told its KOS now, or as soon as its line is back: never dropped for a line a moment down. */
 function fromOwner(kos: string, name: "chat.stop" | "chat.decide", data: Record<string, unknown>): void {
   const link = links.get(kos);
   if (link?.online) return link.event(name, data);
   note(`${name} from the side panel waits for KOS's line`);
-  waitingForLine.set(kos, [...(waitingForLine.get(kos) ?? []), { name, data }].slice(-WAITING_MAX));
+  waitingForLine.set(kos, [...(waitingForLine.get(kos) ?? []), { name, data, at: Date.now() }].slice(-WAITING_MAX));
 }
 
 /** The page beside the panel a chat is in, for that chat's KOS and no other, never a hidden site. */
