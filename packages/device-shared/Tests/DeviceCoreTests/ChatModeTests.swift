@@ -74,6 +74,6 @@ struct ChatModeTests {
     #expect(ChatMode.leftWords(7 * 3600) == "7h")
     #expect(ChatMode.ask.tip(now: now) == "Ask: KOS asks you before anything risky in this chat. Shift+Tab or press to change; more in the menu.")
     #expect(ChatMode.ask.tip(now: now, keys: false).hasSuffix("Tap to change; more in the menu."))
-    #expect(ChatMode.never.count == 8)
+    #expect(ChatMode.never.count == 10)
   }
 }

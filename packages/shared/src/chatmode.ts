@@ -120,13 +120,15 @@ export function modeTip(mode: ChatMode, now: number): string {
 
 /** What Auto never covers: it asks as Ask does, or refuses, whatever the chat is set to. Enforced in the harness. */
 export const AUTO_NEVER: readonly string[] = [
-  "Anything KOS refuses outright; Stop and the kill switch always win",
+  "Anything KOS refuses outright; Stop and the kill switch always win, and the kill switch turns Auto off",
   "Secrets, and any step marked to ask every time",
-  "Purchases and payments",
-  "Deleting anything outside the workspace",
+  "Purchases and payments: paying tools, and steps on a checkout or card page",
+  "Deleting for good: a whole folder, a destructive command, a permanent delete, or a delete outside the workspace",
+  "Messages to anyone but you, and opening a place to others",
+  "Changing KOS itself: committing a skill, adding a module",
   "Running script in a page, or handing a page to you",
-  "Anything a guest's words started",
-  "Schedules and other work you did not start in this chat",
+  "Typing where a computer reported a password field",
+  "Anything but your own words in this chat: a schedule, a guest, work another chat passed on",
   "A device's own ask for a session, and its time limits",
 ];
 

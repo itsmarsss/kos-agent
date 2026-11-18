@@ -343,22 +343,47 @@ beside the model, cycled by a press or Shift+Tab, with a menu) and kept
 per chat on KOS, which alone decides what it lets through:
 
 - **Ask**, the default: a risky step asks the owner, as it always has.
-- **Auto**: a risky step of a turn the owner started in that chat runs
-  without asking, in KOS's own browser, the owner's Chrome and Mac within a
-  session, and everywhere else. Each is kept in the Inbox's decided list
-  and the audit log as approved by `auto mode`, never by the owner, and the
-  model is told it went ahead under Auto, so it says so.
+- **Auto**: a risky step of a turn begun from the owner's own words in
+  that chat runs without asking, in KOS's own browser, the owner's Chrome
+  and Mac within a session, and everywhere else. Each is kept in the
+  Inbox's decided list and the audit log as approved by `auto mode`, never
+  by the owner, the model is told it went ahead under Auto, so it says so,
+  and an answer on Discord, SMS or iMessage starts with `(Auto)`.
 
-Auto never covers, whatever the chat is set to: what KOS refuses, Stop
-and the kill switch; a tool marked to ask every time (a secret's use);
-purchases and payments, deleting outside the workspace (an http DELETE,
-an MCP tool named for paying or deleting); running script in a page and
-handing a page to the owner; a turn a guest's words started; a schedule's
-run or other work the owner did not start in that chat. Starting a session
-is covered only with `sessions`, and only on a device that leaves its
-sessions to KOS's approvals (consent `kos`): a device that asks on itself
-still asks there, since consent lives on the device and nothing KOS sends
-changes that. A device's time limits and idle limit still apply.
+Auto never covers, whatever the chat is set to (`autoCovers` in
+`kernel/guarded.ts`, and the rules in `risk/beyondauto.ts`):
+
+- what KOS refuses, Stop and the kill switch, which also sets every chat
+  back to Ask;
+- a call that places a secret, and a tool marked `asksAlways`;
+- purchases and payments: an MCP tool named for paying (pay, purchase,
+  checkout, charge, buy, order, transfer, send_money, refund, donate,
+  subscribe), and a browser step whose tab or target address is a checkout
+  or payment path, or whose page has a card field (`autocomplete` `cc-*`)
+  or reads as a checkout (checkout, place order, buy now, pay now, payment);
+- deleting for good: `files.rm` of a whole folder; a shell line with
+  `rm -r`, a forced push, `git reset --hard`, `git clean`, `dd`, `mkfs`,
+  a recursive `chmod` or `chown`, or a `>` onto an existing file outside
+  scratch; `systems.project_delete`, `chats.delete`, `blobs.remove`,
+  `daemons.remove`, `discord.prune`; an http DELETE; an MCP tool named for
+  deleting, cancelling or revoking;
+- a message to anyone but the owner (`notify` to a channel or a user) and
+  opening a place to others (`discord.audience` past the owner,
+  `discord.access`);
+- changing KOS itself: `skills.commit`, `skills.promote`,
+  `modules.instantiate`;
+- `browser.eval` and `browser.handoff`;
+- typing on a computer after it reported a password field, until a click
+  or key there goes through;
+- any turn but the owner's own words in that chat: a schedule's run, a
+  guest's words, a dispatch, a handoff, an aside or a resumed approval.
+
+Starting a session is covered only with `sessions`, and only on a device
+that leaves its sessions to KOS's approvals (consent `kos`): a device that
+asks on itself still asks there, since consent lives on the device and
+nothing KOS sends changes that. A device's time limits and idle limit still
+apply. A step on a Mac's screen under Auto is judged risky, so Auto's yes to
+it is kept like any other.
 
 Auto lasts until turned off, until its `until` passes, or, with `until`
 `task`, until the chat's running or next turn ends. Every `chat.show`

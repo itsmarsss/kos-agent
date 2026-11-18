@@ -35,6 +35,14 @@ KOS_DEVICE_KEY_FILE=     KOS's key for paired computers, default ~/.kos/device-h
 KOS_DEVICE_HOST_KEY=     the same key as base64 PKCS#8, for a container whose home does not last
 ```
 
+Every request that changes something carries this boot's write key
+(`x-kos-write`), which KOS writes into the dashboard page it serves and
+keeps nowhere else, or the dashboard token: a program on the machine that
+sends no Origin is not the owner. `http.fetch` never reaches this machine,
+its local network or KOS's own hosts (each redirect and each resolved
+address is checked), jailed programs never connect to KOS's ports, and
+KOS's browser never opens its dashboard.
+
 Computer use and pairing a device: [computer.md](computer.md).
 
 ## Channels
