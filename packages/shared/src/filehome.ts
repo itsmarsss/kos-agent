@@ -59,6 +59,11 @@ export function outsideHome(home: FileHome, path: string): boolean {
   return home.folder !== "" && !ownFolders(home).some((f) => inFolder(path, f));
 }
 
+/** An absolute path with repeated slashes collapsed and "." steps dropped; ".." is kept for the jail to refuse. */
+function normalAbsolute(path: string): string {
+  return `/${path.split("/").filter((s) => s !== "" && s !== ".").join("/")}`;
+}
+
 /**
  * Where a path written by a turn with this home lands.
  *
@@ -77,9 +82,12 @@ export function placePath(home: FileHome, requested: string, root?: string): Pla
     raw = raw.slice(WORKSPACE_MARK.length).replace(/^\/+/, "");
     explicit = true;
   } else if (raw.startsWith("/")) {
-    const base = root?.replace(/\\/g, "/").replace(/\/+$/, "");
-    if (!base || (raw !== base && !raw.startsWith(`${base}/`))) return { path: requested, explicit: true, outside: false };
-    raw = raw.slice(base.length);
+    // Compared spelled one way: "//ws/x" and "/./ws/x" are /ws/x to the disk, and must be to the fence too.
+    const absolute = normalAbsolute(raw);
+    const base = root === undefined ? undefined : normalAbsolute(root.replace(/\\/g, "/"));
+    // Not recognised as under the root: the jail refuses it or it lands somewhere unknown, never inside the home.
+    if (!base || (absolute !== base && !absolute.startsWith(base === "/" ? "/" : `${base}/`))) return { path: requested, explicit: true, outside: home.folder !== "" };
+    raw = absolute.slice(base.length);
     explicit = true;
   }
   const segments = raw.split("/").filter((s) => s !== "" && s !== ".");

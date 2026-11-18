@@ -160,6 +160,13 @@ describe("a turn's file home", () => {
     expect(registry.classify("files.write", { path: "projects/resume/cv.md" })).toEqual({ tier: "safe", escalated: false });
   });
 
+  it("asks for a write into another project however its absolute path is spelled", () => {
+    for (const path of [`/${ws.root}/projects/resume/cv.md`, `/.${ws.root}/projects/resume/cv.md`, `${ws.root}//projects/./resume/cv.md`]) {
+      expect(registry.classify("files.write", { path }), path).toMatchObject({ tier: "risky", reason: "outside this project, in the resume project" });
+    }
+    expect(registry.classify("files.write", { path: `/${ws.root}/projects/school/a.md` })).toEqual({ tier: "safe", escalated: false });
+  });
+
   it("still refuses a path that leaves the workspace", async () => {
     expect((await write("../escape.md")).isError).toBe(true);
     expect((await write("workspace:../escape.md")).isError).toBe(true);

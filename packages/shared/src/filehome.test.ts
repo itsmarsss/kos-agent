@@ -35,8 +35,19 @@ describe("placePath", () => {
   it("takes an absolute path inside the root as that path, and leaves one outside for the jail", () => {
     expect(placePath(school, "/ws/projects/resume/cv.md", "/ws")).toEqual({ path: "projects/resume/cv.md", explicit: true, outside: true });
     expect(placePath(school, "/ws/projects/school/a.md", "/ws/").outside).toBe(false);
-    expect(placePath(school, "/etc/passwd", "/ws")).toEqual({ path: "/etc/passwd", explicit: true, outside: false });
+    expect(placePath(school, "/etc/passwd", "/ws")).toEqual({ path: "/etc/passwd", explicit: true, outside: true });
+    expect(placePath(ROOT_HOME, "/etc/passwd", "/ws").outside).toBe(false);
     expect(placePath(school, "/wsx/a", "/ws").path).toBe("/wsx/a");
+  });
+
+  it("reads an absolute path however it is spelled, and never takes an unrecognised one for inside", () => {
+    for (const spelled of ["//ws/projects/resume/cv.md", "/./ws/projects/resume/cv.md", "/ws//projects/./resume/cv.md", "/ws/./projects/resume/cv.md"]) {
+      expect(placePath(school, spelled, "/ws"), spelled).toEqual({ path: "projects/resume/cv.md", explicit: true, outside: true });
+    }
+    expect(placePath(school, "//ws/projects/school/a.md", "/ws/").outside).toBe(false);
+    expect(placePath(school, "/ws/../ws/projects/resume/cv.md", "/ws").outside).toBe(true);
+    // No root to compare with: outside, whatever it names.
+    expect(placePath(school, "/ws/projects/school/a.md").outside).toBe(true);
   });
 
   it("keeps a parent step for the jail to refuse rather than resolving it", () => {
