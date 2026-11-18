@@ -113,4 +113,26 @@ describe("a turn on the SDK engine", () => {
     await vi.waitFor(() => expect(kernel.sessions.get(chat).map(shape).at(-1)).toBe("assistant The backup finished."));
     expect(kernel.sessions.get(chat).map(shape)).toEqual(["user tidy up", "use sdk-t-1", "result sdk-t-1", "assistant Left it.", "assistant The backup finished."]);
   });
+
+  it("keeps a held line across a close, and a crash, and writes it once", async () => {
+    sdk.run = async (o) => {
+      o.onCall?.(call(1));
+      await o.tools.execute("files.rm", { path: "notes.md" });
+      return answer([call(1)], "Left it.");
+    };
+    expect((await turn("tidy up")).suspended).toBe(true);
+    kernel.noteIn(chat, "The backup finished.");
+    // Kept where a crash would not lose it.
+    expect(kernel.settings.get("notes.held")).toEqual({ [chat]: [{ role: "assistant", content: [{ type: "text", text: "The backup finished." }] }] });
+    kernel.close();
+    kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), chrome: { port: 1, exists: () => false } });
+    kernel.markInterrupted();
+    const lines = kernel.sessions.get(chat).map(shape);
+    expect(lines.filter((l) => l === "assistant The backup finished.")).toHaveLength(1);
+    // A crash: nothing wrote it, and the next boot does.
+    kernel.settings.set("notes.held", { [chat]: [{ role: "assistant", content: [{ type: "text", text: "Sent while down." }] }] });
+    kernel.markInterrupted();
+    expect(kernel.sessions.get(chat).map(shape).at(-1)).toBe("assistant Sent while down.");
+    expect(kernel.settings.get("notes.held")).toEqual({});
+  });
 });

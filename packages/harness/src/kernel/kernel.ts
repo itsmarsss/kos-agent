@@ -250,6 +250,8 @@ const GONE_CHATS_KEY = "discord.gone";
 const GONE_CHATS_MAX = 500;
 /** Chats with a turn running, kept so a restart can say which it cut short. */
 const OPEN_TURNS_KEY = "turns.open";
+/** Lines held for a chat while a turn there writes its transcript, kept so a restart or a crash does not lose them. */
+const HELD_NOTES_KEY = "notes.held";
 
 /** The face the Discord bot wears, as a hash of the PNG, so it is set again only when the look changes. */
 export const WORN_FACE_KEY = "discord.face";
@@ -1416,8 +1418,9 @@ export class Kernel {
             tools,
             cwd: this.workspace.root,
             maxTurns: this.behaviour().maxSteps,
-            // The owner's own turn on a screen carries on in fresh queries up to its own budget; every other turn
-            // (a schedule, a dispatch, a guest) stops where one query would have.
+            // The owner's own turn on a screen (one they dispatched included) carries on in fresh queries up to its
+            // own budget; every other turn (a schedule, a guest, a dispatch or handoff from another chat) stops where
+            // one query would have.
             ...(owner ? { turnSteps: this.behaviour().screenSteps } : {}),
             picturesPerQuery: PICTURES_PER_QUERY,
             onFreshQuery: () => {
@@ -1957,10 +1960,24 @@ export class Kernel {
     this.progress.emit({ kind: "turn-end", conversationId: sessionId });
     this.bus.emit({ kind: "turn:end", conversationId: sessionId, projectSlug: this.projectOf(sessionId) });
     // News that arrived while the transcript was being written goes in now, once no turn there is still writing it.
-    const held = this.stops.has(sessionId) ? undefined : this.heldNotes.get(sessionId);
-    if (held) {
-      this.heldNotes.delete(sessionId);
-      this.writeNote(sessionId, held);
+    if (!this.stops.has(sessionId)) this.releaseNotes(sessionId);
+  }
+
+  /** The lines held for a chat, written now and no longer kept. */
+  private releaseNotes(sessionId: string): void {
+    const held = this.heldNotes.get(sessionId);
+    if (!held) return;
+    this.heldNotes.delete(sessionId);
+    this.keepHeld();
+    this.writeNote(sessionId, held);
+  }
+
+  /** The held lines as they stand, kept across a restart. */
+  private keepHeld(): void {
+    try {
+      this.settings.set(HELD_NOTES_KEY, Object.fromEntries(this.heldNotes));
+    } catch {
+      // A store that has closed keeps nothing more.
     }
   }
 
@@ -1982,6 +1999,10 @@ export class Kernel {
   markInterrupted(): string[] {
     const open = Object.keys(this.settings.get<Record<string, number>>(OPEN_TURNS_KEY) ?? {});
     this.settings.set(OPEN_TURNS_KEY, {});
+    // What was held for a chat while its turn ran goes in first, before the line that says the turn was cut.
+    const held = this.settings.get<Record<string, ModelMessage[]>>(HELD_NOTES_KEY) ?? {};
+    this.settings.set(HELD_NOTES_KEY, {});
+    for (const [id, messages] of Object.entries(held)) if (Array.isArray(messages) && messages.length) this.writeNote(id, messages);
     for (const id of open) this.noteIn(id, INTERRUPTED_LINE);
     return open;
   }
@@ -2053,6 +2074,7 @@ export class Kernel {
     // its steps in two, the first half drawn again under the live ones.
     if (this.working.has(conversationId) || this.stops.has(conversationId)) {
       this.heldNotes.set(conversationId, [...(this.heldNotes.get(conversationId) ?? []), ...messages]);
+      this.keepHeld();
       return;
     }
     this.writeNote(conversationId, messages);
@@ -5328,6 +5350,8 @@ export class Kernel {
     void this.loader.unload();
     this.pageQueryRunner?.close();
     this.artifactChecker?.close();
+    // Lines held for a turn that will not end in this process go in now, while the store is open.
+    for (const id of [...this.heldNotes.keys()]) this.releaseNotes(id);
     this.workspace.close();
   }
 }
