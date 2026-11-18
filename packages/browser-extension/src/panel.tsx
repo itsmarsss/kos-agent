@@ -50,6 +50,8 @@ interface ReadAsk {
   host: string;
 }
 
+/** The most the panel keeps for a worker that is away; the oldest go first. */
+const OUTBOX_MAX = 50;
 /** How long a KOS has to show the chat once the panel opens, and to take the owner's words once sent. */
 const SHOW_MS = 6_000;
 const TAKE_MS = 12_000;
@@ -78,6 +80,8 @@ function useChat(windowId: number | undefined, online: boolean): {
   quotes: Map<string, Quote>;
   /** The extension's state as it last said it: the session, and each KOS's line. */
   worker: PopupState | undefined;
+  /** The chat's last session in this Chrome and why it ended, as the extension said it. */
+  ended: { conversation: string; words: string } | undefined;
   say: (message: Record<string, unknown>) => void;
   send: (text: string, selection?: Quote) => void;
   answer: (message: Record<string, unknown>) => void;
@@ -94,13 +98,17 @@ function useChat(windowId: number | undefined, online: boolean): {
   const [selection, setSelection] = useState<Quote>(NO_QUOTE);
   const [mentions, setMentions] = useState<{ q: string; list: Mention[] }>({ q: "", list: [] });
   const [worker, setWorker] = useState<PopupState>();
+  const [ended, setEnded] = useState<{ conversation: string; words: string }>();
   // What each message was said about, by chat and words: a Map, so no message text can be a key it already holds.
   const [quotes, setQuotes] = useState<Map<string, Quote>>(() => new Map());
-  const quotedIn = useRef<string | null>(null);
+  /** The chat shown, for what is said outside a render: the quote kept with words, the hello after the worker woke. */
+  const shownChat = useRef<string | null>(null);
   useEffect(() => {
-    quotedIn.current = chat.conversation;
+    shownChat.current = chat.conversation;
   }, [chat.conversation]);
   const port = useRef<chrome.runtime.Port | null>(null);
+  /** What the owner did while the worker was away (a Stop, an approval, words), sent in order once it is back. */
+  const outbox = useRef<Record<string, unknown>[]>([]);
   const chosen = useRef<string | null>(null);
   const taking = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** Heard from KOS since the words went: no need to wait on it any longer. */
@@ -129,14 +137,16 @@ function useChat(windowId: number | undefined, online: boolean): {
       } catch {
         return location.reload();
       }
-      port.current = p;
       p.onMessage.addListener((message: Record<string, unknown>) => heard(message));
       // The worker sleeps and wakes; the panel finds it again.
       p.onDisconnect.addListener(() => {
         port.current = null;
         if (!stopped) retry = setTimeout(open, 600);
       });
-      p.postMessage({ type: "hello", window: windowId, kos: chosen.current });
+      // The KOS and the chat it showed, so a Stop said meanwhile still names its chat; then what waited for the worker.
+      p.postMessage({ type: "hello", window: windowId, kos: chosen.current, conversation: shownChat.current });
+      port.current = p;
+      for (const message of outbox.current.splice(0)) post(message);
     };
     const heard = (message: Record<string, unknown>): void => {
       switch (message["type"]) {
@@ -154,6 +164,8 @@ function useChat(windowId: number | undefined, online: boolean): {
         }
         case "state":
           return setWorker(message["state"] as PopupState);
+        case "session.ended":
+          return setEnded({ conversation: String(message["conversation"] ?? ""), words: String(message["words"] ?? "") });
         case "chat.show":
           setShownOnce(true);
           setSilent(false);
@@ -219,13 +231,13 @@ function useChat(windowId: number | undefined, online: boolean): {
 
   const say = useCallback((message: Record<string, unknown>) => {
     setError("");
-    port.current?.postMessage(message);
+    post(message);
   }, []);
   const send = useCallback(
     (text: string, about?: Quote) => {
       const said = text.trim();
       if (!said) return;
-      if (about) setQuotes((q) => new Map(q).set(quoteKey(quotedIn.current, said), about));
+      if (about) setQuotes((q) => new Map(q).set(quoteKey(shownChat.current, said), about));
       setChat((c) => sent(c, said));
       clearTimeout(taking.current);
       taking.current = setTimeout(() => giveBack("KOS did not take that. It may be an older KOS without the side panel, or not reachable now; your words are back in the box."), TAKE_MS);
@@ -256,7 +268,17 @@ function useChat(windowId: number | undefined, online: boolean): {
     },
     [say],
   );
-  return { chat, kos, error, silent, chats, models, reads, selection, mentions, quotes, worker, say, send, answer, answerRead };
+  return { chat, kos, error, silent, chats, models, reads, selection, mentions, quotes, worker, ended, say, send, answer, answerRead };
+
+  /** To the worker, or kept for it while it is away: a port it dropped throws, and a message to none is lost. */
+  function post(message: Record<string, unknown>): void {
+    try {
+      if (port.current) return port.current.postMessage(message);
+    } catch {
+      port.current = null;
+    }
+    outbox.current = [...outbox.current, message].slice(-OUTBOX_MAX);
+  }
 }
 
 /** The tab in front of this window, as it changes. */
@@ -316,7 +338,7 @@ function Panel(): ReactElement {
   const reading = useReading();
   const [kosId, setKosId] = useState<string | null>(null);
   const [online, setOnline] = useState(false);
-  const { chat, kos, error, silent, chats, models, reads, selection, mentions, quotes, worker, say, send, answer, answerRead } = useChat(windowId, online);
+  const { chat, kos, error, silent, chats, models, reads, selection, mentions, quotes, worker, ended, say, send, answer, answerRead } = useChat(windowId, online);
   const state = useWorkerState(worker);
   const k = state?.kos.find((x) => x.id === kosId);
   useEffect(() => setOnline(!!k && k.link === "online" && !k.held), [k]);
@@ -382,7 +404,7 @@ function Panel(): ReactElement {
           )}
         </AnimatePresence>
       </header>
-      <TabBar tab={tab} state={state} reading={reading} session={session} say={say} />
+      <TabBar tab={tab} state={state} reading={reading} session={session} ended={!session && ended?.conversation === chat.conversation ? ended.words : undefined} say={say} />
       {!state?.kos.length ? (
         <Unpaired />
       ) : silent ? (
@@ -433,7 +455,22 @@ function KosPicker({ all, chosen, choose }: { all: KosState[]; chosen: string | 
 }
 
 /** The tab beside the panel: what it is, what KOS may do in it, and the chat's session with Take over, Hand back and Stop wherever it works. */
-function TabBar({ tab, state, reading, session, say }: { tab: chrome.tabs.Tab | undefined; state: PopupState | undefined; reading: { can: boolean; allow: () => void }; session: PopupState["session"] | undefined; say: (m: Record<string, unknown>) => void }): ReactElement | null {
+function TabBar({
+  tab,
+  state,
+  reading,
+  session,
+  ended,
+  say,
+}: {
+  tab: chrome.tabs.Tab | undefined;
+  state: PopupState | undefined;
+  reading: { can: boolean; allow: () => void };
+  session: PopupState["session"] | undefined;
+  /** Why the chat's last session here ended, while no other has begun. */
+  ended: string | undefined;
+  say: (m: Record<string, unknown>) => void;
+}): ReactElement | null {
   if (!tab) return null;
   const url = tab.url ?? "";
   const web = /^https?:\/\//.test(url);
@@ -461,6 +498,11 @@ function TabBar({ tab, state, reading, session, say }: { tab: chrome.tabs.Tab | 
           <button type="button" className="btn btn--sm btn--danger" onClick={() => say({ type: "stop" })}>
             Stop
           </button>
+        </div>
+      </Collapse>
+      <Collapse open={ended !== undefined}>
+        <div className="row">
+          <span className="hint">KOS's session in this Chrome ended. {ended}</span>
         </div>
       </Collapse>
       <Collapse open={web && !hidden && !reading.can}>
