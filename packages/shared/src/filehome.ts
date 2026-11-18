@@ -39,7 +39,15 @@ export interface PlacedPath {
   outside: boolean;
 }
 
-const lower = (s: string): string => s.toLowerCase();
+/**
+ * A name as a case-folding disk compares it: compatibility forms folded
+ * (the long s, ſ, is an s) and lower case, so "Projectſ" is "projects".
+ */
+export function foldName(s: string): string {
+  return s.normalize("NFKC").toLowerCase();
+}
+
+const lower = foldName;
 
 /** True when `path` is `folder` or inside it, compared without case: the disk may not tell them apart. */
 export function inFolder(path: string, folder: string): boolean {
@@ -86,7 +94,7 @@ export function placePath(home: FileHome, requested: string, root?: string): Pla
     const absolute = normalAbsolute(raw);
     const base = root === undefined ? undefined : normalAbsolute(root.replace(/\\/g, "/"));
     // Not recognised as under the root: the jail refuses it or it lands somewhere unknown, never inside the home.
-    if (!base || (absolute !== base && !absolute.startsWith(base === "/" ? "/" : `${base}/`))) return { path: requested, explicit: true, outside: home.folder !== "" };
+    if (!base || (absolute !== base && !absolute.startsWith(base === "/" ? "/" : `${base}/`))) return { path: raw, explicit: true, outside: home.folder !== "" };
     raw = absolute.slice(base.length);
     explicit = true;
   }

@@ -50,6 +50,16 @@ describe("placePath", () => {
     expect(placePath(school, "/ws/projects/school/a.md").outside).toBe(true);
   });
 
+  it("folds names as a case-folding disk does, the long s included", () => {
+    expect(placePath(school, "workspace:project\u017f/other/x").outside).toBe(true);
+    expect(placePath(school, "PROJECTS/School/x.md")).toEqual({ path: "PROJECTS/School/x.md", explicit: true, outside: false });
+    expect(placePath(school, "project\u017f/school/x.md").outside).toBe(false);
+  });
+
+  it("hands back a padded absolute path trimmed, so it is never read as a relative one", () => {
+    expect(placePath(school, "  /etc/kos.md", "/ws")).toEqual({ path: "/etc/kos.md", explicit: true, outside: true });
+  });
+
   it("keeps a parent step for the jail to refuse rather than resolving it", () => {
     expect(at(school, "../resume/cv.md")).toBe("projects/school/../resume/cv.md");
   });

@@ -130,6 +130,7 @@ export {
   LAYOUT_FOLDERS,
   ROOT_HOME,
   WORKSPACE_MARK,
+  foldName,
   homeWords,
   outsideHome,
   placePath,
