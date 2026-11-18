@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Inference } from "../agent/loop.js";
+import { resultText } from "../models/heard.js";
 import type { GenerateRequest, ModelResponse } from "../models/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Kernel, orchestratorId, projectBrief } from "./kernel.js";
@@ -19,6 +20,14 @@ import { BEHAVIOUR_KEY } from "./behaviour.js";
 import { conversationEvents } from "./transcript.js";
 
 /** Inference stub: optionally emits one tool call on the first turn. */
+/** The tool results of a request as the model reads them, the owner's words joined in. */
+function resultsSent(request: GenerateRequest): string {
+  return request.messages
+    .flatMap((m) => m.content)
+    .flatMap((b) => (b.type === "tool_result" ? [resultText(b)] : []))
+    .join("\n");
+}
+
 function stubInference(script: ModelResponse[]): Inference {
   const queue = [...script];
   return {
@@ -171,10 +180,10 @@ describe("Kernel", () => {
     expect(await second).toMatchObject({ reply: "", steered: true });
     expect(requests).toHaveLength(2);
     // It reached the model with the tool's result, under this turn's mark, which the turn was told.
-    const sent = JSON.stringify(requests[1]);
+    const sent = resultsSent(requests[1]!);
     const mark = /while you work · ([0-9a-f]{8})/.exec(sent)?.[1];
     expect(mark).toBeDefined();
-    expect(sent).toContain(`[the owner, while you work · ${mark}]\\nare you stuck on Next?`);
+    expect(sent).toContain(`[the owner, while you work · ${mark}]\nare you stuck on Next?`);
     expect(JSON.stringify(requests[0])).toContain(`this turn's mark`);
     // On the page it reads as the owner's words, after the step that heard them.
     const events = conversationEvents(kernel.sessions.get(chat));
@@ -207,8 +216,8 @@ describe("Kernel", () => {
     await kernel.handleMessage("pick a mug", { sessionId: chat });
     expect(await second).toMatchObject({ steered: true });
     expect((await other)?.steered).toBeUndefined();
-    const sent = JSON.stringify(requests[1]);
-    expect(sent).toMatch(/while you work · [0-9a-f]{8}\]\\nuse the blue one\\n\\n\[where the owner said that · [0-9a-f]{8}\]\\nSaid beside their tab at https:\/\/shop.test\/mugs/);
+    const sent = resultsSent(requests[1]!);
+    expect(sent).toMatch(/while you work · [0-9a-f]{8}\]\nuse the blue one\n\n\[where the owner said that · [0-9a-f]{8}\]\nSaid beside their tab at https:\/\/shop.test\/mugs/);
     const events = conversationEvents(kernel.sessions.get(chat));
     expect(events.filter((e) => e.kind === "message" && e.role === "you").map((e) => (e as { text: string }).text)).toEqual(["pick a mug", "use the blue one", "and this?"]);
   });

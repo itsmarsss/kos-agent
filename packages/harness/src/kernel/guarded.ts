@@ -2,6 +2,7 @@ import { summarizeAction } from "@kos/shared";
 
 import type { ToolBox } from "../agent/loop.js";
 import type { ToolExecution, ToolRegistry } from "../agent/registry.js";
+import { defang, type HeardWords } from "../models/heard.js";
 import type { AuditLog } from "../ops/audit.js";
 import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
@@ -66,7 +67,7 @@ export interface GuardedToolsDeps {
   /** What the caller knows about a call that its arguments do not: the browser's site. */
   permissionContext?: (tool: string) => PermissionContext | undefined;
   /** What the owner said since the last call, while this turn runs: handed to the model with this call's result. */
-  heard?: () => string | undefined;
+  heard?: () => HeardWords | undefined;
   /**
    * The owner let this call run without asking, as a remembered decision
    * does: true anywhere (the chat is set to Auto), "site" only on the site
@@ -326,9 +327,11 @@ export class GuardedTools implements ToolBox {
       calling.then(tell, (err: unknown) => tell({ content: err instanceof Error ? err.message : String(err), isError: true }));
       return { content: STOPPED_RESULT, isError: true };
     }
-    const result = this.deps.shelve && !called.isError ? { ...called, content: await this.deps.shelve(name, input, called.content, this.cutHuge) } : called;
-    const said = signal?.aborted ? undefined : this.deps.heard?.();
-    return said ? { ...result, content: `${result.content}${said}` } : result;
+    const kept = this.deps.shelve && !called.isError ? { ...called, content: await this.deps.shelve(name, input, called.content, this.cutHuge) } : called;
+    // A result's own text never passes for the owner's line; their real words ride beside it.
+    const result = { ...kept, content: defang(kept.content) };
+    const heard = signal?.aborted ? undefined : this.deps.heard?.();
+    return heard ? { ...result, heard } : result;
   }
 
   private async call(

@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+import { resultText } from "../heard.js";
 import type { Effort, ModelSpec, Provider } from "../provider.js";
 import type {
   ContentBlock,
@@ -37,10 +38,10 @@ function toAnthropicContent(blocks: ContentBlock[]): AnthropicBlockParam[] {
           // string it always was.
           content: block.images?.length
             ? [
-                { type: "text" as const, text: block.content },
+                { type: "text" as const, text: resultText(block) },
                 ...block.images.map((i) => ({ type: "image" as const, source: { type: "base64" as const, media_type: i.mediaType as "image/png", data: i.data } })),
               ]
-            : block.content,
+            : resultText(block),
           ...(block.isError ? { is_error: true } : {}),
         });
         break;

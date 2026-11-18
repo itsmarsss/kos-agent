@@ -135,7 +135,7 @@ import { ProgressBus } from "./progress.js";
 import { BEHAVIOUR_KEY, parseBehaviour, type Behaviour } from "./behaviour.js";
 import { parseMentions } from "./mentions.js";
 import { originOf } from "./origin.js";
-import { ownerWords } from "./transcript.js";
+import type { HeardWords, OwnerWords } from "../models/heard.js";
 import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
 import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type HtmlPage, type ThemeMode } from "@kos/shared";
@@ -1446,6 +1446,7 @@ export class Kernel {
                       toolUseId: c.id,
                       content: c.result,
                       ...(c.isError ? { isError: true } : {}),
+                      ...(c.heard ? { heard: c.heard } : {}),
                     },
                   ],
                 },
@@ -1872,11 +1873,11 @@ export class Kernel {
    * turn's mark; each told it was heard. Read from its waiting row, so an
    * edit counts and one dropped meanwhile is not heard at all.
    */
-  private hear(sessionId: string, mark: string): string | undefined {
+  private hear(sessionId: string, mark: string): HeardWords | undefined {
     const waiting = this.steered.get(sessionId);
     if (!waiting?.length) return undefined;
     this.steered.delete(sessionId);
-    const words: { text: string; where?: string }[] = [];
+    const words: OwnerWords[] = [];
     for (const w of waiting) {
       const row = this.pending.get(w.id);
       if (!row) {
@@ -1895,7 +1896,7 @@ export class Kernel {
     }
     if (!words.length) return undefined;
     this.bus.emit({ kind: "turn:heard", conversationId: sessionId });
-    return ownerWords(mark, words);
+    return { mark, words };
   }
 
   /**
@@ -3712,7 +3713,7 @@ export class Kernel {
     /** The surface the turn's words arrived on, and those words. */
     origin?: TurnOrigin;
     /** The owner's words said since the last call, for the model with this call's result. */
-    heard?: () => string | undefined;
+    heard?: () => HeardWords | undefined;
     /** The turn's stop. */
     signal?: AbortSignal;
   } = {}): GuardedTools {

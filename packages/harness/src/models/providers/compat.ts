@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 
+import { resultText } from "../heard.js";
 import type { ModelSpec, Provider } from "../provider.js";
-import type { ContentBlock, GenerateRequest, ModelMessage, ModelResponse, StopReason } from "../types.js";
+import type { ContentBlock, GenerateRequest, ModelMessage, ModelResponse, StopReason, ToolResultBlock } from "../types.js";
 import { fromOpenAIToolName, toOpenAIToolName } from "./openai.js";
 
 /**
@@ -49,8 +50,8 @@ export function toChatMessages(req: GenerateRequest): ChatMessage[] {
       });
       continue;
     }
-    const results = m.content.filter((b) => b.type === "tool_result") as { toolUseId: string; content: string; images?: { mediaType: string; data: string }[] }[];
-    for (const r of results) out.push({ role: "tool", tool_call_id: r.toolUseId, content: r.content });
+    const results = m.content.filter((b) => b.type === "tool_result") as ToolResultBlock[];
+    for (const r of results) out.push({ role: "tool", tool_call_id: r.toolUseId, content: resultText(r) });
     // A tool message carries no pictures here, so the ones a result came
     // with follow it as a user message, said to be the tool's.
     const pictured = results.filter((r) => r.images?.length);

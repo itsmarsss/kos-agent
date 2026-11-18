@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ownerWords } from "../kernel/transcript.js";
+import { ownerWords } from "../models/heard.js";
 import { carryOn, joinSaid, plainName, priorForSdk, screenSplit, sdkName } from "./sdkchat.js";
 
 /**

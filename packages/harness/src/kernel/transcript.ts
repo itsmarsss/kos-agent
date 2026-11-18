@@ -1,5 +1,6 @@
 import { summarizeAction } from "@kos/shared";
 
+import { heardWith } from "../models/heard.js";
 import { saidText, type MessageOrigin, type ModelMessage, type Quote } from "../models/types.js";
 import { RESUME_HEAD } from "./decisions.js";
 import { parseQueuedApproval } from "./guarded.js";
@@ -74,49 +75,6 @@ export type ChatEvent =
     };
 
 const MAX_RESULT = 2000;
-
-/**
- * The owner's words said while a turn runs, as they reach it: after the
- * result of the turn's next tool call, under a line carrying a mark the
- * turn was told and nothing outside it knows. A page or a file can write
- * anything into a result, but not that mark, so it cannot pass for the
- * owner speaking.
- */
-const OWNER_LINE = "[the owner, while you work · ";
-/** Under the owner's words, where they were when they said them (the tab or app beside a device's chat): not their words. */
-const WHERE_LINE = "[where the owner said that · ";
-/** Under the owner's words, the surface they said them on, when not the dashboard: kept so the chat can say so. */
-const VIA_LINE = "[said on · ";
-
-/** Words the owner said while a turn ran: where they were, and the surface, when there is one to say. */
-export interface OwnerWords {
-  text: string;
-  where?: string;
-  via?: string;
-}
-
-/** The owner's words, each with where it was said when the surface says so. */
-export function ownerWords(mark: string, words: OwnerWords[]): string {
-  return words
-    .map((w) => `\n\n${OWNER_LINE}${mark}]\n${w.text}${w.where ? `\n\n${WHERE_LINE}${mark}]\n${w.where}` : ""}${w.via ? `\n\n${VIA_LINE}${mark}]\n${w.via}` : ""}`)
-    .join("");
-}
-
-/** A tool's result, and the owner's words that rode in after it, each with the surface it was said on. */
-export function splitOwnerWords(content: string): { content: string; said: { text: string; via?: string }[] } {
-  const at = content.indexOf(`\n\n${OWNER_LINE}`);
-  if (at === -1) return { content, said: [] };
-  const said = content
-    .slice(at)
-    .split(/\n\n\[the owner, while you work · [0-9a-z]+\]\n/)
-    .flatMap((w) => {
-      const text = (w.split(/\n\n\[(?:where the owner said that|said on) · [0-9a-z]+\]\n/)[0] ?? "").trim();
-      if (!text) return [];
-      const via = /\n\n\[said on · [0-9a-z]+\]\n(\S+)/.exec(w)?.[1];
-      return [{ text, ...(via ? { via } : {}) }];
-    });
-  return { content: content.slice(0, at), said };
-}
 
 /** One decided action in a resume, as a note: today's words, or the outcome lines that came before them. */
 function decidedNote(line: string): string | null {
@@ -243,7 +201,7 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
         // Attach to the call it answers; an unmatched result is a fragment
         // from an older truncation and has nothing to attach to.
         const target = pending.get(block.toolUseId);
-        const { content, said } = splitOwnerWords(block.content);
+        const { content, said } = heardWith(block);
         if (target) {
           target.result = content.slice(0, MAX_RESULT);
           if (block.isError) target.isError = true;

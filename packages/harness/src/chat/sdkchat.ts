@@ -12,7 +12,7 @@ import {
 import type { ToolBox } from "../agent/loop.js";
 import { SCREEN_HANDOFF, SCREEN_PROMPT, forScreenAgent, isScreenTool } from "../agent/screen.js";
 import { fenced, isShelved } from "../context/shelf.js";
-import { splitOwnerWords } from "../kernel/transcript.js";
+import { heardWith, resultText, type HeardWords } from "../models/heard.js";
 import type { Effort } from "../models/provider.js";
 import { toolUse } from "../kernel/caller.js";
 import { STOPPED_RESULT } from "../kernel/guarded.js";
@@ -65,6 +65,8 @@ export interface SdkToolCall {
   input: Record<string, unknown>;
   result: string;
   isError: boolean;
+  /** What the owner said while the turn ran, heard with this result. */
+  heard?: HeardWords;
 }
 
 export interface SdkChatResult {
@@ -151,7 +153,7 @@ export interface SdkChatOptions {
 export function carryOn(prompt: string, calls: SdkToolCall[]): string {
   const steps = calls.map((c, i) => {
     // The owner's words that rode in on a result are theirs, kept whole and outside the result's fence.
-    const { content, said } = splitOwnerWords(c.result);
+    const { content, said } = heardWith({ content: c.result, ...(c.heard ? { heard: c.heard } : {}) });
     // A screen step's answer is a line about what it did, and the screen is attached; any other result is kept whole (or its stub), since what it said may be what the rest of the turn needs.
     const answer = isScreenTool(c.name) ? content.replace(/\s+/g, " ").slice(0, 300) : content;
     const owner = said.map((w) => `\n   The owner said, while you worked: ${w.text}`).join("");
@@ -314,10 +316,11 @@ function serverFor(tools: ToolBox, record: (call: SdkToolCall, images: { data: s
           input: args ?? {},
           result: result.content,
           isError: result.isError === true,
+          ...(result.heard ? { heard: result.heard } : {}),
         }, result.images ?? []);
         return {
           content: [
-            { type: "text" as const, text: result.content },
+            { type: "text" as const, text: resultText(result) },
             ...(result.images ?? []).map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mediaType })),
           ],
           ...(result.isError ? { isError: true } : {}),

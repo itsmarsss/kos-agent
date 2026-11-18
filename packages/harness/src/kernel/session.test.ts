@@ -123,6 +123,19 @@ describe("SessionStore", () => {
     expect((result as { content: string }).content.length).toBeLessThan(200);
   });
 
+  it("keeps the owner's words heard with a capped result whole", () => {
+    const store = new SessionStore(ws.db, { maxToolResultChars: 20 });
+    const heard = { mark: "ab12cd34", words: [{ text: "skip the ebooks", via: "discord" }] };
+    store.record("s5", [
+      { role: "user", content: [{ type: "text", text: "find it" }] },
+      { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "browser.look", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", toolUseId: "t1", content: "x".repeat(30_000), heard }] },
+    ]);
+    const result = store.get("s5")[2]?.content[0];
+    expect(result).toMatchObject({ type: "tool_result", heard });
+    expect((result as { content: string }).content).toContain("[truncated");
+  });
+
   it("clears a session", () => {
     sessions.record("x", [
       { role: "user", content: [{ type: "text", text: "a" }] },
