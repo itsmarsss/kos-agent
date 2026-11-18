@@ -44,7 +44,24 @@ See [channels.md](channels.md).
 ## Secrets
 
 Any `KOS_SECRET_NAME` is exposed to the agent as `{{secret:name}}`: injected
-at call time, never shown to the model, redacted from logs.
+at call time, never shown to the model, redacted from logs. A reference works
+only in an `http.fetch` header or its URL's query string, and in an MCP
+server's env, headers or url query; any other tool or place refuses the call.
+Where a secret may go is the owner's to say, in the same file:
+
+- `KOS_SECRET_NAME_HOSTS` (comma separated, `*.example.com` allowed): the
+  hosts `http.fetch` may send it to. A secret bound to no host is not sent.
+  `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are bound to their own APIs.
+- `KOS_SECRET_NAME_MCP` (comma separated): the servers in `mcp.json` that may
+  be given it. A stdio server has no host, so it cannot take a host-bound
+  secret.
+
+Every call that sends a secret asks the owner, naming the secret and the
+host; no remembered yes and no Auto covers it. A redirect to another site is
+not followed with it. A value that comes back in a tool's answer, as it is or
+encoded, is replaced by `[secret name]` before the model or a log sees it; so
+are the harness's own credentials (bot and dashboard tokens, device keys, any
+env var ending in TOKEN, KEY, SECRET or PASSWORD).
 
 ## Behaviour (Settings, Behaviour)
 

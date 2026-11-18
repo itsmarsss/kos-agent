@@ -48,6 +48,8 @@ export interface RiskAssessment {
   escalated: boolean;
   /** Why it asks, when the rule or the floor says so in words. */
   reason?: string;
+  /** Asked about every time: no remembered yes and no Auto covers it (a call that sends a secret). */
+  asksAlways?: true;
 }
 
 export const SAFE: ToolRisk = { floor: "safe" };

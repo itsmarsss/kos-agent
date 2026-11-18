@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { controlsOf, indexOf as indexOfControls, Refs, treeOf, type AxNode } from "./snapshot.js";
+import { controlsOf, indexOf as indexOfControls, Refs, secretField, treeOf, type AxNode } from "./snapshot.js";
 
 /** The index of a tree, as the tree is read when the page cannot be asked. */
 function indexOf(nodes: AxNode[], refs: Refs, max?: number) {
@@ -108,5 +108,63 @@ describe("the outline of a page", () => {
     const out = treeOf(SHOP, new Refs(), 60);
     expect(out.cut).toBe(true);
     expect(out.text.length).toBeLessThanOrEqual(60);
+  });
+});
+
+describe("a field that holds a secret", () => {
+  const LOGIN = tree([
+    ["1", null, "RootWebArea", "Pay"],
+    ["2", "1", "textbox", "Password", 2, { value: { value: "•••••••••" } }],
+    ["2a", "2", "StaticText", "•••••••••"],
+    ["3", "1", "textbox", "Your code", 3, { value: { value: "•••" } }],
+    ["4", "1", "textbox", "Card number", 4, { value: { value: "4242 4242 4242 4242" } }],
+    ["4a", "4", "StaticText", "4242 4242 4242 4242"],
+    ["5", "1", "textbox", "CVV", 5, { value: { value: "123" } }],
+    ["6", "1", "textbox", "Name on card", 6, { value: { value: "" } }],
+    ["7", "1", "textbox", "Email", 7, { value: { value: "ada@example.com" } }],
+  ]);
+
+  it("hides a field labelled as a secret, and leaves one whose label only contains the letters", () => {
+    const named = tree([
+      ["1", null, "RootWebArea", "Account"],
+      ["2", "1", "textbox", "Security code", 2, { value: { value: "918" } }],
+      ["3", "1", "textbox", "Your PIN", 3, { value: { value: "4321" } }],
+      ["4", "1", "textbox", "API key", 4, { value: { value: "abc-123" } }],
+      ["5", "1", "textbox", "Shipping notes", 5, { value: { value: "leave at door" } }],
+    ]);
+    expect(indexOf(named, new Refs()).lines).toEqual([
+      'textbox "Security code" = "(hidden)" @e1',
+      'textbox "Your PIN" = "(hidden)" @e2',
+      'textbox "API key" = "(hidden)" @e3',
+      'textbox "Shipping notes" = "leave at door" @e4',
+    ]);
+  });
+
+  it("says it holds something, never what or how long, in the index and the outline", () => {
+    const lines = indexOf(LOGIN, new Refs()).lines;
+    expect(lines).toEqual([
+      'textbox "Password" = "(hidden)" @e1',
+      'textbox "Your code" = "(hidden)" @e2',
+      'textbox "Card number" = "(hidden)" @e3',
+      'textbox "CVV" = "(hidden)" @e4',
+      'textbox "Name on card" @e5',
+      'textbox "Email" = "ada@example.com" @e6',
+    ]);
+    const outline = treeOf(LOGIN, new Refs()).text;
+    for (const leaked of ["•", "4242", "123"]) expect(outline).not.toContain(leaked);
+    expect(outline).toContain('"Email" = "ada@example.com"');
+  });
+
+  it("is known by its markup: a password input, a card's or a password's autocomplete, a one-time code, or its name", () => {
+    expect(secretField({ type: "password" })).toBe(true);
+    for (const autocomplete of ["cc-number", "billing cc-csc", "cc-exp", "current-password", "new-password", "one-time-code"]) {
+      expect(secretField({ type: "text", autocomplete })).toBe(true);
+    }
+    expect(secretField({ name: "card_cvc" })).toBe(true);
+    expect(secretField({ id: "user-password" })).toBe(true);
+    expect(secretField({ type: "email", autocomplete: "email", name: "email" })).toBe(false);
+    expect(secretField({ type: "search", name: "q" })).toBe(false);
+    for (const name of ["security_code", "pin", "card-pin", "ssn", "api_token", "apiKey", "client_secret", "otp"]) expect(secretField({ name }), name).toBe(true);
+    for (const name of ["spinner", "shipping", "options", "business_name", "topping"]) expect(secretField({ name }), name).toBe(false);
   });
 });
