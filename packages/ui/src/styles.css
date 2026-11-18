@@ -5850,6 +5850,10 @@ a.health {
   .app { grid-template-columns: minmax(0, 1fr); }
   .ops-page { padding: 0.75rem 1rem 2rem; }
   .ops-page--full { height: calc(100dvh - 3.25rem); padding-top: 0.5rem; }
+  /* The page fills what the phone bar leaves, no more: at 100vh under the bar's
+     3.25rem the document scrolled by the bar's height, and a full page's head
+     slid under it. */
+  .ops { min-height: calc(100dvh - 3.25rem); }
   .phonebar {
     position: sticky;
     top: 0;
