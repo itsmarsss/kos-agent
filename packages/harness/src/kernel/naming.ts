@@ -37,6 +37,8 @@ const OUTPUT_TOKENS = 16;
 const THINKING_OUTPUT_TOKENS = 512;
 /** A name that has not come by now is given up on, and the opening words stand in. */
 export const NAMING_MS = 6_000;
+/** The same for the chats' engine, which may start a process first; nothing waits on it. */
+export const ENGINE_NAMING_MS = 20_000;
 /** Words in a title made without the model. */
 const HEURISTIC_WORDS = 6;
 /** Characters of a clause written without spaces, which is all one "word". */
@@ -58,8 +60,11 @@ function sentenceCase(text: string): string {
 const UNSHOWABLE: RegExp[] = [
   /[\p{Cc}\p{Cf}]/gu,
   /\b(?:https?:\/\/|www\.)\S*/gi,
-  /[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.[a-z]{2,}\b(?:\/\S*)?/giu,
-  /[@#*_`~|]/g,
+  // A domain with a path is a link; a name with a dot alone ("Next.js", "kernel.ts", "vercel.app") is a name.
+  /[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.(?!(?:js|ts|jsx|tsx|mjs|md|py|json|yaml|yml|html|css|sh|go|rs|io|net)\b)[a-z]{2,}\/\S*/giu,
+  // A sigil that pings or tags, but not the # of C# or F#.
+  /@|(?<!\p{L})#/gu,
+  /[*_`~|]/g,
 ];
 
 /** Words written to the model rather than about the chat. */
@@ -115,7 +120,7 @@ export function titleFromWords(text: string): string | null {
   if (!clause || INSTRUCTION.test(clause)) return null;
   const words = clause
     .split(" ")
-    .map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}'+#&-]+$/gu, ""))
+    .map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}+#]+$/gu, ""))
     .filter(Boolean)
     .slice(0, HEURISTIC_WORDS);
   while (words.length > 1 && DANGLING.has(words.at(-1)!.toLowerCase())) words.pop();
@@ -145,14 +150,14 @@ export async function nameConversation(inference: Inference, firstMessage: strin
 
 /**
  * A one-shot ask of the engine the owner's chats run on, at its smallest
- * model: the same prompt and deadline, its text back. Which engine and model
+ * model: the same prompt, a longer deadline, its text back. Which engine and model
  * is the kernel's to say; nothing here names one.
  */
 export type EngineAsk = (ask: { conversationId: string; system: string; text: string; signal: AbortSignal }) => Promise<string>;
 
 /** The same title asked of the chats' engine instead, for a host whose cheap route cannot be asked. */
 export async function nameWithEngine(ask: EngineAsk, conversationId: string, firstMessage: string): Promise<string | null> {
-  const text = await ask({ conversationId, system: SYSTEM, text: withoutPrivate(firstMessage).slice(0, INPUT_CHARS), signal: AbortSignal.timeout(NAMING_MS) });
+  const text = await ask({ conversationId, system: SYSTEM, text: withoutPrivate(firstMessage).slice(0, INPUT_CHARS), signal: AbortSignal.timeout(ENGINE_NAMING_MS) });
   return tidyName(text);
 }
 

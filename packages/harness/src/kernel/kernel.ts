@@ -129,7 +129,7 @@ import type { EventBus } from "../modules/events.js";
 import type { SuggestionStore } from "../improve/store.js";
 import { AfterTurn, EMBED_MS } from "./afterturn.js";
 import { ChatNamer, type EngineAsk } from "./naming.js";
-import { askSdkOnce, sdkModelFor } from "../chat/sdkname.js";
+import { SdkOneShot, sdkModelFor, type SdkSpent } from "../chat/sdkname.js";
 import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF, reachesAll, type FixRequest } from "./caretaker.js";
 import { Decisions, type DecisionResult } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
@@ -497,6 +497,8 @@ export class Kernel {
   private readonly afterTurn: AfterTurn;
   /** Naming a new chat from its opening message, as its first turn starts. */
   private readonly namer: ChatNamer;
+  /** Short asks of the Agent SDK engine, for naming without a cheap route. */
+  private readonly oneShot = new SdkOneShot();
   /** Decisions the owner has made before, so the same shape stops asking. */
   readonly permissions: PermissionStore;
   readonly settings: SettingsStore;
@@ -2265,14 +2267,18 @@ export class Kernel {
     return (ask) => this.askSdk({ ...ask, model });
   }
 
-  /** One short answer from the Agent SDK, its spend logged as a cheap call on the chat it was for. */
+  /** One short answer from the Agent SDK, its spend logged as a cheap call on the chat it was for, answered or not. */
   private async askSdk(ask: Parameters<EngineAsk>[0] & { model: string }): Promise<string> {
-    const answer = await askSdkOnce(ask, this.workspace.root);
-    for (const used of answer.models) {
+    const answer = await this.oneShot.ask({ ...ask, spent: (spent) => this.recordCheapSpend(ask.conversationId, spent) });
+    return answer.text;
+  }
+
+  private recordCheapSpend(conversationId: string, { provider, models }: SdkSpent): void {
+    for (const used of models) {
       this.spend.record({
-        conversationId: ask.conversationId,
+        conversationId,
         task: "cheap",
-        provider: "anthropic",
+        provider,
         model: used.model,
         inputTokens: used.inputTokens + used.cacheReadInputTokens + used.cacheCreationInputTokens,
         outputTokens: used.outputTokens,
@@ -2281,7 +2287,6 @@ export class Kernel {
         costUSD: used.costUSD,
       });
     }
-    return answer.text;
   }
 
   /**
@@ -5387,6 +5392,7 @@ export class Kernel {
     this.cancelRestart();
     this.browser.close();
     this.closed = true;
+    this.oneShot.close();
     this.stopCron();
     this.stopHeartbeat();
     // Not awaited: close is synchronous everywhere it is called from, and the

@@ -10,9 +10,13 @@
  */
 const PRIVATE: RegExp[] = [
   /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g,
-  // The value after a word that says one follows: "password: x", "token=x", "my password is x".
-  /\b(?:password|passwd|pwd|passcode|secret|token|api[_ -]?key|apikey)\b(?:\s+(?:is|was)\b)?\s*[:=]?\s*\S+/gi,
-  /\bBearer\s+\S+/gi,
+  // The value after a word that says one follows, only where something says it does:
+  // "password: x", "token=x", "my password is x"; "password reset flow" is about one.
+  /\b(?:password|passwd|pwd|passcode|secret|token|api[_ -]?key|apikey)(?:\s+(?:is|was)\s+|\s*[:=]\s*)\S+/gi,
+  // An environment line: API_KEY=x, DB_PASSWORD=x.
+  /\b[A-Z][A-Z0-9]*_[A-Z0-9_]+=\S+/g,
+  // A bearer token, not the word: "Bearer tokens explained" is about them.
+  /\bBearer\s+[\w.~+/=-]{16,}/gi,
   /\b(?:sk|pk|rk)-[\w-]{8,}/g,
   /\bgh[pousr]_[A-Za-z0-9]{16,}/g,
   /\bxox[abprs]-[\w-]{8,}/g,
