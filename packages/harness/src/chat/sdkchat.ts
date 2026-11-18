@@ -429,6 +429,8 @@ export async function runSdkChat(
   let text = "";
   /** What the reply in progress has said so far: kept if the turn is stopped before it is whole. */
   let streamed = "";
+  /** The next piece of text starts a block, and is joined to what came before as the reply joins blocks. */
+  let blockStart = true;
   const usage = { inputTokens: 0, outputTokens: 0 };
   const models: SdkModelUsage[] = [];
   let costUSD = 0;
@@ -578,13 +580,16 @@ export async function runSdkChat(
         }
 
         if (m["type"] === "stream_event") {
-          const event = m["event"] as { delta?: { type?: string; text?: string; thinking?: string } };
+          const event = m["event"] as { type?: string; content_block?: { type?: string }; delta?: { type?: string; text?: string; thinking?: string } };
+          if (event?.type === "content_block_start" && event.content_block?.type === "text" && !inSubagent) blockStart = true;
           const delta = event?.delta;
           if (delta?.text && !inSubagent) {
             // A block's first piece is joined to what came before as the
             // stored reply joins whole blocks, so the live text reads the same.
-            const piece = streamed ? delta.text : joinSaid(text, delta.text).slice(text.length);
-            streamed += delta.text;
+            const sofar = text + streamed;
+            const piece = blockStart ? joinSaid(sofar, delta.text).slice(sofar.length) : delta.text;
+            blockStart = false;
+            streamed += piece;
             options.onDelta?.({ kind: "text", text: piece });
           }
           if (delta?.thinking) {
@@ -596,6 +601,7 @@ export async function runSdkChat(
         if (m["type"] === "assistant") {
           if (inSubagent) continue;
           streamed = "";
+          blockStart = true;
           const content = said?.content ?? [];
           for (const block of content) {
             const b = block as { type?: string; text?: string };
