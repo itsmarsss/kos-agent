@@ -31,7 +31,6 @@ export interface SecretsRoutesDeps {
   uses: SecretUses;
   /** Into the audit log: names, handles and fields, never a value. */
   audit: (entry: { tool: string; args: Record<string, unknown>; result: string; isError: boolean }) => void;
-  now?: () => number;
 }
 
 /** Nothing here is cached by a browser or a proxy: a value, or what a list says of one. */
@@ -71,9 +70,6 @@ function segment(raw: string): string | undefined {
 
 export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
   const { vault, secrets, uses } = deps;
-  const now = deps.now ?? Date.now;
-  const reveals: number[] = [];
-  const unlocks: number[] = [];
 
   const status = (): VaultStatus => ({ ...vault.status(), scrubbed: secrets.scrubbed() });
 
@@ -102,15 +98,9 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
 
   const isEnv = (handle: string): boolean => secrets.envNames().includes(handle);
 
-  /** A try counted against its window; false when the window is full. */
-  const admit = (tries: number[], most: number): boolean => {
-    const t = now();
-    while (tries.length && t - tries[0]! >= REVEAL_WINDOW_MS) tries.shift();
-    if (tries.length >= most) return false;
-    tries.push(t);
-    return true;
-  };
-  const admitReveal = (): boolean => admit(reveals, REVEALS_PER_WINDOW);
+  /** A try counted against its window, in the database so a restart does not reset it; false when the window is full. */
+  const admitReveal = (): boolean => uses.tryOnce("reveal", REVEALS_PER_WINDOW, REVEAL_WINDOW_MS);
+  const admitUnlock = (): boolean => uses.tryOnce("unlock", UNLOCKS_PER_WINDOW, REVEAL_WINDOW_MS);
   const tooManyTries = (): ApiResponse => fail(429, `at most ${UNLOCKS_PER_WINDOW} passphrase tries in ${REVEAL_WINDOW_MS / 60_000} minutes; try again later`);
 
   /**
@@ -122,7 +112,7 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
     const next = text(body.passphrase) || undefined;
     const had = vault.hasPassphrase();
     if (had) {
-      if (!admit(unlocks, UNLOCKS_PER_WINDOW)) return tooManyTries();
+      if (!admitUnlock()) return tooManyTries();
       if (!(await vault.checkPassphrase(text(body.current) ?? ""))) {
         deps.audit({ tool: "secrets.passphrase", args: { change: next ? "change" : "remove" }, result: "refused: not the current passphrase", isError: true });
         return fail(400, "current is not the vault's passphrase");
@@ -185,8 +175,17 @@ export function secretsRoutes(deps: SecretsRoutesDeps): ApiExtension {
       if (method === "POST" && name === "unlock") {
         const passphrase = text(body.passphrase);
         if (!passphrase) return fail(400, "passphrase is required");
-        if (!admit(unlocks, UNLOCKS_PER_WINDOW)) return tooManyTries();
-        await vault.unlock(passphrase);
+        if (!admitUnlock()) {
+          deps.audit({ tool: "secrets.unlock", args: {}, result: "refused: too many tries", isError: true });
+          return tooManyTries();
+        }
+        try {
+          await vault.unlock(passphrase);
+        } catch (err) {
+          deps.audit({ tool: "secrets.unlock", args: {}, result: `refused: ${err instanceof VaultError ? err.code : "error"}`, isError: true });
+          throw err;
+        }
+        deps.audit({ tool: "secrets.unlock", args: {}, result: "unlocked", isError: false });
         return ok(status());
       }
       if (method === "POST" && name === "passphrase") return passphrase(body);

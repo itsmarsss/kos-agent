@@ -26,6 +26,12 @@ CREATE TABLE IF NOT EXISTS secret_uses (
   decided_by TEXT
 );
 CREATE INDEX IF NOT EXISTS secret_uses_by_secret ON secret_uses (secret_id, at DESC);
+CREATE TABLE IF NOT EXISTS secret_tries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS secret_tries_by_kind ON secret_tries (kind, at);
 `;
 
 interface Row {
@@ -121,6 +127,19 @@ export class SecretUses {
   lastUsed(): Map<string, number> {
     const rows = this.db.prepare(`SELECT secret_id, MAX(at) AS at FROM secret_uses WHERE outcome = 'filled' GROUP BY secret_id`).all() as { secret_id: string; at: number }[];
     return new Map(rows.map((r) => [r.secret_id, r.at]));
+  }
+
+  /**
+   * A reveal or a passphrase try counted, unless `most` were made in the
+   * last `windowMs`: kept in the database, so a restart does not reset it.
+   */
+  tryOnce(kind: "reveal" | "unlock", most: number, windowMs: number): boolean {
+    const since = this.now() - windowMs;
+    this.db.prepare(`DELETE FROM secret_tries WHERE at <= ?`).run(since);
+    const { n } = this.db.prepare(`SELECT COUNT(*) AS n FROM secret_tries WHERE kind = ? AND at > ?`).get(kind, since) as { n: number };
+    if (n >= most) return false;
+    this.db.prepare(`INSERT INTO secret_tries (kind, at) VALUES (?, ?)`).run(kind, this.now());
+    return true;
   }
 
   /** A deleted secret's history goes with it. */

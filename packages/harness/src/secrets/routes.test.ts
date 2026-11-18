@@ -29,7 +29,7 @@ beforeEach(() => {
   uses = new SecretUses(new Database(":memory:"), () => clock);
   audited = [];
   clock = 1_000_000;
-  routes = secretsRoutes({ vault, secrets, uses, audit: (e) => audited.push(e), now: () => clock });
+  routes = secretsRoutes({ vault, secrets, uses, audit: (e) => audited.push(e) });
 });
 
 afterEach(() => rmSync(root, { recursive: true, force: true }));
@@ -87,6 +87,9 @@ describe("secrets routes", () => {
     expect((await call("POST", `/api/secrets/${handle}/reveal`, { field: "number", label: "GitHub" })).status).toBe(400);
     for (let i = 0; i < 3; i++) expect((await call("POST", `/api/secrets/${handle}/reveal`, { field: "username", label: "GitHub" })).status).toBe(200);
     expect((await call("POST", `/api/secrets/${handle}/reveal`, { field: "password", label: "GitHub" })).status).toBe(429);
+    // A restart does not reset it: the tries are in the database.
+    routes = secretsRoutes({ vault: new Vault({ dir: join(root, "secrets") }), secrets: new SecretsRegistry(), uses, audit: (e) => audited.push(e) });
+    expect((await call("POST", `/api/secrets/${handle}/reveal`, { field: "password", label: "GitHub" })).status).toBe(429);
     clock += REVEAL_WINDOW_MS;
     expect((await call("POST", `/api/secrets/${handle}/reveal`, { field: "password", label: "GitHub" })).status).toBe(200);
     const reveals = audited.filter((a) => a.tool === "secrets.reveal");
@@ -108,7 +111,7 @@ describe("secrets routes", () => {
 
   it("makes a passphrase vault with that slot alone, and limits unlock tries", async () => {
     expect((await call("POST", "/api/secrets/init", { passphrase: "the vault passphrase" })).body).toMatchObject({ state: "ready", slots: ["passphrase"] });
-    routes = secretsRoutes({ vault: new Vault({ dir: join(root, "secrets") }), secrets: new SecretsRegistry(), uses, audit: () => undefined, now: () => clock });
+    routes = secretsRoutes({ vault: new Vault({ dir: join(root, "secrets") }), secrets: new SecretsRegistry(), uses, audit: () => undefined });
     for (let i = 0; i < 4; i++) expect((await call("POST", "/api/secrets/unlock", { passphrase: `wrong guess ${i}` })).status).toBe(400);
     expect((await call("POST", "/api/secrets/unlock", { passphrase: "the vault passphrase" })).status).toBe(200);
     expect((await call("POST", "/api/secrets/unlock", { passphrase: "the vault passphrase" })).status).toBe(429);

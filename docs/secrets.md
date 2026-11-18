@@ -255,10 +255,14 @@ Errors are `{error}`: 400 bad input or a failed step-up, 404 no such handle,
 
 Passphrase tries (`unlock`, and `current` on the passphrase route) are
 limited to 5 in ten minutes, wrong or right; a wrong one is 400, past the
-limit 429.
+limit 429. Both limits are kept in the workspace database (`secret_tries`,
+a kernel trust table), so a restart does not reset them, and every unlock,
+refused or not, is audited as `secrets.unlock`.
 
 A reveal asks again who it is: the passphrase when the vault has one, else
-the secret's label typed exactly. Five reveals in ten minutes at most,
+the secret's label typed exactly. The typed label only guards against a
+misclick: anyone who can call the API can read the label from the list, so a
+vault whose secrets need more than that should have a passphrase. Five reveals in ten minutes at most,
 refused ones counted; each is audited as `secrets.reveal` with the handle and
 field, never the value. Adds and edits are audited as `secrets.write` (field
 names only), deletes as `secrets.delete`, and `secrets.init`,
