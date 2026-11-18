@@ -1,403 +1,44 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 
-import { m } from "motion/react";
-import { Chips, ease, Empty, GridIcon, ListIcon } from "@kos/kit";
-import { api, type DirEntry, type FileContent } from "./api.js";
-import { EntryMenu, dragProps, dropProps, useFileOps, type FileChange } from "./FileActions.js";
-import { FileIcon, previewable } from "./FileIcon.js";
-import { FileBody, RawBody, RawToggle, hasRawText } from "./FilePreview.js";
-import { Thumb } from "./FileThumb.js";
-import { useHiddenFiles } from "./hiddenfiles.js";
-import { hrefFor } from "./routes.js";
-import { Select } from "./Select.js";
+import { api } from "./api.js";
+import { Finder } from "./finder/Finder.js";
+import { parentOf } from "./finder/model.js";
 
 /**
  * The workspace, browsed and kept in order.
  *
- * KOS's whole premise is that everything is one folder you own, so being able
- * to see that folder is not a convenience. Reveal-in-Finder covers the desktop
- * case; this covers looking at what the agent wrote without leaving the page,
- * and works when the dashboard is not on the machine holding the workspace.
- * Since it is yours, you can also tidy it here: rename, move (by dragging a
- * row onto a folder or a crumb, or by asking), duplicate, download, delete,
- * and make folders. The agent's own edits still go through its guarded tools.
- *
- * Two ways to look at the same folder, because they answer different
- * questions. The list is for finding a known thing and reading its facts. The
- * grid is for a folder of pictures, where the name is not what you recognise
- * it by.
+ * KOS's whole premise is that everything is one folder you own, so being
+ * able to see that folder is not a convenience. This is the file manager
+ * over the whole workspace: its sidebar, views, Quick Look and trash. The
+ * address names a folder, or a file, which opens its folder with the file
+ * chosen and looked at.
  */
 
 export interface FilesPageProps {
   path?: string;
   onOpen: (path: string) => void;
+  /** Ask KOS about these, in a chat that references them. */
+  onAsk?: (paths: string[]) => void;
 }
 
-type ViewMode = "list" | "grid";
-type SortKey = "name" | "size" | "modified";
-
-const VIEW_KEY = "kos.files.view";
-const SORT_KEY = "kos.files.sort";
-
-function bytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
-
-/**
- * When something was last touched, said the way you would say it. Exact dates
- * matter less than "the agent wrote this while I was out".
- */
-function when(ms: number): string {
-  if (!ms) return "";
-  const secs = Math.round((Date.now() - ms) / 1000);
-  if (secs < 60) return "just now";
-  const mins = Math.round(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(ms).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    ...(new Date(ms).getFullYear() === new Date().getFullYear()
-      ? {}
-      : { year: "numeric" }),
-  });
-}
-
-/** Clickable ancestors of the current location. */
-function crumbs(path: string): Array<{ label: string; path: string }> {
-  const parts = path.split("/").filter((p) => p && p !== ".");
-  const out = [{ label: "workspace", path: "." }];
-  parts.forEach((part, i) => {
-    out.push({ label: part, path: parts.slice(0, i + 1).join("/") });
-  });
-  return out;
-}
-
-/** Directories stay together at the top whichever way the rest is sorted. */
-function sortEntries(entries: DirEntry[], key: SortKey): DirEntry[] {
-  return [...entries].sort((a, b) => {
-    if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
-    if (key === "size") return b.size - a.size;
-    if (key === "modified") return b.modifiedAt - a.modifiedAt;
-    return a.name.localeCompare(b.name);
-  });
-}
-
-function readStored<T extends string>(key: string, allowed: T[], fallback: T): T {
-  try {
-    const v = localStorage.getItem(key);
-    return allowed.includes(v as T) ? (v as T) : fallback;
-  } catch {
-    // Private browsing, or storage disabled. A default is fine.
-    return fallback;
-  }
-}
-
-/** A directory listing, or the file, depending on what the path points at. */
-export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement {
-  const [entries, setEntries] = useState<DirEntry[] | null>(null);
-  const [file, setFile] = useState<FileContent | null>(null);
-  // The words instead of the document; back to the file when another opens.
-  const [rawView, setRawView] = useState(false);
-  useEffect(() => setRawView(false), [file?.path]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("");
-  const [view, setView] = useState<ViewMode>(() =>
-    readStored<ViewMode>(VIEW_KEY, ["list", "grid"], "list"),
-  );
-  const [sort, setSort] = useState<SortKey>(() =>
-    readStored<SortKey>(SORT_KEY, ["name", "size", "modified"], "name"),
-  );
-  /** Bumped to re-read the same place after something in it changed. */
-  const [tick, setTick] = useState(0);
-  const lastPath = useRef<string | null>(null);
-  /** The folder a dragged row is over, for the highlight. */
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
-
+export function FilesPage({ path = ".", onOpen, onAsk }: FilesPageProps): ReactElement {
+  /** The address as a folder, and the file in it it names, once known. */
+  const [at, setAt] = useState<{ folder: string; focus?: string } | null>(null);
   useEffect(() => {
     let cancelled = false;
-    // Moving somewhere else starts blank. Re-reading the same place keeps
-    // what is on screen until the new listing lands, so a rename does not
-    // flash the folder empty.
-    const moved = lastPath.current !== path;
-    lastPath.current = path;
-    if (moved) {
-      setLoading(true);
-      setError(null);
-      setFile(null);
-      setEntries(null);
-      // A filter that survived the move would hide a folder's contents for no
-      // visible reason.
-      setFilter("");
+    if (path === ".") {
+      setAt({ folder: "." });
+      return undefined;
     }
-
-    // Try it as a directory; a path that is a file fails and is read instead.
     void api
-      .files(path)
-      .then((res) => {
-        if (cancelled) return;
-        setEntries(res.entries);
-        setFile(null);
-      })
-      .catch(() =>
-        api
-          .file(path)
-          .then((f) => {
-            if (cancelled) return;
-            setFile(f);
-            setEntries(null);
-          })
-          .catch((err: unknown) => {
-            if (!cancelled) {
-              setError(err instanceof Error ? err.message : String(err));
-            }
-          }),
-      )
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
+      .fileInfo(path)
+      .then((info) => !cancelled && setAt(info.kind === "dir" ? { folder: path } : { folder: parentOf(path), focus: path }))
+      // Gone, or never was: the folder it would be in.
+      .catch(() => !cancelled && setAt({ folder: parentOf(path) }));
     return () => {
       cancelled = true;
     };
-  }, [path, tick]);
-
-  const choose = (next: ViewMode): void => {
-    setView(next);
-    try {
-      localStorage.setItem(VIEW_KEY, next);
-    } catch {
-      // Not being able to remember the choice is not a reason to refuse it.
-    }
-  };
-
-  const reorder = (next: SortKey): void => {
-    setSort(next);
-    try {
-      localStorage.setItem(SORT_KEY, next);
-    } catch {
-      // As above.
-    }
-  };
-
-  const [showHidden, setShowHidden] = useHiddenFiles();
-  const hiddenCount = useMemo(() => (entries ?? []).filter((e) => e.name.startsWith(".")).length, [entries]);
-  const shown = useMemo(() => {
-    if (!entries) return [];
-    const q = filter.trim().toLowerCase();
-    const visible = showHidden ? entries : entries.filter((e) => !e.name.startsWith("."));
-    const matching = q
-      ? visible.filter((e) => e.name.toLowerCase().includes(q))
-      : visible;
-    return sortEntries(matching, sort);
-  }, [entries, filter, sort, showHidden]);
-
-  const trail = crumbs(path);
-  const parent = trail.length > 1 ? trail[trail.length - 2] : null;
-  /** The folder being looked at, "" for the root; a file's is its parent. */
-  const here = file ? (parent?.path ?? "") : path;
-  const dirOf = (p: string): string => (p === "." ? "" : p);
-
-  const ops = useFileOps({
-    onOpen: (e) => onOpen(e.path),
-    onChanged: (c: FileChange) => {
-      // A file being looked at follows its rename and is left when deleted;
-      // anything else is a change to the listing, which is re-read in place.
-      if (file && c.from === file.path) {
-        if (c.op === "delete") onOpen(parent?.path ?? ".");
-        else if (c.op === "rename" && c.path) onOpen(c.path);
-        return;
-      }
-      setTick((t) => t + 1);
-    },
-    onError: setError,
-    folders: [
-      ...trail.map((c) => dirOf(c.path)).filter((p) => p !== dirOf(here) || !file),
-      ...(entries ?? []).filter((e) => e.kind === "dir").map((e) => e.path),
-    ],
-  });
-  const overHandlers = (target: string) => (over: boolean): void =>
-    setDropTarget((cur) => (over ? target : cur === target ? null : cur));
-
-  return (
-    <div className="files">
-      <div className="files-bar">
-        <nav className="files-crumbs" aria-label="Location">
-          {trail.map((c, i) => (
-            <span key={c.path}>
-              {i > 0 && <span className="files-sep">/</span>}
-              <a
-                href={hrefFor({ name: "files", path: c.path })}
-                className={dropTarget === `crumb:${c.path}` ? "is-drop" : ""}
-                onClick={(e) => {
-                  e.preventDefault();
-                  onOpen(c.path);
-                }}
-                {...dropProps(dirOf(c.path), ops, overHandlers(`crumb:${c.path}`))}
-              >
-                {c.label}
-              </a>
-            </span>
-          ))}
-        </nav>
-
-        {entries && (
-          <div className="files-tools">
-            <input
-              className="kos-input files-filter"
-              value={filter}
-              placeholder="Filter…"
-              aria-label="Filter this folder"
-              onChange={(e) => setFilter(e.target.value)}
-            />
-            <Select
-              className="files-sort"
-              label="Sort by"
-              value={sort}
-              options={[
-                { value: "name", label: "Name" },
-                { value: "modified", label: "Last changed" },
-                { value: "size", label: "Size" },
-              ]}
-              onChange={(v) => reorder(v as SortKey)}
-            />
-            {hiddenCount > 0 && (
-              <button type="button" className="btn btn--sm btn--ghost" aria-pressed={showHidden} title={showHidden ? "Hide files whose names start with a dot" : `Show ${hiddenCount} hidden`} onClick={() => setShowHidden(!showHidden)}>
-                {showHidden ? "Hide hidden" : `Hidden ${hiddenCount}`}
-              </button>
-            )}
-            <button type="button" className="btn btn--sm files-newfolder" onClick={() => ops.newFolder(dirOf(path))}>
-              New folder
-            </button>
-            <Chips small label="View as" options={[["list", <ListIcon key="list" />, "List"], ["grid", <GridIcon key="grid" />, "Grid"]]} selected={view} onChoose={choose} />
-          </div>
-        )}
-      </div>
-
-      {loading && <p className="hint">Loading…</p>}
-      {error && (
-        <p className="ops-alert ops-alert--err" role="alert">
-          {error}
-        </p>
-      )}
-
-      {entries && (
-        <>
-          {entries.length === 0 && <Empty inline>This folder is empty.</Empty>}
-          {entries.length > 0 && shown.length === 0 && (
-            <Empty inline>Nothing here matches “{filter}”.</Empty>
-          )}
-
-          {shown.length > 0 && view === "list" && (
-            /* Keyed on the folder, so stepping into one is a move you can
-               follow. Small and quick: this is orientation, not decoration. */
-            <m.div
-              className="files-list"
-              key={path}
-              initial={{ opacity: 0, x: 8 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={ease}
-            >
-              {shown.map((e) => (
-                <a
-                  key={e.path}
-                  className={`files-row${dropTarget === e.path ? " is-drop" : ""}`}
-                  href={hrefFor({ name: "files", path: e.path })}
-                  onClick={(ev) => {
-                    ev.preventDefault();
-                    onOpen(e.path);
-                  }}
-                  {...dragProps(e)}
-                  {...(e.kind === "dir" ? dropProps(e.path, ops, overHandlers(e.path)) : {})}
-                >
-                  <FileIcon name={e.name} kind={e.kind} />
-                  <span className="files-name">{e.name}</span>
-                  <span className="files-when">{when(e.modifiedAt)}</span>
-                  <span className="files-size">
-                    {e.kind === "file" ? bytes(e.size) : ""}
-                  </span>
-                  <EntryMenu entry={e} ops={ops} />
-                </a>
-              ))}
-            </m.div>
-          )}
-
-          {shown.length > 0 && view === "grid" && (
-            <div className="files-grid">
-              {shown.map((e) => (
-                <a
-                  key={e.path}
-                  className={`files-tile${dropTarget === e.path ? " is-drop" : ""}`}
-                  href={hrefFor({ name: "files", path: e.path })}
-                  title={e.name}
-                  onClick={(ev) => {
-                    ev.preventDefault();
-                    onOpen(e.path);
-                  }}
-                  {...dragProps(e)}
-                  {...(e.kind === "dir" ? dropProps(e.path, ops, overHandlers(e.path)) : {})}
-                >
-                  <EntryMenu entry={e} ops={ops} />
-                  {e.kind === "file" && previewable(e.name) ? (
-                    <Thumb path={e.path} name={e.name} />
-                  ) : (
-                    <div className="files-thumb">
-                      <FileIcon name={e.name} kind={e.kind} size={30} />
-                    </div>
-                  )}
-                  <span className="files-tile-name">{e.name}</span>
-                  <span className="files-tile-meta">
-                    {e.kind === "file" ? bytes(e.size) : "folder"}
-                  </span>
-                </a>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-
-      {file && (
-        <div className="files-file">
-          <header className="files-file-head">
-            <FileIcon name={file.path} kind="file" />
-            <strong>{file.path}</strong>
-            <span className="hint">
-              {bytes(file.size)}
-              {file.language ? ` · ${file.language}` : ""}
-              {file.modifiedAt ? ` · ${when(file.modifiedAt)}` : ""}
-            </span>
-            <div className="file-head-acts">
-              {hasRawText(file) && <RawToggle raw={rawView} onChange={setRawView} />}
-              {parent && (
-                <a
-                  className="btn btn--sm files-up"
-                  href={hrefFor({ name: "files", path: parent.path })}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onOpen(parent.path);
-                  }}
-                >
-                  Back to {parent.label}
-                </a>
-              )}
-              <button type="button" className="btn btn--sm" onClick={() => ops.download({ path: file.path, name: file.path.split("/").pop() ?? file.path, kind: "file" })}>
-                Download
-              </button>
-              <EntryMenu entry={{ path: file.path, name: file.path.split("/").pop() ?? file.path, kind: "file" }} ops={ops} inView />
-            </div>
-          </header>
-          {/* The same body the preview window shows, so a file reads the same wherever it is opened. */}
-          {rawView && hasRawText(file) ? <RawBody path={file.path} /> : <FileBody file={file} />}
-        </div>
-      )}
-
-      {ops.dialogs}
-    </div>
-  );
+  }, [path]);
+  if (!at) return <div className="finder finder--loading" aria-busy="true" />;
+  return <Finder path={at.folder} {...(at.focus ? { focus: at.focus } : {})} onNavigate={onOpen} {...(onAsk ? { onAsk } : {})} />;
 }

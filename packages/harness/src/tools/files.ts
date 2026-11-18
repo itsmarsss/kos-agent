@@ -20,8 +20,9 @@ import { PDF_TEXT_MAX, isPdf, pdfText } from "../files/pdftext.js";
 
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
-import { RESERVED } from "../kernel/files.js";
+import { firstSegment, foldName, isReserved } from "../kernel/files.js";
 import { SAFE, type Escalation, type ToolRisk } from "../risk/tiers.js";
+import { gitControlRefusal } from "../sandbox/githold.js";
 import { foldedPath, type Workspace } from "../store/workspace.js";
 import { callerHome, placeFor, reachOutside, type HomePath } from "./home.js";
 import { reachOf } from "./sql.js";
@@ -124,9 +125,9 @@ export function outsideScratch(path: string): boolean {
   return norm !== SCRATCH_PREFIX && !norm.startsWith(`${SCRATCH_PREFIX}/`);
 }
 
-/** A path under KOS's own state, .kos/, in any case: `.KOS` is the same folder on a case-insensitive disk. */
+/** A path under KOS's own state, .kos/, however it is spelled: `.KOS` and `.ko\u017f` are the same folder on a case-insensitive disk. */
 export function isKosState(ws: Workspace, path: string): boolean {
-  return foldedPath(ws.root, path).split("/")[0] === ".kos";
+  return [foldedPath(ws.root, path), path].some((p) => foldName(firstSegment(p)) === ".kos");
 }
 
 /**
@@ -136,8 +137,8 @@ export function isKosState(ws: Workspace, path: string): boolean {
  * would be started with the owner's secrets.
  */
 export function reservedRefusal(ws: Workspace, path: string): string | undefined {
-  const top = foldedPath(ws.root, path).split("/")[0] ?? "";
-  return RESERVED.has(top) ? `${top} is KOS's own, changed only by the owner from the dashboard or the kos command` : undefined;
+  const top = foldName(foldedPath(ws.root, path).split("/")[0] ?? "");
+  return isReserved(ws.root, path) ? `${top} is KOS's own, changed only by the owner from the dashboard or the kos command` : undefined;
 }
 
 /**
@@ -147,7 +148,7 @@ export function reservedRefusal(ws: Workspace, path: string): string | undefined
  * the chat's to manage.
  */
 export function layoutRefusal(rel: string): string | undefined {
-  const parts = rel.toLowerCase().split("/").filter((p) => p !== "" && p !== ".");
+  const parts = foldName(rel).split("/").filter((p) => p !== "" && p !== ".");
   if (parts.length === 0) return "the workspace itself cannot be moved or removed";
   if (parts.length === 1 && LAYOUT_FOLDERS.includes(parts[0]!)) return `${rel} is part of the workspace's layout; manage what is inside it`;
   if (parts.length === 2 && (parts[0] === "projects" || parts[0] === "blobs")) {
@@ -191,6 +192,9 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
     const placed = usable(ws, ctx, path);
     const reserved = what === "read" ? undefined : reservedRefusal(ws, placed.rel);
     if (reserved) throw new Error(reserved);
+    // A repository's config or hooks name programs a git read would run.
+    const git = what === "replace" ? gitControlRefusal(foldedPath(ws.root, placed.rel)) : undefined;
+    if (git) throw new Error(git);
     // Said after the artifacts' own refusals, which name what a folder holds.
     const laidOut = (): HomePath => {
       const refused = what === "remove" ? layoutRefusal(placed.rel) : undefined;
@@ -365,8 +369,12 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       // Nothing is moved onto the workspace, KOS's own folders, or a project's or a blob's folder itself.
       const onto = layoutRefusal(to.rel);
       if (onto) throw new Error(onto);
+      const from = fenced(str(input, "from"), "remove");
+      // Moved out, a repository's config is changed where it lands and moved back as something else.
+      const fromGit = gitControlRefusal(foldedPath(ws.root, from.rel));
+      if (fromGit) throw new Error(fromGit);
       mkdirSync(dirname(to.abs), { recursive: true });
-      renameSync(fenced(str(input, "from"), "remove").abs, to.abs);
+      renameSync(from.abs, to.abs);
       return `moved to ${to.rel}`;
     },
     { floor: "safe", escalate: scratchOnly("from"), reach: changing("from", "to") },

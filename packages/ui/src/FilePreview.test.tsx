@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "./api.js";
@@ -51,15 +51,41 @@ describe("the file preview", () => {
     expect(h.onClose).toHaveBeenCalled();
   });
 
-  it("frames a PDF in the browser's viewer, and marks text read out of a document", () => {
+  it("frames a PDF in the browser's viewer", () => {
     const { container, unmount } = render(<FileBody file={{ path: "docs/paper.pdf", size: 9, modifiedAt: 0, omitted: "binary", language: "" }} />);
     const frame = container.querySelector("iframe.preview-frame") as HTMLIFrameElement;
-    expect(frame.getAttribute("src")).toBe("/api/file/view?path=docs%2Fpaper.pdf");
+    expect(frame.getAttribute("src")).toBe("/api/file/view/paper.pdf?path=docs%2Fpaper.pdf");
     expect(frame.title).toBe("paper.pdf");
     unmount();
-    render(<FileBody file={{ path: "cv.docx", size: 9, modifiedAt: 0, text: "Resume of Kenny", language: "", extracted: "docx, 1 paragraph" }} />);
-    expect(screen.getByText(/Text read from the document \(docx, 1 paragraph\)/)).toBeTruthy();
-    expect(screen.getByText("Resume of Kenny")).toBeTruthy();
+  });
+
+  it("draws an Office document as itself, in a frame that runs and loads nothing", async () => {
+    vi.spyOn(api, "officeView").mockResolvedValue({ kind: "doc", format: "docx", html: "<p>Resume of Kenny</p>", notes: ["Pictures linked from outside the document are not loaded."] });
+    const { container } = render(<FileBody file={{ path: "cv.docx", size: 9, modifiedAt: 0, text: "Resume of Kenny", language: "", extracted: "docx, 1 paragraph" }} />);
+    await screen.findByText("Pictures linked from outside the document are not loaded.");
+    const frame = container.querySelector("iframe.office-doc") as HTMLIFrameElement;
+    expect(frame.getAttribute("sandbox")).toBe("");
+    expect(frame.getAttribute("srcdoc")).toContain("default-src 'none'");
+    expect(frame.getAttribute("srcdoc")).toContain("<p>Resume of Kenny</p>");
+  });
+
+  it("says what happens to an attachment once, for a moment, and never again", () => {
+    vi.useFakeTimers();
+    try {
+      localStorage.removeItem("kos.hint.attached");
+      const view = () => render(<FilePreview path="attached:0:a.zip" locals={{ "attached:0:a.zip": { name: "a.zip" } }} onClose={() => {}} />);
+      const first = view();
+      expect(screen.getByText("Kept in the workspace once sent.")).toBeTruthy();
+      act(() => {
+        vi.advanceTimersByTime(2100);
+      });
+      expect(screen.queryByText("Kept in the workspace once sent.")).toBeNull();
+      first.unmount();
+      view();
+      expect(screen.queryByText("Kept in the workspace once sent.")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows a file that is not on disk under its own key, and steps among keys", () => {

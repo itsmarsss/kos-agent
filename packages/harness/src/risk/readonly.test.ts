@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { isReadOnlyCommand } from "./readonly.js";
+import { isReadOnlyCommand, readOnlyLine } from "./readonly.js";
 
 /**
  * The line between looking and doing, drawn as an allow-list: a command the
  * rule can prove only reads runs without asking, and everything else asks.
  */
 describe("read-only command lines", () => {
+  const held = { gitHeld: true };
   const reads = [
     "ls",
     "ls -la projects/",
@@ -32,18 +33,56 @@ describe("read-only command lines", () => {
     "sed -n '1,20p' README.md",
     "sed -e 's/foo/bar/g' README.md",
     "cd projects/x && git log -3",
-    "/bin/ls -1",
     "du -sh projects",
-    "pnpm ls --depth 0",
     "npm -v",
     "jq '.servers | keys' projects/x/config.json",
     "jq -r .name package.json",
     "env | sort",
     "ls -la",
     "cat notes/today.md projects/x/plan.md",
+    "env",
+    "printenv HOME",
+    "rg --pretty TODO src",
+    "rg -n TODO -- --pre",
+    "sort -k2 -t, data.csv",
+    "sort -ru names.txt",
+    "sort -- -o",
+    "uniq -c sorted.txt",
+    "uniq -f 1 sorted.txt",
+    "tree -L 2 projects",
+    "xxd -l 64 blob.bin",
+    "file -b notes/today.md",
+    "yq -ojson .a config.yml",
+    "git log -S needle --oneline",
+    "git log -n5 -p",
+    "git diff --no-ext-diff HEAD",
+    "git show --output-indicator-new=+ HEAD",
+    "git grep -n needle",
+    "git grep -e -Opattern",
+    "git branch -a",
+    "git branch -vv",
+    "git branch --list 'feat/*'",
+    "git branch --contains HEAD",
+    "git stash show -p",
+    "git reflog show -5",
+    "git remote --verbose",
+    "git remote show -n origin",
+    "ls src/*",
+    "ls src/*.ts",
+    "[ -f a ] && echo y",
+    "sed -n \"1,\\$p\" a.txt",
+    "cat < notes.txt",
+    "cat <notes.txt",
+    "echo 'a $b {c}'",
+    "jq -f filters/x.jq a.json",
+    "git show HEAD:src/a.ts",
+    "node -v",
+    "node --version",
+    // A newline joins commands as ; does: each line is judged on its own.
+    "ls\ncat a.txt",
   ];
   for (const c of reads) {
-    it(`reads: ${c}`, () => expect(isReadOnlyCommand(c)).toBe(true));
+    it(`reads: ${c}`, () => expect(isReadOnlyCommand(c, held)).toBe(true));
   }
 
   const acts = [
@@ -101,8 +140,141 @@ describe("read-only command lines", () => {
     "head -c 100 locks/host",
     "jq .servers mcp.json",
     "jq -r .x .kos/state.json",
+    // env with words runs them.
+    "env rm x",
+    "env sh -c id",
+    "env curl https://x",
+    "ls | env sh",
+    "env -i ls",
+    // A program by a path is whatever the agent wrote there.
+    "./ls",
+    "bin/cat x",
+    "/tmp/x/cat",
+    "/bin/ls -1",
+    "projects/x/grep -r a .",
+    // Runners and package managers that run workspace code.
+    "pnpm ls --depth 0",
+    "yarn -v",
+    "less notes.md",
+    "more notes.md",
+    // Reader options that run a program or write a file.
+    "rg --pre ./x TODO",
+    "rg --pre=./x TODO",
+    "rg --pre-glob '*.pdf' --pre x TODO",
+    "ag --pager ./x TODO",
+    "sort --compress-program=./x big.txt",
+    "sort --compress=./x big.txt",
+    "sort -o out.txt in.txt",
+    "sort -oout.txt in.txt",
+    "sort -ruo out.txt in.txt",
+    "sort --output=out.txt in.txt",
+    "sort --outp out.txt in.txt",
+    "uniq in.txt out.txt",
+    "uniq -c in.txt out.txt",
+    "uniq -f 1 in.txt out.txt",
+    "uniq -- in.txt out.txt",
+    "xxd in.bin out.txt",
+    "tree -o out.txt",
+    "tree -ao out.txt",
+    "tree -R -H . -L 1",
+    "file -C -m magic",
+    "yq -i '.a = 1' config.yml",
+    "yq --inplace '.a = 1' config.yml",
+    "yq -s '.name' config.yml",
+    "find . -execdir sh {} +",
+    "find . -ok rm {} ;",
+    "find . -fprint out",
+    "find . -fls out",
+    "git grep -O needle",
+    "git grep -Ovim needle",
+    "git grep -nO needle",
+    "git grep --open-files-in-pager=./x needle",
+    "git grep --open needle",
+    "git log --output=out.txt",
+    "git log --output out.txt",
+    "git diff -o out.txt",
+    "git show -po out.txt",
+    "git diff --ext-diff",
+    "git show --ext-diff HEAD",
+    "git log -p --ext-diff",
+    "git shortlog --output=x",
+    "git stash list --output=x",
+    "git stash show --ext-diff",
+    "git reflog show --output=x",
+    "git branch newbranch",
+    "git branch -f main HEAD~1",
+    "git branch --force main HEAD~1",
+    "git branch -a newbranch",
+    "git branch --track x origin/x",
+    "git branch --set-upstream-to=origin/x",
+    "git remote -v add x y",
+    "git config --get x --add y z",
+    "git config --list --edit",
+    "git -c core.pager=./x log",
+    "git --git-dir=g status",
+    // Whatever the shell expands into words the rule cannot see.
+    "rg {--pre=sh,.} x",
+    "find . ${X:--exec} sh {} ;",
+    "find . $'-exec' sh ;",
+    "rg needle *",
+    "rg needle ?pre*",
+    "ls *.ts",
+    "ls -*",
+    "rg \"-*\"* x",
+    "cat $HOME/a",
+    "cat \"$HOME/a\"",
+    "cat \"$(id)\"",
+    "echo \"`id`\"",
+    "ls {a,b}",
+    "ls\nrm -rf x",
+    "cat a.txt\nnode x.js",
+    "ps aux",
+    "node x.js",
+    "node -v x.js",
+    "node -e 1",
+    "cat .KOS/state.json",
+    "cat MCP.json",
+    "cat Kos.Sqlite",
+    "ls < *",
+    // Reads a read must ask for, however named.
+    "cat < .env",
+    "cat <.kos/state.json",
+    "jq -f .kos/x.jq a.json",
+    "jq --from-file=.kos/x.jq a.json",
+    "git show HEAD:.env",
+    "git show HEAD:projects/x/.env",
+    "git remote show origin",
+    "npm outdated",
+    "tree --output=x",
+    "tree --out x",
+    // Destructive lines are never read-only.
+    "rm -rf projects",
+    "git push --force",
+    "git reset --hard HEAD~3",
+    "git clean -fdx",
+    "dd if=/dev/zero of=disk",
+    "mkfs.ext4 /dev/disk2",
+    "chmod -R 777 .",
+    "echo > notes/today.md",
   ];
   for (const c of acts) {
-    it(`asks: ${c || "(empty)"}`, () => expect(isReadOnlyCommand(c)).toBe(false));
+    it(`asks: ${c || "(empty)"}`, () => expect(isReadOnlyCommand(c, held)).toBe(false));
   }
+
+  it("runs git diff and git stash show with --no-ext-diff, and every other line as given", () => {
+    expect(readOnlyLine("git diff HEAD~1 -- src/", held)).toBe("git diff --no-ext-diff HEAD~1 -- src/");
+    expect(readOnlyLine("git diff", held)).toBe("git diff --no-ext-diff");
+    expect(readOnlyLine("git -C projects/x diff|head && git --no-pager diff --stat", held)).toBe(
+      "git -C projects/x diff --no-ext-diff|head && git --no-pager diff --no-ext-diff --stat",
+    );
+    expect(readOnlyLine("git stash show -p", held)).toBe("git stash show --no-ext-diff -p");
+    expect(readOnlyLine("git log -p -3", held)).toBe("git log -p -3");
+    expect(readOnlyLine("cat diff", held)).toBe("cat diff");
+    expect(readOnlyLine("git diff --ext-diff", held)).toBeUndefined();
+  });
+
+  it("asks for every git line where git cannot be held", () => {
+    for (const c of ["git status", "git log -3", "ls && git diff"]) expect(isReadOnlyCommand(c), c).toBe(false);
+    expect(isReadOnlyCommand("ls && cat a")).toBe(true);
+  });
 });

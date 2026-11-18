@@ -1,14 +1,15 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { guestOrigin, turnStop } from "../kernel/caller.js";
 import { MAINTENANCE } from "../kernel/caretaker.js";
-import { RESERVED } from "../kernel/files.js";
+import { foldName, RESERVED } from "../kernel/files.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
-import { isReadOnlyCommand } from "../risk/readonly.js";
+import { readOnlyLine } from "../risk/readonly.js";
 import { runCaptured, stopOf, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv } from "../sandbox/env.js";
+import { GIT_INFO_ATTRIBUTES, gitHeldOn, gitHoldEnv } from "../sandbox/githold.js";
 import { isContained, jailedCommand } from "../sandbox/jail.js";
 import { homeDirs, INTO_ANOTHER, placeFor, reachOutside, writeScope } from "./home.js";
 
@@ -35,16 +36,7 @@ export const SHELL_MAX_OUTPUT = 20_000;
 
 /** The workspace database named on a command line: the shell's road around the sql fence. */
 export function namesDatabase(command: string): boolean {
-  return /kos\.sqlite/i.test(folded(command));
-}
-
-/**
- * A command line as a case-folding disk reads names: compatibility forms
- * folded (the long s, ſ, is an s) and lower case. Only for the courtesy
- * refusals; the sandbox is what holds, and it folds names itself.
- */
-function folded(command: string): string {
-  return command.normalize("NFKC").toLowerCase();
+  return /kos\.sqlite/i.test(foldName(command));
 }
 
 /** KOS's database and its journals, which a command run for anyone but Maintenance cannot read at all. */
@@ -63,7 +55,7 @@ export const DATABASE_REFUSED =
  * names them.
  */
 export function namesHarnessConfig(command: string): boolean {
-  return /(^|[\s;&|<>()'"`=])(\.\/)?(mcp|profile|daemon)\.json\b/i.test(folded(command));
+  return /(^|[\s;&|<>()'"`=])(\.\/)?(mcp|profile|daemon)\.json\b/i.test(foldName(command));
 }
 
 /** Said to a chat that reached for the harness's settings with the shell. */
@@ -102,21 +94,70 @@ export function cacheEnv(cache: string): Record<string, string> {
   };
 }
 
-export function runShell(
+/**
+ * What a read-only run may not read although it is in the workspace: KOS's
+ * own state and settings, and a .env the host may have been started beside.
+ */
+const UNREAD = [...RESERVED, ".env"];
+
+export async function runShell(
   command: string,
-  opts: { workspaceRoot: string; cwd: string; timeoutMs: number; maxOutput: number; signal?: AbortSignal; writes?: string[]; hidden?: string[]; dirs?: { tmp: string; cache: string } },
+  opts: {
+    workspaceRoot: string;
+    cwd: string;
+    timeoutMs: number;
+    maxOutput: number;
+    signal?: AbortSignal;
+    /**
+     * True for a line judged read-only, which runs without asking. The
+     * judgement is a string's, so the run is made one that cannot matter
+     * if it is wrong: no writes but its own temp folder, no network, none
+     * of KOS's own files, git with no hooks or transport. A run the owner
+     * approved writes the workspace, or only the folders in writes.
+     */
+    readOnlyRun?: boolean;
+    /** Where an approved run may write: a project's or a blob's own folders; the whole workspace when absent. */
+    writes?: string[];
+    /** Paths no run may read, read-only or approved. */
+    hidden?: string[];
+    /** A home's own temp and caches, in place of the workspace's shared temp. */
+    dirs?: { tmp: string; cache: string };
+  },
 ): Promise<ShellResult> {
-  // A home's own temp and caches, or the workspace's shared temp at the root.
-  const tmp = opts.dirs?.tmp ?? join(opts.workspaceRoot, ".kos", "tmp");
-  for (const dir of [tmp, ...(opts.dirs ? [opts.dirs.cache] : [])]) mkdirSync(dir, { recursive: true });
-  const readOnly = UNWRITTEN.map((name) => join(opts.workspaceRoot, name));
-  return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot, readOnly, ...(opts.writes ? { writes: opts.writes } : {}), ...(opts.hidden ? { hidden: opts.hidden } : {}) }), {
-    cwd: opts.cwd,
-    env: childEnv({ home: opts.workspaceRoot, tmp }, opts.dirs ? cacheEnv(opts.dirs.cache) : {}),
-    timeoutMs: opts.timeoutMs,
-    maxOutput: opts.maxOutput,
-    ...stopOf(opts.signal),
-  });
+  // A home's own temp and caches, or the workspace's shared temp at the root; a read-only run's fresh temp inside it.
+  const shared = opts.dirs?.tmp ?? join(opts.workspaceRoot, ".kos", "tmp");
+  for (const dir of [shared, ...(opts.dirs ? [opts.dirs.cache] : [])]) mkdirSync(dir, { recursive: true });
+  const tmp = opts.readOnlyRun ? mkdtempSync(join(shared, "read-")) : shared;
+  const jail = opts.readOnlyRun
+    ? {
+        workspaceRoot: opts.workspaceRoot,
+        writes: [tmp],
+        hidden: [...UNREAD.map((name) => join(opts.workspaceRoot, name)), ...(opts.hidden ?? [])],
+        unreadable: [GIT_INFO_ATTRIBUTES],
+        network: false,
+        sealed: true,
+      }
+    : {
+        workspaceRoot: opts.workspaceRoot,
+        readOnly: UNWRITTEN.map((name) => join(opts.workspaceRoot, name)),
+        ...(opts.writes ? { writes: opts.writes } : {}),
+        ...(opts.hidden ? { hidden: opts.hidden } : {}),
+      };
+  // A read-only run writes no cache; an approved one keeps its home's own.
+  const extra: Record<string, string> = opts.readOnlyRun ? { NPM_CONFIG_UPDATE_NOTIFIER: "false" } : opts.dirs ? cacheEnv(opts.dirs.cache) : {};
+  try {
+    return await runCaptured(jailedCommand(command, jail), {
+      cwd: opts.cwd,
+      // Git's program-naming settings pinned (fsmonitor, pager, editors, gpg,
+      // attributes); a read-only run's hooks and transport too.
+      env: gitHoldEnv(childEnv({ home: opts.workspaceRoot, tmp }, extra), { readOnly: opts.readOnlyRun ?? false }),
+      timeoutMs: opts.timeoutMs,
+      maxOutput: opts.maxOutput,
+      ...stopOf(opts.signal),
+    });
+  } finally {
+    if (opts.readOnlyRun) rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 export function createShellModule(options: ShellModuleOptions = {}): KosModule {
@@ -132,12 +173,14 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
     activate(ctx: ModuleContext) {
       const ws = requireServices(ctx).workspace;
       const cwdReach = reachOutside(ws, ctx, (input) => [input["cwd"]]);
+      // A git line is a read only where the git a child finds can be held.
+      const readOnly = (command: string): string | undefined => readOnlyLine(command, { gitHeld: gitHeldOn(childEnv({ home: ws.root }).PATH ?? "") });
       ctx.registerTool(
         {
           name: "shell.run",
           description:
             "Run a shell command inside the workspace: git, pnpm, a build, a program. It cannot see the owner's home directory or write outside the workspace. Prefer the files, search and sql tools when one does the job, and python.run for a calculation or a short Python script, which runs at once without asking; use this for programs. " +
-            "A command line that only reads (ls, cat, grep, find, git status/log/diff, and the like, joined by pipes or &&) runs without asking; anything that writes, runs code or reaches the network asks the owner first. Output is capped; long runs time out. " +
+            "A command line that only reads (ls, cat, grep, find, git status/log/diff, and the like, joined by pipes or &&) runs without asking, offline and unable to write; anything that writes, runs code or reaches the network asks the owner first. To see a project's packages, read package.json with files.read; pnpm and yarn ask. Output is capped; long runs time out. " +
             `In a project's or a blob's chat it writes only in your own folder and scratch/; writes: "${WIDE_WRITES}" lets it write anywhere in the workspace, which the owner is asked for by name. ` +
             "kos.sqlite, KOS's own database, is refused here, not asked about: jobs, chats, tasks, blobs and memory are read through cron.list, chats.list, tasks.list, blobs.list and memory.recall.",
           inputSchema: {
@@ -171,7 +214,9 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           // The database is unreadable to every command but Maintenance's own, whatever spelling or glob names it.
           const repairs = ctx.services?.callerProject?.() === MAINTENANCE.slug && guestOrigin() === undefined;
           const hidden = repairs ? undefined : DATABASE_FILES.map((name) => join(ws.root, name));
-          const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput: maxOutput, ...stopOf(turnStop.getStore()), ...(writes ? { writes } : {}), ...(hidden ? { hidden } : {}), ...(dirs ? { dirs } : {}) });
+          // A line judged read-only ran unasked, so it runs where the judgement cannot matter, as the line that judgement gives.
+          const line = readOnly(command);
+          const result = await runShell(line ?? command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput, readOnlyRun: line !== undefined, ...stopOf(turnStop.getStore()), ...(writes ? { writes } : {}), ...(hidden ? { hidden } : {}), ...(dirs ? { dirs } : {}) });
           return JSON.stringify(result);
         },
         // Risky by floor, as the spec says; a line that provably only reads
@@ -185,7 +230,7 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           floor: "risky",
           // In the container nothing narrower than the container holds a project's command to its folder, and the card says so.
           why: () => (isContained() && writeScope(ws, ctx) ? "a command that may write anywhere in the workspace: only the container holds it" : "a command that may write"),
-          relax: (input) => typeof input["command"] === "string" && isReadOnlyCommand(input["command"]),
+          relax: (input) => typeof input["command"] === "string" && readOnly(input["command"]) !== undefined,
           // Writing the whole workspace is its own ask, beyond Auto; run somewhere outside the turn's own folder, the card says where.
           reach: (input) => (wide(input) && writeScope(ws, ctx) ? { why: "may write anywhere in the workspace", beyondAuto: INTO_ANOTHER } : cwdReach(input)),
           refuse: (input) => {
