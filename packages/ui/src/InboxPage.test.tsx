@@ -78,6 +78,17 @@ describe("the Inbox", () => {
     expect(document.querySelector("#inbox-decided-title .count")!.textContent).toBe("12");
   });
 
+  it("offers KOS's browser for a handoff there, and not for one in the owner's Chrome", async () => {
+    const handoff = (id: number, yours?: true): PendingAction => ({ ...ask, id, tool: "browser.handoff", summary: "Sign in", ...(yours ? { yours } : {}) });
+    const onOpenBrowser = vi.fn();
+    const { rerender } = render(<InboxPage {...page(inbox({ approvals: [handoff(901)] })).props} onOpenBrowser={onOpenBrowser} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open the browser" }));
+    expect(onOpenBrowser).toHaveBeenCalledOnce();
+    rerender(<InboxPage {...page(inbox({ approvals: [handoff(902, true)] })).props} onOpenBrowser={onOpenBrowser} />);
+    expect(screen.queryByRole("button", { name: "Open the browser" })).toBeNull();
+    await act(async () => {});
+  });
+
   it("does not read the history again on a poll that changed nothing decided", async () => {
     const { rerender } = render(page(inbox()));
     await waitFor(() => expect(document.querySelectorAll(".inbox-decided-line")).toHaveLength(5));

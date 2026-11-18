@@ -113,8 +113,9 @@ KOS browses the web through one real Chrome, a tab per agent, and you can
 watch any of them. The sidebar's **Browser** opens a window with a strip of
 the open tabs and whose each is; the one you pick streams live as that
 agent moves, the title line says what it is doing, and the window opens on
-its own the first time a turn uses the browser (close it, and it stays shut
-for that turn). The working agent's tab is shown first. Drag the header to
+its own the first time a turn works a page in KOS's browser (close it, and it
+stays shut for that turn). A turn working in your own Chrome never opens it,
+nor does a turn only listing the tabs: opening it starts KOS's Chrome. The working agent's tab is shown first. Drag the header to
 move it, pull an edge to resize it; it remembers where it was. Maximize
 fills the page (double-click the bar does the same), Full screen takes the
 whole screen, and when the browser has several tabs a strip under the bar

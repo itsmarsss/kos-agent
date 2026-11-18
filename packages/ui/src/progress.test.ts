@@ -213,4 +213,23 @@ describe("who is browsing in KOS's own browser", () => {
     expect(browsingNow({ c1: turn([step("browser.visit", true), step("chrome.start", true), step("browser.act", true, true)]) })).toBeNull();
     expect(browsingNow({ c1: turn([step("browser.act", true, true)]), c2: turn([step("browser.look", true)]) })).toEqual({ id: "c2" });
   });
+
+  it.each(["browser.tabs", "browser.use_tab", "browser.new_tab", "browser.look", "browser.visit", "browser.act", "browser.eval", "browser.handoff", "browser.watch"])(
+    "leaves out %s in the owner's Chrome, running or done",
+    (tool) => {
+      expect(browsingNow({ c1: turn([step(tool, false, true)]) })).toBeNull();
+      expect(browsingNow({ c1: turn([step(tool, true, true)]) })).toBeNull();
+    },
+  );
+
+  it.each(["browser.use_tab", "browser.new_tab", "browser.look", "browser.visit", "browser.act", "browser.eval", "browser.handoff", "browser.watch"])("names %s in KOS's own browser", (tool) => {
+    expect(browsingNow({ c1: turn([step(tool, false)]) })).toEqual({ id: "c1", doing: tool });
+  });
+
+  it("leaves out listing the tabs, which works no page and never starts KOS's browser", () => {
+    expect(browsingNow({ c1: turn([step("browser.tabs", false)]) })).toBeNull();
+    expect(browsingNow({ c1: turn([step("chrome.start", true), step("browser.tabs", true)]) })).toBeNull();
+    // A page it did work there earlier in the turn still counts.
+    expect(browsingNow({ c1: turn([step("browser.look", true), step("browser.tabs", false)]) })).toEqual({ id: "c1" });
+  });
 });
