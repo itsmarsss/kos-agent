@@ -30,6 +30,19 @@ export interface JailOptions {
   reads?: string[];
   /** False for a program that must not reach the network. */
   network?: boolean;
+  /**
+   * KOS's own ports on this machine, which no jailed program may connect
+   * to: its API takes a change from any local program that does not say it
+   * is a browser. KOS_PORT and the sites port after it by default.
+   */
+  kosPorts?: number[];
+}
+
+/** KOS's API port and its sites port, as this host was started with them. */
+export function kosPorts(env: NodeJS.ProcessEnv = process.env): number[] {
+  const port = Number(env.KOS_PORT);
+  const api = Number.isInteger(port) && port > 0 && port < 65_535 ? port : 4317;
+  return [api, api + 1];
 }
 
 export interface JailedCommand {
@@ -70,7 +83,7 @@ export function sandboxProfile(options: JailOptions): string {
   const lines = [
     "(version 1)",
     "(allow default)",
-    ...(options.network === false ? ["(deny network*)"] : []),
+    ...(options.network === false ? ["(deny network*)"] : (options.kosPorts ?? kosPorts()).map((p) => `(deny network-outbound (remote ip ${sb(`localhost:${p}`)}))`)),
     "(deny file-write*)",
     `(allow file-write* ${writes} (literal "/dev/null") (regex #"^/dev/tty"))`,
     ...homes.map((h) => `(deny file-read* (subpath ${sb(resolve(h))}))`),

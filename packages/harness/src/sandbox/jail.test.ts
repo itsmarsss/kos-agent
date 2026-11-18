@@ -1,6 +1,10 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 
-import { jailedCommand, sandboxProfile } from "./jail.js";
+import { jailedCommand, kosPorts, sandboxProfile } from "./jail.js";
 
 describe("the shell jail", () => {
   it("denies the owner's home for reading and carves the workspace back out", () => {
@@ -43,10 +47,32 @@ describe("the shell jail", () => {
     expect(p.lastIndexOf('(allow file-read* (subpath "/w/scratch/run")')).toBeGreaterThan(hidden);
   });
 
-  it("keeps the network and the whole workspace writable unless told otherwise", () => {
-    const p = sandboxProfile({ workspaceRoot: "/w", homes: [] });
-    expect(p).not.toContain("network");
+  it("keeps the network and the whole workspace writable unless told otherwise, all but KOS's own ports", () => {
+    const p = sandboxProfile({ workspaceRoot: "/w", homes: [], kosPorts: [4317, 4318] });
+    expect(p).not.toContain("network*");
+    expect(p).toContain('(deny network-outbound (remote ip "localhost:4317"))');
+    expect(p).toContain('(deny network-outbound (remote ip "localhost:4318"))');
     expect(p).toContain('(allow file-write* (subpath "/w")');
+    expect(kosPorts({ KOS_PORT: "4420" })).toEqual([4420, 4421]);
+    expect(kosPorts({})).toEqual([4317, 4318]);
+  });
+
+  it.runIf(process.platform === "darwin")("stops a jailed program reaching KOS's port on this machine, and lets it reach another", async () => {
+    const kos = createServer((_q, r) => r.end("kos"));
+    const other = createServer((_q, r) => r.end("other"));
+    await Promise.all([kos, other].map((s) => new Promise<void>((done) => s.listen(0, "127.0.0.1", done))));
+    const portOf = (s: ReturnType<typeof createServer>): number => (s.address() as { port: number }).port;
+    // Run apart from this process, whose servers must go on answering meanwhile.
+    const run = async (port: number): Promise<string> => {
+      const jailed = jailedCommand(`curl -s -m 3 http://127.0.0.1:${port}/ || echo refused`, { workspaceRoot: tmpdir(), homes: [], kosPorts: [portOf(kos)] });
+      return (await promisify(execFile)(jailed.file, jailed.args, { encoding: "utf8" })).stdout.trim();
+    };
+    try {
+      expect(await run(portOf(kos))).toBe("refused");
+      expect(await run(portOf(other))).toBe("other");
+    } finally {
+      await Promise.all([kos, other].map((s) => new Promise((done) => s.close(done))));
+    }
   });
 
   it("uses the sandbox on macOS, the container when in one, and refuses elsewhere", () => {

@@ -337,6 +337,8 @@ export function keptStoriesIn(settings: { get<T>(key: string): T | undefined; se
 
 export async function runHost(options: HostOptions): Promise<void> {
   keepRunning();
+  // The port this host answers on, for the jail to keep every program it runs away from (sandbox/jail.ts kosPorts).
+  process.env.KOS_PORT = String(options.port);
   let imessageAdapter: IMessageAdapter | undefined;
   let imessageClaim: HandleClaim | undefined;
   let imessageRuntime: ReturnType<typeof connectChannel> | undefined;
