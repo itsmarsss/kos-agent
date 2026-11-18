@@ -1,24 +1,29 @@
 import { spawnSync } from "node:child_process";
 
+import { findProgram } from "./env.js";
+
 /**
  * Git, held to its own code.
  *
- * A read like `git status` or `git diff` runs without asking, and git reads
- * its config and attributes from the repository it runs in, which the agent
- * can write. Several settings there name a program to run: core.fsmonitor
- * on every status, a textconv or clean filter picked by .gitattributes, a
- * pager, an editor, hooks, a signing program. So every shell command gets
- * them pinned from the environment, at command scope, which beats any
- * repository's config; attributes are read from the empty tree, so no
- * .gitattributes picks a driver. diff.external cannot be unset from the
- * environment, so a repository's config and hooks are not written by a
- * run nobody approved, nor by the file tools: see gitControlPatterns and
- * gitControlRefusal.
+ * Git reads config and attributes from the repository it runs in, which
+ * the agent can write, and several settings there name a program to run:
+ * core.fsmonitor on every status, a textconv or clean filter picked by
+ * .gitattributes, a pager, an editor, a signing program, hooks. Every
+ * shell command gets them pinned from the environment, at command scope,
+ * which beats any repository's config, and reads attributes from the
+ * empty tree, so no .gitattributes picks a driver. A run nobody approved
+ * (a line judged read-only) also gets no hooks, no transport and no lazy
+ * fetch; an approved one keeps the repository's hooks, which the owner
+ * approved with the commit.
+ *
+ * Not pinned: diff.external. Set empty, git tries to run "" and every
+ * `git diff` fails; it cannot be unset. A read-only run is held by its
+ * sandbox instead (no writes, no network), so a program it names can only
+ * read; the file tools never write a repository's config (gitControlRefusal).
  */
 
 /** Settings that each name a program, pinned to one that runs nothing of the agent's. */
 const PINNED: ReadonlyArray<readonly [string, string]> = [
-  ["core.hooksPath", "/dev/null"],
   ["core.fsmonitor", "false"],
   ["core.pager", "cat"],
   ["core.editor", "true"],
@@ -34,63 +39,72 @@ const PINNED: ReadonlyArray<readonly [string, string]> = [
   ["safe.bareRepository", "explicit"],
 ];
 
+/** Pinned too for a run nobody approved: the repository's hooks. */
+const HELD: ReadonlyArray<readonly [string, string]> = [["core.hooksPath", "/dev/null"]];
+
 /** The empty tree's id: attributes read from it are none. */
 export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
-/** True for a `git --version` of 2.40 or later, the first to honour GIT_ATTR_SOURCE. */
-export function honoursAttrSource(version: string): boolean {
+/**
+ * True for a `git --version` of 2.40 or later: GIT_CONFIG_COUNT came in
+ * 2.31 and GIT_ATTR_SOURCE in 2.40, and without both git is not held.
+ */
+export function gitHoldable(version: string): boolean {
   const m = /(\d+)\.(\d+)/.exec(version);
   if (!m) return false;
   const [major, minor] = [Number(m[1]), Number(m[2])];
   return major > 2 || (major === 2 && minor >= 40);
 }
 
-let probed: boolean | undefined;
+const probed = new Map<string, boolean>();
 
-/** Whether the git on this PATH honours GIT_ATTR_SOURCE; asked once. */
-function attrSourceHonoured(path: string | undefined): boolean {
-  if (probed === undefined) {
-    const run = spawnSync("git", ["--version"], { encoding: "utf8", env: { PATH: path ?? "/usr/bin:/bin" } });
-    probed = run.status === 0 && honoursAttrSource(run.stdout);
+/** Whether the git first on this PATH can be held; asked once per PATH. */
+export function gitHeldOn(path: string): boolean {
+  let held = probed.get(path);
+  if (held === undefined) {
+    const git = findProgram("git", path);
+    const run = git ? spawnSync(git, ["--version"], { encoding: "utf8", env: { PATH: path }, timeout: 5000 }) : undefined;
+    held = run?.status === 0 && gitHoldable(run.stdout);
+    probed.set(path, held);
   }
-  return probed;
+  return held;
+}
+
+export interface GitHoldOptions {
+  /** A run nobody approved: no hooks, no transport, no lazy fetch. */
+  readOnly?: boolean;
+  /** Whether the git on the PATH honours GIT_ATTR_SOURCE; probed when not given. */
+  attrSource?: boolean;
 }
 
 /**
  * The environment with git's program-running settings pinned, after any of
  * its own GIT_CONFIG_* entries so these are read last and win.
  */
-export function gitHoldEnv(env: Record<string, string>, attrSource = attrSourceHonoured(env.PATH)): Record<string, string> {
+export function gitHoldEnv(env: Record<string, string>, options: GitHoldOptions = {}): Record<string, string> {
   const out = { ...env };
+  const pins = options.readOnly ? [...PINNED, ...HELD] : PINNED;
   const own = Number.parseInt(env.GIT_CONFIG_COUNT ?? "0", 10);
   const start = Number.isInteger(own) && own > 0 ? own : 0;
-  PINNED.forEach(([key, value], i) => {
+  pins.forEach(([key, value], i) => {
     out[`GIT_CONFIG_KEY_${start + i}`] = key;
     out[`GIT_CONFIG_VALUE_${start + i}`] = value;
   });
-  out.GIT_CONFIG_COUNT = String(start + PINNED.length);
-  if (attrSource) out.GIT_ATTR_SOURCE = EMPTY_TREE;
+  out.GIT_CONFIG_COUNT = String(start + pins.length);
+  if (options.attrSource ?? gitHeldOn(env.PATH ?? "")) out.GIT_ATTR_SOURCE = EMPTY_TREE;
   out.GIT_EDITOR = "true";
   out.GIT_SEQUENCE_EDITOR = "true";
   out.GIT_PAGER = "cat";
   out.PAGER = "cat";
+  if (options.readOnly) {
+    out.GIT_ALLOW_PROTOCOL = "";
+    out.GIT_NO_LAZY_FETCH = "1";
+  }
   return out;
 }
 
-/**
- * Sandbox regexes for what of git's control an unapproved shell run may not write: any
- * repository's config, hooks and info/attributes, and the global config
- * under the child's home, which is the workspace.
- */
-export function gitControlPatterns(home: string): string[] {
-  const at = home.replace(/^\/private(?=\/)/, "").replace(/\/+$/, "").replace(/[.*+?^${}()|[\]\\"]/g, "\\$&");
-  return [
-    "/\\.git/(config|info/attributes)$",
-    "/\\.git/hooks(/|$)",
-    `^(/private)?${at}/\\.gitconfig$`,
-    `^(/private)?${at}/\\.config/git(/|$)`,
-  ];
-}
+/** Sandbox regex for a repository's info/attributes, which a read-only run does not read. */
+export const GIT_INFO_ATTRIBUTES = "/\\.git/info/attributes$";
 
 /**
  * Why the file tools may not write or move `rel`, a workspace-relative path

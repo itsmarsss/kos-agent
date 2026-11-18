@@ -7,6 +7,7 @@ import { isReadOnlyCommand } from "./readonly.js";
  * rule can prove only reads runs without asking, and everything else asks.
  */
 describe("read-only command lines", () => {
+  const held = { gitHeld: true };
   const reads = [
     "ls",
     "ls -la projects/",
@@ -65,9 +66,19 @@ describe("read-only command lines", () => {
     "git stash show -p",
     "git reflog show -5",
     "git remote --verbose",
+    "git remote show -n origin",
+    "ls src/*",
+    "ls src/*.ts",
+    "[ -f a ] && echo y",
+    "sed -n \"1,\\$p\" a.txt",
+    "cat < notes.txt",
+    "cat <notes.txt",
+    "echo 'a $b {c}'",
+    "jq -f filters/x.jq a.json",
+    "git show HEAD:src/a.ts",
   ];
   for (const c of reads) {
-    it(`reads: ${c}`, () => expect(isReadOnlyCommand(c)).toBe(true));
+    it(`reads: ${c}`, () => expect(isReadOnlyCommand(c, held)).toBe(true));
   }
 
   const acts = [
@@ -197,6 +208,33 @@ describe("read-only command lines", () => {
     "git config --list --edit",
     "git -c core.pager=./x log",
     "git --git-dir=g status",
+    // Whatever the shell expands into words the rule cannot see.
+    "rg {--pre=sh,.} x",
+    "find . ${X:--exec} sh {} ;",
+    "find . $'-exec' sh ;",
+    "rg needle *",
+    "rg needle ?pre*",
+    "ls *.ts",
+    "ls -*",
+    "rg \"-*\"* x",
+    "cat $HOME/a",
+    "cat \"$HOME/a\"",
+    "cat \"$(id)\"",
+    "echo \"`id`\"",
+    "ls {a,b}",
+    "ls\nrm -rf x",
+    "ls < *",
+    // Reads a read must ask for, however named.
+    "cat < .env",
+    "cat <.kos/state.json",
+    "jq -f .kos/x.jq a.json",
+    "jq --from-file=.kos/x.jq a.json",
+    "git show HEAD:.env",
+    "git show HEAD:projects/x/.env",
+    "git remote show origin",
+    "npm outdated",
+    "tree --output=x",
+    "tree --out x",
     // Destructive lines are never read-only.
     "rm -rf projects",
     "git push --force",
@@ -208,6 +246,11 @@ describe("read-only command lines", () => {
     "echo > notes/today.md",
   ];
   for (const c of acts) {
-    it(`asks: ${c || "(empty)"}`, () => expect(isReadOnlyCommand(c)).toBe(false));
+    it(`asks: ${c || "(empty)"}`, () => expect(isReadOnlyCommand(c, held)).toBe(false));
   }
+
+  it("asks for every git line where git cannot be held", () => {
+    for (const c of ["git status", "git log -3", "ls && git diff"]) expect(isReadOnlyCommand(c), c).toBe(false);
+    expect(isReadOnlyCommand("ls && cat a")).toBe(true);
+  });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_TREE, gitControlPatterns, gitControlRefusal, gitHoldEnv, honoursAttrSource } from "./githold.js";
+import { EMPTY_TREE, GIT_INFO_ATTRIBUTES, gitControlRefusal, gitHoldable, gitHoldEnv } from "./githold.js";
 import { sandboxProfile } from "./jail.js";
 
 describe("gitHoldEnv", () => {
@@ -11,9 +11,8 @@ describe("gitHoldEnv", () => {
   };
 
   it("pins every setting that names a program, and the pagers and editors", () => {
-    const env = gitHoldEnv({ PATH: "/usr/bin", HOME: "/ws" }, true);
+    const env = gitHoldEnv({ PATH: "/usr/bin", HOME: "/ws" }, { attrSource: true });
     expect(pinned(env)).toMatchObject({
-      "core.hooksPath": "/dev/null",
       "core.fsmonitor": "false",
       "core.pager": "cat",
       "commit.gpgSign": "false",
@@ -23,22 +22,31 @@ describe("gitHoldEnv", () => {
     expect(env).toMatchObject({ GIT_ATTR_SOURCE: EMPTY_TREE, GIT_EDITOR: "true", GIT_SEQUENCE_EDITOR: "true", GIT_PAGER: "cat", PAGER: "cat", PATH: "/usr/bin", HOME: "/ws" });
   });
 
+  it("keeps an approved run's hooks and transport, and takes them from a read-only run", () => {
+    const approved = gitHoldEnv({}, { attrSource: true });
+    expect(pinned(approved)["core.hooksPath"]).toBeUndefined();
+    expect(approved.GIT_ALLOW_PROTOCOL).toBeUndefined();
+    const held = gitHoldEnv({}, { attrSource: true, readOnly: true });
+    expect(pinned(held)["core.hooksPath"]).toBe("/dev/null");
+    expect(held.GIT_ALLOW_PROTOCOL).toBe("");
+    expect(held.GIT_NO_LAZY_FETCH).toBe("1");
+  });
+
   it("goes after the command's own entries, so it is read last and wins", () => {
-    const env = gitHoldEnv({ GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.fsmonitor", GIT_CONFIG_VALUE_0: "./x" }, true);
+    const env = gitHoldEnv({ GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.fsmonitor", GIT_CONFIG_VALUE_0: "./x" }, { attrSource: true });
     expect(env.GIT_CONFIG_KEY_0).toBe("core.fsmonitor");
     expect(env.GIT_CONFIG_VALUE_0).toBe("./x");
-    const keys = Array.from({ length: Number(env.GIT_CONFIG_COUNT) }, (_, i) => env[`GIT_CONFIG_KEY_${i}`]);
-    expect(keys.lastIndexOf("core.fsmonitor")).toBeGreaterThan(0);
     expect(pinned(env)["core.fsmonitor"]).toBe("false");
   });
 
-  it("leaves GIT_ATTR_SOURCE off a git older than 2.40", () => {
-    expect(gitHoldEnv({}, false).GIT_ATTR_SOURCE).toBeUndefined();
-    expect(honoursAttrSource("git version 2.47.1")).toBe(true);
-    expect(honoursAttrSource("git version 2.40.0 (Apple Git-145)")).toBe(true);
-    expect(honoursAttrSource("git version 2.39.5 (Apple Git-154)")).toBe(false);
-    expect(honoursAttrSource("git version 3.0.0")).toBe(true);
-    expect(honoursAttrSource("")).toBe(false);
+  it("holds only a git of 2.40 or later, and leaves GIT_ATTR_SOURCE off otherwise", () => {
+    expect(gitHoldEnv({}, { attrSource: false }).GIT_ATTR_SOURCE).toBeUndefined();
+    expect(gitHoldable("git version 2.47.1")).toBe(true);
+    expect(gitHoldable("git version 2.40.0 (Apple Git-145)")).toBe(true);
+    expect(gitHoldable("git version 2.39.5 (Apple Git-154)")).toBe(false);
+    expect(gitHoldable("git version 2.31.0")).toBe(false);
+    expect(gitHoldable("git version 3.0.0")).toBe(true);
+    expect(gitHoldable("")).toBe(false);
   });
 });
 
@@ -52,17 +60,9 @@ describe("git's control, kept from the agent", () => {
     }
   });
 
-  it("puts the patterns into the sandbox as writes denied", () => {
-    const profile = sandboxProfile({ workspaceRoot: "/ws", readOnlyPatterns: gitControlPatterns("/private/var/ws") });
-    expect(profile).toContain('(deny file-write* (regex #"/\\.git/(config|info/attributes)$")');
-    expect(profile).toContain('(regex #"^(/private)?/var/ws/\\.gitconfig$")');
-    const [config, hooks, global, xdg] = gitControlPatterns("/var/ws").map((p) => new RegExp(p));
-    expect(config!.test("/private/var/ws/p/.git/config")).toBe(true);
-    expect(config!.test("/private/var/ws/p/.git/config.lock")).toBe(false);
-    expect(hooks!.test("/var/ws/p/.git/hooks/pre-commit")).toBe(true);
-    expect(hooks!.test("/var/ws/p/.git/hooks")).toBe(true);
-    expect(global!.test("/private/var/ws/.gitconfig")).toBe(true);
-    expect(global!.test("/var/ws/p/.gitconfig")).toBe(false);
-    expect(xdg!.test("/var/ws/.config/git/config")).toBe(true);
+  it("puts info/attributes into the sandbox as unreadable", () => {
+    const profile = sandboxProfile({ workspaceRoot: "/ws", unreadable: [GIT_INFO_ATTRIBUTES] });
+    expect(profile).toContain('(deny file-read* (regex #"/\\.git/info/attributes$"))');
+    expect(new RegExp(GIT_INFO_ATTRIBUTES).test("/ws/p/.git/info/attributes")).toBe(true);
   });
 });

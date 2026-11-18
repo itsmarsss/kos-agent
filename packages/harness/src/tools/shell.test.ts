@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readdirSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -197,30 +197,44 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     expect(existsSync(join(root, "TEXTCONV"))).toBe(false);
   });
 
-  it("lets a run nobody approved write none of a repository's config or hooks, nor git's global config", async () => {
+  it("runs a line judged read-only where a wrong judgement cannot matter: no writes, no network, none of KOS's files", async () => {
     execFileSync("git", ["init", "-q", "projects/x"], { cwd: root });
     const config = readFileSync(join(root, "projects/x/.git/config"), "utf8");
-    const unapproved = (command: string): Promise<ShellResult> =>
-      runShell(command, { workspaceRoot: root, cwd: root, timeoutMs: 5000, maxOutput: 10_000, holdGitConfig: true });
+    writeFileSync(join(root, "kos.sqlite"), "db-secret");
+    writeFileSync(join(root, "mcp.json"), "mcp-secret");
+    writeFileSync(join(root, ".env"), "env-secret");
+    writeFileSync(join(root, "notes.txt"), "mine");
+    const held = (command: string): Promise<ShellResult> =>
+      runShell(command, { workspaceRoot: root, cwd: root, timeoutMs: 5000, maxOutput: 10_000, readOnlyRun: true });
+    // The auditor's expansions, as if the judgement had let them through.
+    const marks = ["A", "B", "C", "D"].map((m) => join(root, `MARK-${m}`));
+    writeFileSync(join(root, "--pre=sh"), "");
     for (const command of [
+      `sh -c 'touch ${marks[0]}' {--pre=sh,.}`,
+      `X=; sh -c "touch \${X:-${marks[1]}}"`,
+      `sh -c $'touch ${marks[2]}'`,
+      `for f in *; do :; done; touch ${marks[3]}`,
       "printf '[core]\\n\\tfsmonitor = ./x\\n' >> projects/x/.git/config",
-      "cd projects/x && git config core.fsmonitor ./x",
       "echo x > projects/x/.git/hooks/pre-commit",
-      "mkdir -p projects/x/.git/hooks/sub",
-      "echo x > projects/x/.git/info/attributes",
       "echo x > .gitconfig",
-      "git config --global core.pager ./x",
-      "mkdir -p .config/git && echo x > .config/git/config",
+      "echo x > notes.txt",
+      "mkdir made",
     ]) {
-      await unapproved(command);
+      await held(command);
     }
+    for (const mark of marks) expect(existsSync(mark), mark).toBe(false);
     expect(readFileSync(join(root, "projects/x/.git/config"), "utf8")).toBe(config);
-    for (const path of ["projects/x/.git/hooks/pre-commit", "projects/x/.git/hooks/sub", "projects/x/.git/info/attributes", ".gitconfig", ".config/git/config"]) {
-      expect(existsSync(join(root, path)), path).toBe(false);
-    }
-    // The rest of a repository is git's to write: a commit still lands.
-    const commit = await unapproved("cd projects/x && echo a > a && git add a && git -c user.email=a@b -c user.name=a commit -qm a && git log --oneline");
-    expect(commit.stdout.trim()).toMatch(/^[0-9a-f]+ a$/);
+    expect(readFileSync(join(root, "notes.txt"), "utf8")).toBe("mine");
+    for (const path of ["projects/x/.git/hooks/pre-commit", ".gitconfig", "made"]) expect(existsSync(join(root, path)), path).toBe(false);
+    const secrets = await held("cat kos.sqlite mcp.json .env; ls .kos");
+    expect(secrets.stdout).not.toMatch(/secret/);
+    expect(secrets.stdout).not.toContain("tmp");
+    const net = await held("/usr/bin/curl -sS -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:9 || /usr/bin/nc -z -w 2 1.1.1.1 443 && echo reached");
+    expect(net.stdout).not.toContain("reached");
+    // Its own temp folder is writable, and gone afterwards.
+    const tmp = await held('echo ok > "$TMPDIR/t" && cat "$TMPDIR/t" && cat notes.txt');
+    expect(tmp.stdout).toBe("ok\nmine");
+    expect(readdirSync(join(root, ".kos", "tmp")).filter((n) => n.startsWith("read-"))).toEqual([]);
   });
 
   it("lets an approved run init, clone and configure a repository", async () => {
@@ -231,11 +245,10 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     expect(r.stdout.trim()).toMatch(/^[0-9a-f]+ a$/);
     expect(readFileSync(join(root, "projects/a/.git/config"), "utf8")).toContain("email = a@b");
     expect(existsSync(join(root, "projects/b/.git/config"))).toBe(true);
-    // Still held to git's own code: no hook runs, though the owner said yes.
+    // The repository's own hooks run on an approved commit, as the owner's husky would.
     const hook = join(root, "projects/a/.git/hooks/post-commit");
     await run({ command: `printf '#!/bin/sh\\ntouch HOOKED\\n' > ${hook} && chmod +x ${hook} && cd projects/a && git commit -q --allow-empty -m b` });
-    expect(existsSync(hook)).toBe(true);
-    expect(existsSync(join(root, "projects/a/HOOKED"))).toBe(false);
+    expect(existsSync(join(root, "projects/a/HOOKED"))).toBe(true);
   });
 
   it("is risky by floor, and safe for a line that only reads", () => {

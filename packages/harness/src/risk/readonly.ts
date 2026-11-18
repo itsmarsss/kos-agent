@@ -89,7 +89,7 @@ const GUARDED: Record<string, Danger> = {
   ag: { long: ["--pager"] },
   sort: { long: ["--output", "--compress-program"], short: "o", takes: "ktST" },
   // -o names a file to write; -R writes an HTML page into every folder.
-  tree: { short: "oR", takes: "LPIHT" },
+  tree: { long: ["--output"], short: "oR", takes: "LPIHT" },
   file: { long: ["--compile"], short: "C", takes: "mfFeP" },
   yq: { long: ["--inplace", "--in-place", "--split-exp"], short: "is", takes: "Iop" },
 };
@@ -145,7 +145,8 @@ const GIT_READS: Record<string, (args: string[]) => boolean> = {
   branch: branchLists,
   // Listing only: a pattern is fine beside -l, a name on its own would make one.
   tag: (args) => args.every((a) => a === "-l" || a === "--list" || /^-n\d*$/.test(a) || (!a.startsWith("-") && (args.includes("-l") || args.includes("--list")))),
-  remote: (args) => args.every((a) => a === "-v" || a === "--verbose") || args[0] === "show" || args[0] === "get-url",
+  // show asks the remote unless -n keeps it to what is known.
+  remote: (args) => args.every((a) => a === "-v" || a === "--verbose") || (args[0] === "show" && args.includes("-n")) || args[0] === "get-url",
   // list and show take git log's options, --output among them.
   stash: (args) => (args[0] === "list" || args[0] === "show") && logReads(args.slice(1)),
   reflog: (args) => args.length === 0 || (args[0] === "show" && logReads(args.slice(1))),
@@ -158,7 +159,7 @@ const GIT_READS: Record<string, (args: string[]) => boolean> = {
  * program the workspace names on any command, the version a package.json
  * asks for, or a .yarnrc.yml's yarnPath.
  */
-const PACKAGE_READS = new Set(["ls", "list", "-v", "--version", "outdated", "why", "root", "bin"]);
+const PACKAGE_READS = new Set(["ls", "list", "-v", "--version", "why", "root", "bin"]);
 
 /**
  * Paths a read of which is not harmless: KOS's own files (the database,
@@ -175,12 +176,18 @@ function namesProtected(arg: string): boolean {
 /**
  * The arguments that may be paths. A filter for jq or yq is its first
  * word that is not an option, and it starts with a dot by design, which
- * is not a hidden file.
+ * is not a hidden file; with -f the filter is a file, and every word is a
+ * path. Git names a file in a revision as `<rev>:<path>`.
  */
 function pathArgs(program: string, args: string[]): string[] {
-  if (program !== "jq" && program !== "yq") return args;
+  const after = (a: string, sep: string): string => a.slice(a.indexOf(sep) + 1);
+  // An option's value given as --opt=value is a path as much as a word on its own.
+  const values = args.filter((a) => a.startsWith("-") && a.includes("=")).map((a) => after(a, "="));
+  if (program === "git") return [...args, ...values, ...args.filter((a) => a.includes(":")).map((a) => after(a, ":"))];
+  if (program !== "jq" && program !== "yq") return [...args, ...values];
+  if (args.some((a) => a === "-f" || a.startsWith("--from-file"))) return [...args, ...values];
   const filter = args.findIndex((a) => !a.startsWith("-"));
-  return filter < 0 ? args : args.filter((_, i) => i !== filter);
+  return [...(filter < 0 ? args : args.filter((_, i) => i !== filter)), ...values];
 }
 
 interface Word {
@@ -192,28 +199,48 @@ interface Word {
 type Token = { kind: "word"; word: Word } | { kind: "join" };
 
 /**
- * The line as words and joins, honouring quotes and backslashes. Nothing
- * when it holds something that cannot be followed: a substitution, a
- * subshell, a background job, an open quote.
+ * The line as words and joins, honouring quotes and backslashes as sh
+ * does. Nothing when it holds what the shell would expand into words this
+ * cannot see: a $ outside single quotes (a variable, $'...', ${...}), a
+ * substitution, braces, a glob that could expand to an option (one at the
+ * head of a word, or in a word that is an option), a subshell, a
+ * background job, an open quote. `src/*` stays, since what it finds starts
+ * with `src/`; `*` and `*.ts` do not.
  */
 function tokens(command: string): Token[] | undefined {
   const out: Token[] = [];
   let text = "";
   let redirect = false;
   let have = false;
+  let glob = false;
+  let globHead = false;
   let quote: string | null = null;
+  let bad = false;
   const flush = (): void => {
+    if (globHead && text !== "[") bad = true;
+    if (glob && text.startsWith("-")) bad = true;
     if (have) out.push({ kind: "word", word: { text, redirect } });
     text = "";
     redirect = false;
     have = false;
+    glob = false;
+    globHead = false;
   };
   for (let i = 0; i < command.length; i++) {
     const ch = command[i]!;
     const next = command[i + 1];
-    if (quote) {
+    if (quote === "'") {
       if (ch === quote) quote = null;
       else text += ch;
+      continue;
+    }
+    if (quote === '"') {
+      if (ch === '"') quote = null;
+      else if (ch === "$" || ch === "`") return undefined;
+      else if (ch === "\\" && next !== undefined && '$`"\\\n'.includes(next)) {
+        text += next;
+        i++;
+      } else text += ch;
       continue;
     }
     if (ch === "'" || ch === '"') {
@@ -227,18 +254,17 @@ function tokens(command: string): Token[] | undefined {
       i++;
       continue;
     }
-    if (/\s/.test(ch)) {
-      flush();
-      continue;
-    }
-    if (ch === "`" || ch === "(" || ch === ")") return undefined;
-    if (ch === "$" && next === "(") return undefined;
     if (ch === "|" || ch === ";" || ch === "\n") {
       flush();
       out.push({ kind: "join" });
       if (ch === "|" && next === "|") i++;
       continue;
     }
+    if (/\s/.test(ch)) {
+      flush();
+      continue;
+    }
+    if (ch === "`" || ch === "(" || ch === ")" || ch === "$" || ch === "{" || ch === "}") return undefined;
     if (ch === "&") {
       if (next === "&") {
         flush();
@@ -254,13 +280,17 @@ function tokens(command: string): Token[] | undefined {
       }
       return undefined;
     }
+    if (ch === "*" || ch === "?" || ch === "[") {
+      if (text === "" || /^\d?[<>]$/.test(text)) globHead = true;
+      glob = true;
+    }
     if (ch === "<" || ch === ">") redirect = true;
     text += ch;
     have = true;
   }
   if (quote) return undefined;
   flush();
-  return out;
+  return bad ? undefined : out;
 }
 
 /** The arguments of one command, with its redirections checked and set aside; nothing when one writes. */
@@ -272,12 +302,16 @@ function arguments_(words: Word[]): string[] | undefined {
       args.push(w.text);
       continue;
     }
-    // Reading from a file is fine; the file is the next word when not attached.
+    // Reading from a file is fine, unless it is one a read must ask for; the file is the next word when not attached.
     if (/^<$/.test(w.text)) {
-      i++;
+      const from = words[++i];
+      if (!from || from.redirect || namesProtected(from.text)) return undefined;
       continue;
     }
-    if (/^<[^<>]+$/.test(w.text)) continue;
+    if (/^<[^<>]+$/.test(w.text)) {
+      if (namesProtected(w.text.slice(1))) return undefined;
+      continue;
+    }
     // Output may be thrown away or merged into the other stream; nothing else.
     if (/^\d?>&\d$/.test(w.text)) continue;
     const bin = /^(\d?>|&>)(\/dev\/null)?$/.exec(w.text);
@@ -355,8 +389,16 @@ function sedReadsOnly(args: string[]): boolean {
   return scripts.every((s) => /^[\d,$]*p$/.test(s) || /^s\/[^/]*\/[^/]*\/[gI\d]*$/.test(s));
 }
 
+export interface ReadOnlyOptions {
+  /**
+   * Whether git can be held (gitHeldOn): new enough for GIT_CONFIG_COUNT
+   * and GIT_ATTR_SOURCE. Otherwise a git line asks.
+   */
+  gitHeld?: boolean;
+}
+
 /** True when every command on the line is a known read-only program used read-only. */
-export function isReadOnlyCommand(command: string): boolean {
+export function isReadOnlyCommand(command: string, options: ReadOnlyOptions = {}): boolean {
   const toks = tokens(command);
   if (!toks) return false;
   const commands: Word[][] = [[]];
@@ -372,6 +414,7 @@ export function isReadOnlyCommand(command: string): boolean {
     if (first.includes("=") || words[0]!.redirect) return false;
     // A program named by a path is whatever was put there, not the reader of that name.
     if (first.includes("/")) return false;
+    if (first === "git" && !options.gitHeld) return false;
     if (pathArgs(first, args.slice(1)).some(namesProtected)) return false;
     if (!readsOnly(first, args.slice(1))) return false;
   }
