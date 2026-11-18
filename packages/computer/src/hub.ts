@@ -570,8 +570,10 @@ export class DeviceHub {
     if (session.paused) throw new DeviceError("paused", "the owner has taken over");
     // Only a look goes ahead on a screen the owner scrolled: an action would be aimed by a picture that no longer holds.
     if (session.scrolled && method !== "screen.capture") throw new DeviceError("scrolled", "the owner scrolled; look again before acting");
-    const link = this.links.get(session.device);
-    if (!link?.ready) {
+    const link = this.links.get(session.device)?.ready ? this.links.get(session.device) : await this.lineBack(session);
+    if (!link) {
+      // Ended meanwhile, as the device said when it came back: that is the answer, with its reason kept.
+      if (!this.sessions.has(session.id)) throw new DeviceError("no_session", "the session ended while its device's line was down");
       this.drop(session, "offline", "its line being down when KOS acted");
       throw new DeviceError("offline", "the device went offline");
     }
@@ -584,6 +586,26 @@ export class DeviceHub {
       if (err instanceof DeviceError && err.code === "paused") session.paused = true;
       throw err;
     }
+  }
+
+  /**
+   * The session's device back on its line, while KOS waits for it after a
+   * drop: a step taken in that moment goes on once it is back holding the
+   * session, rather than ending it. Undefined when it is not back in time,
+   * or came back without the session.
+   */
+  private async lineBack(session: Session): Promise<DeviceLink | undefined> {
+    if (!this.graces.has(session.device)) return undefined;
+    await new Promise<void>((resolve) => {
+      const off = this.onChange(() => {
+        if (this.links.get(session.device)?.ready || !this.sessions.has(session.id) || !this.graces.has(session.device)) {
+          off();
+          resolve();
+        }
+      });
+    });
+    const link = this.links.get(session.device);
+    return link?.ready && this.sessions.has(session.id) ? link : undefined;
   }
 
   /**
@@ -637,6 +659,7 @@ export class DeviceHub {
 
   /** Unpair: the key is forgotten and a live connection is closed as unknown. */
   remove(id: string): boolean {
+    this.log(`devices: ${this.named(id)} unpaired`);
     const removed = this.deps.store.remove(id);
     for (const s of [...this.sessions.values()]) if (s.device === id) this.drop(s, "removed", "unpairing");
     clearTimeout(this.graces.get(id));

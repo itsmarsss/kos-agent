@@ -27,6 +27,7 @@ function setup(opts: { panel?: () => string | undefined; audit?: (entry: AuditEn
     halted: () => false,
     beginTimeoutMs: 200,
     callTimeoutMs: 500,
+    log: () => undefined,
   });
   const chrome = new OwnerChrome(hub);
   const tools = new Map<string, Handler>();

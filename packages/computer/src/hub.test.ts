@@ -402,6 +402,26 @@ describe("a session", () => {
     expect(logged.at(-1)).toMatch(/ended: offline, by its line did not come back$/);
   });
 
+  it("holds a step taken while the line is down until the device is back with the session, and refuses it when it comes back without", async () => {
+    const { hub } = setup({ lineGraceMs: 20_000 });
+    const fake = await online(hub, "Chrome");
+    const session = await hub.begin({ conversation: "a", device: hub.find("Chrome")!, task: "t", requester: "r", minutes: 5 });
+    fake.drop();
+    const step = hub.act("a", "screen.capture", {});
+    const back = new FakeDevice(fake.id, fake.key);
+    hub.accept(back.socket);
+    back.hello({ session: { id: session.id } });
+    expect(await step).toMatchObject({ image: "SU1H" });
+    expect(back.calls.map((c) => c.method)).toEqual(["screen.capture"]);
+    back.drop();
+    const lost = hub.act("a", "screen.capture", {}).catch((err: unknown) => err);
+    const again = new FakeDevice(fake.id, fake.key);
+    hub.accept(again.socket);
+    again.hello({ session: { id: session.id, ended: "restarted" } });
+    expect(await lost).toMatchObject({ code: "no_session" });
+    expect(hub.takeEnding("a")).toBe("restarted");
+  });
+
   it("ends a session the device came back without, with the reason it lost it for, and ends there one KOS no longer has", async () => {
     const { hub } = setup({ lineGraceMs: 20_000 });
     const fake = await online(hub, "Chrome");

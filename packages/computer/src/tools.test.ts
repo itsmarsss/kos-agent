@@ -27,6 +27,7 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void>;
     beginTimeoutMs: 200,
     callTimeoutMs: 200,
     handBackWaitMs: 30,
+    log: () => undefined,
   });
   const tools = new Map<string, { spec: ToolSpec; handler: Handler; risk: ToolRisk | undefined }>();
   const halts: (() => void)[] = [];
