@@ -97,9 +97,14 @@ describe("writeProjectFile", () => {
     expect(() => writeProjectFile(ws, "linked", { name: "a.txt", data: b64("x"), dir: "" })).toThrow(/symlink/);
   });
 
+  it("takes a 6 MB PDF, which the old 5 MB cap refused", () => {
+    const data = Buffer.alloc(6 * 1024 * 1024, 0x25).toString("base64");
+    expect(writeProjectFile(ws, "budget", { name: "docs.pdf", data, dir: "" }).size).toBe(6 * 1024 * 1024);
+  });
+
   it("refuses an upload past the cap before decoding it", () => {
     const data = "A".repeat(Math.ceil((MAX_UPLOAD_BYTES + 1024) / 3) * 4);
-    expect(() => writeProjectFile(ws, "budget", { name: "big.bin", data, dir: "" })).toThrow(/limit is 5MB/);
+    expect(() => writeProjectFile(ws, "budget", { name: "big.bin", data, dir: "" })).toThrow(/big\.bin is 32\.0 MB; files can be up to 32 MB, the most a chat reads of a document/);
     expect(existsSync(join(ws.root, "projects", "budget"))).toBe(false);
   });
 });
