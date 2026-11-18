@@ -160,10 +160,16 @@ describe("Vault", () => {
   it("a passphrase locks it after every start until given", async () => {
     const vault = vaultAt();
     await vault.init({ passphrase: "a long passphrase" });
-    expect(vault.status()).toEqual({ state: "ready", slots: ["keyfile", "passphrase"] });
+    expect(vault.status()).toEqual({ state: "ready", slots: ["passphrase"] });
+    expect(existsSync(join(dir, "key"))).toBe(false);
     vault.add({ label: "GitHub", kind: "login", values: { password: "pw-correct-horse" } });
     const fresh = vaultAt();
     expect(fresh.status().state).toBe("locked");
+    // No key file opens it: one put where the key goes, or one handed in as KOS_VAULT_KEY.
+    writeFileSync(join(dir, "key"), `${range(0x90, 32).toString("base64")}\n`);
+    expect(vaultAt().status().state).toBe("locked");
+    expect(vaultAt({ envKey: range(0x90, 32).toString("base64") }).status().state).toBe("locked");
+    expect(() => vaultAt().rotateDataKey()).toThrow(/locked/);
     expect(fresh.list()).toEqual([]);
     await expect(fresh.unlock("not it at all")).rejects.toMatchObject({ code: "passphrase" });
     await fresh.unlock("a long passphrase");
@@ -177,14 +183,25 @@ describe("Vault", () => {
     expect(third.status().state).toBe("ready");
   }, 20_000);
 
-  it("adds a passphrase to a key-file vault", async () => {
+  it("a passphrase added to a key-file vault becomes its only slot, and taking it off goes back", async () => {
     const vault = await twoSecrets();
+    const oldKey = readFileSync(join(dir, "key"), "utf8");
     await vault.setPassphrase("added later on");
-    expect(vault.status()).toEqual({ state: "ready", slots: ["keyfile", "passphrase"] });
+    expect(vault.status()).toEqual({ state: "ready", slots: ["passphrase"] });
+    expect(existsSync(join(dir, "key"))).toBe(false);
     vault.rotateDataKey();
+    // The old key file, put back, opens nothing.
+    writeFileSync(join(dir, "key"), oldKey);
     const fresh = vaultAt();
+    expect(fresh.status().state).toBe("locked");
     await fresh.unlock("added later on");
     expect(fresh.list()).toHaveLength(2);
+    fresh.removePassphrase();
+    expect(fresh.status()).toEqual({ state: "ready", slots: ["keyfile"] });
+    const opened = vaultAt();
+    expect(opened.status().state).toBe("ready");
+    expect(opened.list()).toHaveLength(2);
+    expect(() => opened.removePassphrase()).toThrow(/no passphrase/);
   }, 20_000);
 
   it("exports a copy only the passphrase opens", async () => {

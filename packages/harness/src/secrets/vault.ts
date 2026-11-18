@@ -471,26 +471,34 @@ export class Vault {
     return { kind: "passphrase", kek };
   }
 
-  /** Create the vault: a key-file slot always, a passphrase slot when one is given. */
+  /**
+   * Create the vault. With a passphrase, the passphrase slot is its only
+   * slot and no key file is written: nothing on disk opens it, so it is
+   * locked after every start until the passphrase is given. Without one, a
+   * key-file slot, and the vault opens by itself.
+   */
   async init(options: { passphrase?: string } = {}): Promise<void> {
     this.refresh();
     if (this.doc || existsSync(this.file)) throw new VaultError("exists", "there is a vault already");
     this.refuseShared();
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     chmodSync(this.dir, 0o700);
-    const key = this.keyBytes() ?? this.makeKey();
     const dek = randomBytes(32);
     const vault = `v_${hex(8)}`;
     const dekId = "k1";
-    const slots: Slot[] = [{ id: "s1", kind: "keyfile", wrap: wrapDek(key, dek, vault, "s1", dekId) }];
-    let opener: Opener = { kind: "keyfile", kek: key };
+    let slot: Slot;
+    let opener: Opener;
     if (options.passphrase !== undefined) {
-      const slot = await this.passphraseSlot(options.passphrase, dek, vault, "s2", dekId);
-      slots.push(slot.slot);
-      key.fill(0);
-      opener = { kind: "passphrase", kek: slot.kek };
+      const made = await this.passphraseSlot(options.passphrase, dek, vault, "s1", dekId);
+      slot = made.slot;
+      opener = { kind: "passphrase", kek: made.kek };
+      this.dropKeyFile();
+    } else {
+      const key = this.keyBytes() ?? this.makeKey();
+      slot = { id: "s1", kind: "keyfile", wrap: wrapDek(key, dek, vault, "s1", dekId) };
+      opener = { kind: "keyfile", kek: key };
     }
-    this.write({ format: VAULT_FORMAT, version: VAULT_VERSION, vault, dek: dekId, slots, entries: [], index: { seq: 0, mac: "" } }, dek, opener);
+    this.write({ format: VAULT_FORMAT, version: VAULT_VERSION, vault, dek: dekId, slots: [slot], entries: [], index: { seq: 0, mac: "" } }, dek, opener);
   }
 
   private async passphraseSlot(passphrase: string, dek: Buffer, vault: string, id: string, dekId: string): Promise<{ slot: PassphraseSlot; kek: Buffer }> {
@@ -619,14 +627,29 @@ export class Vault {
     throw new VaultError("locked", "a passphrase slot can only be wrapped again once the passphrase opened the vault");
   }
 
-  /** A passphrase added, or the one there changed. The vault must be open. */
+  /**
+   * A passphrase added, or the one there changed: the passphrase slot
+   * becomes the only slot, and the key file is crypto-erased, so from the
+   * next start the vault waits for the passphrase. The vault must be open.
+   */
   async setPassphrase(passphrase: string): Promise<void> {
     const { doc, dek } = this.ready();
-    const id = doc.slots.find((s) => s.kind === "passphrase")?.id ?? `s${doc.slots.length + 1}`;
-    const made = await this.passphraseSlot(passphrase, dek, doc.vault, id, doc.dek);
-    const slots = [...doc.slots.filter((s) => s.kind !== "passphrase"), made.slot];
-    // Held from now on: the key file can be read again whenever its slot is wrapped again, a passphrase cannot.
-    this.write({ ...doc, slots }, dek, { kind: "passphrase", kek: made.kek });
+    const made = await this.passphraseSlot(passphrase, dek, doc.vault, "s1", doc.dek);
+    this.write({ ...doc, slots: [made.slot] }, dek, { kind: "passphrase", kek: made.kek });
+    this.dropKeyFile();
+  }
+
+  /** The passphrase taken off: a key-file slot is the only slot, and the vault opens by itself again. The vault must be open. */
+  removePassphrase(): void {
+    const { doc, dek } = this.ready();
+    if (!doc.slots.some((s) => s.kind === "passphrase")) throw new VaultError("invalid", "this vault has no passphrase");
+    const key = this.keyBytes() ?? this.makeKey();
+    this.write({ ...doc, slots: [{ id: "s1", kind: "keyfile", wrap: wrapDek(key, dek, doc.vault, "s1", doc.dek) }] }, dek, { kind: "keyfile", kek: key });
+  }
+
+  /** A key file no slot needs any more, overwritten and unlinked: a copy of it opens nothing, but nothing should be left to try. */
+  private dropKeyFile(): void {
+    for (const path of [this.keyPath, `${this.keyPath}.next`, `${this.keyPath}.tmp`]) shred(path);
   }
 
   /** A new key file, and the key-file slot wrapped under it. Refused while KOS_VAULT_KEY supplies the key. */
