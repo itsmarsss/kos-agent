@@ -88,17 +88,27 @@ export const sips: Converter = {
       return await sandboxed(bytes, type, maxPixels);
     } catch (err) {
       if (!(err instanceof SandboxFailed)) throw err;
-      console.warn(`[images] sips could not be sandboxed, so pictures are read without it from now on: ${err.message}`);
-      sandboxWorks = false;
+      unsandboxable(err);
       return pixels.open(bytes, type, maxPixels);
     }
   },
 };
 
+/** The sandbox failed to apply: sips is not run again, and pictures go to the pixels worker from now on. */
+function unsandboxable(err: SandboxFailed): void {
+  if (sandboxWorks) console.warn(`[images] sips could not be sandboxed, so pictures are read without it from now on: ${err.message}`);
+  sandboxWorks = false;
+}
+
 /** The picture opened by sips, in its sandbox. */
 async function sandboxed(bytes: Buffer, type: ImageType, maxPixels: number): Promise<OpenPicture> {
   const dir = await mkdtemp(join(tmpdir(), "kos-image-"));
-  const close = (): Promise<void> => rm(dir, { recursive: true, force: true });
+  /** The same picture in the pixels worker, opened if the sandbox fails while it is written out. */
+  let instead: OpenPicture | undefined;
+  const close = async (): Promise<void> => {
+    await instead?.close();
+    await rm(dir, { recursive: true, force: true });
+  };
   try {
     const input = join(dir, `in.${EXTENSION[type]}`);
     await writeFile(input, bytes);
@@ -113,15 +123,23 @@ async function sandboxed(bytes: Buffer, type: ImageType, maxPixels: number): Pro
       height,
       alpha: property(props, "hasAlpha") === "yes",
       async encode(to: ModelImageType, edge: number, quality: number): Promise<Buffer> {
+        if (instead) return instead.encode(to, edge, quality);
         const png = to === "image/png";
         const output = join(dir, png ? "out.png" : "out.jpg");
-        await run(dir, [
-          "-s", "format", png ? "png" : "jpeg",
-          ...(png ? [] : ["-s", "formatOptions", String(quality)]),
-          // -Z also makes a smaller picture larger, so it is given only when one must shrink.
-          ...(Math.max(width, height) > edge ? ["-Z", String(edge)] : []),
-          input, "--out", output,
-        ]);
+        try {
+          await run(dir, [
+            "-s", "format", png ? "png" : "jpeg",
+            ...(png ? [] : ["-s", "formatOptions", String(quality)]),
+            // -Z also makes a smaller picture larger, so it is given only when one must shrink.
+            ...(Math.max(width, height) > edge ? ["-Z", String(edge)] : []),
+            input, "--out", output,
+          ]);
+        } catch (err) {
+          if (!(err instanceof SandboxFailed)) throw err;
+          unsandboxable(err);
+          instead = await pixels.open(bytes, type, maxPixels);
+          return instead.encode(to, edge, quality);
+        }
         return readFile(output);
       },
       close,
