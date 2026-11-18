@@ -6,6 +6,7 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 import {
+  AuditLog,
   Kernel,
   MCP_CONFIG_FILE,
   MODULES_DIR,
@@ -706,7 +707,17 @@ async function main(): Promise<void> {
 
   // kos secrets: the vault from a terminal; unlock and status reach the running host too.
   if (command === "secrets") {
-    process.exitCode = await runSecrets(rest, flags, { live: async () => (await resolveLiveClient(rootDir))?.client });
+    process.exitCode = await runSecrets(rest, flags, {
+      live: async () => (await resolveLiveClient(rootDir))?.client,
+      audit: (entry) => {
+        const ws = Workspace.open(rootDir);
+        try {
+          new AuditLog(ws.db).record(entry);
+        } finally {
+          ws.close();
+        }
+      },
+    });
     return;
   }
 

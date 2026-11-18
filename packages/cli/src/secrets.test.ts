@@ -76,6 +76,19 @@ describe("kos secrets", () => {
     expect(existsSync(join(root, "secrets", "vault.kosv"))).toBe(false);
   }, 30_000);
 
+  it("sets a passphrase as the only key, erasing the key file, and takes it off, audited", async () => {
+    const audits: string[] = [];
+    const io = (answers: string[]): SecretsCli => ({ ...cli(answers), audit: (e) => audits.push(`${e.tool} ${String(e.args.change)}`) });
+    await runSecrets(["init"], {}, io([]));
+    expect(existsSync(join(root, "secrets", "key"))).toBe(true);
+    expect(await runSecrets(["rotate"], { passphrase: true }, io(["a long passphrase", "a long passphrase"]))).toBe(0);
+    expect(existsSync(join(root, "secrets", "key"))).toBe(false);
+    expect(new Vault({ dir: join(root, "secrets") }).status()).toMatchObject({ state: "locked", slots: ["passphrase"] });
+    expect(await runSecrets(["rotate"], { "no-passphrase": true }, io(["a long passphrase"]))).toBe(0);
+    expect(new Vault({ dir: join(root, "secrets") }).status()).toMatchObject({ state: "ready", slots: ["keyfile"] });
+    expect(audits).toEqual(["secrets.passphrase add", "secrets.passphrase remove"]);
+  }, 30_000);
+
   it("says why a command cannot run", async () => {
     expect(await runSecrets(["unlock"], {}, cli())).toBe(1);
     expect(lines.at(-1)).toMatch(/no host is running/);

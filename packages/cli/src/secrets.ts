@@ -16,14 +16,16 @@ import { isContained, SECRET_FIELDS, SECRET_KINDS, SECRET_REQUIRED, Vault, Vault
 
 export const SECRETS_USAGE = [
   "usage: kos secrets <command>",
-  "  init [--passphrase]          make the vault (a key file; a passphrase locks it after each start)",
+  "  init [--passphrase]          make the vault: a key file, or a passphrase alone, locked after each start",
   "  status                       whether it is there, locked or ready, and the host's view",
   "  unlock                       give the running host the passphrase",
   "  list                         handles, kinds, labels and hints; never a value",
   "  add <kind> <label> [--hosts a,b] [--origins https://x,https://y]",
   "                               kind: login | card | apikey | note; values asked, or piped on stdin",
   "  rm <handle> [--yes]          delete it, then rotate the data key",
-  "  rotate [--passphrase | --key]  a new data key; or a new passphrase; or a new key file",
+  "  rotate [--passphrase | --no-passphrase | --key]",
+  "                               a new data key; or set a passphrase (its slot alone, the key file erased);",
+  "                               or take it off (back to a key file); or a new key file",
   "  export <file>                a copy only the passphrase opens",
   "  wipe [--yes]                 crypto-erase the vault and its key",
 ].join("\n");
@@ -39,6 +41,8 @@ export interface SecretsCli {
   ask?: (question: string, hidden: boolean) => Promise<string>;
   stdin?: () => Promise<string | undefined>;
   out?: (line: string) => void;
+  /** Into the workspace's audit log: a passphrase added or taken off is recorded as the dashboard records it. */
+  audit?: (entry: { tool: string; args: Record<string, unknown>; result: string; isError: boolean }) => void;
 }
 
 /** A prompt that does not echo what is typed. */
@@ -148,8 +152,14 @@ export async function runSecrets(rest: string[], flags: Record<string, string | 
       case "rotate": {
         await open();
         if (flags.passphrase === true) {
+          const had = vault.hasPassphrase();
           await vault.setPassphrase(await newPassphrase());
-          out("passphrase set");
+          cli.audit?.({ tool: "secrets.passphrase", args: { change: had ? "change" : "add", from: "cli" }, result: "passphrase slot only, key file erased", isError: false });
+          out("passphrase set: it is the vault's only key now, and the key file is erased");
+        } else if (flags["no-passphrase"] === true) {
+          vault.removePassphrase();
+          cli.audit?.({ tool: "secrets.passphrase", args: { change: "remove", from: "cli" }, result: "key-file slot only", isError: false });
+          out("passphrase taken off: the vault opens with its key file again");
         } else if (flags.key === true) {
           vault.rotateKeyfile();
           out("new key file written; the vault opens with it");
