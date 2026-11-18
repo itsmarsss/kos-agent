@@ -141,7 +141,7 @@ import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
 import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type HtmlPage, type ThemeMode } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
-import { attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
+import { assertFits, attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
 import { SessionStore, cronSessionId, primarySessionId, upkeepSessionId } from "./session.js";
 import type { TurnMade } from "./turnmade.js";
@@ -963,6 +963,8 @@ export class Kernel {
     // the file outlives the turn: a later turn, another chat or a blob can
     // open it by path, and a surface showing the chat elsewhere can show it.
     if (opts.attachments?.length) {
+      // Past its kind's ceiling, a file is refused before it is kept.
+      for (const file of opts.attachments) assertFits(file);
       const kept = this.keepAttachments(sessionId, opts.attachments);
       // Each attachment learns where it was kept, so the transcript can open
       // the file itself rather than the words it was read as.

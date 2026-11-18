@@ -1007,10 +1007,10 @@ describe("handleApiRequest", () => {
       const big = await handleApiRequest(kernel, {
         method: "POST",
         path: `/api/projects/${project.slug}/files`,
-        body: { name: "big.bin", data: "A".repeat(7 * 1024 * 1024) },
+        body: { name: "big.bin", data: "A".repeat(44 * 1024 * 1024) },
       });
       expect(big.status).toBe(400);
-      expect((big.body as { error: string }).error).toMatch(/limit is 5MB/);
+      expect((big.body as { error: string }).error).toMatch(/files can be up to 32 MB/);
       expect(existsSync(join(root, "projects", project.slug, "big.bin"))).toBe(false);
 
       const nameless = await handleApiRequest(kernel, {
