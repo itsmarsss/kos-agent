@@ -140,7 +140,7 @@ import { originOf } from "./origin.js";
 import type { HeardWords, OwnerWords } from "../models/heard.js";
 import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
-import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type FileHome, type HtmlPage, type ThemeMode } from "@kos/shared";
+import { UNCHANGED, bodyHexOf, channelNamesIn, drawingOf, faceSvg, isDrawnTheme, isThemeMode, KOS_SEED, lookOf, summarizeAction, tokenRule, type ArtifactEdit, type DashboardTheme, type DrawnTheme, type FaceDrawing, type FaceSpec, type ActionHome, type FileHome, type HtmlPage, type ThemeMode } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { assertFits, attachmentBlocks, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -3143,7 +3143,7 @@ export class Kernel {
         }
         const result =
           command.kind === "approve" ? await this.approve(action.id, userId) : await this.deny(action.id, userId);
-        const what = `@approval:${action.id} ${summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id))}`;
+        const what = `@approval:${action.id} ${summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id), this.actionHome(action.conversationId))}`;
         return { reply: result.ok ? `${command.kind === "approve" ? "Approved" : "Denied"} ${what}.` : result.message };
       }
 
@@ -3863,7 +3863,7 @@ export class Kernel {
           conversationId: opts.conversationId,
           tool,
           // With the ids named, so a step reads "#leetcode", not a snowflake.
-          summary: summarizeAction(tool, input, (kind, id) => this.labelFor(kind, id), { home: this.fileHome(opts.conversationId), root: this.workspace.root }),
+          summary: summarizeAction(tool, input, (kind, id) => this.labelFor(kind, id), this.actionHome(opts.conversationId)),
           input,
           ...(this.inOwnersChrome(tool, opts.conversationId) ? { yours: true as const } : {}),
         });
@@ -4049,6 +4049,11 @@ export class Kernel {
       conversation = undefined;
     }
     return fileHomeOf(conversation, conversation?.role ? this.roles.get(conversation.role)?.folder : undefined);
+  }
+
+  /** Where a chat's file paths land, as a step or a card names them. */
+  actionHome(conversationId: string | null | undefined): ActionHome {
+    return { home: this.fileHome(conversationId ?? undefined), root: this.workspace.root };
   }
 
   /** Where a chat's uploads go: its project's folder, its blob's, or the root's own. */
@@ -4276,7 +4281,7 @@ export class Kernel {
     for (const action of lapsed) {
       const id = action.conversationId;
       if (!id) continue;
-      this.noteIn(id, `@approval:${action.id} (${summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id))}) lapsed: nobody decided within ${hours} hour${hours === 1 ? "" : "s"}, so nothing was done. Ask again if it is still wanted.`);
+      this.noteIn(id, `@approval:${action.id} (${summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id), this.actionHome(id))}) lapsed: nobody decided within ${hours} hour${hours === 1 ? "" : "s"}, so nothing was done. Ask again if it is still wanted.`);
     }
     return lapsed;
   }
@@ -5046,7 +5051,7 @@ export class Kernel {
           parts.push(`Approval #${action.id}: not shown; it was asked in a chat that is not this one's to read.`);
           continue;
         }
-        const what = summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id));
+        const what = summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id), this.actionHome(action.conversationId));
         const fate =
           action.status === "pending"
             ? "still waiting on the owner"

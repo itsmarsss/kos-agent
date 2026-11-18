@@ -1,4 +1,4 @@
-import { summarizeAction } from "@kos/shared";
+import { summarizeAction, type ActionHome } from "@kos/shared";
 
 import type { PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
@@ -26,8 +26,8 @@ export const BUILD_ACTION_PREFIX = "build.";
 export const RESUME_HEAD = "System: the owner decided on";
 
 /** One decided action, as the resumed turn is told it: what it was, and what came of it. */
-export function decidedLine(id: number, tool: string, args: string, outcome: { approved: true; isError: boolean; result: string } | { approved: false }): string {
-  const head = `@approval:${id} ${summarizeAction(tool, args)}`;
+export function decidedLine(id: number, tool: string, args: string, outcome: { approved: true; isError: boolean; result: string } | { approved: false }, where?: ActionHome): string {
+  const head = `@approval:${id} ${summarizeAction(tool, args, undefined, where)}`;
   if (!outcome.approved) return `${head}: the owner denied this. It was not done.`;
   // On one line: a result's own lines could otherwise pass for another decision.
   const result = outcome.result.replace(/\s*\n\s*/g, " ");
@@ -105,6 +105,12 @@ export class Decisions {
     ].join("\n");
   }
 
+  /** Where the asking chat's paths land, for the line that tells it the outcome. */
+  private whereOf(conversationId: string | null | undefined): ActionHome | undefined {
+    const at = this.deps.homeOf?.(conversationId ?? null);
+    return at?.home ? { home: at.home, ...(at.root ? { root: at.root } : {}) } : undefined;
+  }
+
   private stillWaiting(ids: number[]): string {
     return `#${ids.join(", #")} still waiting; the chat continues once ${ids.length === 1 ? "it is" : "they are"} decided.`;
   }
@@ -153,7 +159,7 @@ export class Decisions {
     }, action.conversationId ?? SHARED_LANE);
 
     const sessionId = action.conversationId ?? primarySessionId(d.ownerId);
-    const outcome = decidedLine(id, action.tool, action.args, { approved: true, isError: result.isError, result: result.content });
+    const outcome = decidedLine(id, action.tool, action.args, { approved: true, isError: result.isError, result: result.content }, this.whereOf(action.conversationId));
     const waiting = this.siblingsWaiting(action.conversationId, id);
     if (waiting.length > 0) {
       this.held.set(sessionId, [...(this.held.get(sessionId) ?? []), outcome]);
@@ -178,7 +184,7 @@ export class Decisions {
       return { ok: true, message: `Declined. The build was told it may not ${denied.tool.slice(BUILD_ACTION_PREFIX.length)}.` };
     }
     const sessionId = denied.conversationId ?? primarySessionId(d.ownerId);
-    const outcome = decidedLine(id, denied.tool, denied.args, { approved: false });
+    const outcome = decidedLine(id, denied.tool, denied.args, { approved: false }, this.whereOf(denied.conversationId));
     const waiting = this.siblingsWaiting(denied.conversationId, id);
     if (waiting.length > 0) {
       this.held.set(sessionId, [...(this.held.get(sessionId) ?? []), outcome]);

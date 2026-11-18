@@ -250,7 +250,7 @@ export function approvalCard(req: ApprovalRequest): ApprovalCard {
     return { content: noPreviews([...said, `${asks} · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n")) };
   }
   const args = req.args ?? {};
-  const summary = summarizeAction(req.tool, args, req.names);
+  const summary = summarizeAction(req.tool, args, req.names, req.where);
   // A step said by its purpose is the model's sentence, not a verb and its
   // thing: split on its colon, "Note: just closing the popup" took the whole
   // line as the command and the keys it would press never showed. Its
@@ -265,7 +265,7 @@ export function approvalCard(req: ApprovalRequest): ApprovalCard {
     actions ??
     (body
       ? [cut(body, CODE_MAX)]
-      : detailLines(req.tool, args, req.names)
+      : detailLines(req.tool, args, req.names, req.where)
           .slice(1)
           .filter((l) => !l.startsWith("…"))
           .slice(0, 3)
@@ -3197,7 +3197,7 @@ export class DiscordAdapter implements ChannelAdapter {
         .setStyle(ButtonStyle.Danger),
     );
 
-    const summary = req.tool !== undefined ? summarizeAction(req.tool, req.args ?? {}, req.names) : req.text;
+    const summary = req.tool !== undefined ? summarizeAction(req.tool, req.args ?? {}, req.names, req.where) : req.text;
     const card = approvalCard(req);
     // The page a browser action is aimed at, when there is one: the thing
     // being approved, rather than a description of it.

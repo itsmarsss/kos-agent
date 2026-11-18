@@ -166,6 +166,45 @@ describe("a turn's file home", () => {
     expect((await write("/etc/kos-escape.md")).isError).toBe(true);
   });
 
+  it("never removes or moves the workspace, its own folders, or a project's or a blob's folder itself", async () => {
+    mkdirSync(join(root, "projects", "school"), { recursive: true });
+    mkdirSync(join(root, "projects", "resume"), { recursive: true });
+    for (const [tool, input] of [
+      ["files.rm", { path: "." }],
+      ["files.rm", { path: "school" }],
+      ["files.rm", { path: "workspace:" }],
+      ["files.rm", { path: "workspace:projects/resume" }],
+      ["files.rm", { path: "workspace:Projects" }],
+      ["files.mv", { from: ".", to: "workspace:old-school" }],
+      ["files.mv", { from: "workspace:blobs/noter", to: "x" }],
+    ] as const) {
+      const res = await registry.execute(tool, input);
+      expect(res.isError, `${tool} ${JSON.stringify(input)}`).toBe(true);
+      expect(res.content).toMatch(/workspace itself|own folder|layout/);
+    }
+    expect(existsSync(join(root, "projects", "school"))).toBe(true);
+    expect(existsSync(join(root, "projects", "resume"))).toBe(true);
+  });
+
+  it("keeps KOS's own files out of reach of writes, from a project and from the root", async () => {
+    for (const at of [home, ROOT_HOME]) {
+      home = at;
+      for (const [tool, input] of [
+        ["files.write", { path: "workspace:mcp.json", content: "{}" }],
+        ["files.write", { path: "workspace:profile.json", content: "{}" }],
+        ["files.mkdir", { path: "workspace:locks/x" }],
+        ["files.rm", { path: "workspace:kos.sqlite" }],
+        ["export.query", { query: "SELECT 1 AS n", path: "workspace:mcp.json", format: "json" }],
+      ] as const) {
+        const res = await registry.execute(tool, input);
+        expect(res.isError, `${at.folder} ${tool} ${JSON.stringify(input)}`).toBe(true);
+        expect(res.content).toContain("is KOS's own");
+      }
+    }
+    expect(existsSync(join(root, "mcp.json"))).toBe(false);
+    expect(existsSync(join(root, "kos.sqlite"))).toBe(true);
+  });
+
   it.runIf(onMac)("starts the shell in the home, and runs it elsewhere on purpose", async () => {
     const pwd = async (input: Record<string, unknown>) => JSON.parse((await registry.execute("shell.run", { command: "pwd", ...input })).content) as { stdout: string };
     expect((await pwd({})).stdout.trim()).toBe(realpathSync(join(root, "projects", "school")));

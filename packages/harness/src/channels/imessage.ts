@@ -163,7 +163,7 @@ export function approvalLines(req: ApprovalRequest): string[] {
     ...(req.asker ? [`${who} needs your OK.`] : []),
     ...(req.why?.trim() ? [`${who}: ${req.why.trim()}`] : []),
     req.text,
-    ...(req.tool !== undefined ? [summarizeAction(req.tool, args, req.names)] : []),
+    ...(req.tool !== undefined ? [summarizeAction(req.tool, args, req.names, req.where)] : []),
     ...(mechanics ? [`Steps: ${mechanics}`] : []),
     ...(req.reason ? [req.reason] : []),
   ];

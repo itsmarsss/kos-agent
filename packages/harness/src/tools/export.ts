@@ -6,6 +6,7 @@ import { requireServices } from "../modules/loader.js";
 import type { Workspace } from "../store/workspace.js";
 import { runDisplayQuery } from "../systems/display.js";
 import { fence } from "./fence.js";
+import { reservedRefusal } from "./files.js";
 import { placeFor, reachOutside } from "./home.js";
 import { reachOf } from "./sql.js";
 import { toPdf } from "./pdf.js";
@@ -115,6 +116,8 @@ function defineExportTool(ws: Workspace, ctx: ModuleContext): void {
         ...(rowCap !== undefined ? { rowCap } : {}),
       });
       const { abs, rel } = placeFor(ws, ctx, str(input, "path"));
+      const reserved = reservedRefusal(ws, rel);
+      if (reserved) throw new Error(reserved);
       mkdirSync(dirname(abs), { recursive: true });
       const title = typeof input.title === "string" ? input.title : undefined;
       const rendered = render(format, result.rows, title);

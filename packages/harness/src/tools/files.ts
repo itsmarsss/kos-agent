@@ -13,13 +13,14 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 
-import { placePath } from "@kos/shared";
+import { LAYOUT_FOLDERS, placePath } from "@kos/shared";
 
 import { isOffice, officeNote, officeText } from "../files/office.js";
 import { PDF_TEXT_MAX, isPdf, pdfText } from "../files/pdftext.js";
 
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
+import { RESERVED } from "../kernel/files.js";
 import { SAFE, type Escalation, type ToolRisk } from "../risk/tiers.js";
 import { foldedPath, type Workspace } from "../store/workspace.js";
 import { callerHome, placeFor, reachOutside, type HomePath } from "./home.js";
@@ -128,6 +129,33 @@ export function isKosState(ws: Workspace, path: string): boolean {
   return foldedPath(ws.root, path).split("/")[0] === ".kos";
 }
 
+/**
+ * Why a tool may not write `path`, when it is one of the workspace's own
+ * top-level entries (kernel/files.ts RESERVED): KOS's database, its state and
+ * its settings, which only the owner changes. A server written into mcp.json
+ * would be started with the owner's secrets.
+ */
+export function reservedRefusal(ws: Workspace, path: string): string | undefined {
+  const top = foldedPath(ws.root, path).split("/")[0] ?? "";
+  return RESERVED.has(top) ? `${top} is KOS's own, changed only by the owner from the dashboard or the kos command` : undefined;
+}
+
+/**
+ * Why a removal or a move may not take `rel` whole: the workspace itself,
+ * one of KOS's own top-level folders, or a project's or a blob's folder,
+ * which a project's or a blob's own tools remove. What is inside them is
+ * the chat's to manage.
+ */
+export function layoutRefusal(rel: string): string | undefined {
+  const parts = rel.toLowerCase().split("/").filter((p) => p !== "" && p !== ".");
+  if (parts.length === 0) return "the workspace itself cannot be moved or removed";
+  if (parts.length === 1 && LAYOUT_FOLDERS.includes(parts[0]!)) return `${rel} is part of the workspace's layout; manage what is inside it`;
+  if (parts.length === 2 && (parts[0] === "projects" || parts[0] === "blobs")) {
+    return `${rel} is ${parts[0] === "projects" ? "a project's" : "a blob's"} own folder, not moved or removed with files.*; manage what is inside it`;
+  }
+  return undefined;
+}
+
 /** The paths relative paths start from and what reaching outside them means, said once for every tool. */
 const HOME_PATHS =
   "A relative path is inside your own folder (your project's folder in a project's chats); workspace:<path> is from the workspace root, as is a path starting with projects/, blobs/, skills/ or scratch/. Changing anything outside your own folder asks the owner.";
@@ -161,6 +189,8 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
    */
   const fenced = (path: string, what: "read" | "replace" | "remove", folder = false): HomePath => {
     const placed = usable(ws, ctx, path);
+    const refused = (what === "read" ? undefined : reservedRefusal(ws, placed.rel)) ?? (what === "remove" ? layoutRefusal(placed.rel) : undefined);
+    if (refused) throw new Error(refused);
     const pages = ctx.services?.pages;
     if (!pages) return placed;
     const { rel } = placed;
@@ -288,7 +318,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const { abs, rel } = usable(ws, ctx, str(input, "path"));
+      const { abs, rel } = fenced(str(input, "path"), "replace");
       mkdirSync(abs, { recursive: true });
       return `made ${rel}/`;
     },

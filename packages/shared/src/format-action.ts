@@ -531,11 +531,12 @@ export function detailLines(
   tool: string,
   args: string | Record<string, unknown>,
   names?: ActionNames,
+  where?: ActionHome,
 ): string[] {
   const a = parseArgs(args);
   const lines: string[] = [];
   // Prefer a short summary line first.
-  lines.push(summarizeAction(tool, a, names));
+  lines.push(summarizeAction(tool, a, names, where));
   // A step said by its purpose keeps how it does it in view: an approval
   // is given for the clicks, not for the model's account of them.
   const mechanics = stepMechanics(tool, a);

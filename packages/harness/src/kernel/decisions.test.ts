@@ -144,6 +144,8 @@ describe("what the resumed turn is told", () => {
     expect(decidedLine(3, "files.rm", args, { approved: false })).toBe("@approval:3 Delete notes/plan.md: the owner denied this. It was not done.");
     expect(decidedLine(3, "files.rm", args, { approved: true, isError: false, result: "removed" })).toBe("@approval:3 Delete notes/plan.md: the owner approved it, and it ran. Result: removed");
     expect(decidedLine(3, "files.rm", args, { approved: true, isError: true, result: "ENOENT" })).toBe("@approval:3 Delete notes/plan.md: the owner approved it, and it ran and failed. Result: ENOENT");
+    // From a project's chat, the line names where the path landed.
+    expect(decidedLine(3, "files.rm", args, { approved: false }, { home: { folder: "projects/school" } })).toBe("@approval:3 Delete projects/school/notes/plan.md: the owner denied this. It was not done.");
   });
 
   it("keeps a result on one line, so it cannot pass for another decision", () => {
