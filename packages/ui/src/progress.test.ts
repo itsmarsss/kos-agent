@@ -56,6 +56,9 @@ describe("progress handover", () => {
     expect(result.current["c1"]).toMatchObject({ said: "what time is it", from: "discord", origin: { via: "discord", room: { kind: "channel", name: "verity" } }, files: [{ name: "a.pdf", path: "uploads/a.pdf" }], steps: [] });
     deliver({ kind: "turn-start", conversationId: "c1" });
     expect(result.current["c1"]?.said).toBeUndefined();
+    // The row a turn runs, when its words waited, so the page lets that row go.
+    deliver({ kind: "turn-start", conversationId: "c1", said: "and the red one", pendingId: 9 });
+    expect(result.current["c1"]).toMatchObject({ said: "and the red one", pendingId: 9 });
   });
 
   it("puts a step's picture on the latest step of its tool, as the transcript will", () => {

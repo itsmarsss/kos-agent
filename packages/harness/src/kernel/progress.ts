@@ -35,6 +35,8 @@ export type ProgressEvent =
       files?: { name: string; path: string }[];
       /** The surface those words came in on. */
       from?: string;
+      /** The waiting row those words were, when they waited behind another turn. */
+      pendingId?: number;
     }
   | {
       kind: "tool-start";

@@ -41,10 +41,18 @@ describe("a message sent mid-turn, until the server has it", () => {
 
   it("leaves the queue once a turn of its own starts with it, and still when that turn has ended", () => {
     const sent = [aside(1, "and the red one", { turn: 50, steps: 2 })];
-    expect(waitingAsides(sent, "c1", live({ since: 200, said: "and the red one" }))).toEqual([]);
-    expect(waitingAsides(sent, "c1", live({ since: 200, said: "and the red one", ended: true }))).toEqual([]);
+    expect(waitingAsides(sent, "c1", live({ since: 200, said: "and the red one", pendingId: 9 }))).toEqual([]);
+    expect(waitingAsides(sent, "c1", live({ since: 200, said: "and the red one", pendingId: 9, ended: true }))).toEqual([]);
     // A turn that started before it was sent did not start with it.
-    expect(waitingAsides(sent, "c1", live({ since: 50, said: "and the red one" }))).toEqual(sent);
+    expect(waitingAsides(sent, "c1", live({ since: 50, said: "and the red one", pendingId: 9 }))).toEqual(sent);
+    // Nor did a turn the owner started directly, which waited as no row.
+    expect(waitingAsides(sent, "c1", live({ since: 200, said: "and the red one" }))).toEqual(sent);
+  });
+
+  it("is not a row that was already waiting when it was sent, heard or run", () => {
+    const sent = [aside(1, "ok", { before: [4], turn: 50, steps: 0 })];
+    expect(waitingAsides(sent, "c1", live({ steps: [{ kind: "said", text: "ok", pendingId: 4 }] }))).toEqual(sent);
+    expect(waitingAsides(sent, "c1", live({ since: 200, said: "ok", pendingId: 4 }))).toEqual(sent);
   });
 });
 
@@ -54,10 +62,16 @@ describe("the waiting rows shown under a turn", () => {
     expect(waitingRows(rows, live({ steps: [{ kind: "said", text: "yes", pendingId: 7 }] }))).toEqual([rows[1]]);
   });
 
-  it("leaves out one row the turn started with, ended or not", () => {
+  it("leaves out the row the turn runs, by its id, ended or not", () => {
     const rows = [row(7, "yes"), row(8, "yes")];
-    expect(waitingRows(rows, live({ said: "yes" }))).toEqual([rows[1]]);
-    expect(waitingRows(rows, live({ said: "yes", ended: true }))).toEqual([rows[1]]);
+    expect(waitingRows(rows, live({ said: "yes", pendingId: 8 }))).toEqual([rows[0]]);
+    expect(waitingRows(rows, live({ said: "yes", pendingId: 8, ended: true }))).toEqual([rows[0]]);
     expect(waitingRows(rows, undefined)).toEqual(rows);
+  });
+
+  it("keeps a row with the same words as a turn that waited as no row", () => {
+    // The turn started with "ok" typed while idle; "ok" sent again mid-turn is really waiting.
+    const rows = [row(7, "ok")];
+    expect(waitingRows(rows, live({ said: "ok" }))).toEqual(rows);
   });
 });

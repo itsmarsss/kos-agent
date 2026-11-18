@@ -50,20 +50,26 @@ export function waitingAsides(asides: Aside[], conversationId: string, live: Liv
     const aside = mine.find((a) => !taken.has(a) && a.text === text && sentBefore(a));
     if (aside) taken.add(aside);
   };
-  if (live.said) take(live.said, (a) => a.at <= live.since);
+  // A turn's words are an aside's only when they were a waiting row the aside did not already know.
+  const started = live.pendingId;
+  if (live.said && started !== undefined) take(live.said, (a) => a.at <= live.since && !a.before.includes(started));
   live.steps.forEach((step, i) => {
-    if (step.kind === "said") take(step.text, (a) => (a.turn === live.since ? i >= a.steps : a.at <= live.since));
+    if (step.kind !== "said") return;
+    // A row that was already waiting when an aside was sent is not that aside.
+    const known = (a: Aside): boolean => step.pendingId !== undefined && a.before.includes(step.pendingId);
+    take(step.text, (a) => !known(a) && (a.turn === live.since ? i >= a.steps : a.at <= live.since));
   });
   return mine.filter((a) => !taken.has(a));
 }
 
 /**
- * The waiting rows still to show: not one the live turn heard, by its id,
- * nor the one its turn started with, which is on screen as its words.
+ * The waiting rows still to show: not one the live turn heard, nor the one
+ * it runs, which are on screen as its words. By id: the same words may
+ * really be waiting again.
  */
 export function waitingRows(rows: PendingMessage[], live: Live | undefined): PendingMessage[] {
   if (!live) return rows;
-  const heard = new Set(live.steps.flatMap((s) => (s.kind === "said" && s.pendingId !== undefined ? [s.pendingId] : [])));
-  const started = live.said === undefined ? undefined : rows.find((r) => !heard.has(r.id) && r.text === live.said);
-  return rows.filter((r) => !heard.has(r.id) && r !== started);
+  const taken = new Set(live.steps.flatMap((s) => (s.kind === "said" && s.pendingId !== undefined ? [s.pendingId] : [])));
+  if (live.pendingId !== undefined) taken.add(live.pendingId);
+  return rows.filter((r) => !taken.has(r.id));
 }

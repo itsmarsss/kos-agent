@@ -273,9 +273,14 @@ describe("Kernel", () => {
       },
     });
     chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Quiz" }).id;
+    const starts: { pendingId?: number; said?: string }[] = [];
+    kernel.progress.subscribe((e) => void (e.kind === "turn-start" && starts.push(e)));
     expect((await kernel.handleMessage("do this one", { sessionId: chat })).reply).toBe("Done with that one.");
     expect(await second).toMatchObject({ reply: "On to the next." });
     expect(calls).toBe(2);
+    // The turn it runs as names the row it waited as, so a page showing that row waiting lets it go.
+    expect(starts.map((s) => s.pendingId !== undefined)).toEqual([false, true]);
+    expect(starts[1]?.said).toBe("and the next one?");
   });
 
   it("executes a safe tool call end to end (files.write then notify)", async () => {

@@ -15,7 +15,7 @@ import { socket } from "./socket.js";
  */
 
 export type ProgressEvent =
-  | { kind: "turn-start"; conversationId: string; said?: string; from?: string; origin?: MessageOrigin; files?: { name: string; path: string }[] }
+  | { kind: "turn-start"; conversationId: string; said?: string; from?: string; origin?: MessageOrigin; files?: { name: string; path: string }[]; pendingId?: number }
   | {
       kind: "tool-start";
       conversationId: string;
@@ -86,6 +86,8 @@ export interface Live {
   origin?: MessageOrigin;
   /** The files that came with them, kept already. */
   files?: { name: string; path: string }[];
+  /** The waiting row the turn's words were, when they waited behind another turn. */
+  pendingId?: number;
   /**
    * The turn is over, but what it did is still the only copy on screen.
    *
@@ -289,6 +291,7 @@ class ProgressStore {
             steps: [],
             text: "",
             since: Date.now(),
+            ...(event.pendingId !== undefined ? { pendingId: event.pendingId } : {}),
             ...(event.said
               ? { said: event.said, ...(event.from ? { from: event.from } : {}), ...(event.origin ? { origin: event.origin } : {}), ...(event.files?.length ? { files: event.files } : {}) }
               : {}),

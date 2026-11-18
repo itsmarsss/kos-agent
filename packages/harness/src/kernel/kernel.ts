@@ -1002,6 +1002,8 @@ export class Kernel {
      */
     const dropped: HandleResult = { reply: "", halted: false, sessionId, dropped: true };
     let parked: number | undefined;
+    /** The waiting row this turn runs, so a page showing it waiting knows which went. */
+    let ran: number | undefined;
     if (useSession && this.working.has(sessionId) && opts.origin !== "system" && !opts.attachments?.length && !opts.guest && !opts.guested && !opts.contextFrom && (!opts.context || opts.contextRides) && !opts.roomTalk && !opts.quote) {
       const waiting = this.pending.add(sessionId, text, [], originOf(opts), flagsOf(opts));
       const how = await new Promise<Heard>((taken) => this.steered.set(sessionId, [...(this.steered.get(sessionId) ?? []), { id: waiting, ...(opts.channel ? { channel: opts.channel } : {}), taken }]));
@@ -1014,6 +1016,7 @@ export class Kernel {
         const row = this.pending.get(waiting);
         if (!row) return dropped;
         this.pending.take(waiting);
+        ran = waiting;
         text = row.text;
       }
     } else if (useSession && this.queue.depthOf(sessionId) > 0) {
@@ -1025,10 +1028,11 @@ export class Kernel {
         const row = this.pending.get(parked);
         if (!row) return dropped;
         this.pending.take(parked);
+        ran = parked;
         // A guest's words stay named as theirs, however they were edited.
         text = opts.guest ? `${guestNamed(opts.guest)}${withoutGuestName(row.text, opts.guest)}` : row.text;
       }
-      return this.runTurn(text, userId, sessionId, opts);
+      return this.runTurn(text, userId, sessionId, { ...opts, ...(ran !== undefined ? { pendingId: ran } : {}) });
     }, sessionId);
   }
 
@@ -1072,6 +1076,8 @@ export class Kernel {
       contextFrom?: string;
       priorTurns?: ModelMessage[];
       replayed?: boolean;
+      /** The waiting row these words were, when they waited. */
+      pendingId?: number;
     },
   ): Promise<HandleResult> {
     {
@@ -1108,6 +1114,7 @@ export class Kernel {
       this.progress.emit({
         kind: "turn-start",
         conversationId: sessionId,
+        ...(opts.pendingId !== undefined ? { pendingId: opts.pendingId } : {}),
         ...(opts.origin !== "system" && text.trim()
           ? {
               said: text,
