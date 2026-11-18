@@ -14,7 +14,8 @@ const KEY = "log";
 export const KEEP = 400;
 /** The most local storage keeps, in characters: the newest lines that fit. */
 export const KEEP_LOCAL_CHARS = 40_000;
-const SAVE_MS = 500;
+/** Lines said together are kept together, at once: Chrome may stop the worker any moment, and a line not yet kept goes with it. */
+const SAVE_MS = 0;
 
 export class ExtensionLog {
   private lines: string[] = [];
