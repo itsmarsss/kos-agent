@@ -92,8 +92,24 @@ While KOS is in control:
   it does it (click, type "BU354", press Return) is the line when there
   is no intent, and the step's detail on the dashboard when there is.
   Coordinates are never in the line;
-- a bar at the top says what it is doing, with Take over and Stop, and its
-  chat window says the same; Stop there stops the turn too;
+- a bar at the top says what it is doing (the step under way, or that it
+  waits on you), with Take over and Stop, and its chat window says the same;
+  Stop there stops the turn too;
+- the menu bar says it too: the plain icon when nothing runs; the accent and
+  the step, cut to about 24 characters, while KOS works; a badge and
+  "Waiting on you" while an approval waits, its menu offering Approve and
+  Deny for the first one and Open chat; amber while you have control, with
+  Hand back. Its menu always has Stop, which ends the session and the chat
+  window's turn;
+- the chat window keeps out of the way: when a session goes live and the
+  window covers what KOS works in (that window, or the display of a
+  whole-screen session) it is put away, and comes back, without taking the
+  front, when the turn waits on you, when you take over (beside what KOS
+  works in, or on another display) and when the session ends (where it
+  was). While a session runs it never floats above other windows. A
+  whole-screen session that names an app brings that app to the front once
+  as it begins. The chat window, the bar and the overlay are left out of any
+  picture or screen share;
 - your own click or key pauses it at once, even right after you press Allow
   or Hand back (on the Mac, a deliberate move of the pointer too, past the
   3 seconds after Allow or Hand back); scrolling and small pointer moves do
