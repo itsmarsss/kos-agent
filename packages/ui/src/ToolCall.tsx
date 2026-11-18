@@ -1,11 +1,13 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 
-import { pathsIn, stepMechanics } from "@kos/shared";
-import { ChevronDown, ChevronRight, StepPicture } from "@kos/kit";
+import { AnimatePresence, m, useReducedMotion } from "motion/react";
 
-import type { ChatEvent } from "./api.js";
+import { pathsIn, stepMechanics, waitWords } from "@kos/shared";
+import { ChevronRight, inPlace, spring, StepPicture, StepTime } from "@kos/kit";
+
+import { api, type ChatEvent, type PendingAction } from "./api.js";
 import { ArtifactStep, writtenArtifact } from "./ArtifactStep.js";
-import { Decision } from "./Decision.js";
+import { PendingAsk, viewerKeys } from "./PendingAsk.js";
 import { hrefFor } from "./routes.js";
 
 /**
@@ -55,25 +57,45 @@ function Summary({ text }: { text: string }): ReactElement {
  */
 export function ToolCall({
   event,
-  awaitingApproval,
+  waiting = false,
+  ask: given,
   onDecide,
   deciding = new Set<number>(),
 }: {
   event: Extract<ChatEvent, { kind: "tool" }>;
-  /** True while its pending action is still undecided. */
-  awaitingApproval?: boolean;
+  /** Its pending action is still undecided. */
+  waiting?: boolean;
+  /** That pending action, when the page has it; read here when it does not, so the buttons are never missing. */
+  ask?: PendingAction | undefined;
   onDecide?: (pendingId: string, approved: boolean, remember?: boolean) => void;
   /** Ids being decided right now, so the buttons can say so. */
   deciding?: ReadonlySet<number>;
 }): ReactElement {
   const [open, setOpen] = useState(false);
+  const [read, setRead] = useState<PendingAction | undefined>(undefined);
+  const wanted = waiting && !given && event.pendingId !== undefined;
+  useEffect(() => {
+    if (!wanted) return undefined;
+    let live = true;
+    void api.approvals().then(
+      (all) => live && setRead(all.find((a) => String(a.id) === event.pendingId)),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [wanted, event.pendingId]);
+  const ask = waiting ? (given ?? read) : undefined;
+  // Reduced motion opens it at once; otherwise it opens to its height, as the kit's drawers do.
+  const still = useReducedMotion() === true;
   // An artifact written is shown as itself, not as the step that wrote it.
   const written = writtenArtifact(event);
   if (written) return <ArtifactStep art={written} />;
   const running = event.result === undefined;
   const queued = event.pendingId !== undefined;
+  const awaitingApproval = ask !== undefined;
   // A step said by what it is for keeps how it did it here, under the line.
-  const mechanics = stepMechanics(event.name, event.args);
+  const mechanics = stepMechanics(event.name, event.args, viewerKeys());
 
   // A queued call did not fail, but it did not happen either. Calling that
   // "ok" is how a risky tool looks like a tool that silently does nothing.
@@ -99,46 +121,46 @@ export function ToolCall({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <span className="toolcall-caret">{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+        <span className={`toolcall-caret${open ? " is-open" : ""}`}>
+          <ChevronRight size={12} />
+        </span>
         <code className="toolcall-name">{event.name}</code>
         <span className="toolcall-summary">
           <Summary text={event.summary} />
         </span>
-        <span className="toolcall-state">{state}</span>
+        <span className="toolcall-state">
+          <StepTime running={running} startedAt={event.startedAt} ms={event.ms} />
+          {state}
+        </span>
       </button>
+      {event.waitedMs !== undefined && event.waitedMs >= 1_000 && <p className="toolcall-waited">{waitWords(event.waitedMs)}</p>}
 
       {/* What the step saw (the browser's tab, a computer's screen): the
           evidence for what the reply says it read, small until clicked. */}
       {event.frameId !== undefined && (
         <div className="toolcall-frame">
-          <StepPicture src={`/api/frames/${event.frameId}`} />
+          <StepPicture src={`/api/frames/${event.frameId}`} caption={event.summary} at={event.startedAt} />
         </div>
       )}
 
-      {queued && awaitingApproval && onDecide && (
+      {ask && onDecide && (
         <div className="toolcall-approve">
-          <span className="toolcall-approve-text">
-            This needs your approval before it runs.
-          </span>
-          <Decision id={Number(event.pendingId)} deciding={deciding} onDecide={(id, ok, remember) => onDecide?.(String(id), ok, remember)} small />
-          {/* The page a browser action is aimed at, when there is one; the
-              image hides itself when the queue has none for this call. */}
-          <img
-            className="approval-pic approval-pic--strip"
-            src={`/api/approvals/${event.pendingId}/picture`}
-            alt="The page this would act on"
-            onError={(e) => {
-              e.currentTarget.style.display = "none";
-            }}
-          />
-          {/* The arguments, in view while the decision is open: what a
-              command is, not that there is one, is what gets approved. */}
-          <pre className="toolcall-approve-args">{JSON.stringify(event.args, null, 2)}</pre>
+          <PendingAsk ask={ask} deciding={deciding} onDecide={(id, ok, remember) => (remember ? onDecide(String(id), ok, true) : onDecide(String(id), ok))} bare>
+            {/* The page a browser action is aimed at, when there is one. */}
+            {ask.picture && <StepPicture src={`/api/approvals/${ask.id}/picture`} alt="The page this would act on" caption={ask.title ?? ask.summary ?? ask.tool} />}
+          </PendingAsk>
         </div>
       )}
 
-      {open && (
-        <div className="toolcall-body">
+      <AnimatePresence initial={false}>
+        {open && (
+        <m.div
+          className="toolcall-body"
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: "auto", opacity: 1, transition: still ? { duration: 0 } : { height: spring, opacity: inPlace.enter } }}
+          exit={{ height: 0, opacity: 0, transition: still ? { duration: 0 } : { height: spring, opacity: inPlace.exit } }}
+        >
+          <div className="toolcall-body-inner">
           {mechanics && (
             <div className="toolcall-part">
               <span className="toolcall-label">Steps</span>
@@ -157,8 +179,10 @@ export function ToolCall({
               <pre>{event.result}</pre>
             </div>
           )}
-        </div>
-      )}
+          </div>
+        </m.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

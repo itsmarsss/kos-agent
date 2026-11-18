@@ -69,6 +69,8 @@ export interface PendingAction {
   reason: string | null;
   /** The action in words, with the ids named by the server; the page's own summary only when absent. */
   summary?: string;
+  /** What the card leads with, its ids named by the server: the step's purpose, or what a run of actions acts on. */
+  title?: string;
   /** What the action does, step by step, when the summary is the model's account of it. */
   mechanics?: string;
   /** The conversation that asked, so a decision can be taken where it lives. */
@@ -86,6 +88,13 @@ export interface PendingAction {
   asker?: string;
   /** A browser ask that acts in the owner's own Chrome, not KOS's browser, as it was when raised. */
   yours?: boolean;
+  /** It always asks (it places a secret): no remembered yes is offered. */
+  asksAlways?: boolean;
+  /** It asks even in a chat set to act on its own. */
+  beyondAuto?: boolean;
+  /** The remembered yes in the host's words, its destination named, and exactly what it keeps. */
+  always?: string;
+  alwaysTip?: string;
 }
 
 export interface Project {
@@ -621,6 +630,12 @@ export type ChatEvent =
       pendingId?: string;
       /** A picture of what this step saw (a browser tab, a computer's screen), at /api/frames/:id. */
       frameId?: number;
+      /** When it began, epoch ms, for a call still running. */
+      startedAt?: number;
+      /** How long it ran, ms, not counting a wait for the owner's yes; absent for a call kept before calls were timed. */
+      ms?: number;
+      /** How long it waited on the owner's yes, ms, when it asked. */
+      waitedMs?: number;
     }
   | {
       /** A line across the chat where it was cleared or compacted: what is above is kept for the reader, not for the model. */
@@ -1583,7 +1598,7 @@ export const api = {
     post<{ key: string; removed: boolean }>("/api/memory/delete", { key }),
   /** Approve; with remember, the same shape stops asking. */
   approve: (id: number, remember = false) =>
-    post<{ ok: boolean; message: string; reply?: string }>("/api/approve", {
+    post<{ ok: boolean; message: string; reply?: string; remembered?: boolean }>("/api/approve", {
       id,
       ...(remember ? { remember: true } : {}),
     }),

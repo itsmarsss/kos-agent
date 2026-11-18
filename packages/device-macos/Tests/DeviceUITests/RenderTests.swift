@@ -129,6 +129,19 @@ struct RenderTests {
     #expect(size.height == ChatView.size.height)
   }
 
+  @Test func theAskCards() throws {
+    for (name, ask) in AskCases.all {
+      let card = AskCard(ask: ask) { _, _, _ in }.padding(12).frame(width: ChatView.size.width).background(Theme.bg)
+      let size = try render("ask-\(name)", card, width: ChatView.size.width)
+      #expect(size.width <= ChatView.size.width + 0.5)
+    }
+    // Details unfolded: fields by name, a list numbered, a long string cut, in a box that scrolls.
+    for (name, ask) in AskCases.all where name == "browser" || name == "email" {
+      let details = AskDetails(tool: ask.tool, args: ask.args ?? "", open: true).padding(12).frame(width: ChatView.size.width).background(Theme.panel)
+      _ = try render("ask-\(name)-details", details, width: ChatView.size.width)
+    }
+  }
+
   /// The chat with when each line was said: an old line with none, the day over yesterday's and today's, the time after a
   /// pause; then every line's own time shown, as hovering one shows it.
   @Test func chatWindowWithTimes() throws {

@@ -68,6 +68,10 @@ export type ChatEvent =
       toolUseId?: string;
       /** A picture of the browser after this step, at /api/frames/:id. */
       frameId?: number;
+      /** How long it ran, ms, not counting a wait for the owner's yes; absent for a call kept before calls were timed. */
+      ms?: number;
+      /** How long it waited on the owner's yes, ms, when it asked. */
+      waitedMs?: number;
     }
   | {
       /** A line across the chat where it was cleared or compacted: what is above is kept for the reader, not for the model. */
@@ -211,6 +215,8 @@ export function conversationEvents(messages: ModelMessage[], where?: ActionHome)
         if (target) {
           target.result = content.slice(0, MAX_RESULT);
           if (block.isError) target.isError = true;
+          if (block.ms !== undefined) target.ms = block.ms;
+          if (block.waitedMs !== undefined) target.waitedMs = block.waitedMs;
           const queued = parseQueuedApproval(content);
           if (queued) target.pendingId = queued;
           pending.delete(block.toolUseId);

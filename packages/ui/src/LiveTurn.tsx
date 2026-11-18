@@ -127,6 +127,9 @@ export function LiveTurn({
                   ...(step.done ? { result: step.result ?? "" } : {}),
                   ...(step.isError ? { isError: true } : {}),
                   ...(step.frameId !== undefined ? { frameId: step.frameId } : {}),
+                  ...(step.startedAt !== undefined ? { startedAt: step.startedAt } : {}),
+                  ...(step.ms !== undefined ? { ms: step.ms } : {}),
+                  ...(step.waitedMs !== undefined ? { waitedMs: step.waitedMs } : {}),
                 }}
               />
             </m.div>

@@ -1,4 +1,6 @@
 import {
+  HOST_KEYS,
+  hasSecretRef,
   parseChatCommand,
   TurnNarrator,
   type ApprovalHandler,
@@ -14,7 +16,7 @@ import {
   type TurnPresence,
   type UserMapping,
 } from "@kos/harness";
-import { runningTail, stepMechanics, summarizeAction } from "@kos/shared";
+import { askView, runningTail, stepMechanics, summarizeAction } from "@kos/shared";
 
 import { ArtifactReader, type PanelArtifacts } from "./artifacts.js";
 import { DashboardRelay, type PanelDashboard } from "./dashboard.js";
@@ -122,7 +124,6 @@ const QUOTE_FROM_MAX = 300;
 /** The longest message the panel sends, and how much of the chat it is shown. */
 const MAX_TEXT = 20_000;
 const SHOWN = 200;
-const MAX_ARGS = 600;
 /** How many waiting asks a glance carries. */
 const GLANCE_ASKS = 10;
 /** How many of the newest step pictures ride with the chat as it is drawn; older ones come from the device's own cache, or not at all. */
@@ -789,7 +790,13 @@ export function panelLines(events: ChatEvent[], max = SHOWN): PanelMessage[] {
         break;
       }
       case "tool": {
-        const step = { summary: event.summary, ...(event.isError ? { failed: true as const } : {}), ...(event.frameId !== undefined ? { frame: event.frameId } : {}) };
+        const step = {
+          summary: event.summary,
+          ...(event.isError ? { failed: true as const } : {}),
+          ...(event.frameId !== undefined ? { frame: event.frameId } : {}),
+          // How long it ran, for a call that was timed; an older one says none.
+          ...(event.ms !== undefined ? { ms: event.ms } : {}),
+        };
         const last = out.at(-1);
         if (last?.role === "steps") last.steps.push(step);
         else out.push({ role: "steps", steps: [step] });
@@ -888,26 +895,48 @@ export function phoneNote(_beside: unknown, device: string): string {
 /** KOS for iPhone's chat, on the owner's phone. */
 export const PHONE_PANEL: PanelPlace = { name: "phone", kind: "phone", title: "iPhone", beside: phoneNote };
 
+/** A line cut by its middle, its end kept. */
+function middle(line: string, max: number): string {
+  if (line.length <= max) return line;
+  const tail = Math.floor((max - 1) * 0.4);
+  return `${line.slice(0, max - 1 - tail)}…${line.slice(line.length - tail)}`;
+}
+
 /**
- * An approval as the panel shows it: the tool, what it would be given, and
- * why; and for a step said by its purpose, every action it takes, which the
- * arguments, cut to fit, may not reach.
+ * The most of an ask a device is sent, its arguments and steps together:
+ * well under a phone's frame. Past it the ask goes as too long to show,
+ * with no Approve there: what is approved has to be seen whole.
+ */
+const ASK_MAX = 200_000;
+
+/**
+ * An approval as the panel shows it, laid out as every card lays one out
+ * (askView): what KOS wants to do, where, each action it takes, why it
+ * asks, what a remembered yes keeps; then the arguments whole, for the
+ * details, and who asks.
  */
 function approvalOf(req: ApprovalRequest): Record<string, unknown> {
-  const args = argsText(req.args);
-  const always = req.rule ? alwaysWords(req.rule.scope) : undefined;
-  const mechanics = req.tool && req.args !== undefined ? stepMechanics(req.tool, req.args) : undefined;
-  // In words, with its ids named, as the Inbox titles it: a phone lists the ask by this, not by its tool.
-  const summary = req.tool && req.args !== undefined ? summarizeAction(req.tool, req.args, req.names) : undefined;
+  const args = req.args === undefined ? "" : typeof req.args === "string" ? req.args : JSON.stringify(req.args);
+  const asksAlways = req.asksAlways ?? hasSecretRef(req.args ?? {});
+  const view =
+    req.tool && req.args !== undefined
+      ? askView({ tool: req.tool, args: req.args, reason: req.reason ?? null, rule: req.rule ?? null, ...(req.yours ? { yours: true } : {}), asksAlways, ...(req.names ? { names: req.names } : {}), platform: HOST_KEYS })
+      : undefined;
+  const mechanics = req.tool && req.args !== undefined ? stepMechanics(req.tool, req.args, HOST_KEYS) : undefined;
+  const whole = args.length + JSON.stringify(view?.steps ?? []).length + (mechanics?.length ?? 0) > ASK_MAX;
+  const { steps, ...rest } = view ?? {};
   return {
     id: req.id,
     tool: req.tool ?? "",
-    ...(summary ? { summary } : {}),
-    ...(args ? { args } : {}),
-    ...(mechanics ? { mechanics } : {}),
+    // In words, with its ids named: a phone lists the ask by its summary, and a card leads with its title.
+    ...(req.tool && req.args !== undefined ? { summary: summarizeAction(req.tool, req.args, req.names, undefined, HOST_KEYS) } : {}),
+    ...rest,
+    ...(whole
+      ? { tooLong: true, title: middle(view?.title ?? req.tool ?? "An ask", 200), ...(view?.said ? { said: middle(view.said, 400) } : {}) }
+      : { ...(steps ? { steps } : {}), ...(args ? { args } : {}), ...(mechanics ? { mechanics } : {}) }),
     ...(req.why ? { why: req.why } : {}),
     ...(req.reason ? { reason: req.reason } : {}),
-    ...(always ? { always } : {}),
+    ...(req.asker ? { asker: req.asker.name } : {}),
     ...(req.expiresAt !== undefined ? { expiresAt: req.expiresAt } : {}),
   };
 }
@@ -918,32 +947,6 @@ function glanceAsks(asks: Glance["asks"]): Record<string, unknown>[] {
     .sort((a, b) => (a.request.expiresAt ?? Infinity) - (b.request.expiresAt ?? Infinity))
     .slice(0, GLANCE_ASKS)
     .map((a) => ({ ...(a.chat ? { chat: a.chat } : {}), approval: approvalOf(a.request) }));
-}
-
-/** What a remembered yes covers, as a button says it: the site, the folder, the table, the program. */
-export function alwaysWords(scope: string | null): string {
-  if (scope === null) return "Always";
-  const [kind, ...rest] = scope.split(":");
-  const what = rest.join(":");
-  switch (kind) {
-    case "your-chrome":
-    case "site":
-      return `Always on ${what}`;
-    case "dir":
-      return what ? `Always in ${what}` : "Always in the workspace";
-    case "host":
-    case "table":
-    case "cmd":
-      return `Always for ${what}`;
-    default:
-      return "Always here";
-  }
-}
-
-function argsText(args: ApprovalRequest["args"]): string {
-  if (args === undefined) return "";
-  const text = typeof args === "string" ? args : JSON.stringify(args);
-  return text.length > MAX_ARGS ? `${text.slice(0, MAX_ARGS)}…` : text;
 }
 
 /** Where the owner's words were said, as the host's log names it: the kind of place, never its address. */

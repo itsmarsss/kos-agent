@@ -96,6 +96,9 @@ public struct Steps: View {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
               Text(verbatim: "\(i + 1).").monospacedDigit().frame(minWidth: 14, alignment: .trailing)
               Text(step.summary)
+              if let ms = step.ms {
+                Text(durationWords(ms)).monospacedDigit().foregroundStyle(Theme.faint).font(.kos(.small))
+              }
             }
             .font(.kos(.dense))
             .foregroundStyle(step.failed ? Theme.danger : Theme.muted)

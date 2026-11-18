@@ -13,7 +13,7 @@ export { surfaceName } from "@kos/shared";
 export * from "./modules/index.js";
 export { JailError, resolvePath } from "./jail/index.js";
 export { Workspace, openDatabase, DB_FILENAME, type Db } from "./store/index.js";
-export { SecretsRegistry } from "./secrets/index.js";
+export { hasSecretRef, SecretsRegistry } from "./secrets/index.js";
 export * from "./models/index.js";
 export * from "./risk/index.js";
 export * from "./agent/index.js";

@@ -710,7 +710,7 @@ describe("handleApiRequest", () => {
       ((await handleApiRequest(kernel, { method: "GET", path: "/api/home" })).body as { approvals: Listed[] }).approvals,
     ];
     for (const list of lists) {
-      expect(list[0]).toMatchObject({ summary: "Note: just closing the popup", mechanics: "Type “hunter2”, press cmd+q" });
+      expect(list[0]).toMatchObject({ summary: "Note: just closing the popup", mechanics: "Type “hunter2”, press ⌘Q" });
       // Where the summary already is the action, there is nothing beside it.
       expect(list[1]).toMatchObject({ summary: "Delete x" });
       expect(list[1]).not.toHaveProperty("mechanics");
@@ -1099,8 +1099,8 @@ describe("handleApiRequest", () => {
     });
   });
 
-  it("keeps a decision when asked to, and lists and revokes it", async () => {
-    const action = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "projects/books/old.md" }, riskTier: "risky", reason: "test" });
+  it("keeps the rule an ask named when asked to, and lists and revokes it", async () => {
+    const action = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "projects/books/old.md" }, riskTier: "risky", reason: "test", rule: { tool: "files.rm", scope: "dir:projects/books", project: null } });
     await handleApiRequest(kernel, { method: "POST", path: "/api/approve", body: { id: action.id, remember: true } });
     const listed = await handleApiRequest(kernel, { method: "GET", path: "/api/permissions" });
     const rules = (listed.body as { rules: { id: number; tool: string; scope: string | null; project: string | null }[] }).rules;

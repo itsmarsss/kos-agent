@@ -58,7 +58,9 @@ public enum ChatCalls {
   /// An approval as KOS sends it, as the model holds it: in `chat.ask`, and in a phone's glance.
   public static func ask(_ a: ChatApproval, chat: String?) -> ChatModel.Ask {
     .init(
-      id: a.id, tool: a.tool, summary: a.summary, args: a.args, mechanics: a.mechanics, why: a.why, reason: a.reason, always: a.always,
+      id: a.id, tool: a.tool, summary: a.summary, title: a.title, args: a.args, mechanics: a.mechanics, steps: a.steps, said: a.said, place: a.place,
+      tooLong: a.tooLong ?? false, risk: a.risk, why: a.why, reason: a.reason, always: a.always, alwaysTip: a.alwaysTip,
+      alwaysNote: a.alwaysNote, asker: a.asker,
       expires: a.expiresAt.map { Date(timeIntervalSince1970: $0 / 1000) }, chat: chat)
   }
 
@@ -68,7 +70,7 @@ public enum ChatCalls {
     case "you": return .you(m.text ?? "", files: m.files ?? [], quote: m.quote.map { .init(text: $0.text, from: $0.from) })
     case "kos": return m.text.map { .kos($0) }
     case "note": return m.text.map { .note($0) }
-    case "steps": return .steps((m.steps ?? []).map { .init(summary: $0.summary, failed: $0.failed ?? false, frame: $0.frame) })
+    case "steps": return .steps((m.steps ?? []).map { .init(summary: $0.summary, failed: $0.failed ?? false, frame: $0.frame, ms: $0.ms) })
     default: return nil
     }
   }

@@ -1,5 +1,6 @@
 import DeviceCore
 import Foundation
+import DeviceCore
 
 /// The chat in KOS for Mac's window, as it stands and as it goes: what KOS
 /// last showed, the owner's words on their way, the running turn's steps,
@@ -22,11 +23,14 @@ public final class ChatModel: ObservableObject {
     public let failed: Bool
     /// The frame id of what it saw, when it kept a picture.
     public let frame: Int?
+    /// How long it ran, ms, when it was timed.
+    public let ms: Double?
 
-    public init(summary: String, failed: Bool = false, frame: Int? = nil) {
+    public init(summary: String, failed: Bool = false, frame: Int? = nil, ms: Double? = nil) {
       self.summary = summary
       self.failed = failed
       self.frame = frame
+      self.ms = ms
     }
   }
 
@@ -59,34 +63,71 @@ public final class ChatModel: ObservableObject {
   public struct Ask: Equatable, Identifiable, Sendable {
     public let id: String
     public let tool: String
-    /// The action in words with its ids named, as the Inbox titles it.
+    /// The action in words with its ids named, as the Inbox lists it.
     public let summary: String?
+    /// What the card leads with, from the host; the summary, or the tool, from an older one.
+    public let title: String?
     public let args: String?
     /// What the step does, action by action, when its words are the model's account of it.
     public let mechanics: String?
+    /// The same actions as lines, keys as caps, repeats counted.
+    public let steps: [StepLine]?
+    /// What the model said the step is for, as KOS's words.
+    public let said: String?
+    /// Where it acts.
+    public let place: String?
+    /// Too big to have been sent whole: the card offers no Approve and sends the owner to the dashboard.
+    public let tooLong: Bool
+    /// Why it asks, as a phrase.
+    public let risk: String?
     public let why: String?
     public let reason: String?
-    /// The words of a yes that is remembered, when one may be.
+    /// The words of a yes that is remembered, when one may be, and exactly what it keeps.
     public let always: String?
+    public let alwaysTip: String?
+    /// Why there is no remembered yes, when there could have been one.
+    public let alwaysNote: String?
+    /// Who asks, by the chat's name.
+    public let asker: String?
     /// When it times out if the owner does not answer, when it does.
     public let expires: Date?
     /// The chat it is asked in, as KOS says: what keeps it up once that chat is shown.
     public let chat: String?
 
     public init(
-      id: String, tool: String, summary: String? = nil, args: String? = nil, mechanics: String? = nil, why: String? = nil, reason: String? = nil,
-      always: String? = nil, expires: Date? = nil, chat: String? = nil
+      id: String, tool: String, summary: String? = nil, title: String? = nil, args: String? = nil, mechanics: String? = nil,
+      steps: [StepLine]? = nil, said: String? = nil, place: String? = nil, tooLong: Bool = false, risk: String? = nil, why: String? = nil, reason: String? = nil,
+      always: String? = nil, alwaysTip: String? = nil, alwaysNote: String? = nil, asker: String? = nil, expires: Date? = nil,
+      chat: String? = nil
     ) {
       self.id = id
       self.summary = summary
+      self.title = title
       self.chat = chat
       self.tool = tool
       self.args = args
       self.mechanics = mechanics
+      self.steps = steps
+      self.place = place
+      self.tooLong = tooLong
+      self.said = said
+      self.risk = risk
       self.why = why
       self.reason = reason
       self.always = always
+      self.alwaysTip = alwaysTip
+      self.alwaysNote = alwaysNote
+      self.asker = asker
       self.expires = expires
+    }
+
+    /// The card's title: the host's, or the summary or tool an older host sent alone.
+    public var heading: String { title ?? summary ?? tool }
+
+    /// The steps the card lists: the host's lines, or an older host's mechanics as one line.
+    public var stepLines: [StepLine] {
+      if let steps { return steps }
+      return mechanics.map { [[.text($0)]] } ?? []
     }
   }
 

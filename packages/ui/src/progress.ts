@@ -23,6 +23,7 @@ export type ProgressEvent =
       summary: string;
       input?: Record<string, unknown>;
       yours?: true;
+      at?: number;
     }
   | {
       kind: "tool-end";
@@ -30,6 +31,8 @@ export type ProgressEvent =
       tool: string;
       isError: boolean;
       result?: string;
+      ms?: number;
+      waitedMs?: number;
     }
   | { kind: "delta"; conversationId: string; of: "reasoning" | "text"; text: string }
   | { kind: "note"; conversationId: string; text: string }
@@ -62,6 +65,11 @@ export type LiveStep =
       frameId?: number;
       /** A browser step in the owner's own Chrome, not KOS's. */
       yours?: true;
+      /** When it began, epoch ms: the host's stamp, or when this page heard of it. */
+      startedAt?: number;
+      /** How long it ran, and waited on the owner, once it has ended and the host timed it. */
+      ms?: number;
+      waitedMs?: number;
     }
   /**
    * What the owner said while the turn ran, where the turn took it in: after
@@ -129,6 +137,7 @@ function reduce(live: Live, event: ProgressEvent): Live {
         isError: false,
         ...(event.input ? { input: event.input } : {}),
         ...(event.yours ? { yours: true as const } : {}),
+        startedAt: event.at ?? Date.now(),
       });
       return { ...live, steps };
 
@@ -142,6 +151,8 @@ function reduce(live: Live, event: ProgressEvent): Live {
             done: true,
             isError: event.isError,
             ...(event.result !== undefined ? { result: event.result } : {}),
+            ...(event.ms !== undefined ? { ms: event.ms } : {}),
+            ...(event.waitedMs !== undefined ? { waitedMs: event.waitedMs } : {}),
           };
           break;
         }

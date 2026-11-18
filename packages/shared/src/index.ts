@@ -62,12 +62,36 @@ export {
 } from "./htmlpage.js";
 
 export {
+  actionSteps,
   detailLines,
   formatApprovalPrompt,
   stepActions,
   stepMechanics,
+  stepText,
   summarizeAction,
+  type StepLine,
+  type StepPiece,
 } from "./format-action.js";
+
+export { formatDuration, waitWords } from "./duration.js";
+
+export { hasSecretRef } from "./secretref.js";
+
+export { BIDI, showInvisible } from "./invisible.js";
+
+export { keyCap, keyCaps, keyPlatformOf, type KeyPlatform } from "./keys.js";
+
+export {
+  alwaysTip,
+  alwaysWords,
+  askPlace,
+  askRisk,
+  askView,
+  type AskInput,
+  type AskPlace,
+  type AskRule,
+  type AskView,
+} from "./ask.js";
 
 export {
   CHAT_COMMANDS,

@@ -195,7 +195,7 @@ export type PanelMessage =
   | { role: "you"; text: string; files?: string[]; quote?: { text: string; from: string }; at?: number }
   | { role: "kos"; text: string; at?: number }
   | { role: "note"; text: string; at?: number }
-  | { role: "steps"; steps: { summary: string; failed?: true; frame?: number }[] };
+  | { role: "steps"; steps: { summary: string; failed?: true; frame?: number; ms?: number }[] };
 
 /** A device whose host may put it to sleep keeps the connection with these. */
 export interface Ping {

@@ -1,13 +1,13 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
 import { summarizeAction } from "@kos/shared";
-import { AskSteps, CloseIcon, Count, Empty, Face, IconButton, moodOf, RefChip, StatusDot, type Tone } from "@kos/kit";
+import { CloseIcon, Count, Empty, Face, IconButton, moodOf, RefChip, StatusDot, type Tone } from "@kos/kit";
 
 import { titleOf } from "./AgentEditor.js";
 import type { AgentInfo, FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
 import { clockLabel, dayLabel, hourLabel, padDays, padHours } from "./chartdata.js";
 import { Bars, DayLine, ProjectMap, Share, Ticks, type Tick } from "./charts.js";
-import { Decision } from "./Decision.js";
+import { PendingAsk } from "./PendingAsk.js";
 import { hrefFor } from "./routes.js";
 import { ActivityDot, buildDot, fixLabel } from "./StatusDot.js";
 
@@ -145,17 +145,10 @@ export function Panel({
             <ul className="panel-list">
               {rows.slice(0, limit).map((a) => (
                 <li key={a.id} className="panel-approval">
-                  <span className="panel-row-main">
-                    {a.summary ?? summarizeAction(a.tool, a.args)}
-                    <AskSteps mechanics={a.mechanics} tool={a.tool} args={a.args} />
-                    <code className="panel-approval-tool">{a.tool}</code>
-                  </span>
                   {/* Decided here rather than somewhere else: this panel
                       exists because something is waiting, and sending the
                       owner elsewhere to answer defeats it. */}
-                  <span className="panel-approval-actions">
-                    <Decision id={a.id} deciding={deciding} onDecide={onDecide} small />
-                  </span>
+                  <PendingAsk ask={a} deciding={deciding} onDecide={onDecide} compact bare />
                 </li>
               ))}
             </ul>

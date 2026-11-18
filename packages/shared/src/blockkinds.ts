@@ -1,4 +1,5 @@
 import { valueOf, valuesOf, replaceBlocks, type KosBlock } from "./blocks.js";
+import { BIDI } from "./invisible.js";
 
 /**
  * The kinds of typed block, and what each surface does with one.
@@ -142,9 +143,6 @@ export interface BlockView {
 
 /** A channel's own name, for a `channel:` field written as its key. */
 export const CHANNEL_NAMES: Readonly<Record<string, string>> = { imessage: "iMessage", sms: "SMS", discord: "Discord" };
-
-/** Marks that turn text around without showing: a label carrying one could read as something else. */
-const BIDI = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
 
 /** `open <url> [words]` as a link, only to an https address with no user in it; anything else is no link. */
 function linkOf(action: string): BlockLink | undefined {

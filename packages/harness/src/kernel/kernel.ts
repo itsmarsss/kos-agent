@@ -13,6 +13,7 @@ import type { McpModule } from "../tools/mcp.js";
 import type { PermissionContext } from "../ops/permissions.js";
 import { FrameStore } from "../ops/frames.js";
 import { SeenPages } from "./seen.js";
+import { CallTimer } from "./calltimer.js";
 import { toolUse } from "./caller.js";
 
 /** KOS's browser tools: they act on the caller's tab and share its site trust. */
@@ -591,6 +592,8 @@ export class Kernel {
 
   /** Turn progress, for readers watching a conversation as it runs. */
   readonly progress = new ProgressBus({ scrub: (text) => this.secrets.scrub(text), holdBack: () => this.secrets.holdBack() });
+  /** How long each call of a turn takes, kept onto its result as the turn is kept. */
+  private readonly callTimer = new CallTimer();
   /**
    * What each conversation's model has said since its last tool call, from
    * the same stream the dashboard watches, so an approval can quote the
@@ -770,7 +773,6 @@ export class Kernel {
       ownerId: args.profile.ownerId,
       approvals: args.approvals,
       permissions: args.permissions,
-      conversations: args.conversations,
       homeOf: (conversationId) => ({ home: this.fileHome(conversationId ?? undefined), root: args.workspace.root }),
       audit: args.audit,
       registry: args.registry,
@@ -3874,11 +3876,13 @@ export class Kernel {
       ...(opts.guest ? { guest: opts.guest } : {}),
       ...(opts.origin ? { origin: opts.origin } : {}),
       onQueued: (action) => {
+        this.callTimer.asked(toolUse.getStore(), action.id);
         opts.onQueued?.(action);
         this.onApprovalRequested?.(action);
         this.bus.emit({ kind: "approval:requested", id: action.id, tool: action.tool, conversationId: opts.conversationId ?? null });
       },
       onExecuted: (tool, result) => {
+        const took = this.callTimer.ended(toolUse.getStore(), (id) => this.approvals.get(id));
         this.afterToolRan(tool);
         this.keepFrame(tool, opts.conversationId, result);
         this.bus.emit({ kind: "tool:end", tool, isError: result.isError === true, conversationId: opts.conversationId ?? null });
@@ -3896,6 +3900,7 @@ export class Kernel {
             ...(typeof result.content === "string"
               ? { result: result.content.slice(0, 4000) }
               : {}),
+            ...took,
           });
         }
       },
@@ -3905,6 +3910,7 @@ export class Kernel {
       approvalTimeoutMs: this.behaviour().approvalMinutes * 60_000,
       whyFor: (id) => (id ? this.saidSince.get(id) : undefined),
       onStarted: (tool, input) => {
+        const at = this.callTimer.started(toolUse.getStore());
         if (!opts.conversationId) return;
         this.progress.emit({
           kind: "tool-start",
@@ -3914,6 +3920,7 @@ export class Kernel {
           summary: summarizeAction(tool, input, (kind, id) => this.labelFor(kind, id), this.actionHome(opts.conversationId)),
           input,
           ...(this.inOwnersChrome(tool, opts.conversationId) ? { yours: true as const } : {}),
+          at,
         });
       },
     });
@@ -3989,14 +3996,14 @@ export class Kernel {
       // Without what this turn recalled: it was sent so the model had it, and
       // keeping it would write the transcript's own summary back into the
       // transcript on every turn.
-      const whole = withoutTurnContext(
+      const whole = this.callTimer.stamp(withoutTurnContext(
         spoke
           ? result.messages
           : [
               ...result.messages,
               { role: "assistant", content: [{ type: "text", text: reply }] },
             ],
-      );
+      ));
       /*
        * The turn's own messages, after whatever the chat holds now.
        *

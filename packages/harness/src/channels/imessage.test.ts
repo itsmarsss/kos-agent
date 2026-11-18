@@ -7,10 +7,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   IMessageAdapter,
   approvalLines,
+  approvalText,
+  textAsk,
+  textDecision,
   describeStartFailure,
   parseDecision,
   renderForText,
 } from "./imessage.js";
+import { offersAlways } from "./offers.js";
 import type { InboundMessage } from "./types.js";
 
 const OWNER = "+15550001111";
@@ -95,14 +99,44 @@ describe("an approval as plain lines", () => {
     expect(approvalLines({ id: "9", text: "Approve x?", why: "Doing x." })).toEqual(["KOS: Doing x.", "Approve x?"]);
   });
 
+  it("offers always only for an ask that names its rule and places no secret", () => {
+    expect(approvalLines({ id: "1", text: "x" }).join("\n")).not.toContain("always");
+    const secret = { id: "2", text: "x", tool: "http.fetch", args: { url: "https://a.example", headers: { a: "{{secret:k}}" } }, rule: { tool: "http.fetch", scope: "host:a.example", project: null } };
+    expect(offersAlways(secret)).toBe(false);
+    expect(offersAlways({ ...secret, args: { url: "https://a.example" } })).toBe(true);
+    expect(offersAlways({ id: "3", text: "x" })).toBe(false);
+  });
+
+  it("lists every step, however many", () => {
+    const actions = ["a", "b", "c", "d", "e", "f"].map((text) => ({ action: "type", text }));
+    expect(approvalLines({ id: "4", text: "x", tool: "computer.act", args: { actions } }).join("\n")).toContain("6. Type “f”");
+  });
+
   it("says the action, and every step of one said by its purpose", () => {
     const args = { intent: "Note: just closing the popup", actions: [{ action: "type", text: "hunter2" }, { action: "key", text: "cmd+q" }] };
     expect(approvalLines({ id: "9", text: "Approve computer.act?", tool: "computer.act", args })).toEqual([
       "Approve computer.act?",
-      "Note: just closing the popup",
-      "Steps: Type “hunter2”, press cmd+q",
+      "Use your Mac",
+      'KOS says: "Note: just closing the popup"',
+      "On your Mac",
+      "1. Type “hunter2”",
+      "2. Press ⌘Q",
     ]);
-    expect(approvalLines({ id: "9", text: "Approve files.rm?", tool: "files.rm", args: { path: "a.txt" } })).toEqual(["Approve files.rm?", "Delete a.txt"]);
+    expect(approvalLines({ id: "9", text: "Approve files.rm?", tool: "files.rm", args: { path: "a.txt" } })).toEqual(["Approve files.rm?", "Delete a.txt", "In the workspace", "path: a.txt"]);
+  });
+
+  it("shows every field of a long call whole, and offers no yes for one too long to text", () => {
+    const command = `echo ${"harmless ".repeat(15)}; rm -rf ~ ; echo ${"done ".repeat(20)}`;
+    expect(command.length).toBeGreaterThan(250);
+    const text = approvalText({ id: "12", text: "Approve shell.run?", tool: "shell.run", args: { command } });
+    expect(text).toContain(`command: ${command}`);
+    expect(text).toContain('Reply "approve 12" or "deny 12".');
+    const huge = { id: "13", text: "Approve shell.run?", tool: "shell.run", args: { command: `${command} ${"x".repeat(2_000)}` } };
+    const cut = approvalText(huge);
+    expect(cut).toContain("Too long to approve here: open the dashboard Inbox");
+    expect(cut).not.toContain('"approve 13"');
+    expect(textDecision({ id: "13", approved: true }, textAsk(huge))).toBe("too long");
+    expect(textDecision({ id: "13", approved: false }, textAsk(huge))).toEqual({ id: "13", approved: false });
   });
 
   it("names where a project chat's path really lands", () => {
@@ -110,8 +144,10 @@ describe("an approval as plain lines", () => {
     expect(approvalLines({ id: "9", text: "Approve files.write?", tool: "files.write", args: { path: "projects/resume/cv.md" }, where })).toEqual([
       "Approve files.write?",
       "Write file projects/resume/cv.md (outside this project, in the resume project)",
+      "In projects/resume",
+      "path: projects/resume/cv.md",
     ]);
-    expect(approvalLines({ id: "9", text: "Approve files.rm?", tool: "files.rm", args: { path: "a.txt" }, where })).toEqual(["Approve files.rm?", "Delete projects/school/a.txt"]);
+    expect(approvalLines({ id: "9", text: "Approve files.rm?", tool: "files.rm", args: { path: "a.txt" }, where })).toEqual(["Approve files.rm?", "Delete projects/school/a.txt", "In projects/school", "path: a.txt"]);
   });
 });
 
@@ -301,7 +337,7 @@ describe("the iMessage adapter", () => {
     });
     await adapter.start();
 
-    await adapter.requestApproval(OWNER, { id: "12", text: "Delete notes.txt?", why: "Those are the duplicate notes from Tuesday." });
+    await adapter.requestApproval(OWNER, { id: "12", text: "Delete notes.txt?", why: "Those are the duplicate notes from Tuesday.", rule: { tool: "files.rm", scope: "dir:", project: null } });
     expect(sent.at(-1)!.startsWith("KOS: Those are the duplicate notes from Tuesday.\nDelete notes.txt?")).toBe(true);
     expect(sent.at(-1)).toContain('"approve 12"');
     expect(sent.at(-1)).toContain('"always 12"');

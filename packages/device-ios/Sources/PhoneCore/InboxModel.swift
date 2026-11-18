@@ -137,19 +137,3 @@ extension Routes.Inbox {
     self.failures = failures
   }
 }
-
-extension Routes.Pending {
-  /// The words a yes that is remembered says, as the dashboard's and the chat's buttons say them.
-  public var always: String? {
-    guard let rule else { return nil }
-    guard let scope = rule.scope else { return "Always" }
-    let parts = scope.split(separator: ":", maxSplits: 1).map(String.init)
-    let what = parts.count > 1 ? parts[1] : ""
-    switch parts.first {
-    case "your-chrome", "site": return "Always on \(what)"
-    case "dir": return what.isEmpty ? "Always in the workspace" : "Always in \(what)"
-    case "host", "table", "cmd": return "Always for \(what)"
-    default: return "Always here"
-    }
-  }
-}

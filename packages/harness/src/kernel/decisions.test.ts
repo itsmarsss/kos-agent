@@ -14,8 +14,7 @@ function deps(action: PendingAction | undefined, awaited: boolean, over: Partial
   const d: DecisionsDeps = {
     ownerId: "owner",
     approvals: { get: () => action, isAwaited: () => awaited, approve: (id, by) => { log.push(`approve:${id}:${by}`); }, deny: (id, by) => { log.push(`deny:${id}:${by}`); return action; }, pending: () => [] },
-    permissions: { ruleFor: (tool, _i, project) => ({ tool, scope: "dir:projects/books", project }), add: (r) => { log.push(`rule:${r.tool}:${r.scope}:${r.project}`); } },
-    conversations: { get: () => ({ projectSlug: "books" }) },
+    permissions: { add: (r) => { log.push(`rule:${r.tool}:${r.scope}:${r.project}`); } },
     audit: { record: (e) => { log.push(`audit:${e.tool}:${e.isError ? "err" : "ok"}`); } },
     registry: { execute: async (tool) => { log.push(`run:${tool}`); return { content: "removed", isError: false }; }, secretSlots: () => undefined },
     secrets: new SecretsRegistry(),
@@ -29,7 +28,7 @@ function deps(action: PendingAction | undefined, awaited: boolean, over: Partial
 }
 
 describe("remembering", () => {
-  it("keeps the rule named when the call was queued, over one named now", async () => {
+  it("keeps only the rule the ask named when it was queued, the one every card offered", async () => {
     const action = pending({ tool: "browser.act", args: JSON.stringify({ steps: [{ click: "@e5" }] }), rule: { tool: "browser.*", scope: "site:shop.example", project: null } });
     const { d, log } = deps(action, true);
     await new Decisions(d).approve(5, "owner", { remember: true });
@@ -52,10 +51,15 @@ describe("approving", () => {
     expect(log).toEqual(["approve:5:owner"]);
   });
 
-  it("keeps the decision as a rule in the action's project when asked", async () => {
-    const { d, log } = deps(pending(), true);
+  it("keeps the decision as the rule the ask named when asked, and none for an ask that named none", async () => {
+    const { d, log } = deps(pending({ rule: { tool: "files.rm", scope: "dir:projects/books", project: "books" } }), true);
     await new Decisions(d).approve(5, "owner", { remember: true });
     expect(log).toContain("rule:files.rm:dir:projects/books:books");
+    const none = deps(pending(), true);
+    const said = await new Decisions(none.d).approve(5, "owner", { remember: true });
+    expect(none.log.some((l) => l.startsWith("rule:"))).toBe(false);
+    expect(said).toMatchObject({ ok: true, remembered: false });
+    expect(said.message.startsWith("Approved; nothing to remember for this one.")).toBe(true);
   });
 
   it("runs an orphaned action in its conversation and lane, audits it, and resumes the chat", async () => {

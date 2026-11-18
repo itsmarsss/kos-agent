@@ -133,14 +133,14 @@ private struct AskLine: View {
       Card(tone: Theme.warn, padding: EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12)) {
         HStack(spacing: 10) {
           Tile("hand.raised.fill", tint: Theme.warn, small: true)
-          RowText("KOS asks to run \(ask.tool)", ask.why ?? ask.reason ?? "Waiting on you", size: .control, titleLines: 1, detailLines: 2)
+          RowText(ask.heading, ask.place ?? ask.why ?? ask.reason ?? "Waiting on you", size: .control, titleLines: 1, detailLines: 2)
           Spacer(minLength: 6)
           Text("Review").font(.kos(.control, .semibold)).foregroundStyle(Theme.accent)
         }
       }
     }
     .buttonStyle(.plain)
-    .accessibilityLabel("KOS asks to run \(ask.tool). \(ask.why ?? ask.reason ?? "")")
+    .accessibilityLabel("\(ask.asker ?? "KOS") asks: \(ask.heading). \(ask.place ?? ask.why ?? ask.reason ?? "")")
     .accessibilityHint("Opens it to approve or deny")
   }
 }

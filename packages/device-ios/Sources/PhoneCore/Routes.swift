@@ -24,22 +24,28 @@ public enum Routes {
     /// The action in words, with the ids named.
     public let summary: String?
     public let mechanics: String?
+    /// The card as the host lays it out (`askView`): its title, each step's line, where, why it asks.
+    public let title: String?
+    public let steps: [StepLine]?
+    public let said: String?
+    public let place: String?
+    public let risk: String?
     public let why: String?
     public let conversationId: String?
     /// The chat asking, by the name the owner knows it by.
     public let asker: String?
     public let requestedAt: Double
     public let expiresAt: Double?
-    /// What a yes remembered keeps, when one may be.
-    public let rule: Rule?
-
-    public struct Rule: Decodable, Equatable, Sendable {
-      public let scope: String?
-    }
+    /// What a remembered yes covers, as its button says it, when one may be, and exactly what it keeps.
+    public let always: String?
+    public let alwaysTip: String?
+    public let alwaysNote: String?
 
     public init(
-      id: Int, tool: String, args: String? = nil, reason: String? = nil, summary: String? = nil, mechanics: String? = nil, why: String? = nil,
-      conversationId: String? = nil, asker: String? = nil, requestedAt: Double, expiresAt: Double? = nil, rule: Rule? = nil
+      id: Int, tool: String, args: String? = nil, reason: String? = nil, summary: String? = nil, mechanics: String? = nil, title: String? = nil,
+      steps: [StepLine]? = nil, said: String? = nil, place: String? = nil, risk: String? = nil, why: String? = nil,
+      conversationId: String? = nil, asker: String? = nil, requestedAt: Double, expiresAt: Double? = nil, always: String? = nil,
+      alwaysTip: String? = nil, alwaysNote: String? = nil
     ) {
       self.id = id
       self.tool = tool
@@ -47,12 +53,19 @@ public enum Routes {
       self.reason = reason
       self.summary = summary
       self.mechanics = mechanics
+      self.title = title
+      self.steps = steps
+      self.place = place
+      self.said = said
+      self.risk = risk
       self.why = why
       self.conversationId = conversationId
       self.asker = asker
       self.requestedAt = requestedAt
       self.expiresAt = expiresAt
-      self.rule = rule
+      self.always = always
+      self.alwaysTip = alwaysTip
+      self.alwaysNote = alwaysNote
     }
   }
 
