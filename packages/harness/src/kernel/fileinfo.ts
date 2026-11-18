@@ -5,8 +5,9 @@ import { imageTypeOf, pictureSize } from "../files/headers.js";
 import { isPdf, pdfPages } from "../files/pdftext.js";
 import { isZip, readZip } from "../files/zip.js";
 import type { Workspace } from "../store/workspace.js";
-import { scan } from "../tools/scan.js";
-import { isReservedName, type DirEntry } from "./files.js";
+import { defaultJobs } from "../files/viewer/run.js";
+import type { ScanResult } from "../tools/scan.js";
+import { isReservedName, RESERVED, type DirEntry } from "./files.js";
 
 /**
  * What the file manager asks of the workspace beyond a folder's listing:
@@ -89,18 +90,36 @@ export interface ContentHit extends DirEntry {
 
 /** How long a contents search may read before it answers with what it found. */
 const CONTENTS_MS = 3000;
+/** Contents searches run in the viewer's child, one at a time; a newer one ends the one before. */
+const searches = defaultJobs(1);
+let latest: AbortController | undefined;
 
-/** Text files under `dir` holding `query`, any case: the workspace search the agent uses (search.grep's own reader). */
-export function searchContents(ws: Workspace, dir: unknown, query: string): { entries: ContentHit[]; truncated: boolean } {
+/**
+ * Text files under `dir` holding `query`, any case: search.grep's own
+ * reader, run off KOS's event loop. The search a newer one supersedes (the
+ * next keystroke) is stopped, and answers empty.
+ */
+export async function searchContents(ws: Workspace, dir: unknown, query: string): Promise<{ entries: ContentHit[]; truncated: boolean }> {
   const rel = relOf(dir);
-  const abs = ws.resolve(rel);
+  const target = ws.resolve(rel);
   const q = query.trim();
   if (!q) return { entries: [], truncated: false };
-  const literal = q.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
-  const result = scan(ws.root, abs, literal, { flags: "i", maxMatches: 400, deadline: Date.now() + CONTENTS_MS, skip: (p) => !p.includes("/") && isReservedName(p) });
+  latest?.abort();
+  const mine = new AbortController();
+  latest = mine;
+  let result: ScanResult;
+  try {
+    result = (await searches({ op: "contents", root: ws.root, target, pattern: q.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&"), budgetMs: CONTENTS_MS, skipTop: [...RESERVED] }, mine.signal)) as ScanResult;
+  } catch (err) {
+    if (mine.signal.aborted) return { entries: [], truncated: true };
+    throw err;
+  } finally {
+    if (latest === mine) latest = undefined;
+  }
   const byPath = new Map<string, ContentHit>();
   for (const hit of result.hits) {
-    if (byPath.has(hit.path)) continue;
+    // Folded spellings of the workspace's own names are left out here as well as by name in the child.
+    if (byPath.has(hit.path) || isReservedName(hit.path.split("/")[0]!)) continue;
     try {
       const st = statSync(join(ws.root, hit.path));
       byPath.set(hit.path, { name: basename(hit.path), path: hit.path, kind: "file", size: st.size, modifiedAt: st.mtimeMs, line: hit.line, text: hit.text.trim().slice(0, 200) });

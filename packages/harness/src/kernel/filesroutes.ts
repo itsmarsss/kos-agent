@@ -99,7 +99,7 @@ export async function handleFilesRoute(ws: Workspace, req: FilesRequest, deps: F
     }
     if (method === "GET" && path === "/api/files/search") {
       const q = query.get("q") ?? "";
-      return { status: 200, body: query.get("contents") === "1" ? searchContents(ws, target || ".", q) : searchNames(ws, target || ".", q) };
+      return { status: 200, body: query.get("contents") === "1" ? await searchContents(ws, target || ".", q) : searchNames(ws, target || ".", q) };
     }
     if (method === "GET" && path === "/api/files/recents") return { status: 200, body: { entries: recentFiles(ws) } };
     if (method === "GET" && path === "/api/files/trash") return { status: 200, body: { items: listTrash(ws) } };

@@ -253,9 +253,12 @@ describe("the finder", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(300);
       });
-      expect(search).toHaveBeenCalledWith("projects/garden", "bed", false);
+      expect(search).toHaveBeenCalledWith("projects/garden", "bed", false, expect.any(AbortSignal));
       expect(await screen.findByText("bed-1.md")).toBeTruthy();
       expect(screen.getByText("projects/garden/beds")).toBeTruthy();
+      // The next keystroke drops the search before it.
+      fireEvent.change(screen.getByRole("searchbox", { name: "Search this folder and below" }), { target: { value: "beds" } });
+      expect((search.mock.calls[0]![3] as AbortSignal).aborted).toBe(true);
     } finally {
       vi.useRealTimers();
     }

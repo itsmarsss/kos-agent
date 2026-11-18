@@ -1059,8 +1059,8 @@ export function dispositionName(header: string | null): string | undefined {
   return /filename="([^"]*)"/i.exec(header)?.[1] || undefined;
 }
 
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(path);
+async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(path, signal ? { signal } : undefined);
   if (!res.ok) throw new Error(await readError(res, path));
   return (await res.json()) as T;
 }
@@ -1367,7 +1367,8 @@ export const api = {
   /** Where a player streams a sound or a video from. */
   mediaUrl: (path: string) => `/api/file/media?path=${encodeURIComponent(path)}`,
   fileInfo: (path: string) => get<FileInfo>(`/api/files/info?path=${encodeURIComponent(path)}`),
-  searchFiles: (path: string, q: string, contents: boolean) => get<FileSearch>(`/api/files/search?${new URLSearchParams({ path, q, ...(contents ? { contents: "1" } : {}) })}`),
+  /** A search; `signal` drops it when a newer one is asked (the next keystroke), and the server stops it too. */
+  searchFiles: (path: string, q: string, contents: boolean, signal?: AbortSignal) => get<FileSearch>(`/api/files/search?${new URLSearchParams({ path, q, ...(contents ? { contents: "1" } : {}) })}`, signal),
   recentFiles: () => get<{ entries: DirEntry[] }>("/api/files/recents"),
   /** Managing files by hand: each returns where the thing now is. */
   renameFile: (from: string, to: string) => post<{ path: string }>("/api/files/rename", { from, to }),

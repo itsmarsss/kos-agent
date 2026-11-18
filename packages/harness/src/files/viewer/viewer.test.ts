@@ -8,7 +8,7 @@ import { convert, runRequest } from "./convert.js";
 import type { DocView, SheetView, SlidesView } from "@kos/shared";
 import { hostileDocx, keynote, sampleDeck, sampleDocx, sampleWorkbook, zipBomb } from "./office.fixture.js";
 import { textutilProfile } from "./macos.js";
-import { builtChild, childRunner } from "./run.js";
+import { builtChild, childJobs, officeRunner } from "./run.js";
 import { ROWS_MAX } from "./sheets.js";
 import { OfficeViewer, type ViewerHost } from "./viewer.js";
 
@@ -186,17 +186,30 @@ describe("the bounded run", () => {
   };
 
   it("stops a child that never answers", async () => {
-    const run = childRunner(script("setInterval(() => {}, 1000);"), { timeoutMs: 400 });
+    const run = childJobs(script("setInterval(() => {}, 1000);"), { timeoutMs: 400 });
     await expect(run({ op: "sanitize", html: "", format: "doc" })).rejects.toThrow(/more than 0.4 s/);
   });
 
   it("stops a child whose buffers grow past the ceiling, though its heap stays small", async () => {
-    const run = childRunner(script("const kept = []; process.once('message', () => { const t = setInterval(() => { kept.push(Buffer.alloc(32 * 1024 * 1024, 1)); }, 20); });"), { rssMb: 200, timeoutMs: 15_000 });
+    const run = childJobs(script("const kept = []; process.once('message', () => { const t = setInterval(() => { kept.push(Buffer.alloc(32 * 1024 * 1024, 1)); }, 20); });"), { rssMb: 200, timeoutMs: 15_000 });
     await expect(run({ op: "sanitize", html: "", format: "doc" })).rejects.toThrow(/needed more than 200 MB/);
   });
 
+  it("stops a child that spins past its CPU seconds, by the kernel's limit", async () => {
+    const run = childJobs(script("process.once('message', () => { for (;;) {} });"), { cpuSeconds: 1, timeoutMs: 15_000 });
+    await expect(run({ op: "sanitize", html: "", format: "doc" })).rejects.toThrow(/share of the processor/);
+  });
+
+  it("stops a child when its job is superseded", async () => {
+    const run = childJobs(script("setInterval(() => {}, 1000);"), { timeoutMs: 15_000 });
+    const ask = new AbortController();
+    const pending = run({ op: "sanitize", html: "", format: "doc" }, ask.signal);
+    setTimeout(() => ask.abort(), 100);
+    await expect(pending).rejects.toThrow(/superseded/);
+  });
+
   it("runs two at a time", async () => {
-    const run = childRunner(script("process.once('message', () => setTimeout(() => process.send({ ok: true, view: { at: Date.now() } }, () => process.exit(0)), 300));"));
+    const run = childJobs(script("process.once('message', () => setTimeout(() => process.send({ ok: true, value: { at: Date.now() } }, () => process.exit(0)), 300));"));
     const started = Date.now();
     await Promise.all([1, 2, 3].map(() => run({ op: "sanitize", html: "", format: "doc" })));
     expect(Date.now() - started).toBeGreaterThan(550);
@@ -205,7 +218,7 @@ describe("the bounded run", () => {
   const built = fileURLToPath(new URL("../../../dist/files/viewer/child.js", import.meta.url));
   it.skipIf(!existsSync(built))("converts in the built child, and refuses a bomb there", async () => {
     expect(builtChild()).toBeUndefined();
-    const run = childRunner(built);
+    const run = officeRunner(childJobs(built));
     const view = (await run({ op: "convert", bytes: sampleDocx(), format: "docx" })) as DocView;
     expect(view.html).toContain("<h1>Garden plan</h1>");
     await expect(run({ op: "convert", bytes: zipBomb("xl/workbook.xml", 80 * 1024 * 1024), format: "xls" })).rejects.toThrow(/refused/);

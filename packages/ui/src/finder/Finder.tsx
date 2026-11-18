@@ -226,15 +226,15 @@ export function Finder({ root = ".", rootName = "Workspace", path, focus, onNavi
       setFound(null);
       return undefined;
     }
-    let cancelled = false;
+    const ask = new AbortController();
     const t = setTimeout(() => {
       void api
-        .searchFiles(place.kind === "folder" ? folder : root, q, contents)
-        .then((r) => !cancelled && setFound(r))
-        .catch(() => !cancelled && setFound({ entries: [], truncated: false }));
+        .searchFiles(place.kind === "folder" ? folder : root, q, contents, ask.signal)
+        .then((r) => !ask.signal.aborted && setFound(r))
+        .catch(() => !ask.signal.aborted && setFound({ entries: [], truncated: false }));
     }, 220);
     return () => {
-      cancelled = true;
+      ask.abort();
       clearTimeout(t);
     };
   }, [query, contents, folder, place.kind, root]);
