@@ -91,7 +91,7 @@ import { ModuleLoader, type KosModule, type LoadReport } from "../modules/loader
 import { AuditLog } from "../ops/audit.js";
 import { ApprovalQueue, type PendingAction } from "../ops/approvals.js";
 import { PersistentKillSwitch } from "../ops/killswitch.js";
-import { priorForSdk, runSdkChat, type SdkChatResult } from "../chat/sdkchat.js";
+import { priorForSdk, runSdkChat, sdkCallMessages, withoutCalls, type SdkChatResult, type SdkToolCall } from "../chat/sdkchat.js";
 import { HealthMonitor } from "../ops/health.js";
 import { RunsLog } from "../ops/runs.js";
 import { WorkQueue } from "../ops/queue.js";
@@ -1368,6 +1368,8 @@ export class Kernel {
            * keeps retention, /compact and rewind meaning something here.
            */
           tools.cutHuge = true;
+          /** The calls this turn has written to the chat so far, by id. */
+          const told = new Set<string>();
           const sdkRun = runSdkChat({
             signal: stop.signal,
             // An aside reads the context chat's history (plus its own earlier
@@ -1401,6 +1403,20 @@ export class Kernel {
             maxTurns: this.behaviour().maxSteps,
             picturesPerQuery: PICTURES_PER_QUERY,
             onFreshQuery: () => this.bus.emit({ kind: "query:fresh", conversationId: sessionId }),
+            /*
+             * Each step into the transcript as it lands. Written only at the
+             * end, a chat redrawn from its transcript mid-turn (a reload, a
+             * device opening, a phone reading it) showed the owner's words
+             * and nothing done under them.
+             */
+            ...(useSession
+              ? {
+                  onCall: (call: SdkToolCall) => {
+                    told.add(call.id);
+                    this.sessions.record(sessionId, [...this.sessions.get(sessionId), ...sdkCallMessages(call)]);
+                  },
+                }
+              : {}),
             // A screen agent's context has seen no picture yet: the chat's last one is forgotten, so its first look is sent whole.
             onScreenAgent: () => this.bus.emit({ kind: "query:fresh", conversationId: sessionId }),
             ...(this.sdkScreen() ? { screen: this.sdkScreen()! } : {}),
@@ -1428,33 +1444,10 @@ export class Kernel {
                * reloaded. Stored in the same shape the other engine uses, so
                * the transcript renders them the same way.
                */
-              const madeCalls = sdk.calls.flatMap((c) => [
-                {
-                  role: "assistant" as const,
-                  content: [
-                    {
-                      type: "tool_use" as const,
-                      id: c.id,
-                      name: c.name,
-                      input: c.input,
-                    },
-                  ],
-                },
-                {
-                  role: "user" as const,
-                  content: [
-                    {
-                      type: "tool_result" as const,
-                      toolUseId: c.id,
-                      content: c.result,
-                      ...(c.isError ? { isError: true } : {}),
-                      ...(c.heard ? { heard: c.heard } : {}),
-                    },
-                  ],
-                },
-              ]);
+              const madeCalls = sdk.calls.flatMap(sdkCallMessages);
+              // Each call was written as it landed; moved to the end with the reply, the order is what one write at the end made.
               this.sessions.record(sessionId, [
-                ...this.sessions.get(sessionId),
+                ...withoutCalls(this.sessions.get(sessionId), told),
                 ...madeCalls,
                 { role: "assistant", content: [{ type: "text", text: reply }] },
               ]);

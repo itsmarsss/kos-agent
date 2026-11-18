@@ -106,13 +106,39 @@ describe("a turn on the SDK", () => {
     expect(Object.keys(options["mcpServers"] as object)).toEqual(["kos"]);
   });
 
-  it("holds the turn to its step limit across every fresh query", async () => {
+  it("gives each query the step limit, and holds the turn to four queries' worth", async () => {
     run.queries = [];
-    run.script = steps(50);
-    const r = await runSdkChat({ prompt: "go", system: "s", tools: box(["computer.act"], () => ({ content: "Clicked.", images: [picture] })), cwd: process.cwd(), picturesPerQuery: 2, maxTurns: 5 });
-    expect(r.calls.length).toBeLessThanOrEqual(5);
+    run.script = steps(500);
+    const r = await runSdkChat({ prompt: "go", system: "s", tools: box(["computer.act"], () => ({ content: "Clicked.", images: [picture] })), cwd: process.cwd(), picturesPerQuery: 3, maxTurns: 5 });
+    expect(r.calls).toHaveLength(20);
     expect(r.stopped).toBe(true);
-    expect(run.queries.map((q) => q.options["maxTurns"])).toEqual([5, 3, 1]);
+    expect(run.queries.map((q) => q.options["maxTurns"])).toEqual([5, 5, 5, 5, 5, 5, 2]);
+  });
+
+  it("tells each call as it lands, and none once the turn has returned", async () => {
+    run.queries = [];
+    let release: () => void = () => undefined;
+    run.script = async function* (_q, tools) {
+      await tools.get("notify")!({});
+      // A call the turn does not wait for, ending after it has returned.
+      void tools.get("python_run")!({});
+      yield { type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "text", text: "Sent." }] } };
+      yield result(1);
+    };
+    const told: string[] = [];
+    const tools: ToolBox = {
+      defs: () => ["notify", "python.run"].map((name) => ({ name, description: name, inputSchema: { type: "object", properties: {} } })),
+      execute: async (name) => {
+        if (name === "python.run") await new Promise<void>((r) => (release = r));
+        return { content: name, isError: false };
+      },
+    };
+    const r = await runSdkChat({ prompt: "go", system: "s", tools, cwd: process.cwd(), onCall: (c) => void told.push(c.name) });
+    expect(told).toEqual(["notify"]);
+    release();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(told).toEqual(["notify"]);
+    expect(r.calls.map((c) => c.name)).toEqual(["notify"]);
   });
 
   it("counts only a screen's pictures, not a plot or an MCP tool's", async () => {

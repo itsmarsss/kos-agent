@@ -9,7 +9,7 @@ import {
 } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { stepMechanics, summarizeAction } from "@kos/shared";
+import { runningTail, stepMechanics, summarizeAction } from "@kos/shared";
 import { ArchiveIcon, AskSteps, QuoteLine, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, useOverlayScroll, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { Decision } from "./Decision.js";
@@ -514,7 +514,14 @@ export function ChatsPage({
    * prevent. The list is the other account, and it comes from the server.
    */
   const turnRunningHere = working && active?.activity === "working";
-  const visible = [...seeded, ...events];
+  /*
+   * A turn writes its steps to the transcript as they land, so one loaded
+   * mid-turn ends with them. While the live view holds them too, it draws
+   * them, with their pictures and the words heard on the way; the
+   * transcript's copy waits until the turn hands over.
+   */
+  const liveHasSteps = live?.steps.some((s) => s.kind === "tool") === true;
+  const visible = [...seeded, ...(liveHasSteps ? events.slice(0, runningTail(events)) : events)];
 
   /**
    * The words for a reference, where this view knows them. A chat and a

@@ -199,3 +199,4 @@ export {
 } from "./artifacts.js";
 export { EXPORT_FORMATS, EXPORT_WORDS, KIND_EXPORTS, exportName, isExportFormat, type ExportFormat } from "./artifactexport.js";
 export { ARTIFACT_FONTS, fontById, fontFaceCss, fontStackVars, type ArtifactFont, type FontFile, type FontRole } from "./artifactfonts.js";
+export { runningTail, type TurnEvent } from "./runningturn.js";

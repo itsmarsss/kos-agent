@@ -14,7 +14,7 @@ import {
   type TurnPresence,
   type UserMapping,
 } from "@kos/harness";
-import { stepMechanics, summarizeAction } from "@kos/shared";
+import { runningTail, stepMechanics, summarizeAction } from "@kos/shared";
 
 import { ArtifactReader, type PanelArtifacts } from "./artifacts.js";
 import { DashboardRelay, type PanelDashboard } from "./dashboard.js";
@@ -501,7 +501,7 @@ export class DevicePanel implements ChannelAdapter {
   /** What chat.show carries: the chat, and what was answered outside its words. */
   private drawn(said?: OutboundMessage, waiting = false, about?: string): Record<string, unknown> {
     const chat = this.deps.current();
-    const messages = chat ? panelLines(this.deps.events(chat.id)) : [];
+    const messages = chat ? panelLines(this.untold(chat.id)) : [];
     const last = messages.at(-1);
     const text = said?.text?.trim();
     const notice =
@@ -518,6 +518,17 @@ export class DevicePanel implements ChannelAdapter {
       ...(notice ? { notice } : {}),
       ...shown,
     };
+  }
+
+  /**
+   * A chat's events as the devices draw them: while a turn running there
+   * tells its steps as a story, the steps it wrote to the transcript so far
+   * are left out, or the thread would show each twice.
+   */
+  private untold(chat: string): ChatEvent[] {
+    const events = this.deps.events(chat);
+    const running = this.running;
+    return running?.conversation === chat && running.narrator.worthShowing() ? events.slice(0, runningTail(events)) : events;
   }
 
   /**
