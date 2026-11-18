@@ -211,4 +211,11 @@ describe("a turn's memory, opened from its chat", () => {
     expect(screen.getByText("value 2")).toBeTruthy();
     expect(window.location.hash).toBe("#/memory");
   });
+
+  it("ignores ids that are not whole numbers it can hold", () => {
+    window.location.hash = "#/memory?tab=claims&ids=,99999999999999999999,";
+    render(<Claims facts={[fact({ id: 1, key: "k1", value: "value 1" })]} tags={[]} onChanged={() => undefined} />);
+    expect(screen.getByText("value 1")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Show every claim" })).toBeNull();
+  });
 });

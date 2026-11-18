@@ -142,10 +142,13 @@ function roveRow(e: KeyboardEvent<HTMLLIElement>): void {
   }
 }
 
+/** The most claims an address names: a turn is given a few dozen at most. */
+const IDS_MAX = 500;
+
 /** Claims the address names (#/memory?tab=claims&ids=3,7): a turn's memory, opened from its chat. */
 function idsInHash(hash: string): ReadonlySet<number> | null {
   const m = /[?&]ids=([\d,]+)/.exec(hash);
-  const ids = (m?.[1] ?? "").split(",").filter(Boolean).map(Number);
+  const ids = (m?.[1] ?? "").split(",").filter(Boolean).map(Number).filter(Number.isSafeInteger).slice(0, IDS_MAX);
   return ids.length > 0 ? new Set(ids) : null;
 }
 
