@@ -495,7 +495,8 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(clicked.results).toHaveLength(3);
     expect(took).toBeGreaterThanOrEqual(40);
     expect(took).toBeLessThan(350);
-    expect(await cursorOn(page)).toMatchObject({ ...at(buy), shown: true });
+    // There as the press lands, to within the moment its answer takes to reach the page.
+    expect(await cursorSettled(page, (c) => near(c, buy))).toMatchObject({ ...at(buy), shown: true });
     expect(await cursorSettled(page, (c) => c.rippling)).toMatchObject({ rippling: true });
     // KOS's hands one after another, never side by side.
     const side = await call("cdp.batch", { session: "s1", tab, parallel: true, calls: [{ method: "Input.dispatchMouseEvent", params: { type: "mouseMoved", x: 5, y: 5 } }] });

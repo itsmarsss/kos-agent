@@ -66,7 +66,7 @@ export function installOverlay(look: CursorLook): void {
       set(state: OverlayState): void;
       remove(): void;
       alive(): void;
-      point(x: number, y: number, how: PointHow): Promise<void>;
+      point(x: number, y: number, how: PointHow): number;
       typing(): void;
       capturing(on: boolean): Promise<void>;
     };
@@ -154,17 +154,18 @@ export function installOverlay(look: CursorLook): void {
   /**
    * The cursor's tip to a point along the Mac's path: a control point off to
    * one side of the straight line bends it into a shallow arc, as a hand
-   * moving a mouse does. Answered when it is there; `ms` fixes the time.
+   * moving a mouse does. Says how long it takes (none when no one would see
+   * it), and when it is there; `ms` fixes the time.
    */
-  const glideTo = (to: { x: number; y: number }, ms?: number): Promise<void> => {
+  const glideTo = (to: { x: number; y: number }, ms?: number): { ms: number; arrived: Promise<void> } => {
     const it = cursor;
-    if (!it) return Promise.resolve();
+    if (!it) return { ms: 0, arrived: Promise.resolve() };
     const from = drawnAt();
     setTip(to);
     const distance = Math.hypot(to.x - from.x, to.y - from.y);
     const duration = ms ?? glideMs(distance);
     const steps = Math.round((duration / 1000) * g.rate);
-    if (steps <= 1 || !seen()) return Promise.resolve();
+    if (steps <= 1 || !seen()) return { ms: 0, arrived: Promise.resolve() };
     const bend = Math.min(g.bendMost, distance * g.bendShare);
     const control = { x: (from.x + to.x) / 2 - ((to.y - from.y) / distance) * bend, y: (from.y + to.y) / 2 + ((to.x - from.x) / distance) * bend };
     const frames = [from];
@@ -177,10 +178,13 @@ export function installOverlay(look: CursorLook): void {
       frames.map((p) => ({ transform: `translate(${p.x}px, ${p.y}px)` })),
       { duration, easing: "linear" },
     );
-    return glide.finished.then(
-      () => undefined,
-      () => undefined,
-    );
+    return {
+      ms: duration,
+      arrived: glide.finished.then(
+        () => undefined,
+        () => undefined,
+      ),
+    };
   };
   const raising = budget(10);
   /** The overlay to the top of the top layer, over whatever the page last put there. */
@@ -444,23 +448,23 @@ export function installOverlay(look: CursorLook): void {
     alive() {
       lastAlive = Date.now();
     },
-    // KOS's cursor to where its hands are about to act, answered once it is under way: the glide and the ripple finish as they act.
+    // KOS's cursor to where its hands are about to act: answered at once with how long its glide takes, for KOS's hands to wait on their own clock.
     point(x, y, how) {
       lastAlive = Date.now();
       clearTimeout(resting);
       at = { x, y };
-      if (!cursor) return Promise.resolve();
+      if (!cursor) return 0;
       if (how === "rest") {
         resting = setTimeout(() => at && setTip(at), REST_MS);
-        return Promise.resolve();
+        return 0;
       }
       if (how === "place") {
         setTip(at);
-        return Promise.resolve();
+        return 0;
       }
-      const arrived = glideTo(at, how === "drag" ? DRAG_MS : undefined);
-      if (how === "press") void arrived.then(ripple);
-      return how === "drag" ? Promise.resolve() : arrived;
+      const glided = glideTo(at, how === "drag" ? DRAG_MS : undefined);
+      if (how === "press") void glided.arrived.then(ripple);
+      return how === "drag" ? 0 : glided.ms;
     },
     // While KOS types, the tag says so; it settles back once the typing stops.
     typing() {

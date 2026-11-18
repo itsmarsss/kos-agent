@@ -718,8 +718,23 @@ async function point(tab: number, at: { x: number; y: number }, how: PointHow): 
   const from = pointed.get(tab);
   pointed.set(tab, at);
   const goes = (how === "move" || how === "press") && (!from || Math.hypot(at.x - from.x, at.y - from.y) >= 1);
-  if (goes) await toOverlays(tab, expression, GLIDE_WAIT_MS, true);
-  else void toOverlays(tab, expression, 300);
+  if (!goes) return void toOverlays(tab, expression, 300);
+  // The overlay starts the glide and says at once how long it takes (none on a tab no one sees): KOS's hands wait that
+  // long on their own clock, from when it was sent, and never past the cap, however slow the tab is to answer.
+  const sent = Date.now();
+  const worlds = [...(overlays.get(tab) ?? [])];
+  const glides = await Promise.race([
+    Promise.all(
+      worlds.map((world) =>
+        chrome.debugger
+          .sendCommand({ tabId: tab }, "Runtime.evaluate", { expression, contextId: world, returnByValue: true })
+          .then((r) => Number((r as { result?: { value?: unknown } } | undefined)?.result?.value) || 0, () => 0),
+      ),
+    ),
+    new Promise<number[]>((r) => setTimeout(() => r([GLIDE_WAIT_MS]), GLIDE_WAIT_MS)),
+  ]);
+  const left = Math.min(Math.max(0, ...glides), GLIDE_WAIT_MS) - (Date.now() - sent);
+  if (left > 0) await new Promise((r) => setTimeout(r, left));
 }
 
 async function pointAtNode(tab: number, node: { backendNodeId: number }, how: PointHow): Promise<void> {
