@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { chmodSync, existsSync, readdirSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -8,7 +9,7 @@ import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { programOf } from "../risk/rules.js";
-import { CONFIG_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, type ShellResult } from "./shell.js";
+import { CONFIG_REFUSED, createShellModule, DATABASE_REFUSED, namesDatabase, runShell, type ShellResult } from "./shell.js";
 
 const onMac = process.platform === "darwin";
 
@@ -163,6 +164,137 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     await createShellModule({ timeoutSeconds: 5 }).activate(ctx);
     expect(maintenance.refusal("shell.run", { command: "sqlite3 kos.sqlite .tables" })).toBeUndefined();
     expect(maintenance.classify("shell.run", { command: "sqlite3 -readonly kos.sqlite .tables" }).tier).toBe("risky");
+  });
+
+  it("runs none of a repository's own programs on a git read", async () => {
+    // Written as the agent could have: a fsmonitor hook and a textconv driver, each leaving a mark.
+    const git = (...args: string[]): string => execFileSync("git", args, { cwd: root, encoding: "utf8" });
+    git("init", "-q");
+    git("-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "a");
+    const hook = join(root, "hook.sh");
+    writeFileSync(hook, `#!/bin/sh\ntouch "${root}/FSMONITOR"\n`);
+    chmodSync(hook, 0o755);
+    git("config", "core.fsmonitor", hook);
+    git("config", "diff.mark.textconv", `sh -c 'touch "${root}/TEXTCONV"; cat "$0"'`);
+    writeFileSync(join(root, ".gitattributes"), "*.t diff=mark\n");
+    writeFileSync(join(root, "a.t"), "one\n");
+    git("add", "a.t", ".gitattributes");
+    git("-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "b");
+    writeFileSync(join(root, "a.t"), "two\n");
+    // Unheld, git runs both: the test would see a mark.
+    git("status");
+    git("diff");
+    expect(existsSync(join(root, "FSMONITOR")) && existsSync(join(root, "TEXTCONV"))).toBe(true);
+    rmSync(join(root, "FSMONITOR"));
+    rmSync(join(root, "TEXTCONV"));
+
+    expect(registry.classify("shell.run", { command: "git status && git diff" }).tier).toBe("safe");
+    const status = await run({ command: "git status --short" });
+    expect(status.stdout).toContain("a.t");
+    const diff = await run({ command: "git diff" });
+    expect(diff.stdout).toContain("+two");
+    expect(existsSync(join(root, "FSMONITOR"))).toBe(false);
+    expect(existsSync(join(root, "TEXTCONV"))).toBe(false);
+  });
+
+  it("runs a line judged read-only where a wrong judgement cannot matter: no writes, no network, none of KOS's files", async () => {
+    execFileSync("git", ["init", "-q", "projects/x"], { cwd: root });
+    const config = readFileSync(join(root, "projects/x/.git/config"), "utf8");
+    writeFileSync(join(root, "kos.sqlite"), "db-secret");
+    writeFileSync(join(root, "mcp.json"), "mcp-secret");
+    writeFileSync(join(root, ".env"), "env-secret");
+    writeFileSync(join(root, "notes.txt"), "mine");
+    const held = (command: string): Promise<ShellResult> =>
+      runShell(command, { workspaceRoot: root, cwd: root, timeoutMs: 5000, maxOutput: 10_000, readOnlyRun: true });
+    // The auditor's expansions, as if the judgement had let them through.
+    const marks = ["A", "B", "C", "D"].map((m) => join(root, `MARK-${m}`));
+    writeFileSync(join(root, "--pre=sh"), "");
+    for (const command of [
+      `sh -c 'touch ${marks[0]}' {--pre=sh,.}`,
+      `X=; sh -c "touch \${X:-${marks[1]}}"`,
+      `sh -c $'touch ${marks[2]}'`,
+      `for f in *; do :; done; touch ${marks[3]}`,
+      "printf '[core]\\n\\tfsmonitor = ./x\\n' >> projects/x/.git/config",
+      "echo x > projects/x/.git/hooks/pre-commit",
+      "echo x > .gitconfig",
+      "echo x > notes.txt",
+      "mkdir made",
+    ]) {
+      await held(command);
+    }
+    for (const mark of marks) expect(existsSync(mark), mark).toBe(false);
+    expect(readFileSync(join(root, "projects/x/.git/config"), "utf8")).toBe(config);
+    expect(readFileSync(join(root, "notes.txt"), "utf8")).toBe("mine");
+    for (const path of ["projects/x/.git/hooks/pre-commit", ".gitconfig", "made"]) expect(existsSync(join(root, path)), path).toBe(false);
+    const secrets = await held("cat kos.sqlite mcp.json .env; ls .kos");
+    expect(secrets.stdout).not.toMatch(/secret/);
+    expect(secrets.stdout).not.toContain("tmp");
+    const net = await held("/usr/bin/curl -sS -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:9 || /usr/bin/nc -z -w 2 1.1.1.1 443 && echo reached");
+    expect(net.stdout).not.toContain("reached");
+    // Its own temp folder is writable, and gone afterwards.
+    const tmp = await held('echo ok > "$TMPDIR/t" && cat "$TMPDIR/t" && cat notes.txt');
+    expect(tmp.stdout).toBe("ok\nmine");
+    expect(readdirSync(join(root, ".kos", "tmp")).filter((n) => n.startsWith("read-"))).toEqual([]);
+  });
+
+  it("keeps a read-only run from reaching past the sandbox through the system", async () => {
+    const held = (command: string): Promise<ShellResult> =>
+      runShell(command, { workspaceRoot: root, cwd: root, timeoutMs: 10_000, maxOutput: 10_000, readOnlyRun: true });
+    const sleeper = spawn("/bin/sleep", ["30"]);
+    const domain = `kos.test.sealed.${process.pid}`;
+    try {
+      for (const command of [
+        `kill -0 ${sleeper.pid} && echo REACHED`,
+        "open -g -a Finder && echo REACHED",
+        `defaults write ${domain} a b && echo REACHED`,
+        "echo kos-sealed | pbcopy && echo REACHED",
+        "pbpaste > /dev/null && echo REACHED",
+        // An Apple Event that is really sent: an application's name is answered without one.
+        "osascript -e 'tell application \"Finder\" to activate' && echo REACHED",
+      ]) {
+        const r = await held(command);
+        expect(r.stdout, command).not.toContain("REACHED");
+      }
+      expect(sleeper.exitCode).toBeNull();
+    } finally {
+      sleeper.kill();
+      spawnSync("defaults", ["delete", domain]);
+    }
+    // What a read needs still works.
+    writeFileSync(join(root, "a.txt"), "one\ntwo\n");
+    const fine = await held("ls && cat a.txt | wc -l && date +%Y && id -un && git --version && uname -s");
+    expect(fine.exitCode, fine.stderr).toBe(0);
+    expect(fine.stdout).toContain("a.txt");
+    expect(fine.stdout).toMatch(/git version/);
+  });
+
+  it("runs no diff.external on a read-only git diff, though an approved run set one", async () => {
+    const git = (...args: string[]): string => execFileSync("git", args, { cwd: root, encoding: "utf8" });
+    git("init", "-q");
+    writeFileSync(join(root, "a.txt"), "one\n");
+    git("add", "a.txt");
+    git("-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "a");
+    writeFileSync(join(root, "a.txt"), "two\n");
+    await run({ command: `git config diff.external "sh -c 'echo EXTERNAL'"` });
+    expect(git("config", "diff.external")).toContain("EXTERNAL");
+    expect(registry.classify("shell.run", { command: "git diff" }).tier).toBe("safe");
+    const diff = await run({ command: "git diff" });
+    expect(diff.stdout).not.toContain("EXTERNAL");
+    expect(diff.stdout).toContain("+two");
+  });
+
+  it("lets an approved run init, clone and configure a repository", async () => {
+    const line = "git init -q projects/a && cd projects/a && git config user.email a@b && git config user.name a && echo a > a && git add a && git commit -qm a && cd .. && git clone -q a b && git -C b log --oneline";
+    expect(registry.classify("shell.run", { command: line }).tier).toBe("risky");
+    const r = await run({ command: line });
+    expect(r.exitCode, r.stderr).toBe(0);
+    expect(r.stdout.trim()).toMatch(/^[0-9a-f]+ a$/);
+    expect(readFileSync(join(root, "projects/a/.git/config"), "utf8")).toContain("email = a@b");
+    expect(existsSync(join(root, "projects/b/.git/config"))).toBe(true);
+    // The repository's own hooks run on an approved commit, as the owner's husky would.
+    const hook = join(root, "projects/a/.git/hooks/post-commit");
+    await run({ command: `printf '#!/bin/sh\\ntouch HOOKED\\n' > ${hook} && chmod +x ${hook} && cd projects/a && git commit -q --allow-empty -m b` });
+    expect(existsSync(join(root, "projects/a/HOOKED"))).toBe(true);
   });
 
   it("is risky by floor, and safe for a line that only reads", () => {
