@@ -86,7 +86,10 @@ function Consent(): ReactElement {
   );
 }
 
-/** The seconds until the ask says no by itself, under a bar running down the width of the sheet. */
+/** The last seconds of the wait, when the bar and the words turn warn. */
+const SOON_S = 10;
+
+/** A thin bar running down under the buttons, and the seconds until the ask says no by itself. */
 function Countdown({ waitMs }: { waitMs: number }): ReactElement {
   const [opened] = useState(Date.now);
   const [now, setNow] = useState(Date.now);
@@ -95,12 +98,15 @@ function Countdown({ waitMs }: { waitMs: number }): ReactElement {
     return () => clearInterval(timer);
   }, []);
   const left = Math.max(0, Math.ceil((waitMs - (now - opened)) / 1000));
+  const soon = left <= SOON_S ? { "data-soon": "" } : {};
   return (
-    <div className="count">
-      <span className="count-bar">
+    <div className="wait" {...soon}>
+      <span className="wait-bar">
         <m.span initial={{ scaleX: 1 }} animate={{ scaleX: 0 }} transition={{ duration: waitMs / 1000, ease: "linear" }} />
       </span>
-      <span className="count-left">Says no by itself in {left} s</span>
+      <span className="countdown" {...soon}>
+        Says no in {left} s
+      </span>
     </div>
   );
 }

@@ -27,11 +27,13 @@
       }
       .ask .section { width: 100%; text-align: left; }
       .ask .row { width: 100%; }
-      .decide { width: 100%; display: flex; flex-direction: column; gap: 8px; }
-      .count { display: flex; flex-direction: column; gap: 6px; font-variant-numeric: tabular-nums; }
-      .count-bar { height: 3px; border-radius: 999px; background: var(--line); overflow: hidden; }
-      .count-bar > span { display: block; height: 100%; border-radius: 999px; background: var(--faint); transform-origin: left; }
-      .count-left { align-self: flex-end; color: var(--faint); font-size: 10.5px; }
+      .decide { width: 100%; display: flex; flex-direction: column; gap: 12px; }
+      .wait { display: flex; flex-direction: column; gap: 6px; text-align: left; }
+      .wait-bar { height: 3px; border-radius: 999px; background: var(--line); overflow: hidden; }
+      .wait-bar > span { display: block; height: 100%; border-radius: 999px; transform-origin: left;
+        background: color-mix(in srgb, var(--accent) 55%, transparent); transition: background-color 300ms ease; }
+      .wait[data-soon] .wait-bar > span { background: var(--warn); }
+      .wait .countdown { font-size: 11px; }
     </style>
   </head>
   <body class="consent">
